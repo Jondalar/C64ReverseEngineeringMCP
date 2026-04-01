@@ -1,6 +1,6 @@
 # C64 Reverse Engineering MCP
 
-MCP server for semantic analysis of C64 programs. Combines a deterministic heuristic pipeline (TRXDis) with LLM-driven semantic classification, plus media extraction helpers for cartridge and disk images.
+Self-contained MCP server for LLM-driven reverse engineering of C64 programs. Includes the complete TRXDis analysis pipeline (heuristic code discovery, segment classification, hardware register tracking) plus semantic annotation workflows, media extraction for CRT/D64/G64, and dual assembler output (KickAssembler + 64tass).
 
 ## Motivation
 
@@ -10,13 +10,13 @@ Traditional disassemblers work purely heuristically — they identify code via c
 - **Cross-reference reasoning**: If code does `LDA $09AB,X` and writes the result to `$D800,X`, then `$09AB` is a color table — an LLM can infer this
 - **Pattern knowledge**: An LLM knows common C64 programming patterns (raster IRQs, SID player conventions, Koala format, etc.)
 
-This MCP server exposes the heuristic pipeline as tools and provides workflow prompts that guide an LLM through semantic analysis.
+This MCP server bundles the TRXDis analysis pipeline and exposes it as tools, with workflow prompts that guide an LLM through semantic analysis.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  LLM Client (Claude Code, Cursor, etc.)         │
+│  LLM Client (Claude Code, Cursor, Codex, etc.)  │
 │                                                 │
 │  ┌───────────────┐    ┌──────────────────────┐  │
 │  │ MCP Prompts   │    │ Semantic Reasoning   │  │
@@ -33,32 +33,32 @@ This MCP server exposes the heuristic pipeline as tools and provides workflow pr
                        │ stdio
               ┌────────▼────────┐
               │  MCP Server     │
+              │  + TRXDis       │
               │  (this repo)    │
-              └────────┬────────┘
-                       │ subprocess
-              ┌────────▼────────┐
-              │  TRXDis CLI     │
-              │  (RE project)   │
               └─────────────────┘
 ```
 
 ## Setup
 
 ```bash
+git clone https://github.com/Jondalar/C64ReverseEngineeringMCP.git
+cd C64ReverseEngineeringMCP
 npm install
 npm run build
 ```
 
+That's it — the TRXDis pipeline is bundled and built automatically.
+
 ### Environment Variables
 
-| Variable | Description | Example |
+| Variable | Description | Required |
 |---|---|---|
-| `C64RE_TOOLS_DIR` | Path to the TRXDis project (containing `dist/cli.js`) | `/path/to/your/re-project` |
-| `C64RE_PROJECT_DIR` | Working directory for analyses (defaults to `C64RE_TOOLS_DIR`) | `/path/to/your/re-project` |
+| `C64RE_PROJECT_DIR` | Working directory for analyses (where PRGs live, where output goes) | Yes |
+| `C64RE_TOOLS_DIR` | Override: use an external TRXDis build instead of the bundled one | No |
 
-### Claude Code Configuration
+### Claude Code
 
-Add a `.mcp.json` file to your RE project root (see `mcp-config-example.json`):
+Add a `.mcp.json` file to your RE project root:
 
 ```json
 {
@@ -67,8 +67,7 @@ Add a `.mcp.json` file to your RE project root (see `mcp-config-example.json`):
       "command": "npx",
       "args": ["tsx", "/path/to/C64ReverseEngineeringMCP/src/cli.ts"],
       "env": {
-        "C64RE_TOOLS_DIR": "/path/to/trxdis-project",
-        "C64RE_PROJECT_DIR": "/path/to/re-project"
+        "C64RE_PROJECT_DIR": "/path/to/your/re-project"
       }
     }
   }
@@ -77,15 +76,15 @@ Add a `.mcp.json` file to your RE project root (see `mcp-config-example.json`):
 
 Note: Use the full path to `npx` if needed (e.g. when using nvm).
 
-### Codex Configuration
+### Codex
 
-Add to `~/.codex/config.toml` (see `codex-config-example.toml`):
+Add to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.c64re]
 command = "zsh"
 args = ["-lc", "cd /path/to/C64ReverseEngineeringMCP && NODE_NO_WARNINGS=1 ./node_modules/.bin/tsx src/cli.ts"]
-env = { C64RE_TOOLS_DIR = "/path/to/trxdis-project", C64RE_PROJECT_DIR = "/path/to/re-project" }
+env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 ```
 
 ## MCP Tools
@@ -94,8 +93,8 @@ env = { C64RE_TOOLS_DIR = "/path/to/trxdis-project", C64RE_PROJECT_DIR = "/path/
 
 | Tool | Description |
 |---|---|
-| `analyze_prg` | Heuristic analysis of a PRG file, produces JSON with segments, cross-references, RAM facts, and pointer tables |
-| `disasm_prg` | Disassemble PRG → KickAssembler `.asm` + 64tass `.tass` (both generated automatically; optionally uses prior analysis JSON for segment-aware rendering) |
+| `analyze_prg` | Heuristic analysis of a PRG → JSON with segments, cross-references, RAM facts, pointer tables |
+| `disasm_prg` | Disassemble PRG → KickAssembler `.asm` + 64tass `.tass` (both generated automatically) |
 | `ram_report` | Generate RAM state facts report (markdown) from analysis JSON |
 | `pointer_report` | Generate pointer table facts report (markdown) from analysis JSON |
 
@@ -120,59 +119,57 @@ env = { C64RE_TOOLS_DIR = "/path/to/trxdis-project", C64RE_PROJECT_DIR = "/path/
 | Tool | Description |
 |---|---|
 | `read_artifact` | Read a generated file (ASM, JSON, SYM, MD). C64 disassemblies are <=64 KB and fit entirely in context |
-| `list_artifacts` | List analysis artifacts (PRG, ASM, JSON, SYM, MD, BIN) in a project subdirectory |
-| `build_tools` | Recompile the analysis pipeline (`npm run build`) |
+| `list_artifacts` | List analysis artifacts in a project subdirectory |
+| `build_tools` | Recompile the bundled TRXDis pipeline (`npm run build`) |
 
-## MCP Prompts (Workflows)
+## Workflow
 
-### `full_re_workflow`
+The reverse engineering workflow has three phases. The tool descriptions guide the LLM through these automatically.
 
-Complete reverse engineering workflow for a PRG:
+### Phase 1: Heuristic Analysis (deterministic, fast)
 
-1. `analyze_prg` — deterministic fact base (segments, xrefs, RAM accesses, pointer tables)
-2. `disasm_prg` — KickAssembler source with segment annotations
-3. `ram_report` + `pointer_report` — contextual fact reports
-4. Read the full disassembly (fits in context — max 64 KB)
-5. **Semantic classification** of all `unknown` segments by the LLM
-6. Verification: only annotations (labels, comments) change, never bytes
+```
+analyze_prg → _analysis.json
+disasm_prg  → _disasm.asm + _disasm.tass
+ram_report  → _ram_facts.md
+pointer_report → _pointer_facts.md
+```
 
-**Parameters:**
-- `prg_path`: Path to the PRG file
-- `entry_points` (optional): Comma-separated hex entry points
+Takes 1–6 seconds depending on PRG size. Produces segment classifications (code, sprite, bitmap, text, etc.), cross-references, and hardware evidence. Some segments will be marked `unknown`.
 
-### `classify_unknown`
+### Phase 2: Semantic Analysis (LLM, the key step)
 
-Targeted classification of a single `unknown` segment:
+The LLM reads the full disassembly (fits in context — C64 code is max 64 KB), then produces an `_annotations.json` that:
 
-1. Read the full ASM file
-2. Find all cross-references into the segment
-3. Analyze referencing code (hardware registers, data flow)
-4. Match byte patterns against usage context
-5. Output classification with evidence and confidence
+- **Reclassifies** every `unknown` segment (state_variable, compressed_data, color_source, etc.)
+- **Fixes misclassifications** (e.g., screen data wrongly detected as sprite due to 64-byte alignment)
+- **Adds semantic labels** (`main_entry` instead of `W0827`, `irq_raster_split` instead of `W3E07`)
+- **Documents routines** with names and descriptions
 
-**Parameters:**
-- `asm_path`: Path to the disassembly ASM file
-- `segment_start`: Hex start address of the unknown segment
-- `segment_end`: Hex end address of the unknown segment
+### Phase 3: Final Render + Verification
 
-### `disk_re_workflow`
+```
+disasm_prg (again) → _final.asm + _final.tass  (annotations applied automatically)
+KickAssembler      → _rebuilt.prg
+cmp                → BYTE-IDENTICAL ✓
+```
 
-Workflow for `.d64` / `.g64` media triage:
+The annotations only affect comments, labels, and segment headers — never the actual bytes.
 
-1. Clarify the user's goal first:
-   - fast DOS-level extraction
-   - original loader / copy-protection / disk-structure analysis
-   - both
-2. Run `inspect_disk` as a first hint, not as guaranteed truth
-3. Only run `extract_disk` when DOS-level extraction is actually the chosen path
-4. Prefer `.g64` over `.d64` when protection or raw-disk behavior matters
-5. Continue with `analyze_prg` / `disasm_prg` only after a concrete PRG has been selected
+## MCP Prompts
 
-This avoids flattening protected or non-standard disks too early.
+| Prompt | Description |
+|---|---|
+| `full_re_workflow` | Complete 3-phase workflow with strict sequential steps and file naming |
+| `classify_unknown` | Targeted classification of a single unknown segment |
+| `generate_annotations` | Produce `_annotations.json` from a disassembly |
+| `trace_execution` | CPU-trace from entry point following actual control flow |
+| `annotate_asm` | Write semantic comments directly into an ASM file |
+| `disk_re_workflow` | Triage and analyze D64/G64 disk images |
 
 ## Output Formats
 
-Every `disasm_prg` call automatically produces two files side by side:
+Every `disasm_prg` call produces two files:
 
 | File | Format | Assembler |
 |---|---|---|
@@ -188,7 +185,33 @@ Key syntax differences handled by the converter:
 | Comments | `//` and `/* */` | `;` |
 | Data/labels | `.byte`, `label:` | `.byte`, `label:` (identical) |
 
-Both formats contain the same annotations (segment comments, semantic labels, per-instruction comments). The KickAssembler version is used for byte-identical rebuild verification.
+Both formats contain identical annotations. The KickAssembler version is used for byte-identical rebuild verification.
+
+## Annotations JSON Format
+
+The `_annotations.json` file bridges heuristic analysis and LLM interpretation:
+
+```json
+{
+  "version": 1,
+  "binary": "example.prg",
+  "segments": [
+    {"start": "09A9", "end": "09AA", "kind": "state_variable",
+     "label": "sprite_scroller_flag",
+     "comment": "When 1, IRQ 3 renders sprite bar as scroller background"}
+  ],
+  "labels": [
+    {"address": "0827", "label": "main_entry",
+     "comment": "Phase 1: bitmap slideshow orchestrator"}
+  ],
+  "routines": [
+    {"address": "0827", "name": "Phase 1 — Bitmap Slideshow",
+     "comment": "Main entry point. PAL/NTSC detection, VIC setup.\nLoops through 5 compressed images."}
+  ]
+}
+```
+
+**Available segment kinds:** `code`, `basic_stub`, `text`, `petscii_text`, `screen_code_text`, `sprite`, `charset`, `charset_source`, `screen_ram`, `screen_source`, `bitmap`, `bitmap_source`, `hires_bitmap`, `multicolor_bitmap`, `color_source`, `sid_driver`, `music_data`, `sid_related_code`, `pointer_table`, `lookup_table`, `state_variable`, `compressed_data`, `dead_code`, `padding`
 
 ## Design Philosophy
 
@@ -196,13 +219,33 @@ Both formats contain the same annotations (segment comments, semantic labels, pe
 
 The pipeline deliberately separates:
 
-1. **Deterministic facts** (heuristic pipeline): code segments, xrefs, RAM accesses, pointer tables — reproducible, no interpretation
+1. **Deterministic facts** (TRXDis pipeline): code segments, xrefs, RAM accesses, pointer tables — reproducible, no interpretation
 2. **Semantic interpretation** (LLM): "This is a color table because the code copies it to $D800" — requires understanding, not just pattern matching
-3. **Verification** (compiler): KickAssembler rebuild + `cmp -l` ensures annotations never alter the bytes
+3. **Verification** (assembler): KickAssembler rebuild + `cmp -l` ensures annotations never alter the bytes
 
 ### Why an LLM Outperforms a Traditional Disassembler
 
 - **64 KB fits in context**: The entire C64 program is visible at once — no scrolling, no forgetting
 - **Cross-domain knowledge**: VIC registers, SID conventions, common packer routines, KERNAL calls — all available simultaneously
-- **Data flow reasoning**: "This value is written to $DD00 -> VIC bank switch -> the bitmap must be in bank 3"
+- **Data flow reasoning**: "This value is written to $DD00 → VIC bank switch → the bitmap must be in bank 3"
 - **Iteratively refinable**: Initial hypotheses can be confirmed or corrected through further analysis
+
+## Benchmark
+
+Tested on 4 C64 PRG modules (183.5 KB total) using Claude Opus 4.6:
+
+| Metric | Value |
+|---|---|
+| Heuristic pipeline (Phase 1) | 8.7 s |
+| LLM semantic analysis (Phase 2) | ~27 min sequential, ~9 min parallel |
+| LLM tokens consumed | 831K |
+| Segments reclassified | 168 |
+| Semantic labels generated | 394 |
+| Routine descriptions | 213 |
+| Byte-identical rebuilds | 8/8 (pre + post annotation) |
+
+Approximately **4,500 tokens per KB of PRG** for the semantic analysis pass.
+
+## License
+
+MIT
