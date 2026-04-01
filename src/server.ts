@@ -57,7 +57,7 @@ function createServer(): McpServer {
   // ── Tool: analyze-prg ────────────────────────────────────────────────
   server.tool(
     "analyze_prg",
-    "Run the heuristic analysis pipeline on a C64 PRG file. Produces a JSON report with segments, cross-references, RAM facts, and pointer tables.",
+    "STEP 1 of the C64 RE workflow. Run the heuristic analysis pipeline on a PRG file → JSON with segments, cross-references, RAM facts, pointer tables. AFTER THIS: run disasm_prg with the output JSON, then ram_report and pointer_report. Do NOT skip the semantic annotation step (Phase 2) later.",
     {
       prg_path: z.string().describe("Path to the .prg file (absolute or relative to project dir)"),
       output_json: z.string().optional().describe("Output path for the analysis JSON (default: next to PRG)"),
@@ -82,7 +82,7 @@ function createServer(): McpServer {
   // ── Tool: disasm-prg ─────────────────────────────────────────────────
   server.tool(
     "disasm_prg",
-    "Disassemble a PRG file to KickAssembler source. Optionally uses a prior analysis JSON for segment-aware rendering.",
+    "STEP 2 of the C64 RE workflow. Disassemble PRG → KickAssembler .asm + 64tass .tass. Pass the analysis JSON from analyze_prg. AFTER THIS: you MUST read the full ASM with read_artifact, then produce a <name>_annotations.json file that reclassifies all unknown segments with semantic labels and routine descriptions. Then run disasm_prg AGAIN to render the final annotated version. See the generate_annotations prompt for the JSON format.",
     {
       prg_path: z.string().describe("Path to the .prg file"),
       output_asm: z.string().optional().describe("Output path for the .asm file"),
@@ -100,7 +100,14 @@ function createServer(): McpServer {
       if (analysis_json) args.push(resolve(projectDir(), analysis_json));
       const result = await runCli("disasm-prg", args);
       if (result.exitCode === 0) {
+        const annotationsPath = outAbs.replace(/\.asm$/i, "_annotations.json");
+        const hasAnnotations = existsSync(annotationsPath);
         result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}`;
+        if (!hasAnnotations) {
+          result.stdout += `\n\nNEXT STEP: Read the full ASM with read_artifact, then create ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then run disasm_prg again to produce the final annotated version.`;
+        } else {
+          result.stdout += `\nAnnotations applied from: ${annotationsPath}`;
+        }
       }
       return cliResultToContent(result);
     },
@@ -285,7 +292,7 @@ function createServer(): McpServer {
   // ── Tool: read-artifact ──────────────────────────────────────────────
   server.tool(
     "read_artifact",
-    "Read a generated artifact file (ASM, JSON, SYM, MD) from the project. Since C64 binaries are ≤64 KB, full disassemblies fit comfortably in context.",
+    "Read a generated artifact (ASM, JSON, SYM, MD). C64 disassemblies are ≤64 KB and fit entirely in context. When reading an ASM file after disasm_prg: you MUST then produce a _annotations.json file that (1) reclassifies every 'unknown' segment, (2) adds semantic labels for all routines/tables/variables, (3) documents every routine. Then run disasm_prg again to render the final annotated version.",
     {
       path: z.string().describe("Path to the artifact (relative to project dir or absolute)"),
     },
