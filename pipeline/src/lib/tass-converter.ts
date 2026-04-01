@@ -54,6 +54,9 @@ export function convertKickAsmToTass(kickAsm: string): string {
     // Line comments: // → ;
     converted = convertLineComment(converted);
 
+    // Rebrand header line
+    converted = converted.replace(/;\s+Source in KickAssembler format/, ";  Source in 64tass format");
+
     result.push(converted);
   }
 
