@@ -1,0 +1,7 @@
+# Add this block to ~/.codex/config.toml to make the C64 RE MCP server
+# available in Codex. Adjust paths to match your setup.
+
+[mcp_servers.c64re]
+command = "zsh"
+args = ["-lc", "cd /CHANGE_THIS/C64ReverseEngineeringMCP && NODE_NO_WARNINGS=1 ./node_modules/.bin/tsx src/cli.ts"]
+env = { C64RE_TOOLS_DIR = "/CHANGE_THIS/your-trxdis-project", C64RE_PROJECT_DIR = "/CHANGE_THIS/your-re-project" }
