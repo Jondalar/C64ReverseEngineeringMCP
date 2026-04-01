@@ -6,7 +6,9 @@
   "description": "MCP server for C64 reverse engineering — analysis pipeline, disassembly, and semantic classification",
   "scripts": {
     "dev": "tsx watch src/cli.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
+    "build:mcp": "tsc -p tsconfig.json",
+    "build:pipeline": "tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {

@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
 export interface CliResult {
   stdout: string;
@@ -10,27 +12,41 @@ export interface CliResult {
 /**
  * Run the TRXDis CLI with the given command and args.
  *
- * Requires C64RE_TOOLS_DIR env var pointing to the TRXDis project root
- * (i.e. the directory containing dist/cli.js).
+ * Uses the bundled pipeline at dist/pipeline/cli.js by default.
+ * Falls back to C64RE_TOOLS_DIR if set (for development against an external pipeline).
  */
 export function runCli(command: string, args: string[]): Promise<CliResult> {
-  const toolsDir = process.env.C64RE_TOOLS_DIR;
-  if (!toolsDir) {
+  // 1. Try bundled pipeline (dist/pipeline/cli.js relative to project root)
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const projectRoot = resolve(thisDir, "..");
+  // Works both when running via tsx (thisDir=src/) and compiled (thisDir=dist/)
+  const bundledCli = existsSync(resolve(projectRoot, "dist", "pipeline", "cli.cjs"))
+    ? resolve(projectRoot, "dist", "pipeline", "cli.cjs")
+    : resolve(projectRoot, "pipeline", "dist", "cli.cjs");
+
+  // 2. Fall back to external C64RE_TOOLS_DIR
+  const externalCli = process.env.C64RE_TOOLS_DIR
+    ? resolve(process.env.C64RE_TOOLS_DIR, "dist", "cli.js")
+    : undefined;
+
+  const cliPath = existsSync(bundledCli) ? bundledCli
+    : externalCli && existsSync(externalCli) ? externalCli
+    : undefined;
+
+  if (!cliPath) {
     return Promise.resolve({
       stdout: "",
-      stderr: "C64RE_TOOLS_DIR environment variable is not set. Point it to the TRXDis project root (containing dist/cli.js).",
+      stderr: `TRXDis pipeline not found. Expected at:\n  ${bundledCli}\nor set C64RE_TOOLS_DIR to an external TRXDis project root.`,
       exitCode: 1,
     });
   }
-
-  const cliPath = resolve(toolsDir, "dist", "cli.js");
 
   return new Promise((res) => {
     execFile(
       "node",
       [cliPath, command, ...args],
       {
-        cwd: process.env.C64RE_PROJECT_DIR ?? toolsDir,
+        cwd: process.env.C64RE_PROJECT_DIR ?? process.cwd(),
         maxBuffer: 50 * 1024 * 1024, // 50 MB — analysis JSONs can be large
         timeout: 120_000,
       },
@@ -38,7 +54,7 @@ export function runCli(command: string, args: string[]): Promise<CliResult> {
         res({
           stdout: stdout ?? "",
           stderr: stderr ?? "",
-          exitCode: error ? (error as NodeJS.ErrnoException & { code?: number }).code === undefined ? 1 : 1 : 0,
+          exitCode: error ? 1 : 0,
         });
       },
     );
