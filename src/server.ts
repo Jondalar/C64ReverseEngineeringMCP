@@ -362,51 +362,125 @@ function createServer(): McpServer {
     },
     async ({ prg_path, entry_points }) => {
       const entries = entry_points ?? "(auto-detect from PRG header)";
+      // Derive canonical file paths from the PRG path
+      const base = prg_path.replace(/\.prg$/i, "");
       return {
         messages: [{
           role: "user" as const,
           content: {
             type: "text" as const,
-            text: `# C64 Reverse Engineering Workflow
+            text: `# C64 Reverse Engineering Workflow — STRICT SEQUENTIAL STEPS
 
-You are reverse engineering a C64 PRG binary. Follow these steps in order:
+You are reverse engineering: \`${prg_path}\`
+Entry points: ${entries}
 
-## Step 1: Heuristic Analysis
-Run \`analyze_prg\` on \`${prg_path}\` with entry points: ${entries}
-This produces the deterministic fact base: segments, cross-references, RAM state, pointer tables.
+IMPORTANT: Execute these steps ONE AT A TIME, in order. Do NOT skip ahead.
+Do NOT run steps in parallel. Wait for each step to complete before starting the next.
+Use EXACTLY these file paths — do not invent your own naming scheme.
 
-## Step 2: Disassembly
-Run \`disasm_prg\` on the same PRG, passing the analysis JSON from step 1.
-This produces a KickAssembler .asm file with segment annotations.
+---
 
-## Step 3: Reports
-Run \`ram_report\` and \`pointer_report\` on the analysis JSON.
+## PHASE 1: Heuristic Analysis (deterministic, no interpretation)
 
-## Step 4: Read & Understand
-Use \`read_artifact\` to read the full disassembly ASM file. Since C64 code is ≤64 KB, the entire file fits in context. Also read the RAM and pointer reports.
-
-## Step 5: Generate Semantic Annotations
-Use the \`generate_annotations\` prompt workflow to produce a \`_annotations.json\` file.
-This file reclassifies unknown segments, adds semantic labels, and documents routines.
-Write it next to the PRG file as \`<name>_annotations.json\`.
-
-## Step 6: Re-render with Annotations
-Run \`disasm_prg\` again — the renderer automatically loads the annotations JSON
-and produces the final ASM with:
-- Reclassified segment types (no more \`unknown\` where the LLM identified the purpose)
-- Semantic labels (\`main_entry\` instead of \`W0827\`)
-- Block comments before each segment explaining its purpose
-- Per-instruction contextual comments
-
-## Step 7: Verification
-Build with KickAssembler and verify byte-identical output:
+### Step 1.1: Analyze PRG
+Run this tool call:
 \`\`\`
-java -jar KickAss.jar <output.asm> -o <rebuilt.prg>
-cmp <original.prg> <rebuilt.prg>
+analyze_prg(prg_path="${prg_path}", output_json="${base}_analysis.json", entry_points=[${entries !== "(auto-detect from PRG header)" ? `"${entries.split(",").join('", "')}"` : ""}])
 \`\`\`
-The annotations only affect comments and labels — never the actual bytes.
+WAIT for it to complete. Verify the output file exists.
 
-Provide a summary of all findings when done.`,
+### Step 1.2: Disassemble PRG
+Run this tool call (requires step 1.1 output):
+\`\`\`
+disasm_prg(prg_path="${prg_path}", output_asm="${base}_disasm.asm", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
+\`\`\`
+WAIT for it to complete. Verify the output file exists.
+
+### Step 1.3: Generate reports
+Run BOTH:
+\`\`\`
+ram_report(analysis_json="${base}_analysis.json", output_md="${base}_ram_facts.md")
+pointer_report(analysis_json="${base}_analysis.json", output_md="${base}_pointer_facts.md")
+\`\`\`
+
+PHASE 1 CHECKPOINT: You should now have exactly these files:
+- \`${base}_analysis.json\`
+- \`${base}_disasm.asm\`
+- \`${base}_ram_facts.md\`
+- \`${base}_pointer_facts.md\`
+
+---
+
+## PHASE 2: Semantic Analysis (LLM interpretation)
+
+### Step 2.1: Read the full disassembly
+Use \`read_artifact\` to read \`${base}_disasm.asm\` in its entirety.
+C64 code is ≤64 KB — the entire file fits in context. Read ALL of it.
+Also read the RAM and pointer reports.
+
+### Step 2.2: Produce the annotations JSON
+Based on your reading of the COMPLETE disassembly, create the file:
+\`${base}_annotations.json\`
+
+This file MUST contain:
+
+\`\`\`json
+{
+  "version": 1,
+  "binary": "${prg_path.split("/").pop() ?? prg_path}",
+  "segments": [
+    {"start": "XXXX", "end": "YYYY", "kind": "<kind>", "label": "<name>", "comment": "<why>"}
+  ],
+  "labels": [
+    {"address": "XXXX", "label": "<semantic_name>", "comment": "<optional>"}
+  ],
+  "routines": [
+    {"address": "XXXX", "name": "<Descriptive Name>", "comment": "<what it does>"}
+  ]
+}
+\`\`\`
+
+**Available segment kinds:** code, basic_stub, text, petscii_text, screen_code_text, sprite, charset, charset_source, screen_ram, screen_source, bitmap, bitmap_source, hires_bitmap, multicolor_bitmap, color_source, sid_driver, music_data, sid_related_code, pointer_table, lookup_table, state_variable, compressed_data, dead_code, padding
+
+**Requirements:**
+- EVERY segment marked \`unknown\` MUST be reclassified — analyze cross-references and byte patterns
+- Fix segments where the heuristic got the type WRONG (e.g., screen data misidentified as sprite)
+- Provide semantic labels for ALL routine entry points, IRQ handlers, data tables, state variables
+- Document EVERY routine with a name and description
+- Hex addresses WITHOUT the $ prefix
+
+PHASE 2 CHECKPOINT: You should now have:
+- \`${base}_annotations.json\` (written via the Write tool)
+
+---
+
+## PHASE 3: Final Render + Verification
+
+### Step 3.1: Re-render with annotations
+Run disasm_prg AGAIN — the renderer loads the annotations automatically:
+\`\`\`
+disasm_prg(prg_path="${prg_path}", output_asm="${base}_final.asm", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
+\`\`\`
+
+### Step 3.2: Verify byte-identical rebuild
+\`\`\`bash
+java -jar /Applications/KickAssembler/KickAss.jar ${base}_final.asm -o ${base}_rebuilt.prg
+cmp ${prg_path} ${base}_rebuilt.prg
+\`\`\`
+If \`cmp\` shows differences, something went wrong — annotations must NEVER alter bytes.
+
+PHASE 3 CHECKPOINT: Final files:
+- \`${base}_final.asm\` — fully annotated KickAssembler source
+- \`${base}_rebuilt.prg\` — byte-identical rebuild proof
+
+---
+
+## Summary
+When all 3 phases are complete, provide a summary:
+1. Number of segments reclassified
+2. Number of labels and routines added
+3. Key findings (program structure, phases, IRQ chain, SID music, etc.)
+4. Byte-identical rebuild: PASS / FAIL`,
           },
         }],
       };
