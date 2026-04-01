@@ -95,7 +95,7 @@ env = { C64RE_TOOLS_DIR = "/path/to/trxdis-project", C64RE_PROJECT_DIR = "/path/
 | Tool | Description |
 |---|---|
 | `analyze_prg` | Heuristic analysis of a PRG file, produces JSON with segments, cross-references, RAM facts, and pointer tables |
-| `disasm_prg` | Disassemble PRG to KickAssembler ASM (optionally uses prior analysis JSON for segment-aware rendering) |
+| `disasm_prg` | Disassemble PRG → KickAssembler `.asm` + 64tass `.tass` (both generated automatically; optionally uses prior analysis JSON for segment-aware rendering) |
 | `ram_report` | Generate RAM state facts report (markdown) from analysis JSON |
 | `pointer_report` | Generate pointer table facts report (markdown) from analysis JSON |
 
@@ -169,6 +169,26 @@ Workflow for `.d64` / `.g64` media triage:
 5. Continue with `analyze_prg` / `disasm_prg` only after a concrete PRG has been selected
 
 This avoids flattening protected or non-standard disks too early.
+
+## Output Formats
+
+Every `disasm_prg` call automatically produces two files side by side:
+
+| File | Format | Assembler |
+|---|---|---|
+| `<name>.asm` | KickAssembler | [KickAssembler](http://theweb.dk/KickAssembler/) |
+| `<name>.tass` | 64tass | [64tass](https://sourceforge.net/projects/tass64/) |
+
+Key syntax differences handled by the converter:
+
+| | KickAssembler | 64tass |
+|---|---|---|
+| PC | `.pc = $0800 "code"` | `* = $0800` |
+| CPU | `.cpu _6502` | `.cpu "6502"` |
+| Comments | `//` and `/* */` | `;` |
+| Data/labels | `.byte`, `label:` | `.byte`, `label:` (identical) |
+
+Both formats contain the same annotations (segment comments, semantic labels, per-instruction comments). The KickAssembler version is used for byte-identical rebuild verification.
 
 ## Design Philosophy
 
