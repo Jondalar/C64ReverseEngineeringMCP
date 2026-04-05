@@ -4,6 +4,7 @@ import { z } from "zod";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { resolve, join, basename, extname } from "node:path";
 import { runCli } from "./run-cli.js";
+import { assembleSource } from "./assemble-source.js";
 import { extractDiskImage, readDiskDirectory } from "./disk-extractor.js";
 import { getViceSessionManager } from "./runtime/vice/index.js";
 import type { ViceSessionRecord, ViceTraceAnalysis } from "./runtime/vice/types.js";
@@ -313,6 +314,62 @@ function createServer(): McpServer {
         result.stdout = (result.stdout || "Pointer report complete.") + `\nOutput: ${outAbs}`;
       }
       return cliResultToContent(result);
+    },
+  );
+
+  // ── Tool: assemble-source ────────────────────────────────────────────
+  server.tool(
+    "assemble_source",
+    "Assemble a generated KickAssembler .asm or 64tass .tass file and optionally compare the rebuilt binary against an original PRG.",
+    {
+      source_path: z.string().describe("Path to the .asm or .tass source file"),
+      assembler: z.enum(["auto", "kickassembler", "64tass"]).optional().describe("Assembler to use. auto selects KickAssembler for .asm and 64tass for .tass"),
+      output_path: z.string().optional().describe("Optional output PRG path"),
+      compare_to: z.string().optional().describe("Optional original PRG path to compare byte-for-byte"),
+    },
+    async ({ source_path, assembler, output_path, compare_to }) => {
+      try {
+        const result = await assembleSource({
+          projectDir: projectDir(),
+          sourcePath: source_path,
+          assembler: assembler ?? "auto",
+          outputPath: output_path,
+          compareToPath: compare_to,
+        });
+        const lines = [
+          `Assembler: ${result.assembler}`,
+          `Source: ${result.sourcePath}`,
+          `Output: ${result.outputPath}`,
+          `Exit code: ${result.exitCode}`,
+        ];
+        if (result.compareToPath) {
+          lines.push(`Compare target: ${result.compareToPath}`);
+          lines.push(`Match: ${result.compareMatches ? "yes" : "no"}`);
+          if (result.comparedBytes !== undefined) {
+            lines.push(`Compared bytes: ${result.comparedBytes}`);
+          }
+          if (result.firstDiffOffset !== undefined) {
+            lines.push(`First diff offset: ${result.firstDiffOffset}`);
+          }
+        }
+        if (result.stdout.trim()) {
+          lines.push("");
+          lines.push("[stdout]");
+          lines.push(result.stdout.trim());
+        }
+        if (result.stderr.trim()) {
+          lines.push("");
+          lines.push("[stderr]");
+          lines.push(result.stderr.trim());
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
     },
   );
 
@@ -1177,11 +1234,10 @@ disasm_prg(prg_path="${prg_path}", output_asm="${base}_final.asm", analysis_json
 \`\`\`
 
 ### Step 3.2: Verify byte-identical rebuild
-\`\`\`bash
-java -jar /Applications/KickAssembler/KickAss.jar ${base}_final.asm -o ${base}_rebuilt.prg
-cmp ${prg_path} ${base}_rebuilt.prg
 \`\`\`
-If \`cmp\` shows differences, something went wrong — annotations must NEVER alter bytes.
+assemble_source(source_path="${base}_final.asm", assembler="kickassembler", output_path="${base}_rebuilt.prg", compare_to="${prg_path}")
+\`\`\`
+If the compare result is not a byte-identical match, something went wrong — annotations must NEVER alter bytes.
 
 PHASE 3 CHECKPOINT: Final files:
 - \`${base}_final.asm\` — fully annotated KickAssembler source

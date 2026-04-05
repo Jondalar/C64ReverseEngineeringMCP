@@ -55,6 +55,8 @@ That's it — the TRXDis pipeline is bundled and built automatically.
 |---|---|---|
 | `C64RE_PROJECT_DIR` | Working directory for analyses (where PRGs live, where output goes) | Yes |
 | `C64RE_TOOLS_DIR` | Override: use an external TRXDis build instead of the bundled one | No |
+| `C64RE_KICKASS_JAR` | Override path to the KickAssembler jar used by `assemble_source` | No |
+| `C64RE_64TASS_BIN` | Override path to the `64tass` binary used by `assemble_source` | No |
 | `C64RE_VICE_BIN` | Override path to `x64sc` for VICE runtime/debug tools | No |
 | `C64RE_VICE_CONFIG_PATH` | Override path to the source `vicerc` copied into VICE sessions | No |
 | `C64RE_VICE_CONFIG_DIR` | Override source VICE config directory (expects `vicerc` inside) | No |
@@ -100,6 +102,7 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `disasm_prg` | Disassemble PRG → KickAssembler `.asm` + 64tass `.tass` (both generated automatically) |
 | `ram_report` | Generate RAM state facts report (markdown) from analysis JSON |
 | `pointer_report` | Generate pointer table facts report (markdown) from analysis JSON |
+| `assemble_source` | Assemble a generated `.asm` or `.tass` file with KickAssembler or 64tass, optionally verifying byte-identical rebuilds |
 
 ### CRT Operations
 
@@ -175,7 +178,7 @@ The LLM reads the full disassembly (fits in context — C64 code is max 64 KB), 
 
 ```
 disasm_prg (again) → _final.asm + _final.tass  (annotations applied automatically)
-KickAssembler      → _rebuilt.prg
+assemble_source    → _rebuilt.prg
 cmp                → BYTE-IDENTICAL ✓
 ```
 
@@ -251,7 +254,10 @@ Key syntax differences handled by the converter:
 | Comments | `//` and `/* */` | `;` |
 | Data/labels | `.byte`, `label:` | `.byte`, `label:` (identical) |
 
-Both formats contain identical annotations. The KickAssembler version is used for byte-identical rebuild verification.
+Both formats contain identical annotations. Byte-identical rebuild verification can now be done with either:
+
+- KickAssembler on `<name>.asm`
+- 64tass on `<name>.tass`
 
 ## Annotations JSON Format
 

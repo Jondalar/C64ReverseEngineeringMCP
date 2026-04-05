@@ -476,8 +476,8 @@ function generateInstructionComment(
   return "";
 }
 
-function isUndocumentedNopVariant(instruction: Pick<InstructionFact, "isUndocumented" | "mnemonic">): boolean {
-  return instruction.isUndocumented && instruction.mnemonic === "nop";
+function requiresUndocumentedByteRendering(instruction: Pick<InstructionFact, "isUndocumented">): boolean {
+  return instruction.isUndocumented;
 }
 
 function requiresExactWidthRendering(
@@ -1498,7 +1498,7 @@ function renderCodeSegment(
 
     let asm: string;
     let targetComment: string;
-    if (isUndocumentedNopVariant(instruction)) {
+    if (requiresUndocumentedByteRendering(instruction)) {
       const rendered = renderUndocumentedInstructionBytes(instruction);
       asm = rendered.asm;
       targetComment = rendered.comment;
@@ -1594,7 +1594,7 @@ function renderLegacy(prg: PrgImage, entryPoints: number[], lines: string[]): vo
     const asm = instruction.isUnknown
       ? `.byte $${formatHex8(instruction.bytes[0])}`
       : (() => {
-          if (instruction.isUndocumented && instruction.mnemonic === "nop") {
+          if (requiresUndocumentedByteRendering(instruction)) {
             return renderUndocumentedInstructionBytes(instruction).asm;
           }
           const operand = operandTextFromFact(
@@ -1611,7 +1611,7 @@ function renderLegacy(prg: PrgImage, entryPoints: number[], lines: string[]): vo
         })();
     const comment = instruction.isUnknown
       ? ""
-      : instruction.isUndocumented && instruction.mnemonic === "nop"
+      : requiresUndocumentedByteRendering(instruction)
         ? renderUndocumentedInstructionBytes(instruction).comment
         : commentTextFromTarget(instruction.targetAddress);
     lines.push(`      ${asm.padEnd(34)}${comment}`.trimEnd());
