@@ -1,5 +1,5 @@
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { type ChildProcess } from "node:child_process";
 import { createViceConfigWorkspace } from "./config-workspace.js";
 import { launchViceProcess, waitForMonitorPort, isMonitorPortOpen } from "./process-launcher.js";
@@ -7,7 +7,9 @@ import { allocateViceMonitorPort } from "./port-allocator.js";
 import { analyzeRuntimeTrace, analyzeTrace, writeTraceSnapshot, type ViceTraceSnapshot } from "./trace-analyzer.js";
 import {
   ViceMonitorClient,
+  type ViceBankDescriptor,
   type ViceCpuHistoryItem,
+  type ViceMemspace,
   type ViceMonitorEvent,
   type ViceRegisterDescriptor,
   type ViceRegisterValue,
@@ -40,6 +42,13 @@ interface ActiveViceSession {
 }
 
 const RUNTIME_TRACE_INITIAL_DELAY_MS = 250;
+const MAX_MEMORY_READ_CHUNK = 0x4000;
+
+export interface ViceBacktraceFrame {
+  stackAddress: number;
+  rawReturnAddress: number;
+  returnPc: number;
+}
 
 export class ViceSessionManager {
   private activeSession?: ActiveViceSession;
@@ -255,10 +264,114 @@ export class ViceSessionManager {
     };
   }
 
-  async readMemory(startAddress: number, endAddress: number): Promise<Buffer> {
+  async readMemory(startAddress: number, endAddress: number, bankId = 0, memspace: ViceMemspace = 0x00): Promise<Buffer> {
+    if (endAddress < startAddress) {
+      throw new Error("endAddress must be >= startAddress");
+    }
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
-    return client.readMemory(startAddress, endAddress);
+    const chunks: Buffer[] = [];
+    for (let cursor = startAddress; cursor <= endAddress; ) {
+      const chunkEnd = Math.min(endAddress, cursor + MAX_MEMORY_READ_CHUNK - 1);
+      chunks.push(await client.readMemory(cursor, chunkEnd, bankId, memspace));
+      cursor = chunkEnd + 1;
+    }
+    return Buffer.concat(chunks);
+  }
+
+  async getBanksAvailable(): Promise<ViceBankDescriptor[]> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    return client.getBanksAvailable();
+  }
+
+  async saveSnapshot(outputPath: string, saveRoms = true, saveDisks = true): Promise<string> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    const absolutePath = resolve(this.projectDir, outputPath);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await client.dumpSnapshot(absolutePath, saveRoms, saveDisks);
+    await this.writeEvent(active.record, "snapshot_saved", {
+      outputPath: absolutePath,
+      saveRoms,
+      saveDisks,
+    });
+    return absolutePath;
+  }
+
+  async saveMemoryRange(
+    startAddress: number,
+    endAddress: number,
+    outputPath: string,
+    options: {
+      bankId?: number;
+      memspace?: ViceMemspace;
+      includeLoadAddress?: boolean;
+    } = {},
+  ): Promise<{ outputPath: string; bytesWritten: number; bankId: number; memspace: ViceMemspace }> {
+    const active = this.requireActiveSession();
+    const bankId = options.bankId ?? 0;
+    const memspace = options.memspace ?? 0x00;
+    const includeLoadAddress = options.includeLoadAddress ?? false;
+    const absolutePath = resolve(this.projectDir, outputPath);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    const memory = await this.readMemory(startAddress, endAddress, bankId, memspace);
+    const fileData = includeLoadAddress
+      ? Buffer.concat([Buffer.from([startAddress & 0xff, (startAddress >> 8) & 0xff]), memory])
+      : memory;
+    await writeFile(absolutePath, fileData);
+    await this.writeEvent(active.record, includeLoadAddress ? "memory_saved_prg" : "memory_saved_binary", {
+      outputPath: absolutePath,
+      startAddress,
+      endAddress,
+      bankId,
+      memspace,
+      bytesWritten: fileData.length,
+    });
+    return {
+      outputPath: absolutePath,
+      bytesWritten: fileData.length,
+      bankId,
+      memspace,
+    };
+  }
+
+  async buildBacktrace(maxFrames = 16): Promise<{
+    frames: ViceBacktraceFrame[];
+    stackPointer: number;
+    stackBase: number;
+  }> {
+    const { registers, descriptors } = await this.readRegisters();
+    const nameById = new Map(descriptors.map((descriptor) => [descriptor.id, descriptor.name.toUpperCase()]));
+    const registerByName = new Map(
+      registers.map((registerValue) => [nameById.get(registerValue.id) ?? `R${registerValue.id}`, registerValue.value]),
+    );
+    const stackPointer = registerByName.get("SP");
+    if (stackPointer === undefined) {
+      throw new Error("Could not determine the SP register from VICE.");
+    }
+    const stackStart = 0x0100 + ((stackPointer + 1) & 0xff);
+    const stackEnd = 0x01ff;
+    const stack = await this.readMemory(stackStart, stackEnd);
+    const frames: ViceBacktraceFrame[] = [];
+
+    for (let index = 0; index + 1 < stack.length && frames.length < maxFrames; index += 2) {
+      const low = stack[index] ?? 0;
+      const high = stack[index + 1] ?? 0;
+      const rawReturnAddress = (high << 8) | low;
+      const returnPc = (rawReturnAddress + 1) & 0xffff;
+      frames.push({
+        stackAddress: stackStart + index,
+        rawReturnAddress,
+        returnPc,
+      });
+    }
+
+    return {
+      frames,
+      stackPointer,
+      stackBase: stackStart,
+    };
   }
 
   async readCpuHistory(count: number): Promise<ViceCpuHistoryItem[]> {

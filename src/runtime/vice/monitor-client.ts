@@ -13,6 +13,7 @@ const RESPONSE_RESUMED = 0x63;
 const CMD_MEMORY_GET = 0x01;
 const CMD_CHECKPOINT_SET = 0x12;
 const CMD_REGISTERS_GET = 0x31;
+const CMD_DUMP = 0x41;
 const CMD_ADVANCE = 0x71;
 const CMD_EXECUTE_UNTIL_RETURN = 0x73;
 const CMD_PING = 0x81;
@@ -24,6 +25,8 @@ const CMD_QUIT = 0xbb;
 const CMD_RESET = 0xcc;
 
 const MAIN_MEMSPACE = 0x00;
+
+export type ViceMemspace = 0x00 | 0x01 | 0x02 | 0x03 | 0x04;
 
 interface ViceResponseFrame {
   apiVersion: number;
@@ -208,6 +211,19 @@ export class ViceMonitorClient {
     return this.sendCommand(CMD_BANKS_AVAILABLE, Buffer.alloc(0), (frame) => parseBanksAvailable(frame.body));
   }
 
+  async dumpSnapshot(filename: string, saveRoms = true, saveDisks = true): Promise<void> {
+    const filenameBytes = Buffer.from(filename, "utf8");
+    if (filenameBytes.length > 255) {
+      throw new Error("Snapshot filename must fit into 255 bytes.");
+    }
+    const body = Buffer.alloc(3 + filenameBytes.length);
+    body.writeUInt8(saveRoms ? 1 : 0, 0);
+    body.writeUInt8(saveDisks ? 1 : 0, 1);
+    body.writeUInt8(filenameBytes.length, 2);
+    filenameBytes.copy(body, 3);
+    await this.sendCommand(CMD_DUMP, body, () => undefined);
+  }
+
   async getCpuHistory(count: number, memspace = MAIN_MEMSPACE): Promise<ViceCpuHistoryItem[]> {
     const body = Buffer.alloc(5);
     body.writeUInt8(memspace, 0);
@@ -215,7 +231,7 @@ export class ViceMonitorClient {
     return this.sendCommand(CMD_CPU_HISTORY, body, (frame) => parseCpuHistory(frame.body));
   }
 
-  async readMemory(startAddress: number, endAddress: number, bankId = 0, memspace = MAIN_MEMSPACE): Promise<Buffer> {
+  async readMemory(startAddress: number, endAddress: number, bankId = 0, memspace: ViceMemspace = MAIN_MEMSPACE): Promise<Buffer> {
     const body = Buffer.alloc(8);
     body.writeUInt8(0, 0);
     body.writeUInt16LE(startAddress, 1);

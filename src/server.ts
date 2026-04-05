@@ -7,7 +7,7 @@ import { runCli } from "./run-cli.js";
 import { extractDiskImage, readDiskDirectory } from "./disk-extractor.js";
 import { getViceSessionManager } from "./runtime/vice/index.js";
 import type { ViceSessionRecord, ViceTraceAnalysis } from "./runtime/vice/types.js";
-import type { ViceMonitorEvent } from "./runtime/vice/monitor-client.js";
+import type { ViceMemspace, ViceMonitorEvent } from "./runtime/vice/monitor-client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,6 +82,53 @@ function parseHexWord(value: string): number {
 
 function formatHexWord(value: number): string {
   return `$${value.toString(16).toUpperCase().padStart(4, "0")}`;
+}
+
+function defaultViceExportPath(kind: "snapshot" | "prg" | "bin", startAddress?: number, endAddress?: number): string {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const exportsDir = join(projectDir(), "analysis", "runtime", "exports");
+  switch (kind) {
+    case "snapshot":
+      return join(exportsDir, `vice-snapshot-${stamp}.vsf`);
+    case "prg":
+      return join(exportsDir, `memory-${formatHexWord(startAddress ?? 0).slice(1)}-${formatHexWord(endAddress ?? 0).slice(1)}.prg`);
+    case "bin":
+      return join(exportsDir, `memory-${formatHexWord(startAddress ?? 0).slice(1)}-${formatHexWord(endAddress ?? 0).slice(1)}.bin`);
+  }
+}
+
+function parseViceMemspace(value?: string): ViceMemspace {
+  switch ((value ?? "main").toLowerCase()) {
+    case "main":
+      return 0x00;
+    case "drive8":
+      return 0x01;
+    case "drive9":
+      return 0x02;
+    case "drive10":
+      return 0x03;
+    case "drive11":
+      return 0x04;
+    default:
+      throw new Error(`Unsupported memspace: ${value}`);
+  }
+}
+
+function formatViceMemspace(memspace: number): string {
+  switch (memspace) {
+    case 0x00:
+      return "main";
+    case 0x01:
+      return "drive8";
+    case 0x02:
+      return "drive9";
+    case 0x03:
+      return "drive10";
+    case 0x04:
+      return "drive11";
+    default:
+      return `memspace-${memspace}`;
+  }
 }
 
 function formatMonitorEvent(event: ViceMonitorEvent): string {
@@ -656,8 +703,10 @@ function createServer(): McpServer {
     {
       start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
       end: z.string().describe("End address as hex, inclusive"),
+      bank_id: z.number().int().nonnegative().optional().describe("Optional bank ID; defaults to 0"),
+      memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
     },
-    async ({ start, end }) => {
+    async ({ start, end, bank_id, memspace }) => {
       try {
         const startAddress = parseHexWord(start);
         const endAddress = parseHexWord(end);
@@ -665,12 +714,204 @@ function createServer(): McpServer {
           throw new Error("end must be >= start");
         }
         const manager = getViceSessionManager(projectDir());
-        const data = await manager.readMemory(startAddress, endAddress);
+        const memspaceId = parseViceMemspace(memspace);
+        const data = await manager.readMemory(startAddress, endAddress, bank_id ?? 0, memspaceId);
         const lines = [
           `Memory ${formatHexWord(startAddress)}-${formatHexWord(endAddress)} (${data.length} bytes)`,
+          `Memspace: ${formatViceMemspace(memspaceId)}`,
+          `Bank ID: ${bank_id ?? 0}`,
           data.toString("hex").replace(/(..)/g, "$1 ").trim(),
         ];
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-backtrace ─────────────────────────────────────
+  server.tool(
+    "vice_monitor_backtrace",
+    "Build a heuristic call stack from the 6502 stack page in the active VICE session. This is inferred from stack contents; the binary monitor does not expose a dedicated backtrace command.",
+    {
+      max_frames: z.number().int().positive().optional().describe("Maximum number of stack-derived frames to return (default: 16)"),
+    },
+    async ({ max_frames }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const result = await manager.buildBacktrace(max_frames ?? 16);
+        const lines = [
+          "VICE heuristic backtrace:",
+          `SP: ${formatHexWord(result.stackPointer)}`,
+          `Stack scan start: ${formatHexWord(result.stackBase)}`,
+        ];
+        if (result.frames.length === 0) {
+          lines.push("No candidate return addresses found on the current stack.");
+        } else {
+          for (const frame of result.frames) {
+            lines.push(
+              `${formatHexWord(frame.stackAddress)}: raw=${formatHexWord(frame.rawReturnAddress)} -> RTS target ${formatHexWord(frame.returnPc)}`,
+            );
+          }
+        }
+        lines.push("Note: this is inferred from stacked return addresses and may include non-call data.");
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-bank ──────────────────────────────────────────
+  server.tool(
+    "vice_monitor_bank",
+    "List the available VICE memory banks for the active machine. Use the returned bank IDs with vice_monitor_memory, vice_monitor_save, or vice_monitor_binary_save.",
+    {},
+    async () => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const banks = await manager.getBanksAvailable();
+        const lines = ["VICE available banks:"];
+        for (const bank of banks) {
+          lines.push(`${bank.id}: ${bank.name}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-snapshot ──────────────────────────────────────
+  server.tool(
+    "vice_monitor_snapshot",
+    "Save a VICE snapshot (.vsf) from the active session.",
+    {
+      output_path: z.string().optional().describe("Output path for the snapshot file; defaults to analysis/runtime/exports/vice-snapshot-<timestamp>.vsf"),
+      save_roms: z.boolean().optional().describe("Include ROMs in the snapshot (default: true)"),
+      save_disks: z.boolean().optional().describe("Include disk state in the snapshot (default: true)"),
+    },
+    async ({ output_path, save_roms, save_disks }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const writtenPath = await manager.saveSnapshot(
+          output_path ?? defaultViceExportPath("snapshot"),
+          save_roms ?? true,
+          save_disks ?? true,
+        );
+        return {
+          content: [{ type: "text" as const, text: `VICE snapshot saved.\nPath: ${writtenPath}` }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-save ──────────────────────────────────────────
+  server.tool(
+    "vice_monitor_save",
+    "Save a memory range from the active VICE session as a PRG file with a load-address header.",
+    {
+      start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
+      end: z.string().describe("End address as hex, inclusive"),
+      output_path: z.string().optional().describe("Output path for the PRG; defaults to analysis/runtime/exports/memory-<start>-<end>.prg"),
+      bank_id: z.number().int().nonnegative().optional().describe("Optional bank ID; defaults to 0"),
+      memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
+    },
+    async ({ start, end, output_path, bank_id, memspace }) => {
+      try {
+        const startAddress = parseHexWord(start);
+        const endAddress = parseHexWord(end);
+        const manager = getViceSessionManager(projectDir());
+        const memspaceId = parseViceMemspace(memspace);
+        const result = await manager.saveMemoryRange(
+          startAddress,
+          endAddress,
+          output_path ?? defaultViceExportPath("prg", startAddress, endAddress),
+          {
+            bankId: bank_id ?? 0,
+            memspace: memspaceId,
+            includeLoadAddress: true,
+          },
+        );
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `VICE memory saved as PRG.`,
+              `Path: ${result.outputPath}`,
+              `Bytes: ${result.bytesWritten}`,
+              `Memspace: ${formatViceMemspace(result.memspace)}`,
+              `Bank ID: ${result.bankId}`,
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-binary-save ───────────────────────────────────
+  server.tool(
+    "vice_monitor_binary_save",
+    "Save a memory range from the active VICE session as a raw binary file without a load-address header.",
+    {
+      start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
+      end: z.string().describe("End address as hex, inclusive"),
+      output_path: z.string().optional().describe("Output path for the binary; defaults to analysis/runtime/exports/memory-<start>-<end>.bin"),
+      bank_id: z.number().int().nonnegative().optional().describe("Optional bank ID; defaults to 0"),
+      memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
+    },
+    async ({ start, end, output_path, bank_id, memspace }) => {
+      try {
+        const startAddress = parseHexWord(start);
+        const endAddress = parseHexWord(end);
+        const manager = getViceSessionManager(projectDir());
+        const memspaceId = parseViceMemspace(memspace);
+        const result = await manager.saveMemoryRange(
+          startAddress,
+          endAddress,
+          output_path ?? defaultViceExportPath("bin", startAddress, endAddress),
+          {
+            bankId: bank_id ?? 0,
+            memspace: memspaceId,
+            includeLoadAddress: false,
+          },
+        );
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `VICE memory saved as raw binary.`,
+              `Path: ${result.outputPath}`,
+              `Bytes: ${result.bytesWritten}`,
+              `Memspace: ${formatViceMemspace(result.memspace)}`,
+              `Bank ID: ${result.bankId}`,
+            ].join("\n"),
+          }],
+        };
       } catch (error) {
         return cliResultToContent({
           stdout: "",
@@ -774,6 +1015,55 @@ function createServer(): McpServer {
         });
       }
     },
+  );
+
+  // ── Prompt: debug-workflow ───────────────────────────────────────────
+  server.prompt(
+    "debug_workflow",
+    "Guidance for using the VICE runtime tools for breakpoint-driven debugging and runtime tracing.",
+    {
+      goal: z.string().optional().describe("Optional debugging goal, e.g. find depacker entry, inspect IRQ setup, trace title loop"),
+    },
+    async ({ goal }) => ({
+      messages: [{
+        role: "user" as const,
+        content: {
+          type: "text" as const,
+          text: `# VICE Debug Workflow
+
+Goal: ${goal ?? "Inspect and debug the currently loaded program"}
+
+Use the VICE tools in this order:
+
+1. If VICE is not running yet, start it with \`vice_session_start\` or \`vice_trace_runtime_start\`.
+2. Use \`vice_session_status\` to confirm the active session and media.
+3. Choose the mode:
+   - Use \`vice_trace_runtime_start\` when the user wants to interact manually and analyze a full runtime afterwards.
+   - Use \`vice_debug_run\` when you know one or more candidate addresses and want to stop precisely at them.
+4. After a breakpoint hit or a manual stop, inspect state with:
+   - \`vice_monitor_registers\`
+   - \`vice_monitor_backtrace\` (heuristic stack-derived call chain)
+   - \`vice_monitor_memory\`
+   - \`vice_monitor_bank\`
+5. Move execution with:
+   - \`vice_monitor_step\` to step into
+   - \`vice_monitor_next\` to step over
+   - \`vice_monitor_continue\` to resume
+6. Persist interesting state with:
+   - \`vice_monitor_snapshot\`
+   - \`vice_monitor_save\`
+   - \`vice_monitor_binary_save\`
+7. For broad execution analysis after a user-driven run, use \`vice_trace_analyze_last_session\`.
+
+Practical advice:
+- Prefer runtime tracing first when loader, timing, or user interaction matters.
+- Prefer \`vice_debug_run\` once you have hot PCs from runtime trace or disassembly.
+- Treat \`vice_monitor_backtrace\` as heuristic: it is inferred from the 6502 stack page, not provided directly by the binary monitor protocol.
+- Use bank IDs from \`vice_monitor_bank\` with memory-read and memory-save tools when ROM/RAM/I/O views matter.
+- Save snapshots before risky stepping if you may want to return to the same machine state.`,
+        },
+      }],
+    }),
   );
 
   // ── Prompt: full-re-workflow ──────────────────────────────────────────

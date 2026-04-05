@@ -55,6 +55,9 @@ That's it — the TRXDis pipeline is bundled and built automatically.
 |---|---|---|
 | `C64RE_PROJECT_DIR` | Working directory for analyses (where PRGs live, where output goes) | Yes |
 | `C64RE_TOOLS_DIR` | Override: use an external TRXDis build instead of the bundled one | No |
+| `C64RE_VICE_BIN` | Override path to `x64sc` for VICE runtime/debug tools | No |
+| `C64RE_VICE_CONFIG_PATH` | Override path to the source `vicerc` copied into VICE sessions | No |
+| `C64RE_VICE_CONFIG_DIR` | Override source VICE config directory (expects `vicerc` inside) | No |
 
 ### Claude Code
 
@@ -114,6 +117,28 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `inspect_disk` | Read a D64 or G64 directory and list contained files without extraction |
 | `extract_disk` | Extract files from a D64 or G64 image and write `manifest.json` for follow-up analysis |
 
+### VICE Runtime / Debugging
+
+| Tool | Description |
+|---|---|
+| `vice_session_start` | Start a visible VICE session with copied user config and optional media autostart |
+| `vice_trace_runtime_start` | Start a visible VICE session with periodic CPU-history sampling for full runtime tracing |
+| `vice_session_status` | Report current or last VICE session state, monitor port, and artifact paths |
+| `vice_session_stop` | Stop the active VICE session cleanly |
+| `vice_trace_stop_and_analyze` | Stop the session, capture a final snapshot, and return a trace summary |
+| `vice_trace_analyze_last_session` | Analyze the most recent completed runtime trace from disk |
+| `vice_debug_run` | Set breakpoints, continue execution, and return on hit/stop/JAM |
+| `vice_monitor_registers` | Read CPU registers from the active VICE session |
+| `vice_monitor_memory` | Read a memory range, optionally selecting memspace and bank ID |
+| `vice_monitor_backtrace` | Heuristic stack-derived backtrace from page `$0100` |
+| `vice_monitor_bank` | List available memory banks for the current machine |
+| `vice_monitor_snapshot` | Save a VICE snapshot (`.vsf`) |
+| `vice_monitor_save` | Save a memory range as a PRG with load-address header |
+| `vice_monitor_binary_save` | Save a memory range as a raw binary |
+| `vice_monitor_continue` | Resume execution |
+| `vice_monitor_step` | Step into one instruction |
+| `vice_monitor_next` | Step over one instruction |
+
 ### Artifact Access
 
 | Tool | Description |
@@ -166,6 +191,47 @@ The annotations only affect comments, labels, and segment headers — never the 
 | `trace_execution` | CPU-trace from entry point following actual control flow |
 | `annotate_asm` | Write semantic comments directly into an ASM file |
 | `disk_re_workflow` | Triage and analyze D64/G64 disk images |
+| `debug_workflow` | Guidance for combining VICE runtime trace and breakpoint-driven monitor tools |
+
+## VICE Runtime Notes
+
+The VICE integration is designed for local desktop use with a visible UI. Each session:
+
+- copies your `vicerc` and all `.vhk` hotkey files into a session-local workspace
+- adds an MCP overlay for binary monitor access and session-local logs
+- keeps your real VICE config untouched
+- writes session artifacts to `analysis/runtime/<timestamp>-<id>/`
+
+Runtime tracing currently uses the VICE binary monitor `CPU history` feature instead of text-monitor tracing. The MCP samples CPU history periodically and normalizes it into `runtime-trace.jsonl`, which can then be analyzed after the run.
+
+Current default runtime-trace settings:
+
+- sample interval: `100 ms`
+- CPU-history request size: `65535`
+- `MonitorChisLines`: `16777215`
+
+This is aimed at capturing the complete CPU execution history of a normal C64 run closely enough for later LLM analysis. Very timing-sensitive code may still require targeted breakpoint-driven debugging.
+
+### VICE Workflow Patterns
+
+Interactive runtime trace:
+
+1. `vice_trace_runtime_start`
+2. user interacts with the program in the visible VICE window
+3. user closes VICE manually
+4. `vice_trace_analyze_last_session`
+
+Breakpoint-driven debugging:
+
+1. `vice_session_start`
+2. `vice_debug_run`
+3. inspect with `vice_monitor_registers`, `vice_monitor_backtrace`, `vice_monitor_memory`, `vice_monitor_bank`
+4. move with `vice_monitor_step`, `vice_monitor_next`, `vice_monitor_continue`
+5. persist state with `vice_monitor_snapshot`, `vice_monitor_save`, `vice_monitor_binary_save`
+
+### Important Limitation
+
+`vice_monitor_backtrace` is currently heuristic. The official VICE binary monitor protocol does not expose a dedicated backtrace command, so the tool reconstructs likely return addresses from the 6502 stack page. It is useful, but not authoritative.
 
 ## Output Formats
 
