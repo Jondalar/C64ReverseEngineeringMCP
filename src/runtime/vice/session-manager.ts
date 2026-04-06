@@ -8,6 +8,7 @@ import { analyzeRuntimeTrace, analyzeTrace, writeTraceSnapshot, type ViceTraceSn
 import {
   ViceMonitorClient,
   type ViceBankDescriptor,
+  type ViceCheckpointInfo,
   type ViceCpuHistoryItem,
   type ViceMemspace,
   type ViceMonitorEvent,
@@ -43,11 +44,34 @@ interface ActiveViceSession {
 
 const RUNTIME_TRACE_INITIAL_DELAY_MS = 250;
 const MAX_MEMORY_READ_CHUNK = 0x4000;
+const DEFAULT_MONITOR_CHIS_LINES = 16_777_215;
 
 export interface ViceBacktraceFrame {
   stackAddress: number;
   rawReturnAddress: number;
   returnPc: number;
+}
+
+export interface ViceRuntimeTraceStatus {
+  sessionId: string;
+  active: boolean;
+  intervalMs?: number;
+  cpuHistoryCount?: number;
+  monitorChisLines?: number;
+  sampleIndex: number;
+  lastClock?: string;
+  tracePath: string;
+}
+
+export interface ViceDisplayCaptureResult {
+  imagePath: string;
+  metadataPath: string;
+  debugWidth: number;
+  debugHeight: number;
+  innerWidth: number;
+  innerHeight: number;
+  bitsPerPixel: number;
+  bytesWritten: number;
 }
 
 export class ViceSessionManager {
@@ -66,7 +90,7 @@ export class ViceSessionManager {
     const configWorkspace = await createViceConfigWorkspace({
       projectDir: this.projectDir,
       monitorPort,
-      monitorChisLines: options.runtimeTrace?.monitorChisLines,
+      monitorChisLines: options.runtimeTrace?.monitorChisLines ?? DEFAULT_MONITOR_CHIS_LINES,
     });
     const media = this.resolveMediaConfig(options);
 
@@ -132,18 +156,7 @@ export class ViceSessionManager {
       record.monitorReady = monitorReady;
       record.state = "running";
       if (options.runtimeTrace?.enabled) {
-        active.runtimeTraceState = {
-          config: options.runtimeTrace,
-          running: true,
-          sampleIndex: 0,
-        };
-        await this.writeEvent(record, "runtime_trace_started", {
-          intervalMs: options.runtimeTrace.intervalMs,
-          cpuHistoryCount: options.runtimeTrace.cpuHistoryCount,
-          monitorChisLines: options.runtimeTrace.monitorChisLines,
-          firstSampleDelayMs: Math.min(options.runtimeTrace.intervalMs, RUNTIME_TRACE_INITIAL_DELAY_MS),
-        });
-        this.scheduleRuntimeTraceSample(active, Math.min(options.runtimeTrace.intervalMs, RUNTIME_TRACE_INITIAL_DELAY_MS));
+        await this.startRuntimeTrace(options.runtimeTrace);
       }
       await this.writeEvent(record, "process_started", {
         pid: record.pid,
@@ -279,10 +292,178 @@ export class ViceSessionManager {
     return Buffer.concat(chunks);
   }
 
+  async writeMemory(startAddress: number, data: Buffer, bankId = 0, memspace: ViceMemspace = 0x00, sideEffects = false): Promise<void> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    for (let offset = 0; offset < data.length; offset += MAX_MEMORY_READ_CHUNK) {
+      const chunk = data.subarray(offset, Math.min(data.length, offset + MAX_MEMORY_READ_CHUNK));
+      await client.writeMemory(startAddress + offset, chunk, bankId, memspace, sideEffects);
+    }
+    await this.writeEvent(active.record, "memory_written", {
+      startAddress,
+      bytes: data.length,
+      bankId,
+      memspace,
+      sideEffects,
+    });
+  }
+
+  async setRegistersByName(values: Record<string, number>, memspace: ViceMemspace = 0x00): Promise<ViceRegisterValue[]> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    const descriptors = active.registerDescriptors ?? await client.getRegistersAvailable(memspace);
+    active.registerDescriptors = descriptors;
+    const descriptorByName = new Map(descriptors.map((descriptor) => [descriptor.name.toUpperCase(), descriptor]));
+    const registerValues: ViceRegisterValue[] = [];
+
+    for (const [name, value] of Object.entries(values)) {
+      const descriptor = descriptorByName.get(name.toUpperCase());
+      if (!descriptor) {
+        throw new Error(`Unknown register name: ${name}`);
+      }
+      registerValues.push({
+        id: descriptor.id,
+        value,
+      });
+    }
+
+    await client.setRegisters(registerValues, memspace);
+    await this.writeEvent(active.record, "registers_set", {
+      memspace,
+      registers: values,
+    });
+    return client.getRegisters(memspace);
+  }
+
   async getBanksAvailable(): Promise<ViceBankDescriptor[]> {
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     return client.getBanksAvailable();
+  }
+
+  async addBreakpoint(options: {
+    startAddress: number;
+    endAddress?: number;
+    stopWhenHit?: boolean;
+    enabled?: boolean;
+    operation?: number;
+    temporary?: boolean;
+    memspace?: ViceMemspace;
+  }): Promise<ViceCheckpointInfo> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    const checkpoint = await client.setCheckpoint({
+      startAddress: options.startAddress,
+      endAddress: options.endAddress ?? options.startAddress,
+      stopWhenHit: options.stopWhenHit ?? true,
+      enabled: options.enabled ?? true,
+      operation: options.operation ?? 0x04,
+      temporary: options.temporary ?? false,
+      memspace: options.memspace ?? 0x00,
+    });
+    await this.writeEvent(active.record, "breakpoint_added", {
+      checkpointNumber: checkpoint.checkpointNumber,
+      startAddress: checkpoint.startAddress,
+      endAddress: checkpoint.endAddress,
+      operation: checkpoint.operation,
+      temporary: checkpoint.temporary,
+      memspace: checkpoint.memspace,
+    });
+    return checkpoint;
+  }
+
+  async listBreakpoints() {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    return client.listCheckpoints();
+  }
+
+  async deleteBreakpoint(checkpointNumber: number): Promise<void> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    await client.deleteCheckpoint(checkpointNumber);
+    await this.writeEvent(active.record, "breakpoint_deleted", {
+      checkpointNumber,
+    });
+  }
+
+  async sendKeys(text: string): Promise<void> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    const bytes = Buffer.from(text, "latin1");
+    await client.keyboardFeed(bytes);
+    await this.writeEvent(active.record, "keyboard_feed", {
+      text,
+      bytes: bytes.length,
+    });
+  }
+
+  async attachMedia(mediaPath: string, runAfterLoading = true, fileIndex = 0): Promise<void> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    const absolutePath = resolve(this.projectDir, mediaPath);
+    await client.autostart(absolutePath, runAfterLoading, fileIndex);
+    active.record.media = {
+      path: absolutePath,
+      type: inferViceMediaType(absolutePath) ?? "prg",
+      autostart: runAfterLoading,
+    };
+    await this.writeEvent(active.record, "media_attached", {
+      mediaPath: absolutePath,
+      runAfterLoading,
+      fileIndex,
+    });
+    await this.persistRecord(active.record);
+  }
+
+  async captureDisplay(outputPath: string, useVicII = true): Promise<ViceDisplayCaptureResult> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    const absolutePath = resolve(this.projectDir, outputPath);
+    const metadataPath = absolutePath.replace(/\.[^.]+$/i, ".json");
+    await mkdir(dirname(absolutePath), { recursive: true });
+    const display = await client.getDisplay(useVicII, 0);
+    const header = Buffer.from(`P5\n${display.debugWidth} ${display.debugHeight}\n255\n`, "ascii");
+    const pgm = Buffer.concat([header, display.pixels]);
+    await writeFile(absolutePath, pgm);
+    await writeFile(metadataPath, `${JSON.stringify({
+      debugWidth: display.debugWidth,
+      debugHeight: display.debugHeight,
+      xOffset: display.xOffset,
+      yOffset: display.yOffset,
+      innerWidth: display.innerWidth,
+      innerHeight: display.innerHeight,
+      bitsPerPixel: display.bitsPerPixel,
+      imagePath: absolutePath,
+      note: "Display exported as 8-bit indexed pixels mapped directly into a grayscale PGM preview.",
+    }, null, 2)}\n`, "utf8");
+    await this.writeEvent(active.record, "display_captured", {
+      imagePath: absolutePath,
+      metadataPath,
+      debugWidth: display.debugWidth,
+      debugHeight: display.debugHeight,
+      innerWidth: display.innerWidth,
+      innerHeight: display.innerHeight,
+    });
+    return {
+      imagePath: absolutePath,
+      metadataPath,
+      debugWidth: display.debugWidth,
+      debugHeight: display.debugHeight,
+      innerWidth: display.innerWidth,
+      innerHeight: display.innerHeight,
+      bitsPerPixel: display.bitsPerPixel,
+      bytesWritten: pgm.length,
+    };
+  }
+
+  async resetMachine(target: number): Promise<void> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    await client.reset(target);
+    await this.writeEvent(active.record, "machine_reset", {
+      target,
+    });
   }
 
   async saveSnapshot(outputPath: string, saveRoms = true, saveDisks = true): Promise<string> {
@@ -389,12 +570,7 @@ export class ViceSessionManager {
   }
 
   async resetSystem(powerCycle = false): Promise<void> {
-    const active = this.requireActiveSession();
-    const client = await this.getOrCreateMonitorClient(active);
-    await client.resetSystem(powerCycle);
-    await this.writeEvent(active.record, "system_reset", {
-      powerCycle,
-    });
+    await this.resetMachine(powerCycle ? 0x01 : 0x00);
   }
 
   async stepInto(): Promise<{ pc: number }> {
@@ -469,6 +645,66 @@ export class ViceSessionManager {
       throw new Error("No completed VICE session exists.");
     }
     return analyzeRuntimeTrace(this.lastSession);
+  }
+
+  async startRuntimeTrace(config: ViceRuntimeTraceConfig): Promise<ViceRuntimeTraceStatus> {
+    const active = this.requireActiveSession();
+    if (active.record.state !== "running") {
+      throw new Error("VICE must be running before runtime tracing can start.");
+    }
+
+    const existing = active.runtimeTraceState;
+    if (existing?.running) {
+      throw new Error("Runtime trace is already active.");
+    }
+
+    active.record.runtimeTrace = config;
+    active.runtimeTraceState = {
+      config,
+      running: true,
+      sampleIndex: existing?.sampleIndex ?? 0,
+      lastClock: existing?.lastClock,
+    };
+
+    await this.writeEvent(active.record, "runtime_trace_started", {
+      intervalMs: config.intervalMs,
+      cpuHistoryCount: config.cpuHistoryCount,
+      monitorChisLines: config.monitorChisLines,
+      firstSampleDelayMs: Math.min(config.intervalMs, RUNTIME_TRACE_INITIAL_DELAY_MS),
+      resumed: Boolean(existing),
+      nextSampleIndex: active.runtimeTraceState.sampleIndex,
+    });
+    await this.persistRecord(active.record);
+    this.scheduleRuntimeTraceSample(active, Math.min(config.intervalMs, RUNTIME_TRACE_INITIAL_DELAY_MS));
+    return this.buildRuntimeTraceStatus(active);
+  }
+
+  async stopRuntimeTrace(): Promise<ViceRuntimeTraceStatus> {
+    const active = this.requireActiveSession();
+    const state = active.runtimeTraceState;
+    if (!state?.running) {
+      throw new Error("Runtime trace is not active.");
+    }
+
+    state.running = false;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = undefined;
+    }
+    await this.writeEvent(active.record, "runtime_trace_stopped", {
+      sampleIndex: state.sampleIndex,
+      lastClock: state.lastClock?.toString(),
+    });
+    await this.persistRecord(active.record);
+    return this.buildRuntimeTraceStatus(active);
+  }
+
+  async getRuntimeTraceStatus(): Promise<ViceRuntimeTraceStatus | undefined> {
+    await this.reconcileExitedSession();
+    if (!this.activeSession) {
+      return undefined;
+    }
+    return this.buildRuntimeTraceStatus(this.activeSession);
   }
 
   private async reconcileExitedSession(): Promise<void> {
@@ -679,6 +915,20 @@ export class ViceSessionManager {
     state.timer = setTimeout(() => {
       void this.collectRuntimeTraceSample(active);
     }, delayMs);
+  }
+
+  private buildRuntimeTraceStatus(active: ActiveViceSession): ViceRuntimeTraceStatus {
+    const state = active.runtimeTraceState;
+    return {
+      sessionId: active.record.sessionId,
+      active: Boolean(state?.running),
+      intervalMs: state?.config.intervalMs ?? active.record.runtimeTrace?.intervalMs,
+      cpuHistoryCount: state?.config.cpuHistoryCount ?? active.record.runtimeTrace?.cpuHistoryCount,
+      monitorChisLines: state?.config.monitorChisLines ?? active.record.runtimeTrace?.monitorChisLines,
+      sampleIndex: state?.sampleIndex ?? 0,
+      lastClock: state?.lastClock?.toString(),
+      tracePath: active.record.workspace.runtimeTracePath,
+    };
   }
 
   private async collectRuntimeTraceSample(active: ActiveViceSession): Promise<void> {

@@ -98,6 +98,11 @@ function defaultViceExportPath(kind: "snapshot" | "prg" | "bin", startAddress?: 
   }
 }
 
+function defaultViceDisplayPath(): string {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  return join(projectDir(), "analysis", "runtime", "exports", `display-${stamp}.pgm`);
+}
+
 function parseViceMemspace(value?: string): ViceMemspace {
   switch ((value ?? "main").toLowerCase()) {
     case "main":
@@ -129,6 +134,46 @@ function formatViceMemspace(memspace: number): string {
       return "drive11";
     default:
       return `memspace-${memspace}`;
+  }
+}
+
+function parseBreakpointOperation(value?: string): number {
+  switch ((value ?? "exec").toLowerCase()) {
+    case "load":
+      return 0x01;
+    case "store":
+      return 0x02;
+    case "exec":
+      return 0x04;
+    default:
+      throw new Error(`Unsupported breakpoint operation: ${value}`);
+  }
+}
+
+function formatBreakpointOperation(value: number): string {
+  const parts: string[] = [];
+  if (value & 0x01) parts.push("load");
+  if (value & 0x02) parts.push("store");
+  if (value & 0x04) parts.push("exec");
+  return parts.join("+") || `op-${value}`;
+}
+
+function parseResetTarget(value?: string): number {
+  switch ((value ?? "system").toLowerCase()) {
+    case "system":
+      return 0x00;
+    case "power":
+      return 0x01;
+    case "drive8":
+      return 0x08;
+    case "drive9":
+      return 0x09;
+    case "drive10":
+      return 0x0a;
+    case "drive11":
+      return 0x0b;
+    default:
+      throw new Error(`Unsupported reset target: ${value}`);
   }
 }
 
@@ -201,6 +246,33 @@ function viceTraceAnalysisToContent(
   lines.push(`- analysis: ${analysis.artifacts.traceAnalysisPath}`);
   lines.push(`- runtime trace: ${analysis.artifacts.runtimeTracePath}`);
 
+  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+}
+
+function viceRuntimeTraceStatusToContent(
+  status: {
+    sessionId: string;
+    active: boolean;
+    intervalMs?: number;
+    cpuHistoryCount?: number;
+    monitorChisLines?: number;
+    sampleIndex: number;
+    lastClock?: string;
+    tracePath: string;
+  },
+  headline: string,
+): { content: [{ type: "text"; text: string }] } {
+  const lines = [
+    headline,
+    `Session: ${status.sessionId}`,
+    `Active: ${status.active ? "yes" : "no"}`,
+    `Sample index: ${status.sampleIndex}`,
+    `Trace path: ${status.tracePath}`,
+  ];
+  if (status.intervalMs !== undefined) lines.push(`Interval: ${status.intervalMs} ms`);
+  if (status.cpuHistoryCount !== undefined) lines.push(`CPU history count: ${status.cpuHistoryCount}`);
+  if (status.monitorChisLines !== undefined) lines.push(`MonitorChisLines: ${status.monitorChisLines}`);
+  if (status.lastClock !== undefined) lines.push(`Last clock: ${status.lastClock}`);
   return { content: [{ type: "text" as const, text: lines.join("\n") }] };
 }
 
@@ -642,6 +714,78 @@ function createServer(): McpServer {
     },
   );
 
+  // ── Tool: vice-trace-start ──────────────────────────────────────────
+  server.tool(
+    "vice_trace_start",
+    "Enable periodic CPU-history sampling on the active VICE session without restarting the emulator.",
+    {
+      sample_interval_ms: z.number().int().positive().optional().describe(`Delay between runtime-trace samples (default: ${VICE_TRACE_DEFAULT_INTERVAL_MS})`),
+      cpu_history_count: z.number().int().positive().optional().describe(`CPU-history depth to request per sample (default: ${VICE_TRACE_DEFAULT_CPU_HISTORY_COUNT})`),
+      monitor_chis_lines: z.number().int().positive().optional().describe(`Monitor CPU-history retention size to record in trace config (default: ${VICE_TRACE_DEFAULT_MONITOR_CHIS_LINES})`),
+    },
+    async ({ sample_interval_ms, cpu_history_count, monitor_chis_lines }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const status = await manager.startRuntimeTrace({
+          enabled: true,
+          intervalMs: sample_interval_ms ?? VICE_TRACE_DEFAULT_INTERVAL_MS,
+          cpuHistoryCount: cpu_history_count ?? VICE_TRACE_DEFAULT_CPU_HISTORY_COUNT,
+          monitorChisLines: monitor_chis_lines ?? VICE_TRACE_DEFAULT_MONITOR_CHIS_LINES,
+        });
+        return viceRuntimeTraceStatusToContent(status, "VICE runtime trace started.");
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-status ─────────────────────────────────────────
+  server.tool(
+    "vice_trace_status",
+    "Report whether runtime tracing is currently active on the active VICE session.",
+    {},
+    async () => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const status = await manager.getRuntimeTraceStatus();
+        if (!status) {
+          return { content: [{ type: "text" as const, text: "No active VICE session exists." }] };
+        }
+        return viceRuntimeTraceStatusToContent(status, "VICE runtime trace status.");
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-stop ───────────────────────────────────────────
+  server.tool(
+    "vice_trace_stop",
+    "Stop periodic CPU-history sampling on the active VICE session without closing VICE.",
+    {},
+    async () => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const status = await manager.stopRuntimeTrace();
+        return viceRuntimeTraceStatusToContent(status, "VICE runtime trace stopped.");
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
   // ── Tool: vice-session-status ────────────────────────────────────────
   server.tool(
     "vice_session_status",
@@ -780,6 +924,281 @@ function createServer(): McpServer {
           data.toString("hex").replace(/(..)/g, "$1 ").trim(),
         ];
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-write-memory ─────────────────────────────────
+  server.tool(
+    "vice_monitor_write_memory",
+    "Write bytes into the active VICE session memory.",
+    {
+      start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
+      data_hex: z.string().describe("Hex bytes to write, e.g. 'a9 00 8d 20 d0'"),
+      bank_id: z.number().int().nonnegative().optional().describe("Optional bank ID; defaults to 0"),
+      memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
+      side_effects: z.boolean().optional().describe("Whether the write should trigger side effects"),
+    },
+    async ({ start, data_hex, bank_id, memspace, side_effects }) => {
+      try {
+        const startAddress = parseHexWord(start);
+        const bytes = data_hex.replace(/[^0-9a-fA-F]/g, "");
+        if (bytes.length === 0 || bytes.length % 2 !== 0) {
+          throw new Error("data_hex must contain an even number of hex digits.");
+        }
+        const data = Buffer.from(bytes, "hex");
+        const manager = getViceSessionManager(projectDir());
+        const memspaceId = parseViceMemspace(memspace);
+        await manager.writeMemory(startAddress, data, bank_id ?? 0, memspaceId, side_effects ?? false);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Wrote ${data.length} bytes at ${formatHexWord(startAddress)}.\nMemspace: ${formatViceMemspace(memspaceId)}\nBank ID: ${bank_id ?? 0}`,
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-set-registers ────────────────────────────────
+  server.tool(
+    "vice_monitor_set_registers",
+    "Set CPU register values in the active VICE session.",
+    {
+      registers: z.record(z.string(), z.string()).describe("Register map, e.g. {\"PC\":\"080D\",\"A\":\"00\",\"X\":\"10\"}"),
+      memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
+    },
+    async ({ registers, memspace }) => {
+      try {
+        const parsedRegisters = Object.fromEntries(
+          Object.entries(registers).map(([name, value]) => [name, parseHexWord(value)]),
+        );
+        const manager = getViceSessionManager(projectDir());
+        const memspaceId = parseViceMemspace(memspace);
+        const applied = await manager.setRegistersByName(parsedRegisters, memspaceId);
+        const lines = ["Registers updated:"];
+        for (const register of applied) {
+          lines.push(`${register.id}: ${formatHexWord(register.value)}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-breakpoint-add ───────────────────────────────
+  server.tool(
+    "vice_monitor_breakpoint_add",
+    "Add a breakpoint/watchpoint/tracepoint in the active VICE session.",
+    {
+      start: z.string().describe("Start address as hex, e.g. 080D"),
+      end: z.string().optional().describe("Optional end address; defaults to start"),
+      operation: z.enum(["exec", "load", "store"]).optional().describe("Operation to watch; defaults to exec"),
+      stop_when_hit: z.boolean().optional().describe("Whether VICE should stop when the checkpoint triggers"),
+      enabled: z.boolean().optional().describe("Whether the checkpoint is enabled immediately"),
+      temporary: z.boolean().optional().describe("Whether the checkpoint is temporary"),
+      memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
+    },
+    async ({ start, end, operation, stop_when_hit, enabled, temporary, memspace }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const checkpoint = await manager.addBreakpoint({
+          startAddress: parseHexWord(start),
+          endAddress: end ? parseHexWord(end) : undefined,
+          operation: parseBreakpointOperation(operation),
+          stopWhenHit: stop_when_hit ?? true,
+          enabled: enabled ?? true,
+          temporary: temporary ?? false,
+          memspace: parseViceMemspace(memspace),
+        });
+        const lines = [
+          "Breakpoint added.",
+          `Checkpoint #: ${checkpoint.checkpointNumber}`,
+          `Range: ${formatHexWord(checkpoint.startAddress)}-${formatHexWord(checkpoint.endAddress)}`,
+          `Operation: ${formatBreakpointOperation(checkpoint.operation)}`,
+          `Stop when hit: ${checkpoint.stopWhenHit ? "yes" : "no"}`,
+          `Temporary: ${checkpoint.temporary ? "yes" : "no"}`,
+          `Memspace: ${formatViceMemspace(checkpoint.memspace)}`,
+        ];
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-breakpoint-list ──────────────────────────────
+  server.tool(
+    "vice_monitor_breakpoint_list",
+    "List checkpoints currently configured in the active VICE session.",
+    {},
+    async () => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const result = await manager.listBreakpoints();
+        const lines = [`Checkpoints: ${result.count}`];
+        for (const checkpoint of result.checkpoints) {
+          lines.push(
+            `#${checkpoint.checkpointNumber} ${formatHexWord(checkpoint.startAddress)}-${formatHexWord(checkpoint.endAddress)} ${formatBreakpointOperation(checkpoint.operation)} ${checkpoint.enabled ? "enabled" : "disabled"} ${checkpoint.stopWhenHit ? "stop" : "trace"} ${checkpoint.temporary ? "temporary" : "persistent"} ${formatViceMemspace(checkpoint.memspace)}`,
+          );
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-breakpoint-delete ────────────────────────────
+  server.tool(
+    "vice_monitor_breakpoint_delete",
+    "Delete a checkpoint from the active VICE session.",
+    {
+      checkpoint_number: z.number().int().nonnegative().describe("Checkpoint number to delete"),
+    },
+    async ({ checkpoint_number }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        await manager.deleteBreakpoint(checkpoint_number);
+        return {
+          content: [{ type: "text" as const, text: `Deleted checkpoint #${checkpoint_number}.` }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-session-send-keys ────────────────────────────────────
+  server.tool(
+    "vice_session_send_keys",
+    "Feed text into the active VICE keyboard buffer.",
+    {
+      text: z.string().describe("Text to feed into the keyboard buffer"),
+    },
+    async ({ text }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        await manager.sendKeys(text);
+        return {
+          content: [{ type: "text" as const, text: `Queued ${text.length} characters into the VICE keyboard buffer.` }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-session-attach-media ─────────────────────────────────
+  server.tool(
+    "vice_session_attach_media",
+    "Autostart or autoload media into an already running VICE session via the binary monitor.",
+    {
+      media_path: z.string().describe("Path to the media file to load"),
+      run_after_loading: z.boolean().optional().describe("Whether to run after loading (default: true)"),
+      file_index: z.number().int().nonnegative().optional().describe("File index for disk-image autoload; defaults to 0"),
+    },
+    async ({ media_path, run_after_loading, file_index }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        await manager.attachMedia(media_path, run_after_loading ?? true, file_index ?? 0);
+        return {
+          content: [{ type: "text" as const, text: `Attached/autostarted media: ${resolve(projectDir(), media_path)}` }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-display ──────────────────────────────────────
+  server.tool(
+    "vice_monitor_display",
+    "Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata.",
+    {
+      output_path: z.string().optional().describe("Output path for the PGM image; defaults to analysis/runtime/exports/display-<timestamp>.pgm"),
+      use_vicii: z.boolean().optional().describe("On C128, capture VIC-II instead of VDC (default: true)"),
+    },
+    async ({ output_path, use_vicii }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const result = await manager.captureDisplay(output_path ?? defaultViceDisplayPath(), use_vicii ?? true);
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              "VICE display captured.",
+              `Image: ${result.imagePath}`,
+              `Metadata: ${result.metadataPath}`,
+              `Debug size: ${result.debugWidth}x${result.debugHeight}`,
+              `Inner size: ${result.innerWidth}x${result.innerHeight}`,
+              `Bits per pixel: ${result.bitsPerPixel}`,
+              `Bytes written: ${result.bytesWritten}`,
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-monitor-reset ────────────────────────────────────────
+  server.tool(
+    "vice_monitor_reset",
+    "Reset the active VICE machine or one of its drives.",
+    {
+      target: z.enum(["system", "power", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Reset target; defaults to system"),
+    },
+    async ({ target }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const code = parseResetTarget(target);
+        await manager.resetMachine(code);
+        return {
+          content: [{ type: "text" as const, text: `Reset sent to ${target ?? "system"}.` }],
+        };
       } catch (error) {
         return cliResultToContent({
           stdout: "",

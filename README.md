@@ -126,15 +126,27 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 |---|---|
 | `vice_session_start` | Start a visible VICE session with copied user config and optional media autostart |
 | `vice_trace_runtime_start` | Start a visible VICE session with periodic CPU-history sampling for full runtime tracing |
+| `vice_trace_start` | Enable periodic CPU-history sampling on an already running VICE session |
+| `vice_trace_status` | Report whether runtime tracing is active and where the trace is being written |
+| `vice_trace_stop` | Stop periodic CPU-history sampling without closing VICE |
 | `vice_session_status` | Report current or last VICE session state, monitor port, and artifact paths |
 | `vice_session_stop` | Stop the active VICE session cleanly |
 | `vice_trace_stop_and_analyze` | Stop the session, capture a final snapshot, and return a trace summary |
 | `vice_trace_analyze_last_session` | Analyze the most recent completed runtime trace from disk |
 | `vice_debug_run` | Set breakpoints, continue execution, and return on hit/stop/JAM |
 | `vice_monitor_registers` | Read CPU registers from the active VICE session |
+| `vice_monitor_set_registers` | Set CPU register values in the active VICE session |
 | `vice_monitor_memory` | Read a memory range, optionally selecting memspace and bank ID |
+| `vice_monitor_write_memory` | Write bytes into VICE memory, optionally selecting memspace and bank ID |
 | `vice_monitor_backtrace` | Heuristic stack-derived backtrace from page `$0100` |
 | `vice_monitor_bank` | List available memory banks for the current machine |
+| `vice_monitor_breakpoint_add` | Add a breakpoint/watchpoint/tracepoint |
+| `vice_monitor_breakpoint_list` | List configured checkpoints |
+| `vice_monitor_breakpoint_delete` | Delete a checkpoint |
+| `vice_session_send_keys` | Feed text into the VICE keyboard buffer |
+| `vice_session_attach_media` | Autostart/autoload media into a running VICE session |
+| `vice_monitor_display` | Capture the current display buffer as an indexed grayscale PGM preview |
+| `vice_monitor_reset` | Reset the system or one of the drives |
 | `vice_monitor_snapshot` | Save a VICE snapshot (`.vsf`) |
 | `vice_monitor_save` | Save a memory range as a PRG with load-address header |
 | `vice_monitor_binary_save` | Save a memory range as a raw binary |
@@ -224,13 +236,22 @@ Interactive runtime trace:
 3. user closes VICE manually
 4. `vice_trace_analyze_last_session`
 
+Or for an already running session:
+
+1. `vice_session_start`
+2. `vice_trace_start`
+3. user interacts with the program
+4. `vice_trace_stop` or user closes VICE
+5. `vice_trace_analyze_last_session`
+
 Breakpoint-driven debugging:
 
 1. `vice_session_start`
 2. `vice_debug_run`
-3. inspect with `vice_monitor_registers`, `vice_monitor_backtrace`, `vice_monitor_memory`, `vice_monitor_bank`
-4. move with `vice_monitor_step`, `vice_monitor_next`, `vice_monitor_continue`
-5. persist state with `vice_monitor_snapshot`, `vice_monitor_save`, `vice_monitor_binary_save`
+3. inspect with `vice_monitor_registers`, `vice_monitor_backtrace`, `vice_monitor_memory`, `vice_monitor_bank`, `vice_monitor_breakpoint_list`
+4. modify state if needed with `vice_monitor_set_registers`, `vice_monitor_write_memory`, `vice_session_send_keys`
+5. move with `vice_monitor_step`, `vice_monitor_next`, `vice_monitor_continue`, or `vice_monitor_reset`
+6. persist state with `vice_monitor_snapshot`, `vice_monitor_display`, `vice_monitor_save`, `vice_monitor_binary_save`
 
 ### Important Limitation
 

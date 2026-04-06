@@ -5,16 +5,23 @@ const API_VERSION = 0x02;
 const EVENT_REQUEST_ID = 0xffffffff;
 
 const RESPONSE_CHECKPOINT = 0x11;
+const RESPONSE_CHECKPOINT_LIST = 0x14;
 const RESPONSE_REGISTERS = 0x31;
 const RESPONSE_JAM = 0x61;
 const RESPONSE_STOPPED = 0x62;
 const RESPONSE_RESUMED = 0x63;
 
 const CMD_MEMORY_GET = 0x01;
+const CMD_MEMORY_SET = 0x02;
+const CMD_CHECKPOINT_DELETE = 0x13;
+const CMD_CHECKPOINT_LIST = 0x14;
 const CMD_CHECKPOINT_SET = 0x12;
 const CMD_REGISTERS_GET = 0x31;
+const CMD_REGISTERS_SET = 0x32;
+const CMD_DISPLAY_GET = 0x84;
 const CMD_DUMP = 0x41;
 const CMD_ADVANCE = 0x71;
+const CMD_KEYBOARD_FEED = 0x72;
 const CMD_EXECUTE_UNTIL_RETURN = 0x73;
 const CMD_PING = 0x81;
 const CMD_BANKS_AVAILABLE = 0x82;
@@ -23,6 +30,7 @@ const CMD_CPU_HISTORY = 0x86;
 const CMD_EXIT = 0xaa;
 const CMD_QUIT = 0xbb;
 const CMD_RESET = 0xcc;
+const CMD_AUTOSTART = 0xdd;
 
 const MAIN_MEMSPACE = 0x00;
 
@@ -67,6 +75,27 @@ export interface ViceCheckpointInfo {
   memspace: number;
 }
 
+export interface ViceDisplayBuffer {
+  debugWidth: number;
+  debugHeight: number;
+  xOffset: number;
+  yOffset: number;
+  innerWidth: number;
+  innerHeight: number;
+  bitsPerPixel: number;
+  pixels: Buffer;
+}
+
+export interface ViceSetCheckpointOptions {
+  startAddress: number;
+  endAddress: number;
+  stopWhenHit?: boolean;
+  enabled?: boolean;
+  operation?: number;
+  temporary?: boolean;
+  memspace?: ViceMemspace;
+}
+
 export interface ViceCpuHistoryItem {
   clock: string;
   registers: ViceRegisterValue[];
@@ -97,6 +126,12 @@ export class ViceMonitorClient {
   private nextRequestId = 1;
   private readonly pending = new Map<number, {
     resolve: (frame: ViceResponseFrame) => void;
+    reject: (error: Error) => void;
+    timer: NodeJS.Timeout;
+  }>();
+  private readonly checkpointListPending = new Map<number, {
+    checkpoints: ViceCheckpointInfo[];
+    resolve: (value: { checkpoints: ViceCheckpointInfo[]; count: number }) => void;
     reject: (error: Error) => void;
     timer: NodeJS.Timeout;
   }>();
@@ -241,15 +276,103 @@ export class ViceMonitorClient {
     return this.sendCommand(CMD_MEMORY_GET, body, (frame) => parseMemoryGet(frame.body));
   }
 
-  async setExecCheckpoint(address: number, temporary = false, stopWhenHit = true): Promise<ViceCheckpointInfo> {
-    const body = Buffer.alloc(8);
-    body.writeUInt16LE(address, 0);
-    body.writeUInt16LE(address, 2);
-    body.writeUInt8(stopWhenHit ? 1 : 0, 4);
-    body.writeUInt8(1, 5);
-    body.writeUInt8(0x04, 6);
-    body.writeUInt8(temporary ? 1 : 0, 7);
+  async writeMemory(startAddress: number, data: Buffer, bankId = 0, memspace: ViceMemspace = MAIN_MEMSPACE, sideEffects = false): Promise<void> {
+    if (data.length === 0) {
+      return;
+    }
+    const endAddress = startAddress + data.length - 1;
+    const body = Buffer.alloc(8 + data.length);
+    body.writeUInt8(sideEffects ? 1 : 0, 0);
+    body.writeUInt16LE(startAddress, 1);
+    body.writeUInt16LE(endAddress, 3);
+    body.writeUInt8(memspace, 5);
+    body.writeUInt16LE(bankId, 6);
+    data.copy(body, 8);
+    await this.sendCommand(CMD_MEMORY_SET, body, () => undefined);
+  }
+
+  async setCheckpoint(options: ViceSetCheckpointOptions): Promise<ViceCheckpointInfo> {
+    const includeMemspace = options.memspace !== undefined;
+    const body = Buffer.alloc(includeMemspace ? 9 : 8);
+    body.writeUInt16LE(options.startAddress, 0);
+    body.writeUInt16LE(options.endAddress, 2);
+    body.writeUInt8(options.stopWhenHit ?? true ? 1 : 0, 4);
+    body.writeUInt8(options.enabled ?? true ? 1 : 0, 5);
+    body.writeUInt8(options.operation ?? 0x04, 6);
+    body.writeUInt8(options.temporary ?? false ? 1 : 0, 7);
+    if (includeMemspace) {
+      body.writeUInt8(options.memspace ?? MAIN_MEMSPACE, 8);
+    }
     return this.sendCommand(CMD_CHECKPOINT_SET, body, (frame) => parseCheckpoint(frame.body));
+  }
+
+  async setExecCheckpoint(address: number, temporary = false, stopWhenHit = true): Promise<ViceCheckpointInfo> {
+    return this.setCheckpoint({
+      startAddress: address,
+      endAddress: address,
+      stopWhenHit,
+      enabled: true,
+      operation: 0x04,
+      temporary,
+      memspace: MAIN_MEMSPACE,
+    });
+  }
+
+  async listCheckpoints(): Promise<{ checkpoints: ViceCheckpointInfo[]; count: number }> {
+    return this.sendCheckpointListCommand(5_000);
+  }
+
+  async deleteCheckpoint(checkpointNumber: number): Promise<void> {
+    const body = Buffer.alloc(4);
+    body.writeUInt32LE(checkpointNumber, 0);
+    await this.sendCommand(CMD_CHECKPOINT_DELETE, body, () => undefined);
+  }
+
+  async setRegisters(registerValues: ViceRegisterValue[], memspace: ViceMemspace = MAIN_MEMSPACE): Promise<void> {
+    const body = Buffer.alloc(3 + registerValues.length * 4);
+    body.writeUInt8(memspace, 0);
+    body.writeUInt16LE(registerValues.length, 1);
+    let offset = 3;
+    for (const registerValue of registerValues) {
+      body.writeUInt8(3, offset);
+      body.writeUInt8(registerValue.id, offset + 1);
+      body.writeUInt16LE(registerValue.value, offset + 2);
+      offset += 4;
+    }
+    await this.sendCommand(CMD_REGISTERS_SET, body, () => undefined);
+  }
+
+  async keyboardFeed(text: Buffer): Promise<void> {
+    if (text.length > 0xff) {
+      throw new Error("Keyboard feed text must fit into 255 bytes.");
+    }
+    const body = Buffer.alloc(1 + text.length);
+    body.writeUInt8(text.length, 0);
+    text.copy(body, 1);
+    await this.sendCommand(CMD_KEYBOARD_FEED, body, () => undefined);
+  }
+
+  async autostart(filename: string, runAfterLoading = true, fileIndex = 0): Promise<void> {
+    const filenameBytes = Buffer.from(filename, "utf8");
+    if (filenameBytes.length > 0xff) {
+      throw new Error("Autostart filename must fit into 255 bytes.");
+    }
+    const body = Buffer.alloc(4 + filenameBytes.length);
+    body.writeUInt8(runAfterLoading ? 1 : 0, 0);
+    body.writeUInt16LE(fileIndex, 1);
+    body.writeUInt8(filenameBytes.length, 3);
+    filenameBytes.copy(body, 4);
+    await this.sendCommand(CMD_AUTOSTART, body, () => undefined);
+  }
+
+  async getDisplay(useVicII = true, format = 0): Promise<ViceDisplayBuffer> {
+    const body = Buffer.from([useVicII ? 1 : 0, format]);
+    return this.sendCommand(CMD_DISPLAY_GET, body, (frame) => parseDisplayGet(frame.body));
+  }
+
+  async reset(resetCode: number): Promise<void> {
+    const body = Buffer.from([resetCode & 0xff]);
+    await this.sendCommand(CMD_RESET, body, () => undefined);
   }
 
   async waitForEvent(
@@ -417,6 +540,22 @@ export class ViceMonitorClient {
     }
 
     const pending = this.pending.get(frame.requestId);
+    const checkpointListPending = this.checkpointListPending.get(frame.requestId);
+    if (checkpointListPending) {
+      if (frame.responseType === RESPONSE_CHECKPOINT) {
+        checkpointListPending.checkpoints.push(parseCheckpoint(frame.body));
+        return;
+      }
+      if (frame.responseType === RESPONSE_CHECKPOINT_LIST) {
+        clearTimeout(checkpointListPending.timer);
+        this.checkpointListPending.delete(frame.requestId);
+        checkpointListPending.resolve({
+          checkpoints: checkpointListPending.checkpoints,
+          count: frame.body.readUInt32LE(0),
+        });
+        return;
+      }
+    }
     if (!pending) {
       this.trace("monitor_unmatched_response", {
         requestId: frame.requestId,
@@ -437,6 +576,11 @@ export class ViceMonitorClient {
       pending.reject(new Error(`VICE monitor request ${requestId} aborted: ${error.message}`));
     }
     this.pending.clear();
+    for (const [requestId, pending] of this.checkpointListPending.entries()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(`VICE monitor request ${requestId} aborted: ${error.message}`));
+    }
+    this.checkpointListPending.clear();
     for (const waiter of this.eventWaiters) {
       if (waiter.timer) clearTimeout(waiter.timer);
       waiter.reject(error);
@@ -450,6 +594,61 @@ export class ViceMonitorClient {
 
   private trace(type: string, payload: object): void {
     this.options.onTraceEvent?.(type, payload);
+  }
+
+  private async sendCheckpointListCommand(timeoutMs: number): Promise<{ checkpoints: ViceCheckpointInfo[]; count: number }> {
+    return this.serialize(async () => {
+      await this.connect();
+      const socket = this.socket;
+      if (!socket) {
+        throw new Error("VICE monitor socket is not available.");
+      }
+
+      const requestId = this.nextRequestId++;
+      const frame = buildCommandFrame(requestId, CMD_CHECKPOINT_LIST, Buffer.alloc(0));
+      this.trace("monitor_command", {
+        requestId,
+        commandType: CMD_CHECKPOINT_LIST,
+        bodyLength: 0,
+      });
+
+      const responsePromise = new Promise<{ checkpoints: ViceCheckpointInfo[]; count: number }>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.checkpointListPending.delete(requestId);
+          reject(new Error("Timed out waiting for VICE checkpoint list response."));
+        }, timeoutMs);
+        this.checkpointListPending.set(requestId, {
+          checkpoints: [],
+          resolve,
+          reject,
+          timer,
+        });
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        socket.write(frame, (error) => {
+          if (error) {
+            const pending = this.checkpointListPending.get(requestId);
+            if (pending) {
+              clearTimeout(pending.timer);
+              this.checkpointListPending.delete(requestId);
+            }
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+
+      const response = await responsePromise;
+      this.trace("monitor_response", {
+        requestId,
+        responseType: RESPONSE_CHECKPOINT_LIST,
+        errorCode: 0,
+        count: response.count,
+      });
+      return response;
+    });
   }
 }
 
@@ -611,6 +810,29 @@ function parseCpuHistory(body: Buffer): ViceCpuHistoryItem[] {
   }
 
   return items;
+}
+
+function parseDisplayGet(body: Buffer): ViceDisplayBuffer {
+  const fieldLength = body.readUInt32LE(0);
+  const debugWidth = body.readUInt16LE(4);
+  const debugHeight = body.readUInt16LE(6);
+  const xOffset = body.readUInt16LE(8);
+  const yOffset = body.readUInt16LE(10);
+  const innerWidth = body.readUInt16LE(12);
+  const innerHeight = body.readUInt16LE(14);
+  const bitsPerPixel = body.readUInt8(16);
+  const bufferLength = body.readUInt32LE(17);
+  const pixelsStart = fieldLength;
+  return {
+    debugWidth,
+    debugHeight,
+    xOffset,
+    yOffset,
+    innerWidth,
+    innerHeight,
+    bitsPerPixel,
+    pixels: body.subarray(pixelsStart, pixelsStart + bufferLength),
+  };
 }
 
 function eventToTracePayload(event: ViceMonitorEvent): object {
