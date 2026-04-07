@@ -2,7 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { resolve, join, basename, extname } from "node:path";
+import { resolve, join, basename, extname, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runCli } from "./run-cli.js";
 import { assembleSource } from "./assemble-source.js";
 import { extractDiskImage, readDiskDirectory } from "./disk-extractor.js";
@@ -20,6 +21,10 @@ function projectDir(): string {
 
 function toolsDir(): string {
   return process.env.C64RE_TOOLS_DIR ?? projectDir();
+}
+
+function repoDir(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..");
 }
 
 function readTextFile(path: string, maxBytes = 2 * 1024 * 1024): string {
@@ -101,6 +106,10 @@ function defaultViceExportPath(kind: "snapshot" | "prg" | "bin", startAddress?: 
 function defaultViceDisplayPath(): string {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   return join(projectDir(), "analysis", "runtime", "exports", `display-${stamp}.pgm`);
+}
+
+function canonicalWorkflowSkillPath(): string {
+  return resolve(repoDir(), "docs", "c64-reverse-engineering-skill.md");
 }
 
 function parseViceMemspace(value?: string): ViceMemspace {
@@ -1590,6 +1599,32 @@ Practical advice:
         },
       }],
     }),
+  );
+
+  // ── Prompt: c64re-get-skill ──────────────────────────────────────────
+  server.prompt(
+    "c64re_get_skill",
+    "Return the canonical C64 reverse-engineering workflow/skill text shipped with this MCP.",
+    {},
+    async () => {
+      const skillPath = canonicalWorkflowSkillPath();
+      const skillText = readTextFile(skillPath);
+      return {
+        messages: [{
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: `# Canonical C64 RE Workflow Skill
+
+Use the following document as the strict workflow/playbook for C64 reverse engineering with this MCP.
+
+Source: \`${skillPath}\`
+
+${skillText}`,
+          },
+        }],
+      };
+    },
   );
 
   // ── Prompt: full-re-workflow ──────────────────────────────────────────

@@ -201,6 +201,7 @@ The annotations only affect comments, labels, and segment headers — never the 
 
 | Prompt | Description |
 |---|---|
+| `c64re_get_skill` | Return the canonical repo-shipped C64 reverse-engineering workflow/skill text |
 | `full_re_workflow` | Complete 3-phase workflow with strict sequential steps and file naming |
 | `classify_unknown` | Targeted classification of a single unknown segment |
 | `generate_annotations` | Produce `_annotations.json` from a disassembly |
@@ -208,6 +209,8 @@ The annotations only affect comments, labels, and segment headers — never the 
 | `annotate_asm` | Write semantic comments directly into an ASM file |
 | `disk_re_workflow` | Triage and analyze D64/G64 disk images |
 | `debug_workflow` | Guidance for combining VICE runtime trace and breakpoint-driven monitor tools |
+
+The canonical workflow text also lives in [docs/c64-reverse-engineering-skill.md](/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/docs/c64-reverse-engineering-skill.md).
 
 ## VICE Runtime Notes
 
