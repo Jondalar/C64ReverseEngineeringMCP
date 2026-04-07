@@ -144,6 +144,7 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `vice_monitor_breakpoint_list` | List configured checkpoints |
 | `vice_monitor_breakpoint_delete` | Delete a checkpoint |
 | `vice_session_send_keys` | Feed text into the VICE keyboard buffer |
+| `vice_session_joystick` | Send keyset-based joystick input into the visible VICE session using the copied VICE config |
 | `vice_session_attach_media` | Autostart/autoload media into a running VICE session |
 | `vice_monitor_display` | Capture the current display buffer as an indexed grayscale PGM preview |
 | `vice_monitor_reset` | Reset the system or one of the drives |

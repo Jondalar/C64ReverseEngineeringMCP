@@ -1,10 +1,12 @@
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createViceConfigWorkspace } from "./config-workspace.js";
 import { launchViceProcess, waitForMonitorPort, isMonitorPortOpen } from "./process-launcher.js";
 import { allocateViceMonitorPort } from "./port-allocator.js";
 import { analyzeRuntimeTrace, analyzeTrace, writeTraceSnapshot, type ViceTraceSnapshot } from "./trace-analyzer.js";
+import { keyCodeForViceCharacter, sendMacOsKeyCodesToProcess } from "./macos-input.js";
 import {
   ViceMonitorClient,
   type ViceBankDescriptor,
@@ -26,9 +28,14 @@ import {
   type ViceTraceSummary,
 } from "./types.js";
 
+interface ManagedViceProcessHandle {
+  pid?: number;
+  kill(signal?: NodeJS.Signals | number): boolean;
+}
+
 interface ActiveViceSession {
   record: ViceSessionRecord;
-  child: ChildProcess;
+  child: ManagedViceProcessHandle;
   monitorClient?: ViceMonitorClient;
   registerDescriptors?: ViceRegisterDescriptor[];
   runtimeTraceState?: {
@@ -73,6 +80,20 @@ export interface ViceDisplayCaptureResult {
   bitsPerPixel: number;
   bytesWritten: number;
 }
+
+export type ViceJoystickDirection = "up" | "down" | "left" | "right" | "fire";
+
+const VICE_SPECIAL_KEY_BYTES: Record<string, number[]> = {
+  F1: [0x85],
+  F2: [0x89],
+  F3: [0x86],
+  F4: [0x8a],
+  F5: [0x87],
+  F6: [0x8b],
+  F7: [0x88],
+  F8: [0x8c],
+  RETURN: [0x0d],
+};
 
 export class ViceSessionManager {
   private activeSession?: ActiveViceSession;
@@ -179,7 +200,7 @@ export class ViceSessionManager {
   }
 
   async getStatus(): Promise<ViceSessionRecord | undefined> {
-    await this.reconcileExitedSession();
+    await this.ensureActiveSessionLoaded();
     const record = this.activeSession?.record ?? this.lastSession;
     if (!record) {
       return undefined;
@@ -192,7 +213,7 @@ export class ViceSessionManager {
   }
 
   async stopSession(): Promise<ViceSessionStopResult> {
-    await this.reconcileExitedSession();
+    await this.ensureActiveSessionLoaded();
     if (!this.activeSession) {
       if (!this.lastSession) {
         throw new Error("No VICE session exists.");
@@ -266,6 +287,7 @@ export class ViceSessionManager {
   }
 
   async readRegisters(): Promise<{ registers: ViceRegisterValue[]; descriptors: ViceRegisterDescriptor[] }> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const descriptors = active.registerDescriptors ?? await client.getRegistersAvailable();
@@ -281,6 +303,7 @@ export class ViceSessionManager {
     if (endAddress < startAddress) {
       throw new Error("endAddress must be >= startAddress");
     }
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const chunks: Buffer[] = [];
@@ -293,6 +316,7 @@ export class ViceSessionManager {
   }
 
   async writeMemory(startAddress: number, data: Buffer, bankId = 0, memspace: ViceMemspace = 0x00, sideEffects = false): Promise<void> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     for (let offset = 0; offset < data.length; offset += MAX_MEMORY_READ_CHUNK) {
@@ -309,6 +333,7 @@ export class ViceSessionManager {
   }
 
   async setRegistersByName(values: Record<string, number>, memspace: ViceMemspace = 0x00): Promise<ViceRegisterValue[]> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const descriptors = active.registerDescriptors ?? await client.getRegistersAvailable(memspace);
@@ -336,6 +361,7 @@ export class ViceSessionManager {
   }
 
   async getBanksAvailable(): Promise<ViceBankDescriptor[]> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     return client.getBanksAvailable();
@@ -350,6 +376,7 @@ export class ViceSessionManager {
     temporary?: boolean;
     memspace?: ViceMemspace;
   }): Promise<ViceCheckpointInfo> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const checkpoint = await client.setCheckpoint({
@@ -373,12 +400,14 @@ export class ViceSessionManager {
   }
 
   async listBreakpoints() {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     return client.listCheckpoints();
   }
 
   async deleteBreakpoint(checkpointNumber: number): Promise<void> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     await client.deleteCheckpoint(checkpointNumber);
@@ -388,17 +417,78 @@ export class ViceSessionManager {
   }
 
   async sendKeys(text: string): Promise<void> {
-    const active = this.requireActiveSession();
-    const client = await this.getOrCreateMonitorClient(active);
+    await this.ensureActiveSessionLoaded();
     const bytes = Buffer.from(text, "latin1");
-    await client.keyboardFeed(bytes);
-    await this.writeEvent(active.record, "keyboard_feed", {
+    await this.sendKeyboardBytes(bytes, {
       text,
       bytes: bytes.length,
     });
   }
 
+  async sendPetsciiBytes(values: number[]): Promise<void> {
+    await this.ensureActiveSessionLoaded();
+    const bytes = Buffer.from(values.map((value) => value & 0xff));
+    await this.sendKeyboardBytes(bytes, {
+      petsciiBytes: values.map((value) => value & 0xff),
+      bytes: bytes.length,
+    });
+  }
+
+  async sendSpecialKeys(keys: string[]): Promise<number[]> {
+    await this.ensureActiveSessionLoaded();
+    const resolved = keys.flatMap((key) => {
+      const bytes = VICE_SPECIAL_KEY_BYTES[key.toUpperCase()];
+      if (!bytes) {
+        throw new Error(`Unsupported special VICE key: ${key}`);
+      }
+      return bytes;
+    });
+    await this.sendPetsciiBytes(resolved);
+    return resolved;
+  }
+
+  private async sendKeyboardBytes(bytes: Buffer, payload: object): Promise<void> {
+    const active = this.requireActiveSession();
+    const client = await this.getOrCreateMonitorClient(active);
+    await client.keyboardFeed(bytes);
+    await this.writeEvent(active.record, "keyboard_feed", {
+      ...payload,
+    });
+  }
+
+  async sendJoystickInput(
+    port: number,
+    directions: ViceJoystickDirection[],
+    durationMs: number,
+  ): Promise<{ keyCodes: number[]; characters: string[] }> {
+    await this.ensureActiveSessionLoaded();
+    const active = this.requireActiveSession();
+    if (process.platform !== "darwin") {
+      throw new Error("Joystick input injection is currently implemented for macOS only.");
+    }
+    if (!active.child.pid) {
+      throw new Error("VICE PID is unavailable for joystick input injection.");
+    }
+
+    const mapping = await loadViceKeysetMapping(active.record.workspace.vicercPath, port);
+    const characters = Array.from(new Set(directions.map((direction) => mapping[direction])));
+    const keyCodes = characters.map((character) => keyCodeForViceCharacter(character));
+    await sendMacOsKeyCodesToProcess(active.child.pid, keyCodes, durationMs);
+    await this.writeEvent(active.record, "joystick_input", {
+      port,
+      directions,
+      durationMs,
+      characters,
+      keyCodes,
+    });
+    return {
+      keyCodes,
+      characters,
+    };
+  }
+
   async attachMedia(mediaPath: string, runAfterLoading = true, fileIndex = 0): Promise<void> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const absolutePath = resolve(this.projectDir, mediaPath);
@@ -417,6 +507,7 @@ export class ViceSessionManager {
   }
 
   async captureDisplay(outputPath: string, useVicII = true): Promise<ViceDisplayCaptureResult> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const absolutePath = resolve(this.projectDir, outputPath);
@@ -458,6 +549,7 @@ export class ViceSessionManager {
   }
 
   async resetMachine(target: number): Promise<void> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     await client.reset(target);
@@ -467,6 +559,7 @@ export class ViceSessionManager {
   }
 
   async saveSnapshot(outputPath: string, saveRoms = true, saveDisks = true): Promise<string> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const absolutePath = resolve(this.projectDir, outputPath);
@@ -490,6 +583,7 @@ export class ViceSessionManager {
       includeLoadAddress?: boolean;
     } = {},
   ): Promise<{ outputPath: string; bytesWritten: number; bankId: number; memspace: ViceMemspace }> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const bankId = options.bankId ?? 0;
     const memspace = options.memspace ?? 0x00;
@@ -522,6 +616,7 @@ export class ViceSessionManager {
     stackPointer: number;
     stackBase: number;
   }> {
+    await this.ensureActiveSessionLoaded();
     const { registers, descriptors } = await this.readRegisters();
     const nameById = new Map(descriptors.map((descriptor) => [descriptor.id, descriptor.name.toUpperCase()]));
     const registerByName = new Map(
@@ -556,12 +651,14 @@ export class ViceSessionManager {
   }
 
   async readCpuHistory(count: number): Promise<ViceCpuHistoryItem[]> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     return client.getCpuHistory(count);
   }
 
   async continueExecution(): Promise<{ pc: number }> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const afterSequence = client.currentEventSequence;
@@ -570,10 +667,12 @@ export class ViceSessionManager {
   }
 
   async resetSystem(powerCycle = false): Promise<void> {
+    await this.ensureActiveSessionLoaded();
     await this.resetMachine(powerCycle ? 0x01 : 0x00);
   }
 
   async stepInto(): Promise<{ pc: number }> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const afterSequence = client.currentEventSequence;
@@ -582,6 +681,7 @@ export class ViceSessionManager {
   }
 
   async stepOver(): Promise<{ pc: number }> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const client = await this.getOrCreateMonitorClient(active);
     const afterSequence = client.currentEventSequence;
@@ -593,6 +693,7 @@ export class ViceSessionManager {
     event: ViceMonitorEvent;
     breakpoints: number[];
   }> {
+    await this.ensureActiveSessionLoaded();
     if (breakpointAddresses.length === 0) {
       throw new Error("At least one breakpoint is required.");
     }
@@ -622,6 +723,7 @@ export class ViceSessionManager {
     stopMethod: ViceSessionStopResult["stopMethod"];
     analysis: ViceTraceAnalysis;
   }> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     const traceSnapshot = await this.captureTraceSnapshot(active, cpuHistoryCount);
     const stopResult = await this.stopSession();
@@ -648,17 +750,20 @@ export class ViceSessionManager {
   }
 
   async startRuntimeTrace(config: ViceRuntimeTraceConfig): Promise<ViceRuntimeTraceStatus> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
     if (active.record.state !== "running") {
       throw new Error("VICE must be running before runtime tracing can start.");
     }
 
     const existing = active.runtimeTraceState;
-    if (existing?.running) {
+    if (active.record.runtimeTraceActive && isProcessAlive(active.record.runtimeTraceWorkerPid)) {
       throw new Error("Runtime trace is already active.");
     }
 
     active.record.runtimeTrace = config;
+    active.record.runtimeTraceActive = true;
+    active.record.runtimeTraceWorkerPid = undefined;
     active.runtimeTraceState = {
       config,
       running: true,
@@ -675,18 +780,25 @@ export class ViceSessionManager {
       nextSampleIndex: active.runtimeTraceState.sampleIndex,
     });
     await this.persistRecord(active.record);
-    this.scheduleRuntimeTraceSample(active, Math.min(config.intervalMs, RUNTIME_TRACE_INITIAL_DELAY_MS));
+    active.record.runtimeTraceWorkerPid = await launchRuntimeTraceWorker(active.record.workspace.sessionPath);
+    await this.persistRecord(active.record);
+    await this.writeEvent(active.record, "runtime_trace_worker_spawned", {
+      pid: active.record.runtimeTraceWorkerPid,
+    });
     return this.buildRuntimeTraceStatus(active);
   }
 
   async stopRuntimeTrace(): Promise<ViceRuntimeTraceStatus> {
+    await this.ensureActiveSessionLoaded();
     const active = this.requireActiveSession();
+    active.runtimeTraceState = await loadRuntimeTraceState(active.record);
     const state = active.runtimeTraceState;
     if (!state?.running) {
       throw new Error("Runtime trace is not active.");
     }
 
     state.running = false;
+    active.record.runtimeTraceActive = false;
     if (state.timer) {
       clearTimeout(state.timer);
       state.timer = undefined;
@@ -696,14 +808,18 @@ export class ViceSessionManager {
       lastClock: state.lastClock?.toString(),
     });
     await this.persistRecord(active.record);
+    await stopRuntimeTraceWorker(active.record.runtimeTraceWorkerPid);
+    active.record.runtimeTraceWorkerPid = undefined;
+    await this.persistRecord(active.record);
     return this.buildRuntimeTraceStatus(active);
   }
 
   async getRuntimeTraceStatus(): Promise<ViceRuntimeTraceStatus | undefined> {
-    await this.reconcileExitedSession();
+    await this.ensureActiveSessionLoaded();
     if (!this.activeSession) {
       return undefined;
     }
+    this.activeSession.runtimeTraceState = await loadRuntimeTraceState(this.activeSession.record);
     return this.buildRuntimeTraceStatus(this.activeSession);
   }
 
@@ -712,8 +828,33 @@ export class ViceSessionManager {
       return;
     }
     if (!isProcessAlive(this.activeSession.child.pid) && this.activeSession.record.state !== "stopped") {
-      await waitForExit(this.activeSession, 100);
+      await this.handleProcessExit(this.activeSession, null, null, undefined);
     }
+  }
+
+  private async ensureActiveSessionLoaded(): Promise<void> {
+    await this.reconcileExitedSession();
+    if (this.activeSession) {
+      if (this.activeSession.record.runtimeTraceActive) {
+        this.activeSession.runtimeTraceState = await loadRuntimeTraceState(this.activeSession.record);
+      }
+      return;
+    }
+
+    const record = await this.loadRunningSessionFromDisk();
+    if (!record) {
+      return;
+    }
+
+    const exitDeferred = createDeferred();
+    this.activeSession = {
+      record,
+      child: createExternalProcessHandle(record.pid),
+      exitPromise: exitDeferred.promise,
+      resolveExit: exitDeferred.resolve,
+      runtimeTraceState: await loadRuntimeTraceState(record),
+    };
+    this.lastSession = undefined;
   }
 
   private resolveMediaConfig(options: ViceSessionStartOptions): ViceMediaConfig | undefined {
@@ -769,6 +910,9 @@ export class ViceSessionManager {
         clearTimeout(active.runtimeTraceState.timer);
       }
     }
+    record.runtimeTraceActive = false;
+    await stopRuntimeTraceWorker(record.runtimeTraceWorkerPid);
+    record.runtimeTraceWorkerPid = undefined;
     active.monitorClient?.close();
 
     await this.writeEvent(record, "process_exited", {
@@ -904,6 +1048,49 @@ export class ViceSessionManager {
       ?.record;
   }
 
+  private async loadRunningSessionFromDisk(): Promise<ViceSessionRecord | undefined> {
+    const runtimeRoot = join(this.projectDir, "analysis", "runtime");
+    let entries;
+    try {
+      entries = await readdir(runtimeRoot, { withFileTypes: true });
+    } catch {
+      return undefined;
+    }
+
+    const sessions = await Promise.all(entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const sessionPath = join(runtimeRoot, entry.name, "session.json");
+        try {
+          const [sessionText, stats] = await Promise.all([
+            readFile(sessionPath, "utf8"),
+            stat(sessionPath),
+          ]);
+          const record = JSON.parse(sessionText) as ViceSessionRecord;
+          if (record.projectDir !== this.projectDir) {
+            return undefined;
+          }
+          if (record.state !== "running" && record.state !== "stopping") {
+            return undefined;
+          }
+          if (!isProcessAlive(record.pid)) {
+            return undefined;
+          }
+          return {
+            record,
+            mtimeMs: stats.mtimeMs,
+          };
+        } catch {
+          return undefined;
+        }
+      }));
+
+    return sessions
+      .filter((value): value is { record: ViceSessionRecord; mtimeMs: number } => Boolean(value))
+      .sort((left, right) => right.mtimeMs - left.mtimeMs)[0]
+      ?.record;
+  }
+
   private scheduleRuntimeTraceSample(active: ActiveViceSession, delayMs = active.runtimeTraceState?.config.intervalMs): void {
     const state = active.runtimeTraceState;
     if (!state || !state.running) {
@@ -921,7 +1108,7 @@ export class ViceSessionManager {
     const state = active.runtimeTraceState;
     return {
       sessionId: active.record.sessionId,
-      active: Boolean(state?.running),
+      active: Boolean(active.record.runtimeTraceActive && isProcessAlive(active.record.runtimeTraceWorkerPid)),
       intervalMs: state?.config.intervalMs ?? active.record.runtimeTrace?.intervalMs,
       cpuHistoryCount: state?.config.cpuHistoryCount ?? active.record.runtimeTrace?.cpuHistoryCount,
       monitorChisLines: state?.config.monitorChisLines ?? active.record.runtimeTrace?.monitorChisLines,
@@ -1044,13 +1231,156 @@ function createDeferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+async function loadViceKeysetMapping(
+  vicercPath: string,
+  port: number,
+): Promise<Record<ViceJoystickDirection, string>> {
+  const configText = await readFile(vicercPath, "utf8");
+  const resourceMap = parseViceResourceMap(configText);
+  const joyDevice = resourceMap.get(`JoyDevice${port}`);
+  if (joyDevice !== "3") {
+    throw new Error(`JoyDevice${port} is not configured as keyset joystick in ${vicercPath}. Current value: ${joyDevice ?? "unset"}.`);
+  }
+
+  return {
+    up: parseViceKeyCharacter(resourceMap, `KeySet${port}North`),
+    right: parseViceKeyCharacter(resourceMap, `KeySet${port}East`),
+    down: parseViceKeyCharacter(resourceMap, `KeySet${port}South`),
+    left: parseViceKeyCharacter(resourceMap, `KeySet${port}West`),
+    fire: parseViceKeyCharacter(resourceMap, `KeySet${port}Fire`),
+  };
+}
+
+function parseViceResourceMap(configText: string): Map<string, string> {
+  const resourceMap = new Map<string, string>();
+  for (const rawLine of configText.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith("[") || !line.includes("=")) {
+      continue;
+    }
+    const separatorIndex = line.indexOf("=");
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim().replace(/^"(.*)"$/u, "$1");
+    resourceMap.set(key, value);
+  }
+  return resourceMap;
+}
+
+function parseViceKeyCharacter(resourceMap: Map<string, string>, key: string): string {
+  const value = resourceMap.get(key);
+  if (!value) {
+    throw new Error(`Missing ${key} in copied VICE config.`);
+  }
+  const codePoint = Number.parseInt(value, 10);
+  if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 255) {
+    throw new Error(`Unsupported ${key} value ${value}; expected ASCII-compatible key code.`);
+  }
+  return String.fromCharCode(codePoint);
+}
+
+async function launchRuntimeTraceWorker(sessionPath: string): Promise<number | undefined> {
+  const workerPath = fileURLToPath(new URL("./trace-worker.js", import.meta.url));
+  const child = spawn(process.execPath, [workerPath, sessionPath], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  return child.pid;
+}
+
+async function stopRuntimeTraceWorker(pid?: number): Promise<void> {
+  if (!isProcessAlive(pid)) {
+    return;
+  }
+  try {
+    process.kill(pid!, "SIGTERM");
+  } catch {
+    // ignore missing or already-exited worker processes
+  }
+}
+
+async function loadRuntimeTraceState(record: ViceSessionRecord): Promise<ActiveViceSession["runtimeTraceState"]> {
+  if (!record.runtimeTrace) {
+    return undefined;
+  }
+
+  let running = false;
+  let sampleIndex = 0;
+  let lastClock: bigint | undefined;
+
+  try {
+    const eventsText = await readFile(record.workspace.eventsLogPath, "utf8");
+    for (const rawLine of eventsText.split(/\r?\n/u)) {
+      const line = rawLine.trim();
+      if (!line) {
+        continue;
+      }
+      try {
+        const event = JSON.parse(line) as {
+          type?: string;
+          payload?: {
+            sampleIndex?: number;
+            nextSampleIndex?: number;
+            lastClock?: string;
+            clockLast?: string;
+          };
+        };
+        switch (event.type) {
+          case "runtime_trace_started":
+            running = true;
+            sampleIndex = event.payload?.nextSampleIndex ?? sampleIndex;
+            break;
+          case "runtime_trace_stopped":
+            running = false;
+            if (event.payload?.sampleIndex !== undefined) {
+              sampleIndex = event.payload.sampleIndex;
+            }
+            if (event.payload?.lastClock) {
+              lastClock = BigInt(event.payload.lastClock);
+            }
+            break;
+          case "runtime_trace_sample":
+            if (event.payload?.sampleIndex !== undefined) {
+              sampleIndex = Math.max(sampleIndex, event.payload.sampleIndex + 1);
+            }
+            if (event.payload?.clockLast) {
+              lastClock = BigInt(event.payload.clockLast);
+            }
+            break;
+          default:
+            break;
+        }
+      } catch {
+        // ignore malformed event rows during trace-state recovery
+      }
+    }
+  } catch {
+    // missing event log is tolerated for reattach
+  }
+
+  return {
+    config: record.runtimeTrace,
+    running,
+    sampleIndex,
+    lastClock,
+  };
+}
+
 async function waitForExit(active: ActiveViceSession, timeoutMs: number): Promise<boolean> {
-  const timedOut = Symbol("timeout");
-  const result = await Promise.race([
-    active.exitPromise.then(() => true),
-    new Promise<symbol>((resolve) => setTimeout(() => resolve(timedOut), timeoutMs)),
-  ]);
-  return result !== timedOut;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(active.child.pid)) {
+      return true;
+    }
+    const settled = await Promise.race([
+      active.exitPromise.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 100)),
+    ]);
+    if (settled) {
+      return true;
+    }
+  }
+  return !isProcessAlive(active.child.pid);
 }
 
 function isProcessAlive(pid: number | undefined): boolean {
@@ -1063,6 +1393,23 @@ function isProcessAlive(pid: number | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function createExternalProcessHandle(pid: number | undefined): ManagedViceProcessHandle {
+  return {
+    pid,
+    kill(signal?: NodeJS.Signals | number): boolean {
+      if (!pid) {
+        return false;
+      }
+      try {
+        process.kill(pid, signal ?? "SIGTERM");
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
 }
 
 function computeDurationMs(startedAt?: string, stoppedAt?: string): number | undefined {

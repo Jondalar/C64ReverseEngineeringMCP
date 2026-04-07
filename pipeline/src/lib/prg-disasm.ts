@@ -62,6 +62,20 @@ interface RenderAnalysisContext {
   annotations?: AnnotationsIndex;
 }
 
+function cloneSegment(base: Segment, start: number, end: number, kind = base.kind): Segment {
+  return {
+    kind,
+    start,
+    end,
+    length: end - start + 1,
+    score: base.score,
+    analyzerIds: [...base.analyzerIds],
+    xrefs: [...base.xrefs],
+    preview: undefined,
+    attributes: base.attributes ? { ...base.attributes } : undefined,
+  };
+}
+
 interface InferredVicTargets {
   bankBases: number[];
   screenAddresses: number[];
@@ -632,6 +646,94 @@ function buildAnalysisContext(report: AnalysisReport): RenderAnalysisContext {
     pointerFactsByStart: groupByStart(report.codeSemantics?.indirectPointers?.filter((fact) => fact.provenance === "confirmed_code")),
     tableFactsByStart: groupByStart(report.codeSemantics?.tableUsages?.filter((fact) => fact.provenance === "confirmed_code")),
     displayTransfersByStart: groupByStart(report.codeSemantics?.displayTransfers),
+  };
+}
+
+function buildAnnotatedSegments(segments: Segment[], annotations?: AnnotationsIndex["segmentAnnotations"]): Segment[] {
+  if (!annotations || annotations.length === 0) {
+    return segments;
+  }
+  const splitSegments: Segment[] = [];
+  for (const segment of segments) {
+    let contained = annotations.filter(({ start, end }) => start >= segment.start && end <= segment.end);
+    const hasStrictContained = contained.some(({ start, end }) => start !== segment.start || end !== segment.end);
+    if (hasStrictContained) {
+      contained = contained.filter(({ start, end }) => start !== segment.start || end !== segment.end);
+    }
+    if (contained.length === 0) {
+      splitSegments.push(segment);
+      continue;
+    }
+
+    let cursor = segment.start;
+    let emittedAny = false;
+    for (const entry of contained) {
+      if (entry.start < cursor) {
+        continue;
+      }
+
+      if (entry.start > cursor) {
+        splitSegments.push(cloneSegment(segment, cursor, entry.start - 1));
+      }
+
+      splitSegments.push(cloneSegment(segment, entry.start, entry.end, entry.annotation.kind));
+      emittedAny = true;
+      cursor = entry.end + 1;
+    }
+
+    if (!emittedAny) {
+      splitSegments.push(segment);
+      continue;
+    }
+
+    if (cursor <= segment.end) {
+      splitSegments.push(cloneSegment(segment, cursor, segment.end));
+    }
+  }
+
+  return splitSegments.sort((left, right) => left.start - right.start);
+}
+
+function applyAnnotationSegmentSplits(context: RenderAnalysisContext): void {
+  const splitSegments = buildAnnotatedSegments(context.segments, context.annotations?.segmentAnnotations);
+  context.segments = splitSegments;
+  context.segmentOwnerByAddress.clear();
+  for (const segment of context.segments) {
+    context.labelSet.add(segment.start);
+    for (let address = segment.start; address <= segment.end; address += 1) {
+      context.segmentOwnerByAddress.set(address, segment.start);
+    }
+  }
+}
+
+function decodeInstructionFactAtAddress(prg: PrgImage, address: number): InstructionFact | undefined {
+  const offset = address - prg.loadAddress;
+  if (offset < 0 || offset >= prg.data.length) {
+    return undefined;
+  }
+
+  const decoded = decodeInstruction(prg.data, offset, prg.loadAddress);
+  return {
+    address: decoded.address,
+    opcode: decoded.opcode,
+    size: decoded.size,
+    bytes: decoded.bytes,
+    mnemonic: decoded.mnemonic,
+    addressingMode: decoded.mode,
+    operandText: "",
+    operandValue: decoded.operand,
+    targetAddress: decoded.targetAddress,
+    fallthroughAddress: decoded.address + decoded.size,
+    isKnownOpcode: !decoded.isUnknown,
+    isUndocumented: decoded.isUndocumented,
+    isControlFlow:
+      isBranchInstruction(decoded)
+      || isCallInstruction(decoded)
+      || isJumpInstruction(decoded)
+      || decoded.mnemonic === "rts"
+      || decoded.mnemonic === "rti"
+      || decoded.mnemonic === "brk",
+    provenance: "probable_code",
   };
 }
 
@@ -1440,13 +1542,28 @@ function renderAnalysisPreface(context: RenderAnalysisContext): string[] {
   return lines;
 }
 
-function renderAddressAliasLabels(context: RenderAnalysisContext): string[] {
+function renderAddressAliasLabels(context: RenderAnalysisContext, prg: PrgImage): string[] {
   const lines: string[] = [];
-  const codeLikeSegments = context.segments.filter((segment) => segment.kind === "code" || segment.kind === "basic_stub");
-  const instructionStarts = new Set(context.instructions.keys());
+  const codeLikeSegments = buildAnnotatedSegments(context.segments, context.annotations?.segmentAnnotations)
+    .filter((segment) => segment.kind === "code" || segment.kind === "basic_stub");
+  const instructionStarts = new Set<number>();
+  for (const segment of codeLikeSegments) {
+    let address = segment.start;
+    while (address <= segment.end) {
+      const instruction = context.instructions.get(address) ?? decodeInstructionFactAtAddress(prg, address);
+      if (!instruction) {
+        address += 1;
+        continue;
+      }
+      instructionStarts.add(instruction.address);
+      address += instruction.size;
+    }
+  }
+  const segmentStarts = new Set(codeLikeSegments.map((segment) => segment.start));
   const aliasAddresses = Array.from(context.labelSet)
     .filter((address) =>
       codeLikeSegments.some((segment) => address >= segment.start && address <= segment.end) &&
+      !segmentStarts.has(address) &&
       !instructionStarts.has(address) &&
       !context.instructionOwnerByAddress.has(address),
     )
@@ -1473,7 +1590,7 @@ function renderCodeSegment(
   let address = segment.start;
   let prevInstruction: InstructionFact | undefined;
   while (address <= segment.end) {
-    const instruction = context.instructions.get(address);
+    const instruction = context.instructions.get(address) ?? decodeInstructionFactAtAddress(prg, address);
     if (!instruction) {
       emitByteRange(prg.data, prg.loadAddress, address, address, lines);
       address += 1;
@@ -1540,7 +1657,7 @@ function renderCodeSegment(
 
 function renderWithAnalysis(prg: PrgImage, analysis: RenderAnalysisContext, lines: string[]): void {
   lines.push(...renderAnalysisPreface(analysis));
-  for (const segment of analysis.segments) {
+  for (const segment of buildAnnotatedSegments(analysis.segments, analysis.annotations?.segmentAnnotations)) {
     lines.push(...segmentHeader(segment, analysis));
 
     if (!(segment.kind === "code" || segment.kind === "basic_stub") && analysis.labelSet.has(segment.start)) {
@@ -1635,6 +1752,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     ?? (options.analysisPath ? loadAnnotations(resolve(options.analysisPath)) : undefined);
   if (annotationsFile && analysisContext) {
     analysisContext.annotations = buildAnnotationsIndex(annotationsFile);
+    applyAnnotationSegmentSplits(analysisContext);
   }
   activeAnnotations = analysisContext?.annotations;
 
@@ -1655,7 +1773,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   ];
 
   if (analysisContext) {
-    lines.push(...renderAddressAliasLabels(analysisContext));
+    lines.push(...renderAddressAliasLabels(analysisContext, prg));
     renderWithAnalysis(prg, analysisContext, lines);
   } else {
     renderLegacy(prg, options.entryPoints ?? [], lines);

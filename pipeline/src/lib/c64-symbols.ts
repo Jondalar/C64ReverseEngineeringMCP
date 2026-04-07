@@ -85,14 +85,7 @@ export function findC64IoMetadata(address: number): C64IoMetadata | undefined {
 }
 
 export function isC64IoAddress(address: number): boolean {
-  return (
-    (address >= 0xd000 && address <= 0xd02e) ||
-    (address >= 0xd400 && address <= 0xd418) ||
-    (address >= 0xdc00 && address <= 0xdc0d) ||
-    (address >= 0xdd00 && address <= 0xdd0d) ||
-    address === 0xde00 ||
-    address === 0xde02
-  );
+  return address >= 0xd000 && address <= 0xdfff;
 }
 
 export function formatC64IoAddress(address: number): string {

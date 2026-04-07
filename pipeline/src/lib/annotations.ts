@@ -32,6 +32,7 @@ export interface AnnotationsFile {
 
 export interface AnnotationsIndex {
   segmentsByStart: Map<number, SegmentAnnotation>;
+  segmentAnnotations: Array<{ start: number; end: number; annotation: SegmentAnnotation }>;
   labelsByAddress: Map<number, LabelAnnotation>;
   routinesByAddress: Map<number, RoutineAnnotation>;
 }
@@ -42,11 +43,15 @@ function parseHex(hex: string): number {
 
 export function buildAnnotationsIndex(annotations: AnnotationsFile): AnnotationsIndex {
   const segmentsByStart = new Map<number, SegmentAnnotation>();
+  const segmentAnnotations: Array<{ start: number; end: number; annotation: SegmentAnnotation }> = [];
   const labelsByAddress = new Map<number, LabelAnnotation>();
   const routinesByAddress = new Map<number, RoutineAnnotation>();
 
   for (const seg of annotations.segments) {
-    segmentsByStart.set(parseHex(seg.start), seg);
+    const start = parseHex(seg.start);
+    const end = parseHex(seg.end);
+    segmentsByStart.set(start, seg);
+    segmentAnnotations.push({ start, end, annotation: seg });
   }
   for (const lbl of annotations.labels) {
     labelsByAddress.set(parseHex(lbl.address), lbl);
@@ -55,7 +60,9 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
     routinesByAddress.set(parseHex(rt.address), rt);
   }
 
-  return { segmentsByStart, labelsByAddress, routinesByAddress };
+  segmentAnnotations.sort((left, right) => left.start - right.start || left.end - right.end);
+
+  return { segmentsByStart, segmentAnnotations, labelsByAddress, routinesByAddress };
 }
 
 export function loadAnnotations(prgPath: string, explicitPath?: string): AnnotationsFile | undefined {

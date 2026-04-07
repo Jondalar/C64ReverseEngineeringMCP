@@ -67,6 +67,8 @@ export interface ViceSessionRecord {
   monitorReady: boolean;
   media?: ViceMediaConfig;
   runtimeTrace?: ViceRuntimeTraceConfig;
+  runtimeTraceActive?: boolean;
+  runtimeTraceWorkerPid?: number;
   workspace: ViceWorkspacePaths;
   configWorkspace: {
     sourceConfigPath: string;

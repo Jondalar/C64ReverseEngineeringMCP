@@ -37,6 +37,13 @@ export function convertKickAsmToTass(kickAsm: string): string {
       continue;
     }
 
+    // KickAssembler labels: .label foo = $1234 → foo = $1234
+    const labelMatch = converted.match(/^(\s*)\.label\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+    if (labelMatch) {
+      result.push(`${labelMatch[1]}${labelMatch[2]} = ${labelMatch[3]}`);
+      continue;
+    }
+
     // Block comment start (multi-line): line starts with /* (not // containing /*)
     const trimmedForBlock = converted.trimStart();
     if (trimmedForBlock.startsWith("/*") && !converted.includes("*/")) {

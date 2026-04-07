@@ -1101,16 +1101,66 @@ function createServer(): McpServer {
   // ── Tool: vice-session-send-keys ────────────────────────────────────
   server.tool(
     "vice_session_send_keys",
-    "Feed text into the active VICE keyboard buffer.",
+    "Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer.",
     {
-      text: z.string().describe("Text to feed into the keyboard buffer"),
+      text: z.string().optional().describe("Text to feed into the keyboard buffer"),
+      petscii_bytes: z.array(z.number().int().min(0).max(255)).optional().describe("Raw PETSCII bytes to queue into the keyboard buffer"),
+      special_keys: z.array(z.enum(["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "RETURN"])).optional().describe("Named C64 special keys to queue using PETSCII control codes"),
     },
-    async ({ text }) => {
+    async ({ text, petscii_bytes, special_keys }) => {
       try {
         const manager = getViceSessionManager(projectDir());
-        await manager.sendKeys(text);
+        const provided = [text !== undefined, petscii_bytes !== undefined, special_keys !== undefined].filter(Boolean).length;
+        if (provided !== 1) {
+          throw new Error("Provide exactly one of text, petscii_bytes, or special_keys.");
+        }
+
+        if (text !== undefined) {
+          await manager.sendKeys(text);
+          return {
+            content: [{ type: "text" as const, text: `Queued ${text.length} characters into the VICE keyboard buffer.` }],
+          };
+        }
+
+        if (petscii_bytes !== undefined) {
+          await manager.sendPetsciiBytes(petscii_bytes);
+          return {
+            content: [{ type: "text" as const, text: `Queued ${petscii_bytes.length} PETSCII byte(s) into the VICE keyboard buffer.` }],
+          };
+        }
+
+        const resolved = await manager.sendSpecialKeys(special_keys ?? []);
         return {
-          content: [{ type: "text" as const, text: `Queued ${text.length} characters into the VICE keyboard buffer.` }],
+          content: [{ type: "text" as const, text: `Queued special key(s) ${JSON.stringify(special_keys ?? [])} as PETSCII byte(s) ${JSON.stringify(resolved)}.` }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-session-joystick ────────────────────────────────────
+  server.tool(
+    "vice_session_joystick",
+    "Send keyset-based joystick input into the active visible VICE session. Uses the copied VICE config and currently expects JoyDevice<port>=3 with KeySet<port>* bindings.",
+    {
+      directions: z.array(z.enum(["up", "down", "left", "right", "fire"])).min(1).describe("Joystick directions/buttons to hold simultaneously"),
+      duration_ms: z.number().int().positive().optional().describe("How long to hold the joystick input before releasing it (default: 120 ms)"),
+      port: z.number().int().min(1).max(2).optional().describe("Control port / keyset number to use (default: 2)"),
+    },
+    async ({ directions, duration_ms, port }) => {
+      try {
+        const manager = getViceSessionManager(projectDir());
+        const result = await manager.sendJoystickInput(port ?? 2, directions, duration_ms ?? 120);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Sent joystick input on port ${port ?? 2}: ${directions.join("+")} for ${duration_ms ?? 120} ms using keys ${result.characters.map((character) => JSON.stringify(character)).join(", ")}.`,
+          }],
         };
       } catch (error) {
         return cliResultToContent({
