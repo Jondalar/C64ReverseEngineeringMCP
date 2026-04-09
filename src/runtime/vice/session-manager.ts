@@ -102,6 +102,10 @@ export class ViceSessionManager {
 
   constructor(private readonly projectDir: string) {}
 
+  getProjectDir(): string {
+    return this.projectDir;
+  }
+
   async startSession(options: ViceSessionStartOptions): Promise<ViceSessionRecord> {
     await this.reconcileExitedSession();
     if (this.activeSession) {

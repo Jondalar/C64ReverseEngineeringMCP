@@ -9,13 +9,17 @@ export interface CliResult {
   exitCode: number;
 }
 
+interface RunCliOptions {
+  projectDir: string;
+}
+
 /**
  * Run the TRXDis CLI with the given command and args.
  *
  * Uses the bundled pipeline at dist/pipeline/cli.js by default.
  * Falls back to C64RE_TOOLS_DIR if set (for development against an external pipeline).
  */
-export function runCli(command: string, args: string[]): Promise<CliResult> {
+export function runCli(command: string, args: string[], options: RunCliOptions): Promise<CliResult> {
   // 1. Try bundled pipeline (dist/pipeline/cli.js relative to project root)
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const projectRoot = resolve(thisDir, "..");
@@ -46,7 +50,7 @@ export function runCli(command: string, args: string[]): Promise<CliResult> {
       "node",
       [cliPath, command, ...args],
       {
-        cwd: process.env.C64RE_PROJECT_DIR ?? process.cwd(),
+        cwd: options.projectDir,
         maxBuffer: 50 * 1024 * 1024, // 50 MB — analysis JSONs can be large
         timeout: 120_000,
       },

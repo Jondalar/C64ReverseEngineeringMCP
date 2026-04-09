@@ -5,12 +5,14 @@ import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, writeFileSy
 import { resolve, join, basename, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCli } from "./run-cli.js";
+import { resolveProjectDir } from "./project-root.js";
 import { assembleSource } from "./assemble-source.js";
 import { extractDiskImage, readDiskDirectory } from "./disk-extractor.js";
 import { createDiskParser, G64Parser } from "./disk/index.js";
-import { getViceSessionManager } from "./runtime/vice/index.js";
+import { getPreferredViceSessionManager, getViceSessionManager } from "./runtime/vice/index.js";
 import type { ViceSessionRecord, ViceTraceAnalysis } from "./runtime/vice/types.js";
 import type { ViceMemspace, ViceMonitorEvent } from "./runtime/vice/monitor-client.js";
+import type { ViceSessionManager } from "./runtime/vice/session-manager.js";
 import {
   addTraceNote,
   findTraceMemoryAccess,
@@ -37,12 +39,17 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function projectDir(): string {
-  return process.env.C64RE_PROJECT_DIR ?? process.cwd();
+function projectDir(hintPath?: string, requireWritable = false): string {
+  return resolveProjectDir({
+    cwd: process.cwd(),
+    repoDir: repoDir(),
+    hintPath,
+    requireWritable,
+  });
 }
 
 function toolsDir(): string {
-  return process.env.C64RE_TOOLS_DIR ?? projectDir();
+  return process.env.C64RE_TOOLS_DIR ?? repoDir();
 }
 
 function repoDir(): string {
@@ -70,15 +77,15 @@ function cliResultToContent(result: { stdout: string; stderr: string; exitCode: 
 }
 
 function diskDefaultOutputDir(imagePath: string): string {
-  return join(projectDir(), "analysis", "disk", basename(imagePath, extname(imagePath)));
+  return join(projectDir(imagePath, true), "analysis", "disk", basename(imagePath, extname(imagePath)));
 }
 
 function g64SectorDefaultOutputDir(imagePath: string, track: number): string {
-  return join(projectDir(), "analysis", "g64", basename(imagePath, extname(imagePath)), `track-${String(track).replace(".", "_")}`);
+  return join(projectDir(imagePath, true), "analysis", "g64", basename(imagePath, extname(imagePath)), `track-${String(track).replace(".", "_")}`);
 }
 
 function loadG64Parser(imagePath: string): G64Parser {
-  const imageAbs = resolve(projectDir(), imagePath);
+  const imageAbs = resolve(projectDir(imagePath, true), imagePath);
   const parser = createDiskParser(new Uint8Array(readFileSync(imageAbs)));
   if (!(parser instanceof G64Parser)) {
     throw new Error(`Image is not a G64: ${imageAbs}`);
@@ -151,9 +158,9 @@ function formatHexByte(value: number): string {
   return value.toString(16).toUpperCase().padStart(2, "0");
 }
 
-function defaultViceExportPath(kind: "snapshot" | "prg" | "bin", startAddress?: number, endAddress?: number): string {
+function defaultViceExportPath(projectRoot: string, kind: "snapshot" | "prg" | "bin", startAddress?: number, endAddress?: number): string {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
-  const exportsDir = join(projectDir(), "analysis", "runtime", "exports");
+  const exportsDir = join(projectRoot, "analysis", "runtime", "exports");
   switch (kind) {
     case "snapshot":
       return join(exportsDir, `vice-snapshot-${stamp}.vsf`);
@@ -164,9 +171,27 @@ function defaultViceExportPath(kind: "snapshot" | "prg" | "bin", startAddress?: 
   }
 }
 
-function defaultViceDisplayPath(): string {
+function defaultViceDisplayPath(projectRoot: string): string {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
-  return join(projectDir(), "analysis", "runtime", "exports", `display-${stamp}.pgm`);
+  return join(projectRoot, "analysis", "runtime", "exports", `display-${stamp}.pgm`);
+}
+
+async function resolveViceManager(hintPath?: string): Promise<{ manager: ViceSessionManager; projectRoot: string }> {
+  if (hintPath) {
+    const pd = projectDir(hintPath, true);
+    return { manager: getViceSessionManager(pd), projectRoot: pd };
+  }
+  const preferred = await getPreferredViceSessionManager();
+  if (preferred) {
+    return { manager: preferred, projectRoot: preferred.getProjectDir() };
+  }
+  const pd = projectDir();
+  return { manager: getViceSessionManager(pd), projectRoot: pd };
+}
+
+async function resolveTraceProjectDir(): Promise<string> {
+  const preferred = await getPreferredViceSessionManager();
+  return preferred?.getProjectDir() ?? projectDir();
 }
 
 function canonicalWorkflowSkillPath(): string {
@@ -421,14 +446,15 @@ function createServer(): McpServer {
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses, e.g. [\"0827\", \"3E07\"]"),
     },
     async ({ prg_path, output_json, entry_points }) => {
-      const prgAbs = resolve(projectDir(), prg_path);
+      const pd = projectDir(prg_path, true);
+      const prgAbs = resolve(pd, prg_path);
       const outAbs = output_json
-        ? resolve(projectDir(), output_json)
+        ? resolve(pd, output_json)
         : prgAbs.replace(/\.prg$/i, "_analysis.json");
       const entries = entry_points?.join(",") ?? "";
       const args = [prgAbs, outAbs];
       if (entries) args.push(entries);
-      const result = await runCli("analyze-prg", args);
+      const result = await runCli("analyze-prg", args, { projectDir: pd });
       if (result.exitCode === 0) {
         result.stdout = (result.stdout || "Analysis complete.") + `\nOutput: ${outAbs}`;
       }
@@ -447,15 +473,16 @@ function createServer(): McpServer {
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
     },
     async ({ prg_path, output_asm, entry_points, analysis_json }) => {
-      const prgAbs = resolve(projectDir(), prg_path);
+      const pd = projectDir(prg_path, true);
+      const prgAbs = resolve(pd, prg_path);
       const outAbs = output_asm
-        ? resolve(projectDir(), output_asm)
+        ? resolve(pd, output_asm)
         : prgAbs.replace(/\.prg$/i, "_disasm.asm");
       const entries = entry_points?.join(",") ?? "";
       const args = [prgAbs, outAbs];
       if (entries) args.push(entries);
-      if (analysis_json) args.push(resolve(projectDir(), analysis_json));
-      const result = await runCli("disasm-prg", args);
+      if (analysis_json) args.push(resolve(pd, analysis_json));
+      const result = await runCli("disasm-prg", args, { projectDir: pd });
       if (result.exitCode === 0) {
         const annotationsPath = outAbs.replace(/\.asm$/i, "_annotations.json");
         const hasAnnotations = existsSync(annotationsPath);
@@ -479,11 +506,12 @@ function createServer(): McpServer {
       output_md: z.string().optional().describe("Output path for the markdown report"),
     },
     async ({ analysis_json, output_md }) => {
-      const jsonAbs = resolve(projectDir(), analysis_json);
+      const pd = projectDir(analysis_json, true);
+      const jsonAbs = resolve(pd, analysis_json);
       const outAbs = output_md
-        ? resolve(projectDir(), output_md)
+        ? resolve(pd, output_md)
         : jsonAbs.replace(/_analysis\.json$/i, "_RAM_STATE_FACTS.md");
-      const result = await runCli("ram-report", [jsonAbs, outAbs]);
+      const result = await runCli("ram-report", [jsonAbs, outAbs], { projectDir: pd });
       if (result.exitCode === 0) {
         result.stdout = (result.stdout || "RAM report complete.") + `\nOutput: ${outAbs}`;
       }
@@ -500,11 +528,12 @@ function createServer(): McpServer {
       output_md: z.string().optional().describe("Output path for the markdown report"),
     },
     async ({ analysis_json, output_md }) => {
-      const jsonAbs = resolve(projectDir(), analysis_json);
+      const pd = projectDir(analysis_json, true);
+      const jsonAbs = resolve(pd, analysis_json);
       const outAbs = output_md
-        ? resolve(projectDir(), output_md)
+        ? resolve(pd, output_md)
         : jsonAbs.replace(/_analysis\.json$/i, "_POINTER_TABLE_FACTS.md");
-      const result = await runCli("pointer-report", [jsonAbs, outAbs]);
+      const result = await runCli("pointer-report", [jsonAbs, outAbs], { projectDir: pd });
       if (result.exitCode === 0) {
         result.stdout = (result.stdout || "Pointer report complete.") + `\nOutput: ${outAbs}`;
       }
@@ -524,8 +553,9 @@ function createServer(): McpServer {
     },
     async ({ source_path, assembler, output_path, compare_to }) => {
       try {
+        const pd = projectDir(source_path, true);
         const result = await assembleSource({
-          projectDir: projectDir(),
+          projectDir: pd,
           sourcePath: source_path,
           assembler: assembler ?? "auto",
           outputPath: output_path,
@@ -577,10 +607,11 @@ function createServer(): McpServer {
       output_dir: z.string().optional().describe("Output directory (default: analysis/extracted)"),
     },
     async ({ crt_path, output_dir }) => {
-      const crtAbs = resolve(projectDir(), crt_path);
+      const pd = projectDir(crt_path, true);
+      const crtAbs = resolve(pd, crt_path);
       const args = [crtAbs];
-      if (output_dir) args.push(resolve(projectDir(), output_dir));
-      const result = await runCli("extract-crt", args);
+      if (output_dir) args.push(resolve(pd, output_dir));
+      const result = await runCli("extract-crt", args, { projectDir: pd });
       return cliResultToContent(result);
     },
   );
@@ -594,7 +625,8 @@ function createServer(): McpServer {
     },
     async ({ image_path }) => {
       try {
-        const imageAbs = resolve(projectDir(), image_path);
+        const pd = projectDir(image_path, true);
+        const imageAbs = resolve(pd, image_path);
         const manifest = readDiskDirectory(imageAbs);
         const lines = [
           `Image: ${imageAbs}`,
@@ -626,9 +658,10 @@ function createServer(): McpServer {
     },
     async ({ image_path, output_dir }) => {
       try {
-        const imageAbs = resolve(projectDir(), image_path);
+        const pd = projectDir(image_path, true);
+        const imageAbs = resolve(pd, image_path);
         const outAbs = output_dir
-          ? resolve(projectDir(), output_dir)
+          ? resolve(pd, output_dir)
           : diskDefaultOutputDir(imageAbs);
         const manifest = extractDiskImage(imageAbs, outAbs);
         const lines = [
@@ -667,7 +700,8 @@ function createServer(): McpServer {
     },
     async ({ image_path, track }) => {
       try {
-        const imageAbs = resolve(projectDir(), image_path);
+        const pd = projectDir(image_path, true);
+        const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(image_path);
         const analysis = parser.getTrackAnalysis(track);
         if (!analysis) {
@@ -719,11 +753,12 @@ function createServer(): McpServer {
     },
     async ({ image_path, track, sectors, output_dir }) => {
       try {
-        const imageAbs = resolve(projectDir(), image_path);
+        const pd = projectDir(image_path, true);
+        const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(image_path);
         const decoded = parser.extractTrackSectors(track, sectors);
         const outDir = output_dir
-          ? resolve(projectDir(), output_dir)
+          ? resolve(pd, output_dir)
           : g64SectorDefaultOutputDir(imageAbs, track);
         mkdirSync(outDir, { recursive: true });
 
@@ -781,7 +816,8 @@ function createServer(): McpServer {
     },
     async ({ image_path }) => {
       try {
-        const imageAbs = resolve(projectDir(), image_path);
+        const pd = projectDir(image_path, true);
+        const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(image_path);
         const report = parser.analyzeAnomalies();
         const lines = [
@@ -813,8 +849,9 @@ function createServer(): McpServer {
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
     },
     async ({ analysis_dir }) => {
-      const args = analysis_dir ? [resolve(projectDir(), analysis_dir)] : [];
-      const result = await runCli("reconstruct-lut", args);
+      const pd = projectDir(analysis_dir, true);
+      const args = analysis_dir ? [resolve(pd, analysis_dir)] : [];
+      const result = await runCli("reconstruct-lut", args, { projectDir: pd });
       return cliResultToContent(result);
     },
   );
@@ -827,8 +864,9 @@ function createServer(): McpServer {
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
     },
     async ({ analysis_dir }) => {
-      const args = analysis_dir ? [resolve(projectDir(), analysis_dir)] : [];
-      const result = await runCli("export-menu", args);
+      const pd = projectDir(analysis_dir, true);
+      const args = analysis_dir ? [resolve(pd, analysis_dir)] : [];
+      const result = await runCli("export-menu", args, { projectDir: pd });
       return cliResultToContent(result);
     },
   );
@@ -842,10 +880,11 @@ function createServer(): McpServer {
       output_dir: z.string().optional().describe("Output directory for ASM sources"),
     },
     async ({ analysis_dir, output_dir }) => {
+      const pd = projectDir(analysis_dir ?? output_dir, true);
       const args: string[] = [];
-      if (analysis_dir) args.push(resolve(projectDir(), analysis_dir));
-      if (output_dir) args.push(resolve(projectDir(), output_dir));
-      const result = await runCli("disasm-menu", args);
+      if (analysis_dir) args.push(resolve(pd, analysis_dir));
+      if (output_dir) args.push(resolve(pd, output_dir));
+      const result = await runCli("disasm-menu", args, { projectDir: pd });
       return cliResultToContent(result);
     },
   );
@@ -858,7 +897,8 @@ function createServer(): McpServer {
       path: z.string().describe("Path to the artifact (relative to project dir or absolute)"),
     },
     async ({ path: filePath }) => {
-      const absPath = resolve(projectDir(), filePath);
+      const pd = projectDir(filePath);
+      const absPath = resolve(pd, filePath);
       const text = readTextFile(absPath, 10 * 1024 * 1024); // 10 MB limit for analysis JSONs
       return { content: [{ type: "text" as const, text }] };
     },
@@ -872,7 +912,8 @@ function createServer(): McpServer {
       subdir: z.string().optional().describe("Subdirectory to list (default: analysis)"),
     },
     async ({ subdir }) => {
-      const dir = resolve(projectDir(), subdir ?? "analysis");
+      const pd = projectDir(subdir);
+      const dir = resolve(pd, subdir ?? "analysis");
       if (!existsSync(dir)) {
         return { content: [{ type: "text" as const, text: `[directory not found: ${dir}]` }] };
       }
@@ -931,7 +972,7 @@ function createServer(): McpServer {
     },
     async ({ media_path, media_type, autostart }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager(media_path);
         const record = await manager.startSession({
           mediaPath: media_path,
           mediaType: media_type,
@@ -963,7 +1004,7 @@ function createServer(): McpServer {
     },
     async ({ media_path, media_type, autostart, bootstrap_reset, sample_interval_ms, cpu_history_count, monitor_chis_lines }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager(media_path);
         const record = await manager.startSession({
           mediaPath: media_path,
           mediaType: media_type,
@@ -998,7 +1039,7 @@ function createServer(): McpServer {
     },
     async ({ sample_interval_ms, cpu_history_count, monitor_chis_lines }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const status = await manager.startRuntimeTrace({
           enabled: true,
           intervalMs: sample_interval_ms ?? VICE_TRACE_DEFAULT_INTERVAL_MS,
@@ -1023,7 +1064,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const status = await manager.getRuntimeTraceStatus();
         if (!status) {
           return { content: [{ type: "text" as const, text: "No active VICE session exists." }] };
@@ -1046,7 +1087,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const status = await manager.stopRuntimeTrace();
         return viceRuntimeTraceStatusToContent(status, "VICE runtime trace stopped.");
       } catch (error) {
@@ -1066,7 +1107,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const record = await manager.getStatus();
         if (!record) {
           return { content: [{ type: "text" as const, text: "No VICE session exists." }] };
@@ -1089,7 +1130,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const result = await manager.stopSession();
         return viceSessionToContent(result.record, `VICE session stopped via ${result.stopMethod}.`);
       } catch (error) {
@@ -1111,7 +1152,7 @@ function createServer(): McpServer {
     },
     async ({ cpu_history_count }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const result = await manager.stopAndAnalyze(cpu_history_count ?? 20_000);
         return viceTraceAnalysisToContent(result.analysis, "VICE trace captured and analyzed.", result.stopMethod);
       } catch (error) {
@@ -1131,7 +1172,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const analysis = await manager.analyzeLastSession();
         return viceTraceAnalysisToContent(analysis, "VICE runtime trace analyzed.", "manual_exit");
       } catch (error) {
@@ -1154,8 +1195,9 @@ function createServer(): McpServer {
     },
     async ({ session_id, annotations_path }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
-        const annotationsPath = annotations_path ? resolve(projectDir(), annotations_path) : undefined;
+        const pd = annotations_path ? projectDir(annotations_path) : await resolveTraceProjectDir();
+        const record = await loadTraceSession(pd, session_id);
+        const annotationsPath = annotations_path ? resolve(pd, annotations_path) : undefined;
         const index = await buildTraceIndex(record, { annotationsPath });
         const lines = [
           `Trace index built for session ${record.sessionId}.`,
@@ -1196,7 +1238,7 @@ function createServer(): McpServer {
     },
     async ({ session_id, limit }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
         const index = await loadTraceIndex(record);
         const hotspots = await traceHotspots(record, limit ?? 20);
         const lines = [
@@ -1236,7 +1278,7 @@ function createServer(): McpServer {
     },
     async ({ pc, session_id, limit }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
         const pcValue = parseHexWord(pc);
         const index = await loadTraceIndex(record);
         const matches = await findTraceByPc(record, pcValue, limit ?? 20);
@@ -1278,7 +1320,7 @@ function createServer(): McpServer {
     },
     async ({ bytes, mode, session_id, limit }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
         const parsedBytes = parseHexByteSequence(bytes);
         const matches = await findTraceByBytes(record, parsedBytes, mode ?? "prefix", limit ?? 20);
         const lines = [
@@ -1311,7 +1353,7 @@ function createServer(): McpServer {
     },
     async ({ address, session_id, limit }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
         const parsedAddress = parseHexWord(address);
         const matches = await findTraceByOperand(record, parsedAddress, limit ?? 20);
         const lines = [
@@ -1344,7 +1386,7 @@ function createServer(): McpServer {
     },
     async ({ address, access, session_id, limit }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
         const parsedAddress = parseHexWord(address);
         const index = await loadTraceIndex(record);
         const matches = await findTraceMemoryAccess(record, parsedAddress, access ?? "any", limit ?? 20);
@@ -1386,7 +1428,7 @@ function createServer(): McpServer {
     },
     async ({ anchor_clock, session_id, before, after }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
         const slice = await sliceTraceByClock(record, anchor_clock, before ?? 40, after ?? 80);
         const lines = [
           `Trace slice for session ${record.sessionId}:`,
@@ -1419,7 +1461,7 @@ function createServer(): McpServer {
     },
     async ({ anchor_clock, session_id, before }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
         const index = await loadTraceIndex(record);
         const frames = await traceCallPath(record, anchor_clock, before ?? 600);
         const lines = [
@@ -1463,7 +1505,7 @@ function createServer(): McpServer {
     },
     async ({ title, note, session_id, anchor_clock, pc, sample_index }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
         const saved = await addTraceNote(record, {
           title,
           note,
@@ -1492,7 +1534,7 @@ function createServer(): McpServer {
     },
     async ({ session_id, limit }) => {
       try {
-        const record = await loadTraceSession(projectDir(), session_id);
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
         const notes = await listTraceNotes(record, limit ?? 50);
         return traceNotesToContent(notes, record.sessionId);
       } catch (error) {
@@ -1512,7 +1554,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const { registers, descriptors } = await manager.readRegisters();
         const nameById = new Map(descriptors.map((descriptor) => [descriptor.id, descriptor.name]));
         const lines = ["VICE CPU registers:"];
@@ -1548,7 +1590,7 @@ function createServer(): McpServer {
         if (endAddress < startAddress) {
           throw new Error("end must be >= start");
         }
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const memspaceId = parseViceMemspace(memspace);
         const data = await manager.readMemory(startAddress, endAddress, bank_id ?? 0, memspaceId);
         const lines = [
@@ -1587,7 +1629,7 @@ function createServer(): McpServer {
           throw new Error("data_hex must contain an even number of hex digits.");
         }
         const data = Buffer.from(bytes, "hex");
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const memspaceId = parseViceMemspace(memspace);
         await manager.writeMemory(startAddress, data, bank_id ?? 0, memspaceId, side_effects ?? false);
         return {
@@ -1619,7 +1661,7 @@ function createServer(): McpServer {
         const parsedRegisters = Object.fromEntries(
           Object.entries(registers).map(([name, value]) => [name, parseHexWord(value)]),
         );
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const memspaceId = parseViceMemspace(memspace);
         const applied = await manager.setRegistersByName(parsedRegisters, memspaceId);
         const lines = ["Registers updated:"];
@@ -1652,7 +1694,7 @@ function createServer(): McpServer {
     },
     async ({ start, end, operation, stop_when_hit, enabled, temporary, memspace }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const checkpoint = await manager.addBreakpoint({
           startAddress: parseHexWord(start),
           endAddress: end ? parseHexWord(end) : undefined,
@@ -1689,7 +1731,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const result = await manager.listBreakpoints();
         const lines = [`Checkpoints: ${result.count}`];
         for (const checkpoint of result.checkpoints) {
@@ -1717,7 +1759,7 @@ function createServer(): McpServer {
     },
     async ({ checkpoint_number }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         await manager.deleteBreakpoint(checkpoint_number);
         return {
           content: [{ type: "text" as const, text: `Deleted checkpoint #${checkpoint_number}.` }],
@@ -1743,7 +1785,7 @@ function createServer(): McpServer {
     },
     async ({ text, petscii_bytes, special_keys }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const provided = [text !== undefined, petscii_bytes !== undefined, special_keys !== undefined].filter(Boolean).length;
         if (provided !== 1) {
           throw new Error("Provide exactly one of text, petscii_bytes, or special_keys.");
@@ -1788,7 +1830,7 @@ function createServer(): McpServer {
     },
     async ({ directions, duration_ms, port }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const result = await manager.sendJoystickInput(port ?? 2, directions, duration_ms ?? 120);
         return {
           content: [{
@@ -1817,10 +1859,10 @@ function createServer(): McpServer {
     },
     async ({ media_path, run_after_loading, file_index }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager, projectRoot } = await resolveViceManager();
         await manager.attachMedia(media_path, run_after_loading ?? true, file_index ?? 0);
         return {
-          content: [{ type: "text" as const, text: `Attached/autostarted media: ${resolve(projectDir(), media_path)}` }],
+          content: [{ type: "text" as const, text: `Attached/autostarted media: ${resolve(projectRoot, media_path)}` }],
         };
       } catch (error) {
         return cliResultToContent({
@@ -1842,8 +1884,8 @@ function createServer(): McpServer {
     },
     async ({ output_path, use_vicii }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
-        const result = await manager.captureDisplay(output_path ?? defaultViceDisplayPath(), use_vicii ?? true);
+        const { manager, projectRoot } = await resolveViceManager();
+        const result = await manager.captureDisplay(output_path ?? defaultViceDisplayPath(projectRoot), use_vicii ?? true);
         return {
           content: [{
             type: "text" as const,
@@ -1877,7 +1919,7 @@ function createServer(): McpServer {
     },
     async ({ target }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const code = parseResetTarget(target);
         await manager.resetMachine(code);
         return {
@@ -1902,7 +1944,7 @@ function createServer(): McpServer {
     },
     async ({ max_frames }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const result = await manager.buildBacktrace(max_frames ?? 16);
         const lines = [
           "VICE heuristic backtrace:",
@@ -1937,7 +1979,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const banks = await manager.getBanksAvailable();
         const lines = ["VICE available banks:"];
         for (const bank of banks) {
@@ -1965,9 +2007,9 @@ function createServer(): McpServer {
     },
     async ({ output_path, save_roms, save_disks }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager, projectRoot } = await resolveViceManager();
         const writtenPath = await manager.saveSnapshot(
-          output_path ?? defaultViceExportPath("snapshot"),
+          output_path ?? defaultViceExportPath(projectRoot, "snapshot"),
           save_roms ?? true,
           save_disks ?? true,
         );
@@ -1999,12 +2041,12 @@ function createServer(): McpServer {
       try {
         const startAddress = parseHexWord(start);
         const endAddress = parseHexWord(end);
-        const manager = getViceSessionManager(projectDir());
+        const { manager, projectRoot } = await resolveViceManager();
         const memspaceId = parseViceMemspace(memspace);
         const result = await manager.saveMemoryRange(
           startAddress,
           endAddress,
-          output_path ?? defaultViceExportPath("prg", startAddress, endAddress),
+          output_path ?? defaultViceExportPath(projectRoot, "prg", startAddress, endAddress),
           {
             bankId: bank_id ?? 0,
             memspace: memspaceId,
@@ -2048,12 +2090,12 @@ function createServer(): McpServer {
       try {
         const startAddress = parseHexWord(start);
         const endAddress = parseHexWord(end);
-        const manager = getViceSessionManager(projectDir());
+        const { manager, projectRoot } = await resolveViceManager();
         const memspaceId = parseViceMemspace(memspace);
         const result = await manager.saveMemoryRange(
           startAddress,
           endAddress,
-          output_path ?? defaultViceExportPath("bin", startAddress, endAddress),
+          output_path ?? defaultViceExportPath(projectRoot, "bin", startAddress, endAddress),
           {
             bankId: bank_id ?? 0,
             memspace: memspaceId,
@@ -2089,7 +2131,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const result = await manager.continueExecution();
         return {
           content: [{ type: "text" as const, text: `VICE resumed.\nPC: ${formatHexWord(result.pc)}` }],
@@ -2111,7 +2153,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const result = await manager.stepInto();
         return {
           content: [{ type: "text" as const, text: `VICE stepped one instruction.\nPC: ${formatHexWord(result.pc)}` }],
@@ -2133,7 +2175,7 @@ function createServer(): McpServer {
     {},
     async () => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const result = await manager.stepOver();
         return {
           content: [{ type: "text" as const, text: `VICE stepped over one instruction.\nPC: ${formatHexWord(result.pc)}` }],
@@ -2159,7 +2201,7 @@ function createServer(): McpServer {
     },
     async ({ breakpoints, timeout_ms, temporary }) => {
       try {
-        const manager = getViceSessionManager(projectDir());
+        const { manager } = await resolveViceManager();
         const result = await manager.debugRun(breakpoints.map(parseHexWord), timeout_ms ?? 15_000, temporary ?? false);
         const lines = [
           "VICE debug run complete.",
