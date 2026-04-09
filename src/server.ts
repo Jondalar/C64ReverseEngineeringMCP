@@ -7,6 +7,18 @@ import { fileURLToPath } from "node:url";
 import { runCli } from "./run-cli.js";
 import { resolveProjectDir } from "./project-root.js";
 import { assembleSource } from "./assemble-source.js";
+import {
+  ByteBoozerDepacker,
+  depackExomizerSfx,
+  depackExomizerRaw,
+  packByteBoozer,
+  packExomizerRaw,
+  readBinaryFile,
+  RleDepacker,
+  RlePacker,
+  suggestDepackers,
+  writeBinaryFile,
+} from "./compression-tools.js";
 import { extractDiskImage, readDiskDirectory } from "./disk-extractor.js";
 import { createDiskParser, G64Parser } from "./disk/index.js";
 import { getPreferredViceSessionManager, getViceSessionManager } from "./runtime/vice/index.js";
@@ -588,6 +600,537 @@ function createServer(): McpServer {
           lines.push(result.stderr.trim());
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: pack-rle ──────────────────────────────────────────────────
+  server.tool(
+    "pack_rle",
+    "Compress a binary blob with the built-in C64 RLE format used by Mike's loader.",
+    {
+      input_path: z.string().describe("Path to the input file to compress"),
+      output_path: z.string().optional().describe("Optional output path for the packed data"),
+      include_header: z.boolean().optional().describe("Whether to prepend a 2-byte load address header"),
+      write_address: z.string().optional().describe("Optional load address for the header, e.g. 8000"),
+      optimal: z.boolean().optional().describe("Use optimal parsing instead of greedy packing (default: true)"),
+    },
+    async ({ input_path, output_path, include_header, write_address, optimal }) => {
+      try {
+        const pd = projectDir(input_path, true);
+        const inputAbs = resolve(pd, input_path);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${inputAbs}.rle`;
+        const data = await readBinaryFile(inputAbs);
+        const packer = new RlePacker({
+          includeHeader: include_header ?? false,
+          writeAddress: write_address ? parseHexWord(write_address) : undefined,
+          optimal: optimal ?? true,
+        });
+        const result = packer.pack(data);
+        await writeBinaryFile(outputAbs, result.data);
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `RLE pack complete.`,
+              `Input: ${inputAbs}`,
+              `Output: ${outputAbs}`,
+              `Original size: ${result.originalSize}`,
+              `Compressed size: ${result.compressedSize}`,
+              `Ratio: ${result.ratio.toFixed(4)}`,
+              `RLE runs: ${result.runCount}`,
+              `Copy segments: ${result.copyCount}`,
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: depack-rle ────────────────────────────────────────────────
+  server.tool(
+    "depack_rle",
+    "Decompress the built-in C64 RLE format used by Mike's loader.",
+    {
+      input_path: z.string().describe("Path to the packed RLE file"),
+      output_path: z.string().optional().describe("Optional output path for the unpacked data"),
+      has_header: z.boolean().optional().describe("Treat the first two bytes as a load address header"),
+      max_size: z.number().int().positive().optional().describe("Optional hard output-size ceiling"),
+    },
+    async ({ input_path, output_path, has_header, max_size }) => {
+      try {
+        const pd = projectDir(input_path, true);
+        const inputAbs = resolve(pd, input_path);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${inputAbs}.unpacked.bin`;
+        const data = await readBinaryFile(inputAbs);
+        const depacker = new RleDepacker();
+        const result = depacker.unpack(data, {
+          hasHeader: has_header ?? false,
+          maxSize: max_size,
+        });
+        await writeBinaryFile(outputAbs, result.data);
+        const lines = [
+          `RLE depack complete.`,
+          `Input: ${inputAbs}`,
+          `Output: ${outputAbs}`,
+          `Unpacked bytes: ${result.byteCount}`,
+          `RLE runs: ${result.runCount}`,
+          `Copy segments: ${result.copyCount}`,
+        ];
+        if (result.headerAddress !== undefined) {
+          lines.push(`Load header: ${formatHexWord(result.headerAddress)}`);
+        }
+        return {
+          content: [{ type: "text" as const, text: lines.join("\n") }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: pack-exomizer-raw ────────────────────────────────────────
+  server.tool(
+    "pack_exomizer_raw",
+    "Compress a file with Exomizer raw mode via the local exomizer CLI.",
+    {
+      input_path: z.string().describe("Path to the input file"),
+      output_path: z.string().optional().describe("Optional output path for the packed file"),
+      backwards: z.boolean().optional().describe("Use Exomizer backward mode (-b)"),
+      reverse_output: z.boolean().optional().describe("Write the outfile in reverse order (-r)"),
+      no_encoding_header: z.boolean().optional().describe("Do not write the Exomizer encoding header (-E)"),
+    },
+    async ({ input_path, output_path, backwards, reverse_output, no_encoding_header }) => {
+      try {
+        const pd = projectDir(input_path, true);
+        const inputAbs = resolve(pd, input_path);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${inputAbs}.exo`;
+        const result = await packExomizerRaw({
+          projectDir: pd,
+          inputPath: inputAbs,
+          outputPath: outputAbs,
+          backwards,
+          reverseOutput: reverse_output,
+          noEncodingHeader: no_encoding_header,
+        });
+        if (result.exitCode !== 0) {
+          return cliResultToContent(result);
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer raw pack complete.`,
+              `Input: ${inputAbs}`,
+              `Output: ${result.outputPath}`,
+              `Command: ${result.command} ${result.args.join(" ")}`,
+              result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
+              result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+            ].filter(Boolean).join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: depack-exomizer-raw ──────────────────────────────────────
+  server.tool(
+    "depack_exomizer_raw",
+    "Decompress an Exomizer raw stream via the local exomizer CLI.",
+    {
+      input_path: z.string().describe("Path to the Exomizer-packed file"),
+      output_path: z.string().optional().describe("Optional output path for the unpacked file"),
+      backwards: z.boolean().optional().describe("Use Exomizer backward mode (-b)"),
+      reverse_output: z.boolean().optional().describe("Write the outfile in reverse order (-r)"),
+    },
+    async ({ input_path, output_path, backwards, reverse_output }) => {
+      try {
+        const pd = projectDir(input_path, true);
+        const inputAbs = resolve(pd, input_path);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${inputAbs}.unpacked.bin`;
+        const result = await depackExomizerRaw({
+          projectDir: pd,
+          inputPath: inputAbs,
+          outputPath: outputAbs,
+          backwards,
+          reverseOutput: reverse_output,
+        });
+        if (result.exitCode !== 0) {
+          return cliResultToContent(result);
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer raw depack complete.`,
+              `Input: ${inputAbs}`,
+              `Output: ${result.outputPath}`,
+              `Command: ${result.command} ${result.args.join(" ")}`,
+              result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
+              result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+            ].filter(Boolean).join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: pack-byteboozer ──────────────────────────────────────────
+  server.tool(
+    "depack_exomizer_sfx",
+    "Decompress an Exomizer self-extracting wrapper via the local exomizer desfx CLI.",
+    {
+      input_path: z.string().describe("Path to the Exomizer SFX file"),
+      output_path: z.string().optional().describe("Optional output path for the unpacked PRG"),
+      entry_address: z.string().optional().describe("Optional entry override for desfx, e.g. 080D or 'load'"),
+    },
+    async ({ input_path, output_path, entry_address }) => {
+      try {
+        const pd = projectDir(input_path, true);
+        const inputAbs = resolve(pd, input_path);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${inputAbs}.desfx.prg`;
+        const result = await depackExomizerSfx({
+          projectDir: pd,
+          inputPath: inputAbs,
+          outputPath: outputAbs,
+          entryAddress: entry_address ? (entry_address.toLowerCase() === "load" ? "load" : parseHexWord(entry_address)) : undefined,
+        });
+        if (result.exitCode !== 0) {
+          return cliResultToContent(result);
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer SFX depack complete.`,
+              `Input: ${inputAbs}`,
+              `Output: ${result.outputPath}`,
+              `Command: ${result.command} ${result.args.join(" ")}`,
+              result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
+              result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+            ].filter(Boolean).join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  server.tool(
+    "pack_byteboozer",
+    "Compress a file with ByteBoozer2 via the local b2 CLI.",
+    {
+      input_path: z.string().describe("Path to the input file"),
+      output_path: z.string().optional().describe("Optional output path for the packed file"),
+      executable_start: z.string().optional().describe("Optional execution start address passed as -c xxxx"),
+      relocate_to: z.string().optional().describe("Optional relocation address passed as -r xxxx"),
+      clip_start_address: z.boolean().optional().describe("Clip the start address in the output file (-b)"),
+    },
+    async ({ input_path, output_path, executable_start, relocate_to, clip_start_address }) => {
+      try {
+        if (executable_start && relocate_to) {
+          throw new Error("Provide either executable_start or relocate_to, not both.");
+        }
+        const pd = projectDir(input_path, true);
+        const inputAbs = resolve(pd, input_path);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${inputAbs}.b2`;
+        const result = await packByteBoozer({
+          projectDir: pd,
+          inputPath: inputAbs,
+          outputPath: outputAbs,
+          executableStart: executable_start ? parseHexWord(executable_start) : undefined,
+          relocateTo: relocate_to ? parseHexWord(relocate_to) : undefined,
+          clipStartAddress: clip_start_address,
+        });
+        if (result.exitCode !== 0) {
+          return cliResultToContent(result);
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `ByteBoozer2 pack complete.`,
+              `Input: ${inputAbs}`,
+              `Output: ${result.outputPath}`,
+              `Command: ${result.command} ${result.args.join(" ")}`,
+              result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
+              result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+            ].filter(Boolean).join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: depack-byteboozer ────────────────────────────────────────
+  server.tool(
+    "depack_byteboozer",
+    "Decompress a ByteBoozer2 raw .b2 file or executable wrapper in pure TypeScript.",
+    {
+      input_path: z.string().describe("Path to the ByteBoozer2-packed file"),
+      output_path: z.string().optional().describe("Optional output path for the unpacked data"),
+      offset: z.string().optional().describe("Optional hex file offset to start from"),
+      length: z.string().optional().describe("Optional hex byte length to limit the input slice"),
+    },
+    async ({ input_path, output_path, offset, length }) => {
+      try {
+        const pd = projectDir(input_path, true);
+        const inputAbs = resolve(pd, input_path);
+        const raw = await readBinaryFile(inputAbs);
+        const start = offset ? parseHexWord(offset) : 0;
+        const end = length ? Math.min(raw.length, start + parseHexWord(length)) : raw.length;
+        const slice = raw.slice(start, end);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${inputAbs}.byteboozer.unpacked.bin`;
+        const result = new ByteBoozerDepacker().unpack(slice);
+        await writeBinaryFile(outputAbs, result.data);
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `ByteBoozer2 depack complete.`,
+              `Input: ${inputAbs}`,
+              `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
+              `Output: ${outputAbs}`,
+              `Mode: ${result.mode}`,
+              `Output address: ${formatHexWord(result.outputAddress)}`,
+              result.sourceLoadAddress !== undefined ? `Source load address: ${formatHexWord(result.sourceLoadAddress)}` : "",
+              `Unpacked bytes: ${result.byteCount}`,
+              `Consumed bytes: ${result.inputConsumed}`,
+            ].filter(Boolean).join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: suggest-depacker ──────────────────────────────────────────
+  server.tool(
+    "suggest_depacker",
+    "Probe a file or a sliced subrange and suggest likely depackers such as RLE, Exomizer raw, or ByteBoozer-like wrappers.",
+    {
+      input_path: z.string().describe("Path to the input file to probe"),
+      offset: z.string().optional().describe("Optional hex offset into the file, e.g. 001A"),
+      length: z.string().optional().describe("Optional hex length to limit the probe window"),
+    },
+    async ({ input_path, offset, length }) => {
+      try {
+        const pd = projectDir(input_path, true);
+        const inputAbs = resolve(pd, input_path);
+        const suggestions = await suggestDepackers({
+          projectDir: pd,
+          inputPath: inputAbs,
+          offset: offset ? parseHexWord(offset) : undefined,
+          length: length ? parseHexWord(length) : undefined,
+        });
+        const lines = [
+          `Depacker suggestions for ${inputAbs}:`,
+          `Candidates: ${suggestions.length}`,
+        ];
+        for (const suggestion of suggestions) {
+          lines.push("");
+          lines.push(`${suggestion.format}  confidence=${suggestion.confidence.toFixed(2)}  window=$${suggestion.offset.toString(16).toUpperCase()}+$${suggestion.length.toString(16).toUpperCase()}`);
+          lines.push(suggestion.reason);
+          if (suggestion.unpackedSize !== undefined) {
+            lines.push(`Unpacked size: ${suggestion.unpackedSize} bytes`);
+          }
+          for (const note of suggestion.notes ?? []) {
+            lines.push(`- ${note}`);
+          }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: try-depack ────────────────────────────────────────────────
+  server.tool(
+    "try_depack",
+    "Try a specific depacker against a file or sliced subrange. Supports built-in RLE, Exomizer raw, and host-side ByteBoozer2 depack.",
+    {
+      input_path: z.string().describe("Path to the packed input file"),
+      format: z.enum(["rle", "exomizer_raw", "exomizer_sfx", "byteboozer2"]).describe("Which depacker to try"),
+      output_path: z.string().optional().describe("Optional output path for the unpacked data"),
+      offset: z.string().optional().describe("Optional hex file offset to start from"),
+      length: z.string().optional().describe("Optional hex byte length to limit the input slice"),
+      has_rle_header: z.boolean().optional().describe("For RLE only: treat the first two bytes of the slice as a load header"),
+      max_size: z.number().int().positive().optional().describe("For RLE only: hard ceiling for unpacked size"),
+      backwards: z.boolean().optional().describe("For Exomizer raw only: use -b"),
+      reverse_output: z.boolean().optional().describe("For Exomizer raw only: use -r"),
+      entry_address: z.string().optional().describe("For Exomizer SFX only: optional desfx entry override, e.g. 080D or 'load'"),
+    },
+    async ({ input_path, format, output_path, offset, length, has_rle_header, max_size, backwards, reverse_output, entry_address }) => {
+      try {
+        const pd = projectDir(input_path, true);
+        const inputAbs = resolve(pd, input_path);
+        const raw = await readBinaryFile(inputAbs);
+        const start = offset ? parseHexWord(offset) : 0;
+        const end = length ? Math.min(raw.length, start + parseHexWord(length)) : raw.length;
+        const slice = raw.slice(start, end);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${inputAbs}.${format}.unpacked.bin`;
+
+        if (format === "rle") {
+          const depacker = new RleDepacker();
+          const result = depacker.unpack(slice, {
+            hasHeader: has_rle_header ?? false,
+            maxSize: max_size,
+          });
+          await writeBinaryFile(outputAbs, result.data);
+          const lines = [
+            `RLE depack complete.`,
+            `Input: ${inputAbs}`,
+            `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
+            `Output: ${outputAbs}`,
+            `Unpacked bytes: ${result.byteCount}`,
+            `Consumed bytes: ${result.consumedBytes}`,
+            `Terminated: ${result.terminated ? "yes" : "no"}`,
+          ];
+          if (result.headerAddress !== undefined) {
+            lines.push(`Load header: ${formatHexWord(result.headerAddress)}`);
+          }
+          return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        }
+
+        if (format === "byteboozer2") {
+          const depacker = new ByteBoozerDepacker();
+          const result = depacker.unpack(slice);
+          await writeBinaryFile(outputAbs, result.data);
+          return {
+            content: [{
+              type: "text" as const,
+              text: [
+                `ByteBoozer2 depack complete.`,
+                `Input: ${inputAbs}`,
+                `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
+                `Output: ${outputAbs}`,
+                `Mode: ${result.mode}`,
+                `Output address: ${formatHexWord(result.outputAddress)}`,
+                result.sourceLoadAddress !== undefined ? `Source load address: ${formatHexWord(result.sourceLoadAddress)}` : "",
+                `Unpacked bytes: ${result.byteCount}`,
+                `Consumed bytes: ${result.inputConsumed}`,
+              ].filter(Boolean).join("\n"),
+            }],
+          };
+        }
+
+        if (format === "exomizer_sfx") {
+          const tempInput = `${outputAbs}.inputslice.prg`;
+          await writeBinaryFile(tempInput, slice);
+          const result = await depackExomizerSfx({
+            projectDir: pd,
+            inputPath: tempInput,
+            outputPath: outputAbs,
+            entryAddress: entry_address ? (entry_address.toLowerCase() === "load" ? "load" : parseHexWord(entry_address)) : undefined,
+          });
+          return result.exitCode === 0
+            ? {
+                content: [{
+                  type: "text" as const,
+                  text: [
+                    `Exomizer SFX depack complete.`,
+                    `Input: ${inputAbs}`,
+                    `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
+                    `Output: ${outputAbs}`,
+                    `Command: ${result.command} ${result.args.join(" ")}`,
+                    result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
+                    result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+                  ].filter(Boolean).join("\n"),
+                }],
+              }
+            : cliResultToContent(result);
+        }
+
+        const tempInput = `${outputAbs}.inputslice.bin`;
+        await writeBinaryFile(tempInput, slice);
+        const result = await depackExomizerRaw({
+          projectDir: pd,
+          inputPath: tempInput,
+          outputPath: outputAbs,
+          backwards,
+          reverseOutput: reverse_output,
+        });
+        return result.exitCode === 0
+          ? {
+              content: [{
+                type: "text" as const,
+                text: [
+                  `Exomizer raw depack complete.`,
+                  `Input: ${inputAbs}`,
+                  `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
+                  `Output: ${outputAbs}`,
+                  `Command: ${result.command} ${result.args.join(" ")}`,
+                  result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
+                  result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+                ].filter(Boolean).join("\n"),
+              }],
+            }
+          : cliResultToContent(result);
       } catch (error) {
         return cliResultToContent({
           stdout: "",
