@@ -1,4 +1,5 @@
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -175,6 +176,9 @@ export class ViceSessionManager {
         throw new Error(record.lastError ?? "VICE exited before the session became ready.");
       }
       record.monitorReady = monitorReady;
+      if (options.runtimeTrace?.enabled && options.runtimeTraceBootstrapReset) {
+        await this.bootstrapRuntimeTraceCapture(active);
+      }
       record.state = "running";
       if (options.runtimeTrace?.enabled) {
         await this.startRuntimeTrace(options.runtimeTrace);
@@ -771,6 +775,14 @@ export class ViceSessionManager {
       lastClock: existing?.lastClock,
     };
 
+    if (active.monitorClient?.isConnected) {
+      active.monitorClient.close();
+      active.monitorClient = undefined;
+      await this.writeEvent(active.record, "monitor_client_released", {
+        source: "runtime_trace_start",
+      });
+    }
+
     await this.writeEvent(active.record, "runtime_trace_started", {
       intervalMs: config.intervalMs,
       cpuHistoryCount: config.cpuHistoryCount,
@@ -922,6 +934,7 @@ export class ViceSessionManager {
       lastError,
     });
     await this.persistRecord(record);
+    await this.finalizeRuntimeTrace(record);
     await this.writeSummary(record);
 
     this.lastSession = structuredClone(record);
@@ -963,6 +976,41 @@ export class ViceSessionManager {
       lastError: record.lastError,
     };
     await writeFile(record.workspace.summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+  }
+
+  private async bootstrapRuntimeTraceCapture(active: ActiveViceSession): Promise<void> {
+    const client = await this.getOrCreateMonitorClient(active);
+    await this.writeEvent(active.record, "runtime_trace_bootstrap_reset_requested", {
+      resetTarget: "system",
+    });
+    await client.resetSystem(false);
+    const afterSequence = client.currentEventSequence;
+    await client.resume();
+    await client.waitForResume(afterSequence, 1_000).catch(() => undefined);
+    await this.writeEvent(active.record, "runtime_trace_bootstrap_reset_completed", {
+      resetTarget: "system",
+    });
+  }
+
+  private async finalizeRuntimeTrace(record: ViceSessionRecord): Promise<void> {
+    if (!record.runtimeTrace) {
+      return;
+    }
+
+    await writeFile(record.workspace.runtimeTracePath, "", { encoding: "utf8", flag: "a" });
+
+    try {
+      await analyzeRuntimeTrace(record);
+      await this.writeEvent(record, "runtime_trace_finalized", {
+        runtimeTracePath: record.workspace.runtimeTracePath,
+        traceAnalysisPath: record.workspace.traceAnalysisPath,
+      });
+    } catch (error) {
+      await this.writeEvent(record, "runtime_trace_finalize_failed", {
+        error: error instanceof Error ? error.message : String(error),
+        runtimeTracePath: record.workspace.runtimeTracePath,
+      });
+    }
   }
 
   private async captureTraceSnapshot(active: ActiveViceSession, cpuHistoryCount: number): Promise<ViceTraceSnapshot> {
@@ -1279,8 +1327,15 @@ function parseViceKeyCharacter(resourceMap: Map<string, string>, key: string): s
 }
 
 async function launchRuntimeTraceWorker(sessionPath: string): Promise<number | undefined> {
-  const workerPath = fileURLToPath(new URL("./trace-worker.js", import.meta.url));
-  const child = spawn(process.execPath, [workerPath, sessionPath], {
+  const compiledWorkerPath = fileURLToPath(new URL("./trace-worker.js", import.meta.url));
+  const sourceWorkerPath = fileURLToPath(new URL("./trace-worker.ts", import.meta.url));
+  const tsxBinName = process.platform === "win32" ? "tsx.cmd" : "tsx";
+  const tsxBinPath = fileURLToPath(new URL(`../../../node_modules/.bin/${tsxBinName}`, import.meta.url));
+  const command = existsSync(compiledWorkerPath) ? process.execPath : tsxBinPath;
+  const args = existsSync(compiledWorkerPath)
+    ? [compiledWorkerPath, sessionPath]
+    : [sourceWorkerPath, sessionPath];
+  const child = spawn(command, args, {
     detached: true,
     stdio: "ignore",
   });

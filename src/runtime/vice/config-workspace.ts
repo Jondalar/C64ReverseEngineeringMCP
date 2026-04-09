@@ -46,6 +46,8 @@ export async function createViceConfigWorkspace(
   await mkdir(traceDir, { recursive: true });
   await mkdir(viceDir, { recursive: true });
   await mkdir(viceUserDir, { recursive: true });
+  await writeFile(runtimeTracePath, "", "utf8");
+  await writeFile(traceNotesPath, "", "utf8");
 
   await copyFile(sourceConfigPath, vicercPath);
 

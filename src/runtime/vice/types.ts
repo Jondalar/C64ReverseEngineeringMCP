@@ -89,6 +89,7 @@ export interface ViceSessionStartOptions {
   mediaType?: ViceMediaType;
   autostart?: boolean;
   runtimeTrace?: ViceRuntimeTraceConfig;
+  runtimeTraceBootstrapReset?: boolean;
 }
 
 export interface ViceSessionStopResult {

@@ -791,20 +791,22 @@ function createServer(): McpServer {
     "vice_trace_runtime_start",
     "Start a visible VICE session with periodic CPU-history sampling. The user can interact with the emulator and close VICE manually; use vice_trace_analyze_last_session afterwards.",
     {
-      media_path: z.string().describe("Path to a PRG/CRT/D64/G64 file to attach on startup"),
+      media_path: z.string().optional().describe("Path to a PRG/CRT/D64/G64 file to attach on startup"),
       media_type: z.enum(["prg", "crt", "d64", "g64"]).optional().describe("Optional media type override"),
       autostart: z.boolean().optional().describe("Autostart media on startup (default: true)"),
+      bootstrap_reset: z.boolean().optional().describe("After the binary monitor is attached, issue a system reset and continue before tracing begins. Defaults to true when no media is provided."),
       sample_interval_ms: z.number().int().positive().optional().describe(`Delay between runtime-trace samples (default: ${VICE_TRACE_DEFAULT_INTERVAL_MS})`),
       cpu_history_count: z.number().int().positive().optional().describe(`CPU-history depth to request per sample (default: ${VICE_TRACE_DEFAULT_CPU_HISTORY_COUNT})`),
       monitor_chis_lines: z.number().int().positive().optional().describe(`Monitor CPU-history retention size to configure for the session (default: ${VICE_TRACE_DEFAULT_MONITOR_CHIS_LINES})`),
     },
-    async ({ media_path, media_type, autostart, sample_interval_ms, cpu_history_count, monitor_chis_lines }) => {
+    async ({ media_path, media_type, autostart, bootstrap_reset, sample_interval_ms, cpu_history_count, monitor_chis_lines }) => {
       try {
         const manager = getViceSessionManager(projectDir());
         const record = await manager.startSession({
           mediaPath: media_path,
           mediaType: media_type,
           autostart,
+          runtimeTraceBootstrapReset: bootstrap_reset ?? !media_path,
           runtimeTrace: {
             enabled: true,
             intervalMs: sample_interval_ms ?? VICE_TRACE_DEFAULT_INTERVAL_MS,
