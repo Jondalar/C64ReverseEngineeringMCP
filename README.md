@@ -130,14 +130,14 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | Tool | Description |
 |---|---|
 | `pack_rle` | Compress a file with the built-in TypeScript RLE implementation |
-| `depack_rle` | Decompress the built-in TypeScript RLE implementation |
+| `depack_rle` | WIP: Decompress the built-in TypeScript RLE implementation |
 | `pack_exomizer_raw` | Compress a file with Exomizer raw mode via the local `exomizer` CLI |
-| `depack_exomizer_raw` | Decompress an Exomizer raw stream via the local `exomizer` CLI |
-| `depack_exomizer_sfx` | Decompress an Exomizer self-extracting wrapper via the local `desfx` CLI path |
+| `depack_exomizer_raw` | WIP: Decompress an Exomizer raw stream via the local `exomizer` CLI |
+| `depack_exomizer_sfx` | WIP: Decompress an Exomizer self-extracting wrapper via the local `desfx` CLI path |
 | `pack_byteboozer` | Compress a file with ByteBoozer2 via the local `b2` CLI |
-| `depack_byteboozer` | Decompress a ByteBoozer2 raw file or executable wrapper in pure TypeScript |
+| `depack_byteboozer` | WIP: Decompress a ByteBoozer2 raw file or executable wrapper in pure TypeScript |
 | `suggest_depacker` | Probe a file or sliced subrange and suggest likely depackers before trying to unpack it |
-| `try_depack` | Try `rle`, `exomizer_raw`, `exomizer_sfx`, or `byteboozer2` against a file or sliced subrange |
+| `try_depack` | WIP: Try `rle`, `exomizer_raw`, `exomizer_sfx`, or `byteboozer2` against a file or sliced subrange |
 
 ### VICE Runtime / Debugging
 
