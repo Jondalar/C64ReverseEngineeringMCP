@@ -1,12 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCli } from "./run-cli.js";
 import { assembleSource } from "./assemble-source.js";
 import { extractDiskImage, readDiskDirectory } from "./disk-extractor.js";
+import { createDiskParser, G64Parser } from "./disk/index.js";
 import { getViceSessionManager } from "./runtime/vice/index.js";
 import type { ViceSessionRecord, ViceTraceAnalysis } from "./runtime/vice/types.js";
 import type { ViceMemspace, ViceMonitorEvent } from "./runtime/vice/monitor-client.js";
@@ -70,6 +71,19 @@ function cliResultToContent(result: { stdout: string; stderr: string; exitCode: 
 
 function diskDefaultOutputDir(imagePath: string): string {
   return join(projectDir(), "analysis", "disk", basename(imagePath, extname(imagePath)));
+}
+
+function g64SectorDefaultOutputDir(imagePath: string, track: number): string {
+  return join(projectDir(), "analysis", "g64", basename(imagePath, extname(imagePath)), `track-${String(track).replace(".", "_")}`);
+}
+
+function loadG64Parser(imagePath: string): G64Parser {
+  const imageAbs = resolve(projectDir(), imagePath);
+  const parser = createDiskParser(new Uint8Array(readFileSync(imageAbs)));
+  if (!(parser instanceof G64Parser)) {
+    throw new Error(`Image is not a G64: ${imageAbs}`);
+  }
+  return parser;
 }
 
 function viceSessionToContent(record: ViceSessionRecord, headline: string): { content: [{ type: "text"; text: string }] } {
@@ -632,6 +646,154 @@ function createServer(): McpServer {
             return `${String(file.index + 1).padStart(2, "0")}. ${file.relativePath} (${file.type}) - ${file.sizeBytes} bytes${loadAddress}`;
           }),
         ];
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: inspect-g64-track ─────────────────────────────────────────
+  server.tool(
+    "inspect_g64_track",
+    "Decode a specific G64 track via GCR and report discovered sectors, missing IDs, duplicates, and raw track metadata.",
+    {
+      image_path: z.string().describe("Path to the .g64 image"),
+      track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
+    },
+    async ({ image_path, track }) => {
+      try {
+        const imageAbs = resolve(projectDir(), image_path);
+        const parser = loadG64Parser(image_path);
+        const analysis = parser.getTrackAnalysis(track);
+        if (!analysis) {
+          return { content: [{ type: "text" as const, text: `No raw track data present for ${imageAbs} track ${track}.` }] };
+        }
+        const lines = [
+          `Image: ${imageAbs}`,
+          `Track: ${track}`,
+          `Slot index: ${analysis.slotIndex}`,
+          `Raw offset: ${analysis.rawOffset}`,
+          `Raw length: ${analysis.rawLength} bytes`,
+        ];
+        if (analysis.expectedSectorCount !== undefined) {
+          lines.push(`Expected sectors: ${analysis.expectedSectorCount}`);
+        }
+        if (analysis.speedZoneOffset !== undefined) {
+          lines.push(`Speed-zone offset: ${analysis.speedZoneOffset}`);
+        }
+        lines.push(`Decoded sectors: ${analysis.sectors.length}`);
+        lines.push(`Duplicate sectors: ${analysis.duplicateSectors.length ? analysis.duplicateSectors.join(", ") : "none"}`);
+        lines.push(`Missing sectors: ${analysis.missingSectors.length ? analysis.missingSectors.join(", ") : "none"}`);
+        lines.push(`Unexpected sectors: ${analysis.unexpectedSectors.length ? analysis.unexpectedSectors.join(", ") : "none"}`);
+        lines.push(`Invalid data blocks: ${analysis.invalidDataCount}`);
+        lines.push("");
+        lines.push("Decoded sectors:");
+        for (const sector of analysis.sectors) {
+          lines.push(`- ${sector.track}/${sector.sector}  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataValid ? "ok" : "bad"}  bytes=${sector.dataLength}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: extract-g64-sectors ───────────────────────────────────────
+  server.tool(
+    "extract_g64_sectors",
+    "Decode a G64 track via GCR and write one file per decoded sector for low-level inspection.",
+    {
+      image_path: z.string().describe("Path to the .g64 image"),
+      track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
+      sectors: z.array(z.number().int().nonnegative()).optional().describe("Optional explicit sector IDs to extract; defaults to all decoded sectors on the track"),
+      output_dir: z.string().optional().describe("Output directory for extracted sector files"),
+    },
+    async ({ image_path, track, sectors, output_dir }) => {
+      try {
+        const imageAbs = resolve(projectDir(), image_path);
+        const parser = loadG64Parser(image_path);
+        const decoded = parser.extractTrackSectors(track, sectors);
+        const outDir = output_dir
+          ? resolve(projectDir(), output_dir)
+          : g64SectorDefaultOutputDir(imageAbs, track);
+        mkdirSync(outDir, { recursive: true });
+
+        const written: string[] = [];
+        for (const sector of decoded) {
+          const fileName = `t${String(sector.track).padStart(2, "0")}s${String(sector.sector).padStart(2, "0")}${sector.dataValid ? "" : ".invalid"}.bin`;
+          const outputPath = join(outDir, fileName);
+          writeFileSync(outputPath, sector.data);
+          written.push(outputPath);
+        }
+
+        const metadataPath = join(outDir, "track-metadata.json");
+        writeFileSync(metadataPath, `${JSON.stringify({
+          sourceImage: imageAbs,
+          track,
+          requestedSectors: sectors ?? null,
+          decodedCount: decoded.length,
+          files: decoded.map((sector, index) => ({
+            track: sector.track,
+            sector: sector.sector,
+            headerValid: sector.headerValid,
+            dataValid: sector.dataValid,
+            bytes: sector.data.length,
+            path: written[index],
+          })),
+        }, null, 2)}\n`, "utf8");
+
+        const lines = [
+          `Image: ${imageAbs}`,
+          `Track: ${track}`,
+          `Output: ${outDir}`,
+          `Decoded sectors written: ${decoded.length}`,
+          `Metadata: ${metadataPath}`,
+        ];
+        for (const sector of decoded) {
+          lines.push(`- ${sector.track}/${sector.sector}  ${sector.data.length} bytes  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataValid ? "ok" : "bad"}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: analyze-g64-anomalies ─────────────────────────────────────
+  server.tool(
+    "analyze_g64_anomalies",
+    "Scan a G64 image track-by-track and report duplicate, missing, unexpected, or invalid decoded sectors.",
+    {
+      image_path: z.string().describe("Path to the .g64 image"),
+    },
+    async ({ image_path }) => {
+      try {
+        const imageAbs = resolve(projectDir(), image_path);
+        const parser = loadG64Parser(image_path);
+        const report = parser.analyzeAnomalies();
+        const lines = [
+          `Image: ${imageAbs}`,
+          `Version: ${report.version}`,
+          `Track count: ${report.trackCount}`,
+          `Tracks with raw data: ${report.tracksWithData.map((track) => String(track)).join(", ") || "none"}`,
+          `Anomalies: ${report.anomalies.length}`,
+        ];
+        for (const anomaly of report.anomalies) {
+          lines.push(`- track ${anomaly.track}: ${anomaly.issue}${anomaly.details ? ` (${anomaly.details})` : ""}`);
+        }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {
         return cliResultToContent({

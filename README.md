@@ -119,6 +119,9 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 |---|---|
 | `inspect_disk` | Read a D64 or G64 directory and list contained files without extraction |
 | `extract_disk` | Extract files from a D64 or G64 image and write `manifest.json` for follow-up analysis |
+| `inspect_g64_track` | Decode a specific G64 track via GCR and report discovered sectors, gaps, duplicates, and raw track metadata |
+| `extract_g64_sectors` | Decode a G64 track and write one file per decoded sector for low-level inspection |
+| `analyze_g64_anomalies` | Scan a G64 image for missing, duplicate, unexpected, or off-track decoded sectors |
 
 ### VICE Runtime / Debugging
 

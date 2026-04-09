@@ -21,6 +21,29 @@ const HEADER_TRACK_COUNT = 0x09;
 const HEADER_TRACK_SIZE = 0x0a;
 const HEADER_TRACK_OFFSETS = 0x0c;
 
+export interface G64TrackSectorInfo {
+  track: number;
+  sector: number;
+  headerValid: boolean;
+  dataValid: boolean;
+  dataLength: number;
+}
+
+export interface G64TrackAnalysis {
+  track: number;
+  slotIndex: number;
+  rawOffset: number;
+  rawLength: number;
+  expectedSectorCount?: number;
+  speedZoneOffset?: number;
+  sectors: G64TrackSectorInfo[];
+  duplicateSectors: number[];
+  missingSectors: number[];
+  unexpectedSectors: number[];
+  invalidHeaderCount: number;
+  invalidDataCount: number;
+}
+
 export class G64Parser implements DiskImage {
   private readonly data: Uint8Array;
   private version = 0;
@@ -71,11 +94,20 @@ export class G64Parser implements DiskImage {
     }
   }
 
-  private getRawTrack(trackNum: number): Uint8Array | null {
-    const trackIndex = (trackNum - 1) * 2;
-    if (trackIndex < 0 || trackIndex >= this.trackOffsets.length) {
-      return null;
+  private trackToSlotIndex(trackNum: number): number {
+    const slotIndex = Math.round((trackNum - 1) * 2);
+    const normalizedTrack = 1 + (slotIndex / 2);
+    if (Math.abs(normalizedTrack - trackNum) > 0.001) {
+      throw new Error(`G64 track must be specified in 0.5 increments (for example 18 or 18.5). Received: ${trackNum}`);
     }
+    if (slotIndex < 0 || slotIndex >= this.trackOffsets.length) {
+      throw new Error(`Track ${trackNum} is outside the G64 image range.`);
+    }
+    return slotIndex;
+  }
+
+  private getRawTrack(trackNum: number): Uint8Array | null {
+    const trackIndex = this.trackToSlotIndex(trackNum);
 
     const offset = this.trackOffsets[trackIndex];
     if (offset === 0) {
@@ -93,6 +125,156 @@ export class G64Parser implements DiskImage {
   private decodeTrack(trackNum: number): DecodedSector[] {
     const trackData = this.getRawTrack(trackNum);
     return trackData ? decodeGCRTrack(trackData) : [];
+  }
+
+  getTrackAnalysis(trackNum: number): G64TrackAnalysis | null {
+    const slotIndex = this.trackToSlotIndex(trackNum);
+    const rawOffset = this.trackOffsets[slotIndex];
+    if (rawOffset === 0) {
+      return null;
+    }
+
+    const trackData = this.getRawTrack(trackNum);
+    if (!trackData) {
+      return null;
+    }
+
+    const decoded = decodeGCRTrack(trackData);
+    const expectedSectorCount = SECTORS_PER_TRACK[Math.floor(trackNum)];
+    const sectorCounts = new Map<number, number>();
+    const sectors: G64TrackSectorInfo[] = decoded.map((sector) => {
+      sectorCounts.set(sector.sector, (sectorCounts.get(sector.sector) ?? 0) + 1);
+      return {
+        track: sector.track,
+        sector: sector.sector,
+        headerValid: sector.headerValid,
+        dataValid: sector.dataValid,
+        dataLength: sector.data.length,
+      };
+    });
+
+    const duplicateSectors = [...sectorCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([sector]) => sector)
+      .sort((left, right) => left - right);
+
+    const presentSectors = new Set(decoded.map((sector) => sector.sector));
+    const missingSectors = expectedSectorCount === undefined
+      ? []
+      : Array.from({ length: expectedSectorCount }, (_, index) => index)
+        .filter((sector) => !presentSectors.has(sector));
+
+    const unexpectedSectors = expectedSectorCount === undefined
+      ? []
+      : [...presentSectors]
+        .filter((sector) => sector < 0 || sector >= expectedSectorCount)
+        .sort((left, right) => left - right);
+
+    return {
+      track: trackNum,
+      slotIndex,
+      rawOffset,
+      rawLength: trackData.length,
+      expectedSectorCount,
+      speedZoneOffset: this.speedZoneOffsets[slotIndex] || undefined,
+      sectors,
+      duplicateSectors,
+      missingSectors,
+      unexpectedSectors,
+      invalidHeaderCount: decoded.filter((sector) => !sector.headerValid).length,
+      invalidDataCount: decoded.filter((sector) => !sector.dataValid).length,
+    };
+  }
+
+  extractTrackSectors(trackNum: number, sectors?: number[]): Array<{
+    track: number;
+    sector: number;
+    data: Uint8Array;
+    dataValid: boolean;
+    headerValid: boolean;
+  }> {
+    const wanted = sectors ? new Set(sectors) : undefined;
+    return this.decodeTrack(trackNum)
+      .filter((sector) => !wanted || wanted.has(sector.sector))
+      .sort((left, right) => left.sector - right.sector)
+      .map((sector) => ({
+        track: sector.track,
+        sector: sector.sector,
+        data: sector.data,
+        dataValid: sector.dataValid,
+        headerValid: sector.headerValid,
+      }));
+  }
+
+  analyzeAnomalies(): {
+    version: number;
+    trackCount: number;
+    tracksWithData: number[];
+    anomalies: Array<{
+      track: number;
+      issue: string;
+      details?: string;
+    }>;
+  } {
+    const anomalies: Array<{ track: number; issue: string; details?: string }> = [];
+    const tracksWithData: number[] = [];
+
+    for (let slotIndex = 0; slotIndex < this.trackOffsets.length; slotIndex++) {
+      const trackNum = 1 + (slotIndex / 2);
+      if (!this.trackOffsets[slotIndex]) {
+        continue;
+      }
+      tracksWithData.push(trackNum);
+      const analysis = this.getTrackAnalysis(trackNum);
+      if (!analysis) {
+        continue;
+      }
+      if (analysis.duplicateSectors.length > 0) {
+        anomalies.push({
+          track: trackNum,
+          issue: "duplicate_sectors",
+          details: analysis.duplicateSectors.join(", "),
+        });
+      }
+      if (analysis.missingSectors.length > 0) {
+        anomalies.push({
+          track: trackNum,
+          issue: "missing_sectors",
+          details: analysis.missingSectors.join(", "),
+        });
+      }
+      if (analysis.unexpectedSectors.length > 0) {
+        anomalies.push({
+          track: trackNum,
+          issue: "unexpected_sector_ids",
+          details: analysis.unexpectedSectors.join(", "),
+        });
+      }
+      if (analysis.invalidDataCount > 0) {
+        anomalies.push({
+          track: trackNum,
+          issue: "invalid_data_blocks",
+          details: String(analysis.invalidDataCount),
+        });
+      }
+      if (analysis.sectors.some((sector) => sector.track !== Math.floor(trackNum))) {
+        anomalies.push({
+          track: trackNum,
+          issue: "off_track_headers",
+          details: analysis.sectors
+            .filter((sector) => sector.track !== Math.floor(trackNum))
+            .map((sector) => `${sector.track}/${sector.sector}`)
+            .join(", "),
+        });
+      }
+    }
+
+    return {
+      version: this.version,
+      trackCount: this.getTrackCount(),
+      tracksWithData,
+      anomalies,
+    };
   }
 
   getSector(track: number, sector: number): Uint8Array | null {
