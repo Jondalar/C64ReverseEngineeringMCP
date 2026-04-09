@@ -129,6 +129,16 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `vice_trace_start` | Enable periodic CPU-history sampling on an already running VICE session |
 | `vice_trace_status` | Report whether runtime tracing is active and where the trace is being written |
 | `vice_trace_stop` | Stop periodic CPU-history sampling without closing VICE |
+| `vice_trace_build_index` | Build a persistent trace index with continuity metrics and optional semantic links from annotations |
+| `vice_trace_hotspots` | Summarize hot PCs in a completed runtime trace for quick triage |
+| `vice_trace_find_pc` | Find occurrences of a specific PC and return anchor clocks for deeper drill-down |
+| `vice_trace_find_bytes` | Search the trace by raw instruction byte patterns from ASM |
+| `vice_trace_find_operand` | Search the trace for instructions whose operand bytes contain a target address |
+| `vice_trace_find_memory_access` | Find direct read/write/readmodifywrite accesses to a target address |
+| `vice_trace_slice` | Return a focused instruction window around an anchor clock |
+| `vice_trace_call_path` | Heuristically reconstruct the JSR caller chain leading to an anchor clock |
+| `vice_trace_add_note` | Save a reasoning note/bookmark against a trace session |
+| `vice_trace_list_notes` | Read saved notes/bookmarks for a trace session |
 | `vice_session_status` | Report current or last VICE session state, monitor port, and artifact paths |
 | `vice_session_stop` | Stop the active VICE session cleanly |
 | `vice_trace_stop_and_analyze` | Stop the session, capture a final snapshot, and return a trace summary |

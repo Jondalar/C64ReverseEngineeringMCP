@@ -33,7 +33,9 @@ export async function createViceConfigWorkspace(
   const summaryPath = join(traceDir, "summary.json");
   const traceSnapshotPath = join(traceDir, "trace-snapshot.json");
   const traceAnalysisPath = join(traceDir, "trace-analysis.json");
+  const traceIndexPath = join(traceDir, "trace-index.json");
   const runtimeTracePath = join(traceDir, "runtime-trace.jsonl");
+  const traceNotesPath = join(traceDir, "trace-notes.jsonl");
   const stdoutLogPath = join(viceDir, "stdout.log");
   const stderrLogPath = join(viceDir, "stderr.log");
   const viceLogPath = join(viceDir, "vice.log");
@@ -87,7 +89,9 @@ export async function createViceConfigWorkspace(
       summaryPath,
       traceSnapshotPath,
       traceAnalysisPath,
+      traceIndexPath,
       runtimeTracePath,
+      traceNotesPath,
       stdoutLogPath,
       stderrLogPath,
       viceLogPath,

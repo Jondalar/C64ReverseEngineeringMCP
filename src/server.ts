@@ -10,6 +10,27 @@ import { extractDiskImage, readDiskDirectory } from "./disk-extractor.js";
 import { getViceSessionManager } from "./runtime/vice/index.js";
 import type { ViceSessionRecord, ViceTraceAnalysis } from "./runtime/vice/types.js";
 import type { ViceMemspace, ViceMonitorEvent } from "./runtime/vice/monitor-client.js";
+import {
+  addTraceNote,
+  findTraceMemoryAccess,
+  findTraceByBytes,
+  findTraceByOperand,
+  findTraceByPc,
+  listTraceNotes,
+  loadTraceSession,
+  sliceTraceByClock,
+  traceCallPath,
+  traceHotspots,
+  type ViceTraceInstructionEvent,
+  type ViceTraceMatch,
+  type ViceTraceNote,
+} from "./runtime/vice/trace-query.js";
+import {
+  buildTraceIndex,
+  loadTraceIndex,
+  type ViceTraceIndex,
+  type ViceTraceIndexEntry,
+} from "./runtime/vice/trace-index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,8 +107,34 @@ function parseHexWord(value: string): number {
   return parseInt(normalized, 16);
 }
 
+function parseHexByteSequence(value: string): number[] {
+  const normalized = value
+    .replace(/0x/gi, "")
+    .replace(/\$/g, "")
+    .replace(/[^0-9a-fA-F]/g, " ")
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean);
+  if (normalized.length === 1 && normalized[0]!.length > 2 && normalized[0]!.length % 2 === 0) {
+    return normalized[0]!.match(/../g)!.map((part) => parseInt(part, 16));
+  }
+  if (normalized.length === 0) {
+    throw new Error(`Invalid byte sequence: ${value}`);
+  }
+  return normalized.map((part) => {
+    if (!/^[0-9a-fA-F]{1,2}$/.test(part)) {
+      throw new Error(`Invalid byte value in sequence: ${value}`);
+    }
+    return parseInt(part, 16);
+  });
+}
+
 function formatHexWord(value: number): string {
   return `$${value.toString(16).toUpperCase().padStart(4, "0")}`;
+}
+
+function formatHexByte(value: number): string {
+  return value.toString(16).toUpperCase().padStart(2, "0");
 }
 
 function defaultViceExportPath(kind: "snapshot" | "prg" | "bin", startAddress?: number, endAddress?: number): string {
@@ -283,6 +330,59 @@ function viceRuntimeTraceStatusToContent(
   if (status.monitorChisLines !== undefined) lines.push(`MonitorChisLines: ${status.monitorChisLines}`);
   if (status.lastClock !== undefined) lines.push(`Last clock: ${status.lastClock}`);
   return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+}
+
+function formatTraceMatch(match: ViceTraceMatch): string {
+  const bytes = match.instructionBytes.map(formatHexByte).join(" ");
+  const pc = match.pc === undefined ? "?" : formatHexWord(match.pc);
+  const registers = ["A", "X", "Y", "SP", "FL"]
+    .filter((name) => match.registers[name] !== undefined)
+    .map((name) => `${name}=${match.registers[name]}`)
+    .join(" ");
+  return `${pc}  [${bytes}]  sample=${match.sampleIndex} clock=${match.clock}${registers ? `  ${registers}` : ""}`;
+}
+
+function formatSemanticLink(entry?: ViceTraceIndexEntry): string | undefined {
+  const semantic = entry?.semantic;
+  if (!semantic) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  if (semantic.label) parts.push(`label=${semantic.label}`);
+  if (semantic.routineName) parts.push(`routine=${semantic.routineName}`);
+  if (semantic.segmentKind) parts.push(`segment=${semantic.segmentKind}`);
+  if (semantic.segmentLabel) parts.push(`segment_label=${semantic.segmentLabel}`);
+  return parts.length > 0 ? `  -> ${parts.join(" | ")}` : undefined;
+}
+
+function formatTraceInstructionEvent(event: ViceTraceInstructionEvent): string {
+  const bytes = event.instructionBytes.map(formatHexByte).join(" ");
+  const pc = event.pc === undefined ? "?" : formatHexWord(event.pc);
+  const registers = ["A", "X", "Y", "SP", "FL"]
+    .filter((name) => event.registers[name] !== undefined)
+    .map((name) => `${name}=${event.registers[name]}`)
+    .join(" ");
+  return `${pc}  [${bytes}]  sample=${event.sampleIndex} clock=${event.clock}${registers ? `  ${registers}` : ""}`;
+}
+
+function traceNotesToContent(notes: ViceTraceNote[], sessionId: string): { content: [{ type: "text"; text: string }] } {
+  const lines = [`Trace notes for session ${sessionId}:`, `Count: ${notes.length}`];
+  for (const note of notes) {
+    lines.push("");
+    lines.push(`[${note.ts}] ${note.title}`);
+    if (note.anchorClock) lines.push(`Clock: ${note.anchorClock}`);
+    if (note.pc !== undefined) lines.push(`PC: ${formatHexWord(note.pc)}`);
+    if (note.sampleIndex !== undefined) lines.push(`Sample: ${note.sampleIndex}`);
+    lines.push(note.note);
+  }
+  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+}
+
+function getIndexedPcEntry(index: ViceTraceIndex | undefined, pc: number | undefined): ViceTraceIndexEntry | undefined {
+  if (!index || pc === undefined) {
+    return undefined;
+  }
+  return index.pcIndex.find((entry) => entry.pc === pc);
 }
 
 // ---------------------------------------------------------------------------
@@ -870,6 +970,367 @@ function createServer(): McpServer {
         const manager = getViceSessionManager(projectDir());
         const analysis = await manager.analyzeLastSession();
         return viceTraceAnalysisToContent(analysis, "VICE runtime trace analyzed.", "manual_exit");
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-build-index ────────────────────────────────────
+  server.tool(
+    "vice_trace_build_index",
+    "Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to link observed PCs back to semantic code knowledge."),
+    },
+    async ({ session_id, annotations_path }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const annotationsPath = annotations_path ? resolve(projectDir(), annotations_path) : undefined;
+        const index = await buildTraceIndex(record, { annotationsPath });
+        const lines = [
+          `Trace index built for session ${record.sessionId}.`,
+          `Index path: ${record.workspace.traceIndexPath ?? join(dirname(record.workspace.runtimeTracePath), "trace-index.json")}`,
+          `Trace path: ${record.workspace.runtimeTracePath}`,
+          `Continuity: ${index.continuity.status}`,
+          `Samples: ${index.continuity.sampleCount}`,
+          `Max clock gap: ${index.continuity.maxClockGap}`,
+          `Full-window samples: ${index.continuity.fullWindowSampleCount}`,
+          `Saturated samples: ${index.continuity.saturatedSampleCount}`,
+          `Indexed PCs: ${index.pcIndex.length}`,
+        ];
+        if (index.annotationsPath) {
+          lines.push(`Semantic links: ${index.annotationsPath}`);
+        }
+        if (index.continuity.maxClockGapBetweenSamples) {
+          const gap = index.continuity.maxClockGapBetweenSamples;
+          lines.push(`Largest gap between samples: ${gap.previousSampleIndex} -> ${gap.currentSampleIndex} (${gap.previousClockLast} -> ${gap.currentClockFirst})`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-hotspots ───────────────────────────────────────
+  server.tool(
+    "vice_trace_hotspots",
+    "Summarize the hottest PCs in a completed VICE runtime trace. Use this as the first entry point before drilling into slices.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      limit: z.number().int().positive().optional().describe("How many hotspots to return (default: 20)"),
+    },
+    async ({ session_id, limit }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const index = await loadTraceIndex(record);
+        const hotspots = await traceHotspots(record, limit ?? 20);
+        const lines = [
+          `Trace hotspots for session ${record.sessionId}:`,
+          `Trace file: ${record.workspace.runtimeTracePath}`,
+          `Count: ${hotspots.length}`,
+        ];
+        if (index) {
+          lines.push(`Indexed continuity: ${index.continuity.status} (max clock gap ${index.continuity.maxClockGap})`);
+        }
+        for (const hotspot of hotspots) {
+          lines.push(`${formatHexWord(hotspot.pc)}  count=${hotspot.count}  firstSample=${hotspot.firstSampleIndex}  lastSample=${hotspot.lastSampleIndex}  firstClock=${hotspot.firstClock}  lastClock=${hotspot.lastClock}`);
+          const semantic = formatSemanticLink(getIndexedPcEntry(index, hotspot.pc));
+          if (semantic) {
+            lines.push(semantic);
+          }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-find-pc ────────────────────────────────────────
+  server.tool(
+    "vice_trace_find_pc",
+    "Find occurrences of a specific PC in a completed VICE runtime trace. Returns anchor clocks you can pass to vice_trace_slice.",
+    {
+      pc: z.string().describe("Hex PC to search for, e.g. 63A1"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      limit: z.number().int().positive().optional().describe("How many matches to return (default: 20)"),
+    },
+    async ({ pc, session_id, limit }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const pcValue = parseHexWord(pc);
+        const index = await loadTraceIndex(record);
+        const matches = await findTraceByPc(record, pcValue, limit ?? 20);
+        const lines = [
+          `Trace PC search for ${formatHexWord(pcValue)} in session ${record.sessionId}:`,
+          `Trace file: ${record.workspace.runtimeTracePath}`,
+          `Matches: ${matches.length}`,
+        ];
+        if (index) {
+          lines.push(`Indexed continuity: ${index.continuity.status} (max clock gap ${index.continuity.maxClockGap})`);
+        }
+        for (const match of matches) {
+          lines.push(formatTraceMatch(match));
+          const semantic = formatSemanticLink(getIndexedPcEntry(index, match.pc));
+          if (semantic) {
+            lines.push(semantic);
+          }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-find-bytes ─────────────────────────────────────
+  server.tool(
+    "vice_trace_find_bytes",
+    "Find instructions in a completed VICE runtime trace by raw byte pattern. Useful when you know the exact opcode bytes from ASM.",
+    {
+      bytes: z.string().describe("Byte pattern, e.g. 'A9 FE 8D 00 DC' or 'A9FE8D00DC'"),
+      mode: z.enum(["prefix", "exact", "contains"]).optional().describe("Match mode (default: prefix)"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      limit: z.number().int().positive().optional().describe("How many matches to return (default: 20)"),
+    },
+    async ({ bytes, mode, session_id, limit }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const parsedBytes = parseHexByteSequence(bytes);
+        const matches = await findTraceByBytes(record, parsedBytes, mode ?? "prefix", limit ?? 20);
+        const lines = [
+          `Trace byte search [${parsedBytes.map(formatHexByte).join(" ")}] in session ${record.sessionId}:`,
+          `Mode: ${mode ?? "prefix"}`,
+          `Matches: ${matches.length}`,
+        ];
+        for (const match of matches) {
+          lines.push(formatTraceMatch(match));
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-find-operand ───────────────────────────────────
+  server.tool(
+    "vice_trace_find_operand",
+    "Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. Useful for I/O and data-address probing.",
+    {
+      address: z.string().describe("Hex address to search inside instruction operands, e.g. D020 or DC00"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      limit: z.number().int().positive().optional().describe("How many matches to return (default: 20)"),
+    },
+    async ({ address, session_id, limit }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const parsedAddress = parseHexWord(address);
+        const matches = await findTraceByOperand(record, parsedAddress, limit ?? 20);
+        const lines = [
+          `Trace operand search for ${formatHexWord(parsedAddress)} in session ${record.sessionId}:`,
+          `Matches: ${matches.length}`,
+        ];
+        for (const match of matches) {
+          lines.push(formatTraceMatch(match));
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-find-memory-access ─────────────────────────────
+  server.tool(
+    "vice_trace_find_memory_access",
+    "Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible.",
+    {
+      address: z.string().describe("Hex address to match as a direct instruction operand, e.g. D020 or DC00"),
+      access: z.enum(["any", "read", "write", "readwrite"]).optional().describe("Access kind filter (default: any)"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      limit: z.number().int().positive().optional().describe("How many matches to return (default: 20)"),
+    },
+    async ({ address, access, session_id, limit }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const parsedAddress = parseHexWord(address);
+        const index = await loadTraceIndex(record);
+        const matches = await findTraceMemoryAccess(record, parsedAddress, access ?? "any", limit ?? 20);
+        const lines = [
+          `Trace memory-access search for ${formatHexWord(parsedAddress)} in session ${record.sessionId}:`,
+          `Access filter: ${access ?? "any"}`,
+          `Matches: ${matches.length}`,
+        ];
+        if (index) {
+          lines.push(`Indexed continuity: ${index.continuity.status} (max clock gap ${index.continuity.maxClockGap})`);
+        }
+        for (const match of matches) {
+          lines.push(formatTraceMatch(match));
+          const semantic = formatSemanticLink(getIndexedPcEntry(index, match.pc));
+          if (semantic) {
+            lines.push(semantic);
+          }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-slice ──────────────────────────────────────────
+  server.tool(
+    "vice_trace_slice",
+    "Return a focused instruction window around an anchor clock from a completed VICE runtime trace. Use this after vice_trace_find_pc or vice_trace_find_bytes.",
+    {
+      anchor_clock: z.string().describe("Exact clock value from a trace match"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      before: z.number().int().nonnegative().optional().describe("How many instructions before the anchor to include (default: 40)"),
+      after: z.number().int().nonnegative().optional().describe("How many instructions after the anchor to include (default: 80)"),
+    },
+    async ({ anchor_clock, session_id, before, after }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const slice = await sliceTraceByClock(record, anchor_clock, before ?? 40, after ?? 80);
+        const lines = [
+          `Trace slice for session ${record.sessionId}:`,
+          `Anchor clock: ${anchor_clock}`,
+          `Found: ${slice.found ? "yes" : "no"}`,
+          `Events returned: ${slice.events.length}`,
+        ];
+        for (const event of slice.events) {
+          lines.push(formatTraceInstructionEvent(event));
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-call-path ──────────────────────────────────────
+  server.tool(
+    "vice_trace_call_path",
+    "Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace.",
+    {
+      anchor_clock: z.string().describe("Exact clock value from a trace match"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      before: z.number().int().positive().optional().describe("How many prior instructions to scan for the call chain (default: 600)"),
+    },
+    async ({ anchor_clock, session_id, before }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const index = await loadTraceIndex(record);
+        const frames = await traceCallPath(record, anchor_clock, before ?? 600);
+        const lines = [
+          `Trace call path for session ${record.sessionId}:`,
+          `Anchor clock: ${anchor_clock}`,
+          `Frames: ${frames.length}`,
+        ];
+        if (index) {
+          lines.push(`Indexed continuity: ${index.continuity.status} (max clock gap ${index.continuity.maxClockGap})`);
+        }
+        for (const frame of frames) {
+          const target = frame.targetAddress === undefined ? "?" : formatHexWord(frame.targetAddress);
+          lines.push(`${formatHexWord(frame.pc)}  -> ${target}  sample=${frame.sampleIndex} clock=${frame.clock}`);
+          const semantic = formatSemanticLink(getIndexedPcEntry(index, frame.targetAddress ?? frame.pc));
+          if (semantic) {
+            lines.push(semantic);
+          }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-add-note ───────────────────────────────────────
+  server.tool(
+    "vice_trace_add_note",
+    "Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings.",
+    {
+      title: z.string().describe("Short note title"),
+      note: z.string().describe("The actual finding or hypothesis to preserve"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      anchor_clock: z.string().optional().describe("Optional anchor clock this note refers to"),
+      pc: z.string().optional().describe("Optional PC this note refers to, e.g. 63A1"),
+      sample_index: z.number().int().nonnegative().optional().describe("Optional sample index this note refers to"),
+    },
+    async ({ title, note, session_id, anchor_clock, pc, sample_index }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const saved = await addTraceNote(record, {
+          title,
+          note,
+          anchorClock: anchor_clock,
+          pc: pc ? parseHexWord(pc) : undefined,
+          sampleIndex: sample_index,
+        });
+        return traceNotesToContent([saved], record.sessionId);
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-list-notes ─────────────────────────────────────
+  server.tool(
+    "vice_trace_list_notes",
+    "List saved reasoning notes/bookmarks for a completed VICE trace session.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      limit: z.number().int().positive().optional().describe("How many recent notes to return (default: 50)"),
+    },
+    async ({ session_id, limit }) => {
+      try {
+        const record = await loadTraceSession(projectDir(), session_id);
+        const notes = await listTraceNotes(record, limit ?? 50);
+        return traceNotesToContent(notes, record.sessionId);
       } catch (error) {
         return cliResultToContent({
           stdout: "",
