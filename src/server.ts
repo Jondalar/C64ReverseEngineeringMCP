@@ -46,6 +46,8 @@ import {
   type ViceTraceIndex,
   type ViceTraceIndexEntry,
 } from "./runtime/vice/trace-index.js";
+import { getHeadlessSessionManager, getPreferredHeadlessSessionManager } from "./runtime/headless/index.js";
+import type { HeadlessRunResult, HeadlessSessionRecord } from "./runtime/headless/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -206,8 +208,70 @@ async function resolveTraceProjectDir(): Promise<string> {
   return preferred?.getProjectDir() ?? projectDir();
 }
 
+function resolveHeadlessProjectDir(hintPath?: string): string {
+  if (hintPath) {
+    return projectDir(hintPath, true);
+  }
+  const preferred = getPreferredHeadlessSessionManager();
+  if (preferred) {
+    return preferred.getProjectDir();
+  }
+  return projectDir(undefined, true);
+}
+
 function canonicalWorkflowSkillPath(): string {
   return resolve(repoDir(), "docs", "c64-reverse-engineering-skill.md");
+}
+
+function headlessSessionToContent(record: HeadlessSessionRecord, headline: string): { content: [{ type: "text"; text: string }] } {
+  const lines = [
+    headline,
+    `Session: ${record.sessionId}`,
+    `State: ${record.state}`,
+    `Project: ${record.projectDir}`,
+    `PC: ${formatHexWord(record.currentPc)}`,
+  ];
+  if (record.prgPath) lines.push(`PRG: ${record.prgPath}`);
+  if (record.diskPath) lines.push(`Disk: ${record.diskPath}`);
+  if (record.entryPoint !== undefined) lines.push(`Entry: ${formatHexWord(record.entryPoint)}`);
+  if (record.inferredBasicSys !== undefined) lines.push(`BASIC SYS: ${formatHexWord(record.inferredBasicSys)}`);
+  if (record.startedAt) lines.push(`Started: ${record.startedAt}`);
+  if (record.stoppedAt) lines.push(`Stopped: ${record.stoppedAt}`);
+  if (record.lastTrap) lines.push(`Last trap: ${record.lastTrap}`);
+  if (record.lastError) lines.push(`Last error: ${record.lastError}`);
+  if (record.loaderState.fileName) lines.push(`Loader filename: ${record.loaderState.fileName}`);
+  if (record.loaderState.device !== null) lines.push(`Loader device: ${record.loaderState.device}`);
+  if (record.loaderState.secondaryAddress !== null) lines.push(`Loader SA: ${record.loaderState.secondaryAddress}`);
+  if (record.loadEvents.length > 0) {
+    lines.push("Load events:");
+    for (const event of record.loadEvents.slice(-5)) {
+      lines.push(`- "${event.name}" -> ${formatHexWord(event.startAddress)}-${formatHexWord((event.endAddress - 1) & 0xffff)} from ${event.source}`);
+    }
+  }
+  if (record.recentTrace.length > 0) {
+    const last = record.recentTrace[record.recentTrace.length - 1]!;
+    const bytes = last.bytes.map(formatHexByte).join(" ");
+    lines.push(`Recent trace tail: ${formatHexWord(last.pc)} [${bytes}]${last.trap ? ` ${last.trap}` : ""}`);
+  }
+  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+}
+
+function headlessRunResultToContent(result: HeadlessRunResult, record: HeadlessSessionRecord, headline: string): { content: [{ type: "text"; text: string }] } {
+  const lines = [
+    headline,
+    `Reason: ${result.reason}`,
+    `Steps executed: ${result.stepsExecuted}`,
+    `PC: ${formatHexWord(result.currentPc)}`,
+  ];
+  if (result.lastTrap) lines.push(`Last trap: ${result.lastTrap}`);
+  if (record.recentTrace.length > 0) {
+    lines.push("Recent trace:");
+    for (const event of record.recentTrace.slice(-8)) {
+      const bytes = event.bytes.map(formatHexByte).join(" ");
+      lines.push(`- ${formatHexWord(event.pc)} [${bytes}]${event.trap ? ` ${event.trap}` : ""}`);
+    }
+  }
+  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
 }
 
 function parseViceMemspace(value?: string): ViceMemspace {
@@ -2792,6 +2856,228 @@ Practical advice:
         },
       }],
     }),
+  );
+
+  // ── Tool: headless-session-start ────────────────────────────────────
+  server.tool(
+    "headless_session_start",
+    "Start a headless C64 RE runtime session with optional PRG and disk image attached.",
+    {
+      prg_path: z.string().optional().describe("Optional PRG to load into RAM before execution."),
+      disk_path: z.string().optional().describe("Optional D64/G64 disk image used to satisfy KERNAL LOAD traps."),
+      entry_pc: z.string().optional().describe("Optional explicit entry PC in hex, e.g. 080D."),
+    },
+    async ({ prg_path, disk_path, entry_pc }) => {
+      try {
+        const hintPath = prg_path ?? disk_path;
+        const projectRoot = resolveHeadlessProjectDir(hintPath);
+        const manager = getHeadlessSessionManager(projectRoot);
+        const record = manager.startSession({
+          prgPath: prg_path ? resolve(projectRoot, prg_path) : undefined,
+          diskPath: disk_path ? resolve(projectRoot, disk_path) : undefined,
+          entryPc: entry_pc ? parseHexWord(entry_pc) : undefined,
+        });
+        return headlessSessionToContent(record, "Headless runtime session started.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-session-status ───────────────────────────────────
+  server.tool(
+    "headless_session_status",
+    "Show the current headless C64 RE runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const record = manager.getStatus();
+        if (!record) {
+          return { content: [{ type: "text" as const, text: "No headless runtime session is active." }] };
+        }
+        return headlessSessionToContent(record, "Headless runtime session status.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-session-stop ─────────────────────────────────────
+  server.tool(
+    "headless_session_stop",
+    "Stop the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const record = manager.stopSession("stopped by user");
+        if (!record) {
+          return { content: [{ type: "text" as const, text: "No headless runtime session is active." }] };
+        }
+        return headlessSessionToContent(record, "Headless runtime session stopped.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-session-step ─────────────────────────────────────
+  server.tool(
+    "headless_session_step",
+    "Execute one instruction in the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const result = manager.stepSession();
+        const record = manager.getStatus();
+        if (!record) {
+          throw new Error("Headless session disappeared after step.");
+        }
+        return headlessRunResultToContent(result, record, "Headless runtime stepped one instruction.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-session-run ──────────────────────────────────────
+  server.tool(
+    "headless_session_run",
+    "Run the active headless runtime session for a bounded number of instructions or until a stop PC is reached.",
+    {
+      max_instructions: z.number().int().positive().optional().describe("Maximum instruction count to execute (default: 1000)."),
+      stop_pc: z.string().optional().describe("Optional stop PC in hex."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ max_instructions, stop_pc, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const result = manager.runSession({
+          maxInstructions: max_instructions,
+          stopPc: stop_pc ? parseHexWord(stop_pc) : undefined,
+        });
+        const record = manager.getStatus();
+        if (!record) {
+          throw new Error("Headless session disappeared after run.");
+        }
+        return headlessRunResultToContent(result, record, "Headless runtime run complete.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-breakpoint-add ───────────────────────────────────
+  server.tool(
+    "headless_breakpoint_add",
+    "Add an execution breakpoint to the active headless runtime session.",
+    {
+      address: z.string().describe("Breakpoint address as hex, e.g. 080D"),
+      temporary: z.boolean().optional().describe("Whether the breakpoint should auto-remove after it hits once."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ address, temporary, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        manager.addBreakpoint(parseHexWord(address), temporary ?? false);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Headless breakpoint added at ${formatHexWord(parseHexWord(address))}${temporary ? " (temporary)" : ""}.`,
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-breakpoint-clear ─────────────────────────────────
+  server.tool(
+    "headless_breakpoint_clear",
+    "Clear all execution breakpoints from the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        manager.clearBreakpoints();
+        return { content: [{ type: "text" as const, text: "Headless breakpoints cleared." }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-monitor-registers ────────────────────────────────
+  server.tool(
+    "headless_monitor_registers",
+    "Read CPU registers from the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const regs = manager.getRegisters();
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              "Headless registers:",
+              `PC: ${formatHexWord(regs.pc)}`,
+              `A: ${formatHexByte(regs.a)}`,
+              `X: ${formatHexByte(regs.x)}`,
+              `Y: ${formatHexByte(regs.y)}`,
+              `SP: ${formatHexByte(regs.sp)}`,
+              `FL: ${formatHexByte(regs.flags)}`,
+              `Cycles: ${regs.cycles}`,
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-monitor-memory ───────────────────────────────────
+  server.tool(
+    "headless_monitor_memory",
+    "Read a memory range from the active headless runtime session.",
+    {
+      start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
+      end: z.string().describe("End address as hex, inclusive"),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ start, end, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const startAddress = parseHexWord(start);
+        const endAddress = parseHexWord(end);
+        const bytes = manager.readMemory(startAddress, endAddress);
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Headless memory ${formatHexWord(startAddress)}-${formatHexWord(endAddress)} (${bytes.length} bytes)`,
+              Array.from(bytes, (value, index) => `${formatHexWord(startAddress + index)}: ${formatHexByte(value)}`).join("\n"),
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
   );
 
   // ── Prompt: c64re-get-skill ──────────────────────────────────────────

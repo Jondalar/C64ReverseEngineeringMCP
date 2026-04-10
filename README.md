@@ -183,6 +183,41 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `vice_monitor_step` | Step into one instruction |
 | `vice_monitor_next` | Step over one instruction |
 
+### Headless RE Runtime
+
+| Tool | Description |
+|---|---|
+| `headless_session_start` | WIP: Start a headless loader-/depacker-oriented C64 runtime session with optional PRG and D64/G64 attached |
+| `headless_session_status` | WIP: Report current headless runtime state, inferred BASIC `SYS`, and recent loader activity |
+| `headless_session_run` | WIP: Run the headless runtime for a bounded number of instructions or until a stop PC |
+| `headless_session_step` | WIP: Execute a single instruction in the headless runtime |
+| `headless_session_stop` | WIP: Stop the current headless runtime session |
+| `headless_breakpoint_add` | WIP: Add an execution breakpoint to the headless runtime |
+| `headless_breakpoint_clear` | WIP: Clear all headless breakpoints |
+| `headless_monitor_registers` | WIP: Read CPU registers from the headless runtime |
+| `headless_monitor_memory` | WIP: Read memory from the headless runtime |
+
+The headless runtime is intentionally not cycle-exact. It targets reverse-engineering workflows such as:
+
+- running loader and depacker stubs without a visible emulator
+- tracing KERNAL `SETNAM` / `SETLFS` / `LOAD` / `SAVE` behavior
+- following `$0001` banking-sensitive control flow
+- iterating faster than a full VICE session when VIC/SID accuracy is irrelevant
+
+Current first-slice status:
+
+- built-in 6510 CPU core with RAM/ROM windows and `$0001` banking
+- KERNAL traps for `SETNAM`, `SETLFS`, `LOAD`, and `SAVE`
+- D64/G64-backed disk provider for loader-following
+- recent instruction trace ring for debugging and breakpoint stops
+
+Still deliberately missing in this first slice:
+
+- VIC/SID/CIA behavior beyond simple memory/I/O stubs
+- IRQ/NMI-heavy runtime fidelity
+- cartridge mappers (EasyFlash, Magic Desk, Ocean)
+- persistent trace/index tooling equivalent to the VICE backend
+
 ### Artifact Access
 
 | Tool | Description |
