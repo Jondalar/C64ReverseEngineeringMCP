@@ -44,6 +44,7 @@ export class HeadlessMemoryBus {
   }
 
   getBankInfo(): HeadlessBankInfo {
+    const lines = this.cartridge?.getLines();
     return {
       cpuPortDirection: this.cpuPortDirection,
       cpuPortValue: this.cpuPortValue,
@@ -51,6 +52,10 @@ export class HeadlessMemoryBus {
       kernalVisible: this.kernalVisible(),
       ioVisible: this.ioVisible(),
       charVisible: this.charVisible(),
+      cartridgeAttached: this.cartridge !== undefined,
+      cartridgeExrom: lines?.exrom,
+      cartridgeGame: lines?.game,
+      cartridgeMapperType: this.cartridge?.getMapperType(),
     };
   }
 
@@ -154,6 +159,7 @@ export class HeadlessMemoryBus {
   write(address: number, value: number): void {
     const normalized = clampWord(address);
     const byte = clampByte(value);
+    const bankInfo = this.getBankInfo();
     if (normalized === 0x0000) {
       this.cpuPortDirection = byte;
       this.ram[0x0000] = byte;
@@ -166,8 +172,9 @@ export class HeadlessMemoryBus {
       this.recordAccess("write", normalized, byte, "cpu_port_value");
       return;
     }
-    if (normalized >= 0xde00 && normalized <= 0xdeff) {
-      this.cartridge?.write(normalized, byte);
+    if (this.cartridge?.write(normalized, byte, bankInfo)) {
+      this.recordAccess("write", normalized, byte, normalized >= 0xde00 && normalized <= 0xdeff ? "cartridge_control" : "cartridge");
+      return;
     }
     if (normalized >= 0xd000 && normalized <= 0xdfff && this.ioVisible()) {
       this.io[normalized - 0xd000] = byte;

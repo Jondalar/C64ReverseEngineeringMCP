@@ -15,6 +15,10 @@ export interface HeadlessBankInfo {
   kernalVisible: boolean;
   ioVisible: boolean;
   charVisible: boolean;
+  cartridgeAttached: boolean;
+  cartridgeExrom?: number;
+  cartridgeGame?: number;
+  cartridgeMapperType?: HeadlessCartridgeMapperType;
 }
 
 export interface HeadlessIrqState {
@@ -33,7 +37,13 @@ export interface HeadlessIoInterruptState {
   cia2Mask: number;
 }
 
-export type HeadlessCartridgeMapperType = "easyflash" | "magicdesk" | "ocean";
+export type HeadlessCartridgeMapperType =
+  | "easyflash"
+  | "magicdesk"
+  | "ocean"
+  | "normal_8k"
+  | "normal_16k"
+  | "ultimax";
 
 export interface HeadlessCartridgeState {
   path: string;
@@ -45,6 +55,8 @@ export interface HeadlessCartridgeState {
   game: number;
   romlBanks: number[];
   romhBanks: number[];
+  writable?: boolean;
+  flashMode?: string;
 }
 
 export interface HeadlessSessionWorkspace {

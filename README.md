@@ -219,7 +219,11 @@ Current first-slice status:
 - built-in 6510 CPU core with RAM/ROM windows and `$0001` banking
 - KERNAL traps for `SETNAM`, `SETLFS`, `LOAD`, and `SAVE`
 - D64/G64-backed disk provider for loader-following
-- first cartridge mapping slice for CRT-backed EasyFlash, Magic Desk, and Ocean banking
+- first cartridge mapping slice for CRT-backed EasyFlash, Magic Desk, Ocean, generic `8KB/16KB`, and `Ultimax`
+- EasyFlash flash writes with a simple AMD-style command model for:
+  - banked byte-program writes
+  - sector erase
+  - autoselect/reset
 - recent instruction trace ring with:
   - persisted `runtime-trace.jsonl` under `analysis/headless-runtime/<session>/trace/`
   - instruction bytes and cycle progression
@@ -235,7 +239,8 @@ Still deliberately missing in this first slice:
 
 - VIC/SID/CIA behavior beyond simple memory/I/O stubs
 - detailed hardware-generated IRQ/NMI timing and side effects
-- advanced cartridge behavior beyond first-slice banking
+- advanced cartridge behavior beyond the currently supported EasyFlash/generic banking slice
+- Protovision Megabyte and other writable mapper families
 - persistent trace/index tooling equivalent to the VICE backend
 
 ### Artifact Access

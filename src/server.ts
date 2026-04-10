@@ -254,6 +254,8 @@ function headlessSessionToContent(record: HeadlessSessionRecord, headline: strin
   if (record.cartridge) {
     lines.push(`Cartridge: ${record.cartridge.name} (${record.cartridge.mapperType}) bank=${record.cartridge.currentBank}`);
     lines.push(`Cart lines: EXROM=${record.cartridge.exrom} GAME=${record.cartridge.game}${record.cartridge.controlRegister !== undefined ? ` control=${formatHexByte(record.cartridge.controlRegister)}` : ""}`);
+    if (record.cartridge.flashMode) lines.push(`Cart flash mode: ${record.cartridge.flashMode}`);
+    if (record.cartridge.writable) lines.push("Cart writes: enabled");
   }
   if (record.loadEvents.length > 0) {
     lines.push("Load events:");
@@ -2910,7 +2912,7 @@ Practical advice:
       prg_path: z.string().optional().describe("Optional PRG to load into RAM before execution."),
       disk_path: z.string().optional().describe("Optional D64/G64 disk image used to satisfy KERNAL LOAD traps."),
       crt_path: z.string().optional().describe("Optional CRT cartridge image attached to the headless memory map."),
-      mapper_type: z.enum(["easyflash", "magicdesk", "ocean"]).optional().describe("Optional explicit mapper type for CRT handling."),
+      mapper_type: z.enum(["easyflash", "magicdesk", "ocean", "normal_8k", "normal_16k", "ultimax"]).optional().describe("Optional explicit mapper type for CRT handling."),
       entry_pc: z.string().optional().describe("Optional explicit entry PC in hex, e.g. 080D."),
     },
     async ({ prg_path, disk_path, crt_path, mapper_type, entry_pc }) => {
