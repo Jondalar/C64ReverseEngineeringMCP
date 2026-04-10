@@ -2,6 +2,7 @@
  * G64 disk image parser.
  */
 
+import { createHash } from "node:crypto";
 import {
   type DiskDirectory,
   type DiskFileEntry,
@@ -10,7 +11,21 @@ import {
   extractFileFromChain,
   parseDirectory,
 } from "./base.js";
-import { type DecodedSector, decodeGCRTrack } from "./gcr.js";
+import {
+  type DecodedSector,
+  type GCRBlockPairInspection,
+  type GCRHeaderCandidate,
+  type GCRReadSectorResult,
+  type GCRTrackInspection,
+  type SyncMark,
+  decodeGCRTrack,
+  findSectorHeaderLikeVice,
+  findAllSyncMarks,
+  inspectGCRTrack,
+  readSectorLikeVice,
+  renderGCRTrackAscii,
+  scanSectorHeadersLikeVice,
+} from "./gcr.js";
 
 const G64_SIGNATURE = "GCR-1541";
 const G71_SIGNATURE = "GCR-1571";
@@ -31,17 +46,130 @@ export interface G64TrackSectorInfo {
 
 export interface G64TrackAnalysis {
   track: number;
+  halfTrack: number;
   slotIndex: number;
   rawOffset: number;
   rawLength: number;
   expectedSectorCount?: number;
-  speedZoneOffset?: number;
+  speedZoneRaw: number;
+  speedZoneValue?: number;
+  speedZoneTableOffset?: number;
   sectors: G64TrackSectorInfo[];
   duplicateSectors: number[];
   missingSectors: number[];
   unexpectedSectors: number[];
   invalidHeaderCount: number;
   invalidDataCount: number;
+}
+
+export interface G64SlotInfo {
+  track: number;
+  halfTrack: number;
+  slotIndex: number;
+  rawOffset: number;
+  rawLength: number;
+  hasData: boolean;
+  speedZoneRaw: number;
+  speedZoneValue?: number;
+  speedZoneTableOffset?: number;
+}
+
+export interface G64TrackSyncInfo {
+  track: number;
+  halfTrack: number;
+  slotIndex: number;
+  rawLength: number;
+  syncCount: number;
+  syncs: SyncMark[];
+}
+
+export interface G64TrackBlockInspection {
+  track: number;
+  halfTrack: number;
+  slotIndex: number;
+  rawLength: number;
+  chosenParity: 0 | 1;
+  chosenParityScore: number;
+  alternativeParityScore: number;
+  asciiMap: string;
+  pairs: GCRBlockPairInspection[];
+}
+
+export interface G64ViceStyleSectorRead {
+  track: number;
+  halfTrack: number;
+  slotIndex: number;
+  sector: number;
+  result: GCRReadSectorResult;
+}
+
+export interface G64LutReference {
+  track: number;
+  sector?: number;
+  offset?: number;
+  label?: string;
+  sourceLine: string;
+}
+
+interface G64TrackFingerprint {
+  track: number;
+  halfTrack: number;
+  slotIndex: number;
+  rawHash: string;
+  decodedHash?: string;
+  fillSignature?: string;
+  analysis: G64TrackAnalysis;
+}
+
+function hashBytes(data: Uint8Array): string {
+  return createHash("sha1").update(data).digest("hex");
+}
+
+function hashDecodedSectors(sectors: DecodedSector[]): string | undefined {
+  if (!sectors.length) {
+    return undefined;
+  }
+  const hash = createHash("sha1");
+  const sorted = [...sectors].sort((left, right) => left.sector - right.sector);
+  for (const sector of sorted) {
+    hash.update(Uint8Array.from([sector.track & 0xff, sector.sector & 0xff, sector.headerValid ? 1 : 0, sector.dataValid ? 1 : 0]));
+    hash.update(sector.data);
+  }
+  return hash.digest("hex");
+}
+
+function detectFillSignature(sectors: DecodedSector[]): string | undefined {
+  if (!sectors.length) {
+    return undefined;
+  }
+  const valid = sectors.filter((sector) => sector.data.length === 256);
+  if (!valid.length) {
+    return undefined;
+  }
+  const previewLength = 4;
+  const preview = valid[0]!.data.slice(0, previewLength);
+  if (!valid.every((sector) => sector.data.slice(0, previewLength).every((byte, index) => byte === preview[index]!))) {
+    return undefined;
+  }
+  const fillerLike = valid.every((sector) => {
+    const distinct = new Set(sector.data);
+    if (distinct.size > 4) {
+      return false;
+    }
+    const frequency = new Map<number, number>();
+    for (const byte of sector.data) {
+      frequency.set(byte, (frequency.get(byte) ?? 0) + 1);
+    }
+    const dominant = [...frequency.values()].sort((left, right) => right - left)[0] ?? 0;
+    return dominant >= 240;
+  });
+  if (!fillerLike) {
+    return undefined;
+  }
+  const previewText = [...valid[0]!.data.slice(0, 8)]
+    .map((byte) => `$${byte.toString(16).toUpperCase().padStart(2, "0")}`)
+    .join(" ");
+  return `${previewText}${valid[0]!.data.length > previewLength ? " ..." : ""}`;
 }
 
 export class G64Parser implements DiskImage {
@@ -106,10 +234,35 @@ export class G64Parser implements DiskImage {
     return slotIndex;
   }
 
-  private getRawTrack(trackNum: number): Uint8Array | null {
-    const trackIndex = this.trackToSlotIndex(trackNum);
+  private slotIndexToTrack(slotIndex: number): number {
+    return 1 + (slotIndex / 2);
+  }
 
-    const offset = this.trackOffsets[trackIndex];
+  private slotIndexToHalfTrack(slotIndex: number): number {
+    return slotIndex + 2;
+  }
+
+  private resolveSpeedZone(slotIndex: number): {
+    raw: number;
+    value?: number;
+    tableOffset?: number;
+  } {
+    const raw = this.speedZoneOffsets[slotIndex] ?? 0;
+    if (raw <= 3) {
+      return { raw, value: raw };
+    }
+    if (raw + 1 <= this.data.length) {
+      return {
+        raw,
+        value: this.data[raw],
+        tableOffset: raw,
+      };
+    }
+    return { raw };
+  }
+
+  private getRawTrackBySlotIndex(slotIndex: number): Uint8Array | null {
+    const offset = this.trackOffsets[slotIndex];
     if (offset === 0) {
       return null;
     }
@@ -120,6 +273,10 @@ export class G64Parser implements DiskImage {
     }
 
     return this.data.slice(offset + 2, offset + 2 + actualSize);
+  }
+
+  private getRawTrack(trackNum: number): Uint8Array | null {
+    return this.getRawTrackBySlotIndex(this.trackToSlotIndex(trackNum));
   }
 
   private decodeTrack(trackNum: number): DecodedSector[] {
@@ -140,7 +297,10 @@ export class G64Parser implements DiskImage {
     }
 
     const decoded = decodeGCRTrack(trackData);
-    const expectedSectorCount = SECTORS_PER_TRACK[Math.floor(trackNum)];
+    const expectedSectorCount = Number.isInteger(trackNum)
+      ? SECTORS_PER_TRACK[Math.floor(trackNum)]
+      : undefined;
+    const speedZone = this.resolveSpeedZone(slotIndex);
     const sectorCounts = new Map<number, number>();
     const sectors: G64TrackSectorInfo[] = decoded.map((sector) => {
       sectorCounts.set(sector.sector, (sectorCounts.get(sector.sector) ?? 0) + 1);
@@ -172,11 +332,14 @@ export class G64Parser implements DiskImage {
 
     return {
       track: trackNum,
+      halfTrack: this.slotIndexToHalfTrack(slotIndex),
       slotIndex,
       rawOffset,
       rawLength: trackData.length,
       expectedSectorCount,
-      speedZoneOffset: this.speedZoneOffsets[slotIndex] || undefined,
+      speedZoneRaw: speedZone.raw,
+      speedZoneValue: speedZone.value,
+      speedZoneTableOffset: speedZone.tableOffset,
       sectors,
       duplicateSectors,
       missingSectors,
@@ -184,6 +347,129 @@ export class G64Parser implements DiskImage {
       invalidHeaderCount: decoded.filter((sector) => !sector.headerValid).length,
       invalidDataCount: decoded.filter((sector) => !sector.dataValid).length,
     };
+  }
+
+  getSlotInfo(trackNum: number): G64SlotInfo | null {
+    const slotIndex = this.trackToSlotIndex(trackNum);
+    const rawOffset = this.trackOffsets[slotIndex];
+    const trackData = this.getRawTrackBySlotIndex(slotIndex);
+    const speedZone = this.resolveSpeedZone(slotIndex);
+    return {
+      track: this.slotIndexToTrack(slotIndex),
+      halfTrack: this.slotIndexToHalfTrack(slotIndex),
+      slotIndex,
+      rawOffset,
+      rawLength: trackData?.length ?? 0,
+      hasData: rawOffset !== 0 && trackData !== null,
+      speedZoneRaw: speedZone.raw,
+      speedZoneValue: speedZone.value,
+      speedZoneTableOffset: speedZone.tableOffset,
+    };
+  }
+
+  listSlots(includeEmpty = false): G64SlotInfo[] {
+    const slots: G64SlotInfo[] = [];
+    for (let slotIndex = 0; slotIndex < this.trackOffsets.length; slotIndex += 1) {
+      const track = this.slotIndexToTrack(slotIndex);
+      const info = this.getSlotInfo(track);
+      if (!info) {
+        continue;
+      }
+      if (!includeEmpty && !info.hasData) {
+        continue;
+      }
+      slots.push(info);
+    }
+    return slots;
+  }
+
+  getTrackSyncInfo(trackNum: number): G64TrackSyncInfo | null {
+    const slotIndex = this.trackToSlotIndex(trackNum);
+    const trackData = this.getRawTrackBySlotIndex(slotIndex);
+    if (!trackData) {
+      return null;
+    }
+    const syncs = findAllSyncMarks(trackData);
+    return {
+      track: trackNum,
+      halfTrack: this.slotIndexToHalfTrack(slotIndex),
+      slotIndex,
+      rawLength: trackData.length,
+      syncCount: syncs.length,
+      syncs,
+    };
+  }
+
+  inspectTrackBlocks(trackNum: number, asciiWidth = 96): G64TrackBlockInspection | null {
+    const slotIndex = this.trackToSlotIndex(trackNum);
+    const trackData = this.getRawTrackBySlotIndex(slotIndex);
+    if (!trackData) {
+      return null;
+    }
+    const inspected: GCRTrackInspection = inspectGCRTrack(trackData);
+    return {
+      track: trackNum,
+      halfTrack: this.slotIndexToHalfTrack(slotIndex),
+      slotIndex,
+      rawLength: trackData.length,
+      chosenParity: inspected.chosenParity,
+      chosenParityScore: inspected.chosenParityScore,
+      alternativeParityScore: inspected.alternativeParityScore,
+      asciiMap: renderGCRTrackAscii(inspected, trackData.length, asciiWidth),
+      pairs: inspected.pairs,
+    };
+  }
+
+  scanTrackHeadersLikeVice(trackNum: number): Array<GCRHeaderCandidate & { track: number; halfTrack: number; slotIndex: number }> {
+    const slotIndex = this.trackToSlotIndex(trackNum);
+    const trackData = this.getRawTrackBySlotIndex(slotIndex);
+    if (!trackData) {
+      return [];
+    }
+    return scanSectorHeadersLikeVice(trackData).map((candidate) => ({
+      track: trackNum,
+      halfTrack: this.slotIndexToHalfTrack(slotIndex),
+      slotIndex,
+      ...candidate,
+    }));
+  }
+
+  findTrackSectorLikeVice(trackNum: number, sector: number): (GCRHeaderCandidate & { track: number; halfTrack: number; slotIndex: number }) | null {
+    const slotIndex = this.trackToSlotIndex(trackNum);
+    const trackData = this.getRawTrackBySlotIndex(slotIndex);
+    if (!trackData) {
+      return null;
+    }
+    const candidate = findSectorHeaderLikeVice(trackData, sector);
+    if (!candidate) {
+      return null;
+    }
+    return {
+      track: trackNum,
+      halfTrack: this.slotIndexToHalfTrack(slotIndex),
+      slotIndex,
+      ...candidate,
+    };
+  }
+
+  readTrackSectorLikeVice(trackNum: number, sector: number): G64ViceStyleSectorRead | null {
+    const slotIndex = this.trackToSlotIndex(trackNum);
+    const trackData = this.getRawTrackBySlotIndex(slotIndex);
+    if (!trackData) {
+      return null;
+    }
+    return {
+      track: trackNum,
+      halfTrack: this.slotIndexToHalfTrack(slotIndex),
+      slotIndex,
+      sector,
+      result: readSectorLikeVice(trackData, sector),
+    };
+  }
+
+  extractRawTrack(trackNum: number): Uint8Array | null {
+    const raw = this.getRawTrack(trackNum);
+    return raw ? raw.slice() : null;
   }
 
   extractTrackSectors(trackNum: number, sectors?: number[]): Array<{
@@ -206,10 +492,55 @@ export class G64Parser implements DiskImage {
       }));
   }
 
+  private buildFingerprints(): G64TrackFingerprint[] {
+    const fingerprints: G64TrackFingerprint[] = [];
+    for (let slotIndex = 0; slotIndex < this.trackOffsets.length; slotIndex += 1) {
+      const track = this.slotIndexToTrack(slotIndex);
+      const raw = this.getRawTrackBySlotIndex(slotIndex);
+      if (!raw) {
+        continue;
+      }
+      const analysis = this.getTrackAnalysis(track);
+      if (!analysis) {
+        continue;
+      }
+      const decoded = this.decodeTrack(track);
+      fingerprints.push({
+        track,
+        halfTrack: this.slotIndexToHalfTrack(slotIndex),
+        slotIndex,
+        rawHash: hashBytes(raw),
+        decodedHash: hashDecodedSectors(decoded),
+        fillSignature: detectFillSignature(decoded),
+        analysis,
+      });
+    }
+    return fingerprints;
+  }
+
   analyzeAnomalies(): {
     version: number;
     trackCount: number;
+    halfTrackCount: number;
     tracksWithData: number[];
+    slotsWithData: number[];
+    anomalies: Array<{
+      track: number;
+      issue: string;
+      details?: string;
+    }>;
+  } {
+    return this.analyzeAnomaliesWithOptions();
+  }
+
+  analyzeAnomaliesWithOptions(options?: {
+    lutReferences?: G64LutReference[];
+  }): {
+    version: number;
+    trackCount: number;
+    halfTrackCount: number;
+    tracksWithData: number[];
+    slotsWithData: number[];
     anomalies: Array<{
       track: number;
       issue: string;
@@ -218,61 +549,106 @@ export class G64Parser implements DiskImage {
   } {
     const anomalies: Array<{ track: number; issue: string; details?: string }> = [];
     const tracksWithData: number[] = [];
+    const slotsWithData: number[] = [];
+    const fingerprints = this.buildFingerprints();
+    const fingerprintByTrack = new Map<number, G64TrackFingerprint>();
+    const anomalyKeys = new Set<string>();
 
-    for (let slotIndex = 0; slotIndex < this.trackOffsets.length; slotIndex++) {
-      const trackNum = 1 + (slotIndex / 2);
-      if (!this.trackOffsets[slotIndex]) {
-        continue;
+    const pushAnomaly = (track: number, issue: string, details?: string) => {
+      const key = `${track}|${issue}|${details ?? ""}`;
+      if (anomalyKeys.has(key)) {
+        return;
       }
+      anomalyKeys.add(key);
+      anomalies.push({ track, issue, details });
+    };
+
+    for (const fingerprint of fingerprints) {
+      const trackNum = fingerprint.track;
+      const analysis = fingerprint.analysis;
       tracksWithData.push(trackNum);
-      const analysis = this.getTrackAnalysis(trackNum);
-      if (!analysis) {
-        continue;
+      slotsWithData.push(fingerprint.halfTrack);
+      fingerprintByTrack.set(trackNum, fingerprint);
+      if (!Number.isInteger(trackNum)) {
+        pushAnomaly(trackNum, "halftrack_raw_data", `${analysis.rawLength} bytes`);
       }
       if (analysis.duplicateSectors.length > 0) {
-        anomalies.push({
-          track: trackNum,
-          issue: "duplicate_sectors",
-          details: analysis.duplicateSectors.join(", "),
-        });
+        pushAnomaly(trackNum, "duplicate_sectors", analysis.duplicateSectors.join(", "));
       }
       if (analysis.missingSectors.length > 0) {
-        anomalies.push({
-          track: trackNum,
-          issue: "missing_sectors",
-          details: analysis.missingSectors.join(", "),
-        });
+        pushAnomaly(trackNum, "missing_sectors", analysis.missingSectors.join(", "));
       }
       if (analysis.unexpectedSectors.length > 0) {
-        anomalies.push({
-          track: trackNum,
-          issue: "unexpected_sector_ids",
-          details: analysis.unexpectedSectors.join(", "),
-        });
+        pushAnomaly(trackNum, "unexpected_sector_ids", analysis.unexpectedSectors.join(", "));
       }
       if (analysis.invalidDataCount > 0) {
-        anomalies.push({
-          track: trackNum,
-          issue: "invalid_data_blocks",
-          details: String(analysis.invalidDataCount),
-        });
+        pushAnomaly(trackNum, "invalid_data_blocks", String(analysis.invalidDataCount));
       }
       if (analysis.sectors.some((sector) => sector.track !== Math.floor(trackNum))) {
-        anomalies.push({
-          track: trackNum,
-          issue: "off_track_headers",
-          details: analysis.sectors
+        pushAnomaly(
+          trackNum,
+          "off_track_headers",
+          analysis.sectors
             .filter((sector) => sector.track !== Math.floor(trackNum))
             .map((sector) => `${sector.track}/${sector.sector}`)
             .join(", "),
-        });
+        );
+      }
+      if (fingerprint.fillSignature) {
+        pushAnomaly(trackNum, "fill_pattern_track", fingerprint.fillSignature);
+      }
+    }
+
+    for (let i = 0; i < fingerprints.length; i += 1) {
+      const current = fingerprints[i]!;
+      for (let j = i + 1; j < fingerprints.length; j += 1) {
+        const other = fingerprints[j]!;
+        if (current.rawHash === other.rawHash && Math.abs(current.slotIndex - other.slotIndex) === 1) {
+          pushAnomaly(current.track, "raw_track_duplicate", `identical raw data to track ${other.track}`);
+          pushAnomaly(other.track, "raw_track_duplicate", `identical raw data to track ${current.track}`);
+        }
+        if (current.decodedHash && current.decodedHash === other.decodedHash && current.rawHash !== other.rawHash) {
+          pushAnomaly(current.track, "decoded_track_duplicate", `decoded sectors identical to track ${other.track} despite different raw GCR`);
+          pushAnomaly(other.track, "decoded_track_duplicate", `decoded sectors identical to track ${current.track} despite different raw GCR`);
+        }
+      }
+    }
+
+    if (options?.lutReferences?.length) {
+      for (const reference of options.lutReferences) {
+        const fingerprint = fingerprintByTrack.get(reference.track);
+        if (!fingerprint) {
+          pushAnomaly(reference.track, "lut_reference_missing_track", reference.sourceLine);
+          pushAnomaly(reference.track, "missing_extended_track_data", reference.sourceLine);
+          continue;
+        }
+        const issues = anomalies
+          .filter((anomaly) => anomaly.track === reference.track)
+          .map((anomaly) => anomaly.issue);
+        const suspicious = issues.some((issue) => issue === "raw_track_duplicate"
+          || issue === "decoded_track_duplicate"
+          || issue === "fill_pattern_track");
+        if (suspicious) {
+          pushAnomaly(reference.track, "lut_reference_track_is_filler", reference.sourceLine);
+        }
+        if (reference.sector !== undefined) {
+          const matchingSector = fingerprint.analysis.sectors.find((sector) => sector.sector === reference.sector && sector.dataValid);
+          if (!matchingSector) {
+            pushAnomaly(reference.track, "lut_reference_sector_unavailable", reference.sourceLine);
+          }
+        }
+        if (reference.track > this.getTrackCount() || !fingerprint.analysis.sectors.length) {
+          pushAnomaly(reference.track, "missing_extended_track_data", reference.sourceLine);
+        }
       }
     }
 
     return {
       version: this.version,
       trackCount: this.getTrackCount(),
-      tracksWithData,
+      halfTrackCount: this.trackCount,
+      tracksWithData: [...new Set(tracksWithData)].sort((left, right) => left - right),
+      slotsWithData: [...new Set(slotsWithData)].sort((left, right) => left - right),
       anomalies,
     };
   }
@@ -323,6 +699,10 @@ export class G64Parser implements DiskImage {
 
   getTrackCount(): number {
     return Math.floor(this.trackCount / 2);
+  }
+
+  getHalfTrackCount(): number {
+    return this.trackCount;
   }
 
   getVersion(): number {

@@ -120,9 +120,15 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 |---|---|
 | `inspect_disk` | Read a D64 or G64 directory and list contained files without extraction |
 | `extract_disk` | Extract files from a D64 or G64 image and write `manifest.json` for follow-up analysis |
-| `inspect_g64_track` | Decode a specific G64 track via GCR and report discovered sectors, gaps, duplicates, and raw track metadata |
+| `list_g64_slots` | List all G64 half-track slots with raw offsets, lengths, and speed-zone metadata |
+| `inspect_g64_track` | Decode a specific G64 track or half-track via GCR and report discovered sectors plus raw slot metadata |
+| `inspect_g64_blocks` | Inspect raw GCR header/data block candidates on a G64 track or half-track with JSON and ASCII visualization |
+| `extract_g64_raw_track` | Export the raw circular byte ring for a G64 track or half-track |
+| `inspect_g64_syncs` | Report bit-aligned sync positions for a G64 track or half-track |
+| `scan_g64_headers` | Scan header candidates on a G64 track or half-track using a VICE-like 1541 search model |
+| `read_g64_sector_candidate` | Read a sector from a G64 track or half-track via VICE-like sync/header scanning |
 | `extract_g64_sectors` | Decode a G64 track and write one file per decoded sector for low-level inspection |
-| `analyze_g64_anomalies` | Scan a G64 image for missing, duplicate, unexpected, or off-track decoded sectors |
+| `analyze_g64_anomalies` | Scan a G64 image for missing, duplicate, unexpected, off-track, or half-track anomalies; can optionally cross-check LUT track references |
 
 ### Compression Helpers
 
