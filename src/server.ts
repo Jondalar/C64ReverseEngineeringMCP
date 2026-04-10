@@ -242,6 +242,9 @@ function headlessSessionToContent(record: HeadlessSessionRecord, headline: strin
   if (record.loaderState.fileName) lines.push(`Loader filename: ${record.loaderState.fileName}`);
   if (record.loaderState.device !== null) lines.push(`Loader device: ${record.loaderState.device}`);
   if (record.loaderState.secondaryAddress !== null) lines.push(`Loader SA: ${record.loaderState.secondaryAddress}`);
+  if (record.breakpoints.length > 0) lines.push(`Breakpoints: ${record.breakpoints.length}`);
+  if (record.watchRanges.length > 0) lines.push(`Watch ranges: ${record.watchRanges.length}`);
+  lines.push(`IRQ/NMI: irqPending=${record.irqState.irqPending ? "yes" : "no"} nmiPending=${record.irqState.nmiPending ? "yes" : "no"} irqCount=${record.irqState.irqCount} nmiCount=${record.irqState.nmiCount}`);
   if (record.loadEvents.length > 0) {
     lines.push("Load events:");
     for (const event of record.loadEvents.slice(-5)) {
@@ -252,6 +255,7 @@ function headlessSessionToContent(record: HeadlessSessionRecord, headline: strin
     const last = record.recentTrace[record.recentTrace.length - 1]!;
     const bytes = last.bytes.map(formatHexByte).join(" ");
     lines.push(`Recent trace tail: ${formatHexWord(last.pc)} [${bytes}]${last.trap ? ` ${last.trap}` : ""}`);
+    lines.push(`Last banks: $00=${formatHexByte(last.bankInfo.cpuPortDirection)} $01=${formatHexByte(last.bankInfo.cpuPortValue)} basic=${last.bankInfo.basicVisible ? "on" : "off"} kernal=${last.bankInfo.kernalVisible ? "on" : "off"} io=${last.bankInfo.ioVisible ? "on" : "off"} char=${last.bankInfo.charVisible ? "on" : "off"}`);
   }
   return { content: [{ type: "text" as const, text: lines.join("\n") }] };
 }
@@ -264,11 +268,32 @@ function headlessRunResultToContent(result: HeadlessRunResult, record: HeadlessS
     `PC: ${formatHexWord(result.currentPc)}`,
   ];
   if (result.lastTrap) lines.push(`Last trap: ${result.lastTrap}`);
+  if (result.breakpointId) lines.push(`Breakpoint: ${result.breakpointId}`);
   if (record.recentTrace.length > 0) {
+    const last = record.recentTrace[record.recentTrace.length - 1]!;
+    lines.push(`Last instruction: ${formatHexWord(last.pc)} [${last.bytes.map(formatHexByte).join(" ")}]`);
+    lines.push(`Cycles: ${last.before.cycles} -> ${last.after.cycles}`);
+    lines.push(`CPU port: $00=${formatHexByte(last.bankInfo.cpuPortDirection)} $01=${formatHexByte(last.bankInfo.cpuPortValue)}`);
+    lines.push(`Banks: basic=${last.bankInfo.basicVisible ? "on" : "off"} kernal=${last.bankInfo.kernalVisible ? "on" : "off"} io=${last.bankInfo.ioVisible ? "on" : "off"} char=${last.bankInfo.charVisible ? "on" : "off"}`);
+    lines.push(`Stack(before): SP=${formatHexByte(last.beforeStack.sp)} [${last.beforeStack.bytes.map(formatHexByte).join(" ")}]`);
+    lines.push(`Stack(after): SP=${formatHexByte(last.afterStack.sp)} [${last.afterStack.bytes.map(formatHexByte).join(" ")}]`);
+    if (last.accesses.length > 0) {
+      lines.push("Accesses:");
+      for (const access of last.accesses.slice(0, 12)) {
+        lines.push(`- ${access.kind} ${formatHexWord(access.address)}=${formatHexByte(access.value)} (${access.region})`);
+      }
+    }
+    if (last.watchHits.length > 0) {
+      lines.push("Watch hits:");
+      for (const hit of last.watchHits) {
+        lines.push(`- ${hit.name} ${formatHexWord(hit.start)}-${formatHexWord(hit.end)} via ${hit.touchedBy.join("/")}${hit.bytes ? ` bytes=[${hit.bytes.slice(0, 16).map(formatHexByte).join(" ")}${hit.bytes.length > 16 ? " ..." : ""}]` : ""}`);
+      }
+    }
     lines.push("Recent trace:");
     for (const event of record.recentTrace.slice(-8)) {
       const bytes = event.bytes.map(formatHexByte).join(" ");
-      lines.push(`- ${formatHexWord(event.pc)} [${bytes}]${event.trap ? ` ${event.trap}` : ""}`);
+      const suffix = event.trap ? ` ${event.trap}` : event.watchHits.length > 0 ? ` watch=${event.watchHits.map((hit) => hit.name).join(",")}` : "";
+      lines.push(`- ${formatHexWord(event.pc)} [${bytes}]${suffix}`);
     }
   }
   return { content: [{ type: "text" as const, text: lines.join("\n") }] };
@@ -2978,20 +3003,33 @@ Practical advice:
   // ── Tool: headless-breakpoint-add ───────────────────────────────────
   server.tool(
     "headless_breakpoint_add",
-    "Add an execution breakpoint to the active headless runtime session.",
+    "Add an execution or memory-access breakpoint to the active headless runtime session.",
     {
-      address: z.string().describe("Breakpoint address as hex, e.g. 080D"),
+      address: z.string().optional().describe("Single breakpoint address as hex, e.g. 080D"),
+      start: z.string().optional().describe("Start address for a range breakpoint/watchpoint."),
+      end: z.string().optional().describe("End address for a range breakpoint/watchpoint, inclusive."),
+      operation: z.enum(["exec", "read", "write", "access"]).optional().describe("Breakpoint kind; read/write/access break on effective memory accesses, including indirect ones."),
+      label: z.string().optional().describe("Optional human-readable label for the breakpoint."),
       temporary: z.boolean().optional().describe("Whether the breakpoint should auto-remove after it hits once."),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ address, temporary, hint_path }) => {
+    async ({ address, start, end, operation, label, temporary, hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
-        manager.addBreakpoint(parseHexWord(address), temporary ?? false);
+        const kind = operation ?? "exec";
+        const startAddress = parseHexWord(start ?? address ?? "");
+        const endAddress = parseHexWord(end ?? start ?? address ?? "");
+        let id: string;
+        if (kind === "exec") {
+          manager.addBreakpoint(startAddress, temporary ?? false);
+          id = `exec:${startAddress.toString(16)}`;
+        } else {
+          id = manager.addAccessBreakpoint(kind, startAddress, endAddress, temporary ?? false, label);
+        }
         return {
           content: [{
             type: "text" as const,
-            text: `Headless breakpoint added at ${formatHexWord(parseHexWord(address))}${temporary ? " (temporary)" : ""}.`,
+            text: `Headless breakpoint added: ${kind} ${formatHexWord(startAddress)}-${formatHexWord(endAddress)}${label ? ` (${label})` : ""}${temporary ? " (temporary)" : ""}\nID: ${id}`,
           }],
         };
       } catch (error) {
@@ -3003,7 +3041,7 @@ Practical advice:
   // ── Tool: headless-breakpoint-clear ─────────────────────────────────
   server.tool(
     "headless_breakpoint_clear",
-    "Clear all execution breakpoints from the active headless runtime session.",
+    "Clear all execution and memory-access breakpoints from the active headless runtime session.",
     {
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
@@ -3012,6 +3050,90 @@ Practical advice:
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
         manager.clearBreakpoints();
         return { content: [{ type: "text" as const, text: "Headless breakpoints cleared." }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-watch-add ────────────────────────────────────────
+  server.tool(
+    "headless_watch_add",
+    "Register a watched memory range whose bytes and access kinds should be included directly in trace output when touched.",
+    {
+      name: z.string().describe("Short label for the watched range."),
+      start: z.string().describe("Start address as hex."),
+      end: z.string().describe("End address as hex, inclusive."),
+      include_bytes: z.boolean().optional().describe("Whether to include the watched bytes when the range is touched."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ name, start, end, include_bytes, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const startAddress = parseHexWord(start);
+        const endAddress = parseHexWord(end);
+        const id = manager.addWatchRange(name, startAddress, endAddress, include_bytes ?? true);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Headless watch range added: ${name} ${formatHexWord(startAddress)}-${formatHexWord(endAddress)}\nID: ${id}`,
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-watch-clear ──────────────────────────────────────
+  server.tool(
+    "headless_watch_clear",
+    "Clear all watched memory ranges from the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        manager.clearWatchRanges();
+        return { content: [{ type: "text" as const, text: "Headless watch ranges cleared." }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-tail ───────────────────────────────────────
+  server.tool(
+    "headless_trace_tail",
+    "Render the most recent headless runtime trace events with access, stack, bank, and watch metadata.",
+    {
+      limit: z.number().int().positive().max(64).optional().describe("How many recent events to render (default: 12)."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ limit, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const record = manager.getStatus();
+        if (!record) {
+          return { content: [{ type: "text" as const, text: "No headless runtime session is active." }] };
+        }
+        const events = record.recentTrace.slice(-(limit ?? 12));
+        const lines = [`Headless trace tail for session ${record.sessionId}:`, `Count: ${events.length}`];
+        for (const event of events) {
+          lines.push(`${formatHexWord(event.pc)} [${event.bytes.map(formatHexByte).join(" ")}] cycles=${event.before.cycles}->${event.after.cycles}${event.trap ? ` trap=${event.trap}` : ""}`);
+          lines.push(`  regs: A=${formatHexByte(event.after.a)} X=${formatHexByte(event.after.x)} Y=${formatHexByte(event.after.y)} SP=${formatHexByte(event.after.sp)} FL=${formatHexByte(event.after.flags)}`);
+          lines.push(`  stack: before[${event.beforeStack.bytes.map(formatHexByte).join(" ")}] after[${event.afterStack.bytes.map(formatHexByte).join(" ")}]`);
+          lines.push(`  ports: $00=${formatHexByte(event.bankInfo.cpuPortDirection)} $01=${formatHexByte(event.bankInfo.cpuPortValue)} basic=${event.bankInfo.basicVisible ? "on" : "off"} kernal=${event.bankInfo.kernalVisible ? "on" : "off"} io=${event.bankInfo.ioVisible ? "on" : "off"} char=${event.bankInfo.charVisible ? "on" : "off"}`);
+          lines.push(`  irq: irqPending=${event.irqState.irqPending ? "yes" : "no"} nmiPending=${event.irqState.nmiPending ? "yes" : "no"} irqCount=${event.irqState.irqCount} nmiCount=${event.irqState.nmiCount}`);
+          if (event.accesses.length > 0) {
+            lines.push(`  accesses: ${event.accesses.map((access) => `${access.kind}@${formatHexWord(access.address)}=${formatHexByte(access.value)}(${access.region})`).join(", ")}`);
+          }
+          if (event.watchHits.length > 0) {
+            lines.push(`  watches: ${event.watchHits.map((hit) => `${hit.name}@${formatHexWord(hit.start)}-${formatHexWord(hit.end)} via ${hit.touchedBy.join("/")}`).join(", ")}`);
+          }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {
         return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }

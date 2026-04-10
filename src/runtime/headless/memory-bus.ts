@@ -1,3 +1,5 @@
+import type { HeadlessBankInfo, HeadlessMemoryAccess } from "./types.js";
+
 export interface HeadlessIoHandler {
   read?(address: number): number | undefined;
   write?(address: number, value: number): void;
@@ -21,6 +23,8 @@ export class HeadlessMemoryBus {
   private readonly ioHandlers = new Map<number, HeadlessIoHandler>();
   private cpuPortDirection = 0x2f;
   private cpuPortValue = 0x37;
+  private accessTrace: HeadlessMemoryAccess[] = [];
+  private tracingEnabled = false;
 
   reset(): void {
     this.cpuPortDirection = 0x2f;
@@ -35,6 +39,29 @@ export class HeadlessMemoryBus {
 
   getCpuPortValue(): number {
     return this.cpuPortValue;
+  }
+
+  getBankInfo(): HeadlessBankInfo {
+    return {
+      cpuPortDirection: this.cpuPortDirection,
+      cpuPortValue: this.cpuPortValue,
+      basicVisible: this.basicVisible(),
+      kernalVisible: this.kernalVisible(),
+      ioVisible: this.ioVisible(),
+      charVisible: this.charVisible(),
+    };
+  }
+
+  beginInstructionTrace(): void {
+    this.accessTrace = [];
+    this.tracingEnabled = true;
+  }
+
+  endInstructionTrace(): HeadlessMemoryAccess[] {
+    this.tracingEnabled = false;
+    const result = this.accessTrace;
+    this.accessTrace = [];
+    return result;
   }
 
   registerIoHandler(address: number, handler: HeadlessIoHandler): void {
@@ -70,14 +97,21 @@ export class HeadlessMemoryBus {
 
   read(address: number): number {
     const normalized = clampWord(address);
+    let value: number;
     if (normalized === 0x0000) {
-      return this.cpuPortDirection;
+      value = this.cpuPortDirection;
+      this.recordAccess("read", normalized, value, "cpu_port_direction");
+      return value;
     }
     if (normalized === 0x0001) {
-      return this.cpuPortValue;
+      value = this.cpuPortValue;
+      this.recordAccess("read", normalized, value, "cpu_port_value");
+      return value;
     }
     if (normalized >= 0xa000 && normalized <= 0xbfff && this.basicVisible()) {
-      return this.basicRom[normalized - 0xa000]!;
+      value = this.basicRom[normalized - 0xa000]!;
+      this.recordAccess("read", normalized, value, "basic_rom");
+      return value;
     }
     if (normalized >= 0xd000 && normalized <= 0xdfff) {
       if (this.ioVisible()) {
@@ -86,16 +120,24 @@ export class HeadlessMemoryBus {
         if (value !== undefined) {
           this.io[normalized - 0xd000] = clampByte(value);
         }
-        return this.io[normalized - 0xd000]!;
+        const ioValue = this.io[normalized - 0xd000]!;
+        this.recordAccess("read", normalized, ioValue, "io");
+        return ioValue;
       }
       if (this.charVisible()) {
-        return this.charRom[normalized - 0xd000]!;
+        value = this.charRom[normalized - 0xd000]!;
+        this.recordAccess("read", normalized, value, "char_rom");
+        return value;
       }
     }
     if (normalized >= 0xe000 && normalized <= 0xffff && this.kernalVisible()) {
-      return this.kernalRom[normalized - 0xe000]!;
+      value = this.kernalRom[normalized - 0xe000]!;
+      this.recordAccess("read", normalized, value, "kernal_rom");
+      return value;
     }
-    return this.ram[normalized]!;
+    value = this.ram[normalized]!;
+    this.recordAccess("read", normalized, value, classifyRamRegion(normalized));
+    return value;
   }
 
   write(address: number, value: number): void {
@@ -104,19 +146,23 @@ export class HeadlessMemoryBus {
     if (normalized === 0x0000) {
       this.cpuPortDirection = byte;
       this.ram[0x0000] = byte;
+      this.recordAccess("write", normalized, byte, "cpu_port_direction");
       return;
     }
     if (normalized === 0x0001) {
       this.cpuPortValue = byte;
       this.ram[0x0001] = byte;
+      this.recordAccess("write", normalized, byte, "cpu_port_value");
       return;
     }
     if (normalized >= 0xd000 && normalized <= 0xdfff && this.ioVisible()) {
       this.io[normalized - 0xd000] = byte;
       this.ioHandlers.get(normalized)?.write?.(normalized, byte);
+      this.recordAccess("write", normalized, byte, "io");
       return;
     }
     this.ram[normalized] = byte;
+    this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
   }
 
   private basicVisible(): boolean {
@@ -137,4 +183,24 @@ export class HeadlessMemoryBus {
     const port = this.cpuPortValue & 0x07;
     return (port & 0x04) === 0 && (port & 0x03) !== 0;
   }
+
+  private recordAccess(kind: "read" | "write", address: number, value: number, region: string): void {
+    if (!this.tracingEnabled) {
+      return;
+    }
+    this.accessTrace.push({
+      kind,
+      address,
+      value: clampByte(value),
+      region,
+    });
+  }
+}
+
+function classifyRamRegion(address: number): string {
+  if (address < 0x0100) return "zero_page";
+  if (address < 0x0200) return "stack";
+  if (address >= 0x0200 && address < 0xa000) return "ram";
+  if (address >= 0xc000 && address < 0xd000) return "ram_high";
+  return "ram";
 }

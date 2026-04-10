@@ -192,8 +192,11 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `headless_session_run` | WIP: Run the headless runtime for a bounded number of instructions or until a stop PC |
 | `headless_session_step` | WIP: Execute a single instruction in the headless runtime |
 | `headless_session_stop` | WIP: Stop the current headless runtime session |
-| `headless_breakpoint_add` | WIP: Add an execution breakpoint to the headless runtime |
-| `headless_breakpoint_clear` | WIP: Clear all headless breakpoints |
+| `headless_breakpoint_add` | WIP: Add execution or read/write/access breakpoints; memory-access breakpoints trigger on effective addresses, including indirect pointer-driven accesses |
+| `headless_breakpoint_clear` | WIP: Clear all headless breakpoints/watchpoints |
+| `headless_watch_add` | WIP: Register watched memory ranges whose bytes are embedded directly into trace output when touched |
+| `headless_watch_clear` | WIP: Clear watched memory ranges |
+| `headless_trace_tail` | WIP: Render recent trace events with accesses, stack, bank state, and watch hits |
 | `headless_monitor_registers` | WIP: Read CPU registers from the headless runtime |
 | `headless_monitor_memory` | WIP: Read memory from the headless runtime |
 
@@ -209,12 +212,18 @@ Current first-slice status:
 - built-in 6510 CPU core with RAM/ROM windows and `$0001` banking
 - KERNAL traps for `SETNAM`, `SETLFS`, `LOAD`, and `SAVE`
 - D64/G64-backed disk provider for loader-following
-- recent instruction trace ring for debugging and breakpoint stops
+- recent instruction trace ring with:
+  - instruction bytes and cycle progression
+  - register state and stack snapshots
+  - `$00`/`$01` plus derived bank visibility
+  - per-instruction memory read/write access log
+  - watched-range snapshots when selected areas are touched
+  - access breakpoints that also catch indirect effective-address activity
 
 Still deliberately missing in this first slice:
 
 - VIC/SID/CIA behavior beyond simple memory/I/O stubs
-- IRQ/NMI-heavy runtime fidelity
+- real IRQ/NMI dispatch and timing fidelity
 - cartridge mappers (EasyFlash, Magic Desk, Ocean)
 - persistent trace/index tooling equivalent to the VICE backend
 

@@ -5,13 +5,18 @@ import { HeadlessMemoryBus } from "./memory-bus.js";
 import { DiskProvider, readPrgFile, type PrgFile } from "./providers.js";
 import type {
   HeadlessBreakpoint,
+  HeadlessBankInfo,
   HeadlessCpuState,
+  HeadlessIrqState,
   HeadlessLoadEvent,
   HeadlessLoaderState,
+  HeadlessMemoryAccess,
   HeadlessRunResult,
   HeadlessSavedFile,
   HeadlessSessionRecord,
   HeadlessTraceEvent,
+  HeadlessWatchHit,
+  HeadlessWatchRange,
 } from "./types.js";
 
 const KERNAL_SETLFS = 0xffba;
@@ -71,6 +76,16 @@ function cloneTraceEvent(event: HeadlessTraceEvent): HeadlessTraceEvent {
     bytes: [...event.bytes],
     before: { ...event.before },
     after: { ...event.after },
+    beforeStack: { ...event.beforeStack, bytes: [...event.beforeStack.bytes] },
+    afterStack: { ...event.afterStack, bytes: [...event.afterStack.bytes] },
+    bankInfo: { ...event.bankInfo },
+    irqState: { ...event.irqState },
+    accesses: event.accesses.map((access) => ({ ...access })),
+    watchHits: event.watchHits.map((hit) => ({
+      ...hit,
+      touchedBy: [...hit.touchedBy],
+      bytes: hit.bytes ? [...hit.bytes] : undefined,
+    })),
   };
 }
 
@@ -90,6 +105,14 @@ class HeadlessSession {
   public readonly savedFiles: HeadlessSavedFile[] = [];
   public readonly recentTrace: HeadlessTraceEvent[] = [];
   public readonly breakpoints = new Map<number, HeadlessBreakpoint>();
+  public readonly accessBreakpoints = new Map<string, HeadlessBreakpoint>();
+  public readonly watchRanges = new Map<string, HeadlessWatchRange>();
+  public readonly irqState: HeadlessIrqState = {
+    irqPending: false,
+    nmiPending: false,
+    irqCount: 0,
+    nmiCount: 0,
+  };
   public state: HeadlessSessionRecord["state"] = "idle";
   public startedAt?: string;
   public stoppedAt?: string;
@@ -168,6 +191,12 @@ class HeadlessSession {
         fileName: this.loaderState.fileName,
         fileNameBytes: [...this.loaderState.fileNameBytes],
       },
+      breakpoints: [
+        ...Array.from(this.breakpoints.values(), (entry) => ({ ...entry })),
+        ...Array.from(this.accessBreakpoints.values(), (entry) => ({ ...entry })),
+      ],
+      watchRanges: Array.from(this.watchRanges.values(), (entry) => ({ ...entry })),
+      irqState: { ...this.irqState },
       recentTrace: this.recentTrace.map(cloneTraceEvent),
       loadEvents: this.loadEvents.map((entry) => ({ ...entry })),
       savedFiles: this.savedFiles.map((entry) => ({
@@ -186,11 +215,46 @@ class HeadlessSession {
   }
 
   addBreakpoint(address: number, temporary = false): void {
-    this.breakpoints.set(address & 0xffff, { address: address & 0xffff, temporary });
+    const normalized = address & 0xffff;
+    this.breakpoints.set(normalized, { id: `exec:${normalized.toString(16)}`, kind: "exec", start: normalized, end: normalized, temporary });
+  }
+
+  addAccessBreakpoint(kind: "read" | "write" | "access", start: number, end: number, temporary = false, label?: string): string {
+    const normalizedStart = start & 0xffff;
+    const normalizedEnd = end & 0xffff;
+    const id = `${kind}:${normalizedStart.toString(16)}-${normalizedEnd.toString(16)}:${label ?? ""}`;
+    this.accessBreakpoints.set(id, {
+      id,
+      kind,
+      start: normalizedStart,
+      end: normalizedEnd,
+      temporary,
+      label,
+    });
+    return id;
+  }
+
+  addWatchRange(name: string, start: number, end: number, includeBytes = true): string {
+    const normalizedStart = start & 0xffff;
+    const normalizedEnd = end & 0xffff;
+    const id = `${name}:${normalizedStart.toString(16)}-${normalizedEnd.toString(16)}`;
+    this.watchRanges.set(id, {
+      id,
+      name,
+      start: normalizedStart,
+      end: normalizedEnd,
+      includeBytes,
+    });
+    return id;
   }
 
   clearBreakpoints(): void {
     this.breakpoints.clear();
+    this.accessBreakpoints.clear();
+  }
+
+  clearWatchRanges(): void {
+    this.watchRanges.clear();
   }
 
   step(): HeadlessRunResult {
@@ -214,15 +278,18 @@ class HeadlessSession {
         if (breakpoint.temporary) {
           this.breakpoints.delete(this.cpu.pc);
         }
-        return { reason: "breakpoint", stepsExecuted, currentPc: this.cpu.pc, lastTrap: this.lastTrap };
+        return { reason: "breakpoint", stepsExecuted, currentPc: this.cpu.pc, lastTrap: this.lastTrap, breakpointId: breakpoint.id };
       }
       try {
         if (this.handleKernalTrap()) {
           stepsExecuted += 1;
           continue;
         }
-        this.executeInstruction();
+        const watchpointId = this.executeInstruction();
         stepsExecuted += 1;
+        if (watchpointId) {
+          return { reason: "watchpoint", stepsExecuted, currentPc: this.cpu.pc, lastTrap: this.lastTrap, breakpointId: watchpointId };
+        }
       } catch (error) {
         this.state = "error";
         this.lastError = error instanceof Error ? error.message : String(error);
@@ -243,12 +310,17 @@ class HeadlessSession {
     return this.getRecord();
   }
 
-  private executeInstruction(): void {
+  private executeInstruction(): string | undefined {
     const before = this.cpu.getState();
+    const beforeStack = this.captureStackSnapshot(before.sp);
     const bytes = this.cpu.peekInstructionBytes();
     const opcode = bytes[0] ?? 0;
+    this.bus.beginInstructionTrace();
     this.cpu.step();
+    const accesses = this.bus.endInstructionTrace();
     const after = this.cpu.getState();
+    const watchHits = this.collectWatchHits(accesses);
+    const watchpoint = this.matchAccessBreakpoint(accesses);
     this.pushTrace({
       index: this.traceIndex++,
       pc: before.pc,
@@ -256,7 +328,14 @@ class HeadlessSession {
       bytes,
       before,
       after,
+      beforeStack,
+      afterStack: this.captureStackSnapshot(after.sp),
+      bankInfo: this.bus.getBankInfo(),
+      irqState: { ...this.irqState },
+      accesses,
+      watchHits,
     });
+    return watchpoint?.id;
   }
 
   private handleKernalTrap(): boolean {
@@ -382,6 +461,12 @@ class HeadlessSession {
       bytes: [this.bus.read(before.pc)],
       before,
       after,
+      beforeStack: this.captureStackSnapshot(before.sp),
+      afterStack: this.captureStackSnapshot(after.sp),
+      bankInfo: this.bus.getBankInfo(),
+      irqState: { ...this.irqState },
+      accesses: [],
+      watchHits: [],
       trap,
       note: trap,
     });
@@ -392,6 +477,63 @@ class HeadlessSession {
     while (this.recentTrace.length > TRACE_LIMIT) {
       this.recentTrace.shift();
     }
+  }
+
+  private captureStackSnapshot(sp: number): { sp: number; bytes: number[] } {
+    const bytes: number[] = [];
+    for (let offset = 1; offset <= 8; offset += 1) {
+      const stackAddress = 0x0100 + ((sp + offset) & 0xff);
+      bytes.push(this.bus.read(stackAddress));
+    }
+    return { sp, bytes };
+  }
+
+  private collectWatchHits(accesses: HeadlessMemoryAccess[]): HeadlessWatchHit[] {
+    if (this.watchRanges.size === 0 || accesses.length === 0) {
+      return [];
+    }
+    const hits: HeadlessWatchHit[] = [];
+    for (const watch of this.watchRanges.values()) {
+      const touched = accesses.filter((access) => access.address >= watch.start && access.address <= watch.end);
+      if (touched.length === 0) {
+        continue;
+      }
+      const touchedBy = Array.from(new Set(touched.map((access) => access.kind)));
+      hits.push({
+        id: watch.id,
+        name: watch.name,
+        start: watch.start,
+        end: watch.end,
+        touchedBy,
+        bytes: watch.includeBytes ? Array.from(this.bus.readRange(watch.start, watch.end)) : undefined,
+      });
+    }
+    return hits;
+  }
+
+  private matchAccessBreakpoint(accesses: HeadlessMemoryAccess[]): HeadlessBreakpoint | undefined {
+    if (this.accessBreakpoints.size === 0 || accesses.length === 0) {
+      return undefined;
+    }
+    for (const breakpoint of this.accessBreakpoints.values()) {
+      const hit = accesses.some((access) => {
+        if (access.address < breakpoint.start || access.address > breakpoint.end) {
+          return false;
+        }
+        if (breakpoint.kind === "access") {
+          return true;
+        }
+        return access.kind === breakpoint.kind;
+      });
+      if (hit) {
+        if (breakpoint.temporary) {
+          this.accessBreakpoints.delete(breakpoint.id);
+        }
+        this.lastTrap = `watchpoint ${breakpoint.kind} ${formatHexWord(breakpoint.start)}-${formatHexWord(breakpoint.end)}${breakpoint.label ? ` (${breakpoint.label})` : ""}`;
+        return breakpoint;
+      }
+    }
+    return undefined;
   }
 
   private seedVectors(): void {
@@ -447,8 +589,20 @@ export class HeadlessSessionManager {
     this.requireSession().addBreakpoint(address, temporary);
   }
 
+  addAccessBreakpoint(kind: "read" | "write" | "access", start: number, end: number, temporary = false, label?: string): string {
+    return this.requireSession().addAccessBreakpoint(kind, start, end, temporary, label);
+  }
+
+  addWatchRange(name: string, start: number, end: number, includeBytes = true): string {
+    return this.requireSession().addWatchRange(name, start, end, includeBytes);
+  }
+
   clearBreakpoints(): void {
     this.requireSession().clearBreakpoints();
+  }
+
+  clearWatchRanges(): void {
+    this.requireSession().clearWatchRanges();
   }
 
   private requireSession(): HeadlessSession {

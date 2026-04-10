@@ -8,6 +8,53 @@ export interface HeadlessCpuState {
   cycles: number;
 }
 
+export interface HeadlessBankInfo {
+  cpuPortDirection: number;
+  cpuPortValue: number;
+  basicVisible: boolean;
+  kernalVisible: boolean;
+  ioVisible: boolean;
+  charVisible: boolean;
+}
+
+export interface HeadlessIrqState {
+  irqPending: boolean;
+  nmiPending: boolean;
+  irqCount: number;
+  nmiCount: number;
+}
+
+export type HeadlessAccessKind = "read" | "write";
+
+export interface HeadlessMemoryAccess {
+  kind: HeadlessAccessKind;
+  address: number;
+  value: number;
+  region: string;
+}
+
+export interface HeadlessStackSnapshot {
+  sp: number;
+  bytes: number[];
+}
+
+export interface HeadlessWatchRange {
+  id: string;
+  name: string;
+  start: number;
+  end: number;
+  includeBytes: boolean;
+}
+
+export interface HeadlessWatchHit {
+  id: string;
+  name: string;
+  start: number;
+  end: number;
+  touchedBy: HeadlessAccessKind[];
+  bytes?: number[];
+}
+
 export interface HeadlessLoaderState {
   logicalFile: number | null;
   device: number | null;
@@ -41,13 +88,23 @@ export interface HeadlessTraceEvent {
   bytes: number[];
   before: HeadlessCpuState;
   after: HeadlessCpuState;
+  beforeStack: HeadlessStackSnapshot;
+  afterStack: HeadlessStackSnapshot;
+  bankInfo: HeadlessBankInfo;
+  irqState: HeadlessIrqState;
+  accesses: HeadlessMemoryAccess[];
+  watchHits: HeadlessWatchHit[];
   trap?: string;
   note?: string;
 }
 
 export interface HeadlessBreakpoint {
-  address: number;
+  id: string;
+  kind: "exec" | "read" | "write" | "access";
+  start: number;
+  end: number;
   temporary?: boolean;
+  label?: string;
 }
 
 export type HeadlessSessionState = "idle" | "running" | "stopped" | "error";
@@ -67,14 +124,18 @@ export interface HeadlessSessionRecord {
   lastTrap?: string;
   lastError?: string;
   loaderState: HeadlessLoaderState;
+  breakpoints: HeadlessBreakpoint[];
+  watchRanges: HeadlessWatchRange[];
+  irqState: HeadlessIrqState;
   recentTrace: HeadlessTraceEvent[];
   loadEvents: HeadlessLoadEvent[];
   savedFiles: HeadlessSavedFile[];
 }
 
 export interface HeadlessRunResult {
-  reason: "step_limit" | "breakpoint" | "stop_pc" | "trap_error";
+  reason: "step_limit" | "breakpoint" | "watchpoint" | "stop_pc" | "trap_error";
   stepsExecuted: number;
   currentPc: number;
   lastTrap?: string;
+  breakpointId?: string;
 }
