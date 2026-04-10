@@ -39,6 +39,7 @@ export interface HeadlessIoInterruptState {
 
 export type HeadlessCartridgeMapperType =
   | "easyflash"
+  | "megabyter"
   | "magicdesk"
   | "ocean"
   | "normal_8k"

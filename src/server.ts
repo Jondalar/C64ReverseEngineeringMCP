@@ -2912,7 +2912,7 @@ Practical advice:
       prg_path: z.string().optional().describe("Optional PRG to load into RAM before execution."),
       disk_path: z.string().optional().describe("Optional D64/G64 disk image used to satisfy KERNAL LOAD traps."),
       crt_path: z.string().optional().describe("Optional CRT cartridge image attached to the headless memory map."),
-      mapper_type: z.enum(["easyflash", "magicdesk", "ocean", "normal_8k", "normal_16k", "ultimax"]).optional().describe("Optional explicit mapper type for CRT handling."),
+      mapper_type: z.enum(["easyflash", "megabyter", "magicdesk", "ocean", "normal_8k", "normal_16k", "ultimax"]).optional().describe("Optional explicit mapper type for CRT handling."),
       entry_pc: z.string().optional().describe("Optional explicit entry PC in hex, e.g. 080D."),
     },
     async ({ prg_path, disk_path, crt_path, mapper_type, entry_pc }) => {

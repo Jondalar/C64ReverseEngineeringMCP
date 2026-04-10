@@ -40,6 +40,8 @@ export interface HeadlessCartridgeMapper {
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
   const image = parseCrt(readFileSync(crtPath), crtPath, mapperType);
   switch (image.mapperType) {
+    case "megabyter":
+      return new MegabyterMapper(image);
     case "magicdesk":
       return new MagicDeskMapper(image);
     case "ocean":
@@ -147,6 +149,8 @@ function inferMapperType(
     case 19:
     case 85:
       return "magicdesk";
+    case 86:
+      return "megabyter";
     case 32:
       return "easyflash";
     default:
@@ -172,6 +176,59 @@ function cloneBankData(bank: CrtBank): CrtBank {
 
 function resolveRelativeOffset(baseAddress: number, address: number): number {
   return (address - baseAddress) & 0x1fff;
+}
+
+function buildLinearChipData(
+  image: ParsedCartridgeImage,
+  selector: (bank: CrtBank) => Uint8Array | undefined,
+  bankCount?: number,
+): Uint8Array {
+  const highestBank = [...image.banks.keys()].reduce((max, bank) => Math.max(max, bank), 0);
+  const totalBanks = Math.max(bankCount ?? 0, highestBank + 1);
+  const result = new Uint8Array(totalBanks * 0x2000);
+  result.fill(0xff);
+  for (const [bankNumber, bank] of image.banks.entries()) {
+    const segment = selector(bank);
+    if (!segment) {
+      continue;
+    }
+    result.set(segment.slice(0, 0x2000), bankNumber * 0x2000);
+  }
+  return result;
+}
+
+interface FlashSectorLayout {
+  start: number;
+  size: number;
+}
+
+interface AmdFlashChipOptions {
+  label: string;
+  data: Uint8Array;
+  commandAddress1: number;
+  commandAddress2: number;
+  commandAddressMask: number;
+  manufacturerId: number;
+  deviceId: number;
+  sectors: FlashSectorLayout[];
+}
+
+interface HeadlessWritableChip {
+  read(offset: number): number;
+  write(offset: number, value: number): boolean;
+  getMode(): string;
+}
+
+function createUniformSectors(totalSize: number, sectorSize: number): FlashSectorLayout[] {
+  const sectors: FlashSectorLayout[] = [];
+  for (let start = 0; start < totalSize; start += sectorSize) {
+    sectors.push({ start, size: Math.min(sectorSize, totalSize - start) });
+  }
+  return sectors;
+}
+
+function findSectorForOffset(sectors: FlashSectorLayout[], offset: number): FlashSectorLayout | undefined {
+  return sectors.find((sector) => offset >= sector.start && offset < sector.start + sector.size);
 }
 
 abstract class BaseMapper implements HeadlessCartridgeMapper {
@@ -291,24 +348,28 @@ class OceanMapper extends BaseMapper {
 
 type FlashCommandState = "read" | "cmd1" | "cmd2" | "program" | "erase1" | "erase2" | "erase3" | "autoselect";
 
-class FlashChip {
+class AmdFlashChip implements HeadlessWritableChip {
   public state: FlashCommandState = "read";
 
-  constructor(private readonly label: string) {}
+  constructor(private readonly options: AmdFlashChipOptions) {}
 
   getMode(): string {
-    return `${this.label}:${this.state}`;
+    return `${this.options.label}:${this.state}`;
   }
 
-  read(bankData: Uint8Array, relativeOffset: number): number {
+  read(offset: number): number {
+    const normalized = offset % this.options.data.length;
+    const commandOffset = normalized & this.options.commandAddressMask;
     if (this.state === "autoselect") {
-      if (relativeOffset === 0x0000) return 0x01;
-      if (relativeOffset === 0x0001) return 0xa4;
+      if (commandOffset === 0x0000) return this.options.manufacturerId;
+      if (commandOffset === 0x0001) return this.options.deviceId;
     }
-    return bankData[relativeOffset] ?? 0xff;
+    return this.options.data[normalized] ?? 0xff;
   }
 
-  write(bankData: Uint8Array, relativeOffset: number, value: number): boolean {
+  write(offset: number, value: number): boolean {
+    const normalized = offset % this.options.data.length;
+    const commandOffset = normalized & this.options.commandAddressMask;
     const byte = value & 0xff;
     if (byte === 0xf0) {
       this.state = "read";
@@ -317,60 +378,64 @@ class FlashChip {
 
     switch (this.state) {
       case "read":
-        if (relativeOffset === FLASH_CMD_ADDR1 && byte === 0xaa) {
+        if (commandOffset === this.options.commandAddress1 && byte === 0xaa) {
           this.state = "cmd1";
           return true;
         }
         return false;
       case "cmd1":
-        if (relativeOffset === FLASH_CMD_ADDR2 && byte === 0x55) {
+        if (commandOffset === this.options.commandAddress2 && byte === 0x55) {
           this.state = "cmd2";
           return true;
         }
         this.state = "read";
         return false;
       case "cmd2":
-        if (relativeOffset === FLASH_CMD_ADDR1 && byte === 0xa0) {
+        if (commandOffset === this.options.commandAddress1 && byte === 0xa0) {
           this.state = "program";
           return true;
         }
-        if (relativeOffset === FLASH_CMD_ADDR1 && byte === 0x80) {
+        if (commandOffset === this.options.commandAddress1 && byte === 0x80) {
           this.state = "erase1";
           return true;
         }
-        if (relativeOffset === FLASH_CMD_ADDR1 && byte === 0x90) {
+        if (commandOffset === this.options.commandAddress1 && byte === 0x90) {
           this.state = "autoselect";
           return true;
         }
         this.state = "read";
         return false;
       case "program":
-        bankData[relativeOffset] = byte;
+        this.options.data[normalized] = byte;
         this.state = "read";
         return true;
       case "erase1":
-        if (relativeOffset === FLASH_CMD_ADDR1 && byte === 0xaa) {
+        if (commandOffset === this.options.commandAddress1 && byte === 0xaa) {
           this.state = "erase2";
           return true;
         }
         this.state = "read";
         return false;
       case "erase2":
-        if (relativeOffset === FLASH_CMD_ADDR2 && byte === 0x55) {
+        if (commandOffset === this.options.commandAddress2 && byte === 0x55) {
           this.state = "erase3";
           return true;
         }
         this.state = "read";
         return false;
       case "erase3":
-        if (relativeOffset === FLASH_CMD_ADDR1 && byte === 0x10) {
-          bankData.fill(0xff);
+        if (commandOffset === this.options.commandAddress1 && byte === 0x10) {
+          this.options.data.fill(0xff);
           this.state = "read";
           return true;
         }
         if (byte === 0x30) {
-          const sectorStart = relativeOffset & ~0x0fff;
-          bankData.fill(0xff, sectorStart, Math.min(bankData.length, sectorStart + 0x1000));
+          const sector = findSectorForOffset(this.options.sectors, normalized);
+          if (!sector) {
+            this.state = "read";
+            return false;
+          }
+          this.options.data.fill(0xff, sector.start, sector.start + sector.size);
           this.state = "read";
           return true;
         }
@@ -388,8 +453,40 @@ class FlashChip {
 
 class EasyFlashMapper extends BaseMapper {
   private controlRegister = 0x07;
-  private readonly loFlash = new FlashChip("lo");
-  private readonly hiFlash = new FlashChip("hi");
+  private readonly loFlash: AmdFlashChip;
+  private readonly hiFlash: AmdFlashChip;
+
+  constructor(image: ParsedCartridgeImage) {
+    super(image);
+    const lowData = buildLinearChipData(image, (bank) => bank.roml, 64);
+    const highData = buildLinearChipData(image, (bank) => bank.romhA000 ?? bank.romhE000, 64);
+    const sectors = createUniformSectors(lowData.length, 0x10000);
+    this.loFlash = new AmdFlashChip({
+      label: "easyflash-lo",
+      data: lowData,
+      commandAddress1: FLASH_CMD_ADDR1,
+      commandAddress2: FLASH_CMD_ADDR2,
+      commandAddressMask: 0x1fff,
+      manufacturerId: 0x01,
+      deviceId: 0xa4,
+      sectors,
+    });
+    this.hiFlash = new AmdFlashChip({
+      label: "easyflash-hi",
+      data: highData,
+      commandAddress1: FLASH_CMD_ADDR1,
+      commandAddress2: FLASH_CMD_ADDR2,
+      commandAddressMask: 0x1fff,
+      manufacturerId: 0x01,
+      deviceId: 0xa4,
+      sectors,
+    });
+  }
+
+  private chipOffsetForWindow(address: number): number {
+    const relative = address >= 0xe000 ? resolveRelativeOffset(0xe000, address) : address >= 0xa000 ? resolveRelativeOffset(0xa000, address) : resolveRelativeOffset(0x8000, address);
+    return (this.currentBank << 13) | relative;
+  }
 
   getLines(): HeadlessCartridgeLines {
     switch (this.currentMode()) {
@@ -413,18 +510,15 @@ class EasyFlashMapper extends BaseMapper {
   }
 
   read(address: number, bankInfo: HeadlessBankInfo): number | undefined {
-    const bank = this.banks.get(this.currentBank);
-    if (!bank) {
-      return undefined;
+    const offset = this.chipOffsetForWindow(address);
+    if (address >= 0x8000 && address <= 0x9fff && this.romlVisible(bankInfo)) {
+      return this.loFlash.read(offset);
     }
-    if (address >= 0x8000 && address <= 0x9fff && this.romlVisible(bankInfo) && bank.roml) {
-      return this.loFlash.read(bank.roml, resolveRelativeOffset(0x8000, address));
+    if (address >= 0xa000 && address <= 0xbfff && this.romhA000Visible(bankInfo)) {
+      return this.hiFlash.read(offset);
     }
-    if (address >= 0xa000 && address <= 0xbfff && this.romhA000Visible(bankInfo) && bank.romhA000) {
-      return this.hiFlash.read(bank.romhA000, resolveRelativeOffset(0xa000, address));
-    }
-    if (address >= 0xe000 && address <= 0xffff && this.romhE000Visible(bankInfo) && bank.romhE000) {
-      return this.hiFlash.read(bank.romhE000, resolveRelativeOffset(0xe000, address));
+    if (address >= 0xe000 && address <= 0xffff && this.romhE000Visible(bankInfo)) {
+      return this.hiFlash.read(offset);
     }
     return undefined;
   }
@@ -439,18 +533,15 @@ class EasyFlashMapper extends BaseMapper {
       return true;
     }
 
-    const bank = this.banks.get(this.currentBank);
-    if (!bank) {
-      return false;
+    const offset = this.chipOffsetForWindow(address);
+    if (address >= 0x8000 && address <= 0x9fff && this.romlVisible(bankInfo)) {
+      return this.loFlash.write(offset, value);
     }
-    if (address >= 0x8000 && address <= 0x9fff && this.romlVisible(bankInfo) && bank.roml) {
-      return this.loFlash.write(bank.roml, resolveRelativeOffset(0x8000, address), value);
+    if (address >= 0xa000 && address <= 0xbfff && this.romhA000Visible(bankInfo)) {
+      return this.hiFlash.write(offset, value);
     }
-    if (address >= 0xa000 && address <= 0xbfff && this.romhA000Visible(bankInfo) && bank.romhA000) {
-      return this.hiFlash.write(bank.romhA000, resolveRelativeOffset(0xa000, address), value);
-    }
-    if (address >= 0xe000 && address <= 0xffff && this.romhE000Visible(bankInfo) && bank.romhE000) {
-      return this.hiFlash.write(bank.romhE000, resolveRelativeOffset(0xe000, address), value);
+    if (address >= 0xe000 && address <= 0xffff && this.romhE000Visible(bankInfo)) {
+      return this.hiFlash.write(offset, value);
     }
     return false;
   }
@@ -489,5 +580,129 @@ class EasyFlashMapper extends BaseMapper {
       default:
         return "off";
     }
+  }
+}
+
+function createMegabyterSectors(): FlashSectorLayout[] {
+  return [
+    { start: 0x00000, size: 0x04000 },
+    { start: 0x04000, size: 0x02000 },
+    { start: 0x06000, size: 0x02000 },
+    { start: 0x08000, size: 0x08000 },
+    ...createUniformSectors(0x100000 - 0x10000, 0x10000).map((sector) => ({
+      start: sector.start + 0x10000,
+      size: sector.size,
+    })),
+  ];
+}
+
+class MegabyterMapper extends BaseMapper {
+  private bankRegister = 0x00;
+  private controlRegister = 0x00;
+  private readonly flash: AmdFlashChip;
+
+  constructor(image: ParsedCartridgeImage) {
+    super(image);
+    const data = buildLinearChipData(image, (bank) => bank.roml, 128);
+    this.flash = new AmdFlashChip({
+      label: "megabyter",
+      data,
+      commandAddress1: 0x0aaa,
+      commandAddress2: 0x0555,
+      commandAddressMask: 0x1fff,
+      manufacturerId: 0xc2,
+      deviceId: 0x58,
+      sectors: createMegabyterSectors(),
+    });
+  }
+
+  getLines(): HeadlessCartridgeLines {
+    switch (this.controlRegister & 0x03) {
+      case 0x00:
+        return { exrom: 0, game: 1 };
+      case 0x01:
+        return { exrom: 0, game: 0 };
+      case 0x02:
+        return { exrom: 1, game: 1 };
+      case 0x03:
+        return { exrom: 1, game: 0 };
+      default:
+        return { exrom: 1, game: 1 };
+    }
+  }
+
+  getState(): HeadlessCartridgeState {
+    const state = super.getState();
+    state.currentBank = this.bankRegister;
+    state.controlRegister = this.controlRegister;
+    state.writable = true;
+    state.flashMode = `${this.currentMode()} [${this.flash.getMode()}]`;
+    return state;
+  }
+
+  read(address: number, bankInfo: HeadlessBankInfo): number | undefined {
+    if (this.currentMode() === "off") {
+      return undefined;
+    }
+    if (address >= 0x8000 && address <= 0x9fff) {
+      return this.flash.read(this.chipOffsetForWindow(0x8000, address));
+    }
+    if (address >= 0xe000 && address <= 0xffff && this.currentMode() === "ultimax") {
+      return this.flash.read(this.chipOffsetForWindow(0xe000, address));
+    }
+    return super.read(address, bankInfo);
+  }
+
+  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
+    if (address === 0xde00) {
+      this.bankRegister = value & 0x7f;
+      this.currentBank = this.bankRegister;
+      return true;
+    }
+    if (address === 0xde02) {
+      this.controlRegister = value & 0x03;
+      return true;
+    }
+    if (this.currentMode() !== "ultimax") {
+      return false;
+    }
+    if (address >= 0x8000 && address <= 0x9fff) {
+      return this.flash.write(this.chipOffsetForWindow(0x8000, address), value);
+    }
+    if (address >= 0xe000 && address <= 0xffff) {
+      return this.flash.write(this.chipOffsetForWindow(0xe000, address), value);
+    }
+    return false;
+  }
+
+  protected romhA000Visible(): boolean {
+    return false;
+  }
+
+  protected romhE000Visible(): boolean {
+    return this.currentMode() === "ultimax";
+  }
+
+  protected romlVisible(): boolean {
+    return this.currentMode() !== "off";
+  }
+
+  protected getControlRegister(): number {
+    return this.controlRegister;
+  }
+
+  private currentMode(): "8k" | "off" | "ultimax" {
+    switch (this.controlRegister & 0x03) {
+      case 0x02:
+        return "off";
+      case 0x03:
+        return "ultimax";
+      default:
+        return "8k";
+    }
+  }
+
+  private chipOffsetForWindow(baseAddress: number, address: number): number {
+    return (this.bankRegister << 13) | resolveRelativeOffset(baseAddress, address);
   }
 }
