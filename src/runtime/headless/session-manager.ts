@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { Cpu6510 } from "./cpu6510.js";
+import { loadCartridgeMapper, type HeadlessCartridgeMapper } from "./cartridge.js";
 import { HeadlessMemoryBus } from "./memory-bus.js";
 import { DiskProvider, readPrgFile, type PrgFile } from "./providers.js";
 import type {
   HeadlessBreakpoint,
-  HeadlessBankInfo,
   HeadlessCpuState,
+  HeadlessCartridgeMapperType,
   HeadlessIrqState,
+  HeadlessIoInterruptState,
   HeadlessLoadEvent,
   HeadlessLoaderState,
   HeadlessMemoryAccess,
@@ -31,6 +33,8 @@ const TRACE_LIMIT = 256;
 export interface HeadlessSessionStartOptions {
   prgPath?: string;
   diskPath?: string;
+  crtPath?: string;
+  mapperType?: HeadlessCartridgeMapperType;
   entryPc?: number;
 }
 
@@ -115,6 +119,14 @@ class HeadlessSession {
     irqCount: 0,
     nmiCount: 0,
   };
+  public readonly ioInterrupts: HeadlessIoInterruptState = {
+    vicIrqStatus: 0,
+    vicIrqMask: 0,
+    cia1Status: 0,
+    cia1Mask: 0,
+    cia2Status: 0,
+    cia2Mask: 0,
+  };
   public state: HeadlessSessionRecord["state"] = "idle";
   public startedAt?: string;
   public stoppedAt?: string;
@@ -122,15 +134,18 @@ class HeadlessSession {
   public lastError?: string;
   public prgPath?: string;
   public diskPath?: string;
+  public crtPath?: string;
   public entryPoint?: number;
   public inferredBasicSys?: number;
   private prgFile?: PrgFile;
   private diskProvider?: DiskProvider;
+  private cartridge?: HeadlessCartridgeMapper;
   private traceIndex = 0;
 
   constructor(public readonly projectDir: string) {
     this.bus.reset();
     this.seedVectors();
+    this.installIoHandlers();
   }
 
   start(options: HeadlessSessionStartOptions): HeadlessSessionRecord {
@@ -141,6 +156,7 @@ class HeadlessSession {
     this.lastError = undefined;
     this.prgPath = options.prgPath ? resolve(options.prgPath) : undefined;
     this.diskPath = options.diskPath ? resolve(options.diskPath) : undefined;
+    this.crtPath = options.crtPath ? resolve(options.crtPath) : undefined;
     this.loadEvents.length = 0;
     this.savedFiles.length = 0;
     this.recentTrace.length = 0;
@@ -154,7 +170,16 @@ class HeadlessSession {
     this.bus.io.fill(0);
     this.bus.reset();
     this.seedVectors();
+    this.installIoHandlers();
     this.diskProvider = this.diskPath ? DiskProvider.fromImagePath(this.diskPath) : undefined;
+    this.cartridge = this.crtPath ? loadCartridgeMapper(this.crtPath, options.mapperType) : undefined;
+    this.bus.attachCartridge(this.cartridge);
+    this.ioInterrupts.vicIrqStatus = 0;
+    this.ioInterrupts.vicIrqMask = 0;
+    this.ioInterrupts.cia1Status = 0;
+    this.ioInterrupts.cia1Mask = 0;
+    this.ioInterrupts.cia2Status = 0;
+    this.ioInterrupts.cia2Mask = 0;
 
     if (this.prgPath) {
       this.prgFile = readPrgFile(this.prgPath);
@@ -181,6 +206,7 @@ class HeadlessSession {
       state: this.state,
       prgPath: this.prgPath,
       diskPath: this.diskPath,
+      crtPath: this.crtPath,
       entryPoint: this.entryPoint,
       inferredBasicSys: this.inferredBasicSys,
       currentPc: this.cpu.pc,
@@ -199,6 +225,8 @@ class HeadlessSession {
       ],
       watchRanges: Array.from(this.watchRanges.values(), (entry) => ({ ...entry })),
       irqState: { ...this.irqState },
+      ioInterrupts: { ...this.ioInterrupts },
+      cartridge: this.cartridge?.getState(),
       recentTrace: this.recentTrace.map(cloneTraceEvent),
       loadEvents: this.loadEvents.map((entry) => ({ ...entry })),
       savedFiles: this.savedFiles.map((entry) => ({
@@ -273,6 +301,30 @@ class HeadlessSession {
     }
     if (!kind || kind === "nmi") {
       this.irqState.nmiPending = false;
+    }
+  }
+
+  triggerIoInterrupt(source: "vic" | "cia1" | "cia2", mask = 0x01): void {
+    const bitMask = mask & 0x1f;
+    switch (source) {
+      case "vic":
+        this.ioInterrupts.vicIrqStatus |= bitMask;
+        if ((this.ioInterrupts.vicIrqMask & bitMask) !== 0) {
+          this.requestInterrupt("irq");
+        }
+        return;
+      case "cia1":
+        this.ioInterrupts.cia1Status |= bitMask;
+        if ((this.ioInterrupts.cia1Mask & bitMask) !== 0) {
+          this.requestInterrupt("irq");
+        }
+        return;
+      case "cia2":
+        this.ioInterrupts.cia2Status |= bitMask;
+        if ((this.ioInterrupts.cia2Mask & bitMask) !== 0) {
+          this.requestInterrupt("nmi");
+        }
+        return;
     }
   }
 
@@ -607,6 +659,44 @@ class HeadlessSession {
     this.bus.ram[0xfffe] = 0x00;
     this.bus.ram[0xffff] = 0x00;
   }
+
+  private installIoHandlers(): void {
+    this.bus.registerIoHandler(0xd019, {
+      read: () => (this.ioInterrupts.vicIrqStatus & 0x0f) | (this.ioInterrupts.vicIrqStatus ? 0x80 : 0x00),
+      write: (_address, value) => {
+        this.ioInterrupts.vicIrqStatus &= ~(value & 0x0f);
+        if (this.ioInterrupts.vicIrqStatus === 0) {
+          this.irqState.irqPending = false;
+        }
+      },
+    });
+    this.bus.registerIoHandler(0xd01a, {
+      read: () => this.ioInterrupts.vicIrqMask & 0x0f,
+      write: (_address, value) => {
+        this.ioInterrupts.vicIrqMask = value & 0x0f;
+      },
+    });
+    this.bus.registerIoHandler(0xdc0d, {
+      read: () => (this.ioInterrupts.cia1Status & 0x1f) | (this.ioInterrupts.cia1Status ? 0x80 : 0x00),
+      write: (_address, value) => {
+        if ((value & 0x80) !== 0) {
+          this.ioInterrupts.cia1Mask |= value & 0x1f;
+        } else {
+          this.ioInterrupts.cia1Mask &= ~(value & 0x1f);
+        }
+      },
+    });
+    this.bus.registerIoHandler(0xdd0d, {
+      read: () => (this.ioInterrupts.cia2Status & 0x1f) | (this.ioInterrupts.cia2Status ? 0x80 : 0x00),
+      write: (_address, value) => {
+        if ((value & 0x80) !== 0) {
+          this.ioInterrupts.cia2Mask |= value & 0x1f;
+        } else {
+          this.ioInterrupts.cia2Mask &= ~(value & 0x1f);
+        }
+      },
+    });
+  }
 }
 
 export class HeadlessSessionManager {
@@ -676,6 +766,10 @@ export class HeadlessSessionManager {
 
   clearInterrupt(kind?: "irq" | "nmi"): void {
     this.requireSession().clearInterrupt(kind);
+  }
+
+  triggerIoInterrupt(source: "vic" | "cia1" | "cia2", mask = 0x01): void {
+    this.requireSession().triggerIoInterrupt(source, mask);
   }
 
   private requireSession(): HeadlessSession {

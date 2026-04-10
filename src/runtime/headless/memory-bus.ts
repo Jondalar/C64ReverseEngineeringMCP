@@ -1,4 +1,5 @@
 import type { HeadlessBankInfo, HeadlessMemoryAccess } from "./types.js";
+import type { HeadlessCartridgeMapper } from "./cartridge.js";
 
 export interface HeadlessIoHandler {
   read?(address: number): number | undefined;
@@ -25,6 +26,7 @@ export class HeadlessMemoryBus {
   private cpuPortValue = 0x37;
   private accessTrace: HeadlessMemoryAccess[] = [];
   private tracingEnabled = false;
+  private cartridge?: HeadlessCartridgeMapper;
 
   reset(): void {
     this.cpuPortDirection = 0x2f;
@@ -50,6 +52,10 @@ export class HeadlessMemoryBus {
       ioVisible: this.ioVisible(),
       charVisible: this.charVisible(),
     };
+  }
+
+  attachCartridge(cartridge: HeadlessCartridgeMapper | undefined): void {
+    this.cartridge = cartridge;
   }
 
   beginInstructionTrace(): void {
@@ -108,6 +114,11 @@ export class HeadlessMemoryBus {
       this.recordAccess("read", normalized, value, "cpu_port_value");
       return value;
     }
+    const cartValue = this.cartridge?.read(normalized, this.getBankInfo());
+    if (cartValue !== undefined) {
+      this.recordAccess("read", normalized, cartValue, "cartridge");
+      return cartValue;
+    }
     if (normalized >= 0xa000 && normalized <= 0xbfff && this.basicVisible()) {
       value = this.basicRom[normalized - 0xa000]!;
       this.recordAccess("read", normalized, value, "basic_rom");
@@ -154,6 +165,9 @@ export class HeadlessMemoryBus {
       this.ram[0x0001] = byte;
       this.recordAccess("write", normalized, byte, "cpu_port_value");
       return;
+    }
+    if (normalized >= 0xde00 && normalized <= 0xdeff) {
+      this.cartridge?.write(normalized, byte);
     }
     if (normalized >= 0xd000 && normalized <= 0xdfff && this.ioVisible()) {
       this.io[normalized - 0xd000] = byte;

@@ -24,6 +24,29 @@ export interface HeadlessIrqState {
   nmiCount: number;
 }
 
+export interface HeadlessIoInterruptState {
+  vicIrqStatus: number;
+  vicIrqMask: number;
+  cia1Status: number;
+  cia1Mask: number;
+  cia2Status: number;
+  cia2Mask: number;
+}
+
+export type HeadlessCartridgeMapperType = "easyflash" | "magicdesk" | "ocean";
+
+export interface HeadlessCartridgeState {
+  path: string;
+  name: string;
+  mapperType: HeadlessCartridgeMapperType;
+  currentBank: number;
+  controlRegister?: number;
+  exrom: number;
+  game: number;
+  romlBanks: number[];
+  romhBanks: number[];
+}
+
 export type HeadlessAccessKind = "read" | "write";
 
 export interface HeadlessMemoryAccess {
@@ -118,6 +141,7 @@ export interface HeadlessSessionRecord {
   state: HeadlessSessionState;
   prgPath?: string;
   diskPath?: string;
+  crtPath?: string;
   entryPoint?: number;
   inferredBasicSys?: number;
   currentPc: number;
@@ -127,6 +151,8 @@ export interface HeadlessSessionRecord {
   breakpoints: HeadlessBreakpoint[];
   watchRanges: HeadlessWatchRange[];
   irqState: HeadlessIrqState;
+  ioInterrupts: HeadlessIoInterruptState;
+  cartridge?: HeadlessCartridgeState;
   recentTrace: HeadlessTraceEvent[];
   loadEvents: HeadlessLoadEvent[];
   savedFiles: HeadlessSavedFile[];

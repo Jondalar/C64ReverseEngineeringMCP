@@ -198,6 +198,7 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `headless_watch_clear` | WIP: Clear watched memory ranges |
 | `headless_interrupt_request` | WIP: Request a pending IRQ or NMI in the headless runtime |
 | `headless_interrupt_clear` | WIP: Clear pending IRQ/NMI state in the headless runtime |
+| `headless_io_interrupt_trigger` | WIP: Trigger simple VIC/CIA interrupt sources through emulated I/O status/mask registers |
 | `headless_trace_tail` | WIP: Render recent trace events with accesses, stack, bank state, and watch hits |
 | `headless_monitor_registers` | WIP: Read CPU registers from the headless runtime |
 | `headless_monitor_memory` | WIP: Read memory from the headless runtime |
@@ -214,11 +215,13 @@ Current first-slice status:
 - built-in 6510 CPU core with RAM/ROM windows and `$0001` banking
 - KERNAL traps for `SETNAM`, `SETLFS`, `LOAD`, and `SAVE`
 - D64/G64-backed disk provider for loader-following
+- first cartridge mapping slice for CRT-backed EasyFlash, Magic Desk, and Ocean banking
 - recent instruction trace ring with:
   - instruction bytes and cycle progression
   - register state and stack snapshots
   - `$00`/`$01` plus derived bank visibility
   - pending IRQ/NMI state and real vector-dispatch trace events
+  - simple VIC/CIA interrupt source registers feeding IRQ/NMI pending state
   - per-instruction memory read/write access log
   - watched-range snapshots when selected areas are touched
   - access breakpoints that also catch indirect effective-address activity
@@ -226,8 +229,8 @@ Current first-slice status:
 Still deliberately missing in this first slice:
 
 - VIC/SID/CIA behavior beyond simple memory/I/O stubs
-- hardware-generated IRQ/NMI sources (VIC/CIA) and their timing
-- cartridge mappers (EasyFlash, Magic Desk, Ocean)
+- detailed hardware-generated IRQ/NMI timing and side effects
+- advanced cartridge behavior beyond first-slice banking
 - persistent trace/index tooling equivalent to the VICE backend
 
 ### Artifact Access

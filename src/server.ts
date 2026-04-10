@@ -233,6 +233,7 @@ function headlessSessionToContent(record: HeadlessSessionRecord, headline: strin
   ];
   if (record.prgPath) lines.push(`PRG: ${record.prgPath}`);
   if (record.diskPath) lines.push(`Disk: ${record.diskPath}`);
+  if (record.crtPath) lines.push(`CRT: ${record.crtPath}`);
   if (record.entryPoint !== undefined) lines.push(`Entry: ${formatHexWord(record.entryPoint)}`);
   if (record.inferredBasicSys !== undefined) lines.push(`BASIC SYS: ${formatHexWord(record.inferredBasicSys)}`);
   if (record.startedAt) lines.push(`Started: ${record.startedAt}`);
@@ -245,6 +246,11 @@ function headlessSessionToContent(record: HeadlessSessionRecord, headline: strin
   if (record.breakpoints.length > 0) lines.push(`Breakpoints: ${record.breakpoints.length}`);
   if (record.watchRanges.length > 0) lines.push(`Watch ranges: ${record.watchRanges.length}`);
   lines.push(`IRQ/NMI: irqPending=${record.irqState.irqPending ? "yes" : "no"} nmiPending=${record.irqState.nmiPending ? "yes" : "no"} irqCount=${record.irqState.irqCount} nmiCount=${record.irqState.nmiCount}`);
+  lines.push(`I/O IRQ state: VIC status=${formatHexByte(record.ioInterrupts.vicIrqStatus)} mask=${formatHexByte(record.ioInterrupts.vicIrqMask)} | CIA1 status=${formatHexByte(record.ioInterrupts.cia1Status)} mask=${formatHexByte(record.ioInterrupts.cia1Mask)} | CIA2 status=${formatHexByte(record.ioInterrupts.cia2Status)} mask=${formatHexByte(record.ioInterrupts.cia2Mask)}`);
+  if (record.cartridge) {
+    lines.push(`Cartridge: ${record.cartridge.name} (${record.cartridge.mapperType}) bank=${record.cartridge.currentBank}`);
+    lines.push(`Cart lines: EXROM=${record.cartridge.exrom} GAME=${record.cartridge.game}${record.cartridge.controlRegister !== undefined ? ` control=${formatHexByte(record.cartridge.controlRegister)}` : ""}`);
+  }
   if (record.loadEvents.length > 0) {
     lines.push("Load events:");
     for (const event of record.loadEvents.slice(-5)) {
@@ -2890,16 +2896,20 @@ Practical advice:
     {
       prg_path: z.string().optional().describe("Optional PRG to load into RAM before execution."),
       disk_path: z.string().optional().describe("Optional D64/G64 disk image used to satisfy KERNAL LOAD traps."),
+      crt_path: z.string().optional().describe("Optional CRT cartridge image attached to the headless memory map."),
+      mapper_type: z.enum(["easyflash", "magicdesk", "ocean"]).optional().describe("Optional explicit mapper type for CRT handling."),
       entry_pc: z.string().optional().describe("Optional explicit entry PC in hex, e.g. 080D."),
     },
-    async ({ prg_path, disk_path, entry_pc }) => {
+    async ({ prg_path, disk_path, crt_path, mapper_type, entry_pc }) => {
       try {
-        const hintPath = prg_path ?? disk_path;
+        const hintPath = prg_path ?? disk_path ?? crt_path;
         const projectRoot = resolveHeadlessProjectDir(hintPath);
         const manager = getHeadlessSessionManager(projectRoot);
         const record = manager.startSession({
           prgPath: prg_path ? resolve(projectRoot, prg_path) : undefined,
           diskPath: disk_path ? resolve(projectRoot, disk_path) : undefined,
+          crtPath: crt_path ? resolve(projectRoot, crt_path) : undefined,
+          mapperType: mapper_type,
           entryPc: entry_pc ? parseHexWord(entry_pc) : undefined,
         });
         return headlessSessionToContent(record, "Headless runtime session started.");
@@ -3116,6 +3126,30 @@ Practical advice:
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
         manager.requestInterrupt(interrupt);
         return { content: [{ type: "text" as const, text: `Headless ${interrupt.toUpperCase()} requested.` }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-io-interrupt-trigger ─────────────────────────────
+  server.tool(
+    "headless_io_interrupt_trigger",
+    "Trigger a simple VIC/CIA interrupt source in the headless runtime. If the corresponding mask bit is enabled, this will queue an IRQ or NMI.",
+    {
+      source: z.enum(["vic", "cia1", "cia2"]).describe("Interrupt source to trigger."),
+      mask: z.number().int().min(1).max(31).optional().describe("Bit mask to set in the source status register (default: 1)."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ source, mask, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        manager.triggerIoInterrupt(source, mask ?? 0x01);
+        const record = manager.getStatus();
+        if (!record) {
+          throw new Error("No headless runtime session is active.");
+        }
+        return headlessSessionToContent(record, `Headless ${source.toUpperCase()} interrupt source triggered.`);
       } catch (error) {
         return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
