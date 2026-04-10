@@ -39,6 +39,7 @@ interface InstructionIndex {
 
 interface RenderAnalysisContext {
   report: AnalysisReport;
+  prg: PrgImage;
   segments: Segment[];
   instructions: Map<number, InstructionFact>;
   labelSet: Set<number>;
@@ -544,7 +545,7 @@ function labelCommentText(address: number, xrefs: CrossReferenceMap): string {
   return ` // referenced from ${rendered}${suffix}`;
 }
 
-function buildAnalysisContext(report: AnalysisReport): RenderAnalysisContext {
+function buildAnalysisContext(report: AnalysisReport, prg: PrgImage): RenderAnalysisContext {
   const segments = [...report.segments].sort((left, right) => left.start - right.start);
   const instructions = new Map<number, InstructionFact>();
   const instructionOwnerByAddress = new Map<number, number>();
@@ -626,6 +627,7 @@ function buildAnalysisContext(report: AnalysisReport): RenderAnalysisContext {
 
   return {
     report,
+    prg,
     segments,
     instructions,
     labelSet,
@@ -1109,6 +1111,157 @@ function summarizeHardwareTargets(segment: Segment, context: RenderAnalysisConte
   return registers;
 }
 
+function findKernalLoaderCallSequence(segment: Segment, context: RenderAnalysisContext): {
+  setnamAddress: number;
+  setlfsAddress: number;
+  loadAddress: number;
+} | undefined {
+  const instructions = segmentInstructions(segment, context);
+  for (let i = 0; i < instructions.length; i++) {
+    const first = instructions[i]!;
+    if (first.mnemonic !== "jsr" || first.targetAddress !== 0xffbd) {
+      continue;
+    }
+    let setlfs: InstructionFact | undefined;
+    let load: InstructionFact | undefined;
+    for (let j = i + 1; j < Math.min(i + 16, instructions.length); j++) {
+      const candidate = instructions[j]!;
+      if (!setlfs && candidate.mnemonic === "jsr" && candidate.targetAddress === 0xffba) {
+        setlfs = candidate;
+        continue;
+      }
+      if (setlfs && candidate.mnemonic === "jsr" && candidate.targetAddress === 0xffd5) {
+        load = candidate;
+        break;
+      }
+    }
+    if (setlfs && load) {
+      return {
+        setnamAddress: first.address,
+        setlfsAddress: setlfs.address,
+        loadAddress: load.address,
+      };
+    }
+  }
+  return undefined;
+}
+
+function previousInstructionAt(address: number, context: RenderAnalysisContext): InstructionFact | undefined {
+  for (let delta = 1; delta <= 3; delta += 1) {
+    const candidate = context.instructions.get(address - delta);
+    if (candidate && candidate.fallthroughAddress === address) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function readPrgByte(address: number, context: RenderAnalysisContext): number | undefined {
+  const offset = address - context.prg.loadAddress;
+  if (offset < 0 || offset >= context.prg.data.length) {
+    return undefined;
+  }
+  return context.prg.data[offset];
+}
+
+function decodeLoaderFilename(address: number, length: number, context: RenderAnalysisContext): string | undefined {
+  if (length <= 0 || length > 32) {
+    return undefined;
+  }
+  const chars: string[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const value = readPrgByte(address + index, context);
+    if (value === undefined || value < 0x20 || value > 0x7e) {
+      return undefined;
+    }
+    chars.push(String.fromCharCode(value));
+  }
+  return chars.join("");
+}
+
+function inferLoaderFilenameCandidates(
+  segment: Segment,
+  helperStart: number,
+  context: RenderAnalysisContext,
+): string[] {
+  const refs = segmentInstructions(segment, context)
+    .filter((instruction) => instruction.mnemonic === "jsr" && instruction.targetAddress === helperStart)
+    .map((instruction) => instruction.address);
+  const names = new Set<string>();
+  for (const callAddress of refs) {
+    const p1 = previousInstructionAt(callAddress, context);
+    const p2 = p1 ? previousInstructionAt(p1.address, context) : undefined;
+    const p3 = p2 ? previousInstructionAt(p2.address, context) : undefined;
+    const p4 = p3 ? previousInstructionAt(p3.address, context) : undefined;
+    const p5 = p4 ? previousInstructionAt(p4.address, context) : undefined;
+    const p6 = p5 ? previousInstructionAt(p5.address, context) : undefined;
+
+    if (
+      p1?.mnemonic === "pla" &&
+      p2?.mnemonic === "tax" &&
+      p3?.mnemonic === "lda" &&
+      p3.addressingMode === "abs,x" &&
+      p3.operandValue !== undefined &&
+      p4?.mnemonic === "pha" &&
+      p5?.mnemonic === "ldy" &&
+      p5.addressingMode === "abs,x" &&
+      p5.operandValue !== undefined &&
+      p6?.mnemonic === "lda" &&
+      p6.addressingMode === "abs,x" &&
+      p6.operandValue !== undefined
+    ) {
+      const lengthTable = p6.operandValue;
+      const lowTable = p3.operandValue;
+      const highTable = p5.operandValue;
+      for (let index = 0; index < 64; index += 1) {
+        const length = readPrgByte(lengthTable + index, context);
+        const low = readPrgByte(lowTable + index, context);
+        const high = readPrgByte(highTable + index, context);
+        if (length === undefined || low === undefined || high === undefined) {
+          break;
+        }
+        if (length === 0) {
+          break;
+        }
+        const pointer = low | (high << 8);
+        const filename = decodeLoaderFilename(pointer, length, context);
+        if (!filename) {
+          break;
+        }
+        names.add(filename);
+      }
+      continue;
+    }
+
+    const regValues = new Map<string, number>();
+    let cursor = callAddress;
+    for (let steps = 0; steps < 8; steps += 1) {
+      const prev = previousInstructionAt(cursor, context);
+      if (!prev) {
+        break;
+      }
+      if (
+        (prev.mnemonic === "lda" || prev.mnemonic === "ldx" || prev.mnemonic === "ldy") &&
+        prev.addressingMode === "imm" &&
+        prev.operandValue !== undefined
+      ) {
+        regValues.set(prev.mnemonic[2]!.toUpperCase(), prev.operandValue);
+      }
+      cursor = prev.address;
+    }
+    const length = regValues.get("A");
+    const low = regValues.get("X");
+    const high = regValues.get("Y");
+    if (length !== undefined && low !== undefined && high !== undefined) {
+      const filename = decodeLoaderFilename(low | (high << 8), length, context);
+      if (filename) {
+        names.add(filename);
+      }
+    }
+  }
+  return Array.from(names).sort();
+}
+
 function inferSegmentPurpose(segment: Segment, context: RenderAnalysisContext): string[] {
   const notes: string[] = [];
   const instructions = segmentInstructions(segment, context);
@@ -1119,10 +1272,18 @@ function inferSegmentPurpose(segment: Segment, context: RenderAnalysisContext): 
   const hardwareTargets = summarizeHardwareTargets(segment, context);
   const pointerTargets = segmentPointerTargets(segment, context);
   const vicTargets = inferVicTargetsFromHardware(context);
+  const kernalLoader = findKernalLoaderCallSequence(segment, context);
+  const loaderFilenames = kernalLoader ? inferLoaderFilenameCandidates(segment, kernalLoader.setnamAddress, context) : [];
   const hasBitmapTarget = pointerTargets.some((target) => vicTargets.bitmapAddresses.includes(target));
   const hasScreenTarget = pointerTargets.some((target) => vicTargets.screenAddresses.includes(target));
   const hasColorTarget = pointerTargets.some((target) => target >= 0xd800 && target <= 0xdbff);
 
+  if (kernalLoader) {
+    notes.push("likely disk loader wrapper via KERNAL SETNAM/SETLFS/LOAD");
+    if (loaderFilenames.length > 0) {
+      notes.push(`loads disk files such as ${loaderFilenames.slice(0, 6).map((name) => `"${name}"`).join(", ")}`);
+    }
+  }
   if (instructions.some((instruction) => instruction.mnemonic === "jmp" && instruction.targetAddress === 0x0100)) {
     notes.push("likely external dispatch / returns control to resident loader or menu");
   }
@@ -1188,6 +1349,8 @@ function renderSegmentContext(segment: Segment, context: RenderAnalysisContext):
   const spriteStateTables = summarizeSpriteStateTables(segment, context);
   const spritePageSelection = spritePointerPageSelection(segment, context);
   const hardware = summarizeHardwareTargets(segment, context);
+  const kernalLoader = findKernalLoaderCallSequence(segment, context);
+  const loaderFilenames = kernalLoader ? inferLoaderFilenameCandidates(segment, kernalLoader.setnamAddress, context) : [];
   const pointerTargets = segmentPointerTargets(segment, context);
   const vicTargets = inferVicTargetsFromHardware(context);
 
@@ -1262,6 +1425,14 @@ function renderSegmentContext(segment: Segment, context: RenderAnalysisContext):
   }
   if (hardware.length > 0) {
     lines.push(`// hardware touched: ${hardware.join(", ")}`);
+  }
+  if (kernalLoader) {
+    lines.push(
+      `// kernal loader path: SETNAM @ ${formatAddress(kernalLoader.setnamAddress)}, SETLFS @ ${formatAddress(kernalLoader.setlfsAddress)}, LOAD @ ${formatAddress(kernalLoader.loadAddress)}`,
+    );
+    if (loaderFilenames.length > 0) {
+      lines.push(`// loader file names: ${loaderFilenames.map((name) => `"${name}"`).join(", ")}`);
+    }
   }
   return lines;
 }
@@ -1743,7 +1914,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   const resolvedPrgPath = resolve(prgPath);
   const prg = readPrg(resolvedPrgPath);
   const analysisReport = maybeLoadAnalysis(resolvedPrgPath, options.analysisPath);
-  const analysisContext = analysisReport ? buildAnalysisContext(analysisReport) : undefined;
+  const analysisContext = analysisReport ? buildAnalysisContext(analysisReport, prg) : undefined;
 
   // Load semantic annotations if available
   // Search for annotations next to the PRG, next to the output ASM, and next to the analysis JSON

@@ -57,7 +57,6 @@ That's it — the TRXDis pipeline is bundled and built automatically.
 | `C64RE_TOOLS_DIR` | Override: use an external TRXDis build instead of the bundled one | No |
 | `C64RE_KICKASS_JAR` | Override path to the KickAssembler jar used by `assemble_source` | No |
 | `C64RE_64TASS_BIN` | Override path to the `64tass` binary used by `assemble_source` | No |
-| `C64RE_EXOMIZER_BIN` | Override path to the `exomizer` binary used by `pack_exomizer_raw` and `depack_exomizer_raw` | No |
 | `C64RE_BYTEBOOZER_BIN` | Override path to the `b2` binary used by `pack_byteboozer` | No |
 | `C64RE_VICE_BIN` | Override path to `x64sc` for VICE runtime/debug tools | No |
 | `C64RE_VICE_CONFIG_PATH` | Override path to the source `vicerc` copied into VICE sessions | No |
@@ -131,9 +130,9 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 |---|---|
 | `pack_rle` | Compress a file with the built-in TypeScript RLE implementation |
 | `depack_rle` | WIP: Decompress the built-in TypeScript RLE implementation |
-| `pack_exomizer_raw` | Compress a file with Exomizer raw mode via the local `exomizer` CLI |
-| `depack_exomizer_raw` | WIP: Decompress an Exomizer raw stream via the local `exomizer` CLI |
-| `depack_exomizer_sfx` | WIP: Decompress an Exomizer self-extracting wrapper via the local `desfx` CLI path |
+| `pack_exomizer_raw` | Compress a file with the built-in TypeScript Exomizer raw implementation |
+| `depack_exomizer_raw` | WIP: Decompress an Exomizer raw stream with the built-in TypeScript implementation |
+| `depack_exomizer_sfx` | WIP: Decompress an Exomizer self-extracting wrapper with the built-in TypeScript 6502-emulated depacker |
 | `pack_byteboozer` | Compress a file with ByteBoozer2 via the local `b2` CLI |
 | `depack_byteboozer` | WIP: Decompress a ByteBoozer2 raw file or executable wrapper in pure TypeScript |
 | `suggest_depacker` | Probe a file or sliced subrange and suggest likely depackers before trying to unpack it |

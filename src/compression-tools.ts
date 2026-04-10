@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { RawCruncher, ExomizerRawDepacker, ExomizerSfxDepacker } from "./exomizer-ts/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -40,6 +41,29 @@ export interface ByteBoozerDepackResult {
   inputConsumed: number;
   mode: "raw" | "executable";
   sourceLoadAddress?: number;
+}
+
+export interface ExomizerRawPackResult {
+  data: Uint8Array;
+  originalSize: number;
+  compressedSize: number;
+  ratio: number;
+  encoding: string;
+}
+
+export interface ExomizerRawDepackTsResult {
+  data: Uint8Array;
+  byteCount: number;
+}
+
+export interface ExomizerSfxDepackTsResult {
+  data: Uint8Array;
+  byteCount: number;
+  outputStart: number;
+  outputEnd: number;
+  entryPoint: number;
+  cycles: number;
+  loadAddress: number;
 }
 
 export class RlePacker {
@@ -491,40 +515,40 @@ export async function suggestDepackers(options: {
   const data = raw.slice(offset, end);
   const suggestions: DepackerSuggestion[] = [];
   const basic = offset === 0 ? detectBasicSysStub(data) : undefined;
+  const diskLoader = detectKernalLoadWrapper(data);
 
   if (basic?.sysTarget !== undefined) {
     suggestions.push({
-      format: "loader_wrapper",
-      confidence: 0.6,
-      reason: `PRG starts with a BASIC SYS wrapper to ${basic.sysTarget}; the whole file is likely an executable loader wrapper, not a raw compressed stream.`,
+      format: diskLoader ? "disk_loader_wrapper" : "loader_wrapper",
+      confidence: diskLoader ? 0.82 : 0.6,
+      reason: diskLoader
+        ? `PRG starts with a BASIC SYS wrapper to ${basic.sysTarget} and contains a KERNAL SETNAM/SETLFS/LOAD sequence. This stage is a disk loader wrapper, not a raw compressed stream.`
+        : `PRG starts with a BASIC SYS wrapper to ${basic.sysTarget}; the whole file is likely an executable loader wrapper, not a raw compressed stream.`,
       offset,
       length: data.length,
       notes: [
-        "Try runtime tracing or breakpoint-driven capture on the loader path.",
-        "If payload data is embedded later in the PRG, retry detection on a sliced offset instead of the whole file.",
+        diskLoader
+          ? `KERNAL loader sequence at offsets ${diskLoader.setnamOffset.toString(16)}, ${diskLoader.setlfsOffset.toString(16)}, ${diskLoader.loadOffset.toString(16)}.`
+          : "Try runtime tracing or breakpoint-driven capture on the loader path.",
+        diskLoader
+          ? "The next stage likely comes from disk and should be identified from the image directory or captured at LOAD/after-return."
+          : "If payload data is embedded later in the PRG, retry detection on a sliced offset instead of the whole file.",
       ],
     });
   }
 
   try {
     const exoSfxSuggestion = await withTempSlice(data, async (tempPath, tempDir) => {
-      const outputPath = join(tempDir, "slice.desfx.prg");
       const result = await depackExomizerSfx({
-        projectDir: tempDir,
         inputPath: tempPath,
-        outputPath,
       });
-      if (result.exitCode !== 0) {
-        return undefined;
-      }
-      const unpacked = await readBinaryFile(outputPath);
       return {
         format: "exomizer_sfx" as const,
         confidence: basic ? 0.93 : 0.85,
         reason: "Exomizer self-extracting wrapper decrunch succeeded structurally.",
         offset,
         length: data.length,
-        unpackedSize: unpacked.length,
+        unpackedSize: result.data.length,
         notes: [
           "This is an executable self-decrunching wrapper, not a raw Exomizer stream.",
           basic?.sysTarget !== undefined ? `BASIC SYS target: ${basic.sysTarget}` : "No BASIC SYS wrapper was required for detection.",
@@ -594,35 +618,21 @@ export async function suggestDepackers(options: {
   }
 
   try {
-    const exoSuggestion = await withTempSlice(data, async (tempPath, tempDir) => {
-      const outputPath = join(tempDir, "slice.dec");
-      const result = await depackExomizerRaw({
-        projectDir: tempDir,
-        inputPath: tempPath,
-        outputPath,
-      });
-      if (result.exitCode !== 0) {
-        return undefined;
-      }
-      const unpacked = await readBinaryFile(outputPath);
-      const ratio = unpacked.length / Math.max(1, data.length);
-      let confidence = 0.65;
-      if (ratio > 16) confidence = 0.1;
-      else if (ratio > 8) confidence = 0.3;
-      if (basic) confidence = Math.min(confidence, 0.15);
-      return {
-        format: "exomizer_raw" as const,
-        confidence,
-        reason: "Exomizer raw decrunch succeeded structurally.",
-        offset,
-        length: data.length,
-        unpackedSize: unpacked.length,
-        notes: [`Expansion ratio: ${ratio.toFixed(2)}x`],
-      };
+    const unpacked = new ExomizerRawDepacker().unpack(data);
+    const ratio = unpacked.byteCount / Math.max(1, data.length);
+    let confidence = 0.65;
+    if (ratio > 16) confidence = 0.1;
+    else if (ratio > 8) confidence = 0.3;
+    if (basic) confidence = Math.min(confidence, 0.15);
+    suggestions.push({
+      format: "exomizer_raw",
+      confidence,
+      reason: "Exomizer raw decrunch succeeded structurally.",
+      offset,
+      length: data.length,
+      unpackedSize: unpacked.byteCount,
+      notes: [`Expansion ratio: ${ratio.toFixed(2)}x`],
     });
-    if (exoSuggestion) {
-      suggestions.push(exoSuggestion);
-    }
   } catch {
     // Ignore failed Exomizer probes.
   }
@@ -652,7 +662,7 @@ export interface ExternalToolResult {
 }
 
 export interface DepackerSuggestion {
-  format: "loader_wrapper" | "rle" | "exomizer_raw" | "exomizer_sfx" | "byteboozer2_executable" | "byteboozer2_raw" | "byteboozer2_maybe" | "unknown";
+  format: "loader_wrapper" | "disk_loader_wrapper" | "rle" | "exomizer_raw" | "exomizer_sfx" | "byteboozer2_executable" | "byteboozer2_raw" | "byteboozer2_maybe" | "unknown";
   confidence: number;
   reason: string;
   offset: number;
@@ -695,12 +705,25 @@ function repoRoot(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "..");
 }
 
-async function resolveExomizerBinary(): Promise<string> {
-  return await resolveExecutable([
-    process.env.C64RE_EXOMIZER_BIN ?? "",
-    "exomizer",
-    resolve(repoRoot(), "..", "exomizer", "src", "exomizer"),
-  ].filter(Boolean));
+function detectKernalLoadWrapper(data: Uint8Array): { setnamOffset: number; setlfsOffset: number; loadOffset: number } | undefined {
+  for (let i = 0; i <= data.length - 9; i++) {
+    if (data[i] !== 0x20 || data[i + 1] !== 0xbd || data[i + 2] !== 0xff) {
+      continue;
+    }
+    let setlfsOffset = -1;
+    let loadOffset = -1;
+    for (let j = i + 3; j < Math.min(data.length - 2, i + 24); j++) {
+      if (setlfsOffset < 0 && data[j] === 0x20 && data[j + 1] === 0xba && data[j + 2] === 0xff) {
+        setlfsOffset = j;
+        continue;
+      }
+      if (setlfsOffset >= 0 && data[j] === 0x20 && data[j + 1] === 0xd5 && data[j + 2] === 0xff) {
+        loadOffset = j;
+        return { setnamOffset: i, setlfsOffset, loadOffset };
+      }
+    }
+  }
+  return undefined;
 }
 
 async function resolveByteBoozerBinary(): Promise<string> {
@@ -712,53 +735,51 @@ async function resolveByteBoozerBinary(): Promise<string> {
 }
 
 export async function packExomizerRaw(options: {
-  projectDir: string;
   inputPath: string;
-  outputPath: string;
   backwards?: boolean;
   reverseOutput?: boolean;
   noEncodingHeader?: boolean;
-}): Promise<ExternalToolResult> {
-  const binary = await resolveExomizerBinary();
-  const args = ["raw"];
-  if (options.backwards) args.push("-b");
-  if (options.reverseOutput) args.push("-r");
-  if (options.noEncodingHeader) args.push("-E");
-  args.push("-o", options.outputPath, options.inputPath);
-  const result = await runExternalTool(binary, args, options.projectDir);
-  return { tool: "exomizer", command: binary, args, outputPath: options.outputPath, ...result };
+}): Promise<ExomizerRawPackResult> {
+  const input = await readBinaryFile(options.inputPath);
+  const cruncher = new RawCruncher();
+  const result = cruncher.crunchMulti([input], {
+    outputHeader: !(options.noEncodingHeader ?? false),
+    directionForward: !(options.backwards ?? false),
+    writeReverse: options.reverseOutput ?? false,
+  });
+  return {
+    data: result.data[0]!,
+    originalSize: input.length,
+    compressedSize: result.data[0]!.length,
+    ratio: input.length > 0 ? result.data[0]!.length / input.length : 1,
+    encoding: result.encoding,
+  };
 }
 
 export async function depackExomizerRaw(options: {
-  projectDir: string;
   inputPath: string;
-  outputPath: string;
   backwards?: boolean;
   reverseOutput?: boolean;
-}): Promise<ExternalToolResult> {
-  const binary = await resolveExomizerBinary();
-  const args = ["raw", "-d"];
-  if (options.backwards) args.push("-b");
-  if (options.reverseOutput) args.push("-r");
-  args.push("-o", options.outputPath, options.inputPath);
-  const result = await runExternalTool(binary, args, options.projectDir);
-  return { tool: "exomizer", command: binary, args, outputPath: options.outputPath, ...result };
+}): Promise<ExomizerRawDepackTsResult> {
+  const input = await readBinaryFile(options.inputPath);
+  const result = new ExomizerRawDepacker().unpack(input, {
+    backwards: options.backwards,
+    reverseOutput: options.reverseOutput,
+  });
+  return { data: result.data, byteCount: result.byteCount };
 }
 
 export async function depackExomizerSfx(options: {
-  projectDir: string;
   inputPath: string;
-  outputPath: string;
   entryAddress?: number | "load";
-}): Promise<ExternalToolResult> {
-  const binary = await resolveExomizerBinary();
-  const args = ["desfx"];
-  if (options.entryAddress !== undefined) {
-    args.push("-e", options.entryAddress === "load" ? "load" : options.entryAddress.toString(16));
-  }
-  args.push("-o", options.outputPath, options.inputPath);
-  const result = await runExternalTool(binary, args, options.projectDir);
-  return { tool: "exomizer", command: binary, args, outputPath: options.outputPath, ...result };
+  maxInstructions?: number;
+}): Promise<ExomizerSfxDepackTsResult> {
+  const input = await readBinaryFile(options.inputPath);
+  const result = new ExomizerSfxDepacker().unpack(input, {
+    entryAddress: options.entryAddress,
+    maxInstructions: options.maxInstructions,
+  });
+  return result;
 }
 
 export async function packByteBoozer(options: {

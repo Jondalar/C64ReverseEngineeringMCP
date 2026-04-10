@@ -712,7 +712,7 @@ function createServer(): McpServer {
   // ── Tool: pack-exomizer-raw ────────────────────────────────────────
   server.tool(
     "pack_exomizer_raw",
-    "Compress a file with Exomizer raw mode via the local exomizer CLI.",
+    "Compress a file with the built-in TypeScript Exomizer raw implementation.",
     {
       input_path: z.string().describe("Path to the input file"),
       output_path: z.string().optional().describe("Optional output path for the packed file"),
@@ -728,26 +728,23 @@ function createServer(): McpServer {
           ? resolve(pd, output_path)
           : `${inputAbs}.exo`;
         const result = await packExomizerRaw({
-          projectDir: pd,
           inputPath: inputAbs,
-          outputPath: outputAbs,
           backwards,
           reverseOutput: reverse_output,
           noEncodingHeader: no_encoding_header,
         });
-        if (result.exitCode !== 0) {
-          return cliResultToContent(result);
-        }
+        await writeBinaryFile(outputAbs, result.data);
         return {
           content: [{
             type: "text" as const,
             text: [
               `Exomizer raw pack complete.`,
               `Input: ${inputAbs}`,
-              `Output: ${result.outputPath}`,
-              `Command: ${result.command} ${result.args.join(" ")}`,
-              result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
-              result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+              `Output: ${outputAbs}`,
+              `Original size: ${result.originalSize}`,
+              `Compressed size: ${result.compressedSize}`,
+              `Ratio: ${result.ratio.toFixed(4)}`,
+              result.encoding ? `Encoding: ${result.encoding}` : "",
             ].filter(Boolean).join("\n"),
           }],
         };
@@ -764,7 +761,7 @@ function createServer(): McpServer {
   // ── Tool: depack-exomizer-raw ──────────────────────────────────────
   server.tool(
     "depack_exomizer_raw",
-    "Decompress an Exomizer raw stream via the local exomizer CLI.",
+    "Decompress an Exomizer raw stream via the built-in TypeScript implementation.",
     {
       input_path: z.string().describe("Path to the Exomizer-packed file"),
       output_path: z.string().optional().describe("Optional output path for the unpacked file"),
@@ -779,25 +776,19 @@ function createServer(): McpServer {
           ? resolve(pd, output_path)
           : `${inputAbs}.unpacked.bin`;
         const result = await depackExomizerRaw({
-          projectDir: pd,
           inputPath: inputAbs,
-          outputPath: outputAbs,
           backwards,
           reverseOutput: reverse_output,
         });
-        if (result.exitCode !== 0) {
-          return cliResultToContent(result);
-        }
+        await writeBinaryFile(outputAbs, result.data);
         return {
           content: [{
             type: "text" as const,
             text: [
               `Exomizer raw depack complete.`,
               `Input: ${inputAbs}`,
-              `Output: ${result.outputPath}`,
-              `Command: ${result.command} ${result.args.join(" ")}`,
-              result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
-              result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+              `Output: ${outputAbs}`,
+              `Unpacked bytes: ${result.byteCount}`,
             ].filter(Boolean).join("\n"),
           }],
         };
@@ -814,7 +805,7 @@ function createServer(): McpServer {
   // ── Tool: pack-byteboozer ──────────────────────────────────────────
   server.tool(
     "depack_exomizer_sfx",
-    "Decompress an Exomizer self-extracting wrapper via the local exomizer desfx CLI.",
+    "Decompress an Exomizer self-extracting wrapper via the built-in TypeScript 6502-emulated depacker.",
     {
       input_path: z.string().describe("Path to the Exomizer SFX file"),
       output_path: z.string().optional().describe("Optional output path for the unpacked PRG"),
@@ -828,24 +819,22 @@ function createServer(): McpServer {
           ? resolve(pd, output_path)
           : `${inputAbs}.desfx.prg`;
         const result = await depackExomizerSfx({
-          projectDir: pd,
           inputPath: inputAbs,
-          outputPath: outputAbs,
           entryAddress: entry_address ? (entry_address.toLowerCase() === "load" ? "load" : parseHexWord(entry_address)) : undefined,
         });
-        if (result.exitCode !== 0) {
-          return cliResultToContent(result);
-        }
+        await writeBinaryFile(outputAbs, result.data);
         return {
           content: [{
             type: "text" as const,
             text: [
               `Exomizer SFX depack complete.`,
               `Input: ${inputAbs}`,
-              `Output: ${result.outputPath}`,
-              `Command: ${result.command} ${result.args.join(" ")}`,
-              result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
-              result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+              `Output: ${outputAbs}`,
+              `Load address: ${formatHexWord(result.outputStart)}`,
+              `End address: ${formatHexWord((result.outputEnd - 1) & 0xffff)}`,
+              `Entry after decrunch: ${formatHexWord(result.entryPoint)}`,
+              `Cycles: ${result.cycles}`,
+              `PRG bytes: ${result.data.length}`,
             ].filter(Boolean).join("\n"),
           }],
         };
@@ -1083,54 +1072,48 @@ function createServer(): McpServer {
           const tempInput = `${outputAbs}.inputslice.prg`;
           await writeBinaryFile(tempInput, slice);
           const result = await depackExomizerSfx({
-            projectDir: pd,
             inputPath: tempInput,
-            outputPath: outputAbs,
             entryAddress: entry_address ? (entry_address.toLowerCase() === "load" ? "load" : parseHexWord(entry_address)) : undefined,
           });
-          return result.exitCode === 0
-            ? {
-                content: [{
-                  type: "text" as const,
-                  text: [
-                    `Exomizer SFX depack complete.`,
-                    `Input: ${inputAbs}`,
-                    `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
-                    `Output: ${outputAbs}`,
-                    `Command: ${result.command} ${result.args.join(" ")}`,
-                    result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
-                    result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
-                  ].filter(Boolean).join("\n"),
-                }],
-              }
-            : cliResultToContent(result);
+          await writeBinaryFile(outputAbs, result.data);
+          return {
+            content: [{
+              type: "text" as const,
+              text: [
+                `Exomizer SFX depack complete.`,
+                `Input: ${inputAbs}`,
+                `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
+                `Output: ${outputAbs}`,
+                `Load address: ${formatHexWord(result.outputStart)}`,
+                `End address: ${formatHexWord((result.outputEnd - 1) & 0xffff)}`,
+                `Entry after decrunch: ${formatHexWord(result.entryPoint)}`,
+                `Cycles: ${result.cycles}`,
+                `PRG bytes: ${result.data.length}`,
+              ].join("\n"),
+            }],
+          };
         }
 
         const tempInput = `${outputAbs}.inputslice.bin`;
         await writeBinaryFile(tempInput, slice);
-        const result = await depackExomizerRaw({
-          projectDir: pd,
+        const sliceResult = await depackExomizerRaw({
           inputPath: tempInput,
-          outputPath: outputAbs,
           backwards,
           reverseOutput: reverse_output,
         });
-        return result.exitCode === 0
-          ? {
-              content: [{
-                type: "text" as const,
-                text: [
-                  `Exomizer raw depack complete.`,
-                  `Input: ${inputAbs}`,
-                  `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
-                  `Output: ${outputAbs}`,
-                  `Command: ${result.command} ${result.args.join(" ")}`,
-                  result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
-                  result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
-                ].filter(Boolean).join("\n"),
-              }],
-            }
-          : cliResultToContent(result);
+        await writeBinaryFile(outputAbs, sliceResult.data);
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer raw depack complete.`,
+              `Input: ${inputAbs}`,
+              `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
+              `Output: ${outputAbs}`,
+              `Unpacked bytes: ${sliceResult.byteCount}`,
+            ].join("\n"),
+          }],
+        };
       } catch (error) {
         return cliResultToContent({
           stdout: "",
