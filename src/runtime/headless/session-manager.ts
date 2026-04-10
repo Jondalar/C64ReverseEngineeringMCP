@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Cpu6510 } from "./cpu6510.js";
 import { loadCartridgeMapper, type HeadlessCartridgeMapper } from "./cartridge.js";
 import { HeadlessMemoryBus } from "./memory-bus.js";
 import { DiskProvider, readPrgFile, type PrgFile } from "./providers.js";
+import { createHeadlessWorkspace } from "./workspace.js";
 import type {
   HeadlessBreakpoint,
   HeadlessCpuState,
@@ -16,6 +18,7 @@ import type {
   HeadlessRunResult,
   HeadlessSavedFile,
   HeadlessSessionRecord,
+  HeadlessSessionWorkspace,
   HeadlessTraceEvent,
   HeadlessWatchHit,
   HeadlessWatchRange,
@@ -98,6 +101,7 @@ function cloneTraceEvent(event: HeadlessTraceEvent): HeadlessTraceEvent {
 class HeadlessSession {
   public readonly sessionId = `${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")}-${randomUUID().slice(0, 8)}`;
   public readonly createdAt = nowIso();
+  public readonly workspace: HeadlessSessionWorkspace;
   public readonly bus = new HeadlessMemoryBus();
   public readonly cpu = new Cpu6510(this.bus);
   public readonly loaderState: HeadlessLoaderState = {
@@ -143,9 +147,11 @@ class HeadlessSession {
   private traceIndex = 0;
 
   constructor(public readonly projectDir: string) {
+    this.workspace = createHeadlessWorkspace(projectDir, this.sessionId);
     this.bus.reset();
     this.seedVectors();
     this.installIoHandlers();
+    this.writeSessionRecord();
   }
 
   start(options: HeadlessSessionStartOptions): HeadlessSessionRecord {
@@ -193,6 +199,8 @@ class HeadlessSession {
     }
 
     this.cpu.reset(this.entryPoint ?? 0x0000);
+    this.writeSessionRecord();
+    this.writeSummary();
     return this.getRecord();
   }
 
@@ -200,6 +208,7 @@ class HeadlessSession {
     return {
       sessionId: this.sessionId,
       projectDir: this.projectDir,
+      workspace: this.workspace,
       createdAt: this.createdAt,
       startedAt: this.startedAt,
       stoppedAt: this.stoppedAt,
@@ -382,6 +391,8 @@ class HeadlessSession {
     if (reason) {
       this.lastTrap = reason;
     }
+    this.writeSessionRecord();
+    this.writeSummary();
     return this.getRecord();
   }
 
@@ -594,6 +605,8 @@ class HeadlessSession {
     while (this.recentTrace.length > TRACE_LIMIT) {
       this.recentTrace.shift();
     }
+    appendFileSync(this.workspace.tracePath, `${JSON.stringify(event)}\n`, "utf8");
+    this.writeSummary();
   }
 
   private captureStackSnapshot(sp: number): { sp: number; bytes: number[] } {
@@ -696,6 +709,33 @@ class HeadlessSession {
         }
       },
     });
+  }
+
+  private writeSessionRecord(): void {
+    writeFileSync(this.workspace.sessionPath, `${JSON.stringify(this.getRecord(), null, 2)}\n`, "utf8");
+  }
+
+  private writeSummary(): void {
+    const summary = {
+      sessionId: this.sessionId,
+      state: this.state,
+      projectDir: this.projectDir,
+      workspace: this.workspace,
+      prgPath: this.prgPath,
+      diskPath: this.diskPath,
+      crtPath: this.crtPath,
+      currentPc: this.cpu.pc,
+      traceEventCount: this.traceIndex,
+      lastTrap: this.lastTrap,
+      lastError: this.lastError,
+      irqState: this.irqState,
+      ioInterrupts: this.ioInterrupts,
+      loadEventCount: this.loadEvents.length,
+      savedFileCount: this.savedFiles.length,
+      cartridge: this.cartridge?.getState(),
+    };
+    writeFileSync(this.workspace.summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+    this.writeSessionRecord();
   }
 }
 

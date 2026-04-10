@@ -47,6 +47,15 @@ export interface HeadlessCartridgeState {
   romhBanks: number[];
 }
 
+export interface HeadlessSessionWorkspace {
+  sessionDir: string;
+  traceDir: string;
+  sessionPath: string;
+  tracePath: string;
+  summaryPath: string;
+  indexPath: string;
+}
+
 export type HeadlessAccessKind = "read" | "write";
 
 export interface HeadlessMemoryAccess {
@@ -135,6 +144,7 @@ export type HeadlessSessionState = "idle" | "running" | "stopped" | "error";
 export interface HeadlessSessionRecord {
   sessionId: string;
   projectDir: string;
+  workspace: HeadlessSessionWorkspace;
   createdAt: string;
   startedAt?: string;
   stoppedAt?: string;

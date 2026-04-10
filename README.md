@@ -200,6 +200,10 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `headless_interrupt_clear` | WIP: Clear pending IRQ/NMI state in the headless runtime |
 | `headless_io_interrupt_trigger` | WIP: Trigger simple VIC/CIA interrupt sources through emulated I/O status/mask registers |
 | `headless_trace_tail` | WIP: Render recent trace events with accesses, stack, bank state, and watch hits |
+| `headless_trace_find_pc` | WIP: Search the persisted headless trace JSONL for a specific PC |
+| `headless_trace_find_access` | WIP: Search the persisted headless trace for reads/writes to an effective address |
+| `headless_trace_slice` | WIP: Slice the persisted headless trace around an event index |
+| `headless_trace_build_index` | WIP: Build a persistent PC/access hotspot index for a headless trace session |
 | `headless_monitor_registers` | WIP: Read CPU registers from the headless runtime |
 | `headless_monitor_memory` | WIP: Read memory from the headless runtime |
 
@@ -217,6 +221,7 @@ Current first-slice status:
 - D64/G64-backed disk provider for loader-following
 - first cartridge mapping slice for CRT-backed EasyFlash, Magic Desk, and Ocean banking
 - recent instruction trace ring with:
+  - persisted `runtime-trace.jsonl` under `analysis/headless-runtime/<session>/trace/`
   - instruction bytes and cycle progression
   - register state and stack snapshots
   - `$00`/`$01` plus derived bank visibility

@@ -48,6 +48,8 @@ import {
 } from "./runtime/vice/trace-index.js";
 import { getHeadlessSessionManager, getPreferredHeadlessSessionManager } from "./runtime/headless/index.js";
 import type { HeadlessRunResult, HeadlessSessionRecord } from "./runtime/headless/types.js";
+import { findHeadlessTraceByAccess, findHeadlessTraceByPc, loadHeadlessSession, sliceHeadlessTraceByIndex } from "./runtime/headless/trace-query.js";
+import { buildHeadlessTraceIndex } from "./runtime/headless/trace-index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -234,6 +236,8 @@ function headlessSessionToContent(record: HeadlessSessionRecord, headline: strin
   if (record.prgPath) lines.push(`PRG: ${record.prgPath}`);
   if (record.diskPath) lines.push(`Disk: ${record.diskPath}`);
   if (record.crtPath) lines.push(`CRT: ${record.crtPath}`);
+  lines.push(`Workspace: ${record.workspace.sessionDir}`);
+  lines.push(`Trace: ${record.workspace.tracePath}`);
   if (record.entryPoint !== undefined) lines.push(`Entry: ${formatHexWord(record.entryPoint)}`);
   if (record.inferredBasicSys !== undefined) lines.push(`BASIC SYS: ${formatHexWord(record.inferredBasicSys)}`);
   if (record.startedAt) lines.push(`Started: ${record.startedAt}`);
@@ -303,6 +307,15 @@ function headlessRunResultToContent(result: HeadlessRunResult, record: HeadlessS
     }
   }
   return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+}
+
+async function resolveHeadlessTraceProjectDir(): Promise<string> {
+  const preferred = getPreferredHeadlessSessionManager();
+  return preferred?.getProjectDir() ?? projectDir(undefined, true);
+}
+
+function formatHeadlessTraceMatch(match: { index: number; pc: number; bytes: number[]; trap?: string }): string {
+  return `${match.index}: ${formatHexWord(match.pc)} [${match.bytes.map(formatHexByte).join(" ")}]${match.trap ? ` ${match.trap}` : ""}`;
 }
 
 function parseViceMemspace(value?: string): ViceMemspace {
@@ -3208,6 +3221,120 @@ Practical advice:
           if (event.watchHits.length > 0) {
             lines.push(`  watches: ${event.watchHits.map((hit) => `${hit.name}@${formatHexWord(hit.start)}-${formatHexWord(hit.end)} via ${hit.touchedBy.join("/")}`).join(", ")}`);
           }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-find-pc ────────────────────────────────────
+  server.tool(
+    "headless_trace_find_pc",
+    "Find occurrences of a PC in a persisted headless runtime trace.",
+    {
+      pc: z.string().describe("PC to search, e.g. 63A1"),
+      limit: z.number().int().positive().max(100).optional().describe("Maximum matches to return."),
+      session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
+    },
+    async ({ pc, limit, session_id }) => {
+      try {
+        const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(), session_id);
+        const matches = await findHeadlessTraceByPc(record, parseHexWord(pc), limit ?? 20);
+        const lines = [`Headless trace PC matches for ${formatHexWord(parseHexWord(pc))}:`, `Count: ${matches.length}`];
+        for (const match of matches) {
+          lines.push(`- ${formatHeadlessTraceMatch(match)}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-find-access ────────────────────────────────
+  server.tool(
+    "headless_trace_find_access",
+    "Find headless trace events that touched a specific effective memory address.",
+    {
+      address: z.string().describe("Target address as hex."),
+      access: z.enum(["read", "write", "access"]).optional().describe("Access kind filter; defaults to access."),
+      limit: z.number().int().positive().max(100).optional().describe("Maximum matches to return."),
+      session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
+    },
+    async ({ address, access, limit, session_id }) => {
+      try {
+        const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(), session_id);
+        const matches = await findHeadlessTraceByAccess(record, parseHexWord(address), access ?? "access", limit ?? 20);
+        const lines = [`Headless trace access matches for ${formatHexWord(parseHexWord(address))}:`, `Count: ${matches.length}`];
+        for (const match of matches) {
+          lines.push(`- ${formatHeadlessTraceMatch(match)}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-slice ──────────────────────────────────────
+  server.tool(
+    "headless_trace_slice",
+    "Return a focused window around a persisted headless trace event index.",
+    {
+      anchor_index: z.number().int().nonnegative().describe("Event index to anchor on."),
+      before: z.number().int().nonnegative().max(200).optional().describe("How many events before the anchor to include."),
+      after: z.number().int().nonnegative().max(400).optional().describe("How many events after the anchor to include."),
+      session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
+    },
+    async ({ anchor_index, before, after, session_id }) => {
+      try {
+        const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(), session_id);
+        const slice = await sliceHeadlessTraceByIndex(record, anchor_index, before ?? 20, after ?? 40);
+        const lines = [
+          `Headless trace slice around event ${anchor_index}:`,
+          `Found: ${slice.found ? "yes" : "no"}`,
+          `Count: ${slice.events.length}`,
+        ];
+        for (const event of slice.events) {
+          const suffix = event.trap ? ` trap=${event.trap}` : event.watchHits.length > 0 ? ` watch=${event.watchHits.map((hit) => hit.name).join(",")}` : "";
+          lines.push(`- ${event.index}: ${formatHexWord(event.pc)} [${event.bytes.map(formatHexByte).join(" ")}]${suffix}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-build-index ────────────────────────────────
+  server.tool(
+    "headless_trace_build_index",
+    "Build a persistent PC/access hotspot index for a headless runtime trace session.",
+    {
+      session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
+      limit: z.number().int().positive().max(256).optional().describe("How many top PCs/accesses to keep in the summary."),
+    },
+    async ({ session_id, limit }) => {
+      try {
+        const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(), session_id);
+        const index = await buildHeadlessTraceIndex(record, limit ?? 64);
+        const lines = [
+          `Headless trace index built for session ${index.sessionId}.`,
+          `Trace path: ${index.tracePath}`,
+          `Index path: ${record.workspace.indexPath}`,
+          `Events: ${index.traceEventCount}`,
+          `Unique PCs: ${index.uniquePcCount}`,
+          `Unique access addresses: ${index.uniqueAccessAddressCount}`,
+          "Top PCs:",
+        ];
+        for (const entry of index.topPcs.slice(0, 10)) {
+          lines.push(`- ${formatHexWord(entry.pc)} count=${entry.count} first=${entry.firstIndex} last=${entry.lastIndex}${entry.trapCount ? ` traps=${entry.trapCount}` : ""}`);
+        }
+        lines.push("Top accesses:");
+        for (const entry of index.topAccesses.slice(0, 10)) {
+          lines.push(`- ${formatHexWord(entry.address)} reads=${entry.reads} writes=${entry.writes} first=${entry.firstIndex} last=${entry.lastIndex}`);
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {
