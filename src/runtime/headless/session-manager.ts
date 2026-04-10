@@ -23,6 +23,8 @@ const KERNAL_SETLFS = 0xffba;
 const KERNAL_SETNAM = 0xffbd;
 const KERNAL_LOAD = 0xffd5;
 const KERNAL_SAVE = 0xffd8;
+const VECTOR_NMI = 0xfffa;
+const VECTOR_IRQ = 0xfffe;
 
 const TRACE_LIMIT = 256;
 
@@ -257,6 +259,23 @@ class HeadlessSession {
     this.watchRanges.clear();
   }
 
+  requestInterrupt(kind: "irq" | "nmi"): void {
+    if (kind === "irq") {
+      this.irqState.irqPending = true;
+      return;
+    }
+    this.irqState.nmiPending = true;
+  }
+
+  clearInterrupt(kind?: "irq" | "nmi"): void {
+    if (!kind || kind === "irq") {
+      this.irqState.irqPending = false;
+    }
+    if (!kind || kind === "nmi") {
+      this.irqState.nmiPending = false;
+    }
+  }
+
   step(): HeadlessRunResult {
     return this.run({ maxInstructions: 1 });
   }
@@ -281,6 +300,10 @@ class HeadlessSession {
         return { reason: "breakpoint", stepsExecuted, currentPc: this.cpu.pc, lastTrap: this.lastTrap, breakpointId: breakpoint.id };
       }
       try {
+        if (this.servicePendingInterrupts()) {
+          stepsExecuted += 1;
+          continue;
+        }
         if (this.handleKernalTrap()) {
           stepsExecuted += 1;
           continue;
@@ -336,6 +359,22 @@ class HeadlessSession {
       watchHits,
     });
     return watchpoint?.id;
+  }
+
+  private servicePendingInterrupts(): boolean {
+    if (this.irqState.nmiPending) {
+      this.irqState.nmiPending = false;
+      this.irqState.nmiCount += 1;
+      this.dispatchInterrupt("NMI", VECTOR_NMI);
+      return true;
+    }
+    if (this.irqState.irqPending && !this.cpu.interruptsDisabled()) {
+      this.irqState.irqPending = false;
+      this.irqState.irqCount += 1;
+      this.dispatchInterrupt("IRQ", VECTOR_IRQ);
+      return true;
+    }
+    return false;
   }
 
   private handleKernalTrap(): boolean {
@@ -472,6 +511,32 @@ class HeadlessSession {
     });
   }
 
+  private dispatchInterrupt(kind: "IRQ" | "NMI", vectorAddress: number): void {
+    const before = this.cpu.getState();
+    const beforeStack = this.captureStackSnapshot(before.sp);
+    this.bus.beginInstructionTrace();
+    const target = this.cpu.serviceInterrupt(vectorAddress, false);
+    const accesses = this.bus.endInstructionTrace();
+    const after = this.cpu.getState();
+    this.lastTrap = `${kind} -> ${formatHexWord(target)} via vector ${formatHexWord(vectorAddress)}`;
+    this.pushTrace({
+      index: this.traceIndex++,
+      pc: before.pc,
+      opcode: 0,
+      bytes: [],
+      before,
+      after,
+      beforeStack,
+      afterStack: this.captureStackSnapshot(after.sp),
+      bankInfo: this.bus.getBankInfo(),
+      irqState: { ...this.irqState },
+      accesses,
+      watchHits: this.collectWatchHits(accesses),
+      trap: this.lastTrap,
+      note: `${kind} dispatch`,
+    });
+  }
+
   private pushTrace(event: HeadlessTraceEvent): void {
     this.recentTrace.push(event);
     while (this.recentTrace.length > TRACE_LIMIT) {
@@ -603,6 +668,14 @@ export class HeadlessSessionManager {
 
   clearWatchRanges(): void {
     this.requireSession().clearWatchRanges();
+  }
+
+  requestInterrupt(kind: "irq" | "nmi"): void {
+    this.requireSession().requestInterrupt(kind);
+  }
+
+  clearInterrupt(kind?: "irq" | "nmi"): void {
+    this.requireSession().clearInterrupt(kind);
   }
 
   private requireSession(): HeadlessSession {

@@ -70,6 +70,10 @@ export class Cpu6510 {
     this.flags = (this.flags & ~FLAG_Z) | (enabled ? FLAG_Z : 0);
   }
 
+  interruptsDisabled(): boolean {
+    return (this.flags & FLAG_I) !== 0;
+  }
+
   peekInstructionBytes(): number[] {
     const opcode = this.read(this.pc);
     const info = OPCODE_TABLE[opcode];
@@ -82,6 +86,18 @@ export class Cpu6510 {
 
   returnFromSubroutine(): void {
     this.pc = ((this.pop() | (this.pop() << 8)) + 1) & 0xffff;
+  }
+
+  serviceInterrupt(vectorAddress: number, breakFlag = false): number {
+    const nextPc = this.pc & 0xffff;
+    this.push((nextPc >> 8) & 0xff);
+    this.push(nextPc & 0xff);
+    this.push((this.flags & ~0x10) | (breakFlag ? 0x10 : 0x00));
+    this.flags = (this.flags | FLAG_I) & 0xef;
+    const target = this.read(vectorAddress & 0xffff) | (this.read((vectorAddress + 1) & 0xffff) << 8);
+    this.pc = target & 0xffff;
+    this.cycles += 7;
+    return this.pc;
   }
 
   step(): void {

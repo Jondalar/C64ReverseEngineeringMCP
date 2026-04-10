@@ -196,6 +196,8 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `headless_breakpoint_clear` | WIP: Clear all headless breakpoints/watchpoints |
 | `headless_watch_add` | WIP: Register watched memory ranges whose bytes are embedded directly into trace output when touched |
 | `headless_watch_clear` | WIP: Clear watched memory ranges |
+| `headless_interrupt_request` | WIP: Request a pending IRQ or NMI in the headless runtime |
+| `headless_interrupt_clear` | WIP: Clear pending IRQ/NMI state in the headless runtime |
 | `headless_trace_tail` | WIP: Render recent trace events with accesses, stack, bank state, and watch hits |
 | `headless_monitor_registers` | WIP: Read CPU registers from the headless runtime |
 | `headless_monitor_memory` | WIP: Read memory from the headless runtime |
@@ -216,6 +218,7 @@ Current first-slice status:
   - instruction bytes and cycle progression
   - register state and stack snapshots
   - `$00`/`$01` plus derived bank visibility
+  - pending IRQ/NMI state and real vector-dispatch trace events
   - per-instruction memory read/write access log
   - watched-range snapshots when selected areas are touched
   - access breakpoints that also catch indirect effective-address activity
@@ -223,7 +226,7 @@ Current first-slice status:
 Still deliberately missing in this first slice:
 
 - VIC/SID/CIA behavior beyond simple memory/I/O stubs
-- real IRQ/NMI dispatch and timing fidelity
+- hardware-generated IRQ/NMI sources (VIC/CIA) and their timing
 - cartridge mappers (EasyFlash, Magic Desk, Ocean)
 - persistent trace/index tooling equivalent to the VICE backend
 

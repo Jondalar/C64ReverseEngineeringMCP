@@ -3103,6 +3103,48 @@ Practical advice:
     },
   );
 
+  // ── Tool: headless-interrupt-request ────────────────────────────────
+  server.tool(
+    "headless_interrupt_request",
+    "Mark an IRQ or NMI as pending in the active headless runtime session. The runtime will dispatch it between instructions when possible.",
+    {
+      interrupt: z.enum(["irq", "nmi"]).describe("Interrupt line to request."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ interrupt, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        manager.requestInterrupt(interrupt);
+        return { content: [{ type: "text" as const, text: `Headless ${interrupt.toUpperCase()} requested.` }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-interrupt-clear ──────────────────────────────────
+  server.tool(
+    "headless_interrupt_clear",
+    "Clear pending IRQ and/or NMI state in the active headless runtime session.",
+    {
+      interrupt: z.enum(["irq", "nmi", "both"]).optional().describe("Which pending interrupt to clear; defaults to both."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ interrupt, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        if (!interrupt || interrupt === "both") {
+          manager.clearInterrupt();
+        } else {
+          manager.clearInterrupt(interrupt);
+        }
+        return { content: [{ type: "text" as const, text: `Headless pending interrupt state cleared (${interrupt ?? "both"}).` }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
   // ── Tool: headless-trace-tail ───────────────────────────────────────
   server.tool(
     "headless_trace_tail",
