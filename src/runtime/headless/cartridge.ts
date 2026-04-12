@@ -452,7 +452,7 @@ class AmdFlashChip implements HeadlessWritableChip {
 }
 
 class EasyFlashMapper extends BaseMapper {
-  private controlRegister = 0x07;
+  private controlRegister = 0x00;
   private readonly loFlash: AmdFlashChip;
   private readonly hiFlash: AmdFlashChip;
 
@@ -547,7 +547,8 @@ class EasyFlashMapper extends BaseMapper {
   }
 
   protected romhA000Visible(_bankInfo: HeadlessBankInfo): boolean {
-    return this.currentMode() === "16k";
+    const mode = this.currentMode();
+    return mode === "16k" || mode === "ultimax";
   }
 
   protected romhE000Visible(_bankInfo: HeadlessBankInfo): boolean {

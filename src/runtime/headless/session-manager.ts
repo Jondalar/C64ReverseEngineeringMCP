@@ -79,6 +79,14 @@ function inferBasicSysEntry(payload: Uint8Array, loadAddress: number): number | 
   return Number.isFinite(parsed) ? parsed & 0xffff : undefined;
 }
 
+function shouldBootCartridgeViaReset(mapper: HeadlessCartridgeMapper | undefined): boolean {
+  if (!mapper) {
+    return false;
+  }
+  const lines = mapper.getLines();
+  return lines.exrom === 1 && lines.game === 0;
+}
+
 function cloneTraceEvent(event: HeadlessTraceEvent): HeadlessTraceEvent {
   return {
     ...event,
@@ -196,9 +204,15 @@ class HeadlessSession {
       this.prgFile = undefined;
       this.inferredBasicSys = undefined;
       this.entryPoint = options.entryPc;
+      if (this.entryPoint === undefined && this.cartridge) {
+        this.entryPoint = shouldBootCartridgeViaReset(this.cartridge) ? undefined : 0x8000;
+      }
     }
 
-    this.cpu.reset(this.entryPoint ?? 0x0000);
+    this.cpu.reset(this.entryPoint);
+    if (this.prgFile === undefined && options.entryPc === undefined && this.cartridge && shouldBootCartridgeViaReset(this.cartridge)) {
+      this.entryPoint = this.cpu.pc;
+    }
     this.writeSessionRecord();
     this.writeSummary();
     return this.getRecord();
