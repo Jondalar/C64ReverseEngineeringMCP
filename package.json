@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "build:mcp": "tsc -p tsconfig.json",
     "build:pipeline": "tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
+    "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {

@@ -138,6 +138,23 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `suggest_depacker` | Probe a file or sliced subrange and suggest likely depackers before trying to unpack it |
 | `try_depack` | WIP: Try `rle`, `exomizer_raw`, `exomizer_sfx`, or `byteboozer2` against a file or sliced subrange |
 
+### C64Ref ROM Knowledge
+
+| Tool | Description |
+|---|---|
+| `c64ref_build_rom_knowledge` | Fetch and rebuild the local BASIC/KERNAL ROM knowledge snapshot from `mist64/c64ref` |
+| `c64ref_lookup` | Look up BASIC/KERNAL ROM knowledge by exact address or search term from the local snapshot; can optionally auto-build it if missing |
+
+The generated snapshot lives at:
+
+- `resources/c64ref-rom-knowledge.json`
+
+To refresh it manually from upstream `c64ref` sources:
+
+```sh
+npm run build:c64ref
+```
+
 ### VICE Runtime / Debugging
 
 | Tool | Description |

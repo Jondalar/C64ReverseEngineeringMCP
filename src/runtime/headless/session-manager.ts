@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { OPCODE_TABLE, type AddressMode } from "../../exomizer-ts/generated-opcodes.js";
 import { Cpu6510 } from "./cpu6510.js";
 import { loadCartridgeMapper, type HeadlessCartridgeMapper } from "./cartridge.js";
 import { HeadlessMemoryBus } from "./memory-bus.js";
@@ -77,6 +78,80 @@ function inferBasicSysEntry(payload: Uint8Array, loadAddress: number): number | 
   }
   const parsed = Number.parseInt(digits, 10);
   return Number.isFinite(parsed) ? parsed & 0xffff : undefined;
+}
+
+function inferBasicSysFromPrgBytes(bytes: Uint8Array): number | undefined {
+  if (bytes.length < 2) {
+    return undefined;
+  }
+  const loadAddress = bytes[0]! | (bytes[1]! << 8);
+  return inferBasicSysEntry(bytes.slice(2), loadAddress);
+}
+
+function instructionLength(mode: AddressMode): number {
+  switch (mode) {
+    case "imp":
+    case "acc":
+      return 1;
+    case "imm":
+    case "zp":
+    case "zpx":
+    case "zpy":
+    case "indx":
+    case "indy":
+    case "rel":
+      return 2;
+    case "abs":
+    case "absx":
+    case "absy":
+    case "ind":
+      return 3;
+  }
+}
+
+function inferMachineCodeEntry(payload: Uint8Array, loadAddress: number): number | undefined {
+  const scanLimit = Math.min(payload.length, 0x200);
+  let bestAddress: number | undefined;
+  let bestScore = -1;
+  for (let offset = 0; offset < scanLimit; offset += 1) {
+    let cursor = offset;
+    let instructions = 0;
+    let bytesCovered = 0;
+    let weightedOps = 0;
+    while (cursor < scanLimit) {
+      const opcode = payload[cursor]!;
+      const info = OPCODE_TABLE[opcode];
+      if (!info) {
+        break;
+      }
+      const size = instructionLength(info.mode);
+      if (cursor + size > payload.length) {
+        break;
+      }
+      instructions += 1;
+      bytesCovered += size;
+      if (info.op === "jsr" || info.op === "jmp" || info.op === "sei" || info.op === "cli" || info.op === "lda" || info.op === "sta" || info.op === "ldx" || info.op === "ldy") {
+        weightedOps += 2;
+      } else if (info.op === "rts" || info.op === "rti" || info.op === "brk") {
+        weightedOps -= 1;
+      } else {
+        weightedOps += 1;
+      }
+      cursor += size;
+      if (instructions >= 32) {
+        break;
+      }
+    }
+    if (instructions < 4) {
+      continue;
+    }
+    const score = bytesCovered * 4 + weightedOps;
+    if (score > bestScore) {
+      bestScore = score;
+      bestAddress = (loadAddress + offset) & 0xffff;
+    }
+  }
+  return bestAddress;
 }
 
 function shouldBootCartridgeViaReset(mapper: HeadlessCartridgeMapper | undefined): boolean {
@@ -199,7 +274,7 @@ class HeadlessSession {
       this.prgFile = readPrgFile(this.prgPath);
       this.bus.loadBytes(this.prgFile.loadAddress, this.prgFile.payload);
       this.inferredBasicSys = inferBasicSysEntry(this.prgFile.payload, this.prgFile.loadAddress);
-      this.entryPoint = options.entryPc ?? this.inferredBasicSys ?? this.prgFile.loadAddress;
+      this.entryPoint = options.entryPc ?? this.inferredBasicSys ?? inferMachineCodeEntry(this.prgFile.payload, this.prgFile.loadAddress) ?? this.prgFile.loadAddress;
     } else {
       this.prgFile = undefined;
       this.inferredBasicSys = undefined;
@@ -207,6 +282,10 @@ class HeadlessSession {
       if (this.entryPoint === undefined && this.cartridge) {
         this.entryPoint = shouldBootCartridgeViaReset(this.cartridge) ? undefined : 0x8000;
       }
+    }
+
+    if (this.prgFile === undefined && this.entryPoint === undefined && this.diskProvider && !this.cartridge) {
+      this.prepareDiskAutoboot();
     }
 
     this.cpu.reset(this.entryPoint);
@@ -567,6 +646,35 @@ class HeadlessSession {
     const after = this.cpu.getState();
     this.lastTrap = `SAVE "${fileName}" <- ${formatHexWord(startAddress)}-${formatHexWord((endAddress - 1) & 0xffff)}`;
     this.pushTrap(before, after, this.lastTrap);
+  }
+
+  private prepareDiskAutoboot(): void {
+    const match = this.diskProvider?.findFile("*");
+    if (!match) {
+      throw new Error(`Disk autoboot requested, but no first file could be resolved from ${this.diskPath}.`);
+    }
+    const bytes = match.bytes;
+    const fileLoadAddress = bytes.length >= 2 ? (bytes[0]! | (bytes[1]! << 8)) : 0x0000;
+    const payload = bytes.length >= 2 ? bytes.slice(2) : bytes;
+    this.bus.loadBytes(fileLoadAddress, payload);
+    this.loaderState.logicalFile = 1;
+    this.loaderState.device = 8;
+    this.loaderState.secondaryAddress = 1;
+    this.loaderState.fileName = "*";
+    this.loaderState.fileNameBytes = [0x2a];
+    this.inferredBasicSys = inferBasicSysFromPrgBytes(bytes);
+    this.entryPoint = this.inferredBasicSys ?? inferMachineCodeEntry(payload, fileLoadAddress) ?? fileLoadAddress;
+    const endAddress = (fileLoadAddress + payload.length) & 0xffff;
+    this.loadEvents.push({
+      name: match.entry.name,
+      device: 8,
+      secondaryAddress: 1,
+      startAddress: fileLoadAddress,
+      endAddress,
+      source: this.diskProvider!.imagePath,
+      createdAt: nowIso(),
+    });
+    this.lastTrap = `AUTOBOOT LOAD "*",8,1 -> "${match.entry.name}" @ ${formatHexWord(fileLoadAddress)} entry ${formatHexWord(this.entryPoint)}`;
   }
 
   private pushTrap(before: HeadlessCpuState, after: HeadlessCpuState, trap: string): void {
