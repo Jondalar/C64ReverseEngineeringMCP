@@ -1,7 +1,7 @@
 import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync as readFileSyncNode } from "node:fs";
 import { execFile } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -64,6 +64,65 @@ export interface ExomizerSfxDepackTsResult {
   entryPoint: number;
   cycles: number;
   loadAddress: number;
+}
+
+export interface ExomizerSfxPackOptions {
+  projectDir: string;
+  target: string;
+  inputSpecs: string[];
+  outputPath: string;
+  extraArgs?: string[];
+}
+
+export interface ExomizerSharedEncodingOptions {
+  projectDir: string;
+  inputPaths: string[];
+  outputDir: string;
+  packedSuffix?: string;
+  encodingTextName?: string;
+  encodingBinaryName?: string;
+  manifestName?: string;
+  discoverRuns?: number;
+  sampleSize?: number;
+  seed?: number;
+  importedEncoding?: string;
+  maxPasses?: number;
+  favorSpeed?: boolean;
+  backwards?: boolean;
+  reverseOutput?: boolean;
+}
+
+export interface ExomizerSharedEncodingCandidateResult {
+  runIndex: number;
+  source: "all_inputs" | "largest_inputs" | "random_sample" | "provided_encoding";
+  sampleCount: number;
+  encoding: string;
+  encodingBytes: number;
+  totalPayloadBytes: number;
+  totalBytes: number;
+}
+
+export interface ExomizerSharedEncodingPackedFile {
+  inputPath: string;
+  outputPath: string;
+  relativeOutputPath: string;
+  originalSize: number;
+  packedSize: number;
+  ratio: number;
+}
+
+export interface ExomizerSharedEncodingResult {
+  outputDir: string;
+  encodingTextPath: string;
+  encodingBinaryPath: string;
+  manifestPath: string;
+  chosenEncoding: string;
+  chosenCandidate: ExomizerSharedEncodingCandidateResult;
+  candidates: ExomizerSharedEncodingCandidateResult[];
+  packedFiles: ExomizerSharedEncodingPackedFile[];
+  totalOriginalBytes: number;
+  totalPayloadBytes: number;
+  totalBytes: number;
 }
 
 export class RlePacker {
@@ -734,6 +793,66 @@ async function resolveByteBoozerBinary(): Promise<string> {
   ].filter(Boolean));
 }
 
+async function resolveExomizerBinary(): Promise<string> {
+  return await resolveExecutable([
+    process.env.C64RE_EXOMIZER_BIN ?? "",
+    "exomizer",
+    resolve(repoRoot(), "..", "easyflash_image_builder", "src", "compression", "exomizer-c-port", "exomizer_src_c", "src", "exomizer"),
+  ].filter(Boolean));
+}
+
+function resolveExomizerInputSpec(spec: string, cwd: string): string {
+  const commaIndex = spec.indexOf(",");
+  if (commaIndex < 0) {
+    return resolve(cwd, spec);
+  }
+  const inputPath = spec.slice(0, commaIndex);
+  const suffix = spec.slice(commaIndex);
+  return `${resolve(cwd, inputPath)}${suffix}`;
+}
+
+function makeSeededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function sampleIndices(count: number, sampleSize: number, random: () => number): number[] {
+  const indices = Array.from({ length: count }, (_, index) => index);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j]!, indices[i]!];
+  }
+  indices.length = Math.min(sampleSize, indices.length);
+  return indices.sort((left, right) => left - right);
+}
+
+function sanitizeRelativeOutputPath(projectDir: string, inputAbs: string, packedSuffix: string): string {
+  const rel = relative(projectDir, inputAbs);
+  const base = rel.startsWith("..") || rel === "" ? basename(inputAbs) : rel;
+  return `${base}${packedSuffix}`;
+}
+
+function resolveImportedEncodingReference(importedEncoding: string | undefined, projectDir: string): string | null {
+  if (!importedEncoding) {
+    return null;
+  }
+  if (!importedEncoding.startsWith("@")) {
+    return importedEncoding.trim().toUpperCase();
+  }
+  const path = resolve(projectDir, importedEncoding.slice(1));
+  const raw = readFileSyncNode(path);
+  const asText = raw.toString("utf8").trim();
+  if (/^[0-9a-fA-F,]+$/.test(asText)) {
+    return asText.toUpperCase();
+  }
+  throw new Error(`Imported encoding file must contain a textual Exomizer encoding string: ${path}`);
+}
+
 export async function packExomizerRaw(options: {
   inputPath: string;
   backwards?: boolean;
@@ -780,6 +899,183 @@ export async function depackExomizerSfx(options: {
     maxInstructions: options.maxInstructions,
   });
   return result;
+}
+
+export async function packExomizerSfx(options: ExomizerSfxPackOptions): Promise<ExternalToolResult> {
+  if (options.inputSpecs.length === 0) {
+    throw new Error("At least one Exomizer input spec is required.");
+  }
+  const command = await resolveExomizerBinary();
+  const args = [
+    "sfx",
+    options.target,
+    ...(options.extraArgs ?? []),
+    ...options.inputSpecs.map((spec) => resolveExomizerInputSpec(spec, options.projectDir)),
+    "-o",
+    options.outputPath,
+  ];
+  const result = await runExternalTool(command, args, options.projectDir);
+  return {
+    tool: "exomizer",
+    command,
+    args,
+    outputPath: options.outputPath,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+  };
+}
+
+export async function packExomizerSharedEncoding(options: ExomizerSharedEncodingOptions): Promise<ExomizerSharedEncodingResult> {
+  if (options.inputPaths.length === 0) {
+    throw new Error("At least one input file is required.");
+  }
+
+  const packedSuffix = options.packedSuffix ?? ".exo";
+  const encodingTextName = options.encodingTextName ?? "shared-encoding.txt";
+  const encodingBinaryName = options.encodingBinaryName ?? "shared-encoding.bin";
+  const manifestName = options.manifestName ?? "manifest.json";
+  const discoverRuns = Math.max(1, options.discoverRuns ?? 1);
+  const resolvedInputs = options.inputPaths.map((inputPath) => resolve(options.projectDir, inputPath));
+  const inputBuffers = await Promise.all(resolvedInputs.map((inputPath) => readBinaryFile(inputPath)));
+  const totalOriginalBytes = inputBuffers.reduce((sum, data) => sum + data.length, 0);
+  const sampleSize = Math.max(1, Math.min(options.sampleSize ?? Math.min(inputBuffers.length, 32), inputBuffers.length));
+  const random = makeSeededRandom(options.seed ?? 0xc64e0001);
+  const directionForward = !(options.backwards ?? false);
+  const readEncodingSync = (path: string): Uint8Array => new Uint8Array(readFileSyncNode(resolve(options.projectDir, path)));
+  const cruncher = new RawCruncher(readEncodingSync);
+
+  const evaluateEncoding = (runIndex: number, source: ExomizerSharedEncodingCandidateResult["source"], sampleCount: number, encoding: string) => {
+    const encodingBinary = cruncher.exportEncodingBinary(encoding);
+    const packedOutputs = inputBuffers.map((input) =>
+      cruncher.crunch(input, {
+        outputHeader: false,
+        importedEncoding: encoding,
+        maxPasses: 1,
+        favorSpeed: options.favorSpeed ?? false,
+        directionForward,
+        writeReverse: options.reverseOutput ?? false,
+      }).data
+    );
+    const totalPayloadBytes = packedOutputs.reduce((sum, data) => sum + data.length, 0);
+    return {
+      candidate: {
+        runIndex,
+        source,
+        sampleCount,
+        encoding,
+        encodingBytes: encodingBinary.length,
+        totalPayloadBytes,
+        totalBytes: totalPayloadBytes + encodingBinary.length,
+      } satisfies ExomizerSharedEncodingCandidateResult,
+      packedOutputs,
+      encodingBinary,
+    };
+  };
+
+  const candidateSpecs: Array<{ runIndex: number; source: ExomizerSharedEncodingCandidateResult["source"]; indices: number[]; importedEncoding?: string }> = [];
+  if (options.importedEncoding) {
+    candidateSpecs.push({ runIndex: 0, source: "provided_encoding", indices: [], importedEncoding: options.importedEncoding });
+  } else {
+    candidateSpecs.push({ runIndex: 0, source: "all_inputs", indices: Array.from({ length: inputBuffers.length }, (_, index) => index) });
+    if (discoverRuns > 1 && sampleSize < inputBuffers.length) {
+      const largest = Array.from({ length: inputBuffers.length }, (_, index) => index)
+        .sort((left, right) => inputBuffers[right]!.length - inputBuffers[left]!.length)
+        .slice(0, sampleSize)
+        .sort((left, right) => left - right);
+      candidateSpecs.push({ runIndex: 1, source: "largest_inputs", indices: largest });
+    }
+    while (candidateSpecs.length < discoverRuns) {
+      candidateSpecs.push({
+        runIndex: candidateSpecs.length,
+        source: "random_sample",
+        indices: sampleIndices(inputBuffers.length, sampleSize, random),
+      });
+    }
+  }
+
+  const candidateEvaluations = candidateSpecs.map((spec) => {
+    const candidateEncoding = spec.importedEncoding
+      ? resolveImportedEncodingReference(spec.importedEncoding, options.projectDir) ?? ""
+      : cruncher.crunchMulti(spec.indices.map((index) => inputBuffers[index]!), {
+          outputHeader: false,
+          maxPasses: options.maxPasses ?? 100,
+          favorSpeed: options.favorSpeed ?? false,
+          directionForward,
+          writeReverse: options.reverseOutput ?? false,
+        }).encoding;
+    return evaluateEncoding(spec.runIndex, spec.source, spec.importedEncoding ? inputBuffers.length : spec.indices.length, candidateEncoding);
+  });
+
+  candidateEvaluations.sort((left, right) => {
+    if (left.candidate.totalBytes !== right.candidate.totalBytes) {
+      return left.candidate.totalBytes - right.candidate.totalBytes;
+    }
+    return left.candidate.runIndex - right.candidate.runIndex;
+  });
+  const best = candidateEvaluations[0];
+  if (!best) {
+    throw new Error("No shared-encoding candidate could be evaluated.");
+  }
+
+  await mkdir(options.outputDir, { recursive: true });
+  const encodingTextPath = resolve(options.outputDir, encodingTextName);
+  const encodingBinaryPath = resolve(options.outputDir, encodingBinaryName);
+  const manifestPath = resolve(options.outputDir, manifestName);
+  await writeFile(encodingTextPath, `${best.candidate.encoding}\n`, "utf8");
+  await writeBinaryFile(encodingBinaryPath, best.encodingBinary);
+
+  const packedFiles: ExomizerSharedEncodingPackedFile[] = [];
+  for (let i = 0; i < resolvedInputs.length; i++) {
+    const relativeOutputPath = sanitizeRelativeOutputPath(options.projectDir, resolvedInputs[i]!, packedSuffix);
+    const outputPath = resolve(options.outputDir, relativeOutputPath);
+    const packed = best.packedOutputs[i]!;
+    await writeBinaryFile(outputPath, packed);
+    packedFiles.push({
+      inputPath: resolvedInputs[i]!,
+      outputPath,
+      relativeOutputPath,
+      originalSize: inputBuffers[i]!.length,
+      packedSize: packed.length,
+      ratio: inputBuffers[i]!.length > 0 ? packed.length / inputBuffers[i]!.length : 1,
+    });
+  }
+
+  const manifest = {
+    outputDir: options.outputDir,
+    encodingTextPath,
+    encodingBinaryPath,
+    chosenEncoding: best.candidate.encoding,
+    chosenCandidate: best.candidate,
+    candidates: candidateEvaluations.map((entry) => entry.candidate),
+    packedFiles,
+    totalOriginalBytes,
+    totalPayloadBytes: best.candidate.totalPayloadBytes,
+    totalBytes: best.candidate.totalBytes,
+    options: {
+      discoverRuns,
+      sampleSize,
+      maxPasses: options.maxPasses ?? 100,
+      favorSpeed: options.favorSpeed ?? false,
+      backwards: options.backwards ?? false,
+      reverseOutput: options.reverseOutput ?? false,
+    },
+  };
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+
+  return {
+    outputDir: options.outputDir,
+    encodingTextPath,
+    encodingBinaryPath,
+    manifestPath,
+    chosenEncoding: best.candidate.encoding,
+    chosenCandidate: best.candidate,
+    candidates: candidateEvaluations.map((entry) => entry.candidate),
+    packedFiles,
+    totalOriginalBytes,
+    totalPayloadBytes: best.candidate.totalPayloadBytes,
+    totalBytes: best.candidate.totalBytes,
+  };
 }
 
 export async function packByteBoozer(options: {

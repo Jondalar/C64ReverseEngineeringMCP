@@ -155,6 +155,29 @@ export function decodeTraceInstruction(bytes: number[]): TraceDecodedInstruction
   };
 }
 
+export function computeTraceSuccessorPcs(pc: number | undefined, bytes: number[]): number[] {
+  if (pc === undefined) {
+    return [];
+  }
+  const decoded = decodeTraceInstruction(bytes);
+  if (decoded.mnemonic === "JMP" && decoded.mode === "abs" && decoded.operand !== undefined) {
+    return [decoded.operand];
+  }
+  if (decoded.mnemonic === "JSR" && decoded.operand !== undefined) {
+    return [decoded.operand];
+  }
+  if (decoded.mode === "rel" && decoded.operand !== undefined) {
+    const fallthrough = (pc + decoded.size) & 0xffff;
+    const offset = decoded.operand >= 0x80 ? decoded.operand - 0x100 : decoded.operand;
+    const target = (fallthrough + offset) & 0xffff;
+    return [fallthrough, target];
+  }
+  if (decoded.isReturn) {
+    return [];
+  }
+  return [((pc + decoded.size) & 0xffff)];
+}
+
 function inferInstructionSize(opcode: number): number {
   const explicit = SIZE_BY_OPCODE.get(opcode);
   if (explicit !== undefined) {

@@ -57,6 +57,7 @@ That's it — the TRXDis pipeline is bundled and built automatically.
 | `C64RE_TOOLS_DIR` | Override: use an external TRXDis build instead of the bundled one | No |
 | `C64RE_KICKASS_JAR` | Override path to the KickAssembler jar used by `assemble_source` | No |
 | `C64RE_64TASS_BIN` | Override path to the `64tass` binary used by `assemble_source` | No |
+| `C64RE_EXOMIZER_BIN` | Override path to the `exomizer` binary used by `pack_exomizer_sfx` | No |
 | `C64RE_BYTEBOOZER_BIN` | Override path to the `b2` binary used by `pack_byteboozer` | No |
 | `C64RE_VICE_BIN` | Override path to `x64sc` for VICE runtime/debug tools | No |
 | `C64RE_VICE_CONFIG_PATH` | Override path to the source `vicerc` copied into VICE sessions | No |
@@ -137,12 +138,32 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `pack_rle` | Compress a file with the built-in TypeScript RLE implementation |
 | `depack_rle` | WIP: Decompress the built-in TypeScript RLE implementation |
 | `pack_exomizer_raw` | Compress a file with the built-in TypeScript Exomizer raw implementation |
+| `pack_exomizer_shared_encoding` | Discover or reuse one shared Exomizer encoding table in pure TypeScript and pack many payloads without embedding it per file |
+| `compare_exomizer_shared_encoding_sets` | Compare global and clustered shared-encoding manifest sets by total bytes, payload bytes, and encoding overhead |
 | `depack_exomizer_raw` | WIP: Decompress an Exomizer raw stream with the built-in TypeScript implementation |
 | `depack_exomizer_sfx` | WIP: Decompress an Exomizer self-extracting wrapper with the built-in TypeScript 6502-emulated depacker |
+| `pack_exomizer_sfx` | Compress one or more inputs into an Exomizer self-extracting binary via the local `exomizer` CLI |
 | `pack_byteboozer` | Compress a file with ByteBoozer2 via the local `b2` CLI |
 | `depack_byteboozer` | WIP: Decompress a ByteBoozer2 raw file or executable wrapper in pure TypeScript |
 | `suggest_depacker` | Probe a file or sliced subrange and suggest likely depackers before trying to unpack it |
 | `try_depack` | WIP: Try `rle`, `exomizer_raw`, `exomizer_sfx`, or `byteboozer2` against a file or sliced subrange |
+
+### C64Ref ROM Knowledge
+
+| Tool | Description |
+|---|---|
+| `c64ref_build_rom_knowledge` | Fetch and rebuild the local BASIC/KERNAL ROM knowledge snapshot from `mist64/c64ref` |
+| `c64ref_lookup` | Look up BASIC/KERNAL ROM knowledge by exact address or search term from the local snapshot; can optionally auto-build it if missing |
+
+The generated snapshot lives at:
+
+- `resources/c64ref-rom-knowledge.json`
+
+To refresh it manually from upstream `c64ref` sources:
+
+```sh
+npm run build:c64ref
+```
 
 ### VICE Runtime / Debugging
 
@@ -188,6 +209,66 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 | `vice_monitor_continue` | Resume execution |
 | `vice_monitor_step` | Step into one instruction |
 | `vice_monitor_next` | Step over one instruction |
+
+### Headless RE Runtime
+
+| Tool | Description |
+|---|---|
+| `headless_session_start` | WIP: Start a headless loader-/depacker-oriented C64 runtime session with optional PRG and D64/G64 attached |
+| `headless_session_status` | WIP: Report current headless runtime state, inferred BASIC `SYS`, and recent loader activity |
+| `headless_session_run` | WIP: Run the headless runtime for a bounded number of instructions or until a stop PC |
+| `headless_session_step` | WIP: Execute a single instruction in the headless runtime |
+| `headless_session_stop` | WIP: Stop the current headless runtime session |
+| `headless_breakpoint_add` | WIP: Add execution or read/write/access breakpoints; memory-access breakpoints trigger on effective addresses, including indirect pointer-driven accesses |
+| `headless_breakpoint_clear` | WIP: Clear all headless breakpoints/watchpoints |
+| `headless_watch_add` | WIP: Register watched memory ranges whose bytes are embedded directly into trace output when touched |
+| `headless_watch_clear` | WIP: Clear watched memory ranges |
+| `headless_interrupt_request` | WIP: Request a pending IRQ or NMI in the headless runtime |
+| `headless_interrupt_clear` | WIP: Clear pending IRQ/NMI state in the headless runtime |
+| `headless_io_interrupt_trigger` | WIP: Trigger simple VIC/CIA interrupt sources through emulated I/O status/mask registers |
+| `headless_trace_tail` | WIP: Render recent trace events with accesses, stack, bank state, and watch hits |
+| `headless_trace_find_pc` | WIP: Search the persisted headless trace JSONL for a specific PC |
+| `headless_trace_find_access` | WIP: Search the persisted headless trace for reads/writes to an effective address |
+| `headless_trace_slice` | WIP: Slice the persisted headless trace around an event index |
+| `headless_trace_build_index` | WIP: Build a persistent PC/access hotspot index for a headless trace session |
+| `headless_monitor_registers` | WIP: Read CPU registers from the headless runtime |
+| `headless_monitor_memory` | WIP: Read memory from the headless runtime |
+
+The headless runtime is intentionally not cycle-exact. It targets reverse-engineering workflows such as:
+
+- running loader and depacker stubs without a visible emulator
+- tracing KERNAL `SETNAM` / `SETLFS` / `LOAD` / `SAVE` behavior
+- following `$0001` banking-sensitive control flow
+- iterating faster than a full VICE session when VIC/SID accuracy is irrelevant
+
+Current first-slice status:
+
+- built-in 6510 CPU core with RAM/ROM windows and `$0001` banking
+- KERNAL traps for `SETNAM`, `SETLFS`, `LOAD`, and `SAVE`
+- D64/G64-backed disk provider for loader-following
+- first cartridge mapping slice for CRT-backed EasyFlash, Magic Desk, Ocean, generic `8KB/16KB`, and `Ultimax`
+- EasyFlash flash writes with a simple AMD-style command model for:
+  - banked byte-program writes
+  - sector erase
+  - autoselect/reset
+- recent instruction trace ring with:
+  - persisted `runtime-trace.jsonl` under `analysis/headless-runtime/<session>/trace/`
+  - instruction bytes and cycle progression
+  - register state and stack snapshots
+  - `$00`/`$01` plus derived bank visibility
+  - pending IRQ/NMI state and real vector-dispatch trace events
+  - simple VIC/CIA interrupt source registers feeding IRQ/NMI pending state
+  - per-instruction memory read/write access log
+  - watched-range snapshots when selected areas are touched
+  - access breakpoints that also catch indirect effective-address activity
+
+Still deliberately missing in this first slice:
+
+- VIC/SID/CIA behavior beyond simple memory/I/O stubs
+- detailed hardware-generated IRQ/NMI timing and side effects
+- advanced cartridge behavior beyond the currently supported EasyFlash/generic banking slice
+- Protovision Megabyte and other writable mapper families
+- persistent trace/index tooling equivalent to the VICE backend
 
 ### Artifact Access
 

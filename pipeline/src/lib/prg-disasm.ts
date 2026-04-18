@@ -233,6 +233,13 @@ function findCodeLabelExpression(
   labels: Set<number>,
   instructionOwnerByAddress: Map<number, number>,
 ): string | undefined {
+  // Prefer exact target labels over owner+offset. This keeps normal
+  // branch/jump rendering stable while still allowing owner-relative
+  // notation for unlabeled code bytes (for example self-mod patches).
+  if (labels.has(address)) {
+    return makeLabel(address);
+  }
+
   const instructionOwner = instructionOwnerByAddress.get(address);
   if (instructionOwner !== undefined) {
     if (!labels.has(instructionOwner)) {
@@ -240,10 +247,6 @@ function findCodeLabelExpression(
     }
     const offset = address - instructionOwner;
     return offset === 0 ? makeLabel(instructionOwner) : `${makeLabel(instructionOwner)}+${formatPlainOffset(offset)}`;
-  }
-
-  if (labels.has(address)) {
-    return makeLabel(address);
   }
 
   return undefined;

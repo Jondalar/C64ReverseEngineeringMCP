@@ -13,6 +13,8 @@ import {
   depackExomizerRaw,
   packByteBoozer,
   packExomizerRaw,
+  packExomizerSharedEncoding,
+  packExomizerSfx,
   readBinaryFile,
   RleDepacker,
   RlePacker,
@@ -21,6 +23,13 @@ import {
 } from "./compression-tools.js";
 import { extractDiskImage, readDiskDirectory } from "./disk-extractor.js";
 import { createDiskParser, G64Parser } from "./disk/index.js";
+import {
+  buildC64RefRomKnowledge,
+  defaultC64RefKnowledgePath,
+  loadC64RefRomKnowledge,
+  lookupC64RefByAddress,
+  searchC64RefKnowledge,
+} from "./c64ref-rom-knowledge.js";
 import type { G64LutReference } from "./disk/g64-parser.js";
 import { getPreferredViceSessionManager, getViceSessionManager } from "./runtime/vice/index.js";
 import type { ViceSessionRecord, ViceTraceAnalysis } from "./runtime/vice/types.js";
@@ -32,6 +41,7 @@ import {
   findTraceByBytes,
   findTraceByOperand,
   findTraceByPc,
+  followTraceFromPc,
   listTraceNotes,
   loadTraceSession,
   sliceTraceByClock,
@@ -47,6 +57,25 @@ import {
   type ViceTraceIndex,
   type ViceTraceIndexEntry,
 } from "./runtime/vice/trace-index.js";
+import {
+  buildTraceWindowIndex,
+  loadTraceWindowIndex,
+  type ViceTracePhaseBoundary,
+  type ViceTracePhaseSummary,
+  type ViceTraceWindowIndex,
+  type ViceTraceWindowSummary,
+} from "./runtime/vice/trace-window-index.js";
+import {
+  buildTraceContextIndex,
+  loadTraceContextIndex,
+  sliceTraceContext,
+  type ViceTraceContextWriteStat,
+  type ViceTraceContextSummary,
+} from "./runtime/vice/trace-context-index.js";
+import { getHeadlessSessionManager, getPreferredHeadlessSessionManager } from "./runtime/headless/index.js";
+import type { HeadlessRunResult, HeadlessSessionRecord } from "./runtime/headless/types.js";
+import { findHeadlessTraceByAccess, findHeadlessTraceByPc, loadHeadlessSession, sliceHeadlessTraceByIndex } from "./runtime/headless/trace-query.js";
+import { buildHeadlessTraceIndex } from "./runtime/headless/trace-index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -105,6 +134,82 @@ function cliResultToContent(result: { stdout: string; stderr: string; exitCode: 
   if (result.exitCode !== 0) parts.push(`[exit code ${result.exitCode}]`);
   const text = parts.join("\n\n") || "[no output]";
   return { content: [{ type: "text" as const, text }] };
+}
+
+interface SharedEncodingManifestCandidate {
+  runIndex: number;
+  source: string;
+  sampleCount: number;
+  encodingBytes: number;
+  totalPayloadBytes: number;
+  totalBytes: number;
+}
+
+interface SharedEncodingManifestRecord {
+  totalOriginalBytes: number;
+  totalPayloadBytes: number;
+  totalBytes: number;
+  packedFiles?: Array<unknown>;
+  chosenCandidate: SharedEncodingManifestCandidate;
+}
+
+interface SharedEncodingManifestSetSummary {
+  label: string;
+  manifestPaths: string[];
+  manifestCount: number;
+  fileCount: number;
+  totalOriginalBytes: number;
+  totalPayloadBytes: number;
+  totalBytes: number;
+  totalEncodingBytes: number;
+  chosenCandidates: SharedEncodingManifestCandidate[];
+}
+
+function formatPercent(value: number): string {
+  return `${value.toFixed(2)}%`;
+}
+
+function readSharedEncodingManifest(manifestPath: string): SharedEncodingManifestRecord {
+  const raw = JSON.parse(readTextFile(manifestPath));
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    typeof (raw as { totalOriginalBytes?: unknown }).totalOriginalBytes !== "number" ||
+    typeof (raw as { totalPayloadBytes?: unknown }).totalPayloadBytes !== "number" ||
+    typeof (raw as { totalBytes?: unknown }).totalBytes !== "number" ||
+    typeof (raw as { chosenCandidate?: unknown }).chosenCandidate !== "object" ||
+    (raw as { chosenCandidate?: unknown }).chosenCandidate === null
+  ) {
+    throw new Error(`Invalid shared-encoding manifest: ${manifestPath}`);
+  }
+  const candidate = (raw as { chosenCandidate: Record<string, unknown> }).chosenCandidate;
+  if (
+    typeof candidate.runIndex !== "number" ||
+    typeof candidate.source !== "string" ||
+    typeof candidate.sampleCount !== "number" ||
+    typeof candidate.encodingBytes !== "number" ||
+    typeof candidate.totalPayloadBytes !== "number" ||
+    typeof candidate.totalBytes !== "number"
+  ) {
+    throw new Error(`Manifest chosenCandidate is incomplete: ${manifestPath}`);
+  }
+  return raw as SharedEncodingManifestRecord;
+}
+
+function summarizeSharedEncodingManifestSet(projectRoot: string, label: string, manifestPaths: string[]): SharedEncodingManifestSetSummary {
+  const resolvedPaths = manifestPaths.map((manifestPath) => resolve(projectRoot, manifestPath));
+  const manifests = resolvedPaths.map((manifestPath) => readSharedEncodingManifest(manifestPath));
+  return {
+    label,
+    manifestPaths: resolvedPaths,
+    manifestCount: manifests.length,
+    fileCount: manifests.reduce((sum, manifest) => sum + (manifest.packedFiles?.length ?? 0), 0),
+    totalOriginalBytes: manifests.reduce((sum, manifest) => sum + manifest.totalOriginalBytes, 0),
+    totalPayloadBytes: manifests.reduce((sum, manifest) => sum + manifest.totalPayloadBytes, 0),
+    totalBytes: manifests.reduce((sum, manifest) => sum + manifest.totalBytes, 0),
+    totalEncodingBytes: manifests.reduce((sum, manifest) => sum + manifest.chosenCandidate.encodingBytes, 0),
+    chosenCandidates: manifests.map((manifest) => manifest.chosenCandidate),
+  };
 }
 
 function diskDefaultOutputDir(imagePath: string): string {
@@ -225,8 +330,145 @@ async function resolveTraceProjectDir(): Promise<string> {
   return preferred?.getProjectDir() ?? projectDir();
 }
 
+function resolveHeadlessProjectDir(hintPath?: string): string {
+  if (hintPath) {
+    return projectDir(hintPath, true);
+  }
+  const preferred = getPreferredHeadlessSessionManager();
+  if (preferred) {
+    return preferred.getProjectDir();
+  }
+  return projectDir(undefined, true);
+}
+
 function canonicalWorkflowSkillPath(): string {
   return resolve(repoDir(), "docs", "c64-reverse-engineering-skill.md");
+}
+
+function c64refKnowledgePath(): string {
+  return defaultC64RefKnowledgePath(repoDir());
+}
+
+const C64REF_BUILD_ESTIMATE_SECONDS = 5;
+
+function c64refEntryToText(entry: ReturnType<typeof lookupC64RefByAddress> extends infer T ? Exclude<T, undefined> : never): string {
+  const lines = [
+    `Address: ${entry.addressHex}`,
+    `Heading: ${entry.primaryHeading}`,
+  ];
+  if (entry.primaryLabel) {
+    lines.push(`Primary label: ${entry.primaryLabel}`);
+  }
+  if (entry.labels.length > 0) {
+    lines.push(`Labels: ${entry.labels.join(", ")}`);
+  }
+  for (const annotation of entry.annotations) {
+    lines.push("");
+    lines.push(`[${annotation.sourceId}] ${annotation.heading}`);
+    if (annotation.section) {
+      lines.push(`Section: ${annotation.section}`);
+    }
+    if (annotation.bytes && annotation.bytes.length > 0) {
+      lines.push(`Bytes: ${annotation.bytes.map((value) => formatHexByte(value)).join(" ")}`);
+    }
+    lines.push(annotation.description);
+  }
+  return lines.join("\n");
+}
+
+function headlessSessionToContent(record: HeadlessSessionRecord, headline: string): { content: [{ type: "text"; text: string }] } {
+  const lines = [
+    headline,
+    `Session: ${record.sessionId}`,
+    `State: ${record.state}`,
+    `Project: ${record.projectDir}`,
+    `PC: ${formatHexWord(record.currentPc)}`,
+  ];
+  if (record.prgPath) lines.push(`PRG: ${record.prgPath}`);
+  if (record.diskPath) lines.push(`Disk: ${record.diskPath}`);
+  if (record.crtPath) lines.push(`CRT: ${record.crtPath}`);
+  lines.push(`Workspace: ${record.workspace.sessionDir}`);
+  lines.push(`Trace: ${record.workspace.tracePath}`);
+  if (record.entryPoint !== undefined) lines.push(`Entry: ${formatHexWord(record.entryPoint)}`);
+  if (record.inferredBasicSys !== undefined) lines.push(`BASIC SYS: ${formatHexWord(record.inferredBasicSys)}`);
+  if (record.startedAt) lines.push(`Started: ${record.startedAt}`);
+  if (record.stoppedAt) lines.push(`Stopped: ${record.stoppedAt}`);
+  if (record.lastTrap) lines.push(`Last trap: ${record.lastTrap}`);
+  if (record.lastError) lines.push(`Last error: ${record.lastError}`);
+  if (record.loaderState.fileName) lines.push(`Loader filename: ${record.loaderState.fileName}`);
+  if (record.loaderState.device !== null) lines.push(`Loader device: ${record.loaderState.device}`);
+  if (record.loaderState.secondaryAddress !== null) lines.push(`Loader SA: ${record.loaderState.secondaryAddress}`);
+  if (record.breakpoints.length > 0) lines.push(`Breakpoints: ${record.breakpoints.length}`);
+  if (record.watchRanges.length > 0) lines.push(`Watch ranges: ${record.watchRanges.length}`);
+  lines.push(`IRQ/NMI: irqPending=${record.irqState.irqPending ? "yes" : "no"} nmiPending=${record.irqState.nmiPending ? "yes" : "no"} irqCount=${record.irqState.irqCount} nmiCount=${record.irqState.nmiCount}`);
+  lines.push(`I/O IRQ state: VIC status=${formatHexByte(record.ioInterrupts.vicIrqStatus)} mask=${formatHexByte(record.ioInterrupts.vicIrqMask)} | CIA1 status=${formatHexByte(record.ioInterrupts.cia1Status)} mask=${formatHexByte(record.ioInterrupts.cia1Mask)} | CIA2 status=${formatHexByte(record.ioInterrupts.cia2Status)} mask=${formatHexByte(record.ioInterrupts.cia2Mask)}`);
+  if (record.cartridge) {
+    lines.push(`Cartridge: ${record.cartridge.name} (${record.cartridge.mapperType}) bank=${record.cartridge.currentBank}`);
+    lines.push(`Cart lines: EXROM=${record.cartridge.exrom} GAME=${record.cartridge.game}${record.cartridge.controlRegister !== undefined ? ` control=${formatHexByte(record.cartridge.controlRegister)}` : ""}`);
+    if (record.cartridge.flashMode) lines.push(`Cart flash mode: ${record.cartridge.flashMode}`);
+    if (record.cartridge.writable) lines.push("Cart writes: enabled");
+  }
+  if (record.loadEvents.length > 0) {
+    lines.push("Load events:");
+    for (const event of record.loadEvents.slice(-5)) {
+      lines.push(`- "${event.name}" -> ${formatHexWord(event.startAddress)}-${formatHexWord((event.endAddress - 1) & 0xffff)} from ${event.source}`);
+    }
+  }
+  if (record.recentTrace.length > 0) {
+    const last = record.recentTrace[record.recentTrace.length - 1]!;
+    const bytes = last.bytes.map(formatHexByte).join(" ");
+    lines.push(`Recent trace tail: ${formatHexWord(last.pc)} [${bytes}]${last.trap ? ` ${last.trap}` : ""}`);
+    lines.push(`Last banks: $00=${formatHexByte(last.bankInfo.cpuPortDirection)} $01=${formatHexByte(last.bankInfo.cpuPortValue)} basic=${last.bankInfo.basicVisible ? "on" : "off"} kernal=${last.bankInfo.kernalVisible ? "on" : "off"} io=${last.bankInfo.ioVisible ? "on" : "off"} char=${last.bankInfo.charVisible ? "on" : "off"}`);
+  }
+  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+}
+
+function headlessRunResultToContent(result: HeadlessRunResult, record: HeadlessSessionRecord, headline: string): { content: [{ type: "text"; text: string }] } {
+  const lines = [
+    headline,
+    `Reason: ${result.reason}`,
+    `Steps executed: ${result.stepsExecuted}`,
+    `PC: ${formatHexWord(result.currentPc)}`,
+  ];
+  if (result.lastTrap) lines.push(`Last trap: ${result.lastTrap}`);
+  if (result.breakpointId) lines.push(`Breakpoint: ${result.breakpointId}`);
+  if (record.recentTrace.length > 0) {
+    const last = record.recentTrace[record.recentTrace.length - 1]!;
+    lines.push(`Last instruction: ${formatHexWord(last.pc)} [${last.bytes.map(formatHexByte).join(" ")}]`);
+    lines.push(`Cycles: ${last.before.cycles} -> ${last.after.cycles}`);
+    lines.push(`CPU port: $00=${formatHexByte(last.bankInfo.cpuPortDirection)} $01=${formatHexByte(last.bankInfo.cpuPortValue)}`);
+    lines.push(`Banks: basic=${last.bankInfo.basicVisible ? "on" : "off"} kernal=${last.bankInfo.kernalVisible ? "on" : "off"} io=${last.bankInfo.ioVisible ? "on" : "off"} char=${last.bankInfo.charVisible ? "on" : "off"}`);
+    lines.push(`Stack(before): SP=${formatHexByte(last.beforeStack.sp)} [${last.beforeStack.bytes.map(formatHexByte).join(" ")}]`);
+    lines.push(`Stack(after): SP=${formatHexByte(last.afterStack.sp)} [${last.afterStack.bytes.map(formatHexByte).join(" ")}]`);
+    if (last.accesses.length > 0) {
+      lines.push("Accesses:");
+      for (const access of last.accesses.slice(0, 12)) {
+        lines.push(`- ${access.kind} ${formatHexWord(access.address)}=${formatHexByte(access.value)} (${access.region})`);
+      }
+    }
+    if (last.watchHits.length > 0) {
+      lines.push("Watch hits:");
+      for (const hit of last.watchHits) {
+        lines.push(`- ${hit.name} ${formatHexWord(hit.start)}-${formatHexWord(hit.end)} via ${hit.touchedBy.join("/")}${hit.bytes ? ` bytes=[${hit.bytes.slice(0, 16).map(formatHexByte).join(" ")}${hit.bytes.length > 16 ? " ..." : ""}]` : ""}`);
+      }
+    }
+    lines.push("Recent trace:");
+    for (const event of record.recentTrace.slice(-8)) {
+      const bytes = event.bytes.map(formatHexByte).join(" ");
+      const suffix = event.trap ? ` ${event.trap}` : event.watchHits.length > 0 ? ` watch=${event.watchHits.map((hit) => hit.name).join(",")}` : "";
+      lines.push(`- ${formatHexWord(event.pc)} [${bytes}]${suffix}`);
+    }
+  }
+  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+}
+
+async function resolveHeadlessTraceProjectDir(): Promise<string> {
+  const preferred = getPreferredHeadlessSessionManager();
+  return preferred?.getProjectDir() ?? projectDir(undefined, true);
+}
+
+function formatHeadlessTraceMatch(match: { index: number; pc: number; bytes: number[]; trap?: string }): string {
+  return `${match.index}: ${formatHexWord(match.pc)} [${match.bytes.map(formatHexByte).join(" ")}]${match.trap ? ` ${match.trap}` : ""}`;
 }
 
 function parseViceMemspace(value?: string): ViceMemspace {
@@ -453,6 +695,62 @@ function getIndexedPcEntry(index: ViceTraceIndex | undefined, pc: number | undef
     return undefined;
   }
   return index.pcIndex.find((entry) => entry.pc === pc);
+}
+
+function formatTraceWindowSummary(window: ViceTraceWindowSummary): string {
+  const parts = [
+    `window=${window.windowIndex}`,
+    `level=${window.level}`,
+    `size=${window.size}`,
+    `phase=${window.phaseId}`,
+    `instructions=${window.instructionCount}`,
+    `clock=${window.startClock}->${window.endClock}`,
+  ];
+  if (window.dominantRoutine) parts.push(`routine=${window.dominantRoutine}`);
+  if (window.dominantSegment) parts.push(`segment=${window.dominantSegment}`);
+  if (window.dominantPc !== undefined) parts.push(`pc=${formatHexWord(window.dominantPc)}`);
+  return parts.join("  ");
+}
+
+function formatTracePhaseSummary(phase: ViceTracePhaseSummary): string {
+  const parts = [
+    `phase=${phase.phaseId}`,
+    `windows=${phase.startWindowIndex}-${phase.endWindowIndex}`,
+    `instructions=${phase.instructionCount}`,
+    `clock=${phase.startClock}->${phase.endClock}`,
+  ];
+  if (phase.dominantRoutine) parts.push(`routine=${phase.dominantRoutine}`);
+  if (phase.dominantSegment) parts.push(`segment=${phase.dominantSegment}`);
+  return parts.join("  ");
+}
+
+function formatPhaseBoundary(boundary: ViceTracePhaseBoundary): string {
+  const reasons = boundary.reasons.length > 0 ? `  reasons=${boundary.reasons.join("; ")}` : "";
+  return `window ${boundary.previousWindowIndex} -> ${boundary.currentWindowIndex}  phase ${boundary.previousPhaseId} -> ${boundary.currentPhaseId}  score=${boundary.score}${reasons}`;
+}
+
+function formatAddressStats(stats: ViceTraceContextWriteStat[]): string {
+  if (stats.length === 0) {
+    return "none";
+  }
+  return stats
+    .map((entry) => `${formatHexWord(entry.address)} r=${entry.reads} w=${entry.writes}`)
+    .join(", ");
+}
+
+function formatTraceContextSummary(context: ViceTraceContextSummary): string {
+  const parts = [
+    `${context.id}`,
+    `kind=${context.kind}`,
+    `confidence=${context.confidence}`,
+    `instructions=${context.instructionCount}`,
+    `clock=${context.entryClock}->${context.exitClock}`,
+  ];
+  if (context.entryPc !== undefined) parts.push(`entry=${formatHexWord(context.entryPc)}`);
+  if (context.exitPc !== undefined) parts.push(`exit=${formatHexWord(context.exitPc)}`);
+  if (context.dominantRoutine) parts.push(`routine=${context.dominantRoutine}`);
+  parts.push(`classification=${context.classification}`);
+  return parts.join("  ");
 }
 
 // ---------------------------------------------------------------------------
@@ -868,6 +1166,122 @@ function createServer(): McpServer {
   );
 
   server.tool(
+    "pack_exomizer_sfx",
+    "Compress one or more input files into an Exomizer self-extracting binary via the local exomizer CLI.",
+    {
+      target: z.string().describe("Exomizer sfx target operand, e.g. 'sys', 'systrim,080d', 'basic', 'bin', or '$080d'"),
+      input_specs: z.array(z.string()).min(1).describe("One or more Exomizer input specs in CLI form: 'file.prg' or 'file.bin,0x2000'"),
+      output_path: z.string().optional().describe("Optional output path for the generated SFX binary"),
+      extra_args: z.array(z.string()).optional().describe("Optional extra Exomizer CLI flags, e.g. ['-q', '-t52']"),
+    },
+    async ({ target, input_specs, output_path, extra_args }) => {
+      try {
+        const pd = projectDir(output_path ?? input_specs[0], true);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${resolve(pd, input_specs[0].split(",")[0] ?? input_specs[0])}.sfx.prg`;
+        const result = await packExomizerSfx({
+          projectDir: pd,
+          target,
+          inputSpecs: input_specs,
+          outputPath: outputAbs,
+          extraArgs: extra_args,
+        });
+        if (result.exitCode !== 0) {
+          return cliResultToContent(result);
+        }
+        const outputBytes = (await readBinaryFile(result.outputPath)).length;
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer SFX pack complete.`,
+              `Target: ${target}`,
+              `Inputs: ${input_specs.join(" | ")}`,
+              `Output: ${result.outputPath}`,
+              `Output bytes: ${outputBytes}`,
+              `Command: ${result.command} ${result.args.join(" ")}`,
+              result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
+              result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+            ].filter(Boolean).join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  server.tool(
+    "pack_exomizer_shared_encoding",
+    "Discover or reuse a shared Exomizer encoding table in pure TypeScript, then pack many files without embedding the table in each payload.",
+    {
+      input_paths: z.array(z.string()).min(1).describe("Input files to evaluate and pack with one shared encoding"),
+      output_dir: z.string().optional().describe("Optional output directory for packed payloads, encoding files, and manifest"),
+      discover_runs: z.number().int().positive().optional().describe("How many candidate discovery runs to evaluate (default: 1)"),
+      sample_size: z.number().int().positive().optional().describe("How many files to sample in non-global discovery runs (default: up to 32)"),
+      seed: z.number().int().optional().describe("Optional seed for random sampling in discovery runs"),
+      imported_encoding: z.string().optional().describe("Optional existing encoding string or @file to reuse instead of discovering a new one"),
+      max_passes: z.number().int().positive().optional().describe("Optimization passes used while discovering candidate encodings (default: 100)"),
+      favor_speed: z.boolean().optional().describe("Favor compression speed over ratio while deriving candidate encodings"),
+      backwards: z.boolean().optional().describe("Use Exomizer backward mode while packing payloads"),
+      reverse_output: z.boolean().optional().describe("Reverse packed payload byte order after packing"),
+      packed_suffix: z.string().optional().describe("Suffix appended to each packed payload (default: .exo)"),
+    },
+    async ({ input_paths, output_dir, discover_runs, sample_size, seed, imported_encoding, max_passes, favor_speed, backwards, reverse_output, packed_suffix }) => {
+      try {
+        const pd = projectDir(output_dir ?? input_paths[0], true);
+        const outputAbs = output_dir
+          ? resolve(pd, output_dir)
+          : join(pd, "analysis", "compression", "shared-encoding");
+        const result = await packExomizerSharedEncoding({
+          projectDir: pd,
+          inputPaths: input_paths,
+          outputDir: outputAbs,
+          discoverRuns: discover_runs,
+          sampleSize: sample_size,
+          seed,
+          importedEncoding: imported_encoding,
+          maxPasses: max_passes,
+          favorSpeed: favor_speed,
+          backwards,
+          reverseOutput: reverse_output,
+          packedSuffix: packed_suffix,
+        });
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer shared-encoding pack complete.`,
+              `Inputs: ${input_paths.length}`,
+              `Output dir: ${result.outputDir}`,
+              `Encoding text: ${result.encodingTextPath}`,
+              `Encoding binary: ${result.encodingBinaryPath}`,
+              `Manifest: ${result.manifestPath}`,
+              `Chosen candidate: run ${result.chosenCandidate.runIndex} (${result.chosenCandidate.source})`,
+              `Encoding bytes: ${result.chosenCandidate.encodingBytes}`,
+              `Payload bytes: ${result.totalPayloadBytes}`,
+              `Total bytes: ${result.totalBytes}`,
+              `Original bytes: ${result.totalOriginalBytes}`,
+              `Top candidates: ${result.candidates.slice(0, 3).map((candidate) => `run ${candidate.runIndex} ${candidate.source} total=${candidate.totalBytes}`).join(" | ")}`,
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  server.tool(
     "pack_byteboozer",
     "Compress a file with ByteBoozer2 via the local b2 CLI.",
     {
@@ -909,6 +1323,64 @@ function createServer(): McpServer {
               result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
               result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
             ].filter(Boolean).join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  server.tool(
+    "compare_exomizer_shared_encoding_sets",
+    "Compare one or more shared-encoding manifest sets, e.g. global vs 2-cluster vs 4-cluster, by total bytes, payload bytes, and encoding overhead.",
+    {
+      comparison_sets: z.array(z.object({
+        label: z.string().describe("Short label for this strategy, e.g. global, 2-cluster, 4-cluster"),
+        manifest_paths: z.array(z.string()).min(1).describe("One or more manifest.json files belonging to this strategy"),
+      })).min(2).describe("Two or more manifest sets to compare"),
+    },
+    async ({ comparison_sets }) => {
+      try {
+        const hintPath = comparison_sets[0]?.manifest_paths[0];
+        const pd = projectDir(hintPath, true);
+        const summaries = comparison_sets.map((set) => summarizeSharedEncodingManifestSet(pd, set.label, set.manifest_paths));
+        const best = [...summaries].sort((left, right) => left.totalBytes - right.totalBytes)[0];
+        if (!best) {
+          throw new Error("No manifest sets could be compared.");
+        }
+        const originalTotals = new Set(summaries.map((summary) => summary.totalOriginalBytes));
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer shared-encoding comparison complete.`,
+              `Best set: ${best.label} (${best.totalBytes} bytes total)`,
+              originalTotals.size === 1
+                ? `Comparable original bytes: ${best.totalOriginalBytes}`
+                : `Warning: original byte totals differ across sets: ${Array.from(originalTotals).join(", ")}`,
+              "",
+              "Sets:",
+              ...summaries
+                .sort((left, right) => left.totalBytes - right.totalBytes)
+                .map((summary) => {
+                  const savingsPercent = summary.totalOriginalBytes > 0
+                    ? ((summary.totalOriginalBytes - summary.totalBytes) / summary.totalOriginalBytes) * 100
+                    : 0;
+                  const payloadSharePercent = summary.totalBytes > 0
+                    ? (summary.totalPayloadBytes / summary.totalBytes) * 100
+                    : 0;
+                  const deltaToBest = summary.totalBytes - best.totalBytes;
+                  return [
+                    `- ${summary.label}: manifests=${summary.manifestCount}, files=${summary.fileCount}, total=${summary.totalBytes}, payload=${summary.totalPayloadBytes}, encoding=${summary.totalEncodingBytes}, savings=${formatPercent(savingsPercent)}, payload_share=${formatPercent(payloadSharePercent)}, delta_to_best=${deltaToBest >= 0 ? "+" : ""}${deltaToBest}`,
+                    `  Candidates: ${summary.chosenCandidates.map((candidate, index) => `#${index + 1} run ${candidate.runIndex} ${candidate.source} total=${candidate.totalBytes}`).join(" | ")}`,
+                  ].join("\n");
+                }),
+            ].join("\n"),
           }],
         };
       } catch (error) {
@@ -2105,6 +2577,85 @@ function createServer(): McpServer {
     },
   );
 
+  // ── Tool: vice-trace-build-pyramid-index ────────────────────────────
+  server.tool(
+    "vice_trace_build_pyramid_index",
+    "Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to attach routine/segment semantics."),
+      window_sizes: z.array(z.number().int().positive()).optional().describe("Optional explicit window sizes in instructions, e.g. [256, 1024, 4096]."),
+    },
+    async ({ session_id, annotations_path, window_sizes }) => {
+      try {
+        const pd = annotations_path ? projectDir(annotations_path) : await resolveTraceProjectDir();
+        const record = await loadTraceSession(pd, session_id);
+        const annotationsPath = annotations_path ? resolve(pd, annotations_path) : undefined;
+        const index = await buildTraceWindowIndex(record, {
+          annotationsPath,
+          windowSizes: window_sizes,
+        });
+        const lines = [
+          `Trace pyramid index built for session ${record.sessionId}.`,
+          `Index path: ${record.workspace.traceWindowIndexPath}`,
+          `Trace path: ${record.workspace.runtimeTracePath}`,
+          `Levels: ${index.levels.map((level) => `${level.level}:${level.size}x${level.windowCount}`).join(", ")}`,
+          `Phases: ${index.phases.length}`,
+          `Phase boundaries: ${index.phaseBoundaries.length}`,
+          `Total instructions: ${index.overview.totalInstructions}`,
+          `Unique PCs: ${index.overview.uniquePcCount}`,
+          `Unique routines: ${index.overview.uniqueRoutineCount}`,
+          `Unique segments: ${index.overview.uniqueSegmentCount}`,
+          `Unique addresses: ${index.overview.uniqueAddressCount}`,
+        ];
+        if (index.annotationsPath) {
+          lines.push(`Semantic links: ${index.annotationsPath}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-build-context-index ────────────────────────────
+  server.tool(
+    "vice_trace_build_context_index",
+    "Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to identify known IRQ/NMI handlers."),
+    },
+    async ({ session_id, annotations_path }) => {
+      try {
+        const pd = annotations_path ? projectDir(annotations_path) : await resolveTraceProjectDir();
+        const record = await loadTraceSession(pd, session_id);
+        const annotationsPath = annotations_path ? resolve(pd, annotations_path) : undefined;
+        const index = await buildTraceContextIndex(record, { annotationsPath });
+        const lines = [
+          `Trace context index built for session ${record.sessionId}.`,
+          `Index path: ${record.workspace.traceContextIndexPath}`,
+          `Trace path: ${record.workspace.runtimeTracePath}`,
+          `Contexts: ${index.contexts.length}`,
+        ];
+        if (index.annotationsPath) {
+          lines.push(`Semantic links: ${index.annotationsPath}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
   // ── Tool: vice-trace-hotspots ───────────────────────────────────────
   server.tool(
     "vice_trace_hotspots",
@@ -2132,6 +2683,153 @@ function createServer(): McpServer {
           if (semantic) {
             lines.push(semantic);
           }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-zoom-overview ──────────────────────────────────
+  server.tool(
+    "vice_trace_zoom_overview",
+    "Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      level: z.number().int().nonnegative().optional().describe("Optional pyramid level to highlight. Defaults to 0."),
+      limit: z.number().int().positive().optional().describe("How many windows/phases to include (default: 8)."),
+    },
+    async ({ session_id, level, limit }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceWindowIndex(record);
+        if (!index) {
+          throw new Error(`Trace pyramid index not found at ${record.workspace.traceWindowIndexPath}. Run vice_trace_build_pyramid_index first.`);
+        }
+        const levelEntry = index.levels.find((entry) => entry.level === (level ?? 0)) ?? index.levels[0];
+        if (!levelEntry) {
+          throw new Error("Trace pyramid index contains no levels.");
+        }
+        const lines = [
+          `Trace zoom overview for session ${record.sessionId}:`,
+          `Index path: ${record.workspace.traceWindowIndexPath}`,
+          `Selected level: ${levelEntry.level} (window size ${levelEntry.size})`,
+          `Windows at level: ${levelEntry.windowCount}`,
+          `Phases: ${index.phases.length}`,
+          `Phase boundaries: ${index.phaseBoundaries.length}`,
+          `Total instructions: ${index.overview.totalInstructions}`,
+          `Top routines: ${index.overview.topRoutines.slice(0, 6).map((entry) => `${entry.key}=${entry.count}`).join(", ") || "none"}`,
+          `Top segments: ${index.overview.topSegments.slice(0, 6).map((entry) => `${entry.key}=${entry.count}`).join(", ") || "none"}`,
+          `Top addresses: ${index.overview.topAddresses.slice(0, 6).map((entry) => `${formatHexWord(entry.address)} r=${entry.reads} w=${entry.writes}`).join(", ") || "none"}`,
+          "",
+          "Phases:",
+        ];
+        for (const phase of index.phases.slice(0, limit ?? 8)) {
+          lines.push(formatTracePhaseSummary(phase));
+        }
+        lines.push("");
+        lines.push(`Windows at level ${levelEntry.level}:`);
+        for (const window of levelEntry.windows.slice(0, limit ?? 8)) {
+          lines.push(formatTraceWindowSummary(window));
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-zoom-window ────────────────────────────────────
+  server.tool(
+    "vice_trace_zoom_window",
+    "Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      level: z.number().int().nonnegative().optional().describe("Pyramid level for a direct window lookup (default: 0)."),
+      window_index: z.number().int().nonnegative().optional().describe("Window index inside the selected level."),
+      phase_id: z.number().int().nonnegative().optional().describe("Optional phase id to inspect instead of a single window."),
+    },
+    async ({ session_id, level, window_index, phase_id }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceWindowIndex(record);
+        if (!index) {
+          throw new Error(`Trace pyramid index not found at ${record.workspace.traceWindowIndexPath}. Run vice_trace_build_pyramid_index first.`);
+        }
+
+        const lines: string[] = [`Trace zoom detail for session ${record.sessionId}:`, `Index path: ${record.workspace.traceWindowIndexPath}`];
+        if (phase_id !== undefined) {
+          const phase = index.phases.find((entry) => entry.phaseId === phase_id);
+          if (!phase) {
+            throw new Error(`Phase ${phase_id} not found.`);
+          }
+          lines.push(formatTracePhaseSummary(phase));
+          lines.push(`Top addresses: ${formatAddressStats(phase.topAddresses.slice(0, 10))}`);
+          lines.push("");
+          lines.push("Base windows in phase:");
+          const baseLevel = index.levels.find((entry) => entry.level === 0);
+          for (const window of (baseLevel?.windows ?? []).filter((entry) => entry.phaseId === phase_id)) {
+            lines.push(formatTraceWindowSummary(window));
+          }
+        } else {
+          if (window_index === undefined) {
+            throw new Error("Provide either phase_id or window_index.");
+          }
+          const levelEntry = index.levels.find((entry) => entry.level === (level ?? 0));
+          if (!levelEntry) {
+            throw new Error(`Level ${level ?? 0} not found.`);
+          }
+          const window = levelEntry.windows.find((entry) => entry.windowIndex === window_index);
+          if (!window) {
+            throw new Error(`Window ${window_index} not found at level ${levelEntry.level}.`);
+          }
+          lines.push(formatTraceWindowSummary(window));
+          lines.push(`Top routines: ${window.topRoutines.map((entry) => `${entry.key}=${entry.count}`).join(", ") || "none"}`);
+          lines.push(`Top segments: ${window.topSegments.map((entry) => `${entry.key}=${entry.count}`).join(", ") || "none"}`);
+          lines.push(`Top addresses: ${formatAddressStats(window.topAddresses.slice(0, 10))}`);
+          lines.push(`Feature vector: calls=${window.features.callCount} returns=${window.features.returnCount} branches=${window.features.branchCount} writes=${window.features.writeCount} io_writes=${window.features.ioWriteCount} vector_writes=${window.features.vectorWriteCount} rti=${window.features.rtiCount}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-find-phase-changes ─────────────────────────────
+  server.tool(
+    "vice_trace_find_phase_changes",
+    "List the strongest phase boundaries detected from the trace window feature vectors.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      limit: z.number().int().positive().optional().describe("How many boundaries to include (default: 12)."),
+    },
+    async ({ session_id, limit }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceWindowIndex(record);
+        if (!index) {
+          throw new Error(`Trace pyramid index not found at ${record.workspace.traceWindowIndexPath}. Run vice_trace_build_pyramid_index first.`);
+        }
+        const lines = [
+          `Phase boundaries for session ${record.sessionId}:`,
+          `Count: ${index.phaseBoundaries.length}`,
+        ];
+        for (const boundary of index.phaseBoundaries.slice(0, limit ?? 12)) {
+          lines.push(formatPhaseBoundary(boundary));
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {
@@ -2173,6 +2871,171 @@ function createServer(): McpServer {
           if (semantic) {
             lines.push(semantic);
           }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-list-contexts ──────────────────────────────────
+  server.tool(
+    "vice_trace_list_contexts",
+    "List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      kind: z.enum(["irq", "nmi", "interrupt"]).optional().describe("Optional context kind filter."),
+      limit: z.number().int().positive().optional().describe("How many contexts to include (default: 20)."),
+    },
+    async ({ session_id, kind, limit }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceContextIndex(record);
+        if (!index) {
+          throw new Error(`Trace context index not found at ${record.workspace.traceContextIndexPath}. Run vice_trace_build_context_index first.`);
+        }
+        const contexts = index.contexts
+          .filter((entry) => !kind || entry.kind === kind)
+          .sort((left, right) => BigInt(left.entryClock) > BigInt(right.entryClock) ? 1 : -1)
+          .slice(0, limit ?? 20);
+        const lines = [
+          `Trace contexts for session ${record.sessionId}:`,
+          `Index path: ${record.workspace.traceContextIndexPath}`,
+          `Count: ${contexts.length}`,
+        ];
+        for (const context of contexts) {
+          lines.push(formatTraceContextSummary(context));
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-slice-context ──────────────────────────────────
+  server.tool(
+    "vice_trace_slice_context",
+    "Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span.",
+    {
+      context_id: z.string().describe("Context id from vice_trace_list_contexts, e.g. ctx-0003"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      before: z.number().int().nonnegative().optional().describe("How many instructions before the context to include."),
+      after: z.number().int().nonnegative().optional().describe("How many instructions after the context to include."),
+    },
+    async ({ context_id, session_id, before, after }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceContextIndex(record);
+        if (!index) {
+          throw new Error(`Trace context index not found at ${record.workspace.traceContextIndexPath}. Run vice_trace_build_context_index first.`);
+        }
+        const context = index.contexts.find((entry) => entry.id === context_id);
+        if (!context) {
+          throw new Error(`Context ${context_id} not found.`);
+        }
+        const slice = await sliceTraceContext(record, context, before ?? 0, after ?? 0);
+        const lines = [
+          `Trace context slice for session ${record.sessionId}:`,
+          formatTraceContextSummary(context),
+          `Events returned: ${slice.events.length}`,
+        ];
+        for (const event of slice.events) {
+          lines.push(formatTraceInstructionEvent(event));
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-context-writes ─────────────────────────────────
+  server.tool(
+    "vice_trace_context_writes",
+    "Show the dominant memory writes and call edges recorded for one indexed interrupt context.",
+    {
+      context_id: z.string().describe("Context id from vice_trace_list_contexts, e.g. ctx-0003"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+    },
+    async ({ context_id, session_id }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceContextIndex(record);
+        if (!index) {
+          throw new Error(`Trace context index not found at ${record.workspace.traceContextIndexPath}. Run vice_trace_build_context_index first.`);
+        }
+        const context = index.contexts.find((entry) => entry.id === context_id);
+        if (!context) {
+          throw new Error(`Context ${context_id} not found.`);
+        }
+        const lines = [
+          `Trace context writes for session ${record.sessionId}:`,
+          formatTraceContextSummary(context),
+          `Top writes: ${formatAddressStats(context.topWrites)}`,
+          "Call edges:",
+        ];
+        if (context.callEdges.length === 0) {
+          lines.push("none");
+        } else {
+          for (const edge of context.callEdges) {
+            lines.push(`${formatHexWord(edge.fromPc)} -> ${formatHexWord(edge.toPc)}  count=${edge.count}`);
+          }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-follow-from-pc ─────────────────────────────────
+  server.tool(
+    "vice_trace_follow_from_pc",
+    "Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Useful for questions like 'I entered at $8400, what happened next exactly?'",
+    {
+      pc: z.string().describe("Hex PC to start from, e.g. 8400"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      occurrence: z.number().int().positive().optional().describe("Which occurrence of that PC to follow (default: 1)."),
+      max_instructions: z.number().int().positive().optional().describe("Maximum instructions to include before truncating (default: 200)."),
+      stop_on_return: z.boolean().optional().describe("Whether to stop when the traced frame returns via RTS/RTI (default: true)."),
+    },
+    async ({ pc, session_id, occurrence, max_instructions, stop_on_return }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const pcValue = parseHexWord(pc);
+        const result = await followTraceFromPc(record, pcValue, {
+          occurrence,
+          maxInstructions: max_instructions,
+          stopOnReturn: stop_on_return,
+        });
+        const lines = [
+          `Trace follow-from-PC for ${formatHexWord(pcValue)} in session ${record.sessionId}:`,
+          `Occurrence: ${result.occurrence}`,
+          `Found: ${result.found ? "yes" : "no"}`,
+          `Stop reason: ${result.stopReason}`,
+          `Anchor clock: ${result.anchorClock ?? "n/a"}`,
+          `Events returned: ${result.events.length}`,
+        ];
+        for (const event of result.events) {
+          lines.push(formatTraceInstructionEvent(event));
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {
@@ -3143,6 +4006,594 @@ Practical advice:
         },
       }],
     }),
+  );
+
+  // ── Tool: c64ref-build-rom-knowledge ───────────────────────────────
+  server.tool(
+    "c64ref_build_rom_knowledge",
+    "Fetch and rebuild the local BASIC/KERNAL ROM knowledge snapshot from mist64/c64ref sources.",
+    {
+      output_path: z.string().optional().describe("Optional output path for the generated JSON knowledge file."),
+    },
+    async ({ output_path }) => {
+      try {
+        const outputPath = output_path ? resolve(projectDir(output_path, true), output_path) : c64refKnowledgePath();
+        const knowledge = await buildC64RefRomKnowledge(outputPath);
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              "C64Ref ROM knowledge rebuilt.",
+              `Output: ${outputPath}`,
+              `Entries: ${knowledge.entryCount}`,
+              `Sources: ${knowledge.sourceFiles.length}`,
+              `Generated: ${knowledge.generatedAt}`,
+              `Source repo: ${knowledge.sourceRepo} @ ${knowledge.sourceRevision}`,
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: c64ref-lookup ────────────────────────────────────────────
+  server.tool(
+    "c64ref_lookup",
+    "Look up BASIC/KERNAL ROM knowledge by address or search term from the local c64ref snapshot.",
+    {
+      address: z.string().optional().describe("Exact ROM/system address in hex, e.g. FFD5."),
+      query: z.string().optional().describe("Search term such as LOAD, SYS, CHRGET, keyboard queue, or NMI."),
+      limit: z.number().int().positive().max(20).optional().describe("Maximum number of search hits to return for query searches."),
+      auto_build: z.boolean().optional().describe("When true, automatically build the local c64ref snapshot if it does not exist yet."),
+    },
+    async ({ address, query, limit, auto_build }) => {
+      try {
+        if (!address && !query) {
+          throw new Error("Provide either address or query.");
+        }
+        const knowledgePath = c64refKnowledgePath();
+        if (!existsSync(knowledgePath)) {
+          if (auto_build) {
+            await buildC64RefRomKnowledge(knowledgePath);
+          } else {
+            return {
+              content: [{
+                type: "text" as const,
+                text: [
+                  "Status: knowledge_missing",
+                  `Snapshot: ${knowledgePath}`,
+                  `Estimated build time: ${C64REF_BUILD_ESTIMATE_SECONDS}-${C64REF_BUILD_ESTIMATE_SECONDS + 5} seconds`,
+                  "Run `c64ref_build_rom_knowledge` first or call `c64ref_lookup` again with `auto_build=true`.",
+                ].join("\n"),
+              }],
+            };
+          }
+        }
+        const knowledge = loadC64RefRomKnowledge(knowledgePath);
+        if (address) {
+          const entry = lookupC64RefByAddress(knowledge, parseHexWord(address));
+          if (!entry) {
+            return { content: [{ type: "text" as const, text: `No C64Ref ROM knowledge entry found for ${formatHexWord(parseHexWord(address))}.` }] };
+          }
+          return { content: [{ type: "text" as const, text: c64refEntryToText(entry) }] };
+        }
+        const hits = searchC64RefKnowledge(knowledge, query!, limit ?? 5);
+        if (hits.length === 0) {
+          return { content: [{ type: "text" as const, text: `No C64Ref ROM knowledge hits for query: ${query}` }] };
+        }
+        const text = hits
+          .map((entry) => `${entry.addressHex} ${entry.primaryLabel ? `[${entry.primaryLabel}] ` : ""}${entry.primaryHeading}`)
+          .join("\n");
+        return { content: [{ type: "text" as const, text }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-session-start ────────────────────────────────────
+  server.tool(
+    "headless_session_start",
+    "Start a headless C64 RE runtime session with optional PRG and disk image attached.",
+    {
+      prg_path: z.string().optional().describe("Optional PRG to load into RAM before execution."),
+      disk_path: z.string().optional().describe("Optional D64/G64 disk image used to satisfy KERNAL LOAD traps."),
+      crt_path: z.string().optional().describe("Optional CRT cartridge image attached to the headless memory map."),
+      mapper_type: z.enum(["easyflash", "megabyter", "magicdesk", "ocean", "normal_8k", "normal_16k", "ultimax"]).optional().describe("Optional explicit mapper type for CRT handling."),
+      entry_pc: z.string().optional().describe("Optional explicit entry PC in hex, e.g. 080D."),
+    },
+    async ({ prg_path, disk_path, crt_path, mapper_type, entry_pc }) => {
+      try {
+        const hintPath = prg_path ?? disk_path ?? crt_path;
+        const projectRoot = resolveHeadlessProjectDir(hintPath);
+        const manager = getHeadlessSessionManager(projectRoot);
+        const record = manager.startSession({
+          prgPath: prg_path ? resolve(projectRoot, prg_path) : undefined,
+          diskPath: disk_path ? resolve(projectRoot, disk_path) : undefined,
+          crtPath: crt_path ? resolve(projectRoot, crt_path) : undefined,
+          mapperType: mapper_type,
+          entryPc: entry_pc ? parseHexWord(entry_pc) : undefined,
+        });
+        return headlessSessionToContent(record, "Headless runtime session started.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-session-status ───────────────────────────────────
+  server.tool(
+    "headless_session_status",
+    "Show the current headless C64 RE runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const record = manager.getStatus();
+        if (!record) {
+          return { content: [{ type: "text" as const, text: "No headless runtime session is active." }] };
+        }
+        return headlessSessionToContent(record, "Headless runtime session status.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-session-stop ─────────────────────────────────────
+  server.tool(
+    "headless_session_stop",
+    "Stop the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const record = manager.stopSession("stopped by user");
+        if (!record) {
+          return { content: [{ type: "text" as const, text: "No headless runtime session is active." }] };
+        }
+        return headlessSessionToContent(record, "Headless runtime session stopped.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-session-step ─────────────────────────────────────
+  server.tool(
+    "headless_session_step",
+    "Execute one instruction in the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const result = manager.stepSession();
+        const record = manager.getStatus();
+        if (!record) {
+          throw new Error("Headless session disappeared after step.");
+        }
+        return headlessRunResultToContent(result, record, "Headless runtime stepped one instruction.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-session-run ──────────────────────────────────────
+  server.tool(
+    "headless_session_run",
+    "Run the active headless runtime session for a bounded number of instructions or until a stop PC is reached.",
+    {
+      max_instructions: z.number().int().positive().optional().describe("Maximum instruction count to execute (default: 1000)."),
+      stop_pc: z.string().optional().describe("Optional stop PC in hex."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ max_instructions, stop_pc, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const result = manager.runSession({
+          maxInstructions: max_instructions,
+          stopPc: stop_pc ? parseHexWord(stop_pc) : undefined,
+        });
+        const record = manager.getStatus();
+        if (!record) {
+          throw new Error("Headless session disappeared after run.");
+        }
+        return headlessRunResultToContent(result, record, "Headless runtime run complete.");
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-breakpoint-add ───────────────────────────────────
+  server.tool(
+    "headless_breakpoint_add",
+    "Add an execution or memory-access breakpoint to the active headless runtime session.",
+    {
+      address: z.string().optional().describe("Single breakpoint address as hex, e.g. 080D"),
+      start: z.string().optional().describe("Start address for a range breakpoint/watchpoint."),
+      end: z.string().optional().describe("End address for a range breakpoint/watchpoint, inclusive."),
+      operation: z.enum(["exec", "read", "write", "access"]).optional().describe("Breakpoint kind; read/write/access break on effective memory accesses, including indirect ones."),
+      label: z.string().optional().describe("Optional human-readable label for the breakpoint."),
+      temporary: z.boolean().optional().describe("Whether the breakpoint should auto-remove after it hits once."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ address, start, end, operation, label, temporary, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const kind = operation ?? "exec";
+        const startAddress = parseHexWord(start ?? address ?? "");
+        const endAddress = parseHexWord(end ?? start ?? address ?? "");
+        let id: string;
+        if (kind === "exec") {
+          manager.addBreakpoint(startAddress, temporary ?? false);
+          id = `exec:${startAddress.toString(16)}`;
+        } else {
+          id = manager.addAccessBreakpoint(kind, startAddress, endAddress, temporary ?? false, label);
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Headless breakpoint added: ${kind} ${formatHexWord(startAddress)}-${formatHexWord(endAddress)}${label ? ` (${label})` : ""}${temporary ? " (temporary)" : ""}\nID: ${id}`,
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-breakpoint-clear ─────────────────────────────────
+  server.tool(
+    "headless_breakpoint_clear",
+    "Clear all execution and memory-access breakpoints from the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        manager.clearBreakpoints();
+        return { content: [{ type: "text" as const, text: "Headless breakpoints cleared." }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-watch-add ────────────────────────────────────────
+  server.tool(
+    "headless_watch_add",
+    "Register a watched memory range whose bytes and access kinds should be included directly in trace output when touched.",
+    {
+      name: z.string().describe("Short label for the watched range."),
+      start: z.string().describe("Start address as hex."),
+      end: z.string().describe("End address as hex, inclusive."),
+      include_bytes: z.boolean().optional().describe("Whether to include the watched bytes when the range is touched."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ name, start, end, include_bytes, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const startAddress = parseHexWord(start);
+        const endAddress = parseHexWord(end);
+        const id = manager.addWatchRange(name, startAddress, endAddress, include_bytes ?? true);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Headless watch range added: ${name} ${formatHexWord(startAddress)}-${formatHexWord(endAddress)}\nID: ${id}`,
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-watch-clear ──────────────────────────────────────
+  server.tool(
+    "headless_watch_clear",
+    "Clear all watched memory ranges from the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        manager.clearWatchRanges();
+        return { content: [{ type: "text" as const, text: "Headless watch ranges cleared." }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-interrupt-request ────────────────────────────────
+  server.tool(
+    "headless_interrupt_request",
+    "Mark an IRQ or NMI as pending in the active headless runtime session. The runtime will dispatch it between instructions when possible.",
+    {
+      interrupt: z.enum(["irq", "nmi"]).describe("Interrupt line to request."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ interrupt, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        manager.requestInterrupt(interrupt);
+        return { content: [{ type: "text" as const, text: `Headless ${interrupt.toUpperCase()} requested.` }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-io-interrupt-trigger ─────────────────────────────
+  server.tool(
+    "headless_io_interrupt_trigger",
+    "Trigger a simple VIC/CIA interrupt source in the headless runtime. If the corresponding mask bit is enabled, this will queue an IRQ or NMI.",
+    {
+      source: z.enum(["vic", "cia1", "cia2"]).describe("Interrupt source to trigger."),
+      mask: z.number().int().min(1).max(31).optional().describe("Bit mask to set in the source status register (default: 1)."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ source, mask, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        manager.triggerIoInterrupt(source, mask ?? 0x01);
+        const record = manager.getStatus();
+        if (!record) {
+          throw new Error("No headless runtime session is active.");
+        }
+        return headlessSessionToContent(record, `Headless ${source.toUpperCase()} interrupt source triggered.`);
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-interrupt-clear ──────────────────────────────────
+  server.tool(
+    "headless_interrupt_clear",
+    "Clear pending IRQ and/or NMI state in the active headless runtime session.",
+    {
+      interrupt: z.enum(["irq", "nmi", "both"]).optional().describe("Which pending interrupt to clear; defaults to both."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ interrupt, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        if (!interrupt || interrupt === "both") {
+          manager.clearInterrupt();
+        } else {
+          manager.clearInterrupt(interrupt);
+        }
+        return { content: [{ type: "text" as const, text: `Headless pending interrupt state cleared (${interrupt ?? "both"}).` }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-tail ───────────────────────────────────────
+  server.tool(
+    "headless_trace_tail",
+    "Render the most recent headless runtime trace events with access, stack, bank, and watch metadata.",
+    {
+      limit: z.number().int().positive().max(64).optional().describe("How many recent events to render (default: 12)."),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ limit, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const record = manager.getStatus();
+        if (!record) {
+          return { content: [{ type: "text" as const, text: "No headless runtime session is active." }] };
+        }
+        const events = record.recentTrace.slice(-(limit ?? 12));
+        const lines = [`Headless trace tail for session ${record.sessionId}:`, `Count: ${events.length}`];
+        for (const event of events) {
+          lines.push(`${formatHexWord(event.pc)} [${event.bytes.map(formatHexByte).join(" ")}] cycles=${event.before.cycles}->${event.after.cycles}${event.trap ? ` trap=${event.trap}` : ""}`);
+          lines.push(`  regs: A=${formatHexByte(event.after.a)} X=${formatHexByte(event.after.x)} Y=${formatHexByte(event.after.y)} SP=${formatHexByte(event.after.sp)} FL=${formatHexByte(event.after.flags)}`);
+          lines.push(`  stack: before[${event.beforeStack.bytes.map(formatHexByte).join(" ")}] after[${event.afterStack.bytes.map(formatHexByte).join(" ")}]`);
+          lines.push(`  ports: $00=${formatHexByte(event.bankInfo.cpuPortDirection)} $01=${formatHexByte(event.bankInfo.cpuPortValue)} basic=${event.bankInfo.basicVisible ? "on" : "off"} kernal=${event.bankInfo.kernalVisible ? "on" : "off"} io=${event.bankInfo.ioVisible ? "on" : "off"} char=${event.bankInfo.charVisible ? "on" : "off"}`);
+          lines.push(`  irq: irqPending=${event.irqState.irqPending ? "yes" : "no"} nmiPending=${event.irqState.nmiPending ? "yes" : "no"} irqCount=${event.irqState.irqCount} nmiCount=${event.irqState.nmiCount}`);
+          if (event.accesses.length > 0) {
+            lines.push(`  accesses: ${event.accesses.map((access) => `${access.kind}@${formatHexWord(access.address)}=${formatHexByte(access.value)}(${access.region})`).join(", ")}`);
+          }
+          if (event.watchHits.length > 0) {
+            lines.push(`  watches: ${event.watchHits.map((hit) => `${hit.name}@${formatHexWord(hit.start)}-${formatHexWord(hit.end)} via ${hit.touchedBy.join("/")}`).join(", ")}`);
+          }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-find-pc ────────────────────────────────────
+  server.tool(
+    "headless_trace_find_pc",
+    "Find occurrences of a PC in a persisted headless runtime trace.",
+    {
+      pc: z.string().describe("PC to search, e.g. 63A1"),
+      limit: z.number().int().positive().max(100).optional().describe("Maximum matches to return."),
+      session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
+    },
+    async ({ pc, limit, session_id }) => {
+      try {
+        const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(), session_id);
+        const matches = await findHeadlessTraceByPc(record, parseHexWord(pc), limit ?? 20);
+        const lines = [`Headless trace PC matches for ${formatHexWord(parseHexWord(pc))}:`, `Count: ${matches.length}`];
+        for (const match of matches) {
+          lines.push(`- ${formatHeadlessTraceMatch(match)}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-find-access ────────────────────────────────
+  server.tool(
+    "headless_trace_find_access",
+    "Find headless trace events that touched a specific effective memory address.",
+    {
+      address: z.string().describe("Target address as hex."),
+      access: z.enum(["read", "write", "access"]).optional().describe("Access kind filter; defaults to access."),
+      limit: z.number().int().positive().max(100).optional().describe("Maximum matches to return."),
+      session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
+    },
+    async ({ address, access, limit, session_id }) => {
+      try {
+        const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(), session_id);
+        const matches = await findHeadlessTraceByAccess(record, parseHexWord(address), access ?? "access", limit ?? 20);
+        const lines = [`Headless trace access matches for ${formatHexWord(parseHexWord(address))}:`, `Count: ${matches.length}`];
+        for (const match of matches) {
+          lines.push(`- ${formatHeadlessTraceMatch(match)}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-slice ──────────────────────────────────────
+  server.tool(
+    "headless_trace_slice",
+    "Return a focused window around a persisted headless trace event index.",
+    {
+      anchor_index: z.number().int().nonnegative().describe("Event index to anchor on."),
+      before: z.number().int().nonnegative().max(200).optional().describe("How many events before the anchor to include."),
+      after: z.number().int().nonnegative().max(400).optional().describe("How many events after the anchor to include."),
+      session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
+    },
+    async ({ anchor_index, before, after, session_id }) => {
+      try {
+        const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(), session_id);
+        const slice = await sliceHeadlessTraceByIndex(record, anchor_index, before ?? 20, after ?? 40);
+        const lines = [
+          `Headless trace slice around event ${anchor_index}:`,
+          `Found: ${slice.found ? "yes" : "no"}`,
+          `Count: ${slice.events.length}`,
+        ];
+        for (const event of slice.events) {
+          const suffix = event.trap ? ` trap=${event.trap}` : event.watchHits.length > 0 ? ` watch=${event.watchHits.map((hit) => hit.name).join(",")}` : "";
+          lines.push(`- ${event.index}: ${formatHexWord(event.pc)} [${event.bytes.map(formatHexByte).join(" ")}]${suffix}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-trace-build-index ────────────────────────────────
+  server.tool(
+    "headless_trace_build_index",
+    "Build a persistent PC/access hotspot index for a headless runtime trace session.",
+    {
+      session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
+      limit: z.number().int().positive().max(256).optional().describe("How many top PCs/accesses to keep in the summary."),
+    },
+    async ({ session_id, limit }) => {
+      try {
+        const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(), session_id);
+        const index = await buildHeadlessTraceIndex(record, limit ?? 64);
+        const lines = [
+          `Headless trace index built for session ${index.sessionId}.`,
+          `Trace path: ${index.tracePath}`,
+          `Index path: ${record.workspace.indexPath}`,
+          `Events: ${index.traceEventCount}`,
+          `Unique PCs: ${index.uniquePcCount}`,
+          `Unique access addresses: ${index.uniqueAccessAddressCount}`,
+          "Top PCs:",
+        ];
+        for (const entry of index.topPcs.slice(0, 10)) {
+          lines.push(`- ${formatHexWord(entry.pc)} count=${entry.count} first=${entry.firstIndex} last=${entry.lastIndex}${entry.trapCount ? ` traps=${entry.trapCount}` : ""}`);
+        }
+        lines.push("Top accesses:");
+        for (const entry of index.topAccesses.slice(0, 10)) {
+          lines.push(`- ${formatHexWord(entry.address)} reads=${entry.reads} writes=${entry.writes} first=${entry.firstIndex} last=${entry.lastIndex}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-monitor-registers ────────────────────────────────
+  server.tool(
+    "headless_monitor_registers",
+    "Read CPU registers from the active headless runtime session.",
+    {
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const regs = manager.getRegisters();
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              "Headless registers:",
+              `PC: ${formatHexWord(regs.pc)}`,
+              `A: ${formatHexByte(regs.a)}`,
+              `X: ${formatHexByte(regs.x)}`,
+              `Y: ${formatHexByte(regs.y)}`,
+              `SP: ${formatHexByte(regs.sp)}`,
+              `FL: ${formatHexByte(regs.flags)}`,
+              `Cycles: ${regs.cycles}`,
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  // ── Tool: headless-monitor-memory ───────────────────────────────────
+  server.tool(
+    "headless_monitor_memory",
+    "Read a memory range from the active headless runtime session.",
+    {
+      start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
+      end: z.string().describe("End address as hex, inclusive"),
+      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+    },
+    async ({ start, end, hint_path }) => {
+      try {
+        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(hint_path));
+        const startAddress = parseHexWord(start);
+        const endAddress = parseHexWord(end);
+        const bytes = manager.readMemory(startAddress, endAddress);
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Headless memory ${formatHexWord(startAddress)}-${formatHexWord(endAddress)} (${bytes.length} bytes)`,
+              Array.from(bytes, (value, index) => `${formatHexWord(startAddress + index)}: ${formatHexByte(value)}`).join("\n"),
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
   );
 
   // ── Prompt: c64re-get-skill ──────────────────────────────────────────
