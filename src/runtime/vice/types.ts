@@ -37,6 +37,8 @@ export interface ViceWorkspacePaths {
   traceSnapshotPath: string;
   traceAnalysisPath: string;
   traceIndexPath: string;
+  traceWindowIndexPath: string;
+  traceContextIndexPath: string;
   runtimeTracePath: string;
   traceNotesPath: string;
   stdoutLogPath: string;

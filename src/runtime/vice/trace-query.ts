@@ -43,6 +43,16 @@ export interface ViceTraceSlice {
   events: ViceTraceInstructionEvent[];
 }
 
+export interface ViceTraceFollowResult {
+  sessionId: string;
+  startPc: number;
+  occurrence: number;
+  anchorClock?: string;
+  found: boolean;
+  stopReason: "return" | "limit" | "end_of_trace" | "anchor_not_found";
+  events: ViceTraceInstructionEvent[];
+}
+
 export interface ViceTraceHotspot {
   pc: number;
   count: number;
@@ -276,6 +286,86 @@ export async function traceHotspots(
       firstSampleIndex: stat.firstSampleIndex,
       lastSampleIndex: stat.lastSampleIndex,
     }));
+}
+
+export async function followTraceFromPc(
+  record: ViceSessionRecord,
+  startPc: number,
+  options: {
+    occurrence?: number;
+    maxInstructions?: number;
+    stopOnReturn?: boolean;
+  } = {},
+): Promise<ViceTraceFollowResult> {
+  const occurrence = Math.max(1, options.occurrence ?? 1);
+  const maxInstructions = Math.max(1, options.maxInstructions ?? 200);
+  const stopOnReturn = options.stopOnReturn ?? true;
+  let currentOccurrence = 0;
+  let started = false;
+  let callDepth = 0;
+  const events: ViceTraceInstructionEvent[] = [];
+  let anchorClock: string | undefined;
+
+  for await (const event of readRuntimeTrace(record.workspace.runtimeTracePath)) {
+    if (event.kind !== "instruction") {
+      continue;
+    }
+
+    if (!started) {
+      if (event.pc !== startPc) {
+        continue;
+      }
+      currentOccurrence += 1;
+      if (currentOccurrence !== occurrence) {
+        continue;
+      }
+      started = true;
+      anchorClock = event.clock;
+    }
+
+    events.push(event);
+    const decoded = decodeTraceInstruction(event.instructionBytes);
+    if (decoded.isCall) {
+      callDepth += 1;
+    } else if (decoded.isReturn) {
+      if (stopOnReturn && callDepth === 0) {
+        return {
+          sessionId: record.sessionId,
+          startPc,
+          occurrence,
+          anchorClock,
+          found: true,
+          stopReason: "return",
+          events,
+        };
+      }
+      if (callDepth > 0) {
+        callDepth -= 1;
+      }
+    }
+
+    if (events.length >= maxInstructions) {
+      return {
+        sessionId: record.sessionId,
+        startPc,
+        occurrence,
+        anchorClock,
+        found: true,
+        stopReason: "limit",
+        events,
+      };
+    }
+  }
+
+  return {
+    sessionId: record.sessionId,
+    startPc,
+    occurrence,
+    anchorClock,
+    found: started,
+    stopReason: started ? "end_of_trace" : "anchor_not_found",
+    events,
+  };
 }
 
 export async function traceCallPath(

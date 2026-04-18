@@ -13,6 +13,8 @@ import {
   depackExomizerRaw,
   packByteBoozer,
   packExomizerRaw,
+  packExomizerSharedEncoding,
+  packExomizerSfx,
   readBinaryFile,
   RleDepacker,
   RlePacker,
@@ -38,6 +40,7 @@ import {
   findTraceByBytes,
   findTraceByOperand,
   findTraceByPc,
+  followTraceFromPc,
   listTraceNotes,
   loadTraceSession,
   sliceTraceByClock,
@@ -53,6 +56,21 @@ import {
   type ViceTraceIndex,
   type ViceTraceIndexEntry,
 } from "./runtime/vice/trace-index.js";
+import {
+  buildTraceWindowIndex,
+  loadTraceWindowIndex,
+  type ViceTracePhaseBoundary,
+  type ViceTracePhaseSummary,
+  type ViceTraceWindowIndex,
+  type ViceTraceWindowSummary,
+} from "./runtime/vice/trace-window-index.js";
+import {
+  buildTraceContextIndex,
+  loadTraceContextIndex,
+  sliceTraceContext,
+  type ViceTraceContextWriteStat,
+  type ViceTraceContextSummary,
+} from "./runtime/vice/trace-context-index.js";
 import { getHeadlessSessionManager, getPreferredHeadlessSessionManager } from "./runtime/headless/index.js";
 import type { HeadlessRunResult, HeadlessSessionRecord } from "./runtime/headless/types.js";
 import { findHeadlessTraceByAccess, findHeadlessTraceByPc, loadHeadlessSession, sliceHeadlessTraceByIndex } from "./runtime/headless/trace-query.js";
@@ -97,6 +115,82 @@ function cliResultToContent(result: { stdout: string; stderr: string; exitCode: 
   if (result.exitCode !== 0) parts.push(`[exit code ${result.exitCode}]`);
   const text = parts.join("\n\n") || "[no output]";
   return { content: [{ type: "text" as const, text }] };
+}
+
+interface SharedEncodingManifestCandidate {
+  runIndex: number;
+  source: string;
+  sampleCount: number;
+  encodingBytes: number;
+  totalPayloadBytes: number;
+  totalBytes: number;
+}
+
+interface SharedEncodingManifestRecord {
+  totalOriginalBytes: number;
+  totalPayloadBytes: number;
+  totalBytes: number;
+  packedFiles?: Array<unknown>;
+  chosenCandidate: SharedEncodingManifestCandidate;
+}
+
+interface SharedEncodingManifestSetSummary {
+  label: string;
+  manifestPaths: string[];
+  manifestCount: number;
+  fileCount: number;
+  totalOriginalBytes: number;
+  totalPayloadBytes: number;
+  totalBytes: number;
+  totalEncodingBytes: number;
+  chosenCandidates: SharedEncodingManifestCandidate[];
+}
+
+function formatPercent(value: number): string {
+  return `${value.toFixed(2)}%`;
+}
+
+function readSharedEncodingManifest(manifestPath: string): SharedEncodingManifestRecord {
+  const raw = JSON.parse(readTextFile(manifestPath));
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    typeof (raw as { totalOriginalBytes?: unknown }).totalOriginalBytes !== "number" ||
+    typeof (raw as { totalPayloadBytes?: unknown }).totalPayloadBytes !== "number" ||
+    typeof (raw as { totalBytes?: unknown }).totalBytes !== "number" ||
+    typeof (raw as { chosenCandidate?: unknown }).chosenCandidate !== "object" ||
+    (raw as { chosenCandidate?: unknown }).chosenCandidate === null
+  ) {
+    throw new Error(`Invalid shared-encoding manifest: ${manifestPath}`);
+  }
+  const candidate = (raw as { chosenCandidate: Record<string, unknown> }).chosenCandidate;
+  if (
+    typeof candidate.runIndex !== "number" ||
+    typeof candidate.source !== "string" ||
+    typeof candidate.sampleCount !== "number" ||
+    typeof candidate.encodingBytes !== "number" ||
+    typeof candidate.totalPayloadBytes !== "number" ||
+    typeof candidate.totalBytes !== "number"
+  ) {
+    throw new Error(`Manifest chosenCandidate is incomplete: ${manifestPath}`);
+  }
+  return raw as SharedEncodingManifestRecord;
+}
+
+function summarizeSharedEncodingManifestSet(projectRoot: string, label: string, manifestPaths: string[]): SharedEncodingManifestSetSummary {
+  const resolvedPaths = manifestPaths.map((manifestPath) => resolve(projectRoot, manifestPath));
+  const manifests = resolvedPaths.map((manifestPath) => readSharedEncodingManifest(manifestPath));
+  return {
+    label,
+    manifestPaths: resolvedPaths,
+    manifestCount: manifests.length,
+    fileCount: manifests.reduce((sum, manifest) => sum + (manifest.packedFiles?.length ?? 0), 0),
+    totalOriginalBytes: manifests.reduce((sum, manifest) => sum + manifest.totalOriginalBytes, 0),
+    totalPayloadBytes: manifests.reduce((sum, manifest) => sum + manifest.totalPayloadBytes, 0),
+    totalBytes: manifests.reduce((sum, manifest) => sum + manifest.totalBytes, 0),
+    totalEncodingBytes: manifests.reduce((sum, manifest) => sum + manifest.chosenCandidate.encodingBytes, 0),
+    chosenCandidates: manifests.map((manifest) => manifest.chosenCandidate),
+  };
 }
 
 function diskDefaultOutputDir(imagePath: string): string {
@@ -584,6 +678,62 @@ function getIndexedPcEntry(index: ViceTraceIndex | undefined, pc: number | undef
   return index.pcIndex.find((entry) => entry.pc === pc);
 }
 
+function formatTraceWindowSummary(window: ViceTraceWindowSummary): string {
+  const parts = [
+    `window=${window.windowIndex}`,
+    `level=${window.level}`,
+    `size=${window.size}`,
+    `phase=${window.phaseId}`,
+    `instructions=${window.instructionCount}`,
+    `clock=${window.startClock}->${window.endClock}`,
+  ];
+  if (window.dominantRoutine) parts.push(`routine=${window.dominantRoutine}`);
+  if (window.dominantSegment) parts.push(`segment=${window.dominantSegment}`);
+  if (window.dominantPc !== undefined) parts.push(`pc=${formatHexWord(window.dominantPc)}`);
+  return parts.join("  ");
+}
+
+function formatTracePhaseSummary(phase: ViceTracePhaseSummary): string {
+  const parts = [
+    `phase=${phase.phaseId}`,
+    `windows=${phase.startWindowIndex}-${phase.endWindowIndex}`,
+    `instructions=${phase.instructionCount}`,
+    `clock=${phase.startClock}->${phase.endClock}`,
+  ];
+  if (phase.dominantRoutine) parts.push(`routine=${phase.dominantRoutine}`);
+  if (phase.dominantSegment) parts.push(`segment=${phase.dominantSegment}`);
+  return parts.join("  ");
+}
+
+function formatPhaseBoundary(boundary: ViceTracePhaseBoundary): string {
+  const reasons = boundary.reasons.length > 0 ? `  reasons=${boundary.reasons.join("; ")}` : "";
+  return `window ${boundary.previousWindowIndex} -> ${boundary.currentWindowIndex}  phase ${boundary.previousPhaseId} -> ${boundary.currentPhaseId}  score=${boundary.score}${reasons}`;
+}
+
+function formatAddressStats(stats: ViceTraceContextWriteStat[]): string {
+  if (stats.length === 0) {
+    return "none";
+  }
+  return stats
+    .map((entry) => `${formatHexWord(entry.address)} r=${entry.reads} w=${entry.writes}`)
+    .join(", ");
+}
+
+function formatTraceContextSummary(context: ViceTraceContextSummary): string {
+  const parts = [
+    `${context.id}`,
+    `kind=${context.kind}`,
+    `confidence=${context.confidence}`,
+    `instructions=${context.instructionCount}`,
+    `clock=${context.entryClock}->${context.exitClock}`,
+  ];
+  if (context.entryPc !== undefined) parts.push(`entry=${formatHexWord(context.entryPc)}`);
+  if (context.exitPc !== undefined) parts.push(`exit=${formatHexWord(context.exitPc)}`);
+  if (context.dominantRoutine) parts.push(`routine=${context.dominantRoutine}`);
+  parts.push(`classification=${context.classification}`);
+  return parts.join("  ");
+}
+
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
@@ -997,6 +1147,122 @@ function createServer(): McpServer {
   );
 
   server.tool(
+    "pack_exomizer_sfx",
+    "Compress one or more input files into an Exomizer self-extracting binary via the local exomizer CLI.",
+    {
+      target: z.string().describe("Exomizer sfx target operand, e.g. 'sys', 'systrim,080d', 'basic', 'bin', or '$080d'"),
+      input_specs: z.array(z.string()).min(1).describe("One or more Exomizer input specs in CLI form: 'file.prg' or 'file.bin,0x2000'"),
+      output_path: z.string().optional().describe("Optional output path for the generated SFX binary"),
+      extra_args: z.array(z.string()).optional().describe("Optional extra Exomizer CLI flags, e.g. ['-q', '-t52']"),
+    },
+    async ({ target, input_specs, output_path, extra_args }) => {
+      try {
+        const pd = projectDir(output_path ?? input_specs[0], true);
+        const outputAbs = output_path
+          ? resolve(pd, output_path)
+          : `${resolve(pd, input_specs[0].split(",")[0] ?? input_specs[0])}.sfx.prg`;
+        const result = await packExomizerSfx({
+          projectDir: pd,
+          target,
+          inputSpecs: input_specs,
+          outputPath: outputAbs,
+          extraArgs: extra_args,
+        });
+        if (result.exitCode !== 0) {
+          return cliResultToContent(result);
+        }
+        const outputBytes = (await readBinaryFile(result.outputPath)).length;
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer SFX pack complete.`,
+              `Target: ${target}`,
+              `Inputs: ${input_specs.join(" | ")}`,
+              `Output: ${result.outputPath}`,
+              `Output bytes: ${outputBytes}`,
+              `Command: ${result.command} ${result.args.join(" ")}`,
+              result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
+              result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
+            ].filter(Boolean).join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  server.tool(
+    "pack_exomizer_shared_encoding",
+    "Discover or reuse a shared Exomizer encoding table in pure TypeScript, then pack many files without embedding the table in each payload.",
+    {
+      input_paths: z.array(z.string()).min(1).describe("Input files to evaluate and pack with one shared encoding"),
+      output_dir: z.string().optional().describe("Optional output directory for packed payloads, encoding files, and manifest"),
+      discover_runs: z.number().int().positive().optional().describe("How many candidate discovery runs to evaluate (default: 1)"),
+      sample_size: z.number().int().positive().optional().describe("How many files to sample in non-global discovery runs (default: up to 32)"),
+      seed: z.number().int().optional().describe("Optional seed for random sampling in discovery runs"),
+      imported_encoding: z.string().optional().describe("Optional existing encoding string or @file to reuse instead of discovering a new one"),
+      max_passes: z.number().int().positive().optional().describe("Optimization passes used while discovering candidate encodings (default: 100)"),
+      favor_speed: z.boolean().optional().describe("Favor compression speed over ratio while deriving candidate encodings"),
+      backwards: z.boolean().optional().describe("Use Exomizer backward mode while packing payloads"),
+      reverse_output: z.boolean().optional().describe("Reverse packed payload byte order after packing"),
+      packed_suffix: z.string().optional().describe("Suffix appended to each packed payload (default: .exo)"),
+    },
+    async ({ input_paths, output_dir, discover_runs, sample_size, seed, imported_encoding, max_passes, favor_speed, backwards, reverse_output, packed_suffix }) => {
+      try {
+        const pd = projectDir(output_dir ?? input_paths[0], true);
+        const outputAbs = output_dir
+          ? resolve(pd, output_dir)
+          : join(pd, "analysis", "compression", "shared-encoding");
+        const result = await packExomizerSharedEncoding({
+          projectDir: pd,
+          inputPaths: input_paths,
+          outputDir: outputAbs,
+          discoverRuns: discover_runs,
+          sampleSize: sample_size,
+          seed,
+          importedEncoding: imported_encoding,
+          maxPasses: max_passes,
+          favorSpeed: favor_speed,
+          backwards,
+          reverseOutput: reverse_output,
+          packedSuffix: packed_suffix,
+        });
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer shared-encoding pack complete.`,
+              `Inputs: ${input_paths.length}`,
+              `Output dir: ${result.outputDir}`,
+              `Encoding text: ${result.encodingTextPath}`,
+              `Encoding binary: ${result.encodingBinaryPath}`,
+              `Manifest: ${result.manifestPath}`,
+              `Chosen candidate: run ${result.chosenCandidate.runIndex} (${result.chosenCandidate.source})`,
+              `Encoding bytes: ${result.chosenCandidate.encodingBytes}`,
+              `Payload bytes: ${result.totalPayloadBytes}`,
+              `Total bytes: ${result.totalBytes}`,
+              `Original bytes: ${result.totalOriginalBytes}`,
+              `Top candidates: ${result.candidates.slice(0, 3).map((candidate) => `run ${candidate.runIndex} ${candidate.source} total=${candidate.totalBytes}`).join(" | ")}`,
+            ].join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  server.tool(
     "pack_byteboozer",
     "Compress a file with ByteBoozer2 via the local b2 CLI.",
     {
@@ -1038,6 +1304,64 @@ function createServer(): McpServer {
               result.stdout.trim() ? `\n[stdout]\n${result.stdout.trim()}` : "",
               result.stderr.trim() ? `\n[stderr]\n${result.stderr.trim()}` : "",
             ].filter(Boolean).join("\n"),
+          }],
+        };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  server.tool(
+    "compare_exomizer_shared_encoding_sets",
+    "Compare one or more shared-encoding manifest sets, e.g. global vs 2-cluster vs 4-cluster, by total bytes, payload bytes, and encoding overhead.",
+    {
+      comparison_sets: z.array(z.object({
+        label: z.string().describe("Short label for this strategy, e.g. global, 2-cluster, 4-cluster"),
+        manifest_paths: z.array(z.string()).min(1).describe("One or more manifest.json files belonging to this strategy"),
+      })).min(2).describe("Two or more manifest sets to compare"),
+    },
+    async ({ comparison_sets }) => {
+      try {
+        const hintPath = comparison_sets[0]?.manifest_paths[0];
+        const pd = projectDir(hintPath, true);
+        const summaries = comparison_sets.map((set) => summarizeSharedEncodingManifestSet(pd, set.label, set.manifest_paths));
+        const best = [...summaries].sort((left, right) => left.totalBytes - right.totalBytes)[0];
+        if (!best) {
+          throw new Error("No manifest sets could be compared.");
+        }
+        const originalTotals = new Set(summaries.map((summary) => summary.totalOriginalBytes));
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Exomizer shared-encoding comparison complete.`,
+              `Best set: ${best.label} (${best.totalBytes} bytes total)`,
+              originalTotals.size === 1
+                ? `Comparable original bytes: ${best.totalOriginalBytes}`
+                : `Warning: original byte totals differ across sets: ${Array.from(originalTotals).join(", ")}`,
+              "",
+              "Sets:",
+              ...summaries
+                .sort((left, right) => left.totalBytes - right.totalBytes)
+                .map((summary) => {
+                  const savingsPercent = summary.totalOriginalBytes > 0
+                    ? ((summary.totalOriginalBytes - summary.totalBytes) / summary.totalOriginalBytes) * 100
+                    : 0;
+                  const payloadSharePercent = summary.totalBytes > 0
+                    ? (summary.totalPayloadBytes / summary.totalBytes) * 100
+                    : 0;
+                  const deltaToBest = summary.totalBytes - best.totalBytes;
+                  return [
+                    `- ${summary.label}: manifests=${summary.manifestCount}, files=${summary.fileCount}, total=${summary.totalBytes}, payload=${summary.totalPayloadBytes}, encoding=${summary.totalEncodingBytes}, savings=${formatPercent(savingsPercent)}, payload_share=${formatPercent(payloadSharePercent)}, delta_to_best=${deltaToBest >= 0 ? "+" : ""}${deltaToBest}`,
+                    `  Candidates: ${summary.chosenCandidates.map((candidate, index) => `#${index + 1} run ${candidate.runIndex} ${candidate.source} total=${candidate.totalBytes}`).join(" | ")}`,
+                  ].join("\n");
+                }),
+            ].join("\n"),
           }],
         };
       } catch (error) {
@@ -1902,6 +2226,85 @@ function createServer(): McpServer {
     },
   );
 
+  // ── Tool: vice-trace-build-pyramid-index ────────────────────────────
+  server.tool(
+    "vice_trace_build_pyramid_index",
+    "Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to attach routine/segment semantics."),
+      window_sizes: z.array(z.number().int().positive()).optional().describe("Optional explicit window sizes in instructions, e.g. [256, 1024, 4096]."),
+    },
+    async ({ session_id, annotations_path, window_sizes }) => {
+      try {
+        const pd = annotations_path ? projectDir(annotations_path) : await resolveTraceProjectDir();
+        const record = await loadTraceSession(pd, session_id);
+        const annotationsPath = annotations_path ? resolve(pd, annotations_path) : undefined;
+        const index = await buildTraceWindowIndex(record, {
+          annotationsPath,
+          windowSizes: window_sizes,
+        });
+        const lines = [
+          `Trace pyramid index built for session ${record.sessionId}.`,
+          `Index path: ${record.workspace.traceWindowIndexPath}`,
+          `Trace path: ${record.workspace.runtimeTracePath}`,
+          `Levels: ${index.levels.map((level) => `${level.level}:${level.size}x${level.windowCount}`).join(", ")}`,
+          `Phases: ${index.phases.length}`,
+          `Phase boundaries: ${index.phaseBoundaries.length}`,
+          `Total instructions: ${index.overview.totalInstructions}`,
+          `Unique PCs: ${index.overview.uniquePcCount}`,
+          `Unique routines: ${index.overview.uniqueRoutineCount}`,
+          `Unique segments: ${index.overview.uniqueSegmentCount}`,
+          `Unique addresses: ${index.overview.uniqueAddressCount}`,
+        ];
+        if (index.annotationsPath) {
+          lines.push(`Semantic links: ${index.annotationsPath}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-build-context-index ────────────────────────────
+  server.tool(
+    "vice_trace_build_context_index",
+    "Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to identify known IRQ/NMI handlers."),
+    },
+    async ({ session_id, annotations_path }) => {
+      try {
+        const pd = annotations_path ? projectDir(annotations_path) : await resolveTraceProjectDir();
+        const record = await loadTraceSession(pd, session_id);
+        const annotationsPath = annotations_path ? resolve(pd, annotations_path) : undefined;
+        const index = await buildTraceContextIndex(record, { annotationsPath });
+        const lines = [
+          `Trace context index built for session ${record.sessionId}.`,
+          `Index path: ${record.workspace.traceContextIndexPath}`,
+          `Trace path: ${record.workspace.runtimeTracePath}`,
+          `Contexts: ${index.contexts.length}`,
+        ];
+        if (index.annotationsPath) {
+          lines.push(`Semantic links: ${index.annotationsPath}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
   // ── Tool: vice-trace-hotspots ───────────────────────────────────────
   server.tool(
     "vice_trace_hotspots",
@@ -1929,6 +2332,153 @@ function createServer(): McpServer {
           if (semantic) {
             lines.push(semantic);
           }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-zoom-overview ──────────────────────────────────
+  server.tool(
+    "vice_trace_zoom_overview",
+    "Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      level: z.number().int().nonnegative().optional().describe("Optional pyramid level to highlight. Defaults to 0."),
+      limit: z.number().int().positive().optional().describe("How many windows/phases to include (default: 8)."),
+    },
+    async ({ session_id, level, limit }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceWindowIndex(record);
+        if (!index) {
+          throw new Error(`Trace pyramid index not found at ${record.workspace.traceWindowIndexPath}. Run vice_trace_build_pyramid_index first.`);
+        }
+        const levelEntry = index.levels.find((entry) => entry.level === (level ?? 0)) ?? index.levels[0];
+        if (!levelEntry) {
+          throw new Error("Trace pyramid index contains no levels.");
+        }
+        const lines = [
+          `Trace zoom overview for session ${record.sessionId}:`,
+          `Index path: ${record.workspace.traceWindowIndexPath}`,
+          `Selected level: ${levelEntry.level} (window size ${levelEntry.size})`,
+          `Windows at level: ${levelEntry.windowCount}`,
+          `Phases: ${index.phases.length}`,
+          `Phase boundaries: ${index.phaseBoundaries.length}`,
+          `Total instructions: ${index.overview.totalInstructions}`,
+          `Top routines: ${index.overview.topRoutines.slice(0, 6).map((entry) => `${entry.key}=${entry.count}`).join(", ") || "none"}`,
+          `Top segments: ${index.overview.topSegments.slice(0, 6).map((entry) => `${entry.key}=${entry.count}`).join(", ") || "none"}`,
+          `Top addresses: ${index.overview.topAddresses.slice(0, 6).map((entry) => `${formatHexWord(entry.address)} r=${entry.reads} w=${entry.writes}`).join(", ") || "none"}`,
+          "",
+          "Phases:",
+        ];
+        for (const phase of index.phases.slice(0, limit ?? 8)) {
+          lines.push(formatTracePhaseSummary(phase));
+        }
+        lines.push("");
+        lines.push(`Windows at level ${levelEntry.level}:`);
+        for (const window of levelEntry.windows.slice(0, limit ?? 8)) {
+          lines.push(formatTraceWindowSummary(window));
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-zoom-window ────────────────────────────────────
+  server.tool(
+    "vice_trace_zoom_window",
+    "Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      level: z.number().int().nonnegative().optional().describe("Pyramid level for a direct window lookup (default: 0)."),
+      window_index: z.number().int().nonnegative().optional().describe("Window index inside the selected level."),
+      phase_id: z.number().int().nonnegative().optional().describe("Optional phase id to inspect instead of a single window."),
+    },
+    async ({ session_id, level, window_index, phase_id }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceWindowIndex(record);
+        if (!index) {
+          throw new Error(`Trace pyramid index not found at ${record.workspace.traceWindowIndexPath}. Run vice_trace_build_pyramid_index first.`);
+        }
+
+        const lines: string[] = [`Trace zoom detail for session ${record.sessionId}:`, `Index path: ${record.workspace.traceWindowIndexPath}`];
+        if (phase_id !== undefined) {
+          const phase = index.phases.find((entry) => entry.phaseId === phase_id);
+          if (!phase) {
+            throw new Error(`Phase ${phase_id} not found.`);
+          }
+          lines.push(formatTracePhaseSummary(phase));
+          lines.push(`Top addresses: ${formatAddressStats(phase.topAddresses.slice(0, 10))}`);
+          lines.push("");
+          lines.push("Base windows in phase:");
+          const baseLevel = index.levels.find((entry) => entry.level === 0);
+          for (const window of (baseLevel?.windows ?? []).filter((entry) => entry.phaseId === phase_id)) {
+            lines.push(formatTraceWindowSummary(window));
+          }
+        } else {
+          if (window_index === undefined) {
+            throw new Error("Provide either phase_id or window_index.");
+          }
+          const levelEntry = index.levels.find((entry) => entry.level === (level ?? 0));
+          if (!levelEntry) {
+            throw new Error(`Level ${level ?? 0} not found.`);
+          }
+          const window = levelEntry.windows.find((entry) => entry.windowIndex === window_index);
+          if (!window) {
+            throw new Error(`Window ${window_index} not found at level ${levelEntry.level}.`);
+          }
+          lines.push(formatTraceWindowSummary(window));
+          lines.push(`Top routines: ${window.topRoutines.map((entry) => `${entry.key}=${entry.count}`).join(", ") || "none"}`);
+          lines.push(`Top segments: ${window.topSegments.map((entry) => `${entry.key}=${entry.count}`).join(", ") || "none"}`);
+          lines.push(`Top addresses: ${formatAddressStats(window.topAddresses.slice(0, 10))}`);
+          lines.push(`Feature vector: calls=${window.features.callCount} returns=${window.features.returnCount} branches=${window.features.branchCount} writes=${window.features.writeCount} io_writes=${window.features.ioWriteCount} vector_writes=${window.features.vectorWriteCount} rti=${window.features.rtiCount}`);
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-find-phase-changes ─────────────────────────────
+  server.tool(
+    "vice_trace_find_phase_changes",
+    "List the strongest phase boundaries detected from the trace window feature vectors.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      limit: z.number().int().positive().optional().describe("How many boundaries to include (default: 12)."),
+    },
+    async ({ session_id, limit }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceWindowIndex(record);
+        if (!index) {
+          throw new Error(`Trace pyramid index not found at ${record.workspace.traceWindowIndexPath}. Run vice_trace_build_pyramid_index first.`);
+        }
+        const lines = [
+          `Phase boundaries for session ${record.sessionId}:`,
+          `Count: ${index.phaseBoundaries.length}`,
+        ];
+        for (const boundary of index.phaseBoundaries.slice(0, limit ?? 12)) {
+          lines.push(formatPhaseBoundary(boundary));
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {
@@ -1970,6 +2520,171 @@ function createServer(): McpServer {
           if (semantic) {
             lines.push(semantic);
           }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-list-contexts ──────────────────────────────────
+  server.tool(
+    "vice_trace_list_contexts",
+    "List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices.",
+    {
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      kind: z.enum(["irq", "nmi", "interrupt"]).optional().describe("Optional context kind filter."),
+      limit: z.number().int().positive().optional().describe("How many contexts to include (default: 20)."),
+    },
+    async ({ session_id, kind, limit }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceContextIndex(record);
+        if (!index) {
+          throw new Error(`Trace context index not found at ${record.workspace.traceContextIndexPath}. Run vice_trace_build_context_index first.`);
+        }
+        const contexts = index.contexts
+          .filter((entry) => !kind || entry.kind === kind)
+          .sort((left, right) => BigInt(left.entryClock) > BigInt(right.entryClock) ? 1 : -1)
+          .slice(0, limit ?? 20);
+        const lines = [
+          `Trace contexts for session ${record.sessionId}:`,
+          `Index path: ${record.workspace.traceContextIndexPath}`,
+          `Count: ${contexts.length}`,
+        ];
+        for (const context of contexts) {
+          lines.push(formatTraceContextSummary(context));
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-slice-context ──────────────────────────────────
+  server.tool(
+    "vice_trace_slice_context",
+    "Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span.",
+    {
+      context_id: z.string().describe("Context id from vice_trace_list_contexts, e.g. ctx-0003"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      before: z.number().int().nonnegative().optional().describe("How many instructions before the context to include."),
+      after: z.number().int().nonnegative().optional().describe("How many instructions after the context to include."),
+    },
+    async ({ context_id, session_id, before, after }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceContextIndex(record);
+        if (!index) {
+          throw new Error(`Trace context index not found at ${record.workspace.traceContextIndexPath}. Run vice_trace_build_context_index first.`);
+        }
+        const context = index.contexts.find((entry) => entry.id === context_id);
+        if (!context) {
+          throw new Error(`Context ${context_id} not found.`);
+        }
+        const slice = await sliceTraceContext(record, context, before ?? 0, after ?? 0);
+        const lines = [
+          `Trace context slice for session ${record.sessionId}:`,
+          formatTraceContextSummary(context),
+          `Events returned: ${slice.events.length}`,
+        ];
+        for (const event of slice.events) {
+          lines.push(formatTraceInstructionEvent(event));
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-context-writes ─────────────────────────────────
+  server.tool(
+    "vice_trace_context_writes",
+    "Show the dominant memory writes and call edges recorded for one indexed interrupt context.",
+    {
+      context_id: z.string().describe("Context id from vice_trace_list_contexts, e.g. ctx-0003"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+    },
+    async ({ context_id, session_id }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const index = await loadTraceContextIndex(record);
+        if (!index) {
+          throw new Error(`Trace context index not found at ${record.workspace.traceContextIndexPath}. Run vice_trace_build_context_index first.`);
+        }
+        const context = index.contexts.find((entry) => entry.id === context_id);
+        if (!context) {
+          throw new Error(`Context ${context_id} not found.`);
+        }
+        const lines = [
+          `Trace context writes for session ${record.sessionId}:`,
+          formatTraceContextSummary(context),
+          `Top writes: ${formatAddressStats(context.topWrites)}`,
+          "Call edges:",
+        ];
+        if (context.callEdges.length === 0) {
+          lines.push("none");
+        } else {
+          for (const edge of context.callEdges) {
+            lines.push(`${formatHexWord(edge.fromPc)} -> ${formatHexWord(edge.toPc)}  count=${edge.count}`);
+          }
+        }
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      } catch (error) {
+        return cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    },
+  );
+
+  // ── Tool: vice-trace-follow-from-pc ─────────────────────────────────
+  server.tool(
+    "vice_trace_follow_from_pc",
+    "Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Useful for questions like 'I entered at $8400, what happened next exactly?'",
+    {
+      pc: z.string().describe("Hex PC to start from, e.g. 8400"),
+      session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
+      occurrence: z.number().int().positive().optional().describe("Which occurrence of that PC to follow (default: 1)."),
+      max_instructions: z.number().int().positive().optional().describe("Maximum instructions to include before truncating (default: 200)."),
+      stop_on_return: z.boolean().optional().describe("Whether to stop when the traced frame returns via RTS/RTI (default: true)."),
+    },
+    async ({ pc, session_id, occurrence, max_instructions, stop_on_return }) => {
+      try {
+        const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
+        const pcValue = parseHexWord(pc);
+        const result = await followTraceFromPc(record, pcValue, {
+          occurrence,
+          maxInstructions: max_instructions,
+          stopOnReturn: stop_on_return,
+        });
+        const lines = [
+          `Trace follow-from-PC for ${formatHexWord(pcValue)} in session ${record.sessionId}:`,
+          `Occurrence: ${result.occurrence}`,
+          `Found: ${result.found ? "yes" : "no"}`,
+          `Stop reason: ${result.stopReason}`,
+          `Anchor clock: ${result.anchorClock ?? "n/a"}`,
+          `Events returned: ${result.events.length}`,
+        ];
+        for (const event of result.events) {
+          lines.push(formatTraceInstructionEvent(event));
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {

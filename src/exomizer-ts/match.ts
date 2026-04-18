@@ -367,12 +367,18 @@ export class MatchConcatEnum {
     this.enumIndex = this.enumCurrent === null ? 0 : 1;
   }
 
+  private reset(): void {
+    this.enumCurrent = this.enums.length > 0 ? this.enums[0] : null;
+    this.enumIndex = this.enumCurrent === null ? 0 : 1;
+  }
+
   next(): Match | null {
     let mp: Match | null = null;
 
     for (;;) {
       if (this.enumCurrent === null) {
         if (this.enumIndex >= this.enums.length) {
+          this.reset();
           return null;
         }
         this.enumCurrent = this.enums[this.enumIndex++];
