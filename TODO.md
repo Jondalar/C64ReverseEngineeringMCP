@@ -137,3 +137,14 @@ mark suspected secondary LUTs for follow-up extraction.
   (streams with `00 XX` 2-byte prefix, Exomizer shared-encoding sets).
   Add heuristics for the common Lykia shared-encoding prefix
   `00 0C 40 3F ...` and similar.
+
+### Undocumented-opcode emulation in `depack_exomizer_sfx`
+
+- The TS 6502 emulator used by `depack_exomizer_sfx` fails with
+  "Unimplemented opcode $3F" when a decruncher wrapper uses
+  undocumented opcodes for size. Observed on Lykia disk1 file 01
+  (the game main `$4000` self-extractor), which uses `$3F` RLA and
+  several other undoc opcodes (ANC `$0B`, ISC `$FF`, RRA `$7B`,
+  NOP-imm `$E2/$04`) inside its decrunch body.
+- Extending the emulator to support the standard set of undoc 6502
+  opcodes would let the MCP execute these custom wrappers.
