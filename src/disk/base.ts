@@ -23,6 +23,16 @@ export interface DiskImage {
   getSector(track: number, sector: number): Uint8Array | null;
 }
 
+export interface DiskFileSectorLink {
+  index: number;
+  track: number;
+  sector: number;
+  nextTrack: number;
+  nextSector: number;
+  bytesUsed: number;
+  isLast: boolean;
+}
+
 export const SECTORS_PER_TRACK: Record<number, number> = {
   1: 21, 2: 21, 3: 21, 4: 21, 5: 21, 6: 21, 7: 21, 8: 21, 9: 21,
   10: 21, 11: 21, 12: 21, 13: 21, 14: 21, 15: 21, 16: 21, 17: 21,
@@ -139,8 +149,16 @@ export function extractFileFromChain(
   let track = entry.track;
   let sector = entry.sector;
   let totalBytes = 0;
+  // Cycle guard — a malformed or deliberately self-referencing T/S chain
+  // (observed on decorative "art" directory entries that point at already-used
+  // blocks) must not send us into an infinite loop.
+  const visited = new Set<string>();
 
   while (track !== 0) {
+    const key = `${track}:${sector}`;
+    if (visited.has(key)) break;
+    visited.add(key);
+
     const sectorData = getSector(track, sector);
     if (!sectorData) break;
 
@@ -177,4 +195,49 @@ export function extractFileFromChain(
   }
 
   return result;
+}
+
+export function traceFileSectorChain(
+  getSector: (t: number, s: number) => Uint8Array | null,
+  entry: DiskFileEntry,
+): DiskFileSectorLink[] {
+  const chain: DiskFileSectorLink[] = [];
+  let track = entry.track;
+  let sector = entry.sector;
+  const visited = new Set<string>();
+
+  while (track !== 0) {
+    const key = `${track}:${sector}`;
+    if (visited.has(key)) {
+      break;
+    }
+    visited.add(key);
+
+    const sectorData = getSector(track, sector);
+    if (!sectorData) {
+      break;
+    }
+
+    const nextTrack = sectorData[0];
+    const nextSector = sectorData[1];
+    const isLast = nextTrack === 0;
+    const bytesUsed = isLast
+      ? (nextSector > 0 ? nextSector - 1 : 254)
+      : 254;
+
+    chain.push({
+      index: chain.length,
+      track,
+      sector,
+      nextTrack,
+      nextSector,
+      bytesUsed,
+      isLast,
+    });
+
+    track = nextTrack;
+    sector = nextSector;
+  }
+
+  return chain;
 }
