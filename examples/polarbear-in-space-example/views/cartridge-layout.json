@@ -1,0 +1,60 @@
+{
+  "id": "view-cartridge-layout",
+  "kind": "cartridge-layout",
+  "title": "Polarbear in Space Cartridge Layout",
+  "projectId": "project-polarbear-in-space-mo41xbpc",
+  "generatedAt": "2026-04-18T20:25:47.599Z",
+  "cartridges": [
+    {
+      "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
+      "title": "Polarbear CRT manifest",
+      "cartridgeName": "POLARBEAR IN SPACE",
+      "hardwareType": 32,
+      "exrom": 0,
+      "game": 1,
+      "chips": [
+        {
+          "bank": 0,
+          "loadAddress": 32768,
+          "size": 8192,
+          "file": "chips/bank_00_8000.bin"
+        },
+        {
+          "bank": 1,
+          "loadAddress": 40960,
+          "size": 8192,
+          "file": "chips/bank_01_a000.bin"
+        },
+        {
+          "bank": 2,
+          "loadAddress": 32768,
+          "size": 8192,
+          "file": "chips/bank_02_8000.bin"
+        }
+      ],
+      "banks": [
+        {
+          "bank": 0,
+          "file": "banks/bank_00/bank_16k.bin",
+          "slots": [
+            "$8000"
+          ]
+        },
+        {
+          "bank": 1,
+          "file": "banks/bank_01/bank_16k.bin",
+          "slots": [
+            "$A000"
+          ]
+        },
+        {
+          "bank": 2,
+          "file": "banks/bank_02/bank_16k.bin",
+          "slots": [
+            "$8000"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "id": "view-disk-layout",
+  "kind": "disk-layout",
+  "title": "Polarbear in Space Disk Layout",
+  "projectId": "project-polarbear-in-space-mo41xbpc",
+  "generatedAt": "2026-04-18T20:25:47.588Z",
+  "disks": [
+    {
+      "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz",
+      "title": "Polarbear disk manifest",
+      "format": "d64",
+      "diskName": "POLARBEAR DISK",
+      "diskId": "PS",
+      "fileCount": 3,
+      "files": [
+        {
+          "id": "artifact-polarbear-disk-manifest-mo41xbpz-file-0",
+          "title": "INTRO",
+          "type": "PRG",
+          "sizeSectors": 6,
+          "sizeBytes": 1024,
+          "track": 1,
+          "sector": 0,
+          "loadAddress": 2061,
+          "relativePath": "01_intro.prg",
+          "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-0-01_intro-prg"
+        },
+        {
+          "id": "artifact-polarbear-disk-manifest-mo41xbpz-file-1",
+          "title": "LEVEL1",
+          "type": "PRG",
+          "sizeSectors": 18,
+          "sizeBytes": 4096,
+          "track": 4,
+          "sector": 0,
+          "loadAddress": 16384,
+          "relativePath": "02_level1.prg",
+          "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-1-02_level1-prg"
+        },
+        {
+          "id": "artifact-polarbear-disk-manifest-mo41xbpz-file-2",
+          "title": "ENDING",
+          "type": "PRG",
+          "sizeSectors": 9,
+          "sizeBytes": 1536,
+          "track": 8,
+          "sector": 0,
+          "loadAddress": 24576,
+          "relativePath": "03_ending.prg",
+          "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_ending-prg"
+        }
+      ]
+    }
+  ]
+}

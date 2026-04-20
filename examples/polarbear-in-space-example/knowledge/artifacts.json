@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-04-18T08:04:45.342Z",
+  "items": [
+    {
+      "id": "artifact-analyze-prg-polarbear-in-space-prg-mo41xbq1",
+      "kind": "analysis-run",
+      "scope": "analysis",
+      "title": "Analyze PRG: polarbear-in-space.prg",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/analysis/runs/run-analyze-prg-analyze-prg-polarbear-in-space-prg-mo41xbq0.json",
+      "relativePath": "analysis/runs/run-analyze-prg-analyze-prg-polarbear-in-space-prg-mo41xbq0.json",
+      "format": "json",
+      "role": "tool-run-record",
+      "producedByTool": "analyze_prg",
+      "sourceArtifactIds": [
+        "artifact-polarbear-in-space-prg-mo41xbpg"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 570,
+      "tags": [
+        "analyze_prg"
+      ],
+      "createdAt": "2026-04-18T08:04:45.337Z",
+      "updatedAt": "2026-04-18T08:04:45.337Z"
+    },
+    {
+      "id": "artifact-disassemble-prg-polarbear-in-space-prg-mo41xbq3",
+      "kind": "analysis-run",
+      "scope": "analysis",
+      "title": "Disassemble PRG: polarbear-in-space.prg",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/analysis/runs/run-disasm-prg-disassemble-prg-polarbear-in-space-prg-mo41xbq2.json",
+      "relativePath": "analysis/runs/run-disasm-prg-disassemble-prg-polarbear-in-space-prg-mo41xbq2.json",
+      "format": "json",
+      "role": "tool-run-record",
+      "producedByTool": "disasm_prg",
+      "sourceArtifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-in-space-prg-mo41xbpg"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 691,
+      "tags": [
+        "disasm_prg"
+      ],
+      "createdAt": "2026-04-18T08:04:45.339Z",
+      "updatedAt": "2026-04-18T08:04:45.339Z"
+    },
+    {
+      "id": "artifact-extract-crt-polarbear-in-space-crt-mo41xbq4",
+      "kind": "analysis-run",
+      "scope": "analysis",
+      "title": "Extract CRT: polarbear-in-space.crt",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/analysis/runs/run-extract-crt-extract-crt-polarbear-in-space-crt-mo41xbq4.json",
+      "relativePath": "analysis/runs/run-extract-crt-extract-crt-polarbear-in-space-crt-mo41xbq4.json",
+      "format": "json",
+      "role": "tool-run-record",
+      "producedByTool": "extract_crt",
+      "sourceArtifactIds": [
+        "artifact-polarbear-in-space-crt-mo41xbph"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 569,
+      "tags": [
+        "extract_crt"
+      ],
+      "createdAt": "2026-04-18T08:04:45.340Z",
+      "updatedAt": "2026-04-18T08:04:45.340Z"
+    },
+    {
+      "id": "artifact-extract-disk-polarbear-in-space-d64-mo41xbq6",
+      "kind": "analysis-run",
+      "scope": "analysis",
+      "title": "Extract disk: polarbear-in-space.d64",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/analysis/runs/run-extract-disk-extract-disk-polarbear-in-space-d64-mo41xbq5.json",
+      "relativePath": "analysis/runs/run-extract-disk-extract-disk-polarbear-in-space-d64-mo41xbq5.json",
+      "format": "json",
+      "role": "tool-run-record",
+      "producedByTool": "extract_disk",
+      "sourceArtifactIds": [
+        "artifact-polarbear-in-space-d64-mo41xbps"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 574,
+      "tags": [
+        "extract_disk"
+      ],
+      "createdAt": "2026-04-18T08:04:45.342Z",
+      "updatedAt": "2026-04-18T08:04:45.342Z"
+    },
+    {
+      "id": "artifact-polarbear-64tass-disassembly-mo41xbpv",
+      "kind": "generated-source",
+      "scope": "generated",
+      "title": "Polarbear 64tass disassembly",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/artifacts/generated-src/polarbear-in-space_disasm.tass",
+      "relativePath": "artifacts/generated-src/polarbear-in-space_disasm.tass",
+      "format": "tass",
+      "role": "64tass-source",
+      "producedByTool": "disasm_prg",
+      "sourceArtifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-in-space-prg-mo41xbpg"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 68,
+      "tags": [],
+      "createdAt": "2026-04-18T08:04:45.331Z",
+      "updatedAt": "2026-04-18T08:04:45.331Z"
+    },
+    {
+      "id": "artifact-polarbear-analysis-json-mo41xbpt",
+      "kind": "other",
+      "scope": "analysis",
+      "title": "Polarbear analysis JSON",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/analysis/polarbear-in-space_analysis.json",
+      "relativePath": "analysis/polarbear-in-space_analysis.json",
+      "format": "json",
+      "role": "analysis-json",
+      "producedByTool": "analyze_prg",
+      "sourceArtifactIds": [
+        "artifact-polarbear-in-space-prg-mo41xbpg"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 415,
+      "tags": [],
+      "createdAt": "2026-04-18T08:04:45.329Z",
+      "updatedAt": "2026-04-18T08:04:45.329Z"
+    },
+    {
+      "id": "artifact-polarbear-crt-manifest-mo41xbpx",
+      "kind": "manifest",
+      "scope": "generated",
+      "title": "Polarbear CRT manifest",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/artifacts/extracted/polarbear-cart/manifest.json",
+      "relativePath": "artifacts/extracted/polarbear-cart/manifest.json",
+      "format": "json",
+      "role": "crt-manifest",
+      "producedByTool": "extract_crt",
+      "sourceArtifactIds": [
+        "artifact-polarbear-in-space-crt-mo41xbph"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 810,
+      "tags": [],
+      "createdAt": "2026-04-18T08:04:45.333Z",
+      "updatedAt": "2026-04-18T08:04:45.333Z"
+    },
+    {
+      "id": "artifact-polarbear-disk-manifest-mo41xbpz",
+      "kind": "manifest",
+      "scope": "generated",
+      "title": "Polarbear disk manifest",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/artifacts/extracted/polarbear-disk/manifest.json",
+      "relativePath": "artifacts/extracted/polarbear-disk/manifest.json",
+      "format": "json",
+      "role": "disk-manifest",
+      "producedByTool": "extract_disk",
+      "sourceArtifactIds": [
+        "artifact-polarbear-in-space-d64-mo41xbps"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 843,
+      "tags": [],
+      "createdAt": "2026-04-18T08:04:45.335Z",
+      "updatedAt": "2026-04-18T08:04:45.335Z"
+    },
+    {
+      "id": "artifact-polarbear-in-space-crt-mo41xbph",
+      "kind": "crt",
+      "scope": "input",
+      "title": "Polarbear in Space CRT",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/input/crt/polarbear-in-space.crt",
+      "relativePath": "input/crt/polarbear-in-space.crt",
+      "role": "cartridge-image",
+      "producedByTool": "project_init",
+      "sourceArtifactIds": [],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 256,
+      "tags": [
+        "example"
+      ],
+      "createdAt": "2026-04-18T08:04:45.317Z",
+      "updatedAt": "2026-04-18T08:04:45.317Z"
+    },
+    {
+      "id": "artifact-polarbear-in-space-d64-mo41xbps",
+      "kind": "d64",
+      "scope": "input",
+      "title": "Polarbear in Space D64",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/input/disk/polarbear-in-space.d64",
+      "relativePath": "input/disk/polarbear-in-space.d64",
+      "role": "disk-image",
+      "producedByTool": "project_init",
+      "sourceArtifactIds": [],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 512,
+      "tags": [
+        "example"
+      ],
+      "createdAt": "2026-04-18T08:04:45.328Z",
+      "updatedAt": "2026-04-18T08:04:45.328Z"
+    },
+    {
+      "id": "artifact-polarbear-in-space-prg-mo41xbpg",
+      "kind": "prg",
+      "scope": "input",
+      "title": "Polarbear in Space PRG",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/input/prg/polarbear-in-space.prg",
+      "relativePath": "input/prg/polarbear-in-space.prg",
+      "role": "analysis-target",
+      "producedByTool": "project_init",
+      "sourceArtifactIds": [],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 14,
+      "tags": [
+        "example"
+      ],
+      "createdAt": "2026-04-18T08:04:45.316Z",
+      "updatedAt": "2026-04-18T08:04:45.316Z"
+    },
+    {
+      "id": "artifact-polarbear-kickassembler-disassembly-mo41xbpu",
+      "kind": "generated-source",
+      "scope": "generated",
+      "title": "Polarbear KickAssembler disassembly",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/artifacts/generated-src/polarbear-in-space_disasm.asm",
+      "relativePath": "artifacts/generated-src/polarbear-in-space_disasm.asm",
+      "format": "asm",
+      "role": "kickassembler-source",
+      "producedByTool": "disasm_prg",
+      "sourceArtifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-in-space-prg-mo41xbpg"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 84,
+      "tags": [],
+      "createdAt": "2026-04-18T08:04:45.330Z",
+      "updatedAt": "2026-04-18T08:04:45.330Z"
+    },
+    {
+      "id": "artifact-polarbear-pointer-report-mo41xbpx",
+      "kind": "report",
+      "scope": "generated",
+      "title": "Polarbear pointer report",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/artifacts/reports/polarbear-in-space_POINTER_TABLE_FACTS.md",
+      "relativePath": "artifacts/reports/polarbear-in-space_POINTER_TABLE_FACTS.md",
+      "format": "markdown",
+      "role": "pointer-report",
+      "producedByTool": "pointer_report",
+      "sourceArtifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 91,
+      "tags": [],
+      "createdAt": "2026-04-18T08:04:45.333Z",
+      "updatedAt": "2026-04-18T08:04:45.333Z"
+    },
+    {
+      "id": "artifact-polarbear-ram-state-report-mo41xbpw",
+      "kind": "report",
+      "scope": "generated",
+      "title": "Polarbear RAM state report",
+      "path": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/artifacts/reports/polarbear-in-space_RAM_STATE_FACTS.md",
+      "relativePath": "artifacts/reports/polarbear-in-space_RAM_STATE_FACTS.md",
+      "format": "markdown",
+      "role": "ram-report",
+      "producedByTool": "ram_report",
+      "sourceArtifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "entityIds": [],
+      "evidence": [],
+      "status": "active",
+      "confidence": 1,
+      "fileSize": 81,
+      "tags": [],
+      "createdAt": "2026-04-18T08:04:45.332Z",
+      "updatedAt": "2026-04-18T08:04:45.332Z"
+    }
+  ]
+}

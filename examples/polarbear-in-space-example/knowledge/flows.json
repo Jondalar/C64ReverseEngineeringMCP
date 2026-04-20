@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-04-18T20:25:47.451Z",
+  "items": [
+    {
+      "id": "flow-artifact-polarbear-analysis-json-mo41xbpt-analysis-control-flow",
+      "kind": "analysis-control-flow",
+      "title": "Polarbear analysis JSON imported flow",
+      "summary": "Derived control/data-flow graph from polarbear-in-space_analysis.json.",
+      "status": "active",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Derived analysis flow graph",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "capturedAt": "2026-04-18T20:25:47.387Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "nodes": [
+        {
+          "id": "flow-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+          "kind": "entry-point",
+          "title": "entry_080D",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+          "addressRange": {
+            "start": 2061,
+            "end": 2061
+          },
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "flow-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "kind": "code-segment",
+          "title": "space_intro_boot",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "addressRange": {
+            "start": 2061,
+            "end": 2288
+          },
+          "status": "active",
+          "confidence": 0.5
+        }
+      ],
+      "edges": [
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "kind": "maps-to",
+          "title": "entry_080D maps to space_intro_boot",
+          "fromNodeId": "flow-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+          "toNodeId": "flow-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "summary": "Imported legacy entry point.",
+          "status": "confirmed",
+          "confidence": 1,
+          "evidence": [
+            {
+              "kind": "artifact",
+              "title": "Entry point $080D maps to segment",
+              "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+              "excerpt": "Imported legacy entry point.",
+              "addressRange": {
+                "start": 2061,
+                "end": 2061
+              },
+              "capturedAt": "2026-04-18T20:25:47.387Z"
+            }
+          ]
+        }
+      ],
+      "createdAt": "2026-04-18T20:25:47.451Z",
+      "updatedAt": "2026-04-18T20:25:47.451Z"
+    },
+    {
+      "id": "flow-polarbear-intro-and-first-level-handoff-mo41xbqc",
+      "kind": "intro-sequence",
+      "title": "Polarbear intro and first level handoff",
+      "summary": "High-level boot-to-level flow used as the sample flow graph.",
+      "status": "active",
+      "confidence": 0.8,
+      "evidence": [],
+      "entityIds": [
+        "entity-intro-bank-00-mo41xbq9",
+        "entity-jetpack-state-mo41xbq8",
+        "entity-level1-prg-mo41xbq9",
+        "entity-space-intro-boot-mo41xbq7",
+        "entity-starfield-color-lut-mo41xbq8"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-crt-manifest-mo41xbpx",
+        "artifact-polarbear-disk-manifest-mo41xbpz"
+      ],
+      "nodes": [
+        {
+          "id": "pbs-node-boot",
+          "kind": "routine",
+          "title": "Enter intro boot",
+          "entityId": "entity-space-intro-boot-mo41xbq7",
+          "addressRange": {
+            "start": 2061,
+            "end": 2095
+          },
+          "status": "active",
+          "confidence": 0.93
+        },
+        {
+          "id": "pbs-node-lut",
+          "kind": "table-read",
+          "title": "Read starfield LUT",
+          "entityId": "entity-starfield-color-lut-mo41xbq8",
+          "addressRange": {
+            "start": 16384,
+            "end": 17407
+          },
+          "status": "active",
+          "confidence": 0.8
+        },
+        {
+          "id": "pbs-node-state",
+          "kind": "state-init",
+          "title": "Initialize jetpack state",
+          "entityId": "entity-jetpack-state-mo41xbq8",
+          "addressRange": {
+            "start": 8192,
+            "end": 8447
+          },
+          "status": "active",
+          "confidence": 0.86
+        },
+        {
+          "id": "pbs-node-bank",
+          "kind": "bank-map",
+          "title": "Map intro cartridge bank",
+          "entityId": "entity-intro-bank-00-mo41xbq9",
+          "status": "active",
+          "confidence": 0.95
+        },
+        {
+          "id": "pbs-node-disk",
+          "kind": "disk-load",
+          "title": "Load first level from disk",
+          "entityId": "entity-level1-prg-mo41xbq9",
+          "status": "proposed",
+          "confidence": 0.61
+        }
+      ],
+      "edges": [
+        {
+          "id": "pbs-edge-1",
+          "kind": "control-flow",
+          "title": "Boot starts intro sequence",
+          "fromNodeId": "pbs-node-boot",
+          "toNodeId": "pbs-node-lut",
+          "status": "active",
+          "confidence": 0.91,
+          "evidence": []
+        },
+        {
+          "id": "pbs-edge-2",
+          "kind": "control-flow",
+          "title": "Intro configures gameplay state",
+          "fromNodeId": "pbs-node-lut",
+          "toNodeId": "pbs-node-state",
+          "status": "active",
+          "confidence": 0.77,
+          "evidence": []
+        },
+        {
+          "id": "pbs-edge-3",
+          "kind": "banking",
+          "title": "Intro maps EasyFlash bank 0",
+          "fromNodeId": "pbs-node-state",
+          "toNodeId": "pbs-node-bank",
+          "status": "active",
+          "confidence": 0.9,
+          "evidence": []
+        },
+        {
+          "id": "pbs-edge-4",
+          "kind": "handoff",
+          "title": "Possible handoff to level loader",
+          "fromNodeId": "pbs-node-bank",
+          "toNodeId": "pbs-node-disk",
+          "status": "proposed",
+          "confidence": 0.61,
+          "evidence": []
+        }
+      ],
+      "createdAt": "2026-04-18T08:04:45.348Z",
+      "updatedAt": "2026-04-18T08:04:45.348Z"
+    }
+  ]
+}

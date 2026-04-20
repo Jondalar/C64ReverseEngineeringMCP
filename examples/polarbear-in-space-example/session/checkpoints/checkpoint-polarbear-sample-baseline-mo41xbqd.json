@@ -1,0 +1,29 @@
+{
+  "id": "checkpoint-polarbear-sample-baseline-mo41xbqd",
+  "kind": "checkpoint",
+  "title": "Polarbear sample baseline",
+  "summary": "Seed state for the Polarbear in Space example workspace.",
+  "createdAt": "2026-04-18T08:04:45.349Z",
+  "evidence": [],
+  "artifactIds": [
+    "artifact-polarbear-analysis-json-mo41xbpt",
+    "artifact-polarbear-crt-manifest-mo41xbpx",
+    "artifact-polarbear-disk-manifest-mo41xbpz"
+  ],
+  "entityIds": [
+    "entity-intro-bank-00-mo41xbq9",
+    "entity-jetpack-state-mo41xbq8",
+    "entity-level1-prg-mo41xbq9",
+    "entity-space-intro-boot-mo41xbq7",
+    "entity-starfield-color-lut-mo41xbq8"
+  ],
+  "findingIds": [
+    "finding-cartridge-bank-0-contains-the-intro-bootstrap-payload-mo41xbqb",
+    "finding-intro-routine-performs-both-palette-and-gameplay-state-bootstrap-mo41xbqb"
+  ],
+  "flowIds": [],
+  "taskIds": [
+    "task-trace-intro-to-level-handoff-mo41xbqc"
+  ],
+  "questionIds": []
+}

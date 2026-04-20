@@ -421,8 +421,15 @@ export class ByteBoozerDepacker {
   private decrunch(stream: Uint8Array): { data: Uint8Array; consumedBytes: number } {
     const reader = new ByteBoozerBitReader(stream);
     const output: number[] = [];
-    for (;;) {
+    // Mirrors the reference Decruncher.inc control flow:
+    //   DLoop: next-bit → Match or Literal
+    //   Match: read length + offset, copy, `jmp DLoop`
+    //   Literal: read length + bytes. If length was 255, `jmp DLoop`;
+    //            otherwise fall through to Match (the implicit match)
+    //            and then `jmp DLoop`.
+    outer: for (;;) {
       if (reader.nextBit() === 0) {
+        // Literal run.
         const literalLength = this.readLength(reader);
         for (let i = 0; i < literalLength; i++) {
           output.push(reader.readByte());
@@ -430,19 +437,20 @@ export class ByteBoozerDepacker {
         if (literalLength === 0xff) {
           continue;
         }
-      } else {
+        // Implicit match after a non-255 literal.
         const storedLength = this.readLength(reader);
         if (storedLength === 0xff) {
-          break;
+          break outer;
+        }
+        this.copyMatch(reader, output, storedLength);
+      } else {
+        // Match. No implicit continuation — next iteration reads a new bit.
+        const storedLength = this.readLength(reader);
+        if (storedLength === 0xff) {
+          break outer;
         }
         this.copyMatch(reader, output, storedLength);
       }
-
-      const storedLength = this.readLength(reader);
-      if (storedLength === 0xff) {
-        break;
-      }
-      this.copyMatch(reader, output, storedLength);
     }
     return { data: Uint8Array.from(output), consumedBytes: reader.consumedBytes };
   }

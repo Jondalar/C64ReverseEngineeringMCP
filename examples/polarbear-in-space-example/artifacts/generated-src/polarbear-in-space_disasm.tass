@@ -1,0 +1,3 @@
+; Polarbear in Space 64tass disassembly
+space_intro_boot
+  lda #$06

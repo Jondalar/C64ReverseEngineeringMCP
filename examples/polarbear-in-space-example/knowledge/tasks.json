@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-04-18T08:04:45.348Z",
+  "items": [
+    {
+      "id": "task-trace-intro-to-level-handoff-mo41xbqc",
+      "kind": "runtime-trace",
+      "title": "Trace intro-to-level handoff",
+      "description": "Capture the exact transition from intro bootstrap into disk-backed level loading.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.84,
+      "evidence": [],
+      "entityIds": [
+        "entity-level1-prg-mo41xbq9",
+        "entity-space-intro-boot-mo41xbq7"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-disk-manifest-mo41xbpz"
+      ],
+      "questionIds": [],
+      "createdAt": "2026-04-18T08:04:45.348Z",
+      "updatedAt": "2026-04-18T08:04:45.348Z"
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-04-18T20:25:47.544Z",
+  "items": [
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+      "kind": "maps-to",
+      "title": "entry_080D maps to space_intro_boot",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+      "summary": "Imported legacy entry point.",
+      "status": "confirmed",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Entry point $080D maps to segment",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Imported legacy entry point.",
+          "addressRange": {
+            "start": 2061,
+            "end": 2061
+          },
+          "capturedAt": "2026-04-18T20:25:47.387Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-18T20:25:47.446Z",
+      "updatedAt": "2026-04-18T20:25:47.446Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+      "kind": "contains",
+      "title": "bank_00 contains chip_bank_0_8000",
+      "sourceEntityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
+      "targetEntityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+      "summary": "8192 bytes from chips/bank_00_8000.bin",
+      "status": "confirmed",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "CRT bank 0 contains chip_bank_0_8000",
+          "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
+          "capturedAt": "2026-04-18T20:25:47.464Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-crt-manifest-mo41xbpx"
+      ],
+      "createdAt": "2026-04-18T20:25:47.531Z",
+      "updatedAt": "2026-04-18T20:25:47.531Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+      "kind": "contains",
+      "title": "bank_01 contains chip_bank_1_A000",
+      "sourceEntityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01",
+      "targetEntityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+      "summary": "8192 bytes from chips/bank_01_a000.bin",
+      "status": "confirmed",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "CRT bank 1 contains chip_bank_1_A000",
+          "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
+          "capturedAt": "2026-04-18T20:25:47.464Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-crt-manifest-mo41xbpx"
+      ],
+      "createdAt": "2026-04-18T20:25:47.532Z",
+      "updatedAt": "2026-04-18T20:25:47.532Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+      "kind": "contains",
+      "title": "bank_02 contains chip_bank_2_8000",
+      "sourceEntityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02",
+      "targetEntityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+      "summary": "8192 bytes from chips/bank_02_8000.bin",
+      "status": "confirmed",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "CRT bank 2 contains chip_bank_2_8000",
+          "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
+          "capturedAt": "2026-04-18T20:25:47.464Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-crt-manifest-mo41xbpx"
+      ],
+      "createdAt": "2026-04-18T20:25:47.544Z",
+      "updatedAt": "2026-04-18T20:25:47.544Z"
+    },
+    {
+      "id": "relation-intro-boot-maps-cartridge-intro-bank-mo41xbqa",
+      "kind": "maps-to",
+      "title": "Intro boot maps cartridge intro bank",
+      "sourceEntityId": "entity-space-intro-boot-mo41xbq7",
+      "targetEntityId": "entity-intro-bank-00-mo41xbq9",
+      "status": "active",
+      "confidence": 0.9,
+      "evidence": [],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-crt-manifest-mo41xbpx"
+      ],
+      "createdAt": "2026-04-18T08:04:45.346Z",
+      "updatedAt": "2026-04-18T08:04:45.346Z"
+    },
+    {
+      "id": "relation-intro-boot-reads-starfield-lut-mo41xbqa",
+      "kind": "reads",
+      "title": "Intro boot reads starfield LUT",
+      "sourceEntityId": "entity-space-intro-boot-mo41xbq7",
+      "targetEntityId": "entity-starfield-color-lut-mo41xbq8",
+      "status": "active",
+      "confidence": 0.81,
+      "evidence": [],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-pointer-report-mo41xbpx"
+      ],
+      "createdAt": "2026-04-18T08:04:45.346Z",
+      "updatedAt": "2026-04-18T08:04:45.346Z"
+    },
+    {
+      "id": "relation-intro-boot-updates-jetpack-state-mo41xbqa",
+      "kind": "writes",
+      "title": "Intro boot updates jetpack state",
+      "sourceEntityId": "entity-space-intro-boot-mo41xbq7",
+      "targetEntityId": "entity-jetpack-state-mo41xbq8",
+      "status": "active",
+      "confidence": 0.77,
+      "evidence": [],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-ram-state-report-mo41xbpw"
+      ],
+      "createdAt": "2026-04-18T08:04:45.346Z",
+      "updatedAt": "2026-04-18T08:04:45.346Z"
+    }
+  ]
+}

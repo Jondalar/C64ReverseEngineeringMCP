@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-04-18T20:25:47.459Z",
+  "items": [
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d",
+      "kind": "validation",
+      "title": "Validate: Segment 080D classified as code",
+      "description": "code segment derived from analysis report.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.5,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Classification for $080D-$08F0",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "code segment derived from analysis report.",
+          "addressRange": {
+            "start": 2061,
+            "end": 2288
+          },
+          "capturedAt": "2026-04-18T20:25:47.387Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d"
+      ],
+      "createdAt": "2026-04-18T20:25:47.455Z",
+      "updatedAt": "2026-04-18T20:25:47.455Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000",
+      "kind": "validation",
+      "title": "Validate: Segment 2000 classified as state_variable",
+      "description": "state_variable segment derived from analysis report.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.5,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Classification for $2000-$20FF",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "state_variable segment derived from analysis report.",
+          "addressRange": {
+            "start": 8192,
+            "end": 8447
+          },
+          "capturedAt": "2026-04-18T20:25:47.387Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-2000-20ff"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000"
+      ],
+      "createdAt": "2026-04-18T20:25:47.457Z",
+      "updatedAt": "2026-04-18T20:25:47.457Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000",
+      "kind": "validation",
+      "title": "Validate: Segment 4000 classified as lookup_table",
+      "description": "lookup_table segment derived from analysis report.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.5,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Classification for $4000-$43FF",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "lookup_table segment derived from analysis report.",
+          "addressRange": {
+            "start": 16384,
+            "end": 17407
+          },
+          "capturedAt": "2026-04-18T20:25:47.387Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4000-43ff"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000"
+      ],
+      "createdAt": "2026-04-18T20:25:47.459Z",
+      "updatedAt": "2026-04-18T20:25:47.459Z"
+    },
+    {
+      "id": "question-when-does-disk-level-loading-begin-mo41xbqc",
+      "kind": "open-question",
+      "title": "When does disk level loading begin?",
+      "description": "The current static evidence does not isolate the exact hand-off from intro bootstrap to level payload loading.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.61,
+      "evidence": [],
+      "entityIds": [
+        "entity-level1-prg-mo41xbq9",
+        "entity-space-intro-boot-mo41xbq7"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-disk-manifest-mo41xbpz"
+      ],
+      "findingIds": [
+        "finding-intro-routine-performs-both-palette-and-gameplay-state-bootstrap-mo41xbqb"
+      ],
+      "createdAt": "2026-04-18T08:04:45.348Z",
+      "updatedAt": "2026-04-18T08:04:45.348Z"
+    }
+  ]
+}

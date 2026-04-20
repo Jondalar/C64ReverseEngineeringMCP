@@ -1,0 +1,48 @@
+{
+  "header": {
+    "name": "POLARBEAR IN SPACE",
+    "hardwareType": 32,
+    "exrom": 0,
+    "game": 1
+  },
+  "chips": [
+    {
+      "bank": 0,
+      "load_address": 32768,
+      "size": 8192,
+      "file": "chips/bank_00_8000.bin"
+    },
+    {
+      "bank": 1,
+      "load_address": 40960,
+      "size": 8192,
+      "file": "chips/bank_01_a000.bin"
+    },
+    {
+      "bank": 2,
+      "load_address": 32768,
+      "size": 8192,
+      "file": "chips/bank_02_8000.bin"
+    }
+  ],
+  "banks": {
+    "00": {
+      "slots": [
+        "$8000"
+      ],
+      "file": "banks/bank_00/bank_16k.bin"
+    },
+    "01": {
+      "slots": [
+        "$A000"
+      ],
+      "file": "banks/bank_01/bank_16k.bin"
+    },
+    "02": {
+      "slots": [
+        "$8000"
+      ],
+      "file": "banks/bank_02/bank_16k.bin"
+    }
+  }
+}

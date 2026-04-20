@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-04-18T20:25:47.563Z",
+  "items": [
+    {
+      "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d",
+      "kind": "classification",
+      "title": "Segment 080D classified as code",
+      "summary": "code segment derived from analysis report.",
+      "status": "confirmed",
+      "confidence": 0.5,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Classification for $080D-$08F0",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "code segment derived from analysis report.",
+          "addressRange": {
+            "start": 2061,
+            "end": 2288
+          },
+          "capturedAt": "2026-04-18T20:25:47.387Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "relationIds": [],
+      "flowIds": [],
+      "tags": [
+        "analysis-import",
+        "code",
+        "segment-classification"
+      ],
+      "createdAt": "2026-04-18T20:25:47.434Z",
+      "updatedAt": "2026-04-18T20:25:47.434Z"
+    },
+    {
+      "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000",
+      "kind": "classification",
+      "title": "Segment 2000 classified as state_variable",
+      "summary": "state_variable segment derived from analysis report.",
+      "status": "confirmed",
+      "confidence": 0.5,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Classification for $2000-$20FF",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "state_variable segment derived from analysis report.",
+          "addressRange": {
+            "start": 8192,
+            "end": 8447
+          },
+          "capturedAt": "2026-04-18T20:25:47.387Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-2000-20ff"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "relationIds": [],
+      "flowIds": [],
+      "tags": [
+        "analysis-import",
+        "segment-classification",
+        "state_variable"
+      ],
+      "createdAt": "2026-04-18T20:25:47.440Z",
+      "updatedAt": "2026-04-18T20:25:47.440Z"
+    },
+    {
+      "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000",
+      "kind": "classification",
+      "title": "Segment 4000 classified as lookup_table",
+      "summary": "lookup_table segment derived from analysis report.",
+      "status": "confirmed",
+      "confidence": 0.5,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Classification for $4000-$43FF",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "lookup_table segment derived from analysis report.",
+          "addressRange": {
+            "start": 16384,
+            "end": 17407
+          },
+          "capturedAt": "2026-04-18T20:25:47.387Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4000-43ff"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "relationIds": [],
+      "flowIds": [],
+      "tags": [
+        "analysis-import",
+        "lookup_table",
+        "segment-classification"
+      ],
+      "createdAt": "2026-04-18T20:25:47.441Z",
+      "updatedAt": "2026-04-18T20:25:47.441Z"
+    },
+    {
+      "id": "finding-artifact-polarbear-crt-manifest-mo41xbpx-cartridge-layout",
+      "kind": "cartridge-layout",
+      "title": "Cartridge layout imported from manifest.json",
+      "summary": "3 chips and 3 banks imported from POLARBEAR IN SPACE.",
+      "status": "confirmed",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "CRT manifest import",
+          "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
+          "capturedAt": "2026-04-18T20:25:47.465Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
+        "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01",
+        "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02",
+        "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+        "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+        "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-crt-manifest-mo41xbpx"
+      ],
+      "relationIds": [],
+      "flowIds": [],
+      "tags": [
+        "cartridge-layout",
+        "manifest-import"
+      ],
+      "createdAt": "2026-04-18T20:25:47.529Z",
+      "updatedAt": "2026-04-18T20:25:47.529Z"
+    },
+    {
+      "id": "finding-artifact-polarbear-disk-manifest-mo41xbpz-disk-layout",
+      "kind": "disk-layout",
+      "title": "Disk layout imported from manifest.json",
+      "summary": "3 files imported from POLARBEAR DISK.",
+      "status": "confirmed",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Disk manifest import",
+          "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz",
+          "capturedAt": "2026-04-18T20:25:47.549Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-0-01_intro-prg",
+        "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-1-02_level1-prg",
+        "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_ending-prg"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-disk-manifest-mo41xbpz"
+      ],
+      "relationIds": [],
+      "flowIds": [],
+      "tags": [
+        "disk-layout",
+        "manifest-import"
+      ],
+      "createdAt": "2026-04-18T20:25:47.563Z",
+      "updatedAt": "2026-04-18T20:25:47.563Z"
+    },
+    {
+      "id": "finding-cartridge-bank-0-contains-the-intro-bootstrap-payload-mo41xbqb",
+      "kind": "confirmation",
+      "title": "Cartridge bank 0 contains the intro bootstrap payload",
+      "summary": "The extracted CRT manifest aligns the startup payload with bank 0 and supports the initial bank-mapping interpretation.",
+      "status": "confirmed",
+      "confidence": 0.88,
+      "evidence": [],
+      "entityIds": [
+        "entity-intro-bank-00-mo41xbq9",
+        "entity-space-intro-boot-mo41xbq7"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-crt-manifest-mo41xbpx"
+      ],
+      "relationIds": [],
+      "flowIds": [],
+      "tags": [
+        "easyflash",
+        "intro"
+      ],
+      "createdAt": "2026-04-18T08:04:45.347Z",
+      "updatedAt": "2026-04-18T08:04:45.347Z"
+    },
+    {
+      "id": "finding-intro-routine-performs-both-palette-and-gameplay-state-bootstrap-mo41xbqb",
+      "kind": "hypothesis",
+      "title": "Intro routine performs both palette and gameplay-state bootstrap",
+      "summary": "The entry sequence appears to initialize space-scene colors while also setting up persistent gameplay state for the first flight segment.",
+      "status": "active",
+      "confidence": 0.79,
+      "evidence": [],
+      "entityIds": [
+        "entity-jetpack-state-mo41xbq8",
+        "entity-space-intro-boot-mo41xbq7",
+        "entity-starfield-color-lut-mo41xbq8"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt",
+        "artifact-polarbear-pointer-report-mo41xbpx",
+        "artifact-polarbear-ram-state-report-mo41xbpw"
+      ],
+      "relationIds": [
+        "relation-intro-boot-reads-starfield-lut-mo41xbqa",
+        "relation-intro-boot-updates-jetpack-state-mo41xbqa"
+      ],
+      "flowIds": [],
+      "tags": [
+        "bootstrap",
+        "gameplay"
+      ],
+      "createdAt": "2026-04-18T08:04:45.347Z",
+      "updatedAt": "2026-04-18T08:04:45.347Z"
+    }
+  ]
+}

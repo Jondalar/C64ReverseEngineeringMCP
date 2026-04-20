@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "project-polarbear-in-space-mo41xbpc",
+  "name": "Polarbear in Space",
+  "slug": "polarbear-in-space",
+  "description": "Sample reverse-engineering workspace for the imagined C64 project Polarbear in Space.",
+  "rootPath": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example",
+  "status": "active",
+  "tags": [
+    "easyflash",
+    "example",
+    "knowledge-layer",
+    "polarbear-in-space"
+  ],
+  "createdAt": "2026-04-18T08:04:45.312Z",
+  "updatedAt": "2026-04-18T08:04:45.312Z"
+}

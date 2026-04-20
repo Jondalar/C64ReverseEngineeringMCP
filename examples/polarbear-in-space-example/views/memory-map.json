@@ -1,0 +1,208 @@
+{
+  "id": "view-memory-map",
+  "kind": "memory-map",
+  "title": "Polarbear in Space Memory Map",
+  "projectId": "project-polarbear-in-space-mo41xbpc",
+  "generatedAt": "2026-04-18T20:25:47.583Z",
+  "regions": [
+    {
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+      "title": "entry_080D",
+      "kind": "entry-point",
+      "start": 2061,
+      "end": 2061,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+      "findingIds": [],
+      "status": "active",
+      "confidence": 1,
+      "summary": "Imported legacy entry point."
+    },
+    {
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+      "title": "space_intro_boot",
+      "kind": "code-segment",
+      "start": 2061,
+      "end": 2288,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d"
+      ],
+      "status": "active",
+      "confidence": 0.5,
+      "summary": "code segment derived from analysis report."
+    },
+    {
+      "id": "entity-space-intro-boot-mo41xbq7",
+      "title": "space_intro_boot",
+      "kind": "routine",
+      "start": 2061,
+      "end": 2288,
+      "entityId": "entity-space-intro-boot-mo41xbq7",
+      "findingIds": [
+        "finding-cartridge-bank-0-contains-the-intro-bootstrap-payload-mo41xbqb",
+        "finding-intro-routine-performs-both-palette-and-gameplay-state-bootstrap-mo41xbqb"
+      ],
+      "status": "active",
+      "confidence": 0.93,
+      "summary": "Entry routine that sets palette state and prepares the opening space scene."
+    },
+    {
+      "id": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-0-01_intro-prg",
+      "title": "INTRO",
+      "kind": "disk-file",
+      "start": 2061,
+      "end": 3084,
+      "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-0-01_intro-prg",
+      "findingIds": [
+        "finding-artifact-polarbear-disk-manifest-mo41xbpz-disk-layout"
+      ],
+      "status": "active",
+      "confidence": 1,
+      "summary": "Type PRG, 1024 bytes, at 1/0"
+    },
+    {
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-2000-20ff",
+      "title": "jetpack_state",
+      "kind": "state-variable",
+      "start": 8192,
+      "end": 8447,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-2000-20ff",
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000"
+      ],
+      "status": "active",
+      "confidence": 0.5,
+      "summary": "state_variable segment derived from analysis report."
+    },
+    {
+      "id": "entity-jetpack-state-mo41xbq8",
+      "title": "jetpack_state",
+      "kind": "state-variable",
+      "start": 8192,
+      "end": 8447,
+      "entityId": "entity-jetpack-state-mo41xbq8",
+      "findingIds": [
+        "finding-intro-routine-performs-both-palette-and-gameplay-state-bootstrap-mo41xbqb"
+      ],
+      "status": "active",
+      "confidence": 0.86,
+      "summary": "Gameplay state bytes tracking thrust and remaining oxygen."
+    },
+    {
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4000-43ff",
+      "title": "starfield_color_lut",
+      "kind": "lookup-table",
+      "start": 16384,
+      "end": 17407,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4000-43ff",
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000"
+      ],
+      "status": "active",
+      "confidence": 0.5,
+      "summary": "lookup_table segment derived from analysis report."
+    },
+    {
+      "id": "entity-starfield-color-lut-mo41xbq8",
+      "title": "starfield_color_lut",
+      "kind": "lookup-table",
+      "start": 16384,
+      "end": 17407,
+      "entityId": "entity-starfield-color-lut-mo41xbq8",
+      "findingIds": [
+        "finding-intro-routine-performs-both-palette-and-gameplay-state-bootstrap-mo41xbqb"
+      ],
+      "status": "active",
+      "confidence": 0.8,
+      "summary": "Lookup table that appears to drive starfield color cycling."
+    },
+    {
+      "id": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-1-02_level1-prg",
+      "title": "LEVEL1",
+      "kind": "disk-file",
+      "start": 16384,
+      "end": 20479,
+      "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-1-02_level1-prg",
+      "findingIds": [
+        "finding-artifact-polarbear-disk-manifest-mo41xbpz-disk-layout"
+      ],
+      "status": "active",
+      "confidence": 1,
+      "summary": "Type PRG, 4096 bytes, at 4/0"
+    },
+    {
+      "id": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_ending-prg",
+      "title": "ENDING",
+      "kind": "disk-file",
+      "start": 24576,
+      "end": 26111,
+      "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_ending-prg",
+      "findingIds": [
+        "finding-artifact-polarbear-disk-manifest-mo41xbpz-disk-layout"
+      ],
+      "status": "active",
+      "confidence": 1,
+      "summary": "Type PRG, 1536 bytes, at 8/0"
+    },
+    {
+      "id": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+      "title": "chip_bank_0_8000",
+      "kind": "chip",
+      "start": 32768,
+      "end": 40959,
+      "bank": 0,
+      "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+      "findingIds": [
+        "finding-artifact-polarbear-crt-manifest-mo41xbpx-cartridge-layout"
+      ],
+      "status": "active",
+      "confidence": 1,
+      "summary": "8192 bytes from chips/bank_00_8000.bin"
+    },
+    {
+      "id": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+      "title": "chip_bank_2_8000",
+      "kind": "chip",
+      "start": 32768,
+      "end": 40959,
+      "bank": 2,
+      "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+      "findingIds": [
+        "finding-artifact-polarbear-crt-manifest-mo41xbpx-cartridge-layout"
+      ],
+      "status": "active",
+      "confidence": 1,
+      "summary": "8192 bytes from chips/bank_02_8000.bin"
+    },
+    {
+      "id": "entity-intro-bank-00-mo41xbq9",
+      "title": "intro_bank_00",
+      "kind": "cartridge-bank",
+      "start": 32768,
+      "end": 40959,
+      "bank": 0,
+      "entityId": "entity-intro-bank-00-mo41xbq9",
+      "findingIds": [
+        "finding-cartridge-bank-0-contains-the-intro-bootstrap-payload-mo41xbqb"
+      ],
+      "status": "active",
+      "confidence": 0.95,
+      "summary": "Initial EasyFlash bank holding intro assets and boot code."
+    },
+    {
+      "id": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+      "title": "chip_bank_1_A000",
+      "kind": "chip",
+      "start": 40960,
+      "end": 49151,
+      "bank": 1,
+      "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+      "findingIds": [
+        "finding-artifact-polarbear-crt-manifest-mo41xbpx-cartridge-layout"
+      ],
+      "status": "active",
+      "confidence": 1,
+      "summary": "8192 bytes from chips/bank_01_a000.bin"
+    }
+  ]
+}

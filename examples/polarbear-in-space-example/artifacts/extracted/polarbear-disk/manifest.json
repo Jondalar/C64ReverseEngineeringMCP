@@ -1,0 +1,42 @@
+{
+  "sourceImage": "input/disk/polarbear-in-space.d64",
+  "format": "d64",
+  "diskName": "POLARBEAR DISK",
+  "diskId": "PS",
+  "fileCount": 3,
+  "files": [
+    {
+      "index": 0,
+      "name": "INTRO",
+      "type": "PRG",
+      "sizeSectors": 6,
+      "sizeBytes": 1024,
+      "track": 1,
+      "sector": 0,
+      "loadAddress": 2061,
+      "relativePath": "01_intro.prg"
+    },
+    {
+      "index": 1,
+      "name": "LEVEL1",
+      "type": "PRG",
+      "sizeSectors": 18,
+      "sizeBytes": 4096,
+      "track": 4,
+      "sector": 0,
+      "loadAddress": 16384,
+      "relativePath": "02_level1.prg"
+    },
+    {
+      "index": 2,
+      "name": "ENDING",
+      "type": "PRG",
+      "sizeSectors": 9,
+      "sizeBytes": 1536,
+      "track": 8,
+      "sector": 0,
+      "loadAddress": 24576,
+      "relativePath": "03_ending.prg"
+    }
+  ]
+}

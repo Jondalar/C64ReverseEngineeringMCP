@@ -10,15 +10,30 @@
     "build:mcp": "tsc -p tsconfig.json",
     "build:pipeline": "tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
+    "bootstrap:workspace": "npm run build:mcp && node scripts/bootstrap-existing-re-workspace.mjs",
+    "refresh:polarbear-example": "npm run build:mcp && node scripts/refresh-polarbear-example.mjs",
+    "test:project-knowledge": "npm run build:mcp && node scripts/project-knowledge-smoke.mjs",
+    "ui:api": "tsx src/workspace-ui/server.ts --api-only",
+    "ui:dev": "vite --config ui/vite.config.ts --host 0.0.0.0 --port 4311",
+    "ui:build": "vite build --config ui/vite.config.ts",
+    "ui:typecheck": "tsc -p ui/tsconfig.json",
+    "ui:serve": "tsx src/workspace-ui/server.ts",
+    "ui:spike": "npm run ui:build && npm run ui:serve -- --project examples/polarbear-in-space-example",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vite": "^8.0.8"
   }
 }

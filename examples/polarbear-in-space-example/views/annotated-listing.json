@@ -1,0 +1,51 @@
+{
+  "id": "view-annotated-listing",
+  "kind": "annotated-listing",
+  "title": "Polarbear in Space Annotated Listing",
+  "projectId": "project-polarbear-in-space-mo41xbpc",
+  "generatedAt": "2026-04-18T20:25:47.630Z",
+  "entries": [
+    {
+      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-2061",
+      "start": 2061,
+      "end": 2288,
+      "title": "space_intro_boot",
+      "kind": "code",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d"
+      ],
+      "comment": "code segment derived from analysis report. code segment derived from analysis report.",
+      "confidence": 0.5,
+      "status": "active"
+    },
+    {
+      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-8192",
+      "start": 8192,
+      "end": 8447,
+      "title": "jetpack_state",
+      "kind": "state_variable",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-2000-20ff",
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000"
+      ],
+      "comment": "state_variable segment derived from analysis report. state_variable segment derived from analysis report.",
+      "confidence": 0.5,
+      "status": "active"
+    },
+    {
+      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-16384",
+      "start": 16384,
+      "end": 17407,
+      "title": "starfield_color_lut",
+      "kind": "lookup_table",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4000-43ff",
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000"
+      ],
+      "comment": "lookup_table segment derived from analysis report. lookup_table segment derived from analysis report.",
+      "confidence": 0.5,
+      "status": "active"
+    }
+  ]
+}

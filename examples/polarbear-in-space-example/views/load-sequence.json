@@ -1,0 +1,106 @@
+{
+  "id": "view-load-sequence",
+  "kind": "load-sequence",
+  "title": "Polarbear in Space Load Sequence",
+  "projectId": "project-polarbear-in-space-mo41xbpc",
+  "generatedAt": "2026-04-18T20:25:47.612Z",
+  "items": [
+    {
+      "id": "load-sequence-item-generic-0-artifact-polarbear-analysis-json-mo41xbpt",
+      "key": "generic-0-artifact-polarbear-analysis-json-mo41xbpt",
+      "order": 0,
+      "title": "polarbear in space analysis",
+      "shortName": "01 polarbear in space analysis",
+      "role": "bootstrap",
+      "purposeSummary": "Initial bootstrap payload that likely establishes runtime state and dispatches later content payloads.",
+      "status": "active",
+      "confidence": 0.7870476190476191,
+      "primaryEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-2000-20ff",
+        "entity-jetpack-state-mo41xbq8",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+        "entity-space-intro-boot-mo41xbq7",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4000-43ff",
+        "entity-starfield-color-lut-mo41xbq8"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "artifactLabels": [
+        "Polarbear analysis JSON"
+      ],
+      "entryAddresses": [
+        2061
+      ],
+      "targetRanges": [
+        {
+          "start": 2061,
+          "end": 2061
+        },
+        {
+          "start": 2061,
+          "end": 2288
+        },
+        {
+          "start": 8192,
+          "end": 8447
+        },
+        {
+          "start": 16384,
+          "end": 17407
+        }
+      ],
+      "sourceKinds": [
+        "analysis-json"
+      ],
+      "evidenceHints": [
+        "Segment 4000 classified as lookup_table",
+        "Segment 2000 classified as state_variable",
+        "Segment 080D classified as code",
+        "Imported legacy entry point.",
+        "state_variable segment derived from analysis report."
+      ]
+    },
+    {
+      "id": "load-sequence-item-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
+      "key": "generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
+      "order": 1,
+      "title": "polarbear in space",
+      "shortName": "02 polarbear in space",
+      "role": "content-payload",
+      "purposeSummary": "Reusable runtime payload that appears to be loaded as one step in a broader staged content sequence.",
+      "status": "active",
+      "confidence": 0.98,
+      "entityIds": [],
+      "artifactIds": [
+        "artifact-polarbear-in-space-prg-mo41xbpg"
+      ],
+      "artifactLabels": [
+        "Polarbear in Space PRG"
+      ],
+      "entryAddresses": [],
+      "targetRanges": [],
+      "sourceKinds": [
+        "analysis-target"
+      ],
+      "evidenceHints": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "load-sequence-edge-generic-0-artifact-polarbear-analysis-json-mo41xbpt-to-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
+      "kind": "loads-next",
+      "title": "01 polarbear in space analysis -> 02 polarbear in space",
+      "fromItemId": "load-sequence-item-generic-0-artifact-polarbear-analysis-json-mo41xbpt",
+      "toItemId": "load-sequence-item-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
+      "summary": "Heuristic staged load order inferred from artifact naming, linked analysis artifacts, and imported entry-point knowledge.",
+      "confidence": 0.7870476190476191,
+      "evidenceHints": [
+        "01 polarbear in space analysis precedes 02 polarbear in space in the ordered stage set.",
+        "Segment 4000 classified as lookup_table"
+      ]
+    }
+  ]
+}

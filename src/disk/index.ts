@@ -8,6 +8,7 @@ export {
   SECTORS_PER_TRACK,
   TRACK_SPEED_ZONE,
   extractFileFromChain,
+  traceFileSectorChain,
   extractFilename,
   getFileType,
   parseDirectory,
