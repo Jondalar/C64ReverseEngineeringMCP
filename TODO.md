@@ -138,6 +138,36 @@ mark suspected secondary LUTs for follow-up extraction.
   Add heuristics for the common Lykia shared-encoding prefix
   `00 0C 40 3F ...` and similar.
 
+### Lightweight 6502 sandbox tool
+
+Use case: testing a depacker / crypto routine in isolation where the
+routine reads its input via a specific subroutine (e.g. `$0251`
+serial-recv) that we want to **replace** with "next byte from a
+supplied input stream" — without simulating the real drive.
+
+On Lykia disk1 we hit this while porting the C64-side LZ77
+decruncher at `$0230-$03DA`: the existing `headless_runtime` emulates
+real CIA2 + IEC behaviour and therefore deadlocks waiting for the
+drive, because we are feeding packed bytes from a file rather than
+from an actual 1541.
+
+Proposed tool: `sandbox_6502_run` — parameters:
+- `code_blob`     — binary + origin addr to load at
+- `initial_pc`    — where to start execution
+- `initial_zp`    — dict of `{zp_addr: value}` to seed
+- `initial_mem`   — optional additional fills (extra pages at specific addrs)
+- `input_stream`  — bytes to feed as "next byte" at hook PCs
+- `stream_hook_pcs` — list of PCs that should be treated as "fetch
+  next input byte → A, C=0, RTS"
+- `stop_pc`       — stop condition (also stop on RTS-to-sentinel)
+- `return_writes` — return the map of `{addr: byte}` of every store
+  that happened, restricted to a range if specified.
+
+This is what our `Lykia/tools/lykia_disk_depack.py` does by hand. A
+reusable sandbox in the MCP would let us port depackers / crypto /
+custom I/O routines directly into portable host code without bringing
+up a full emulated C64.
+
 ### Undocumented-opcode emulation in `depack_exomizer_sfx`
 
 - The TS 6502 emulator used by `depack_exomizer_sfx` fails with
