@@ -1358,7 +1358,7 @@ function buildRuntimeFlowMode(context: ViewBuildContext): FlowGraphMode {
         kind: "runtime-phase",
         title: phase.title,
         entityId: phase.entityId,
-        summary: `${phase.summary} Samples ${phase.firstSampleIndex}-${phase.lastSampleIndex}.`,
+        summary: `${phase.summary} Anchor $${phase.anchorPc.toString(16).toUpperCase().padStart(4, "0")} · ${phase.sampleCount.toLocaleString("en-US")} hits.`,
         status: "active",
         confidence: phase.confidence,
       });
