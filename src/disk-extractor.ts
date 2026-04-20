@@ -1,6 +1,16 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { createDiskParser, type DiskFileEntry, G64Parser } from "./disk/index.js";
+import { createDiskParser, traceFileSectorChain, type DiskFileEntry, G64Parser } from "./disk/index.js";
+
+export interface ExtractedDiskFileSector {
+  index: number;
+  track: number;
+  sector: number;
+  nextTrack: number;
+  nextSector: number;
+  bytesUsed: number;
+  isLast: boolean;
+}
 
 export interface ExtractedDiskFile {
   index: number;
@@ -12,6 +22,7 @@ export interface ExtractedDiskFile {
   sector: number;
   loadAddress?: number;
   relativePath: string;
+  sectorChain: ExtractedDiskFileSector[];
 }
 
 export interface ExtractedDiskManifest {
@@ -74,6 +85,7 @@ export function readDiskDirectory(imagePath: string): ExtractedDiskManifest {
       sector: entry.sector,
       loadAddress: entry.loadAddress,
       relativePath: "",
+      sectorChain: traceFileSectorChain((t, s) => parser.getSector(t, s), entry),
     })),
   };
 }
@@ -108,6 +120,7 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
       sector: entry.sector,
       loadAddress: entry.loadAddress,
       relativePath,
+      sectorChain: traceFileSectorChain((t, s) => parser.getSector(t, s), entry),
     });
   });
 

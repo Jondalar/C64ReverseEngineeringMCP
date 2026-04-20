@@ -234,41 +234,7 @@ npm run build:c64ref
 | `headless_monitor_registers` | WIP: Read CPU registers from the headless runtime |
 | `headless_monitor_memory` | WIP: Read memory from the headless runtime |
 
-The headless runtime is intentionally not cycle-exact. It targets reverse-engineering workflows such as:
-
-- running loader and depacker stubs without a visible emulator
-- tracing KERNAL `SETNAM` / `SETLFS` / `LOAD` / `SAVE` behavior
-- following `$0001` banking-sensitive control flow
-- iterating faster than a full VICE session when VIC/SID accuracy is irrelevant
-
-Current first-slice status:
-
-- built-in 6510 CPU core with RAM/ROM windows and `$0001` banking
-- KERNAL traps for `SETNAM`, `SETLFS`, `LOAD`, and `SAVE`
-- D64/G64-backed disk provider for loader-following
-- first cartridge mapping slice for CRT-backed EasyFlash, Magic Desk, Ocean, generic `8KB/16KB`, and `Ultimax`
-- EasyFlash flash writes with a simple AMD-style command model for:
-  - banked byte-program writes
-  - sector erase
-  - autoselect/reset
-- recent instruction trace ring with:
-  - persisted `runtime-trace.jsonl` under `analysis/headless-runtime/<session>/trace/`
-  - instruction bytes and cycle progression
-  - register state and stack snapshots
-  - `$00`/`$01` plus derived bank visibility
-  - pending IRQ/NMI state and real vector-dispatch trace events
-  - simple VIC/CIA interrupt source registers feeding IRQ/NMI pending state
-  - per-instruction memory read/write access log
-  - watched-range snapshots when selected areas are touched
-  - access breakpoints that also catch indirect effective-address activity
-
-Still deliberately missing in this first slice:
-
-- VIC/SID/CIA behavior beyond simple memory/I/O stubs
-- detailed hardware-generated IRQ/NMI timing and side effects
-- advanced cartridge behavior beyond the currently supported EasyFlash/generic banking slice
-- Protovision Megabyte and other writable mapper families
-- persistent trace/index tooling equivalent to the VICE backend
+The headless runtime is a work-in-progress loader- and depacker-oriented analysis backend for cases where a fast, non-cycle-exact pass is more useful than a full visible VICE session. It is intentionally incomplete, currently focused on early reverse-engineering workflows such as bounded execution, banking-aware tracing, and KERNAL loader follow-up, and anything beyond that scope should still fall back to the VICE-based runtime tools.
 
 ### Artifact Access
 
