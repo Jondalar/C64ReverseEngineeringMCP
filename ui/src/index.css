@@ -879,9 +879,17 @@ button {
 }
 
 .disk-sector.selected {
-  fill: rgba(255, 245, 165, 0.98);
-  stroke: rgba(255, 245, 165, 0.95);
-  stroke-width: 1.4;
+  stroke: #fff6a1;
+  stroke-width: 2;
+  filter: brightness(1.35) drop-shadow(0 0 6px rgba(255, 246, 161, 0.5));
+}
+
+.disk-sector-dimmed {
+  opacity: 0.18;
+}
+
+.disk-sector.selected.disk-sector-dimmed {
+  opacity: 1;
 }
 
 .disk-track-label {
@@ -1588,7 +1596,7 @@ button {
 }
 
 .disk-sector-filtered-out {
-  opacity: 0.28;
+  opacity: 0.12;
 }
 
 .chunk-inspector-tag {

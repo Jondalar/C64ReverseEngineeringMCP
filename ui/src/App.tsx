@@ -1000,12 +1000,15 @@ function DiskPanel({
               <svg viewBox="0 0 640 640" className="disk-geometry-svg" role="img" aria-label="Disk geometry">
                 <circle cx="320" cy="320" r="58" className="disk-center-hole" />
                 {activeDisk.sectors.map((sector) => {
-                  const isSelected = selectedFile?.id !== undefined && sector.fileId === selectedFile.id;
+                  const selectionActive = selectedFile?.id !== undefined;
+                  const isSelected = selectionActive && sector.fileId === selectedFile!.id;
                   const filteredOut = sector.fileId !== undefined && !visibleFileIds.has(sector.fileId);
+                  const dimmed = !isSelected && (filteredOut || selectionActive);
                   const className = [
                     "disk-sector",
                     `disk-sector-${sector.category}`,
                     isSelected ? "selected" : "",
+                    dimmed ? "disk-sector-dimmed" : "",
                     filteredOut ? "disk-sector-filtered-out" : "",
                   ].filter(Boolean).join(" ");
                   const useFileColor = sector.category === "file" && sector.color && !filteredOut;
