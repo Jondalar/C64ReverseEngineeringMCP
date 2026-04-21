@@ -3,7 +3,7 @@
   "kind": "cartridge-layout",
   "title": "Polarbear in Space Cartridge Layout",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-18T20:25:47.599Z",
+  "generatedAt": "2026-04-21T16:57:03.907Z",
   "cartridges": [
     {
       "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
@@ -17,19 +17,22 @@
           "bank": 0,
           "loadAddress": 32768,
           "size": 8192,
-          "file": "chips/bank_00_8000.bin"
+          "file": "chips/bank_00_8000.bin",
+          "slot": "ROML"
         },
         {
           "bank": 1,
           "loadAddress": 40960,
           "size": 8192,
-          "file": "chips/bank_01_a000.bin"
+          "file": "chips/bank_01_a000.bin",
+          "slot": "ROMH"
         },
         {
           "bank": 2,
           "loadAddress": 32768,
           "size": 8192,
-          "file": "chips/bank_02_8000.bin"
+          "file": "chips/bank_02_8000.bin",
+          "slot": "ROML"
         }
       ],
       "banks": [
@@ -38,23 +41,36 @@
           "file": "banks/bank_00/bank_16k.bin",
           "slots": [
             "$8000"
-          ]
+          ],
+          "romlChipIndex": 0
         },
         {
           "bank": 1,
           "file": "banks/bank_01/bank_16k.bin",
           "slots": [
             "$A000"
-          ]
+          ],
+          "romhChipIndex": 1
         },
         {
           "bank": 2,
           "file": "banks/bank_02/bank_16k.bin",
           "slots": [
             "$8000"
-          ]
+          ],
+          "romlChipIndex": 2
         }
-      ]
+      ],
+      "slotLayout": {
+        "hardwareTypeName": "EasyFlash",
+        "slotsPerBank": 2,
+        "bankSize": 8192,
+        "hasRomh": true,
+        "hasEeprom": false,
+        "isUltimax": false,
+        "bankCount": 3,
+        "totalRomBytes": 24576
+      }
     }
   ]
 }

@@ -3,13 +3,14 @@
   "kind": "flow-graph",
   "title": "Polarbear in Space Flow Graph",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-18T20:25:47.617Z",
+  "generatedAt": "2026-04-21T16:57:03.909Z",
   "nodes": [
     {
       "id": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
       "kind": "cartridge-bank",
       "title": "bank_00",
       "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
+      "summary": "$8000 (banks/bank_00/bank_16k.bin)",
       "status": "active",
       "confidence": 1
     },
@@ -18,6 +19,7 @@
       "kind": "cartridge-bank",
       "title": "bank_01",
       "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01",
+      "summary": "$A000 (banks/bank_01/bank_16k.bin)",
       "status": "active",
       "confidence": 1
     },
@@ -26,6 +28,7 @@
       "kind": "cartridge-bank",
       "title": "bank_02",
       "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02",
+      "summary": "$8000 (banks/bank_02/bank_16k.bin)",
       "status": "active",
       "confidence": 1
     },
@@ -34,6 +37,7 @@
       "kind": "chip",
       "title": "chip_bank_0_8000",
       "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+      "summary": "8192 bytes from chips/bank_00_8000.bin",
       "status": "active",
       "confidence": 1
     },
@@ -42,6 +46,7 @@
       "kind": "chip",
       "title": "chip_bank_1_A000",
       "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+      "summary": "8192 bytes from chips/bank_01_a000.bin",
       "status": "active",
       "confidence": 1
     },
@@ -50,6 +55,7 @@
       "kind": "chip",
       "title": "chip_bank_2_8000",
       "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+      "summary": "8192 bytes from chips/bank_02_8000.bin",
       "status": "active",
       "confidence": 1
     },
@@ -58,6 +64,7 @@
       "kind": "routine",
       "title": "Enter intro boot",
       "entityId": "entity-space-intro-boot-mo41xbq7",
+      "summary": "80D-82F",
       "status": "active",
       "confidence": 0.93
     },
@@ -66,6 +73,7 @@
       "kind": "entry-point",
       "title": "entry_080D",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+      "summary": "80D-80D",
       "status": "active",
       "confidence": 1
     },
@@ -74,6 +82,7 @@
       "kind": "state-init",
       "title": "Initialize jetpack state",
       "entityId": "entity-jetpack-state-mo41xbq8",
+      "summary": "2000-20FF",
       "status": "active",
       "confidence": 0.86
     },
@@ -98,6 +107,7 @@
       "kind": "table-read",
       "title": "Read starfield LUT",
       "entityId": "entity-starfield-color-lut-mo41xbq8",
+      "summary": "4000-43FF",
       "status": "active",
       "confidence": 0.8
     },
@@ -106,6 +116,7 @@
       "kind": "code-segment",
       "title": "space_intro_boot",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+      "summary": "80D-8F0",
       "status": "active",
       "confidence": 0.5
     }
@@ -118,6 +129,7 @@
       "from": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
       "to": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
       "relationId": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+      "summary": "8192 bytes from chips/bank_00_8000.bin",
       "status": "confirmed",
       "confidence": 1
     },
@@ -128,6 +140,7 @@
       "from": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01",
       "to": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
       "relationId": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+      "summary": "8192 bytes from chips/bank_01_a000.bin",
       "status": "confirmed",
       "confidence": 1
     },
@@ -138,6 +151,7 @@
       "from": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02",
       "to": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
       "relationId": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+      "summary": "8192 bytes from chips/bank_02_8000.bin",
       "status": "confirmed",
       "confidence": 1
     },
@@ -157,6 +171,7 @@
       "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
       "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
       "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+      "summary": "Imported legacy entry point.",
       "status": "confirmed",
       "confidence": 1
     },
@@ -217,5 +232,284 @@
       "status": "proposed",
       "confidence": 0.61
     }
-  ]
+  ],
+  "modes": {
+    "structure": {
+      "id": "structure",
+      "title": "Structure",
+      "summary": "Entity- and relation-centric graph built from imported control-flow fragments plus stored project relations.",
+      "nodes": [
+        {
+          "id": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
+          "kind": "cartridge-bank",
+          "title": "bank_00",
+          "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
+          "summary": "$8000 (banks/bank_00/bank_16k.bin)",
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01",
+          "kind": "cartridge-bank",
+          "title": "bank_01",
+          "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01",
+          "summary": "$A000 (banks/bank_01/bank_16k.bin)",
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02",
+          "kind": "cartridge-bank",
+          "title": "bank_02",
+          "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02",
+          "summary": "$8000 (banks/bank_02/bank_16k.bin)",
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+          "kind": "chip",
+          "title": "chip_bank_0_8000",
+          "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+          "summary": "8192 bytes from chips/bank_00_8000.bin",
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+          "kind": "chip",
+          "title": "chip_bank_1_A000",
+          "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+          "summary": "8192 bytes from chips/bank_01_a000.bin",
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+          "kind": "chip",
+          "title": "chip_bank_2_8000",
+          "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+          "summary": "8192 bytes from chips/bank_02_8000.bin",
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "entity-node-entity-space-intro-boot-mo41xbq7",
+          "kind": "routine",
+          "title": "Enter intro boot",
+          "entityId": "entity-space-intro-boot-mo41xbq7",
+          "summary": "80D-82F",
+          "status": "active",
+          "confidence": 0.93
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+          "kind": "entry-point",
+          "title": "entry_080D",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+          "summary": "80D-80D",
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "entity-node-entity-jetpack-state-mo41xbq8",
+          "kind": "state-init",
+          "title": "Initialize jetpack state",
+          "entityId": "entity-jetpack-state-mo41xbq8",
+          "summary": "2000-20FF",
+          "status": "active",
+          "confidence": 0.86
+        },
+        {
+          "id": "entity-node-entity-level1-prg-mo41xbq9",
+          "kind": "disk-load",
+          "title": "Load first level from disk",
+          "entityId": "entity-level1-prg-mo41xbq9",
+          "status": "proposed",
+          "confidence": 0.61
+        },
+        {
+          "id": "entity-node-entity-intro-bank-00-mo41xbq9",
+          "kind": "bank-map",
+          "title": "Map intro cartridge bank",
+          "entityId": "entity-intro-bank-00-mo41xbq9",
+          "status": "active",
+          "confidence": 0.95
+        },
+        {
+          "id": "entity-node-entity-starfield-color-lut-mo41xbq8",
+          "kind": "table-read",
+          "title": "Read starfield LUT",
+          "entityId": "entity-starfield-color-lut-mo41xbq8",
+          "summary": "4000-43FF",
+          "status": "active",
+          "confidence": 0.8
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "kind": "code-segment",
+          "title": "space_intro_boot",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "summary": "80D-8F0",
+          "status": "active",
+          "confidence": 0.5
+        }
+      ],
+      "edges": [
+        {
+          "id": "relation-edge-relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+          "kind": "contains",
+          "title": "bank_00 contains chip_bank_0_8000",
+          "from": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
+          "to": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+          "relationId": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
+          "summary": "8192 bytes from chips/bank_00_8000.bin",
+          "status": "confirmed",
+          "confidence": 1
+        },
+        {
+          "id": "relation-edge-relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+          "kind": "contains",
+          "title": "bank_01 contains chip_bank_1_A000",
+          "from": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01",
+          "to": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+          "relationId": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
+          "summary": "8192 bytes from chips/bank_01_a000.bin",
+          "status": "confirmed",
+          "confidence": 1
+        },
+        {
+          "id": "relation-edge-relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+          "kind": "contains",
+          "title": "bank_02 contains chip_bank_2_8000",
+          "from": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02",
+          "to": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+          "relationId": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
+          "summary": "8192 bytes from chips/bank_02_8000.bin",
+          "status": "confirmed",
+          "confidence": 1
+        },
+        {
+          "id": "pbs-edge-1",
+          "kind": "control-flow",
+          "title": "Boot starts intro sequence",
+          "from": "entity-node-entity-space-intro-boot-mo41xbq7",
+          "to": "entity-node-entity-starfield-color-lut-mo41xbq8",
+          "status": "active",
+          "confidence": 0.91
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "kind": "maps-to",
+          "title": "entry_080D maps to space_intro_boot",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
+          "summary": "Imported legacy entry point.",
+          "status": "confirmed",
+          "confidence": 1
+        },
+        {
+          "id": "relation-edge-relation-intro-boot-maps-cartridge-intro-bank-mo41xbqa",
+          "kind": "maps-to",
+          "title": "Intro boot maps cartridge intro bank",
+          "from": "entity-node-entity-space-intro-boot-mo41xbq7",
+          "to": "entity-node-entity-intro-bank-00-mo41xbq9",
+          "relationId": "relation-intro-boot-maps-cartridge-intro-bank-mo41xbqa",
+          "status": "active",
+          "confidence": 0.9
+        },
+        {
+          "id": "relation-edge-relation-intro-boot-reads-starfield-lut-mo41xbqa",
+          "kind": "reads",
+          "title": "Intro boot reads starfield LUT",
+          "from": "entity-node-entity-space-intro-boot-mo41xbq7",
+          "to": "entity-node-entity-starfield-color-lut-mo41xbq8",
+          "relationId": "relation-intro-boot-reads-starfield-lut-mo41xbqa",
+          "status": "active",
+          "confidence": 0.81
+        },
+        {
+          "id": "relation-edge-relation-intro-boot-updates-jetpack-state-mo41xbqa",
+          "kind": "writes",
+          "title": "Intro boot updates jetpack state",
+          "from": "entity-node-entity-space-intro-boot-mo41xbq7",
+          "to": "entity-node-entity-jetpack-state-mo41xbq8",
+          "relationId": "relation-intro-boot-updates-jetpack-state-mo41xbqa",
+          "status": "active",
+          "confidence": 0.77
+        },
+        {
+          "id": "pbs-edge-2",
+          "kind": "control-flow",
+          "title": "Intro configures gameplay state",
+          "from": "entity-node-entity-starfield-color-lut-mo41xbq8",
+          "to": "entity-node-entity-jetpack-state-mo41xbq8",
+          "status": "active",
+          "confidence": 0.77
+        },
+        {
+          "id": "pbs-edge-3",
+          "kind": "banking",
+          "title": "Intro maps EasyFlash bank 0",
+          "from": "entity-node-entity-jetpack-state-mo41xbq8",
+          "to": "entity-node-entity-intro-bank-00-mo41xbq9",
+          "status": "active",
+          "confidence": 0.9
+        },
+        {
+          "id": "pbs-edge-4",
+          "kind": "handoff",
+          "title": "Possible handoff to level loader",
+          "from": "entity-node-entity-intro-bank-00-mo41xbq9",
+          "to": "entity-node-entity-level1-prg-mo41xbq9",
+          "status": "proposed",
+          "confidence": 0.61
+        }
+      ]
+    },
+    "load": {
+      "id": "load",
+      "title": "Load",
+      "summary": "Payload order graph derived from staged artifacts, imported analysis hints, and linked target ranges.",
+      "nodes": [
+        {
+          "id": "load-sequence-item-generic-0-artifact-polarbear-analysis-json-mo41xbpt",
+          "kind": "payload:bootstrap",
+          "title": "01 polarbear in space analysis",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+          "summary": "Initial bootstrap payload that likely establishes runtime state and dispatches later content payloads.",
+          "status": "active",
+          "confidence": 0.7870476190476191
+        },
+        {
+          "id": "load-sequence-item-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
+          "kind": "payload:content-payload",
+          "title": "02 polarbear in space",
+          "summary": "Reusable runtime payload that appears to be loaded as one step in a broader staged content sequence.",
+          "status": "active",
+          "confidence": 0.98
+        }
+      ],
+      "edges": [
+        {
+          "id": "load-sequence-edge-generic-0-artifact-polarbear-analysis-json-mo41xbpt-to-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
+          "kind": "loads-next",
+          "title": "01 polarbear in space analysis -> 02 polarbear in space",
+          "from": "load-sequence-item-generic-0-artifact-polarbear-analysis-json-mo41xbpt",
+          "to": "load-sequence-item-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
+          "summary": "Heuristic staged load order inferred from artifact naming, linked analysis artifacts, and imported entry-point knowledge.",
+          "status": "active",
+          "confidence": 0.7870476190476191
+        }
+      ]
+    },
+    "runtime": {
+      "id": "runtime",
+      "title": "Runtime",
+      "summary": "Trace-backed runtime graph from sampled sessions, inferred phase transitions, continuity health, coarse region buckets, and hottest PCs.",
+      "nodes": [],
+      "edges": []
+    }
+  }
 }

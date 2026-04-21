@@ -788,6 +788,73 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
   };
 }
 
+interface CartTypeProfile {
+  hardwareTypeName: string;
+  slotsPerBank: 1 | 2;
+  bankSize: number;
+  hasRomh: boolean;
+  hasEeprom: boolean;
+  isUltimax: boolean;
+  eepromKindHint?: string;
+}
+
+// VICE CRT hardware-type IDs we care about. Anything not listed falls back
+// to a generic 8K/16K/Ultimax decision based on exrom/game lines + chip
+// load addresses observed in the manifest.
+const CART_TYPE_PROFILES: Record<number, CartTypeProfile> = {
+  0:  { hardwareTypeName: "Generic",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
+  3:  { hardwareTypeName: "Final Cartridge III", slotsPerBank: 2, bankSize: 0x2000, hasRomh: true, hasEeprom: false, isUltimax: false },
+  5:  { hardwareTypeName: "Ocean",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
+  7:  { hardwareTypeName: "Funplay",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
+  8:  { hardwareTypeName: "Super Games",     slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false },
+  19: { hardwareTypeName: "Magic Desk",      slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
+  32: { hardwareTypeName: "EasyFlash",       slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false },
+  60: { hardwareTypeName: "GMod2",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: true,  isUltimax: false, eepromKindHint: "M93C86 (SPI)" },
+  71: { hardwareTypeName: "GMod3",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
+  86: { hardwareTypeName: "Protovision MegaByter", slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
+};
+
+function classifyChipSlot(loadAddress: number, isUltimax: boolean): "ROML" | "ROMH" | "ULTIMAX_ROMH" | "OTHER" {
+  if (loadAddress === 0x8000 || loadAddress === 0x9000) return "ROML";
+  if (loadAddress === 0xa000) return "ROMH";
+  if (loadAddress === 0xe000) return isUltimax ? "ULTIMAX_ROMH" : "ROMH";
+  return "OTHER";
+}
+
+function deriveSlotLayout(
+  hardwareType: number | undefined,
+  exrom: number | undefined,
+  game: number | undefined,
+  chips: Array<{ bank: number; loadAddress: number; size: number; file?: string; slot?: string }>,
+): {
+  hardwareTypeName?: string;
+  slotsPerBank: 1 | 2;
+  bankSize: number;
+  hasRomh: boolean;
+  hasEeprom: boolean;
+  isUltimax: boolean;
+  bankCount: number;
+  totalRomBytes: number;
+} {
+  const ultimaxByLines = exrom === 1 && game === 0;
+  const profile = hardwareType !== undefined ? CART_TYPE_PROFILES[hardwareType] : undefined;
+  const distinctBanks = new Set(chips.map((chip) => chip.bank));
+  const totalRomBytes = chips.reduce((sum, chip) => sum + chip.size, 0);
+  const isUltimax = profile?.isUltimax ?? ultimaxByLines;
+  const observedRomh = chips.some((chip) => chip.loadAddress === 0xa000 || chip.loadAddress === 0xe000);
+  const slotsPerBank: 1 | 2 = (profile?.slotsPerBank ?? (observedRomh ? 2 : 1)) as 1 | 2;
+  return {
+    hardwareTypeName: profile?.hardwareTypeName,
+    slotsPerBank,
+    bankSize: profile?.bankSize ?? 0x2000,
+    hasRomh: profile?.hasRomh ?? observedRomh,
+    hasEeprom: profile?.hasEeprom ?? false,
+    isUltimax,
+    bankCount: distinctBanks.size,
+    totalRomBytes,
+  };
+}
+
 export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLayoutView {
   const cartridges = context.artifacts
     .filter((artifact) => artifact.role === "crt-manifest")
@@ -807,25 +874,55 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
           file?: string;
         }>;
         banks?: Record<string, { slots?: string[]; file?: string }>;
+        eeprom?: { file?: string; sizeBytes?: number; kindHint?: string };
       } | undefined;
       if (!manifest?.header || !Array.isArray(manifest.chips) || !manifest.banks) {
         return undefined;
       }
+      const profile = manifest.header.hardwareType !== undefined ? CART_TYPE_PROFILES[manifest.header.hardwareType] : undefined;
+      const slotLayoutBase = deriveSlotLayout(manifest.header.hardwareType, manifest.header.exrom, manifest.header.game, manifest.chips.map((chip) => ({
+        bank: chip.bank ?? 0,
+        loadAddress: chip.load_address ?? 0,
+        size: chip.size ?? 0,
+        file: chip.file,
+      })));
       const chips = manifest.chips
-        .map((chip) => ({
-          bank: chip.bank ?? 0,
-          loadAddress: chip.load_address ?? 0,
-          size: chip.size ?? 0,
-          file: chip.file,
-        }))
+        .map((chip) => {
+          const loadAddress = chip.load_address ?? 0;
+          return {
+            bank: chip.bank ?? 0,
+            loadAddress,
+            size: chip.size ?? 0,
+            file: chip.file,
+            slot: classifyChipSlot(loadAddress, slotLayoutBase.isUltimax),
+          };
+        })
         .sort((left, right) => left.bank - right.bank || left.loadAddress - right.loadAddress);
+      const chipKey = (bank: number, slot: string) => `${bank}:${slot}`;
+      const chipIndexLookup = new Map<string, number>();
+      chips.forEach((chip, index) => {
+        chipIndexLookup.set(chipKey(chip.bank, chip.slot), index);
+      });
       const banks = Object.entries(manifest.banks)
-        .map(([bank, entry]) => ({
-          bank: Number(bank),
-          file: entry.file,
-          slots: [...(entry.slots ?? [])].sort(),
-        }))
+        .map(([bank, entry]) => {
+          const bankNumber = Number(bank);
+          const romlChipIndex = chipIndexLookup.get(chipKey(bankNumber, "ROML"));
+          const romhCandidate = chipIndexLookup.get(chipKey(bankNumber, "ROMH"))
+            ?? chipIndexLookup.get(chipKey(bankNumber, "ULTIMAX_ROMH"));
+          return {
+            bank: bankNumber,
+            file: entry.file,
+            slots: [...(entry.slots ?? [])].sort(),
+            romlChipIndex,
+            romhChipIndex: romhCandidate,
+          };
+        })
         .sort((left, right) => left.bank - right.bank);
+      const eeprom = (manifest.eeprom && (profile?.hasEeprom || slotLayoutBase.hasEeprom)) ? {
+        kindHint: manifest.eeprom.kindHint ?? profile?.eepromKindHint,
+        sizeBytes: manifest.eeprom.sizeBytes,
+        file: manifest.eeprom.file,
+      } : (profile?.hasEeprom ? { kindHint: profile.eepromKindHint } : undefined);
       return {
         artifactId: artifact.id,
         title: artifact.title,
@@ -835,6 +932,10 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         game: manifest.header.game,
         chips,
         banks,
+        slotLayout: {
+          ...slotLayoutBase,
+          eeprom,
+        },
       };
     })
     .filter((value): value is NonNullable<typeof value> => value !== undefined);
