@@ -1,6 +1,7 @@
 import { startTransition, useDeferredValue, useEffect, useState, type ReactNode } from "react";
 import { HexView } from "./components/HexView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
+import { MarkMode } from "./components/MarkMode.js";
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
@@ -2455,6 +2456,15 @@ export function App() {
           offset={hexOverlay.offset}
           length={hexOverlay.length}
           onClose={() => setHexOverlay(null)}
+        />
+      ) : null}
+      {snapshot ? (
+        <MarkMode
+          projectDir={snapshot.project.rootPath}
+          activeTab={activeTab}
+          selectedEntityId={selectedEntityId}
+          selectedCartChunkKey={selectedCartChunk ? `${selectedCartChunk.cartridgeArtifactId}::${selectedCartChunk.chunk.bank}:${selectedCartChunk.chunk.slot}:${selectedCartChunk.chunk.offsetInBank}:${selectedCartChunk.chunk.length}` : null}
+          selectedDiskFileKey={selectedDiskFile ? `${selectedDiskFile.diskArtifactId}::${selectedDiskFile.fileId}` : null}
         />
       ) : null}
     </div>
