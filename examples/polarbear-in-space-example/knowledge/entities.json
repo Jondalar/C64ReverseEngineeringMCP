@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-21T19:22:46.220Z",
+  "updatedAt": "2026-04-21T19:44:56.311Z",
   "items": [
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
@@ -19,7 +19,7 @@
             "start": 2061,
             "end": 2061
           },
-          "capturedAt": "2026-04-21T19:22:46.188Z"
+          "capturedAt": "2026-04-21T19:44:56.278Z"
         }
       ],
       "artifactIds": [
@@ -35,8 +35,8 @@
         "analysis-import",
         "entry-point"
       ],
-      "createdAt": "2026-04-21T19:22:46.195Z",
-      "updatedAt": "2026-04-21T19:22:46.195Z"
+      "createdAt": "2026-04-21T19:44:56.285Z",
+      "updatedAt": "2026-04-21T19:44:56.285Z"
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
@@ -55,7 +55,7 @@
             "start": 2061,
             "end": 2288
           },
-          "capturedAt": "2026-04-21T19:22:46.188Z"
+          "capturedAt": "2026-04-21T19:44:56.278Z"
         }
       ],
       "artifactIds": [
@@ -71,8 +71,8 @@
         "code",
         "segment"
       ],
-      "createdAt": "2026-04-21T19:22:46.196Z",
-      "updatedAt": "2026-04-21T19:22:46.196Z"
+      "createdAt": "2026-04-21T19:44:56.287Z",
+      "updatedAt": "2026-04-21T19:44:56.287Z"
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-2000-20ff",
@@ -91,7 +91,7 @@
             "start": 8192,
             "end": 8447
           },
-          "capturedAt": "2026-04-21T19:22:46.188Z"
+          "capturedAt": "2026-04-21T19:44:56.278Z"
         }
       ],
       "artifactIds": [
@@ -107,8 +107,8 @@
         "segment",
         "state_variable"
       ],
-      "createdAt": "2026-04-21T19:22:46.198Z",
-      "updatedAt": "2026-04-21T19:22:46.198Z"
+      "createdAt": "2026-04-21T19:44:56.288Z",
+      "updatedAt": "2026-04-21T19:44:56.288Z"
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4000-43ff",
@@ -127,7 +127,7 @@
             "start": 16384,
             "end": 17407
           },
-          "capturedAt": "2026-04-21T19:22:46.188Z"
+          "capturedAt": "2026-04-21T19:44:56.279Z"
         }
       ],
       "artifactIds": [
@@ -143,8 +143,8 @@
         "lookup_table",
         "segment"
       ],
-      "createdAt": "2026-04-21T19:22:46.199Z",
-      "updatedAt": "2026-04-21T19:22:46.199Z"
+      "createdAt": "2026-04-21T19:44:56.290Z",
+      "updatedAt": "2026-04-21T19:44:56.290Z"
     },
     {
       "id": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
@@ -158,7 +158,7 @@
           "kind": "artifact",
           "title": "CRT bank 00",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T19:22:46.205Z"
+          "capturedAt": "2026-04-21T19:44:56.297Z"
         }
       ],
       "artifactIds": [
@@ -169,8 +169,8 @@
         "crt-bank",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T19:22:46.211Z",
-      "updatedAt": "2026-04-21T19:22:46.211Z"
+      "createdAt": "2026-04-21T19:44:56.302Z",
+      "updatedAt": "2026-04-21T19:44:56.302Z"
     },
     {
       "id": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01",
@@ -184,7 +184,7 @@
           "kind": "artifact",
           "title": "CRT bank 01",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T19:22:46.205Z"
+          "capturedAt": "2026-04-21T19:44:56.297Z"
         }
       ],
       "artifactIds": [
@@ -195,8 +195,8 @@
         "crt-bank",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T19:22:46.212Z",
-      "updatedAt": "2026-04-21T19:22:46.212Z"
+      "createdAt": "2026-04-21T19:44:56.303Z",
+      "updatedAt": "2026-04-21T19:44:56.303Z"
     },
     {
       "id": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02",
@@ -210,7 +210,7 @@
           "kind": "artifact",
           "title": "CRT bank 02",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T19:22:46.205Z"
+          "capturedAt": "2026-04-21T19:44:56.297Z"
         }
       ],
       "artifactIds": [
@@ -221,8 +221,8 @@
         "crt-bank",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T19:22:46.212Z",
-      "updatedAt": "2026-04-21T19:22:46.212Z"
+      "createdAt": "2026-04-21T19:44:56.304Z",
+      "updatedAt": "2026-04-21T19:44:56.304Z"
     },
     {
       "id": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
@@ -236,7 +236,7 @@
           "kind": "artifact",
           "title": "CRT chip 0",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T19:22:46.205Z"
+          "capturedAt": "2026-04-21T19:44:56.297Z"
         }
       ],
       "artifactIds": [
@@ -252,8 +252,8 @@
         "crt-chip",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T19:22:46.208Z",
-      "updatedAt": "2026-04-21T19:22:46.208Z"
+      "createdAt": "2026-04-21T19:44:56.300Z",
+      "updatedAt": "2026-04-21T19:44:56.300Z"
     },
     {
       "id": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
@@ -267,7 +267,7 @@
           "kind": "artifact",
           "title": "CRT chip 1",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T19:22:46.205Z"
+          "capturedAt": "2026-04-21T19:44:56.297Z"
         }
       ],
       "artifactIds": [
@@ -283,8 +283,8 @@
         "crt-chip",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T19:22:46.209Z",
-      "updatedAt": "2026-04-21T19:22:46.209Z"
+      "createdAt": "2026-04-21T19:44:56.301Z",
+      "updatedAt": "2026-04-21T19:44:56.301Z"
     },
     {
       "id": "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
@@ -298,7 +298,7 @@
           "kind": "artifact",
           "title": "CRT chip 2",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T19:22:46.205Z"
+          "capturedAt": "2026-04-21T19:44:56.297Z"
         }
       ],
       "artifactIds": [
@@ -314,8 +314,8 @@
         "crt-chip",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T19:22:46.210Z",
-      "updatedAt": "2026-04-21T19:22:46.210Z"
+      "createdAt": "2026-04-21T19:44:56.301Z",
+      "updatedAt": "2026-04-21T19:44:56.301Z"
     },
     {
       "id": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-0-01_intro-prg",
@@ -329,7 +329,7 @@
           "kind": "artifact",
           "title": "Disk file INTRO",
           "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz",
-          "capturedAt": "2026-04-21T19:22:46.217Z"
+          "capturedAt": "2026-04-21T19:44:56.308Z"
         }
       ],
       "artifactIds": [
@@ -345,8 +345,8 @@
         "disk-file",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T19:22:46.218Z",
-      "updatedAt": "2026-04-21T19:22:46.218Z"
+      "createdAt": "2026-04-21T19:44:56.310Z",
+      "updatedAt": "2026-04-21T19:44:56.310Z"
     },
     {
       "id": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-1-02_level1-prg",
@@ -360,7 +360,7 @@
           "kind": "artifact",
           "title": "Disk file LEVEL1",
           "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz",
-          "capturedAt": "2026-04-21T19:22:46.217Z"
+          "capturedAt": "2026-04-21T19:44:56.308Z"
         }
       ],
       "artifactIds": [
@@ -376,8 +376,8 @@
         "disk-file",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T19:22:46.219Z",
-      "updatedAt": "2026-04-21T19:22:46.219Z"
+      "createdAt": "2026-04-21T19:44:56.310Z",
+      "updatedAt": "2026-04-21T19:44:56.310Z"
     },
     {
       "id": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_ending-prg",
@@ -391,7 +391,7 @@
           "kind": "artifact",
           "title": "Disk file ENDING",
           "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz",
-          "capturedAt": "2026-04-21T19:22:46.217Z"
+          "capturedAt": "2026-04-21T19:44:56.308Z"
         }
       ],
       "artifactIds": [
@@ -407,8 +407,8 @@
         "disk-file",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T19:22:46.220Z",
-      "updatedAt": "2026-04-21T19:22:46.220Z"
+      "createdAt": "2026-04-21T19:44:56.311Z",
+      "updatedAt": "2026-04-21T19:44:56.311Z"
     },
     {
       "id": "entity-intro-bank-00-mo41xbq9",

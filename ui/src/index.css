@@ -1254,7 +1254,7 @@ button {
 
 .cart-grid-slot-row {
   display: flex;
-  height: 18px;
+  height: 22px;
   background: #1a1d21;
   border-radius: 2px;
   overflow: hidden;
@@ -1364,8 +1364,6 @@ button {
 
 .cart-chunk-segment {
   position: absolute;
-  top: 1px;
-  bottom: 1px;
   border-radius: 2px;
   pointer-events: auto;
   cursor: pointer;
@@ -1418,6 +1416,64 @@ button {
 .cart-grid-footer {
   font-size: 10px;
   color: #6e7681;
+}
+
+.chunk-inspector-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(13, 17, 23, 0.6);
+  border-radius: 8px;
+}
+
+.chunk-inspector-headline {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #c9d1d9;
+}
+
+.chunk-color-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.chunk-inspector-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 11px;
+  color: #8b949e;
+}
+
+.chunk-inspector-paths > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.chunk-inspector-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6e7681;
+}
+
+.chunk-inspector-mon {
+  align-self: flex-start;
+  padding: 0.4rem 0.85rem;
+  font-size: 11px;
+}
+
+.chunk-inspector-mon[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .record-card-row {

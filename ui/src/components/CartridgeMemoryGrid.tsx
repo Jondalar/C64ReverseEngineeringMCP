@@ -72,11 +72,18 @@ export function CartridgeMemoryGrid({
     else chunkIndex.set(key, [chunk]);
   }
 
-  // Build a stable LUT legend so users can decode the colour bands.
-  const legend = new Map<string, string>();
+  // Count LUT references across every (deduplicated) chunk so the
+  // legend can summarise how often each LUT touches the cart without
+  // pretending colour maps to LUT identity.
+  const lutRefCounts = new Map<string, number>();
+  let sharedChunkCount = 0;
+  let totalChunkBytes = 0;
   for (const chunk of lutChunks ?? []) {
-    if (!legend.has(chunk.lut) && chunk.color) {
-      legend.set(chunk.lut, chunk.color);
+    const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
+    if (refs.length > 1) sharedChunkCount += 1;
+    totalChunkBytes += chunk.length;
+    for (const ref of refs) {
+      lutRefCounts.set(ref.lut, (lutRefCounts.get(ref.lut) ?? 0) + 1);
     }
   }
 
@@ -90,19 +97,24 @@ export function CartridgeMemoryGrid({
     const key = `${bank}:${role}`;
     const chunks = chunkIndex.get(key);
     if (!chunks || chunks.length === 0) return null;
+    // Render larger chunks first; tiny ones land on top so they stay
+    // clickable even when a neighbour covers most of the bar.
+    const ordered = [...chunks].sort((a, b) => b.length - a.length);
     return (
       <div className="cart-chunk-overlay">
-        {chunks.map((chunk) => {
+        {ordered.map((chunk) => {
           const leftPercent = Math.max(0, Math.min(100, (chunk.offsetInBank / bankSize) * 100));
-          const widthPercent = Math.max(0.4, Math.min(100 - leftPercent, (chunk.length / bankSize) * 100));
+          const widthPercent = Math.max(0.5, Math.min(100 - leftPercent, (chunk.length / bankSize) * 100));
           const tooltip = chunk.label ?? `${chunk.lut}.${chunk.index} bank ${chunk.bank} (${chunk.length} B)`;
           return (
             <div
-              key={`${chunk.lut}-${chunk.index}-${chunk.offsetInBank}`}
+              key={`${chunk.offsetInBank}-${chunk.length}`}
               className="cart-chunk-segment"
               style={{
                 left: `${leftPercent}%`,
                 width: `${widthPercent}%`,
+                top: 0,
+                height: "100%",
                 background: chunk.color ?? "rgba(120,180,255,0.7)",
               }}
               title={tooltip}
@@ -139,19 +151,6 @@ export function CartridgeMemoryGrid({
       >
         {renderChunkSegments(role, bank)}
         <span className="cart-slot-bar-label">{role}</span>
-        {onOpenChipHex ? (
-          <span
-            className="cart-mon-icon"
-            role="button"
-            aria-label={`Open hex view for ${role} bank ${chip.bank}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenChipHex(chip, role);
-            }}
-          >
-            mon
-          </span>
-        ) : null}
       </button>
     );
   }
@@ -231,23 +230,30 @@ export function CartridgeMemoryGrid({
           </div>
         </div>
       ) : null}
-      {legend.size > 0 ? (
+      {lutRefCounts.size > 0 ? (
         <div className="cart-grid-legend">
-          <span className="cart-grid-legend-title">LUTs:</span>
-          {Array.from(legend.entries()).map(([lutName, color]) => {
-            const count = (lutChunks ?? []).filter((chunk) => chunk.lut === lutName).length;
-            return (
+          <span className="cart-grid-legend-title">LUT refs:</span>
+          {Array.from(lutRefCounts.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([lutName, count]) => (
               <span key={lutName} className="cart-grid-legend-entry">
-                <span className="cart-grid-legend-swatch" style={{ background: color }} />
                 <span>{lutName}</span>
                 <span className="cart-grid-legend-count">{count}</span>
               </span>
-            );
-          })}
+            ))}
+          {sharedChunkCount > 0 ? (
+            <span className="cart-grid-legend-entry">
+              <span>shared</span>
+              <span className="cart-grid-legend-count">{sharedChunkCount}</span>
+            </span>
+          ) : null}
         </div>
       ) : null}
       <footer className="cart-grid-footer">
-        <span>Bank size {formatHexByte(bankSize >> 8)}00 · slot bar fills relative to bank size{lutChunks?.length ? ` · ${lutChunks.length} LUT chunks mapped` : ""}</span>
+        <span>
+          Bank size {formatHexByte(bankSize >> 8)}00 · slot bar fills relative to bank size
+          {lutChunks?.length ? ` · ${lutChunks.length} unique file chunks (${bytesPretty(totalChunkBytes)} mapped)` : ""}
+        </span>
       </footer>
     </div>
   );

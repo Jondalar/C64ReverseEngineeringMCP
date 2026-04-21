@@ -896,12 +896,7 @@ function findRuntimeLutPath(
   return undefined;
 }
 
-function loadLutChunks(
-  artifacts: ArtifactRecord[],
-  manifestArtifact: ArtifactRecord,
-  projectRoot: string,
-  bankSize: number,
-): Array<{
+interface ResolvedLutChunk {
   bank: number;
   slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
   offsetInBank: number;
@@ -909,9 +904,32 @@ function loadLutChunks(
   lut: string;
   index: number;
   destAddress?: number;
+  refs: Array<{ lut: string; index: number; destAddress?: number }>;
   label: string;
   color: string;
-}> | undefined {
+}
+
+// Deterministic colour from the chunk's physical range so adjacent files
+// get different hues, regardless of which LUTs reference them.
+function chunkRangeColor(bank: number, offsetInBank: number, length: number): string {
+  let hash = 2166136261 >>> 0; // FNV-1a seed
+  for (const value of [bank, offsetInBank, length]) {
+    hash ^= value;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  const hue = hash % 360;
+  // Keep lightness in a readable band; nudge slightly by length so very
+  // small chunks don't blur into neighbours of the same hue.
+  const lightness = 50 + ((length % 13) - 6);
+  return `hsl(${hue} 60% ${lightness}%)`;
+}
+
+function loadLutChunks(
+  artifacts: ArtifactRecord[],
+  manifestArtifact: ArtifactRecord,
+  projectRoot: string,
+  bankSize: number,
+): ResolvedLutChunk[] | undefined {
   const lutPath = findRuntimeLutPath(artifacts, manifestArtifact, projectRoot);
   if (!lutPath) return undefined;
 
@@ -923,17 +941,12 @@ function loadLutChunks(
   }
   if (!parsed || typeof parsed !== "object") return undefined;
 
-  const chunks: Array<{
-    bank: number;
-    slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
-    offsetInBank: number;
-    length: number;
-    lut: string;
-    index: number;
-    destAddress?: number;
-    label: string;
-    color: string;
-  }> = [];
+  // Key each physical file-range by (bank, slot, offsetInBank, length) so
+  // multiple LUTs referencing the same bytes collapse into a single
+  // visual chunk with a merged refs[] list.
+  const rangeKey = (bank: number, slot: string, offset: number, length: number) =>
+    `${bank}:${slot}:${offset}:${length}`;
+  const ranges = new Map<string, ResolvedLutChunk>();
 
   for (const [lutName, lut] of Object.entries(parsed)) {
     if (!lut || !Array.isArray(lut.entries)) continue;
@@ -954,10 +967,15 @@ function loadLutChunks(
         offsetInBank = srcAddr - 0xe000;
       }
       if (offsetInBank < 0 || offsetInBank >= bankSize) continue;
-      const idx = typeof entry.idx === "number" ? entry.idx : chunks.length;
+      const idx = typeof entry.idx === "number" ? entry.idx : ranges.size;
       const dest = parseHexishToNumber(entry.dest);
-      const destFragment = dest !== undefined ? ` → $${dest.toString(16).toUpperCase().padStart(4, "0")}` : "";
-      chunks.push({
+      const key = rangeKey(bank, slot, offsetInBank, length);
+      const existing = ranges.get(key);
+      if (existing) {
+        existing.refs.push({ lut: lutName, index: idx, destAddress: dest });
+        continue;
+      }
+      ranges.set(key, {
         bank,
         slot,
         offsetInBank,
@@ -965,12 +983,31 @@ function loadLutChunks(
         lut: lutName,
         index: idx,
         destAddress: dest,
-        label: `${lutName}.${String(idx).padStart(2, "0")} bank ${bank}${destFragment} (${length} B)`,
-        color: lutChunkColor(lutName, idx),
+        refs: [{ lut: lutName, index: idx, destAddress: dest }],
+        label: "",
+        color: chunkRangeColor(bank, offsetInBank, length),
       });
     }
   }
-  if (chunks.length === 0) return undefined;
+
+  if (ranges.size === 0) return undefined;
+
+  // Finalise labels now that every reference has been merged in.
+  const chunks: ResolvedLutChunk[] = [];
+  for (const chunk of ranges.values()) {
+    // Sort refs by LUT name + index for stable, readable tooltips.
+    chunk.refs.sort((a, b) => a.lut.localeCompare(b.lut) || a.index - b.index);
+    const refFragments = chunk.refs.map((ref) => {
+      const destFragment = ref.destAddress !== undefined
+        ? `→$${ref.destAddress.toString(16).toUpperCase().padStart(4, "0")}`
+        : "";
+      return `${ref.lut}.${String(ref.index).padStart(2, "0")}${destFragment}`;
+    });
+    chunk.label = `Bank ${chunk.bank} ${chunk.slot} ` +
+      `off $${chunk.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} ` +
+      `(${chunk.length} B) · refs: ${refFragments.join(", ")}`;
+    chunks.push(chunk);
+  }
   chunks.sort((a, b) => a.bank - b.bank || a.offsetInBank - b.offsetInBank);
   return chunks;
 }
