@@ -663,6 +663,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
     .map((artifact) => {
       const manifest = readJsonIfExists(artifact.path) as {
         sourceImage?: string;
+        sourceFileName?: string;
         format?: string;
         diskName?: string;
         diskId?: string;
@@ -829,12 +830,28 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             };
           });
         });
+      // Prefer the filesystem filename the operator knows (e.g.
+      // "lykia_disk1.d64") over the BAM label or the manifest's own
+      // name. Falls back through sourceFileName → basename(sourceImage)
+      // → basename(relativePath).
+      const imageFileName = manifest?.sourceFileName
+        ?? (manifest?.sourceImage ? basename(manifest.sourceImage) : undefined);
+      const imageRelativePath = (() => {
+        const src = manifest?.sourceImage;
+        if (!src) return undefined;
+        const projectRoot = context.project.rootPath.replace(/\/$/, "");
+        if (src.startsWith(projectRoot + "/")) return src.slice(projectRoot.length + 1);
+        if (src.startsWith(projectRoot)) return src.slice(projectRoot.length + 1);
+        return undefined;
+      })();
       return {
         artifactId: artifact.id,
         title: artifact.title,
         format: manifest?.format ?? artifact.format ?? "unknown",
         diskName: manifest?.diskName,
         diskId: manifest?.diskId,
+        imageFileName,
+        imageRelativePath,
         trackCount,
         fileCount: files.length,
         sectors,

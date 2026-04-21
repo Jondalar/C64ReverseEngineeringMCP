@@ -740,7 +740,7 @@ function CartridgePanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectChunk: (cartridgeArtifactId: string, chunk: CartridgeLutChunk) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
 }) {
   function findChipEntity(bank: number, loadAddress: number) {
     return snapshot.entities.find((entity) =>
@@ -819,7 +819,7 @@ function DiskPanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectDiskFile: (diskArtifactId: string, fileId: string) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
 }) {
   const disks = snapshot.views.diskLayout.disks;
   const [activeDiskId, setActiveDiskId] = useState<string | null>(disks[0]?.artifactId ?? null);
@@ -832,10 +832,20 @@ function DiskPanel({
       setSelectedFileId(null);
       return;
     }
-    if (!activeDisk.files.some((file) => file.id === selectedFileId)) {
-      setSelectedFileId(activeDisk.files[0]?.id ?? null);
+    const hasSelection = activeDisk.files.some((file) => file.id === selectedFileId);
+    if (!hasSelection) {
+      const fallback = activeDisk.files[0];
+      if (fallback) {
+        setSelectedFileId(fallback.id);
+        // Also route the selection into the global inspector pipeline
+        // so the right-hand panel immediately shows the first file
+        // instead of the empty "Select a memory region…" state.
+        onSelectDiskFile(activeDisk.artifactId, fallback.id);
+      } else {
+        setSelectedFileId(null);
+      }
     }
-  }, [activeDisk, selectedFileId]);
+  }, [activeDisk, selectedFileId, onSelectDiskFile]);
 
   function polar(cx: number, cy: number, radius: number, angle: number) {
     return {
@@ -899,10 +909,13 @@ function DiskPanel({
           {disks.map((disk) => {
             const diskArtifact = snapshot.artifacts.find((artifact) => artifact.id === disk.artifactId);
             const path = diskArtifact?.relativePath ?? "";
-            const base = path ? path.split("/").pop() ?? path : "";
-            // Prefer filename when BAM titles are ambiguous (many Lykia
-            // disks share the same label); fall back to diskName/title.
-            const label = base || disk.diskName || disk.title;
+            // Prefer the filesystem filename the manifest recorded
+            // (e.g. "lykia_disk1.d64"); fall back to image basename,
+            // BAM title, or the manifest artifact title.
+            const label = disk.imageFileName
+              ?? (disk.imageRelativePath ? disk.imageRelativePath.split("/").pop() : undefined)
+              ?? disk.diskName
+              ?? disk.title;
             return (
               <button
                 key={disk.artifactId}
@@ -1001,7 +1014,7 @@ function DiskPanel({
             </div>
             {(() => {
               const diskArtifact = snapshot.artifacts.find((art) => art.id === activeDisk.artifactId);
-              const diskPath = diskArtifact?.relativePath ?? "";
+              const diskPath = activeDisk.imageRelativePath ?? diskArtifact?.relativePath ?? "";
               const isD64 = diskPath.toLowerCase().endsWith(".d64");
               if (!isD64) return null;
               return (
@@ -1525,7 +1538,7 @@ function EntityInspector({
   onSelectEntity: (entityId: string) => void;
   onOpenDocument: (path: string) => void;
   onOpenTab: (tab: TabId) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
 }) {
   if (!entity) {
     return (
@@ -1918,12 +1931,15 @@ function DiskFileInspector({
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
   onClose: () => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
 }) {
   const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
   const file = disk?.files.find((candidate) => candidate.id === selection.fileId);
   const diskArtifact = snapshot.artifacts.find((artifact) => artifact.id === selection.diskArtifactId);
-  const diskPath = diskArtifact?.relativePath;
+  // Prefer the image path (e.g. lykia_disk1.d64) over the manifest path
+  // (analysis/disks/disk1/manifest.json). Sector/whole-file views need
+  // the raw image, not the JSON manifest.
+  const diskPath = disk?.imageRelativePath ?? diskArtifact?.relativePath;
   const isD64 = diskPath?.toLowerCase().endsWith(".d64");
 
   if (!file || !disk) {
@@ -1951,17 +1967,24 @@ function DiskFileInspector({
 
   function openWholeFileMon() {
     if (!diskPath || !isD64 || file!.sectorChain.length === 0) return;
-    const chain = file!.sectorChain;
-    // A D64 file's bytes are NOT contiguous on-disk, so the single slice
-    // here shows only the FIRST sector. For the full file the user should
-    // use per-sector (mon) or the chain list below.
-    const first = chain[0]!;
-    const offset = d64SectorOffset(first.track, first.sector);
+    const first = file!.sectorChain[0]!;
+    const params = new URLSearchParams({
+      path: diskPath,
+      track: String(first.track),
+      sector: String(first.sector),
+      type: file!.type ?? "PRG",
+    });
+    if (disk!.artifactId) {
+      // projectDir defaults to the server's configured project, which is
+      // what we want; we still send it explicitly so the server can route
+      // to the right workspace when multiple disks share a name.
+      const project = snapshot.project.rootPath;
+      if (project) params.set("projectDir", project);
+    }
     onOpenHex(diskPath, {
-      title: `${disk!.diskName ?? disk!.title} · ${file!.title} · first sector T${first.track}/S${first.sector}`,
-      baseAddress: 0,
-      offset,
-      length: 256,
+      title: `${disk!.diskName ?? disk!.title} · ${file!.title} · assembled (${totalSectors} sectors, ${totalBytes} B)`,
+      baseAddress: file!.loadAddress ?? 0,
+      fetchUrl: `/api/disk/file-bytes?${params.toString()}`,
     });
   }
 
@@ -2011,7 +2034,7 @@ function DiskFileInspector({
           disabled={!diskPath || !isD64 || file.sectorChain.length === 0}
           onClick={openWholeFileMon}
         >
-          mon (first sector) — per-sector below
+          mon (assembled file — {totalSectors} sectors, {totalBytes} B)
         </button>
       </div>
       <div className="inspector-block">
@@ -2056,7 +2079,7 @@ function CartChunkInspector({
   snapshot: WorkspaceUiSnapshot;
   selection: { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
   onClose: () => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
 }) {
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
@@ -2191,12 +2214,19 @@ export function App() {
   const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
-  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number } | null>(null);
+  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string } | null>(null);
   const [selectedCartChunk, setSelectedCartChunk] = useState<{ cartridgeArtifactId: string; chunk: CartridgeLutChunk } | null>(null);
   const [selectedDiskFile, setSelectedDiskFile] = useState<{ diskArtifactId: string; fileId: string } | null>(null);
 
-  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) {
-    setHexOverlay({ path, title: options?.title, baseAddress: options?.baseAddress, offset: options?.offset, length: options?.length });
+  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) {
+    setHexOverlay({
+      path,
+      title: options?.title,
+      baseAddress: options?.baseAddress,
+      offset: options?.offset,
+      length: options?.length,
+      fetchUrl: options?.fetchUrl,
+    });
   }
 
   useEffect(() => {
@@ -2455,6 +2485,7 @@ export function App() {
           baseAddress={hexOverlay.baseAddress}
           offset={hexOverlay.offset}
           length={hexOverlay.length}
+          fetchUrl={hexOverlay.fetchUrl}
           onClose={() => setHexOverlay(null)}
         />
       ) : null}

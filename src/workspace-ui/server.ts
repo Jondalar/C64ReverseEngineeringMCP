@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
 
 interface UiMark {
   id: string;
@@ -259,6 +260,69 @@ const server = createServer((req, res) => {
       });
     } catch (error) {
       send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), path, projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/disk/file-bytes") {
+    // Extract a full file from a D64/G64 image by walking its sector
+    // chain starting at the given track/sector. Used by the disk-file
+    // hex view so the user sees the ASSEMBLED file, not just the first
+    // physical sector.
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const path = requestUrl.searchParams.get("path")?.trim();
+    const trackParam = requestUrl.searchParams.get("track");
+    const sectorParam = requestUrl.searchParams.get("sector");
+    const typeParam = requestUrl.searchParams.get("type") ?? "PRG";
+    const stripLoadParam = requestUrl.searchParams.get("strip_load_address") === "1";
+    if (!path || !trackParam || !sectorParam) {
+      send(res, jsonResponse(400, { error: "Missing path/track/sector query parameters." }));
+      return;
+    }
+    const track = Number.parseInt(trackParam, 10);
+    const sector = Number.parseInt(sectorParam, 10);
+    if (!Number.isInteger(track) || track < 1 || !Number.isInteger(sector) || sector < 0) {
+      send(res, jsonResponse(400, { error: "Invalid track/sector." }));
+      return;
+    }
+    const imagePath = safeProjectPath(projectDir, path);
+    if (!imagePath || !existsSync(imagePath) || !statSync(imagePath).isFile()) {
+      send(res, jsonResponse(404, { error: "Disk image not found.", path, projectDir }));
+      return;
+    }
+    try {
+      const parser = createDiskParser(new Uint8Array(readFileSync(imagePath)));
+      if (!parser) {
+        send(res, jsonResponse(415, { error: "Unrecognised disk image format.", path }));
+        return;
+      }
+      const entry: DiskFileEntry = {
+        name: `t${track}s${sector}`,
+        type: (typeParam as DiskFileEntry["type"]) ?? "PRG",
+        size: 0,
+        track,
+        sector,
+      };
+      const bytes = extractFileFromChain((t, s) => parser.getSector(t, s), entry, stripLoadParam);
+      if (!bytes) {
+        send(res, jsonResponse(404, { error: "File chain produced no bytes.", track, sector }));
+        return;
+      }
+      const buffer = Buffer.from(bytes);
+      send(res, {
+        status: 200,
+        body: buffer,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(buffer.length),
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), path }));
     }
     return;
   }

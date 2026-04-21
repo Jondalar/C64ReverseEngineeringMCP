@@ -3,7 +3,7 @@
   "kind": "disk-layout",
   "title": "Polarbear in Space Disk Layout",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-21T20:25:08.797Z",
+  "generatedAt": "2026-04-21T20:45:19.464Z",
   "disks": [
     {
       "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz",
@@ -11,6 +11,7 @@
       "format": "d64",
       "diskName": "POLARBEAR DISK",
       "diskId": "PS",
+      "imageFileName": "polarbear-in-space.d64",
       "trackCount": 35,
       "fileCount": 3,
       "sectors": [

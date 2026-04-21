@@ -515,6 +515,13 @@ export const DiskLayoutDiskSchema = z.object({
   format: z.string().min(1),
   diskName: z.string().optional(),
   diskId: z.string().optional(),
+  // Filename on the host filesystem (e.g. "lykia_disk1.d64"). Preferred
+  // for UI labels when multiple disks share the same BAM title.
+  imageFileName: z.string().optional(),
+  // Project-relative path to the raw disk image, when available. The UI
+  // uses this to address /api/artifact/raw for sector-level hex views
+  // and full-file extraction.
+  imageRelativePath: z.string().optional(),
   trackCount: z.number().int().positive(),
   fileCount: z.number().int().nonnegative(),
   sectors: z.array(DiskLayoutSectorCellSchema),

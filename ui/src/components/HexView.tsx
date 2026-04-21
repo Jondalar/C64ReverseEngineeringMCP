@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 interface HexViewProps {
-  // Project-relative path used by /api/artifact/raw.
+  // Project-relative path used by /api/artifact/raw (ignored when
+  // `fetchUrl` is set).
   path: string;
   projectDir?: string;
   title?: string;
@@ -14,6 +15,10 @@ interface HexViewProps {
   // a larger chip dump.
   offset?: number;
   length?: number;
+  // Optional override URL. When set, HexView fetches bytes from this URL
+  // verbatim and ignores path / projectDir / offset / length. Used for
+  // D64 whole-file assembly via /api/disk/file-bytes.
+  fetchUrl?: string;
   onClose: () => void;
 }
 
@@ -33,7 +38,7 @@ function petsciiPreviewChar(byte: number): string {
   return ".";
 }
 
-export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, onClose }: HexViewProps) {
+export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, fetchUrl, onClose }: HexViewProps) {
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(true);
@@ -43,11 +48,15 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
     setPending(true);
     setError(null);
     setBytes(null);
-    const params = new URLSearchParams({ path });
-    if (projectDir) params.set("projectDir", projectDir);
-    if (offset !== undefined) params.set("offset", String(offset));
-    if (length !== undefined) params.set("length", String(length));
-    fetch(`/api/artifact/raw?${params.toString()}`)
+    let url = fetchUrl;
+    if (!url) {
+      const params = new URLSearchParams({ path });
+      if (projectDir) params.set("projectDir", projectDir);
+      if (offset !== undefined) params.set("offset", String(offset));
+      if (length !== undefined) params.set("length", String(length));
+      url = `/api/artifact/raw?${params.toString()}`;
+    }
+    fetch(url)
       .then(async (response) => {
         if (!response.ok) {
           const message = await response.text().catch(() => response.statusText);
@@ -67,7 +76,7 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
     return () => {
       cancelled = true;
     };
-  }, [path, projectDir, offset, length]);
+  }, [path, projectDir, offset, length, fetchUrl]);
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
