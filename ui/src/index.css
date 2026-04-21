@@ -1572,6 +1572,25 @@ button {
   cursor: not-allowed;
 }
 
+.disk-file-row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.disk-file-color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  flex: 0 0 auto;
+}
+
+.disk-sector-filtered-out {
+  opacity: 0.28;
+}
+
 .chunk-inspector-tag {
   font-size: 9px;
   padding: 2px 6px;

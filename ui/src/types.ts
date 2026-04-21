@@ -193,6 +193,7 @@ export interface DiskLayoutView {
       fileTitle?: string;
       occupied: boolean;
       category: "free" | "file" | "directory" | "bam" | "unknown";
+      color?: string;
     }>;
     files: Array<{
       id: string;
@@ -217,6 +218,10 @@ export interface DiskLayoutView {
       loadType: "kernal" | "custom-loader" | "unknown";
       loaderHint?: string;
       loaderSource?: string;
+      color?: string;
+      packer?: string;
+      format?: string;
+      notes?: string[];
     }>;
   }>;
 }

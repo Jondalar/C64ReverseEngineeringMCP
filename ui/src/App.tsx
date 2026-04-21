@@ -807,17 +807,22 @@ function CartridgePanel({
   );
 }
 
+type DiskOriginFilter = "all" | "kernal" | "custom-loader" | "unknown";
+
 function DiskPanel({
   snapshot,
   onSelectEntity,
+  onSelectDiskFile,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
+  onSelectDiskFile: (diskArtifactId: string, fileId: string) => void;
 }) {
   const disks = snapshot.views.diskLayout.disks;
   const [activeDiskId, setActiveDiskId] = useState<string | null>(disks[0]?.artifactId ?? null);
   const activeDisk = disks.find((disk) => disk.artifactId === activeDiskId) ?? disks[0];
   const [selectedFileId, setSelectedFileId] = useState<string | null>(activeDisk?.files[0]?.id ?? null);
+  const [originFilter, setOriginFilter] = useState<DiskOriginFilter>("all");
 
   useEffect(() => {
     if (!activeDisk) {
@@ -858,7 +863,17 @@ function DiskPanel({
     ].join(" ");
   }
 
-  const selectedFile = activeDisk?.files.find((file) => file.id === selectedFileId) ?? activeDisk?.files[0];
+  const originCounts = new Map<DiskOriginFilter, number>();
+  originCounts.set("kernal", 0);
+  originCounts.set("custom-loader", 0);
+  originCounts.set("unknown", 0);
+  for (const file of activeDisk?.files ?? []) {
+    originCounts.set(file.loadType, (originCounts.get(file.loadType) ?? 0) + 1);
+  }
+  const visibleFiles = (activeDisk?.files ?? []).filter((file) => originFilter === "all" || file.loadType === originFilter);
+  const visibleFileIds = new Set(visibleFiles.map((file) => file.id));
+
+  const selectedFile = visibleFiles.find((file) => file.id === selectedFileId) ?? visibleFiles[0] ?? activeDisk?.files.find((file) => file.id === selectedFileId) ?? activeDisk?.files[0];
   const freeBlocks = activeDisk?.sectors.filter((sector) => sector.category === "free").length ?? 0;
   const directoryLines = activeDisk
     ? [
@@ -878,19 +893,56 @@ function DiskPanel({
       </div>
       {disks.length > 1 ? (
         <div className="disk-tab-strip">
-          {disks.map((disk) => (
-            <button
-              key={disk.artifactId}
-              type="button"
-              className={activeDisk?.artifactId === disk.artifactId ? "tab-button active" : "tab-button"}
-              onClick={() => {
-                setActiveDiskId(disk.artifactId);
-                setSelectedFileId(disk.files[0]?.id ?? null);
-              }}
-            >
-              {disk.diskName ?? disk.title}
-            </button>
-          ))}
+          {disks.map((disk) => {
+            const diskArtifact = snapshot.artifacts.find((artifact) => artifact.id === disk.artifactId);
+            const path = diskArtifact?.relativePath ?? "";
+            const base = path ? path.split("/").pop() ?? path : "";
+            // Prefer filename when BAM titles are ambiguous (many Lykia
+            // disks share the same label); fall back to diskName/title.
+            const label = base || disk.diskName || disk.title;
+            return (
+              <button
+                key={disk.artifactId}
+                type="button"
+                className={activeDisk?.artifactId === disk.artifactId ? "tab-button active" : "tab-button"}
+                onClick={() => {
+                  setActiveDiskId(disk.artifactId);
+                  setSelectedFileId(disk.files[0]?.id ?? null);
+                }}
+                title={path || disk.title}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {activeDisk && activeDisk.files.length > 0 ? (
+        <div className="cart-lut-filter">
+          <span className="cart-lut-filter-title">Origin</span>
+          <button
+            type="button"
+            className={originFilter === "all" ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+            onClick={() => setOriginFilter("all")}
+          >
+            <span>all</span>
+            <span className="cart-lut-pill-count">{activeDisk.files.length}</span>
+          </button>
+          {(["kernal", "custom-loader", "unknown"] as const).map((origin) => {
+            const count = originCounts.get(origin) ?? 0;
+            if (count === 0 && originFilter !== origin) return null;
+            return (
+              <button
+                key={origin}
+                type="button"
+                className={originFilter === origin ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+                onClick={() => setOriginFilter(origin)}
+              >
+                <span>{origin}</span>
+                <span className="cart-lut-pill-count">{count}</span>
+              </button>
+            );
+          })}
         </div>
       ) : null}
       {!activeDisk ? (
@@ -904,26 +956,28 @@ function DiskPanel({
                 <span>{activeDisk.format.toUpperCase()} [{activeDisk.diskId ?? "--"}]</span>
               </div>
               <div className="record-stack disk-file-stack">
-                {activeDisk.files.map((file) => (
+                {visibleFiles.map((file) => (
                   <button
                     key={file.id}
                     type="button"
                     className={selectedFile?.id === file.id ? "record-card active-record" : "record-card"}
                     onClick={() => {
                       setSelectedFileId(file.id);
-                      if (file.entityId) {
-                        onSelectEntity(file.entityId);
-                      }
+                      onSelectDiskFile(activeDisk.artifactId, file.id);
                     }}
                   >
                     <div className="record-topline">
-                      <span>{file.relativePath ?? file.title}</span>
+                      <span className="disk-file-row-title">
+                        <span className="disk-file-color-dot" style={{ background: file.color ?? "#6e7681" }} />
+                        <span>{file.relativePath ?? file.title}</span>
+                      </span>
                       <span className="record-status">{file.loadType}</span>
                     </div>
                     <div className="record-meta">
                       <span>{file.sizeSectors ?? 0} blk</span>
                       {file.loadAddress !== undefined ? <span>{hex(file.loadAddress)}</span> : null}
                       {file.loaderSource ? <span>via {file.loaderSource}</span> : null}
+                      {file.packer ? <span>{file.packer}</span> : null}
                     </div>
                   </button>
                 ))}
@@ -947,16 +1001,20 @@ function DiskPanel({
                 <circle cx="320" cy="320" r="58" className="disk-center-hole" />
                 {activeDisk.sectors.map((sector) => {
                   const isSelected = selectedFile?.id !== undefined && sector.fileId === selectedFile.id;
+                  const filteredOut = sector.fileId !== undefined && !visibleFileIds.has(sector.fileId);
                   const className = [
                     "disk-sector",
                     `disk-sector-${sector.category}`,
                     isSelected ? "selected" : "",
+                    filteredOut ? "disk-sector-filtered-out" : "",
                   ].filter(Boolean).join(" ");
+                  const useFileColor = sector.category === "file" && sector.color && !filteredOut;
                   return (
                     <path
                       key={sector.id}
                       d={sectorPath(sector.track, sector.angleStart, sector.angleEnd)}
                       className={className}
+                      style={useFileColor ? { fill: sector.color } : undefined}
                     />
                   );
                 })}
@@ -1798,6 +1856,153 @@ function EntityInspector({
   );
 }
 
+function d64SectorOffset(track: number, sector: number): number {
+  let offset = 0;
+  for (let t = 1; t < track; t += 1) {
+    const perTrack = t <= 17 ? 21 : t <= 24 ? 19 : t <= 30 ? 18 : 17;
+    offset += perTrack * 256;
+  }
+  return offset + sector * 256;
+}
+
+function DiskFileInspector({
+  snapshot,
+  selection,
+  onClose,
+  onOpenHex,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  selection: { diskArtifactId: string; fileId: string };
+  onClose: () => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) => void;
+}) {
+  const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
+  const file = disk?.files.find((candidate) => candidate.id === selection.fileId);
+  const diskArtifact = snapshot.artifacts.find((artifact) => artifact.id === selection.diskArtifactId);
+  const diskPath = diskArtifact?.relativePath;
+  const isD64 = diskPath?.toLowerCase().endsWith(".d64");
+
+  if (!file || !disk) {
+    return (
+      <section className="panel-card inspector-card">
+        <div className="section-heading">
+          <h3>Disk file</h3>
+          <button type="button" className="mon-icon-button" onClick={onClose}>back</button>
+        </div>
+        <div className="empty-state">File no longer present in snapshot.</div>
+      </section>
+    );
+  }
+
+  function openSectorMon(track: number, sector: number, bytesUsed: number, partIndex: number, total: number) {
+    if (!diskPath || !isD64) return;
+    const offset = d64SectorOffset(track, sector);
+    onOpenHex(diskPath, {
+      title: `${disk!.diskName ?? disk!.title} · ${file!.title} · T${track}/S${sector} (${partIndex + 1}/${total})`,
+      baseAddress: 0,
+      offset,
+      length: 256,
+    });
+  }
+
+  function openWholeFileMon() {
+    if (!diskPath || !isD64 || file!.sectorChain.length === 0) return;
+    const chain = file!.sectorChain;
+    // A D64 file's bytes are NOT contiguous on-disk, so the single slice
+    // here shows only the FIRST sector. For the full file the user should
+    // use per-sector (mon) or the chain list below.
+    const first = chain[0]!;
+    const offset = d64SectorOffset(first.track, first.sector);
+    onOpenHex(diskPath, {
+      title: `${disk!.diskName ?? disk!.title} · ${file!.title} · first sector T${first.track}/S${first.sector}`,
+      baseAddress: 0,
+      offset,
+      length: 256,
+    });
+  }
+
+  const totalSectors = file.sectorChain.length;
+  const totalBytes = file.sectorChain.reduce((sum, cell) => sum + (cell.bytesUsed || 254), 0);
+
+  return (
+    <section className="panel-card inspector-card">
+      <div className="section-heading">
+        <h3>Disk file</h3>
+        <button type="button" className="mon-icon-button" onClick={onClose}>back</button>
+      </div>
+      <div className="chunk-inspector-summary">
+        <div className="chunk-inspector-headline">
+          <span className="chunk-color-swatch" style={{ background: file.color ?? "#444" }} />
+          <strong>{file.title}</strong>
+          <span>{file.type}</span>
+          <span>{totalSectors} sectors</span>
+          <span>{totalBytes} bytes</span>
+          {file.loadAddress !== undefined ? <span>load {hex(file.loadAddress)}</span> : null}
+        </div>
+        <div className="chunk-inspector-paths">
+          <div>
+            <span className="chunk-inspector-label">origin</span>
+            <span>{file.loadType}{file.loaderSource ? ` · via ${file.loaderSource}` : ""}</span>
+          </div>
+          <div>
+            <span className="chunk-inspector-label">disk image</span>
+            <span>{diskPath ?? "(no path)"} {isD64 ? "" : "· hex view only for .d64 for now"}</span>
+          </div>
+          {file.packer || file.format ? (
+            <div>
+              <span className="chunk-inspector-label">packer / format</span>
+              <span>{[file.packer, file.format].filter(Boolean).join(" · ")}</span>
+            </div>
+          ) : null}
+          {file.notes && file.notes.length > 0 ? (
+            <div>
+              <span className="chunk-inspector-label">notes</span>
+              <span>{file.notes.join(" · ")}</span>
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="mon-icon-button chunk-inspector-mon"
+          disabled={!diskPath || !isD64 || file.sectorChain.length === 0}
+          onClick={openWholeFileMon}
+        >
+          mon (first sector) — per-sector below
+        </button>
+      </div>
+      <div className="inspector-block">
+        <h4>Sector chain ({totalSectors})</h4>
+        <div className="record-stack compact">
+          {file.sectorChain.map((cell, partIndex) => (
+            <div key={`${cell.track}-${cell.sector}`} className="record-card-row">
+              <div className="record-card">
+                <div className="record-topline">
+                  <span>T{cell.track} / S{cell.sector}</span>
+                  <span className="record-status">{cell.isLast ? "last" : `→ ${cell.nextTrack}/${cell.nextSector}`}</span>
+                </div>
+                <p>link $00/$01 + {cell.bytesUsed || 254} B payload</p>
+                <div className="record-meta">
+                  <span>step {cell.index + 1}/{totalSectors}</span>
+                  {isD64 ? <span>offset ${d64SectorOffset(cell.track, cell.sector).toString(16).toUpperCase().padStart(6, "0")}</span> : null}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="mon-icon-button"
+                title={`Open hex view for T${cell.track}/S${cell.sector} (256 B)`}
+                disabled={!diskPath || !isD64}
+                onClick={() => openSectorMon(cell.track, cell.sector, cell.bytesUsed, partIndex, totalSectors)}
+              >
+                mon
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function CartChunkInspector({
   snapshot,
   selection,
@@ -1944,6 +2149,7 @@ export function App() {
   const [docError, setDocError] = useState<string | null>(null);
   const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number } | null>(null);
   const [selectedCartChunk, setSelectedCartChunk] = useState<{ cartridgeArtifactId: string; chunk: CartridgeLutChunk } | null>(null);
+  const [selectedDiskFile, setSelectedDiskFile] = useState<{ diskArtifactId: string; fileId: string } | null>(null);
 
   function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) {
     setHexOverlay({ path, title: options?.title, baseAddress: options?.baseAddress, offset: options?.offset, length: options?.length });
@@ -2047,6 +2253,7 @@ export function App() {
     setSelectedEntityId(entityId);
     setTabSelections((current) => ({ ...current, [tabId]: entityId }));
     setSelectedCartChunk(null);
+    setSelectedDiskFile(null);
   }
 
   return (
@@ -2126,7 +2333,17 @@ export function App() {
                 onOpenHex={openHexOverlay}
               />
             ) : null}
-            {activeTab === "disk" ? <DiskPanel snapshot={snapshot} onSelectEntity={(entityId) => handleSelectEntity(entityId, "disk")} /> : null}
+            {activeTab === "disk" ? (
+              <DiskPanel
+                snapshot={snapshot}
+                onSelectEntity={(entityId) => handleSelectEntity(entityId, "disk")}
+                onSelectDiskFile={(diskArtifactId, fileId) => {
+                  setSelectedDiskFile({ diskArtifactId, fileId });
+                  setSelectedEntityId(null);
+                  setSelectedCartChunk(null);
+                }}
+              />
+            ) : null}
             {activeTab === "load" ? (
               <LoadSequencePanel
                 view={snapshot.views.loadSequence}
@@ -2159,6 +2376,13 @@ export function App() {
                   snapshot={snapshot}
                   selection={selectedCartChunk}
                   onClose={() => setSelectedCartChunk(null)}
+                  onOpenHex={openHexOverlay}
+                />
+              ) : selectedDiskFile ? (
+                <DiskFileInspector
+                  snapshot={snapshot}
+                  selection={selectedDiskFile}
+                  onClose={() => setSelectedDiskFile(null)}
                   onOpenHex={openHexOverlay}
                 />
               ) : (

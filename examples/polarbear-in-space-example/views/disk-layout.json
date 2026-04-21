@@ -3,7 +3,7 @@
   "kind": "disk-layout",
   "title": "Polarbear in Space Disk Layout",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-21T20:06:48.168Z",
+  "generatedAt": "2026-04-21T20:16:58.027Z",
   "disks": [
     {
       "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz",
@@ -6175,7 +6175,9 @@
           "relativePath": "01_intro.prg",
           "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-0-01_intro-prg",
           "sectorChain": [],
-          "loadType": "unknown"
+          "loadType": "unknown",
+          "color": "hsl(63 60% 40.0%)",
+          "notes": []
         },
         {
           "id": "artifact-polarbear-disk-manifest-mo41xbpz-file-1",
@@ -6189,7 +6191,9 @@
           "relativePath": "02_level1.prg",
           "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-1-02_level1-prg",
           "sectorChain": [],
-          "loadType": "unknown"
+          "loadType": "unknown",
+          "color": "hsl(30 60% 47.0%)",
+          "notes": []
         },
         {
           "id": "artifact-polarbear-disk-manifest-mo41xbpz-file-2",
@@ -6203,7 +6207,9 @@
           "relativePath": "03_ending.prg",
           "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_ending-prg",
           "sectorChain": [],
-          "loadType": "unknown"
+          "loadType": "unknown",
+          "color": "hsl(25 60% 48.0%)",
+          "notes": []
         }
       ]
     }

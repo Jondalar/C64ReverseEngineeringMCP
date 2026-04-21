@@ -56,6 +56,18 @@ function compareByTitle<T extends { title?: string; name?: string; id: string }>
   return leftLabel.localeCompare(rightLabel);
 }
 
+// Alphanumeric compare that sorts "disk2" before "disk10" and stays
+// deterministic when `title` alone is ambiguous (e.g. multiple disks
+// from the same project share a BAM label). Falls back to artifact id
+// so the order is fully stable.
+function compareByRelativePath<T extends { relativePath?: string; title?: string; name?: string; id: string }>(left: T, right: T): number {
+  const leftPath = left.relativePath ?? left.title ?? left.name ?? left.id;
+  const rightPath = right.relativePath ?? right.title ?? right.name ?? right.id;
+  const primary = leftPath.localeCompare(rightPath, undefined, { numeric: true, sensitivity: "base" });
+  if (primary !== 0) return primary;
+  return left.id.localeCompare(right.id);
+}
+
 function readJsonIfExists(path: string): unknown | undefined {
   if (!existsSync(path)) {
     return undefined;
@@ -647,7 +659,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
 
   const disks = context.artifacts
     .filter((artifact) => artifact.role === "disk-manifest")
-    .sort(compareByTitle)
+    .sort(compareByRelativePath)
     .map((artifact) => {
       const manifest = readJsonIfExists(artifact.path) as {
         sourceImage?: string;
@@ -717,9 +729,11 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             relativePath: file.relativePath,
             annotationCommentsByStage,
           });
+          const title = file.name ?? `File ${index + 1}`;
+          const color = fnvHslColor([artifact.id, index, title, file.track ?? 0, file.sector ?? 0]);
           return {
             id: `${artifact.id}-file-${index}`,
-            title: file.name ?? `File ${index + 1}`,
+            title,
             type: file.type ?? "unknown",
             sizeSectors: file.sizeSectors,
             sizeBytes: file.sizeBytes,
@@ -732,12 +746,14 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             loadType: loaderInfo.loadType,
             loaderHint: loaderInfo.loaderHint,
             loaderSource: loaderInfo.loaderSource,
+            color,
+            notes: [],
           };
         });
-      const fileBySector = new Map<string, { id: string; title: string }>();
+      const fileBySector = new Map<string, { id: string; title: string; color?: string }>();
       for (const file of files) {
         for (const cell of file.sectorChain) {
-          fileBySector.set(`${cell.track}:${cell.sector}`, { id: file.id, title: file.title });
+          fileBySector.set(`${cell.track}:${cell.sector}`, { id: file.id, title: file.title, color: file.color });
         }
       }
       const trackCount = Math.max(
@@ -762,6 +778,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
               fileTitle: match?.title,
               occupied: Boolean(match) || isBam || isDirectory,
               category: match ? "file" as const : isBam ? "bam" as const : isDirectory ? "directory" as const : "free" as const,
+              color: match?.color,
             };
           });
         });
@@ -944,6 +961,21 @@ function splitChunkAcrossBanks(
     currentOffset = 0;
   }
   return spans;
+}
+
+// Deterministic colour from arbitrary values via FNV-1a.
+function fnvHslColor(parts: ReadonlyArray<string | number>): string {
+  let hash = 2166136261 >>> 0;
+  for (const part of parts) {
+    const str = typeof part === "string" ? part : String(part);
+    for (let i = 0; i < str.length; i += 1) {
+      hash ^= str.charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+  }
+  const hue = hash % 360;
+  const lightness = 48 + (((hash >> 8) & 0x1f) - 16) / 2;
+  return `hsl(${hue} 60% ${lightness.toFixed(1)}%)`;
 }
 
 // Deterministic colour from the chunk's physical range so adjacent files

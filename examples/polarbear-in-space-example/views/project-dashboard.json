@@ -3,7 +3,7 @@
   "kind": "project-dashboard",
   "title": "Polarbear in Space Dashboard",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-21T20:06:48.159Z",
+  "generatedAt": "2026-04-21T20:16:58.019Z",
   "project": {
     "schemaVersion": 1,
     "id": "project-polarbear-in-space-mo41xbpc",
@@ -176,7 +176,7 @@
       "status": "confirmed",
       "confidence": 1,
       "summary": "3 files imported from POLARBEAR DISK.",
-      "updatedAt": "2026-04-21T20:06:48.155Z"
+      "updatedAt": "2026-04-21T20:16:58.016Z"
     },
     {
       "id": "finding-artifact-polarbear-crt-manifest-mo41xbpx-cartridge-layout",
@@ -185,25 +185,7 @@
       "status": "confirmed",
       "confidence": 1,
       "summary": "3 chips and 3 banks imported from POLARBEAR IN SPACE.",
-      "updatedAt": "2026-04-21T20:06:48.148Z"
-    },
-    {
-      "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000",
-      "kind": "classification",
-      "title": "Segment 4000 classified as lookup_table",
-      "status": "confirmed",
-      "confidence": 0.5,
-      "summary": "lookup_table segment derived from analysis report.",
-      "updatedAt": "2026-04-21T20:06:48.137Z"
-    },
-    {
-      "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d",
-      "kind": "classification",
-      "title": "Segment 080D classified as code",
-      "status": "confirmed",
-      "confidence": 0.5,
-      "summary": "code segment derived from analysis report.",
-      "updatedAt": "2026-04-21T20:06:48.136Z"
+      "updatedAt": "2026-04-21T20:16:58.009Z"
     },
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000",
@@ -212,7 +194,25 @@
       "status": "confirmed",
       "confidence": 0.5,
       "summary": "state_variable segment derived from analysis report.",
-      "updatedAt": "2026-04-21T20:06:48.136Z"
+      "updatedAt": "2026-04-21T20:16:57.996Z"
+    },
+    {
+      "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000",
+      "kind": "classification",
+      "title": "Segment 4000 classified as lookup_table",
+      "status": "confirmed",
+      "confidence": 0.5,
+      "summary": "lookup_table segment derived from analysis report.",
+      "updatedAt": "2026-04-21T20:16:57.996Z"
+    },
+    {
+      "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d",
+      "kind": "classification",
+      "title": "Segment 080D classified as code",
+      "status": "confirmed",
+      "confidence": 0.5,
+      "summary": "code segment derived from analysis report.",
+      "updatedAt": "2026-04-21T20:16:57.995Z"
     },
     {
       "id": "finding-cartridge-bank-0-contains-the-intro-bootstrap-payload-mo41xbqb",
@@ -252,7 +252,7 @@
       "status": "open",
       "confidence": 0.5,
       "summary": "lookup_table segment derived from analysis report.",
-      "updatedAt": "2026-04-21T20:06:48.140Z"
+      "updatedAt": "2026-04-21T20:16:58.000Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d",
@@ -261,7 +261,7 @@
       "status": "open",
       "confidence": 0.5,
       "summary": "code segment derived from analysis report.",
-      "updatedAt": "2026-04-21T20:06:48.139Z"
+      "updatedAt": "2026-04-21T20:16:57.999Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000",
@@ -270,7 +270,7 @@
       "status": "open",
       "confidence": 0.5,
       "summary": "state_variable segment derived from analysis report.",
-      "updatedAt": "2026-04-21T20:06:48.139Z"
+      "updatedAt": "2026-04-21T20:16:57.999Z"
     },
     {
       "id": "question-when-does-disk-level-loading-begin-mo41xbqc",
@@ -284,99 +284,99 @@
   ],
   "recentTimeline": [
     {
-      "id": "timeline-finding-saved-disk-layout-imported-from-manifest-json-mo921fto",
-      "kind": "finding.saved",
-      "title": "Finding saved: Disk layout imported from manifest.json",
-      "summary": "disk-layout",
-      "createdAt": "2026-04-21T20:06:48.156Z",
-      "findingId": "finding-artifact-polarbear-disk-manifest-mo41xbpz-disk-layout"
-    },
-    {
-      "id": "timeline-imported-manifest-manifest-json-mo921fto",
-      "kind": "note",
-      "title": "Imported manifest: manifest.json",
-      "summary": "3 entities / 1 findings / 0 relations",
-      "createdAt": "2026-04-21T20:06:48.156Z",
-      "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz"
-    },
-    {
-      "id": "timeline-entity-saved-ending-mo921ftn",
+      "id": "timeline-entity-saved-ending-mo92eie8",
       "kind": "entity.saved",
       "title": "Entity saved: ENDING",
       "summary": "disk-file",
-      "createdAt": "2026-04-21T20:06:48.155Z",
+      "createdAt": "2026-04-21T20:16:58.016Z",
       "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_ending-prg"
     },
     {
-      "id": "timeline-entity-saved-level1-mo921ftm",
+      "id": "timeline-finding-saved-disk-layout-imported-from-manifest-json-mo92eie8",
+      "kind": "finding.saved",
+      "title": "Finding saved: Disk layout imported from manifest.json",
+      "summary": "disk-layout",
+      "createdAt": "2026-04-21T20:16:58.016Z",
+      "findingId": "finding-artifact-polarbear-disk-manifest-mo41xbpz-disk-layout"
+    },
+    {
+      "id": "timeline-imported-manifest-manifest-json-mo92eie8",
+      "kind": "note",
+      "title": "Imported manifest: manifest.json",
+      "summary": "3 entities / 1 findings / 0 relations",
+      "createdAt": "2026-04-21T20:16:58.016Z",
+      "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz"
+    },
+    {
+      "id": "timeline-entity-saved-level1-mo92eie7",
       "kind": "entity.saved",
       "title": "Entity saved: LEVEL1",
       "summary": "disk-file",
-      "createdAt": "2026-04-21T20:06:48.154Z",
+      "createdAt": "2026-04-21T20:16:58.015Z",
       "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-1-02_level1-prg"
     },
     {
-      "id": "timeline-entity-saved-intro-mo921ftl",
+      "id": "timeline-entity-saved-intro-mo92eie6",
       "kind": "entity.saved",
       "title": "Entity saved: INTRO",
       "summary": "disk-file",
-      "createdAt": "2026-04-21T20:06:48.153Z",
+      "createdAt": "2026-04-21T20:16:58.014Z",
       "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-0-01_intro-prg"
     },
     {
-      "id": "timeline-relation-saved-bank-01-contains-chip-bank-1-a000-mo921fti",
+      "id": "timeline-relation-saved-bank-01-contains-chip-bank-1-a000-mo92eie3",
       "kind": "relation.saved",
       "title": "Relation saved: bank_01 contains chip_bank_1_A000",
       "summary": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01 -> entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
-      "createdAt": "2026-04-21T20:06:48.150Z",
+      "createdAt": "2026-04-21T20:16:58.011Z",
       "relationId": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
     },
     {
-      "id": "timeline-relation-saved-bank-02-contains-chip-bank-2-8000-mo921fti",
+      "id": "timeline-relation-saved-bank-02-contains-chip-bank-2-8000-mo92eie3",
       "kind": "relation.saved",
       "title": "Relation saved: bank_02 contains chip_bank_2_8000",
       "summary": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02 -> entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
-      "createdAt": "2026-04-21T20:06:48.150Z",
+      "createdAt": "2026-04-21T20:16:58.011Z",
       "relationId": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2"
     },
     {
-      "id": "timeline-imported-manifest-manifest-json-mo921fti",
+      "id": "timeline-imported-manifest-manifest-json-mo92eie3",
       "kind": "note",
       "title": "Imported manifest: manifest.json",
       "summary": "6 entities / 1 findings / 3 relations",
-      "createdAt": "2026-04-21T20:06:48.150Z",
+      "createdAt": "2026-04-21T20:16:58.011Z",
       "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx"
     },
     {
-      "id": "timeline-finding-saved-cartridge-layout-imported-from-manifest-json-mo921fth",
+      "id": "timeline-finding-saved-cartridge-layout-imported-from-manifest-json-mo92eie2",
       "kind": "finding.saved",
       "title": "Finding saved: Cartridge layout imported from manifest.json",
       "summary": "cartridge-layout",
-      "createdAt": "2026-04-21T20:06:48.149Z",
+      "createdAt": "2026-04-21T20:16:58.010Z",
       "findingId": "finding-artifact-polarbear-crt-manifest-mo41xbpx-cartridge-layout"
     },
     {
-      "id": "timeline-relation-saved-bank-00-contains-chip-bank-0-8000-mo921fth",
+      "id": "timeline-relation-saved-bank-00-contains-chip-bank-0-8000-mo92eie2",
       "kind": "relation.saved",
       "title": "Relation saved: bank_00 contains chip_bank_0_8000",
       "summary": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00 -> entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
-      "createdAt": "2026-04-21T20:06:48.149Z",
+      "createdAt": "2026-04-21T20:16:58.010Z",
       "relationId": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0"
     },
     {
-      "id": "timeline-entity-saved-bank-02-mo921ftg",
+      "id": "timeline-entity-saved-bank-02-mo92eie1",
       "kind": "entity.saved",
       "title": "Entity saved: bank_02",
       "summary": "cartridge-bank",
-      "createdAt": "2026-04-21T20:06:48.148Z",
+      "createdAt": "2026-04-21T20:16:58.009Z",
       "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02"
     },
     {
-      "id": "timeline-entity-saved-bank-01-mo921ftf",
+      "id": "timeline-entity-saved-bank-01-mo92eie0",
       "kind": "entity.saved",
       "title": "Entity saved: bank_01",
       "summary": "cartridge-bank",
-      "createdAt": "2026-04-21T20:06:48.147Z",
+      "createdAt": "2026-04-21T20:16:58.008Z",
       "entityId": "entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01"
     }
   ]
