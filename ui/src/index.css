@@ -1204,8 +1204,6 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 60vh;
-  overflow: auto;
   padding: 0.35rem;
   background: #161b22;
   border-radius: 6px;
@@ -1219,11 +1217,82 @@ button {
 
 .cart-grid-bank {
   display: grid;
-  grid-template-columns: 70px 1fr;
+  grid-template-columns: 44px 70px 1fr;
   align-items: center;
   gap: 6px;
   padding: 3px 4px;
   border-radius: 4px;
+}
+
+.cart-bank-mon-button {
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #58a6ff;
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.cart-bank-mon-button:hover {
+  border-color: #58a6ff;
+  background: rgba(88, 166, 255, 0.12);
+}
+
+.cart-bank-mon-button[disabled] {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.cart-lut-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.5rem 0.6rem;
+  background: rgba(22, 27, 34, 0.6);
+  border-radius: 6px;
+  margin-bottom: 0.45rem;
+}
+
+.cart-lut-filter-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6e7681;
+  margin-right: 0.3rem;
+}
+
+.cart-lut-pill {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.cart-lut-pill:hover {
+  border-color: #58a6ff;
+}
+
+.cart-lut-pill-active {
+  background: rgba(88, 166, 255, 0.18);
+  border-color: #58a6ff;
+  color: #79c0ff;
+}
+
+.cart-lut-pill-count {
+  font-size: 10px;
+  color: #8b949e;
 }
 
 .cart-grid-bank:hover {

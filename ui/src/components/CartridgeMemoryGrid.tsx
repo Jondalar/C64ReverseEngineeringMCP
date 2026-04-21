@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { CartridgeBankView, CartridgeChipView, CartridgeLutChunk, CartridgeSlotLayout } from "../types.js";
 
 interface ChipClickHandler {
@@ -22,6 +23,7 @@ interface CartridgeMemoryGridProps {
   onOpenChipHex?: ChipClickHandler;
   onOpenEepromHex?: () => void;
   onSelectLutChunk?: (chunk: CartridgeLutChunk) => void;
+  onOpenBankHex?: (bank: CartridgeBankView, chip: CartridgeChipView | undefined) => void;
 }
 
 function formatHexWord(value: number): string {
@@ -56,20 +58,43 @@ export function CartridgeMemoryGrid({
   onOpenChipHex,
   onOpenEepromHex,
   onSelectLutChunk,
+  onOpenBankHex,
 }: CartridgeMemoryGridProps) {
+  // "all" = no filter; otherwise show only chunks where this LUT appears
+  // in their refs[]. Empty string also means all so the chip-only view
+  // (no LUT data at all) keeps working.
+  const [activeLut, setActiveLut] = useState<string>("all");
   const bankSize = slotLayout?.bankSize ?? 0x2000;
   const hasRomh = slotLayout?.hasRomh ?? chips.some((chip) => chip.slot === "ROMH" || chip.slot === "ULTIMAX_ROMH");
   const hasEeprom = slotLayout?.hasEeprom ?? false;
   const isUltimax = slotLayout?.isUltimax ?? (exrom === 1 && game === 0);
   const hardwareTypeName = slotLayout?.hardwareTypeName ?? (hardwareType !== undefined ? `Type ${hardwareType}` : undefined);
 
+  // Build LUT-pill list from all known refs across the chunks. We sort
+  // alphabetically + always keep "all" as the first entry.
+  const lutPillCounts = new Map<string, number>();
+  for (const chunk of lutChunks ?? []) {
+    const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
+    for (const ref of refs) {
+      lutPillCounts.set(ref.lut, (lutPillCounts.get(ref.lut) ?? 0) + 1);
+    }
+  }
+  const lutPills = Array.from(lutPillCounts.entries()).sort(([a], [b]) => a.localeCompare(b));
+
+  function chunkMatchesActiveLut(chunk: CartridgeLutChunk): boolean {
+    if (activeLut === "all") return true;
+    const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
+    return refs.some((ref) => ref.lut === activeLut);
+  }
+  const visibleChunks = (lutChunks ?? []).filter(chunkMatchesActiveLut);
+
   // Each chunk carries one or more `spans` describing per-bank physical
   // placement (for files that cross bank boundaries). We index per
-  // (bank, slot) to one entry per span — cliking any span selects the
+  // (bank, slot) to one entry per span — clicking any span selects the
   // whole logical chunk.
   type ChunkSpanEntry = { chunk: CartridgeLutChunk; offsetInBank: number; length: number; isContinuation: boolean; isHead: boolean };
   const chunkIndex = new Map<string, ChunkSpanEntry[]>();
-  for (const chunk of lutChunks ?? []) {
+  for (const chunk of visibleChunks) {
     const slotKey = chunk.slot === "ROML" ? "ROML" : "ROMH";
     const spans = chunk.spans?.length
       ? chunk.spans
@@ -88,19 +113,14 @@ export function CartridgeMemoryGrid({
     });
   }
 
-  // Count LUT references across every (deduplicated) chunk so the
-  // legend can summarise how often each LUT touches the cart without
-  // pretending colour maps to LUT identity.
-  const lutRefCounts = new Map<string, number>();
+  // Footer stats reflect what the user is currently looking at —
+  // visibleChunks already accounts for the LUT filter.
   let sharedChunkCount = 0;
   let totalChunkBytes = 0;
-  for (const chunk of lutChunks ?? []) {
+  for (const chunk of visibleChunks) {
     const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
     if (refs.length > 1) sharedChunkCount += 1;
     totalChunkBytes += chunk.length;
-    for (const ref of refs) {
-      lutRefCounts.set(ref.lut, (lutRefCounts.get(ref.lut) ?? 0) + 1);
-    }
   }
 
   function chipAt(bank: number, role: "ROML" | "ROMH"): CartridgeChipView | undefined {
@@ -203,6 +223,30 @@ export function CartridgeMemoryGrid({
           </div>
         </dl>
       </header>
+      {lutPills.length > 0 ? (
+        <div className="cart-lut-filter">
+          <span className="cart-lut-filter-title">LUT</span>
+          <button
+            type="button"
+            className={activeLut === "all" ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+            onClick={() => setActiveLut("all")}
+          >
+            <span>all</span>
+            <span className="cart-lut-pill-count">{lutChunks?.length ?? 0}</span>
+          </button>
+          {lutPills.map(([lutName, count]) => (
+            <button
+              key={lutName}
+              type="button"
+              className={activeLut === lutName ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+              onClick={() => setActiveLut(lutName)}
+            >
+              <span>{lutName}</span>
+              <span className="cart-lut-pill-count">{count}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="cart-grid-banks">
         {banks.length === 0 ? (
           <div className="cart-grid-empty">No bank entries in manifest.</div>
@@ -210,8 +254,21 @@ export function CartridgeMemoryGrid({
           banks.map((bank) => {
             const roml = chipAt(bank.bank, "ROML");
             const romh = hasRomh ? chipAt(bank.bank, "ROMH") : undefined;
+            const monChip = roml ?? romh;
             return (
               <div key={`bank-${bank.bank}`} className="cart-grid-bank">
+                <button
+                  type="button"
+                  className="cart-bank-mon-button"
+                  title={monChip?.file ? `Open hex view for bank ${bank.bank} (${monChip.file})` : "No chip dump for this bank"}
+                  disabled={!monChip || !onOpenBankHex}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (monChip && onOpenBankHex) onOpenBankHex(bank, monChip);
+                  }}
+                >
+                  mon
+                </button>
                 <button
                   type="button"
                   className="cart-grid-bank-label"
@@ -252,29 +309,11 @@ export function CartridgeMemoryGrid({
           </div>
         </div>
       ) : null}
-      {lutRefCounts.size > 0 ? (
-        <div className="cart-grid-legend">
-          <span className="cart-grid-legend-title">LUT refs:</span>
-          {Array.from(lutRefCounts.entries())
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([lutName, count]) => (
-              <span key={lutName} className="cart-grid-legend-entry">
-                <span>{lutName}</span>
-                <span className="cart-grid-legend-count">{count}</span>
-              </span>
-            ))}
-          {sharedChunkCount > 0 ? (
-            <span className="cart-grid-legend-entry">
-              <span>shared</span>
-              <span className="cart-grid-legend-count">{sharedChunkCount}</span>
-            </span>
-          ) : null}
-        </div>
-      ) : null}
       <footer className="cart-grid-footer">
         <span>
           Bank size {formatHexByte(bankSize >> 8)}00 · slot bar fills relative to bank size
-          {lutChunks?.length ? ` · ${lutChunks.length} unique file chunks (${bytesPretty(totalChunkBytes)} mapped)` : ""}
+          {visibleChunks.length ? ` · showing ${visibleChunks.length} file chunks (${bytesPretty(totalChunkBytes)})` : ""}
+          {sharedChunkCount > 0 ? ` · ${sharedChunkCount} shared across LUTs` : ""}
         </span>
       </footer>
     </div>
