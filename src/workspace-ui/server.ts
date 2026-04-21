@@ -1,7 +1,44 @@
 import { createServer } from "node:http";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { extname, join, normalize, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { extname, join, normalize, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+
+interface UiMark {
+  id: string;
+  createdAt: string;
+  projectDir: string;
+  url: string;
+  activeTab?: string;
+  selectedEntityId?: string | null;
+  selectedCartChunkKey?: string | null;
+  selectedDiskFileKey?: string | null;
+  selector?: string;
+  componentPath?: string[];
+  textContent?: string;
+  note: string;
+  status: "open" | "fixed";
+}
+
+function marksStorePath(projectDir: string): string {
+  return join(projectDir, "session", "ui-marks.json");
+}
+
+function loadMarks(projectDir: string): UiMark[] {
+  const path = marksStorePath(projectDir);
+  if (!existsSync(path)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { marks?: UiMark[] };
+    return parsed.marks ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMarks(projectDir: string, marks: UiMark[]): void {
+  const path = marksStorePath(projectDir);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify({ updatedAt: new Date().toISOString(), marks }, null, 2));
+}
 
 interface ServerOptions {
   port: number;
@@ -223,6 +260,99 @@ const server = createServer((req, res) => {
     } catch (error) {
       send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), path, projectDir }));
     }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/marks") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    if (req.method === "GET") {
+      const filter = requestUrl.searchParams.get("status");
+      const all = loadMarks(projectDir);
+      const marks = filter ? all.filter((mark) => mark.status === filter) : all;
+      send(res, jsonResponse(200, { marks }));
+      return;
+    }
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => {
+        try {
+          const payload = JSON.parse(body) as Partial<UiMark>;
+          const now = new Date().toISOString();
+          const all = loadMarks(projectDir);
+          const mark: UiMark = {
+            id: payload.id ?? `mark-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+            createdAt: payload.createdAt ?? now,
+            projectDir,
+            url: payload.url ?? "",
+            activeTab: payload.activeTab,
+            selectedEntityId: payload.selectedEntityId ?? null,
+            selectedCartChunkKey: payload.selectedCartChunkKey ?? null,
+            selectedDiskFileKey: payload.selectedDiskFileKey ?? null,
+            selector: payload.selector,
+            componentPath: payload.componentPath,
+            textContent: payload.textContent,
+            note: payload.note ?? "",
+            status: payload.status ?? "open",
+          };
+          all.push(mark);
+          saveMarks(projectDir, all);
+          send(res, jsonResponse(200, { mark }));
+        } catch (error) {
+          send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+        }
+      });
+      return;
+    }
+    if (req.method === "DELETE") {
+      const id = requestUrl.searchParams.get("id");
+      const filter = requestUrl.searchParams.get("status");
+      const all = loadMarks(projectDir);
+      let kept: UiMark[];
+      if (id) {
+        kept = all.filter((mark) => mark.id !== id);
+      } else if (!filter || filter === "all") {
+        kept = [];
+      } else {
+        kept = all.filter((mark) => mark.status !== filter);
+      }
+      saveMarks(projectDir, kept);
+      send(res, jsonResponse(200, { cleared: all.length - kept.length, remaining: kept.length }));
+      return;
+    }
+    send(res, jsonResponse(405, { error: "Method not allowed" }));
+    return;
+  }
+
+  if (requestUrl.pathname.startsWith("/api/marks/")) {
+    const id = requestUrl.pathname.slice("/api/marks/".length);
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    if (req.method === "PATCH") {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => {
+        try {
+          const payload = JSON.parse(body) as Partial<UiMark>;
+          const all = loadMarks(projectDir);
+          const index = all.findIndex((mark) => mark.id === id);
+          if (index < 0) {
+            send(res, jsonResponse(404, { error: "Mark not found" }));
+            return;
+          }
+          all[index] = { ...all[index]!, ...payload, id };
+          saveMarks(projectDir, all);
+          send(res, jsonResponse(200, { mark: all[index] }));
+        } catch (error) {
+          send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+        }
+      });
+      return;
+    }
+    send(res, jsonResponse(405, { error: "Method not allowed" }));
     return;
   }
 
