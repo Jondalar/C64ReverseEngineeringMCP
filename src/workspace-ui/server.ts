@@ -3,6 +3,9 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { extname, join, normalize, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
+import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx } from "../compression-tools.js";
+import { writeFile as writeFileAsync, mkdtemp as mkdtempAsync, rm as rmAsync } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 interface UiMark {
   id: string;
@@ -261,6 +264,86 @@ const server = createServer((req, res) => {
     } catch (error) {
       send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), path, projectDir }));
     }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/depack" && req.method === "POST") {
+    // Try a series of pure-TS depackers on the raw bytes the client
+    // pushes and stream back whichever one succeeds. Order roughly by
+    // how unambiguous the stream format is so we don't happily chew a
+    // valid Exomizer wrapper with the RLE depacker.
+    const forcePacker = requestUrl.searchParams.get("packer")?.trim() || undefined;
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => { chunks.push(chunk); });
+    req.on("end", async () => {
+      const input = Buffer.concat(chunks);
+      if (input.length === 0) {
+        send(res, jsonResponse(400, { error: "Empty request body" }));
+        return;
+      }
+      const candidates = forcePacker
+        ? [forcePacker]
+        : ["exomizer_sfx", "exomizer_raw", "byteboozer", "rle"];
+      const failures: Array<{ packer: string; error: string }> = [];
+      for (const packer of candidates) {
+        try {
+          let out: Uint8Array | undefined;
+          let loadAddress: number | undefined;
+          if (packer === "exomizer_sfx") {
+            let tempDir: string | undefined;
+            try {
+              tempDir = await mkdtempAsync(join(tmpdir(), "c64re-depack-"));
+              const tempPath = join(tempDir, "input.prg");
+              await writeFileAsync(tempPath, input);
+              const result = await depackExomizerSfx({ inputPath: tempPath });
+              out = result.data;
+              loadAddress = result.loadAddress;
+            } finally {
+              if (tempDir) await rmAsync(tempDir, { recursive: true, force: true });
+            }
+          } else if (packer === "exomizer_raw") {
+            let tempDir: string | undefined;
+            try {
+              tempDir = await mkdtempAsync(join(tmpdir(), "c64re-depack-"));
+              const tempPath = join(tempDir, "input.bin");
+              await writeFileAsync(tempPath, input);
+              const result = await depackExomizerRaw({ inputPath: tempPath });
+              out = result.data;
+            } finally {
+              if (tempDir) await rmAsync(tempDir, { recursive: true, force: true });
+            }
+          } else if (packer === "byteboozer") {
+            const result = new ByteBoozerDepacker().unpack(input);
+            out = result.data;
+          } else if (packer === "rle") {
+            const result = new RleDepacker().unpack(input, { hasHeader: input.length >= 2 && input[0] === 0 && input[1] === 0 });
+            out = result.data;
+          }
+          if (!out || out.length === 0) throw new Error("depacker returned no bytes");
+          const buffer = Buffer.from(out);
+          send(res, {
+            status: 200,
+            body: buffer,
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "Content-Length": String(buffer.length),
+              "Access-Control-Allow-Origin": "*",
+              "Cache-Control": "no-store",
+              "X-Depacker": packer,
+              "X-Load-Address": loadAddress !== undefined ? `$${loadAddress.toString(16).toUpperCase().padStart(4, "0")}` : "",
+            },
+          });
+          return;
+        } catch (err) {
+          failures.push({ packer, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      send(res, jsonResponse(422, {
+        error: "No depacker matched the input stream.",
+        attempts: failures,
+        bytes: input.length,
+      }));
+    });
     return;
   }
 

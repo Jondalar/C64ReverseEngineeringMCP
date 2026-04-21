@@ -782,7 +782,7 @@ function CartridgePanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectChunk: (cartridgeArtifactId: string, chunk: CartridgeLutChunk) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
 }) {
   function findChipEntity(bank: number, loadAddress: number) {
     return snapshot.entities.find((entity) =>
@@ -861,7 +861,7 @@ function DiskPanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectDiskFile: (diskArtifactId: string, fileId: string) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
 }) {
   const disks = snapshot.views.diskLayout.disks;
   const [activeDiskId, setActiveDiskId] = useState<string | null>(disks[0]?.artifactId ?? null);
@@ -1641,7 +1641,7 @@ function EntityInspector({
   onSelectEntity: (entityId: string) => void;
   onOpenDocument: (path: string) => void;
   onOpenTab: (tab: TabId) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
 }) {
   if (!entity) {
     return (
@@ -2034,7 +2034,7 @@ function DiskFileInspector({
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
   onClose: () => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
 }) {
   const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
   const file = disk?.files.find((candidate) => candidate.id === selection.fileId);
@@ -2110,6 +2110,7 @@ function DiskFileInspector({
         title: `${disk!.diskName ?? disk!.title} · ${file!.title} · assembled (${totalSectors} sectors, ${bytes.length} B)`,
         baseAddress: addressBase,
         bytes,
+        packerHint: file!.packer,
       });
     } catch (error) {
       onOpenHex(diskPath, {
@@ -2131,7 +2132,10 @@ function DiskFileInspector({
       <div className="chunk-inspector-summary">
         <div className="chunk-inspector-headline">
           <span className="chunk-color-swatch" style={{ background: file.color ?? "#444" }} />
-          <strong>{file.title}</strong>
+          <strong>
+            {file.title}
+            {file.packer ? <span className="packer-tag">{file.packer}</span> : null}
+          </strong>
           <span>{file.type}</span>
           <span>{totalSectors} sectors</span>
           <span>{totalBytes} bytes</span>
@@ -2210,7 +2214,7 @@ function CartChunkInspector({
   snapshot: WorkspaceUiSnapshot;
   selection: { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
   onClose: () => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
 }) {
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
@@ -2246,6 +2250,45 @@ function CartChunkInspector({
     });
   }
 
+  async function openAssembledChunkMon() {
+    if (spans.length === 0) return;
+    try {
+      const buffers: Uint8Array[] = [];
+      for (const span of spans) {
+        const chipPath = chipPathForSpan(span.bank);
+        if (!chipPath) throw new Error(`No chip file for bank ${span.bank}`);
+        const params = new URLSearchParams({
+          path: chipPath,
+          offset: String(span.offsetInBank),
+          length: String(span.length),
+        });
+        if (snapshot.project.rootPath) params.set("projectDir", snapshot.project.rootPath);
+        const response = await fetch(`/api/artifact/raw?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status} for bank ${span.bank}`);
+        buffers.push(new Uint8Array(await response.arrayBuffer()));
+      }
+      const total = buffers.reduce((sum, buf) => sum + buf.length, 0);
+      const bytes = new Uint8Array(total);
+      let cursor = 0;
+      for (const buf of buffers) {
+        bytes.set(buf, cursor);
+        cursor += buf.length;
+      }
+      const destAddress = chunk.destAddress ?? (slotBaseAddress + chunk.offsetInBank);
+      onOpenHex(manifestArtifact?.relativePath ?? "cartridge", {
+        title: `${cartridge?.cartridgeName ?? "cartridge"} · ${chunk.lut}.${String(chunk.index).padStart(2, "0")} assembled (${bytes.length} B${spans.length > 1 ? `, ${spans.length} spans` : ""})`,
+        baseAddress: destAddress,
+        bytes,
+        packerHint: chunk.packer,
+      });
+    } catch (error) {
+      onOpenHex("cartridge", {
+        title: `${chunk.lut}.${String(chunk.index).padStart(2, "0")} · error`,
+        bytes: new TextEncoder().encode(`Failed to assemble chunk: ${error instanceof Error ? error.message : String(error)}`),
+      });
+    }
+  }
+
   return (
     <section className="panel-card inspector-card">
       <div className="section-heading">
@@ -2255,11 +2298,23 @@ function CartChunkInspector({
       <div className="chunk-inspector-summary">
         <div className="chunk-inspector-headline">
           <span className="chunk-color-swatch" style={{ background: chunk.color ?? "#444" }} />
-          <strong>{chunk.length} bytes</strong>
+          <strong>
+            {chunk.lut}.{String(chunk.index).padStart(2, "0")}
+            {chunk.packer ? <span className="packer-tag">{chunk.packer}</span> : null}
+          </strong>
+          <span>{chunk.length} bytes</span>
           <span>origin bank {String(chunk.bank).padStart(2, "0")} {chunk.slot}</span>
           <span>off ${chunk.offsetInBank.toString(16).toUpperCase().padStart(4, "0")}</span>
           {spans.length > 1 ? <span className="chunk-inspector-tag">spans {spans.length} banks</span> : null}
         </div>
+        <button
+          type="button"
+          className="mon-icon-button chunk-inspector-mon"
+          disabled={spans.length === 0}
+          onClick={openAssembledChunkMon}
+        >
+          mon (assembled — {chunk.length} B{spans.length > 1 ? `, ${spans.length} spans` : ""})
+        </button>
         <div className="chunk-inspector-paths">
           {chunk.packer || chunk.format ? (
             <div>
@@ -2345,11 +2400,11 @@ export function App() {
   const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
-  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array } | null>(null);
+  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string } | null>(null);
   const [selectedCartChunk, setSelectedCartChunk] = useState<{ cartridgeArtifactId: string; chunk: CartridgeLutChunk } | null>(null);
   const [selectedDiskFile, setSelectedDiskFile] = useState<{ diskArtifactId: string; fileId: string } | null>(null);
 
-  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) {
+  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) {
     setHexOverlay({
       path,
       title: options?.title,
@@ -2358,6 +2413,7 @@ export function App() {
       length: options?.length,
       fetchUrl: options?.fetchUrl,
       bytes: options?.bytes,
+      packerHint: options?.packerHint,
     });
   }
 
@@ -2620,6 +2676,7 @@ export function App() {
           length={hexOverlay.length}
           fetchUrl={hexOverlay.fetchUrl}
           bytes={hexOverlay.bytes}
+          packerHint={hexOverlay.packerHint}
           onClose={() => setHexOverlay(null)}
         />
       ) : null}

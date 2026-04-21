@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-21T20:54:51.297Z",
+  "updatedAt": "2026-04-21T21:04:31.909Z",
   "items": [
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d",
@@ -19,7 +19,7 @@
             "start": 2061,
             "end": 2288
           },
-          "capturedAt": "2026-04-21T20:54:51.265Z"
+          "capturedAt": "2026-04-21T21:04:31.893Z"
         }
       ],
       "entityIds": [
@@ -35,8 +35,8 @@
         "code",
         "segment-classification"
       ],
-      "createdAt": "2026-04-21T20:54:51.277Z",
-      "updatedAt": "2026-04-21T20:54:51.277Z"
+      "createdAt": "2026-04-21T21:04:31.899Z",
+      "updatedAt": "2026-04-21T21:04:31.899Z"
     },
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000",
@@ -55,7 +55,7 @@
             "start": 8192,
             "end": 8447
           },
-          "capturedAt": "2026-04-21T20:54:51.265Z"
+          "capturedAt": "2026-04-21T21:04:31.893Z"
         }
       ],
       "entityIds": [
@@ -71,8 +71,8 @@
         "segment-classification",
         "state_variable"
       ],
-      "createdAt": "2026-04-21T20:54:51.278Z",
-      "updatedAt": "2026-04-21T20:54:51.278Z"
+      "createdAt": "2026-04-21T21:04:31.899Z",
+      "updatedAt": "2026-04-21T21:04:31.899Z"
     },
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000",
@@ -91,7 +91,7 @@
             "start": 16384,
             "end": 17407
           },
-          "capturedAt": "2026-04-21T20:54:51.265Z"
+          "capturedAt": "2026-04-21T21:04:31.893Z"
         }
       ],
       "entityIds": [
@@ -107,8 +107,8 @@
         "lookup_table",
         "segment-classification"
       ],
-      "createdAt": "2026-04-21T20:54:51.278Z",
-      "updatedAt": "2026-04-21T20:54:51.278Z"
+      "createdAt": "2026-04-21T21:04:31.899Z",
+      "updatedAt": "2026-04-21T21:04:31.899Z"
     },
     {
       "id": "finding-artifact-polarbear-crt-manifest-mo41xbpx-cartridge-layout",
@@ -122,7 +122,7 @@
           "kind": "artifact",
           "title": "CRT manifest import",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T20:54:51.283Z"
+          "capturedAt": "2026-04-21T21:04:31.902Z"
         }
       ],
       "entityIds": [
@@ -142,8 +142,8 @@
         "cartridge-layout",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T20:54:51.290Z",
-      "updatedAt": "2026-04-21T20:54:51.290Z"
+      "createdAt": "2026-04-21T21:04:31.906Z",
+      "updatedAt": "2026-04-21T21:04:31.906Z"
     },
     {
       "id": "finding-artifact-polarbear-disk-manifest-mo41xbpz-disk-layout",
@@ -157,7 +157,7 @@
           "kind": "artifact",
           "title": "Disk manifest import",
           "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz",
-          "capturedAt": "2026-04-21T20:54:51.293Z"
+          "capturedAt": "2026-04-21T21:04:31.907Z"
         }
       ],
       "entityIds": [
@@ -174,8 +174,8 @@
         "disk-layout",
         "manifest-import"
       ],
-      "createdAt": "2026-04-21T20:54:51.297Z",
-      "updatedAt": "2026-04-21T20:54:51.297Z"
+      "createdAt": "2026-04-21T21:04:31.909Z",
+      "updatedAt": "2026-04-21T21:04:31.909Z"
     },
     {
       "id": "finding-cartridge-bank-0-contains-the-intro-bootstrap-payload-mo41xbqb",
