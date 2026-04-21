@@ -490,6 +490,10 @@ export const DiskLayoutFileSchema = z.object({
   loadType: z.enum(["kernal", "custom-loader", "unknown"]).default("unknown"),
   loaderHint: z.string().optional(),
   loaderSource: z.string().optional(),
+  color: z.string().optional(),
+  packer: z.string().optional(),
+  format: z.string().optional(),
+  notes: z.array(z.string()).default([]),
 });
 
 export const DiskLayoutSectorCellSchema = z.object({
@@ -502,6 +506,7 @@ export const DiskLayoutSectorCellSchema = z.object({
   fileTitle: z.string().optional(),
   occupied: z.boolean(),
   category: z.enum(["free", "file", "directory", "bam", "unknown"]),
+  color: z.string().optional(),
 });
 
 export const DiskLayoutDiskSchema = z.object({
