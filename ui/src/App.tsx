@@ -44,6 +44,18 @@ const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "activity", label: "Recent Activity" },
 ];
 
+// Files we want to open in the (mon) hex viewer. Anything else (.json,
+// .md, .asm, .tass, .sym, etc.) is text the listing/docs panes already
+// handle, so we hide the icon to avoid noise.
+const C64_BINARY_EXTENSIONS = new Set([".prg", ".bin", ".crt", ".d64", ".g64", ".sid", ".raw"]);
+
+function isC64BinaryArtifact(relativePath: string): boolean {
+  const lower = relativePath.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  if (dot < 0) return false;
+  return C64_BINARY_EXTENSIONS.has(lower.slice(dot));
+}
+
 function hex(value: number, digits = 4): string {
   return `$${value.toString(16).toUpperCase().padStart(digits, "0")}`;
 }
@@ -761,6 +773,7 @@ function CartridgePanel({
               chips={cartridge.chips}
               banks={cartridge.banks}
               slotLayout={cartridge.slotLayout}
+              lutChunks={cartridge.lutChunks}
               onSelectChip={(chip) => {
                 const entity = findChipEntity(chip.bank, chip.loadAddress);
                 if (entity) onSelectEntity(entity.id);
@@ -1587,32 +1600,37 @@ function EntityInspector({
         <h4>Linked Artifacts</h4>
         {linkedArtifacts.length === 0 ? <div className="empty-inline">No linked artifacts.</div> : null}
         <div className="record-stack compact">
-          {linkedArtifacts.map((artifact) => (
-            <div key={artifact.id} className="record-card-row">
-              <button type="button" className="record-card" onClick={() => openArtifact(artifact)}>
-                <div className="record-topline">
-                  <span>{artifact.title}</span>
-                  <span className="record-status">{artifact.kind}</span>
-                </div>
-                <p>{artifact.relativePath}</p>
-                <div className="record-meta">
-                  <span>{artifact.role ?? artifact.scope}</span>
-                  <span>{pct(artifact.confidence)}</span>
-                </div>
-              </button>
-              <button
-                type="button"
-                className="mon-icon-button"
-                title={`Open hex view for ${artifact.relativePath}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onOpenHex(artifact.relativePath, { title: artifact.title });
-                }}
-              >
-                mon
-              </button>
-            </div>
-          ))}
+          {linkedArtifacts.map((artifact) => {
+            const showMon = isC64BinaryArtifact(artifact.relativePath);
+            return (
+              <div key={artifact.id} className="record-card-row">
+                <button type="button" className="record-card" onClick={() => openArtifact(artifact)}>
+                  <div className="record-topline">
+                    <span>{artifact.title}</span>
+                    <span className="record-status">{artifact.kind}</span>
+                  </div>
+                  <p>{artifact.relativePath}</p>
+                  <div className="record-meta">
+                    <span>{artifact.role ?? artifact.scope}</span>
+                    <span>{pct(artifact.confidence)}</span>
+                  </div>
+                </button>
+                {showMon ? (
+                  <button
+                    type="button"
+                    className="mon-icon-button"
+                    title={`Open hex view for ${artifact.relativePath}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenHex(artifact.relativePath, { title: artifact.title });
+                    }}
+                  >
+                    mon
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </div>
     ),

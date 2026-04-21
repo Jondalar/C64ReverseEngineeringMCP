@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, extname } from "node:path";
+import { basename, extname, resolve as resolvePath } from "node:path";
 import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFileEntry } from "../disk/index.js";
 import type {
   AnnotatedListingView,
@@ -821,6 +821,160 @@ function classifyChipSlot(loadAddress: number, isUltimax: boolean): "ROML" | "RO
   return "OTHER";
 }
 
+// Per-LUT base hue. Falls back to a hash for unknown LUT names so newly
+// added LUTs still render with a stable colour.
+const LUT_HUE_TABLE: Record<string, number> = {
+  A: 200,  // blue
+  B: 150,  // teal
+  C: 95,   // green
+  D: 35,   // amber
+  E: 320,  // magenta
+  F: 0,    // red
+};
+
+function lutHue(lutName: string): number {
+  const fixed = LUT_HUE_TABLE[lutName.toUpperCase()];
+  if (fixed !== undefined) return fixed;
+  let hash = 0;
+  for (const ch of lutName) hash = (hash * 31 + ch.charCodeAt(0)) & 0xffff;
+  return hash % 360;
+}
+
+function lutChunkColor(lutName: string, idx: number): string {
+  const hue = lutHue(lutName);
+  // Mild lightness rotation across entries so adjacent chunks stay
+  // distinguishable but the LUT is still recognisable as a colour band.
+  const lightness = 50 + ((idx * 7) % 18) - 9;
+  return `hsl(${hue} 65% ${lightness}%)`;
+}
+
+interface RuntimeLutEntry {
+  idx?: number;
+  ef_bank?: number;
+  src_addr?: string | number;
+  dest?: string | number;
+  length?: number;
+}
+
+interface RuntimeLut {
+  base_offset?: string | number;
+  entries?: RuntimeLutEntry[];
+}
+
+function parseHexishToNumber(value: string | number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "number") return value;
+  const cleaned = value.trim().replace(/^\$/, "").replace(/^0x/i, "");
+  if (!/^[0-9a-fA-F]+$/.test(cleaned)) return undefined;
+  return parseInt(cleaned, 16);
+}
+
+function findRuntimeLutPath(
+  artifacts: ArtifactRecord[],
+  manifestArtifact: ArtifactRecord,
+  projectRoot: string,
+): string | undefined {
+  // Prefer a registered artifact with the dedicated role.
+  const registered = artifacts.find((artifact) => artifact.role === "crt-runtime-luts");
+  if (registered && existsSync(registered.path)) return registered.path;
+
+  // Fallback: look for `runtime_luts/all_luts.json` next to the manifest,
+  // then try the canonical project location.
+  const manifestDir = manifestArtifact.path.includes("/")
+    ? manifestArtifact.path.slice(0, manifestArtifact.path.lastIndexOf("/"))
+    : "";
+  const candidates = [
+    manifestDir ? `${manifestDir}/runtime_luts/all_luts.json` : undefined,
+    manifestDir ? `${manifestDir}/../runtime_luts/all_luts.json` : undefined,
+    resolvePath(projectRoot, "analysis/crt/runtime_luts/all_luts.json"),
+    resolvePath(projectRoot, "analysis/runtime_luts/all_luts.json"),
+  ].filter((value): value is string => value !== undefined);
+  for (const candidate of candidates) {
+    const resolved = resolvePath(candidate);
+    if (existsSync(resolved)) return resolved;
+  }
+  return undefined;
+}
+
+function loadLutChunks(
+  artifacts: ArtifactRecord[],
+  manifestArtifact: ArtifactRecord,
+  projectRoot: string,
+  bankSize: number,
+): Array<{
+  bank: number;
+  slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
+  offsetInBank: number;
+  length: number;
+  lut: string;
+  index: number;
+  destAddress?: number;
+  label: string;
+  color: string;
+}> | undefined {
+  const lutPath = findRuntimeLutPath(artifacts, manifestArtifact, projectRoot);
+  if (!lutPath) return undefined;
+
+  let parsed: Record<string, RuntimeLut> | undefined;
+  try {
+    parsed = JSON.parse(readFileSync(lutPath, "utf8"));
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+
+  const chunks: Array<{
+    bank: number;
+    slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
+    offsetInBank: number;
+    length: number;
+    lut: string;
+    index: number;
+    destAddress?: number;
+    label: string;
+    color: string;
+  }> = [];
+
+  for (const [lutName, lut] of Object.entries(parsed)) {
+    if (!lut || !Array.isArray(lut.entries)) continue;
+    for (const entry of lut.entries) {
+      const bank = entry.ef_bank;
+      const srcAddr = parseHexishToNumber(entry.src_addr);
+      const length = entry.length;
+      if (typeof bank !== "number" || srcAddr === undefined || typeof length !== "number") continue;
+      // ROML window is $8000-$9FFF, ROMH window is $A000-$BFFF (or
+      // $E000-$FFFF on Ultimax). Anything else gets clipped to ROML.
+      let slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" = "ROML";
+      let offsetInBank = srcAddr - 0x8000;
+      if (srcAddr >= 0xa000 && srcAddr < 0xc000) {
+        slot = "ROMH";
+        offsetInBank = srcAddr - 0xa000;
+      } else if (srcAddr >= 0xe000) {
+        slot = "ULTIMAX_ROMH";
+        offsetInBank = srcAddr - 0xe000;
+      }
+      if (offsetInBank < 0 || offsetInBank >= bankSize) continue;
+      const idx = typeof entry.idx === "number" ? entry.idx : chunks.length;
+      const dest = parseHexishToNumber(entry.dest);
+      const destFragment = dest !== undefined ? ` → $${dest.toString(16).toUpperCase().padStart(4, "0")}` : "";
+      chunks.push({
+        bank,
+        slot,
+        offsetInBank,
+        length,
+        lut: lutName,
+        index: idx,
+        destAddress: dest,
+        label: `${lutName}.${String(idx).padStart(2, "0")} bank ${bank}${destFragment} (${length} B)`,
+        color: lutChunkColor(lutName, idx),
+      });
+    }
+  }
+  if (chunks.length === 0) return undefined;
+  chunks.sort((a, b) => a.bank - b.bank || a.offsetInBank - b.offsetInBank);
+  return chunks;
+}
+
 function deriveSlotLayout(
   hardwareType: number | undefined,
   exrom: number | undefined,
@@ -923,6 +1077,7 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         sizeBytes: manifest.eeprom.sizeBytes,
         file: manifest.eeprom.file,
       } : (profile?.hasEeprom ? { kindHint: profile.eepromKindHint } : undefined);
+      const lutChunks = loadLutChunks(context.artifacts, artifact, context.project.rootPath, slotLayoutBase.bankSize);
       return {
         artifactId: artifact.id,
         title: artifact.title,
@@ -936,6 +1091,7 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
           ...slotLayoutBase,
           eeprom,
         },
+        lutChunks,
       };
     })
     .filter((value): value is NonNullable<typeof value> => value !== undefined);
