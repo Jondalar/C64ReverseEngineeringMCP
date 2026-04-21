@@ -1347,6 +1347,74 @@ button {
   border-color: #58a6ff;
 }
 
+.cart-slot-bar-empty {
+  position: relative;
+  width: 100%;
+}
+
+.cart-slot-bar-chunked {
+  position: relative;
+}
+
+.cart-chunk-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cart-chunk-segment {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: pointer;
+  border: 1px solid rgba(13, 17, 23, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transition: filter 80ms ease;
+}
+
+.cart-chunk-segment:hover {
+  filter: brightness(1.25);
+}
+
+.cart-grid-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.85rem;
+  padding: 0.45rem 0.55rem;
+  background: rgba(22, 27, 34, 0.6);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #c9d1d9;
+}
+
+.cart-grid-legend-title {
+  font-weight: bold;
+  color: #58a6ff;
+  letter-spacing: 0.04em;
+}
+
+.cart-grid-legend-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.cart-grid-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(13, 17, 23, 0.45);
+}
+
+.cart-grid-legend-count {
+  font-size: 10px;
+  color: #8b949e;
+}
+
 .cart-grid-footer {
   font-size: 10px;
   color: #6e7681;

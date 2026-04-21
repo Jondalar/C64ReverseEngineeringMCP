@@ -541,6 +541,19 @@ export const CartridgeBankViewSchema = z.object({
   romhChipIndex: z.number().int().nonnegative().optional(),
 });
 
+export const CartridgeLutChunkSchema = z.object({
+  bank: z.number().int().nonnegative(),
+  slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH"]).default("ROML"),
+  offsetInBank: z.number().int().nonnegative(),
+  length: z.number().int().nonnegative(),
+  lut: z.string().min(1),
+  index: z.number().int().nonnegative(),
+  destAddress: z.number().int().min(0).max(0xffff).optional(),
+  label: z.string().optional(),
+  color: z.string().optional(),
+  fileRelativePath: z.string().optional(),
+});
+
 export const CartridgeSlotLayoutSchema = z.object({
   hardwareTypeName: z.string().optional(),
   slotsPerBank: z.number().int().min(1).max(2),
@@ -569,6 +582,7 @@ export const CartridgeLayoutCartridgeSchema = z.object({
   chips: z.array(CartridgeChipViewSchema),
   banks: z.array(CartridgeBankViewSchema),
   slotLayout: CartridgeSlotLayoutSchema.optional(),
+  lutChunks: z.array(CartridgeLutChunkSchema).optional(),
 });
 
 export const CartridgeLayoutViewSchema = z.object({
