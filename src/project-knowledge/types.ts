@@ -547,10 +547,19 @@ export const CartridgeLutRefSchema = z.object({
   destAddress: z.number().int().min(0).max(0xffff).optional(),
 });
 
+export const CartridgeLutChunkSpanSchema = z.object({
+  bank: z.number().int().nonnegative(),
+  offsetInBank: z.number().int().nonnegative(),
+  length: z.number().int().nonnegative(),
+});
+
 export const CartridgeLutChunkSchema = z.object({
+  // Origin (first span) — flat fields kept for backwards compatibility.
   bank: z.number().int().nonnegative(),
   slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH"]).default("ROML"),
   offsetInBank: z.number().int().nonnegative(),
+  // Total file length, possibly spanning multiple banks. Use `spans[]`
+  // for the per-bank physical placement.
   length: z.number().int().nonnegative(),
   // Primary (first) LUT reference — kept flat for backwards compatibility
   // with older snapshots + for the legend swatch.
@@ -560,9 +569,20 @@ export const CartridgeLutChunkSchema = z.object({
   // All LUT entries pointing at this byte-range (same bank + offset +
   // length). Length 1 when only one LUT references the chunk.
   refs: z.array(CartridgeLutRefSchema).default([]),
+  // Per-bank physical placement. Always at least one entry; multi-entry
+  // arrays describe a file that spans bank boundaries.
+  spans: z.array(CartridgeLutChunkSpanSchema).default([]),
   label: z.string().optional(),
   color: z.string().optional(),
   fileRelativePath: z.string().optional(),
+  // Optional packer / format hints — populated when the manifest, an
+  // analysis artifact, or an annotation tells us how the bytes are
+  // encoded. Examples: packer="byteboozer2", format="prg" or "raw_lz".
+  packer: z.string().optional(),
+  format: z.string().optional(),
+  // Free-form notes pulled from the same source. Can carry decoded
+  // header info, depack target, or analyst commentary.
+  notes: z.array(z.string()).default([]),
 });
 
 export const CartridgeSlotLayoutSchema = z.object({

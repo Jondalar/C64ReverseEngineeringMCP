@@ -63,13 +63,29 @@ export function CartridgeMemoryGrid({
   const isUltimax = slotLayout?.isUltimax ?? (exrom === 1 && game === 0);
   const hardwareTypeName = slotLayout?.hardwareTypeName ?? (hardwareType !== undefined ? `Type ${hardwareType}` : undefined);
 
-  // Group LUT chunks by bank + slot key for fast per-bar lookup.
-  const chunkIndex = new Map<string, CartridgeLutChunk[]>();
+  // Each chunk carries one or more `spans` describing per-bank physical
+  // placement (for files that cross bank boundaries). We index per
+  // (bank, slot) to one entry per span — cliking any span selects the
+  // whole logical chunk.
+  type ChunkSpanEntry = { chunk: CartridgeLutChunk; offsetInBank: number; length: number; isContinuation: boolean; isHead: boolean };
+  const chunkIndex = new Map<string, ChunkSpanEntry[]>();
   for (const chunk of lutChunks ?? []) {
-    const key = `${chunk.bank}:${chunk.slot === "ROML" ? "ROML" : "ROMH"}`;
-    const bucket = chunkIndex.get(key);
-    if (bucket) bucket.push(chunk);
-    else chunkIndex.set(key, [chunk]);
+    const slotKey = chunk.slot === "ROML" ? "ROML" : "ROMH";
+    const spans = chunk.spans?.length
+      ? chunk.spans
+      : [{ bank: chunk.bank, offsetInBank: chunk.offsetInBank, length: chunk.length }];
+    spans.forEach((span, spanIndex) => {
+      const key = `${span.bank}:${slotKey}`;
+      const bucket = chunkIndex.get(key) ?? [];
+      bucket.push({
+        chunk,
+        offsetInBank: span.offsetInBank,
+        length: span.length,
+        isContinuation: spanIndex > 0,
+        isHead: spanIndex === 0,
+      });
+      chunkIndex.set(key, bucket);
+    });
   }
 
   // Count LUT references across every (deduplicated) chunk so the
@@ -95,32 +111,38 @@ export function CartridgeMemoryGrid({
 
   function renderChunkSegments(role: "ROML" | "ROMH", bank: number) {
     const key = `${bank}:${role}`;
-    const chunks = chunkIndex.get(key);
-    if (!chunks || chunks.length === 0) return null;
-    // Render larger chunks first; tiny ones land on top so they stay
+    const entries = chunkIndex.get(key);
+    if (!entries || entries.length === 0) return null;
+    // Render larger spans first; tiny ones land on top so they stay
     // clickable even when a neighbour covers most of the bar.
-    const ordered = [...chunks].sort((a, b) => b.length - a.length);
+    const ordered = [...entries].sort((a, b) => b.length - a.length);
     return (
       <div className="cart-chunk-overlay">
-        {ordered.map((chunk) => {
-          const leftPercent = Math.max(0, Math.min(100, (chunk.offsetInBank / bankSize) * 100));
-          const widthPercent = Math.max(0.5, Math.min(100 - leftPercent, (chunk.length / bankSize) * 100));
-          const tooltip = chunk.label ?? `${chunk.lut}.${chunk.index} bank ${chunk.bank} (${chunk.length} B)`;
+        {ordered.map((entry) => {
+          const leftPercent = Math.max(0, Math.min(100, (entry.offsetInBank / bankSize) * 100));
+          const widthPercent = Math.max(0.5, Math.min(100 - leftPercent, (entry.length / bankSize) * 100));
+          const totalSpans = entry.chunk.spans?.length ?? 1;
+          const fileLength = entry.chunk.length;
+          const baseTooltip = entry.chunk.label ?? `${entry.chunk.lut}.${entry.chunk.index} bank ${entry.chunk.bank} (${fileLength} B)`;
+          const tooltip = totalSpans > 1
+            ? `${baseTooltip} · this bank: ${entry.length} B (${entry.isHead ? "head" : "cont"} ${entry.isHead ? 1 : "n"}/${totalSpans})`
+            : baseTooltip;
+          const className = entry.isContinuation ? "cart-chunk-segment cart-chunk-segment-continuation" : "cart-chunk-segment";
           return (
             <div
-              key={`${chunk.offsetInBank}-${chunk.length}`}
-              className="cart-chunk-segment"
+              key={`${entry.chunk.bank}-${entry.chunk.offsetInBank}-${entry.chunk.length}-${entry.offsetInBank}`}
+              className={className}
               style={{
                 left: `${leftPercent}%`,
                 width: `${widthPercent}%`,
                 top: 0,
                 height: "100%",
-                background: chunk.color ?? "rgba(120,180,255,0.7)",
+                background: entry.chunk.color ?? "rgba(120,180,255,0.7)",
               }}
               title={tooltip}
               onClick={(event) => {
                 event.stopPropagation();
-                onSelectLutChunk?.(chunk);
+                onSelectLutChunk?.(entry.chunk);
               }}
             />
           );

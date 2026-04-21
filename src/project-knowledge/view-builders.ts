@@ -854,6 +854,10 @@ interface RuntimeLutEntry {
   src_addr?: string | number;
   dest?: string | number;
   length?: number;
+  flag?: string | number;
+  packer?: string;
+  format?: string;
+  notes?: string[];
 }
 
 interface RuntimeLut {
@@ -896,6 +900,12 @@ function findRuntimeLutPath(
   return undefined;
 }
 
+interface ResolvedLutChunkSpan {
+  bank: number;
+  offsetInBank: number;
+  length: number;
+}
+
 interface ResolvedLutChunk {
   bank: number;
   slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
@@ -905,8 +915,32 @@ interface ResolvedLutChunk {
   index: number;
   destAddress?: number;
   refs: Array<{ lut: string; index: number; destAddress?: number }>;
+  spans: ResolvedLutChunkSpan[];
   label: string;
   color: string;
+  packer?: string;
+  format?: string;
+  notes: string[];
+}
+
+function splitChunkAcrossBanks(
+  bank: number,
+  offsetInBank: number,
+  length: number,
+  bankSize: number,
+): ResolvedLutChunkSpan[] {
+  const spans: ResolvedLutChunkSpan[] = [];
+  let currentBank = bank;
+  let currentOffset = offsetInBank;
+  let remaining = length;
+  while (remaining > 0) {
+    const available = Math.min(remaining, bankSize - currentOffset);
+    spans.push({ bank: currentBank, offsetInBank: currentOffset, length: available });
+    remaining -= available;
+    currentBank += 1;
+    currentOffset = 0;
+  }
+  return spans;
 }
 
 // Deterministic colour from the chunk's physical range so adjacent files
@@ -975,6 +1009,11 @@ function loadLutChunks(
         existing.refs.push({ lut: lutName, index: idx, destAddress: dest });
         continue;
       }
+      const spans = splitChunkAcrossBanks(bank, offsetInBank, length, bankSize);
+      const flagFragment = entry.flag !== undefined ? String(entry.flag).trim() : undefined;
+      const notes: string[] = [];
+      if (flagFragment && flagFragment !== "$00" && flagFragment !== "0") notes.push(`flag=${flagFragment}`);
+      if (entry.notes) notes.push(...entry.notes);
       ranges.set(key, {
         bank,
         slot,
@@ -984,8 +1023,12 @@ function loadLutChunks(
         index: idx,
         destAddress: dest,
         refs: [{ lut: lutName, index: idx, destAddress: dest }],
+        spans,
         label: "",
         color: chunkRangeColor(bank, offsetInBank, length),
+        packer: entry.packer,
+        format: entry.format,
+        notes,
       });
     }
   }
@@ -1003,9 +1046,12 @@ function loadLutChunks(
         : "";
       return `${ref.lut}.${String(ref.index).padStart(2, "0")}${destFragment}`;
     });
+    const spanFragment = chunk.spans.length > 1
+      ? ` · spans banks ${chunk.spans.map((span) => span.bank).join(", ")}`
+      : "";
     chunk.label = `Bank ${chunk.bank} ${chunk.slot} ` +
       `off $${chunk.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} ` +
-      `(${chunk.length} B) · refs: ${refFragments.join(", ")}`;
+      `(${chunk.length} B${spanFragment}) · refs: ${refFragments.join(", ")}`;
     chunks.push(chunk);
   }
   chunks.sort((a, b) => a.bank - b.bank || a.offsetInBank - b.offsetInBank);

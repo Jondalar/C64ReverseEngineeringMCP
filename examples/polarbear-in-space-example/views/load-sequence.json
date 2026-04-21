@@ -3,7 +3,7 @@
   "kind": "load-sequence",
   "title": "Polarbear in Space Load Sequence",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-21T19:44:56.333Z",
+  "generatedAt": "2026-04-21T19:51:58.952Z",
   "items": [
     {
       "id": "load-sequence-item-generic-0-artifact-polarbear-analysis-json-mo41xbpt",
@@ -48,8 +48,8 @@
         "analysis-json"
       ],
       "evidenceHints": [
-        "Segment 2000 classified as state_variable",
         "Segment 4000 classified as lookup_table",
+        "Segment 2000 classified as state_variable",
         "Segment 080D classified as code",
         "Imported legacy entry point.",
         "state_variable segment derived from analysis report."
@@ -91,7 +91,7 @@
       "confidence": 0.7870476190476191,
       "evidenceHints": [
         "01 polarbear in space analysis precedes 02 polarbear in space in the ordered stage set.",
-        "Segment 2000 classified as state_variable"
+        "Segment 4000 classified as lookup_table"
       ]
     }
   ]

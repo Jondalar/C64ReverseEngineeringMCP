@@ -1376,6 +1376,16 @@ button {
   filter: brightness(1.25);
 }
 
+.cart-chunk-segment-continuation {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(0, 0, 0, 0.18) 0px,
+    rgba(0, 0, 0, 0.18) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
 .cart-grid-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1474,6 +1484,16 @@ button {
 .chunk-inspector-mon[disabled] {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.chunk-inspector-tag {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 166, 87, 0.18);
+  color: #ffa657;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .record-card-row {
