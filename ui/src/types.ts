@@ -244,9 +244,17 @@ export interface CartridgeSlotLayout {
   hasRomh: boolean;
   hasEeprom: boolean;
   isUltimax: boolean;
+  canFlash?: boolean;
   bankCount: number;
   totalRomBytes: number;
   eeprom?: { kindHint?: string; sizeBytes?: number; file?: string };
+}
+
+export interface CartridgeEmptyRegion {
+  bank: number;
+  slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
+  offsetInBank: number;
+  length: number;
 }
 
 export interface CartridgeLutRef {
@@ -291,6 +299,7 @@ export interface CartridgeLayoutView {
     banks: CartridgeBankView[];
     slotLayout?: CartridgeSlotLayout;
     lutChunks?: CartridgeLutChunk[];
+    emptyRegions?: CartridgeEmptyRegion[];
   }>;
 }
 

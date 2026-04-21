@@ -3,7 +3,7 @@
   "kind": "cartridge-layout",
   "title": "Polarbear in Space Cartridge Layout",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-21T19:51:58.950Z",
+  "generatedAt": "2026-04-21T20:06:48.174Z",
   "cartridges": [
     {
       "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
@@ -68,9 +68,11 @@
         "hasRomh": true,
         "hasEeprom": false,
         "isUltimax": false,
+        "canFlash": true,
         "bankCount": 3,
         "totalRomBytes": 24576
-      }
+      },
+      "emptyRegions": []
     }
   ]
 }

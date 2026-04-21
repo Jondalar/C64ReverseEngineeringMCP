@@ -795,23 +795,26 @@ interface CartTypeProfile {
   hasRomh: boolean;
   hasEeprom: boolean;
   isUltimax: boolean;
+  canFlash: boolean;
   eepromKindHint?: string;
 }
 
-// VICE CRT hardware-type IDs we care about. Anything not listed falls back
-// to a generic 8K/16K/Ultimax decision based on exrom/game lines + chip
-// load addresses observed in the manifest.
+// VICE CRT hardware-type IDs we care about. `canFlash` marks cart types
+// whose chips are writable flash; on those, long runs of $FF are erased
+// space (free to program) rather than meaningful data. Anything not
+// listed falls back to a generic 8K/16K/Ultimax decision based on
+// exrom/game lines + chip load addresses observed in the manifest.
 const CART_TYPE_PROFILES: Record<number, CartTypeProfile> = {
-  0:  { hardwareTypeName: "Generic",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
-  3:  { hardwareTypeName: "Final Cartridge III", slotsPerBank: 2, bankSize: 0x2000, hasRomh: true, hasEeprom: false, isUltimax: false },
-  5:  { hardwareTypeName: "Ocean",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
-  7:  { hardwareTypeName: "Funplay",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
-  8:  { hardwareTypeName: "Super Games",     slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false },
-  19: { hardwareTypeName: "Magic Desk",      slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
-  32: { hardwareTypeName: "EasyFlash",       slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false },
-  60: { hardwareTypeName: "GMod2",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: true,  isUltimax: false, eepromKindHint: "M93C86 (SPI)" },
-  71: { hardwareTypeName: "GMod3",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
-  86: { hardwareTypeName: "Protovision MegaByter", slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false },
+  0:  { hardwareTypeName: "Generic",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  3:  { hardwareTypeName: "Final Cartridge III", slotsPerBank: 2, bankSize: 0x2000, hasRomh: true, hasEeprom: false, isUltimax: false, canFlash: false },
+  5:  { hardwareTypeName: "Ocean",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  7:  { hardwareTypeName: "Funplay",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  8:  { hardwareTypeName: "Super Games",     slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false, canFlash: false },
+  19: { hardwareTypeName: "Magic Desk",      slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  32: { hardwareTypeName: "EasyFlash",       slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false, canFlash: true },
+  60: { hardwareTypeName: "GMod2",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: true,  isUltimax: false, canFlash: true,  eepromKindHint: "M93C86 (SPI)" },
+  71: { hardwareTypeName: "GMod3",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: true },
+  86: { hardwareTypeName: "Protovision MegaByter", slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: true },
 };
 
 function classifyChipSlot(loadAddress: number, isUltimax: boolean): "ROML" | "ROMH" | "ULTIMAX_ROMH" | "OTHER" {
@@ -1058,6 +1061,147 @@ function loadLutChunks(
   return chunks;
 }
 
+// Minimum $FF run length that counts as "erased / free to program".
+// Shorter runs are treated as legitimate data padding (e.g. a short
+// alignment gap inside a packed stream) and stay coloured with the
+// chip's base bar.
+const EMPTY_RUN_MIN_LENGTH = 256;
+
+interface EmptyRegion {
+  bank: number;
+  slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
+  offsetInBank: number;
+  length: number;
+}
+
+interface LutCoverageSegment {
+  offsetInBank: number;
+  length: number;
+}
+
+function buildLutCoverageMap(
+  chunks: ResolvedLutChunk[] | undefined,
+): Map<string, LutCoverageSegment[]> {
+  const map = new Map<string, LutCoverageSegment[]>();
+  if (!chunks) return map;
+  for (const chunk of chunks) {
+    const slotKey = chunk.slot;
+    for (const span of chunk.spans) {
+      const key = `${span.bank}:${slotKey}`;
+      const bucket = map.get(key) ?? [];
+      bucket.push({ offsetInBank: span.offsetInBank, length: span.length });
+      map.set(key, bucket);
+    }
+  }
+  // Merge overlapping / touching segments per bank so later subtraction
+  // is a simple linear scan.
+  for (const [key, segments] of map) {
+    segments.sort((a, b) => a.offsetInBank - b.offsetInBank);
+    const merged: LutCoverageSegment[] = [];
+    for (const segment of segments) {
+      const last = merged[merged.length - 1];
+      if (last && segment.offsetInBank <= last.offsetInBank + last.length) {
+        const end = Math.max(last.offsetInBank + last.length, segment.offsetInBank + segment.length);
+        last.length = end - last.offsetInBank;
+      } else {
+        merged.push({ ...segment });
+      }
+    }
+    map.set(key, merged);
+  }
+  return map;
+}
+
+function findEmptyRunsInChip(bytes: Buffer | Uint8Array, minLength: number): LutCoverageSegment[] {
+  const runs: LutCoverageSegment[] = [];
+  let runStart = -1;
+  for (let i = 0; i <= bytes.length; i += 1) {
+    const inRun = i < bytes.length && bytes[i] === 0xff;
+    if (inRun && runStart < 0) {
+      runStart = i;
+    } else if (!inRun && runStart >= 0) {
+      const length = i - runStart;
+      if (length >= minLength) {
+        runs.push({ offsetInBank: runStart, length });
+      }
+      runStart = -1;
+    }
+  }
+  return runs;
+}
+
+function subtractCoverage(
+  source: LutCoverageSegment[],
+  coverage: LutCoverageSegment[],
+): LutCoverageSegment[] {
+  const result: LutCoverageSegment[] = [];
+  for (const run of source) {
+    let remaining: LutCoverageSegment[] = [{ ...run }];
+    for (const cover of coverage) {
+      const coverStart = cover.offsetInBank;
+      const coverEnd = cover.offsetInBank + cover.length;
+      const next: LutCoverageSegment[] = [];
+      for (const segment of remaining) {
+        const segStart = segment.offsetInBank;
+        const segEnd = segment.offsetInBank + segment.length;
+        if (coverEnd <= segStart || coverStart >= segEnd) {
+          next.push(segment);
+          continue;
+        }
+        if (coverStart > segStart) {
+          next.push({ offsetInBank: segStart, length: coverStart - segStart });
+        }
+        if (coverEnd < segEnd) {
+          next.push({ offsetInBank: coverEnd, length: segEnd - coverEnd });
+        }
+      }
+      remaining = next;
+      if (remaining.length === 0) break;
+    }
+    for (const leftover of remaining) {
+      if (leftover.length >= EMPTY_RUN_MIN_LENGTH) result.push(leftover);
+    }
+  }
+  return result;
+}
+
+function computeEmptyRegions(
+  canFlash: boolean,
+  chips: Array<{ bank: number; slot?: string; file?: string }>,
+  manifestPath: string,
+  lutChunks: ResolvedLutChunk[] | undefined,
+): EmptyRegion[] | undefined {
+  if (!canFlash) return undefined;
+  const manifestDir = manifestPath.includes("/")
+    ? manifestPath.slice(0, manifestPath.lastIndexOf("/"))
+    : "";
+  const coverage = buildLutCoverageMap(lutChunks);
+  const regions: EmptyRegion[] = [];
+  for (const chip of chips) {
+    if (!chip.file) continue;
+    const slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" = (chip.slot === "ROMH" || chip.slot === "ULTIMAX_ROMH")
+      ? (chip.slot as "ROMH" | "ULTIMAX_ROMH")
+      : "ROML";
+    const chipPath = resolvePath(manifestDir, chip.file);
+    if (!existsSync(chipPath)) continue;
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(chipPath);
+    } catch {
+      continue;
+    }
+    const emptyRuns = findEmptyRunsInChip(bytes, EMPTY_RUN_MIN_LENGTH);
+    if (emptyRuns.length === 0) continue;
+    const segments = coverage.get(`${chip.bank}:${slot}`) ?? [];
+    const remainder = subtractCoverage(emptyRuns, segments);
+    for (const region of remainder) {
+      regions.push({ bank: chip.bank, slot, offsetInBank: region.offsetInBank, length: region.length });
+    }
+  }
+  regions.sort((a, b) => a.bank - b.bank || a.offsetInBank - b.offsetInBank);
+  return regions;
+}
+
 function deriveSlotLayout(
   hardwareType: number | undefined,
   exrom: number | undefined,
@@ -1070,6 +1214,7 @@ function deriveSlotLayout(
   hasRomh: boolean;
   hasEeprom: boolean;
   isUltimax: boolean;
+  canFlash: boolean;
   bankCount: number;
   totalRomBytes: number;
 } {
@@ -1087,6 +1232,7 @@ function deriveSlotLayout(
     hasRomh: profile?.hasRomh ?? observedRomh,
     hasEeprom: profile?.hasEeprom ?? false,
     isUltimax,
+    canFlash: profile?.canFlash ?? false,
     bankCount: distinctBanks.size,
     totalRomBytes,
   };
@@ -1161,6 +1307,12 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         file: manifest.eeprom.file,
       } : (profile?.hasEeprom ? { kindHint: profile.eepromKindHint } : undefined);
       const lutChunks = loadLutChunks(context.artifacts, artifact, context.project.rootPath, slotLayoutBase.bankSize);
+      const emptyRegions = computeEmptyRegions(
+        slotLayoutBase.canFlash,
+        chips,
+        artifact.path,
+        lutChunks,
+      );
       return {
         artifactId: artifact.id,
         title: artifact.title,
@@ -1175,6 +1327,7 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
           eeprom,
         },
         lutChunks,
+        emptyRegions,
       };
     })
     .filter((value): value is NonNullable<typeof value> => value !== undefined);

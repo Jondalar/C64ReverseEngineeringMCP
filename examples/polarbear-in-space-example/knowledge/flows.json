@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-21T19:51:58.916Z",
+  "updatedAt": "2026-04-21T20:06:48.138Z",
   "items": [
     {
       "id": "flow-artifact-polarbear-analysis-json-mo41xbpt-analysis-control-flow",
@@ -14,7 +14,7 @@
           "kind": "artifact",
           "title": "Derived analysis flow graph",
           "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
-          "capturedAt": "2026-04-21T19:51:58.903Z"
+          "capturedAt": "2026-04-21T20:06:48.124Z"
         }
       ],
       "entityIds": [
@@ -71,13 +71,13 @@
                 "start": 2061,
                 "end": 2061
               },
-              "capturedAt": "2026-04-21T19:51:58.903Z"
+              "capturedAt": "2026-04-21T20:06:48.124Z"
             }
           ]
         }
       ],
-      "createdAt": "2026-04-21T19:51:58.916Z",
-      "updatedAt": "2026-04-21T19:51:58.916Z"
+      "createdAt": "2026-04-21T20:06:48.138Z",
+      "updatedAt": "2026-04-21T20:06:48.138Z"
     },
     {
       "id": "flow-polarbear-intro-and-first-level-handoff-mo41xbqc",

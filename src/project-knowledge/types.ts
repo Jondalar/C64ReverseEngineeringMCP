@@ -592,6 +592,7 @@ export const CartridgeSlotLayoutSchema = z.object({
   hasRomh: z.boolean(),
   hasEeprom: z.boolean(),
   isUltimax: z.boolean(),
+  canFlash: z.boolean().default(false),
   bankCount: z.number().int().nonnegative(),
   totalRomBytes: z.number().int().nonnegative(),
   eeprom: z
@@ -601,6 +602,13 @@ export const CartridgeSlotLayoutSchema = z.object({
       file: z.string().optional(),
     })
     .optional(),
+});
+
+export const CartridgeEmptyRegionSchema = z.object({
+  bank: z.number().int().nonnegative(),
+  slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH"]).default("ROML"),
+  offsetInBank: z.number().int().nonnegative(),
+  length: z.number().int().nonnegative(),
 });
 
 export const CartridgeLayoutCartridgeSchema = z.object({
@@ -614,6 +622,7 @@ export const CartridgeLayoutCartridgeSchema = z.object({
   banks: z.array(CartridgeBankViewSchema),
   slotLayout: CartridgeSlotLayoutSchema.optional(),
   lutChunks: z.array(CartridgeLutChunkSchema).optional(),
+  emptyRegions: z.array(CartridgeEmptyRegionSchema).optional(),
 });
 
 export const CartridgeLayoutViewSchema = z.object({
