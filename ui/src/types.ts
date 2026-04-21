@@ -181,6 +181,8 @@ export interface DiskLayoutView {
     format: string;
     diskName?: string;
     diskId?: string;
+    imageFileName?: string;
+    imageRelativePath?: string;
     trackCount: number;
     fileCount: number;
     sectors: Array<{
