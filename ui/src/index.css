@@ -2032,6 +2032,81 @@ button {
   align-items: flex-start;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid #1f2630;
+  gap: 0.6rem;
+}
+
+.hex-overlay-header-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.hex-overlay-depack {
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #c9d1d9;
+  font-size: 11px;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+
+.hex-overlay-depack:hover:not(:disabled) {
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
+.hex-overlay-depack:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hex-overlay-depack-active {
+  border-color: #7ee787;
+  color: #7ee787;
+  background: rgba(126, 231, 135, 0.1);
+}
+
+.hex-overlay-tag {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(126, 231, 135, 0.15);
+  border: 1px solid rgba(126, 231, 135, 0.5);
+  color: #7ee787;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.hex-overlay-tag-hint {
+  background: rgba(88, 166, 255, 0.12);
+  border-color: rgba(88, 166, 255, 0.45);
+  color: #79c0ff;
+}
+
+.hex-overlay-inline-error {
+  margin: 0.3rem 0 0;
+  font-size: 11px;
+  color: #ff7b72;
+}
+
+.packer-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(88, 166, 255, 0.14);
+  border: 1px solid rgba(88, 166, 255, 0.45);
+  color: #79c0ff;
+  margin-left: 0.35rem;
 }
 
 .hex-overlay-header h3 {

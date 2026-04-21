@@ -23,6 +23,10 @@ interface HexViewProps {
   // directly and skips all network calls. Used by callers that need to
   // POST a chain to /api/disk/assemble-chain before rendering.
   bytes?: Uint8Array;
+  // Optional packer hint shown as a tag. Set by the caller when the
+  // manifest knows the stream format; otherwise the "depack view"
+  // button auto-detects and updates the tag.
+  packerHint?: string;
   onClose: () => void;
 }
 
@@ -42,10 +46,11 @@ function petsciiPreviewChar(byte: number): string {
   return ".";
 }
 
-export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, fetchUrl, bytes: presetBytes, onClose }: HexViewProps) {
+export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, fetchUrl, bytes: presetBytes, packerHint, onClose }: HexViewProps) {
   const [bytes, setBytes] = useState<Uint8Array | null>(presetBytes ?? null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(!presetBytes);
+  const [depackState, setDepackState] = useState<{ mode: "raw" | "depacked"; packer?: string; rawBytes?: Uint8Array; depackedBytes?: Uint8Array; busy: boolean; error?: string }>({ mode: "raw", busy: false });
 
   useEffect(() => {
     if (presetBytes) {
@@ -96,6 +101,48 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
+  // Whenever the underlying bytes change (new overlay, different
+  // chunk, …), reset the depack state so the toggle reflects reality.
+  useEffect(() => {
+    setDepackState({ mode: "raw", busy: false, packer: undefined, rawBytes: undefined, depackedBytes: undefined, error: undefined });
+  }, [presetBytes, fetchUrl, path, offset, length]);
+
+  async function toggleDepackView() {
+    if (!bytes) return;
+    if (depackState.mode === "depacked" && depackState.rawBytes) {
+      setBytes(depackState.rawBytes);
+      setDepackState((prev) => ({ ...prev, mode: "raw" }));
+      return;
+    }
+    if (depackState.depackedBytes) {
+      setDepackState((prev) => ({ ...prev, mode: "depacked", rawBytes: prev.rawBytes ?? bytes }));
+      setBytes(depackState.depackedBytes);
+      return;
+    }
+    setDepackState((prev) => ({ ...prev, busy: true, error: undefined, rawBytes: prev.rawBytes ?? bytes }));
+    try {
+      const query = packerHint ? `?packer=${encodeURIComponent(packerHint)}` : "";
+      const response = await fetch(`/api/depack${query}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        // Copy into a plain ArrayBuffer so TS stops worrying about
+        // SharedArrayBuffer compatibility with BlobPart.
+        body: new Blob([new Uint8Array(bytes).slice().buffer as ArrayBuffer]),
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        throw new Error(`HTTP ${response.status}: ${text.slice(0, 180)}`);
+      }
+      const packer = response.headers.get("x-depacker") ?? packerHint ?? "unknown";
+      const buffer = await response.arrayBuffer();
+      const depackedBytes = new Uint8Array(buffer);
+      setDepackState({ mode: "depacked", packer, rawBytes: bytes, depackedBytes, busy: false });
+      setBytes(depackedBytes);
+    } catch (err) {
+      setDepackState((prev) => ({ ...prev, busy: false, error: err instanceof Error ? err.message : String(err) }));
+    }
+  }
+
   const rows = useMemo(() => {
     if (!bytes) return [] as Array<{ offset: number; addr: number; cells: number[]; chars: string }>;
     const out: Array<{ offset: number; addr: number; cells: number[]; chars: string }> = [];
@@ -113,10 +160,37 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
       <div className="hex-overlay" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <header className="hex-overlay-header">
           <div>
-            <h3>{title ?? path}</h3>
-            <p>{path} · {bytes ? `${bytes.length} bytes` : pending ? "loading…" : "—"}{baseAddress ? ` · base $${formatHexAddress(baseAddress)}` : ""}</p>
+            <h3>
+              {title ?? path}
+              {depackState.mode === "depacked" && depackState.packer ? (
+                <span className="hex-overlay-tag" title={`Depacked via ${depackState.packer}`}>
+                  {depackState.packer}
+                </span>
+              ) : packerHint ? (
+                <span className="hex-overlay-tag hex-overlay-tag-hint" title={`Known packer: ${packerHint}`}>
+                  {packerHint}
+                </span>
+              ) : null}
+            </h3>
+            <p>
+              {path} · {bytes ? `${bytes.length} bytes` : pending ? "loading…" : "—"}
+              {baseAddress ? ` · base $${formatHexAddress(baseAddress)}` : ""}
+              {depackState.mode === "depacked" && depackState.rawBytes ? ` · packed ${depackState.rawBytes.length} B` : ""}
+            </p>
+            {depackState.error ? <p className="hex-overlay-inline-error">depack failed: {depackState.error}</p> : null}
           </div>
-          <button type="button" className="hex-overlay-close" onClick={onClose} aria-label="Close hex view">×</button>
+          <div className="hex-overlay-header-actions">
+            <button
+              type="button"
+              className={depackState.mode === "depacked" ? "hex-overlay-depack hex-overlay-depack-active" : "hex-overlay-depack"}
+              onClick={toggleDepackView}
+              disabled={!bytes || depackState.busy}
+              title={depackState.mode === "depacked" ? "Show the raw bytes again" : "Try RLE / ByteBoozer / Exomizer-raw / Exomizer-SFX on these bytes"}
+            >
+              {depackState.busy ? "depacking…" : depackState.mode === "depacked" ? "raw view" : "depack view"}
+            </button>
+            <button type="button" className="hex-overlay-close" onClick={onClose} aria-label="Close hex view">×</button>
+          </div>
         </header>
         <div className="hex-overlay-body">
           {error ? (
