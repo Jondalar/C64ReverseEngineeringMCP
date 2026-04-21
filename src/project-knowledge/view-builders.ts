@@ -756,6 +756,38 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
           fileBySector.set(`${cell.track}:${cell.sector}`, { id: file.id, title: file.title, color: file.color });
         }
       }
+
+      // BAM allocation map: track → Set of free sector numbers. Only
+      // populated when we can physically read the image (parser
+      // available) and it follows the standard 1541 BAM layout (bytes
+      // 0x04..0x8F, 4 bytes per track: free-count + 3-byte bitmap where
+      // 1 = free). Everything else falls back to the previous
+      // "free vs file vs dir vs bam" classification.
+      const bamFreePerTrack = new Map<number, Set<number>>();
+      if (parser) {
+        const bam = parser.getSector(18, 0);
+        if (bam) {
+          for (let track = 1; track <= 35; track += 1) {
+            const base = 0x04 + (track - 1) * 4;
+            if (base + 3 >= bam.length) break;
+            const bitmap = (bam[base + 1] ?? 0) | ((bam[base + 2] ?? 0) << 8) | ((bam[base + 3] ?? 0) << 16);
+            const free = new Set<number>();
+            const sectorCount = SECTORS_PER_TRACK[track] ?? 17;
+            for (let sector = 0; sector < sectorCount; sector += 1) {
+              if (bitmap & (1 << sector)) free.add(sector);
+            }
+            bamFreePerTrack.set(track, free);
+          }
+        }
+      }
+
+      function sectorAllZero(track: number, sector: number): boolean | undefined {
+        if (!parser) return undefined;
+        const data = parser.getSector(track, sector);
+        if (!data) return undefined;
+        for (let i = 0; i < data.length; i += 1) if (data[i] !== 0) return false;
+        return true;
+      }
       const trackCount = Math.max(
         35,
         ...files.flatMap((file) => file.sectorChain.map((cell) => cell.track)),
@@ -768,6 +800,21 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             const match = fileBySector.get(`${track}:${sector}`);
             const isBam = track === 18 && sector === 0;
             const isDirectory = directoryChain.some((item) => item.track === track && item.sector === sector);
+            const bamTrack = bamFreePerTrack.get(track);
+            const bamKnown = bamTrack !== undefined;
+            const freeInBam = bamKnown ? bamTrack.has(sector) : undefined;
+            let category: "free" | "free_zero" | "free_data" | "orphan_allocated" | "file" | "directory" | "bam" | "unknown";
+            if (match) category = "file";
+            else if (isBam) category = "bam";
+            else if (isDirectory) category = "directory";
+            else if (!bamKnown) category = "free";
+            else if (freeInBam) {
+              const allZero = sectorAllZero(track, sector);
+              category = allZero === false ? "free_data" : "free_zero";
+            } else {
+              // BAM says allocated but no known file chain touches it.
+              category = "orphan_allocated";
+            }
             return {
               id: `${artifact.id}-track-${track}-sector-${sector}`,
               track,
@@ -776,8 +823,8 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
               angleEnd: ((sector + 1) / sectorCount) * Math.PI * 2,
               fileId: match?.id,
               fileTitle: match?.title,
-              occupied: Boolean(match) || isBam || isDirectory,
-              category: match ? "file" as const : isBam ? "bam" as const : isDirectory ? "directory" as const : "free" as const,
+              occupied: Boolean(match) || isBam || isDirectory || category === "orphan_allocated",
+              category,
               color: match?.color,
             };
           });
