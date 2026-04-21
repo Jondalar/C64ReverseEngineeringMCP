@@ -221,6 +221,34 @@ export interface DiskLayoutView {
   }>;
 }
 
+export interface CartridgeChipView {
+  bank: number;
+  loadAddress: number;
+  size: number;
+  file?: string;
+  slot?: "ROML" | "ROMH" | "ULTIMAX_ROMH" | "EEPROM" | "OTHER";
+}
+
+export interface CartridgeBankView {
+  bank: number;
+  file?: string;
+  slots: string[];
+  romlChipIndex?: number;
+  romhChipIndex?: number;
+}
+
+export interface CartridgeSlotLayout {
+  hardwareTypeName?: string;
+  slotsPerBank: 1 | 2;
+  bankSize: number;
+  hasRomh: boolean;
+  hasEeprom: boolean;
+  isUltimax: boolean;
+  bankCount: number;
+  totalRomBytes: number;
+  eeprom?: { kindHint?: string; sizeBytes?: number; file?: string };
+}
+
 export interface CartridgeLayoutView {
   cartridges: Array<{
     artifactId: string;
@@ -229,8 +257,9 @@ export interface CartridgeLayoutView {
     hardwareType?: number;
     exrom?: number;
     game?: number;
-    chips: Array<{ bank: number; loadAddress: number; size: number; file?: string }>;
-    banks: Array<{ bank: number; file?: string; slots: string[] }>;
+    chips: CartridgeChipView[];
+    banks: CartridgeBankView[];
+    slotLayout?: CartridgeSlotLayout;
   }>;
 }
 

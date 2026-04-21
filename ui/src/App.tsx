@@ -1,4 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useState, type ReactNode } from "react";
+import { HexView } from "./components/HexView.js";
+import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
 import type {
   ArtifactRecord,
   EntityRecord,
@@ -718,64 +720,76 @@ function MemoryMapPanel({
 function CartridgePanel({
   snapshot,
   onSelectEntity,
+  onOpenHex,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number }) => void;
 }) {
+  function findChipEntity(bank: number, loadAddress: number) {
+    return snapshot.entities.find((entity) =>
+      entity.kind === "chip" &&
+      entity.addressRange?.bank === bank &&
+      entity.addressRange?.start === loadAddress,
+    );
+  }
+  function findBankEntity(bank: number) {
+    return snapshot.entities.find((entity) => entity.name === `bank_${String(bank).padStart(2, "0")}`);
+  }
+  function chipArtifactPath(file: string | undefined, manifestPath: string | undefined) {
+    if (!file) return undefined;
+    if (!manifestPath) return file;
+    const dir = manifestPath.includes("/") ? manifestPath.slice(0, manifestPath.lastIndexOf("/")) : "";
+    return dir ? `${dir}/${file}` : file;
+  }
   return (
     <section className="panel-card">
       <div className="section-heading">
         <h3>Cartridge Layout</h3>
         <span>{snapshot.views.cartridgeLayout.cartridges.length} cartridges</span>
       </div>
-      <div className="split-columns">
-        {snapshot.views.cartridgeLayout.cartridges.map((cartridge) => (
-          <article key={cartridge.artifactId} className="detail-card">
-            <div className="detail-title-row">
-              <h4>{cartridge.cartridgeName ?? cartridge.title}</h4>
-              <span>HW {cartridge.hardwareType ?? "?"}</span>
-            </div>
-            <div className="chip-grid">
-              {cartridge.banks.map((bank) => {
-                const bankEntity = snapshot.entities.find((entity) => entity.name === `bank_${String(bank.bank).padStart(2, "0")}`);
-                return (
-                  <button
-                    key={`bank-${bank.bank}`}
-                    type="button"
-                    className="bank-card"
-                    onClick={() => bankEntity && onSelectEntity(bankEntity.id)}
-                  >
-                    <strong>Bank {String(bank.bank).padStart(2, "0")}</strong>
-                    <span>{bank.slots.join(", ") || "no slots"}</span>
-                    <span>{bank.file ?? "no bank file"}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="chip-list">
-              {cartridge.chips.map((chip, index) => {
-                const chipEntity = snapshot.entities.find((entity) =>
-                  entity.kind === "chip" &&
-                  entity.addressRange?.bank === chip.bank &&
-                  entity.addressRange?.start === chip.loadAddress,
-                );
-                return (
-                  <button
-                    key={`${chip.bank}-${chip.loadAddress}-${index}`}
-                    type="button"
-                    className="chip-row"
-                    onClick={() => chipEntity && onSelectEntity(chipEntity.id)}
-                  >
-                    <span>chip {index}</span>
-                    <span>bank {chip.bank}</span>
-                    <span>{hex(chip.loadAddress)}</span>
-                    <span>{chip.size} bytes</span>
-                  </button>
-                );
-              })}
-            </div>
-          </article>
-        ))}
+      <div className="cart-grid-list">
+        {snapshot.views.cartridgeLayout.cartridges.map((cartridge) => {
+          const manifestArtifact = snapshot.artifacts.find((artifact) => artifact.id === cartridge.artifactId);
+          return (
+            <CartridgeMemoryGrid
+              key={cartridge.artifactId}
+              cartridgeName={cartridge.cartridgeName ?? cartridge.title}
+              hardwareType={cartridge.hardwareType}
+              exrom={cartridge.exrom}
+              game={cartridge.game}
+              chips={cartridge.chips}
+              banks={cartridge.banks}
+              slotLayout={cartridge.slotLayout}
+              onSelectChip={(chip) => {
+                const entity = findChipEntity(chip.bank, chip.loadAddress);
+                if (entity) onSelectEntity(entity.id);
+              }}
+              onSelectBank={(bank) => {
+                const entity = findBankEntity(bank.bank);
+                if (entity) onSelectEntity(entity.id);
+              }}
+              onOpenChipHex={(chip, role) => {
+                const path = chipArtifactPath(chip.file, manifestArtifact?.relativePath);
+                if (!path) return;
+                const baseAddress = role === "ROMH"
+                  ? (cartridge.slotLayout?.isUltimax ? 0xe000 : 0xa000)
+                  : 0x8000;
+                onOpenHex(path, {
+                  title: `${cartridge.cartridgeName ?? cartridge.title} · Bank ${String(chip.bank).padStart(2, "0")} ${role}`,
+                  baseAddress,
+                });
+              }}
+              onOpenEepromHex={() => {
+                const eepromFile = cartridge.slotLayout?.eeprom?.file;
+                const path = chipArtifactPath(eepromFile, manifestArtifact?.relativePath);
+                if (path) {
+                  onOpenHex(path, { title: `${cartridge.cartridgeName ?? cartridge.title} · EEPROM` });
+                }
+              }}
+            />
+          );
+        })}
       </div>
     </section>
   );
@@ -1394,12 +1408,14 @@ function EntityInspector({
   onSelectEntity,
   onOpenDocument,
   onOpenTab,
+  onOpenHex,
 }: {
   snapshot: WorkspaceUiSnapshot;
   entity?: EntityRecord;
   onSelectEntity: (entityId: string) => void;
   onOpenDocument: (path: string) => void;
   onOpenTab: (tab: TabId) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number }) => void;
 }) {
   if (!entity) {
     return (
@@ -1572,17 +1588,30 @@ function EntityInspector({
         {linkedArtifacts.length === 0 ? <div className="empty-inline">No linked artifacts.</div> : null}
         <div className="record-stack compact">
           {linkedArtifacts.map((artifact) => (
-            <button key={artifact.id} type="button" className="record-card" onClick={() => openArtifact(artifact)}>
-              <div className="record-topline">
-                <span>{artifact.title}</span>
-                <span className="record-status">{artifact.kind}</span>
-              </div>
-              <p>{artifact.relativePath}</p>
-              <div className="record-meta">
-                <span>{artifact.role ?? artifact.scope}</span>
-                <span>{pct(artifact.confidence)}</span>
-              </div>
-            </button>
+            <div key={artifact.id} className="record-card-row">
+              <button type="button" className="record-card" onClick={() => openArtifact(artifact)}>
+                <div className="record-topline">
+                  <span>{artifact.title}</span>
+                  <span className="record-status">{artifact.kind}</span>
+                </div>
+                <p>{artifact.relativePath}</p>
+                <div className="record-meta">
+                  <span>{artifact.role ?? artifact.scope}</span>
+                  <span>{pct(artifact.confidence)}</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                className="mon-icon-button"
+                title={`Open hex view for ${artifact.relativePath}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenHex(artifact.relativePath, { title: artifact.title });
+                }}
+              >
+                mon
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -1764,6 +1793,11 @@ export function App() {
   const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
+  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number } | null>(null);
+
+  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number }) {
+    setHexOverlay({ path, title: options?.title, baseAddress: options?.baseAddress });
+  }
 
   useEffect(() => {
     void (async () => {
@@ -1930,7 +1964,13 @@ export function App() {
               />
             ) : null}
             {activeTab === "memory" ? <MemoryMapPanel snapshot={snapshot} onSelectEntity={(entityId) => handleSelectEntity(entityId, "memory")} /> : null}
-            {activeTab === "cartridge" ? <CartridgePanel snapshot={snapshot} onSelectEntity={(entityId) => handleSelectEntity(entityId, "cartridge")} /> : null}
+            {activeTab === "cartridge" ? (
+              <CartridgePanel
+                snapshot={snapshot}
+                onSelectEntity={(entityId) => handleSelectEntity(entityId, "cartridge")}
+                onOpenHex={openHexOverlay}
+              />
+            ) : null}
             {activeTab === "disk" ? <DiskPanel snapshot={snapshot} onSelectEntity={(entityId) => handleSelectEntity(entityId, "disk")} /> : null}
             {activeTab === "load" ? (
               <LoadSequencePanel
@@ -1968,11 +2008,21 @@ export function App() {
                   setActiveTab("docs");
                 }}
                 onOpenTab={setActiveTab}
+                onOpenHex={openHexOverlay}
               />
             </aside>
           ) : null}
         </main>
       )}
+      {hexOverlay ? (
+        <HexView
+          path={hexOverlay.path}
+          projectDir={snapshot?.project.rootPath}
+          title={hexOverlay.title}
+          baseAddress={hexOverlay.baseAddress}
+          onClose={() => setHexOverlay(null)}
+        />
+      ) : null}
     </div>
   );
 }

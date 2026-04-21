@@ -530,12 +530,33 @@ export const CartridgeChipViewSchema = z.object({
   loadAddress: z.number().int().min(0).max(0xffff),
   size: z.number().int().nonnegative(),
   file: z.string().optional(),
+  slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH", "EEPROM", "OTHER"]).optional(),
 });
 
 export const CartridgeBankViewSchema = z.object({
   bank: z.number().int().nonnegative(),
   file: z.string().optional(),
   slots: z.array(z.string()),
+  romlChipIndex: z.number().int().nonnegative().optional(),
+  romhChipIndex: z.number().int().nonnegative().optional(),
+});
+
+export const CartridgeSlotLayoutSchema = z.object({
+  hardwareTypeName: z.string().optional(),
+  slotsPerBank: z.number().int().min(1).max(2),
+  bankSize: z.number().int().positive(),
+  hasRomh: z.boolean(),
+  hasEeprom: z.boolean(),
+  isUltimax: z.boolean(),
+  bankCount: z.number().int().nonnegative(),
+  totalRomBytes: z.number().int().nonnegative(),
+  eeprom: z
+    .object({
+      kindHint: z.string().optional(),
+      sizeBytes: z.number().int().nonnegative().optional(),
+      file: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const CartridgeLayoutCartridgeSchema = z.object({
@@ -547,6 +568,7 @@ export const CartridgeLayoutCartridgeSchema = z.object({
   game: z.number().int().nonnegative().optional(),
   chips: z.array(CartridgeChipViewSchema),
   banks: z.array(CartridgeBankViewSchema),
+  slotLayout: CartridgeSlotLayoutSchema.optional(),
 });
 
 export const CartridgeLayoutViewSchema = z.object({

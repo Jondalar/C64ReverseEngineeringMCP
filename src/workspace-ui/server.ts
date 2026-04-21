@@ -178,6 +178,44 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/artifact/raw") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const path = requestUrl.searchParams.get("path")?.trim();
+    if (!path) {
+      send(res, jsonResponse(400, { error: "Missing path query parameter." }));
+      return;
+    }
+    const filePath = safeProjectPath(projectDir, path);
+    if (!filePath || !existsSync(filePath) || !statSync(filePath).isFile()) {
+      send(res, jsonResponse(404, { error: "Artifact not found.", path, projectDir }));
+      return;
+    }
+    try {
+      const stat = statSync(filePath);
+      const maxBytes = 8 * 1024 * 1024;
+      if (stat.size > maxBytes) {
+        send(res, jsonResponse(413, { error: "Artifact too large for hex view.", size: stat.size, maxBytes }));
+        return;
+      }
+      const buffer = readFileSync(filePath);
+      send(res, {
+        status: 200,
+        body: buffer,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(buffer.length),
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), path, projectDir }));
+    }
+    return;
+  }
+
   if (requestUrl.pathname === "/api/health") {
     send(res, jsonResponse(200, { ok: true }));
     return;
