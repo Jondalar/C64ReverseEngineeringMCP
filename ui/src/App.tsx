@@ -813,10 +813,12 @@ function DiskPanel({
   snapshot,
   onSelectEntity,
   onSelectDiskFile,
+  onOpenHex,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectDiskFile: (diskArtifactId: string, fileId: string) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) => void;
 }) {
   const disks = snapshot.views.diskLayout.disks;
   const [activeDiskId, setActiveDiskId] = useState<string | null>(disks[0]?.artifactId ?? null);
@@ -996,6 +998,38 @@ function DiskPanel({
               <h4>Disk Geometry</h4>
               <span>track/sector occupancy</span>
             </div>
+            {(() => {
+              const diskArtifact = snapshot.artifacts.find((art) => art.id === activeDisk.artifactId);
+              const diskPath = diskArtifact?.relativePath ?? "";
+              const isD64 = diskPath.toLowerCase().endsWith(".d64");
+              if (!isD64) return null;
+              return (
+                <div className="disk-track-strip">
+                  <span className="disk-track-strip-label">Track</span>
+                  {Array.from({ length: activeDisk.trackCount }, (_, i) => i + 1).map((track) => {
+                    const sectors = d64SectorsInTrack(track);
+                    const offset = d64SectorOffset(track, 0);
+                    const length = sectors * 256;
+                    return (
+                      <button
+                        key={track}
+                        type="button"
+                        className="disk-track-mon"
+                        title={`Open hex view of track ${track} (${sectors} sectors = ${length} B)`}
+                        onClick={() => onOpenHex(diskPath, {
+                          title: `${activeDisk.diskName ?? activeDisk.title} · Track ${track}`,
+                          baseAddress: 0,
+                          offset,
+                          length,
+                        })}
+                      >
+                        {track}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
             <div className="disk-geometry-wrap">
               <svg viewBox="0 0 640 640" className="disk-geometry-svg" role="img" aria-label="Disk geometry">
                 <circle cx="320" cy="320" r="58" className="disk-center-hole" />
@@ -1071,7 +1105,9 @@ function DiskPanel({
         <span><i className="legend-swatch disk-legend-file" /> file sectors</span>
         <span><i className="legend-swatch disk-legend-directory" /> directory</span>
         <span><i className="legend-swatch disk-legend-bam" /> BAM</span>
-        <span><i className="legend-swatch disk-legend-free" /> free/unknown</span>
+        <span><i className="legend-swatch disk-legend-free" /> free ($00)</span>
+        <span><i className="legend-swatch disk-legend-free-data" /> free w/ data</span>
+        <span><i className="legend-swatch disk-legend-orphan" /> allocated, no file</span>
       </div>
     </section>
   );
@@ -1868,6 +1904,10 @@ function d64SectorOffset(track: number, sector: number): number {
   return offset + sector * 256;
 }
 
+function d64SectorsInTrack(track: number): number {
+  return track <= 17 ? 21 : track <= 24 ? 19 : track <= 30 ? 18 : 17;
+}
+
 function DiskFileInspector({
   snapshot,
   selection,
@@ -2345,6 +2385,7 @@ export function App() {
                   setSelectedEntityId(null);
                   setSelectedCartChunk(null);
                 }}
+                onOpenHex={openHexOverlay}
               />
             ) : null}
             {activeTab === "load" ? (

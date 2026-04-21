@@ -505,7 +505,7 @@ export const DiskLayoutSectorCellSchema = z.object({
   fileId: IdSchema.optional(),
   fileTitle: z.string().optional(),
   occupied: z.boolean(),
-  category: z.enum(["free", "file", "directory", "bam", "unknown"]),
+  category: z.enum(["free", "free_zero", "free_data", "orphan_allocated", "file", "directory", "bam", "unknown"]),
   color: z.string().optional(),
 });
 

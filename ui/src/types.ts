@@ -192,7 +192,7 @@ export interface DiskLayoutView {
       fileId?: string;
       fileTitle?: string;
       occupied: boolean;
-      category: "free" | "file" | "directory" | "bam" | "unknown";
+      category: "free" | "free_zero" | "free_data" | "orphan_allocated" | "file" | "directory" | "bam" | "unknown";
       color?: string;
     }>;
     files: Array<{
