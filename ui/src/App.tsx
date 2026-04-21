@@ -734,10 +734,12 @@ function CartridgePanel({
   snapshot,
   onSelectEntity,
   onSelectChunk,
+  onOpenHex,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectChunk: (cartridgeArtifactId: string, chunk: CartridgeLutChunk) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) => void;
 }) {
   function findChipEntity(bank: number, loadAddress: number) {
     return snapshot.entities.find((entity) =>
@@ -784,6 +786,18 @@ function CartridgePanel({
                 if (entity) onSelectEntity(entity.id);
               }}
               onSelectLutChunk={(chunk) => onSelectChunk(cartridge.artifactId, chunk)}
+              onOpenBankHex={(_bank, chip) => {
+                if (!chip) return;
+                const path = chipArtifactPath(chip.file, manifestArtifact?.relativePath);
+                if (!path) return;
+                const slotBase = chip.slot === "ROMH"
+                  ? (cartridge.slotLayout?.isUltimax ? 0xe000 : 0xa000)
+                  : (chip.slot === "ULTIMAX_ROMH" ? 0xe000 : 0x8000);
+                onOpenHex(path, {
+                  title: `${cartridge.cartridgeName ?? cartridge.title} · Bank ${String(chip.bank).padStart(2, "0")} ${chip.slot ?? "ROML"}`,
+                  baseAddress: slotBase,
+                });
+              }}
             />
           );
         })}
@@ -2108,6 +2122,7 @@ export function App() {
                   setSelectedCartChunk({ cartridgeArtifactId, chunk });
                   setSelectedEntityId(null);
                 }}
+                onOpenHex={openHexOverlay}
               />
             ) : null}
             {activeTab === "disk" ? <DiskPanel snapshot={snapshot} onSelectEntity={(entityId) => handleSelectEntity(entityId, "disk")} /> : null}
