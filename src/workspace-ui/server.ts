@@ -264,6 +264,76 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/disk/assemble-chain" && req.method === "POST") {
+    // Assemble a file's bytes by reading a caller-supplied list of
+    // sector windows. Works for both standard KERNAL files (link bytes
+    // at [0,1]) and custom-LUT files where the whole 256-byte sector is
+    // raw data without link bytes. The client sends the exact chain it
+    // wants to concatenate so the server never has to guess which
+    // convention applies.
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          path?: string;
+          chain?: Array<{ track: number; sector: number; offsetInSector?: number; length?: number }>;
+          stripLoadAddress?: boolean;
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!payload.path || !Array.isArray(payload.chain) || payload.chain.length === 0) {
+          send(res, jsonResponse(400, { error: "path and non-empty chain[] required" }));
+          return;
+        }
+        const imagePath = safeProjectPath(projectDir, payload.path);
+        if (!imagePath || !existsSync(imagePath)) {
+          send(res, jsonResponse(404, { error: "Disk image not found", path: payload.path }));
+          return;
+        }
+        const parser = createDiskParser(new Uint8Array(readFileSync(imagePath)));
+        if (!parser) {
+          send(res, jsonResponse(415, { error: "Unrecognised disk image format", path: payload.path }));
+          return;
+        }
+        const chunks: Uint8Array[] = [];
+        for (const cell of payload.chain) {
+          if (!Number.isInteger(cell.track) || cell.track < 1 || !Number.isInteger(cell.sector) || cell.sector < 0) continue;
+          const data = parser.getSector(cell.track, cell.sector);
+          if (!data) continue;
+          const offset = Math.max(0, cell.offsetInSector ?? 0);
+          const maxLength = data.length - offset;
+          const length = Math.max(0, Math.min(cell.length ?? maxLength, maxLength));
+          if (length > 0) chunks.push(data.subarray(offset, offset + length));
+        }
+        const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        let output = new Uint8Array(total);
+        let cursor = 0;
+        for (const chunk of chunks) {
+          output.set(chunk, cursor);
+          cursor += chunk.length;
+        }
+        if (payload.stripLoadAddress && output.length >= 2) output = output.subarray(2);
+        const buffer = Buffer.from(output);
+        send(res, {
+          status: 200,
+          body: buffer,
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": String(buffer.length),
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
+          },
+        });
+      } catch (error) {
+        send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/disk/file-bytes") {
     // Extract a full file from a D64/G64 image by walking its sector
     // chain starting at the given track/sector. Used by the disk-file
