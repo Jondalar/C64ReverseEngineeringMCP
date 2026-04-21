@@ -255,6 +255,12 @@ export interface CartridgeLutRef {
   destAddress?: number;
 }
 
+export interface CartridgeLutChunkSpan {
+  bank: number;
+  offsetInBank: number;
+  length: number;
+}
+
 export interface CartridgeLutChunk {
   bank: number;
   slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
@@ -264,9 +270,13 @@ export interface CartridgeLutChunk {
   index: number;
   destAddress?: number;
   refs?: CartridgeLutRef[];
+  spans?: CartridgeLutChunkSpan[];
   label?: string;
   color?: string;
   fileRelativePath?: string;
+  packer?: string;
+  format?: string;
+  notes?: string[];
 }
 
 export interface CartridgeLayoutView {

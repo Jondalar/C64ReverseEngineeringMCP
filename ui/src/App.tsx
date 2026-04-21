@@ -1797,28 +1797,34 @@ function CartChunkInspector({
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
   const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
-
-  // Look up the chip dump file that backs this chunk so the (mon) button
-  // can open exactly the chunk's bytes.
-  const chip = cartridge?.chips.find((candidate) => {
-    const candidateSlot = candidate.slot ?? "ROML";
-    if (chunk.slot === "ROMH" && candidateSlot !== "ROMH" && candidateSlot !== "ULTIMAX_ROMH") return false;
-    if (chunk.slot === "ROML" && candidateSlot !== "ROML") return false;
-    return candidate.bank === chunk.bank;
-  });
+  const spans = chunk.spans?.length ? chunk.spans : [{ bank: chunk.bank, offsetInBank: chunk.offsetInBank, length: chunk.length }];
   const manifestArtifact = snapshot.artifacts.find((artifact) => artifact.id === selection.cartridgeArtifactId);
-  const chipPath = chip?.file && manifestArtifact?.relativePath
-    ? `${manifestArtifact.relativePath.includes("/") ? manifestArtifact.relativePath.slice(0, manifestArtifact.relativePath.lastIndexOf("/")) + "/" : ""}${chip.file}`
-    : undefined;
+  const manifestDir = manifestArtifact?.relativePath.includes("/") ? manifestArtifact.relativePath.slice(0, manifestArtifact.relativePath.lastIndexOf("/")) : "";
   const slotBaseAddress = chunk.slot === "ROMH" ? (cartridge?.slotLayout?.isUltimax ? 0xe000 : 0xa000) : (chunk.slot === "ULTIMAX_ROMH" ? 0xe000 : 0x8000);
 
-  function openMon() {
+  function chipForSpan(spanBank: number) {
+    return cartridge?.chips.find((candidate) => {
+      const candidateSlot = candidate.slot ?? "ROML";
+      if (chunk.slot === "ROML" && candidateSlot !== "ROML") return false;
+      if ((chunk.slot === "ROMH" || chunk.slot === "ULTIMAX_ROMH") && candidateSlot === "ROML") return false;
+      return candidate.bank === spanBank;
+    });
+  }
+
+  function chipPathForSpan(spanBank: number): string | undefined {
+    const chip = chipForSpan(spanBank);
+    if (!chip?.file) return undefined;
+    return manifestDir ? `${manifestDir}/${chip.file}` : chip.file;
+  }
+
+  function openMonSpan(span: { bank: number; offsetInBank: number; length: number }, partIndex: number) {
+    const chipPath = chipPathForSpan(span.bank);
     if (!chipPath) return;
     onOpenHex(chipPath, {
-      title: `${cartridge?.cartridgeName ?? "cartridge"} · Bank ${chunk.bank} ${chunk.slot} · off $${chunk.offsetInBank.toString(16).toUpperCase().padStart(4, "0")}`,
-      baseAddress: slotBaseAddress + chunk.offsetInBank,
-      offset: chunk.offsetInBank,
-      length: chunk.length,
+      title: `${cartridge?.cartridgeName ?? "cartridge"} · ${chunk.lut}.${String(chunk.index).padStart(2, "0")} bank ${span.bank} ${chunk.slot} (part ${partIndex + 1}/${spans.length})`,
+      baseAddress: slotBaseAddress + span.offsetInBank,
+      offset: span.offsetInBank,
+      length: span.length,
     });
   }
 
@@ -1831,15 +1837,24 @@ function CartChunkInspector({
       <div className="chunk-inspector-summary">
         <div className="chunk-inspector-headline">
           <span className="chunk-color-swatch" style={{ background: chunk.color ?? "#444" }} />
-          <strong>Bank {String(chunk.bank).padStart(2, "0")} {chunk.slot}</strong>
+          <strong>{chunk.length} bytes</strong>
+          <span>origin bank {String(chunk.bank).padStart(2, "0")} {chunk.slot}</span>
           <span>off ${chunk.offsetInBank.toString(16).toUpperCase().padStart(4, "0")}</span>
-          <span>{chunk.length} bytes</span>
+          {spans.length > 1 ? <span className="chunk-inspector-tag">spans {spans.length} banks</span> : null}
         </div>
         <div className="chunk-inspector-paths">
-          <div>
-            <span className="chunk-inspector-label">chip dump</span>
-            <span>{chipPath ?? "(no matching chip in manifest)"}</span>
-          </div>
+          {chunk.packer || chunk.format ? (
+            <div>
+              <span className="chunk-inspector-label">packer / format</span>
+              <span>{[chunk.packer, chunk.format].filter(Boolean).join(" · ")}</span>
+            </div>
+          ) : null}
+          {chunk.notes && chunk.notes.length > 0 ? (
+            <div>
+              <span className="chunk-inspector-label">notes</span>
+              <span>{chunk.notes.join(" · ")}</span>
+            </div>
+          ) : null}
           {cartridge ? (
             <div>
               <span className="chunk-inspector-label">cartridge</span>
@@ -1847,14 +1862,41 @@ function CartChunkInspector({
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="mon-icon-button chunk-inspector-mon"
-          disabled={!chipPath}
-          onClick={openMon}
-        >
-          mon (open hex view of these {chunk.length} bytes)
-        </button>
+      </div>
+      <div className="inspector-block">
+        <h4>Physical placement ({spans.length} {spans.length === 1 ? "span" : "spans"})</h4>
+        <div className="record-stack compact">
+          {spans.map((span, partIndex) => {
+            const chipPath = chipPathForSpan(span.bank);
+            return (
+              <div key={`${span.bank}-${span.offsetInBank}`} className="record-card-row">
+                <div className="record-card">
+                  <div className="record-topline">
+                    <span>Bank {String(span.bank).padStart(2, "0")} {chunk.slot}</span>
+                    <span className="record-status">{span.length} B</span>
+                  </div>
+                  <p>
+                    chip off ${span.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} ·
+                    C64 ${(slotBaseAddress + span.offsetInBank).toString(16).toUpperCase().padStart(4, "0")}
+                  </p>
+                  <div className="record-meta">
+                    <span>{chipPath ?? "(no chip)"}</span>
+                    <span>{partIndex === 0 ? "head" : `cont ${partIndex + 1}/${spans.length}`}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="mon-icon-button"
+                  title={`Open hex view of this ${span.length}-byte span`}
+                  disabled={!chipPath}
+                  onClick={() => openMonSpan(span, partIndex)}
+                >
+                  mon
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
       <div className="inspector-block">
         <h4>LUT references ({refs.length})</h4>
