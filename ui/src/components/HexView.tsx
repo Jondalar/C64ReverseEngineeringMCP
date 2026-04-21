@@ -19,6 +19,10 @@ interface HexViewProps {
   // verbatim and ignores path / projectDir / offset / length. Used for
   // D64 whole-file assembly via /api/disk/file-bytes.
   fetchUrl?: string;
+  // Optional pre-fetched bytes. When provided, HexView renders them
+  // directly and skips all network calls. Used by callers that need to
+  // POST a chain to /api/disk/assemble-chain before rendering.
+  bytes?: Uint8Array;
   onClose: () => void;
 }
 
@@ -38,12 +42,18 @@ function petsciiPreviewChar(byte: number): string {
   return ".";
 }
 
-export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, fetchUrl, onClose }: HexViewProps) {
-  const [bytes, setBytes] = useState<Uint8Array | null>(null);
+export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, fetchUrl, bytes: presetBytes, onClose }: HexViewProps) {
+  const [bytes, setBytes] = useState<Uint8Array | null>(presetBytes ?? null);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(true);
+  const [pending, setPending] = useState(!presetBytes);
 
   useEffect(() => {
+    if (presetBytes) {
+      setBytes(presetBytes);
+      setPending(false);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     setPending(true);
     setError(null);
@@ -76,7 +86,7 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
     return () => {
       cancelled = true;
     };
-  }, [path, projectDir, offset, length, fetchUrl]);
+  }, [path, projectDir, offset, length, fetchUrl, presetBytes]);
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {

@@ -1,4 +1,4 @@
-import { startTransition, useDeferredValue, useEffect, useState, type ReactNode } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { HexView } from "./components/HexView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
 import { MarkMode } from "./components/MarkMode.js";
@@ -521,14 +521,27 @@ function MemoryMapPanel({
   const view = snapshot.views.memoryMap;
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [selectedStageKeys, setSelectedStageKeys] = useState<string[]>([]);
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const columnOffsets = Array.from({ length: 16 }, (_, index) => index * view.cellSize);
   const rowBases = Array.from({ length: 16 }, (_, index) => index * view.rowStride);
-  const stageOptions = snapshot.views.loadSequence.items.map((item) => ({
+  const artifactKindById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const artifact of snapshot.artifacts) map.set(artifact.id, artifact.kind);
+    return map;
+  }, [snapshot.artifacts]);
+  const allStageOptions = snapshot.views.loadSequence.items.map((item) => ({
     key: item.key,
     title: item.title,
     entityIds: item.entityIds,
     artifactIds: item.artifactIds,
+    mediaKinds: new Set(item.artifactIds.map((id) => artifactMediaClass(artifactKindById.get(id)))),
   }));
+  const diskStageCount = allStageOptions.filter((stage) => stage.mediaKinds.has("disk")).length;
+  const cartStageCount = allStageOptions.filter((stage) => stage.mediaKinds.has("cartridge")).length;
+  const showMediaFilter = diskStageCount > 0 && cartStageCount > 0;
+  const stageOptions = mediaFilter === "all"
+    ? allStageOptions
+    : allStageOptions.filter((stage) => stage.mediaKinds.has(mediaFilter));
 
   const focusedStages = stageOptions.filter((item) => selectedStageKeys.includes(item.key));
   const focusedArtifactIds = new Set(focusedStages.flatMap((item) => item.artifactIds));
@@ -581,6 +594,35 @@ function MemoryMapPanel({
         <h3>Address Space</h3>
         <span>{view.regions.length} mapped regions / {view.cells.length} heatmap cells</span>
       </div>
+      {showMediaFilter ? (
+        <div className="cart-lut-filter">
+          <span className="cart-lut-filter-title">Source</span>
+          <button
+            type="button"
+            className={mediaFilter === "all" ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+            onClick={() => { setMediaFilter("all"); setSelectedStageKeys([]); }}
+          >
+            <span>all</span>
+            <span className="cart-lut-pill-count">{allStageOptions.length}</span>
+          </button>
+          <button
+            type="button"
+            className={mediaFilter === "disk" ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+            onClick={() => { setMediaFilter("disk"); setSelectedStageKeys([]); }}
+          >
+            <span>disk</span>
+            <span className="cart-lut-pill-count">{diskStageCount}</span>
+          </button>
+          <button
+            type="button"
+            className={mediaFilter === "cartridge" ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+            onClick={() => { setMediaFilter("cartridge"); setSelectedStageKeys([]); }}
+          >
+            <span>cartridge</span>
+            <span className="cart-lut-pill-count">{cartStageCount}</span>
+          </button>
+        </div>
+      ) : null}
       <div className="memory-grid-panel">
         <div className="memory-legend">
           <div className="memory-legend-scale">
@@ -740,7 +782,7 @@ function CartridgePanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectChunk: (cartridgeArtifactId: string, chunk: CartridgeLutChunk) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
 }) {
   function findChipEntity(bank: number, loadAddress: number) {
     return snapshot.entities.find((entity) =>
@@ -819,7 +861,7 @@ function DiskPanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectDiskFile: (diskArtifactId: string, fileId: string) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
 }) {
   const disks = snapshot.views.diskLayout.disks;
   const [activeDiskId, setActiveDiskId] = useState<string | null>(disks[0]?.artifactId ?? null);
@@ -1127,21 +1169,82 @@ function DiskPanel({
   );
 }
 
+type MediaFilter = "all" | "disk" | "cartridge";
+
+function artifactMediaClass(kind: string | undefined): "disk" | "cartridge" | "other" {
+  if (!kind) return "other";
+  const k = kind.toLowerCase();
+  if (k.includes("d64") || k.includes("g64") || k.includes("disk")) return "disk";
+  if (k.includes("crt") || k.includes("cart") || k.includes("chip")) return "cartridge";
+  return "other";
+}
+
 function LoadSequencePanel({
   view,
+  snapshot,
   onSelectEntity,
 }: {
   view: LoadSequenceView;
+  snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
 }) {
+  const artifactKindById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const artifact of snapshot.artifacts) map.set(artifact.id, artifact.kind);
+    return map;
+  }, [snapshot.artifacts]);
+
+  const diskCount = view.items.filter((item) => item.artifactIds.some((id) => artifactMediaClass(artifactKindById.get(id)) === "disk")).length;
+  const cartCount = view.items.filter((item) => item.artifactIds.some((id) => artifactMediaClass(artifactKindById.get(id)) === "cartridge")).length;
+  const showMediaFilter = diskCount > 0 && cartCount > 0;
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
+
+  const visibleItems = useMemo(() => {
+    if (mediaFilter === "all") return view.items;
+    return view.items.filter((item) =>
+      item.artifactIds.some((id) => artifactMediaClass(artifactKindById.get(id)) === mediaFilter),
+    );
+  }, [view.items, artifactKindById, mediaFilter]);
+  const visibleItemIds = new Set(visibleItems.map((item) => item.id));
+  const visibleEdges = view.edges.filter((edge) => visibleItemIds.has(edge.fromItemId) && visibleItemIds.has(edge.toItemId));
+
   return (
     <section className="panel-card">
       <div className="section-heading">
         <h3>Load Sequence</h3>
-        <span>{view.items.length} payloads / {view.edges.length} transitions</span>
+        <span>{visibleItems.length} payloads / {visibleEdges.length} transitions</span>
       </div>
+      {showMediaFilter ? (
+        <div className="cart-lut-filter">
+          <span className="cart-lut-filter-title">Source</span>
+          <button
+            type="button"
+            className={mediaFilter === "all" ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+            onClick={() => setMediaFilter("all")}
+          >
+            <span>all</span>
+            <span className="cart-lut-pill-count">{view.items.length}</span>
+          </button>
+          <button
+            type="button"
+            className={mediaFilter === "disk" ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+            onClick={() => setMediaFilter("disk")}
+          >
+            <span>disk</span>
+            <span className="cart-lut-pill-count">{diskCount}</span>
+          </button>
+          <button
+            type="button"
+            className={mediaFilter === "cartridge" ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
+            onClick={() => setMediaFilter("cartridge")}
+          >
+            <span>cartridge</span>
+            <span className="cart-lut-pill-count">{cartCount}</span>
+          </button>
+        </div>
+      ) : null}
       <div className="sequence-strip">
-        {view.items.map((item, index) => (
+        {visibleItems.map((item, index) => (
           <div key={item.id} className="sequence-step">
             <button
               type="button"
@@ -1161,7 +1264,7 @@ function LoadSequencePanel({
                 {item.targetRanges[0] ? <span>target {hex(item.targetRanges[0].start)}-{hex(item.targetRanges[0].end)}</span> : null}
               </div>
             </button>
-            {index < view.items.length - 1 ? <div className="sequence-arrow" aria-hidden="true">↓</div> : null}
+            {index < visibleItems.length - 1 ? <div className="sequence-arrow" aria-hidden="true">↓</div> : null}
           </div>
         ))}
       </div>
@@ -1172,7 +1275,7 @@ function LoadSequencePanel({
             <span>payload-centric</span>
           </div>
           <div className="record-stack">
-            {view.edges.map((edge) => (
+            {visibleEdges.map((edge) => (
               <article key={edge.id} className="record-card static-card">
                 <div className="record-topline">
                   <span>{edge.title}</span>
@@ -1538,7 +1641,7 @@ function EntityInspector({
   onSelectEntity: (entityId: string) => void;
   onOpenDocument: (path: string) => void;
   onOpenTab: (tab: TabId) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
 }) {
   if (!entity) {
     return (
@@ -1931,7 +2034,7 @@ function DiskFileInspector({
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
   onClose: () => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
 }) {
   const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
   const file = disk?.files.find((candidate) => candidate.id === selection.fileId);
@@ -1965,27 +2068,55 @@ function DiskFileInspector({
     });
   }
 
-  function openWholeFileMon() {
+  async function openWholeFileMon() {
     if (!diskPath || !isD64 || file!.sectorChain.length === 0) return;
-    const first = file!.sectorChain[0]!;
-    const params = new URLSearchParams({
-      path: diskPath,
-      track: String(first.track),
-      sector: String(first.sector),
-      type: file!.type ?? "PRG",
+    // Translate the manifest's sectorChain into explicit
+    // (track, sector, offsetInSector, length) windows. Custom-LUT files
+    // on protected loaders (Lykia etc.) record bytesUsed=256 with NO
+    // link bytes, so we read the whole sector. Standard KERNAL files
+    // record bytesUsed<=254 with the first two bytes being the link, so
+    // we skip the link and read exactly bytesUsed from offset 2.
+    const chain = file!.sectorChain.map((cell) => {
+      const fullSector = cell.bytesUsed >= 256;
+      return {
+        track: cell.track,
+        sector: cell.sector,
+        offsetInSector: fullSector ? 0 : 2,
+        length: fullSector ? 256 : cell.bytesUsed,
+      };
     });
-    if (disk!.artifactId) {
-      // projectDir defaults to the server's configured project, which is
-      // what we want; we still send it explicitly so the server can route
-      // to the right workspace when multiple disks share a name.
-      const project = snapshot.project.rootPath;
-      if (project) params.set("projectDir", project);
+    try {
+      const response = await fetch("/api/disk/assemble-chain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectDir: snapshot.project.rootPath,
+          path: diskPath,
+          chain,
+          stripLoadAddress: false,
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const buffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      // Standard D64 PRGs have a 2-byte load-address header at the
+      // start; we keep it in the blob so the user sees the raw file
+      // bytes. The addr column starts at the load address when known
+      // (then every subsequent row reflects the C64-side address).
+      const addressBase = file!.loadAddress !== undefined
+        ? (file!.loadAddress - Math.min(2, bytes.length)) & 0xffff
+        : 0;
+      onOpenHex(diskPath, {
+        title: `${disk!.diskName ?? disk!.title} · ${file!.title} · assembled (${totalSectors} sectors, ${bytes.length} B)`,
+        baseAddress: addressBase,
+        bytes,
+      });
+    } catch (error) {
+      onOpenHex(diskPath, {
+        title: `${file!.title} · error`,
+        bytes: new TextEncoder().encode(`Failed to assemble chain: ${error instanceof Error ? error.message : String(error)}`),
+      });
     }
-    onOpenHex(diskPath, {
-      title: `${disk!.diskName ?? disk!.title} · ${file!.title} · assembled (${totalSectors} sectors, ${totalBytes} B)`,
-      baseAddress: file!.loadAddress ?? 0,
-      fetchUrl: `/api/disk/file-bytes?${params.toString()}`,
-    });
   }
 
   const totalSectors = file.sectorChain.length;
@@ -2079,7 +2210,7 @@ function CartChunkInspector({
   snapshot: WorkspaceUiSnapshot;
   selection: { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
   onClose: () => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) => void;
 }) {
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
@@ -2214,11 +2345,11 @@ export function App() {
   const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
-  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string } | null>(null);
+  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array } | null>(null);
   const [selectedCartChunk, setSelectedCartChunk] = useState<{ cartridgeArtifactId: string; chunk: CartridgeLutChunk } | null>(null);
   const [selectedDiskFile, setSelectedDiskFile] = useState<{ diskArtifactId: string; fileId: string } | null>(null);
 
-  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string }) {
+  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array }) {
     setHexOverlay({
       path,
       title: options?.title,
@@ -2226,6 +2357,7 @@ export function App() {
       offset: options?.offset,
       length: options?.length,
       fetchUrl: options?.fetchUrl,
+      bytes: options?.bytes,
     });
   }
 
@@ -2422,6 +2554,7 @@ export function App() {
             {activeTab === "load" ? (
               <LoadSequencePanel
                 view={snapshot.views.loadSequence}
+                snapshot={snapshot}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "load")}
               />
             ) : null}
@@ -2486,6 +2619,7 @@ export function App() {
           offset={hexOverlay.offset}
           length={hexOverlay.length}
           fetchUrl={hexOverlay.fetchUrl}
+          bytes={hexOverlay.bytes}
           onClose={() => setHexOverlay(null)}
         />
       ) : null}
