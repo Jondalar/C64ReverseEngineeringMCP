@@ -9,6 +9,11 @@ interface HexViewProps {
   // file offset. Cart chips pass loadAddress here so the column shows the
   // C64-side address.
   baseAddress?: number;
+  // Optional byte slice. Server returns only [offset, offset+length) when
+  // either is set. Used to focus a hex view on a single LUT chunk inside
+  // a larger chip dump.
+  offset?: number;
+  length?: number;
   onClose: () => void;
 }
 
@@ -28,7 +33,7 @@ function petsciiPreviewChar(byte: number): string {
   return ".";
 }
 
-export function HexView({ path, projectDir, title, baseAddress = 0, onClose }: HexViewProps) {
+export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, onClose }: HexViewProps) {
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(true);
@@ -40,6 +45,8 @@ export function HexView({ path, projectDir, title, baseAddress = 0, onClose }: H
     setBytes(null);
     const params = new URLSearchParams({ path });
     if (projectDir) params.set("projectDir", projectDir);
+    if (offset !== undefined) params.set("offset", String(offset));
+    if (length !== undefined) params.set("length", String(length));
     fetch(`/api/artifact/raw?${params.toString()}`)
       .then(async (response) => {
         if (!response.ok) {
@@ -60,7 +67,7 @@ export function HexView({ path, projectDir, title, baseAddress = 0, onClose }: H
     return () => {
       cancelled = true;
     };
-  }, [path, projectDir]);
+  }, [path, projectDir, offset, length]);
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {

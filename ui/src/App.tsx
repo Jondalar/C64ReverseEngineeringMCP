@@ -1,6 +1,7 @@
 import { startTransition, useDeferredValue, useEffect, useState, type ReactNode } from "react";
 import { HexView } from "./components/HexView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
+import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
   EntityRecord,
@@ -732,11 +733,11 @@ function MemoryMapPanel({
 function CartridgePanel({
   snapshot,
   onSelectEntity,
-  onOpenHex,
+  onSelectChunk,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number }) => void;
+  onSelectChunk: (cartridgeArtifactId: string, chunk: CartridgeLutChunk) => void;
 }) {
   function findChipEntity(bank: number, loadAddress: number) {
     return snapshot.entities.find((entity) =>
@@ -782,24 +783,7 @@ function CartridgePanel({
                 const entity = findBankEntity(bank.bank);
                 if (entity) onSelectEntity(entity.id);
               }}
-              onOpenChipHex={(chip, role) => {
-                const path = chipArtifactPath(chip.file, manifestArtifact?.relativePath);
-                if (!path) return;
-                const baseAddress = role === "ROMH"
-                  ? (cartridge.slotLayout?.isUltimax ? 0xe000 : 0xa000)
-                  : 0x8000;
-                onOpenHex(path, {
-                  title: `${cartridge.cartridgeName ?? cartridge.title} · Bank ${String(chip.bank).padStart(2, "0")} ${role}`,
-                  baseAddress,
-                });
-              }}
-              onOpenEepromHex={() => {
-                const eepromFile = cartridge.slotLayout?.eeprom?.file;
-                const path = chipArtifactPath(eepromFile, manifestArtifact?.relativePath);
-                if (path) {
-                  onOpenHex(path, { title: `${cartridge.cartridgeName ?? cartridge.title} · EEPROM` });
-                }
-              }}
+              onSelectLutChunk={(chunk) => onSelectChunk(cartridge.artifactId, chunk)}
             />
           );
         })}
@@ -1799,6 +1783,96 @@ function EntityInspector({
   );
 }
 
+function CartChunkInspector({
+  snapshot,
+  selection,
+  onClose,
+  onOpenHex,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  selection: { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
+  onClose: () => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) => void;
+}) {
+  const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
+  const chunk = selection.chunk;
+  const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
+
+  // Look up the chip dump file that backs this chunk so the (mon) button
+  // can open exactly the chunk's bytes.
+  const chip = cartridge?.chips.find((candidate) => {
+    const candidateSlot = candidate.slot ?? "ROML";
+    if (chunk.slot === "ROMH" && candidateSlot !== "ROMH" && candidateSlot !== "ULTIMAX_ROMH") return false;
+    if (chunk.slot === "ROML" && candidateSlot !== "ROML") return false;
+    return candidate.bank === chunk.bank;
+  });
+  const manifestArtifact = snapshot.artifacts.find((artifact) => artifact.id === selection.cartridgeArtifactId);
+  const chipPath = chip?.file && manifestArtifact?.relativePath
+    ? `${manifestArtifact.relativePath.includes("/") ? manifestArtifact.relativePath.slice(0, manifestArtifact.relativePath.lastIndexOf("/")) + "/" : ""}${chip.file}`
+    : undefined;
+  const slotBaseAddress = chunk.slot === "ROMH" ? (cartridge?.slotLayout?.isUltimax ? 0xe000 : 0xa000) : (chunk.slot === "ULTIMAX_ROMH" ? 0xe000 : 0x8000);
+
+  function openMon() {
+    if (!chipPath) return;
+    onOpenHex(chipPath, {
+      title: `${cartridge?.cartridgeName ?? "cartridge"} · Bank ${chunk.bank} ${chunk.slot} · off $${chunk.offsetInBank.toString(16).toUpperCase().padStart(4, "0")}`,
+      baseAddress: slotBaseAddress + chunk.offsetInBank,
+      offset: chunk.offsetInBank,
+      length: chunk.length,
+    });
+  }
+
+  return (
+    <section className="panel-card inspector-card">
+      <div className="section-heading">
+        <h3>Cartridge file</h3>
+        <button type="button" className="mon-icon-button" onClick={onClose}>back</button>
+      </div>
+      <div className="chunk-inspector-summary">
+        <div className="chunk-inspector-headline">
+          <span className="chunk-color-swatch" style={{ background: chunk.color ?? "#444" }} />
+          <strong>Bank {String(chunk.bank).padStart(2, "0")} {chunk.slot}</strong>
+          <span>off ${chunk.offsetInBank.toString(16).toUpperCase().padStart(4, "0")}</span>
+          <span>{chunk.length} bytes</span>
+        </div>
+        <div className="chunk-inspector-paths">
+          <div>
+            <span className="chunk-inspector-label">chip dump</span>
+            <span>{chipPath ?? "(no matching chip in manifest)"}</span>
+          </div>
+          {cartridge ? (
+            <div>
+              <span className="chunk-inspector-label">cartridge</span>
+              <span>{cartridge.cartridgeName ?? cartridge.title}</span>
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="mon-icon-button chunk-inspector-mon"
+          disabled={!chipPath}
+          onClick={openMon}
+        >
+          mon (open hex view of these {chunk.length} bytes)
+        </button>
+      </div>
+      <div className="inspector-block">
+        <h4>LUT references ({refs.length})</h4>
+        <div className="record-stack compact">
+          {refs.map((ref) => (
+            <div key={`${ref.lut}-${ref.index}`} className="record-card">
+              <div className="record-topline">
+                <span>{ref.lut}.{String(ref.index).padStart(2, "0")}</span>
+                <span className="record-status">{ref.destAddress !== undefined ? `→ $${ref.destAddress.toString(16).toUpperCase().padStart(4, "0")}` : "—"}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceUiSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1811,10 +1885,11 @@ export function App() {
   const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
-  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number } | null>(null);
+  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number } | null>(null);
+  const [selectedCartChunk, setSelectedCartChunk] = useState<{ cartridgeArtifactId: string; chunk: CartridgeLutChunk } | null>(null);
 
-  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number }) {
-    setHexOverlay({ path, title: options?.title, baseAddress: options?.baseAddress });
+  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number }) {
+    setHexOverlay({ path, title: options?.title, baseAddress: options?.baseAddress, offset: options?.offset, length: options?.length });
   }
 
   useEffect(() => {
@@ -1914,6 +1989,7 @@ export function App() {
   function handleSelectEntity(entityId: string, tabId: TabId = activeTab) {
     setSelectedEntityId(entityId);
     setTabSelections((current) => ({ ...current, [tabId]: entityId }));
+    setSelectedCartChunk(null);
   }
 
   return (
@@ -1986,7 +2062,10 @@ export function App() {
               <CartridgePanel
                 snapshot={snapshot}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "cartridge")}
-                onOpenHex={openHexOverlay}
+                onSelectChunk={(cartridgeArtifactId, chunk) => {
+                  setSelectedCartChunk({ cartridgeArtifactId, chunk });
+                  setSelectedEntityId(null);
+                }}
               />
             ) : null}
             {activeTab === "disk" ? <DiskPanel snapshot={snapshot} onSelectEntity={(entityId) => handleSelectEntity(entityId, "disk")} /> : null}
@@ -2017,17 +2096,26 @@ export function App() {
 
           {activeTab !== "docs" ? (
             <aside className="workspace-side">
-              <EntityInspector
-                snapshot={snapshot}
-                entity={selectedEntity}
-                onSelectEntity={handleSelectEntity}
-                onOpenDocument={(path) => {
-                  setSelectedDocPath(path);
-                  setActiveTab("docs");
-                }}
-                onOpenTab={setActiveTab}
-                onOpenHex={openHexOverlay}
-              />
+              {selectedCartChunk ? (
+                <CartChunkInspector
+                  snapshot={snapshot}
+                  selection={selectedCartChunk}
+                  onClose={() => setSelectedCartChunk(null)}
+                  onOpenHex={openHexOverlay}
+                />
+              ) : (
+                <EntityInspector
+                  snapshot={snapshot}
+                  entity={selectedEntity}
+                  onSelectEntity={handleSelectEntity}
+                  onOpenDocument={(path) => {
+                    setSelectedDocPath(path);
+                    setActiveTab("docs");
+                  }}
+                  onOpenTab={setActiveTab}
+                  onOpenHex={openHexOverlay}
+                />
+              )}
             </aside>
           ) : null}
         </main>
@@ -2038,6 +2126,8 @@ export function App() {
           projectDir={snapshot?.project.rootPath}
           title={hexOverlay.title}
           baseAddress={hexOverlay.baseAddress}
+          offset={hexOverlay.offset}
+          length={hexOverlay.length}
           onClose={() => setHexOverlay(null)}
         />
       ) : null}

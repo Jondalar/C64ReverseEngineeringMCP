@@ -249,6 +249,12 @@ export interface CartridgeSlotLayout {
   eeprom?: { kindHint?: string; sizeBytes?: number; file?: string };
 }
 
+export interface CartridgeLutRef {
+  lut: string;
+  index: number;
+  destAddress?: number;
+}
+
 export interface CartridgeLutChunk {
   bank: number;
   slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
@@ -257,6 +263,7 @@ export interface CartridgeLutChunk {
   lut: string;
   index: number;
   destAddress?: number;
+  refs?: CartridgeLutRef[];
   label?: string;
   color?: string;
   fileRelativePath?: string;

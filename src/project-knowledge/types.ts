@@ -541,14 +541,25 @@ export const CartridgeBankViewSchema = z.object({
   romhChipIndex: z.number().int().nonnegative().optional(),
 });
 
+export const CartridgeLutRefSchema = z.object({
+  lut: z.string().min(1),
+  index: z.number().int().nonnegative(),
+  destAddress: z.number().int().min(0).max(0xffff).optional(),
+});
+
 export const CartridgeLutChunkSchema = z.object({
   bank: z.number().int().nonnegative(),
   slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH"]).default("ROML"),
   offsetInBank: z.number().int().nonnegative(),
   length: z.number().int().nonnegative(),
+  // Primary (first) LUT reference — kept flat for backwards compatibility
+  // with older snapshots + for the legend swatch.
   lut: z.string().min(1),
   index: z.number().int().nonnegative(),
   destAddress: z.number().int().min(0).max(0xffff).optional(),
+  // All LUT entries pointing at this byte-range (same bank + offset +
+  // length). Length 1 when only one LUT references the chunk.
+  refs: z.array(CartridgeLutRefSchema).default([]),
   label: z.string().optional(),
   color: z.string().optional(),
   fileRelativePath: z.string().optional(),

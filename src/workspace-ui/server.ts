@@ -194,12 +194,22 @@ const server = createServer((req, res) => {
     }
     try {
       const stat = statSync(filePath);
-      const maxBytes = 8 * 1024 * 1024;
-      if (stat.size > maxBytes) {
-        send(res, jsonResponse(413, { error: "Artifact too large for hex view.", size: stat.size, maxBytes }));
+      const offsetParam = requestUrl.searchParams.get("offset");
+      const lengthParam = requestUrl.searchParams.get("length");
+      const offset = offsetParam ? Math.max(0, Number.parseInt(offsetParam, 10) || 0) : 0;
+      const requested = lengthParam ? Math.max(0, Number.parseInt(lengthParam, 10) || 0) : stat.size - offset;
+      if (offset > stat.size) {
+        send(res, jsonResponse(416, { error: "Offset past end of file.", offset, size: stat.size }));
         return;
       }
-      const buffer = readFileSync(filePath);
+      const length = Math.min(requested, stat.size - offset);
+      const maxBytes = 8 * 1024 * 1024;
+      if (length > maxBytes) {
+        send(res, jsonResponse(413, { error: "Slice too large for hex view.", size: length, maxBytes }));
+        return;
+      }
+      const fullBuffer = readFileSync(filePath);
+      const buffer = (offset === 0 && length === fullBuffer.length) ? fullBuffer : fullBuffer.subarray(offset, offset + length);
       send(res, {
         status: 200,
         body: buffer,
