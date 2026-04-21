@@ -777,6 +777,7 @@ function CartridgePanel({
               banks={cartridge.banks}
               slotLayout={cartridge.slotLayout}
               lutChunks={cartridge.lutChunks}
+              emptyRegions={cartridge.emptyRegions}
               onSelectChip={(chip) => {
                 const entity = findChipEntity(chip.bank, chip.loadAddress);
                 if (entity) onSelectEntity(entity.id);

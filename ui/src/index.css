@@ -1445,6 +1445,23 @@ button {
   filter: brightness(1.25);
 }
 
+.cart-empty-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cart-empty-segment {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: #24292f;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.25);
+  pointer-events: auto;
+  cursor: help;
+}
+
 .cart-chunk-segment-continuation {
   background-image: repeating-linear-gradient(
     135deg,

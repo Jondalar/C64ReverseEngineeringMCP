@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CartridgeBankView, CartridgeChipView, CartridgeLutChunk, CartridgeSlotLayout } from "../types.js";
+import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgeSlotLayout } from "../types.js";
 
 interface ChipClickHandler {
   (chip: CartridgeChipView, role: "ROML" | "ROMH" | "EEPROM"): void;
@@ -18,6 +18,7 @@ interface CartridgeMemoryGridProps {
   banks: CartridgeBankView[];
   slotLayout?: CartridgeSlotLayout;
   lutChunks?: CartridgeLutChunk[];
+  emptyRegions?: CartridgeEmptyRegion[];
   onSelectChip?: ChipClickHandler;
   onSelectBank?: BankClickHandler;
   onOpenChipHex?: ChipClickHandler;
@@ -53,6 +54,7 @@ export function CartridgeMemoryGrid({
   banks,
   slotLayout,
   lutChunks,
+  emptyRegions,
   onSelectChip,
   onSelectBank,
   onOpenChipHex,
@@ -87,6 +89,16 @@ export function CartridgeMemoryGrid({
     return refs.some((ref) => ref.lut === activeLut);
   }
   const visibleChunks = (lutChunks ?? []).filter(chunkMatchesActiveLut);
+
+  // Empty (=$FF and not LUT-covered) regions per bank+slot — rendered
+  // underneath the LUT chunks as a dark-grey "free to program" overlay.
+  const emptyIndex = new Map<string, CartridgeEmptyRegion[]>();
+  for (const region of emptyRegions ?? []) {
+    const key = `${region.bank}:${region.slot === "ROML" ? "ROML" : "ROMH"}`;
+    const bucket = emptyIndex.get(key);
+    if (bucket) bucket.push(region);
+    else emptyIndex.set(key, [region]);
+  }
 
   // Each chunk carries one or more `spans` describing per-bank physical
   // placement (for files that cross bank boundaries). We index per
@@ -127,6 +139,29 @@ export function CartridgeMemoryGrid({
     return chips.find((chip) => chip.bank === bank && (role === "ROML"
       ? chip.slot === "ROML"
       : chip.slot === "ROMH" || chip.slot === "ULTIMAX_ROMH"));
+  }
+
+  function renderEmptySegments(role: "ROML" | "ROMH", bank: number) {
+    const key = `${bank}:${role}`;
+    const regions = emptyIndex.get(key);
+    if (!regions || regions.length === 0) return null;
+    return (
+      <div className="cart-empty-overlay">
+        {regions.map((region, idx) => {
+          const leftPercent = Math.max(0, Math.min(100, (region.offsetInBank / bankSize) * 100));
+          const widthPercent = Math.max(0.5, Math.min(100 - leftPercent, (region.length / bankSize) * 100));
+          const tooltip = `free: bank ${region.bank} ${region.slot} off $${region.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${region.length} B, $FF)`;
+          return (
+            <div
+              key={`${region.offsetInBank}-${idx}`}
+              className="cart-empty-segment"
+              style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
+              title={tooltip}
+            />
+          );
+        })}
+      </div>
+    );
   }
 
   function renderChunkSegments(role: "ROML" | "ROMH", bank: number) {
@@ -175,6 +210,7 @@ export function CartridgeMemoryGrid({
     if (!chip) {
       return (
         <div className="cart-slot-bar cart-slot-bar-empty" style={{ background: EMPTY_COLOR }} title="empty">
+          {renderEmptySegments(role, bank)}
           {renderChunkSegments(role, bank)}
         </div>
       );
@@ -191,6 +227,7 @@ export function CartridgeMemoryGrid({
         title={tooltip}
         onClick={() => onSelectChip?.(chip, role)}
       >
+        {renderEmptySegments(role, bank)}
         {renderChunkSegments(role, bank)}
         <span className="cart-slot-bar-label">{role}</span>
       </button>
