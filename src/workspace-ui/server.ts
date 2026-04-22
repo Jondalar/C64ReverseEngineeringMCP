@@ -4,6 +4,7 @@ import { extname, join, normalize, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
 import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx } from "../compression-tools.js";
+import { lykiaDecompress } from "../byteboozer-lykia-decoder.js";
 import { writeFile as writeFileAsync, mkdtemp as mkdtempAsync, rm as rmAsync } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
@@ -273,6 +274,12 @@ const server = createServer((req, res) => {
     // how unambiguous the stream format is so we don't happily chew a
     // valid Exomizer wrapper with the RLE depacker.
     const forcePacker = requestUrl.searchParams.get("packer")?.trim() || undefined;
+    const destHiParam = requestUrl.searchParams.get("destHi");
+    const destHi = destHiParam !== null ? Math.max(0, Math.min(0xff, Number.parseInt(destHiParam, 10) || 0)) : undefined;
+    const destAddrParam = requestUrl.searchParams.get("destAddress");
+    const endAddrParam = requestUrl.searchParams.get("endAddress");
+    const destAddress = destAddrParam !== null ? Math.max(0, Math.min(0xffff, Number.parseInt(destAddrParam, 10) || 0)) : undefined;
+    const endAddress = endAddrParam !== null ? Math.max(0, Math.min(0xffff, Number.parseInt(endAddrParam, 10) || 0)) : undefined;
     const chunks: Buffer[] = [];
     req.on("data", (chunk) => { chunks.push(chunk); });
     req.on("end", async () => {
@@ -283,7 +290,7 @@ const server = createServer((req, res) => {
       }
       const candidates = forcePacker
         ? [forcePacker]
-        : ["exomizer_sfx", "exomizer_raw", "byteboozer", "rle"];
+        : ["byteboozer-lykia", "exomizer_sfx", "exomizer_raw", "byteboozer", "rle"];
       const failures: Array<{ packer: string; error: string }> = [];
       for (const packer of candidates) {
         try {
@@ -315,6 +322,34 @@ const server = createServer((req, res) => {
           } else if (packer === "byteboozer") {
             const result = new ByteBoozerDepacker().unpack(input);
             out = result.data;
+          } else if (packer === "byteboozer-lykia" || packer === "byteboozer_lykia") {
+            // Lykia BB2 expects a 4-byte stream header
+            // [destLo, destHi, endLo, endHi] before the bit stream and
+            // seeds BB2_BITBUF with destHi. Disk-loader streams already
+            // carry this header in their bytes; cart LUT chunks do not
+            // (the dest+length live in the LUT entry). When the caller
+            // hands us destAddress+endAddress, we synthesise the
+            // header and prepend it. Otherwise we trust the input as a
+            // header-prefixed stream.
+            let stream: Uint8Array;
+            let seedHi: number;
+            if (destAddress !== undefined && endAddress !== undefined) {
+              const hdr = new Uint8Array(4);
+              hdr[0] = destAddress & 0xff;
+              hdr[1] = (destAddress >> 8) & 0xff;
+              hdr[2] = endAddress & 0xff;
+              hdr[3] = (endAddress >> 8) & 0xff;
+              stream = new Uint8Array(hdr.length + input.length);
+              stream.set(hdr, 0);
+              stream.set(new Uint8Array(input), hdr.length);
+              seedHi = (destAddress >> 8) & 0xff;
+            } else {
+              stream = new Uint8Array(input);
+              seedHi = destHi !== undefined ? destHi : (input.length >= 2 ? input[1]! : 0x40);
+            }
+            const result = lykiaDecompress(stream, seedHi);
+            out = result.data;
+            loadAddress = result.destAddress;
           } else if (packer === "rle") {
             const result = new RleDepacker().unpack(input, { hasHeader: input.length >= 2 && input[0] === 0 && input[1] === 0 });
             out = result.data;

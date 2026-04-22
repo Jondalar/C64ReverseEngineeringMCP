@@ -27,6 +27,9 @@ interface HexViewProps {
   // manifest knows the stream format; otherwise the "depack view"
   // button auto-detects and updates the tag.
   packerHint?: string;
+  // Optional context dict (e.g. { destHi: 0x40 } for byteboozer-lykia)
+  // appended verbatim to the /api/depack query string.
+  packerContext?: Record<string, string | number>;
   onClose: () => void;
 }
 
@@ -46,7 +49,7 @@ function petsciiPreviewChar(byte: number): string {
   return ".";
 }
 
-export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, fetchUrl, bytes: presetBytes, packerHint, onClose }: HexViewProps) {
+export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, fetchUrl, bytes: presetBytes, packerHint, packerContext, onClose }: HexViewProps) {
   const [bytes, setBytes] = useState<Uint8Array | null>(presetBytes ?? null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(!presetBytes);
@@ -121,7 +124,14 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
     }
     setDepackState((prev) => ({ ...prev, busy: true, error: undefined, rawBytes: prev.rawBytes ?? bytes }));
     try {
-      const query = packerHint ? `?packer=${encodeURIComponent(packerHint)}` : "";
+      const params = new URLSearchParams();
+      if (packerHint) params.set("packer", packerHint);
+      if (packerContext) {
+        for (const [key, value] of Object.entries(packerContext)) {
+          params.set(key, String(value));
+        }
+      }
+      const query = params.toString() ? `?${params.toString()}` : "";
       const response = await fetch(`/api/depack${query}`, {
         method: "POST",
         headers: { "Content-Type": "application/octet-stream" },

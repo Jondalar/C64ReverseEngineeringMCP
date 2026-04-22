@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -897,6 +898,61 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
           stderr: error instanceof Error ? error.message : String(error),
           exitCode: 1,
         });
+      }
+    },
+  );
+
+  server.tool(
+    "record_file_packer",
+    "Persist packer / format / notes metadata into a disk or cart manifest so the workspace UI can render a packer tag and offer a depack-aware hex view. Identify the file by its index, name, or relativePath. Use this after suggest_depacker / try_depack / depack tools confirm what the bytes are. To set a fallback for every file in the manifest pass scope=\"manifest-default\" instead of a file selector.",
+    {
+      manifest_path: z.string().describe("Path to the manifest.json (relative to project dir or absolute)."),
+      file_index: z.number().int().nonnegative().optional().describe("Match files[].index. Mutually exclusive with file_name / file_relative_path."),
+      file_name: z.string().optional().describe("Match files[].name."),
+      file_relative_path: z.string().optional().describe("Match files[].relativePath."),
+      scope: z.enum(["file", "manifest-default"]).optional().describe("Default 'file'. 'manifest-default' writes top-level defaultPacker / defaultFormat instead."),
+      packer: z.string().describe("Packer identifier. Conventions: rle, byteboozer, byteboozer-lykia, exomizer_raw, exomizer_sfx, custom-lz77, plain."),
+      format: z.string().optional().describe("Optional format / dialect (e.g. 'prg', 'raw', 'sfx-loader')."),
+      notes: z.array(z.string()).optional().describe("Optional notes appended to files[].notes."),
+    },
+    async ({ manifest_path, file_index, file_name, file_relative_path, scope, packer, format, notes }) => {
+      try {
+        const pd = context.projectDir(manifest_path, true);
+        const abs = resolve(pd, manifest_path);
+        if (!existsSync(abs)) {
+          throw new Error(`Manifest not found at ${abs}`);
+        }
+        const text = readFileSync(abs, "utf8");
+        const manifest = JSON.parse(text) as { files?: Array<Record<string, unknown>>; defaultPacker?: string; defaultFormat?: string };
+        if (scope === "manifest-default") {
+          manifest.defaultPacker = packer;
+          if (format !== undefined) manifest.defaultFormat = format;
+          writeFileSync(abs, `${JSON.stringify(manifest, null, 2)}\n`);
+          return { content: [{ type: "text" as const, text: `Set defaultPacker=${packer}${format ? ` defaultFormat=${format}` : ""} on ${abs}.` }] };
+        }
+        if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
+          throw new Error("Manifest has no files[] array.");
+        }
+        const fileEntry = manifest.files.find((entry) => {
+          if (file_index !== undefined && entry.index === file_index) return true;
+          if (file_name !== undefined && entry.name === file_name) return true;
+          if (file_relative_path !== undefined && entry.relativePath === file_relative_path) return true;
+          return false;
+        });
+        if (!fileEntry) {
+          throw new Error("No matching file entry. Provide file_index, file_name, or file_relative_path that matches the manifest.");
+        }
+        fileEntry.packer = packer;
+        if (format !== undefined) fileEntry.format = format;
+        if (notes && notes.length > 0) {
+          const existing = Array.isArray(fileEntry.notes) ? (fileEntry.notes as string[]) : [];
+          fileEntry.notes = [...existing, ...notes];
+        }
+        writeFileSync(abs, `${JSON.stringify(manifest, null, 2)}\n`);
+        const label = file_relative_path ?? file_name ?? `index ${file_index}`;
+        return { content: [{ type: "text" as const, text: `Recorded packer=${packer}${format ? ` format=${format}` : ""} on ${label} in ${abs}.` }] };
+      } catch (error) {
+        return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
   );
