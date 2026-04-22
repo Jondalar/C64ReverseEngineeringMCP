@@ -686,7 +686,18 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             bytesUsed?: number;
             isLast?: boolean;
           }>;
+          // Optional packer / format hints written back into the
+          // manifest by the LLM after running suggest_depacker /
+          // depack tools. The view-builder surfaces them as-is so the
+          // UI can show a packer tag + offer the depack view.
+          packer?: string;
+          format?: string;
+          notes?: string[];
         }>;
+        // Top-level fallback that applies to every file unless the
+        // file overrides it.
+        defaultPacker?: string;
+        defaultFormat?: string;
       } | undefined;
       const parser = manifest?.sourceImage && existsSync(manifest.sourceImage)
         ? createDiskParser(new Uint8Array(readFileSync(manifest.sourceImage)))
@@ -748,7 +759,9 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             loaderHint: loaderInfo.loaderHint,
             loaderSource: loaderInfo.loaderSource,
             color,
-            notes: [],
+            packer: file.packer ?? manifest?.defaultPacker,
+            format: file.format ?? manifest?.defaultFormat,
+            notes: file.notes ?? [],
           };
         });
       const fileBySector = new Map<string, { id: string; title: string; color?: string }>();

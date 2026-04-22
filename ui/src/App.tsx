@@ -783,7 +783,7 @@ function CartridgePanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectChunk: (cartridgeArtifactId: string, chunk: CartridgeLutChunk) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
 }) {
   function findChipEntity(bank: number, loadAddress: number) {
     return snapshot.entities.find((entity) =>
@@ -864,7 +864,7 @@ function DiskPanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectDiskFile: (diskArtifactId: string, fileId: string) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
 }) {
   const disks = snapshot.views.diskLayout.disks;
   const [activeDiskId, setActiveDiskId] = useState<string | null>(disks[0]?.artifactId ?? null);
@@ -1644,7 +1644,7 @@ function EntityInspector({
   onSelectEntity: (entityId: string) => void;
   onOpenDocument: (path: string) => void;
   onOpenTab: (tab: TabId) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
 }) {
   if (!entity) {
     return (
@@ -2040,7 +2040,7 @@ function DiskFileInspector({
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
   onClose: () => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
   onOpenTab: (tab: TabId) => void;
   onSelectEntity: (entityId: string) => void;
@@ -2278,7 +2278,7 @@ function CartChunkInspector({
   snapshot: WorkspaceUiSnapshot;
   selection: { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
   onClose: () => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
 }) {
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
@@ -2339,11 +2339,22 @@ function CartChunkInspector({
         cursor += buf.length;
       }
       const destAddress = chunk.destAddress ?? (slotBaseAddress + chunk.offsetInBank);
+      // For Lykia BB2 (and any other packer that needs the dest-page hi
+      // byte to seed its bit buffer) the depacker needs destHi as a
+      // hint. We always send it when destAddress is known; the server
+      // ignores it for unrelated packers.
+      const packerContext: Record<string, string | number> = {};
+      if (chunk.destAddress !== undefined) {
+        packerContext.destHi = (chunk.destAddress >> 8) & 0xff;
+        packerContext.destAddress = chunk.destAddress;
+        packerContext.endAddress = (chunk.destAddress + chunk.length) & 0xffff;
+      }
       onOpenHex(manifestArtifact?.relativePath ?? "cartridge", {
         title: `${cartridge?.cartridgeName ?? "cartridge"} · ${chunk.lut}.${String(chunk.index).padStart(2, "0")} assembled (${bytes.length} B${spans.length > 1 ? `, ${spans.length} spans` : ""})`,
         baseAddress: destAddress,
         bytes,
         packerHint: chunk.packer,
+        packerContext: Object.keys(packerContext).length > 0 ? packerContext : undefined,
       });
     } catch (error) {
       onOpenHex("cartridge", {
@@ -2464,7 +2475,7 @@ export function App() {
   const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
-  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string } | null>(null);
+  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> } | null>(null);
   const [asmOverlay, setAsmOverlay] = useState<{ title: string; sources: AsmViewSource[] } | null>(null);
 
   function openAsmOverlay(title: string, sources: AsmViewSource[]) {
@@ -2474,7 +2485,7 @@ export function App() {
   const [selectedCartChunk, setSelectedCartChunk] = useState<{ cartridgeArtifactId: string; chunk: CartridgeLutChunk } | null>(null);
   const [selectedDiskFile, setSelectedDiskFile] = useState<{ diskArtifactId: string; fileId: string } | null>(null);
 
-  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) {
+  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) {
     setHexOverlay({
       path,
       title: options?.title,
@@ -2484,6 +2495,7 @@ export function App() {
       fetchUrl: options?.fetchUrl,
       bytes: options?.bytes,
       packerHint: options?.packerHint,
+      packerContext: options?.packerContext,
     });
   }
 
@@ -2750,6 +2762,7 @@ export function App() {
           fetchUrl={hexOverlay.fetchUrl}
           bytes={hexOverlay.bytes}
           packerHint={hexOverlay.packerHint}
+          packerContext={hexOverlay.packerContext}
           onClose={() => setHexOverlay(null)}
         />
       ) : null}
