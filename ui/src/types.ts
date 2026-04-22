@@ -264,6 +264,26 @@ export interface CartridgeEmptyRegion {
   length: number;
 }
 
+export interface CartridgeSegment {
+  bank: number;
+  slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
+  offsetInBank: number;
+  length: number;
+  kind: string;
+  label?: string;
+  destAddress?: number;
+}
+
+export interface CartridgeStartupInfo {
+  hasCbm80Signature: boolean;
+  startupBank?: number;
+  startupSlot?: "ROML" | "ROMH" | "ULTIMAX_ROMH";
+  coldStartVector?: number;
+  warmStartVector?: number;
+  cbm80Tag?: string;
+  notes?: string[];
+}
+
 export interface CartridgeLutRef {
   lut: string;
   index: number;
@@ -307,6 +327,8 @@ export interface CartridgeLayoutView {
     slotLayout?: CartridgeSlotLayout;
     lutChunks?: CartridgeLutChunk[];
     emptyRegions?: CartridgeEmptyRegion[];
+    segments?: CartridgeSegment[];
+    startup?: CartridgeStartupInfo;
   }>;
 }
 

@@ -1834,6 +1834,80 @@ button {
   cursor: help;
 }
 
+.cart-segment-overlay {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  pointer-events: auto;
+  cursor: help;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.cart-segment-startup {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 198, 92, 0.7) 0px,
+    rgba(255, 198, 92, 0.7) 4px,
+    rgba(255, 198, 92, 0.45) 4px,
+    rgba(255, 198, 92, 0.45) 8px
+  );
+  outline: 1px solid rgba(255, 198, 92, 0.85);
+}
+
+.cart-segment-eapi {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 123, 114, 0.7) 0px,
+    rgba(255, 123, 114, 0.7) 4px,
+    rgba(255, 123, 114, 0.45) 4px,
+    rgba(255, 123, 114, 0.45) 8px
+  );
+  outline: 1px solid rgba(255, 123, 114, 0.85);
+}
+
+.cart-segment-code,
+.cart-segment-data,
+.cart-segment-unknown {
+  background: rgba(160, 180, 210, 0.45);
+  outline: 1px solid rgba(160, 180, 210, 0.7);
+}
+
+.cart-startup-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  background: rgba(22, 27, 34, 0.6);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #c9d1d9;
+}
+
+.cart-startup-row code {
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
+
+.cart-startup-tag {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.cart-startup-tag-ok {
+  background: rgba(126, 231, 135, 0.15);
+  border: 1px solid rgba(126, 231, 135, 0.55);
+  color: #7ee787;
+}
+
+.cart-startup-tag-missing {
+  background: rgba(248, 81, 73, 0.15);
+  border: 1px solid rgba(248, 81, 73, 0.5);
+  color: #ff7b72;
+}
+
 .cart-chunk-segment-continuation {
   background-image: repeating-linear-gradient(
     135deg,
@@ -1943,6 +2017,78 @@ button {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.chunk-inspector-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.asm-overlay {
+  width: min(1100px, 100%);
+}
+
+.asm-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 0.4rem;
+}
+
+.asm-tab {
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #8b949e;
+  font-size: 11px;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.asm-tab:hover {
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
+.asm-tab-active {
+  border-color: #7ee787;
+  color: #7ee787;
+  background: rgba(126, 231, 135, 0.08);
+}
+
+.asm-grid {
+  margin: 0;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #c9d1d9;
+}
+
+.asm-row {
+  display: flex;
+  white-space: pre;
+  gap: 0.6rem;
+}
+
+.asm-lineno {
+  flex: 0 0 auto;
+  color: #6e7681;
+  user-select: none;
+}
+
+.asm-line {
+  flex: 1 1 auto;
+}
+
+.asm-mnemonic { color: #79c0ff; font-weight: 600; }
+.asm-directive { color: #ffa657; }
+.asm-label { color: #d2a8ff; font-weight: 600; }
+.asm-number { color: #ff7b72; }
+.asm-string { color: #a5d6ff; }
+.asm-ident { color: #c9d1d9; }
+.asm-punct { color: #6e7681; }
+.asm-comment { color: #6e7681; font-style: italic; }
 
 .disk-file-row-title {
   display: inline-flex;

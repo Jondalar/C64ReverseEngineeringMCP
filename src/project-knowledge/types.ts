@@ -623,6 +623,29 @@ export const CartridgeEmptyRegionSchema = z.object({
   length: z.number().int().nonnegative(),
 });
 
+export const CartridgeSegmentSchema = z.object({
+  bank: z.number().int().nonnegative(),
+  slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH"]).default("ROML"),
+  offsetInBank: z.number().int().nonnegative(),
+  length: z.number().int().nonnegative(),
+  // Free-form classification: "startup", "cbm80-vector", "eapi", "code",
+  // "data", "padding", "unknown". The view-builder fills the obvious
+  // ones (CBM80 head, EF EAPI window). LLM annotations may refine.
+  kind: z.string().min(1).default("unknown"),
+  label: z.string().optional(),
+  destAddress: z.number().int().min(0).max(0xffff).optional(),
+});
+
+export const CartridgeStartupInfoSchema = z.object({
+  hasCbm80Signature: z.boolean(),
+  startupBank: z.number().int().nonnegative().optional(),
+  startupSlot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH"]).optional(),
+  coldStartVector: z.number().int().min(0).max(0xffff).optional(),
+  warmStartVector: z.number().int().min(0).max(0xffff).optional(),
+  cbm80Tag: z.string().optional(),
+  notes: z.array(z.string()).default([]),
+});
+
 export const CartridgeLayoutCartridgeSchema = z.object({
   artifactId: IdSchema,
   title: z.string().min(1),
@@ -635,6 +658,8 @@ export const CartridgeLayoutCartridgeSchema = z.object({
   slotLayout: CartridgeSlotLayoutSchema.optional(),
   lutChunks: z.array(CartridgeLutChunkSchema).optional(),
   emptyRegions: z.array(CartridgeEmptyRegionSchema).optional(),
+  segments: z.array(CartridgeSegmentSchema).optional(),
+  startup: CartridgeStartupInfoSchema.optional(),
 });
 
 export const CartridgeLayoutViewSchema = z.object({
