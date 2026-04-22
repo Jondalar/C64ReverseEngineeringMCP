@@ -1298,6 +1298,158 @@ function computeEmptyRegions(
   return regions;
 }
 
+interface CartridgeStartupSnapshot {
+  hasCbm80Signature: boolean;
+  startupBank?: number;
+  startupSlot?: "ROML" | "ROMH" | "ULTIMAX_ROMH";
+  coldStartVector?: number;
+  warmStartVector?: number;
+  cbm80Tag?: string;
+  notes: string[];
+}
+
+interface CartridgeSegment {
+  bank: number;
+  slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
+  offsetInBank: number;
+  length: number;
+  kind: string;
+  label?: string;
+  destAddress?: number;
+}
+
+const CBM80_SIGNATURE = [0xc3, 0xc2, 0xcd, 0x38, 0x30]; // "CBM80"
+const SEGMENT_MIN_LENGTH = 32;
+
+function detectCartridgeStartup(
+  chips: Array<{ bank: number; slot?: string; file?: string; loadAddress: number }>,
+  manifestPath: string,
+): CartridgeStartupSnapshot {
+  const result: CartridgeStartupSnapshot = { hasCbm80Signature: false, notes: [] };
+  const manifestDir = manifestPath.includes("/")
+    ? manifestPath.slice(0, manifestPath.lastIndexOf("/"))
+    : "";
+  // Look for the CBM80 signature in any ROML/ROMH chip at offset 4 of
+  // the chip dump (which corresponds to $8004 / $A004 once banked in).
+  for (const chip of chips) {
+    if (!chip.file) continue;
+    const slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" = chip.slot === "ROMH"
+      ? "ROMH"
+      : chip.slot === "ULTIMAX_ROMH"
+        ? "ULTIMAX_ROMH"
+        : "ROML";
+    const chipPath = resolvePath(manifestDir, chip.file);
+    if (!existsSync(chipPath)) continue;
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(chipPath);
+    } catch {
+      continue;
+    }
+    if (bytes.length < 9) continue;
+    let matches = true;
+    for (let i = 0; i < CBM80_SIGNATURE.length; i += 1) {
+      if (bytes[4 + i] !== CBM80_SIGNATURE[i]) { matches = false; break; }
+    }
+    if (!matches) continue;
+    const cold = bytes[0]! | (bytes[1]! << 8);
+    const warm = bytes[2]! | (bytes[3]! << 8);
+    result.hasCbm80Signature = true;
+    result.startupBank = chip.bank;
+    result.startupSlot = slot;
+    result.coldStartVector = cold;
+    result.warmStartVector = warm;
+    result.cbm80Tag = "CBM80";
+    result.notes.push(`CBM80 found in bank ${chip.bank} ${slot} at chip offset $0004.`);
+    result.notes.push(`Cold-start vector → $${cold.toString(16).toUpperCase().padStart(4, "0")}, warm-start → $${warm.toString(16).toUpperCase().padStart(4, "0")}.`);
+    return result;
+  }
+  return result;
+}
+
+function computeCartridgeSegments(
+  canFlash: boolean,
+  chips: Array<{ bank: number; slot?: string; file?: string; loadAddress: number }>,
+  manifestPath: string,
+  lutChunks: ResolvedLutChunk[] | undefined,
+  startup: CartridgeStartupSnapshot,
+  hardwareTypeName: string | undefined,
+): CartridgeSegment[] | undefined {
+  const manifestDir = manifestPath.includes("/")
+    ? manifestPath.slice(0, manifestPath.lastIndexOf("/"))
+    : "";
+  const coverage = buildLutCoverageMap(lutChunks);
+  const segments: CartridgeSegment[] = [];
+  for (const chip of chips) {
+    if (!chip.file) continue;
+    const slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" = chip.slot === "ROMH"
+      ? "ROMH"
+      : chip.slot === "ULTIMAX_ROMH"
+        ? "ULTIMAX_ROMH"
+        : "ROML";
+    const chipPath = resolvePath(manifestDir, chip.file);
+    if (!existsSync(chipPath)) continue;
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(chipPath);
+    } catch {
+      continue;
+    }
+    // Find runs of non-$FF bytes (data); for flash carts we already
+    // know erased space is $FF, for masked ROMs we still want to
+    // surface "covered by data, not by LUT" as segments because that's
+    // the resident code area (CBM80 startup, EAPI, etc.).
+    type DataRun = { offsetInBank: number; length: number };
+    const dataRuns: DataRun[] = [];
+    let runStart = -1;
+    for (let i = 0; i <= bytes.length; i += 1) {
+      const isData = i < bytes.length && (canFlash ? bytes[i] !== 0xff : true);
+      if (isData && runStart < 0) runStart = i;
+      else if (!isData && runStart >= 0) {
+        const length = i - runStart;
+        if (length >= SEGMENT_MIN_LENGTH) dataRuns.push({ offsetInBank: runStart, length });
+        runStart = -1;
+      }
+    }
+    // Subtract LUT-covered ranges; what's left is "resident" data.
+    const segs = subtractCoverage(dataRuns, coverage.get(`${chip.bank}:${slot}`) ?? []);
+    for (const seg of segs) {
+      if (seg.length < SEGMENT_MIN_LENGTH) continue;
+      const slotBaseAddress = slot === "ROMH" ? 0xa000 : (slot === "ULTIMAX_ROMH" ? 0xe000 : 0x8000);
+      const destAddress = (slotBaseAddress + seg.offsetInBank) & 0xffff;
+      let kind = "code";
+      let label: string | undefined;
+      if (chip.bank === startup.startupBank && slot === startup.startupSlot && seg.offsetInBank === 0) {
+        kind = "startup";
+        label = `Startup vectors + entry (CBM80 head)`;
+      }
+      // EasyFlash EAPI window is the last $300 bytes of bank 0 ROMH —
+      // surface it explicitly so the user can spot the API stub.
+      if (
+        hardwareTypeName === "EasyFlash" &&
+        chip.bank === 0 &&
+        slot === "ROMH" &&
+        seg.offsetInBank + seg.length >= 0x1d00
+      ) {
+        kind = "eapi";
+        label = "EasyFlash EAPI";
+      }
+      segments.push({
+        bank: chip.bank,
+        slot,
+        offsetInBank: seg.offsetInBank,
+        length: seg.length,
+        kind,
+        label,
+        destAddress,
+      });
+    }
+  }
+  if (segments.length === 0) return undefined;
+  segments.sort((a, b) => a.bank - b.bank || a.offsetInBank - b.offsetInBank);
+  return segments;
+}
+
 function deriveSlotLayout(
   hardwareType: number | undefined,
   exrom: number | undefined,
@@ -1409,6 +1561,15 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         artifact.path,
         lutChunks,
       );
+      const startup = detectCartridgeStartup(chips, artifact.path);
+      const segments = computeCartridgeSegments(
+        slotLayoutBase.canFlash,
+        chips,
+        artifact.path,
+        lutChunks,
+        startup,
+        slotLayoutBase.hardwareTypeName,
+      );
       return {
         artifactId: artifact.id,
         title: artifact.title,
@@ -1424,6 +1585,8 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         },
         lutChunks,
         emptyRegions,
+        segments,
+        startup,
       };
     })
     .filter((value): value is NonNullable<typeof value> => value !== undefined);

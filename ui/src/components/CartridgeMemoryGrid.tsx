@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgeSlotLayout } from "../types.js";
+import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgeSegment, CartridgeSlotLayout, CartridgeStartupInfo } from "../types.js";
 
 interface ChipClickHandler {
   (chip: CartridgeChipView, role: "ROML" | "ROMH" | "EEPROM"): void;
@@ -19,6 +19,8 @@ interface CartridgeMemoryGridProps {
   slotLayout?: CartridgeSlotLayout;
   lutChunks?: CartridgeLutChunk[];
   emptyRegions?: CartridgeEmptyRegion[];
+  segments?: CartridgeSegment[];
+  startup?: CartridgeStartupInfo;
   onSelectChip?: ChipClickHandler;
   onSelectBank?: BankClickHandler;
   onOpenChipHex?: ChipClickHandler;
@@ -55,6 +57,8 @@ export function CartridgeMemoryGrid({
   slotLayout,
   lutChunks,
   emptyRegions,
+  segments,
+  startup,
   onSelectChip,
   onSelectBank,
   onOpenChipHex,
@@ -98,6 +102,17 @@ export function CartridgeMemoryGrid({
     const bucket = emptyIndex.get(key);
     if (bucket) bucket.push(region);
     else emptyIndex.set(key, [region]);
+  }
+
+  // Resident segments (CBM80 startup, EAPI, anything not addressed via
+  // LUT but also not erased flash). Painted between the empty layer and
+  // the LUT chunks so they show up clearly.
+  const segmentIndex = new Map<string, CartridgeSegment[]>();
+  for (const segment of segments ?? []) {
+    const key = `${segment.bank}:${segment.slot === "ROML" ? "ROML" : "ROMH"}`;
+    const bucket = segmentIndex.get(key);
+    if (bucket) bucket.push(segment);
+    else segmentIndex.set(key, [segment]);
   }
 
   // Each chunk carries one or more `spans` describing per-bank physical
@@ -155,6 +170,32 @@ export function CartridgeMemoryGrid({
             <div
               key={`${region.offsetInBank}-${idx}`}
               className="cart-empty-segment"
+              style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
+              title={tooltip}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderResidentSegments(role: "ROML" | "ROMH", bank: number) {
+    const key = `${bank}:${role}`;
+    const list = segmentIndex.get(key);
+    if (!list || list.length === 0) return null;
+    return (
+      <div className="cart-empty-overlay">
+        {list.map((segment, idx) => {
+          const leftPercent = Math.max(0, Math.min(100, (segment.offsetInBank / bankSize) * 100));
+          const widthPercent = Math.max(0.5, Math.min(100 - leftPercent, (segment.length / bankSize) * 100));
+          const klass = `cart-segment-overlay cart-segment-${segment.kind}`;
+          const labelFragment = segment.label ? `${segment.label} · ` : "";
+          const destFragment = segment.destAddress !== undefined ? ` → $${segment.destAddress.toString(16).toUpperCase().padStart(4, "0")}` : "";
+          const tooltip = `${labelFragment}bank ${segment.bank} ${segment.slot} off $${segment.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${segment.length} B, ${segment.kind})${destFragment}`;
+          return (
+            <div
+              key={`${segment.kind}-${segment.offsetInBank}-${idx}`}
+              className={klass}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
               title={tooltip}
             />
@@ -228,6 +269,7 @@ export function CartridgeMemoryGrid({
         onClick={() => onSelectChip?.(chip, role)}
       >
         {renderEmptySegments(role, bank)}
+        {renderResidentSegments(role, bank)}
         {renderChunkSegments(role, bank)}
         <span className="cart-slot-bar-label">{role}</span>
       </button>
@@ -260,6 +302,24 @@ export function CartridgeMemoryGrid({
           </div>
         </dl>
       </header>
+      {startup ? (
+        <div className="cart-startup-row">
+          <span className={startup.hasCbm80Signature ? "cart-startup-tag cart-startup-tag-ok" : "cart-startup-tag cart-startup-tag-missing"}>
+            {startup.hasCbm80Signature ? `${startup.cbm80Tag ?? "CBM80"} ✓` : "no CBM80 head"}
+          </span>
+          {startup.hasCbm80Signature && startup.startupBank !== undefined ? (
+            <span>
+              startup bank {String(startup.startupBank).padStart(2, "0")} {startup.startupSlot ?? "ROML"}
+            </span>
+          ) : null}
+          {startup.coldStartVector !== undefined ? (
+            <span>cold $<code>{startup.coldStartVector.toString(16).toUpperCase().padStart(4, "0")}</code></span>
+          ) : null}
+          {startup.warmStartVector !== undefined ? (
+            <span>warm $<code>{startup.warmStartVector.toString(16).toUpperCase().padStart(4, "0")}</code></span>
+          ) : null}
+        </div>
+      ) : null}
       {lutPills.length > 0 ? (
         <div className="cart-lut-filter">
           <span className="cart-lut-filter-title">LUT</span>

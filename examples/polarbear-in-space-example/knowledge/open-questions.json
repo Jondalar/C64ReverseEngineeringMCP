@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-21T21:04:31.901Z",
+  "updatedAt": "2026-04-22T05:30:55.926Z",
   "items": [
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d",
@@ -20,7 +20,7 @@
             "start": 2061,
             "end": 2288
           },
-          "capturedAt": "2026-04-21T21:04:31.893Z"
+          "capturedAt": "2026-04-22T05:30:55.917Z"
         }
       ],
       "entityIds": [
@@ -32,8 +32,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d"
       ],
-      "createdAt": "2026-04-21T21:04:31.900Z",
-      "updatedAt": "2026-04-21T21:04:31.900Z"
+      "createdAt": "2026-04-22T05:30:55.925Z",
+      "updatedAt": "2026-04-22T05:30:55.925Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000",
@@ -53,7 +53,7 @@
             "start": 8192,
             "end": 8447
           },
-          "capturedAt": "2026-04-21T21:04:31.893Z"
+          "capturedAt": "2026-04-22T05:30:55.917Z"
         }
       ],
       "entityIds": [
@@ -65,8 +65,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000"
       ],
-      "createdAt": "2026-04-21T21:04:31.901Z",
-      "updatedAt": "2026-04-21T21:04:31.901Z"
+      "createdAt": "2026-04-22T05:30:55.925Z",
+      "updatedAt": "2026-04-22T05:30:55.925Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000",
@@ -86,7 +86,7 @@
             "start": 16384,
             "end": 17407
           },
-          "capturedAt": "2026-04-21T21:04:31.893Z"
+          "capturedAt": "2026-04-22T05:30:55.917Z"
         }
       ],
       "entityIds": [
@@ -98,8 +98,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000"
       ],
-      "createdAt": "2026-04-21T21:04:31.901Z",
-      "updatedAt": "2026-04-21T21:04:31.901Z"
+      "createdAt": "2026-04-22T05:30:55.926Z",
+      "updatedAt": "2026-04-22T05:30:55.926Z"
     },
     {
       "id": "question-when-does-disk-level-loading-begin-mo41xbqc",

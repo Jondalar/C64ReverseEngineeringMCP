@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-21T21:04:31.906Z",
+  "updatedAt": "2026-04-22T05:30:55.931Z",
   "items": [
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
@@ -21,14 +21,14 @@
             "start": 2061,
             "end": 2061
           },
-          "capturedAt": "2026-04-21T21:04:31.893Z"
+          "capturedAt": "2026-04-22T05:30:55.917Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-21T21:04:31.900Z",
-      "updatedAt": "2026-04-21T21:04:31.900Z"
+      "createdAt": "2026-04-22T05:30:55.924Z",
+      "updatedAt": "2026-04-22T05:30:55.924Z"
     },
     {
       "id": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
@@ -44,14 +44,14 @@
           "kind": "artifact",
           "title": "CRT bank 0 contains chip_bank_0_8000",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T21:04:31.902Z"
+          "capturedAt": "2026-04-22T05:30:55.927Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-crt-manifest-mo41xbpx"
       ],
-      "createdAt": "2026-04-21T21:04:31.906Z",
-      "updatedAt": "2026-04-21T21:04:31.906Z"
+      "createdAt": "2026-04-22T05:30:55.931Z",
+      "updatedAt": "2026-04-22T05:30:55.931Z"
     },
     {
       "id": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-01-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1",
@@ -67,14 +67,14 @@
           "kind": "artifact",
           "title": "CRT bank 1 contains chip_bank_1_A000",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T21:04:31.902Z"
+          "capturedAt": "2026-04-22T05:30:55.927Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-crt-manifest-mo41xbpx"
       ],
-      "createdAt": "2026-04-21T21:04:31.906Z",
-      "updatedAt": "2026-04-21T21:04:31.906Z"
+      "createdAt": "2026-04-22T05:30:55.931Z",
+      "updatedAt": "2026-04-22T05:30:55.931Z"
     },
     {
       "id": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-02-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
@@ -90,14 +90,14 @@
           "kind": "artifact",
           "title": "CRT bank 2 contains chip_bank_2_8000",
           "artifactId": "artifact-polarbear-crt-manifest-mo41xbpx",
-          "capturedAt": "2026-04-21T21:04:31.902Z"
+          "capturedAt": "2026-04-22T05:30:55.927Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-crt-manifest-mo41xbpx"
       ],
-      "createdAt": "2026-04-21T21:04:31.906Z",
-      "updatedAt": "2026-04-21T21:04:31.906Z"
+      "createdAt": "2026-04-22T05:30:55.931Z",
+      "updatedAt": "2026-04-22T05:30:55.931Z"
     },
     {
       "id": "relation-intro-boot-maps-cartridge-intro-bank-mo41xbqa",

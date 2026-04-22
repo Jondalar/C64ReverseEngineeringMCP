@@ -1,5 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { HexView } from "./components/HexView.js";
+import { AsmView, type AsmViewSource } from "./components/AsmView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
 import { MarkMode } from "./components/MarkMode.js";
 import type { CartridgeLutChunk } from "./types.js";
@@ -821,6 +822,8 @@ function CartridgePanel({
               slotLayout={cartridge.slotLayout}
               lutChunks={cartridge.lutChunks}
               emptyRegions={cartridge.emptyRegions}
+              segments={cartridge.segments}
+              startup={cartridge.startup}
               onSelectChip={(chip) => {
                 const entity = findChipEntity(chip.bank, chip.loadAddress);
                 if (entity) onSelectEntity(entity.id);
@@ -2030,11 +2033,17 @@ function DiskFileInspector({
   selection,
   onClose,
   onOpenHex,
+  onOpenAsm,
+  onOpenTab,
+  onSelectEntity,
 }: {
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
   onClose: () => void;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string }) => void;
+  onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
+  onOpenTab: (tab: TabId) => void;
+  onSelectEntity: (entityId: string) => void;
 }) {
   const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
   const file = disk?.files.find((candidate) => candidate.id === selection.fileId);
@@ -2123,6 +2132,35 @@ function DiskFileInspector({
   const totalSectors = file.sectorChain.length;
   const totalBytes = file.sectorChain.reduce((sum, cell) => sum + (cell.bytesUsed || 254), 0);
 
+  // Cross-reference discovery — only meaningful for actual files, not
+  // memory regions, so we keep this scoped to DiskFileInspector.
+  const fileStem = (file.relativePath ?? file.title ?? "").split("/").pop()?.replace(/\.[^.]+$/, "")?.toLowerCase();
+  const asmSources: AsmViewSource[] = fileStem
+    ? snapshot.artifacts
+        .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath))
+        .filter((artifact) => artifact.relativePath.toLowerCase().includes(fileStem))
+        .map((artifact) => {
+          const lower = artifact.relativePath.toLowerCase();
+          const dialect: AsmViewSource["dialect"] = lower.endsWith(".tass")
+            ? "64tass"
+            : lower.endsWith(".asm")
+              ? "kickass"
+              : "plain";
+          return {
+            id: artifact.id,
+            label: dialect === "kickass" ? "KickAss" : dialect === "64tass" ? "64tass" : artifact.relativePath,
+            path: artifact.relativePath,
+            dialect,
+          };
+        })
+    : [];
+
+  const linkedLoadItems = snapshot.views.loadSequence.items.filter((item) => {
+    if (file.entityId && item.entityIds.includes(file.entityId)) return true;
+    if (item.artifactIds.includes(disk.artifactId)) return true;
+    return false;
+  });
+
   return (
     <section className="panel-card inspector-card">
       <div className="section-heading">
@@ -2163,14 +2201,40 @@ function DiskFileInspector({
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="mon-icon-button chunk-inspector-mon"
-          disabled={!diskPath || !isD64 || file.sectorChain.length === 0}
-          onClick={openWholeFileMon}
-        >
-          mon (assembled file — {totalSectors} sectors, {totalBytes} B)
-        </button>
+        <div className="chunk-inspector-action-row">
+          <button
+            type="button"
+            className="mon-icon-button chunk-inspector-mon"
+            disabled={!diskPath || !isD64 || file.sectorChain.length === 0}
+            onClick={openWholeFileMon}
+          >
+            mon ({totalSectors} sectors, {totalBytes} B)
+          </button>
+          {asmSources.length > 0 ? (
+            <button
+              type="button"
+              className="mon-icon-button"
+              title={`Open assembled disassembly (${asmSources.map((source) => source.label).join(" / ")})`}
+              onClick={() => onOpenAsm(`${file.title}`, asmSources)}
+            >
+              .asm{asmSources.length > 1 ? "/.tass" : ""}
+            </button>
+          ) : null}
+          {linkedLoadItems.length > 0 ? (
+            <button
+              type="button"
+              className="mon-icon-button"
+              title={`Open in Load Sequence (${linkedLoadItems.map((item) => item.title).join(", ")})`}
+              onClick={() => {
+                const target = linkedLoadItems[0]!;
+                if (target.primaryEntityId) onSelectEntity(target.primaryEntityId);
+                onOpenTab("load");
+              }}
+            >
+              → load seq
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="inspector-block">
         <h4>Sector chain ({totalSectors})</h4>
@@ -2401,6 +2465,12 @@ export function App() {
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string } | null>(null);
+  const [asmOverlay, setAsmOverlay] = useState<{ title: string; sources: AsmViewSource[] } | null>(null);
+
+  function openAsmOverlay(title: string, sources: AsmViewSource[]) {
+    if (sources.length === 0) return;
+    setAsmOverlay({ title, sources });
+  }
   const [selectedCartChunk, setSelectedCartChunk] = useState<{ cartridgeArtifactId: string; chunk: CartridgeLutChunk } | null>(null);
   const [selectedDiskFile, setSelectedDiskFile] = useState<{ diskArtifactId: string; fileId: string } | null>(null);
 
@@ -2648,6 +2718,9 @@ export function App() {
                   selection={selectedDiskFile}
                   onClose={() => setSelectedDiskFile(null)}
                   onOpenHex={openHexOverlay}
+                  onOpenAsm={openAsmOverlay}
+                  onOpenTab={setActiveTab}
+                  onSelectEntity={(entityId) => handleSelectEntity(entityId)}
                 />
               ) : (
                 <EntityInspector
@@ -2678,6 +2751,14 @@ export function App() {
           bytes={hexOverlay.bytes}
           packerHint={hexOverlay.packerHint}
           onClose={() => setHexOverlay(null)}
+        />
+      ) : null}
+      {asmOverlay ? (
+        <AsmView
+          title={asmOverlay.title}
+          projectDir={snapshot?.project.rootPath}
+          sources={asmOverlay.sources}
+          onClose={() => setAsmOverlay(null)}
         />
       ) : null}
       {snapshot ? (
