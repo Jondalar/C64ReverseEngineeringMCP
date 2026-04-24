@@ -1,100 +1,29 @@
 #!/usr/bin/env node
 /**
- * Full corpus smoke test for the native ByteBoozer2 cruncher.
+ * Full corpus smoke test for the native ByteBoozer2 cruncher and the
+ * Lykia cart encoder.
  *
  * Goals (all must pass):
  *
  *   1. Byte-exact parity with `b2` (no flags)     for every input.
  *   2. Byte-exact parity with `b2 -b`             for every input.
  *   3. Round-trip through TS ByteBoozerDepacker   for every input.
- *   4. Lykia wrapper decodes via the Python Lykia decompressor equivalent
- *      (implemented inline here — mirrors lykia-bank01-loader-0200-03ff).
+ *   4. Lykia encoder output decodes via the TS Lykia decompressor.
  */
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const repoRoot = new URL("..", import.meta.url).pathname;
 const cruncher = await import(`${repoRoot}dist/byteboozer-cruncher.js`);
+const lykiaEncoder = await import(`${repoRoot}dist/byteboozer-lykia-encoder.js`);
+const lykiaDecoder = await import(`${repoRoot}dist/byteboozer-lykia-decoder.js`);
 const ct = await import(`${repoRoot}dist/compression-tools.js`);
 
 const B2_CLI = "/Users/alex/Development/C64/Tools/ByteBoozer2/b2/b2";
 const TMP = join(tmpdir(), "bb2-test-" + Date.now());
 mkdirSync(TMP, { recursive: true });
-
-// ---- Lykia-format decoder (reference) — mirrors loader $020C seeding + termination
-function lykiaDecode(stream) {
-  const out = [];
-  const outAddr = stream[0] | (stream[1] << 8);
-  const endAddr = stream[2] | (stream[3] << 8);
-  const body = stream.slice(4);
-
-  let pos = 0;
-  let bits = 0x80;
-  let putPtr = outAddr;
-
-  function nb() {
-    const c = (bits & 0x80) !== 0 ? 1 : 0;
-    bits = (bits << 1) & 0xff;
-    if (bits !== 0) return c;
-    const v = body[pos++];
-    bits = ((v << 1) & 0xff) | 0x01;
-    return (v >> 7) & 1;
-  }
-  function rb() { return body[pos++]; }
-  function rLen() {
-    let v = 1;
-    for (;;) {
-      if (nb() === 0) return v;
-      v = ((v << 1) | nb()) & 0xff;
-      if ((v & 0x80) !== 0) return v;
-    }
-  }
-  function rOffset(matchLen) {
-    const s1 = nb(), s2 = nb();
-    const sel = ((matchLen >= 2 ? 1 : 0) << 2) | (s1 << 1) | s2;
-    const table = matchLen === 1 ? [3,6,8,10] : [4,7,10,13];
-    const n = table[sel - (matchLen === 1 ? 0 : 4)];
-    let off;
-    if (n < 8) {
-      let enc = 0;
-      for (let i = 0; i < n; i++) enc = (enc << 1) | nb();
-      off = (~enc) & ((1 << n) - 1);
-    } else {
-      let high = 0;
-      for (let i = 0; i < n - 8; i++) high = (high << 1) | nb();
-      const low = rb() ^ 0xff;
-      off = (high << 8) | low;
-    }
-    return off + 1;
-  }
-  function copyMatch(storedLength) {
-    const off = rOffset(storedLength);
-    const mlen = storedLength + 1;
-    const srcIdx = out.length - off;
-    if (srcIdx < 0) throw new Error("underflow");
-    for (let i = 0; i < mlen; i++) out.push(out[srcIdx + i]);
-    putPtr = (putPtr + mlen) & 0xffff;
-  }
-
-  while (putPtr !== endAddr) {
-    if (nb() === 0) {
-      const lit = rLen();
-      for (let i = 0; i < lit; i++) out.push(rb());
-      putPtr = (putPtr + lit) & 0xffff;
-      if (lit === 0xff) continue;
-      // Implicit match
-      if (putPtr === endAddr) break;
-      const m = rLen();
-      copyMatch(m);
-    } else {
-      const m = rLen();
-      copyMatch(m);
-    }
-  }
-  return new Uint8Array(out);
-}
 
 function makePrg(loadAddress, payload) {
   const buf = Buffer.alloc(2 + payload.length);
@@ -148,15 +77,17 @@ for (const refPath of [
 
 // All extracted Lykia PRGs
 const LYKIA_DIR = "/Users/alex/Development/C64/Cracking/Lykia/Extracted Files";
-for (const f of readdirSync(LYKIA_DIR).sort()) {
-  if (!/\.prg$/i.test(f)) continue;
-  const data = readFileSync(`${LYKIA_DIR}/${f}`);
-  if (data.length < 2) continue;
-  CORPUS.push({
-    name: f,
-    load: data[0] | (data[1] << 8),
-    payload: new Uint8Array(data.buffer, data.byteOffset + 2, data.length - 2),
-  });
+if (existsSync(LYKIA_DIR)) {
+  for (const f of readdirSync(LYKIA_DIR).sort()) {
+    if (!/\.prg$/i.test(f)) continue;
+    const data = readFileSync(`${LYKIA_DIR}/${f}`);
+    if (data.length < 2) continue;
+    CORPUS.push({
+      name: f,
+      load: data[0] | (data[1] << 8),
+      payload: new Uint8Array(data.buffer, data.byteOffset + 2, data.length - 2),
+    });
+  }
 }
 
 // ---- Run tests ----
@@ -201,12 +132,12 @@ for (const tc of CORPUS) {
     }
   } catch (e) { failRt++; failures.push(`${tc.name}: RT ERROR ${e.message.split("\n")[0]}`); }
 
-  // ---- Test: Lykia wrapper round-trip ----
+  // ---- Test: Lykia cart encoder round-trip ----
   try {
-    const { output: lykia } = cruncher.packLykia(tc.payload, tc.load);
+    const { stream: lykia } = lykiaEncoder.lykiaEncode(tc.payload, tc.load);
     if (tc.payload.length === 0) { passLykia++; }
     else {
-      const decoded = lykiaDecode(lykia);
+      const decoded = lykiaDecoder.lykiaDecompress(lykia, tc.load >> 8).data;
       if (cmpBuf(decoded, tc.payload)) passLykia++;
       else { failLykia++; failures.push(`${tc.name}: Lykia RT mismatch ${decoded.length}/${tc.payload.length}`); }
     }
@@ -217,7 +148,7 @@ console.log(`\n--- Corpus: ${CORPUS.length} files ---`);
 console.log(`b2  byte-exact:     ${passB2}/${passB2 + failB2}`);
 console.log(`b2 -b byte-exact:   ${passB2b}/${passB2b + failB2b}`);
 console.log(`TS depacker RT:     ${passRt}/${passRt + failRt}`);
-console.log(`Lykia wrapper RT:   ${passLykia}/${passLykia + failLykia}`);
+console.log(`Lykia encoder RT:   ${passLykia}/${passLykia + failLykia}`);
 if (failures.length > 0) {
   console.log(`\nFailures:`);
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);
