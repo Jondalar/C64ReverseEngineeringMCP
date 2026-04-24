@@ -1,7 +1,8 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { importAnalysisKnowledge } from "./analysis-import.js";
 import { importManifestKnowledge } from "./manifest-import.js";
-import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
+import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
 import type {
   AnnotatedListingView,
@@ -16,6 +17,11 @@ import type {
   OpenQuestionRecord,
   ProjectCheckpoint,
   ProjectMetadata,
+  PreferredAssembler,
+  WorkflowPhase,
+  WorkflowPlan,
+  WorkflowPhaseState,
+  WorkflowState,
   QuestionStatus,
   RelationKind,
   RelationRecord,
@@ -45,6 +51,224 @@ function uniqueStrings(values: string[] | undefined): string[] {
   return [...new Set((values ?? []).filter(Boolean))].sort();
 }
 
+function defaultWorkflowPhases(): WorkflowPhase[] {
+  return [
+    {
+      id: "workspace-init",
+      title: "Workspace Init",
+      domain: "knowledge",
+      description: "Create the project workspace, workflow contract, and baseline knowledge files so later steps write into a durable structure.",
+      goals: [
+        "Ensure the project folder structure exists.",
+        "Create project metadata and the phase/workflow contract.",
+        "Persist project-wide tooling preferences such as the preferred assembler dialect.",
+        "Make the next valid phases explicit for a fresh LLM session.",
+      ],
+      prerequisitePhaseIds: [],
+      requiredArtifactRoles: [],
+      recommendedToolGroups: ["knowledge", "artifacts"],
+      outputExpectations: [],
+      guidance: [
+        "Run project_init before any project-centric reverse-engineering step.",
+        "Treat the phase-plan and workflow-state files as the contract for follow-on work.",
+      ],
+    },
+    {
+      id: "input-registration",
+      title: "Input Registration",
+      domain: "media",
+      description: "Register source media and raw targets so all later steps refer to tracked artifacts instead of ad-hoc paths.",
+      goals: [
+        "Persist source inputs as artifacts.",
+        "Record whether the project starts from PRG, disk, cartridge, or raw data.",
+      ],
+      prerequisitePhaseIds: ["workspace-init"],
+      requiredArtifactRoles: [],
+      recommendedToolGroups: ["artifacts", "media"],
+      outputExpectations: [
+        { id: "input-analysis-target", title: "Analysis target", description: "A PRG or raw binary prepared for deterministic analysis.", role: "analysis-target", optional: true },
+        { id: "input-disk-image", title: "Disk image", description: "Tracked disk image artifact.", role: "disk-image", optional: true },
+        { id: "input-cartridge-image", title: "Cartridge image", description: "Tracked cartridge image artifact.", role: "cartridge-image", optional: true },
+      ],
+      guidance: [
+        "Every follow-on step should consume tracked artifacts, not only filesystem paths.",
+      ],
+    },
+    {
+      id: "deterministic-extraction",
+      title: "Deterministic Extraction",
+      domain: "analysis",
+      description: "Run deterministic analyzers and extractors that generate reproducible manifests, disassemblies, and reports.",
+      goals: [
+        "Produce machine-generated manifests and analysis JSON.",
+        "Generate baseline source, RAM, and pointer reports.",
+        "Prefer the project-selected assembler dialect when multiple deterministic source outputs are possible.",
+      ],
+      prerequisitePhaseIds: ["input-registration"],
+      requiredArtifactRoles: [],
+      recommendedToolGroups: ["media", "analysis", "assembly"],
+      outputExpectations: [
+        { id: "out-analysis-json", title: "Analysis JSON", role: "analysis-json", optional: true },
+        { id: "out-disk-manifest", title: "Disk manifest", role: "disk-manifest", optional: true },
+        { id: "out-crt-manifest", title: "CRT manifest", role: "crt-manifest", optional: true },
+        { id: "out-kickassembler-source", title: "KickAssembler source", role: "kickassembler-source", optional: true },
+        { id: "out-64tass-source", title: "64tass source", role: "64tass-source", optional: true },
+        { id: "out-ram-report", title: "RAM report", role: "ram-report", optional: true },
+        { id: "out-pointer-report", title: "Pointer report", role: "pointer-report", optional: true },
+      ],
+      guidance: [
+        "This phase should not require semantic interpretation.",
+        "Manifests and analysis JSON become the stable contract for later enrichment.",
+        "Use the project's preferred assembler to decide which source form to generate or present first when both KickAss and 64tass are available.",
+      ],
+    },
+    {
+      id: "structural-enrichment",
+      title: "Structural Enrichment",
+      domain: "knowledge",
+      description: "Lift deterministic outputs into entities, relations, medium placement, and reusable structural flows.",
+      goals: [
+        "Persist entities and relations with addresses and medium spans.",
+        "Model resident regions, file/chunk placement, and structural flows.",
+        "Establish initial relationships between files, payloads, banks, and resident regions.",
+      ],
+      prerequisitePhaseIds: ["deterministic-extraction"],
+      requiredArtifactRoles: ["analysis-json"],
+      recommendedToolGroups: ["knowledge", "media"],
+      outputExpectations: [],
+      guidance: [
+        "Prefer explicit medium placement metadata over UI-side inference.",
+        "Use mediumSpans and mediumRole to pin knowledge back to disk/cartridge structure.",
+        "Persist payload/file/bank relationships in metadata so later phases can explain how pieces fit together.",
+      ],
+    },
+    {
+      id: "semantic-enrichment",
+      title: "Semantic Enrichment",
+      domain: "knowledge",
+      description: "Capture findings, hypotheses, confirmations, tasks, and open questions that explain meaning rather than only structure.",
+      goals: [
+        "Store semantic findings in structured form.",
+        "Track open questions and follow-up work as first-class records.",
+        "Explain what routines, handlers, tables, and payloads do and why they exist.",
+      ],
+      prerequisitePhaseIds: ["structural-enrichment"],
+      requiredArtifactRoles: [],
+      recommendedToolGroups: ["knowledge", "prompts"],
+      outputExpectations: [
+        { id: "semantic-annotations", title: "Semantic annotations", role: "semantic-annotations", optional: true },
+      ],
+      guidance: [
+        "Do not hide hypotheses in markdown only; persist them as findings and open questions.",
+        "This is the main explanation step: turn structure into intent, responsibility, and scenario-level understanding.",
+      ],
+    },
+    {
+      id: "semantic-feedback-refinement",
+      title: "Semantic Feedback Refinement",
+      domain: "knowledge",
+      description: "Use the first semantic pass to improve heuristic structure, reslice ambiguous regions, and strengthen payload relationships across files, banks, and runtime stages.",
+      goals: [
+        "Upgrade generic detections such as lo/hi tables into meaningful semantic tables.",
+        "Split, merge, or reinterpret segments when semantic evidence shows the first cut was too coarse.",
+        "Trigger targeted static re-analysis/disassembly for specific ranges when clarification is needed.",
+        "Persist stronger relationships between files, payloads, loader stages, banks, and resident code/data.",
+      ],
+      prerequisitePhaseIds: ["semantic-enrichment"],
+      requiredArtifactRoles: [],
+      recommendedToolGroups: ["analysis", "knowledge", "media"],
+      outputExpectations: [
+        { id: "refined-analysis-json", title: "Refined analysis JSON", role: "refined-analysis-json", optional: true },
+        { id: "payload-link-map", title: "Payload relationship map", role: "payload-link-map", optional: true },
+      ],
+      guidance: [
+        "Do not treat the first heuristic segmentation as final.",
+        "Use semantic evidence to rename tables, refine segments, and request targeted static passes where useful.",
+        "Persist payload/file relationships via metadata and relations so the UI does not need project-specific heuristics.",
+      ],
+    },
+    {
+      id: "runtime-capture",
+      title: "Runtime Capture",
+      domain: "runtime",
+      description: "Collect raw runtime sessions, monitor traces, hotspots, and snapshots from VICE or headless runs.",
+      goals: [
+        "Persist runtime trace artifacts.",
+        "Capture reproducible execution sessions for later aggregation.",
+      ],
+      prerequisitePhaseIds: ["semantic-feedback-refinement"],
+      requiredArtifactRoles: [],
+      recommendedToolGroups: ["vice", "headless"],
+      outputExpectations: [
+        { id: "runtime-summary", title: "Runtime trace summary", role: "runtime-trace-summary", optional: true },
+        { id: "runtime-analysis", title: "Runtime trace analysis", role: "runtime-trace-analysis", optional: true },
+        { id: "runtime-index", title: "Runtime trace index", role: "runtime-trace-index", optional: true },
+      ],
+      guidance: [
+        "Treat raw runtime traces as source artifacts, not as direct UI inputs.",
+      ],
+    },
+    {
+      id: "runtime-aggregation",
+      title: "Runtime Aggregation",
+      domain: "runtime",
+      description: "Summarize raw runtime sessions into compact artifacts such as phases, scenarios, memory activity, and other reusable runtime facts.",
+      goals: [
+        "Aggregate multi-gigabyte traces into compact structured summaries.",
+        "Produce artifacts that the UI and later LLM sessions can consume cheaply.",
+      ],
+      prerequisitePhaseIds: ["runtime-capture"],
+      requiredArtifactRoles: ["runtime-trace-summary"],
+      recommendedToolGroups: ["vice", "knowledge"],
+      outputExpectations: [
+        { id: "runtime-summary-compact", title: "Runtime summary", role: "runtime-summary", optional: true },
+        { id: "runtime-phases", title: "Runtime phases", role: "runtime-phases", optional: true },
+        { id: "runtime-scenarios", title: "Runtime scenarios", role: "runtime-scenarios", optional: true },
+        { id: "memory-activity", title: "Memory activity", role: "memory-activity", optional: true },
+      ],
+      guidance: [
+        "Do not parse huge runtime traces on every UI snapshot build.",
+        "Runtime views should depend on aggregated artifacts, not only on raw trace JSONL.",
+      ],
+    },
+    {
+      id: "view-build",
+      title: "View Build",
+      domain: "views",
+      description: "Render stable JSON view-models from persisted knowledge and aggregated runtime artifacts.",
+      goals: [
+        "Generate reusable JSON views for the UI.",
+        "Keep the frontend as a renderer over stable backend facts.",
+      ],
+      prerequisitePhaseIds: ["structural-enrichment"],
+      requiredArtifactRoles: [],
+      recommendedToolGroups: ["knowledge"],
+      outputExpectations: [
+        { id: "view-memory-map", title: "Memory map view", kind: "view-model", optional: true },
+        { id: "view-disk-layout", title: "Disk layout view", kind: "view-model", optional: true },
+        { id: "view-cartridge-layout", title: "Cartridge layout view", kind: "view-model", optional: true },
+        { id: "view-flow-graph", title: "Flow graph view", kind: "view-model", optional: true },
+      ],
+      guidance: [
+        "The UI should consume these views and infer as little as possible itself.",
+      ],
+    },
+  ];
+}
+
+function defaultWorkflowPlan(input?: InitializeWorkflowContractInput): WorkflowPlan {
+  return {
+    schemaVersion: 1,
+    updatedAt: nowIso(),
+    version: "v1",
+    title: "C64 Reverse-Engineering Project Workflow",
+    summary: "Phase-based contract for deterministic extraction, knowledge enrichment, runtime aggregation, and view building.",
+    canonicalDocPaths: uniqueStrings(input?.canonicalDocPaths),
+    canonicalPromptIds: uniqueStrings(input?.canonicalPromptIds),
+    phases: defaultWorkflowPhases(),
+  };
+}
+
 function upsertRecord<T extends { id: string; updatedAt: string }>(items: T[], nextItem: T): T[] {
   const remaining = items.filter((item) => item.id !== nextItem.id);
   return [...remaining, nextItem].sort((left, right) => left.id.localeCompare(right.id));
@@ -54,6 +278,13 @@ export interface InitProjectInput {
   name: string;
   description?: string;
   tags?: string[];
+  preferredAssembler?: PreferredAssembler;
+}
+
+export interface InitializeWorkflowContractInput {
+  canonicalDocPaths?: string[];
+  canonicalPromptIds?: string[];
+  overwrite?: boolean;
 }
 
 export interface SaveArtifactInput {
@@ -86,6 +317,8 @@ export interface SaveEntityInput {
   artifactIds?: string[];
   relatedEntityIds?: string[];
   addressRange?: { start: number; end: number; bank?: number; label?: string };
+  mediumSpans?: EntityRecord["mediumSpans"];
+  mediumRole?: EntityRecord["mediumRole"];
   tags?: string[];
 }
 
@@ -215,6 +448,8 @@ export interface ProjectStatusSummary {
     openQuestions: number;
     checkpoints: number;
   };
+  workflowPlan: WorkflowPlan;
+  workflowState: WorkflowState;
   paths: ReturnType<ProjectKnowledgeStorage["ensureProjectStructure"]>;
   recentTimeline: TimelineEvent[];
 }
@@ -270,6 +505,7 @@ export class ProjectKnowledgeService {
       description: input.description ?? existing?.description,
       rootPath: this.storage.paths.root,
       status: existing?.status ?? "active",
+      preferredAssembler: input.preferredAssembler ?? existing?.preferredAssembler,
       tags: uniqueStrings(input.tags ?? existing?.tags),
       createdAt,
       updatedAt,
@@ -282,13 +518,44 @@ export class ProjectKnowledgeService {
       payload: {
         projectId: project.id,
         projectName: project.name,
+        ...(project.preferredAssembler ? { preferredAssembler: project.preferredAssembler } : {}),
       },
     });
+    this.initializeWorkflowContract();
     return project;
+  }
+
+  initializeWorkflowContract(input?: InitializeWorkflowContractInput): { plan: WorkflowPlan; state: WorkflowState } {
+    const existingPlan = this.storage.loadWorkflowPlan();
+    const shouldOverwrite = input?.overwrite === true || existingPlan.phases.length === 0;
+    const plan = shouldOverwrite
+      ? this.storage.saveWorkflowPlan(defaultWorkflowPlan(input))
+      : this.storage.saveWorkflowPlan({
+          ...existingPlan,
+          updatedAt: nowIso(),
+          canonicalDocPaths: uniqueStrings([
+            ...existingPlan.canonicalDocPaths,
+            ...(input?.canonicalDocPaths ?? []),
+          ]),
+          canonicalPromptIds: uniqueStrings([
+            ...existingPlan.canonicalPromptIds,
+            ...(input?.canonicalPromptIds ?? []),
+          ]),
+        });
+    const state = this.syncWorkflowState(plan);
+    return { plan, state };
+  }
+
+  getWorkflowContract(): { plan: WorkflowPlan; state: WorkflowState } {
+    const plan = this.storage.loadWorkflowPlan();
+    const state = this.syncWorkflowState(plan);
+    return { plan, state };
   }
 
   getProjectStatus(): ProjectStatusSummary {
     const project = this.requireProject();
+    const workflowPlan = this.storage.loadWorkflowPlan();
+    const workflowState = this.syncWorkflowState(workflowPlan);
     return {
       project,
       counts: {
@@ -301,6 +568,8 @@ export class ProjectKnowledgeService {
         openQuestions: this.storage.loadOpenQuestions().items.length,
         checkpoints: this.storage.listCheckpoints().length,
       },
+      workflowPlan,
+      workflowState,
       paths: this.storage.paths,
       recentTimeline: this.storage.readTimeline(10).sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
     };
@@ -371,6 +640,8 @@ export class ProjectKnowledgeService {
       artifactIds: uniqueStrings(input.artifactIds ?? existing?.artifactIds),
       relatedEntityIds: uniqueStrings(input.relatedEntityIds ?? existing?.relatedEntityIds),
       addressRange: input.addressRange ?? existing?.addressRange,
+      mediumSpans: input.mediumSpans ?? existing?.mediumSpans ?? [],
+      mediumRole: input.mediumRole ?? existing?.mediumRole,
       tags: uniqueStrings(input.tags ?? existing?.tags),
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
@@ -850,6 +1121,8 @@ export class ProjectKnowledgeService {
   buildWorkspaceUiSnapshot(): WorkspaceUiSnapshot {
     const bundle = this.loadBundle();
     const views = this.composeViews(bundle);
+    const workflowPlan = this.storage.loadWorkflowPlan();
+    const workflowState = this.syncWorkflowState(workflowPlan);
     return {
       generatedAt: nowIso(),
       project: bundle.project,
@@ -863,6 +1136,8 @@ export class ProjectKnowledgeService {
         openQuestions: bundle.openQuestions.length,
         checkpoints: bundle.checkpoints.length,
       },
+      workflowPlan,
+      workflowState,
       recentTimeline: [...bundle.timeline].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 24),
       artifacts: [...bundle.artifacts].sort((left, right) => left.title.localeCompare(right.title)),
       entities: [...bundle.entities].sort((left, right) => left.name.localeCompare(right.name)),
@@ -877,6 +1152,7 @@ export class ProjectKnowledgeService {
         memoryMap: views.memoryMap,
         diskLayout: views.diskLayout,
         cartridgeLayout: views.cartridgeLayout,
+        mediumLayout: views.mediumLayout,
         annotatedListing: views.annotatedListing,
         loadSequence: views.loadSequence,
         flowGraph: views.flowGraph,
@@ -907,12 +1183,139 @@ export class ProjectKnowledgeService {
     };
   }
 
+  private syncWorkflowState(plan: WorkflowPlan): WorkflowState {
+    const bundle = this.loadBundle();
+    const artifacts = bundle.artifacts;
+    const artifactRoles = new Set(artifacts.map((artifact) => artifact.role).filter((role): role is string => Boolean(role)));
+    const viewFiles = [
+      this.storage.paths.viewProjectDashboard,
+      this.storage.paths.viewMemoryMap,
+      this.storage.paths.viewDiskLayout,
+      this.storage.paths.viewCartridgeLayout,
+      this.storage.paths.viewAnnotatedListing,
+      this.storage.paths.viewLoadSequence,
+      this.storage.paths.viewFlowGraph,
+    ];
+    const completedPhaseIds = new Set<string>();
+    const phaseStates: WorkflowPhaseState[] = [];
+
+    for (const phase of plan.phases) {
+      const blockingPhaseIds = phase.prerequisitePhaseIds.filter((phaseId) => !completedPhaseIds.has(phaseId));
+      const satisfiedArtifactRoles = phase.requiredArtifactRoles.filter((role) => artifactRoles.has(role));
+      const missingArtifactRoles = phase.requiredArtifactRoles.filter((role) => !artifactRoles.has(role));
+
+      let completed = false;
+      let progressSignals = 0;
+      let summary = phase.description;
+
+      switch (phase.id) {
+        case "workspace-init":
+          completed = true;
+          summary = "Project metadata and workflow contract exist.";
+          break;
+        case "input-registration":
+          progressSignals = artifacts.filter((artifact) => artifact.scope === "input" || ["analysis-target", "disk-image", "cartridge-image"].includes(artifact.role ?? "")).length;
+          completed = progressSignals > 0;
+          summary = completed ? "Tracked source inputs are registered as project artifacts." : "No source media or analysis targets are registered yet.";
+          break;
+        case "deterministic-extraction":
+          progressSignals = artifacts.filter((artifact) => ["analysis-json", "disk-manifest", "crt-manifest", "kickassembler-source", "64tass-source", "ram-report", "pointer-report"].includes(artifact.role ?? "")).length;
+          completed = progressSignals > 0;
+          summary = completed ? "Deterministic manifests/reports exist." : "No deterministic analysis/manifests have been recorded yet.";
+          break;
+        case "structural-enrichment":
+          progressSignals = bundle.entities.length + bundle.relations.length + bundle.flows.length;
+          completed = bundle.entities.length > 0 || bundle.relations.length > 0;
+          summary = completed ? `${bundle.entities.length} entities and ${bundle.relations.length} relations are persisted.` : "No structural entities/relations persisted yet.";
+          break;
+        case "semantic-enrichment":
+          progressSignals = bundle.findings.length + bundle.tasks.length + bundle.openQuestions.length;
+          completed = bundle.findings.length > 0 || bundle.tasks.length > 0 || bundle.openQuestions.length > 0;
+          summary = completed ? `${bundle.findings.length} findings, ${bundle.tasks.length} tasks, ${bundle.openQuestions.length} open questions.` : "No semantic findings or questions saved yet.";
+          break;
+        case "semantic-feedback-refinement":
+          progressSignals = bundle.findings.length + bundle.relations.length + bundle.flows.length + artifacts.filter((artifact) =>
+            ["semantic-annotations", "refined-analysis-json", "payload-link-map"].includes(artifact.role ?? ""),
+          ).length;
+          completed = bundle.findings.length > 0 && (bundle.relations.length > 0 || bundle.flows.length > 0);
+          summary = completed
+            ? "Semantic feedback has strengthened structure, relationships, or targeted refinements beyond the first heuristic cut."
+            : "No semantically-driven refinement pass has been captured yet.";
+          break;
+        case "runtime-capture":
+          progressSignals = artifacts.filter((artifact) =>
+            artifact.kind === "trace" || (artifact.role ?? "").startsWith("runtime-trace-"),
+          ).length;
+          completed = artifactRoles.has("runtime-trace-summary") || artifacts.some((artifact) => artifact.kind === "trace");
+          summary = completed ? "Raw runtime capture artifacts are available for later aggregation." : "No runtime capture artifacts recorded yet.";
+          break;
+        case "runtime-aggregation":
+          progressSignals = artifacts.filter((artifact) => ["runtime-summary", "runtime-phases", "runtime-scenarios", "memory-activity"].includes(artifact.role ?? "")).length;
+          completed = progressSignals > 0;
+          summary = completed ? "Aggregated runtime artifacts are available for cheap reuse." : "Raw runtime traces have not yet been condensed into compact artifacts.";
+          break;
+        case "view-build":
+          progressSignals = viewFiles.filter((path) => existsSync(path)).length;
+          completed = progressSignals > 0;
+          summary = completed ? `${progressSignals} persisted JSON view-model(s) exist under views/.` : "No persisted view-models have been built yet.";
+          break;
+        default:
+          progressSignals = satisfiedArtifactRoles.length;
+          completed = missingArtifactRoles.length === 0 && blockingPhaseIds.length === 0 && progressSignals > 0;
+          break;
+      }
+
+      const status: WorkflowPhaseState["status"] = completed
+        ? "completed"
+        : blockingPhaseIds.length > 0 || missingArtifactRoles.length > 0
+          ? "blocked"
+          : progressSignals > 0
+            ? "in_progress"
+            : "ready";
+
+      const phaseState: WorkflowPhaseState = {
+        phaseId: phase.id,
+        status,
+        summary,
+        satisfiedArtifactRoles: uniqueStrings(satisfiedArtifactRoles),
+        missingArtifactRoles: uniqueStrings(missingArtifactRoles),
+        blockingPhaseIds,
+        lastUpdatedAt: nowIso(),
+      };
+      phaseStates.push(phaseState);
+      if (completed) {
+        completedPhaseIds.add(phase.id);
+      }
+    }
+
+    const currentPhase = phaseStates.find((phase) => phase.status === "in_progress");
+    const nextPhase = phaseStates.find((phase) => phase.status === "ready");
+    const summary = currentPhase
+      ? `Current phase: ${currentPhase.phaseId}.`
+      : nextPhase
+        ? `Next recommended phase: ${nextPhase.phaseId}.`
+        : "All configured workflow phases are either completed or blocked.";
+
+    const state: WorkflowState = {
+      schemaVersion: 1,
+      updatedAt: nowIso(),
+      currentPhaseId: currentPhase?.phaseId,
+      nextRecommendedPhaseId: nextPhase?.phaseId,
+      summary,
+      phases: phaseStates,
+    };
+    return this.storage.saveWorkflowState(state);
+  }
+
   private composeViews(bundle: ReturnType<ProjectKnowledgeService["loadBundle"]>) {
+    const diskLayout = buildDiskLayoutView(bundle);
+    const cartridgeLayout = buildCartridgeLayoutView(bundle);
     return {
       projectDashboard: buildProjectDashboardView(bundle),
       memoryMap: buildMemoryMapView(bundle),
-      diskLayout: buildDiskLayoutView(bundle),
-      cartridgeLayout: buildCartridgeLayoutView(bundle),
+      diskLayout,
+      cartridgeLayout,
+      mediumLayout: buildMediumLayoutView(bundle, diskLayout, cartridgeLayout),
       loadSequence: buildLoadSequenceView(bundle),
       flowGraph: buildFlowGraphView(bundle),
       annotatedListing: buildAnnotatedListingView(bundle),

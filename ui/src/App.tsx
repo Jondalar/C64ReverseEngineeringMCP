@@ -2,7 +2,10 @@ import { startTransition, useDeferredValue, useEffect, useMemo, useState, type R
 import { HexView } from "./components/HexView.js";
 import { AsmView, type AsmViewSource } from "./components/AsmView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
+import { FileInspector, type FileInspectorActionButton, type FileInspectorHeadlineExtra, type FileInspectorMetaRow, type FileInspectorSpanRow } from "./components/FileInspector.js";
 import { MarkMode } from "./components/MarkMode.js";
+import { MediumPanelShell, type MediumOriginPillSpec } from "./components/MediumPanelShell.js";
+import { BootTracePanel } from "./components/BootTracePanel.js";
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
@@ -35,6 +38,14 @@ interface DocGroup {
   docs: UiDocument[];
 }
 
+interface TodoComposerState {
+  mode: "task" | "question";
+  title: string;
+  description: string;
+  entityIds: string[];
+  artifactIds: string[];
+}
+
 const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "docs", label: "Docs" },
@@ -57,6 +68,61 @@ function isC64BinaryArtifact(relativePath: string): boolean {
   const dot = lower.lastIndexOf(".");
   if (dot < 0) return false;
   return C64_BINARY_EXTENSIONS.has(lower.slice(dot));
+}
+
+function asmDialectForPath(relativePath: string): AsmViewSource["dialect"] {
+  const lower = relativePath.toLowerCase();
+  if (lower.endsWith(".tass")) return "64tass";
+  if (lower.endsWith(".asm")) return "kickass";
+  return "plain";
+}
+
+function asmArtifactPriority(artifact: ArtifactRecord): number {
+  switch (artifact.role) {
+    case "final-kickassembler-source":
+    case "final-64tass-source":
+      return 300;
+    case "kickassembler-source":
+    case "64tass-source":
+      return 200;
+    default:
+      return 100;
+  }
+}
+
+function bestAsmSourcesForArtifacts(artifacts: ArtifactRecord[]): AsmViewSource[] {
+  const bestByDialect = new Map<AsmViewSource["dialect"], ArtifactRecord>();
+  for (const artifact of artifacts) {
+    const dialect = asmDialectForPath(artifact.relativePath);
+    const current = bestByDialect.get(dialect);
+    if (!current || asmArtifactPriority(artifact) > asmArtifactPriority(current)) {
+      bestByDialect.set(dialect, artifact);
+    }
+  }
+  const dialectOrder: Record<AsmViewSource["dialect"], number> = {
+    kickass: 0,
+    "64tass": 1,
+    plain: 2,
+  };
+  return [...bestByDialect.entries()]
+    .sort(([left], [right]) => dialectOrder[left] - dialectOrder[right])
+    .map(([dialect, artifact]) => ({
+      id: artifact.id,
+      label: dialect === "kickass" ? "KickAss" : dialect === "64tass" ? "64tass" : artifact.relativePath,
+      path: artifact.relativePath,
+      dialect,
+    }));
+}
+
+function binaryArtifactPriority(artifact: ArtifactRecord): number {
+  switch (artifact.role) {
+    case "rebuilt-prg":
+      return 300;
+    case "analysis-target":
+      return 200;
+    default:
+      return 100;
+  }
 }
 
 function hex(value: number, digits = 4): string {
@@ -90,6 +156,18 @@ async function fetchText(url: string): Promise<string> {
     throw new Error(await response.text());
   }
   return response.text();
+}
+
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<T>;
 }
 
 function normalizeKey(text: string): string {
@@ -802,11 +880,18 @@ function CartridgePanel({
     return dir ? `${dir}/${file}` : file;
   }
   return (
-    <section className="panel-card">
-      <div className="section-heading">
-        <h3>Cartridge Layout</h3>
-        <span>{snapshot.views.cartridgeLayout.cartridges.length} cartridges</span>
-      </div>
+    <MediumPanelShell
+      title="Cartridge Layout"
+      countSummary={`${snapshot.views.cartridgeLayout.cartridges.length} cartridges`}
+    >
+      {snapshot.views.cartridgeLayout.cartridges.map((cartridge) => (
+        <BootTracePanel
+          key={`boot-${cartridge.artifactId}`}
+          snapshot={snapshot}
+          mediumArtifactId={cartridge.artifactId}
+          onSelectEntity={onSelectEntity}
+        />
+      ))}
       <div className="cart-grid-list">
         {snapshot.views.cartridgeLayout.cartridges.map((cartridge) => {
           const manifestArtifact = snapshot.artifacts.find((artifact) => artifact.id === cartridge.artifactId);
@@ -849,7 +934,7 @@ function CartridgePanel({
           );
         })}
       </div>
-    </section>
+    </MediumPanelShell>
   );
 }
 
@@ -943,68 +1028,58 @@ function DiskPanel({
       ]
     : [];
 
-  return (
-    <section className="panel-card">
-      <div className="section-heading">
-        <h3>Disk Layout</h3>
-        <span>{disks.length} images</span>
-      </div>
-      {disks.length > 1 ? (
-        <div className="disk-tab-strip">
-          {disks.map((disk) => {
-            const diskArtifact = snapshot.artifacts.find((artifact) => artifact.id === disk.artifactId);
-            const path = diskArtifact?.relativePath ?? "";
-            // Prefer the filesystem filename the manifest recorded
-            // (e.g. "lykia_disk1.d64"); fall back to image basename,
-            // BAM title, or the manifest artifact title.
-            const label = disk.imageFileName
-              ?? (disk.imageRelativePath ? disk.imageRelativePath.split("/").pop() : undefined)
-              ?? disk.diskName
-              ?? disk.title;
-            return (
-              <button
-                key={disk.artifactId}
-                type="button"
-                className={activeDisk?.artifactId === disk.artifactId ? "tab-button active" : "tab-button"}
-                onClick={() => {
-                  setActiveDiskId(disk.artifactId);
-                  setSelectedFileId(disk.files[0]?.id ?? null);
-                }}
-                title={path || disk.title}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-      {activeDisk && activeDisk.files.length > 0 ? (
-        <div className="cart-lut-filter">
-          <span className="cart-lut-filter-title">Origin</span>
+  const filterPills: MediumOriginPillSpec[] = activeDisk && activeDisk.files.length > 0
+    ? [
+        { key: "all", label: "all", count: activeDisk.files.length },
+        ...(["kernal", "custom-loader", "unknown"] as const)
+          .map((origin) => ({ key: origin, label: origin, count: originCounts.get(origin) ?? 0 }))
+          .filter((pill) => pill.count > 0 || originFilter === pill.key),
+      ]
+    : [];
+
+  const tabs = disks.length > 1 ? (
+    <div className="disk-tab-strip">
+      {disks.map((disk) => {
+        const diskArtifact = snapshot.artifacts.find((artifact) => artifact.id === disk.artifactId);
+        const path = diskArtifact?.relativePath ?? "";
+        const label = disk.imageFileName
+          ?? (disk.imageRelativePath ? disk.imageRelativePath.split("/").pop() : undefined)
+          ?? disk.diskName
+          ?? disk.title;
+        return (
           <button
+            key={disk.artifactId}
             type="button"
-            className={originFilter === "all" ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
-            onClick={() => setOriginFilter("all")}
+            className={activeDisk?.artifactId === disk.artifactId ? "tab-button active" : "tab-button"}
+            onClick={() => {
+              setActiveDiskId(disk.artifactId);
+              setSelectedFileId(disk.files[0]?.id ?? null);
+            }}
+            title={path || disk.title}
           >
-            <span>all</span>
-            <span className="cart-lut-pill-count">{activeDisk.files.length}</span>
+            {label}
           </button>
-          {(["kernal", "custom-loader", "unknown"] as const).map((origin) => {
-            const count = originCounts.get(origin) ?? 0;
-            if (count === 0 && originFilter !== origin) return null;
-            return (
-              <button
-                key={origin}
-                type="button"
-                className={originFilter === origin ? "cart-lut-pill cart-lut-pill-active" : "cart-lut-pill"}
-                onClick={() => setOriginFilter(origin)}
-              >
-                <span>{origin}</span>
-                <span className="cart-lut-pill-count">{count}</span>
-              </button>
-            );
-          })}
-        </div>
+        );
+      })}
+    </div>
+  ) : null;
+
+  return (
+    <MediumPanelShell
+      title="Disk Layout"
+      countSummary={`${disks.length} images`}
+      filterTitle={filterPills.length > 0 ? "Origin" : undefined}
+      filterPills={filterPills}
+      activeFilter={originFilter}
+      onSelectFilter={(key) => setOriginFilter(key as DiskOriginFilter)}
+      tabs={tabs}
+    >
+      {activeDisk ? (
+        <BootTracePanel
+          snapshot={snapshot}
+          mediumArtifactId={activeDisk.artifactId}
+          onSelectEntity={onSelectEntity}
+        />
       ) : null}
       {!activeDisk ? (
         <div className="empty-state">No disk manifests available.</div>
@@ -1168,7 +1243,7 @@ function DiskPanel({
         <span><i className="legend-swatch disk-legend-free-data" /> free w/ data</span>
         <span><i className="legend-swatch disk-legend-orphan" /> allocated, no file</span>
       </div>
-    </section>
+    </MediumPanelShell>
   );
 }
 
@@ -1620,6 +1695,65 @@ function ActivityPanel({ snapshot }: { snapshot: WorkspaceUiSnapshot }) {
   );
 }
 
+function TodoComposer({
+  draft,
+  saving,
+  error,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  draft: TodoComposerState;
+  saving: boolean;
+  error: string | null;
+  onChange: (next: TodoComposerState) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="hex-overlay-backdrop" onClick={onClose}>
+      <div className="hex-overlay todo-overlay" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <header className="hex-overlay-header">
+          <div>
+            <h3>{draft.mode === "task" ? "New LLM Task" : "New Open Question"}</h3>
+            <p>
+              {draft.entityIds.length} linked entities · {draft.artifactIds.length} linked artifacts
+            </p>
+          </div>
+          <div className="hex-overlay-header-actions">
+            <button type="button" className="ghost-button" onClick={onClose}>cancel</button>
+            <button type="button" className="primary-button" onClick={onSave} disabled={saving || !draft.title.trim()}>
+              {saving ? "saving…" : "save"}
+            </button>
+          </div>
+        </header>
+        <div className="hex-overlay-body todo-overlay-body">
+          <label className="project-input-wrap">
+            <span>Title</span>
+            <input
+              value={draft.title}
+              onChange={(event) => onChange({ ...draft, title: event.target.value })}
+              placeholder={draft.mode === "task" ? "Investigate loader handoff" : "What triggers this payload?"}
+              autoFocus
+            />
+          </label>
+          <label className="project-input-wrap">
+            <span>Description</span>
+            <textarea
+              className="todo-textarea"
+              value={draft.description}
+              onChange={(event) => onChange({ ...draft, description: event.target.value })}
+              placeholder="Context for the LLM"
+              rows={8}
+            />
+          </label>
+          {error ? <div className="error-banner">{error}</div> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function uniqueById<T extends { id: string }>(items: T[]): T[] {
   const seen = new Set<string>();
   return items.filter((item) => {
@@ -1627,6 +1761,11 @@ function uniqueById<T extends { id: string }>(items: T[]): T[] {
     seen.add(item.id);
     return true;
   });
+}
+
+interface LlmTodoActions {
+  onCreateTask: (defaults: { title: string; description?: string; entityIds?: string[]; artifactIds?: string[] }) => void;
+  onCreateQuestion: (defaults: { title: string; description?: string; entityIds?: string[]; artifactIds?: string[] }) => void;
 }
 
 type InspectorMode = "disk-file" | "memory" | "flow" | "payload" | "cartridge" | "generic";
@@ -1638,6 +1777,8 @@ function EntityInspector({
   onOpenDocument,
   onOpenTab,
   onOpenHex,
+  onCreateTask,
+  onCreateQuestion,
 }: {
   snapshot: WorkspaceUiSnapshot;
   entity?: EntityRecord;
@@ -1645,7 +1786,7 @@ function EntityInspector({
   onOpenDocument: (path: string) => void;
   onOpenTab: (tab: TabId) => void;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
-}) {
+} & LlmTodoActions) {
   if (!entity) {
     return (
       <section className="panel-card inspector-card">
@@ -1708,6 +1849,8 @@ function EntityInspector({
     listingEntries.length > 0 ? { id: "listing", label: "Annotated List", tab: "listing" as TabId } : null,
     docArtifacts.length > 0 ? { id: "docs", label: "Docs", tab: "docs" as TabId } : null,
   ].filter((item): item is { id: string; label: string; tab: TabId } => item !== null);
+
+  const linkedArtifactIds = linkedArtifacts.map((artifact) => artifact.id);
 
   function openArtifact(artifact: ArtifactRecord) {
     if (artifact.relativePath.toLowerCase().endsWith(".md")) {
@@ -2009,6 +2152,30 @@ function EntityInspector({
             {target.label}
           </button>
         ))}
+        <button
+          type="button"
+          className="inspector-chip"
+          onClick={() => onCreateTask({
+            title: `Investigate ${entity.name}`,
+            description: entity.summary ? `${entity.summary}\n\nNext step:` : undefined,
+            entityIds: [entity.id],
+            artifactIds: linkedArtifactIds,
+          })}
+        >
+          + LLM Task
+        </button>
+        <button
+          type="button"
+          className="inspector-chip"
+          onClick={() => onCreateQuestion({
+            title: `What is ${entity.name}?`,
+            description: entity.summary ? `${entity.summary}\n\nQuestion:` : undefined,
+            entityIds: [entity.id],
+            artifactIds: linkedArtifactIds,
+          })}
+        >
+          + Open Question
+        </button>
       </div>
       {sectionOrder[inspectorMode].map((sectionId) => <div key={sectionId}>{sectionNodes[sectionId]}</div>)}
     </section>
@@ -2036,6 +2203,8 @@ function DiskFileInspector({
   onOpenAsm,
   onOpenTab,
   onSelectEntity,
+  onCreateTask,
+  onCreateQuestion,
 }: {
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
@@ -2044,7 +2213,7 @@ function DiskFileInspector({
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
   onOpenTab: (tab: TabId) => void;
   onSelectEntity: (entityId: string) => void;
-}) {
+} & LlmTodoActions) {
   const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
   const file = disk?.files.find((candidate) => candidate.id === selection.fileId);
   const diskArtifact = snapshot.artifacts.find((artifact) => artifact.id === selection.diskArtifactId);
@@ -2052,7 +2221,7 @@ function DiskFileInspector({
   // (analysis/disks/disk1/manifest.json). Sector/whole-file views need
   // the raw image, not the JSON manifest.
   const diskPath = disk?.imageRelativePath ?? diskArtifact?.relativePath;
-  const isD64 = diskPath?.toLowerCase().endsWith(".d64");
+  const isDiskImage = Boolean(diskPath && /\.(d64|g64)$/i.test(diskPath));
 
   if (!file || !disk) {
     return (
@@ -2067,18 +2236,22 @@ function DiskFileInspector({
   }
 
   function openSectorMon(track: number, sector: number, bytesUsed: number, partIndex: number, total: number) {
-    if (!diskPath || !isD64) return;
-    const offset = d64SectorOffset(track, sector);
+    if (!diskPath) return;
+    const params = new URLSearchParams({
+      projectDir: snapshot.project.rootPath,
+      path: diskPath,
+      track: String(track),
+      sector: String(sector),
+    });
     onOpenHex(diskPath, {
       title: `${disk!.diskName ?? disk!.title} · ${file!.title} · T${track}/S${sector} (${partIndex + 1}/${total})`,
       baseAddress: 0,
-      offset,
-      length: 256,
+      fetchUrl: `/api/disk/sector-bytes?${params.toString()}`,
     });
   }
 
   async function openWholeFileMon() {
-    if (!diskPath || !isD64 || file!.sectorChain.length === 0) return;
+    if (!diskPath || !isDiskImage || file!.sectorChain.length === 0) return;
     // Translate the manifest's sectorChain into explicit
     // (track, sector, offsetInSector, length) windows. Custom-LUT files
     // on protected loaders (Lykia etc.) record bytesUsed=256 with NO
@@ -2136,24 +2309,17 @@ function DiskFileInspector({
   // memory regions, so we keep this scoped to DiskFileInspector.
   const fileStem = (file.relativePath ?? file.title ?? "").split("/").pop()?.replace(/\.[^.]+$/, "")?.toLowerCase();
   const asmSources: AsmViewSource[] = fileStem
-    ? snapshot.artifacts
-        .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath))
-        .filter((artifact) => artifact.relativePath.toLowerCase().includes(fileStem))
-        .map((artifact) => {
-          const lower = artifact.relativePath.toLowerCase();
-          const dialect: AsmViewSource["dialect"] = lower.endsWith(".tass")
-            ? "64tass"
-            : lower.endsWith(".asm")
-              ? "kickass"
-              : "plain";
-          return {
-            id: artifact.id,
-            label: dialect === "kickass" ? "KickAss" : dialect === "64tass" ? "64tass" : artifact.relativePath,
-            path: artifact.relativePath,
-            dialect,
-          };
-        })
+    ? bestAsmSourcesForArtifacts(
+        snapshot.artifacts
+          .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath))
+          .filter((artifact) => artifact.relativePath.toLowerCase().includes(fileStem)),
+      )
     : [];
+  const payloadBinaryArtifact = fileStem
+    ? [...snapshot.artifacts]
+        .filter((artifact) => artifact.kind === "prg" && artifact.relativePath.toLowerCase().includes(fileStem))
+        .sort((left, right) => binaryArtifactPriority(right) - binaryArtifactPriority(left))[0]
+    : undefined;
 
   const linkedLoadItems = snapshot.views.loadSequence.items.filter((item) => {
     if (file.entityId && item.entityIds.includes(file.entityId)) return true;
@@ -2161,111 +2327,120 @@ function DiskFileInspector({
     return false;
   });
 
+  const headlineExtras: FileInspectorHeadlineExtra[] = [
+    { key: "type", text: file.type },
+    { key: "sectors", text: `${totalSectors} sectors` },
+    { key: "bytes", text: `${totalBytes} bytes` },
+  ];
+  if (file.loadAddress !== undefined) {
+    headlineExtras.push({ key: "load", text: `load ${hex(file.loadAddress)}` });
+  }
+
+  const metaRows: FileInspectorMetaRow[] = [
+    {
+      key: "origin",
+      label: "origin",
+      value: `${file.loadType}${file.loaderSource ? ` · via ${file.loaderSource}` : ""}`,
+    },
+    ...(payloadBinaryArtifact ? [{
+      key: "payload-image",
+      label: "payload image",
+      value: payloadBinaryArtifact.relativePath,
+    }] : []),
+    {
+      key: "disk-image",
+      label: "disk image",
+      value: diskPath ?? "(no path)",
+    },
+  ];
+
+  const secondaryActions: FileInspectorActionButton[] = [];
+  if (asmSources.length > 0) {
+    secondaryActions.push({
+      label: `.asm${asmSources.some((source) => source.dialect === "64tass") ? "/.tass" : ""}`,
+      title: `Open best available source (${asmSources.map((source) => source.label).join(" / ")})`,
+      enabled: true,
+      onClick: () => onOpenAsm(`${file.title}`, asmSources),
+    });
+  }
+  if (payloadBinaryArtifact && isC64BinaryArtifact(payloadBinaryArtifact.relativePath)) {
+    secondaryActions.push({
+      label: "mon prg",
+      title: `Open payload image ${payloadBinaryArtifact.relativePath}`,
+      enabled: true,
+      onClick: () => onOpenHex(payloadBinaryArtifact.relativePath, {
+        title: `${file.title} · ${payloadBinaryArtifact.title}`,
+        baseAddress: file.loadAddress,
+      }),
+    });
+  }
+  if (linkedLoadItems.length > 0) {
+    secondaryActions.push({
+      label: "→ load seq",
+      title: `Open in Load Sequence (${linkedLoadItems.map((item) => item.title).join(", ")})`,
+      enabled: true,
+      onClick: () => {
+        const target = linkedLoadItems[0]!;
+        if (target.primaryEntityId) onSelectEntity(target.primaryEntityId);
+        onOpenTab("load");
+      },
+    });
+  }
+  secondaryActions.push({
+    label: "+ task",
+    title: `Create an LLM follow-up task for ${file.title}`,
+    enabled: true,
+    onClick: () => onCreateTask({
+      title: `Investigate ${file.title}`,
+      description: `${file.relativePath ?? file.title}\n${file.loadAddress !== undefined ? `Load address: ${hex(file.loadAddress)}\n` : ""}${file.loaderSource ? `Loaded via: ${file.loaderSource}\n` : ""}\nNext step:`,
+      entityIds: file.entityId ? [file.entityId] : [],
+      artifactIds: [disk.artifactId, ...(payloadBinaryArtifact ? [payloadBinaryArtifact.id] : [])],
+    }),
+  });
+  secondaryActions.push({
+    label: "+ question",
+    title: `Create an open question for ${file.title}`,
+    enabled: true,
+    onClick: () => onCreateQuestion({
+      title: `What is the role of ${file.title}?`,
+      description: `${file.relativePath ?? file.title}\n${file.loadAddress !== undefined ? `Load address: ${hex(file.loadAddress)}\n` : ""}${file.loaderSource ? `Loaded via: ${file.loaderSource}\n` : ""}\nQuestion:`,
+      entityIds: file.entityId ? [file.entityId] : [],
+      artifactIds: [disk.artifactId, ...(payloadBinaryArtifact ? [payloadBinaryArtifact.id] : [])],
+    }),
+  });
+
+  const spans: FileInspectorSpanRow[] = file.sectorChain.map((cell, partIndex) => ({
+    id: `${cell.track}-${cell.sector}`,
+    primary: `T${cell.track} / S${cell.sector}`,
+    status: cell.isLast ? "last" : `→ ${cell.nextTrack}/${cell.nextSector}`,
+    subText: `link $00/$01 + ${cell.bytesUsed || 254} B payload`,
+    footerLeft: `step ${cell.index + 1}/${totalSectors}`,
+    footerRight: diskPath?.toLowerCase().endsWith(".d64") ? `offset $${d64SectorOffset(cell.track, cell.sector).toString(16).toUpperCase().padStart(6, "0")}` : undefined,
+    monEnabled: Boolean(diskPath) && Boolean(isDiskImage),
+    monTitle: `Open hex view for T${cell.track}/S${cell.sector} (256 B)`,
+    onMon: () => openSectorMon(cell.track, cell.sector, cell.bytesUsed, partIndex, totalSectors),
+  }));
+
   return (
-    <section className="panel-card inspector-card">
-      <div className="section-heading">
-        <h3>Disk file</h3>
-        <button type="button" className="mon-icon-button" onClick={onClose}>back</button>
-      </div>
-      <div className="chunk-inspector-summary">
-        <div className="chunk-inspector-headline">
-          <span className="chunk-color-swatch" style={{ background: file.color ?? "#444" }} />
-          <strong>
-            {file.title}
-            {file.packer ? <span className="packer-tag">{file.packer}</span> : null}
-          </strong>
-          <span>{file.type}</span>
-          <span>{totalSectors} sectors</span>
-          <span>{totalBytes} bytes</span>
-          {file.loadAddress !== undefined ? <span>load {hex(file.loadAddress)}</span> : null}
-        </div>
-        <div className="chunk-inspector-paths">
-          <div>
-            <span className="chunk-inspector-label">origin</span>
-            <span>{file.loadType}{file.loaderSource ? ` · via ${file.loaderSource}` : ""}</span>
-          </div>
-          <div>
-            <span className="chunk-inspector-label">disk image</span>
-            <span>{diskPath ?? "(no path)"} {isD64 ? "" : "· hex view only for .d64 for now"}</span>
-          </div>
-          {file.packer || file.format ? (
-            <div>
-              <span className="chunk-inspector-label">packer / format</span>
-              <span>{[file.packer, file.format].filter(Boolean).join(" · ")}</span>
-            </div>
-          ) : null}
-          {file.notes && file.notes.length > 0 ? (
-            <div>
-              <span className="chunk-inspector-label">notes</span>
-              <span>{file.notes.join(" · ")}</span>
-            </div>
-          ) : null}
-        </div>
-        <div className="chunk-inspector-action-row">
-          <button
-            type="button"
-            className="mon-icon-button chunk-inspector-mon"
-            disabled={!diskPath || !isD64 || file.sectorChain.length === 0}
-            onClick={openWholeFileMon}
-          >
-            mon ({totalSectors} sectors, {totalBytes} B)
-          </button>
-          {asmSources.length > 0 ? (
-            <button
-              type="button"
-              className="mon-icon-button"
-              title={`Open assembled disassembly (${asmSources.map((source) => source.label).join(" / ")})`}
-              onClick={() => onOpenAsm(`${file.title}`, asmSources)}
-            >
-              .asm{asmSources.length > 1 ? "/.tass" : ""}
-            </button>
-          ) : null}
-          {linkedLoadItems.length > 0 ? (
-            <button
-              type="button"
-              className="mon-icon-button"
-              title={`Open in Load Sequence (${linkedLoadItems.map((item) => item.title).join(", ")})`}
-              onClick={() => {
-                const target = linkedLoadItems[0]!;
-                if (target.primaryEntityId) onSelectEntity(target.primaryEntityId);
-                onOpenTab("load");
-              }}
-            >
-              → load seq
-            </button>
-          ) : null}
-        </div>
-      </div>
-      <div className="inspector-block">
-        <h4>Sector chain ({totalSectors})</h4>
-        <div className="record-stack compact">
-          {file.sectorChain.map((cell, partIndex) => (
-            <div key={`${cell.track}-${cell.sector}`} className="record-card-row">
-              <div className="record-card">
-                <div className="record-topline">
-                  <span>T{cell.track} / S{cell.sector}</span>
-                  <span className="record-status">{cell.isLast ? "last" : `→ ${cell.nextTrack}/${cell.nextSector}`}</span>
-                </div>
-                <p>link $00/$01 + {cell.bytesUsed || 254} B payload</p>
-                <div className="record-meta">
-                  <span>step {cell.index + 1}/{totalSectors}</span>
-                  {isD64 ? <span>offset ${d64SectorOffset(cell.track, cell.sector).toString(16).toUpperCase().padStart(6, "0")}</span> : null}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="mon-icon-button"
-                title={`Open hex view for T${cell.track}/S${cell.sector} (256 B)`}
-                disabled={!diskPath || !isD64}
-                onClick={() => openSectorMon(cell.track, cell.sector, cell.bytesUsed, partIndex, totalSectors)}
-              >
-                mon
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
+    <FileInspector
+      mediumKind="disk"
+      title={file.title}
+      swatchColor={file.color}
+      packer={file.packer}
+      format={file.format}
+      notes={file.notes}
+      headlineExtras={headlineExtras}
+      metaRows={metaRows}
+      primaryAction={{
+        label: `mon (${totalSectors} sectors, ${totalBytes} B)`,
+        enabled: Boolean(diskPath) && Boolean(isDiskImage) && file.sectorChain.length > 0,
+        onClick: openWholeFileMon,
+      }}
+      secondaryActions={secondaryActions}
+      spansLabel={`Sector chain (${totalSectors})`}
+      spans={spans}
+      onClose={onClose}
+    />
   );
 }
 
@@ -2274,11 +2449,13 @@ function CartChunkInspector({
   selection,
   onClose,
   onOpenHex,
+  onOpenAsm,
 }: {
   snapshot: WorkspaceUiSnapshot;
   selection: { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
   onClose: () => void;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
+  onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
 }) {
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
@@ -2364,102 +2541,109 @@ function CartChunkInspector({
     }
   }
 
+  const headlineExtras: FileInspectorHeadlineExtra[] = [
+    { key: "len", text: `${chunk.length} bytes` },
+    { key: "origin", text: `origin bank ${String(chunk.bank).padStart(2, "0")} ${chunk.slot}` },
+    { key: "off", text: `off $${chunk.offsetInBank.toString(16).toUpperCase().padStart(4, "0")}` },
+  ];
+  if (spans.length > 1) {
+    headlineExtras.push({ key: "spans", text: `spans ${spans.length} banks`, className: "chunk-inspector-tag" });
+  }
+
+  const metaRows: FileInspectorMetaRow[] = [];
+  if (cartridge) {
+    metaRows.push({
+      key: "cartridge",
+      label: "cartridge",
+      value: cartridge.cartridgeName ?? cartridge.title,
+    });
+  }
+
+  // Resolve relation-driven ASM sources. link_cart_chunk_to_asm tags the
+  // chunk entity with cart-chunk:<key> and creates a derived-from
+  // relation pointing at the asm artifact's entity.
+  const chunkKey = `${chunk.bank}:${chunk.slot}:${chunk.offsetInBank}:${chunk.length}`;
+  const chunkTag = `cart-chunk:${chunkKey}`;
+  const chunkEntity = snapshot.entities.find((entity) => (entity.tags ?? []).includes(chunkTag));
+  const linkedAsmArtifactIds = chunkEntity
+    ? new Set(
+        snapshot.relations
+          .filter((relation) => relation.sourceEntityId === chunkEntity.id && relation.kind === "derived-from")
+          .flatMap((relation) => {
+            const target = snapshot.entities.find((entity) => entity.id === relation.targetEntityId);
+            return target?.artifactIds ?? [];
+          }),
+      )
+    : new Set<string>();
+  const cartAsmSources: AsmViewSource[] = bestAsmSourcesForArtifacts(
+    [...linkedAsmArtifactIds]
+      .map((artifactId) => snapshot.artifacts.find((artifact) => artifact.id === artifactId))
+      .filter((artifact): artifact is typeof snapshot.artifacts[number] => Boolean(artifact))
+      .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath)),
+  );
+
+  const fileSpans: FileInspectorSpanRow[] = spans.map((span, partIndex) => {
+    const chipPath = chipPathForSpan(span.bank);
+    return {
+      id: `${span.bank}-${span.offsetInBank}`,
+      primary: `Bank ${String(span.bank).padStart(2, "0")} ${chunk.slot}`,
+      status: `${span.length} B`,
+      subText: `chip off $${span.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} · C64 $${(slotBaseAddress + span.offsetInBank).toString(16).toUpperCase().padStart(4, "0")}`,
+      footerLeft: chipPath ?? "(no chip)",
+      footerRight: partIndex === 0 ? "head" : `cont ${partIndex + 1}/${spans.length}`,
+      monEnabled: Boolean(chipPath),
+      monTitle: `Open hex view of this ${span.length}-byte span`,
+      onMon: () => openMonSpan(span, partIndex),
+    };
+  });
+
+  const extraSections = (
+    <div className="inspector-block">
+      <h4>LUT references ({refs.length})</h4>
+      <div className="record-stack compact">
+        {refs.map((ref) => (
+          <div key={`${ref.lut}-${ref.index}`} className="record-card">
+            <div className="record-topline">
+              <span>{ref.lut}.{String(ref.index).padStart(2, "0")}</span>
+              <span className="record-status">{ref.destAddress !== undefined ? `→ $${ref.destAddress.toString(16).toUpperCase().padStart(4, "0")}` : "—"}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const chunkSecondaryActions: FileInspectorActionButton[] = [];
+  if (cartAsmSources.length > 0) {
+    chunkSecondaryActions.push({
+      label: `.asm${cartAsmSources.length > 1 ? "/.tass" : ""}`,
+      title: `Open linked disassembly (${cartAsmSources.map((source) => source.label).join(" / ")})`,
+      enabled: true,
+      onClick: () => onOpenAsm(`${chunk.lut}.${String(chunk.index).padStart(2, "0")}`, cartAsmSources),
+    });
+  }
+
   return (
-    <section className="panel-card inspector-card">
-      <div className="section-heading">
-        <h3>Cartridge file</h3>
-        <button type="button" className="mon-icon-button" onClick={onClose}>back</button>
-      </div>
-      <div className="chunk-inspector-summary">
-        <div className="chunk-inspector-headline">
-          <span className="chunk-color-swatch" style={{ background: chunk.color ?? "#444" }} />
-          <strong>
-            {chunk.lut}.{String(chunk.index).padStart(2, "0")}
-            {chunk.packer ? <span className="packer-tag">{chunk.packer}</span> : null}
-          </strong>
-          <span>{chunk.length} bytes</span>
-          <span>origin bank {String(chunk.bank).padStart(2, "0")} {chunk.slot}</span>
-          <span>off ${chunk.offsetInBank.toString(16).toUpperCase().padStart(4, "0")}</span>
-          {spans.length > 1 ? <span className="chunk-inspector-tag">spans {spans.length} banks</span> : null}
-        </div>
-        <button
-          type="button"
-          className="mon-icon-button chunk-inspector-mon"
-          disabled={spans.length === 0}
-          onClick={openAssembledChunkMon}
-        >
-          mon (assembled — {chunk.length} B{spans.length > 1 ? `, ${spans.length} spans` : ""})
-        </button>
-        <div className="chunk-inspector-paths">
-          {chunk.packer || chunk.format ? (
-            <div>
-              <span className="chunk-inspector-label">packer / format</span>
-              <span>{[chunk.packer, chunk.format].filter(Boolean).join(" · ")}</span>
-            </div>
-          ) : null}
-          {chunk.notes && chunk.notes.length > 0 ? (
-            <div>
-              <span className="chunk-inspector-label">notes</span>
-              <span>{chunk.notes.join(" · ")}</span>
-            </div>
-          ) : null}
-          {cartridge ? (
-            <div>
-              <span className="chunk-inspector-label">cartridge</span>
-              <span>{cartridge.cartridgeName ?? cartridge.title}</span>
-            </div>
-          ) : null}
-        </div>
-      </div>
-      <div className="inspector-block">
-        <h4>Physical placement ({spans.length} {spans.length === 1 ? "span" : "spans"})</h4>
-        <div className="record-stack compact">
-          {spans.map((span, partIndex) => {
-            const chipPath = chipPathForSpan(span.bank);
-            return (
-              <div key={`${span.bank}-${span.offsetInBank}`} className="record-card-row">
-                <div className="record-card">
-                  <div className="record-topline">
-                    <span>Bank {String(span.bank).padStart(2, "0")} {chunk.slot}</span>
-                    <span className="record-status">{span.length} B</span>
-                  </div>
-                  <p>
-                    chip off ${span.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} ·
-                    C64 ${(slotBaseAddress + span.offsetInBank).toString(16).toUpperCase().padStart(4, "0")}
-                  </p>
-                  <div className="record-meta">
-                    <span>{chipPath ?? "(no chip)"}</span>
-                    <span>{partIndex === 0 ? "head" : `cont ${partIndex + 1}/${spans.length}`}</span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="mon-icon-button"
-                  title={`Open hex view of this ${span.length}-byte span`}
-                  disabled={!chipPath}
-                  onClick={() => openMonSpan(span, partIndex)}
-                >
-                  mon
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div className="inspector-block">
-        <h4>LUT references ({refs.length})</h4>
-        <div className="record-stack compact">
-          {refs.map((ref) => (
-            <div key={`${ref.lut}-${ref.index}`} className="record-card">
-              <div className="record-topline">
-                <span>{ref.lut}.{String(ref.index).padStart(2, "0")}</span>
-                <span className="record-status">{ref.destAddress !== undefined ? `→ $${ref.destAddress.toString(16).toUpperCase().padStart(4, "0")}` : "—"}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
+    <FileInspector
+      mediumKind="cartridge"
+      title={`${chunk.lut}.${String(chunk.index).padStart(2, "0")}`}
+      swatchColor={chunk.color}
+      packer={chunk.packer}
+      format={chunk.format}
+      notes={chunk.notes}
+      headlineExtras={headlineExtras}
+      metaRows={metaRows}
+      primaryAction={{
+        label: `mon (assembled — ${chunk.length} B${spans.length > 1 ? `, ${spans.length} spans` : ""})`,
+        enabled: spans.length > 0,
+        onClick: openAssembledChunkMon,
+      }}
+      secondaryActions={chunkSecondaryActions}
+      spansLabel={`Physical placement (${spans.length} ${spans.length === 1 ? "span" : "spans"})`}
+      spans={fileSpans}
+      extraSections={extraSections}
+      onClose={onClose}
+    />
   );
 }
 
@@ -2477,6 +2661,9 @@ export function App() {
   const [docError, setDocError] = useState<string | null>(null);
   const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> } | null>(null);
   const [asmOverlay, setAsmOverlay] = useState<{ title: string; sources: AsmViewSource[] } | null>(null);
+  const [todoComposer, setTodoComposer] = useState<TodoComposerState | null>(null);
+  const [todoSaving, setTodoSaving] = useState(false);
+  const [todoError, setTodoError] = useState<string | null>(null);
 
   function openAsmOverlay(title: string, sources: AsmViewSource[]) {
     if (sources.length === 0) return;
@@ -2526,6 +2713,63 @@ export function App() {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
       setLoading(false);
+    }
+  }
+
+  function createTaskFromUi(defaults: { title: string; description?: string; entityIds?: string[]; artifactIds?: string[] }) {
+    setTodoError(null);
+    setTodoComposer({
+      mode: "task",
+      title: defaults.title,
+      description: defaults.description ?? "",
+      entityIds: defaults.entityIds ?? [],
+      artifactIds: defaults.artifactIds ?? [],
+    });
+  }
+
+  function createQuestionFromUi(defaults: { title: string; description?: string; entityIds?: string[]; artifactIds?: string[] }) {
+    setTodoError(null);
+    setTodoComposer({
+      mode: "question",
+      title: defaults.title,
+      description: defaults.description ?? "",
+      entityIds: defaults.entityIds ?? [],
+      artifactIds: defaults.artifactIds ?? [],
+    });
+  }
+
+  async function saveTodoComposer() {
+    if (!snapshot || !todoComposer || !todoComposer.title.trim()) return;
+    setTodoSaving(true);
+    setTodoError(null);
+    try {
+      if (todoComposer.mode === "task") {
+        await postJson("/api/task", {
+          projectDir: snapshot.project.rootPath,
+          title: todoComposer.title.trim(),
+          description: todoComposer.description.trim() || undefined,
+          kind: "llm-followup",
+          priority: "medium",
+          entityIds: todoComposer.entityIds,
+          artifactIds: todoComposer.artifactIds,
+        });
+      } else {
+        await postJson("/api/open-question", {
+          projectDir: snapshot.project.rootPath,
+          title: todoComposer.title.trim(),
+          description: todoComposer.description.trim() || undefined,
+          kind: "llm-question",
+          priority: "medium",
+          entityIds: todoComposer.entityIds,
+          artifactIds: todoComposer.artifactIds,
+        });
+      }
+      setTodoComposer(null);
+      await loadWorkspace(snapshot.project.rootPath);
+    } catch (saveError) {
+      setTodoError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setTodoSaving(false);
     }
   }
 
@@ -2723,6 +2967,7 @@ export function App() {
                   selection={selectedCartChunk}
                   onClose={() => setSelectedCartChunk(null)}
                   onOpenHex={openHexOverlay}
+                  onOpenAsm={openAsmOverlay}
                 />
               ) : selectedDiskFile ? (
                 <DiskFileInspector
@@ -2733,6 +2978,8 @@ export function App() {
                   onOpenAsm={openAsmOverlay}
                   onOpenTab={setActiveTab}
                   onSelectEntity={(entityId) => handleSelectEntity(entityId)}
+                  onCreateTask={createTaskFromUi}
+                  onCreateQuestion={createQuestionFromUi}
                 />
               ) : (
                 <EntityInspector
@@ -2745,6 +2992,8 @@ export function App() {
                   }}
                   onOpenTab={setActiveTab}
                   onOpenHex={openHexOverlay}
+                  onCreateTask={createTaskFromUi}
+                  onCreateQuestion={createQuestionFromUi}
                 />
               )}
             </aside>
@@ -2772,6 +3021,19 @@ export function App() {
           projectDir={snapshot?.project.rootPath}
           sources={asmOverlay.sources}
           onClose={() => setAsmOverlay(null)}
+        />
+      ) : null}
+      {todoComposer ? (
+        <TodoComposer
+          draft={todoComposer}
+          saving={todoSaving}
+          error={todoError}
+          onChange={setTodoComposer}
+          onClose={() => {
+            setTodoComposer(null);
+            setTodoError(null);
+          }}
+          onSave={saveTodoComposer}
         />
       ) : null}
       {snapshot ? (

@@ -5,6 +5,7 @@ export interface ProjectMetadata {
   description?: string;
   rootPath: string;
   status: string;
+  preferredAssembler?: "kickass" | "64tass";
   tags: string[];
   createdAt: string;
   updatedAt: string;
@@ -45,8 +46,14 @@ export interface EntityRecord {
     end: number;
     bank?: number;
   };
+  mediumSpans?: Array<
+    | { kind: "sector"; track: number; sector: number; offsetInSector: number; length: number }
+    | { kind: "slot"; bank: number; slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" | "EEPROM" | "OTHER"; offsetInBank: number; length: number }
+  >;
+  mediumRole?: "dos" | "loader" | "eapi" | "startup" | "code" | "data" | "padding" | "unknown";
   artifactIds: string[];
   relatedEntityIds: string[];
+  tags?: string[];
   updatedAt: string;
 }
 
@@ -82,6 +89,25 @@ export interface FlowRecord {
   status: string;
   confidence: number;
   entityIds: string[];
+  artifactIds: string[];
+  nodes: Array<{
+    id: string;
+    kind: string;
+    title: string;
+    entityId?: string;
+    artifactId?: string;
+    addressRange?: { start: number; end: number; bank?: number; label?: string };
+    status?: string;
+    confidence?: number;
+  }>;
+  edges: Array<{
+    id: string;
+    kind: string;
+    title: string;
+    fromNodeId: string;
+    toNodeId: string;
+    summary?: string;
+  }>;
   updatedAt: string;
 }
 

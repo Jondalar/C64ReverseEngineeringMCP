@@ -39,6 +39,10 @@ import {
   ProjectDashboardViewSchema,
   type ProjectMetadata,
   ProjectMetadataSchema,
+  type WorkflowPlan,
+  WorkflowPlanSchema,
+  type WorkflowState,
+  WorkflowStateSchema,
   type RelationRecord,
   type RelationStore,
   RelationStoreSchema,
@@ -89,6 +93,8 @@ export interface ProjectKnowledgePaths {
   knowledgeOpenQuestions: string;
   knowledgeLabelsUser: string;
   knowledgeNotes: string;
+  knowledgePhasePlan: string;
+  knowledgeWorkflowState: string;
   viewProjectDashboard: string;
   viewMemoryMap: string;
   viewDiskLayout: string;
@@ -108,6 +114,28 @@ function emptyStore<T>(): { schemaVersion: 1; updatedAt: string; items: T[] } {
     schemaVersion: PROJECT_KNOWLEDGE_SCHEMA_VERSION,
     updatedAt: nowIso(),
     items: [],
+  };
+}
+
+function emptyWorkflowPlan(): WorkflowPlan {
+  return {
+    schemaVersion: PROJECT_KNOWLEDGE_SCHEMA_VERSION,
+    updatedAt: nowIso(),
+    version: "v1",
+    title: "Reverse-Engineering Workflow Contract",
+    summary: "Project phases, prerequisites, expected artifacts, and recommended tool domains.",
+    canonicalDocPaths: [],
+    canonicalPromptIds: [],
+    phases: [],
+  };
+}
+
+function emptyWorkflowState(): WorkflowState {
+  return {
+    schemaVersion: PROJECT_KNOWLEDGE_SCHEMA_VERSION,
+    updatedAt: nowIso(),
+    summary: "Workflow contract not initialized.",
+    phases: [],
   };
 }
 
@@ -173,6 +201,8 @@ export class ProjectKnowledgeStorage {
     this.ensureJsonFile(this.paths.knowledgeTasks, emptyStore<TaskRecord>());
     this.ensureJsonFile(this.paths.knowledgeOpenQuestions, emptyStore<OpenQuestionRecord>());
     this.ensureJsonFile(this.paths.knowledgeLabelsUser, emptyStore<UserLabelStore["items"][number]>());
+    this.ensureJsonFile(this.paths.knowledgePhasePlan, emptyWorkflowPlan() as unknown as JsonValue);
+    this.ensureJsonFile(this.paths.knowledgeWorkflowState, emptyWorkflowState() as unknown as JsonValue);
     this.ensureTextFile(this.paths.knowledgeNotes, "# Notes\n");
     this.ensureTextFile(this.paths.sessionTimeline, "");
 
@@ -269,6 +299,26 @@ export class ProjectKnowledgeStorage {
   saveUserLabels(store: UserLabelStore): UserLabelStore {
     const parsed = UserLabelStoreSchema.parse(store);
     writeJsonAtomically(this.paths.knowledgeLabelsUser, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadWorkflowPlan(): WorkflowPlan {
+    return WorkflowPlanSchema.parse(readJsonOrDefault(this.paths.knowledgePhasePlan, emptyWorkflowPlan()));
+  }
+
+  saveWorkflowPlan(plan: WorkflowPlan): WorkflowPlan {
+    const parsed = WorkflowPlanSchema.parse(plan);
+    writeJsonAtomically(this.paths.knowledgePhasePlan, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadWorkflowState(): WorkflowState {
+    return WorkflowStateSchema.parse(readJsonOrDefault(this.paths.knowledgeWorkflowState, emptyWorkflowState()));
+  }
+
+  saveWorkflowState(state: WorkflowState): WorkflowState {
+    const parsed = WorkflowStateSchema.parse(state);
+    writeJsonAtomically(this.paths.knowledgeWorkflowState, parsed as unknown as JsonValue);
     return parsed;
   }
 
@@ -422,6 +472,8 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeOpenQuestions: join(root, "knowledge", "open-questions.json"),
     knowledgeLabelsUser: join(root, "knowledge", "labels.user.json"),
     knowledgeNotes: join(root, "knowledge", "notes.md"),
+    knowledgePhasePlan: join(root, "knowledge", "phase-plan.json"),
+    knowledgeWorkflowState: join(root, "knowledge", "workflow-state.json"),
     viewProjectDashboard: join(root, "views", "project-dashboard.json"),
     viewMemoryMap: join(root, "views", "memory-map.json"),
     viewDiskLayout: join(root, "views", "disk-layout.json"),
