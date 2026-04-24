@@ -2,7 +2,9 @@
 
 **Status**: Phase 2a complete. Byte-exact parity with the reference `b2` CLI
 across a 98-file corpus (9 synthetic + 86 extracted Lykia PRGs + 3 upstream ByteBoozer2 reference files: Pic.prg, Music.prg, Picture.prg). Shipped as
-the MCP tool `pack_byteboozer_native`.
+the MCP tool `pack_byteboozer_native`. The Lykia cart stream preset uses the
+separate Lykia-specific encoder in `src/byteboozer-lykia-encoder.ts`, matching
+the active Lykia full-repack build.
 
 ---
 
@@ -13,9 +15,9 @@ The existing MCP tool `pack_byteboozer` shells out to `/Users/alex/Development/C
 - 2-byte wrapper on `-b`:  `[destLo destHi] + bb2_stream_with_terminator_token`
 - 4-byte wrapper no flag:  `[loadLo loadHi destLo destHi] + bb2_stream_with_terminator_token`
 
-Some C64 games use modified BB2 decoders that are **not** drop-in compatible with this layout. The Lykia PTV Megabyter cartridge is the concrete driver for this work: its `$020C` decoder reads a **4-byte header** `[destLo destHi endLo endHi]` and terminates when the output pointer reaches `endAddr`, without an in-stream terminator token. Streams produced by `b2` do not decode correctly under this protocol — the terminator token triggers a read-past-end.
+Some C64 games use modified BB2 decoders that are **not** drop-in compatible with this layout. The Lykia PTV Megabyter cartridge is the concrete driver for this work: its `$020C` decoder reads a **4-byte header** `[destLo destHi endLo endHi]` and terminates when the output pointer reaches `endAddr`. Streams produced by the standard `b2` bitstream writer do not decode correctly under this protocol.
 
-`pack_byteboozer_native` ports the full reference algorithm to TypeScript and wraps it in header strategies selectable by a `preset` argument. Adding new presets is a matter of emitting the right header bytes — the core bit stream stays identical.
+`pack_byteboozer_native` exposes the reference-compatible BB2 cruncher for `standard` and `clipped`, and routes `preset="lykia"` through the Lykia-specific encoder used by `/Users/alex/Development/C64/Cracking/Lykia/build/pack_streams.mjs`.
 
 ## Architecture
 
@@ -30,11 +32,14 @@ src/byteboozer-cruncher.ts
 │   ├── wLength                 — Elias-gamma length encoding
 │   └── wOffset                 — offset class selector + inverted body
 ├── packStandardPrg(payload, loadAddr, relocateTo?)  — 4-byte wrapper, == b2
-├── packClipped(payload, destAddr)                  — 2-byte wrapper, == b2 -b
-└── packLykia(payload, destAddr)                    — 4-byte wrapper, [dest,end]
+└── packClipped(payload, destAddr)                  — 2-byte wrapper, == b2 -b
+
+src/byteboozer-lykia-encoder.ts
+└── lykiaEncode(payload, destAddr)                  — Lykia cart stream
 ```
 
-The three `pack*` helpers share the same BB2 stream produced by the cruncher and differ only in the header bytes they prepend.
+`lykiaEncode` is intentionally separate: Lykia's cart decoder is not just the
+standard BB2 stream with different header bytes.
 
 ## Tool schema
 
@@ -50,7 +55,7 @@ relocate_to?          : hex address, standard preset only — set decrunch
 strip_prg_header?     : treat input as RAW payload (requires dest_address).
 ```
 
-Output message includes input/output sizes, destination address, margin, and the compression ratio.
+Output message includes input/output sizes, destination address, compression ratio, and either BB2 margin (`standard` / `clipped`) or Lykia token stats (`lykia`).
 
 ## Variant support in flight
 
@@ -63,9 +68,9 @@ Phase 2a is wrapped. Additional variants already scoped in the Lykia project's
 - Checksum trailers (simple-xor / caller-supplied)
 - Alignment padding
 
-All of these are cleanly separable: the cruncher emits the raw bitstream; the
-wrapper helpers add the surrounding bytes. When a new variant is needed,
-implement a new `packXxx(...)` function and add a `preset` value to the tool.
+All of these should be modeled explicitly. If a decoder is not byte-compatible
+with the reference BB2 token stream, implement it as a separate encoder instead
+of hiding it behind a header-only wrapper.
 
 ## Correctness evidence
 
@@ -82,7 +87,7 @@ For every case the test verifies four properties:
 | b2 byte-exact | Our `packStandardPrg` output equals `b2 <input>` byte for byte. |
 | b2 -b byte-exact | Our `packClipped` output equals `b2 -b <input>` byte for byte. |
 | TS depacker round-trip | `ByteBoozerDepacker.unpackRaw(us.packStandardPrg(x)).data === x`. |
-| Lykia wrapper round-trip | An inline Lykia-format decoder (mirrors `lykia-bank01-loader-0200-03ff_commented.tas`'s `BB2_Depack`) re-constructs `x` from `packLykia(x)`. |
+| Lykia encoder round-trip | The TS Lykia-format decoder re-constructs `x` from `lykiaEncode(x)`. |
 
 Result: `98/98` on all four properties. Run:
 

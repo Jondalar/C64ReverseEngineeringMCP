@@ -101,7 +101,7 @@ export function lykiaEncode(payload: Uint8Array, destAddress: number): LykiaEnco
 const MIN_MATCH_LENGTH = 2;
 /** Maximum match length the encoder will try (bounded by gamma range). */
 const MAX_MATCH_LENGTH = 255;
-/** Maximum literal run (bounded by gamma range, 0 = 256 special case). */
+/** Maximum literal run before the decoder returns to token dispatch. */
 const MAX_LIT_RUN = 255;
 /** Maximum back-reference offset reachable in Lykia BB2 offset encoding.
  *  Analysis of the 7-entry BB2_OFS_TABLE + OffLo iteration paths shows the
@@ -168,22 +168,6 @@ function parseGreedy(payload: Uint8Array): Token[] {
 
     if (best) return best;
 
-    // Fallback for 2-byte matches (and 1-pos "runs"): linear scan of last
-    // 256 bytes. Required when hash-based 3-byte lookup finds nothing but
-    // a short match still exists — e.g., uncompressible streams where the
-    // only local redundancy is a 2-byte repeat.
-    //
-    // 2-byte matches encode via short match (selector=0, length=1 → writes
-    // 2 bytes). Offset must be in [-256, -1] (short-match-literal-offset).
-    if (pos + 1 >= payload.length) return null;
-    const b0 = payload[pos];
-    const b1 = payload[pos + 1];
-    const scanStart = Math.max(0, pos - 256);
-    for (let candidate = pos - 1; candidate >= scanStart; candidate--) {
-      if (payload[candidate] === b0 && payload[candidate + 1] === b1) {
-        return { offset: candidate - pos, length: 2 };
-      }
-    }
     return null;
   };
 
@@ -257,19 +241,10 @@ function parseGreedy(payload: Uint8Array): Token[] {
     //   - a match is found at the current pos AND litBuf already has ≥1 byte
     //     (then emit literal + this match).
     //
-    // Note: if we collected MAX_LIT_RUN bytes without finding a match, we
-    // continue with the literal AND check for a match at the new pos. If
-    // still no match, we'd be stuck — but we can instead emit the literal
-    // and LOOP BACK to the 'afterMatch' state without emitting a match...
-    // actually no, literals require a match to follow.
-    //
-    // Simpler: collect literal bytes up to MAX_LIT_RUN; after that, FORCE
-    // emit even if no match, and handle the "no match after" case by
-    // emitting a 2-byte forced match. We'll emit a match of offset=-1,
-    // length=2, and since we've already written at least 1 byte, the
-    // match copies payload[pos-1] twice to positions pos and pos+1. This
-    // corrupts 2 bytes of output but we can ONLY do this when those 2
-    // bytes in payload DO equal payload[pos-1].
+    // Lykia's literal count $ff is a continuation marker: the decoder
+    // copies 255 raw bytes and returns to token dispatch without consuming
+    // the usual implicit match. That lets uncompressible data be encoded as
+    // consecutive 255-byte literal chunks.
     const litBuf: number[] = [];
     litBuf.push(payload[pos]);
     addToHash(pos);
@@ -282,12 +257,14 @@ function parseGreedy(payload: Uint8Array): Token[] {
       pos++;
     }
     tokens.push({ kind: 'literal', data: new Uint8Array(litBuf) });
-    state = 'afterLiteral';
 
     if (pos >= payload.length) {
-      tokens.push({ kind: 'eos' });
+      if (litBuf.length !== MAX_LIT_RUN) {
+        tokens.push({ kind: 'eos' });
+      }
       return tokens;
     }
+    state = litBuf.length === MAX_LIT_RUN ? 'afterMatch' : 'afterLiteral';
     // Loop back; state == afterLiteral will consume the implicit match.
   }
 
@@ -384,7 +361,7 @@ function emitTokens(tokens: Token[]): Uint8Array {
       sb.emitBit(1);
       emitCountGamma(sb, t.data.length === 256 ? 0 : t.data.length);
       sb.queueRawBytes(t.data);
-      state = 'afterLiteral';
+      state = t.data.length === MAX_LIT_RUN ? 'afterMatch' : 'afterLiteral';
     } else if (t.kind === 'match') {
       if (state === 'afterLiteral') {
         // Implicit match: NO dispatch bit. Just match body.

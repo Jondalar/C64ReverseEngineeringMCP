@@ -234,8 +234,11 @@ export function lykiaDecompress(stream: Uint8Array, destHi: number): LykiaDecode
   }
 
   const finalPtr = outPtr;
-  const len = Math.max(0, finalPtr - destAddress);
-  const data = outMem.slice(destAddress, destAddress + len);
+  const len = (finalPtr - destAddress) & 0xFFFF;
+  const data = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    data[i] = outMem[(destAddress + i) & 0xFFFF]!;
+  }
 
   return {
     data,
@@ -265,7 +268,16 @@ export function lykiaDecompress(stream: Uint8Array, destHi: number): LykiaDecode
     }
     outPtr = (outPtr + nBytes) & 0xFFFF;
 
-    // Implicit match follows every literal.
+    // Literal count $ff is a continuation marker in the Lykia loader: copy
+    // 255 raw bytes, then return to token dispatch without the implicit
+    // match. If the literal landed exactly on end_addr, decoding is done.
+    if (nBytes === 0xFF || outPtr === endAddress) {
+      afterMatch = false;
+      return;
+    }
+
+    // Implicit match follows non-$ff literals that did not finish exactly at
+    // end_addr.
     const ok = execMatch();
     if (ok.eos) {
       termination = 'eos';

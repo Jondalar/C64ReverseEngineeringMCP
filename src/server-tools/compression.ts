@@ -18,9 +18,9 @@ import {
 } from "../compression-tools.js";
 import {
   packClipped,
-  packLykia,
   packStandardPrg,
 } from "../byteboozer-cruncher.js";
+import { lykiaEncode } from "../byteboozer-lykia-encoder.js";
 import { lykiaDecompress } from "../byteboozer-lykia-decoder.js";
 import type { ServerToolContext } from "./types.js";
 
@@ -507,7 +507,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
 
   server.tool(
     "pack_byteboozer_native",
-    "Compress a file with a pure-TypeScript port of ByteBoozer2. Byte-exact parity with the reference `b2` CLI across the entire Lykia corpus. Supports standard PRG, clipped (-b), and Lykia's modified-BB2 format with explicit end_addr.",
+    "Compress a file with the native TypeScript ByteBoozer tooling. Supports the reference ByteBoozer2 standard PRG and clipped (-b) formats, plus Lykia's cart-specific modified-BB2 stream format with explicit end_addr.",
     {
       input_path: z.string().describe("Path to the input file. If PRG (2-byte load address header), those bytes are used as the decode destination unless dest_address is supplied explicitly."),
       output_path: z.string().optional().describe("Optional output path. Default: <input_path>.b2"),
@@ -544,16 +544,46 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
           : loadAddr ?? (() => { throw new Error("No destination: supply dest_address or a PRG input."); })();
         const reloc = relocate_to ? parseHexWord(relocate_to) : undefined;
 
-        let packed: { output: Uint8Array; result: { destAddress: number; inputSize: number; margin: number } };
+        let packed: {
+          output: Uint8Array;
+          result: {
+            destAddress: number;
+            inputSize: number;
+            margin?: number;
+            literalRuns?: number;
+            matches?: number;
+          };
+        };
         if (preset === "standard") {
           packed = packStandardPrg(payload, dest, reloc);
         } else if (preset === "clipped") {
           packed = packClipped(payload, dest);
         } else {
-          packed = packLykia(payload, dest);
+          const encoded = lykiaEncode(payload, dest);
+          packed = {
+            output: encoded.stream,
+            result: {
+              destAddress: dest,
+              inputSize: encoded.stats.totalInputBytes,
+              literalRuns: encoded.stats.literalRuns,
+              matches: encoded.stats.matches,
+            },
+          };
         }
 
         await writeBinaryFile(outputAbs, packed.output);
+
+        const detailLines = [
+          `Destination address: $${packed.result.destAddress.toString(16).toUpperCase().padStart(4, "0")}`,
+          `Input payload size:  ${packed.result.inputSize}`,
+        ];
+        if (packed.result.margin !== undefined) {
+          detailLines.push(`Margin:              ${packed.result.margin}`);
+        }
+        if (packed.result.literalRuns !== undefined || packed.result.matches !== undefined) {
+          detailLines.push(`Literal runs:        ${packed.result.literalRuns ?? 0}`);
+          detailLines.push(`Matches:             ${packed.result.matches ?? 0}`);
+        }
 
         return {
           content: [{
@@ -562,9 +592,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
               `ByteBoozer2 native pack complete (preset=${preset}).`,
               `Input:  ${inputAbs}  (${raw.length} bytes)`,
               `Output: ${outputAbs} (${packed.output.length} bytes)`,
-              `Destination address: $${packed.result.destAddress.toString(16).toUpperCase().padStart(4, "0")}`,
-              `Input payload size:  ${packed.result.inputSize}`,
-              `Margin:              ${packed.result.margin}`,
+              ...detailLines,
               `Compression ratio:   ${packed.result.inputSize > 0 ? (packed.result.inputSize / packed.output.length).toFixed(2) : "n/a"}×`,
             ].join("\n"),
           }],

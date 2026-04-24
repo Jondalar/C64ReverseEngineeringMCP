@@ -16,15 +16,13 @@
  *                                 + inverted low byte for long offsets +
  *                                 $ff terminator).
  *
- * Variants — the cruncher outputs the raw BB2 token stream. File wrappers
- * (PRG, clipped, Lykia, executable SFX) are built on top by the caller:
+ * Variants — the cruncher outputs the raw reference-BB2 token stream. File
+ * wrappers (PRG, clipped, executable SFX) are built on top by the caller:
  *
  *   - Standard PRG (`b2 <file>`)                 : 4-byte header,
  *     [loadLo loadHi destLo destHi] + BB2 stream.
  *   - Clipped     (`b2 -b <file>`)               : 2-byte header,
  *     [destLo destHi] + BB2 stream.
- *   - Lykia        (Protovision PTV Megabyter)   : 4-byte header,
- *     [destLo destHi endLo endHi] + BB2 stream.
  *   - Executable SFX (`b2 -c <addr> <file>`)     : $0801 BASIC stub + 0xd5
  *     byte decruncher + BB2 stream. NOT implemented yet.
  *
@@ -624,34 +622,6 @@ export function packClipped(
   output[0] = destAddress & 0xff;
   output[1] = (destAddress >> 8) & 0xff;
   output.set(stream, 2);
-  return {
-    output,
-    result: { stream, destAddress, inputSize, margin },
-  };
-}
-
-/**
- * Lykia BB2 format: 4-byte header `[destLo destHi endLo endHi]` + BB2 stream.
- * The Lykia `$020C` decoder reads these four bytes as seed bytes for its
- * output pointer and end-of-stream sentinel, then decodes tokens until the
- * output pointer reaches the sentinel — no in-stream terminator is
- * consulted. Callers are expected to supply the input's *end* address,
- * which equals destAddress + inputSize.
- */
-export function packLykia(
-  inputPayload: Uint8Array,
-  destAddress: number,
-): { output: Uint8Array; result: PackResultRaw } {
-  const cruncher = new ByteBoozerCruncher();
-  const { stream, inputSize, margin } = cruncher.crunch(inputPayload);
-  const endAddress = destAddress + inputSize;
-
-  const output = new Uint8Array(4 + stream.length);
-  output[0] = destAddress & 0xff;
-  output[1] = (destAddress >> 8) & 0xff;
-  output[2] = endAddress & 0xff;
-  output[3] = (endAddress >> 8) & 0xff;
-  output.set(stream, 4);
   return {
     output,
     result: { stream, destAddress, inputSize, margin },
