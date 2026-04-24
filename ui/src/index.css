@@ -126,6 +126,17 @@ button {
   color: var(--ink);
 }
 
+.project-input-wrap textarea {
+  width: 100%;
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(137, 176, 208, 0.22);
+  background: rgba(7, 17, 28, 0.95);
+  color: var(--ink);
+  resize: vertical;
+  min-height: 10rem;
+}
+
 .primary-button,
 .ghost-button,
 .tab-button,
@@ -158,6 +169,15 @@ button {
 .error-banner,
 .loading-shell .panel-card {
   margin-bottom: 1rem;
+}
+
+.todo-overlay {
+  width: min(760px, calc(100vw - 2rem));
+}
+
+.todo-overlay-body {
+  display: grid;
+  gap: 0.9rem;
 }
 
 .error-banner {
@@ -876,7 +896,7 @@ button {
 .disk-sector-free,
 .disk-sector-free_zero,
 .disk-sector-unknown {
-  fill: rgba(146, 168, 191, 0.16);
+  fill: rgba(146, 168, 191, 0.28);
 }
 
 .disk-sector-free_data {
@@ -899,7 +919,7 @@ button {
 }
 
 .disk-sector-dimmed {
-  opacity: 0.18;
+  opacity: 0.4;
 }
 
 .disk-sector.selected.disk-sector-dimmed {

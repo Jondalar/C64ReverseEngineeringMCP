@@ -198,6 +198,88 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/task" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          title?: string;
+          description?: string;
+          kind?: string;
+          priority?: "low" | "medium" | "high" | "critical";
+          confidence?: number;
+          entityIds?: string[];
+          artifactIds?: string[];
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!payload.title?.trim()) {
+          send(res, jsonResponse(400, { error: "Missing task title." }));
+          return;
+        }
+        const service = new ProjectKnowledgeService(projectDir);
+        const task = service.saveTask({
+          title: payload.title.trim(),
+          description: payload.description?.trim() || undefined,
+          kind: payload.kind?.trim() || "llm-followup",
+          priority: payload.priority ?? "medium",
+          confidence: payload.confidence ?? 0.75,
+          entityIds: payload.entityIds ?? [],
+          artifactIds: payload.artifactIds ?? [],
+        });
+        send(res, jsonResponse(200, { task }));
+      } catch (error) {
+        send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/open-question" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          title?: string;
+          description?: string;
+          kind?: string;
+          priority?: "low" | "medium" | "high" | "critical";
+          confidence?: number;
+          entityIds?: string[];
+          artifactIds?: string[];
+          findingIds?: string[];
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!payload.title?.trim()) {
+          send(res, jsonResponse(400, { error: "Missing question title." }));
+          return;
+        }
+        const service = new ProjectKnowledgeService(projectDir);
+        const question = service.saveOpenQuestion({
+          title: payload.title.trim(),
+          description: payload.description?.trim() || undefined,
+          kind: payload.kind?.trim() || "llm-question",
+          priority: payload.priority ?? "medium",
+          confidence: payload.confidence ?? 0.65,
+          entityIds: payload.entityIds ?? [],
+          artifactIds: payload.artifactIds ?? [],
+          findingIds: payload.findingIds ?? [],
+        });
+        send(res, jsonResponse(200, { question }));
+      } catch (error) {
+        send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/document") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
@@ -496,6 +578,56 @@ const server = createServer((req, res) => {
       const bytes = extractFileFromChain((t, s) => parser.getSector(t, s), entry, stripLoadParam);
       if (!bytes) {
         send(res, jsonResponse(404, { error: "File chain produced no bytes.", track, sector }));
+        return;
+      }
+      const buffer = Buffer.from(bytes);
+      send(res, {
+        status: 200,
+        body: buffer,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(buffer.length),
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), path }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/disk/sector-bytes") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const path = requestUrl.searchParams.get("path")?.trim();
+    const trackParam = requestUrl.searchParams.get("track");
+    const sectorParam = requestUrl.searchParams.get("sector");
+    if (!path || !trackParam || !sectorParam) {
+      send(res, jsonResponse(400, { error: "Missing path/track/sector query parameters." }));
+      return;
+    }
+    const track = Number.parseInt(trackParam, 10);
+    const sector = Number.parseInt(sectorParam, 10);
+    if (!Number.isInteger(track) || track < 1 || !Number.isInteger(sector) || sector < 0) {
+      send(res, jsonResponse(400, { error: "Invalid track/sector." }));
+      return;
+    }
+    const imagePath = safeProjectPath(projectDir, path);
+    if (!imagePath || !existsSync(imagePath) || !statSync(imagePath).isFile()) {
+      send(res, jsonResponse(404, { error: "Disk image not found.", path, projectDir }));
+      return;
+    }
+    try {
+      const parser = createDiskParser(new Uint8Array(readFileSync(imagePath)));
+      if (!parser) {
+        send(res, jsonResponse(415, { error: "Unrecognised disk image format.", path }));
+        return;
+      }
+      const bytes = parser.getSector(track, sector);
+      if (!bytes) {
+        send(res, jsonResponse(404, { error: "Sector not available.", track, sector, path }));
         return;
       }
       const buffer = Buffer.from(bytes);

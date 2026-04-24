@@ -984,4 +984,214 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       }
     },
   );
+
+  server.tool(
+    "link_cart_chunk_to_asm",
+    "Link a cartridge LUT chunk to a disassembly (.asm/.tass) artifact via a RelationRecord. Idempotently creates a chunk entity (kind=code-segment, tagged 'cart-chunk:<key>') and a 'derived-from' relation pointing at the ASM artifact's entity (or its artifact). The cart medium UI surfaces the linked ASM source under the chunk inspector. Identify the chunk by (bank, slot, offset_in_bank, length) or by (lut, idx).",
+    {
+      lut_path: z.string().describe("Path to runtime_luts/all_luts.json (relative or absolute)."),
+      project_dir: z.string().optional().describe("Override project dir; defaults to env C64RE_PROJECT_DIR."),
+      bank: z.number().int().nonnegative().optional(),
+      slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH"]).optional(),
+      offset_in_bank: z.number().int().nonnegative().optional(),
+      length: z.number().int().positive().optional(),
+      lut: z.string().optional(),
+      idx: z.number().int().nonnegative().optional(),
+      asm_artifact_id: z.string().describe("ID of the ArtifactRecord for the .asm/.tass output."),
+      summary: z.string().optional().describe("Optional human-readable note shown on the relation."),
+    },
+    async ({ lut_path, project_dir, bank, slot, offset_in_bank, length, lut, idx, asm_artifact_id, summary }) => {
+      try {
+        const pd = context.projectDir(project_dir ?? lut_path, true);
+        const lutAbs = resolve(pd, lut_path);
+        if (!existsSync(lutAbs)) {
+          throw new Error(`runtime_luts file not found at ${lutAbs}`);
+        }
+
+        let resolvedBank = bank;
+        let resolvedSlot = slot;
+        let resolvedOffset = offset_in_bank;
+        let resolvedLength = length;
+
+        if (lut !== undefined && idx !== undefined) {
+          const lutData = JSON.parse(readFileSync(lutAbs, "utf8")) as Record<string, { entries?: Array<Record<string, unknown>> }>;
+          const namedLut = lutData[lut];
+          if (!namedLut || !Array.isArray(namedLut.entries)) {
+            throw new Error(`LUT '${lut}' not found in ${lutAbs}`);
+          }
+          const entry = namedLut.entries.find((candidate) => candidate.idx === idx);
+          if (!entry) {
+            throw new Error(`Entry idx=${idx} not found in LUT '${lut}'`);
+          }
+          const entryBank = typeof entry.ef_bank === "number" ? entry.ef_bank : undefined;
+          const entryLength = typeof entry.length === "number" ? entry.length : undefined;
+          const entrySrc = typeof entry.src_addr === "string"
+            ? Number.parseInt(entry.src_addr.replace(/^[$#]/, ""), 16)
+            : typeof entry.src_addr === "number" ? entry.src_addr : undefined;
+          if (entryBank === undefined || entryLength === undefined || entrySrc === undefined) {
+            throw new Error(`Entry ${lut}.${idx} missing ef_bank / length / src_addr fields`);
+          }
+          let entrySlot: "ROML" | "ROMH" | "ULTIMAX_ROMH" = "ROML";
+          let entryOffset = entrySrc - 0x8000;
+          if (entrySrc >= 0xa000 && entrySrc < 0xc000) {
+            entrySlot = "ROMH";
+            entryOffset = entrySrc - 0xa000;
+          } else if (entrySrc >= 0xe000) {
+            entrySlot = "ULTIMAX_ROMH";
+            entryOffset = entrySrc - 0xe000;
+          }
+          resolvedBank = entryBank;
+          resolvedSlot = entrySlot;
+          resolvedOffset = entryOffset;
+          resolvedLength = entryLength;
+        }
+
+        if (resolvedBank === undefined || resolvedSlot === undefined || resolvedOffset === undefined || resolvedLength === undefined) {
+          throw new Error("Provide either (bank, slot, offset_in_bank, length) or (lut, idx).");
+        }
+
+        const chunkKey = `${resolvedBank}:${resolvedSlot}:${resolvedOffset}:${resolvedLength}`;
+        const chunkTag = `cart-chunk:${chunkKey}`;
+
+        const service = new (await import("../project-knowledge/service.js")).ProjectKnowledgeService(pd);
+        const existingChunkEntity = service
+          .listEntities({ kind: "code-segment" })
+          .find((entity) => entity.tags.includes(chunkTag));
+        const chunkEntity = service.saveEntity({
+          id: existingChunkEntity?.id,
+          kind: "code-segment",
+          name: `cart chunk ${chunkKey}`,
+          summary: summary ?? `Cart LUT chunk at bank ${resolvedBank} ${resolvedSlot} off $${resolvedOffset.toString(16).toUpperCase().padStart(4, "0")} (${resolvedLength} B)`,
+          mediumSpans: [{
+            kind: "slot",
+            bank: resolvedBank,
+            slot: resolvedSlot,
+            offsetInBank: resolvedOffset,
+            length: resolvedLength,
+          }],
+          mediumRole: "code",
+          tags: [chunkTag, "cart-chunk"],
+          artifactIds: [asm_artifact_id],
+        });
+
+        const asmEntities = service.listEntities({}).filter((entity) => entity.artifactIds.includes(asm_artifact_id));
+        const asmEntity = asmEntities[0];
+        let relation;
+        if (asmEntity) {
+          relation = service.linkEntities({
+            kind: "derived-from",
+            title: `cart chunk ${chunkKey} → ${asmEntity.name}`,
+            sourceEntityId: chunkEntity.id,
+            targetEntityId: asmEntity.id,
+            summary,
+            artifactIds: [asm_artifact_id],
+          });
+        }
+
+        const relationLine = relation
+          ? `Linked entity ${chunkEntity.id} → ${asmEntity!.id} (relation ${relation.id}).`
+          : `Created/updated chunk entity ${chunkEntity.id}; no entity exists yet for asm artifact ${asm_artifact_id}, so the relation was skipped.`;
+        return { content: [{ type: "text" as const, text: relationLine }] };
+      } catch (error) {
+        return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
+
+  server.tool(
+    "record_cart_chunk_packer",
+    "Persist packer / format / notes metadata for a cartridge LUT chunk. Cart chunks are derived from runtime_luts/all_luts.json (analyzer output, regenerated on re-run), so this tool writes a sidecar file 'chunk_packers.json' next to it. The view-builder layers the sidecar on top of the analyzer chunks. Identify the chunk by (bank, slot, offsetInBank, length) — the dedup key the view uses — or by a single (lut, idx) pair if you prefer to look it up by reference.",
+    {
+      lut_path: z.string().describe("Path to the runtime_luts/all_luts.json (relative to project dir or absolute). The sidecar is written to chunk_packers.json next to it."),
+      bank: z.number().int().nonnegative().optional().describe("Cart bank index. Required when identifying by physical placement."),
+      slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH"]).optional().describe("Cart slot. Required when identifying by physical placement."),
+      offset_in_bank: z.number().int().nonnegative().optional().describe("Byte offset within the bank/slot. Required when identifying by physical placement."),
+      length: z.number().int().positive().optional().describe("Chunk length in bytes. Required when identifying by physical placement."),
+      lut: z.string().optional().describe("LUT name, e.g. 'tracks'. When set together with idx the tool resolves the chunk's physical key by reading lut_path."),
+      idx: z.number().int().nonnegative().optional().describe("Index within the named LUT."),
+      packer: z.string().describe("Packer identifier. Conventions: rle, byteboozer, byteboozer-lykia, exomizer_raw, exomizer_sfx, custom-lz77, plain."),
+      format: z.string().optional().describe("Optional format / dialect (e.g. 'prg', 'raw', 'sfx-loader')."),
+      notes: z.array(z.string()).optional().describe("Optional notes appended to the chunk's notes array."),
+    },
+    async ({ lut_path, bank, slot, offset_in_bank, length, lut, idx, packer, format, notes }) => {
+      try {
+        const pd = context.projectDir(lut_path, true);
+        const lutAbs = resolve(pd, lut_path);
+        if (!existsSync(lutAbs)) {
+          throw new Error(`runtime_luts file not found at ${lutAbs}`);
+        }
+
+        // Resolve to physical key (bank:slot:offset:length).
+        let resolvedBank = bank;
+        let resolvedSlot = slot;
+        let resolvedOffset = offset_in_bank;
+        let resolvedLength = length;
+
+        if (lut !== undefined && idx !== undefined) {
+          const lutData = JSON.parse(readFileSync(lutAbs, "utf8")) as Record<string, { entries?: Array<Record<string, unknown>> }>;
+          const namedLut = lutData[lut];
+          if (!namedLut || !Array.isArray(namedLut.entries)) {
+            throw new Error(`LUT '${lut}' not found in ${lutAbs}`);
+          }
+          const entry = namedLut.entries.find((candidate) => candidate.idx === idx);
+          if (!entry) {
+            throw new Error(`Entry idx=${idx} not found in LUT '${lut}'`);
+          }
+          const entryBank = typeof entry.ef_bank === "number" ? entry.ef_bank : undefined;
+          const entryLength = typeof entry.length === "number" ? entry.length : undefined;
+          const entrySrc = typeof entry.src_addr === "string"
+            ? Number.parseInt(entry.src_addr.replace(/^[$#]/, ""), 16)
+            : typeof entry.src_addr === "number" ? entry.src_addr : undefined;
+          if (entryBank === undefined || entryLength === undefined || entrySrc === undefined) {
+            throw new Error(`Entry ${lut}.${idx} missing ef_bank / length / src_addr fields`);
+          }
+          let entrySlot: "ROML" | "ROMH" | "ULTIMAX_ROMH" = "ROML";
+          let entryOffset = entrySrc - 0x8000;
+          if (entrySrc >= 0xa000 && entrySrc < 0xc000) {
+            entrySlot = "ROMH";
+            entryOffset = entrySrc - 0xa000;
+          } else if (entrySrc >= 0xe000) {
+            entrySlot = "ULTIMAX_ROMH";
+            entryOffset = entrySrc - 0xe000;
+          }
+          resolvedBank = entryBank;
+          resolvedSlot = entrySlot;
+          resolvedOffset = entryOffset;
+          resolvedLength = entryLength;
+        }
+
+        if (resolvedBank === undefined || resolvedSlot === undefined || resolvedOffset === undefined || resolvedLength === undefined) {
+          throw new Error("Provide either (bank, slot, offset_in_bank, length) or (lut, idx).");
+        }
+
+        const sidecarAbs = resolve(lutAbs, "..", "chunk_packers.json");
+        let sidecar: Record<string, { packer: string; format?: string; notes?: string[] }> = {};
+        if (existsSync(sidecarAbs)) {
+          try {
+            sidecar = JSON.parse(readFileSync(sidecarAbs, "utf8"));
+          } catch {
+            sidecar = {};
+          }
+        }
+        const key = `${resolvedBank}:${resolvedSlot}:${resolvedOffset}:${resolvedLength}`;
+        const existing = sidecar[key] ?? { packer: "" };
+        existing.packer = packer;
+        if (format !== undefined) existing.format = format;
+        if (notes && notes.length > 0) {
+          const prior = Array.isArray(existing.notes) ? existing.notes : [];
+          existing.notes = [...prior, ...notes];
+        }
+        sidecar[key] = existing;
+        writeFileSync(sidecarAbs, `${JSON.stringify(sidecar, null, 2)}\n`);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Recorded packer=${packer}${format ? ` format=${format}` : ""} for cart chunk ${key} in ${sidecarAbs}.`,
+          }],
+        };
+      } catch (error) {
+        return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
+      }
+    },
+  );
 }

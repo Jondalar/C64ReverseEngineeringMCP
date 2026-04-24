@@ -12,6 +12,14 @@ import type {
   FlowGraphView,
   FlowRecord,
   LoadSequenceView,
+  MediumBootEntry,
+  MediumEmptyRegion,
+  MediumFile,
+  MediumFileOrigin,
+  MediumLayout,
+  MediumLayoutView,
+  MediumResidentRegion,
+  MediumSpan,
   MemoryMapView,
   OpenQuestionRecord,
   ProjectCheckpoint,
@@ -266,8 +274,8 @@ function inferDiskFileLoader(args: {
 
   if (descriptor?.key === "01-murder") {
     return {
-      loadType: "unknown",
-      loaderHint: "Original bootstrap entry; this stub then loads AB via KERNAL LOAD.",
+      loadType: "kernal",
+      loaderHint: "Bootstrapped through the disk entry path, equivalent to a KERNAL-style LOAD \"*\",8,1 handoff before the stub loads AB.",
       loaderSource: "disk entry / boot chain",
     };
   }
@@ -1070,6 +1078,20 @@ function chunkRangeColor(bank: number, offsetInBank: number, length: number): st
   return `hsl(${hue} 60% ${lightness}%)`;
 }
 
+function loadChunkPackerSidecar(lutPath: string): Record<string, { packer?: string; format?: string; notes?: string[] }> {
+  // record_cart_chunk_packer writes a sidecar next to all_luts.json so the
+  // analyzer is free to regenerate its own output without losing user
+  // metadata. Keys are "${bank}:${slot}:${offset}:${length}".
+  const sidecarPath = resolvePath(lutPath, "..", "chunk_packers.json");
+  if (!existsSync(sidecarPath)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(sidecarPath, "utf8"));
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function loadLutChunks(
   artifacts: ArtifactRecord[],
   manifestArtifact: ArtifactRecord,
@@ -1086,6 +1108,7 @@ function loadLutChunks(
     return undefined;
   }
   if (!parsed || typeof parsed !== "object") return undefined;
+  const packerSidecar = loadChunkPackerSidecar(lutPath);
 
   // Key each physical file-range by (bank, slot, offsetInBank, length) so
   // multiple LUTs referencing the same bytes collapse into a single
@@ -1146,6 +1169,20 @@ function loadLutChunks(
   }
 
   if (ranges.size === 0) return undefined;
+
+  // Layer the user-controlled sidecar on top of the analyzer-supplied
+  // packer/format/notes. The sidecar wins because it represents an
+  // explicit "I confirmed this packer" decision that should survive
+  // analyzer re-runs.
+  for (const [key, chunk] of ranges.entries()) {
+    const override = packerSidecar[key];
+    if (!override) continue;
+    if (override.packer) chunk.packer = override.packer;
+    if (override.format) chunk.format = override.format;
+    if (override.notes && override.notes.length > 0) {
+      chunk.notes = [...chunk.notes, ...override.notes];
+    }
+  }
 
   // Finalise labels now that every reference has been merged in.
   const chunks: ResolvedLutChunk[] = [];
@@ -2298,5 +2335,296 @@ export function buildAnnotatedListingView(context: ViewBuildContext): AnnotatedL
     projectId: context.project.id,
     generatedAt: nowIso(),
     entries,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase-1 medium-layout adapters.
+//
+// These transform the existing per-medium views into the unified
+// MediumLayoutView shape. They are pure projections: no domain detection,
+// no manifest re-parsing, no fresh disk/cart inspection. Anything missing
+// in the source view (e.g. a disk boot block, a cart-loader span) stays
+// missing here too — adding richer information is the job of later
+// pipeline phases that emit Entity/Relation/Flow records.
+// ---------------------------------------------------------------------------
+
+function entityResidentRegionsForArtifact(
+  entities: EntityRecord[],
+  artifactId: string,
+  spanKind: "sector" | "slot",
+  artifactPrefix: string,
+): MediumResidentRegion[] {
+  const out: MediumResidentRegion[] = [];
+  for (const entity of entities) {
+    if (!entity.artifactIds.includes(artifactId)) continue;
+    const matchingSpans = (entity.mediumSpans ?? []).filter((span) => span.kind === spanKind);
+    if (matchingSpans.length === 0) continue;
+    out.push({
+      id: `${artifactPrefix}-${entity.id}`,
+      role: entity.mediumRole ?? "unknown",
+      label: entity.name,
+      spans: matchingSpans as MediumResidentRegion["spans"],
+    });
+  }
+  return out;
+}
+
+function diskLayoutToMediums(view: DiskLayoutView, entities: EntityRecord[]): MediumLayout[] {
+  const SECTOR_BYTES = 256;
+  return view.disks.map((disk) => {
+    const trackRows = Array.from(
+      new Map(
+        disk.sectors.map((cell) => [
+          cell.track,
+          { track: cell.track, sectorCount: SECTORS_PER_TRACK[cell.track] ?? 0 },
+        ]),
+      ).values(),
+    ).sort((left, right) => left.track - right.track);
+
+    const files: MediumFile[] = disk.files.map((file) => {
+      const spans: MediumSpan[] = (file.sectorChain ?? []).map((entry) => ({
+        kind: "sector",
+        track: entry.track,
+        sector: entry.sector,
+        offsetInSector: 0,
+        length: entry.bytesUsed,
+      }));
+      const origin: MediumFileOrigin =
+        file.loadType === "kernal"
+          ? "kernal-dir"
+          : file.loadType === "custom-loader"
+            ? "custom-lut"
+            : "unknown";
+      const length =
+        file.sizeBytes ??
+        spans.reduce((sum, span) => sum + (span.kind === "sector" ? span.length : 0), 0);
+      return {
+        id: file.id,
+        name: file.title,
+        color: file.color,
+        origin,
+        spans,
+        loadAddress: file.loadAddress,
+        length,
+        packer: file.packer,
+        format: file.format,
+        notes: file.notes ?? [],
+        sourceRefs: [file.loaderHint, file.loaderSource]
+          .filter((value): value is string => Boolean(value))
+          .map((value) => `loader:${value}`),
+        sourceId: file.id,
+        fileRelativePath: file.relativePath,
+      };
+    });
+
+    const empty: MediumEmptyRegion[] = disk.sectors
+      .filter((cell) => cell.category === "free" || cell.category === "free_zero" || cell.category === "free_data")
+      .map((cell) => ({
+        id: `empty-${disk.artifactId}-${cell.id}`,
+        reason: "free-bam",
+        spans: [{
+          kind: "sector",
+          track: cell.track,
+          sector: cell.sector,
+          offsetInSector: 0,
+          length: SECTOR_BYTES,
+        }],
+      }));
+
+    const resident: MediumResidentRegion[] = [
+      ...disk.sectors
+        .filter((cell) => cell.category === "directory" || cell.category === "bam")
+        .map((cell) => ({
+          id: `resident-${disk.artifactId}-${cell.id}`,
+          role: "dos" as const,
+          label: cell.category === "bam" ? "BAM" : "Directory",
+          spans: [{
+            kind: "sector" as const,
+            track: cell.track,
+            sector: cell.sector,
+            offsetInSector: 0,
+            length: SECTOR_BYTES,
+          }],
+        })),
+      ...entityResidentRegionsForArtifact(entities, disk.artifactId, "sector", `resident-disk-${disk.artifactId}`),
+    ];
+
+    const capacityBytes = disk.sectors.length * SECTOR_BYTES;
+
+    return {
+      id: `medium-disk-${disk.artifactId}`,
+      mediumKind: "disk",
+      mediumLabel: disk.imageFileName ?? disk.title,
+      artifactId: disk.artifactId,
+      capacityBytes,
+      blockSize: SECTOR_BYTES,
+      imageRelativePath: disk.imageRelativePath,
+      imageFileName: disk.imageFileName,
+      grid: {
+        kind: "sector-grid",
+        tracks: trackRows,
+        sectors: disk.sectors,
+      },
+      files,
+      resident,
+      empty,
+      boot: undefined,
+    };
+  });
+}
+
+function cartridgeLayoutToMediums(view: CartridgeLayoutView, entities: EntityRecord[]): MediumLayout[] {
+  return view.cartridges.map((cart) => {
+    const slotLayout = cart.slotLayout ?? {
+      slotsPerBank: 1,
+      bankSize: 8192,
+      hasRomh: false,
+      hasEeprom: false,
+      isUltimax: false,
+      canFlash: false,
+      bankCount: cart.banks.length,
+      totalRomBytes: cart.banks.length * 8192,
+    };
+    const blockSize = slotLayout.bankSize;
+    const capacityBytes = slotLayout.totalRomBytes;
+
+    const banks = cart.banks.map((bank) => ({
+      bank: bank.bank,
+      romlChipIndex: bank.romlChipIndex,
+      romhChipIndex: bank.romhChipIndex,
+    }));
+
+    const files: MediumFile[] = (cart.lutChunks ?? []).map((chunk, index) => {
+      const spans: MediumSpan[] = (chunk.spans.length > 0
+        ? chunk.spans
+        : [{ bank: chunk.bank, offsetInBank: chunk.offsetInBank, length: chunk.length }]
+      ).map((span) => ({
+        kind: "slot",
+        bank: span.bank,
+        slot: chunk.slot,
+        offsetInBank: span.offsetInBank,
+        length: span.length,
+      }));
+      const refLabels = (chunk.refs.length > 0 ? chunk.refs : [{ lut: chunk.lut, index: chunk.index }])
+        .map((ref) => `lut:${ref.lut}#${ref.index}`);
+      return {
+        id: `cart-chunk-${cart.artifactId}-${index}`,
+        name: chunk.label ?? `${chunk.lut}#${chunk.index}`,
+        color: chunk.color,
+        origin: "lut-chunk",
+        spans,
+        loadAddress: chunk.destAddress,
+        length: chunk.length,
+        packer: chunk.packer,
+        format: chunk.format,
+        notes: chunk.notes ?? [],
+        sourceRefs: refLabels,
+        sourceId: `${chunk.bank}:${chunk.slot}:${chunk.offsetInBank}:${chunk.length}`,
+        fileRelativePath: chunk.fileRelativePath,
+      };
+    });
+
+    const empty: MediumEmptyRegion[] = (cart.emptyRegions ?? []).map((region, index) => ({
+      id: `cart-empty-${cart.artifactId}-${index}`,
+      reason: "flash-empty-ff",
+      spans: [{
+        kind: "slot",
+        bank: region.bank,
+        slot: region.slot,
+        offsetInBank: region.offsetInBank,
+        length: region.length,
+      }],
+    }));
+
+    const segmentResident: MediumResidentRegion[] = (cart.segments ?? []).map((segment, index) => {
+      const role = segment.kind === "startup" || segment.kind === "cbm80-vector"
+        ? "startup"
+        : segment.kind === "eapi"
+          ? "eapi"
+          : segment.kind === "code"
+            ? "code"
+            : segment.kind === "data"
+              ? "data"
+              : segment.kind === "padding"
+                ? "padding"
+                : "unknown";
+      return {
+        id: `cart-resident-${cart.artifactId}-${index}`,
+        role,
+        label: segment.label,
+        spans: [{
+          kind: "slot",
+          bank: segment.bank,
+          slot: segment.slot,
+          offsetInBank: segment.offsetInBank,
+          length: segment.length,
+        }],
+        destAddress: segment.destAddress,
+      };
+    });
+
+    const boot: MediumBootEntry | undefined = cart.startup
+      ? {
+          pc: cart.startup.coldStartVector,
+          span:
+            cart.startup.startupBank !== undefined && cart.startup.startupSlot
+              ? {
+                  kind: "slot",
+                  bank: cart.startup.startupBank,
+                  slot: cart.startup.startupSlot,
+                  offsetInBank: 0,
+                  length: blockSize,
+                }
+              : undefined,
+          evidence: cart.startup.hasCbm80Signature ? ["CBM80 signature at $8004"] : [],
+          notes: cart.startup.notes ?? [],
+        }
+      : undefined;
+
+    const resident: MediumResidentRegion[] = [
+      ...segmentResident,
+      ...entityResidentRegionsForArtifact(entities, cart.artifactId, "slot", `resident-cart-${cart.artifactId}`),
+    ];
+
+    return {
+      id: `medium-cart-${cart.artifactId}`,
+      mediumKind: "cartridge",
+      mediumLabel: cart.cartridgeName ?? cart.title,
+      artifactId: cart.artifactId,
+      capacityBytes,
+      blockSize,
+      imageRelativePath: undefined,
+      imageFileName: undefined,
+      grid: {
+        kind: "bank-grid",
+        banks,
+        slotLayout,
+        chips: cart.chips,
+      },
+      files,
+      resident,
+      empty,
+      boot,
+    };
+  });
+}
+
+export function buildMediumLayoutView(
+  context: ViewBuildContext,
+  diskView: DiskLayoutView,
+  cartridgeView: CartridgeLayoutView,
+): MediumLayoutView {
+  const mediums = [
+    ...diskLayoutToMediums(diskView, context.entities),
+    ...cartridgeLayoutToMediums(cartridgeView, context.entities),
+  ];
+  return {
+    id: "view-medium-layout",
+    kind: "medium-layout",
+    title: `${context.project.name} Medium Layout`,
+    projectId: context.project.id,
+    generatedAt: nowIso(),
+    mediums,
   };
 }

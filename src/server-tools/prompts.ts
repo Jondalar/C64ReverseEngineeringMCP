@@ -11,6 +11,10 @@ function canonicalWorkflowSkillPath(repoRoot: string): string {
   return resolve(repoRoot, "docs", "c64-reverse-engineering-skill.md");
 }
 
+function canonicalProjectWorkflowPath(repoRoot: string): string {
+  return resolve(repoRoot, "docs", "workflow.md");
+}
+
 export function registerPromptTools(server: McpServer, context: PromptContext): void {
   server.prompt(
     "debug_workflow",
@@ -79,6 +83,31 @@ Use the following document as the strict workflow/playbook for C64 reverse engin
 Source: \`${skillPath}\`
 
 ${skillText}`,
+          },
+        }],
+      };
+    },
+  );
+
+  server.prompt(
+    "project_workspace_workflow",
+    "Return the canonical project-centric reverse-engineering workflow contract used by project_init and project_status.",
+    {},
+    async () => {
+      const workflowPath = canonicalProjectWorkflowPath(context.repoRoot);
+      const workflowText = context.readTextFile(workflowPath);
+      return {
+        messages: [{
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: `# Project-Centric Reverse-Engineering Workflow Contract
+
+Use the following document as the durable workflow contract for project-centric reverse engineering with this MCP.
+
+Source: \`${workflowPath}\`
+
+${workflowText}`,
           },
         }],
       };

@@ -111,6 +111,7 @@ export const ArtifactRecordSchema = z.object({
 });
 
 export const ProjectStatusSchema = z.enum(["active", "paused", "archived"]);
+export const PreferredAssemblerSchema = z.enum(["kickass", "64tass"]);
 
 export const ProjectMetadataSchema = z.object({
   schemaVersion: z.literal(PROJECT_KNOWLEDGE_SCHEMA_VERSION),
@@ -120,9 +121,70 @@ export const ProjectMetadataSchema = z.object({
   description: z.string().optional(),
   rootPath: z.string().min(1),
   status: ProjectStatusSchema.default("active"),
+  preferredAssembler: PreferredAssemblerSchema.optional(),
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
+});
+
+export const WorkflowPhaseStatusSchema = z.enum([
+  "not_started",
+  "ready",
+  "in_progress",
+  "blocked",
+  "completed",
+]);
+
+export const WorkflowArtifactExpectationSchema = z.object({
+  id: IdSchema,
+  title: z.string().min(1),
+  description: z.string().optional(),
+  role: z.string().optional(),
+  kind: ArtifactKindSchema.optional(),
+  optional: z.boolean().default(false),
+});
+
+export const WorkflowPhaseSchema = z.object({
+  id: IdSchema,
+  title: z.string().min(1),
+  domain: z.string().min(1),
+  description: z.string().min(1),
+  goals: z.array(z.string()).default([]),
+  prerequisitePhaseIds: z.array(IdSchema).default([]),
+  requiredArtifactRoles: z.array(z.string()).default([]),
+  recommendedToolGroups: z.array(z.string()).default([]),
+  outputExpectations: z.array(WorkflowArtifactExpectationSchema).default([]),
+  guidance: z.array(z.string()).default([]),
+});
+
+export const WorkflowPlanSchema = z.object({
+  schemaVersion: z.literal(PROJECT_KNOWLEDGE_SCHEMA_VERSION),
+  updatedAt: TimestampSchema,
+  version: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  canonicalDocPaths: z.array(z.string()).default([]),
+  canonicalPromptIds: z.array(z.string()).default([]),
+  phases: z.array(WorkflowPhaseSchema).default([]),
+});
+
+export const WorkflowPhaseStateSchema = z.object({
+  phaseId: IdSchema,
+  status: WorkflowPhaseStatusSchema,
+  summary: z.string().optional(),
+  satisfiedArtifactRoles: z.array(z.string()).default([]),
+  missingArtifactRoles: z.array(z.string()).default([]),
+  blockingPhaseIds: z.array(IdSchema).default([]),
+  lastUpdatedAt: TimestampSchema,
+});
+
+export const WorkflowStateSchema = z.object({
+  schemaVersion: z.literal(PROJECT_KNOWLEDGE_SCHEMA_VERSION),
+  updatedAt: TimestampSchema,
+  currentPhaseId: IdSchema.optional(),
+  nextRecommendedPhaseId: IdSchema.optional(),
+  summary: z.string().min(1),
+  phases: z.array(WorkflowPhaseStateSchema).default([]),
 });
 
 export const EntityKindSchema = z.enum([
@@ -147,6 +209,29 @@ export const EntityKindSchema = z.enum([
   "other",
 ]);
 
+// Entity-side medium-placement spans. Same shape as MediumSpanSchema but
+// declared up here because EntityRecord is parsed before the unified
+// medium types. Lets the LLM (or future analyzer) pin a routine /
+// resident region to actual sectors/banks instead of only a 16-bit
+// addressRange. The disk- and cart-layout adapters surface entries with
+// `mediumSpans` set as MediumResidentRegion so the medium UI shows them.
+export const EntityMediumSpanSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("sector"),
+    track: z.number().int().positive(),
+    sector: z.number().int().nonnegative(),
+    offsetInSector: z.number().int().nonnegative().default(0),
+    length: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("slot"),
+    bank: z.number().int().nonnegative(),
+    slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH", "EEPROM", "OTHER"]),
+    offsetInBank: z.number().int().nonnegative(),
+    length: z.number().int().nonnegative(),
+  }),
+]);
+
 export const EntityRecordSchema = z.object({
   id: IdSchema,
   kind: EntityKindSchema,
@@ -158,6 +243,14 @@ export const EntityRecordSchema = z.object({
   artifactIds: z.array(IdSchema).default([]),
   relatedEntityIds: z.array(IdSchema).default([]),
   addressRange: AddressRangeSchema.optional(),
+  // Optional physical placement on the medium (disk sectors / cart slots).
+  // Drives the MediumResidentRegion overlay in the medium-layout adapter.
+  mediumSpans: z.array(EntityMediumSpanSchema).default([]),
+  // Optional medium-resident role hint. When unset the adapter falls back
+  // to "unknown".
+  mediumRole: z
+    .enum(["dos", "loader", "eapi", "startup", "code", "data", "padding", "unknown"])
+    .optional(),
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
@@ -671,6 +764,160 @@ export const CartridgeLayoutViewSchema = z.object({
   cartridges: z.array(CartridgeLayoutCartridgeSchema),
 });
 
+// ---------------------------------------------------------------------------
+// MediumLayoutView — unified cart/disk abstraction.
+//
+// A medium has capacity X, a primary index (BAM+dir / cart-LUT), an optional
+// secondary index (fastloader-LUT / breadcrumb chain), a boot entry, files,
+// resident regions, and empty regions. Disk and cartridge differ only in
+// the grid renderer + span shape; everything else maps 1:1.
+//
+// Phase-1 scope: schema + adapters. The existing DiskLayoutView /
+// CartridgeLayoutView types stay untouched and remain the source of truth
+// for the current UI panels — adapters convert each one into a normalised
+// MediumLayout. Later phases collapse the two UI panels onto this view.
+// ---------------------------------------------------------------------------
+
+export const MediumKindSchema = z.enum(["disk", "cartridge"]);
+
+export const MediumSpanSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("sector"),
+    track: z.number().int().positive(),
+    sector: z.number().int().nonnegative(),
+    offsetInSector: z.number().int().nonnegative().default(0),
+    length: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("slot"),
+    bank: z.number().int().nonnegative(),
+    slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH", "EEPROM", "OTHER"]),
+    offsetInBank: z.number().int().nonnegative(),
+    length: z.number().int().nonnegative(),
+  }),
+]);
+
+export const MediumFileOriginSchema = z.enum([
+  "kernal-dir",
+  "custom-lut",
+  "breadcrumb",
+  "lut-chunk",
+  "static",
+  "unknown",
+]);
+
+export const MediumFileSchema = z.object({
+  id: IdSchema,
+  name: z.string().min(1),
+  color: z.string().optional(),
+  origin: MediumFileOriginSchema.default("unknown"),
+  spans: z.array(MediumSpanSchema).default([]),
+  loadAddress: z.number().int().min(0).max(0xffff).optional(),
+  length: z.number().int().nonnegative(),
+  packer: z.string().optional(),
+  format: z.string().optional(),
+  notes: z.array(z.string()).default([]),
+  // Free-form provenance / cross-ref labels surfaced by the adapter
+  // (e.g. "lut:tracks", "lut:sprites"). Kept stringly typed so adapters
+  // do not need to coordinate on a richer schema yet.
+  sourceRefs: z.array(z.string()).default([]),
+  // Pointer back to the originating record (disk file id, cart chunk
+  // dedup key, …). Lets the UI round-trip from a MediumFile into the
+  // existing per-medium inspectors.
+  sourceId: z.string().optional(),
+  fileRelativePath: z.string().optional(),
+});
+
+export const MediumResidentRoleSchema = z.enum([
+  "dos",
+  "loader",
+  "eapi",
+  "startup",
+  "code",
+  "data",
+  "padding",
+  "unknown",
+]);
+
+export const MediumResidentRegionSchema = z.object({
+  id: IdSchema,
+  role: MediumResidentRoleSchema.default("unknown"),
+  label: z.string().optional(),
+  spans: z.array(MediumSpanSchema).default([]),
+  destAddress: z.number().int().min(0).max(0xffff).optional(),
+});
+
+export const MediumEmptyReasonSchema = z.enum([
+  "free-bam",
+  "flash-empty-ff",
+  "unknown",
+]);
+
+export const MediumEmptyRegionSchema = z.object({
+  id: IdSchema,
+  reason: MediumEmptyReasonSchema.default("unknown"),
+  spans: z.array(MediumSpanSchema).default([]),
+});
+
+export const MediumBootEntrySchema = z.object({
+  pc: z.number().int().min(0).max(0xffff).optional(),
+  // Cart: bank/slot of the cold-start vector. Disk: track/sector of the
+  // boot block (typically 1/0) or the first dir entry.
+  span: MediumSpanSchema.optional(),
+  evidence: z.array(z.string()).default([]),
+  notes: z.array(z.string()).default([]),
+});
+
+export const MediumGridSectorRowSchema = z.object({
+  track: z.number().int().positive(),
+  sectorCount: z.number().int().positive(),
+});
+
+export const MediumGridBankRowSchema = z.object({
+  bank: z.number().int().nonnegative(),
+  romlChipIndex: z.number().int().nonnegative().optional(),
+  romhChipIndex: z.number().int().nonnegative().optional(),
+});
+
+export const MediumGridSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("sector-grid"),
+    tracks: z.array(MediumGridSectorRowSchema),
+    sectors: z.array(DiskLayoutSectorCellSchema),
+  }),
+  z.object({
+    kind: z.literal("bank-grid"),
+    banks: z.array(MediumGridBankRowSchema),
+    slotLayout: CartridgeSlotLayoutSchema,
+    chips: z.array(CartridgeChipViewSchema),
+  }),
+]);
+
+export const MediumLayoutSchema = z.object({
+  id: IdSchema,
+  mediumKind: MediumKindSchema,
+  mediumLabel: z.string().min(1),
+  artifactId: IdSchema,
+  capacityBytes: z.number().int().nonnegative(),
+  blockSize: z.number().int().positive(),
+  imageRelativePath: z.string().optional(),
+  imageFileName: z.string().optional(),
+  grid: MediumGridSchema,
+  files: z.array(MediumFileSchema).default([]),
+  resident: z.array(MediumResidentRegionSchema).default([]),
+  empty: z.array(MediumEmptyRegionSchema).default([]),
+  boot: MediumBootEntrySchema.optional(),
+});
+
+export const MediumLayoutViewSchema = z.object({
+  id: IdSchema,
+  kind: z.literal("medium-layout"),
+  title: z.string().min(1),
+  projectId: IdSchema,
+  generatedAt: TimestampSchema,
+  mediums: z.array(MediumLayoutSchema),
+});
+
 export const AnnotatedListingEntrySchema = z.object({
   id: IdSchema,
   start: z.number().int().min(0).max(0xffff),
@@ -783,6 +1030,8 @@ export const WorkspaceUiSnapshotSchema = z.object({
   generatedAt: TimestampSchema,
   project: ProjectMetadataSchema,
   counts: ProjectCountsSchema,
+  workflowPlan: WorkflowPlanSchema.optional(),
+  workflowState: WorkflowStateSchema.optional(),
   recentTimeline: z.array(TimelineEventSchema),
   artifacts: z.array(ArtifactRecordSchema),
   entities: z.array(EntityRecordSchema),
@@ -797,6 +1046,7 @@ export const WorkspaceUiSnapshotSchema = z.object({
     memoryMap: MemoryMapViewSchema,
     diskLayout: DiskLayoutViewSchema,
     cartridgeLayout: CartridgeLayoutViewSchema,
+    mediumLayout: MediumLayoutViewSchema.optional(),
     annotatedListing: AnnotatedListingViewSchema,
     loadSequence: LoadSequenceViewSchema,
     flowGraph: FlowGraphViewSchema,
@@ -826,6 +1076,13 @@ export const UserLabelStoreSchema = RecordListMetaSchema.extend({
 });
 
 export type ProjectMetadata = z.infer<typeof ProjectMetadataSchema>;
+export type PreferredAssembler = z.infer<typeof PreferredAssemblerSchema>;
+export type WorkflowPhaseStatus = z.infer<typeof WorkflowPhaseStatusSchema>;
+export type WorkflowArtifactExpectation = z.infer<typeof WorkflowArtifactExpectationSchema>;
+export type WorkflowPhase = z.infer<typeof WorkflowPhaseSchema>;
+export type WorkflowPlan = z.infer<typeof WorkflowPlanSchema>;
+export type WorkflowPhaseState = z.infer<typeof WorkflowPhaseStateSchema>;
+export type WorkflowState = z.infer<typeof WorkflowStateSchema>;
 export type ArtifactRecord = z.infer<typeof ArtifactRecordSchema>;
 export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export type ArtifactScope = z.infer<typeof ArtifactScopeSchema>;
@@ -847,6 +1104,18 @@ export type ProjectDashboardView = z.infer<typeof ProjectDashboardViewSchema>;
 export type MemoryMapView = z.infer<typeof MemoryMapViewSchema>;
 export type DiskLayoutView = z.infer<typeof DiskLayoutViewSchema>;
 export type CartridgeLayoutView = z.infer<typeof CartridgeLayoutViewSchema>;
+export type MediumKind = z.infer<typeof MediumKindSchema>;
+export type MediumSpan = z.infer<typeof MediumSpanSchema>;
+export type MediumFileOrigin = z.infer<typeof MediumFileOriginSchema>;
+export type MediumFile = z.infer<typeof MediumFileSchema>;
+export type MediumResidentRole = z.infer<typeof MediumResidentRoleSchema>;
+export type MediumResidentRegion = z.infer<typeof MediumResidentRegionSchema>;
+export type MediumEmptyReason = z.infer<typeof MediumEmptyReasonSchema>;
+export type MediumEmptyRegion = z.infer<typeof MediumEmptyRegionSchema>;
+export type MediumBootEntry = z.infer<typeof MediumBootEntrySchema>;
+export type MediumGrid = z.infer<typeof MediumGridSchema>;
+export type MediumLayout = z.infer<typeof MediumLayoutSchema>;
+export type MediumLayoutView = z.infer<typeof MediumLayoutViewSchema>;
 export type AnnotatedListingView = z.infer<typeof AnnotatedListingViewSchema>;
 export type FlowGraphView = z.infer<typeof FlowGraphViewSchema>;
 export type FlowGraphMode = z.infer<typeof FlowGraphModeSchema>;

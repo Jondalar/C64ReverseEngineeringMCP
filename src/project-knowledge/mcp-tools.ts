@@ -12,6 +12,20 @@ function textContent(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+function formatWorkflowPhaseLine(phase: { phaseId: string; status: string; summary?: string; missingArtifactRoles: string[]; blockingPhaseIds: string[] }): string {
+  const details: string[] = [];
+  if (phase.missingArtifactRoles.length > 0) {
+    details.push(`missing roles: ${phase.missingArtifactRoles.join(", ")}`);
+  }
+  if (phase.blockingPhaseIds.length > 0) {
+    details.push(`blocked by: ${phase.blockingPhaseIds.join(", ")}`);
+  }
+  if (phase.summary) {
+    details.push(phase.summary);
+  }
+  return `- [${phase.status}] ${phase.phaseId}${details.length > 0 ? ` — ${details.join(" | ")}` : ""}`;
+}
+
 function deriveProjectRoot(hintPath: string): string {
   const resolvedHint = resolve(process.cwd(), hintPath);
   if (existsSync(resolvedHint) && statSync(resolvedHint).isDirectory()) {
@@ -80,20 +94,45 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       name: z.string().describe("Human-readable project name"),
       description: z.string().optional().describe("Optional project description"),
       tags: z.array(z.string()).optional().describe("Optional project tags"),
+      preferred_assembler: z.enum(["kickass", "64tass"]).optional().describe("Preferred assembler dialect for generated source and later workflow defaults."),
     },
-    async ({ project_dir, name, description, tags }) => {
+    async ({ project_dir, name, description, tags, preferred_assembler }) => {
       const projectRoot = resolveWorkspaceRoot(options, project_dir, true);
       const service = new ProjectKnowledgeService(projectRoot);
-      const project = service.initProject({ name, description, tags });
+      const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler });
+      const workflow = service.initializeWorkflowContract({
+        canonicalDocPaths: [
+          resolve(options.repoDir, "docs", "workflow.md"),
+          resolve(options.repoDir, "docs", "c64-reverse-engineering-skill.md"),
+        ],
+        canonicalPromptIds: [
+          "project_workspace_workflow",
+          "c64re_get_skill",
+          "full_re_workflow",
+          "disk_re_workflow",
+          "debug_workflow",
+        ],
+      });
       const status = service.getProjectStatus();
       return textContent([
         `Project initialized.`,
         `Name: ${project.name}`,
         `Root: ${project.rootPath}`,
+        `Preferred assembler: ${project.preferredAssembler ?? "(not set)"}`,
+        `Workflow summary: ${workflow.state.summary}`,
+        `Current phase: ${workflow.state.currentPhaseId ?? "(none)"}`,
+        `Next recommended phase: ${workflow.state.nextRecommendedPhaseId ?? "(none)"}`,
         `Knowledge: ${status.paths.knowledge}`,
+        `Phase plan: ${status.paths.knowledgePhasePlan}`,
+        `Workflow state: ${status.paths.knowledgeWorkflowState}`,
         `Views: ${status.paths.views}`,
         `Analysis runs: ${status.paths.analysisRuns}`,
         `Session timeline: ${status.paths.sessionTimeline}`,
+        `Canonical docs: ${workflow.plan.canonicalDocPaths.join(", ") || "(none)"}`,
+        `Canonical prompts: ${workflow.plan.canonicalPromptIds.join(", ") || "(none)"}`,
+        ``,
+        `Phase status:`,
+        ...workflow.state.phases.map((phase) => formatWorkflowPhaseLine(phase)),
       ].join("\n"));
     },
   );
@@ -111,6 +150,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Project: ${status.project.name}`,
         `Root: ${status.project.rootPath}`,
         `Status: ${status.project.status}`,
+        `Preferred assembler: ${status.project.preferredAssembler ?? "(not set)"}`,
+        `Workflow: ${status.workflowState.summary}`,
+        `Current phase: ${status.workflowState.currentPhaseId ?? "(none)"}`,
+        `Next recommended phase: ${status.workflowState.nextRecommendedPhaseId ?? "(none)"}`,
         `Artifacts: ${status.counts.artifacts}`,
         `Entities: ${status.counts.entities}`,
         `Findings: ${status.counts.findings}`,
@@ -120,6 +163,13 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Open questions: ${status.counts.openQuestions}`,
         `Checkpoints: ${status.counts.checkpoints}`,
         `Timeline events: ${status.recentTimeline.length} recent`,
+        `Phase plan: ${status.paths.knowledgePhasePlan}`,
+        `Workflow state: ${status.paths.knowledgeWorkflowState}`,
+        `Canonical docs: ${status.workflowPlan.canonicalDocPaths.join(", ") || "(none)"}`,
+        `Canonical prompts: ${status.workflowPlan.canonicalPromptIds.join(", ") || "(none)"}`,
+        ``,
+        `Phase status:`,
+        ...status.workflowState.phases.map((phase) => formatWorkflowPhaseLine(phase)),
       ].join("\n"));
     },
   );
@@ -452,9 +502,26 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       address_start: z.number().int().min(0).max(0xffff).optional(),
       address_end: z.number().int().min(0).max(0xffff).optional(),
       bank: z.number().int().nonnegative().optional(),
+      medium_spans: z.array(z.union([
+        z.object({
+          kind: z.literal("sector"),
+          track: z.number().int().positive(),
+          sector: z.number().int().nonnegative(),
+          offsetInSector: z.number().int().nonnegative().optional(),
+          length: z.number().int().nonnegative(),
+        }),
+        z.object({
+          kind: z.literal("slot"),
+          bank: z.number().int().nonnegative(),
+          slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH", "EEPROM", "OTHER"]),
+          offsetInBank: z.number().int().nonnegative(),
+          length: z.number().int().nonnegative(),
+        }),
+      ])).optional().describe("Optional physical placement on the medium. Sector spans pin a routine to disk T/S; slot spans pin to a cart bank/slot. Surfaced in the medium-layout view as a resident-region overlay."),
+      medium_role: z.enum(["dos", "loader", "eapi", "startup", "code", "data", "padding", "unknown"]).optional().describe("Optional role hint for the medium-resident overlay. Default 'unknown'."),
       evidence: z.array(evidenceSchema).optional(),
     },
-    async ({ project_dir, id, kind, name, summary, confidence, status, artifact_ids, related_entity_ids, tags, address_start, address_end, bank, evidence }) => {
+    async ({ project_dir, id, kind, name, summary, confidence, status, artifact_ids, related_entity_ids, tags, address_start, address_end, bank, medium_spans, medium_role, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const entity = service.saveEntity({
         id,
@@ -469,6 +536,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         addressRange: address_start !== undefined && address_end !== undefined
           ? { start: address_start, end: address_end, bank }
           : undefined,
+        mediumSpans: medium_spans?.map((span) => span.kind === "sector"
+          ? { kind: "sector", track: span.track, sector: span.sector, offsetInSector: span.offsetInSector ?? 0, length: span.length }
+          : { kind: "slot", bank: span.bank, slot: span.slot, offsetInBank: span.offsetInBank, length: span.length }),
+        mediumRole: medium_role,
         evidence: evidence?.map((item) => ({
           ...item,
           capturedAt: item.capturedAt ?? new Date().toISOString(),
