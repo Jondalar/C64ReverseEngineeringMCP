@@ -407,7 +407,7 @@ export class ProjectKnowledgeStorage {
   }
 
   resolveRelativePath(path: string): string {
-    return relative(this.paths.root, path).replace(/\\/g, "/");
+    return relative(this.paths.root, resolve(this.paths.root, path)).replace(/\\/g, "/");
   }
 
   buildArtifactRecord(params: Omit<ArtifactRecord, "relativePath" | "createdAt" | "updatedAt" | "fileSize"> & { createdAt?: string; updatedAt?: string }): ArtifactRecord {
