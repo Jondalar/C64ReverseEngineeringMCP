@@ -4,8 +4,73 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
+import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import type { ServerToolContext } from "./types.js";
+
+const PACKER_DETECTION_THRESHOLD = 0.7;
+
+interface PackerHintRecord {
+  format: string;
+  confidence: number;
+  offset: number;
+  length: number;
+  unpackedSize?: number;
+  reason: string;
+  notes?: string[];
+}
+
+async function detectPackerHints(args: { projectDir: string; prgPath: string }): Promise<PackerHintRecord[]> {
+  try {
+    const suggestions = await suggestDepackers({
+      projectDir: args.projectDir,
+      inputPath: args.prgPath,
+    });
+    return suggestions
+      .filter((entry) => entry.confidence >= PACKER_DETECTION_THRESHOLD && entry.format !== "unknown")
+      .map((entry) => ({
+        format: entry.format,
+        confidence: entry.confidence,
+        offset: entry.offset,
+        length: entry.length,
+        unpackedSize: entry.unpackedSize,
+        reason: entry.reason,
+        notes: entry.notes,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function attachPackerHintsToAnalysis(analysisPath: string, hints: PackerHintRecord[]): void {
+  try {
+    const raw = readFileSync(analysisPath, "utf8");
+    const report = JSON.parse(raw) as Record<string, unknown>;
+    report.packerHints = hints;
+    writeFileSync(analysisPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  } catch {
+    // best-effort; the analysis JSON is still valid without hints
+  }
+}
+
+function summarizePackerHints(hints: PackerHintRecord[]): string[] {
+  if (hints.length === 0) return [];
+  const lines = ["", "Packer detection:"];
+  for (const hint of hints) {
+    lines.push(`- ${hint.format} (conf=${hint.confidence.toFixed(2)}) at $${hint.offset.toString(16).toUpperCase()}+$${hint.length.toString(16).toUpperCase()}${hint.unpackedSize !== undefined ? `, unpacked ≈ ${hint.unpackedSize} bytes` : ""}`);
+  }
+  const top = hints[0]!;
+  if (top.format.startsWith("exomizer")) {
+    lines.push(`NEXT: this PRG is likely Exomizer-packed. Run depack_exomizer_${top.format === "exomizer_sfx" ? "sfx" : "raw"} on it before treating the analysis output as semantic ground truth.`);
+  } else if (top.format === "rle") {
+    lines.push("NEXT: this PRG looks RLE-encoded. Run depack_rle, then re-analyze the unpacked output.");
+  } else if (top.format === "byteboozer2") {
+    lines.push("NEXT: this PRG looks ByteBoozer2-packed. Run depack_byteboozer, then re-analyze the unpacked output.");
+  } else {
+    lines.push("NEXT: try the matching depacker tool, then re-analyze the unpacked output.");
+  }
+  return lines;
+}
 
 async function rebuildVerification(args: {
   projectDir: string;
@@ -81,6 +146,10 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       if (entries) args.push(entries);
       const result = await runCli("analyze-prg", args, { projectDir: pd });
       if (result.exitCode === 0) {
+        const packerHints = await detectPackerHints({ projectDir: pd, prgPath: prgAbs });
+        if (packerHints.length > 0) {
+          attachPackerHintsToAnalysis(outAbs, packerHints);
+        }
         const knowledgeRegistration = context.tryRegisterKnowledgeArtifacts(pd, {
           toolName: "analyze_prg",
           title: `Analyze PRG: ${basename(prgAbs)}`,
@@ -119,6 +188,10 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           result.stdout += `\nKnowledge run: ${knowledgeRegistration.runPath}`;
         } else if (knowledgeRegistration.message) {
           result.stdout += `\n${knowledgeRegistration.message}`;
+        }
+        const packerSummary = summarizePackerHints(packerHints);
+        if (packerSummary.length > 0) {
+          result.stdout += `\n${packerSummary.join("\n")}`;
         }
       }
       return context.cliResultToContent(result);
