@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { extname, join, normalize, resolve, dirname } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
 import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx } from "../compression-tools.js";
@@ -154,6 +154,98 @@ function safeProjectPath(root: string, requestPath: string): string | undefined 
   return fullPath;
 }
 
+interface MarkdownDocEntry {
+  path: string;
+  relativePath: string;
+  size: number;
+  modifiedAt: string;
+  title?: string;
+}
+
+const DOC_SCAN_SKIP_DIRS = new Set([
+  "node_modules",
+  ".git",
+  ".vscode",
+  ".idea",
+  "dist",
+  "build",
+  "ui",
+  "tools",
+  "pipeline",
+  "session",
+  "views",
+]);
+
+const DOC_SCAN_SKIP_RELATIVE = new Set([
+  "analysis/runs",
+  "analysis/extracted",
+]);
+
+const DOC_SCAN_MAX_DEPTH = 5;
+const DOC_SCAN_MAX_FILES = 256;
+
+function readMarkdownTitle(filePath: string): string | undefined {
+  try {
+    const content = readFileSync(filePath, "utf8");
+    const lines = content.split(/\r?\n/);
+    for (const line of lines.slice(0, 40)) {
+      const match = line.match(/^#\s+(.+?)\s*$/);
+      if (match) {
+        return match[1];
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function enumerateMarkdownDocs(root: string): MarkdownDocEntry[] {
+  const results: MarkdownDocEntry[] = [];
+
+  function walk(directory: string, depth: number): void {
+    if (depth > DOC_SCAN_MAX_DEPTH) return;
+    if (results.length >= DOC_SCAN_MAX_FILES) return;
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (results.length >= DOC_SCAN_MAX_FILES) return;
+      const fullPath = join(directory, entry.name);
+      const relPath = relative(root, fullPath).replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith(".")) continue;
+        if (DOC_SCAN_SKIP_DIRS.has(entry.name)) continue;
+        if (DOC_SCAN_SKIP_RELATIVE.has(relPath)) continue;
+        walk(fullPath, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (extname(entry.name).toLowerCase() !== ".md") continue;
+      let stat;
+      try {
+        stat = statSync(fullPath);
+      } catch {
+        continue;
+      }
+      results.push({
+        path: fullPath,
+        relativePath: relPath,
+        size: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+        title: readMarkdownTitle(fullPath),
+      });
+    }
+  }
+
+  walk(root, 0);
+  results.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  return results;
+}
+
 const options = parseArgs(process.argv.slice(2));
 const uiDistDir = resolve(process.cwd(), "ui", "dist");
 const hasUiDist = existsSync(uiDistDir);
@@ -189,6 +281,26 @@ const server = createServer((req, res) => {
       const service = new ProjectKnowledgeService(projectDir);
       const snapshot = service.buildWorkspaceUiSnapshot();
       send(res, jsonResponse(200, snapshot));
+    } catch (error) {
+      send(res, jsonResponse(500, {
+        error: error instanceof Error ? error.message : String(error),
+        projectDir,
+      }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/docs") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    if (!existsSync(projectDir) || !statSync(projectDir).isDirectory()) {
+      send(res, jsonResponse(404, { error: "Project directory not found.", projectDir }));
+      return;
+    }
+    try {
+      const docs = enumerateMarkdownDocs(projectDir);
+      send(res, jsonResponse(200, { projectDir, docs }));
     } catch (error) {
       send(res, jsonResponse(500, {
         error: error instanceof Error ? error.message : String(error),

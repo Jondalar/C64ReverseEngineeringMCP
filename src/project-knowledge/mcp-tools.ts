@@ -173,7 +173,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "save_artifact",
-    "Persist an input, generated, analysis, or view artifact in the project knowledge layer.",
+    "Persist an input, generated, analysis, or view artifact in the project knowledge layer. For project-level markdown documents (CLAUDE.md, docs/*.md, BUGREPORT.md, TODO.md, plans, status notes) call this with kind=\"other\", scope=\"knowledge\", format=\"md\", and a meaningful title so the workspace UI Docs tab surfaces them.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),

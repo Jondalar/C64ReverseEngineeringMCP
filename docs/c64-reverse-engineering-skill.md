@@ -210,6 +210,7 @@ Final deliverables:
 5. Rebuild must be byte-identical
 6. Use derived filenames consistently
 7. Narrate the transition into Phase 2 and Phase 3 explicitly
+8. After writing any project-level markdown (CLAUDE.md, docs/*.md, BUGREPORT.md, TODO.md, status notes, plans), register it via `save_artifact(kind="other", scope="knowledge", format="md", path="<relative path>", title="<doc title>")` so it surfaces in the workspace UI Docs tab. The UI also auto-discovers unregistered markdown via `/api/docs`, but explicit registration adds the doc to project knowledge with a stable id and lets you link it from findings/entities.
 
 ## Runtime Trace Integration
 
