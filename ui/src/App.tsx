@@ -675,6 +675,9 @@ function GraphicsPanel({
   bytes,
   loading,
   error,
+  charsetPairId,
+  onSelectCharsetPair,
+  charsetBytes,
 }: {
   items: GraphicsItem[];
   selectedId: string | null;
@@ -682,11 +685,16 @@ function GraphicsPanel({
   bytes: Uint8Array | null;
   loading: boolean;
   error: string | null;
+  charsetPairId: string | null;
+  onSelectCharsetPair: (id: string | null) => void;
+  charsetBytes: Uint8Array | null;
 }) {
   const selected = items.find((item) => item.id === selectedId) ?? items[0];
   const groups = groupGraphics(items);
   const renderKind = (selected?.kind ?? "sprite") as GraphicsRenderKind;
   const showColours = !!selected;
+  const charsetCandidates = items.filter((item) => item.kind === "charset" || item.kind === "charset_source");
+  const screenLikeKind = selected && (selected.kind === "screen_ram" || selected.kind === "screen_source" || selected.kind === "color_source");
 
   return (
     <section className="panel-card">
@@ -731,6 +739,24 @@ function GraphicsPanel({
             <h4>{selected?.label ?? "No graphics segment selected"}</h4>
             <span>{selected ? `${selected.kind} · $${formatHex16(selected.start)}–$${formatHex16(selected.end)} · ${formatBytes(selected.length)}` : ""}</span>
           </div>
+          {screenLikeKind && charsetCandidates.length > 0 ? (
+            <div className="c64-charmap-pairing">
+              <label>
+                Pair with charset:&nbsp;
+                <select
+                  value={charsetPairId ?? ""}
+                  onChange={(event) => onSelectCharsetPair(event.target.value || null)}
+                >
+                  <option value="">(none — render bytes as charset grid)</option>
+                  {charsetCandidates.map((charset) => (
+                    <option key={charset.id} value={charset.id}>
+                      {charset.label} (${formatHex16(charset.start)}–${formatHex16(charset.end)}, {formatBytes(charset.length)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : null}
           {selected ? (
             <C64GraphicsView
               bytes={bytes}
@@ -738,6 +764,7 @@ function GraphicsPanel({
               error={error}
               kind={renderKind}
               showColourPicker={showColours}
+              charsetBytes={screenLikeKind ? charsetBytes ?? undefined : undefined}
             />
           ) : (
             <div className="empty-state">Select a graphics segment to render it.</div>
@@ -2942,6 +2969,8 @@ export function App() {
   const [graphicsBytes, setGraphicsBytes] = useState<Uint8Array | null>(null);
   const [graphicsLoading, setGraphicsLoading] = useState(false);
   const [graphicsError, setGraphicsError] = useState<string | null>(null);
+  const [charsetPairId, setCharsetPairId] = useState<string | null>(null);
+  const [charsetPairBytes, setCharsetPairBytes] = useState<Uint8Array | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -3072,6 +3101,36 @@ export function App() {
       setTodoSaving(false);
     }
   }
+
+  useEffect(() => {
+    if (!snapshot || !charsetPairId) {
+      setCharsetPairBytes(null);
+      return;
+    }
+    const charsetItem = graphicsItems.find((entry) => entry.id === charsetPairId);
+    if (!charsetItem) {
+      setCharsetPairBytes(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const params = new URLSearchParams({
+          projectDir: snapshot.project.rootPath,
+          path: charsetItem.prgRelativePath,
+          offset: String(charsetItem.fileOffset),
+          length: String(charsetItem.length),
+        });
+        const response = await fetch(`/api/artifact/raw?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        if (!cancelled) setCharsetPairBytes(new Uint8Array(buffer));
+      } catch {
+        if (!cancelled) setCharsetPairBytes(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [snapshot, charsetPairId, graphicsItems]);
 
   useEffect(() => {
     if (!snapshot || !selectedGraphicsId) {
@@ -3287,6 +3346,9 @@ export function App() {
                 bytes={graphicsBytes}
                 loading={graphicsLoading}
                 error={graphicsError}
+                charsetPairId={charsetPairId}
+                onSelectCharsetPair={setCharsetPairId}
+                charsetBytes={charsetPairBytes}
               />
             ) : null}
             {activeTab === "cartridge" ? (
