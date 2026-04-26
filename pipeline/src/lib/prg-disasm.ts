@@ -12,6 +12,7 @@ import {
   RamAccessFact,
   RamHypothesis,
   Segment,
+  SegmentKind,
   SplitPointerTableFact,
   TableUsageFact,
 } from "../analysis/types";
@@ -20,6 +21,7 @@ import { convertKickAsmToTass } from "./tass-converter";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
 import { decodeInstruction, DecodedInstruction, isBranchInstruction, isCallInstruction, isJumpInstruction } from "./mos6502";
 import { hex16, hex8 } from "./format";
+import { lookupKernalAbi, RegisterName } from "./kernal-abi";
 
 interface PrgImage {
   loadAddress: number;
@@ -61,6 +63,7 @@ interface RenderAnalysisContext {
   tableFactsByStart: Map<number, TableUsageFact[]>;
   displayTransfersByStart: Map<number, DisplayTransferFact[]>;
   annotations?: AnnotationsIndex;
+  operandOverrides: Map<number, string>;
 }
 
 function cloneSegment(base: Segment, start: number, end: number, kind = base.kind): Segment {
@@ -281,7 +284,11 @@ function operandTextFromFact(
   labels: Set<number>,
   instructionOwnerByAddress: Map<number, number>,
   segmentOwnerByAddress: Map<number, number>,
+  operandOverride?: string,
 ): string {
+  if (operandOverride !== undefined) {
+    return operandOverride;
+  }
   const operand = instruction.operandValue ?? 0;
   const targetAddress = instruction.targetAddress;
   const targetExpression =
@@ -651,6 +658,7 @@ function buildAnalysisContext(report: AnalysisReport, prg: PrgImage): RenderAnal
     pointerFactsByStart: groupByStart(report.codeSemantics?.indirectPointers?.filter((fact) => fact.provenance === "confirmed_code")),
     tableFactsByStart: groupByStart(report.codeSemantics?.tableUsages?.filter((fact) => fact.provenance === "confirmed_code")),
     displayTransfersByStart: groupByStart(report.codeSemantics?.displayTransfers),
+    operandOverrides: new Map<number, string>(),
   };
 }
 
@@ -708,6 +716,301 @@ function applyAnnotationSegmentSplits(context: RenderAnalysisContext): void {
     for (let address = segment.start; address <= segment.end; address += 1) {
       context.segmentOwnerByAddress.set(address, segment.start);
     }
+  }
+}
+
+// Walk back N instructions from `fromAddress`, returning the most-recent
+// `lda/ldx/ldy #imm` per register. The closest immediate to the call wins.
+function collectRecentImmediateLoads(
+  fromAddress: number,
+  context: RenderAnalysisContext,
+  windowSize: number,
+): Map<RegisterName, { address: number; value: number }> {
+  const result = new Map<RegisterName, { address: number; value: number }>();
+  let cursor: number | undefined = fromAddress;
+  for (let step = 0; step < windowSize; step += 1) {
+    if (cursor === undefined) break;
+    const prev = previousInstructionAt(cursor, context);
+    if (!prev) break;
+    cursor = prev.address;
+    if (prev.addressingMode !== "imm" || prev.operandValue === undefined) continue;
+    const reg: RegisterName | undefined =
+      prev.mnemonic === "lda" ? "a" :
+      prev.mnemonic === "ldx" ? "x" :
+      prev.mnemonic === "ldy" ? "y" : undefined;
+    if (!reg) continue;
+    if (!result.has(reg)) {
+      result.set(reg, { address: prev.address, value: prev.operandValue });
+    }
+  }
+  return result;
+}
+
+function resolvePointerLabel(pointer: number, context: RenderAnalysisContext): string | undefined {
+  if (context.labelSet.has(pointer)) {
+    return makeLabel(pointer);
+  }
+  return undefined;
+}
+
+interface ResolvedRoutineAbi {
+  pointerPairs: Array<{ low: RegisterName; high: RegisterName }>;
+}
+
+function resolveRoutineAbi(address: number, context: RenderAnalysisContext): ResolvedRoutineAbi | undefined {
+  const annotated = context.annotations?.routinesByAddress.get(address);
+  if (annotated?.abi?.pointerPairs && annotated.abi.pointerPairs.length > 0) {
+    return { pointerPairs: annotated.abi.pointerPairs.map((pair) => ({ low: pair.low, high: pair.high })) };
+  }
+  const kernal = lookupKernalAbi(address);
+  if (kernal?.pointerPairs && kernal.pointerPairs.length > 0) {
+    return { pointerPairs: kernal.pointerPairs.map((pair) => ({ low: pair.low, high: pair.high })) };
+  }
+  return undefined;
+}
+
+// For each `JSR <routine>` whose ABI declares pointer-pair registers, walk back
+// looking for the immediate loads and rewrite the operand text to `#<label` /
+// `#>label` when the constructed pointer hits a labelled address. Pulls ABI
+// from both the pre-baked KERNAL table and user annotations.
+function applyKernalAbiOperandOverrides(context: RenderAnalysisContext): void {
+  const PRE_JSR_WINDOW = 8;
+  for (const instruction of context.instructions.values()) {
+    if (instruction.mnemonic !== "jsr") continue;
+    const target = instruction.targetAddress;
+    if (target === undefined) continue;
+    const abi = resolveRoutineAbi(target, context);
+    if (!abi) continue;
+
+    const recent = collectRecentImmediateLoads(instruction.address, context, PRE_JSR_WINDOW);
+
+    for (const pair of abi.pointerPairs) {
+      const lo = recent.get(pair.low);
+      const hi = recent.get(pair.high);
+      if (!lo || !hi) continue;
+      const pointer = ((hi.value & 0xff) << 8) | (lo.value & 0xff);
+      const label = resolvePointerLabel(pointer, context);
+      if (!label) continue;
+      context.operandOverrides.set(lo.address, `#<${label}`);
+      context.operandOverrides.set(hi.address, `#>${label}`);
+    }
+  }
+}
+
+// Detect zero-page pointer construction:
+//
+//   lda #lo   /   sta $fb
+//   lda #hi   /   sta $fc
+//
+// (or with X/Y, or with the high half stored first). When the combined
+// (hi<<8)|lo points at a labelled address, rewrite the immediate operands as
+// `#<label` / `#>label` so the pointer becomes relocatable in source form.
+function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
+  interface ZpStoreEvent {
+    listIndex: number;
+    storeInstructionAddress: number;
+    zpAddress: number;
+    immediateValue: number;
+    immediateInstructionAddress: number;
+  }
+
+  const instructions = Array.from(context.instructions.values()).sort((left, right) => left.address - right.address);
+  const events: ZpStoreEvent[] = [];
+
+  const findRecentImmediate = (
+    listIndex: number,
+    register: RegisterName,
+  ): { value: number; address: number } | undefined => {
+    const lookback = 4;
+    for (let step = 1; step <= lookback; step += 1) {
+      const idx = listIndex - step;
+      if (idx < 0) return undefined;
+      const cand = instructions[idx]!;
+      // Reject if the candidate clobbers our register without producing an immediate
+      const mnem = cand.mnemonic;
+      if (cand.addressingMode === "imm" && cand.operandValue !== undefined) {
+        if (register === "a" && mnem === "lda") return { value: cand.operandValue, address: cand.address };
+        if (register === "x" && mnem === "ldx") return { value: cand.operandValue, address: cand.address };
+        if (register === "y" && mnem === "ldy") return { value: cand.operandValue, address: cand.address };
+      }
+      if (clobbersRegister(cand, register)) return undefined;
+    }
+    return undefined;
+  };
+
+  for (let i = 0; i < instructions.length; i += 1) {
+    const inst = instructions[i]!;
+    if (inst.addressingMode !== "zp" || inst.operandValue === undefined) continue;
+    let register: RegisterName | undefined;
+    if (inst.mnemonic === "sta") register = "a";
+    else if (inst.mnemonic === "stx") register = "x";
+    else if (inst.mnemonic === "sty") register = "y";
+    if (!register) continue;
+    const imm = findRecentImmediate(i, register);
+    if (!imm) continue;
+    events.push({
+      listIndex: i,
+      storeInstructionAddress: inst.address,
+      zpAddress: inst.operandValue,
+      immediateValue: imm.value,
+      immediateInstructionAddress: imm.address,
+    });
+  }
+
+  const PAIR_WINDOW = 8;
+  for (let i = 0; i < events.length; i += 1) {
+    const a = events[i]!;
+    for (let j = i + 1; j < events.length; j += 1) {
+      const b = events[j]!;
+      if (b.listIndex - a.listIndex > PAIR_WINDOW) break;
+      let low: ZpStoreEvent | undefined;
+      let high: ZpStoreEvent | undefined;
+      if (b.zpAddress === a.zpAddress + 1) {
+        low = a;
+        high = b;
+      } else if (b.zpAddress === a.zpAddress - 1) {
+        low = b;
+        high = a;
+      } else {
+        continue;
+      }
+      const pointer = ((high.immediateValue & 0xff) << 8) | (low.immediateValue & 0xff);
+      const label = resolvePointerLabel(pointer, context);
+      if (!label) continue;
+      if (!context.operandOverrides.has(low.immediateInstructionAddress)) {
+        context.operandOverrides.set(low.immediateInstructionAddress, `#<${label}`);
+      }
+      if (!context.operandOverrides.has(high.immediateInstructionAddress)) {
+        context.operandOverrides.set(high.immediateInstructionAddress, `#>${label}`);
+      }
+      break;
+    }
+  }
+}
+
+function clobbersRegister(instruction: InstructionFact, register: RegisterName): boolean {
+  const m = instruction.mnemonic;
+  if (register === "a") {
+    if (m === "lda" || m === "pla" || m === "txa" || m === "tya") return true;
+    if (m === "and" || m === "ora" || m === "eor" || m === "adc" || m === "sbc") return true;
+    if (m === "asl" || m === "lsr" || m === "rol" || m === "ror") return instruction.addressingMode === "acc";
+  }
+  if (register === "x") {
+    if (m === "ldx" || m === "tax" || m === "tsx" || m === "inx" || m === "dex") return true;
+  }
+  if (register === "y") {
+    if (m === "ldy" || m === "tay" || m === "iny" || m === "dey") return true;
+  }
+  if (m === "jsr") return true; // callee may clobber any register
+  return false;
+}
+
+// User-supplied immediate overrides win over heuristic-driven KERNAL rewrites:
+// the annotation explicitly names the label, so respect it last.
+function applyAnnotationImmediateOverrides(context: RenderAnalysisContext): void {
+  const annotations = context.annotations;
+  if (!annotations) return;
+  for (const entry of annotations.immediatesByAddress.values()) {
+    const prefix = entry.kind === "lo-of" ? "#<" : "#>";
+    context.operandOverrides.set(entry.address, `${prefix}${entry.label}`);
+  }
+}
+
+function reclassifySegmentRanges(
+  context: RenderAnalysisContext,
+  ranges: Array<{ start: number; end: number; kind: SegmentKind }>,
+): void {
+  if (ranges.length === 0) return;
+  const newSegments: Segment[] = [];
+  for (const segment of context.segments) {
+    const overlapping = ranges
+      .filter((r) => r.start <= segment.end && r.end >= segment.start)
+      .map((r) => ({
+        start: Math.max(r.start, segment.start),
+        end: Math.min(r.end, segment.end),
+        kind: r.kind,
+      }))
+      .sort((left, right) => left.start - right.start);
+    if (overlapping.length === 0) {
+      newSegments.push(segment);
+      continue;
+    }
+    let cursor = segment.start;
+    for (const range of overlapping) {
+      if (range.start > cursor) {
+        newSegments.push(cloneSegment(segment, cursor, range.start - 1));
+      }
+      newSegments.push(cloneSegment(segment, range.start, range.end, range.kind));
+      cursor = range.end + 1;
+    }
+    if (cursor <= segment.end) {
+      newSegments.push(cloneSegment(segment, cursor, segment.end));
+    }
+  }
+  context.segments = newSegments.sort((left, right) => left.start - right.start);
+  context.segmentOwnerByAddress.clear();
+  for (const segment of context.segments) {
+    context.labelSet.add(segment.start);
+    for (let address = segment.start; address <= segment.end; address += 1) {
+      context.segmentOwnerByAddress.set(address, segment.start);
+    }
+  }
+}
+
+// Apply pointerTables[] and jumpTables[] annotations: reclassify the listed
+// ranges so the renderer emits them as data tables rather than raw bytes, and
+// seed the label set with each entry's target so cross-references resolve.
+function applyAnnotationDataTables(context: RenderAnalysisContext, prg: PrgImage): void {
+  const annotations = context.annotations;
+  if (!annotations) return;
+
+  const ranges: Array<{ start: number; end: number; kind: SegmentKind }> = [];
+
+  for (const pt of annotations.pointerTables) {
+    ranges.push({ start: pt.start, end: pt.end, kind: "pointer_table" });
+    seedWordTableTargets(prg, pt.start, pt.end, pt.endian, context);
+  }
+
+  for (const jt of annotations.jumpTables) {
+    if (jt.kind === "word") {
+      ranges.push({ start: jt.start, end: jt.end, kind: "pointer_table" });
+      seedWordTableTargets(prg, jt.start, jt.end, "little", context);
+    } else {
+      // jmp / jsr table: each row is 3 bytes (opcode, lo, hi). Treat as code
+      // and record each target so it gets a label.
+      ranges.push({ start: jt.start, end: jt.end, kind: "code" });
+      seedJumpTableTargets(prg, jt.start, jt.end, context);
+    }
+  }
+
+  reclassifySegmentRanges(context, ranges);
+}
+
+function seedWordTableTargets(
+  prg: PrgImage,
+  start: number,
+  end: number,
+  endian: "little" | "big",
+  context: RenderAnalysisContext,
+): void {
+  for (let address = start; address + 1 <= end; address += 2) {
+    const offset = address - prg.loadAddress;
+    if (offset < 0 || offset + 1 >= prg.data.length) break;
+    const a = prg.data[offset]!;
+    const b = prg.data[offset + 1]!;
+    const target = endian === "little" ? a | (b << 8) : (a << 8) | b;
+    context.labelSet.add(target);
+  }
+}
+
+function seedJumpTableTargets(prg: PrgImage, start: number, end: number, context: RenderAnalysisContext): void {
+  for (let address = start; address + 2 <= end; address += 3) {
+    const offset = address - prg.loadAddress;
+    if (offset < 0 || offset + 2 >= prg.data.length) break;
+    const lo = prg.data[offset + 1]!;
+    const hi = prg.data[offset + 2]!;
+    const target = lo | (hi << 8);
+    context.labelSet.add(target);
   }
 }
 
@@ -1571,6 +1874,32 @@ function emitByteRange(
   }
 }
 
+function emitPointerTableSegment(
+  prg: PrgImage,
+  segment: Segment,
+  lines: string[],
+  analysis: RenderAnalysisContext,
+): void {
+  let address = segment.start;
+  while (address + 1 <= segment.end) {
+    if (analysis.labelSet.has(address) && address !== segment.start) {
+      lines.push(`${makeLabel(address)}:${labelCommentTextFromAnalysis(address, analysis.xrefsByTarget)}`);
+    }
+    const offset = address - prg.loadAddress;
+    const lo = prg.data[offset];
+    const hi = prg.data[offset + 1];
+    if (lo === undefined || hi === undefined) break;
+    const target = (hi << 8) | lo;
+    const expr = findOperandExpression(target, analysis.labelSet, analysis.instructionOwnerByAddress, analysis.segmentOwnerByAddress)
+      ?? `$${formatHex16(target)}`;
+    lines.push(`      .word ${expr}`);
+    address += 2;
+  }
+  if (address <= segment.end) {
+    emitByteRange(prg.data, prg.loadAddress, address, segment.end, lines, analysis, true);
+  }
+}
+
 function canRenderAsKickAsmText(bytes: number[]): boolean {
   return bytes.every((value) => value >= 0x20 && value <= 0x7e);
 }
@@ -1808,6 +2137,7 @@ function renderCodeSegment(
         context.labelSet,
         context.instructionOwnerByAddress,
         context.segmentOwnerByAddress,
+        context.operandOverrides.get(instruction.address),
       );
       asm = operand ? `${instruction.mnemonic.padEnd(5)}${operand}` : instruction.mnemonic;
       targetComment = generateInstructionComment(instruction, prevInstruction, context);
@@ -1857,6 +2187,8 @@ function renderWithAnalysis(prg: PrgImage, analysis: RenderAnalysisContext, line
       } else {
         emitSpriteSegment(prg, segment, lines);
       }
+    } else if (segment.kind === "pointer_table") {
+      emitPointerTableSegment(prg, segment, lines, analysis);
     } else {
       emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines, analysis, true);
     }
@@ -1927,8 +2259,15 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   if (annotationsFile && analysisContext) {
     analysisContext.annotations = buildAnnotationsIndex(annotationsFile);
     applyAnnotationSegmentSplits(analysisContext);
+    applyAnnotationDataTables(analysisContext, prg);
   }
   activeAnnotations = analysisContext?.annotations;
+
+  if (analysisContext) {
+    applyKernalAbiOperandOverrides(analysisContext);
+    applyZpPointerSetupOverrides(analysisContext);
+    applyAnnotationImmediateOverrides(analysisContext);
+  }
 
   const lines: string[] = [
     "//****************************",
