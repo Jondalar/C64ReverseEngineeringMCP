@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-26T18:28:20.700Z",
+  "updatedAt": "2026-04-26T18:41:33.482Z",
   "items": [
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0002",
@@ -20,7 +20,7 @@
             "start": 2,
             "end": 2
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -32,8 +32,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0002"
       ],
-      "createdAt": "2026-04-26T18:28:20.523Z",
-      "updatedAt": "2026-04-26T18:28:20.523Z"
+      "createdAt": "2026-04-26T18:41:33.309Z",
+      "updatedAt": "2026-04-26T18:41:33.309Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0003",
@@ -53,7 +53,7 @@
             "start": 2,
             "end": 3
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -65,8 +65,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0003"
       ],
-      "createdAt": "2026-04-26T18:28:20.523Z",
-      "updatedAt": "2026-04-26T18:28:20.523Z"
+      "createdAt": "2026-04-26T18:41:33.309Z",
+      "updatedAt": "2026-04-26T18:41:33.309Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0003-0003",
@@ -86,7 +86,7 @@
             "start": 3,
             "end": 3
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -98,8 +98,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0003-0003"
       ],
-      "createdAt": "2026-04-26T18:28:20.524Z",
-      "updatedAt": "2026-04-26T18:28:20.524Z"
+      "createdAt": "2026-04-26T18:41:33.310Z",
+      "updatedAt": "2026-04-26T18:41:33.310Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0006-0006",
@@ -119,7 +119,7 @@
             "start": 6,
             "end": 6
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -131,8 +131,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0006-0006"
       ],
-      "createdAt": "2026-04-26T18:28:20.524Z",
-      "updatedAt": "2026-04-26T18:28:20.524Z"
+      "createdAt": "2026-04-26T18:41:33.310Z",
+      "updatedAt": "2026-04-26T18:41:33.310Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0008-0008",
@@ -152,7 +152,7 @@
             "start": 8,
             "end": 8
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -164,8 +164,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0008-0008"
       ],
-      "createdAt": "2026-04-26T18:28:20.525Z",
-      "updatedAt": "2026-04-26T18:28:20.525Z"
+      "createdAt": "2026-04-26T18:41:33.311Z",
+      "updatedAt": "2026-04-26T18:41:33.311Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-000b",
@@ -185,7 +185,7 @@
             "start": 11,
             "end": 11
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -197,8 +197,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-000b"
       ],
-      "createdAt": "2026-04-26T18:28:20.525Z",
-      "updatedAt": "2026-04-26T18:28:20.525Z"
+      "createdAt": "2026-04-26T18:41:33.311Z",
+      "updatedAt": "2026-04-26T18:41:33.311Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -218,7 +218,7 @@
             "start": 11,
             "end": 64839
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -230,8 +230,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "createdAt": "2026-04-26T18:28:20.525Z",
-      "updatedAt": "2026-04-26T18:28:20.525Z"
+      "createdAt": "2026-04-26T18:41:33.312Z",
+      "updatedAt": "2026-04-26T18:41:33.312Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000d-000d",
@@ -251,7 +251,7 @@
             "start": 13,
             "end": 13
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -263,8 +263,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000d-000d"
       ],
-      "createdAt": "2026-04-26T18:28:20.526Z",
-      "updatedAt": "2026-04-26T18:28:20.526Z"
+      "createdAt": "2026-04-26T18:41:33.312Z",
+      "updatedAt": "2026-04-26T18:41:33.312Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000e-000e",
@@ -284,7 +284,7 @@
             "start": 14,
             "end": 14
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -296,8 +296,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000e-000e"
       ],
-      "createdAt": "2026-04-26T18:28:20.526Z",
-      "updatedAt": "2026-04-26T18:28:20.526Z"
+      "createdAt": "2026-04-26T18:41:33.313Z",
+      "updatedAt": "2026-04-26T18:41:33.313Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000f-000f",
@@ -317,7 +317,7 @@
             "start": 15,
             "end": 15
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -329,8 +329,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000f-000f"
       ],
-      "createdAt": "2026-04-26T18:28:20.527Z",
-      "updatedAt": "2026-04-26T18:28:20.527Z"
+      "createdAt": "2026-04-26T18:41:33.313Z",
+      "updatedAt": "2026-04-26T18:41:33.313Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0012-0012",
@@ -350,7 +350,7 @@
             "start": 18,
             "end": 18
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -362,8 +362,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0012-0012"
       ],
-      "createdAt": "2026-04-26T18:28:20.527Z",
-      "updatedAt": "2026-04-26T18:28:20.527Z"
+      "createdAt": "2026-04-26T18:41:33.314Z",
+      "updatedAt": "2026-04-26T18:41:33.314Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0017-0017",
@@ -383,7 +383,7 @@
             "start": 23,
             "end": 23
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -395,8 +395,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0017-0017"
       ],
-      "createdAt": "2026-04-26T18:28:20.528Z",
-      "updatedAt": "2026-04-26T18:28:20.528Z"
+      "createdAt": "2026-04-26T18:41:33.314Z",
+      "updatedAt": "2026-04-26T18:41:33.314Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0018-0018",
@@ -416,7 +416,7 @@
             "start": 24,
             "end": 24
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -428,8 +428,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0018-0018"
       ],
-      "createdAt": "2026-04-26T18:28:20.528Z",
-      "updatedAt": "2026-04-26T18:28:20.528Z"
+      "createdAt": "2026-04-26T18:41:33.315Z",
+      "updatedAt": "2026-04-26T18:41:33.315Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-001b-001b",
@@ -449,7 +449,7 @@
             "start": 27,
             "end": 27
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -461,8 +461,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-001b-001b"
       ],
-      "createdAt": "2026-04-26T18:28:20.529Z",
-      "updatedAt": "2026-04-26T18:28:20.529Z"
+      "createdAt": "2026-04-26T18:41:33.315Z",
+      "updatedAt": "2026-04-26T18:41:33.315Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0021-0021",
@@ -482,7 +482,7 @@
             "start": 33,
             "end": 33
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -494,8 +494,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0021-0021"
       ],
-      "createdAt": "2026-04-26T18:28:20.529Z",
-      "updatedAt": "2026-04-26T18:28:20.529Z"
+      "createdAt": "2026-04-26T18:41:33.316Z",
+      "updatedAt": "2026-04-26T18:41:33.316Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0022-0022",
@@ -515,7 +515,7 @@
             "start": 34,
             "end": 34
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -527,8 +527,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0022-0022"
       ],
-      "createdAt": "2026-04-26T18:28:20.530Z",
-      "updatedAt": "2026-04-26T18:28:20.530Z"
+      "createdAt": "2026-04-26T18:41:33.316Z",
+      "updatedAt": "2026-04-26T18:41:33.316Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0024-0024",
@@ -548,7 +548,7 @@
             "start": 36,
             "end": 36
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -560,8 +560,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0024-0024"
       ],
-      "createdAt": "2026-04-26T18:28:20.530Z",
-      "updatedAt": "2026-04-26T18:28:20.530Z"
+      "createdAt": "2026-04-26T18:41:33.317Z",
+      "updatedAt": "2026-04-26T18:41:33.317Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0027-0027",
@@ -581,7 +581,7 @@
             "start": 39,
             "end": 39
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -593,8 +593,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0027-0027"
       ],
-      "createdAt": "2026-04-26T18:28:20.531Z",
-      "updatedAt": "2026-04-26T18:28:20.531Z"
+      "createdAt": "2026-04-26T18:41:33.317Z",
+      "updatedAt": "2026-04-26T18:41:33.317Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0028-0028",
@@ -614,7 +614,7 @@
             "start": 40,
             "end": 40
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -626,8 +626,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0028-0028"
       ],
-      "createdAt": "2026-04-26T18:28:20.531Z",
-      "updatedAt": "2026-04-26T18:28:20.531Z"
+      "createdAt": "2026-04-26T18:41:33.318Z",
+      "updatedAt": "2026-04-26T18:41:33.318Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0029-0029",
@@ -647,7 +647,7 @@
             "start": 41,
             "end": 41
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -659,8 +659,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0029-0029"
       ],
-      "createdAt": "2026-04-26T18:28:20.532Z",
-      "updatedAt": "2026-04-26T18:28:20.532Z"
+      "createdAt": "2026-04-26T18:41:33.318Z",
+      "updatedAt": "2026-04-26T18:41:33.318Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-002a-002a",
@@ -680,7 +680,7 @@
             "start": 42,
             "end": 42
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -692,8 +692,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-002a-002a"
       ],
-      "createdAt": "2026-04-26T18:28:20.533Z",
-      "updatedAt": "2026-04-26T18:28:20.533Z"
+      "createdAt": "2026-04-26T18:41:33.319Z",
+      "updatedAt": "2026-04-26T18:41:33.319Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-002f-002f",
@@ -713,7 +713,7 @@
             "start": 47,
             "end": 47
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -725,8 +725,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-002f-002f"
       ],
-      "createdAt": "2026-04-26T18:28:20.534Z",
-      "updatedAt": "2026-04-26T18:28:20.534Z"
+      "createdAt": "2026-04-26T18:41:33.320Z",
+      "updatedAt": "2026-04-26T18:41:33.320Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0032",
@@ -746,7 +746,7 @@
             "start": 50,
             "end": 50
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -758,8 +758,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0032"
       ],
-      "createdAt": "2026-04-26T18:28:20.534Z",
-      "updatedAt": "2026-04-26T18:28:20.534Z"
+      "createdAt": "2026-04-26T18:41:33.320Z",
+      "updatedAt": "2026-04-26T18:41:33.320Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0033",
@@ -779,7 +779,7 @@
             "start": 50,
             "end": 51
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -791,8 +791,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0033"
       ],
-      "createdAt": "2026-04-26T18:28:20.535Z",
-      "updatedAt": "2026-04-26T18:28:20.535Z"
+      "createdAt": "2026-04-26T18:41:33.321Z",
+      "updatedAt": "2026-04-26T18:41:33.321Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0033-0033",
@@ -812,7 +812,7 @@
             "start": 51,
             "end": 51
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -824,8 +824,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0033-0033"
       ],
-      "createdAt": "2026-04-26T18:28:20.536Z",
-      "updatedAt": "2026-04-26T18:28:20.536Z"
+      "createdAt": "2026-04-26T18:41:33.322Z",
+      "updatedAt": "2026-04-26T18:41:33.322Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0034-0034",
@@ -845,7 +845,7 @@
             "start": 52,
             "end": 52
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -857,8 +857,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0034-0034"
       ],
-      "createdAt": "2026-04-26T18:28:20.537Z",
-      "updatedAt": "2026-04-26T18:28:20.537Z"
+      "createdAt": "2026-04-26T18:41:33.323Z",
+      "updatedAt": "2026-04-26T18:41:33.323Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0035-0035",
@@ -878,7 +878,7 @@
             "start": 53,
             "end": 53
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -890,8 +890,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0035-0035"
       ],
-      "createdAt": "2026-04-26T18:28:20.537Z",
-      "updatedAt": "2026-04-26T18:28:20.537Z"
+      "createdAt": "2026-04-26T18:41:33.323Z",
+      "updatedAt": "2026-04-26T18:41:33.323Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0036-0036",
@@ -911,7 +911,7 @@
             "start": 54,
             "end": 54
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -923,8 +923,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0036-0036"
       ],
-      "createdAt": "2026-04-26T18:28:20.538Z",
-      "updatedAt": "2026-04-26T18:28:20.538Z"
+      "createdAt": "2026-04-26T18:41:33.324Z",
+      "updatedAt": "2026-04-26T18:41:33.324Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0039-0039",
@@ -944,7 +944,7 @@
             "start": 57,
             "end": 57
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -956,8 +956,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0039-0039"
       ],
-      "createdAt": "2026-04-26T18:28:20.539Z",
-      "updatedAt": "2026-04-26T18:28:20.539Z"
+      "createdAt": "2026-04-26T18:41:33.325Z",
+      "updatedAt": "2026-04-26T18:41:33.325Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004a-004a",
@@ -977,7 +977,7 @@
             "start": 74,
             "end": 74
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -989,8 +989,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004a-004a"
       ],
-      "createdAt": "2026-04-26T18:28:20.539Z",
-      "updatedAt": "2026-04-26T18:28:20.539Z"
+      "createdAt": "2026-04-26T18:41:33.325Z",
+      "updatedAt": "2026-04-26T18:41:33.325Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004b-004b",
@@ -1010,7 +1010,7 @@
             "start": 75,
             "end": 75
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1022,8 +1022,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004b-004b"
       ],
-      "createdAt": "2026-04-26T18:28:20.540Z",
-      "updatedAt": "2026-04-26T18:28:20.540Z"
+      "createdAt": "2026-04-26T18:41:33.326Z",
+      "updatedAt": "2026-04-26T18:41:33.326Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004d-004d",
@@ -1043,7 +1043,7 @@
             "start": 77,
             "end": 77
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1055,8 +1055,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004d-004d"
       ],
-      "createdAt": "2026-04-26T18:28:20.541Z",
-      "updatedAt": "2026-04-26T18:28:20.541Z"
+      "createdAt": "2026-04-26T18:41:33.327Z",
+      "updatedAt": "2026-04-26T18:41:33.327Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0050-0050",
@@ -1076,7 +1076,7 @@
             "start": 80,
             "end": 80
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1088,8 +1088,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0050-0050"
       ],
-      "createdAt": "2026-04-26T18:28:20.542Z",
-      "updatedAt": "2026-04-26T18:28:20.542Z"
+      "createdAt": "2026-04-26T18:41:33.328Z",
+      "updatedAt": "2026-04-26T18:41:33.328Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0053-0053",
@@ -1109,7 +1109,7 @@
             "start": 83,
             "end": 83
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1121,8 +1121,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0053-0053"
       ],
-      "createdAt": "2026-04-26T18:28:20.543Z",
-      "updatedAt": "2026-04-26T18:28:20.543Z"
+      "createdAt": "2026-04-26T18:41:33.329Z",
+      "updatedAt": "2026-04-26T18:41:33.329Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0054-0054",
@@ -1142,7 +1142,7 @@
             "start": 84,
             "end": 84
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1154,8 +1154,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0054-0054"
       ],
-      "createdAt": "2026-04-26T18:28:20.544Z",
-      "updatedAt": "2026-04-26T18:28:20.544Z"
+      "createdAt": "2026-04-26T18:41:33.330Z",
+      "updatedAt": "2026-04-26T18:41:33.330Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0061-0061",
@@ -1175,7 +1175,7 @@
             "start": 97,
             "end": 97
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1187,8 +1187,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0061-0061"
       ],
-      "createdAt": "2026-04-26T18:28:20.545Z",
-      "updatedAt": "2026-04-26T18:28:20.545Z"
+      "createdAt": "2026-04-26T18:41:33.331Z",
+      "updatedAt": "2026-04-26T18:41:33.331Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0065-0065",
@@ -1208,7 +1208,7 @@
             "start": 101,
             "end": 101
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1220,8 +1220,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0065-0065"
       ],
-      "createdAt": "2026-04-26T18:28:20.545Z",
-      "updatedAt": "2026-04-26T18:28:20.545Z"
+      "createdAt": "2026-04-26T18:41:33.332Z",
+      "updatedAt": "2026-04-26T18:41:33.332Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0069-0069",
@@ -1241,7 +1241,7 @@
             "start": 105,
             "end": 105
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1253,8 +1253,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0069-0069"
       ],
-      "createdAt": "2026-04-26T18:28:20.546Z",
-      "updatedAt": "2026-04-26T18:28:20.546Z"
+      "createdAt": "2026-04-26T18:41:33.332Z",
+      "updatedAt": "2026-04-26T18:41:33.332Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006b-006b",
@@ -1274,7 +1274,7 @@
             "start": 107,
             "end": 107
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1286,8 +1286,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006b-006b"
       ],
-      "createdAt": "2026-04-26T18:28:20.547Z",
-      "updatedAt": "2026-04-26T18:28:20.547Z"
+      "createdAt": "2026-04-26T18:41:33.333Z",
+      "updatedAt": "2026-04-26T18:41:33.333Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006c-006c",
@@ -1307,7 +1307,7 @@
             "start": 108,
             "end": 108
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1319,8 +1319,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006c-006c"
       ],
-      "createdAt": "2026-04-26T18:28:20.548Z",
-      "updatedAt": "2026-04-26T18:28:20.548Z"
+      "createdAt": "2026-04-26T18:41:33.334Z",
+      "updatedAt": "2026-04-26T18:41:33.334Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006d-006d",
@@ -1340,7 +1340,7 @@
             "start": 109,
             "end": 109
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1352,8 +1352,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006d-006d"
       ],
-      "createdAt": "2026-04-26T18:28:20.549Z",
-      "updatedAt": "2026-04-26T18:28:20.549Z"
+      "createdAt": "2026-04-26T18:41:33.335Z",
+      "updatedAt": "2026-04-26T18:41:33.335Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0071-0071",
@@ -1373,7 +1373,7 @@
             "start": 113,
             "end": 113
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1385,8 +1385,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0071-0071"
       ],
-      "createdAt": "2026-04-26T18:28:20.550Z",
-      "updatedAt": "2026-04-26T18:28:20.550Z"
+      "createdAt": "2026-04-26T18:41:33.336Z",
+      "updatedAt": "2026-04-26T18:41:33.336Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-0076",
@@ -1406,7 +1406,7 @@
             "start": 118,
             "end": 118
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1418,8 +1418,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-0076"
       ],
-      "createdAt": "2026-04-26T18:28:20.551Z",
-      "updatedAt": "2026-04-26T18:28:20.551Z"
+      "createdAt": "2026-04-26T18:41:33.337Z",
+      "updatedAt": "2026-04-26T18:41:33.337Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-007b",
@@ -1439,7 +1439,7 @@
             "start": 118,
             "end": 123
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -1451,8 +1451,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-007b"
       ],
-      "createdAt": "2026-04-26T18:28:20.552Z",
-      "updatedAt": "2026-04-26T18:28:20.552Z"
+      "createdAt": "2026-04-26T18:41:33.338Z",
+      "updatedAt": "2026-04-26T18:41:33.338Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-007b-007b",
@@ -1472,7 +1472,7 @@
             "start": 123,
             "end": 123
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1484,8 +1484,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-007b-007b"
       ],
-      "createdAt": "2026-04-26T18:28:20.553Z",
-      "updatedAt": "2026-04-26T18:28:20.553Z"
+      "createdAt": "2026-04-26T18:41:33.339Z",
+      "updatedAt": "2026-04-26T18:41:33.339Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0096-0096",
@@ -1505,7 +1505,7 @@
             "start": 150,
             "end": 150
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1517,8 +1517,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0096-0096"
       ],
-      "createdAt": "2026-04-26T18:28:20.554Z",
-      "updatedAt": "2026-04-26T18:28:20.554Z"
+      "createdAt": "2026-04-26T18:41:33.340Z",
+      "updatedAt": "2026-04-26T18:41:33.340Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ab-00ab",
@@ -1538,7 +1538,7 @@
             "start": 171,
             "end": 171
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1550,8 +1550,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ab-00ab"
       ],
-      "createdAt": "2026-04-26T18:28:20.555Z",
-      "updatedAt": "2026-04-26T18:28:20.555Z"
+      "createdAt": "2026-04-26T18:41:33.341Z",
+      "updatedAt": "2026-04-26T18:41:33.341Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ac-00ac",
@@ -1571,7 +1571,7 @@
             "start": 172,
             "end": 172
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -1583,8 +1583,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ac-00ac"
       ],
-      "createdAt": "2026-04-26T18:28:20.556Z",
-      "updatedAt": "2026-04-26T18:28:20.556Z"
+      "createdAt": "2026-04-26T18:41:33.342Z",
+      "updatedAt": "2026-04-26T18:41:33.342Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00b0-00b0",
@@ -1604,7 +1604,7 @@
             "start": 176,
             "end": 176
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1616,8 +1616,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00b0-00b0"
       ],
-      "createdAt": "2026-04-26T18:28:20.557Z",
-      "updatedAt": "2026-04-26T18:28:20.557Z"
+      "createdAt": "2026-04-26T18:41:33.343Z",
+      "updatedAt": "2026-04-26T18:41:33.343Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00b5-00b5",
@@ -1637,7 +1637,7 @@
             "start": 181,
             "end": 181
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1649,8 +1649,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00b5-00b5"
       ],
-      "createdAt": "2026-04-26T18:28:20.558Z",
-      "updatedAt": "2026-04-26T18:28:20.558Z"
+      "createdAt": "2026-04-26T18:41:33.344Z",
+      "updatedAt": "2026-04-26T18:41:33.344Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ba-00ba",
@@ -1670,7 +1670,7 @@
             "start": 186,
             "end": 186
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1682,8 +1682,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ba-00ba"
       ],
-      "createdAt": "2026-04-26T18:28:20.560Z",
-      "updatedAt": "2026-04-26T18:28:20.560Z"
+      "createdAt": "2026-04-26T18:41:33.346Z",
+      "updatedAt": "2026-04-26T18:41:33.346Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00bf-00bf",
@@ -1703,7 +1703,7 @@
             "start": 191,
             "end": 191
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1715,8 +1715,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00bf-00bf"
       ],
-      "createdAt": "2026-04-26T18:28:20.561Z",
-      "updatedAt": "2026-04-26T18:28:20.561Z"
+      "createdAt": "2026-04-26T18:41:33.347Z",
+      "updatedAt": "2026-04-26T18:41:33.347Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00c4-00c4",
@@ -1736,7 +1736,7 @@
             "start": 196,
             "end": 196
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1748,8 +1748,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00c4-00c4"
       ],
-      "createdAt": "2026-04-26T18:28:20.562Z",
-      "updatedAt": "2026-04-26T18:28:20.562Z"
+      "createdAt": "2026-04-26T18:41:33.348Z",
+      "updatedAt": "2026-04-26T18:41:33.348Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00c9-00c9",
@@ -1769,7 +1769,7 @@
             "start": 201,
             "end": 201
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1781,8 +1781,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00c9-00c9"
       ],
-      "createdAt": "2026-04-26T18:28:20.563Z",
-      "updatedAt": "2026-04-26T18:28:20.563Z"
+      "createdAt": "2026-04-26T18:41:33.349Z",
+      "updatedAt": "2026-04-26T18:41:33.349Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00de-00de",
@@ -1802,7 +1802,7 @@
             "start": 222,
             "end": 222
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1814,8 +1814,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00de-00de"
       ],
-      "createdAt": "2026-04-26T18:28:20.564Z",
-      "updatedAt": "2026-04-26T18:28:20.564Z"
+      "createdAt": "2026-04-26T18:41:33.350Z",
+      "updatedAt": "2026-04-26T18:41:33.350Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00e3-00e3",
@@ -1835,7 +1835,7 @@
             "start": 227,
             "end": 227
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1847,8 +1847,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00e3-00e3"
       ],
-      "createdAt": "2026-04-26T18:28:20.566Z",
-      "updatedAt": "2026-04-26T18:28:20.566Z"
+      "createdAt": "2026-04-26T18:41:33.352Z",
+      "updatedAt": "2026-04-26T18:41:33.352Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00e4-00e4",
@@ -1868,7 +1868,7 @@
             "start": 228,
             "end": 228
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1880,8 +1880,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00e4-00e4"
       ],
-      "createdAt": "2026-04-26T18:28:20.567Z",
-      "updatedAt": "2026-04-26T18:28:20.567Z"
+      "createdAt": "2026-04-26T18:41:33.353Z",
+      "updatedAt": "2026-04-26T18:41:33.353Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ec-00ec",
@@ -1901,7 +1901,7 @@
             "start": 236,
             "end": 236
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1913,8 +1913,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ec-00ec"
       ],
-      "createdAt": "2026-04-26T18:28:20.568Z",
-      "updatedAt": "2026-04-26T18:28:20.568Z"
+      "createdAt": "2026-04-26T18:41:33.354Z",
+      "updatedAt": "2026-04-26T18:41:33.354Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00fe-00fe",
@@ -1934,7 +1934,7 @@
             "start": 254,
             "end": 254
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1946,8 +1946,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00fe-00fe"
       ],
-      "createdAt": "2026-04-26T18:28:20.569Z",
-      "updatedAt": "2026-04-26T18:28:20.569Z"
+      "createdAt": "2026-04-26T18:41:33.355Z",
+      "updatedAt": "2026-04-26T18:41:33.355Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0100-0100",
@@ -1967,7 +1967,7 @@
             "start": 256,
             "end": 256
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -1979,8 +1979,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0100-0100"
       ],
-      "createdAt": "2026-04-26T18:28:20.571Z",
-      "updatedAt": "2026-04-26T18:28:20.571Z"
+      "createdAt": "2026-04-26T18:41:33.357Z",
+      "updatedAt": "2026-04-26T18:41:33.357Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0106-0106",
@@ -2000,7 +2000,7 @@
             "start": 262,
             "end": 262
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2012,8 +2012,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0106-0106"
       ],
-      "createdAt": "2026-04-26T18:28:20.572Z",
-      "updatedAt": "2026-04-26T18:28:20.572Z"
+      "createdAt": "2026-04-26T18:41:33.358Z",
+      "updatedAt": "2026-04-26T18:41:33.358Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0112-0115",
@@ -2033,7 +2033,7 @@
             "start": 274,
             "end": 277
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2045,8 +2045,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0112-0115"
       ],
-      "createdAt": "2026-04-26T18:28:20.573Z",
-      "updatedAt": "2026-04-26T18:28:20.573Z"
+      "createdAt": "2026-04-26T18:41:33.359Z",
+      "updatedAt": "2026-04-26T18:41:33.359Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-011b-011e",
@@ -2066,7 +2066,7 @@
             "start": 283,
             "end": 286
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2078,8 +2078,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-011b-011e"
       ],
-      "createdAt": "2026-04-26T18:28:20.574Z",
-      "updatedAt": "2026-04-26T18:28:20.574Z"
+      "createdAt": "2026-04-26T18:41:33.361Z",
+      "updatedAt": "2026-04-26T18:41:33.361Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0130",
@@ -2099,7 +2099,7 @@
             "start": 304,
             "end": 304
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2111,8 +2111,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0130"
       ],
-      "createdAt": "2026-04-26T18:28:20.576Z",
-      "updatedAt": "2026-04-26T18:28:20.576Z"
+      "createdAt": "2026-04-26T18:41:33.362Z",
+      "updatedAt": "2026-04-26T18:41:33.362Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0133",
@@ -2132,7 +2132,7 @@
             "start": 304,
             "end": 307
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2144,8 +2144,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0133"
       ],
-      "createdAt": "2026-04-26T18:28:20.577Z",
-      "updatedAt": "2026-04-26T18:28:20.577Z"
+      "createdAt": "2026-04-26T18:41:33.363Z",
+      "updatedAt": "2026-04-26T18:41:33.363Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0200-0200",
@@ -2165,7 +2165,7 @@
             "start": 512,
             "end": 512
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2177,8 +2177,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0200-0200"
       ],
-      "createdAt": "2026-04-26T18:28:20.579Z",
-      "updatedAt": "2026-04-26T18:28:20.579Z"
+      "createdAt": "2026-04-26T18:41:33.365Z",
+      "updatedAt": "2026-04-26T18:41:33.365Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0288-0288",
@@ -2198,7 +2198,7 @@
             "start": 648,
             "end": 648
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2210,8 +2210,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0288-0288"
       ],
-      "createdAt": "2026-04-26T18:28:20.580Z",
-      "updatedAt": "2026-04-26T18:28:20.580Z"
+      "createdAt": "2026-04-26T18:41:33.366Z",
+      "updatedAt": "2026-04-26T18:41:33.366Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0300-0300",
@@ -2231,7 +2231,7 @@
             "start": 768,
             "end": 768
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2243,8 +2243,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0300-0300"
       ],
-      "createdAt": "2026-04-26T18:28:20.581Z",
-      "updatedAt": "2026-04-26T18:28:20.581Z"
+      "createdAt": "2026-04-26T18:41:33.367Z",
+      "updatedAt": "2026-04-26T18:41:33.367Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
@@ -2264,7 +2264,7 @@
             "start": 1023,
             "end": 51207
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2276,8 +2276,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807"
       ],
-      "createdAt": "2026-04-26T18:28:20.583Z",
-      "updatedAt": "2026-04-26T18:28:20.583Z"
+      "createdAt": "2026-04-26T18:41:33.369Z",
+      "updatedAt": "2026-04-26T18:41:33.369Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0401-0401",
@@ -2297,7 +2297,7 @@
             "start": 1025,
             "end": 1025
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2309,8 +2309,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0401-0401"
       ],
-      "createdAt": "2026-04-26T18:28:20.584Z",
-      "updatedAt": "2026-04-26T18:28:20.584Z"
+      "createdAt": "2026-04-26T18:41:33.370Z",
+      "updatedAt": "2026-04-26T18:41:33.370Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0e27-0e27",
@@ -2330,7 +2330,7 @@
             "start": 3623,
             "end": 3623
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2342,8 +2342,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0e27-0e27"
       ],
-      "createdAt": "2026-04-26T18:28:20.586Z",
-      "updatedAt": "2026-04-26T18:28:20.586Z"
+      "createdAt": "2026-04-26T18:41:33.372Z",
+      "updatedAt": "2026-04-26T18:41:33.372Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-1705-1718",
@@ -2363,7 +2363,7 @@
             "start": 5893,
             "end": 5912
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2375,8 +2375,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-1705-1718"
       ],
-      "createdAt": "2026-04-26T18:28:20.587Z",
-      "updatedAt": "2026-04-26T18:28:20.587Z"
+      "createdAt": "2026-04-26T18:41:33.373Z",
+      "updatedAt": "2026-04-26T18:41:33.373Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-170a-170a",
@@ -2396,7 +2396,7 @@
             "start": 5898,
             "end": 5898
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2408,8 +2408,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-170a-170a"
       ],
-      "createdAt": "2026-04-26T18:28:20.589Z",
-      "updatedAt": "2026-04-26T18:28:20.589Z"
+      "createdAt": "2026-04-26T18:41:33.375Z",
+      "updatedAt": "2026-04-26T18:41:33.375Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-1c34-1c34",
@@ -2429,7 +2429,7 @@
             "start": 7220,
             "end": 7220
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2441,8 +2441,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-1c34-1c34"
       ],
-      "createdAt": "2026-04-26T18:28:20.590Z",
-      "updatedAt": "2026-04-26T18:28:20.590Z"
+      "createdAt": "2026-04-26T18:41:33.376Z",
+      "updatedAt": "2026-04-26T18:41:33.376Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-2ebd-2ebd",
@@ -2462,7 +2462,7 @@
             "start": 11965,
             "end": 11965
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2474,8 +2474,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-2ebd-2ebd"
       ],
-      "createdAt": "2026-04-26T18:28:20.592Z",
-      "updatedAt": "2026-04-26T18:28:20.592Z"
+      "createdAt": "2026-04-26T18:41:33.378Z",
+      "updatedAt": "2026-04-26T18:41:33.378Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-3338-3338",
@@ -2495,7 +2495,7 @@
             "start": 13112,
             "end": 13112
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2507,8 +2507,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-3338-3338"
       ],
-      "createdAt": "2026-04-26T18:28:20.593Z",
-      "updatedAt": "2026-04-26T18:28:20.593Z"
+      "createdAt": "2026-04-26T18:41:33.379Z",
+      "updatedAt": "2026-04-26T18:41:33.379Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-34c0-34c0",
@@ -2528,7 +2528,7 @@
             "start": 13504,
             "end": 13504
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2540,8 +2540,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-34c0-34c0"
       ],
-      "createdAt": "2026-04-26T18:28:20.595Z",
-      "updatedAt": "2026-04-26T18:28:20.595Z"
+      "createdAt": "2026-04-26T18:41:33.381Z",
+      "updatedAt": "2026-04-26T18:41:33.381Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-3523-352c",
@@ -2561,7 +2561,7 @@
             "start": 13603,
             "end": 13612
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2573,8 +2573,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-3523-352c"
       ],
-      "createdAt": "2026-04-26T18:28:20.596Z",
-      "updatedAt": "2026-04-26T18:28:20.596Z"
+      "createdAt": "2026-04-26T18:41:33.382Z",
+      "updatedAt": "2026-04-26T18:41:33.382Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-38ee-38ee",
@@ -2594,7 +2594,7 @@
             "start": 14574,
             "end": 14574
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2606,8 +2606,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-38ee-38ee"
       ],
-      "createdAt": "2026-04-26T18:28:20.598Z",
-      "updatedAt": "2026-04-26T18:28:20.598Z"
+      "createdAt": "2026-04-26T18:41:33.384Z",
+      "updatedAt": "2026-04-26T18:41:33.384Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-394f-394f",
@@ -2627,7 +2627,7 @@
             "start": 14671,
             "end": 14671
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2639,8 +2639,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-394f-394f"
       ],
-      "createdAt": "2026-04-26T18:28:20.600Z",
-      "updatedAt": "2026-04-26T18:28:20.600Z"
+      "createdAt": "2026-04-26T18:41:33.385Z",
+      "updatedAt": "2026-04-26T18:41:33.385Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4159-4159",
@@ -2660,7 +2660,7 @@
             "start": 16729,
             "end": 16729
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2672,8 +2672,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4159-4159"
       ],
-      "createdAt": "2026-04-26T18:28:20.602Z",
-      "updatedAt": "2026-04-26T18:28:20.602Z"
+      "createdAt": "2026-04-26T18:41:33.387Z",
+      "updatedAt": "2026-04-26T18:41:33.387Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4163-4163",
@@ -2693,7 +2693,7 @@
             "start": 16739,
             "end": 16739
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2705,8 +2705,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4163-4163"
       ],
-      "createdAt": "2026-04-26T18:28:20.603Z",
-      "updatedAt": "2026-04-26T18:28:20.603Z"
+      "createdAt": "2026-04-26T18:41:33.389Z",
+      "updatedAt": "2026-04-26T18:41:33.389Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4171-4171",
@@ -2726,7 +2726,7 @@
             "start": 16753,
             "end": 16753
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2738,8 +2738,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4171-4171"
       ],
-      "createdAt": "2026-04-26T18:28:20.605Z",
-      "updatedAt": "2026-04-26T18:28:20.605Z"
+      "createdAt": "2026-04-26T18:41:33.390Z",
+      "updatedAt": "2026-04-26T18:41:33.390Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4179-4179",
@@ -2759,7 +2759,7 @@
             "start": 16761,
             "end": 16761
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2771,8 +2771,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4179-4179"
       ],
-      "createdAt": "2026-04-26T18:28:20.607Z",
-      "updatedAt": "2026-04-26T18:28:20.607Z"
+      "createdAt": "2026-04-26T18:41:33.392Z",
+      "updatedAt": "2026-04-26T18:41:33.392Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-417d-417d",
@@ -2792,7 +2792,7 @@
             "start": 16765,
             "end": 16765
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2804,8 +2804,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-417d-417d"
       ],
-      "createdAt": "2026-04-26T18:28:20.609Z",
-      "updatedAt": "2026-04-26T18:28:20.609Z"
+      "createdAt": "2026-04-26T18:41:33.393Z",
+      "updatedAt": "2026-04-26T18:41:33.393Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-424b-424b",
@@ -2825,7 +2825,7 @@
             "start": 16971,
             "end": 16971
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2837,8 +2837,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-424b-424b"
       ],
-      "createdAt": "2026-04-26T18:28:20.610Z",
-      "updatedAt": "2026-04-26T18:28:20.610Z"
+      "createdAt": "2026-04-26T18:41:33.395Z",
+      "updatedAt": "2026-04-26T18:41:33.395Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-44b1-44b1",
@@ -2858,7 +2858,7 @@
             "start": 17585,
             "end": 17585
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2870,8 +2870,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-44b1-44b1"
       ],
-      "createdAt": "2026-04-26T18:28:20.612Z",
-      "updatedAt": "2026-04-26T18:28:20.612Z"
+      "createdAt": "2026-04-26T18:41:33.397Z",
+      "updatedAt": "2026-04-26T18:41:33.397Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-478d-4799",
@@ -2891,7 +2891,7 @@
             "start": 18317,
             "end": 18329
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -2903,8 +2903,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-478d-4799"
       ],
-      "createdAt": "2026-04-26T18:28:20.614Z",
-      "updatedAt": "2026-04-26T18:28:20.614Z"
+      "createdAt": "2026-04-26T18:41:33.399Z",
+      "updatedAt": "2026-04-26T18:41:33.399Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-49df-49df",
@@ -2924,7 +2924,7 @@
             "start": 18911,
             "end": 18911
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2936,8 +2936,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-49df-49df"
       ],
-      "createdAt": "2026-04-26T18:28:20.616Z",
-      "updatedAt": "2026-04-26T18:28:20.616Z"
+      "createdAt": "2026-04-26T18:41:33.400Z",
+      "updatedAt": "2026-04-26T18:41:33.400Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-50de-50de",
@@ -2957,7 +2957,7 @@
             "start": 20702,
             "end": 20702
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -2969,8 +2969,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-50de-50de"
       ],
-      "createdAt": "2026-04-26T18:28:20.618Z",
-      "updatedAt": "2026-04-26T18:28:20.618Z"
+      "createdAt": "2026-04-26T18:41:33.402Z",
+      "updatedAt": "2026-04-26T18:41:33.402Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-60f8-60f8",
@@ -2990,7 +2990,7 @@
             "start": 24824,
             "end": 24824
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3002,8 +3002,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-60f8-60f8"
       ],
-      "createdAt": "2026-04-26T18:28:20.620Z",
-      "updatedAt": "2026-04-26T18:28:20.620Z"
+      "createdAt": "2026-04-26T18:41:33.404Z",
+      "updatedAt": "2026-04-26T18:41:33.404Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-6566-6566",
@@ -3023,7 +3023,7 @@
             "start": 25958,
             "end": 25958
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3035,8 +3035,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-6566-6566"
       ],
-      "createdAt": "2026-04-26T18:28:20.621Z",
-      "updatedAt": "2026-04-26T18:28:20.621Z"
+      "createdAt": "2026-04-26T18:41:33.406Z",
+      "updatedAt": "2026-04-26T18:41:33.406Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-699b-699b",
@@ -3056,7 +3056,7 @@
             "start": 27035,
             "end": 27035
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3068,8 +3068,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-699b-699b"
       ],
-      "createdAt": "2026-04-26T18:28:20.623Z",
-      "updatedAt": "2026-04-26T18:28:20.623Z"
+      "createdAt": "2026-04-26T18:41:33.407Z",
+      "updatedAt": "2026-04-26T18:41:33.407Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-7300-7300",
@@ -3089,7 +3089,7 @@
             "start": 29440,
             "end": 29440
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3101,8 +3101,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-7300-7300"
       ],
-      "createdAt": "2026-04-26T18:28:20.625Z",
-      "updatedAt": "2026-04-26T18:28:20.625Z"
+      "createdAt": "2026-04-26T18:41:33.410Z",
+      "updatedAt": "2026-04-26T18:41:33.410Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-73d9-73d9",
@@ -3122,7 +3122,7 @@
             "start": 29657,
             "end": 29657
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3134,8 +3134,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-73d9-73d9"
       ],
-      "createdAt": "2026-04-26T18:28:20.627Z",
-      "updatedAt": "2026-04-26T18:28:20.627Z"
+      "createdAt": "2026-04-26T18:41:33.412Z",
+      "updatedAt": "2026-04-26T18:41:33.412Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d5e",
@@ -3155,7 +3155,7 @@
             "start": 36190,
             "end": 36190
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3167,8 +3167,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d5e"
       ],
-      "createdAt": "2026-04-26T18:28:20.629Z",
-      "updatedAt": "2026-04-26T18:28:20.629Z"
+      "createdAt": "2026-04-26T18:41:33.414Z",
+      "updatedAt": "2026-04-26T18:41:33.414Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d67",
@@ -3188,7 +3188,7 @@
             "start": 36190,
             "end": 36199
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3200,8 +3200,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d67"
       ],
-      "createdAt": "2026-04-26T18:28:20.631Z",
-      "updatedAt": "2026-04-26T18:28:20.631Z"
+      "createdAt": "2026-04-26T18:41:33.415Z",
+      "updatedAt": "2026-04-26T18:41:33.415Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8db0-8db0",
@@ -3221,7 +3221,7 @@
             "start": 36272,
             "end": 36272
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3233,8 +3233,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8db0-8db0"
       ],
-      "createdAt": "2026-04-26T18:28:20.633Z",
-      "updatedAt": "2026-04-26T18:28:20.633Z"
+      "createdAt": "2026-04-26T18:41:33.418Z",
+      "updatedAt": "2026-04-26T18:41:33.418Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8f6a-8f6a",
@@ -3254,7 +3254,7 @@
             "start": 36714,
             "end": 36714
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3266,8 +3266,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8f6a-8f6a"
       ],
-      "createdAt": "2026-04-26T18:28:20.635Z",
-      "updatedAt": "2026-04-26T18:28:20.635Z"
+      "createdAt": "2026-04-26T18:41:33.420Z",
+      "updatedAt": "2026-04-26T18:41:33.420Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8fb8-8fe5",
@@ -3287,7 +3287,7 @@
             "start": 36792,
             "end": 36837
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3299,8 +3299,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8fb8-8fe5"
       ],
-      "createdAt": "2026-04-26T18:28:20.637Z",
-      "updatedAt": "2026-04-26T18:28:20.637Z"
+      "createdAt": "2026-04-26T18:41:33.422Z",
+      "updatedAt": "2026-04-26T18:41:33.422Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-9014-9014",
@@ -3320,7 +3320,7 @@
             "start": 36884,
             "end": 36884
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3332,8 +3332,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-9014-9014"
       ],
-      "createdAt": "2026-04-26T18:28:20.640Z",
-      "updatedAt": "2026-04-26T18:28:20.640Z"
+      "createdAt": "2026-04-26T18:41:33.423Z",
+      "updatedAt": "2026-04-26T18:41:33.423Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-9990-9990",
@@ -3353,7 +3353,7 @@
             "start": 39312,
             "end": 39312
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3365,8 +3365,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-9990-9990"
       ],
-      "createdAt": "2026-04-26T18:28:20.642Z",
-      "updatedAt": "2026-04-26T18:28:20.642Z"
+      "createdAt": "2026-04-26T18:41:33.426Z",
+      "updatedAt": "2026-04-26T18:41:33.426Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c000-c000",
@@ -3386,7 +3386,7 @@
             "start": 49152,
             "end": 49152
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3398,8 +3398,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c000-c000"
       ],
-      "createdAt": "2026-04-26T18:28:20.644Z",
-      "updatedAt": "2026-04-26T18:28:20.644Z"
+      "createdAt": "2026-04-26T18:41:33.428Z",
+      "updatedAt": "2026-04-26T18:41:33.428Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7",
@@ -3419,7 +3419,7 @@
             "start": 50167,
             "end": 51191
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3431,8 +3431,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
       ],
-      "createdAt": "2026-04-26T18:28:20.646Z",
-      "updatedAt": "2026-04-26T18:28:20.646Z"
+      "createdAt": "2026-04-26T18:41:33.430Z",
+      "updatedAt": "2026-04-26T18:41:33.430Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c410-c48c",
@@ -3452,7 +3452,7 @@
             "start": 50192,
             "end": 50316
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3464,8 +3464,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c410-c48c"
       ],
-      "createdAt": "2026-04-26T18:28:20.648Z",
-      "updatedAt": "2026-04-26T18:28:20.648Z"
+      "createdAt": "2026-04-26T18:41:33.432Z",
+      "updatedAt": "2026-04-26T18:41:33.432Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c873-c874",
@@ -3485,7 +3485,7 @@
             "start": 51315,
             "end": 51316
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3497,8 +3497,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c873-c874"
       ],
-      "createdAt": "2026-04-26T18:28:20.650Z",
-      "updatedAt": "2026-04-26T18:28:20.650Z"
+      "createdAt": "2026-04-26T18:41:33.434Z",
+      "updatedAt": "2026-04-26T18:41:33.434Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c878-c879",
@@ -3518,7 +3518,7 @@
             "start": 51320,
             "end": 51321
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3530,8 +3530,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c878-c879"
       ],
-      "createdAt": "2026-04-26T18:28:20.652Z",
-      "updatedAt": "2026-04-26T18:28:20.652Z"
+      "createdAt": "2026-04-26T18:41:33.436Z",
+      "updatedAt": "2026-04-26T18:41:33.436Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c880-c881",
@@ -3551,7 +3551,7 @@
             "start": 51328,
             "end": 51329
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3563,8 +3563,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c880-c881"
       ],
-      "createdAt": "2026-04-26T18:28:20.654Z",
-      "updatedAt": "2026-04-26T18:28:20.654Z"
+      "createdAt": "2026-04-26T18:41:33.438Z",
+      "updatedAt": "2026-04-26T18:41:33.438Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00",
@@ -3584,7 +3584,7 @@
             "start": 52288,
             "end": 52992
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3596,8 +3596,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00"
       ],
-      "createdAt": "2026-04-26T18:28:20.657Z",
-      "updatedAt": "2026-04-26T18:28:20.657Z"
+      "createdAt": "2026-04-26T18:41:33.440Z",
+      "updatedAt": "2026-04-26T18:41:33.440Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cfe5-cfe8",
@@ -3617,7 +3617,7 @@
             "start": 53221,
             "end": 53224
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3629,8 +3629,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cfe5-cfe8"
       ],
-      "createdAt": "2026-04-26T18:28:20.659Z",
-      "updatedAt": "2026-04-26T18:28:20.659Z"
+      "createdAt": "2026-04-26T18:41:33.442Z",
+      "updatedAt": "2026-04-26T18:41:33.442Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cff0-cff8",
@@ -3650,7 +3650,7 @@
             "start": 53232,
             "end": 53240
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -3662,8 +3662,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cff0-cff8"
       ],
-      "createdAt": "2026-04-26T18:28:20.661Z",
-      "updatedAt": "2026-04-26T18:28:20.661Z"
+      "createdAt": "2026-04-26T18:41:33.444Z",
+      "updatedAt": "2026-04-26T18:41:33.444Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
@@ -3683,7 +3683,7 @@
             "start": 61568,
             "end": 64832
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3695,8 +3695,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40"
       ],
-      "createdAt": "2026-04-26T18:28:20.663Z",
-      "updatedAt": "2026-04-26T18:28:20.663Z"
+      "createdAt": "2026-04-26T18:41:33.447Z",
+      "updatedAt": "2026-04-26T18:41:33.447Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
@@ -3716,7 +3716,7 @@
             "start": 61632,
             "end": 64896
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3728,8 +3728,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
-      "createdAt": "2026-04-26T18:28:20.666Z",
-      "updatedAt": "2026-04-26T18:28:20.666Z"
+      "createdAt": "2026-04-26T18:41:33.449Z",
+      "updatedAt": "2026-04-26T18:41:33.449Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fb39-fcb9",
@@ -3749,7 +3749,7 @@
             "start": 64313,
             "end": 64697
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3761,8 +3761,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fb39-fcb9"
       ],
-      "createdAt": "2026-04-26T18:28:20.668Z",
-      "updatedAt": "2026-04-26T18:28:20.668Z"
+      "createdAt": "2026-04-26T18:41:33.451Z",
+      "updatedAt": "2026-04-26T18:41:33.451Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd00-fe80",
@@ -3782,7 +3782,7 @@
             "start": 64768,
             "end": 65152
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3794,8 +3794,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd00-fe80"
       ],
-      "createdAt": "2026-04-26T18:28:20.670Z",
-      "updatedAt": "2026-04-26T18:28:20.670Z"
+      "createdAt": "2026-04-26T18:41:33.453Z",
+      "updatedAt": "2026-04-26T18:41:33.453Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd40-fd80",
@@ -3815,7 +3815,7 @@
             "start": 64832,
             "end": 64896
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3827,8 +3827,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd40-fd80"
       ],
-      "createdAt": "2026-04-26T18:28:20.673Z",
-      "updatedAt": "2026-04-26T18:28:20.673Z"
+      "createdAt": "2026-04-26T18:41:33.456Z",
+      "updatedAt": "2026-04-26T18:41:33.456Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd47-fd47",
@@ -3848,7 +3848,7 @@
             "start": 64839,
             "end": 64839
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3860,8 +3860,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd47-fd47"
       ],
-      "createdAt": "2026-04-26T18:28:20.675Z",
-      "updatedAt": "2026-04-26T18:28:20.675Z"
+      "createdAt": "2026-04-26T18:41:33.458Z",
+      "updatedAt": "2026-04-26T18:41:33.458Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd80-fdc2",
@@ -3881,7 +3881,7 @@
             "start": 64896,
             "end": 64962
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3893,8 +3893,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd80-fdc2"
       ],
-      "createdAt": "2026-04-26T18:28:20.677Z",
-      "updatedAt": "2026-04-26T18:28:20.677Z"
+      "createdAt": "2026-04-26T18:41:33.460Z",
+      "updatedAt": "2026-04-26T18:41:33.460Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fddd-fddf",
@@ -3914,7 +3914,7 @@
             "start": 64989,
             "end": 64991
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3926,8 +3926,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fddd-fddf"
       ],
-      "createdAt": "2026-04-26T18:28:20.680Z",
-      "updatedAt": "2026-04-26T18:28:20.680Z"
+      "createdAt": "2026-04-26T18:41:33.462Z",
+      "updatedAt": "2026-04-26T18:41:33.462Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fded-feed",
@@ -3947,7 +3947,7 @@
             "start": 65005,
             "end": 65261
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3959,8 +3959,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fded-feed"
       ],
-      "createdAt": "2026-04-26T18:28:20.682Z",
-      "updatedAt": "2026-04-26T18:28:20.682Z"
+      "createdAt": "2026-04-26T18:41:33.465Z",
+      "updatedAt": "2026-04-26T18:41:33.465Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fe4f-fe55",
@@ -3980,7 +3980,7 @@
             "start": 65103,
             "end": 65109
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -3992,8 +3992,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fe4f-fe55"
       ],
-      "createdAt": "2026-04-26T18:28:20.684Z",
-      "updatedAt": "2026-04-26T18:28:20.684Z"
+      "createdAt": "2026-04-26T18:41:33.467Z",
+      "updatedAt": "2026-04-26T18:41:33.467Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01",
@@ -4013,7 +4013,7 @@
             "start": 65280,
             "end": 65281
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -4025,8 +4025,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01"
       ],
-      "createdAt": "2026-04-26T18:28:20.687Z",
-      "updatedAt": "2026-04-26T18:28:20.687Z"
+      "createdAt": "2026-04-26T18:41:33.469Z",
+      "updatedAt": "2026-04-26T18:41:33.469Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98",
@@ -4046,7 +4046,7 @@
             "start": 65368,
             "end": 65432
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -4058,8 +4058,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98"
       ],
-      "createdAt": "2026-04-26T18:28:20.689Z",
-      "updatedAt": "2026-04-26T18:28:20.689Z"
+      "createdAt": "2026-04-26T18:41:33.472Z",
+      "updatedAt": "2026-04-26T18:41:33.472Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ffff-ffff",
@@ -4079,7 +4079,7 @@
             "start": 65535,
             "end": 65535
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "entityIds": [
@@ -4091,8 +4091,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ffff-ffff"
       ],
-      "createdAt": "2026-04-26T18:28:20.692Z",
-      "updatedAt": "2026-04-26T18:28:20.692Z"
+      "createdAt": "2026-04-26T18:41:33.475Z",
+      "updatedAt": "2026-04-26T18:41:33.475Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-3d72",
@@ -4112,7 +4112,7 @@
             "start": 15730,
             "end": 16692
           },
-          "capturedAt": "2026-04-26T18:28:16.559Z"
+          "capturedAt": "2026-04-26T18:41:29.346Z"
         }
       ],
       "entityIds": [
@@ -4124,8 +4124,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-3d72"
       ],
-      "createdAt": "2026-04-26T18:28:20.694Z",
-      "updatedAt": "2026-04-26T18:28:20.694Z"
+      "createdAt": "2026-04-26T18:41:33.477Z",
+      "updatedAt": "2026-04-26T18:41:33.477Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-5469",
@@ -4145,7 +4145,7 @@
             "start": 21609,
             "end": 21616
           },
-          "capturedAt": "2026-04-26T18:28:16.559Z"
+          "capturedAt": "2026-04-26T18:41:29.346Z"
         }
       ],
       "entityIds": [
@@ -4157,8 +4157,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-5469"
       ],
-      "createdAt": "2026-04-26T18:28:20.697Z",
-      "updatedAt": "2026-04-26T18:28:20.697Z"
+      "createdAt": "2026-04-26T18:41:33.479Z",
+      "updatedAt": "2026-04-26T18:41:33.479Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-ceec",
@@ -4178,7 +4178,7 @@
             "start": 52972,
             "end": 53163
           },
-          "capturedAt": "2026-04-26T18:28:16.560Z"
+          "capturedAt": "2026-04-26T18:41:29.347Z"
         }
       ],
       "entityIds": [
@@ -4190,8 +4190,8 @@
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-ceec"
       ],
-      "createdAt": "2026-04-26T18:28:20.700Z",
-      "updatedAt": "2026-04-26T18:28:20.700Z"
+      "createdAt": "2026-04-26T18:41:33.482Z",
+      "updatedAt": "2026-04-26T18:41:33.482Z"
     },
     {
       "id": "question-when-does-disk-level-loading-begin-mo41xbqc",

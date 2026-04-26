@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-26T18:28:20.522Z",
+  "updatedAt": "2026-04-26T18:41:33.308Z",
   "items": [
     {
       "id": "flow-artifact-polarbear-analysis-json-mo41xbpt-analysis-control-flow",
@@ -14,7 +14,7 @@
           "kind": "artifact",
           "title": "Derived analysis flow graph",
           "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
-          "capturedAt": "2026-04-26T18:28:16.564Z"
+          "capturedAt": "2026-04-26T18:41:29.350Z"
         }
       ],
       "entityIds": [
@@ -123,7 +123,7 @@
                 "start": 14849,
                 "end": 14849
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -147,7 +147,7 @@
                 "start": 14892,
                 "end": 14892
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -171,7 +171,7 @@
                 "start": 14896,
                 "end": 14896
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -195,7 +195,7 @@
                 "start": 14900,
                 "end": 14900
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -219,7 +219,7 @@
                 "start": 14919,
                 "end": 14919
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -243,7 +243,7 @@
                 "start": 14940,
                 "end": 14940
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -267,7 +267,7 @@
                 "start": 14960,
                 "end": 14960
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -291,7 +291,7 @@
                 "start": 14962,
                 "end": 14962
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -315,7 +315,7 @@
                 "start": 14968,
                 "end": 14968
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -339,7 +339,7 @@
                 "start": 14975,
                 "end": 14975
               },
-              "capturedAt": "2026-04-26T18:28:16.562Z"
+              "capturedAt": "2026-04-26T18:41:29.349Z"
             }
           ]
         },
@@ -363,7 +363,7 @@
                 "start": 7122,
                 "end": 7122
               },
-              "capturedAt": "2026-04-26T18:28:16.561Z"
+              "capturedAt": "2026-04-26T18:41:29.348Z"
             }
           ]
         },
@@ -387,7 +387,7 @@
                 "start": 14781,
                 "end": 14781
               },
-              "capturedAt": "2026-04-26T18:28:16.561Z"
+              "capturedAt": "2026-04-26T18:41:29.348Z"
             }
           ]
         },
@@ -411,13 +411,13 @@
                 "start": 18246,
                 "end": 18246
               },
-              "capturedAt": "2026-04-26T18:28:16.561Z"
+              "capturedAt": "2026-04-26T18:41:29.348Z"
             }
           ]
         }
       ],
-      "createdAt": "2026-04-26T18:28:20.522Z",
-      "updatedAt": "2026-04-26T18:28:20.522Z"
+      "createdAt": "2026-04-26T18:41:33.308Z",
+      "updatedAt": "2026-04-26T18:41:33.308Z"
     },
     {
       "id": "flow-polarbear-intro-and-first-level-handoff-mo41xbqc",

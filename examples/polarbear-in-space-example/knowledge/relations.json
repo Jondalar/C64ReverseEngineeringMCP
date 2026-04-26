@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-26T18:28:20.522Z",
+  "updatedAt": "2026-04-26T18:41:33.308Z",
   "items": [
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a01",
@@ -21,14 +21,14 @@
             "start": 14849,
             "end": 14849
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.516Z",
-      "updatedAt": "2026-04-26T18:28:20.516Z"
+      "createdAt": "2026-04-26T18:41:33.301Z",
+      "updatedAt": "2026-04-26T18:41:33.301Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a2c",
@@ -49,14 +49,14 @@
             "start": 14892,
             "end": 14892
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.517Z",
-      "updatedAt": "2026-04-26T18:28:20.517Z"
+      "createdAt": "2026-04-26T18:41:33.302Z",
+      "updatedAt": "2026-04-26T18:41:33.302Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a30",
@@ -77,14 +77,14 @@
             "start": 14896,
             "end": 14896
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.517Z",
-      "updatedAt": "2026-04-26T18:28:20.517Z"
+      "createdAt": "2026-04-26T18:41:33.302Z",
+      "updatedAt": "2026-04-26T18:41:33.302Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a34",
@@ -105,14 +105,14 @@
             "start": 14900,
             "end": 14900
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.518Z",
-      "updatedAt": "2026-04-26T18:28:20.518Z"
+      "createdAt": "2026-04-26T18:41:33.303Z",
+      "updatedAt": "2026-04-26T18:41:33.303Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a47",
@@ -133,14 +133,14 @@
             "start": 14919,
             "end": 14919
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.518Z",
-      "updatedAt": "2026-04-26T18:28:20.518Z"
+      "createdAt": "2026-04-26T18:41:33.303Z",
+      "updatedAt": "2026-04-26T18:41:33.303Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a5c",
@@ -161,14 +161,14 @@
             "start": 14940,
             "end": 14940
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.519Z",
-      "updatedAt": "2026-04-26T18:28:20.519Z"
+      "createdAt": "2026-04-26T18:41:33.304Z",
+      "updatedAt": "2026-04-26T18:41:33.304Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a70",
@@ -189,14 +189,14 @@
             "start": 14960,
             "end": 14960
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.519Z",
-      "updatedAt": "2026-04-26T18:28:20.519Z"
+      "createdAt": "2026-04-26T18:41:33.304Z",
+      "updatedAt": "2026-04-26T18:41:33.304Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a72",
@@ -217,14 +217,14 @@
             "start": 14962,
             "end": 14962
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.520Z",
-      "updatedAt": "2026-04-26T18:28:20.520Z"
+      "createdAt": "2026-04-26T18:41:33.305Z",
+      "updatedAt": "2026-04-26T18:41:33.305Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a78",
@@ -245,14 +245,14 @@
             "start": 14968,
             "end": 14968
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.520Z",
-      "updatedAt": "2026-04-26T18:28:20.520Z"
+      "createdAt": "2026-04-26T18:41:33.306Z",
+      "updatedAt": "2026-04-26T18:41:33.306Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a7f",
@@ -273,14 +273,14 @@
             "start": 14975,
             "end": 14975
           },
-          "capturedAt": "2026-04-26T18:28:16.562Z"
+          "capturedAt": "2026-04-26T18:41:29.349Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.520Z",
-      "updatedAt": "2026-04-26T18:28:20.520Z"
+      "createdAt": "2026-04-26T18:41:33.306Z",
+      "updatedAt": "2026-04-26T18:41:33.306Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
@@ -301,14 +301,14 @@
             "start": 7122,
             "end": 7122
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.521Z",
-      "updatedAt": "2026-04-26T18:28:20.521Z"
+      "createdAt": "2026-04-26T18:41:33.307Z",
+      "updatedAt": "2026-04-26T18:41:33.307Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
@@ -329,14 +329,14 @@
             "start": 14781,
             "end": 14781
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.521Z",
-      "updatedAt": "2026-04-26T18:28:20.521Z"
+      "createdAt": "2026-04-26T18:41:33.307Z",
+      "updatedAt": "2026-04-26T18:41:33.307Z"
     },
     {
       "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-4746-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
@@ -357,14 +357,14 @@
             "start": 18246,
             "end": 18246
           },
-          "capturedAt": "2026-04-26T18:28:16.561Z"
+          "capturedAt": "2026-04-26T18:41:29.348Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-26T18:28:20.522Z",
-      "updatedAt": "2026-04-26T18:28:20.522Z"
+      "createdAt": "2026-04-26T18:41:33.308Z",
+      "updatedAt": "2026-04-26T18:41:33.308Z"
     },
     {
       "id": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",

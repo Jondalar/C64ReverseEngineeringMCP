@@ -1,10 +1,64 @@
 import { basename, resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runCli } from "../run-cli.js";
+import { assembleSource } from "../assemble-source.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import type { ServerToolContext } from "./types.js";
+
+async function rebuildVerification(args: {
+  projectDir: string;
+  asmPath: string;
+  prgPath: string;
+}): Promise<string> {
+  const tempPrg = args.asmPath.replace(/\.asm$/i, "_rebuild_check.prg");
+  let summaryLine: string;
+  try {
+    const result = await assembleSource({
+      projectDir: args.projectDir,
+      sourcePath: args.asmPath,
+      assembler: "kickassembler",
+      outputPath: tempPrg,
+      compareToPath: args.prgPath,
+    });
+    if (result.exitCode !== 0) {
+      summaryLine = `// WARNING: rebuild assembler exited ${result.exitCode}; this listing is not byte-identical with ${basename(args.prgPath)}`;
+    } else if (result.compareMatches === false) {
+      const offset = result.firstDiffOffset !== undefined ? `0x${result.firstDiffOffset.toString(16).toUpperCase()}` : "?";
+      summaryLine = `// WARNING: rebuild diverges from ${basename(args.prgPath)} at body offset ${offset}; disassembly is not byte-identical`;
+    } else if (result.compareMatches) {
+      summaryLine = `// rebuild verified byte-identical against ${basename(args.prgPath)} (${result.comparedBytes ?? "?"} bytes)`;
+    } else {
+      summaryLine = `// rebuild verification skipped (no compare result)`;
+    }
+  } catch (error) {
+    summaryLine = `// WARNING: rebuild verification failed to run: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  // Bake the verdict into the head of the ASM so a human reading the file
+  // sees it immediately without having to consult the tool stdout.
+  try {
+    const asm = readFileSync(args.asmPath, "utf8");
+    const lines = asm.split("\n");
+    const header = lines.findIndex((line) => line.startsWith("//****************"));
+    if (header >= 0) {
+      // insert before the closing banner
+      const closing = lines.findIndex((line, index) => index > header && line.startsWith("//****************"));
+      const insertAt = closing >= 0 ? closing : Math.min(lines.length, header + 1);
+      // Drop any prior verification line so re-runs don't accumulate.
+      const filtered = lines.filter((line) => !line.startsWith("// rebuild verified") && !line.startsWith("// WARNING: rebuild "));
+      filtered.splice(insertAt, 0, summaryLine);
+      writeFileSync(args.asmPath, filtered.join("\n"), "utf8");
+    } else {
+      writeFileSync(args.asmPath, `${summaryLine}\n${asm}`, "utf8");
+    }
+  } catch {
+    // best-effort header injection; don't fail the disasm flow over it
+  }
+
+  return summaryLine;
+}
 
 export function registerAnalysisWorkflowTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
@@ -141,7 +195,12 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             },
           ],
         });
-        result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}`;
+        const verificationSummary = await rebuildVerification({
+          projectDir: pd,
+          asmPath: outAbs,
+          prgPath: prgAbs,
+        });
+        result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}\n${verificationSummary}`;
         if (!hasAnnotations) {
           result.stdout += `\n\nNEXT STEP: Read the full ASM with read_artifact, then create ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then run disasm_prg again to produce the final annotated version.`;
         } else {

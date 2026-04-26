@@ -220,6 +220,157 @@ Then optionally:
 
 ---
 
+## Bug 5 — Self-mod operand-patch target uses non-existent label, breaks rebuild
+
+**Status**: FIXED — `pipeline/src/lib/prg-disasm.ts` label collection now keeps mid-instruction xref targets out of the free-standing label set; the renderer falls through to `findCodeLabelExpression` which emits `<owner>+<offset>` (e.g. `WFF3D+1`) using the synthetic `W<addr>` label that the renderer already declares at every instruction boundary referenced by an xref. Verified on the polarbear PRG: 274 self-mod patch sites now render as `W<addr>+1`/`+2` and the rebuild compares byte-identical.
+
+**Severity**: High — disassembly does not assemble; defeats the byte-identity guarantee that is the tool's headline feature.
+
+### Summary
+When TRXDis emits a self-modifying-code patch (e.g. `STA WFF3E` to patch the operand byte of `LDA $XXXX,Y` at $FF3D), it labels the target by **address** as `WFF3E` — but `WFF3E` is mid-instruction (operand byte) and is **never declared** as a label in the output. KickAssembler then refuses to assemble:
+
+```
+Error: Unknown symbol 'WFF3E'
+Error: Unknown symbol 'WFF43'
+Error: Unknown symbol 'WFF3F'
+Error: Unknown symbol 'WFF44'
+```
+
+The accompanying comment proves c64re knows the correct symbolic form:
+```asm
+sta  WFF3E    // self-mod: patch operand at WFF3D+1 | probable code
+sta  WFF43    // self-mod: patch operand at WFF42+1 | probable code
+sta  WFF3F    // self-mod: patch operand at WFF3D+2 | probable code
+sta  WFF44    // self-mod: patch operand at WFF42+2 | probable code
+```
+
+### Reproduction
+```
+analyze_prg(prg_path=…/14_riv4_relocF500.prg)
+disasm_prg(prg_path=…, analysis_json=…)
+assemble_source(source_path=…/14_riv4_relocF500_disasm.asm,
+                compare_to=…/14_riv4_relocF500.prg)
+# Exit code 1 — 4 unknown-symbol errors at lines 854/855/857/860
+```
+
+After manually replacing `sta WFF3E` → `sta $FF3E` (raw address) and same for the other three, rebuild succeeds and bytes match exactly (2810/2810). So the disasm IS correct semantically — only the symbol-emission for self-mod operand-patches is broken.
+
+### Expected
+Either:
+- Emit `sta WFF3D+1` (label + offset) — KickAssembler / 64tass both accept this form
+- Or fall back to raw `sta $FF3E` when target is mid-instruction
+
+### Actual
+Emits `sta WFF3E` referring to an undeclared label that falls inside another instruction's encoding.
+
+### Suggested fix
+In the disasm renderer, when a self-mod patch target lies between two declared labels (`WFF3D` defined, `WFF3F` not — but request is `$FF3E`):
+1. Find the nearest declared label `≤ target`
+2. Emit `<label> + <target - label>` form
+3. Both KickAssembler and 64tass accept arithmetic on labels in operand position
+
+Alternative: just emit raw `$FF3E` for these cases — less pretty but always assembles.
+
+### Evidence
+File `analysis/disk/14_riv4_relocF500_disasm.asm` — 4 errors at lines 854/855/857/860. Same pattern likely affects every PRG with self-mod-style operand patching (very common in C64 software).
+
+---
+
+## Bug 6 — Branch into unlabelled data segment
+
+**Status**: FIXED (defensive) — `pipeline/src/lib/prg-disasm.ts` xref pass no longer mints a free-standing label when the xref target lacks an instruction owner (i.e. lands inside a data segment). The renderer then falls back to `<segment-label>+<offset>` when the target sits inside a labelled data segment, or to a raw `$XXXX` operand otherwise. This eliminates the "Unknown symbol Wxxxx" assembler errors caused by false-positive code islands branching into stochastic data. Root-cause classification fix (better code/data discrimination) is still pending; the defensive change keeps the build green in the meantime.
+
+**Severity**: High — disasm fails to assemble; not a self-mod issue, distinct root cause.
+
+### Summary
+TRXDis sometimes decodes bytes inside a data segment as code (false-positive `code` classification due to greedy linear probe), generates a branch instruction whose target falls within UNLABELLED data, then emits `bvc WBA0D` referring to a label that doesn't exist.
+
+### Reproduction
+```
+analyze_prg(prg_path=…/14_riv4.prg)   # PRG header $B500 (decoy load addr)
+disasm_prg(...)
+assemble_source(source_path=…/14_riv4_disasm.asm,
+                compare_to=…/14_riv4.prg)
+# Error: Unknown symbol 'WBA0D' at line 209
+```
+
+Context shows the surrounding bytes are clearly NOT real code:
+```asm
+rol  $7E58,x
+cli
+inx
+cli
+bvc  WBA0D
+sta  $59,x
+adc  ($5A,x)
+.byte $D2     // undocumented jam (opcode $D2)
+```
+The presence of `JAM` immediately after the branch confirms the linear probe walked off the end of real code into stochastic data, and the resulting `bvc` is meaningless. But once it's emitted in the rendering, KickAss can't resolve the target.
+
+### Expected
+Confidence-based gate: when a code-island has an internal branch whose target lies in an "unknown" / "data" segment AND the surrounding instructions decode poorly (e.g. JAM, undocumented opcode adjacent), reject the code-classification of the island and re-render as `.byte` data.
+
+### Actual
+Island gets emitted as code, branches reference labels in unrelated data ranges, rebuild fails.
+
+### Suggested fix
+1. After labelling pass, validate every relative branch target lands at a known label.
+2. If not, mark the source instruction's segment as "demote to data".
+3. Re-run rendering until fixed point.
+
+### Evidence
+File `analysis/disk/14_riv4_disasm.asm` (PRG header $B500) — 1 error.
+Same PRG re-analyzed with explicit load=$F500 (`14_riv4_relocF500.prg`) does NOT exhibit this — control-flow probe behaves differently when label resolution differs. Inconsistent.
+
+---
+
+## Bug 7 — Silent byte-mismatch in rebuild (no error, but bytes differ)
+
+**Status**: FIXED — `disasm_prg` now runs an automatic rebuild verification step after generating the ASM (see `rebuildVerification` in `src/server-tools/analysis-workflow.ts`). It assembles the freshly produced ASM via KickAssembler and byte-compares against the original PRG. The verdict is both printed in the tool stdout and baked into the ASM header as either `// rebuild verified byte-identical against <prg>` or `// WARNING: rebuild diverges from <prg> at body offset 0xXXXX; disassembly is not byte-identical`. Silent lossy disasms are no longer possible. Root-cause investigation for *why* a given PRG diverges is still left to the human or follow-up tooling.
+
+**Severity**: Critical — defeats byte-identity guarantee silently. Worse than Bug 5/6 because there's no compiler error to alert the user.
+
+### Summary
+For some PRGs, c64re's disasm assembles successfully (exit 0) but the resulting binary differs from the original. No warnings, no errors — only `compare_to` reveals the discrepancy.
+
+### Reproduction
+```
+analyze_prg(prg_path=…/15_love.prg)
+disasm_prg(...)
+assemble_source(source_path=…/15_love_disasm.asm,
+                compare_to=…/15_love.prg)
+# Exit code 0, Match: no, First diff offset: 2126
+```
+
+### Expected
+Either:
+- Match exactly, or
+- Fail loudly so the user knows the disassembly is lossy.
+
+### Actual
+Compiles cleanly, produces wrong bytes. If the user didn't run `compare_to`, this would go undetected and any annotation work / EF port based on this listing would be subtly broken.
+
+### Suggested fix
+1. Bake `assemble_source --compare_to=<original>` into `disasm_prg` post-condition; refuse to claim disasm complete if rebuild diverges.
+2. Or: emit an explicit warning in the disasm header: `// WARNING: rebuild diverges from original at offset $XXXX — this listing is not byte-identical`.
+3. Track *which* segment kind the diverging bytes belong to (almost certainly a misclassified data span emitted as code or vice-versa).
+
+### Evidence
+File `analysis/disk/15_love_disasm.asm`. Diff at body-offset 2126 ($a850 in the PRG body, which falls near the petscii_text/sprite boundary at $a84B..$a86B in the segment map).
+
+---
+
+## Coverage summary (Murder project)
+
+Of 16 PRGs disasmed, 10 rebuild byte-perfectly first-try. Failures:
+- 4× Bug 5 (self-mod-into-mid-instruction): `02_ab`, `10_ingrid`, `11_riv1`, `12_riv2`
+- 1× Bug 6 (branch-into-data): `14_riv4` (PRG header $B500); same PRG with load=$F500 rebuilds OK
+- 1× Bug 7 (silent diff): `15_love`
+
+So 10/16 = 62.5% first-try rebuild success on a real game. With Bug 5/6/7 fixed, expected 100%.
+
+---
+
 ## Environment
 - c64re bundled in `/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP`
 - Run via `npx tsx src/cli.ts` per Claude Code MCP config

@@ -702,7 +702,7 @@ W10AD: // referenced from W10B1(p), W10B7(p)
       sta  $D800,x                      // probable code
       inx                               // X++ | probable code
       bne  W10AD                        // probable code
-      inc  W10AF                        // probable code
+      inc  W10AD+2                      // probable code
       dey                               // Y-- | probable code
       bpl  W10AD                        // probable code
       ldx  #$27                         // X = $27 (39, ''') | probable code
@@ -774,11 +774,11 @@ W1120:
       ldx  #$00                         // X = $00 (0) | probable code
       bne  W1132                        // probable code
       lda  #$4F                         // A = $4f (79, 'O') | probable code
-      sta  W1133                        // self-mod: patch operand at W1132+1 | probable code
+      sta  W1132+1                      // self-mod: patch operand at W1132+1 | probable code
 W1132: // referenced from W112B(p)
       ldx  #$FF                         // X = $ff (255) | probable code
       bmi  W1160                        // probable code
-      dec  W1133                        // probable code
+      dec  W1132+1                      // probable code
       lda  W1038,x                      // A = W1038[X] | probable code
       bmi  W1151                        // probable code
       beq  W114C                        // probable code
@@ -903,7 +903,7 @@ W1461:
 W148C:
       sec                               // set carry | probable code
       sta  W4AE0                        // probable code
-      sta  W4BA4                        // self-mod: patch operand at W4BA3+1 | probable code
+      sta  W4BA3+1                      // self-mod: patch operand at W4BA3+1 | probable code
       lda  #$FF                         // A = $ff (255) | probable code
       sta  $D412                        // Voice 3: Control register = $ff (255) | probable code
       sta  $D40E                        // probable code
@@ -1310,7 +1310,7 @@ W1BF4: // referenced from W1BFB(p)
       stx  W1FAF                        // probable code
       stx  W1FF3                        // probable code
       stx  W1FD1                        // probable code
-      stx  W2012                        // probable code
+      stx  W2011+1                      // probable code
       inx                               // X++ | probable code
       stx  W1CDB                        // probable code
       stx  W1E85                        // probable code
@@ -1318,7 +1318,7 @@ W1BF4: // referenced from W1BFB(p)
       tay                               // Y = A | probable code
       jsr  W1C89                        // call W1C89 | probable code
       lda  #$2F                         // A = $2f (47, '/') | probable code
-      sta  W1C34                        // self-mod: patch operand at W1C33+1 | probable code
+      sta  W1C33+1                      // self-mod: patch operand at W1C33+1 | probable code
       jsr  W1C26                        // call W1C26 | probable code
       jsr  W1FAB                        // call W1FAB | probable code
       jsr  W1CAD                        // call W1CAD | probable code
@@ -1329,17 +1329,17 @@ W1C26: // referenced from W1C1A(p)
       and  #$0C                         // probable code
       beq  W1C33                        // probable code
       ldx  #$00                         // X = $00 (0) | probable code
-      stx  W1C34                        // probable code
+      stx  W1C33+1                      // probable code
       beq  W1C52                        // probable code
 W1C33: // referenced from W1C2A(p)
       lda  #$00                         // A = $00 (0) | probable code
-      cmp  W6352                        // probable code
+      cmp  W6351+1                      // probable code
       beq  W1C44                        // probable code
       bcs  W1C41                        // probable code
-      inc  W1C34                        // probable code
+      inc  W1C33+1                      // probable code
       bne  W1C44                        // probable code
 W1C41: // referenced from W1C3A(p)
-      dec  W1C34                        // probable code
+      dec  W1C33+1                      // probable code
 W1C44: // referenced from W1C38(p), W1C3F(p)
       .byte $AF, $34, $1C               // undocumented lax (opcode $AF) | probable code
       lsr                               // shift right (÷2) | probable code
@@ -1355,7 +1355,7 @@ W1C54: // referenced from W1C76(p)
       lda  #$FF                         // A = $ff (255) | probable code
       cpx  #$10                         // X == $10 (16)? | probable code
       bcs  W1C65                        // probable code
-      sty  W1C64                        // probable code
+      sty  W1C63+1                      // probable code
       txa                               // A = X | probable code
       lsr                               // shift right (÷2) | probable code
       tay                               // Y = A | probable code
@@ -1394,9 +1394,9 @@ W1C89: // referenced from W1C12(p), W1C23(p)
       ldx  $38                          // probable code
       ldy  $39                          // probable code
 W1C8F: // referenced from W1BEF(p)
-      sta  W1CA7                        // self-mod: patch operand at W1CA6+1 | probable code
-      stx  W1CA0                        // probable code
-      sty  W1C99                        // probable code
+      sta  W1CA6+1                      // self-mod: patch operand at W1CA6+1 | probable code
+      stx  W1C9F+1                      // probable code
+      sty  W1C98+1                      // probable code
 W1C98:
       lda  #$00                         // A = $00 (0) | probable code
       ldx  #$12                         // X = $12 (18) | probable code
@@ -1458,7 +1458,7 @@ W1CDB: // referenced from W1C0A(p), W1CB9(p)
 W1D84:
       sta  WF3EC                        // probable code
       ldy  #$06                         // Y = $06 (6) | probable code
-      lda  W9136                        // probable code
+      lda  W9135+1                      // probable code
       bmi  W1D9A                        // probable code
       lda  #$00                         // A = $00 (0) | probable code
       beq  W1D9A                        // probable code
@@ -1490,13 +1490,13 @@ W1DA9: // referenced from W1C9C(p), W1CA3(p), W1CAA(p)
 // ROUTINE CONTEXT
 // key RAM: $1DB9, $20D4, $1DC4, $FF58, $1DCD, $1DDF
 W1DB5:
-      sta  W1DB9                        // self-mod: patch operand at W1DB8+1 | probable code
+      sta  W1DB8+1                      // self-mod: patch operand at W1DB8+1 | probable code
 W1DB8: // referenced from W1DEC(p)
       ldy  #$00                         // Y = $00 (0) | probable code
       lda  W20D4,y                      // A = W20D4[Y] | probable code
       pha                               // push A to stack | probable code
       and  #$F0                         // probable code
-      sta  W1DCD                        // self-mod: patch operand at W1DCC+1 | probable code
+      sta  W1DCC+1                      // self-mod: patch operand at W1DCC+1 | probable code
 W1DC3:
       ldy  #$00                         // Y = $00 (0) | probable code
       lda  W20D4,y                      // A = W20D4[Y] | probable code
@@ -1509,7 +1509,7 @@ W1DCC:
       sta  WFF58,x                      // store A → WFF58[X] | probable code
       lda  W20D4,y                      // A = W20D4[Y] | probable code
       and  #$0F                         // probable code
-      sta  W1DDF                        // self-mod: patch operand at W1DDE+1 | probable code
+      sta  W1DDE+1                      // self-mod: patch operand at W1DDE+1 | probable code
       pla                               // pull A from stack | probable code
       asl                               // shift left (×2) | probable code
       asl                               // shift left (×2) | probable code
@@ -1518,8 +1518,8 @@ W1DCC:
 W1DDE:
       ora  #$00                         // probable code
       sta  WFF55,x                      // store A → WFF55[X] | probable code
-      inc  W1DB9                        // probable code
-      inc  W1DC4                        // probable code
+      inc  W1DB8+1                      // probable code
+      inc  W1DC3+1                      // probable code
       txa                               // A = X | probable code
       .byte $CB, $06                    // undocumented axs (opcode $CB) | probable code
       bpl  W1DB8                        // probable code
@@ -1573,7 +1573,7 @@ W1ED6:
       bpl  W1EE3                        // probable code
       ldy  #$07                         // Y = $07 (7) | probable code
 W1EE3: // referenced from W1EDF(p)
-      sty  W1ED7                        // probable code
+      sty  W1ED6+1                      // probable code
 W1EE6: // referenced from W1EDC(p)
       lda  W2057,y                      // A = W2057[Y] | probable code
       sta  $D02B                        // Color sprite 4 | probable code
@@ -1688,7 +1688,7 @@ W1FFF:
 W2011:
       cmp  #$00                         // A == $00 (0)? | probable code
       beq  W202D                        // probable code
-      sta  W2012                        // self-mod: patch operand at W2011+1 | probable code
+      sta  W2011+1                      // self-mod: patch operand at W2011+1 | probable code
       asl                               // shift left (×2) | probable code
       asl                               // shift left (×2) | probable code
       tax                               // X = A | probable code
@@ -1810,7 +1810,7 @@ W2150: // referenced from W215A(p)
       jsr  W5084                        // call W5084 | probable code
       jmp  W509A                        // jump → W509A | probable code
 
-      sty  W217E                        // probable code
+      sty  W217D+1                      // probable code
       tay                               // Y = A | probable code
 W2168: // referenced from W217F(p)
       lda  $FFFF,y                      // A = WFFFF[Y] | probable code
@@ -1830,7 +1830,7 @@ W217D:
       bcc  W2168                        // probable code
       rts                               // return | probable code
 
-      sty  W21B2                        // probable code
+      sty  W21B1+1                      // probable code
       tay                               // Y = A | probable code
       .byte $B9, $07, $00               // exact-width lda $0007,y | probable code
       sta  $02                          // probable code
@@ -1860,11 +1860,11 @@ W21B1:
       rts                               // return | probable code
 
       clc                               // clear carry | probable code
-      sta  W21C8                        // self-mod: patch operand at W21C7+1 | probable code
+      sta  W21C7+1                      // self-mod: patch operand at W21C7+1 | probable code
       adc  #$0A                         // probable code
-      sta  W21DC                        // self-mod: patch operand at W21DB+1 | probable code
+      sta  W21DB+1                      // self-mod: patch operand at W21DB+1 | probable code
       adc  #$10                         // probable code
-      sta  W21F7                        // self-mod: patch operand at W21F6+1 | probable code
+      sta  W21F6+1                      // self-mod: patch operand at W21F6+1 | probable code
       ldy  W230D                        // probable code
 W21C7:
       ldx  #$3A                         // X = $3a (58, ':') | probable code
@@ -1922,10 +1922,10 @@ W2213: // referenced from W2245(p), W2249(p)
       cmp  #$FF                         // A == $ff (255)? | probable code
       beq  W220E                        // probable code
       lda  W50F5,x                      // A = W50F5[X] | probable code
-      sta  W2238                        // self-mod: patch operand at W2237+1 | probable code
+      sta  W2237+1                      // self-mod: patch operand at W2237+1 | probable code
       lda  W510E,x                      // A = W510E[X] | probable code
       ora  #$C0                         // probable code
-      sta  W2239                        // self-mod: patch operand at W2237+2 | probable code
+      sta  W2237+2                      // self-mod: patch operand at W2237+2 | probable code
       iny                               // Y++ | probable code
       .byte $B3, $02                    // undocumented lax (opcode $B3) | probable code
       iny                               // Y++ | probable code
@@ -2496,7 +2496,7 @@ W2D4C: // referenced from W2D53(p)
       stx  W2EA2                        // probable code
       stx  W2EBD                        // probable code
       stx  W30AB                        // probable code
-      stx  W30FA                        // probable code
+      stx  W30F9+1                      // probable code
       jmp  W32C2                        // jump → W32C2 | probable code
 
 
@@ -2656,7 +2656,7 @@ W30BF:
       stx  W2ED8                        // probable code
       inx                               // X++ | probable code
       stx  W2EA2                        // probable code
-      stx  W30FA                        // probable code
+      stx  W30F9+1                      // probable code
       jmp  W65B7                        // jump → W65B7 | probable code
 
 
@@ -2695,7 +2695,7 @@ W3103: // referenced from W30FB(p)
       ldx  $E4                          // probable code
 W3107: // referenced from W3101(p)
       sta  $29                          // probable code
-      sta  W704F                        // self-mod: patch operand at W704E+1 | probable code
+      sta  W704E+1                      // self-mod: patch operand at W704E+1 | probable code
       stx  $27                          // probable code
       sty  $28                          // probable code
       rts                               // return | probable code
@@ -2722,9 +2722,9 @@ W3107: // referenced from W3101(p)
 W313D:
       lda  #$C0                         // A = $c0 (192) | probable code
       eor  #$FF                         // probable code
-      sta  W313E                        // self-mod: patch operand at W313D+1 | probable code
+      sta  W313D+1                      // self-mod: patch operand at W313D+1 | probable code
 W3144: // referenced from W313B(p)
-      lda  W313E                        // probable code
+      lda  W313D+1                      // probable code
       bpl  W314E                        // probable code
       ora  $D015                        // Sprites Abilitator | probable code
       bne  W3151                        // probable code
@@ -2773,21 +2773,21 @@ W3255:
 // key RAM: $006C (buffer:zp_work_6C), $006D (counter:counter_006D), $006B (counter:counter_006B), $3338 (state_block:state_block_3155), $34C0 (state_block:state_block_3155), $3379 (state_block:state_block_3155)
 W3263: // referenced from W3089(p)
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W32AA                        // self-mod: patch operand at W32A9+1 | probable code
+      sta  W32A9+1                      // self-mod: patch operand at W32A9+1 | probable code
       lda  #$27                         // A = $27 (39, ''') | probable code
-      sta  W329C                        // self-mod: patch operand at W329B+1 | probable code
+      sta  W329B+1                      // self-mod: patch operand at W329B+1 | probable code
       bne  W3280                        // probable code
 W326F: // referenced from W3375(p)
       cpx  #$FF                         // X == $ff (255)? | probable code
       bne  W3274                        // probable code
       inx                               // X++ | probable code
 W3274: // referenced from W3271(p)
-      stx  W32AA                        // probable code
+      stx  W32A9+1                      // probable code
       cpy  #$27                         // Y == $27 (39)? | probable code
       bcc  W327D                        // probable code
       ldy  #$26                         // Y = $26 (38, '&') | probable code
 W327D: // referenced from W3279(p)
-      sty  W329C                        // probable code
+      sty  W329B+1                      // probable code
 W3280: // referenced from W326D(p)
       ldy  #$28                         // Y = $28 (40, '(') | probable code
       lda  #$C0                         // A = $c0 (192) | probable code
@@ -2833,15 +2833,15 @@ W32BC: // referenced from W32B6(p)
 
 W32C2: // referenced from W2D6D(p)
       ldx  #$62                         // X = $62 (98, 'b') | probable code
-      stx  W1CB6                        // probable code
+      stx  W1CB5+1                      // probable code
       lda  #$01                         // A = $01 (1) | probable code
 W32C9: // referenced from W32CD(p)
       sta  W34C0,x                      // store A → W34C0[X] | probable code
       dex                               // X-- | probable code
       bpl  W32C9                        // probable code
-      stx  W3379                        // probable code
+      stx  W3378+1                      // probable code
       inx                               // X++ | probable code
-      stx  W3338                        // probable code
+      stx  W3337+1                      // probable code
       rts                               // return | probable code
 
 
@@ -2905,8 +2905,8 @@ W3324: // referenced from W3328(p), W332F(p)
 W3337:
       adc  #$00                         // probable code
       cld                               // clear decimal | probable code
-      sta  W3338                        // self-mod: patch operand at W3337+1 | probable code
-      dec  W1CB6                        // probable code
+      sta  W3337+1                      // self-mod: patch operand at W3337+1 | probable code
+      dec  W1CB5+1                      // probable code
       lda  #$8C                         // A = $8c (140) | probable code
       ldy  #$01                         // Y = $01 (1) | probable code
       ldx  W2F59                        // probable code
@@ -2919,7 +2919,7 @@ W3337:
       lda  #$E7                         // A = $e7 (231) | probable code
       ldy  #$50                         // Y = $50 (80, 'P') | probable code
 W335B: // referenced from W334A(p)
-      sty  W3364                        // probable code
+      sty  W3363+1                      // probable code
       jsr  W3A29                        // call W3A29 | probable code
       lda  #$00                         // A = $00 (0) | probable code
 W3363:
@@ -2942,7 +2942,7 @@ W3378:
       iny                               // Y++ | probable code
       jsr  W33B6                        // call W33B6 | probable code
       ldx  #$FF                         // X = $ff (255) | probable code
-      stx  W3379                        // probable code
+      stx  W3378+1                      // probable code
 W3387: // referenced from W337A(p)
       ldx  $1C                          // probable code
       cpx  $EE                          // probable code
@@ -2951,7 +2951,7 @@ W3387: // referenced from W337A(p)
       bcs  W33B5                        // probable code
       lda  W34C0,x                      // A = W34C0[X] | probable code
       beq  W33B5                        // probable code
-      stx  W3379                        // probable code
+      stx  W3378+1                      // probable code
       lda  W33FA,x                      // A = W33FA[X] | probable code
       sta  $70                          // probable code
       lda  W345D,x                      // A = W345D[X] | probable code
@@ -2971,7 +2971,7 @@ W33B5: // referenced from W338B(p), W338F(p), W3394(p)
       rts                               // return | probable code
 
 W33B6: // referenced from W3086(p), W337F(p)
-      sty  W33BA                        // probable code
+      sty  W33B9+1                      // probable code
 W33B9: // referenced from W33F7(p)
       cpx  #$FF                         // X == $ff (255)? | probable code
       beq  W33F9                        // probable code
@@ -3201,17 +3201,17 @@ W38C1:
       clc                               // clear carry | probable code
       lda  W50F5,x                      // A = W50F5[X] | probable code
       adc  $E7                          // probable code
-      sta  W38EE                        // self-mod: patch operand at W38ED+1 | probable code
+      sta  W38ED+1                      // self-mod: patch operand at W38ED+1 | probable code
       lda  W510E,x                      // A = W510E[X] | probable code
       adc  #$C0                         // probable code
-      sta  W38EF                        // self-mod: patch operand at W38ED+2 | probable code
+      sta  W38ED+2                      // self-mod: patch operand at W38ED+2 | probable code
       jsr  W38E8                        // call W38E8 | probable code
       lda  W2F59                        // probable code
       cmp  #$08                         // A == $08 (8)? | probable code
       bcc  W38F5                        // probable code
-      lda  W38EE                        // probable code
+      lda  W38ED+1                      // probable code
       adc  #$14                         // probable code
-      sta  W38EE                        // self-mod: patch operand at W38ED+1 | probable code
+      sta  W38ED+1                      // self-mod: patch operand at W38ED+1 | probable code
 W38E8: // referenced from W38D6(p)
       ldy  #$02                         // Y = $02 (2) | probable code
       lda  #$09                         // A = $09 (9) | probable code
@@ -3228,9 +3228,9 @@ W38F5: // referenced from W38C3(p), W38DE(p)
       bmi  W3954                        // probable code
       lda  W66E5                        // probable code
       ora  W2EBD                        // probable code
-      ora  W417D                        // probable code
+      ora  W417C+1                      // probable code
       bne  W3915                        // probable code
-      lda  W9014                        // probable code
+      lda  W9013+1                      // probable code
       bne  W3915                        // probable code
       lda  $1C                          // probable code
       and  #$0F                         // probable code
@@ -3242,24 +3242,24 @@ W3915: // referenced from W3903(p), W3908(p)
 W3917: // referenced from W390E(p)
       .byte $0B, $03                    // undocumented anc (opcode $0B) | probable code
       bne  W3925                        // probable code
-      dec  W3948                        // probable code
+      dec  W3947+1                      // probable code
       bpl  W3925                        // probable code
       lda  #$08                         // A = $08 (8) | probable code
-      sta  W3948                        // self-mod: patch operand at W3947+1 | probable code
+      sta  W3947+1                      // self-mod: patch operand at W3947+1 | probable code
 W3925: // referenced from W3919(p), W391E(p)
       lda  W50F5,x                      // A = W50F5[X] | probable code
       adc  $E7                          // probable code
-      sta  W394F                        // self-mod: patch operand at W394E+1 | probable code
+      sta  W394E+1                      // self-mod: patch operand at W394E+1 | probable code
       lda  W510E,x                      // A = W510E[X] | probable code
       adc  #$D8                         // probable code
-      sta  W3950                        // self-mod: patch operand at W394E+2 | probable code
+      sta  W394E+2                      // self-mod: patch operand at W394E+2 | probable code
       jsr  W3947                        // call W3947 | probable code
       lda  W2F59                        // probable code
       cmp  #$08                         // A == $08 (8)? | probable code
       bcc  W3954                        // probable code
-      lda  W394F                        // probable code
+      lda  W394E+1                      // probable code
       adc  #$14                         // probable code
-      sta  W394F                        // self-mod: patch operand at W394E+1 | probable code
+      sta  W394E+1                      // self-mod: patch operand at W394E+1 | probable code
 W3947: // referenced from W3935(p)
       ldx  #$09                         // X = $09 (9) | probable code
       ldy  #$02                         // Y = $02 (2) | probable code
@@ -3310,7 +3310,7 @@ W3981: // referenced from W3978(p)
       sta  $DD0E                        // probable code
 W39A7: // referenced from W397F(p)
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W39C9                        // self-mod: patch operand at W39C8+1 | probable code
+      sta  W39C8+1                      // self-mod: patch operand at W39C8+1 | probable code
       rts                               // return | probable code
 
 
@@ -3389,7 +3389,7 @@ W3A0A: // referenced from W87C0(p)
       rts                               // return | probable code
 
 W3A29: // referenced from W335E(p), W374E(p), W4205(p), W4358(p), ...
-      ldx  W466D                        // probable code
+      ldx  W466C+1                      // probable code
       bpl  W3A41                        // probable code
 W3A2E: // referenced from W4373(p), W4694(p)
       ldx  $1B                          // probable code
@@ -3432,9 +3432,9 @@ W3A5A: // referenced from W3A7F(p)
       ldx  $65                          // probable code
       ldy  $0106,x                      // Y = W0106[X] | probable code
       beq  W3A7E                        // probable code
-      sty  W3A7D                        // probable code
+      sty  W3A7B+2                      // probable code
       ldy  $0103,x                      // Y = W0103[X] | probable code
-      sty  W3A7C                        // probable code
+      sty  W3A7B+1                      // probable code
 W3A7B:
       sta  $FFFF                        // probable code
 W3A7E: // referenced from W3A70(p)
@@ -3462,13 +3462,13 @@ W3A98:
       bmi  W3AA4                        // probable code
       jsr  W3CC3                        // call W3CC3 | probable code
       ldx  #$FF                         // X = $ff (255) | probable code
-      stx  W3A99                        // probable code
+      stx  W3A98+1                      // probable code
 W3AA4: // referenced from W3A9A(p)
       ldx  #$FF                         // X = $ff (255) | probable code
       bmi  W3AB0                        // probable code
       jsr  W3CC3                        // call W3CC3 | probable code
       ldx  #$FF                         // X = $ff (255) | probable code
-      stx  W3AA5                        // probable code
+      stx  W3AA4+1                      // probable code
 W3AB0: // referenced from W3AA6(p)
       rts                               // return | probable code
 
@@ -3545,10 +3545,10 @@ W3BAE: // referenced from W3BA4(p), W3BA9(p)
       .byte $CB, $FD                    // undocumented axs (opcode $CB) | probable code
 W3BC9: // referenced from W3BBF(p)
       lda  $011E,x                      // A = W011E[X] | probable code
-      sta  W3BD8                        // self-mod: patch operand at W3BD7+1 | probable code
+      sta  W3BD7+1                      // self-mod: patch operand at W3BD7+1 | probable code
       clc                               // clear carry | probable code
       adc  #$01                         // probable code
-      sta  W3BDE                        // self-mod: patch operand at W3BDD+1 | probable code
+      sta  W3BDD+1                      // self-mod: patch operand at W3BDD+1 | probable code
       lda  #$00                         // A = $00 (0) | probable code
 W3BD7:
       sta  $D400                        // Voice 1: Frequency control (lo byte) = $00 (0) | probable code
@@ -3742,7 +3742,7 @@ W4135: // referenced from W9158(p)
       jsr  W41A1                        // call W41A1 | probable code
       lda  #$00                         // A = $00 (0) | probable code
       sta  W4171                        // probable code
-      sta  W4179                        // self-mod: patch operand at W4178+1 | probable code
+      sta  W4178+1                      // self-mod: patch operand at W4178+1 | probable code
       sta  W4159                        // probable code
       sta  W4163                        // probable code
       jmp  W419B                        // jump → W419B | probable code
@@ -3776,11 +3776,11 @@ W417C:
       lda  #$00                         // A = $00 (0) | probable code
       bne  W419B                        // probable code
 W4180: // referenced from W91D2(p)
-      lda  W4179                        // probable code
+      lda  W4178+1                      // probable code
       beq  W41A0                        // probable code
       lda  #$01                         // A = $01 (1) | probable code
-      sta  W41F8                        // self-mod: patch operand at W41F7+1 | probable code
-      sta  W417D                        // self-mod: patch operand at W417C+1 | probable code
+      sta  W41F7+1                      // self-mod: patch operand at W41F7+1 | probable code
+      sta  W417C+1                      // self-mod: patch operand at W417C+1 | probable code
       rts                               // return | probable code
 
       lda  W4163                        // probable code
@@ -3788,11 +3788,11 @@ W4180: // referenced from W91D2(p)
       dec  W4163                        // probable code
 W4196: // referenced from W4191(p)
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W7089                        // self-mod: patch operand at W7088+1 | probable code
+      sta  W7088+1                      // self-mod: patch operand at W7088+1 | probable code
 W419B: // referenced from W4149(p), W417E(p), W41C7(p), W6B2C(p), ...
       lda  #$00                         // A = $00 (0) | probable code
 W419D: // referenced from W417A(p)
-      sta  W417D                        // self-mod: patch operand at W417C+1 | probable code
+      sta  W417C+1                      // self-mod: patch operand at W417C+1 | probable code
 W41A0: // referenced from W4183(p)
       rts                               // return | probable code
 
@@ -3811,7 +3811,7 @@ W41A9: // referenced from W41C2(p), W41F5(p)
 // key RAM: $0021 (buffer:zp_work_21), $466D (state_block:state_block_3155), $44B1 (state_block:state_block_3155), $4171 (state_block:state_block_3155), $4179 (state_block:state_block_3155), $417D (state_block:state_block_3155)
 // sprite tables: W4163.. holds sprite X positions; W4175.. holds sprite Y positions
 W41AA:
-      inc  W41AE                        // probable code
+      inc  W41AD+1                      // probable code
 W41AD:
       lda  #$00                         // A = $00 (0) | probable code
       and  #$3F                         // probable code
@@ -3822,30 +3822,30 @@ W41AD:
       beq  W416C                        // probable code
       dec  W4171                        // probable code
 W41BF: // referenced from W41B1(p), W41B5(p)
-      lda  W417D                        // probable code
+      lda  W417C+1                      // probable code
       beq  W41A9                        // probable code
-      lda  W4179                        // probable code
+      lda  W4178+1                      // probable code
       beq  W419B                        // probable code
       lda  $21                          // probable code
       and  #$10                         // probable code
       bne  W41F0                        // probable code
-      lda  W41AE                        // probable code
+      lda  W41AD+1                      // probable code
       and  #$0F                         // probable code
       bne  W41D9                        // probable code
-      dec  W4179                        // probable code
+      dec  W4178+1                      // probable code
 W41D9: // referenced from W41D4(p)
-      lda  W7733                        // probable code
+      lda  W7732+1                      // probable code
       and  W44B1                        // probable code
-      and  W466D                        // probable code
+      and  W466C+1                      // probable code
       bpl  W41EE                        // probable code
-      lda  W8F6A                        // probable code
+      lda  W8F69+1                      // probable code
       bne  W41F0                        // probable code
-      sta  W41F4                        // self-mod: patch operand at W41F3+1 | probable code
+      sta  W41F3+1                      // self-mod: patch operand at W41F3+1 | probable code
       beq  W41F3                        // probable code
 W41EE: // referenced from W41E2(p)
       lda  #$01                         // A = $01 (1) | probable code
 W41F0: // referenced from W41CD(p), W41E7(p)
-      sta  W41F4                        // self-mod: patch operand at W41F3+1 | probable code
+      sta  W41F3+1                      // self-mod: patch operand at W41F3+1 | probable code
 W41F3: // referenced from W41EC(p)
       lda  #$00                         // A = $00 (0) | probable code
       bne  W41A9                        // probable code
@@ -3854,7 +3854,7 @@ W41F7:
       bne  W4208                        // probable code
       .byte $AF, $79, $41               // undocumented lax (opcode $AF) | probable code
       .byte $CB, $F3                    // undocumented axs (opcode $CB) | probable code
-      stx  W41F8                        // probable code
+      stx  W41F7+1                      // probable code
       lda  #$4A                         // A = $4a (74, 'J') | probable code
       jmp  W3A29                        // jump → W3A29 | probable code
 
@@ -3875,9 +3875,9 @@ W420C: // referenced from W9398(p)
 W4210:
       lda  #$00                         // A = $00 (0) | probable code
       beq  W4217                        // probable code
-      dec  W4211                        // probable code
+      dec  W4210+1                      // probable code
 W4217: // referenced from W4212(p)
-      lda  W436E                        // probable code
+      lda  W436D+1                      // probable code
       beq  W4232                        // probable code
       lda  W47CE,x                      // A = W47CE[X] | probable code
       sta  W50DE                        // probable code
@@ -3890,7 +3890,7 @@ W4217: // referenced from W4212(p)
 W422F: // referenced from W4226(p)
       sta  W50EE                        // probable code
 W4232: // referenced from W421A(p)
-      dec  W420D                        // probable code
+      dec  W420C+1                      // probable code
 W4235: // referenced from W420E(p)
       rts                               // return | probable code
 
@@ -3927,13 +3927,13 @@ W433A: // referenced from W433E(p), W4346(p), W435E(p), W436F(p)
 // ROUTINE CONTEXT
 // key RAM: $466D (state_block:state_block_3155), $44B1 (state_block:state_block_3155), $420D (state_block:state_block_3155), $4211 (state_block:state_block_3155), $7089 (state_block:state_block_3155), $436E (state_block:state_block_3155)
 W433B:
-      lda  W7089                        // probable code
+      lda  W7088+1                      // probable code
       beq  W433A                        // probable code
       lda  W44B1                        // probable code
-      and  W466D                        // probable code
+      and  W466C+1                      // probable code
       bpl  W433A                        // probable code
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W45B8                        // self-mod: patch operand at W45B6+2 | probable code
+      sta  W45B6+2                      // self-mod: patch operand at W45B6+2 | probable code
       lda  #$12                         // A = $12 (18) | probable code
       sta  W4599                        // probable code
       lsr                               // shift right (÷2) | probable code
@@ -3941,13 +3941,13 @@ W433B:
       lda  #$C9                         // A = $c9 (201) | probable code
       jmp  W3A29                        // jump → W3A29 | probable code
 
-      lda  W420D                        // probable code
+      lda  W420C+1                      // probable code
       bpl  W433A                        // probable code
-      sty  W436E                        // probable code
+      sty  W436D+1                      // probable code
       lda  #$03                         // A = $03 (3) | probable code
-      sta  W4211                        // self-mod: patch operand at W4210+1 | probable code
+      sta  W4210+1                      // self-mod: patch operand at W4210+1 | probable code
       lda  #$0F                         // A = $0f (15) | probable code
-      sta  W420D                        // self-mod: patch operand at W420C+1 | probable code
+      sta  W420C+1                      // self-mod: patch operand at W420C+1 | probable code
 W436D:
       ldy  #$00                         // Y = $00 (0) | probable code
       beq  W433A                        // probable code
@@ -4012,7 +4012,7 @@ W45A6: // referenced from W45AD(p)
       sta  WCFF8,y                      // store A → WCFF8[Y] | probable code
       dey                               // Y-- | probable code
       bpl  W45A6                        // probable code
-      ldy  W45B8                        // probable code
+      ldy  W45B6+2                      // probable code
       beq  W45BF                        // probable code
       ldy  #$27                         // Y = $27 (39, ''') | probable code
 W45B6: // referenced from W45BD(p)
@@ -4113,7 +4113,7 @@ W4651: // referenced from W465E(p)
       dex                               // X-- | probable code
       bpl  W4651                        // probable code
       stx  W44B1                        // probable code
-      stx  W466D                        // probable code
+      stx  W466C+1                      // probable code
 W4666: // referenced from W466A(p), W4671(p), W467D(p)
       rts                               // return | probable code
 
@@ -4121,7 +4121,7 @@ W4666: // referenced from W466A(p), W4671(p), W467D(p)
       beq  W4666                        // probable code
 W466C:
       lda  #$FF                         // A = $ff (255) | probable code
-      and  W420D                        // probable code
+      and  W420C+1                      // probable code
       bpl  W4666                        // probable code
       lda  $21                          // probable code
       and  #$08                         // probable code
@@ -4129,10 +4129,10 @@ W466C:
       ora  W49DF                        // probable code
       bne  W4666                        // probable code
       dec  W4159                        // probable code
-      sta  W4756                        // self-mod: patch operand at W4755+1 | probable code
+      sta  W4755+1                      // self-mod: patch operand at W4755+1 | probable code
       sta  W7925                        // probable code
       lda  #$06                         // A = $06 (6) | probable code
-      sta  W466D                        // self-mod: patch operand at W466C+1 | probable code
+      sta  W466C+1                      // self-mod: patch operand at W466C+1 | probable code
       lda  #$01                         // A = $01 (1) | probable code
       sta  W48FA                        // probable code
       lda  #$46                         // A = $46 (70, 'F') | probable code
@@ -4210,7 +4210,7 @@ W4746:
       lda  $DD0D                        // Interrupt control register #2
       lsr                               // shift right (÷2)
       bcc  W478B
-      lda  W466D
+      lda  W466C+1
       cmp  #$05                         // A == $05 (5)?
       bne  W478B
       cld                               // clear decimal
@@ -4274,7 +4274,7 @@ W47CE: // referenced from W421C(p)
 W47E4: // referenced from W9161(p)
       ldy  #$00                         // Y = $00 (0) | probable code
       sty  W4940                        // probable code
-      sty  W4A3D                        // probable code
+      sty  W4A3C+1                      // probable code
       lda  #$F8                         // A = $f8 (248) | probable code
       sta  $69                          // probable code
       lda  #$60                         // A = $60 (96, '`') | probable code
@@ -4283,7 +4283,7 @@ W47E4: // referenced from W9161(p)
       jsr  W47FB                        // call W47FB | probable code
       ldy  #$3B                         // Y = $3b (59, ';') | probable code
 W47FB: // referenced from W47F6(p), W480A(p), W480F(p)
-      sty  W4806                        // probable code
+      sty  W4805+1                      // probable code
       lda  ($69),y                      // A = ($69),Y (indirect indexed) | probable code
       jsr  W4826                        // call W4826 | probable code
       beq  W4809                        // probable code
@@ -4339,7 +4339,7 @@ W4843:
       beq  W487E                        // probable code
       txa                               // A = X | probable code
       beq  W487E                        // probable code
-      bpl  W487C                        // probable code
+      bpl  W487B+1                      // probable code
       lda  #$FA                         // A = $fa (250) | probable code
 W487B:
       .byte $0C, $A9, $06               // undocumented nop (opcode $0C) | probable code
@@ -4395,14 +4395,14 @@ W49EC: // referenced from W486B(p)
 // likely: uploads sprite X/Y/color state and sprite-pointer bytes into the active VIC bank
 // key RAM: $466D (state_block:state_block_3155), $6EE1 (state_block:state_block_3155), $4A3D (state_block:state_block_3155), $48F2 (state_block:state_block_3155), $C3FB (buffer:buffer_C3F7), $C3FC (buffer:buffer_C3F7)
 W4A35:
-      lda  W466D                        // probable code
+      lda  W466C+1                      // probable code
       cmp  #$03                         // A == $03 (3)? | probable code
       bcs  W4A93                        // probable code
 W4A3C:
       lda  #$00                         // A = $00 (0) | probable code
       beq  W4A4B                        // probable code
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W4A3D                        // self-mod: patch operand at W4A3C+1 | probable code
+      sta  W4A3C+1                      // self-mod: patch operand at W4A3C+1 | probable code
       tay                               // Y = A | probable code
       ldx  #$02                         // X = $02 (2) | probable code
       jsr  W63BD                        // call W63BD | probable code
@@ -4492,11 +4492,11 @@ W4B6E:
       sbc  #$01                         // probable code
       beq  W4B8B                        // probable code
       pha                               // push A to stack | probable code
-      lda  W4B6F                        // probable code
+      lda  W4B6E+1                      // probable code
       adc  #$08                         // probable code
-      sta  W4B6F                        // self-mod: patch operand at W4B6E+1 | probable code
+      sta  W4B6E+1                      // self-mod: patch operand at W4B6E+1 | probable code
       bcc  W4B88                        // probable code
-      inc  W4B70                        // probable code
+      inc  W4B6E+2                      // probable code
 W4B88: // referenced from W4B83(p)
       jmp  W4AE2                        // jump → W4AE2 | probable code
 
@@ -4670,14 +4670,14 @@ W4D5D: // referenced from W915B(p)
 // key RAM: $50DE (state_block:state_block_3155), $4D88 (state_block:state_block_3155), $0046
 W4D63: // referenced from W699C(p)
       ldx  #$01                         // X = $01 (1) | probable code
-      stx  W4D88                        // probable code
+      stx  W4D87+1                      // probable code
       ldx  #$00                         // X = $00 (0) | probable code
       stx  W50DE                        // probable code
       jsr  W4AB1                        // call W4AB1 | probable code
       lda  #$1E                         // A = $1e (30) | probable code
       sta  $46                          // probable code
       lda  #$02                         // A = $02 (2) | probable code
-      sta  W4D88                        // self-mod: patch operand at W4D87+1 | probable code
+      sta  W4D87+1                      // self-mod: patch operand at W4D87+1 | probable code
       jmp  W4ECE                        // jump → W4ECE | probable code
 
 
@@ -4742,8 +4742,8 @@ W4E44: // referenced from W4E65(p)
 W4E4D:
       lda  ($04),y                      // A = ($04),Y (indirect indexed) | probable code
       ora  #$00                         // probable code
-      sta  W4E5A                        // self-mod: patch operand at W4E58+2 | probable code
-      sta  W4E63                        // self-mod: patch operand at W4E61+2 | probable code
+      sta  W4E58+2                      // self-mod: patch operand at W4E58+2 | probable code
+      sta  W4E61+2                      // self-mod: patch operand at W4E61+2 | probable code
       iny                               // Y++ | probable code
 W4E58:
       lda  WC000                        // probable code
@@ -4759,7 +4759,7 @@ W4E64: // referenced from W4E5D(p)
       cmp  $0400                        // probable code
       bne  W4E74                        // probable code
       lda  #$05                         // A = $05 (5) | probable code
-      sta  W4D88                        // self-mod: patch operand at W4D87+1 | probable code
+      sta  W4D87+1                      // self-mod: patch operand at W4D87+1 | probable code
       rts                               // return | probable code
 
 
@@ -4928,16 +4928,16 @@ W5028: // referenced from W5018(p)
       rts                               // return | probable code
 
 W502E: // referenced from W5068(p)
-      stx  W503A                        // probable code
+      stx  W5039+1                      // probable code
       txa                               // A = X | probable code
       eor  #$01                         // probable code
-      sta  W50AD                        // self-mod: patch operand at W50AC+1 | probable code
+      sta  W50AC+1                      // self-mod: patch operand at W50AC+1 | probable code
       bpl  W5044                        // probable code
 W5039:
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W50AD                        // self-mod: patch operand at W50AC+1 | probable code
+      sta  W50AC+1                      // self-mod: patch operand at W50AC+1 | probable code
       eor  #$01                         // probable code
-      sta  W503A                        // self-mod: patch operand at W5039+1 | probable code
+      sta  W5039+1                      // self-mod: patch operand at W5039+1 | probable code
       tax                               // X = A | probable code
 W5044: // referenced from W5037(p)
       lda  W50F0,x                      // A = W50F0[X] | probable code
@@ -5089,19 +5089,19 @@ W5185: // referenced from W5220(p)
       lda  #$02                         // A = $02 (2) | probable code
       .byte $8D, $18, $00               // exact-width sta $0018 | probable code
 W518A: // referenced from W51DC(p)
-      stx  W51AC                        // probable code
-      sty  W51BB                        // probable code
+      stx  W51AB+1                      // probable code
+      sty  W51BA+1                      // probable code
       inx                               // X++ | probable code
       iny                               // Y++ | probable code
-      stx  W51BE                        // probable code
-      sty  W51C4                        // probable code
+      stx  W51BD+1                      // probable code
+      sty  W51C3+1                      // probable code
       inx                               // X++ | probable code
       iny                               // Y++ | probable code
-      stx  W51B2                        // probable code
-      sty  W51B5                        // probable code
-      sta  W51B0                        // self-mod: patch operand at W51AE+2 | probable code
-      sta  W51C2                        // self-mod: patch operand at W51C0+2 | probable code
-      sta  W51B9                        // self-mod: patch operand at W51B7+2 | probable code
+      stx  W51B1+1                      // probable code
+      sty  W51B4+1                      // probable code
+      sta  W51AE+2                      // self-mod: patch operand at W51AE+2 | probable code
+      sta  W51C0+2                      // self-mod: patch operand at W51C0+2 | probable code
+      sta  W51B7+2                      // self-mod: patch operand at W51B7+2 | probable code
       ldx  #$3C                         // X = $3c (60, '<') | probable code
 W51AB: // referenced from W51C9(p)
       ldy  $FFFF,x                      // Y = WFFFF[X] | probable code
@@ -5147,9 +5147,9 @@ W51C3:
       ror  $17                          // probable code
       adc  #$C0                         // probable code
       sta  W522F                        // probable code
-      sta  W51AD                        // self-mod: patch operand at W51AB+2 | probable code
-      sta  W51BF                        // self-mod: patch operand at W51BD+2 | probable code
-      sta  W51B3                        // self-mod: patch operand at W51B1+2 | probable code
+      sta  W51AB+2                      // self-mod: patch operand at W51AB+2 | probable code
+      sta  W51BD+2                      // self-mod: patch operand at W51BD+2 | probable code
+      sta  W51B1+2                      // self-mod: patch operand at W51B1+2 | probable code
       txa                               // A = X | probable code
       lsr                               // shift right (÷2) | probable code
       ror  $18                          // probable code
@@ -5157,9 +5157,9 @@ W51C3:
       ror  $18                          // probable code
       adc  #$C0                         // probable code
       sta  W5232                        // probable code
-      sta  W51BC                        // self-mod: patch operand at W51BA+2 | probable code
-      sta  W51C5                        // self-mod: patch operand at W51C3+2 | probable code
-      sta  W51B6                        // self-mod: patch operand at W51B4+2 | probable code
+      sta  W51BA+2                      // self-mod: patch operand at W51BA+2 | probable code
+      sta  W51C3+2                      // self-mod: patch operand at W51C3+2 | probable code
+      sta  W51B4+2                      // self-mod: patch operand at W51B4+2 | probable code
       ldx  $17                          // probable code
       lda  $19                          // probable code
       ldy  $1A                          // probable code
@@ -5253,7 +5253,7 @@ W52AC: // referenced from W52B3(p)
       bpl  W52AC                        // probable code
       sty  WC878                        // probable code
 W52B8: // referenced from W52A5(p)
-      lda  W9136                        // probable code
+      lda  W9135+1                      // probable code
       bpl  W52E9                        // probable code
       ldx  #$1E                         // X = $1e (30) | probable code
       ldy  WC89F                        // probable code
@@ -5642,10 +5642,10 @@ W5883: // referenced from W587E(p)
       lda  W5851                        // probable code
       adc  #$28                         // probable code
       sta  W5851                        // probable code
-      sta  W585A                        // self-mod: patch operand at W5859+1 | probable code
+      sta  W5859+1                      // self-mod: patch operand at W5859+1 | probable code
       bcc  W589B                        // probable code
       inc  W5852                        // probable code
-      inc  W585B                        // probable code
+      inc  W5859+2                      // probable code
 W589B: // referenced from W5893(p)
       dey                               // Y-- | probable code
       bpl  W583B                        // probable code
@@ -5755,7 +5755,7 @@ W5998:
       eor  #$00                         // probable code
       bpl  W59A5                        // probable code
       sty  W5976                        // probable code
-      stx  W5999                        // probable code
+      stx  W5998+1                      // probable code
       jmp  W59C0                        // jump → W59C0 | probable code
 
 
@@ -5942,7 +5942,7 @@ W5D93: // referenced from W5D8F(p)
       lda  #$03                         // A = $03 (3) | probable code
       tax                               // X = A | probable code
       ora  $1F                          // probable code
-      sta  W5DA9                        // self-mod: patch operand at W5DA7+2 | probable code
+      sta  W5DA7+2                      // self-mod: patch operand at W5DA7+2 | probable code
 W5DA7: // referenced from W5DAF(p)
       lda  WC3A8,x                      // A = WC3A8[X] | probable code
       cmp  #$0E                         // A == $0e (14)? | probable code
@@ -6013,7 +6013,7 @@ W5F38: // referenced from W9191(p)
       ldx  #$06                         // X = $06 (6) | probable code
       ldy  $4D                          // probable code
       lda  $4E                          // probable code
-      sta  W5F46                        // self-mod: patch operand at W5F45+1 | probable code
+      sta  W5F45+1                      // self-mod: patch operand at W5F45+1 | probable code
 W5F41: // referenced from W5F4D(p)
       tya                               // A = Y | probable code
       cmp  W5FA2,x                      // compare A W5FA2[X] | probable code
@@ -6024,7 +6024,7 @@ W5F45:
       dex                               // X-- | probable code
       bpl  W5F41                        // probable code
 W5F4F: // referenced from W5F4A(p)
-      stx  W5F54                        // probable code
+      stx  W5F53+1                      // probable code
       rts                               // return | probable code
 
 W5F53:
@@ -6042,14 +6042,14 @@ W5F53:
 W5F6A: // referenced from W1614(p)
       bcc  W5F8C                        // probable code
 W5F6C: // referenced from W5F65(p)
-      ldy  W5F54                        // probable code
+      ldy  W5F53+1                      // probable code
       lda  W5FBE,y                      // A = W5FBE[Y] | probable code
       sta  $D022                        // Background 1 color | probable code
       lda  W5FC5,y                      // A = W5FC5[Y] | probable code
       sta  $D023                        // Background 2 color | probable code
       rts                               // return | probable code
 
-      ldy  W5F54                        // probable code
+      ldy  W5F53+1                      // probable code
       lda  W5FCC,y                      // A = W5FCC[Y] | probable code
       sta  $D022                        // Background 1 color | probable code
       lda  W5FD3,y                      // A = W5FD3[Y] | probable code
@@ -6151,7 +6151,7 @@ W6334: // referenced from W9155(p)
       dey                               // Y-- | probable code
       sty  W638A                        // probable code
       lda  #$2F                         // A = $2f (47, '/') | probable code
-      sta  W6352                        // self-mod: patch operand at W6351+1 | probable code
+      sta  W6351+1                      // self-mod: patch operand at W6351+1 | probable code
       rts                               // return | probable code
 
 
@@ -6172,14 +6172,14 @@ W6351:
       bmi  W637D                        // probable code
       cmp  #$10                         // A == $10 (16)? | probable code
       bcs  W6375                        // probable code
-      sta  W6352                        // self-mod: patch operand at W6351+1 | probable code
+      sta  W6351+1                      // self-mod: patch operand at W6351+1 | probable code
 W635C:
       lda  #$FF                         // A = $ff (255) | probable code
       bpl  W6382                        // probable code
       lda  #$14                         // A = $14 (20) | probable code
-      sta  W635D                        // self-mod: patch operand at W635C+1 | probable code
-      stx  W6371                        // probable code
-      sty  W6373                        // probable code
+      sta  W635C+1                      // self-mod: patch operand at W635C+1 | probable code
+      stx  W6370+1                      // probable code
+      sty  W6372+1                      // probable code
       lda  #$A3                         // A = $a3 (163) | probable code
       jsr  W3A29                        // call W3A29 | probable code
 W6370:
@@ -6275,12 +6275,12 @@ W6504: // referenced from W917F(p)
       sta  W670F                        // probable code
       sta  W66E5                        // probable code
       sta  W68A2                        // probable code
-      ldy  W71CF                        // probable code
+      ldy  W71CE+1                      // probable code
       beq  W651A                        // probable code
-      sta  W6566                        // self-mod: patch operand at W6565+1 | probable code
+      sta  W6565+1                      // self-mod: patch operand at W6565+1 | probable code
 W651A: // referenced from W6515(p)
       jsr  W6AD0                        // call W6AD0 | probable code
-      lda  W9136                        // probable code
+      lda  W9135+1                      // probable code
       bmi  W653C                        // probable code
       ldx  #$AC                         // X = $ac (172) | probable code
       ldy  #$BF                         // Y = $bf (191) | probable code
@@ -6292,7 +6292,7 @@ W651A: // referenced from W6515(p)
       lda  #$D5                         // A = $d5 (213) | probable code
       sta  W69E8                        // probable code
       sta  $29                          // probable code
-      sta  W704F                        // self-mod: patch operand at W704E+1 | probable code
+      sta  W704E+1                      // self-mod: patch operand at W704E+1 | probable code
 W653B: // referenced from W6567(p)
       rts                               // return | probable code
 
@@ -6311,8 +6311,8 @@ W6548: // referenced from W6526(p)
       stx  $03                          // probable code
       sty  $04                          // probable code
       ldy  #$00                         // Y = $00 (0) | probable code
-      lda  W6566                        // probable code
-      ora  W71CF                        // probable code
+      lda  W6565+1                      // probable code
+      ora  W71CE+1                      // probable code
       bne  W6558                        // probable code
       ldy  #$10                         // Y = $10 (16) | probable code
 W6558: // referenced from W6554(p)
@@ -6327,14 +6327,14 @@ W6565: // referenced from W91D5(p)
       beq  W653B                        // probable code
       lda  #$00                         // A = $00 (0) | probable code
       sta  $2A                          // probable code
-      sta  W6566                        // self-mod: patch operand at W6565+1 | probable code
+      sta  W6565+1                      // self-mod: patch operand at W6565+1 | probable code
       jsr  W3A86                        // call W3A86 | probable code
       lda  #$7D                         // A = $7d (125, '}') | probable code
       sta  W66E5                        // probable code
       lsr                               // shift right (÷2) | probable code
       lsr                               // shift right (÷2) | probable code
       lsr                               // shift right (÷2) | probable code
-      sta  W658C                        // self-mod: patch operand at W658B+1 | probable code
+      sta  W658B+1                      // self-mod: patch operand at W658B+1 | probable code
       ldx  #$3E                         // X = $3e (62, '>') | probable code
 W6580: // referenced from W65A1(p)
       lda  $DC04                        // probable code
@@ -6369,13 +6369,13 @@ W65AA:
 // key RAM: $002A (flag:flag_002A), $65C2 (state_block:state_block_3155), $901B
 W65B7: // referenced from W30D6(p)
       lda  #$02                         // A = $02 (2) | probable code
-      sta  W65C2                        // self-mod: patch operand at W65C1+1 | probable code
+      sta  W65C1+1                      // self-mod: patch operand at W65C1+1 | probable code
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W901B                        // self-mod: patch operand at W901A+1 | probable code
+      sta  W901A+1                      // self-mod: patch operand at W901A+1 | probable code
 W65C1: // referenced from W919D(p)
       lda  #$00                         // A = $00 (0) | probable code
       beq  W6604                        // probable code
-      dec  W65C2                        // probable code
+      dec  W65C1+1                      // probable code
       cmp  #$02                         // A == $02 (2)? | probable code
       bne  W65D3                        // probable code
       lda  #$00                         // A = $00 (0) | probable code
@@ -6394,17 +6394,17 @@ W65D3: // referenced from W65CA(p)
 // ROUTINE CONTEXT
 // key RAM: $0022 (buffer:zp_work_22), $0024 (buffer:zp_work_24), $71CF (state_block:state_block_3155), $2EBD (flag:flag_2EBD), $4D88 (state_block:state_block_3155), $9136
 W65DD:
-      lda  W9136                        // probable code
+      lda  W9135+1                      // probable code
       bpl  W65E7                        // probable code
-      lda  W71CF                        // probable code
+      lda  W71CE+1                      // probable code
       bpl  W65EC                        // probable code
 W65E7: // referenced from W65E0(p)
-      lda  W4D88                        // probable code
+      lda  W4D87+1                      // probable code
       beq  W6605                        // probable code
 W65EC: // referenced from W65E5(p)
       lda  #$00                         // A = $00 (0) | probable code
       sta  W2EBD                        // probable code
-      sta  W71CF                        // self-mod: patch operand at W71CE+1 | probable code
+      sta  W71CE+1                      // self-mod: patch operand at W71CE+1 | probable code
       lda  $24                          // probable code
       cmp  #$F5                         // A == $f5 (245)? | probable code
       bne  W6604                        // probable code
@@ -6480,7 +6480,7 @@ W668C: // referenced from W6688(p)
       clc                               // clear carry | probable code
       lda  $29                          // probable code
       adc  $2A                          // probable code
-      sta  W704F                        // self-mod: patch operand at W704E+1 | probable code
+      sta  W704E+1                      // self-mod: patch operand at W704E+1 | probable code
       sbc  #$31                         // probable code
       sta  $2C                          // probable code
       lsr                               // shift right (÷2) | probable code
@@ -6544,21 +6544,21 @@ W6785:
       lda  #$46                         // A = $46 (70, 'F') | probable code
       jsr  W3A29                        // call W3A29 | probable code
 W6790: // referenced from W6789(p)
-      lda  W4D88                        // probable code
+      lda  W4D87+1                      // probable code
       cmp  #$02                         // A == $02 (2)? | probable code
       bne  W679E                        // probable code
-      ldx  W6786                        // probable code
+      ldx  W6785+1                      // probable code
       bmi  W67B5                        // probable code
       bpl  W67A3                        // probable code
 W679E: // referenced from W6795(p)
-      ldx  W6786                        // probable code
+      ldx  W6785+1                      // probable code
       bmi  W67F0                        // probable code
 W67A3: // referenced from W679C(p)
       jsr  W6E55                        // call W6E55 | probable code
       lda  W6BDB,x                      // A = W6BDB[X] | probable code
       sta  $2F                          // probable code
-      dec  W6786                        // probable code
-      ldx  W6786                        // probable code
+      dec  W6785+1                      // probable code
+      ldx  W6785+1                      // probable code
       cpx  #$0E                         // X == $0e (14)? | probable code
       bcs  W67F0                        // probable code
 W67B5: // referenced from W679A(p)
@@ -6587,7 +6587,7 @@ W67C3:
       jsr  W6AD7                        // call W6AD7 | probable code
       jsr  W5D8D                        // call W5D8D | probable code
       lda  #$05                         // A = $05 (5) | probable code
-      sta  W67C4                        // self-mod: patch operand at W67C3+1 | probable code
+      sta  W67C3+1                      // self-mod: patch operand at W67C3+1 | probable code
 W67D9: // referenced from W67C7(p)
       clc                               // clear carry | probable code
       adc  #$D0                         // probable code
@@ -6595,7 +6595,7 @@ W67D9: // referenced from W67C7(p)
       lda  $1C                          // probable code
       lsr                               // shift right (÷2) | probable code
       bcc  W67F0                        // probable code
-      dec  W67C4                        // probable code
+      dec  W67C3+1                      // probable code
       bne  W67F0                        // probable code
       lda  #$9C                         // A = $9c (156) | probable code
       jsr  W6350                        // call W6350 | probable code
@@ -6631,12 +6631,12 @@ W686A: // referenced from W6BA0(p)
       lda  $1C                          // probable code
       lsr                               // shift right (÷2) | probable code
       bcc  W6872                        // probable code
-      dec  W6873                        // probable code
+      dec  W6872+1                      // probable code
 W6872: // referenced from W686D(p)
       ldx  #$00                         // X = $00 (0) | probable code
       bpl  W687B                        // probable code
       ldx  #$30                         // X = $30 (48, '0') | probable code
-      stx  W6873                        // probable code
+      stx  W6872+1                      // probable code
 W687B: // referenced from W6874(p)
       lda  W84B5,x                      // A = W84B5[X] | probable code
       cmp  #$80                         // A == $80 (128)? | probable code
@@ -6685,13 +6685,13 @@ W68C7: // referenced from W68BD(p), W68C1(p)
       cpx  #$0C                         // X == $0c (12)? | probable code
       bne  W68D8                        // probable code
 W68CF: // referenced from W68C9(p)
-      stx  W68D7                        // probable code
+      stx  W68D6+1                      // probable code
       tya                               // A = Y | probable code
       jsr  W3A29                        // call W3A29 | probable code
 W68D6:
       ldx  #$00                         // X = $00 (0) | probable code
 W68D8: // referenced from W68C5(p), W68CD(p)
-      stx  W68B6                        // probable code
+      stx  W68B5+1                      // probable code
       lda  W6BFE,x                      // A = W6BFE[X] | probable code
       sta  $24                          // probable code
       lda  W6C0F,x                      // A = W6C0F[X] | probable code
@@ -6722,16 +6722,16 @@ W694E: // referenced from W695B(p)
 // key RAM: $0029 (pointer_target:ptr_target_0029), $002A (flag:flag_002A), $3338 (state_block:state_block_3155), $6786 (state_block:state_block_3155), $699B (state_block:state_block_3155), $66C9 (state_block:state_block_3155)
 W6951:
       jsr  W8772                        // call W8772 | probable code
-      lda  W3338                        // probable code
+      lda  W3337+1                      // probable code
       bne  W6937                        // probable code
       ldx  #$C8                         // X = $c8 (200) | probable code
       bne  W694E                        // probable code
-      lda  W9136                        // probable code
+      lda  W9135+1                      // probable code
       bmi  W699F                        // probable code
       lda  $29                          // probable code
       adc  $2A                          // probable code
       sbc  #$24                         // probable code
-      sta  W699B                        // self-mod: patch operand at W699A+1 | probable code
+      sta  W699A+1                      // self-mod: patch operand at W699A+1 | probable code
       cmp  #$7E                         // A == $7e (126)? | probable code
       bcs  W6976                        // probable code
       lda  #$FF                         // A = $ff (255) | probable code
@@ -6740,11 +6740,11 @@ W6951:
 W6976: // referenced from W696D(p)
       lda  #$01                         // A = $01 (1) | probable code
       sta  W675D                        // probable code
-      lda  W699B                        // probable code
+      lda  W699A+1                      // probable code
       sbc  #$4F                         // probable code
-      sta  W699B                        // self-mod: patch operand at W699A+1 | probable code
+      sta  W699A+1                      // self-mod: patch operand at W699A+1 | probable code
       ldy  #$21                         // Y = $21 (33, '!') | probable code
-      sty  W6786                        // probable code
+      sty  W6785+1                      // probable code
       ldy  #$0F                         // Y = $0f (15) | probable code
       sty  W66C9                        // probable code
       ldy  #$02                         // Y = $02 (2) | probable code
@@ -6770,7 +6770,7 @@ W699F: // referenced from W6960(p)
 // key RAM: $0021 (buffer:zp_work_21), $0003 (pointer_pair:zp_ptr_02), $002F (buffer:zp_work_2F), $68B4 (state_block:state_block_3155), $002D
 W69AC:
       lda  #$04                         // A = $04 (4) | probable code
-      sta  W68B4                        // self-mod: patch operand at W68B3+1 | probable code
+      sta  W68B3+1                      // self-mod: patch operand at W68B3+1 | probable code
       lda  $21                          // probable code
       lsr                               // shift right (÷2) | probable code
       bcc  W69DF                        // probable code
@@ -6829,9 +6829,9 @@ W6B06:
       cmp  #$FA                         // A == $fa (250)? | probable code
       bcc  W6B1B                        // probable code
       lda  #$07                         // A = $07 (7) | probable code
-      sta  W6B07                        // self-mod: patch operand at W6B06+1 | probable code
+      sta  W6B06+1                      // self-mod: patch operand at W6B06+1 | probable code
 W6B16: // referenced from W6B08(p)
-      dec  W6B07                        // probable code
+      dec  W6B06+1                      // probable code
       bne  W6B1D                        // probable code
 W6B1B: // referenced from W6B0F(p)
       lda  #$00                         // A = $00 (0) | probable code
@@ -6854,7 +6854,7 @@ W6B25: // referenced from W6B21(p)
       sta  W6BAD                        // probable code
 W6B3D: // referenced from W6B49(p), W6B4E(p), W6B55(p)
       jsr  W722B                        // call W722B | probable code
-      lda  W9087                        // probable code
+      lda  W9086+1                      // probable code
       cmp  #$FF                         // A == $ff (255)? | probable code
       bne  W6B72                        // probable code
       lda  $3A                          // probable code
@@ -6892,7 +6892,7 @@ W6B79:
       bcs  W6B83                        // probable code
       ldx  #$84                         // X = $84 (132) | probable code
 W6B83: // referenced from W6B7F(p)
-      stx  W6B7A                        // probable code
+      stx  W6B79+1                      // probable code
       stx  $24                          // probable code
       lda  $29                          // probable code
       cmp  #$90                         // A == $90 (144)? | probable code
@@ -6913,7 +6913,7 @@ W6BA0: // referenced from W6B77(p), W6B96(p), W6B9C(p)
       clc                               // clear carry | probable code
       lda  $29                          // probable code
       adc  $2A                          // probable code
-      sta  W704F                        // self-mod: patch operand at W704E+1 | probable code
+      sta  W704E+1                      // self-mod: patch operand at W704E+1 | probable code
       rts                               // return | probable code
 
 
@@ -6958,7 +6958,7 @@ W6C4D: // referenced from W6CA8(p)
       lsr                               // shift right (÷2) | probable code
       lsr                               // shift right (÷2) | probable code
       tax                               // X = A | probable code
-      ldy  W9136                        // probable code
+      ldy  W9135+1                      // probable code
       bmi  W6C7C                        // probable code
       clc                               // clear carry | probable code
       lda  W50F5,x                      // A = W50F5[X] | probable code
@@ -7001,7 +7001,7 @@ W6CA8: // referenced from W69B6(p)
       ldy  #$00                         // Y = $00 (0) | probable code
       jsr  W6CC8                        // call W6CC8 | probable code
       beq  W6CC6                        // probable code
-      sta  W6CC4                        // self-mod: patch operand at W6CC3+1 | probable code
+      sta  W6CC3+1                      // self-mod: patch operand at W6CC3+1 | probable code
       sec                               // set carry | probable code
       lda  $29                          // probable code
       sbc  #$08                         // probable code
@@ -7052,7 +7052,7 @@ W6D93: // referenced from W6997(p)
       lda  #$00                         // A = $00 (0) | probable code
       sta  $2A                          // probable code
 W6DA5: // referenced from W6D99(p)
-      inc  W6566                        // probable code
+      inc  W6565+1                      // probable code
       jmp  W6AD0                        // jump → W6AD0 | probable code
 
 
@@ -7070,7 +7070,7 @@ W6DB6: // referenced from W6DBA(p), W6DBF(p), W6DC5(p), W6DCB(p), ...
 // key RAM: $0021 (buffer:zp_work_21), $0029 (pointer_target:ptr_target_0029), $002A (flag:flag_002A), $4D88 (state_block:state_block_3155), $002F (buffer:zp_work_2F), $4171 (state_block:state_block_3155)
 // sprite tables: W4163.. holds sprite X positions
 W6DB7:
-      lda  W9136                        // probable code
+      lda  W9135+1                      // probable code
       bmi  W6DB6                        // probable code
       lda  W4171                        // probable code
       beq  W6DB6                        // probable code
@@ -7084,7 +7084,7 @@ W6DB7:
       sec                               // set carry | probable code
       lda  $29                          // probable code
       sbc  #$06                         // probable code
-      ldx  W68B6                        // probable code
+      ldx  W68B5+1                      // probable code
       clc                               // clear carry | probable code
       adc  W6C0F,x                      // A += W6C0F[X] | probable code
       sta  $29                          // probable code
@@ -7092,20 +7092,20 @@ W6DB7:
       sta  $2E                          // probable code
       sta  $2F                          // probable code
       sta  $2A                          // probable code
-      sta  W6873                        // self-mod: patch operand at W6872+1 | probable code
+      sta  W6872+1                      // self-mod: patch operand at W6872+1 | probable code
       lda  #$01                         // A = $01 (1) | probable code
       sta  $21                          // probable code
       jmp  W4170                        // jump → W4170 | probable code
 
 W6DF0: // referenced from W6562(p)
-      lda  W4D88                        // probable code
+      lda  W4D87+1                      // probable code
       bne  W6DB6                        // probable code
       sta  $2F                          // probable code
-      sta  W73DB                        // self-mod: patch operand at W73DA+1 | probable code
+      sta  W73DA+1                      // self-mod: patch operand at W73DA+1 | probable code
       lda  #$02                         // A = $02 (2) | probable code
       sta  $21                          // probable code
       lda  #$0B                         // A = $0b (11) | probable code
-      sta  W68B6                        // self-mod: patch operand at W68B5+1 | probable code
+      sta  W68B5+1                      // self-mod: patch operand at W68B5+1 | probable code
       lda  $2D                          // probable code
       beq  W6E19                        // probable code
       bmi  W6E11                        // probable code
@@ -7270,15 +7270,15 @@ W71B3: // referenced from W9173(p)
 // key RAM: $71CF (state_block:state_block_3155), $71D5 (state_block:state_block_3155), $901B
 W71B9:
       ldy  #$01                         // Y = $01 (1) | probable code
-      sty  W71CF                        // probable code
+      sty  W71CE+1                      // probable code
       dey                               // Y-- | probable code
       beq  W71C8                        // probable code
 W71C1: // referenced from W65D0(p)
       ldy  #$FF                         // Y = $ff (255) | probable code
-      sty  W71CF                        // probable code
+      sty  W71CE+1                      // probable code
       ldy  #$3F                         // Y = $3f (63, '?') | probable code
 W71C8: // referenced from W71BF(p)
-      sty  W71D5                        // probable code
+      sty  W71D4+1                      // probable code
       jmp  W6AD7                        // jump → W6AD7 | probable code
 
 W71CE:
@@ -7290,9 +7290,9 @@ W71D4:
       cmp  #$3C                         // A == $3c (60)? | probable code
       bcc  W71E5                        // probable code
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W71CF                        // self-mod: patch operand at W71CE+1 | probable code
+      sta  W71CE+1                      // self-mod: patch operand at W71CE+1 | probable code
       lda  #$FF                         // A = $ff (255) | probable code
-      sta  W901B                        // self-mod: patch operand at W901A+1 | probable code
+      sta  W901A+1                      // self-mod: patch operand at W901A+1 | probable code
       rts                               // return | probable code
 
 
@@ -7337,17 +7337,17 @@ W72D5:
       and  #$0C                         // probable code
       bne  W72BE                        // probable code
       sta  $4B                          // probable code
-      ldy  W7300                        // probable code
+      ldy  W72FF+1                      // probable code
       jsr  W75E8                        // call W75E8 | probable code
       lda  $21                          // probable code
       and  #$08                         // probable code
       beq  W72F9                        // probable code
-      sty  W72F5                        // probable code
-      lda  W7300                        // probable code
+      sty  W72F4+1                      // probable code
+      lda  W72FF+1                      // probable code
       and  #$10                         // probable code
 W72F4:
       ora  #$00                         // probable code
-      sta  W7300                        // self-mod: patch operand at W72FF+1 | probable code
+      sta  W72FF+1                      // self-mod: patch operand at W72FF+1 | probable code
 W72F9: // referenced from W72EA(p)
       lda  $21                          // probable code
       and  #$10                         // probable code
@@ -7360,7 +7360,7 @@ W72FF:
 W7306:
       cpx  #$00                         // X == $00 (0)? | probable code
       beq  W7342                        // probable code
-      stx  W7307                        // probable code
+      stx  W7306+1                      // probable code
       jmp  W8D2E                        // jump → W8D2E | probable code
 
 
@@ -7403,12 +7403,12 @@ W739D:
       bne  W73B5                        // probable code
 W73AE: // referenced from W73A0(p)
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W73B6                        // self-mod: patch operand at W73B5+1 | probable code
+      sta  W73B5+1                      // self-mod: patch operand at W73B5+1 | probable code
       beq  W73C1                        // probable code
 W73B5: // referenced from W73AC(p)
       lda  #$00                         // A = $00 (0) | probable code
       bne  W73C1                        // probable code
-      inc  W73B6                        // probable code
+      inc  W73B5+1                      // probable code
       inc  $4B                          // probable code
       jsr  W4178                        // call W4178 | probable code
 W73C1: // referenced from W73B3(p), W73B7(p)
@@ -7419,7 +7419,7 @@ W73C1: // referenced from W73B3(p), W73B7(p)
       txa                               // A = X | probable code
       and  #$01                         // probable code
       bne  W73EF                        // probable code
-      lda  W7300                        // probable code
+      lda  W72FF+1                      // probable code
       and  #$10                         // probable code
       beq  W73E7                        // probable code
       sta  $4B                          // probable code
@@ -7428,8 +7428,8 @@ W73D8:
 W73DA:
       ora  #$00                         // probable code
       bne  W7435                        // probable code
-      inc  W73DB                        // probable code
-      inc  W73D9                        // probable code
+      inc  W73DA+1                      // probable code
+      inc  W73D8+1                      // probable code
       jmp  W6E1C                        // jump → W6E1C | probable code
 
 
@@ -7472,7 +7472,7 @@ W74E7:
 W74EE:
       jsr  W7589                        // call W7589 | probable code
       beq  W74FE                        // probable code
-      lda  W9087                        // probable code
+      lda  W9086+1                      // probable code
       cmp  #$02                         // A == $02 (2)? | probable code
       bne  W7518                        // probable code
       lda  #$17                         // A = $17 (23) | probable code
@@ -7484,14 +7484,14 @@ W74FE: // referenced from W74F1(p)
       and  #$10                         // probable code
       beq  W7511                        // probable code
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W7512                        // self-mod: patch operand at W7511+1 | probable code
+      sta  W7511+1                      // self-mod: patch operand at W7511+1 | probable code
       beq  W7520                        // probable code
 W7511: // referenced from W7508(p)
       lda  #$00                         // A = $00 (0) | probable code
       bne  W7520                        // probable code
-      inc  W7512                        // probable code
+      inc  W7511+1                      // probable code
 W7518: // referenced from W74F8(p)
-      lda  W9087                        // probable code
+      lda  W9086+1                      // probable code
       eor  #$03                         // probable code
       jmp  W906F                        // jump → W906F | probable code
 
@@ -7516,7 +7516,7 @@ W7549:
 W7552:
       lda  #$00                         // A = $00 (0) | probable code
       beq  W755C                        // probable code
-      dec  W7553                        // probable code
+      dec  W7552+1                      // probable code
       jmp  W757B                        // jump → W757B | probable code
 
 
@@ -7620,7 +7620,7 @@ W761D: // referenced from W7619(p)
       bne  W7623                        // probable code
       ora  #$40                         // probable code
 W7623: // referenced from W761F(p)
-      sta  W7300                        // self-mod: patch operand at W72FF+1 | probable code
+      sta  W72FF+1                      // self-mod: patch operand at W72FF+1 | probable code
       rts                               // return | probable code
 
 
@@ -7734,7 +7734,7 @@ W7722: // referenced from W7725(p)
 W7732:
       lda  #$FF                         // A = $ff (255) | probable code
       bmi  W7759                        // probable code
-      lda  W420D                        // probable code
+      lda  W420C+1                      // probable code
       bpl  W7759                        // probable code
       lda  $1C                          // probable code
       and  #$0F                         // probable code
@@ -7746,7 +7746,7 @@ W7732:
       jsr  W3A29                        // call W3A29 | probable code
       lda  #$03                         // A = $03 (3) | probable code
       sta  W7925                        // probable code
-      dec  W7733                        // probable code
+      dec  W7732+1                      // probable code
       bpl  W7759                        // probable code
       jsr  W7919                        // call W7919 | probable code
 W7759: // referenced from W7734(p), W7739(p), W773F(p), W7745(p), ...
@@ -7878,7 +7878,7 @@ W78E0:
 // key RAM: $7733 (state_block:state_block_3155), $7925 (state_block:state_block_3155), $791F (state_block:state_block_3155), $7BE0 (state_block:state_block_3155)
 W790B: // referenced from W916D(p)
       ldx  #$07                         // X = $07 (7) | probable code
-      stx  W791F                        // probable code
+      stx  W791E+1                      // probable code
       inx                               // X++ | probable code
       lda  #$00                         // A = $00 (0) | probable code
 W7913: // referenced from W7917(p)
@@ -7887,7 +7887,7 @@ W7913: // referenced from W7917(p)
       bpl  W7913                        // probable code
 W7919: // referenced from W7756(p), W9185(p)
       lda  #$FF                         // A = $ff (255) | probable code
-      sta  W7733                        // self-mod: patch operand at W7732+1 | probable code
+      sta  W7732+1                      // self-mod: patch operand at W7732+1 | probable code
 W791E:
       lda  #$0F                         // A = $0f (15) | probable code
       sta  W7925                        // probable code
@@ -7938,7 +7938,7 @@ W7A13:
       clc                               // clear carry | probable code
 W7A27: // referenced from W7A22(p)
       adc  #$58                         // probable code
-      sta  W7C38                        // self-mod: patch operand at W7C37+1 | probable code
+      sta  W7C37+1                      // self-mod: patch operand at W7C37+1 | probable code
       lda  #$00                         // A = $00 (0) | probable code
       sta  W7974                        // probable code
       rts                               // return | probable code
@@ -7987,9 +7987,9 @@ W7A72:
 W7A7F:
       lda  $DC04                        // probable code
       eor  $DC05                        // probable code
-      sta  W7DF8                        // self-mod: patch operand at W7DF7+1 | probable code
+      sta  W7DF7+1                      // self-mod: patch operand at W7DF7+1 | probable code
       eor  #$FF                         // probable code
-      sta  W7B5B                        // self-mod: patch operand at W7B5A+1 | probable code
+      sta  W7B5A+1                      // self-mod: patch operand at W7B5A+1 | probable code
       lsr                               // shift right (÷2) | probable code
       bcc  W7A96                        // probable code
       lda  #$69                         // A = $69 (105, 'i') | probable code
@@ -7999,8 +7999,8 @@ W7A96: // referenced from W7A8E(p)
       lda  #$A0                         // A = $a0 (160) | probable code
       ldy  #$80                         // Y = $80 (128) | probable code
 W7A9A: // referenced from W7A94(p)
-      sta  W7DF2                        // self-mod: patch operand at W7DF1+1 | probable code
-      sty  W7DEB                        // probable code
+      sta  W7DF1+1                      // self-mod: patch operand at W7DF1+1 | probable code
+      sty  W7DEA+1                      // probable code
       lda  #$05                         // A = $05 (5) | probable code
       sta  W7974                        // probable code
       rts                               // return | probable code
@@ -8558,11 +8558,11 @@ W7F7C:
 W7F83:
       cpy  #$00                         // Y == $00 (0)? | probable code
       beq  W7F94                        // probable code
-      sty  W7F84                        // probable code
-      dec  W7F7D                        // probable code
+      sty  W7F83+1                      // probable code
+      dec  W7F7C+1                      // probable code
       bpl  W7F94                        // probable code
       ldy  #$05                         // Y = $05 (5) | probable code
-      sty  W7F7D                        // probable code
+      sty  W7F7C+1                      // probable code
 W7F94: // referenced from W7F85(p), W7F8D(p)
       ldy  $AB,x                        // probable code
       cpy  #$0B                         // Y == $0b (11)? | probable code
@@ -8680,7 +8680,7 @@ W8058: // referenced from W8054(p)
       sta  $C9,x                        // probable code
       lda  ($6C),y                      // A = ($6c),Y (indirect indexed) | probable code
       iny                               // Y++ | probable code
-      sty  W8073                        // probable code
+      sty  W8072+1                      // probable code
       jsr  W809B                        // call W809B | probable code
 W8072:
       ldy  #$00                         // Y = $00 (0) | probable code
@@ -8711,8 +8711,8 @@ W809B: // referenced from W806F(p)
 W80B2:
       .byte $14, $8D                    // undocumented nop (opcode $14) | probable code
       .byte $C2, $80                    // undocumented nop (opcode $C2) | probable code
-      stx  W80C4                        // probable code
-      sty  W80C6                        // probable code
+      stx  W80C3+1                      // probable code
+      sty  W80C5+1                      // probable code
       lda  #$9E                         // A = $9e (158) | probable code
       jsr  W3A29                        // call W3A29 | probable code
       lda  #$00                         // A = $00 (0) | probable code
@@ -8893,7 +8893,7 @@ W841C: // referenced from W8456(p)
       lda  $34                          // probable code
       sta  $36                          // probable code
       lda  $35                          // probable code
-      sta  W843F                        // self-mod: patch operand at W843E+1 | probable code
+      sta  W843E+1                      // self-mod: patch operand at W843E+1 | probable code
       lda  #$00                         // A = $00 (0) | probable code
       sta  $34                          // probable code
       sta  $35                          // probable code
@@ -9095,7 +9095,7 @@ W8619: // referenced from W9164(p)
       lda  #$13                         // A = $13 (19) | probable code
       sta  W8820                        // probable code
       lda  #$08                         // A = $08 (8) | probable code
-      sta  W88B9                        // self-mod: patch operand at W88B8+1 | probable code
+      sta  W88B8+1                      // self-mod: patch operand at W88B8+1 | probable code
       sta  W8912                        // probable code
       rts                               // return | probable code
 
@@ -9143,7 +9143,7 @@ W8674:
 // key RAM: $84C1 (state_block:state_block_3155), $84B5 (state_block:state_block_3155), $8690 (state_block:state_block_3155), $872E (state_block:state_block_3155), $873C (state_block:state_block_3155), $874A (state_block:state_block_3155)
 W868A:
       ldx  #$30                         // X = $30 (48, '0') | probable code
-      stx  W8690                        // probable code
+      stx  W868F+1                      // probable code
 W868F:
       ldx  #$00                         // X = $00 (0) | probable code
       lda  W84B5,x                      // A = W84B5[X] | probable code
@@ -9214,7 +9214,7 @@ W8772: // referenced from W6951(p)
       lda  $1C                          // probable code
       and  #$0F                         // probable code
       bne  W8771                        // probable code
-      lda  W3338                        // probable code
+      lda  W3337+1                      // probable code
       beq  W8771                        // probable code
       lda  #$00                         // A = $00 (0) | probable code
       ldx  #$05                         // X = $05 (5) | probable code
@@ -9223,11 +9223,11 @@ W8772: // referenced from W6951(p)
       lda  #$9E                         // A = $9e (158) | probable code
       jsr  W3A29                        // call W3A29 | probable code
       sec                               // set carry | probable code
-      lda  W3338                        // probable code
+      lda  W3337+1                      // probable code
       sed                               // set decimal | probable code
       sbc  #$01                         // probable code
       cld                               // clear decimal | probable code
-      sta  W3338                        // self-mod: patch operand at W3337+1 | probable code
+      sta  W3337+1                      // self-mod: patch operand at W3337+1 | probable code
       bne  W8771                        // probable code
       sta  $21                          // probable code
       jsr  W1CAD                        // call W1CAD | probable code
@@ -9239,10 +9239,10 @@ W8772: // referenced from W6951(p)
       adc  #$64                         // probable code
       sta  W886B                        // probable code
       ldx  #$00                         // X = $00 (0) | probable code
-      stx  W6873                        // probable code
+      stx  W6872+1                      // probable code
       stx  $2A                          // probable code
       dex                               // X-- | probable code
-      stx  W9014                        // probable code
+      stx  W9013+1                      // probable code
       jsr  W419B                        // call W419B | probable code
       lda  #$C5                         // A = $c5 (197) | probable code
       sta  W69E8                        // probable code
@@ -9335,13 +9335,13 @@ W88B8:
       ldx  #$08                         // X = $08 (8) | probable code
       bmi  W88EB                        // probable code
       lda  W8A01,x                      // A = W8A01[X] | probable code
-      sta  W88DA                        // self-mod: patch operand at W88D9+1 | probable code
+      sta  W88D9+1                      // self-mod: patch operand at W88D9+1 | probable code
       lda  W8A0A,x                      // A = W8A0A[X] | probable code
-      sta  W88DB                        // self-mod: patch operand at W88D9+2 | probable code
+      sta  W88D9+2                      // self-mod: patch operand at W88D9+2 | probable code
       lda  W8A13,x                      // A = W8A13[X] | probable code
-      sta  W88DD                        // self-mod: patch operand at W88DC+1 | probable code
+      sta  W88DC+1                      // self-mod: patch operand at W88DC+1 | probable code
       lda  W8A1C,x                      // A = W8A1C[X] | probable code
-      sta  W88DE                        // self-mod: patch operand at W88DC+2 | probable code
+      sta  W88DC+2                      // self-mod: patch operand at W88DC+2 | probable code
       ldy  W8A25,x                      // Y = W8A25[X] | probable code
       lda  #$00                         // A = $00 (0) | probable code
 W88D9: // referenced from W88E0(p)
@@ -9353,7 +9353,7 @@ W88DC:
       lda  $1C                          // probable code
       lsr                               // shift right (÷2) | probable code
       bcc  W88EA                        // probable code
-      dec  W88B9                        // probable code
+      dec  W88B8+1                      // probable code
 W88EA: // referenced from W88B6(p), W88E5(p)
       rts                               // return | probable code
 
@@ -9419,7 +9419,7 @@ W8A92: // referenced from W8A97(p)
       dex                               // X-- | probable code
       bpl  W8A92                        // probable code
       ldx  #$05                         // X = $05 (5) | probable code
-      ldy  W8E26                        // probable code
+      ldy  W8E25+1                      // probable code
       lda  W8E51                        // probable code
       cmp  #$0B                         // A == $0b (11)? | probable code
       bcs  W8ABC                        // probable code
@@ -9445,7 +9445,7 @@ W8ABF: // referenced from W8AC3(p)
 
 W8AC6: // referenced from W8E4A(p)
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W8B0B                        // self-mod: patch operand at W8B0A+1 | probable code
+      sta  W8B0A+1                      // self-mod: patch operand at W8B0A+1 | probable code
       sta  W8B7E                        // probable code
       ldx  #$12                         // X = $12 (18) | probable code
 W8AD0: // referenced from W8AE0(p)
@@ -9464,10 +9464,10 @@ W8AE7: // referenced from W8AEA(p), W8B13(p)
 W8AE8:
       cmp  #$00                         // A == $00 (0)? | probable code
       beq  W8AE7                        // probable code
-      sta  W8AE9                        // self-mod: patch operand at W8AE8+1 | probable code
+      sta  W8AE8+1                      // self-mod: patch operand at W8AE8+1 | probable code
       jsr  W8BD1                        // call W8BD1 | probable code
       lda  #$16                         // A = $16 (22) | probable code
-      sta  W8B0B                        // self-mod: patch operand at W8B0A+1 | probable code
+      sta  W8B0A+1                      // self-mod: patch operand at W8B0A+1 | probable code
       lsr                               // shift right (÷2) | probable code
       sta  W8B7E                        // probable code
       ldx  #$E3                         // X = $e3 (227) | probable code
@@ -9524,7 +9524,7 @@ W8BD6:
 
 W8BE5: // referenced from W8E4D(p)
       ldx  #$08                         // X = $08 (8) | probable code
-      stx  W8CEF                        // probable code
+      stx  W8CEE+1                      // probable code
 W8BEA: // referenced from W8BF1(p)
       lda  W8D67,x                      // A = W8D67[X] | probable code
       sta  W8D5E,x                      // store A → W8D5E[X] | probable code
@@ -9602,7 +9602,7 @@ W8C66: // referenced from W8AA9(p), W8E3F(p)
 // ROUTINE CONTEXT
 // key RAM: $8D5E (state_block:state_block_3155), $8E51 (state_block:state_block_3155), $8FE5 (buffer:buffer_8FB8), $8CEF (state_block:state_block_3155), $8E26 (state_block:state_block_3155), $8CD9 (state_block:state_block_3155)
 W8CA3:
-      ldx  W8E26                        // probable code
+      ldx  W8E25+1                      // probable code
       lda  W8FE5,x                      // A = W8FE5[X] | probable code
       sta  $D015                        // Sprites Abilitator | probable code
       beq  W8D0B                        // probable code
@@ -9623,8 +9623,8 @@ W8CB2: // referenced from W8CB9(p)
       ldx  #$67                         // X = $67 (103, 'g') | probable code
       ldy  #$8D                         // Y = $8d (141) | probable code
 W8CD0: // referenced from W8CCA(p)
-      stx  W8CD9                        // probable code
-      sty  W8CDA                        // probable code
+      stx  W8CD8+1                      // probable code
+      sty  W8CD8+2                      // probable code
       ldx  #$08                         // X = $08 (8) | probable code
 W8CD8: // referenced from W8CEC(p)
       lda  W8D5E,x                      // A = W8D5E[X] | probable code
@@ -9644,7 +9644,7 @@ W8CEE:
       lda  $1C                          // probable code
       lsr                               // shift right (÷2) | probable code
       bcs  W8CFA                        // probable code
-      dec  W8CEF                        // probable code
+      dec  W8CEE+1                      // probable code
 W8CFA: // referenced from W8CF0(p), W8CF5(p)
       lda  W8D83,x                      // A = W8D83[X] | probable code
       sta  $D015                        // Sprites Abilitator | probable code
@@ -9731,7 +9731,7 @@ W8D96: // referenced from W8DA1(p)
       dex                               // X-- | probable code
       bpl  W8D96                        // probable code
       inx                               // X++ | probable code
-      stx  W8DB0                        // probable code
+      stx  W8DAF+1                      // probable code
 W8DA7: // referenced from W8DB8(p), W8DC6(p)
       lda  $DC04                        // probable code
       eor  $DC05                        // probable code
@@ -9745,9 +9745,9 @@ W8DB5: // referenced from W8DBB(p)
       beq  W8DA7                        // probable code
       dex                               // X-- | probable code
       bpl  W8DB5                        // probable code
-      ldx  W8DB0                        // probable code
+      ldx  W8DAF+1                      // probable code
       sta  W8FB8,x                      // store A → W8FB8[X] | probable code
-      inc  W8DB0                        // probable code
+      inc  W8DAF+1                      // probable code
       bne  W8DA7                        // probable code
 W8DC8: // referenced from W8DB3(p)
       dex                               // X-- | probable code
@@ -9766,7 +9766,7 @@ W8DC9: // referenced from W8DE4(p)
       bpl  W8DC9                        // probable code
 W8DE6: // referenced from W917C(p)
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W8F6A                        // self-mod: patch operand at W8F69+1 | probable code
+      sta  W8F69+1                      // self-mod: patch operand at W8F69+1 | probable code
       rts                               // return | probable code
 
 
@@ -9803,7 +9803,7 @@ W8E3C: // referenced from W8E31(p), W8E36(p)
       ldy  #$12                         // Y = $12 (18) | probable code
 W8E44: // referenced from W8E2E(p), W8E3A(p)
       sty  W8E51                        // probable code
-      sty  W8F6A                        // probable code
+      sty  W8F69+1                      // probable code
       jsr  W8AC6                        // call W8AC6 | probable code
       jmp  W8BE5                        // jump → W8BE5 | probable code
 
@@ -9842,7 +9842,7 @@ W8F47: // referenced from W8B15(p)
 W8F5B:
       ldx  #$FF                         // X = $ff (255) | probable code
       bmi  W8FA1                        // probable code
-      lda  W466D                        // probable code
+      lda  W466C+1                      // probable code
       bpl  W8FA1                        // probable code
       lda  W8FE5,x                      // A = W8FE5[X] | probable code
       beq  W8F73                        // probable code
@@ -9929,12 +9929,12 @@ W9001:
       lda  $22                          // probable code
       and  #$0C                         // probable code
       ora  $3A                          // probable code
-      ora  W71CF                        // probable code
+      ora  W71CE+1                      // probable code
       ora  W2EBD                        // probable code
 W9013:
       ora  #$00                         // probable code
       bne  W9027                        // probable code
-      lda  W9136                        // probable code
+      lda  W9135+1                      // probable code
 W901A:
       eor  #$00                         // probable code
       bmi  W9027                        // probable code
@@ -9977,7 +9977,7 @@ W906F: // referenced from W14C4(p), W751D(p)
       sei                               // disable interrupts | probable code
       pha                               // push A to stack | probable code
       lda  #$00                         // A = $00 (0) | probable code
-      sta  W9014                        // self-mod: patch operand at W9013+1 | probable code
+      sta  W9013+1                      // self-mod: patch operand at W9013+1 | probable code
       lda  $D016                        // VIC control register | probable code
       ora  #$10                         // probable code
       sta  $D016                        // VIC control register | probable code
@@ -9991,11 +9991,11 @@ W9086:
       ldx  #$01                         // X = $01 (1) | probable code
       stx  $D030                        // probable code
 W9092: // referenced from W908B(p)
-      inc  W73D9                        // probable code
+      inc  W73D8+1                      // probable code
       jsr  W5057                        // call W5057 | probable code
       jsr  W50E3                        // call W50E3 | probable code
       pla                               // pull A from stack | probable code
-      sta  W9087                        // self-mod: patch operand at W9086+1 | probable code
+      sta  W9086+1                      // self-mod: patch operand at W9086+1 | probable code
       tax                               // X = A | probable code
       bpl  W90A5                        // probable code
       jmp  W9128                        // jump → W9128 | probable code
@@ -10053,9 +10053,9 @@ W9135:
       ldx  #$00                         // X = $00 (0) | probable code
       bne  W9179                        // probable code
       inx                               // X++ | probable code
-      stx  W6566                        // probable code
+      stx  W6565+1                      // probable code
       jsr  W8502                        // call W8502 | probable code
-      jsr  W8D94                        // call W8D94 | probable code
+      jsr  W8D92+2                      // probable code
       jsr  W4647                        // call W4647 | probable code
       jsr  W63B1                        // call W63B1 | probable code
       jsr  W6334                        // call W6334 | probable code
@@ -10102,7 +10102,7 @@ W91A6: // referenced from W9137(p)
 // key RAM: $417D (state_block:state_block_3155), $49DF (state_block:state_block_3155)
 // sprite tables: W4175.. holds sprite Y positions
 W91CA: // referenced from W91A3(p)
-      lda  W417D                        // probable code
+      lda  W417C+1                      // probable code
       beq  W91D5                        // probable code
       jsr  W4178                        // call W4178 | probable code
       jsr  W4180                        // call W4180 | probable code
@@ -10184,12 +10184,12 @@ W92E7: // referenced from W93AA(p), W9429(p), W9616(p)
 // ROUTINE CONTEXT
 // key RAM: $8F6A (state_block:state_block_3155), $FFF8, $FFF9, $93F0
 W9384:
-      lda  W8F6A                        // probable code
+      lda  W8F69+1                      // probable code
       bne  W93AD                        // probable code
       jsr  W5252                        // call W5252 | probable code
       jsr  W6FE1                        // call W6FE1 | probable code
       jsr  W7086                        // call W7086 | probable code
-      inc  W93F0                        // probable code
+      inc  W93EF+1                      // probable code
       jsr  W4697                        // call W4697 | probable code
       jsr  W420C                        // call W420C | probable code
       lda  #$B3                         // A = $b3 (179) | probable code
@@ -10244,7 +10244,7 @@ W93ED:
 W93EF:
       lda  #$00                         // A = $00 (0) | probable code
       beq  W93F8                        // probable code
-      lda  W8F6A                        // probable code
+      lda  W8F69+1                      // probable code
       beq  W940C                        // probable code
 W93F8: // referenced from W93F1(p)
       lda  $3A                          // probable code
@@ -10297,7 +10297,7 @@ W944D:
       sta  $FFF8                        // probable code
       lda  #$94                         // A = $94 (148) | probable code
       sta  $FFF9                        // probable code
-      lda  W9612                        // probable code
+      lda  W9611+1                      // probable code
       sta  $D012                        // Reading/Writing IRQ balance value | probable code
       lda  $D011                        // VIC control register | probable code
       and  #$7F                         // probable code
@@ -10530,21 +10530,21 @@ W96D9:
 // ROUTINE CONTEXT
 // key RAM: $00AB (buffer:zp_work_AB), $0022 (buffer:zp_work_22), $00BA (buffer:zp_work_BA), $7089 (state_block:state_block_3155), $70AF (state_block:state_block_3155), $709A (state_block:state_block_3155)
 W96E7:
-      lda  W7089                        // probable code
+      lda  W7088+1                      // probable code
       beq  W972C                        // probable code
       lda  $22                          // probable code
       and  #$08                         // probable code
       bne  W972C                        // probable code
-      lda  W9136                        // probable code
+      lda  W9135+1                      // probable code
       bmi  W972C                        // probable code
-      lda  W709A                        // probable code
+      lda  W7099+1                      // probable code
       sbc  #$12                         // probable code
       cmp  $8C,x                        // probable code
       bcs  W972C                        // probable code
       adc  #$23                         // probable code
       cmp  $8C,x                        // probable code
       bcc  W972C                        // probable code
-      lda  W709F                        // probable code
+      lda  W709E+1                      // probable code
       sbc  #$0F                         // probable code
       cmp  $BA,x                        // probable code
       bcs  W972C                        // probable code
