@@ -128,13 +128,13 @@ export class SpriteAnalyzer {
         }
 
         if (!plausible && runStartBlock !== undefined) {
-          pushSpriteCandidate(vic.spriteRegisterTouches, region.start, runStartBlock, blockIndex - 1, scores, metricsRun, previews, candidates);
+          pushSpriteCandidate(vic, region.start, runStartBlock, blockIndex - 1, scores, metricsRun, previews, candidates);
           runStartBlock = undefined;
         }
       }
 
       if (runStartBlock !== undefined) {
-        pushSpriteCandidate(vic.spriteRegisterTouches, region.start, runStartBlock, blockCount - 1, scores, metricsRun, previews, candidates);
+        pushSpriteCandidate(vic, region.start, runStartBlock, blockCount - 1, scores, metricsRun, previews, candidates);
       }
     }
 
@@ -145,8 +145,20 @@ export class SpriteAnalyzer {
   }
 }
 
+function isAddressInsideCharsetBank(address: number, charsetAddresses: number[]): boolean {
+  // A C64 charset bank is 2 KB ($0800) — 256 glyphs × 8 bytes. When VIC
+  // $D018 selects a charset base, sprite candidates that fall anywhere
+  // in that 2 KB window are almost certainly mis-classified glyph data.
+  for (const base of charsetAddresses) {
+    if (address >= base && address < base + 0x0800) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function pushSpriteCandidate(
-  spriteRegisterTouches: number,
+  vic: { spriteRegisterTouches: number; charsetAddresses: number[] },
   regionStart: number,
   startBlock: number,
   endBlock: number,
@@ -155,6 +167,7 @@ function pushSpriteCandidate(
   previews: PreviewFrame[],
   candidates: SegmentCandidate[],
 ): void {
+  const spriteRegisterTouches = vic.spriteRegisterTouches;
   const start = regionStart + startBlock * 64;
   const end = regionStart + (endBlock + 1) * 64 - 1;
   const blockCount = endBlock - startBlock + 1;
@@ -172,8 +185,15 @@ function pushSpriteCandidate(
   const entropyBonus = averageEntropy >= 1.4 && averageEntropy <= 5.6 ? 0.05 : averageEntropy <= 6.2 ? 0 : -0.16;
   const longRunPenalty = blockCount > 24 ? -0.28 : blockCount > 16 ? -0.18 : blockCount > 8 ? -0.08 : 0;
   const longRunPaddingPenalty = blockCount > 8 && paddingRatio < 0.9 ? -0.12 : 0;
+  // VIC $D018 evidence: when the candidate falls inside a confirmed
+  // charset bank, the bytes are far more likely to be glyph data than
+  // sprite data. The charset analyzer should win the overlap, so we
+  // apply a structural penalty here (charset's kindPriority is lower
+  // than sprite's, so a tie on confidence would otherwise still go to
+  // sprite).
+  const charsetCollisionPenalty = isAddressInsideCharsetBank(start, vic.charsetAddresses) ? -0.25 : 0;
   const confidence = clampConfidence(
-    averageScore - 0.06 + runBonus + paddingBonus + densityBonus + entropyBonus + hardwareBonus + longRunPenalty + longRunPaddingPenalty,
+    averageScore - 0.06 + runBonus + paddingBonus + densityBonus + entropyBonus + hardwareBonus + longRunPenalty + longRunPaddingPenalty + charsetCollisionPenalty,
   );
 
   const minimumConfidence = blockCount > 16 ? 0.88 : blockCount > 8 ? 0.82 : 0.68;

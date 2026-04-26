@@ -36,7 +36,23 @@ export class CharsetAnalyzer {
     const vic = extractVicEvidence(context);
     const candidates: SegmentCandidate[] = [];
 
+    // Probe regions: every supplied candidate region, plus VIC-derived
+    // charset banks (2 KB starting at each $D018-confirmed charset
+    // address). The VIC anchors recover charsets the surrounding region
+    // wouldn't surface — for example when the only candidate region is
+    // the whole image, the avg-glyph-plausibility ratio swamps any
+    // 2 KB charset bank.
+    const probeRegions: Array<{ start: number; end: number; vicConfirmed: boolean }> = [];
     for (const region of context.candidateRegions) {
+      probeRegions.push({ start: region.start, end: region.end, vicConfirmed: false });
+    }
+    for (const charsetAddress of vic.charsetAddresses) {
+      const bankEnd = Math.min(charsetAddress + 0x07ff, context.mapping.endAddress);
+      if (bankEnd <= charsetAddress) continue;
+      probeRegions.push({ start: charsetAddress, end: bankEnd, vicConfirmed: true });
+    }
+
+    for (const region of probeRegions) {
       const startOffset = toOffset(region.start, context.mapping);
       const endOffset = toOffset(region.end, context.mapping);
       if (startOffset === undefined || endOffset === undefined) {
@@ -67,13 +83,19 @@ export class CharsetAnalyzer {
       }
 
       const plausibleRatio = plausibleGlyphs / glyphCount;
-      if (plausibleRatio < 0.42) {
+      const vicCharsetMatch = region.vicConfirmed || vic.charsetAddresses.includes(region.start);
+      // When VIC $D018 confirms the charset address, accept lower
+      // glyph-plausibility ratios — many character sets start with
+      // padding glyphs (all-zero, all-FF, test patterns) that fail the
+      // structural check but are still legitimate parts of the bank.
+      const minimumPlausibleRatio = vicCharsetMatch ? 0.18 : 0.42;
+      if (plausibleRatio < minimumPlausibleRatio) {
         continue;
       }
 
       const averageDensity = totalDensity / glyphCount;
       const canonicalSizeBonus = glyphCount === 128 || glyphCount === 256 ? 0.12 : 0;
-      const vicBonus = vic.charsetAddresses.includes(region.start) ? 0.16 : 0;
+      const vicBonus = vicCharsetMatch ? 0.32 : 0;
       const confidence = clampConfidence(0.36 + plausibleRatio * 0.4 + canonicalSizeBonus + (edgeRowGlyphs / glyphCount) * 0.08 + vicBonus);
       const preview = renderCharsetAscii(bytes, glyphCount, "charset preview");
 
@@ -89,7 +111,7 @@ export class CharsetAnalyzer {
             `${Math.round(plausibleRatio * 100)}% of glyphs have plausible 8x8 structure.`,
             `${Math.round((edgeRowGlyphs / glyphCount) * 100)}% of glyphs have empty top or bottom rows, common in character sets.`,
             `Average glyph density is ${averageDensity.toFixed(2)}, which is close to readable character data.`,
-            vic.charsetAddresses.includes(region.start)
+            vicCharsetMatch
               ? `Start matches VIC charset address inferred from $D018/$DD00: ${formatAddress(region.start)}.`
               : "No direct VIC charset-address match was found.",
           ],
