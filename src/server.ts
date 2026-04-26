@@ -11,6 +11,7 @@ import { registerMediaTools } from "./server-tools/media.js";
 import { registerArtifactTools } from "./server-tools/artifacts.js";
 import { registerAssemblyTools } from "./server-tools/assembly.js";
 import { registerCompressionTools } from "./server-tools/compression.js";
+import { registerGraphicsRenderTools } from "./server-tools/graphics-render.js";
 import { registerDiskG64Tools } from "./server-tools/disk-g64.js";
 import { registerHeadlessTools } from "./server-tools/headless.js";
 import { registerReferenceTools } from "./server-tools/reference.js";
@@ -95,6 +96,7 @@ function createServer(): McpServer {
   registerArtifactTools(server, toolContext);
   registerAssemblyTools(server, toolContext);
   registerCompressionTools(server, toolContext);
+  registerGraphicsRenderTools(server, toolContext);
   registerDiskG64Tools(server, toolContext);
   registerHeadlessTools(server, toolContext);
   registerReferenceTools(server, toolContext, repoDir());
