@@ -837,6 +837,7 @@ function ScrubPanel({
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<number | null>(null);
+  const [prgLoadAddress, setPrgLoadAddress] = useState<number | null>(null);
 
   function parseHex(value: string): number {
     const clean = value.trim().replace(/^\$/, "").replace(/^0x/i, "");
@@ -895,7 +896,72 @@ function ScrubPanel({
     setOffsetText(formatHex(next));
   }
 
+  // Pull the 2-byte PRG load-address header so the annotation form can
+  // map file offsets to C64 addresses automatically.
+  useEffect(() => {
+    if (!selectedPath) {
+      setPrgLoadAddress(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const params = new URLSearchParams({ projectDir: projectRoot, path: selectedPath, offset: "0", length: "2" });
+        const response = await fetch(`/api/artifact/raw?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buf = new Uint8Array(await response.arrayBuffer());
+        if (cancelled) return;
+        if (buf.length >= 2) setPrgLoadAddress(buf[0]! | (buf[1]! << 8));
+      } catch {
+        if (!cancelled) setPrgLoadAddress(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedPath, projectRoot]);
+
+  async function saveAnnotation() {
+    if (!selectedArtifact) return;
+    if (selectedArtifact.kind !== "prg") {
+      setAnnotateStatus("Annotations require a PRG artifact.");
+      return;
+    }
+    setAnnotateBusy(true);
+    setAnnotateStatus("");
+    try {
+      const fileOffset = parseHex(offsetText);
+      const windowBytes = Math.max(1, parseHex(windowText));
+      const start = (prgLoadAddress ?? 0) + Math.max(0, fileOffset - 2);
+      const end = start + windowBytes - 1;
+      const segmentKind = kind === "bitmap" ? (multicolor ? "multicolor_bitmap" : "hires_bitmap") : kind;
+      const response = await fetch("/api/scrub/annotate-segment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectDir: projectRoot,
+          prgPath: selectedPath,
+          start: start.toString(16).toUpperCase().padStart(4, "0"),
+          end: end.toString(16).toUpperCase().padStart(4, "0"),
+          kind: segmentKind,
+          label: annotateLabel.trim() || undefined,
+          comment: annotateComment.trim() || undefined,
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json() as { annotationsPath: string; totalSegments: number };
+      setAnnotateStatus(`Saved → ${payload.annotationsPath} (${payload.totalSegments} segments).`);
+    } catch (saveError) {
+      setAnnotateStatus(`Save failed: ${saveError instanceof Error ? saveError.message : String(saveError)}`);
+    } finally {
+      setAnnotateBusy(false);
+    }
+  }
+
   const blockBytes = SCRUB_BLOCK_BYTES[kind];
+
+  const [annotateLabel, setAnnotateLabel] = useState<string>("");
+  const [annotateComment, setAnnotateComment] = useState<string>("");
+  const [annotateStatus, setAnnotateStatus] = useState<string>("");
+  const [annotateBusy, setAnnotateBusy] = useState<boolean>(false);
 
   const selectedArtifact = scrubArtifacts.find((artifact) => artifact.relativePath === selectedPath);
   const stem = selectedArtifact ? selectedArtifact.relativePath.replace(/\.[^.]+$/, "").replace(/^.*\//, "") : "";
@@ -1017,6 +1083,40 @@ function ScrubPanel({
               Block size: {blockBytes} bytes. Use <strong>+blk / -blk</strong> to jump exactly one block at a time.
             </p>
             {fileSize ? <p style={{ fontSize: "11px", color: "#9aa4b2", margin: 0 }}>File size: {fileSize} B</p> : null}
+            {prgLoadAddress !== null ? (
+              <p style={{ fontSize: "11px", color: "#9aa4b2", margin: 0 }}>Load address: ${prgLoadAddress.toString(16).toUpperCase().padStart(4, "0")}</p>
+            ) : null}
+            {selectedArtifact?.kind === "prg" ? (
+              <div style={{ borderTop: "1px solid #30363d", paddingTop: "10px", marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                <strong style={{ fontSize: "12px" }}>Save as segment</strong>
+                <p style={{ fontSize: "11px", color: "#9aa4b2", margin: 0 }}>
+                  Persists the current window into <code>{selectedArtifact?.relativePath.replace(/\.[^.]+$/, "")}_annotations.json</code> as a kind=
+                  <code>{kind === "bitmap" ? (multicolor ? "multicolor_bitmap" : "hires_bitmap") : kind}</code> segment. Picked up by the next <code>disasm_prg</code> run.
+                </p>
+                <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px" }}>
+                  Label (optional):
+                  <input
+                    type="text"
+                    value={annotateLabel}
+                    onChange={(e) => setAnnotateLabel(e.target.value)}
+                    placeholder="e.g. title_screen_charset"
+                  />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px" }}>
+                  Comment (optional):
+                  <input
+                    type="text"
+                    value={annotateComment}
+                    onChange={(e) => setAnnotateComment(e.target.value)}
+                    placeholder="why this slice is graphics"
+                  />
+                </label>
+                <button type="button" onClick={saveAnnotation} disabled={annotateBusy}>
+                  {annotateBusy ? "Saving…" : "Save segment"}
+                </button>
+                {annotateStatus ? <p style={{ fontSize: "11px", color: "#9aa4b2", margin: 0 }}>{annotateStatus}</p> : null}
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="docs-viewer">

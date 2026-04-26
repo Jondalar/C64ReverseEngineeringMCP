@@ -291,6 +291,54 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/scrub/annotate-segment" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          prgPath: string;
+          start: string;
+          end: string;
+          kind: string;
+          label?: string;
+          comment?: string;
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        const prgAbs = safeProjectPath(projectDir, payload.prgPath);
+        if (!prgAbs || !existsSync(prgAbs)) {
+          send(res, jsonResponse(404, { error: "PRG not found.", prgPath: payload.prgPath }));
+          return;
+        }
+        const stem = prgAbs.replace(/\.[^.]+$/, "").replace(/^.*\//, "");
+        const annotationsPath = join(dirname(prgAbs), `${stem}_annotations.json`);
+        const existing: { version?: number; binary?: string; segments?: Array<{ start: string; end: string; kind: string; label?: string; comment?: string }>; labels?: unknown[]; routines?: unknown[] } = existsSync(annotationsPath)
+          ? JSON.parse(readFileSync(annotationsPath, "utf8"))
+          : { version: 1, binary: stem, segments: [], labels: [], routines: [] };
+        existing.version = existing.version ?? 1;
+        existing.binary = existing.binary ?? stem;
+        existing.segments = existing.segments ?? [];
+        existing.labels = existing.labels ?? [];
+        existing.routines = existing.routines ?? [];
+        const startHex = payload.start.toUpperCase().replace(/^\$/, "");
+        const endHex = payload.end.toUpperCase().replace(/^\$/, "");
+        const idx = existing.segments.findIndex((seg) => seg.start.toUpperCase() === startHex && seg.end.toUpperCase() === endHex);
+        const entry = { start: startHex, end: endHex, kind: payload.kind, label: payload.label, comment: payload.comment };
+        if (idx >= 0) existing.segments[idx] = entry;
+        else existing.segments.push(entry);
+        existing.segments.sort((left, right) => parseInt(left.start, 16) - parseInt(right.start, 16));
+        writeFileSync(annotationsPath, JSON.stringify(existing, null, 2));
+        send(res, jsonResponse(200, { annotationsPath, segment: entry, totalSegments: existing.segments.length }));
+      } catch (error) {
+        send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/graphics-marks" && req.method === "GET") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
