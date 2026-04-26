@@ -475,6 +475,10 @@ button {
   background: rgba(77, 181, 255, 0.06);
 }
 
+.data-table tbody tr.active-row {
+  background: rgba(241, 90, 41, 0.12);
+}
+
 .graph-canvas-wrap {
   overflow: auto;
   border-radius: 16px;
@@ -515,6 +519,11 @@ button {
 .flow-node-group:hover .flow-node-rect {
   fill: rgba(241, 90, 41, 0.18);
   stroke: rgba(241, 90, 41, 0.55);
+}
+
+.flow-node-group.active .flow-node-rect {
+  fill: rgba(241, 90, 41, 0.18);
+  stroke: rgba(241, 90, 41, 0.65);
 }
 
 .flow-node-rect {
@@ -1020,310 +1029,6 @@ button {
   background: rgba(88, 166, 255, 0.08);
 }
 
-/* === Mark mode (dev workflow only) === */
-
-.mark-mode-root {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  z-index: 200;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-end;
-  pointer-events: none;
-}
-
-.mark-mode-root > * {
-  pointer-events: auto;
-}
-
-.mark-mode-toggle {
-  background: #0d1117;
-  border: 1px solid #30363d;
-  color: #c9d1d9;
-  font-size: 11px;
-  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
-  padding: 4px 10px;
-  border-radius: 999px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  letter-spacing: 0.04em;
-}
-
-.mark-mode-toggle:hover {
-  border-color: #58a6ff;
-  color: #58a6ff;
-}
-
-.mark-mode-toggle-active {
-  border-color: #ff7b72;
-  color: #ff7b72;
-  background: rgba(248, 81, 73, 0.12);
-}
-
-.mark-mode-count {
-  font-size: 10px;
-  color: #6e7681;
-}
-
-.mark-mode-banner {
-  position: fixed;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(248, 81, 73, 0.22);
-  border: 1px solid #ff7b72;
-  color: #ffa198;
-  padding: 4px 14px;
-  border-radius: 999px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  z-index: 210;
-  pointer-events: none;
-}
-
-.mark-mode-hover-outline {
-  position: fixed;
-  border: 2px dashed rgba(88, 166, 255, 0.8);
-  background: rgba(88, 166, 255, 0.08);
-  pointer-events: none;
-  z-index: 205;
-  border-radius: 4px;
-  transition: all 40ms ease-out;
-}
-
-.mark-mode-pending-outline {
-  position: fixed;
-  border: 2px solid #ff7b72;
-  background: rgba(255, 123, 114, 0.1);
-  pointer-events: none;
-  z-index: 205;
-  border-radius: 4px;
-}
-
-.mark-mode-dialog {
-  position: fixed;
-  right: 16px;
-  top: 16px;
-  width: 360px;
-  max-width: calc(100vw - 32px);
-  background: #0d1117;
-  border: 1px solid #1f2630;
-  border-radius: 10px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
-  padding: 0.75rem 0.85rem;
-  z-index: 215;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-}
-
-.mark-mode-dialog header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  color: #c9d1d9;
-}
-
-.mark-mode-dialog header button {
-  border: 1px solid #30363d;
-  background: transparent;
-  color: #c9d1d9;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.mark-mode-dialog-context {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  font-size: 10px;
-  color: #8b949e;
-}
-
-.mark-mode-dialog-context span {
-  background: rgba(22, 27, 34, 0.8);
-  border: 1px solid #1f2630;
-  border-radius: 4px;
-  padding: 2px 6px;
-}
-
-.mark-mode-dialog-text {
-  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
-}
-
-.mark-mode-dialog textarea {
-  resize: vertical;
-  min-height: 80px;
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  color: #c9d1d9;
-  font-family: inherit;
-  font-size: 12px;
-  padding: 0.4rem 0.55rem;
-}
-
-.mark-mode-dialog textarea:focus {
-  outline: none;
-  border-color: #58a6ff;
-}
-
-.mark-mode-dialog footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.4rem;
-}
-
-.mark-mode-dialog footer button {
-  border: 1px solid #30363d;
-  background: #0d1117;
-  color: #c9d1d9;
-  font-size: 11px;
-  padding: 4px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.mark-mode-save {
-  border-color: #58a6ff !important;
-  color: #58a6ff !important;
-  background: rgba(88, 166, 255, 0.12) !important;
-}
-
-.mark-mode-save[disabled],
-.mark-mode-dialog footer button[disabled] {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.mark-mode-error {
-  font-size: 11px;
-  color: #ff7b72;
-}
-
-.mark-mode-panel {
-  position: fixed;
-  bottom: 56px;
-  right: 16px;
-  width: 340px;
-  max-height: calc(100vh - 120px);
-  background: #0d1117;
-  border: 1px solid #1f2630;
-  border-radius: 10px;
-  padding: 0.6rem 0.75rem;
-  overflow: auto;
-  z-index: 210;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.mark-mode-panel header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  color: #c9d1d9;
-}
-
-.mark-mode-panel header button {
-  border: 1px solid #30363d;
-  background: transparent;
-  color: #c9d1d9;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.mark-mode-empty {
-  font-size: 11px;
-  color: #8b949e;
-}
-
-.mark-mode-panel ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.mark-mode-item {
-  background: rgba(22, 27, 34, 0.6);
-  border: 1px solid #1f2630;
-  border-radius: 6px;
-  padding: 0.5rem 0.6rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.mark-mode-item-fixed {
-  opacity: 0.55;
-  border-style: dashed;
-}
-
-.mark-mode-item-header {
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  color: #8b949e;
-  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
-}
-
-.mark-mode-item-tag {
-  background: rgba(88, 166, 255, 0.15);
-  color: #79c0ff;
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.mark-mode-item-note {
-  margin: 0;
-  font-size: 12px;
-  color: #c9d1d9;
-  white-space: pre-wrap;
-}
-
-.mark-mode-item-meta {
-  margin: 0;
-  font-size: 10px;
-  color: #8b949e;
-}
-
-.mark-mode-item-actions {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.mark-mode-item-actions button {
-  border: 1px solid #30363d;
-  background: transparent;
-  color: #c9d1d9;
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 10px;
-  cursor: pointer;
-}
-
-.mark-mode-item-actions button:hover {
-  border-color: #58a6ff;
-  color: #58a6ff;
-}
-
 .sequence-strip {
   display: grid;
   grid-template-columns: 1fr;
@@ -1350,6 +1055,11 @@ button {
 
 .sequence-card {
   cursor: pointer;
+}
+
+.sequence-card.active-record {
+  border-color: rgba(241, 90, 41, 0.45);
+  background: rgba(241, 90, 41, 0.12);
 }
 
 .sequence-card:disabled {

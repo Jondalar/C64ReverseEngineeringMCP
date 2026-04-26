@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { resolveProjectDir } from "../dist/project-root.js";
 
 const root = mkdtempSync(join(tmpdir(), "c64re-knowledge-smoke-"));
 
@@ -13,6 +14,17 @@ try {
     description: "Smoke test workspace for project knowledge layer.",
     tags: ["smoke"],
   });
+
+  const nestedMediaDir = join(root, "media");
+  mkdirSync(nestedMediaDir, { recursive: true });
+  const nestedImagePath = join(nestedMediaDir, "smoke.g64");
+  writeFileSync(nestedImagePath, new Uint8Array([0x47, 0x36, 0x34]));
+  assert.equal(resolveProjectDir({
+    cwd: process.cwd(),
+    repoDir: process.cwd(),
+    hintPath: nestedImagePath,
+    requireWritable: true,
+  }), root);
 
   const analysisPath = join(root, "analysis", "smoke_analysis.json");
   writeFileSync(analysisPath, `${JSON.stringify({

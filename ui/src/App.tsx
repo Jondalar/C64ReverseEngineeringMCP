@@ -3,7 +3,6 @@ import { HexView } from "./components/HexView.js";
 import { AsmView, type AsmViewSource } from "./components/AsmView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
 import { FileInspector, type FileInspectorActionButton, type FileInspectorHeadlineExtra, type FileInspectorMetaRow, type FileInspectorSpanRow } from "./components/FileInspector.js";
-import { MarkMode } from "./components/MarkMode.js";
 import { MediumPanelShell, type MediumOriginPillSpec } from "./components/MediumPanelShell.js";
 import { BootTracePanel } from "./components/BootTracePanel.js";
 import type { CartridgeLutChunk } from "./types.js";
@@ -45,6 +44,9 @@ interface TodoComposerState {
   entityIds: string[];
   artifactIds: string[];
 }
+
+type DiskFileSelection = { diskArtifactId: string; fileId: string };
+type CartChunkSelection = { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
 
 const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
@@ -592,9 +594,11 @@ function DocsPanel({
 
 function MemoryMapPanel({
   snapshot,
+  selectedEntityId,
   onSelectEntity,
 }: {
   snapshot: WorkspaceUiSnapshot;
+  selectedEntityId?: string | null;
   onSelectEntity: (entityId: string) => void;
 }) {
   const view = snapshot.views.memoryMap;
@@ -639,7 +643,24 @@ function MemoryMapPanel({
   const hasStageFilter = focusedEntityIds.size > 0;
   const visibleCells = view.cells.filter((cell) => !hasStageFilter || cell.entityIds.some((entityId) => focusedEntityIds.has(entityId)));
   const cellByStart = new Map(view.cells.map((cell) => [cell.start, cell]));
-  const selectedCell = visibleCells.find((cell) => cell.id === selectedCellId)
+  const selectedEntity = selectedEntityId ? snapshot.entities.find((entity) => entity.id === selectedEntityId) : undefined;
+  const selectedEntityRegionIds = new Set(view.regions.filter((region) => region.entityId === selectedEntityId).map((region) => region.id));
+  const selectedEntityCell = selectedEntityId
+    ? visibleCells.find((cell) =>
+      cell.entityIds.includes(selectedEntityId)
+      || cell.dominantEntityId === selectedEntityId
+      || cell.regionIds.some((regionId) => selectedEntityRegionIds.has(regionId))
+      || (selectedEntity?.addressRange !== undefined && selectedEntity.addressRange.start >= cell.start && selectedEntity.addressRange.start <= cell.end)
+    )
+      ?? view.cells.find((cell) =>
+        cell.entityIds.includes(selectedEntityId)
+        || cell.dominantEntityId === selectedEntityId
+        || cell.regionIds.some((regionId) => selectedEntityRegionIds.has(regionId))
+        || (selectedEntity?.addressRange !== undefined && selectedEntity.addressRange.start >= cell.start && selectedEntity.addressRange.start <= cell.end)
+      )
+    : undefined;
+  const selectedCell = selectedEntityCell
+    ?? visibleCells.find((cell) => cell.id === selectedCellId)
     ?? visibleCells.find((cell) => cell.category !== "free")
     ?? view.cells.find((cell) => cell.id === selectedCellId)
     ?? view.cells.find((cell) => cell.category !== "free")
@@ -653,8 +674,18 @@ function MemoryMapPanel({
   const visibleHighlights = view.highlights.filter((item) => !hasStageFilter || (item.entityId !== undefined && focusedEntityIds.has(item.entityId)));
 
   useEffect(() => {
+    if (!selectedEntityId) return;
+    const matchingCell = view.cells.find((cell) => cell.entityIds.includes(selectedEntityId) || cell.dominantEntityId === selectedEntityId);
+    if (matchingCell && matchingCell.id !== selectedCellId) {
+      setSelectedCellId(matchingCell.id);
+    }
+  }, [selectedEntityId, selectedCellId, view.cells]);
+
+  useEffect(() => {
     if (!selectedCell) return;
-    const preferredEntityId = selectedCell.dominantEntityId
+    const preferredEntityId = selectedEntityId && selectedRegions.some((region) => region.entityId === selectedEntityId)
+      ? selectedEntityId
+      : selectedCell.dominantEntityId
       ?? (selectedRegions.length === 1 ? selectedRegions[0].entityId : undefined)
       ?? selectedRegions.find((region) => region.entityId !== undefined)?.entityId
       ?? selectedCell.entityIds[0];
@@ -665,6 +696,10 @@ function MemoryMapPanel({
 
   function labelHex(value: number, digits: number): string {
     return value.toString(16).toUpperCase().padStart(digits, "0");
+  }
+
+  function preferredEntityForCell(cell: MemoryMapView["cells"][number]): string | undefined {
+    return cell.dominantEntityId ?? cell.entityIds[0];
   }
 
   return (
@@ -760,7 +795,11 @@ function MemoryMapPanel({
                             selectedCell?.id === cell.id ? "selected" : "",
                             !isFocused ? "dimmed" : "",
                           ].filter(Boolean).join(" ")}
-                          onClick={() => setSelectedCellId(cell.id)}
+                          onClick={() => {
+                            setSelectedCellId(cell.id);
+                            const entityId = preferredEntityForCell(cell);
+                            if (entityId) onSelectEntity(entityId);
+                          }}
                           title={`${labelHex(cell.start, 4)}-${labelHex(cell.end, 4)} ${cell.dominantTitle}`}
                           style={{ opacity: (0.28 + cell.occupancy * 0.72) * (isFocused ? 1 : 0.22) }}
                         >
@@ -792,7 +831,7 @@ function MemoryMapPanel({
             </thead>
             <tbody>
               {visibleHighlights.map((item) => (
-                <tr key={item.id} onClick={() => item.entityId && onSelectEntity(item.entityId)}>
+                <tr key={item.id} className={item.entityId === selectedEntityId ? "active-row" : ""} onClick={() => item.entityId && onSelectEntity(item.entityId)}>
                   <td>{item.title}</td>
                   <td>{hex(item.start)}-{hex(item.end)}</td>
                   <td>{item.sizeBytes}</td>
@@ -825,7 +864,7 @@ function MemoryMapPanel({
                   <button
                     key={region.id}
                     type="button"
-                    className="record-card"
+                    className={region.entityId === selectedEntityId ? "record-card active-record" : "record-card"}
                     onClick={() => region.entityId && onSelectEntity(region.entityId)}
                     disabled={!region.entityId}
                   >
@@ -942,11 +981,13 @@ type DiskOriginFilter = "all" | "kernal" | "custom-loader" | "unknown";
 
 function DiskPanel({
   snapshot,
+  selectedDiskFile,
   onSelectEntity,
   onSelectDiskFile,
   onOpenHex,
 }: {
   snapshot: WorkspaceUiSnapshot;
+  selectedDiskFile?: DiskFileSelection | null;
   onSelectEntity: (entityId: string) => void;
   onSelectDiskFile: (diskArtifactId: string, fileId: string) => void;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
@@ -956,6 +997,14 @@ function DiskPanel({
   const activeDisk = disks.find((disk) => disk.artifactId === activeDiskId) ?? disks[0];
   const [selectedFileId, setSelectedFileId] = useState<string | null>(activeDisk?.files[0]?.id ?? null);
   const [originFilter, setOriginFilter] = useState<DiskOriginFilter>("all");
+
+  useEffect(() => {
+    if (!selectedDiskFile) return;
+    const disk = disks.find((candidate) => candidate.artifactId === selectedDiskFile.diskArtifactId);
+    if (!disk || !disk.files.some((file) => file.id === selectedDiskFile.fileId)) return;
+    if (activeDiskId !== disk.artifactId) setActiveDiskId(disk.artifactId);
+    if (selectedFileId !== selectedDiskFile.fileId) setSelectedFileId(selectedDiskFile.fileId);
+  }, [activeDiskId, disks, selectedDiskFile, selectedFileId]);
 
   useEffect(() => {
     if (!activeDisk) {
@@ -1257,13 +1306,91 @@ function artifactMediaClass(kind: string | undefined): "disk" | "cartridge" | "o
   return "other";
 }
 
+function diskFileSelectionForEntity(snapshot: WorkspaceUiSnapshot, entityId: string): DiskFileSelection | null {
+  for (const disk of snapshot.views.diskLayout.disks) {
+    const file = disk.files.find((candidate) => candidate.entityId === entityId);
+    if (file) return { diskArtifactId: disk.artifactId, fileId: file.id };
+  }
+  return null;
+}
+
+function firstDiskFileSelection(snapshot: WorkspaceUiSnapshot): DiskFileSelection | null {
+  const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.files.length > 0);
+  const file = disk?.files[0];
+  return disk && file ? { diskArtifactId: disk.artifactId, fileId: file.id } : null;
+}
+
+function diskSelectionEntityId(snapshot: WorkspaceUiSnapshot, selection: DiskFileSelection | null): string | null {
+  if (!selection) return null;
+  const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
+  return disk?.files.find((file) => file.id === selection.fileId)?.entityId ?? null;
+}
+
+function tabHasEntity(snapshot: WorkspaceUiSnapshot, entityId: string, tab: TabId): boolean {
+  const entity = snapshot.entities.find((candidate) => candidate.id === entityId);
+  if (!entity) return false;
+  if (tab === "dashboard") return true;
+  if (tab === "docs" || tab === "activity") return false;
+  if (tab === "memory") {
+    return Boolean(entity.addressRange)
+      || snapshot.views.memoryMap.cells.some((cell) => cell.entityIds.includes(entityId) || cell.dominantEntityId === entityId)
+      || snapshot.views.memoryMap.regions.some((region) => region.entityId === entityId)
+      || snapshot.views.memoryMap.highlights.some((highlight) => highlight.entityId === entityId);
+  }
+  if (tab === "disk") return diskFileSelectionForEntity(snapshot, entityId) !== null;
+  if (tab === "load") return snapshot.views.loadSequence.items.some((item) => item.primaryEntityId === entityId || item.entityIds.includes(entityId));
+  if (tab === "flow") return snapshot.views.flowGraph.nodes.some((node) => node.entityId === entityId)
+    || Object.values(snapshot.views.flowGraph.modes ?? {}).some((mode) => mode.nodes.some((node) => node.entityId === entityId));
+  if (tab === "listing") return snapshot.views.annotatedListing.entries.some((entry) => entry.entityId === entityId);
+  if (tab === "cartridge") {
+    const isCartridgeEntity = entity.kind.toLowerCase().includes("chip")
+      || entity.kind.toLowerCase().includes("bank")
+      || entity.mediumSpans?.some((span) => span.kind === "slot")
+      || entity.artifactIds.some((artifactId) => snapshot.views.cartridgeLayout.cartridges.some((cart) => cart.artifactId === artifactId));
+    return Boolean(isCartridgeEntity);
+  }
+  return false;
+}
+
+function firstEntityForTab(snapshot: WorkspaceUiSnapshot, tab: TabId): string | null {
+  if (tab === "dashboard") {
+    return snapshot.findings.flatMap((finding) => finding.entityIds)[0] ?? snapshot.entities[0]?.id ?? null;
+  }
+  if (tab === "memory") {
+    return snapshot.views.memoryMap.regions.find((region) => region.entityId)?.entityId
+      ?? snapshot.views.memoryMap.highlights.find((highlight) => highlight.entityId)?.entityId
+      ?? snapshot.views.memoryMap.cells.flatMap((cell) => cell.dominantEntityId ? [cell.dominantEntityId] : cell.entityIds)[0]
+      ?? null;
+  }
+  if (tab === "cartridge") {
+    return snapshot.entities.find((entity) => tabHasEntity(snapshot, entity.id, "cartridge"))?.id ?? null;
+  }
+  if (tab === "disk") {
+    return snapshot.views.diskLayout.disks.flatMap((disk) => disk.files.map((file) => file.entityId).filter(Boolean))[0] ?? null;
+  }
+  if (tab === "load") {
+    return snapshot.views.loadSequence.items.flatMap((item) => item.primaryEntityId ? [item.primaryEntityId] : item.entityIds)[0] ?? null;
+  }
+  if (tab === "flow") {
+    return snapshot.views.flowGraph.nodes.find((node) => node.entityId)?.entityId
+      ?? Object.values(snapshot.views.flowGraph.modes ?? {}).flatMap((mode) => mode.nodes.map((node) => node.entityId).filter(Boolean))[0]
+      ?? null;
+  }
+  if (tab === "listing") {
+    return snapshot.views.annotatedListing.entries.find((entry) => entry.entityId)?.entityId ?? null;
+  }
+  return null;
+}
+
 function LoadSequencePanel({
   view,
   snapshot,
+  selectedEntityId,
   onSelectEntity,
 }: {
   view: LoadSequenceView;
   snapshot: WorkspaceUiSnapshot;
+  selectedEntityId?: string | null;
   onSelectEntity: (entityId: string) => void;
 }) {
   const artifactKindById = useMemo(() => {
@@ -1326,7 +1453,7 @@ function LoadSequencePanel({
           <div key={item.id} className="sequence-step">
             <button
               type="button"
-              className="sequence-card"
+              className={selectedEntityId && (item.primaryEntityId === selectedEntityId || item.entityIds.includes(selectedEntityId)) ? "sequence-card active-record" : "sequence-card"}
               onClick={() => item.primaryEntityId && onSelectEntity(item.primaryEntityId)}
               disabled={!item.primaryEntityId}
             >
@@ -1376,11 +1503,13 @@ function FlowPanel({
   flowGraph,
   entities,
   relations,
+  selectedEntityId,
   onSelectEntity,
 }: {
   flowGraph: FlowGraphView;
   entities: EntityRecord[];
   relations: RelationRecord[];
+  selectedEntityId?: string | null;
   onSelectEntity: (entityId: string) => void;
 }) {
   type FlowModeId = "structure" | "load" | "runtime";
@@ -1568,7 +1697,7 @@ function FlowPanel({
                   <g
                     key={node.id}
                     transform={`translate(${x}, ${y})`}
-                    className="flow-node-group"
+                    className={node.entityId === selectedEntityId ? "flow-node-group active" : "flow-node-group"}
                     onClick={() => entity && onSelectEntity(entity.id)}
                   >
                     <rect width={nodeWidth} height={nodeHeight} rx={14} className="flow-node-rect" />
@@ -1590,7 +1719,7 @@ function FlowPanel({
                 <button
                   key={edge.id}
                   type="button"
-                  className="record-card"
+                  className={relation && selectedEntityId && (relation.sourceEntityId === selectedEntityId || relation.targetEntityId === selectedEntityId) ? "record-card active-record" : "record-card"}
                   onClick={() => relation && onSelectEntity(relation.sourceEntityId)}
                 >
                   <div className="record-topline">
@@ -1615,11 +1744,13 @@ function ListingPanel({
   snapshot,
   query,
   setQuery,
+  selectedEntityId,
   onSelectEntity,
 }: {
   snapshot: WorkspaceUiSnapshot;
   query: string;
   setQuery: (value: string) => void;
+  selectedEntityId?: string | null;
   onSelectEntity: (entityId: string) => void;
 }) {
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
@@ -1660,7 +1791,7 @@ function ListingPanel({
           </thead>
           <tbody>
             {entries.map((entry) => (
-              <tr key={entry.id} onClick={() => entry.entityId && onSelectEntity(entry.entityId)}>
+              <tr key={entry.id} className={entry.entityId === selectedEntityId ? "active-row" : ""} onClick={() => entry.entityId && onSelectEntity(entry.entityId)}>
                 <td>{hex(entry.start)}-{hex(entry.end)}</td>
                 <td>{entry.title}</td>
                 <td>{entry.kind}</td>
@@ -2669,8 +2800,8 @@ export function App() {
     if (sources.length === 0) return;
     setAsmOverlay({ title, sources });
   }
-  const [selectedCartChunk, setSelectedCartChunk] = useState<{ cartridgeArtifactId: string; chunk: CartridgeLutChunk } | null>(null);
-  const [selectedDiskFile, setSelectedDiskFile] = useState<{ diskArtifactId: string; fileId: string } | null>(null);
+  const [selectedCartChunk, setSelectedCartChunk] = useState<CartChunkSelection | null>(null);
+  const [selectedDiskFile, setSelectedDiskFile] = useState<DiskFileSelection | null>(null);
 
   function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) {
     setHexOverlay({
@@ -2829,19 +2960,49 @@ export function App() {
     }
   }, [activeTab, visibleTabs]);
 
-  useEffect(() => {
-    if (activeTab === "docs") {
-      return;
-    }
-    const nextSelectedEntityId = tabSelections[activeTab];
-    setSelectedEntityId(nextSelectedEntityId ?? null);
-  }, [activeTab, tabSelections]);
-
   function handleSelectEntity(entityId: string, tabId: TabId = activeTab) {
     setSelectedEntityId(entityId);
     setTabSelections((current) => ({ ...current, [tabId]: entityId }));
     setSelectedCartChunk(null);
     setSelectedDiskFile(null);
+  }
+
+  function currentFocusEntityId(): string | null {
+    if (!snapshot) return selectedEntityId;
+    return selectedEntityId ?? diskSelectionEntityId(snapshot, selectedDiskFile);
+  }
+
+  function handleOpenTab(nextTab: TabId) {
+    if (!snapshot) {
+      setActiveTab(nextTab);
+      return;
+    }
+
+    const preferredEntityId = currentFocusEntityId();
+    const rememberedEntityId = tabSelections[nextTab];
+    const nextEntityId =
+      preferredEntityId && tabHasEntity(snapshot, preferredEntityId, nextTab)
+        ? preferredEntityId
+        : rememberedEntityId && tabHasEntity(snapshot, rememberedEntityId, nextTab)
+          ? rememberedEntityId
+          : firstEntityForTab(snapshot, nextTab);
+
+    if (nextTab === "disk") {
+      const nextDiskSelection =
+        nextEntityId ? diskFileSelectionForEntity(snapshot, nextEntityId) : selectedDiskFile
+          ?? firstDiskFileSelection(snapshot);
+      setSelectedDiskFile(nextDiskSelection);
+      setSelectedCartChunk(null);
+      setSelectedEntityId(nextEntityId ?? diskSelectionEntityId(snapshot, nextDiskSelection));
+      if (nextEntityId) setTabSelections((current) => ({ ...current, disk: nextEntityId }));
+    } else {
+      setSelectedDiskFile(null);
+      if (nextTab !== "cartridge") setSelectedCartChunk(null);
+      setSelectedEntityId(nextEntityId);
+      if (nextEntityId) setTabSelections((current) => ({ ...current, [nextTab]: nextEntityId }));
+    }
+
+    setActiveTab(nextTab);
   }
 
   return (
@@ -2880,7 +3041,7 @@ export function App() {
                 key={tab.id}
                 type="button"
                 className={activeTab === tab.id ? "tab-button active" : "tab-button"}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleOpenTab(tab.id)}
               >
                 {tab.label}
               </button>
@@ -2894,7 +3055,7 @@ export function App() {
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "dashboard")}
                 onOpenDocument={(path) => {
                   setSelectedDocPath(path);
-                  setActiveTab("docs");
+                  handleOpenTab("docs");
                 }}
               />
             ) : null}
@@ -2909,7 +3070,7 @@ export function App() {
                 error={docError}
               />
             ) : null}
-            {activeTab === "memory" ? <MemoryMapPanel snapshot={snapshot} onSelectEntity={(entityId) => handleSelectEntity(entityId, "memory")} /> : null}
+            {activeTab === "memory" ? <MemoryMapPanel snapshot={snapshot} selectedEntityId={selectedEntityId} onSelectEntity={(entityId) => handleSelectEntity(entityId, "memory")} /> : null}
             {activeTab === "cartridge" ? (
               <CartridgePanel
                 snapshot={snapshot}
@@ -2924,10 +3085,14 @@ export function App() {
             {activeTab === "disk" ? (
               <DiskPanel
                 snapshot={snapshot}
+                selectedDiskFile={selectedDiskFile}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "disk")}
                 onSelectDiskFile={(diskArtifactId, fileId) => {
+                  const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === diskArtifactId);
+                  const file = disk?.files.find((candidate) => candidate.id === fileId);
                   setSelectedDiskFile({ diskArtifactId, fileId });
-                  setSelectedEntityId(null);
+                  setSelectedEntityId(file?.entityId ?? null);
+                  if (file?.entityId) setTabSelections((current) => ({ ...current, disk: file.entityId! }));
                   setSelectedCartChunk(null);
                 }}
                 onOpenHex={openHexOverlay}
@@ -2937,6 +3102,7 @@ export function App() {
               <LoadSequencePanel
                 view={snapshot.views.loadSequence}
                 snapshot={snapshot}
+                selectedEntityId={selectedEntityId}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "load")}
               />
             ) : null}
@@ -2945,6 +3111,7 @@ export function App() {
                 flowGraph={snapshot.views.flowGraph}
                 entities={snapshot.entities}
                 relations={snapshot.relations}
+                selectedEntityId={selectedEntityId}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "flow")}
               />
             ) : null}
@@ -2953,6 +3120,7 @@ export function App() {
                 snapshot={snapshot}
                 query={listingQuery}
                 setQuery={setListingQuery}
+                selectedEntityId={selectedEntityId}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "listing")}
               />
             ) : null}
@@ -2976,7 +3144,7 @@ export function App() {
                   onClose={() => setSelectedDiskFile(null)}
                   onOpenHex={openHexOverlay}
                   onOpenAsm={openAsmOverlay}
-                  onOpenTab={setActiveTab}
+                  onOpenTab={handleOpenTab}
                   onSelectEntity={(entityId) => handleSelectEntity(entityId)}
                   onCreateTask={createTaskFromUi}
                   onCreateQuestion={createQuestionFromUi}
@@ -2988,9 +3156,9 @@ export function App() {
                   onSelectEntity={handleSelectEntity}
                   onOpenDocument={(path) => {
                     setSelectedDocPath(path);
-                    setActiveTab("docs");
+                    handleOpenTab("docs");
                   }}
-                  onOpenTab={setActiveTab}
+                  onOpenTab={handleOpenTab}
                   onOpenHex={openHexOverlay}
                   onCreateTask={createTaskFromUi}
                   onCreateQuestion={createQuestionFromUi}
@@ -3034,15 +3202,6 @@ export function App() {
             setTodoError(null);
           }}
           onSave={saveTodoComposer}
-        />
-      ) : null}
-      {snapshot ? (
-        <MarkMode
-          projectDir={snapshot.project.rootPath}
-          activeTab={activeTab}
-          selectedEntityId={selectedEntityId}
-          selectedCartChunkKey={selectedCartChunk ? `${selectedCartChunk.cartridgeArtifactId}::${selectedCartChunk.chunk.bank}:${selectedCartChunk.chunk.slot}:${selectedCartChunk.chunk.offsetInBank}:${selectedCartChunk.chunk.length}` : null}
-          selectedDiskFileKey={selectedDiskFile ? `${selectedDiskFile.diskArtifactId}::${selectedDiskFile.fileId}` : null}
         />
       ) : null}
     </div>
