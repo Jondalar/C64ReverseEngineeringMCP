@@ -29,6 +29,20 @@ interface UiDocument {
   relativePath: string;
   updatedAt: string;
   role?: string;
+  unregistered?: boolean;
+}
+
+interface DiscoveredMarkdownDoc {
+  path: string;
+  relativePath: string;
+  size: number;
+  modifiedAt: string;
+  title?: string;
+}
+
+interface DocsApiResponse {
+  projectDir: string;
+  docs: DiscoveredMarkdownDoc[];
 }
 
 interface DocGroup {
@@ -188,6 +202,7 @@ function docPriority(doc: UiDocument): number {
 }
 
 function docGroupId(doc: UiDocument): string {
+  if (doc.unregistered) return "discovered";
   const name = doc.title.toLowerCase();
   if (docPriority(doc) === 0) return "main";
   if (name.endsWith("_pointer_facts.md") || name.endsWith("_ram_facts.md")) return "facts";
@@ -197,11 +212,15 @@ function docGroupId(doc: UiDocument): string {
 function docGroupTitle(groupId: string): string {
   if (groupId === "main") return "Main Docs";
   if (groupId === "facts") return "Per-File Facts";
+  if (groupId === "discovered") return "Discovered (unregistered)";
   return "Other Notes";
 }
 
-function buildDocs(artifacts: ArtifactRecord[]): UiDocument[] {
-  return artifacts
+function buildDocs(
+  artifacts: ArtifactRecord[],
+  discovered: DiscoveredMarkdownDoc[] = [],
+): UiDocument[] {
+  const registered = artifacts
     .filter((artifact) => artifact.relativePath.toLowerCase().startsWith("doc/") || artifact.relativePath.toLowerCase().endsWith(".md"))
     .map((artifact) => ({
       id: artifact.id,
@@ -209,12 +228,25 @@ function buildDocs(artifacts: ArtifactRecord[]): UiDocument[] {
       relativePath: artifact.relativePath,
       updatedAt: artifact.updatedAt,
       role: artifact.role,
-    }))
-    .sort((left, right) => {
-      const priorityDelta = docPriority(left) - docPriority(right);
-      if (priorityDelta !== 0) return priorityDelta;
-      return left.relativePath.localeCompare(right.relativePath);
-    });
+    }));
+
+  const registeredPaths = new Set(registered.map((doc) => doc.relativePath.toLowerCase()));
+  const fallback: UiDocument[] = discovered
+    .filter((entry) => !registeredPaths.has(entry.relativePath.toLowerCase()))
+    .map((entry) => ({
+      id: `discovered:${entry.relativePath}`,
+      title: entry.title?.trim() || entry.relativePath.split("/").pop()?.replace(/\.md$/i, "") || entry.relativePath,
+      relativePath: entry.relativePath,
+      updatedAt: entry.modifiedAt,
+      role: "discovered",
+      unregistered: true,
+    }));
+
+  return [...registered, ...fallback].sort((left, right) => {
+    const priorityDelta = docPriority(left) - docPriority(right);
+    if (priorityDelta !== 0) return priorityDelta;
+    return left.relativePath.localeCompare(right.relativePath);
+  });
 }
 
 function groupDocs(docs: UiDocument[]): DocGroup[] {
@@ -223,7 +255,7 @@ function groupDocs(docs: UiDocument[]): DocGroup[] {
     const groupId = docGroupId(doc);
     groups.set(groupId, [...(groups.get(groupId) ?? []), doc]);
   }
-  return ["main", "notes", "facts"]
+  return ["main", "notes", "facts", "discovered"]
     .map((groupId) => ({
       id: groupId,
       title: docGroupTitle(groupId),
@@ -564,7 +596,7 @@ function DocsPanel({
                     >
                       <div className="record-topline">
                         <span>{doc.title}</span>
-                        <span className="record-status">{doc.role ?? "doc"}</span>
+                        <span className="record-status">{doc.unregistered ? "unregistered" : (doc.role ?? "doc")}</span>
                       </div>
                       <p>{doc.relativePath}</p>
                       <div className="record-meta">
@@ -2780,6 +2812,7 @@ function CartChunkInspector({
 
 export function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceUiSnapshot | null>(null);
+  const [discoveredDocs, setDiscoveredDocs] = useState<DiscoveredMarkdownDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -2834,11 +2867,15 @@ export function App() {
     setError(null);
     try {
       const encoded = encodeURIComponent(nextProjectDir);
-      const nextSnapshot = await fetchJson<WorkspaceUiSnapshot>(`/api/workspace?projectDir=${encoded}`);
+      const [nextSnapshot, docsResponse] = await Promise.all([
+        fetchJson<WorkspaceUiSnapshot>(`/api/workspace?projectDir=${encoded}`),
+        fetchJson<DocsApiResponse>(`/api/docs?projectDir=${encoded}`).catch(() => ({ projectDir: nextProjectDir, docs: [] as DiscoveredMarkdownDoc[] })),
+      ]);
       setSnapshot(nextSnapshot);
+      setDiscoveredDocs(docsResponse.docs);
       setSelectedEntityId(null);
       setTabSelections({});
-      const nextDocs = buildDocs(nextSnapshot.artifacts);
+      const nextDocs = buildDocs(nextSnapshot.artifacts, docsResponse.docs);
       setSelectedDocPath(nextDocs[0]?.relativePath ?? null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -2938,7 +2975,7 @@ export function App() {
   }, [snapshot, selectedDocPath]);
 
   const selectedEntity = snapshot?.entities.find((entity) => entity.id === selectedEntityId);
-  const docs = snapshot ? buildDocs(snapshot.artifacts) : [];
+  const docs = snapshot ? buildDocs(snapshot.artifacts, discoveredDocs) : [];
   const visibleTabs = snapshot
     ? allTabs.filter((tab) => {
         if (tab.id === "dashboard") return true;
