@@ -216,6 +216,13 @@ Artifacts and knowledge created:
 Design rule:
 - do not hide important project knowledge in markdown only; use
   structured records first and markdown as supporting notes
+- when you do write project-level markdown (CLAUDE.md, docs/*.md,
+  BUGREPORT.md, TODO.md, status notes, plans), register it via
+  `save_artifact(kind="other", scope="knowledge", format="md",
+  path="<relative path>", title="<doc title>")` so it appears in the
+  workspace UI Docs tab and can be linked from findings/entities. The
+  server also auto-enumerates unregistered `*.md` via `/api/docs` as a
+  fallback, but explicit registration gives docs a stable id.
 
 This is often the biggest value jump in the whole workflow. It is the
 phase where "interesting bytes" become an explanation of the game or
