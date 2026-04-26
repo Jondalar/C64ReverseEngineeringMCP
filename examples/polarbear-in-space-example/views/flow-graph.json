@@ -3,7 +3,7 @@
   "kind": "flow-graph",
   "title": "Polarbear in Space Flow Graph",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-26T18:41:33.644Z",
+  "generatedAt": "2026-04-26T19:13:18.110Z",
   "nodes": [
     {
       "id": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
@@ -816,7 +816,7 @@
           "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
           "summary": "Initial bootstrap payload that likely establishes runtime state and dispatches later content payloads.",
           "status": "active",
-          "confidence": 0.7906891863993465
+          "confidence": 0.7966119138906075
         },
         {
           "id": "load-sequence-item-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
@@ -836,7 +836,7 @@
           "to": "load-sequence-item-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
           "summary": "Heuristic staged load order inferred from artifact naming, linked analysis artifacts, and imported entry-point knowledge.",
           "status": "active",
-          "confidence": 0.7906891863993465
+          "confidence": 0.7966119138906075
         }
       ]
     },

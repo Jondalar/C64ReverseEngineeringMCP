@@ -3,7 +3,7 @@
   "kind": "annotated-listing",
   "title": "Polarbear in Space Annotated Listing",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-26T18:41:33.673Z",
+  "generatedAt": "2026-04-26T19:13:18.139Z",
   "entries": [
     {
       "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-2048",
@@ -22,56 +22,14 @@
     {
       "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-2240",
       "start": 2240,
-      "end": 2303,
-      "title": "table_000B",
-      "kind": "screen_ram",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
-      ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Detected 1000-byte block, matching C64 screen matrix size. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
-      "confidence": 0.7,
-      "status": "active"
-    },
-    {
-      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-2304",
-      "start": 2304,
-      "end": 2751,
-      "title": "table_000B",
-      "kind": "sprite",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
-      ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Length is 7 x 64 bytes, matching C64 sprite storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
-      "confidence": 0.7,
-      "status": "active"
-    },
-    {
-      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-2752",
-      "start": 2752,
-      "end": 3047,
-      "title": "table_000B",
-      "kind": "screen_ram",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
-      ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Detected 1000-byte block, matching C64 screen matrix size. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
-      "confidence": 0.7,
-      "status": "active"
-    },
-    {
-      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-3048",
-      "start": 3048,
       "end": 3135,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -92,42 +50,14 @@
     {
       "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-3264",
       "start": 3264,
-      "end": 3327,
-      "title": "table_000B",
-      "kind": "unknown",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
-      ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
-      "confidence": 0.7,
-      "status": "active"
-    },
-    {
-      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-3328",
-      "start": 3328,
-      "end": 3903,
-      "title": "table_000B",
-      "kind": "sprite",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
-      ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Length is 9 x 64 bytes, matching C64 sprite storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
-      "confidence": 0.7,
-      "status": "active"
-    },
-    {
-      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-3904",
-      "start": 3904,
       "end": 4095,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1662,12 +1592,12 @@
       "start": 18450,
       "end": 18498,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1690,12 +1620,12 @@
       "start": 18562,
       "end": 18996,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1718,12 +1648,12 @@
       "start": 19092,
       "end": 19270,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1746,12 +1676,12 @@
       "start": 19339,
       "end": 19350,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1774,12 +1704,12 @@
       "start": 19376,
       "end": 19439,
       "title": "table_000B",
-      "kind": "sprite",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Length is 1 x 64 bytes, matching C64 sprite storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1802,12 +1732,12 @@
       "start": 19524,
       "end": 19785,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1830,12 +1760,12 @@
       "start": 19801,
       "end": 19810,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1858,12 +1788,12 @@
       "start": 19836,
       "end": 19846,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1884,28 +1814,14 @@
     {
       "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-19878",
       "start": 19878,
-      "end": 20005,
-      "title": "table_000B",
-      "kind": "sprite",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
-      ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Length is 2 x 64 bytes, matching C64 sprite storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
-      "confidence": 0.7,
-      "status": "active"
-    },
-    {
-      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-20006",
-      "start": 20006,
       "end": 20044,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1926,28 +1842,14 @@
     {
       "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-20084",
       "start": 20084,
-      "end": 20147,
-      "title": "table_000B",
-      "kind": "sprite",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
-      ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Length is 1 x 64 bytes, matching C64 sprite storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
-      "confidence": 0.7,
-      "status": "active"
-    },
-    {
-      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-20148",
-      "start": 20148,
       "end": 20173,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1970,12 +1872,12 @@
       "start": 20206,
       "end": 20228,
       "title": "table_000B",
-      "kind": "unknown",
+      "kind": "charset",
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
       ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
       "confidence": 0.7,
       "status": "active"
     },
@@ -1996,6 +1898,20 @@
     {
       "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-20303",
       "start": 20303,
+      "end": 20479,
+      "title": "table_000B",
+      "kind": "charset",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
+      ],
+      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Region length is 256 x 8 bytes, which matches glyph storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "confidence": 0.7,
+      "status": "active"
+    },
+    {
+      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-20480",
+      "start": 20480,
       "end": 20486,
       "title": "table_000B",
       "kind": "unknown",
@@ -4894,34 +4810,6 @@
     {
       "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-38700",
       "start": 38700,
-      "end": 52971,
-      "title": "table_000B",
-      "kind": "unknown",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
-      ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. No analyzer claimed this range strongly enough. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
-      "confidence": 0.7,
-      "status": "active"
-    },
-    {
-      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-52972",
-      "start": 52972,
-      "end": 53163,
-      "title": "table_000B",
-      "kind": "sprite",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
-      ],
-      "comment": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47. Length is 3 x 64 bytes, matching C64 sprite storage. Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
-      "confidence": 0.7,
-      "status": "active"
-    },
-    {
-      "id": "artifact-polarbear-analysis-json-mo41xbpt-segment-53164",
-      "start": 53164,
       "end": 65526,
       "title": "----------------",
       "kind": "unknown",

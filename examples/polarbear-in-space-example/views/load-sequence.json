@@ -3,7 +3,7 @@
   "kind": "load-sequence",
   "title": "Polarbear in Space Load Sequence",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-26T18:41:33.627Z",
+  "generatedAt": "2026-04-26T19:13:18.093Z",
   "items": [
     {
       "id": "load-sequence-item-generic-0-artifact-polarbear-analysis-json-mo41xbpt",
@@ -14,11 +14,25 @@
       "role": "bootstrap",
       "purposeSummary": "Initial bootstrap payload that likely establishes runtime state and dispatches later content payloads.",
       "status": "active",
-      "confidence": 0.7906891863993465,
+      "confidence": 0.7966119138906075,
       "primaryEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-8fb8-8fe5",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd40-fd80",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4812-4842",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4882-4a34",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4a94-4b46",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4b8b-4b96",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4bb0-4bef",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4c44-4d49",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d59-4d62",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d7c-4d86",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e4c",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4ecd",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eee-4f04",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-4fff",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5469-5470",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-108d-10dd",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1120-1160",
@@ -243,13 +257,9 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-60f8-60f8",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-9990-9990",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd47-fd47",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-08ff",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0ac0-0be7",
         "entity-space-intro-boot-mo41xbq7",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0800-08bf",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0900-0abf",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0c40-0cbf",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0d00-0f3f",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1000-103f",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-10de-111d",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1161-11a0",
@@ -267,9 +277,6 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-3bfd-3cbc",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4697-4716",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-478d-47cc",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4bb0-4bef",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e25",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4eb3",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-52e9-5468",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-54a3-54e2",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-555c-571b",
@@ -293,7 +300,6 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-9472-9531",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-95ba-95f9",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-9619-96d8",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-ceec-cfab",
         "entity-starfield-color-lut-mo41xbq8",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-3155-8fdc",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c400-c485",
@@ -335,9 +341,6 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fe4f-fe55",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0be8-0c3f",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0cff",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0f40-0fff",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1040-108c",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-111e-111f",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-11a1-13e0",
@@ -384,17 +387,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4376-459c",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4717-4745",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-47cd-47e3",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4812-4842",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4882-4a34",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4a94-4b46",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4b8b-4b96",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4c44-4d49",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d59-4d62",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d7c-4d86",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e26-4e4c",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eb4-4ecd",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eee-4f04",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-5006",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5000-5006",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5050-5056",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-50dd-50e2",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-50ee-5184",
@@ -485,8 +478,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-9532-9549",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-95fa-9606",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-96d9-96e6",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0034-0035",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0027-0028",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0003",
@@ -535,32 +527,32 @@
         },
         {
           "start": 2240,
-          "end": 2303
-        },
-        {
-          "start": 2304,
-          "end": 2751
-        },
-        {
-          "start": 2752,
-          "end": 3047
-        },
-        {
-          "start": 3048,
           "end": 3135
         },
         {
           "start": 3136,
           "end": 3263
+        },
+        {
+          "start": 3264,
+          "end": 4095
+        },
+        {
+          "start": 4096,
+          "end": 4159
+        },
+        {
+          "start": 4160,
+          "end": 4236
         }
       ],
       "sourceKinds": [
         "analysis-json"
       ],
       "evidenceHints": [
-        "Segment CEEC classified as sprite",
         "Segment 96E7 classified as code",
         "Segment 9619 classified as sprite",
+        "Segment 9607 classified as code",
         "Indexed or loop-based accesses cluster around $8FB8, $8FE5. Backward branch at $8DA1 forms a loop over 6 instructions. 2 indexed store(s) target $8FB8, $8FE5.",
         "Indexed or loop-based accesses cluster around $FD40, $FD80. Backward branch at $65A1 forms a loop over 14 instructions. 2 indexed store(s) target $FD40, $FD80."
       ]
@@ -598,10 +590,10 @@
       "fromItemId": "load-sequence-item-generic-0-artifact-polarbear-analysis-json-mo41xbpt",
       "toItemId": "load-sequence-item-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
       "summary": "Heuristic staged load order inferred from artifact naming, linked analysis artifacts, and imported entry-point knowledge.",
-      "confidence": 0.7906891863993465,
+      "confidence": 0.7966119138906075,
       "evidenceHints": [
         "01 polarbear in space analysis precedes 02 polarbear in space in the ordered stage set.",
-        "Segment CEEC classified as sprite"
+        "Segment 96E7 classified as code"
       ]
     }
   ]

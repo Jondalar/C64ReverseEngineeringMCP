@@ -3,7 +3,7 @@
   "kind": "project-dashboard",
   "title": "Polarbear in Space Dashboard",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-26T18:41:33.555Z",
+  "generatedAt": "2026-04-26T19:13:18.018Z",
   "project": {
     "schemaVersion": 1,
     "id": "project-polarbear-in-space-mo41xbpc",
@@ -23,8 +23,8 @@
   },
   "counts": {
     "artifacts": 14,
-    "entities": 510,
-    "findings": 345,
+    "entities": 502,
+    "findings": 351,
     "relations": 19,
     "flows": 2,
     "tasks": 1,
@@ -41,7 +41,7 @@
     {
       "id": "metric-findings",
       "title": "Active Findings",
-      "value": "345",
+      "value": "351",
       "emphasis": "warn"
     },
     {
@@ -66,12 +66,12 @@
     {
       "id": "overview-work-state",
       "title": "Work State",
-      "body": "345 active findings, 1 open tasks, and 128 open questions. Latest checkpoint: Polarbear sample baseline."
+      "body": "351 active findings, 1 open tasks, and 128 open questions. Latest checkpoint: Polarbear sample baseline."
     },
     {
       "id": "overview-current-focus",
       "title": "Current Focus",
-      "body": "Primary next action: Trace intro-to-level handoff. Open question: Validate: Segment CEEC classified as sprite."
+      "body": "Primary next action: Trace intro-to-level handoff. Open question: Validate: Segment 8FA2 classified as sprite."
     }
   ],
   "keyDocuments": [
@@ -176,16 +176,7 @@
       "status": "confirmed",
       "confidence": 1,
       "summary": "3 files imported from unrolled loop.",
-      "updatedAt": "2026-04-26T18:41:33.538Z"
-    },
-    {
-      "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-ceec",
-      "kind": "classification",
-      "title": "Segment CEEC classified as sprite",
-      "status": "confirmed",
-      "confidence": 0.7166666666666666,
-      "summary": "Length is 3 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $CEEC-$CFAB. Row density and transition metrics are closer to sprite shapes than random noise.",
-      "updatedAt": "2026-04-26T18:41:33.297Z"
+      "updatedAt": "2026-04-26T19:13:17.996Z"
     },
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-96e7",
@@ -194,7 +185,7 @@
       "status": "confirmed",
       "confidence": 0.88,
       "summary": "Linear probe decoded 31 consecutive instructions before a structured terminator. 15 control-flow instruction(s) were observed inside the island. 2 store instruction(s) suggest stateful routine behavior rather than passive data.",
-      "updatedAt": "2026-04-26T18:41:33.291Z"
+      "updatedAt": "2026-04-26T19:13:17.752Z"
     },
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-9619",
@@ -203,7 +194,7 @@
       "status": "confirmed",
       "confidence": 1,
       "summary": "Length is 3 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $9619-$96D8. Row density and transition metrics are closer to sprite shapes than random noise.",
-      "updatedAt": "2026-04-26T18:41:33.284Z"
+      "updatedAt": "2026-04-26T19:13:17.745Z"
     },
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-9607",
@@ -212,7 +203,7 @@
       "status": "confirmed",
       "confidence": 0.88,
       "summary": "Linear probe decoded 7 consecutive instructions before a structured terminator. 4 control-flow instruction(s) were observed inside the island. 3 store instruction(s) suggest stateful routine behavior rather than passive data.",
-      "updatedAt": "2026-04-26T18:41:33.277Z"
+      "updatedAt": "2026-04-26T19:13:17.738Z"
     },
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-95ba",
@@ -221,7 +212,7 @@
       "status": "confirmed",
       "confidence": 0.99,
       "summary": "Length is 1 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $95BA-$95F9. Row density and transition metrics are closer to sprite shapes than random noise.",
-      "updatedAt": "2026-04-26T18:41:33.270Z"
+      "updatedAt": "2026-04-26T19:13:17.731Z"
     },
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-954a",
@@ -230,7 +221,7 @@
       "status": "confirmed",
       "confidence": 0.88,
       "summary": "Linear probe decoded 47 consecutive instructions before a structured terminator. 28 control-flow instruction(s) were observed inside the island. 12 store instruction(s) suggest stateful routine behavior rather than passive data.",
-      "updatedAt": "2026-04-26T18:41:33.263Z"
+      "updatedAt": "2026-04-26T19:13:17.725Z"
     },
     {
       "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-9472",
@@ -239,7 +230,16 @@
       "status": "confirmed",
       "confidence": 0.93,
       "summary": "Length is 3 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $9472-$9531. Row density and transition metrics are closer to sprite shapes than random noise.",
-      "updatedAt": "2026-04-26T18:41:33.256Z"
+      "updatedAt": "2026-04-26T19:13:17.718Z"
+    },
+    {
+      "id": "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-944d",
+      "kind": "classification",
+      "title": "Segment 944D classified as code",
+      "status": "confirmed",
+      "confidence": 0.88,
+      "summary": "Linear probe decoded 14 consecutive instructions before a structured terminator. 9 control-flow instruction(s) were observed inside the island. 6 store instruction(s) suggest stateful routine behavior rather than passive data.",
+      "updatedAt": "2026-04-26T19:13:17.711Z"
     }
   ],
   "openTasks": [
@@ -255,13 +255,13 @@
   ],
   "openQuestions": [
     {
-      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-ceec",
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-8fa2",
       "kind": "validation",
-      "title": "Validate: Segment CEEC classified as sprite",
+      "title": "Validate: Segment 8FA2 classified as sprite",
       "status": "open",
-      "confidence": 0.28333333333333344,
-      "summary": "Length is 3 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $CEEC-$CFAB. Row density and transition metrics are closer to sprite shapes than random noise.",
-      "updatedAt": "2026-04-26T18:41:33.482Z"
+      "confidence": 0.26,
+      "summary": "Length is 1 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $8FA2-$8FE1. Row density and transition metrics are closer to sprite shapes than random noise.",
+      "updatedAt": "2026-04-26T19:13:17.939Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-5469",
@@ -270,7 +270,7 @@
       "status": "open",
       "confidence": 0.43102040816326526,
       "summary": "Region length is 49 x 8 bytes, which matches glyph storage. 47% of glyphs have plausible 8x8 structure. 27% of glyphs have empty top or bottom rows, common in character sets.",
-      "updatedAt": "2026-04-26T18:41:33.479Z"
+      "updatedAt": "2026-04-26T19:13:17.937Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-3d72",
@@ -279,7 +279,7 @@
       "status": "open",
       "confidence": 0.31000000000000005,
       "summary": "SID driver at $3CF0 reads data via indexed addressing from $3D72. Data at this address is fed to SID registers and likely contains music or SFX sequences.",
-      "updatedAt": "2026-04-26T18:41:33.477Z"
+      "updatedAt": "2026-04-26T19:13:17.934Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ffff-ffff",
@@ -288,7 +288,7 @@
       "status": "open",
       "confidence": 0.42000000000000004,
       "summary": "Address $FFFF is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
-      "updatedAt": "2026-04-26T18:41:33.475Z"
+      "updatedAt": "2026-04-26T19:13:17.932Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98",
@@ -297,7 +297,7 @@
       "status": "open",
       "confidence": 0.30000000000000004,
       "summary": "Indexed or loop-based accesses cluster around $FF58, $FF98. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $FF58, $FF98.",
-      "updatedAt": "2026-04-26T18:41:33.472Z"
+      "updatedAt": "2026-04-26T19:13:17.929Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01",
@@ -306,7 +306,7 @@
       "status": "open",
       "confidence": 0.38,
       "summary": "Indexed or loop-based accesses cluster around $FF00, $FF01. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FF00, $FF01.",
-      "updatedAt": "2026-04-26T18:41:33.469Z"
+      "updatedAt": "2026-04-26T19:13:17.927Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fe4f-fe55",
@@ -315,7 +315,7 @@
       "status": "open",
       "confidence": 0.32999999999999996,
       "summary": "Indexed or loop-based accesses cluster around $FE4F, $FE52, $FE55. 3 consecutive absolute-indexed write access(es) use Y as the table index. Referenced bases cluster around $FE4F, $FE52, $FE55.",
-      "updatedAt": "2026-04-26T18:41:33.467Z"
+      "updatedAt": "2026-04-26T19:13:17.925Z"
     },
     {
       "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fded-feed",
@@ -324,104 +324,104 @@
       "status": "open",
       "confidence": 0.30000000000000004,
       "summary": "Indexed or loop-based accesses cluster around $FDED, $FE2D, $FE6D, $FEAD, $FEED. 5 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FDED, $FE2D, $FE6D, $FEAD, $FEED.",
-      "updatedAt": "2026-04-26T18:41:33.465Z"
+      "updatedAt": "2026-04-26T19:13:17.922Z"
     }
   ],
   "recentTimeline": [
     {
-      "id": "timeline-finding-saved-disk-layout-imported-from-manifest-json-mog472p2",
-      "kind": "finding.saved",
-      "title": "Finding saved: Disk layout imported from manifest.json",
-      "summary": "disk-layout",
-      "createdAt": "2026-04-26T18:41:33.542Z",
-      "findingId": "finding-artifact-polarbear-disk-manifest-mo41xbpz-disk-layout"
-    },
-    {
-      "id": "timeline-imported-manifest-manifest-json-mog472p2",
+      "id": "timeline-imported-manifest-manifest-json-mog5bw6p",
       "kind": "note",
       "title": "Imported manifest: manifest.json",
       "summary": "3 entities / 1 findings / 0 relations",
-      "createdAt": "2026-04-26T18:41:33.542Z",
+      "createdAt": "2026-04-26T19:13:18.001Z",
       "artifactId": "artifact-polarbear-disk-manifest-mo41xbpz"
     },
     {
-      "id": "timeline-entity-saved-mog472ov",
+      "id": "timeline-finding-saved-disk-layout-imported-from-manifest-json-mog5bw6o",
+      "kind": "finding.saved",
+      "title": "Finding saved: Disk layout imported from manifest.json",
+      "summary": "disk-layout",
+      "createdAt": "2026-04-26T19:13:18.000Z",
+      "findingId": "finding-artifact-polarbear-disk-manifest-mo41xbpz-disk-layout"
+    },
+    {
+      "id": "timeline-entity-saved-mog5bw6h",
       "kind": "entity.saved",
       "title": "Entity saved: ----------------",
       "summary": "disk-file",
-      "createdAt": "2026-04-26T18:41:33.535Z",
+      "createdAt": "2026-04-26T19:13:17.993Z",
       "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg"
     },
     {
-      "id": "timeline-entity-saved-in-space-mog472ol",
+      "id": "timeline-entity-saved-in-space-mog5bw67",
       "kind": "entity.saved",
       "title": "Entity saved: in space !",
       "summary": "disk-file",
-      "createdAt": "2026-04-26T18:41:33.525Z",
+      "createdAt": "2026-04-26T19:13:17.983Z",
       "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-1-02_in_space-prg"
     },
     {
-      "id": "timeline-entity-saved-polar-bear-mog472oa",
+      "id": "timeline-entity-saved-polar-bear-mog5bw5w",
       "kind": "entity.saved",
       "title": "Entity saved: polar bear",
       "summary": "disk-file",
-      "createdAt": "2026-04-26T18:41:33.515Z",
+      "createdAt": "2026-04-26T19:13:17.972Z",
       "entityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-0-01_polar_bear-prg"
     },
     {
-      "id": "timeline-imported-analysis-report-polarbear-in-space-analysis-json-mog472ng",
+      "id": "timeline-imported-analysis-report-polarbear-in-space-analysis-json-mog5bw51",
       "kind": "note",
       "title": "Imported analysis report: polarbear-in-space_analysis.json",
-      "summary": "496 entities / 341 findings / 13 relations / 1 flows / 127 open questions",
-      "createdAt": "2026-04-26T18:41:33.484Z",
+      "summary": "488 entities / 347 findings / 13 relations / 1 flows / 127 open questions",
+      "createdAt": "2026-04-26T19:13:17.941Z",
       "artifactId": "artifact-polarbear-analysis-json-mo41xbpt"
     },
     {
-      "id": "timeline-question-saved-validate-segment-ceec-classified-as-sprite-mog472nf",
+      "id": "timeline-question-saved-validate-segment-8fa2-classified-as-sprite-mog5bw50",
       "kind": "question.saved",
-      "title": "Question saved: Validate: Segment CEEC classified as sprite",
+      "title": "Question saved: Validate: Segment 8FA2 classified as sprite",
       "summary": "open",
-      "createdAt": "2026-04-26T18:41:33.483Z",
-      "questionId": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-ceec"
+      "createdAt": "2026-04-26T19:13:17.940Z",
+      "questionId": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-8fa2"
     },
     {
-      "id": "timeline-question-saved-validate-segment-5469-classified-as-charset-mog472nd",
+      "id": "timeline-question-saved-validate-segment-5469-classified-as-charset-mog5bw4y",
       "kind": "question.saved",
       "title": "Question saved: Validate: Segment 5469 classified as charset",
       "summary": "open",
-      "createdAt": "2026-04-26T18:41:33.481Z",
+      "createdAt": "2026-04-26T19:13:17.938Z",
       "questionId": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-5469"
     },
     {
-      "id": "timeline-question-saved-validate-segment-3d72-classified-as-music-data-mog472na",
+      "id": "timeline-question-saved-validate-segment-3d72-classified-as-music-data-mog5bw4v",
       "kind": "question.saved",
       "title": "Question saved: Validate: Segment 3D72 classified as music_data",
       "summary": "open",
-      "createdAt": "2026-04-26T18:41:33.478Z",
+      "createdAt": "2026-04-26T19:13:17.935Z",
       "questionId": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-3d72"
     },
     {
-      "id": "timeline-question-saved-validate-ram-region-ffff-behaves-like-flag-mog472n8",
+      "id": "timeline-question-saved-validate-ram-region-ffff-behaves-like-flag-mog5bw4t",
       "kind": "question.saved",
       "title": "Question saved: Validate: RAM region FFFF behaves like flag",
       "summary": "open",
-      "createdAt": "2026-04-26T18:41:33.476Z",
+      "createdAt": "2026-04-26T19:13:17.933Z",
       "questionId": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ffff-ffff"
     },
     {
-      "id": "timeline-question-saved-validate-ram-region-ff58-behaves-like-table-mog472n5",
+      "id": "timeline-question-saved-validate-ram-region-ff58-behaves-like-table-mog5bw4r",
       "kind": "question.saved",
       "title": "Question saved: Validate: RAM region FF58 behaves like table",
       "summary": "open",
-      "createdAt": "2026-04-26T18:41:33.473Z",
+      "createdAt": "2026-04-26T19:13:17.931Z",
       "questionId": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98"
     },
     {
-      "id": "timeline-question-saved-validate-ram-region-ff00-behaves-like-table-mog472n3",
+      "id": "timeline-question-saved-validate-ram-region-ff00-behaves-like-table-mog5bw4o",
       "kind": "question.saved",
       "title": "Question saved: Validate: RAM region FF00 behaves like table",
       "summary": "open",
-      "createdAt": "2026-04-26T18:41:33.471Z",
+      "createdAt": "2026-04-26T19:13:17.928Z",
       "questionId": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01"
     }
   ]

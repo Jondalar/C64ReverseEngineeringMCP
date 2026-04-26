@@ -3,7 +3,7 @@
   "kind": "memory-map",
   "title": "Polarbear in Space Memory Map",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-26T18:41:33.572Z",
+  "generatedAt": "2026-04-26T19:13:18.036Z",
   "cellSize": 256,
   "rowStride": 4096,
   "cells": [
@@ -360,7 +360,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0800-08bf",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-space-intro-boot-mo41xbq7",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-08ff"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -369,7 +369,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0800-08bf",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-space-intro-boot-mo41xbq7",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-08ff"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -389,13 +389,13 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0900-0abf"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0900-0abf"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -415,15 +415,13 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0900-0abf",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0ac0-0be7"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0900-0abf",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0ac0-0be7"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -443,15 +441,13 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0ac0-0be7",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0be8-0c3f"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0ac0-0be7",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0be8-0c3f"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -471,17 +467,17 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0be8-0c3f",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0c40-0cbf",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0cff"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0be8-0c3f",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0c40-0cbf",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0cff"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -501,13 +497,13 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0d00-0f3f"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0d00-0f3f"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -527,14 +523,14 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0d00-0f3f",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0e27-0e27"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0d00-0f3f",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0e27-0e27"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -555,15 +551,13 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0d00-0f3f",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0f40-0fff"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0d00-0f3f",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0f40-0fff"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -2692,7 +2686,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d63-4d7b",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d7c-4d86",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d87-4da5",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e25"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e4c"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -2707,7 +2701,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d63-4d7b",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d7c-4d86",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d87-4da5",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e25"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e4c"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -2730,11 +2724,9 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-3155-8fdc",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e25",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e26-4e4c",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e4c",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e4d-4e73",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4eb3",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eb4-4ecd",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4ecd",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4ece-4eed",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eee-4f04"
       ],
@@ -2745,11 +2737,9 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-3155-8fdc",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e25",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e26-4e4c",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e4c",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e4d-4e73",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4eb3",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eb4-4ecd",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4ecd",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4ece-4eed",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eee-4f04"
       ],
@@ -2776,7 +2766,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-3155-8fdc",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eee-4f04",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f05-4f4e",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-5006"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-4fff"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -2787,7 +2777,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-3155-8fdc",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eee-4f04",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f05-4f4e",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-5006"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-4fff"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -2810,7 +2800,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-3155-8fdc",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-5006",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5000-5006",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5007-504f",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5050-5056",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5057-50dc",
@@ -2826,7 +2816,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-3155-8fdc",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-5006",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5000-5006",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5007-504f",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5050-5056",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5057-50dc",
@@ -5641,7 +5631,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-96e7-972b",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -5653,7 +5643,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-96e7-972b",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -5678,7 +5668,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -5689,7 +5679,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -5714,7 +5704,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-9990-9990"
       ],
       "entityIds": [
@@ -5726,7 +5716,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-9990-9990"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -5752,7 +5742,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -5763,7 +5753,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -5788,7 +5778,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -5799,7 +5789,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -5824,7 +5814,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -5835,7 +5825,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -5860,7 +5850,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -5871,7 +5861,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -5896,7 +5886,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -5907,7 +5897,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -5932,7 +5922,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -5943,7 +5933,7 @@
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-2",
         "entity-intro-bank-00-mo41xbq9",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -5965,7 +5955,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -5974,7 +5964,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -5997,7 +5987,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6006,7 +5996,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6029,7 +6019,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6038,7 +6028,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6061,7 +6051,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6070,7 +6060,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6093,7 +6083,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6102,7 +6092,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6125,7 +6115,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6134,7 +6124,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6157,7 +6147,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6166,7 +6156,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6189,7 +6179,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6198,7 +6188,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6221,7 +6211,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6230,7 +6220,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6253,7 +6243,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6262,7 +6252,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6285,7 +6275,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6294,7 +6284,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6317,7 +6307,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6326,7 +6316,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6349,7 +6339,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6358,7 +6348,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6381,7 +6371,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6390,7 +6380,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6413,7 +6403,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6422,7 +6412,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6445,7 +6435,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6454,7 +6444,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6477,7 +6467,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6486,7 +6476,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6509,7 +6499,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6518,7 +6508,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6541,7 +6531,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6550,7 +6540,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6573,7 +6563,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6582,7 +6572,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6605,7 +6595,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6614,7 +6604,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6637,7 +6627,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6646,7 +6636,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6669,7 +6659,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6678,7 +6668,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6701,7 +6691,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6710,7 +6700,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6733,7 +6723,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6742,7 +6732,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6765,7 +6755,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6774,7 +6764,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6797,7 +6787,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6806,7 +6796,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6829,7 +6819,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6838,7 +6828,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6861,7 +6851,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6870,7 +6860,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6893,7 +6883,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6902,7 +6892,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6925,7 +6915,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6934,7 +6924,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6957,7 +6947,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "entityIds": [
@@ -6966,7 +6956,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-1"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -6989,7 +6979,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c000-c000"
       ],
       "entityIds": [
@@ -6998,7 +6988,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c000-c000"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -7021,7 +7011,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -7029,7 +7019,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7051,7 +7041,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
@@ -7059,7 +7049,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7081,7 +7071,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
       ],
       "entityIds": [
@@ -7090,7 +7080,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -7113,7 +7103,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c400-c485",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c410-c48c"
@@ -7124,7 +7114,7 @@
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2324-c447",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2336-c485",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c400-c485",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c410-c48c"
@@ -7147,14 +7137,14 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -7175,14 +7165,14 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -7203,14 +7193,14 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -7231,7 +7221,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c873-c874",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c878-c879",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c880-c881",
@@ -7241,7 +7231,7 @@
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c873-c874",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c878-c879",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c880-c881",
@@ -7264,12 +7254,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7288,12 +7278,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7312,12 +7302,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7336,13 +7326,13 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -7362,13 +7352,13 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
@@ -7388,16 +7378,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-ceec-cfab"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-ceec-cfab"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7416,18 +7404,16 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-ceec-cfab",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cfe5-cfe8",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cff0-cff8"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-ceec-cfab",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cfe5-cfe8",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cff0-cff8"
       ],
@@ -7448,12 +7434,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7472,12 +7458,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7496,12 +7482,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7520,12 +7506,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7544,12 +7530,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7568,12 +7554,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7592,12 +7578,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7616,12 +7602,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7640,12 +7626,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7664,12 +7650,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7688,12 +7674,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7712,12 +7698,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7736,12 +7722,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7760,12 +7746,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7784,12 +7770,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7808,12 +7794,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7832,12 +7818,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7856,12 +7842,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7880,12 +7866,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7904,12 +7890,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7928,12 +7914,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7952,12 +7938,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -7976,12 +7962,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8000,12 +7986,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8024,12 +8010,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8048,12 +8034,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8072,12 +8058,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8096,12 +8082,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8120,12 +8106,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8144,12 +8130,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8168,12 +8154,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8192,12 +8178,12 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6"
       ],
       "dominantEntityId": "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
       "status": "active",
@@ -8216,14 +8202,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
@@ -8244,14 +8230,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
@@ -8272,14 +8258,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
@@ -8300,7 +8286,7 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f3d8-f41a"
@@ -8308,7 +8294,7 @@
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f3d8-f41a"
@@ -8330,7 +8316,7 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f3d8-f41a"
@@ -8338,7 +8324,7 @@
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f3d8-f41a"
@@ -8360,14 +8346,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
@@ -8388,14 +8374,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
@@ -8416,14 +8402,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
@@ -8444,14 +8430,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
@@ -8472,14 +8458,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
@@ -8500,14 +8486,14 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
       ],
@@ -8528,7 +8514,7 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fb39-fcb9"
@@ -8536,7 +8522,7 @@
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fb39-fcb9"
@@ -8558,7 +8544,7 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fb39-fcb9"
@@ -8566,7 +8552,7 @@
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fb39-fcb9"
@@ -8588,7 +8574,7 @@
       "regionIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd00-fe80",
@@ -8603,7 +8589,7 @@
       "entityIds": [
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd00-fe80",
@@ -8631,7 +8617,7 @@
       "occupancy": 1,
       "regionIds": [
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd00-fe80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fdc0-fe20",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fded-feed",
@@ -8639,7 +8625,7 @@
       ],
       "entityIds": [
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd00-fe80",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fdc0-fe20",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fded-feed",
@@ -8661,14 +8647,14 @@
       "occupancy": 0.9765625,
       "regionIds": [
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ffff-ffff"
       ],
       "entityIds": [
         "entity-artifact-polarbear-disk-manifest-mo41xbpz-disk-file-2-03_-----------------prg",
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98",
         "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ffff-ffff"
@@ -9865,7 +9851,7 @@
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-0800"
       ],
       "status": "active",
-      "confidence": 1,
+      "confidence": 0.9233333333333333,
       "summary": "Length is 3 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $0800-$08BF. Row density and transition metrics are closer to sprite shapes than random noise."
     },
     {
@@ -9898,58 +9884,18 @@
       "summary": "Entry routine that sets palette state and prepares the opening space scene."
     },
     {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-08ff",
-      "title": "screen_ram_08C0_08FF",
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f",
+      "title": "charset_08C0_0C3F",
       "kind": "memory-region",
       "start": 2240,
-      "end": 2303,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-08ff",
+      "end": 3135,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-08c0-0c3f",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-08c0"
       ],
       "status": "active",
-      "confidence": 0.8836199999999999,
-      "summary": "Detected 1000-byte block, matching C64 screen matrix size. 96% of bytes fit screen-code-like ranges. Start matches VIC screen address inferred from $D018/$DD00: $0800."
-    },
-    {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0900-0abf",
-      "title": "sprite_0900_0ABF",
-      "kind": "memory-region",
-      "start": 2304,
-      "end": 2751,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0900-0abf",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-0900"
-      ],
-      "status": "active",
-      "confidence": 1,
-      "summary": "Length is 7 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $0900-$0ABF. Row density and transition metrics are closer to sprite shapes than random noise."
-    },
-    {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0ac0-0be7",
-      "title": "screen_ram_0AC0_0BE7",
-      "kind": "memory-region",
-      "start": 2752,
-      "end": 3047,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0ac0-0be7",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-0ac0"
-      ],
-      "status": "active",
-      "confidence": 0.8836199999999999,
-      "summary": "Detected 1000-byte block, matching C64 screen matrix size. 96% of bytes fit screen-code-like ranges. Start matches VIC screen address inferred from $D018/$DD00: $0800."
-    },
-    {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0be8-0c3f",
-      "title": "unknown_0BE8_0C3F",
-      "kind": "memory-region",
-      "start": 3048,
-      "end": 3135,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0be8-0c3f",
-      "findingIds": [],
-      "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9593750000000001,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 23% of glyphs have plausible 8x8 structure. 82% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0c40-0cbf",
@@ -9962,34 +9908,22 @@
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-0c40"
       ],
       "status": "active",
-      "confidence": 1,
+      "confidence": 0.9700000000000002,
       "summary": "Length is 2 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $0C40-$0CBF. Row density and transition metrics are closer to sprite shapes than random noise."
     },
     {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0cff",
-      "title": "unknown_0CC0_0CFF",
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff",
+      "title": "charset_0CC0_0FFF",
       "kind": "memory-region",
       "start": 3264,
-      "end": 3327,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0cff",
-      "findingIds": [],
-      "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
-    },
-    {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0d00-0f3f",
-      "title": "sprite_0D00_0F3F",
-      "kind": "memory-region",
-      "start": 3328,
-      "end": 3903,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0d00-0f3f",
+      "end": 4095,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0cc0-0fff",
       "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-0d00"
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-0cc0"
       ],
       "status": "active",
-      "confidence": 0.8700000000000003,
-      "summary": "Length is 9 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $0D00-$0F3F. Row density and transition metrics are closer to sprite shapes than random noise."
+      "confidence": 0.9593750000000001,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 23% of glyphs have plausible 8x8 structure. 82% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0e27-0e27",
@@ -10004,18 +9938,6 @@
       "status": "active",
       "confidence": 0.7200000000000001,
       "summary": "Zero-page pointer $007D resolves to constant target $0E27 here. This target is a strong candidate for a table, buffer, or dispatch structure."
-    },
-    {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0f40-0fff",
-      "title": "unknown_0F40_0FFF",
-      "kind": "memory-region",
-      "start": 3904,
-      "end": 4095,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-0f40-0fff",
-      "findingIds": [],
-      "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1000-103f",
@@ -11797,15 +11719,17 @@
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4812-4842",
-      "title": "unknown_4812_4842",
+      "title": "charset_4812_4842",
       "kind": "memory-region",
       "start": 18450,
       "end": 18498,
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4812-4842",
-      "findingIds": [],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4812"
+      ],
       "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4843-4881",
@@ -11823,15 +11747,17 @@
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4882-4a34",
-      "title": "unknown_4882_4A34",
+      "title": "charset_4882_4A34",
       "kind": "memory-region",
       "start": 18562,
       "end": 18996,
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4882-4a34",
-      "findingIds": [],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4882"
+      ],
       "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-49df-49df",
@@ -11863,15 +11789,17 @@
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4a94-4b46",
-      "title": "unknown_4A94_4B46",
+      "title": "charset_4A94_4B46",
       "kind": "memory-region",
       "start": 19092,
       "end": 19270,
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4a94-4b46",
-      "findingIds": [],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4a94"
+      ],
       "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4b47-4b8a",
@@ -11889,15 +11817,17 @@
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4b8b-4b96",
-      "title": "unknown_4B8B_4B96",
+      "title": "charset_4B8B_4B96",
       "kind": "memory-region",
       "start": 19339,
       "end": 19350,
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4b8b-4b96",
-      "findingIds": [],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4b8b"
+      ],
       "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4b97-4baf",
@@ -11915,7 +11845,7 @@
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4bb0-4bef",
-      "title": "sprite_4BB0_4BEF",
+      "title": "charset_4BB0_4BEF",
       "kind": "memory-region",
       "start": 19376,
       "end": 19439,
@@ -11924,8 +11854,8 @@
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4bb0"
       ],
       "status": "active",
-      "confidence": 0.99,
-      "summary": "Length is 1 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $4BB0-$4BEF. Row density and transition metrics are closer to sprite shapes than random noise."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4bf0-4c43",
@@ -11943,15 +11873,17 @@
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4c44-4d49",
-      "title": "unknown_4C44_4D49",
+      "title": "charset_4C44_4D49",
       "kind": "memory-region",
       "start": 19524,
       "end": 19785,
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4c44-4d49",
-      "findingIds": [],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4c44"
+      ],
       "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d4a-4d58",
@@ -11969,15 +11901,17 @@
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d59-4d62",
-      "title": "unknown_4D59_4D62",
+      "title": "charset_4D59_4D62",
       "kind": "memory-region",
       "start": 19801,
       "end": 19810,
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d59-4d62",
-      "findingIds": [],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4d59"
+      ],
       "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d63-4d7b",
@@ -11995,15 +11929,17 @@
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d7c-4d86",
-      "title": "unknown_4D7C_4D86",
+      "title": "charset_4D7C_4D86",
       "kind": "memory-region",
       "start": 19836,
       "end": 19846,
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d7c-4d86",
-      "findingIds": [],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4d7c"
+      ],
       "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4d87-4da5",
@@ -12020,30 +11956,18 @@
       "summary": "Linear probe decoded 15 consecutive instructions before a structured terminator. 7 control-flow instruction(s) were observed inside the island. 2 store instruction(s) suggest stateful routine behavior rather than passive data."
     },
     {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e25",
-      "title": "sprite_4DA6_4E25",
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e4c",
+      "title": "charset_4DA6_4E4C",
       "kind": "memory-region",
       "start": 19878,
-      "end": 20005,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e25",
+      "end": 20044,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4da6-4e4c",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4da6"
       ],
       "status": "active",
-      "confidence": 0.93,
-      "summary": "Length is 2 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $4DA6-$4E25. Row density and transition metrics are closer to sprite shapes than random noise."
-    },
-    {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e26-4e4c",
-      "title": "unknown_4E26_4E4C",
-      "kind": "memory-region",
-      "start": 20006,
-      "end": 20044,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e26-4e4c",
-      "findingIds": [],
-      "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e4d-4e73",
@@ -12060,30 +11984,18 @@
       "summary": "Linear probe decoded 18 consecutive instructions before a structured terminator. 10 control-flow instruction(s) were observed inside the island. 4 store instruction(s) suggest stateful routine behavior rather than passive data."
     },
     {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4eb3",
-      "title": "sprite_4E74_4EB3",
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4ecd",
+      "title": "charset_4E74_4ECD",
       "kind": "memory-region",
       "start": 20084,
-      "end": 20147,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4eb3",
+      "end": 20173,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4e74-4ecd",
       "findingIds": [
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4e74"
       ],
       "status": "active",
-      "confidence": 0.99,
-      "summary": "Length is 1 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $4E74-$4EB3. Row density and transition metrics are closer to sprite shapes than random noise."
-    },
-    {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eb4-4ecd",
-      "title": "unknown_4EB4_4ECD",
-      "kind": "memory-region",
-      "start": 20148,
-      "end": 20173,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eb4-4ecd",
-      "findingIds": [],
-      "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4ece-4eed",
@@ -12101,15 +12013,17 @@
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eee-4f04",
-      "title": "unknown_4EEE_4F04",
+      "title": "charset_4EEE_4F04",
       "kind": "memory-region",
       "start": 20206,
       "end": 20228,
       "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4eee-4f04",
-      "findingIds": [],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4eee"
+      ],
       "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f05-4f4e",
@@ -12126,12 +12040,26 @@
       "summary": "Linear probe decoded 38 consecutive instructions before a structured terminator. 11 control-flow instruction(s) were observed inside the island. 8 store instruction(s) suggest stateful routine behavior rather than passive data."
     },
     {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-5006",
-      "title": "unknown_4F4F_5006",
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-4fff",
+      "title": "charset_4F4F_4FFF",
       "kind": "memory-region",
       "start": 20303,
+      "end": 20479,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-4fff",
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4f4f"
+      ],
+      "status": "active",
+      "confidence": 0.9146874999999999,
+      "summary": "Region length is 256 x 8 bytes, which matches glyph storage. 27% of glyphs have plausible 8x8 structure. 9% of glyphs have empty top or bottom rows, common in character sets."
+    },
+    {
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5000-5006",
+      "title": "unknown_5000_5006",
+      "kind": "memory-region",
+      "start": 20480,
       "end": 20486,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4f4f-5006",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5000-5006",
       "findingIds": [],
       "status": "active",
       "confidence": 0.15,
@@ -14655,7 +14583,7 @@
         "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-8fa2"
       ],
       "status": "active",
-      "confidence": 0.99,
+      "confidence": 0.74,
       "summary": "Length is 1 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $8FA2-$8FE1. Row density and transition metrics are closer to sprite shapes than random noise."
     },
     {
@@ -15055,12 +14983,12 @@
       "summary": "Linear probe decoded 31 consecutive instructions before a structured terminator. 15 control-flow instruction(s) were observed inside the island. 2 store instruction(s) suggest stateful routine behavior rather than passive data."
     },
     {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
-      "title": "unknown_972C_CEEB",
+      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
+      "title": "unknown_972C_FFF6",
       "kind": "memory-region",
       "start": 38700,
-      "end": 52971,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-ceeb",
+      "end": 65526,
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-972c-fff6",
       "findingIds": [],
       "status": "active",
       "confidence": 0.15,
@@ -15220,32 +15148,6 @@
       "status": "active",
       "confidence": 0.7,
       "summary": "Indexed or loop-based accesses cluster around $CC40, $CD00, $CE00, $CF00. 4 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $CC40, $CD00, $CE00, $CF00."
-    },
-    {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-ceec-cfab",
-      "title": "sprite_CEEC_CFAB",
-      "kind": "memory-region",
-      "start": 52972,
-      "end": 53163,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-ceec-cfab",
-      "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-ceec"
-      ],
-      "status": "active",
-      "confidence": 0.7166666666666666,
-      "summary": "Length is 3 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $CEEC-$CFAB. Row density and transition metrics are closer to sprite shapes than random noise."
-    },
-    {
-      "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
-      "title": "unknown_CFAC_FFF6",
-      "kind": "memory-region",
-      "start": 53164,
-      "end": 65526,
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-cfac-fff6",
-      "findingIds": [],
-      "status": "active",
-      "confidence": 0.15,
-      "summary": "No analyzer claimed this range strongly enough."
     },
     {
       "id": "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cfe5-cfe8",
