@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-04-26T18:28:16.514Z",
+  "version": "v1",
+  "title": "Reverse-Engineering Workflow Contract",
+  "summary": "Project phases, prerequisites, expected artifacts, and recommended tool domains.",
+  "canonicalDocPaths": [],
+  "canonicalPromptIds": [],
+  "phases": []
+}

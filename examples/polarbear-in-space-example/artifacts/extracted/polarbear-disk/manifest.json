@@ -1,42 +1,2362 @@
 {
-  "sourceImage": "input/disk/polarbear-in-space.d64",
+  "sourceImage": "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/examples/polarbear-in-space-example/input/disk/polarbear-in-space.d64",
+  "sourceFileName": "polarbear-in-space.d64",
   "format": "d64",
-  "diskName": "POLARBEAR DISK",
-  "diskId": "PS",
+  "diskName": "unrolled loop",
+  "diskId": " 2",
   "fileCount": 3,
   "files": [
     {
       "index": 0,
-      "name": "INTRO",
+      "name": "polar bear",
       "type": "PRG",
-      "sizeSectors": 6,
-      "sizeBytes": 1024,
+      "sizeSectors": 1,
+      "sizeBytes": 185,
       "track": 1,
       "sector": 0,
-      "loadAddress": 2061,
-      "relativePath": "01_intro.prg"
+      "loadAddress": 806,
+      "relativePath": "01_polar_bear.prg",
+      "sectorChain": [
+        {
+          "index": 0,
+          "track": 1,
+          "sector": 0,
+          "nextTrack": 0,
+          "nextSector": 186,
+          "bytesUsed": 185,
+          "isLast": true
+        }
+      ]
     },
     {
       "index": 1,
-      "name": "LEVEL1",
+      "name": "in space !",
       "type": "PRG",
-      "sizeSectors": 18,
-      "sizeBytes": 4096,
-      "track": 4,
-      "sector": 0,
-      "loadAddress": 16384,
-      "relativePath": "02_level1.prg"
+      "sizeSectors": 6,
+      "sizeBytes": 1409,
+      "track": 1,
+      "sector": 10,
+      "loadAddress": 866,
+      "relativePath": "02_in_space.prg",
+      "sectorChain": [
+        {
+          "index": 0,
+          "track": 1,
+          "sector": 10,
+          "nextTrack": 1,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 1,
+          "track": 1,
+          "sector": 20,
+          "nextTrack": 1,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 2,
+          "track": 1,
+          "sector": 9,
+          "nextTrack": 1,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 3,
+          "track": 1,
+          "sector": 19,
+          "nextTrack": 1,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 4,
+          "track": 1,
+          "sector": 8,
+          "nextTrack": 1,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 5,
+          "track": 1,
+          "sector": 18,
+          "nextTrack": 0,
+          "nextSector": 140,
+          "bytesUsed": 139,
+          "isLast": true
+        }
+      ]
     },
     {
       "index": 2,
-      "name": "ENDING",
+      "name": "----------------",
       "type": "PRG",
-      "sizeSectors": 9,
-      "sizeBytes": 1536,
-      "track": 8,
-      "sector": 0,
-      "loadAddress": 24576,
-      "relativePath": "03_ending.prg"
+      "sizeSectors": 250,
+      "sizeBytes": 63481,
+      "track": 1,
+      "sector": 7,
+      "loadAddress": 2048,
+      "relativePath": "03_----------------.prg",
+      "sectorChain": [
+        {
+          "index": 0,
+          "track": 1,
+          "sector": 7,
+          "nextTrack": 1,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 1,
+          "track": 1,
+          "sector": 17,
+          "nextTrack": 1,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 2,
+          "track": 1,
+          "sector": 6,
+          "nextTrack": 1,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 3,
+          "track": 1,
+          "sector": 16,
+          "nextTrack": 1,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 4,
+          "track": 1,
+          "sector": 5,
+          "nextTrack": 1,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 5,
+          "track": 1,
+          "sector": 15,
+          "nextTrack": 1,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 6,
+          "track": 1,
+          "sector": 4,
+          "nextTrack": 1,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 7,
+          "track": 1,
+          "sector": 14,
+          "nextTrack": 1,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 8,
+          "track": 1,
+          "sector": 3,
+          "nextTrack": 1,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 9,
+          "track": 1,
+          "sector": 13,
+          "nextTrack": 1,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 10,
+          "track": 1,
+          "sector": 2,
+          "nextTrack": 1,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 11,
+          "track": 1,
+          "sector": 12,
+          "nextTrack": 1,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 12,
+          "track": 1,
+          "sector": 1,
+          "nextTrack": 1,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 13,
+          "track": 1,
+          "sector": 11,
+          "nextTrack": 2,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 14,
+          "track": 2,
+          "sector": 0,
+          "nextTrack": 2,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 15,
+          "track": 2,
+          "sector": 10,
+          "nextTrack": 2,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 16,
+          "track": 2,
+          "sector": 20,
+          "nextTrack": 2,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 17,
+          "track": 2,
+          "sector": 9,
+          "nextTrack": 2,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 18,
+          "track": 2,
+          "sector": 19,
+          "nextTrack": 2,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 19,
+          "track": 2,
+          "sector": 8,
+          "nextTrack": 2,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 20,
+          "track": 2,
+          "sector": 18,
+          "nextTrack": 2,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 21,
+          "track": 2,
+          "sector": 7,
+          "nextTrack": 2,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 22,
+          "track": 2,
+          "sector": 17,
+          "nextTrack": 2,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 23,
+          "track": 2,
+          "sector": 6,
+          "nextTrack": 2,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 24,
+          "track": 2,
+          "sector": 16,
+          "nextTrack": 2,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 25,
+          "track": 2,
+          "sector": 5,
+          "nextTrack": 2,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 26,
+          "track": 2,
+          "sector": 15,
+          "nextTrack": 2,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 27,
+          "track": 2,
+          "sector": 4,
+          "nextTrack": 2,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 28,
+          "track": 2,
+          "sector": 14,
+          "nextTrack": 2,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 29,
+          "track": 2,
+          "sector": 3,
+          "nextTrack": 2,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 30,
+          "track": 2,
+          "sector": 13,
+          "nextTrack": 2,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 31,
+          "track": 2,
+          "sector": 2,
+          "nextTrack": 2,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 32,
+          "track": 2,
+          "sector": 12,
+          "nextTrack": 2,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 33,
+          "track": 2,
+          "sector": 1,
+          "nextTrack": 2,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 34,
+          "track": 2,
+          "sector": 11,
+          "nextTrack": 3,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 35,
+          "track": 3,
+          "sector": 0,
+          "nextTrack": 3,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 36,
+          "track": 3,
+          "sector": 10,
+          "nextTrack": 3,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 37,
+          "track": 3,
+          "sector": 20,
+          "nextTrack": 3,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 38,
+          "track": 3,
+          "sector": 9,
+          "nextTrack": 3,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 39,
+          "track": 3,
+          "sector": 19,
+          "nextTrack": 3,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 40,
+          "track": 3,
+          "sector": 8,
+          "nextTrack": 3,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 41,
+          "track": 3,
+          "sector": 18,
+          "nextTrack": 3,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 42,
+          "track": 3,
+          "sector": 7,
+          "nextTrack": 3,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 43,
+          "track": 3,
+          "sector": 17,
+          "nextTrack": 3,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 44,
+          "track": 3,
+          "sector": 6,
+          "nextTrack": 3,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 45,
+          "track": 3,
+          "sector": 16,
+          "nextTrack": 3,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 46,
+          "track": 3,
+          "sector": 5,
+          "nextTrack": 3,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 47,
+          "track": 3,
+          "sector": 15,
+          "nextTrack": 3,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 48,
+          "track": 3,
+          "sector": 4,
+          "nextTrack": 3,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 49,
+          "track": 3,
+          "sector": 14,
+          "nextTrack": 3,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 50,
+          "track": 3,
+          "sector": 3,
+          "nextTrack": 3,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 51,
+          "track": 3,
+          "sector": 13,
+          "nextTrack": 3,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 52,
+          "track": 3,
+          "sector": 2,
+          "nextTrack": 3,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 53,
+          "track": 3,
+          "sector": 12,
+          "nextTrack": 3,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 54,
+          "track": 3,
+          "sector": 1,
+          "nextTrack": 3,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 55,
+          "track": 3,
+          "sector": 11,
+          "nextTrack": 4,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 56,
+          "track": 4,
+          "sector": 0,
+          "nextTrack": 4,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 57,
+          "track": 4,
+          "sector": 10,
+          "nextTrack": 4,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 58,
+          "track": 4,
+          "sector": 20,
+          "nextTrack": 4,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 59,
+          "track": 4,
+          "sector": 9,
+          "nextTrack": 4,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 60,
+          "track": 4,
+          "sector": 19,
+          "nextTrack": 4,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 61,
+          "track": 4,
+          "sector": 8,
+          "nextTrack": 4,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 62,
+          "track": 4,
+          "sector": 18,
+          "nextTrack": 4,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 63,
+          "track": 4,
+          "sector": 7,
+          "nextTrack": 4,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 64,
+          "track": 4,
+          "sector": 17,
+          "nextTrack": 4,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 65,
+          "track": 4,
+          "sector": 6,
+          "nextTrack": 4,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 66,
+          "track": 4,
+          "sector": 16,
+          "nextTrack": 4,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 67,
+          "track": 4,
+          "sector": 5,
+          "nextTrack": 4,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 68,
+          "track": 4,
+          "sector": 15,
+          "nextTrack": 4,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 69,
+          "track": 4,
+          "sector": 4,
+          "nextTrack": 4,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 70,
+          "track": 4,
+          "sector": 14,
+          "nextTrack": 4,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 71,
+          "track": 4,
+          "sector": 3,
+          "nextTrack": 4,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 72,
+          "track": 4,
+          "sector": 13,
+          "nextTrack": 4,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 73,
+          "track": 4,
+          "sector": 2,
+          "nextTrack": 4,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 74,
+          "track": 4,
+          "sector": 12,
+          "nextTrack": 4,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 75,
+          "track": 4,
+          "sector": 1,
+          "nextTrack": 4,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 76,
+          "track": 4,
+          "sector": 11,
+          "nextTrack": 5,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 77,
+          "track": 5,
+          "sector": 0,
+          "nextTrack": 5,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 78,
+          "track": 5,
+          "sector": 10,
+          "nextTrack": 5,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 79,
+          "track": 5,
+          "sector": 20,
+          "nextTrack": 5,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 80,
+          "track": 5,
+          "sector": 9,
+          "nextTrack": 5,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 81,
+          "track": 5,
+          "sector": 19,
+          "nextTrack": 5,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 82,
+          "track": 5,
+          "sector": 8,
+          "nextTrack": 5,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 83,
+          "track": 5,
+          "sector": 18,
+          "nextTrack": 5,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 84,
+          "track": 5,
+          "sector": 7,
+          "nextTrack": 5,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 85,
+          "track": 5,
+          "sector": 17,
+          "nextTrack": 5,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 86,
+          "track": 5,
+          "sector": 6,
+          "nextTrack": 5,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 87,
+          "track": 5,
+          "sector": 16,
+          "nextTrack": 5,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 88,
+          "track": 5,
+          "sector": 5,
+          "nextTrack": 5,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 89,
+          "track": 5,
+          "sector": 15,
+          "nextTrack": 5,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 90,
+          "track": 5,
+          "sector": 4,
+          "nextTrack": 5,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 91,
+          "track": 5,
+          "sector": 14,
+          "nextTrack": 5,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 92,
+          "track": 5,
+          "sector": 3,
+          "nextTrack": 5,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 93,
+          "track": 5,
+          "sector": 13,
+          "nextTrack": 5,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 94,
+          "track": 5,
+          "sector": 2,
+          "nextTrack": 5,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 95,
+          "track": 5,
+          "sector": 12,
+          "nextTrack": 5,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 96,
+          "track": 5,
+          "sector": 1,
+          "nextTrack": 5,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 97,
+          "track": 5,
+          "sector": 11,
+          "nextTrack": 6,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 98,
+          "track": 6,
+          "sector": 0,
+          "nextTrack": 6,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 99,
+          "track": 6,
+          "sector": 10,
+          "nextTrack": 6,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 100,
+          "track": 6,
+          "sector": 20,
+          "nextTrack": 6,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 101,
+          "track": 6,
+          "sector": 9,
+          "nextTrack": 6,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 102,
+          "track": 6,
+          "sector": 19,
+          "nextTrack": 6,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 103,
+          "track": 6,
+          "sector": 8,
+          "nextTrack": 6,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 104,
+          "track": 6,
+          "sector": 18,
+          "nextTrack": 6,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 105,
+          "track": 6,
+          "sector": 7,
+          "nextTrack": 6,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 106,
+          "track": 6,
+          "sector": 17,
+          "nextTrack": 6,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 107,
+          "track": 6,
+          "sector": 6,
+          "nextTrack": 6,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 108,
+          "track": 6,
+          "sector": 16,
+          "nextTrack": 6,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 109,
+          "track": 6,
+          "sector": 5,
+          "nextTrack": 6,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 110,
+          "track": 6,
+          "sector": 15,
+          "nextTrack": 6,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 111,
+          "track": 6,
+          "sector": 4,
+          "nextTrack": 6,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 112,
+          "track": 6,
+          "sector": 14,
+          "nextTrack": 6,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 113,
+          "track": 6,
+          "sector": 3,
+          "nextTrack": 6,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 114,
+          "track": 6,
+          "sector": 13,
+          "nextTrack": 6,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 115,
+          "track": 6,
+          "sector": 2,
+          "nextTrack": 6,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 116,
+          "track": 6,
+          "sector": 12,
+          "nextTrack": 6,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 117,
+          "track": 6,
+          "sector": 1,
+          "nextTrack": 6,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 118,
+          "track": 6,
+          "sector": 11,
+          "nextTrack": 7,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 119,
+          "track": 7,
+          "sector": 0,
+          "nextTrack": 7,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 120,
+          "track": 7,
+          "sector": 10,
+          "nextTrack": 7,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 121,
+          "track": 7,
+          "sector": 20,
+          "nextTrack": 7,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 122,
+          "track": 7,
+          "sector": 9,
+          "nextTrack": 7,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 123,
+          "track": 7,
+          "sector": 19,
+          "nextTrack": 7,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 124,
+          "track": 7,
+          "sector": 8,
+          "nextTrack": 7,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 125,
+          "track": 7,
+          "sector": 18,
+          "nextTrack": 7,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 126,
+          "track": 7,
+          "sector": 7,
+          "nextTrack": 7,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 127,
+          "track": 7,
+          "sector": 17,
+          "nextTrack": 7,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 128,
+          "track": 7,
+          "sector": 6,
+          "nextTrack": 7,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 129,
+          "track": 7,
+          "sector": 16,
+          "nextTrack": 7,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 130,
+          "track": 7,
+          "sector": 5,
+          "nextTrack": 7,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 131,
+          "track": 7,
+          "sector": 15,
+          "nextTrack": 7,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 132,
+          "track": 7,
+          "sector": 4,
+          "nextTrack": 7,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 133,
+          "track": 7,
+          "sector": 14,
+          "nextTrack": 7,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 134,
+          "track": 7,
+          "sector": 3,
+          "nextTrack": 7,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 135,
+          "track": 7,
+          "sector": 13,
+          "nextTrack": 7,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 136,
+          "track": 7,
+          "sector": 2,
+          "nextTrack": 7,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 137,
+          "track": 7,
+          "sector": 12,
+          "nextTrack": 7,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 138,
+          "track": 7,
+          "sector": 1,
+          "nextTrack": 7,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 139,
+          "track": 7,
+          "sector": 11,
+          "nextTrack": 8,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 140,
+          "track": 8,
+          "sector": 0,
+          "nextTrack": 8,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 141,
+          "track": 8,
+          "sector": 10,
+          "nextTrack": 8,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 142,
+          "track": 8,
+          "sector": 20,
+          "nextTrack": 8,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 143,
+          "track": 8,
+          "sector": 9,
+          "nextTrack": 8,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 144,
+          "track": 8,
+          "sector": 19,
+          "nextTrack": 8,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 145,
+          "track": 8,
+          "sector": 8,
+          "nextTrack": 8,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 146,
+          "track": 8,
+          "sector": 18,
+          "nextTrack": 8,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 147,
+          "track": 8,
+          "sector": 7,
+          "nextTrack": 8,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 148,
+          "track": 8,
+          "sector": 17,
+          "nextTrack": 8,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 149,
+          "track": 8,
+          "sector": 6,
+          "nextTrack": 8,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 150,
+          "track": 8,
+          "sector": 16,
+          "nextTrack": 8,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 151,
+          "track": 8,
+          "sector": 5,
+          "nextTrack": 8,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 152,
+          "track": 8,
+          "sector": 15,
+          "nextTrack": 8,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 153,
+          "track": 8,
+          "sector": 4,
+          "nextTrack": 8,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 154,
+          "track": 8,
+          "sector": 14,
+          "nextTrack": 8,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 155,
+          "track": 8,
+          "sector": 3,
+          "nextTrack": 8,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 156,
+          "track": 8,
+          "sector": 13,
+          "nextTrack": 8,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 157,
+          "track": 8,
+          "sector": 2,
+          "nextTrack": 8,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 158,
+          "track": 8,
+          "sector": 12,
+          "nextTrack": 8,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 159,
+          "track": 8,
+          "sector": 1,
+          "nextTrack": 8,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 160,
+          "track": 8,
+          "sector": 11,
+          "nextTrack": 9,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 161,
+          "track": 9,
+          "sector": 0,
+          "nextTrack": 9,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 162,
+          "track": 9,
+          "sector": 10,
+          "nextTrack": 9,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 163,
+          "track": 9,
+          "sector": 20,
+          "nextTrack": 9,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 164,
+          "track": 9,
+          "sector": 9,
+          "nextTrack": 9,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 165,
+          "track": 9,
+          "sector": 19,
+          "nextTrack": 9,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 166,
+          "track": 9,
+          "sector": 8,
+          "nextTrack": 9,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 167,
+          "track": 9,
+          "sector": 18,
+          "nextTrack": 9,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 168,
+          "track": 9,
+          "sector": 7,
+          "nextTrack": 9,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 169,
+          "track": 9,
+          "sector": 17,
+          "nextTrack": 9,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 170,
+          "track": 9,
+          "sector": 6,
+          "nextTrack": 9,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 171,
+          "track": 9,
+          "sector": 16,
+          "nextTrack": 9,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 172,
+          "track": 9,
+          "sector": 5,
+          "nextTrack": 9,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 173,
+          "track": 9,
+          "sector": 15,
+          "nextTrack": 9,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 174,
+          "track": 9,
+          "sector": 4,
+          "nextTrack": 9,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 175,
+          "track": 9,
+          "sector": 14,
+          "nextTrack": 9,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 176,
+          "track": 9,
+          "sector": 3,
+          "nextTrack": 9,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 177,
+          "track": 9,
+          "sector": 13,
+          "nextTrack": 9,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 178,
+          "track": 9,
+          "sector": 2,
+          "nextTrack": 9,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 179,
+          "track": 9,
+          "sector": 12,
+          "nextTrack": 9,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 180,
+          "track": 9,
+          "sector": 1,
+          "nextTrack": 9,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 181,
+          "track": 9,
+          "sector": 11,
+          "nextTrack": 10,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 182,
+          "track": 10,
+          "sector": 0,
+          "nextTrack": 10,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 183,
+          "track": 10,
+          "sector": 10,
+          "nextTrack": 10,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 184,
+          "track": 10,
+          "sector": 20,
+          "nextTrack": 10,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 185,
+          "track": 10,
+          "sector": 9,
+          "nextTrack": 10,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 186,
+          "track": 10,
+          "sector": 19,
+          "nextTrack": 10,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 187,
+          "track": 10,
+          "sector": 8,
+          "nextTrack": 10,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 188,
+          "track": 10,
+          "sector": 18,
+          "nextTrack": 10,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 189,
+          "track": 10,
+          "sector": 7,
+          "nextTrack": 10,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 190,
+          "track": 10,
+          "sector": 17,
+          "nextTrack": 10,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 191,
+          "track": 10,
+          "sector": 6,
+          "nextTrack": 10,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 192,
+          "track": 10,
+          "sector": 16,
+          "nextTrack": 10,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 193,
+          "track": 10,
+          "sector": 5,
+          "nextTrack": 10,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 194,
+          "track": 10,
+          "sector": 15,
+          "nextTrack": 10,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 195,
+          "track": 10,
+          "sector": 4,
+          "nextTrack": 10,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 196,
+          "track": 10,
+          "sector": 14,
+          "nextTrack": 10,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 197,
+          "track": 10,
+          "sector": 3,
+          "nextTrack": 10,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 198,
+          "track": 10,
+          "sector": 13,
+          "nextTrack": 10,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 199,
+          "track": 10,
+          "sector": 2,
+          "nextTrack": 10,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 200,
+          "track": 10,
+          "sector": 12,
+          "nextTrack": 10,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 201,
+          "track": 10,
+          "sector": 1,
+          "nextTrack": 10,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 202,
+          "track": 10,
+          "sector": 11,
+          "nextTrack": 11,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 203,
+          "track": 11,
+          "sector": 0,
+          "nextTrack": 11,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 204,
+          "track": 11,
+          "sector": 10,
+          "nextTrack": 11,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 205,
+          "track": 11,
+          "sector": 20,
+          "nextTrack": 11,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 206,
+          "track": 11,
+          "sector": 9,
+          "nextTrack": 11,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 207,
+          "track": 11,
+          "sector": 19,
+          "nextTrack": 11,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 208,
+          "track": 11,
+          "sector": 8,
+          "nextTrack": 11,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 209,
+          "track": 11,
+          "sector": 18,
+          "nextTrack": 11,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 210,
+          "track": 11,
+          "sector": 7,
+          "nextTrack": 11,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 211,
+          "track": 11,
+          "sector": 17,
+          "nextTrack": 11,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 212,
+          "track": 11,
+          "sector": 6,
+          "nextTrack": 11,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 213,
+          "track": 11,
+          "sector": 16,
+          "nextTrack": 11,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 214,
+          "track": 11,
+          "sector": 5,
+          "nextTrack": 11,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 215,
+          "track": 11,
+          "sector": 15,
+          "nextTrack": 11,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 216,
+          "track": 11,
+          "sector": 4,
+          "nextTrack": 11,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 217,
+          "track": 11,
+          "sector": 14,
+          "nextTrack": 11,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 218,
+          "track": 11,
+          "sector": 3,
+          "nextTrack": 11,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 219,
+          "track": 11,
+          "sector": 13,
+          "nextTrack": 11,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 220,
+          "track": 11,
+          "sector": 2,
+          "nextTrack": 11,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 221,
+          "track": 11,
+          "sector": 12,
+          "nextTrack": 11,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 222,
+          "track": 11,
+          "sector": 1,
+          "nextTrack": 11,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 223,
+          "track": 11,
+          "sector": 11,
+          "nextTrack": 12,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 224,
+          "track": 12,
+          "sector": 0,
+          "nextTrack": 12,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 225,
+          "track": 12,
+          "sector": 10,
+          "nextTrack": 12,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 226,
+          "track": 12,
+          "sector": 20,
+          "nextTrack": 12,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 227,
+          "track": 12,
+          "sector": 9,
+          "nextTrack": 12,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 228,
+          "track": 12,
+          "sector": 19,
+          "nextTrack": 12,
+          "nextSector": 8,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 229,
+          "track": 12,
+          "sector": 8,
+          "nextTrack": 12,
+          "nextSector": 18,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 230,
+          "track": 12,
+          "sector": 18,
+          "nextTrack": 12,
+          "nextSector": 7,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 231,
+          "track": 12,
+          "sector": 7,
+          "nextTrack": 12,
+          "nextSector": 17,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 232,
+          "track": 12,
+          "sector": 17,
+          "nextTrack": 12,
+          "nextSector": 6,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 233,
+          "track": 12,
+          "sector": 6,
+          "nextTrack": 12,
+          "nextSector": 16,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 234,
+          "track": 12,
+          "sector": 16,
+          "nextTrack": 12,
+          "nextSector": 5,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 235,
+          "track": 12,
+          "sector": 5,
+          "nextTrack": 12,
+          "nextSector": 15,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 236,
+          "track": 12,
+          "sector": 15,
+          "nextTrack": 12,
+          "nextSector": 4,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 237,
+          "track": 12,
+          "sector": 4,
+          "nextTrack": 12,
+          "nextSector": 14,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 238,
+          "track": 12,
+          "sector": 14,
+          "nextTrack": 12,
+          "nextSector": 3,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 239,
+          "track": 12,
+          "sector": 3,
+          "nextTrack": 12,
+          "nextSector": 13,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 240,
+          "track": 12,
+          "sector": 13,
+          "nextTrack": 12,
+          "nextSector": 2,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 241,
+          "track": 12,
+          "sector": 2,
+          "nextTrack": 12,
+          "nextSector": 12,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 242,
+          "track": 12,
+          "sector": 12,
+          "nextTrack": 12,
+          "nextSector": 1,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 243,
+          "track": 12,
+          "sector": 1,
+          "nextTrack": 12,
+          "nextSector": 11,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 244,
+          "track": 12,
+          "sector": 11,
+          "nextTrack": 13,
+          "nextSector": 0,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 245,
+          "track": 13,
+          "sector": 0,
+          "nextTrack": 13,
+          "nextSector": 10,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 246,
+          "track": 13,
+          "sector": 10,
+          "nextTrack": 13,
+          "nextSector": 20,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 247,
+          "track": 13,
+          "sector": 20,
+          "nextTrack": 13,
+          "nextSector": 9,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 248,
+          "track": 13,
+          "sector": 9,
+          "nextTrack": 13,
+          "nextSector": 19,
+          "bytesUsed": 254,
+          "isLast": false
+        },
+        {
+          "index": 249,
+          "track": 13,
+          "sector": 19,
+          "nextTrack": 0,
+          "nextSector": 236,
+          "bytesUsed": 235,
+          "isLast": true
+        }
+      ]
     }
   ]
 }

@@ -1,105 +1,4197 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-22T05:52:18.816Z",
+  "updatedAt": "2026-04-26T18:28:20.700Z",
   "items": [
     {
-      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d",
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0002",
       "kind": "validation",
-      "title": "Validate: Segment 080D classified as code",
-      "description": "code segment derived from analysis report.",
+      "title": "Validate: RAM region 0002 behaves like counter",
+      "description": "Address $0002 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
       "status": "open",
-      "priority": "high",
-      "confidence": 0.5,
+      "priority": "medium",
+      "confidence": 0.4,
       "evidence": [
         {
           "kind": "artifact",
-          "title": "Classification for $080D-$08F0",
+          "title": "RAM hypothesis counter",
           "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
-          "excerpt": "code segment derived from analysis report.",
+          "excerpt": "Address $0002 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
           "addressRange": {
-            "start": 2061,
-            "end": 2288
+            "start": 2,
+            "end": 2
           },
-          "capturedAt": "2026-04-22T05:52:18.808Z"
+          "capturedAt": "2026-04-26T18:28:16.561Z"
         }
       ],
       "entityIds": [
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0002"
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
       "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-080d"
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0002"
       ],
-      "createdAt": "2026-04-22T05:52:18.815Z",
-      "updatedAt": "2026-04-22T05:52:18.815Z"
+      "createdAt": "2026-04-26T18:28:20.523Z",
+      "updatedAt": "2026-04-26T18:28:20.523Z"
     },
     {
-      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000",
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0003",
       "kind": "validation",
-      "title": "Validate: Segment 2000 classified as state_variable",
-      "description": "state_variable segment derived from analysis report.",
+      "title": "Validate: RAM region 0002 behaves like pointer_pair",
+      "description": "Zero-page pointer $0002-$0003 is assembled by consecutive load/store pairs. Pointer bytes are loaded dynamically, so the final target depends on runtime state. Pointer setup comes from a probable code island and should be validated in context.",
       "status": "open",
-      "priority": "high",
-      "confidence": 0.5,
+      "priority": "medium",
+      "confidence": 0.28,
       "evidence": [
         {
           "kind": "artifact",
-          "title": "Classification for $2000-$20FF",
+          "title": "RAM hypothesis pointer_pair",
           "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
-          "excerpt": "state_variable segment derived from analysis report.",
+          "excerpt": "Zero-page pointer $0002-$0003 is assembled by consecutive load/store pairs. Pointer bytes are loaded dynamically, so the final target depends on runtime state. Pointer setup comes from a probable code island and should be validated in context.",
           "addressRange": {
-            "start": 8192,
-            "end": 8447
+            "start": 2,
+            "end": 3
           },
-          "capturedAt": "2026-04-22T05:52:18.808Z"
+          "capturedAt": "2026-04-26T18:28:16.560Z"
         }
       ],
       "entityIds": [
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-2000-20ff"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0003"
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
       "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-2000"
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0002-0003"
       ],
-      "createdAt": "2026-04-22T05:52:18.816Z",
-      "updatedAt": "2026-04-22T05:52:18.816Z"
+      "createdAt": "2026-04-26T18:28:20.523Z",
+      "updatedAt": "2026-04-26T18:28:20.523Z"
     },
     {
-      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000",
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0003-0003",
       "kind": "validation",
-      "title": "Validate: Segment 4000 classified as lookup_table",
-      "description": "lookup_table segment derived from analysis report.",
+      "title": "Validate: RAM region 0003 behaves like flag",
+      "description": "Address $0003 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
       "status": "open",
-      "priority": "high",
-      "confidence": 0.5,
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
       "evidence": [
         {
           "kind": "artifact",
-          "title": "Classification for $4000-$43FF",
+          "title": "RAM hypothesis flag",
           "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
-          "excerpt": "lookup_table segment derived from analysis report.",
+          "excerpt": "Address $0003 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
           "addressRange": {
-            "start": 16384,
-            "end": 17407
+            "start": 3,
+            "end": 3
           },
-          "capturedAt": "2026-04-22T05:52:18.808Z"
+          "capturedAt": "2026-04-26T18:28:16.561Z"
         }
       ],
       "entityIds": [
-        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4000-43ff"
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0003-0003"
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
       "findingIds": [
-        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-4000"
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0003-0003"
       ],
-      "createdAt": "2026-04-22T05:52:18.816Z",
-      "updatedAt": "2026-04-22T05:52:18.816Z"
+      "createdAt": "2026-04-26T18:28:20.524Z",
+      "updatedAt": "2026-04-26T18:28:20.524Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0006-0006",
+      "kind": "validation",
+      "title": "Validate: RAM region 0006 behaves like counter",
+      "description": "Address $0006 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0006 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 6,
+            "end": 6
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0006-0006"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0006-0006"
+      ],
+      "createdAt": "2026-04-26T18:28:20.524Z",
+      "updatedAt": "2026-04-26T18:28:20.524Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0008-0008",
+      "kind": "validation",
+      "title": "Validate: RAM region 0008 behaves like flag",
+      "description": "Address $0008 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0008 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 8,
+            "end": 8
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0008-0008"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0008-0008"
+      ],
+      "createdAt": "2026-04-26T18:28:20.525Z",
+      "updatedAt": "2026-04-26T18:28:20.525Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-000b",
+      "kind": "validation",
+      "title": "Validate: RAM region 000B behaves like flag",
+      "description": "Address $000B is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $000B is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 11,
+            "end": 11
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-000b"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-000b"
+      ],
+      "createdAt": "2026-04-26T18:28:20.525Z",
+      "updatedAt": "2026-04-26T18:28:20.525Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47",
+      "kind": "validation",
+      "title": "Validate: RAM region 000B behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $000B, $FD47. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $000B, $FD47.",
+          "addressRange": {
+            "start": 11,
+            "end": 64839
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000b-fd47"
+      ],
+      "createdAt": "2026-04-26T18:28:20.525Z",
+      "updatedAt": "2026-04-26T18:28:20.525Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000d-000d",
+      "kind": "validation",
+      "title": "Validate: RAM region 000D behaves like flag",
+      "description": "Address $000D is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $000D is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 13,
+            "end": 13
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000d-000d"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000d-000d"
+      ],
+      "createdAt": "2026-04-26T18:28:20.526Z",
+      "updatedAt": "2026-04-26T18:28:20.526Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000e-000e",
+      "kind": "validation",
+      "title": "Validate: RAM region 000E behaves like flag",
+      "description": "Address $000E is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $000E is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 14,
+            "end": 14
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000e-000e"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000e-000e"
+      ],
+      "createdAt": "2026-04-26T18:28:20.526Z",
+      "updatedAt": "2026-04-26T18:28:20.526Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000f-000f",
+      "kind": "validation",
+      "title": "Validate: RAM region 000F behaves like flag",
+      "description": "Address $000F is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $000F is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 15,
+            "end": 15
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-000f-000f"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-000f-000f"
+      ],
+      "createdAt": "2026-04-26T18:28:20.527Z",
+      "updatedAt": "2026-04-26T18:28:20.527Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0012-0012",
+      "kind": "validation",
+      "title": "Validate: RAM region 0012 behaves like buffer",
+      "description": "Zero-page address $0012 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $0012 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 18,
+            "end": 18
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0012-0012"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0012-0012"
+      ],
+      "createdAt": "2026-04-26T18:28:20.527Z",
+      "updatedAt": "2026-04-26T18:28:20.527Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0017-0017",
+      "kind": "validation",
+      "title": "Validate: RAM region 0017 behaves like flag",
+      "description": "Address $0017 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0017 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 23,
+            "end": 23
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0017-0017"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0017-0017"
+      ],
+      "createdAt": "2026-04-26T18:28:20.528Z",
+      "updatedAt": "2026-04-26T18:28:20.528Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0018-0018",
+      "kind": "validation",
+      "title": "Validate: RAM region 0018 behaves like counter",
+      "description": "Address $0018 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0018 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 24,
+            "end": 24
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0018-0018"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0018-0018"
+      ],
+      "createdAt": "2026-04-26T18:28:20.528Z",
+      "updatedAt": "2026-04-26T18:28:20.528Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-001b-001b",
+      "kind": "validation",
+      "title": "Validate: RAM region 001B behaves like counter",
+      "description": "Address $001B is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $001B is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 27,
+            "end": 27
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-001b-001b"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-001b-001b"
+      ],
+      "createdAt": "2026-04-26T18:28:20.529Z",
+      "updatedAt": "2026-04-26T18:28:20.529Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0021-0021",
+      "kind": "validation",
+      "title": "Validate: RAM region 0021 behaves like buffer",
+      "description": "Zero-page address $0021 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $0021 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 33,
+            "end": 33
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0021-0021"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0021-0021"
+      ],
+      "createdAt": "2026-04-26T18:28:20.529Z",
+      "updatedAt": "2026-04-26T18:28:20.529Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0022-0022",
+      "kind": "validation",
+      "title": "Validate: RAM region 0022 behaves like buffer",
+      "description": "Zero-page address $0022 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $0022 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 34,
+            "end": 34
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0022-0022"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0022-0022"
+      ],
+      "createdAt": "2026-04-26T18:28:20.530Z",
+      "updatedAt": "2026-04-26T18:28:20.530Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0024-0024",
+      "kind": "validation",
+      "title": "Validate: RAM region 0024 behaves like buffer",
+      "description": "Zero-page address $0024 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $0024 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 36,
+            "end": 36
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0024-0024"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0024-0024"
+      ],
+      "createdAt": "2026-04-26T18:28:20.530Z",
+      "updatedAt": "2026-04-26T18:28:20.530Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0027-0027",
+      "kind": "validation",
+      "title": "Validate: RAM region 0027 behaves like counter",
+      "description": "Address $0027 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0027 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 39,
+            "end": 39
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0027-0027"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0027-0027"
+      ],
+      "createdAt": "2026-04-26T18:28:20.531Z",
+      "updatedAt": "2026-04-26T18:28:20.531Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0028-0028",
+      "kind": "validation",
+      "title": "Validate: RAM region 0028 behaves like flag",
+      "description": "Address $0028 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0028 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 40,
+            "end": 40
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0028-0028"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0028-0028"
+      ],
+      "createdAt": "2026-04-26T18:28:20.531Z",
+      "updatedAt": "2026-04-26T18:28:20.531Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0029-0029",
+      "kind": "validation",
+      "title": "Validate: RAM region 0029 behaves like buffer",
+      "description": "Zero-page address $0029 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $0029 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 41,
+            "end": 41
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0029-0029"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0029-0029"
+      ],
+      "createdAt": "2026-04-26T18:28:20.532Z",
+      "updatedAt": "2026-04-26T18:28:20.532Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-002a-002a",
+      "kind": "validation",
+      "title": "Validate: RAM region 002A behaves like buffer",
+      "description": "Zero-page address $002A is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $002A is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 42,
+            "end": 42
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-002a-002a"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-002a-002a"
+      ],
+      "createdAt": "2026-04-26T18:28:20.533Z",
+      "updatedAt": "2026-04-26T18:28:20.533Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-002f-002f",
+      "kind": "validation",
+      "title": "Validate: RAM region 002F behaves like buffer",
+      "description": "Zero-page address $002F is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $002F is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 47,
+            "end": 47
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-002f-002f"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-002f-002f"
+      ],
+      "createdAt": "2026-04-26T18:28:20.534Z",
+      "updatedAt": "2026-04-26T18:28:20.534Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0032",
+      "kind": "validation",
+      "title": "Validate: RAM region 0032 behaves like flag",
+      "description": "Address $0032 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0032 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 50,
+            "end": 50
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0032"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0032"
+      ],
+      "createdAt": "2026-04-26T18:28:20.534Z",
+      "updatedAt": "2026-04-26T18:28:20.534Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0033",
+      "kind": "validation",
+      "title": "Validate: RAM region 0032 behaves like pointer_pair",
+      "description": "Zero-page pointer $0032-$0033 is assembled by consecutive load/store pairs. Pointer bytes are loaded dynamically, so the final target depends on runtime state. Pointer setup comes from a probable code island and should be validated in context.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.28,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis pointer_pair",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page pointer $0032-$0033 is assembled by consecutive load/store pairs. Pointer bytes are loaded dynamically, so the final target depends on runtime state. Pointer setup comes from a probable code island and should be validated in context.",
+          "addressRange": {
+            "start": 50,
+            "end": 51
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0033"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0032-0033"
+      ],
+      "createdAt": "2026-04-26T18:28:20.535Z",
+      "updatedAt": "2026-04-26T18:28:20.535Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0033-0033",
+      "kind": "validation",
+      "title": "Validate: RAM region 0033 behaves like flag",
+      "description": "Address $0033 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0033 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 51,
+            "end": 51
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0033-0033"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0033-0033"
+      ],
+      "createdAt": "2026-04-26T18:28:20.536Z",
+      "updatedAt": "2026-04-26T18:28:20.536Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0034-0034",
+      "kind": "validation",
+      "title": "Validate: RAM region 0034 behaves like counter",
+      "description": "Address $0034 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0034 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 52,
+            "end": 52
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0034-0034"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0034-0034"
+      ],
+      "createdAt": "2026-04-26T18:28:20.537Z",
+      "updatedAt": "2026-04-26T18:28:20.537Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0035-0035",
+      "kind": "validation",
+      "title": "Validate: RAM region 0035 behaves like flag",
+      "description": "Address $0035 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0035 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 53,
+            "end": 53
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0035-0035"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0035-0035"
+      ],
+      "createdAt": "2026-04-26T18:28:20.537Z",
+      "updatedAt": "2026-04-26T18:28:20.537Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0036-0036",
+      "kind": "validation",
+      "title": "Validate: RAM region 0036 behaves like flag",
+      "description": "Address $0036 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0036 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 54,
+            "end": 54
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0036-0036"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0036-0036"
+      ],
+      "createdAt": "2026-04-26T18:28:20.538Z",
+      "updatedAt": "2026-04-26T18:28:20.538Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0039-0039",
+      "kind": "validation",
+      "title": "Validate: RAM region 0039 behaves like flag",
+      "description": "Address $0039 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0039 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 57,
+            "end": 57
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0039-0039"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0039-0039"
+      ],
+      "createdAt": "2026-04-26T18:28:20.539Z",
+      "updatedAt": "2026-04-26T18:28:20.539Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004a-004a",
+      "kind": "validation",
+      "title": "Validate: RAM region 004A behaves like flag",
+      "description": "Address $004A is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $004A is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 74,
+            "end": 74
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-004a-004a"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004a-004a"
+      ],
+      "createdAt": "2026-04-26T18:28:20.539Z",
+      "updatedAt": "2026-04-26T18:28:20.539Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004b-004b",
+      "kind": "validation",
+      "title": "Validate: RAM region 004B behaves like flag",
+      "description": "Address $004B is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $004B is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 75,
+            "end": 75
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-004b-004b"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004b-004b"
+      ],
+      "createdAt": "2026-04-26T18:28:20.540Z",
+      "updatedAt": "2026-04-26T18:28:20.540Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004d-004d",
+      "kind": "validation",
+      "title": "Validate: RAM region 004D behaves like flag",
+      "description": "Address $004D is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $004D is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 77,
+            "end": 77
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-004d-004d"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-004d-004d"
+      ],
+      "createdAt": "2026-04-26T18:28:20.541Z",
+      "updatedAt": "2026-04-26T18:28:20.541Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0050-0050",
+      "kind": "validation",
+      "title": "Validate: RAM region 0050 behaves like flag",
+      "description": "Address $0050 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0050 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 80,
+            "end": 80
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0050-0050"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0050-0050"
+      ],
+      "createdAt": "2026-04-26T18:28:20.542Z",
+      "updatedAt": "2026-04-26T18:28:20.542Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0053-0053",
+      "kind": "validation",
+      "title": "Validate: RAM region 0053 behaves like flag",
+      "description": "Address $0053 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0053 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 83,
+            "end": 83
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0053-0053"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0053-0053"
+      ],
+      "createdAt": "2026-04-26T18:28:20.543Z",
+      "updatedAt": "2026-04-26T18:28:20.543Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0054-0054",
+      "kind": "validation",
+      "title": "Validate: RAM region 0054 behaves like flag",
+      "description": "Address $0054 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0054 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 84,
+            "end": 84
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0054-0054"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0054-0054"
+      ],
+      "createdAt": "2026-04-26T18:28:20.544Z",
+      "updatedAt": "2026-04-26T18:28:20.544Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0061-0061",
+      "kind": "validation",
+      "title": "Validate: RAM region 0061 behaves like buffer",
+      "description": "Zero-page address $0061 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $0061 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 97,
+            "end": 97
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0061-0061"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0061-0061"
+      ],
+      "createdAt": "2026-04-26T18:28:20.545Z",
+      "updatedAt": "2026-04-26T18:28:20.545Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0065-0065",
+      "kind": "validation",
+      "title": "Validate: RAM region 0065 behaves like flag",
+      "description": "Address $0065 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0065 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 101,
+            "end": 101
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0065-0065"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0065-0065"
+      ],
+      "createdAt": "2026-04-26T18:28:20.545Z",
+      "updatedAt": "2026-04-26T18:28:20.545Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0069-0069",
+      "kind": "validation",
+      "title": "Validate: RAM region 0069 behaves like counter",
+      "description": "Address $0069 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0069 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 105,
+            "end": 105
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0069-0069"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0069-0069"
+      ],
+      "createdAt": "2026-04-26T18:28:20.546Z",
+      "updatedAt": "2026-04-26T18:28:20.546Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006b-006b",
+      "kind": "validation",
+      "title": "Validate: RAM region 006B behaves like counter",
+      "description": "Address $006B is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $006B is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 107,
+            "end": 107
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-006b-006b"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006b-006b"
+      ],
+      "createdAt": "2026-04-26T18:28:20.547Z",
+      "updatedAt": "2026-04-26T18:28:20.547Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006c-006c",
+      "kind": "validation",
+      "title": "Validate: RAM region 006C behaves like buffer",
+      "description": "Zero-page address $006C is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $006C is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 108,
+            "end": 108
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-006c-006c"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006c-006c"
+      ],
+      "createdAt": "2026-04-26T18:28:20.548Z",
+      "updatedAt": "2026-04-26T18:28:20.548Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006d-006d",
+      "kind": "validation",
+      "title": "Validate: RAM region 006D behaves like flag",
+      "description": "Address $006D is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $006D is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 109,
+            "end": 109
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-006d-006d"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-006d-006d"
+      ],
+      "createdAt": "2026-04-26T18:28:20.549Z",
+      "updatedAt": "2026-04-26T18:28:20.549Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0071-0071",
+      "kind": "validation",
+      "title": "Validate: RAM region 0071 behaves like flag",
+      "description": "Address $0071 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0071 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 113,
+            "end": 113
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0071-0071"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0071-0071"
+      ],
+      "createdAt": "2026-04-26T18:28:20.550Z",
+      "updatedAt": "2026-04-26T18:28:20.550Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-0076",
+      "kind": "validation",
+      "title": "Validate: RAM region 0076 behaves like buffer",
+      "description": "Zero-page address $0076 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $0076 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 118,
+            "end": 118
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-0076"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-0076"
+      ],
+      "createdAt": "2026-04-26T18:28:20.551Z",
+      "updatedAt": "2026-04-26T18:28:20.551Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-007b",
+      "kind": "validation",
+      "title": "Validate: RAM region 0076 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $0076, $007B. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $0076, $007B.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $0076, $007B. 2 consecutive absolute-indexed mixed access(es) use Y as the table index. Referenced bases cluster around $0076, $007B.",
+          "addressRange": {
+            "start": 118,
+            "end": 123
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-007b"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0076-007b"
+      ],
+      "createdAt": "2026-04-26T18:28:20.552Z",
+      "updatedAt": "2026-04-26T18:28:20.552Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-007b-007b",
+      "kind": "validation",
+      "title": "Validate: RAM region 007B behaves like buffer",
+      "description": "Zero-page address $007B is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $007B is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 123,
+            "end": 123
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-007b-007b"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-007b-007b"
+      ],
+      "createdAt": "2026-04-26T18:28:20.553Z",
+      "updatedAt": "2026-04-26T18:28:20.553Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0096-0096",
+      "kind": "validation",
+      "title": "Validate: RAM region 0096 behaves like counter",
+      "description": "Address $0096 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0096 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 150,
+            "end": 150
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0096-0096"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0096-0096"
+      ],
+      "createdAt": "2026-04-26T18:28:20.554Z",
+      "updatedAt": "2026-04-26T18:28:20.554Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ab-00ab",
+      "kind": "validation",
+      "title": "Validate: RAM region 00AB behaves like buffer",
+      "description": "Zero-page address $00AB is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $00AB is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 171,
+            "end": 171
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00ab-00ab"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ab-00ab"
+      ],
+      "createdAt": "2026-04-26T18:28:20.555Z",
+      "updatedAt": "2026-04-26T18:28:20.555Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ac-00ac",
+      "kind": "validation",
+      "title": "Validate: RAM region 00AC behaves like pointer_target",
+      "description": "Zero-page pointer $0027 resolves to constant target $00AC here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.2799999999999999,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis pointer_target",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page pointer $0027 resolves to constant target $00AC here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+          "addressRange": {
+            "start": 172,
+            "end": 172
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00ac-00ac"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ac-00ac"
+      ],
+      "createdAt": "2026-04-26T18:28:20.556Z",
+      "updatedAt": "2026-04-26T18:28:20.556Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00b0-00b0",
+      "kind": "validation",
+      "title": "Validate: RAM region 00B0 behaves like buffer",
+      "description": "Zero-page address $00B0 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $00B0 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 176,
+            "end": 176
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00b0-00b0"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00b0-00b0"
+      ],
+      "createdAt": "2026-04-26T18:28:20.557Z",
+      "updatedAt": "2026-04-26T18:28:20.557Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00b5-00b5",
+      "kind": "validation",
+      "title": "Validate: RAM region 00B5 behaves like buffer",
+      "description": "Zero-page address $00B5 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $00B5 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 181,
+            "end": 181
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00b5-00b5"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00b5-00b5"
+      ],
+      "createdAt": "2026-04-26T18:28:20.558Z",
+      "updatedAt": "2026-04-26T18:28:20.558Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ba-00ba",
+      "kind": "validation",
+      "title": "Validate: RAM region 00BA behaves like buffer",
+      "description": "Zero-page address $00BA is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $00BA is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 186,
+            "end": 186
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00ba-00ba"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ba-00ba"
+      ],
+      "createdAt": "2026-04-26T18:28:20.560Z",
+      "updatedAt": "2026-04-26T18:28:20.560Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00bf-00bf",
+      "kind": "validation",
+      "title": "Validate: RAM region 00BF behaves like buffer",
+      "description": "Zero-page address $00BF is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $00BF is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 191,
+            "end": 191
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00bf-00bf"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00bf-00bf"
+      ],
+      "createdAt": "2026-04-26T18:28:20.561Z",
+      "updatedAt": "2026-04-26T18:28:20.561Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00c4-00c4",
+      "kind": "validation",
+      "title": "Validate: RAM region 00C4 behaves like buffer",
+      "description": "Zero-page address $00C4 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $00C4 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 196,
+            "end": 196
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00c4-00c4"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00c4-00c4"
+      ],
+      "createdAt": "2026-04-26T18:28:20.562Z",
+      "updatedAt": "2026-04-26T18:28:20.562Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00c9-00c9",
+      "kind": "validation",
+      "title": "Validate: RAM region 00C9 behaves like buffer",
+      "description": "Zero-page address $00C9 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $00C9 is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 201,
+            "end": 201
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00c9-00c9"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00c9-00c9"
+      ],
+      "createdAt": "2026-04-26T18:28:20.563Z",
+      "updatedAt": "2026-04-26T18:28:20.563Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00de-00de",
+      "kind": "validation",
+      "title": "Validate: RAM region 00DE behaves like flag",
+      "description": "Address $00DE is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $00DE is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 222,
+            "end": 222
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00de-00de"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00de-00de"
+      ],
+      "createdAt": "2026-04-26T18:28:20.564Z",
+      "updatedAt": "2026-04-26T18:28:20.564Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00e3-00e3",
+      "kind": "validation",
+      "title": "Validate: RAM region 00E3 behaves like flag",
+      "description": "Address $00E3 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $00E3 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 227,
+            "end": 227
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00e3-00e3"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00e3-00e3"
+      ],
+      "createdAt": "2026-04-26T18:28:20.566Z",
+      "updatedAt": "2026-04-26T18:28:20.566Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00e4-00e4",
+      "kind": "validation",
+      "title": "Validate: RAM region 00E4 behaves like flag",
+      "description": "Address $00E4 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $00E4 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 228,
+            "end": 228
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00e4-00e4"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00e4-00e4"
+      ],
+      "createdAt": "2026-04-26T18:28:20.567Z",
+      "updatedAt": "2026-04-26T18:28:20.567Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ec-00ec",
+      "kind": "validation",
+      "title": "Validate: RAM region 00EC behaves like buffer",
+      "description": "Zero-page address $00EC is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.54,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page address $00EC is both read and written from multiple sites. This is consistent with hot-path scratch state or a byte-sized work variable.",
+          "addressRange": {
+            "start": 236,
+            "end": 236
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00ec-00ec"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00ec-00ec"
+      ],
+      "createdAt": "2026-04-26T18:28:20.568Z",
+      "updatedAt": "2026-04-26T18:28:20.568Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00fe-00fe",
+      "kind": "validation",
+      "title": "Validate: RAM region 00FE behaves like flag",
+      "description": "Address $00FE is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $00FE is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 254,
+            "end": 254
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-00fe-00fe"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-00fe-00fe"
+      ],
+      "createdAt": "2026-04-26T18:28:20.569Z",
+      "updatedAt": "2026-04-26T18:28:20.569Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0100-0100",
+      "kind": "validation",
+      "title": "Validate: RAM region 0100 behaves like flag",
+      "description": "Address $0100 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0100 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 256,
+            "end": 256
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0100-0100"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0100-0100"
+      ],
+      "createdAt": "2026-04-26T18:28:20.571Z",
+      "updatedAt": "2026-04-26T18:28:20.571Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0106-0106",
+      "kind": "validation",
+      "title": "Validate: RAM region 0106 behaves like flag",
+      "description": "Address $0106 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0106 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 262,
+            "end": 262
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0106-0106"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0106-0106"
+      ],
+      "createdAt": "2026-04-26T18:28:20.572Z",
+      "updatedAt": "2026-04-26T18:28:20.572Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0112-0115",
+      "kind": "validation",
+      "title": "Validate: RAM region 0112 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $0112, $0115. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $0112, $0115.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.38,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $0112, $0115. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $0112, $0115.",
+          "addressRange": {
+            "start": 274,
+            "end": 277
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0112-0115"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0112-0115"
+      ],
+      "createdAt": "2026-04-26T18:28:20.573Z",
+      "updatedAt": "2026-04-26T18:28:20.573Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-011b-011e",
+      "kind": "validation",
+      "title": "Validate: RAM region 011B behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $011B, $011E. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $011B, $011E.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $011B, $011E. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $011B, $011E.",
+          "addressRange": {
+            "start": 283,
+            "end": 286
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-011b-011e"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-011b-011e"
+      ],
+      "createdAt": "2026-04-26T18:28:20.574Z",
+      "updatedAt": "2026-04-26T18:28:20.574Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0130",
+      "kind": "validation",
+      "title": "Validate: RAM region 0130 behaves like flag",
+      "description": "Address $0130 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $0130 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 304,
+            "end": 304
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0130"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0130"
+      ],
+      "createdAt": "2026-04-26T18:28:20.576Z",
+      "updatedAt": "2026-04-26T18:28:20.576Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0133",
+      "kind": "validation",
+      "title": "Validate: RAM region 0130 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $0130, $0133. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $0130, $0133.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.38,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $0130, $0133. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $0130, $0133.",
+          "addressRange": {
+            "start": 304,
+            "end": 307
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0133"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0130-0133"
+      ],
+      "createdAt": "2026-04-26T18:28:20.577Z",
+      "updatedAt": "2026-04-26T18:28:20.577Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0200-0200",
+      "kind": "validation",
+      "title": "Validate: RAM region 0200 behaves like mode_flag",
+      "description": "Page-2/page-3 address $0200 is overwritten by game code. This is often a KERNAL flag/vector override or borrowed system workspace.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.5800000000000001,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis mode_flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Page-2/page-3 address $0200 is overwritten by game code. This is often a KERNAL flag/vector override or borrowed system workspace.",
+          "addressRange": {
+            "start": 512,
+            "end": 512
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0200-0200"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0200-0200"
+      ],
+      "createdAt": "2026-04-26T18:28:20.579Z",
+      "updatedAt": "2026-04-26T18:28:20.579Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0288-0288",
+      "kind": "validation",
+      "title": "Validate: RAM region 0288 behaves like mode_flag",
+      "description": "Page-2/page-3 address $0288 is overwritten by game code. This is often a KERNAL flag/vector override or borrowed system workspace.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.5800000000000001,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis mode_flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Page-2/page-3 address $0288 is overwritten by game code. This is often a KERNAL flag/vector override or borrowed system workspace.",
+          "addressRange": {
+            "start": 648,
+            "end": 648
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0288-0288"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0288-0288"
+      ],
+      "createdAt": "2026-04-26T18:28:20.580Z",
+      "updatedAt": "2026-04-26T18:28:20.580Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0300-0300",
+      "kind": "validation",
+      "title": "Validate: RAM region 0300 behaves like mode_flag",
+      "description": "Page-2/page-3 address $0300 is overwritten by game code. This is often a KERNAL flag/vector override or borrowed system workspace.",
+      "status": "open",
+      "priority": "high",
+      "confidence": 0.5800000000000001,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis mode_flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Page-2/page-3 address $0300 is overwritten by game code. This is often a KERNAL flag/vector override or borrowed system workspace.",
+          "addressRange": {
+            "start": 768,
+            "end": 768
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0300-0300"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0300-0300"
+      ],
+      "createdAt": "2026-04-26T18:28:20.581Z",
+      "updatedAt": "2026-04-26T18:28:20.581Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807",
+      "kind": "validation",
+      "title": "Validate: RAM region 03FF behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $03FF, $C807. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $03FF, $C807.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $03FF, $C807. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $03FF, $C807.",
+          "addressRange": {
+            "start": 1023,
+            "end": 51207
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-03ff-c807"
+      ],
+      "createdAt": "2026-04-26T18:28:20.583Z",
+      "updatedAt": "2026-04-26T18:28:20.583Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0401-0401",
+      "kind": "validation",
+      "title": "Validate: RAM region 0401 behaves like pointer_target",
+      "description": "Zero-page pointer $003D resolves to constant target $0401 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.2799999999999999,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis pointer_target",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page pointer $003D resolves to constant target $0401 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+          "addressRange": {
+            "start": 1025,
+            "end": 1025
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0401-0401"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0401-0401"
+      ],
+      "createdAt": "2026-04-26T18:28:20.584Z",
+      "updatedAt": "2026-04-26T18:28:20.584Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0e27-0e27",
+      "kind": "validation",
+      "title": "Validate: RAM region 0E27 behaves like pointer_target",
+      "description": "Zero-page pointer $007D resolves to constant target $0E27 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.2799999999999999,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis pointer_target",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page pointer $007D resolves to constant target $0E27 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+          "addressRange": {
+            "start": 3623,
+            "end": 3623
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-0e27-0e27"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-0e27-0e27"
+      ],
+      "createdAt": "2026-04-26T18:28:20.586Z",
+      "updatedAt": "2026-04-26T18:28:20.586Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-1705-1718",
+      "kind": "validation",
+      "title": "Validate: RAM region 1705 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $1705, $1718. 2 consecutive absolute-indexed read access(es) use X as the table index. Referenced bases cluster around $1705, $1718.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.38,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $1705, $1718. 2 consecutive absolute-indexed read access(es) use X as the table index. Referenced bases cluster around $1705, $1718.",
+          "addressRange": {
+            "start": 5893,
+            "end": 5912
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-1705-1718"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-1705-1718"
+      ],
+      "createdAt": "2026-04-26T18:28:20.587Z",
+      "updatedAt": "2026-04-26T18:28:20.587Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-170a-170a",
+      "kind": "validation",
+      "title": "Validate: RAM region 170A behaves like pointer_target",
+      "description": "Zero-page pointer $007B resolves to constant target $170A here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.2799999999999999,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis pointer_target",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page pointer $007B resolves to constant target $170A here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+          "addressRange": {
+            "start": 5898,
+            "end": 5898
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-170a-170a"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-170a-170a"
+      ],
+      "createdAt": "2026-04-26T18:28:20.589Z",
+      "updatedAt": "2026-04-26T18:28:20.589Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-1c34-1c34",
+      "kind": "validation",
+      "title": "Validate: RAM region 1C34 behaves like counter",
+      "description": "Address $1C34 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $1C34 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 7220,
+            "end": 7220
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-1c34-1c34"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-1c34-1c34"
+      ],
+      "createdAt": "2026-04-26T18:28:20.590Z",
+      "updatedAt": "2026-04-26T18:28:20.590Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-2ebd-2ebd",
+      "kind": "validation",
+      "title": "Validate: RAM region 2EBD behaves like flag",
+      "description": "Address $2EBD is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $2EBD is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 11965,
+            "end": 11965
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-2ebd-2ebd"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-2ebd-2ebd"
+      ],
+      "createdAt": "2026-04-26T18:28:20.592Z",
+      "updatedAt": "2026-04-26T18:28:20.592Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-3338-3338",
+      "kind": "validation",
+      "title": "Validate: RAM region 3338 behaves like flag",
+      "description": "Address $3338 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $3338 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 13112,
+            "end": 13112
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-3338-3338"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-3338-3338"
+      ],
+      "createdAt": "2026-04-26T18:28:20.593Z",
+      "updatedAt": "2026-04-26T18:28:20.593Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-34c0-34c0",
+      "kind": "validation",
+      "title": "Validate: RAM region 34C0 behaves like flag",
+      "description": "Address $34C0 is written with a small immediate set ($00, $01) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $34C0 is written with a small immediate set ($00, $01) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 13504,
+            "end": 13504
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-34c0-34c0"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-34c0-34c0"
+      ],
+      "createdAt": "2026-04-26T18:28:20.595Z",
+      "updatedAt": "2026-04-26T18:28:20.595Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-3523-352c",
+      "kind": "validation",
+      "title": "Validate: RAM region 3523 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $3523, $352C. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $3523, $352C.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $3523, $352C. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $3523, $352C.",
+          "addressRange": {
+            "start": 13603,
+            "end": 13612
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-3523-352c"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-3523-352c"
+      ],
+      "createdAt": "2026-04-26T18:28:20.596Z",
+      "updatedAt": "2026-04-26T18:28:20.596Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-38ee-38ee",
+      "kind": "validation",
+      "title": "Validate: RAM region 38EE behaves like flag",
+      "description": "Address $38EE is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $38EE is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 14574,
+            "end": 14574
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-38ee-38ee"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-38ee-38ee"
+      ],
+      "createdAt": "2026-04-26T18:28:20.598Z",
+      "updatedAt": "2026-04-26T18:28:20.598Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-394f-394f",
+      "kind": "validation",
+      "title": "Validate: RAM region 394F behaves like flag",
+      "description": "Address $394F is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $394F is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 14671,
+            "end": 14671
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-394f-394f"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-394f-394f"
+      ],
+      "createdAt": "2026-04-26T18:28:20.600Z",
+      "updatedAt": "2026-04-26T18:28:20.600Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4159-4159",
+      "kind": "validation",
+      "title": "Validate: RAM region 4159 behaves like flag",
+      "description": "Address $4159 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $4159 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 16729,
+            "end": 16729
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-4159-4159"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4159-4159"
+      ],
+      "createdAt": "2026-04-26T18:28:20.602Z",
+      "updatedAt": "2026-04-26T18:28:20.602Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4163-4163",
+      "kind": "validation",
+      "title": "Validate: RAM region 4163 behaves like flag",
+      "description": "Address $4163 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $4163 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 16739,
+            "end": 16739
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-4163-4163"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4163-4163"
+      ],
+      "createdAt": "2026-04-26T18:28:20.603Z",
+      "updatedAt": "2026-04-26T18:28:20.603Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4171-4171",
+      "kind": "validation",
+      "title": "Validate: RAM region 4171 behaves like flag",
+      "description": "Address $4171 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $4171 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 16753,
+            "end": 16753
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-4171-4171"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4171-4171"
+      ],
+      "createdAt": "2026-04-26T18:28:20.605Z",
+      "updatedAt": "2026-04-26T18:28:20.605Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4179-4179",
+      "kind": "validation",
+      "title": "Validate: RAM region 4179 behaves like flag",
+      "description": "Address $4179 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $4179 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 16761,
+            "end": 16761
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-4179-4179"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-4179-4179"
+      ],
+      "createdAt": "2026-04-26T18:28:20.607Z",
+      "updatedAt": "2026-04-26T18:28:20.607Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-417d-417d",
+      "kind": "validation",
+      "title": "Validate: RAM region 417D behaves like flag",
+      "description": "Address $417D is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $417D is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 16765,
+            "end": 16765
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-417d-417d"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-417d-417d"
+      ],
+      "createdAt": "2026-04-26T18:28:20.609Z",
+      "updatedAt": "2026-04-26T18:28:20.609Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-424b-424b",
+      "kind": "validation",
+      "title": "Validate: RAM region 424B behaves like flag",
+      "description": "Address $424B is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $424B is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 16971,
+            "end": 16971
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-424b-424b"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-424b-424b"
+      ],
+      "createdAt": "2026-04-26T18:28:20.610Z",
+      "updatedAt": "2026-04-26T18:28:20.610Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-44b1-44b1",
+      "kind": "validation",
+      "title": "Validate: RAM region 44B1 behaves like flag",
+      "description": "Address $44B1 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $44B1 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 17585,
+            "end": 17585
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-44b1-44b1"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-44b1-44b1"
+      ],
+      "createdAt": "2026-04-26T18:28:20.612Z",
+      "updatedAt": "2026-04-26T18:28:20.612Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-478d-4799",
+      "kind": "validation",
+      "title": "Validate: RAM region 478D behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $478D, $4799. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $478D, $4799.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.38,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $478D, $4799. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $478D, $4799.",
+          "addressRange": {
+            "start": 18317,
+            "end": 18329
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-478d-4799"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-478d-4799"
+      ],
+      "createdAt": "2026-04-26T18:28:20.614Z",
+      "updatedAt": "2026-04-26T18:28:20.614Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-49df-49df",
+      "kind": "validation",
+      "title": "Validate: RAM region 49DF behaves like flag",
+      "description": "Address $49DF is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $49DF is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 18911,
+            "end": 18911
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-49df-49df"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-49df-49df"
+      ],
+      "createdAt": "2026-04-26T18:28:20.616Z",
+      "updatedAt": "2026-04-26T18:28:20.616Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-50de-50de",
+      "kind": "validation",
+      "title": "Validate: RAM region 50DE behaves like flag",
+      "description": "Address $50DE is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $50DE is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 20702,
+            "end": 20702
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-50de-50de"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-50de-50de"
+      ],
+      "createdAt": "2026-04-26T18:28:20.618Z",
+      "updatedAt": "2026-04-26T18:28:20.618Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-60f8-60f8",
+      "kind": "validation",
+      "title": "Validate: RAM region 60F8 behaves like pointer_target",
+      "description": "Zero-page pointer $0069 resolves to constant target $60F8 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.2799999999999999,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis pointer_target",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page pointer $0069 resolves to constant target $60F8 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+          "addressRange": {
+            "start": 24824,
+            "end": 24824
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-60f8-60f8"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-60f8-60f8"
+      ],
+      "createdAt": "2026-04-26T18:28:20.620Z",
+      "updatedAt": "2026-04-26T18:28:20.620Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-6566-6566",
+      "kind": "validation",
+      "title": "Validate: RAM region 6566 behaves like flag",
+      "description": "Address $6566 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $6566 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 25958,
+            "end": 25958
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-6566-6566"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-6566-6566"
+      ],
+      "createdAt": "2026-04-26T18:28:20.621Z",
+      "updatedAt": "2026-04-26T18:28:20.621Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-699b-699b",
+      "kind": "validation",
+      "title": "Validate: RAM region 699B behaves like flag",
+      "description": "Address $699B is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $699B is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 27035,
+            "end": 27035
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-699b-699b"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-699b-699b"
+      ],
+      "createdAt": "2026-04-26T18:28:20.623Z",
+      "updatedAt": "2026-04-26T18:28:20.623Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-7300-7300",
+      "kind": "validation",
+      "title": "Validate: RAM region 7300 behaves like flag",
+      "description": "Address $7300 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $7300 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 29440,
+            "end": 29440
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-7300-7300"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-7300-7300"
+      ],
+      "createdAt": "2026-04-26T18:28:20.625Z",
+      "updatedAt": "2026-04-26T18:28:20.625Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-73d9-73d9",
+      "kind": "validation",
+      "title": "Validate: RAM region 73D9 behaves like counter",
+      "description": "Address $73D9 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.4,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis counter",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $73D9 is updated with INC/DEC/shift-style read-modify-write instructions. That pattern often indicates a counter, timer, or packed state byte.",
+          "addressRange": {
+            "start": 29657,
+            "end": 29657
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-73d9-73d9"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-73d9-73d9"
+      ],
+      "createdAt": "2026-04-26T18:28:20.627Z",
+      "updatedAt": "2026-04-26T18:28:20.627Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d5e",
+      "kind": "validation",
+      "title": "Validate: RAM region 8D5E behaves like flag",
+      "description": "Address $8D5E is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $8D5E is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 36190,
+            "end": 36190
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d5e"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d5e"
+      ],
+      "createdAt": "2026-04-26T18:28:20.629Z",
+      "updatedAt": "2026-04-26T18:28:20.629Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d67",
+      "kind": "validation",
+      "title": "Validate: RAM region 8D5E behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $8D5E, $8D67. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $8D5E, $8D67.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $8D5E, $8D67. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $8D5E, $8D67.",
+          "addressRange": {
+            "start": 36190,
+            "end": 36199
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d67"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8d5e-8d67"
+      ],
+      "createdAt": "2026-04-26T18:28:20.631Z",
+      "updatedAt": "2026-04-26T18:28:20.631Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8db0-8db0",
+      "kind": "validation",
+      "title": "Validate: RAM region 8DB0 behaves like flag",
+      "description": "Address $8DB0 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $8DB0 is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 36272,
+            "end": 36272
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-8db0-8db0"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8db0-8db0"
+      ],
+      "createdAt": "2026-04-26T18:28:20.633Z",
+      "updatedAt": "2026-04-26T18:28:20.633Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8f6a-8f6a",
+      "kind": "validation",
+      "title": "Validate: RAM region 8F6A behaves like flag",
+      "description": "Address $8F6A is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $8F6A is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 36714,
+            "end": 36714
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-8f6a-8f6a"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8f6a-8f6a"
+      ],
+      "createdAt": "2026-04-26T18:28:20.635Z",
+      "updatedAt": "2026-04-26T18:28:20.635Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8fb8-8fe5",
+      "kind": "validation",
+      "title": "Validate: RAM region 8FB8 behaves like buffer",
+      "description": "Indexed or loop-based accesses cluster around $8FB8, $8FE5. Backward branch at $8DA1 forms a loop over 6 instructions. 2 indexed store(s) target $8FB8, $8FE5.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.26,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $8FB8, $8FE5. Backward branch at $8DA1 forms a loop over 6 instructions. 2 indexed store(s) target $8FB8, $8FE5.",
+          "addressRange": {
+            "start": 36792,
+            "end": 36837
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-8fb8-8fe5"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-8fb8-8fe5"
+      ],
+      "createdAt": "2026-04-26T18:28:20.637Z",
+      "updatedAt": "2026-04-26T18:28:20.637Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-9014-9014",
+      "kind": "validation",
+      "title": "Validate: RAM region 9014 behaves like flag",
+      "description": "Address $9014 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $9014 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 36884,
+            "end": 36884
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-9014-9014"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-9014-9014"
+      ],
+      "createdAt": "2026-04-26T18:28:20.640Z",
+      "updatedAt": "2026-04-26T18:28:20.640Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-9990-9990",
+      "kind": "validation",
+      "title": "Validate: RAM region 9990 behaves like pointer_target",
+      "description": "Zero-page pointer $0037 resolves to constant target $9990 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.2799999999999999,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis pointer_target",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page pointer $0037 resolves to constant target $9990 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+          "addressRange": {
+            "start": 39312,
+            "end": 39312
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-9990-9990"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-9990-9990"
+      ],
+      "createdAt": "2026-04-26T18:28:20.642Z",
+      "updatedAt": "2026-04-26T18:28:20.642Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c000-c000",
+      "kind": "validation",
+      "title": "Validate: RAM region C000 behaves like flag",
+      "description": "Address $C000 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $C000 is written with a small immediate set ($00) and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 49152,
+            "end": 49152
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c000-c000"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c000-c000"
+      ],
+      "createdAt": "2026-04-26T18:28:20.644Z",
+      "updatedAt": "2026-04-26T18:28:20.644Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7",
+      "kind": "validation",
+      "title": "Validate: RAM region C3F7 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $C3F7, $C7F7. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $C3F7, $C7F7.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.38,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $C3F7, $C7F7. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $C3F7, $C7F7.",
+          "addressRange": {
+            "start": 50167,
+            "end": 51191
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c3f7-c7f7"
+      ],
+      "createdAt": "2026-04-26T18:28:20.646Z",
+      "updatedAt": "2026-04-26T18:28:20.646Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c410-c48c",
+      "kind": "validation",
+      "title": "Validate: RAM region C410 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $C410, $C44E, $C48C. 3 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $C410, $C44E, $C48C.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.32999999999999996,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $C410, $C44E, $C48C. 3 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $C410, $C44E, $C48C.",
+          "addressRange": {
+            "start": 50192,
+            "end": 50316
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c410-c48c"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c410-c48c"
+      ],
+      "createdAt": "2026-04-26T18:28:20.648Z",
+      "updatedAt": "2026-04-26T18:28:20.648Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c873-c874",
+      "kind": "validation",
+      "title": "Validate: RAM region C873 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $C873, $C874. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $C873, $C874.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $C873, $C874. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $C873, $C874.",
+          "addressRange": {
+            "start": 51315,
+            "end": 51316
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c873-c874"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c873-c874"
+      ],
+      "createdAt": "2026-04-26T18:28:20.650Z",
+      "updatedAt": "2026-04-26T18:28:20.650Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c878-c879",
+      "kind": "validation",
+      "title": "Validate: RAM region C878 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $C878, $C879. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $C878, $C879.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $C878, $C879. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $C878, $C879.",
+          "addressRange": {
+            "start": 51320,
+            "end": 51321
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c878-c879"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c878-c879"
+      ],
+      "createdAt": "2026-04-26T18:28:20.652Z",
+      "updatedAt": "2026-04-26T18:28:20.652Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c880-c881",
+      "kind": "validation",
+      "title": "Validate: RAM region C880 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $C880, $C881. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $C880, $C881.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $C880, $C881. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $C880, $C881.",
+          "addressRange": {
+            "start": 51328,
+            "end": 51329
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-c880-c881"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-c880-c881"
+      ],
+      "createdAt": "2026-04-26T18:28:20.654Z",
+      "updatedAt": "2026-04-26T18:28:20.654Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00",
+      "kind": "validation",
+      "title": "Validate: RAM region CC40 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $CC40, $CD00, $CE00, $CF00. 4 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $CC40, $CD00, $CE00, $CF00.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $CC40, $CD00, $CE00, $CF00. 4 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $CC40, $CD00, $CE00, $CF00.",
+          "addressRange": {
+            "start": 52288,
+            "end": 52992
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cc40-cf00"
+      ],
+      "createdAt": "2026-04-26T18:28:20.657Z",
+      "updatedAt": "2026-04-26T18:28:20.657Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cfe5-cfe8",
+      "kind": "validation",
+      "title": "Validate: RAM region CFE5 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $CFE5, $CFE8. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $CFE5, $CFE8.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.38,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $CFE5, $CFE8. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $CFE5, $CFE8.",
+          "addressRange": {
+            "start": 53221,
+            "end": 53224
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cfe5-cfe8"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cfe5-cfe8"
+      ],
+      "createdAt": "2026-04-26T18:28:20.659Z",
+      "updatedAt": "2026-04-26T18:28:20.659Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cff0-cff8",
+      "kind": "validation",
+      "title": "Validate: RAM region CFF0 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $CFF0, $CFF8. 2 consecutive absolute-indexed write access(es) use Y as the table index. Referenced bases cluster around $CFF0, $CFF8.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.38,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $CFF0, $CFF8. 2 consecutive absolute-indexed write access(es) use Y as the table index. Referenced bases cluster around $CFF0, $CFF8.",
+          "addressRange": {
+            "start": 53232,
+            "end": 53240
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-cff0-cff8"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-cff0-cff8"
+      ],
+      "createdAt": "2026-04-26T18:28:20.661Z",
+      "updatedAt": "2026-04-26T18:28:20.661Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40",
+      "kind": "validation",
+      "title": "Validate: RAM region F080 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $F080, $FD40. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $F080, $FD40.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $F080, $FD40. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $F080, $FD40.",
+          "addressRange": {
+            "start": 61568,
+            "end": 64832
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-f080-fd40"
+      ],
+      "createdAt": "2026-04-26T18:28:20.663Z",
+      "updatedAt": "2026-04-26T18:28:20.663Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80",
+      "kind": "validation",
+      "title": "Validate: RAM region F0C0 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $F0C0, $FD80. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $F0C0, $FD80.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $F0C0, $FD80. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $F0C0, $FD80.",
+          "addressRange": {
+            "start": 61632,
+            "end": 64896
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-f0c0-fd80"
+      ],
+      "createdAt": "2026-04-26T18:28:20.666Z",
+      "updatedAt": "2026-04-26T18:28:20.666Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fb39-fcb9",
+      "kind": "validation",
+      "title": "Validate: RAM region FB39 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $FB39, $FBB9, $FC39, $FCB9. 4 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FB39, $FBB9, $FC39, $FCB9.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $FB39, $FBB9, $FC39, $FCB9. 4 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FB39, $FBB9, $FC39, $FCB9.",
+          "addressRange": {
+            "start": 64313,
+            "end": 64697
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fb39-fcb9"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fb39-fcb9"
+      ],
+      "createdAt": "2026-04-26T18:28:20.668Z",
+      "updatedAt": "2026-04-26T18:28:20.668Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd00-fe80",
+      "kind": "validation",
+      "title": "Validate: RAM region FD00 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $FD00, $FE00, $FE80. 3 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FD00, $FE00, $FE80.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.32999999999999996,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $FD00, $FE00, $FE80. 3 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FD00, $FE00, $FE80.",
+          "addressRange": {
+            "start": 64768,
+            "end": 65152
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd00-fe80"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd00-fe80"
+      ],
+      "createdAt": "2026-04-26T18:28:20.670Z",
+      "updatedAt": "2026-04-26T18:28:20.670Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd40-fd80",
+      "kind": "validation",
+      "title": "Validate: RAM region FD40 behaves like buffer",
+      "description": "Indexed or loop-based accesses cluster around $FD40, $FD80. Backward branch at $65A1 forms a loop over 14 instructions. 2 indexed store(s) target $FD40, $FD80.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.26,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis buffer",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $FD40, $FD80. Backward branch at $65A1 forms a loop over 14 instructions. 2 indexed store(s) target $FD40, $FD80.",
+          "addressRange": {
+            "start": 64832,
+            "end": 64896
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd40-fd80"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd40-fd80"
+      ],
+      "createdAt": "2026-04-26T18:28:20.673Z",
+      "updatedAt": "2026-04-26T18:28:20.673Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd47-fd47",
+      "kind": "validation",
+      "title": "Validate: RAM region FD47 behaves like pointer_target",
+      "description": "Zero-page pointer $0015 resolves to constant target $FD47 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.2799999999999999,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis pointer_target",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Zero-page pointer $0015 resolves to constant target $FD47 here. This target is a strong candidate for a table, buffer, or dispatch structure.",
+          "addressRange": {
+            "start": 64839,
+            "end": 64839
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd47-fd47"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd47-fd47"
+      ],
+      "createdAt": "2026-04-26T18:28:20.675Z",
+      "updatedAt": "2026-04-26T18:28:20.675Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd80-fdc2",
+      "kind": "validation",
+      "title": "Validate: RAM region FD80 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $FD80, $FD81, $FD82, $FDC0, $FDC2. 5 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FD80, $FD81, $FD82, $FDC0, $FDC2.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $FD80, $FD81, $FD82, $FDC0, $FDC2. 5 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FD80, $FD81, $FD82, $FDC0, $FDC2.",
+          "addressRange": {
+            "start": 64896,
+            "end": 64962
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fd80-fdc2"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fd80-fdc2"
+      ],
+      "createdAt": "2026-04-26T18:28:20.677Z",
+      "updatedAt": "2026-04-26T18:28:20.677Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fddd-fddf",
+      "kind": "validation",
+      "title": "Validate: RAM region FDDD behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $FDDD, $FDDE, $FDDF. 3 consecutive absolute-indexed write access(es) use Y as the table index. Referenced bases cluster around $FDDD, $FDDE, $FDDF.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.32999999999999996,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $FDDD, $FDDE, $FDDF. 3 consecutive absolute-indexed write access(es) use Y as the table index. Referenced bases cluster around $FDDD, $FDDE, $FDDF.",
+          "addressRange": {
+            "start": 64989,
+            "end": 64991
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fddd-fddf"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fddd-fddf"
+      ],
+      "createdAt": "2026-04-26T18:28:20.680Z",
+      "updatedAt": "2026-04-26T18:28:20.680Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fded-feed",
+      "kind": "validation",
+      "title": "Validate: RAM region FDED behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $FDED, $FE2D, $FE6D, $FEAD, $FEED. 5 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FDED, $FE2D, $FE6D, $FEAD, $FEED.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $FDED, $FE2D, $FE6D, $FEAD, $FEED. 5 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FDED, $FE2D, $FE6D, $FEAD, $FEED.",
+          "addressRange": {
+            "start": 65005,
+            "end": 65261
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fded-feed"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fded-feed"
+      ],
+      "createdAt": "2026-04-26T18:28:20.682Z",
+      "updatedAt": "2026-04-26T18:28:20.682Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fe4f-fe55",
+      "kind": "validation",
+      "title": "Validate: RAM region FE4F behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $FE4F, $FE52, $FE55. 3 consecutive absolute-indexed write access(es) use Y as the table index. Referenced bases cluster around $FE4F, $FE52, $FE55.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.32999999999999996,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $FE4F, $FE52, $FE55. 3 consecutive absolute-indexed write access(es) use Y as the table index. Referenced bases cluster around $FE4F, $FE52, $FE55.",
+          "addressRange": {
+            "start": 65103,
+            "end": 65109
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-fe4f-fe55"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-fe4f-fe55"
+      ],
+      "createdAt": "2026-04-26T18:28:20.684Z",
+      "updatedAt": "2026-04-26T18:28:20.684Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01",
+      "kind": "validation",
+      "title": "Validate: RAM region FF00 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $FF00, $FF01. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FF00, $FF01.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.38,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $FF00, $FF01. 2 consecutive absolute-indexed write access(es) use X as the table index. Referenced bases cluster around $FF00, $FF01.",
+          "addressRange": {
+            "start": 65280,
+            "end": 65281
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff00-ff01"
+      ],
+      "createdAt": "2026-04-26T18:28:20.687Z",
+      "updatedAt": "2026-04-26T18:28:20.687Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98",
+      "kind": "validation",
+      "title": "Validate: RAM region FF58 behaves like table",
+      "description": "Indexed or loop-based accesses cluster around $FF58, $FF98. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $FF58, $FF98.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.30000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis table",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Indexed or loop-based accesses cluster around $FF58, $FF98. 2 consecutive absolute-indexed mixed access(es) use X as the table index. Referenced bases cluster around $FF58, $FF98.",
+          "addressRange": {
+            "start": 65368,
+            "end": 65432
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ff58-ff98"
+      ],
+      "createdAt": "2026-04-26T18:28:20.689Z",
+      "updatedAt": "2026-04-26T18:28:20.689Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ffff-ffff",
+      "kind": "validation",
+      "title": "Validate: RAM region FFFF behaves like flag",
+      "description": "Address $FFFF is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.42000000000000004,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "RAM hypothesis flag",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Address $FFFF is written with a small immediate set () and later read back. That pattern is more consistent with a flag/mode byte than with arbitrary data.",
+          "addressRange": {
+            "start": 65535,
+            "end": 65535
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-ram-ffff-ffff"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-ram-ffff-ffff"
+      ],
+      "createdAt": "2026-04-26T18:28:20.692Z",
+      "updatedAt": "2026-04-26T18:28:20.692Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-3d72",
+      "kind": "validation",
+      "title": "Validate: Segment 3D72 classified as music_data",
+      "description": "SID driver at $3CF0 reads data via indexed addressing from $3D72. Data at this address is fed to SID registers and likely contains music or SFX sequences.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.31000000000000005,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Classification for $3D72-$4134",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "SID driver at $3CF0 reads data via indexed addressing from $3D72. Data at this address is fed to SID registers and likely contains music or SFX sequences.",
+          "addressRange": {
+            "start": 15730,
+            "end": 16692
+          },
+          "capturedAt": "2026-04-26T18:28:16.559Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-3d72-4134"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-3d72"
+      ],
+      "createdAt": "2026-04-26T18:28:20.694Z",
+      "updatedAt": "2026-04-26T18:28:20.694Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-5469",
+      "kind": "validation",
+      "title": "Validate: Segment 5469 classified as charset",
+      "description": "Region length is 49 x 8 bytes, which matches glyph storage. 47% of glyphs have plausible 8x8 structure. 27% of glyphs have empty top or bottom rows, common in character sets.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.43102040816326526,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Classification for $5469-$5470",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Region length is 49 x 8 bytes, which matches glyph storage. 47% of glyphs have plausible 8x8 structure. 27% of glyphs have empty top or bottom rows, common in character sets.",
+          "addressRange": {
+            "start": 21609,
+            "end": 21616
+          },
+          "capturedAt": "2026-04-26T18:28:16.559Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-5469-5470"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-5469"
+      ],
+      "createdAt": "2026-04-26T18:28:20.697Z",
+      "updatedAt": "2026-04-26T18:28:20.697Z"
+    },
+    {
+      "id": "question-artifact-polarbear-analysis-json-mo41xbpt-finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-ceec",
+      "kind": "validation",
+      "title": "Validate: Segment CEEC classified as sprite",
+      "description": "Length is 3 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $CEEC-$CFAB. Row density and transition metrics are closer to sprite shapes than random noise.",
+      "status": "open",
+      "priority": "medium",
+      "confidence": 0.28333333333333344,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Classification for $CEEC-$CFAB",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Length is 3 x 64 bytes, matching C64 sprite storage. Rendered blocks show non-empty 24x21 pixel silhouettes in $CEEC-$CFAB. Row density and transition metrics are closer to sprite shapes than random noise.",
+          "addressRange": {
+            "start": 52972,
+            "end": 53163
+          },
+          "capturedAt": "2026-04-26T18:28:16.560Z"
+        }
+      ],
+      "entityIds": [
+        "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-ceec-cfab"
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "findingIds": [
+        "finding-artifact-polarbear-analysis-json-mo41xbpt-segment-classification-ceec"
+      ],
+      "createdAt": "2026-04-26T18:28:20.700Z",
+      "updatedAt": "2026-04-26T18:28:20.700Z"
     },
     {
       "id": "question-when-does-disk-level-loading-begin-mo41xbqc",

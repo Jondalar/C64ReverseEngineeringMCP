@@ -1,34 +1,370 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-04-22T05:52:18.821Z",
+  "updatedAt": "2026-04-26T18:28:20.522Z",
   "items": [
     {
-      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-      "kind": "maps-to",
-      "title": "entry_080D maps to space_intro_boot",
-      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
-      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-      "summary": "Imported legacy entry point.",
-      "status": "confirmed",
-      "confidence": 1,
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a01",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A01 to $39FD.",
+      "status": "active",
+      "confidence": 0.72,
       "evidence": [
         {
           "kind": "artifact",
-          "title": "Entry point $080D maps to segment",
+          "title": "Cross-reference branch",
           "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
-          "excerpt": "Imported legacy entry point.",
+          "excerpt": "From $3A01 to $39FD.",
           "addressRange": {
-            "start": 2061,
-            "end": 2061
+            "start": 14849,
+            "end": 14849
           },
-          "capturedAt": "2026-04-22T05:52:18.808Z"
+          "capturedAt": "2026-04-26T18:28:16.562Z"
         }
       ],
       "artifactIds": [
         "artifact-polarbear-analysis-json-mo41xbpt"
       ],
-      "createdAt": "2026-04-22T05:52:18.815Z",
-      "updatedAt": "2026-04-22T05:52:18.815Z"
+      "createdAt": "2026-04-26T18:28:20.516Z",
+      "updatedAt": "2026-04-26T18:28:20.516Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a2c",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A2C to $3A41.",
+      "status": "active",
+      "confidence": 0.72,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Cross-reference branch",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "From $3A2C to $3A41.",
+          "addressRange": {
+            "start": 14892,
+            "end": 14892
+          },
+          "capturedAt": "2026-04-26T18:28:16.562Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.517Z",
+      "updatedAt": "2026-04-26T18:28:20.517Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a30",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A30 to $3A37.",
+      "status": "active",
+      "confidence": 0.72,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Cross-reference branch",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "From $3A30 to $3A37.",
+          "addressRange": {
+            "start": 14896,
+            "end": 14896
+          },
+          "capturedAt": "2026-04-26T18:28:16.562Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.517Z",
+      "updatedAt": "2026-04-26T18:28:20.517Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a34",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A34 to $3A41.",
+      "status": "active",
+      "confidence": 0.72,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Cross-reference branch",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "From $3A34 to $3A41.",
+          "addressRange": {
+            "start": 14900,
+            "end": 14900
+          },
+          "capturedAt": "2026-04-26T18:28:16.562Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.518Z",
+      "updatedAt": "2026-04-26T18:28:20.518Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a47",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A47 to $3A57.",
+      "status": "active",
+      "confidence": 0.72,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Cross-reference branch",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "From $3A47 to $3A57.",
+          "addressRange": {
+            "start": 14919,
+            "end": 14919
+          },
+          "capturedAt": "2026-04-26T18:28:16.562Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.518Z",
+      "updatedAt": "2026-04-26T18:28:20.518Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a5c",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A5C to $3A81.",
+      "status": "active",
+      "confidence": 0.72,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Cross-reference branch",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "From $3A5C to $3A81.",
+          "addressRange": {
+            "start": 14940,
+            "end": 14940
+          },
+          "capturedAt": "2026-04-26T18:28:16.562Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.519Z",
+      "updatedAt": "2026-04-26T18:28:20.519Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a70",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A70 to $3A7E.",
+      "status": "active",
+      "confidence": 0.72,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Cross-reference branch",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "From $3A70 to $3A7E.",
+          "addressRange": {
+            "start": 14960,
+            "end": 14960
+          },
+          "capturedAt": "2026-04-26T18:28:16.562Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.519Z",
+      "updatedAt": "2026-04-26T18:28:20.519Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a72",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A72 to $3A7D.",
+      "status": "active",
+      "confidence": 0.72,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Cross-reference branch",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "From $3A72 to $3A7D.",
+          "addressRange": {
+            "start": 14962,
+            "end": 14962
+          },
+          "capturedAt": "2026-04-26T18:28:16.562Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.520Z",
+      "updatedAt": "2026-04-26T18:28:20.520Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a78",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A78 to $3A7C.",
+      "status": "active",
+      "confidence": 0.72,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Cross-reference branch",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "From $3A78 to $3A7C.",
+          "addressRange": {
+            "start": 14968,
+            "end": 14968
+          },
+          "capturedAt": "2026-04-26T18:28:16.562Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.520Z",
+      "updatedAt": "2026-04-26T18:28:20.520Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a7f",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Cross-reference branch from $3A7F to $3A5A.",
+      "status": "active",
+      "confidence": 0.72,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Cross-reference branch",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "From $3A7F to $3A5A.",
+          "addressRange": {
+            "start": 14975,
+            "end": 14975
+          },
+          "capturedAt": "2026-04-26T18:28:16.562Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.520Z",
+      "updatedAt": "2026-04-26T18:28:20.520Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+      "kind": "maps-to",
+      "title": "nmi_vector_rom maps to code_1BA5_1C80",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+      "summary": "Detected nmi_vector_rom setup to $1BD2.",
+      "status": "confirmed",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Entry point $1BD2 maps to segment",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Detected nmi_vector_rom setup to $1BD2.",
+          "addressRange": {
+            "start": 7122,
+            "end": 7122
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.521Z",
+      "updatedAt": "2026-04-26T18:28:20.521Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "kind": "maps-to",
+      "title": "nmi_vector_rom maps to code_39BD_3A85",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Detected nmi_vector_rom setup to $39BD.",
+      "status": "confirmed",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Entry point $39BD maps to segment",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Detected nmi_vector_rom setup to $39BD.",
+          "addressRange": {
+            "start": 14781,
+            "end": 14781
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.521Z",
+      "updatedAt": "2026-04-26T18:28:20.521Z"
+    },
+    {
+      "id": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-4746-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+      "kind": "maps-to",
+      "title": "nmi_vector_rom maps to code_4746_478C",
+      "sourceEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-4746",
+      "targetEntityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+      "summary": "Detected nmi_vector_rom setup to $4746.",
+      "status": "confirmed",
+      "confidence": 1,
+      "evidence": [
+        {
+          "kind": "artifact",
+          "title": "Entry point $4746 maps to segment",
+          "artifactId": "artifact-polarbear-analysis-json-mo41xbpt",
+          "excerpt": "Detected nmi_vector_rom setup to $4746.",
+          "addressRange": {
+            "start": 18246,
+            "end": 18246
+          },
+          "capturedAt": "2026-04-26T18:28:16.561Z"
+        }
+      ],
+      "artifactIds": [
+        "artifact-polarbear-analysis-json-mo41xbpt"
+      ],
+      "createdAt": "2026-04-26T18:28:20.522Z",
+      "updatedAt": "2026-04-26T18:28:20.522Z"
     },
     {
       "id": "relation-artifact-polarbear-crt-manifest-mo41xbpx-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00-contains-entity-artifact-polarbear-crt-manifest-mo41xbpx-chip-0",

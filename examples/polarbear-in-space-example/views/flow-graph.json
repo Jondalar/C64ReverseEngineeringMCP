@@ -3,7 +3,7 @@
   "kind": "flow-graph",
   "title": "Polarbear in Space Flow Graph",
   "projectId": "project-polarbear-in-space-mo41xbpc",
-  "generatedAt": "2026-04-22T05:52:18.837Z",
+  "generatedAt": "2026-04-26T18:28:20.861Z",
   "nodes": [
     {
       "id": "entity-node-entity-artifact-polarbear-crt-manifest-mo41xbpx-bank-00",
@@ -60,6 +60,33 @@
       "confidence": 1
     },
     {
+      "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+      "kind": "code-segment",
+      "title": "code_1BA5_1C80",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+      "summary": "1BA5-1C80",
+      "status": "active",
+      "confidence": 0.94
+    },
+    {
+      "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "kind": "code-segment",
+      "title": "code_39BD_3A85",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "39BD-3A85",
+      "status": "active",
+      "confidence": 0.94
+    },
+    {
+      "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+      "kind": "code-segment",
+      "title": "code_4746_478C",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+      "summary": "4746-478C",
+      "status": "active",
+      "confidence": 0.94
+    },
+    {
       "id": "entity-node-entity-space-intro-boot-mo41xbq7",
       "kind": "routine",
       "title": "Enter intro boot",
@@ -67,15 +94,6 @@
       "summary": "80D-82F",
       "status": "active",
       "confidence": 0.93
-    },
-    {
-      "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
-      "kind": "entry-point",
-      "title": "entry_080D",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
-      "summary": "80D-80D",
-      "status": "active",
-      "confidence": 1
     },
     {
       "id": "entity-node-entity-jetpack-state-mo41xbq8",
@@ -103,6 +121,33 @@
       "confidence": 0.95
     },
     {
+      "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
+      "kind": "entry-point",
+      "title": "nmi_vector_rom",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
+      "summary": "1BD2-1BD2",
+      "status": "active",
+      "confidence": 1
+    },
+    {
+      "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "kind": "entry-point",
+      "title": "nmi_vector_rom",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "summary": "39BD-39BD",
+      "status": "active",
+      "confidence": 1
+    },
+    {
+      "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-4746",
+      "kind": "entry-point",
+      "title": "nmi_vector_rom",
+      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-4746",
+      "summary": "4746-4746",
+      "status": "active",
+      "confidence": 1
+    },
+    {
       "id": "entity-node-entity-starfield-color-lut-mo41xbq8",
       "kind": "table-read",
       "title": "Read starfield LUT",
@@ -110,15 +155,6 @@
       "summary": "4000-43FF",
       "status": "active",
       "confidence": 0.8
-    },
-    {
-      "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-      "kind": "code-segment",
-      "title": "space_intro_boot",
-      "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-      "summary": "80D-8F0",
-      "status": "active",
-      "confidence": 0.5
     }
   ],
   "edges": [
@@ -163,17 +199,6 @@
       "to": "entity-node-entity-starfield-color-lut-mo41xbq8",
       "status": "active",
       "confidence": 0.91
-    },
-    {
-      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-      "kind": "maps-to",
-      "title": "entry_080D maps to space_intro_boot",
-      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
-      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-      "summary": "Imported legacy entry point.",
-      "status": "confirmed",
-      "confidence": 1
     },
     {
       "id": "relation-edge-relation-intro-boot-maps-cartridge-intro-bank-mo41xbqa",
@@ -222,6 +247,149 @@
       "to": "entity-node-entity-intro-bank-00-mo41xbq9",
       "status": "active",
       "confidence": 0.9
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+      "kind": "maps-to",
+      "title": "nmi_vector_rom maps to code_1BA5_1C80",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+      "summary": "Detected nmi_vector_rom setup to $1BD2.",
+      "status": "confirmed",
+      "confidence": 1
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "kind": "maps-to",
+      "title": "nmi_vector_rom maps to code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "summary": "Detected nmi_vector_rom setup to $39BD.",
+      "status": "confirmed",
+      "confidence": 1
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-4746-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+      "kind": "maps-to",
+      "title": "nmi_vector_rom maps to code_4746_478C",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-4746",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-4746-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+      "summary": "Detected nmi_vector_rom setup to $4746.",
+      "status": "confirmed",
+      "confidence": 1
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a01",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a01",
+      "summary": "Cross-reference branch from $3A01 to $39FD.",
+      "status": "active",
+      "confidence": 0.72
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a2c",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a2c",
+      "summary": "Cross-reference branch from $3A2C to $3A41.",
+      "status": "active",
+      "confidence": 0.72
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a30",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a30",
+      "summary": "Cross-reference branch from $3A30 to $3A37.",
+      "status": "active",
+      "confidence": 0.72
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a34",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a34",
+      "summary": "Cross-reference branch from $3A34 to $3A41.",
+      "status": "active",
+      "confidence": 0.72
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a47",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a47",
+      "summary": "Cross-reference branch from $3A47 to $3A57.",
+      "status": "active",
+      "confidence": 0.72
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a5c",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a5c",
+      "summary": "Cross-reference branch from $3A5C to $3A81.",
+      "status": "active",
+      "confidence": 0.72
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a70",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a70",
+      "summary": "Cross-reference branch from $3A70 to $3A7E.",
+      "status": "active",
+      "confidence": 0.72
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a72",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a72",
+      "summary": "Cross-reference branch from $3A72 to $3A7D.",
+      "status": "active",
+      "confidence": 0.72
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a78",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a78",
+      "summary": "Cross-reference branch from $3A78 to $3A7C.",
+      "status": "active",
+      "confidence": 0.72
+    },
+    {
+      "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a7f",
+      "kind": "precedes",
+      "title": "nmi_vector_rom precedes code_39BD_3A85",
+      "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+      "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+      "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a7f",
+      "summary": "Cross-reference branch from $3A7F to $3A5A.",
+      "status": "active",
+      "confidence": 0.72
     },
     {
       "id": "pbs-edge-4",
@@ -294,6 +462,33 @@
           "confidence": 1
         },
         {
+          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+          "kind": "code-segment",
+          "title": "code_1BA5_1C80",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+          "summary": "1BA5-1C80",
+          "status": "active",
+          "confidence": 0.94
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "kind": "code-segment",
+          "title": "code_39BD_3A85",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "summary": "39BD-3A85",
+          "status": "active",
+          "confidence": 0.94
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+          "kind": "code-segment",
+          "title": "code_4746_478C",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+          "summary": "4746-478C",
+          "status": "active",
+          "confidence": 0.94
+        },
+        {
           "id": "entity-node-entity-space-intro-boot-mo41xbq7",
           "kind": "routine",
           "title": "Enter intro boot",
@@ -301,15 +496,6 @@
           "summary": "80D-82F",
           "status": "active",
           "confidence": 0.93
-        },
-        {
-          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
-          "kind": "entry-point",
-          "title": "entry_080D",
-          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
-          "summary": "80D-80D",
-          "status": "active",
-          "confidence": 1
         },
         {
           "id": "entity-node-entity-jetpack-state-mo41xbq8",
@@ -337,6 +523,33 @@
           "confidence": 0.95
         },
         {
+          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
+          "kind": "entry-point",
+          "title": "nmi_vector_rom",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
+          "summary": "1BD2-1BD2",
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "kind": "entry-point",
+          "title": "nmi_vector_rom",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "summary": "39BD-39BD",
+          "status": "active",
+          "confidence": 1
+        },
+        {
+          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-4746",
+          "kind": "entry-point",
+          "title": "nmi_vector_rom",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-4746",
+          "summary": "4746-4746",
+          "status": "active",
+          "confidence": 1
+        },
+        {
           "id": "entity-node-entity-starfield-color-lut-mo41xbq8",
           "kind": "table-read",
           "title": "Read starfield LUT",
@@ -344,15 +557,6 @@
           "summary": "4000-43FF",
           "status": "active",
           "confidence": 0.8
-        },
-        {
-          "id": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-          "kind": "code-segment",
-          "title": "space_intro_boot",
-          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-          "summary": "80D-8F0",
-          "status": "active",
-          "confidence": 0.5
         }
       ],
       "edges": [
@@ -397,17 +601,6 @@
           "to": "entity-node-entity-starfield-color-lut-mo41xbq8",
           "status": "active",
           "confidence": 0.91
-        },
-        {
-          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-          "kind": "maps-to",
-          "title": "entry_080D maps to space_intro_boot",
-          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
-          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-080d-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-080d-08f0",
-          "summary": "Imported legacy entry point.",
-          "status": "confirmed",
-          "confidence": 1
         },
         {
           "id": "relation-edge-relation-intro-boot-maps-cartridge-intro-bank-mo41xbqa",
@@ -458,6 +651,149 @@
           "confidence": 0.9
         },
         {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+          "kind": "maps-to",
+          "title": "nmi_vector_rom maps to code_1BA5_1C80",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-1ba5-1c80",
+          "summary": "Detected nmi_vector_rom setup to $1BD2.",
+          "status": "confirmed",
+          "confidence": 1
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "kind": "maps-to",
+          "title": "nmi_vector_rom maps to code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "summary": "Detected nmi_vector_rom setup to $39BD.",
+          "status": "confirmed",
+          "confidence": 1
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entry-4746-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+          "kind": "maps-to",
+          "title": "nmi_vector_rom maps to code_4746_478C",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-4746",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entry-4746-maps-to-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-4746-478c",
+          "summary": "Detected nmi_vector_rom setup to $4746.",
+          "status": "confirmed",
+          "confidence": 1
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a01",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a01",
+          "summary": "Cross-reference branch from $3A01 to $39FD.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a2c",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a2c",
+          "summary": "Cross-reference branch from $3A2C to $3A41.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a30",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a30",
+          "summary": "Cross-reference branch from $3A30 to $3A37.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a34",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a34",
+          "summary": "Cross-reference branch from $3A34 to $3A41.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a47",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a47",
+          "summary": "Cross-reference branch from $3A47 to $3A57.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a5c",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a5c",
+          "summary": "Cross-reference branch from $3A5C to $3A81.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a70",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a70",
+          "summary": "Cross-reference branch from $3A70 to $3A7E.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a72",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a72",
+          "summary": "Cross-reference branch from $3A72 to $3A7D.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a78",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a78",
+          "summary": "Cross-reference branch from $3A78 to $3A7C.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
+          "id": "flow-edge-artifact-polarbear-analysis-json-mo41xbpt-relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a7f",
+          "kind": "precedes",
+          "title": "nmi_vector_rom precedes code_39BD_3A85",
+          "from": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd",
+          "to": "entity-node-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85",
+          "relationId": "relation-artifact-polarbear-analysis-json-mo41xbpt-entity-artifact-polarbear-analysis-json-mo41xbpt-entry-39bd-precedes-entity-artifact-polarbear-analysis-json-mo41xbpt-segment-39bd-3a85-3a7f",
+          "summary": "Cross-reference branch from $3A7F to $3A5A.",
+          "status": "active",
+          "confidence": 0.72
+        },
+        {
           "id": "pbs-edge-4",
           "kind": "handoff",
           "title": "Possible handoff to level loader",
@@ -477,10 +813,10 @@
           "id": "load-sequence-item-generic-0-artifact-polarbear-analysis-json-mo41xbpt",
           "kind": "payload:bootstrap",
           "title": "01 polarbear in space analysis",
-          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-080d",
+          "entityId": "entity-artifact-polarbear-analysis-json-mo41xbpt-entry-1bd2",
           "summary": "Initial bootstrap payload that likely establishes runtime state and dispatches later content payloads.",
           "status": "active",
-          "confidence": 0.7870476190476191
+          "confidence": 0.7906891863993465
         },
         {
           "id": "load-sequence-item-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
@@ -500,7 +836,7 @@
           "to": "load-sequence-item-generic-1-artifact-polarbear-in-space-prg-mo41xbpg",
           "summary": "Heuristic staged load order inferred from artifact naming, linked analysis artifacts, and imported entry-point knowledge.",
           "status": "active",
-          "confidence": 0.7870476190476191
+          "confidence": 0.7906891863993465
         }
       ]
     },
