@@ -291,6 +291,64 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/graphics-marks" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const marksPath = join(projectDir, "session", "graphics-marks.json");
+    try {
+      const marks = existsSync(marksPath)
+        ? JSON.parse(readFileSync(marksPath, "utf8")) as { marks?: Record<string, { status: "rejected" | "confirmed"; note?: string; updatedAt: string }> }
+        : { marks: {} };
+      send(res, jsonResponse(200, { projectDir, marks: marks.marks ?? {} }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/graphics-marks" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          itemId: string;
+          status: "rejected" | "confirmed" | "clear";
+          note?: string;
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!payload.itemId) {
+          send(res, jsonResponse(400, { error: "Missing itemId." }));
+          return;
+        }
+        const marksPath = join(projectDir, "session", "graphics-marks.json");
+        mkdirSync(dirname(marksPath), { recursive: true });
+        const existing = existsSync(marksPath)
+          ? JSON.parse(readFileSync(marksPath, "utf8")) as { marks?: Record<string, { status: "rejected" | "confirmed"; note?: string; updatedAt: string }> }
+          : { marks: {} };
+        const map: Record<string, { status: "rejected" | "confirmed"; note?: string; updatedAt: string }> = existing.marks ?? {};
+        if (payload.status === "clear") {
+          delete map[payload.itemId];
+        } else {
+          map[payload.itemId] = {
+            status: payload.status,
+            note: payload.note,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        writeFileSync(marksPath, JSON.stringify({ updatedAt: new Date().toISOString(), marks: map }, null, 2));
+        send(res, jsonResponse(200, { projectDir, marks: map }));
+      } catch (error) {
+        send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/graphics") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
