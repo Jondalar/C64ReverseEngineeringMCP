@@ -23,9 +23,8 @@ interface HexViewProps {
   // directly and skips all network calls. Used by callers that need to
   // POST a chain to /api/disk/assemble-chain before rendering.
   bytes?: Uint8Array;
-  // Optional packer hint shown as a tag. Set by the caller when the
-  // manifest knows the stream format; otherwise the "depack view"
-  // button auto-detects and updates the tag.
+  // Optional packer hint shown as a tag. Set by the caller only when the
+  // manifest knows the stream format.
   packerHint?: string;
   // Optional context dict (e.g. { destHi: 0x40 } for byteboozer-lykia)
   // appended verbatim to the /api/depack query string.
@@ -34,6 +33,17 @@ interface HexViewProps {
 }
 
 const ROW_BYTES = 16;
+const DEPACK_PACKER_ALIASES: Record<string, string> = {
+  rle: "rle",
+  byteboozer: "byteboozer",
+  byteboozer2: "byteboozer",
+  "byteboozer-lykia": "byteboozer-lykia",
+  byteboozer_lykia: "byteboozer-lykia",
+  exomizer_raw: "exomizer_raw",
+  "exomizer-raw": "exomizer_raw",
+  exomizer_sfx: "exomizer_sfx",
+  "exomizer-sfx": "exomizer_sfx",
+};
 
 function formatHexByte(value: number): string {
   return value.toString(16).toUpperCase().padStart(2, "0");
@@ -125,7 +135,7 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
     setDepackState((prev) => ({ ...prev, busy: true, error: undefined, rawBytes: prev.rawBytes ?? bytes }));
     try {
       const params = new URLSearchParams();
-      if (packerHint) params.set("packer", packerHint);
+      if (depackPacker) params.set("packer", depackPacker);
       if (packerContext) {
         for (const [key, value] of Object.entries(packerContext)) {
           params.set(key, String(value));
@@ -165,6 +175,10 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
     return out;
   }, [bytes, baseAddress]);
 
+  const depackPacker = packerHint ? DEPACK_PACKER_ALIASES[packerHint.trim().toLowerCase()] : undefined;
+  const canDepack = Boolean(depackPacker);
+  const showDepackButton = canDepack || depackState.mode === "depacked";
+
   return (
     <div className="hex-overlay-backdrop" onClick={onClose}>
       <div className="hex-overlay" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
@@ -190,15 +204,17 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
             {depackState.error ? <p className="hex-overlay-inline-error">depack failed: {depackState.error}</p> : null}
           </div>
           <div className="hex-overlay-header-actions">
-            <button
-              type="button"
-              className={depackState.mode === "depacked" ? "hex-overlay-depack hex-overlay-depack-active" : "hex-overlay-depack"}
-              onClick={toggleDepackView}
-              disabled={!bytes || depackState.busy}
-              title={depackState.mode === "depacked" ? "Show the raw bytes again" : "Try RLE / ByteBoozer / Exomizer-raw / Exomizer-SFX on these bytes"}
-            >
-              {depackState.busy ? "depacking…" : depackState.mode === "depacked" ? "raw view" : "depack view"}
-            </button>
+            {showDepackButton ? (
+              <button
+                type="button"
+                className={depackState.mode === "depacked" ? "hex-overlay-depack hex-overlay-depack-active" : "hex-overlay-depack"}
+                onClick={toggleDepackView}
+                disabled={!bytes || depackState.busy}
+                title={depackState.mode === "depacked" ? "Show the raw bytes again" : `Depack known ${packerHint} stream`}
+              >
+                {depackState.busy ? "depacking…" : depackState.mode === "depacked" ? "raw view" : "depack view"}
+              </button>
+            ) : null}
             <button type="button" className="hex-overlay-close" onClick={onClose} aria-label="Close hex view">×</button>
           </div>
         </header>

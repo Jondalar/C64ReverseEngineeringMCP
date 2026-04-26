@@ -1,7 +1,8 @@
-import { existsSync, statSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { resolveProjectDir } from "../project-root.js";
 import { ProjectKnowledgeService } from "./service.js";
 
 interface RegisterProjectKnowledgeToolsOptions {
@@ -26,24 +27,20 @@ function formatWorkflowPhaseLine(phase: { phaseId: string; status: string; summa
   return `- [${phase.status}] ${phase.phaseId}${details.length > 0 ? ` — ${details.join(" | ")}` : ""}`;
 }
 
-function deriveProjectRoot(hintPath: string): string {
-  const resolvedHint = resolve(process.cwd(), hintPath);
-  if (existsSync(resolvedHint) && statSync(resolvedHint).isDirectory()) {
-    return resolvedHint;
-  }
-  if (extname(resolvedHint)) {
-    return dirname(resolvedHint);
-  }
-  return resolvedHint;
-}
-
 function resolveWorkspaceRoot(options: RegisterProjectKnowledgeToolsOptions, hintPath?: string, allowCreate = false): string {
   const envProjectDir = process.env.C64RE_PROJECT_DIR?.trim();
-  const root = hintPath?.trim()
-    ? deriveProjectRoot(hintPath)
-    : envProjectDir
-      ? resolve(envProjectDir)
-      : resolve(process.cwd());
+  const root = allowCreate
+    ? hintPath?.trim()
+      ? resolve(process.cwd(), hintPath)
+      : envProjectDir
+        ? resolve(envProjectDir)
+        : resolve(process.cwd())
+    : resolveProjectDir({
+      cwd: process.cwd(),
+      repoDir: options.repoDir,
+      hintPath: hintPath?.trim() || undefined,
+      requireWritable: false,
+    });
 
   if (root === "/") {
     throw new Error("Refusing to use '/' as a project root.");

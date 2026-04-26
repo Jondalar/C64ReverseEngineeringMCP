@@ -7,9 +7,9 @@ import type { G64LutReference } from "../disk/g64-parser.js";
 import { runCli } from "../run-cli.js";
 import type { ServerToolContext } from "./types.js";
 
-function g64SectorDefaultOutputDir(context: ServerToolContext, imagePath: string, track: number): string {
+function g64SectorDefaultOutputDir(context: ServerToolContext, imagePath: string, track: number, projectDir?: string): string {
   return join(
-    context.projectDir(imagePath, true),
+    projectDir ?? context.projectDir(imagePath, true),
     "analysis",
     "g64",
     basename(imagePath, extname(imagePath)),
@@ -17,8 +17,8 @@ function g64SectorDefaultOutputDir(context: ServerToolContext, imagePath: string
   );
 }
 
-function loadG64Parser(context: ServerToolContext, imagePath: string): G64Parser {
-  const imageAbs = resolve(context.projectDir(imagePath, true), imagePath);
+function loadG64Parser(context: ServerToolContext, imagePath: string, projectDir?: string): G64Parser {
+  const imageAbs = resolve(projectDir ?? context.projectDir(imagePath, true), imagePath);
   const parser = createDiskParser(new Uint8Array(readFileSync(imageAbs)));
   if (!(parser instanceof G64Parser)) {
     throw new Error(`Image is not a G64: ${imageAbs}`);
@@ -422,18 +422,19 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     "extract_g64_sectors",
     "Decode a G64 track via GCR and write one file per decoded sector for low-level inspection.",
     {
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
       image_path: z.string().describe("Path to the .g64 image"),
       track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
       sectors: z.array(z.number().int().nonnegative()).optional().describe("Optional explicit sector IDs to extract; defaults to all decoded sectors on the track"),
       output_dir: z.string().optional().describe("Output directory for extracted sector files"),
     },
-    async ({ image_path, track, sectors, output_dir }) => {
+    async ({ project_dir, image_path, track, sectors, output_dir }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir(project_dir ?? image_path, true);
         const imageAbs = resolve(pd, image_path);
-        const parser = loadG64Parser(context, image_path);
+        const parser = loadG64Parser(context, image_path, pd);
         const decoded = parser.extractTrackSectors(track, sectors);
-        const outDir = output_dir ? resolve(pd, output_dir) : g64SectorDefaultOutputDir(context, imageAbs, track);
+        const outDir = output_dir ? resolve(pd, output_dir) : g64SectorDefaultOutputDir(context, imageAbs, track, pd);
         mkdirSync(outDir, { recursive: true });
 
         const written: string[] = [];
@@ -464,6 +465,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
           `Image: ${imageAbs}`,
           `Track: ${track}`,
           `Output: ${outDir}`,
+          `Knowledge written to: ${join(pd, "knowledge")}`,
           `Decoded sectors written: ${decoded.length}`,
           `Metadata: ${metadataPath}`,
         ];

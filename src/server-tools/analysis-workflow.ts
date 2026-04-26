@@ -11,12 +11,13 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     "analyze_prg",
     "STEP 1 of the C64 RE workflow. Run the heuristic analysis pipeline on a PRG file → JSON with segments, cross-references, RAM facts, pointer tables. AFTER THIS: run disasm_prg with the output JSON, then ram_report and pointer_report. Do NOT skip the semantic annotation step (Phase 2) later.",
     {
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file (absolute or relative to project dir)"),
       output_json: z.string().optional().describe("Output path for the analysis JSON (default: next to PRG)"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses, e.g. [\"0827\", \"3E07\"]"),
     },
-    async ({ prg_path, output_json, entry_points }) => {
-      const pd = context.projectDir(prg_path, true);
+    async ({ project_dir, prg_path, output_json, entry_points }) => {
+      const pd = context.projectDir(project_dir ?? prg_path, true);
       const prgAbs = resolve(pd, prg_path);
       const outAbs = output_json
         ? resolve(pd, output_json)
@@ -50,7 +51,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             producedByTool: "analyze_prg",
           }],
         });
-        result.stdout = (result.stdout || "Analysis complete.") + `\nOutput: ${outAbs}`;
+        result.stdout = (result.stdout || "Analysis complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}`;
         if (knowledgeRegistration.outputArtifacts?.[0]) {
           try {
             const knowledgeService = new ProjectKnowledgeService(pd);
@@ -74,13 +75,14 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     "disasm_prg",
     "STEP 2 of the C64 RE workflow. Disassemble PRG → KickAssembler .asm + 64tass .tass. Pass the analysis JSON from analyze_prg. AFTER THIS: you MUST read the full ASM with read_artifact, then produce a <name>_annotations.json file that reclassifies all unknown segments with semantic labels and routine descriptions. Then run disasm_prg AGAIN to render the final annotated version. See the generate_annotations prompt for the JSON format.",
     {
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file"),
       output_asm: z.string().optional().describe("Output path for the .asm file"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses"),
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
     },
-    async ({ prg_path, output_asm, entry_points, analysis_json }) => {
-      const pd = context.projectDir(prg_path, true);
+    async ({ project_dir, prg_path, output_asm, entry_points, analysis_json }) => {
+      const pd = context.projectDir(project_dir ?? prg_path, true);
       const prgAbs = resolve(pd, prg_path);
       const outAbs = output_asm
         ? resolve(pd, output_asm)
@@ -139,7 +141,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             },
           ],
         });
-        result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}`;
+        result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}`;
         if (!hasAnnotations) {
           result.stdout += `\n\nNEXT STEP: Read the full ASM with read_artifact, then create ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then run disasm_prg again to produce the final annotated version.`;
         } else {

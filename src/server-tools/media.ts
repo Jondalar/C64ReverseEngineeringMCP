@@ -15,11 +15,12 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
     "extract_crt",
     "Parse an EasyFlash CRT image, extract per-bank binaries and manifest.",
     {
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from crt_path to knowledge/phase-plan.json."),
       crt_path: z.string().describe("Path to the .crt file"),
       output_dir: z.string().optional().describe("Output directory (default: analysis/extracted)"),
     },
-    async ({ crt_path, output_dir }) => {
-      const pd = context.projectDir(crt_path, true);
+    async ({ project_dir, crt_path, output_dir }) => {
+      const pd = context.projectDir(project_dir ?? crt_path, true);
       const crtAbs = resolve(pd, crt_path);
       const outAbs = output_dir ? resolve(pd, output_dir) : resolve(pd, "analysis", "extracted");
       const args = [crtAbs];
@@ -72,11 +73,12 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
     "inspect_disk",
     "Read a D64 or G64 directory and list the contained files without extracting them.",
     {
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
       image_path: z.string().describe("Path to the .d64 or .g64 image"),
     },
-    async ({ image_path }) => {
+    async ({ project_dir, image_path }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir(project_dir ?? image_path, true);
         const imageAbs = resolve(pd, image_path);
         const manifest = readDiskDirectory(imageAbs);
         const lines = [
@@ -103,12 +105,13 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
     "extract_disk",
     "Extract files from a D64 or G64 image into a project directory and write a manifest.json.",
     {
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
       image_path: z.string().describe("Path to the .d64 or .g64 image"),
       output_dir: z.string().optional().describe("Output directory (default: analysis/disk/<image-name>)"),
     },
-    async ({ image_path, output_dir }) => {
+    async ({ project_dir, image_path, output_dir }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir(project_dir ?? image_path, true);
         const imageAbs = resolve(pd, image_path);
         const outAbs = output_dir
           ? resolve(pd, output_dir)
@@ -145,6 +148,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           `Disk: ${manifest.diskName} [${manifest.diskId}]`,
           `Output: ${manifest.outputDir}`,
           `Manifest: ${manifest.manifestPath}`,
+          `Knowledge written to: ${join(pd, "knowledge")}`,
           "",
           ...manifest.files.map((file) => {
             const loadAddress = file.loadAddress === undefined
