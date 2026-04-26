@@ -816,9 +816,13 @@ const SCRUB_BLOCK_BYTES: Record<ScrubKind, number> = {
 function ScrubPanel({
   artifacts,
   projectRoot,
+  onOpenHex,
+  onOpenAsm,
 }: {
   artifacts: ArtifactRecord[];
   projectRoot: string;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number }) => void;
+  onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
 }) {
   const scrubArtifacts = artifacts.filter((artifact) =>
     artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw"
@@ -893,12 +897,59 @@ function ScrubPanel({
 
   const blockBytes = SCRUB_BLOCK_BYTES[kind];
 
+  const selectedArtifact = scrubArtifacts.find((artifact) => artifact.relativePath === selectedPath);
+  const stem = selectedArtifact ? selectedArtifact.relativePath.replace(/\.[^.]+$/, "").replace(/^.*\//, "") : "";
+  const pairedAsmSources = stem
+    ? bestAsmSourcesForArtifacts(
+        artifacts.filter((artifact) => {
+          const lower = artifact.relativePath.toLowerCase();
+          if (!lower.endsWith(".asm") && !lower.endsWith(".tass")) return false;
+          return lower.includes(stem.toLowerCase());
+        }),
+      )
+    : [];
+  const showMon = selectedArtifact ? isC64BinaryArtifact(selectedArtifact.relativePath) : false;
+
   return (
     <section className="panel-card">
       <div className="section-heading">
         <h3>Scrub</h3>
         <span>Free-form memory browser — pick a file, scroll the address, render any slice</span>
       </div>
+      {selectedArtifact ? (
+        <div className="scrub-inspector" style={{
+          display: "flex", flexWrap: "wrap", gap: "16px", padding: "10px 12px",
+          background: "rgba(255,255,255,0.04)", borderRadius: "6px", marginBottom: "8px",
+          fontSize: "12px", alignItems: "center",
+        }}>
+          <div><strong>{selectedArtifact.title}</strong></div>
+          <div style={{ color: "#9aa4b2" }}>kind: {selectedArtifact.kind}</div>
+          <div style={{ color: "#9aa4b2" }}>role: {selectedArtifact.role ?? "—"}</div>
+          <div style={{ color: "#9aa4b2" }}>status: {selectedArtifact.status}</div>
+          <div style={{ color: "#9aa4b2" }}>{selectedArtifact.relativePath}</div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: "6px" }}>
+            {showMon ? (
+              <button
+                type="button"
+                onClick={() => onOpenHex(selectedArtifact.relativePath, {
+                  title: `${selectedArtifact.title} (hex)`,
+                  baseAddress: 0,
+                })}
+              >
+                (mon)
+              </button>
+            ) : null}
+            {pairedAsmSources.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => onOpenAsm(`${selectedArtifact.title} disasm`, pairedAsmSources)}
+              >
+                .asm
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <div className="docs-shell">
         <div className="docs-list" style={{ minWidth: "280px" }}>
           <div className="docs-list-stack" style={{ gap: "12px" }}>
@@ -3575,7 +3626,14 @@ export function App() {
               />
             ) : null}
             {activeTab === "memory" ? <MemoryMapPanel snapshot={snapshot} selectedEntityId={selectedEntityId} onSelectEntity={(entityId) => handleSelectEntity(entityId, "memory")} /> : null}
-            {activeTab === "scrub" ? <ScrubPanel artifacts={snapshot.artifacts} projectRoot={snapshot.project.rootPath} /> : null}
+            {activeTab === "scrub" ? (
+              <ScrubPanel
+                artifacts={snapshot.artifacts}
+                projectRoot={snapshot.project.rootPath}
+                onOpenHex={openHexOverlay}
+                onOpenAsm={openAsmOverlay}
+              />
+            ) : null}
             {activeTab === "graphics" ? (
               <GraphicsPanel
                 items={graphicsItems}
