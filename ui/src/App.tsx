@@ -5,6 +5,7 @@ import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
 import { FileInspector, type FileInspectorActionButton, type FileInspectorHeadlineExtra, type FileInspectorMetaRow, type FileInspectorSpanRow } from "./components/FileInspector.js";
 import { MediumPanelShell, type MediumOriginPillSpec } from "./components/MediumPanelShell.js";
 import { BootTracePanel } from "./components/BootTracePanel.js";
+import { C64GraphicsView, type GraphicsRenderKind } from "./components/C64GraphicsView.js";
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
@@ -17,7 +18,7 @@ import type {
   WorkspaceUiSnapshot,
 } from "./types";
 
-type TabId = "dashboard" | "docs" | "memory" | "cartridge" | "disk" | "load" | "flow" | "listing" | "activity";
+type TabId = "dashboard" | "docs" | "memory" | "graphics" | "cartridge" | "disk" | "load" | "flow" | "listing" | "activity";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -45,6 +46,26 @@ interface DocsApiResponse {
   docs: DiscoveredMarkdownDoc[];
 }
 
+interface GraphicsItem {
+  id: string;
+  label: string;
+  kind: string;
+  start: number;
+  end: number;
+  length: number;
+  prgArtifactId: string;
+  prgRelativePath: string;
+  prgLoadAddress: number;
+  fileOffset: number;
+  analysisArtifactId: string;
+}
+
+interface GraphicsApiResponse {
+  projectDir: string;
+  items: GraphicsItem[];
+  warnings: string[];
+}
+
 interface DocGroup {
   id: string;
   title: string;
@@ -66,6 +87,7 @@ const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "docs", label: "Docs" },
   { id: "memory", label: "Memory Map" },
+  { id: "graphics", label: "Graphics" },
   { id: "cartridge", label: "Cartridge" },
   { id: "disk", label: "Disk" },
   { id: "load", label: "Load Sequence" },
@@ -618,6 +640,108 @@ function DocsPanel({
           {error ? <div className="error-banner">{error}</div> : null}
           {!loading && !error && content ? <ThinMarkdown content={content} /> : null}
           {!loading && !error && !content ? <div className="empty-state">No markdown content.</div> : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const GRAPHICS_GROUP_ORDER: Array<{ id: string; title: string; matches: (kind: string) => boolean }> = [
+  { id: "sprites", title: "Sprites", matches: (kind) => kind === "sprite" },
+  { id: "charsets", title: "Charsets", matches: (kind) => kind === "charset" || kind === "charset_source" },
+  { id: "bitmaps", title: "Bitmaps", matches: (kind) => kind === "bitmap" || kind === "hires_bitmap" || kind === "multicolor_bitmap" || kind === "bitmap_source" },
+  { id: "screens", title: "Screen / Color", matches: (kind) => kind === "screen_ram" || kind === "screen_source" || kind === "color_source" },
+];
+
+function groupGraphics(items: GraphicsItem[]): Array<{ id: string; title: string; items: GraphicsItem[] }> {
+  return GRAPHICS_GROUP_ORDER
+    .map((group) => ({ id: group.id, title: group.title, items: items.filter((item) => group.matches(item.kind)) }))
+    .filter((group) => group.items.length > 0);
+}
+
+function formatHex16(value: number): string {
+  return value.toString(16).toUpperCase().padStart(4, "0");
+}
+
+function formatBytes(value: number): string {
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${value} B`;
+}
+
+function GraphicsPanel({
+  items,
+  selectedId,
+  onSelect,
+  bytes,
+  loading,
+  error,
+}: {
+  items: GraphicsItem[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  bytes: Uint8Array | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const selected = items.find((item) => item.id === selectedId) ?? items[0];
+  const groups = groupGraphics(items);
+  const renderKind = (selected?.kind ?? "sprite") as GraphicsRenderKind;
+  const showColours = !!selected;
+
+  return (
+    <section className="panel-card">
+      <div className="section-heading">
+        <h3>Graphics</h3>
+        <span>{items.length} segments</span>
+      </div>
+      <div className="docs-shell">
+        <div className="docs-list">
+          <div className="docs-list-stack">
+            {groups.map((group) => (
+              <section key={group.id} className="docs-group">
+                <div className="docs-group-title">
+                  <strong>{group.title}</strong>
+                  <span>{group.items.length}</span>
+                </div>
+                <div className="record-stack">
+                  {group.items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={selected?.id === item.id ? "record-card active-record" : "record-card"}
+                      onClick={() => onSelect(item.id)}
+                    >
+                      <div className="record-topline">
+                        <span>{item.label}</span>
+                        <span className="record-status">{item.kind}</span>
+                      </div>
+                      <p>${formatHex16(item.start)}–${formatHex16(item.end)} · {formatBytes(item.length)}</p>
+                      <div className="record-meta">
+                        <span>{item.prgRelativePath}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </div>
+        <div className="docs-viewer">
+          <div className="detail-title-row">
+            <h4>{selected?.label ?? "No graphics segment selected"}</h4>
+            <span>{selected ? `${selected.kind} · $${formatHex16(selected.start)}–$${formatHex16(selected.end)} · ${formatBytes(selected.length)}` : ""}</span>
+          </div>
+          {selected ? (
+            <C64GraphicsView
+              bytes={bytes}
+              loading={loading}
+              error={error}
+              kind={renderKind}
+              showColourPicker={showColours}
+            />
+          ) : (
+            <div className="empty-state">Select a graphics segment to render it.</div>
+          )}
         </div>
       </div>
     </section>
@@ -1362,7 +1486,7 @@ function tabHasEntity(snapshot: WorkspaceUiSnapshot, entityId: string, tab: TabI
   const entity = snapshot.entities.find((candidate) => candidate.id === entityId);
   if (!entity) return false;
   if (tab === "dashboard") return true;
-  if (tab === "docs" || tab === "activity") return false;
+  if (tab === "docs" || tab === "activity" || tab === "graphics") return false;
   if (tab === "memory") {
     return Boolean(entity.addressRange)
       || snapshot.views.memoryMap.cells.some((cell) => cell.entityIds.includes(entityId) || cell.dominantEntityId === entityId)
@@ -2813,6 +2937,11 @@ function CartChunkInspector({
 export function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceUiSnapshot | null>(null);
   const [discoveredDocs, setDiscoveredDocs] = useState<DiscoveredMarkdownDoc[]>([]);
+  const [graphicsItems, setGraphicsItems] = useState<GraphicsItem[]>([]);
+  const [selectedGraphicsId, setSelectedGraphicsId] = useState<string | null>(null);
+  const [graphicsBytes, setGraphicsBytes] = useState<Uint8Array | null>(null);
+  const [graphicsLoading, setGraphicsLoading] = useState(false);
+  const [graphicsError, setGraphicsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -2867,12 +2996,15 @@ export function App() {
     setError(null);
     try {
       const encoded = encodeURIComponent(nextProjectDir);
-      const [nextSnapshot, docsResponse] = await Promise.all([
+      const [nextSnapshot, docsResponse, graphicsResponse] = await Promise.all([
         fetchJson<WorkspaceUiSnapshot>(`/api/workspace?projectDir=${encoded}`),
         fetchJson<DocsApiResponse>(`/api/docs?projectDir=${encoded}`).catch(() => ({ projectDir: nextProjectDir, docs: [] as DiscoveredMarkdownDoc[] })),
+        fetchJson<GraphicsApiResponse>(`/api/graphics?projectDir=${encoded}`).catch(() => ({ projectDir: nextProjectDir, items: [] as GraphicsItem[], warnings: [] as string[] })),
       ]);
       setSnapshot(nextSnapshot);
       setDiscoveredDocs(docsResponse.docs);
+      setGraphicsItems(graphicsResponse.items);
+      setSelectedGraphicsId(graphicsResponse.items[0]?.id ?? null);
       setSelectedEntityId(null);
       setTabSelections({});
       const nextDocs = buildDocs(nextSnapshot.artifacts, docsResponse.docs);
@@ -2942,6 +3074,44 @@ export function App() {
   }
 
   useEffect(() => {
+    if (!snapshot || !selectedGraphicsId) {
+      setGraphicsBytes(null);
+      setGraphicsError(null);
+      return;
+    }
+    const item = graphicsItems.find((entry) => entry.id === selectedGraphicsId);
+    if (!item) {
+      setGraphicsBytes(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setGraphicsLoading(true);
+      setGraphicsError(null);
+      try {
+        const params = new URLSearchParams({
+          projectDir: snapshot.project.rootPath,
+          path: item.prgRelativePath,
+          offset: String(item.fileOffset),
+          length: String(item.length),
+        });
+        const response = await fetch(`/api/artifact/raw?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        if (!cancelled) setGraphicsBytes(new Uint8Array(buffer));
+      } catch (loadError) {
+        if (!cancelled) {
+          setGraphicsError(loadError instanceof Error ? loadError.message : String(loadError));
+          setGraphicsBytes(null);
+        }
+      } finally {
+        if (!cancelled) setGraphicsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [snapshot, selectedGraphicsId, graphicsItems]);
+
+  useEffect(() => {
     if (!snapshot || !selectedDocPath) {
       setDocContent("");
       setDocError(null);
@@ -2981,6 +3151,7 @@ export function App() {
         if (tab.id === "dashboard") return true;
         if (tab.id === "docs") return docs.length > 0;
         if (tab.id === "memory") return snapshot.views.memoryMap.cells.length > 0;
+        if (tab.id === "graphics") return graphicsItems.length > 0;
         if (tab.id === "cartridge") return snapshot.views.cartridgeLayout.cartridges.length > 0;
         if (tab.id === "disk") return snapshot.views.diskLayout.disks.length > 0;
         if (tab.id === "load") return snapshot.views.loadSequence.items.length > 0;
@@ -3108,6 +3279,16 @@ export function App() {
               />
             ) : null}
             {activeTab === "memory" ? <MemoryMapPanel snapshot={snapshot} selectedEntityId={selectedEntityId} onSelectEntity={(entityId) => handleSelectEntity(entityId, "memory")} /> : null}
+            {activeTab === "graphics" ? (
+              <GraphicsPanel
+                items={graphicsItems}
+                selectedId={selectedGraphicsId}
+                onSelect={setSelectedGraphicsId}
+                bytes={graphicsBytes}
+                loading={graphicsLoading}
+                error={graphicsError}
+              />
+            ) : null}
             {activeTab === "cartridge" ? (
               <CartridgePanel
                 snapshot={snapshot}
