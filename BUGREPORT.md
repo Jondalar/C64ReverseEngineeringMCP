@@ -362,8 +362,98 @@ File `analysis/disk/15_love_disasm.asm`. Diff at body-offset 2126 ($a850 in the 
 
 ## Coverage summary (Murder project)
 
-Of 16 PRGs disasmed, 10 rebuild byte-perfectly first-try. Failures:
+### Pre-fix (initial run on 16 PRGs)
+- 10/16 byte-perfect
 - 4× Bug 5 (self-mod-into-mid-instruction): `02_ab`, `10_ingrid`, `11_riv1`, `12_riv2`
+- 1× Bug 6 (BVC-into-data): `14_riv4` (PRG header $B500)
+- 1× Bug 7 (silent diff): `15_love`
+
+### Post-fix (re-run after Bug 1/2/4/5/6/7 marked FIXED in c64re)
+- 12/16 byte-perfect (up from 10)
+- Bug 5 verified fixed: `02_ab` ✓, `10_ingrid` ✓
+- Bug 6 verified fixed: `14_riv4` ✓
+- Bug 7 (warning mechanism) verified working — but 3 PRGs still diverge:
+  - `11_riv1` diff at body-offset 11734 (was previously hidden by Bug 5 errors)
+  - `12_riv2` diff at body-offset 17369 (was previously hidden by Bug 5 errors)
+  - `15_love` diff at body-offset 2126 (unchanged)
+
+Failures (kept for historical reference):
+
+---
+
+## Bug 8 — Text-segment classifier emits wrong kind (`screen_code_text` instead of `petscii_text`), produces wrong bytes
+
+**Severity**: High — disassembly compiles cleanly and looks reasonable, but produces different bytes than the original. The Bug 7 auto-verify mechanism warns about it; this is the underlying root cause for the divergence in 3 of 16 Murder PRGs.
+
+(Note: my earlier session marked Bug 7 "FIXED" referring to the **warning mechanism** — auto-verify now reports the divergence. The actual lossy-disasm root cause is what this Bug 8 entry describes; it remains to be fixed.)
+
+### Summary
+TRXDis identifies certain in-PRG byte ranges as text. When the bytes are standard PETSCII (`$20`-`$7E` printable ASCII range), it sometimes emits the segment with `kind: "screen_code_text"` and renders it as `.text "..."`. KickAssembler assembles `.text` as screen-codes (PETSCII→screen-code translation: `'A'` ($41) → screen-code $01, `'P'` ($50) → $10, etc.). The result: bytes differ from original.
+
+The fix is to either:
+1. Detect the actual encoding (printable PETSCII range → emit as `petscii_text`, or use `.byte` raw values), or
+2. When uncertain, fall back to raw `.byte` lists which always rebuild byte-identically.
+
+### Examples from Murder
+
+Three concrete cases observed; all show the same screen-code-instead-of-petscii pattern.
+
+**11_riv1.prg** — diff at body-offset 11734 (= $34D6 absolute, load=$0700):
+```
+orig  : FC 50 72 65 76 69 6F 75 73 20 6D 65 6E 75 FF A2
+built : FC 50 12 05 16 09 0F 15 13 20 0D 05 0E 15 FF A2
+orig text:  '.Previous menu..'
+built text: '.P....... ......'   <- screen-codes
+```
+"Previous menu" — but `r e v i o u s` ($72,$65,$76,$69,$6F,$75,$73) became screen-codes ($12,$05,$16,$09,$0F,$15,$13). Note `P` ($50) survived because the renderer kept the FIRST character outside the `.text` directive somehow (likely a string-prefix length byte handled separately).
+
+**12_riv2.prg** — diff at body-offset 17369 (= $92D9 absolute, load=$4F00):
+```
+orig  : 65 FF 72 65 74 75 72 6E 65 64 20 63 6F 6C 6F 67
+built : 65 FF 12 05 14 15 12 0E 05 04 20 03 0F 0C 0F 07
+orig text:  'e.returned colog'   <- "...returned cologne..." in dialog
+built text: 'e......... .....'   <- screen-codes
+```
+
+**15_love.prg** — diff at body-offset 2126 (= $A84E absolute, load=$A000):
+```
+orig  : 60 54 68 65 72 65 20 69 73 20 6E 6F 20 67 61 6D
+built : 60 54 08 05 12 05 20 09 13 20 0E 0F 20 07 01 0D
+orig text:  '`There is no gam'   <- "There is no game/way/..." dialog
+built text: 'T...... ........'   <- screen-codes
+```
+
+In all three cases the pattern is identical: a $FF or `RTS` ($60) terminator precedes a long-ish printable-ASCII string, and the classifier chose `screen_code_text` even though the bytes are clearly PETSCII (the engine prints these via standard CHROUT-style routines, hence raw PETSCII).
+
+### Reproduction
+```
+analyze_prg(prg_path=…/11_riv1.prg)
+disasm_prg(...)
+# disasm header now (post Bug-7 fix) carries:
+//   WARNING: rebuild diverges from 11_riv1.prg at body offset 0x2DD6;
+#            disassembly is not byte-identical
+```
+
+Open `analysis/disk/11_riv1_disasm.asm` around line ~$34D6 and find the offending `.text "Previous menu"` (or `screen_code_text` segment) declaration.
+
+### Suggested fix
+1. **Detection**: in the segment classifier, when the candidate bytes match `[\x20-\x7E]+` plus terminator, do *both* of these and pick the one that round-trips:
+   - render as `petscii_text` → assemble → check bytes match
+   - render as `screen_code_text` → assemble → check bytes match
+   The renderer can be its own oracle.
+2. **Default-to-safe**: if uncertainty remains, emit the bytes as a `.byte` list with an inline `// "Previous menu"` comment for readability. Always byte-identical.
+3. **Annotation hint**: if the user provides an annotation `kind: "petscii_text"` for a span, the renderer must respect it and emit literal byte-preserving form, not its own guess.
+
+### Evidence
+- `analysis/disk/11_riv1_disasm.asm` — diff offset 11734
+- `analysis/disk/12_riv2_disasm.asm` — diff offset 17369
+- `analysis/disk/15_love_disasm.asm` — diff offset 2126
+
+All three rebuilds compile cleanly (Bug 5 / Bug 6 do not apply); the divergence is purely text-encoding.
+
+---
+
+## (legacy summary — pre-Bug-8 framing)
 - 1× Bug 6 (branch-into-data): `14_riv4` (PRG header $B500); same PRG with load=$F500 rebuilds OK
 - 1× Bug 7 (silent diff): `15_love`
 
