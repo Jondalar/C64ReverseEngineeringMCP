@@ -26,6 +26,23 @@ try {
     requireWritable: true,
   }), root);
 
+  const originalCwd = process.cwd();
+  process.chdir(nestedMediaDir);
+  try {
+    mkdirSync(join(root, "analysis", "disk"), { recursive: true });
+    const nestedCwdArtifact = service.saveArtifact({
+      kind: "other",
+      scope: "analysis",
+      title: "Nested CWD artifact",
+      path: "analysis/disk/nested-cwd.json",
+      role: "analysis-json",
+      format: "json",
+    });
+    assert.equal(nestedCwdArtifact.relativePath, "analysis/disk/nested-cwd.json");
+  } finally {
+    process.chdir(originalCwd);
+  }
+
   const analysisPath = join(root, "analysis", "smoke_analysis.json");
   writeFileSync(analysisPath, `${JSON.stringify({
     binaryName: "smoke.prg",
