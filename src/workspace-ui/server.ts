@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { buildGraphicsView } from "./graphics-view.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
 import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx } from "../compression-tools.js";
 import { lykiaDecompress } from "../byteboozer-lykia-decoder.js";
@@ -281,6 +282,27 @@ const server = createServer((req, res) => {
       const service = new ProjectKnowledgeService(projectDir);
       const snapshot = service.buildWorkspaceUiSnapshot();
       send(res, jsonResponse(200, snapshot));
+    } catch (error) {
+      send(res, jsonResponse(500, {
+        error: error instanceof Error ? error.message : String(error),
+        projectDir,
+      }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/graphics") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    if (!existsSync(projectDir) || !statSync(projectDir).isDirectory()) {
+      send(res, jsonResponse(404, { error: "Project directory not found.", projectDir }));
+      return;
+    }
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const view = buildGraphicsView(projectDir, service);
+      send(res, jsonResponse(200, { projectDir, ...view }));
     } catch (error) {
       send(res, jsonResponse(500, {
         error: error instanceof Error ? error.message : String(error),
