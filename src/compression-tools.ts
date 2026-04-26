@@ -602,6 +602,22 @@ export async function suggestDepackers(options: {
           : "If payload data is embedded later in the PRG, retry detection on a sliced offset instead of the whole file.",
       ],
     });
+  } else if (diskLoader) {
+    // No BASIC SYS preamble (typical when the file is JSR'd by an outer
+    // loader instead of being launched from BASIC), but we still see a
+    // KERNAL SETNAM + LOAD/OPEN sequence — definitely a disk loader
+    // stage, not packed data.
+    suggestions.push({
+      format: "disk_loader_wrapper",
+      confidence: 0.78,
+      reason: "PRG contains a KERNAL SETNAM + LOAD/OPEN sequence; this stage is a disk loader wrapper invoked by an outer loader, not a compressed stream.",
+      offset,
+      length: data.length,
+      notes: [
+        `KERNAL loader sequence at offsets ${diskLoader.setnamOffset.toString(16)}, ${diskLoader.setlfsOffset.toString(16)}, ${diskLoader.loadOffset.toString(16)}.`,
+        "Reverse-engineer the outer loader (or runtime-trace it) to discover the entry point and the file(s) this stage pulls in.",
+      ],
+    });
   }
 
   try {
@@ -609,6 +625,14 @@ export async function suggestDepackers(options: {
       const result = await depackExomizerSfx({
         inputPath: tempPath,
       });
+      // The structural-decrunch check passes even when the SFX emulator
+      // bails out with a tiny stray output (typical for non-BASIC SFX
+      // wrappers where the entry-point inference fails). Require a
+      // minimum unpacked-output size before claiming detection so we
+      // don't misclassify KERNAL loader stages as SFX wrappers.
+      if (result.byteCount < 64) {
+        return undefined;
+      }
       return {
         format: "exomizer_sfx" as const,
         confidence: basic ? 0.93 : 0.85,
@@ -773,21 +797,38 @@ function repoRoot(): string {
 }
 
 function detectKernalLoadWrapper(data: Uint8Array): { setnamOffset: number; setlfsOffset: number; loadOffset: number } | undefined {
+  // KERNAL JSR opcodes that all show up in a disk-loader stage:
+  //   $FFBA SETLFS, $FFBD SETNAM, $FFC0 OPEN, $FFD5 LOAD, $FFC9 CHKOUT,
+  //   $FFC6 CHKIN. Match any sequence that contains both a SETNAM call
+  //   and one of (LOAD, OPEN) within a small window — order-agnostic so
+  //   we catch both LOAD-style and OPEN-style loaders.
+  const SETNAM_LO = 0xbd;
+  const SETLFS_LO = 0xba;
+  const LOAD_LO = 0xd5;
+  const OPEN_LO = 0xc0;
+  const isJsrTo = (offset: number, lo: number): boolean =>
+    data[offset] === 0x20 && data[offset + 1] === lo && data[offset + 2] === 0xff;
+
   for (let i = 0; i <= data.length - 9; i++) {
-    if (data[i] !== 0x20 || data[i + 1] !== 0xbd || data[i + 2] !== 0xff) {
-      continue;
-    }
+    if (!isJsrTo(i, SETNAM_LO)) continue;
     let setlfsOffset = -1;
-    let loadOffset = -1;
-    for (let j = i + 3; j < Math.min(data.length - 2, i + 24); j++) {
-      if (setlfsOffset < 0 && data[j] === 0x20 && data[j + 1] === 0xba && data[j + 2] === 0xff) {
-        setlfsOffset = j;
-        continue;
+    let terminator = -1;
+    for (let j = Math.max(0, i - 24); j < Math.min(data.length - 2, i + 24); j++) {
+      if (j === i) continue;
+      if (setlfsOffset < 0 && isJsrTo(j, SETLFS_LO)) setlfsOffset = j;
+    }
+    for (let j = i + 3; j < Math.min(data.length - 2, i + 64); j++) {
+      if (isJsrTo(j, LOAD_LO) || isJsrTo(j, OPEN_LO)) {
+        terminator = j;
+        break;
       }
-      if (setlfsOffset >= 0 && data[j] === 0x20 && data[j + 1] === 0xd5 && data[j + 2] === 0xff) {
-        loadOffset = j;
-        return { setnamOffset: i, setlfsOffset, loadOffset };
-      }
+    }
+    if (terminator >= 0) {
+      return {
+        setnamOffset: i,
+        setlfsOffset: setlfsOffset >= 0 ? setlfsOffset : i,
+        loadOffset: terminator,
+      };
     }
   }
   return undefined;
