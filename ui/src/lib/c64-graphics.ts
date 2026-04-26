@@ -53,34 +53,94 @@ function setPixel(buffer: Uint8ClampedArray, offset: number, rgba: readonly [num
   buffer[offset + 3] = rgba[3];
 }
 
-// Decode a flat sprite block (24x21 monochrome). Each sprite is 64 bytes:
-// 21 rows of 3 bytes (one bit per pixel) plus one padding byte. The decoder
-// renders all sprite blocks contained in `bytes` into a horizontal strip.
-export function decodeSprites(bytes: Uint8Array, options: PaletteParam = {}): DecodedImage {
+// Decode sprite blocks (24x21 monochrome). Each sprite is 64 bytes:
+// 21 rows of 3 bytes (one bit per pixel) plus one padding byte. We
+// arrange the blocks in a grid (default 8 columns) so each sprite stays
+// in its native 24x21 frame instead of being smeared into a horizontal
+// strip.
+export function decodeSprites(
+  bytes: Uint8Array,
+  options: PaletteParam & { columns?: number; gap?: number } = {},
+): DecodedImage {
   const SPRITE_BYTES = 64;
   const SPRITE_WIDTH = 24;
   const SPRITE_HEIGHT = 21;
 
   const blockCount = Math.max(1, Math.floor(bytes.length / SPRITE_BYTES));
-  const width = SPRITE_WIDTH * blockCount;
-  const height = SPRITE_HEIGHT;
+  const columns = Math.max(1, options.columns ?? 8);
+  const gap = options.gap ?? 1;
+  const rows = Math.ceil(blockCount / columns);
+  const cellWidth = SPRITE_WIDTH + gap;
+  const cellHeight = SPRITE_HEIGHT + gap;
+  const width = columns * cellWidth - gap;
+  const height = rows * cellHeight - gap;
   const pixels = new Uint8ClampedArray(width * height * 4);
 
   const fg = paletteRgba(options.fg ?? DEFAULT_FG);
   const bg = paletteRgba(options.bg ?? DEFAULT_BG);
+  // Pre-fill with background so unused cells / gap rows aren't transparent.
+  for (let i = 0; i < pixels.length; i += 4) setPixel(pixels, i, bg);
 
   for (let block = 0; block < blockCount; block += 1) {
+    const gridRow = Math.floor(block / columns);
+    const gridCol = block % columns;
     const blockOffset = block * SPRITE_BYTES;
+    const cellX = gridCol * cellWidth;
+    const cellY = gridRow * cellHeight;
     for (let row = 0; row < SPRITE_HEIGHT; row += 1) {
       for (let columnByte = 0; columnByte < 3; columnByte += 1) {
         const byte = bytes[blockOffset + row * 3 + columnByte] ?? 0;
         for (let bit = 0; bit < 8; bit += 1) {
-          const x = block * SPRITE_WIDTH + columnByte * 8 + (7 - bit);
-          const y = row;
+          const x = cellX + columnByte * 8 + (7 - bit);
+          const y = cellY + row;
           const offset = (y * width + x) * 4;
           const rgba = (byte & (1 << bit)) !== 0 ? fg : bg;
           setPixel(pixels, offset, rgba);
         }
+      }
+    }
+  }
+
+  return { width, height, pixels };
+}
+
+// Decode a charmap: screen-RAM bytes (character codes) paired with a
+// charset (8 bytes per glyph). Renders an `cols x rows` grid where each
+// cell is the 8x8 glyph indexed by the screen byte. Default canvas
+// matches the C64 text screen geometry of 40 columns × 25 rows when
+// `bytes.length >= 1000`, otherwise it autosizes the grid so the entire
+// screen array fits.
+export function decodeCharmap(
+  bytes: Uint8Array,
+  charset: Uint8Array,
+  options: PaletteParam & { columns?: number } = {},
+): DecodedImage {
+  const GLYPH_W = 8;
+  const GLYPH_H = 8;
+  const cellCount = bytes.length;
+  const columns = Math.max(1, options.columns ?? 40);
+  const rows = Math.max(1, Math.ceil(cellCount / columns));
+  const width = columns * GLYPH_W;
+  const height = rows * GLYPH_H;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+
+  const fg = paletteRgba(options.fg ?? DEFAULT_FG);
+  const bg = paletteRgba(options.bg ?? DEFAULT_BG);
+  for (let i = 0; i < pixels.length; i += 4) setPixel(pixels, i, bg);
+
+  for (let cell = 0; cell < cellCount; cell += 1) {
+    const code = bytes[cell]! & 0xff;
+    const gridRow = Math.floor(cell / columns);
+    const gridCol = cell % columns;
+    const glyphBase = code * GLYPH_H;
+    for (let row = 0; row < GLYPH_H; row += 1) {
+      const byte = charset[glyphBase + row] ?? 0;
+      for (let bit = 0; bit < 8; bit += 1) {
+        const x = gridCol * GLYPH_W + (7 - bit);
+        const y = gridRow * GLYPH_H + row;
+        const offset = (y * width + x) * 4;
+        const rgba = (byte & (1 << bit)) !== 0 ? fg : bg;
+        setPixel(pixels, offset, rgba);
       }
     }
   }

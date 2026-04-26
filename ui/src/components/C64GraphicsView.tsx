@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   C64_PALETTE,
+  decodeCharmap,
   decodeCharset,
   decodeHiresBitmap,
   decodeMulticolorBitmap,
@@ -32,6 +33,7 @@ interface Props {
   c2?: number;
   screen?: Uint8Array;    // optional bitmap-companion data
   colorRam?: Uint8Array;
+  charsetBytes?: Uint8Array; // optional charset for screen_ram charmap render
   showColourPicker?: boolean;
   onColourChange?: (next: { fg: number; bg: number; c1: number; c2: number }) => void;
 }
@@ -49,7 +51,7 @@ function defaultZoom(kind: GraphicsRenderKind): number {
     case "screen_ram":
     case "screen_source":
     case "color_source":
-      return 6;
+      return 2;
     default:
       return 2;
   }
@@ -72,9 +74,14 @@ function decodeFor(kind: GraphicsRenderKind, bytes: Uint8Array, props: Props): D
     case "screen_ram":
     case "screen_source":
     case "color_source":
-      // Treat as charset preview using the bytes themselves; useful as a
-      // sanity-check of contiguous data but not strictly meaningful for
-      // screen-RAM. For the spike we just hexdump-render via charset path.
+      // When a charset is paired, render the screen as a charmap (each
+      // byte = char-code, looked up against the 8x8 glyphs). Falls back
+      // to the charset-grid view of the raw screen bytes when no
+      // charset is selected — useful as a sanity check but not the
+      // intended visualization.
+      if (props.charsetBytes && props.charsetBytes.length >= 8) {
+        return decodeCharmap(bytes, props.charsetBytes, palette);
+      }
       return decodeCharset(bytes, palette);
     default:
       return null;
@@ -111,7 +118,7 @@ export function C64GraphicsView(props: Props) {
     const imageData = ctx.createImageData(decoded.width, decoded.height);
     imageData.data.set(decoded.pixels);
     ctx.putImageData(imageData, 0, 0);
-  }, [bytes, kind, fg, bg, c1, c2, props.screen, props.colorRam]);
+  }, [bytes, kind, fg, bg, c1, c2, props.screen, props.colorRam, props.charsetBytes]);
 
   function emitColourChange(next: { fg?: number; bg?: number; c1?: number; c2?: number }) {
     const merged = {
