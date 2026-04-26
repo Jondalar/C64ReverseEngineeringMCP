@@ -410,6 +410,16 @@ export interface AnalysisStats {
   codeBytes: number;
 }
 
+export interface PackerHint {
+  format: string;
+  confidence: number;
+  offset: number;
+  length: number;
+  unpackedSize?: number;
+  reason: string;
+  notes?: string[];
+}
+
 export interface AnalysisReport {
   binaryName: string;
   mapping: MemoryMapping;
@@ -423,6 +433,7 @@ export interface AnalysisReport {
   codeAnalysis?: CodeAnalysis;
   probableCodeAnalysis?: ProbableCodeAnalysis;
   stats: AnalysisStats;
+  packerHints?: PackerHint[];
 }
 
 export interface AnalysisOptions {

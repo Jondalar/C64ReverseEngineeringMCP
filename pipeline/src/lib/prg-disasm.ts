@@ -2288,6 +2288,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     applyAnnotationImmediateOverrides(analysisContext);
   }
 
+  const packerHints = analysisReport?.packerHints ?? [];
   const lines: string[] = [
     "//****************************",
     "//  TRXDis ASM",
@@ -2295,14 +2296,22 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     "//  Source in KickAssembler format",
     analysisContext ? "//  Analysis-driven rendering enabled" : "//  Legacy linear rendering",
     annotationsFile ? "//  Semantic annotations applied" : "//  No semantic annotations found",
-    "//****************************",
-    "",
-    "      .cpu _6502",
-    "",
-    "",
-    `      .pc = $${formatHex16(prg.loadAddress)} "code"`,
-    "",
   ];
+  if (packerHints.length > 0) {
+    lines.push("//  ");
+    lines.push("//  WARNING: input looks compressed — disassembly is of the packed payload, not real code");
+    for (const hint of packerHints) {
+      lines.push(`//    PACKER: ${hint.format} (conf=${hint.confidence.toFixed(2)})${hint.unpackedSize !== undefined ? `, unpacked ≈ ${hint.unpackedSize} bytes` : ""}`);
+    }
+    lines.push("//  Run the matching depacker tool (e.g. depack_exomizer_sfx) and re-analyze the unpacked output.");
+  }
+  lines.push("//****************************");
+  lines.push("");
+  lines.push("      .cpu _6502");
+  lines.push("");
+  lines.push("");
+  lines.push(`      .pc = $${formatHex16(prg.loadAddress)} "code"`);
+  lines.push("");
 
   if (analysisContext) {
     lines.push(...renderAddressAliasLabels(analysisContext, prg));
