@@ -591,10 +591,17 @@ function buildAnalysisContext(report: AnalysisReport, prg: PrgImage): RenderAnal
     if (targetAddress < report.mapping.startAddress || targetAddress > report.mapping.endAddress) {
       continue;
     }
-    labelSet.add(targetAddress);
     const instructionOwner = instructionOwnerByAddress.get(targetAddress);
-    if (instructionOwner !== undefined) {
+    if (instructionOwner !== undefined && instructionOwner !== targetAddress) {
+      // Mid-instruction target — typical self-mod operand patch. Label only
+      // the owning instruction so the renderer emits `<owner>+<offset>`
+      // instead of an undeclared label that falls inside the operand bytes.
       labelSet.add(instructionOwner);
+    } else {
+      labelSet.add(targetAddress);
+      if (instructionOwner !== undefined) {
+        labelSet.add(instructionOwner);
+      }
     }
   }
 
@@ -611,11 +618,23 @@ function buildAnalysisContext(report: AnalysisReport, prg: PrgImage): RenderAnal
         continue;
       }
 
-      labelSet.add(xref.targetAddress);
       const instructionOwner = instructionOwnerByAddress.get(xref.targetAddress);
       if (instructionOwner !== undefined) {
-        labelSet.add(instructionOwner);
+        if (instructionOwner !== xref.targetAddress) {
+          // Mid-instruction xref target — label the owner only so we emit
+          // `<owner>+<offset>` for self-mod-style patches.
+          labelSet.add(instructionOwner);
+        } else {
+          labelSet.add(xref.targetAddress);
+        }
       }
+      // No `else`: when the xref points into a non-code region (no
+      // instruction owner) we deliberately do NOT mint a free-standing
+      // label at the target. The render path falls back to either
+      // `<segment-label>+<offset>` (when the target sits inside a
+      // labelled data segment) or a raw `$XXXX` operand. That avoids
+      // emitting a label reference that has no declaration, which is
+      // the false-positive code-island branch failure mode.
       const existing = xrefsByTarget.get(xref.targetAddress) ?? [];
       existing.push({ xref, provenance });
       xrefsByTarget.set(xref.targetAddress, existing);
