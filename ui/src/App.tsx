@@ -18,7 +18,7 @@ import type {
   WorkspaceUiSnapshot,
 } from "./types";
 
-type TabId = "dashboard" | "docs" | "memory" | "graphics" | "cartridge" | "disk" | "load" | "flow" | "listing" | "activity";
+type TabId = "dashboard" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "load" | "flow" | "listing" | "activity";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -88,6 +88,7 @@ const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "docs", label: "Docs" },
   { id: "memory", label: "Memory Map" },
   { id: "graphics", label: "Graphics" },
+  { id: "scrub", label: "Scrub" },
   { id: "cartridge", label: "Cartridge" },
   { id: "disk", label: "Disk" },
   { id: "load", label: "Load Sequence" },
@@ -678,6 +679,10 @@ function GraphicsPanel({
   charsetPairId,
   onSelectCharsetPair,
   charsetBytes,
+  marks,
+  onMark,
+  hideRejected,
+  onToggleHideRejected,
 }: {
   items: GraphicsItem[];
   selectedId: string | null;
@@ -688,19 +693,31 @@ function GraphicsPanel({
   charsetPairId: string | null;
   onSelectCharsetPair: (id: string | null) => void;
   charsetBytes: Uint8Array | null;
+  marks: Record<string, { status: "rejected" | "confirmed"; note?: string }>;
+  onMark: (itemId: string, status: "rejected" | "confirmed" | "clear") => void;
+  hideRejected: boolean;
+  onToggleHideRejected: (next: boolean) => void;
 }) {
-  const selected = items.find((item) => item.id === selectedId) ?? items[0];
-  const groups = groupGraphics(items);
+  const visibleItems = hideRejected ? items.filter((item) => marks[item.id]?.status !== "rejected") : items;
+  const selected = visibleItems.find((item) => item.id === selectedId) ?? visibleItems[0];
+  const groups = groupGraphics(visibleItems);
   const renderKind = (selected?.kind ?? "sprite") as GraphicsRenderKind;
   const showColours = !!selected;
   const charsetCandidates = items.filter((item) => item.kind === "charset" || item.kind === "charset_source");
   const screenLikeKind = selected && (selected.kind === "screen_ram" || selected.kind === "screen_source" || selected.kind === "color_source");
+  const rejectedCount = items.filter((item) => marks[item.id]?.status === "rejected").length;
+  const confirmedCount = items.filter((item) => marks[item.id]?.status === "confirmed").length;
+  const selectedMark = selected ? marks[selected.id] : undefined;
 
   return (
     <section className="panel-card">
       <div className="section-heading">
         <h3>Graphics</h3>
-        <span>{items.length} segments</span>
+        <span>{items.length} segments · {confirmedCount} confirmed · {rejectedCount} rejected</span>
+        <label style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
+          <input type="checkbox" checked={hideRejected} onChange={(e) => onToggleHideRejected(e.target.checked)} />
+          Hide rejected
+        </label>
       </div>
       <div className="docs-shell">
         <div className="docs-list">
@@ -712,23 +729,28 @@ function GraphicsPanel({
                   <span>{group.items.length}</span>
                 </div>
                 <div className="record-stack">
-                  {group.items.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={selected?.id === item.id ? "record-card active-record" : "record-card"}
-                      onClick={() => onSelect(item.id)}
-                    >
-                      <div className="record-topline">
-                        <span>{item.label}</span>
-                        <span className="record-status">{item.kind}</span>
-                      </div>
-                      <p>${formatHex16(item.start)}–${formatHex16(item.end)} · {formatBytes(item.length)}</p>
-                      <div className="record-meta">
-                        <span>{item.prgRelativePath}</span>
-                      </div>
-                    </button>
-                  ))}
+                  {group.items.map((item) => {
+                    const mark = marks[item.id];
+                    const markBadge = mark?.status === "rejected" ? "rejected" : mark?.status === "confirmed" ? "confirmed" : item.kind;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={selected?.id === item.id ? "record-card active-record" : "record-card"}
+                        onClick={() => onSelect(item.id)}
+                        style={mark?.status === "rejected" ? { opacity: 0.55 } : undefined}
+                      >
+                        <div className="record-topline">
+                          <span>{item.label}</span>
+                          <span className="record-status">{markBadge}</span>
+                        </div>
+                        <p>${formatHex16(item.start)}–${formatHex16(item.end)} · {formatBytes(item.length)}</p>
+                        <div className="record-meta">
+                          <span>{item.prgRelativePath}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </section>
             ))}
@@ -739,6 +761,14 @@ function GraphicsPanel({
             <h4>{selected?.label ?? "No graphics segment selected"}</h4>
             <span>{selected ? `${selected.kind} · $${formatHex16(selected.start)}–$${formatHex16(selected.end)} · ${formatBytes(selected.length)}` : ""}</span>
           </div>
+          {selected ? (
+            <div className="c64-mark-row" style={{ display: "flex", gap: "8px", padding: "4px 0", fontSize: "12px" }}>
+              <span style={{ color: "#9aa4b2" }}>Status: <strong>{selectedMark?.status ?? "unmarked"}</strong></span>
+              <button type="button" disabled={selectedMark?.status === "confirmed"} onClick={() => onMark(selected.id, "confirmed")}>Confirm graphics</button>
+              <button type="button" disabled={selectedMark?.status === "rejected"} onClick={() => onMark(selected.id, "rejected")}>Mark wrong</button>
+              {selectedMark ? <button type="button" onClick={() => onMark(selected.id, "clear")}>Clear mark</button> : null}
+            </div>
+          ) : null}
           {screenLikeKind && charsetCandidates.length > 0 ? (
             <div className="c64-charmap-pairing">
               <label>
@@ -768,6 +798,192 @@ function GraphicsPanel({
             />
           ) : (
             <div className="empty-state">Select a graphics segment to render it.</div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type ScrubKind = "sprite" | "charset" | "bitmap";
+
+const SCRUB_BLOCK_BYTES: Record<ScrubKind, number> = {
+  sprite: 64,
+  charset: 8,
+  bitmap: 320, // 8 bytes per cell × 40 cells = one row of an 8000-byte hires bitmap
+};
+
+function ScrubPanel({
+  artifacts,
+  projectRoot,
+}: {
+  artifacts: ArtifactRecord[];
+  projectRoot: string;
+}) {
+  const scrubArtifacts = artifacts.filter((artifact) =>
+    artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw"
+  );
+  const [selectedPath, setSelectedPath] = useState<string>(scrubArtifacts[0]?.relativePath ?? "");
+  const [offsetText, setOffsetText] = useState<string>("0000");
+  const [windowText, setWindowText] = useState<string>("0200");
+  const [kind, setKind] = useState<ScrubKind>("charset");
+  const [multicolor, setMulticolor] = useState<boolean>(false);
+  const [columns, setColumns] = useState<number>(8);
+  const [bytes, setBytes] = useState<Uint8Array | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fileSize, setFileSize] = useState<number | null>(null);
+
+  function parseHex(value: string): number {
+    const clean = value.trim().replace(/^\$/, "").replace(/^0x/i, "");
+    if (!/^[0-9a-fA-F]+$/.test(clean)) return 0;
+    return Number.parseInt(clean, 16);
+  }
+
+  function formatHex(value: number): string {
+    return value.toString(16).toUpperCase().padStart(4, "0");
+  }
+
+  useEffect(() => {
+    if (!selectedPath) {
+      setBytes(null);
+      setFileSize(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const offset = parseHex(offsetText);
+        const length = Math.max(1, parseHex(windowText));
+        const params = new URLSearchParams({
+          projectDir: projectRoot,
+          path: selectedPath,
+          offset: String(offset),
+          length: String(length),
+        });
+        const response = await fetch(`/api/artifact/raw?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        if (cancelled) return;
+        setBytes(new Uint8Array(buffer));
+        const total = response.headers.get("Content-Range");
+        // Best-effort size via separate HEAD-style probe: /api/artifact/raw returns the
+        // requested slice, so just fall back to size inference by re-querying length=1
+        // at a far offset. For the spike we leave fileSize null when unknown.
+        setFileSize(total ? Number.parseInt(total.split("/")[1] ?? "", 10) || null : null);
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : String(loadError));
+          setBytes(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedPath, offsetText, windowText, projectRoot]);
+
+  function step(deltaBytes: number) {
+    const current = parseHex(offsetText);
+    const next = Math.max(0, current + deltaBytes);
+    setOffsetText(formatHex(next));
+  }
+
+  const blockBytes = SCRUB_BLOCK_BYTES[kind];
+
+  return (
+    <section className="panel-card">
+      <div className="section-heading">
+        <h3>Scrub</h3>
+        <span>Free-form memory browser — pick a file, scroll the address, render any slice</span>
+      </div>
+      <div className="docs-shell">
+        <div className="docs-list" style={{ minWidth: "280px" }}>
+          <div className="docs-list-stack" style={{ gap: "12px" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px" }}>
+              File:
+              <select value={selectedPath} onChange={(e) => setSelectedPath(e.target.value)}>
+                {scrubArtifacts.map((artifact) => (
+                  <option key={artifact.id} value={artifact.relativePath}>
+                    {artifact.title} ({artifact.kind})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px" }}>
+              Offset (hex):
+              <input
+                type="text"
+                value={offsetText}
+                onChange={(e) => setOffsetText(e.target.value)}
+                style={{ fontFamily: "ui-monospace, monospace" }}
+              />
+            </label>
+            <div style={{ display: "flex", gap: "4px", fontSize: "11px" }}>
+              <button type="button" onClick={() => step(-blockBytes * 4)}>--row</button>
+              <button type="button" onClick={() => step(-blockBytes)}>-blk</button>
+              <button type="button" onClick={() => step(-1)}>-1</button>
+              <button type="button" onClick={() => step(1)}>+1</button>
+              <button type="button" onClick={() => step(blockBytes)}>+blk</button>
+              <button type="button" onClick={() => step(blockBytes * 4)}>+row</button>
+            </div>
+            <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px" }}>
+              Window (hex bytes):
+              <input
+                type="text"
+                value={windowText}
+                onChange={(e) => setWindowText(e.target.value)}
+                style={{ fontFamily: "ui-monospace, monospace" }}
+              />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px" }}>
+              Kind:
+              <select value={kind} onChange={(e) => setKind(e.target.value as ScrubKind)}>
+                <option value="charset">charset (8x8)</option>
+                <option value="sprite">sprite (24x21)</option>
+                <option value="bitmap">bitmap (320x200)</option>
+              </select>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
+              <input type="checkbox" checked={multicolor} onChange={(e) => setMulticolor(e.target.checked)} />
+              Multicolor
+            </label>
+            {kind !== "bitmap" ? (
+              <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px" }}>
+                Columns:
+                <input
+                  type="number"
+                  min={1}
+                  max={64}
+                  value={columns}
+                  onChange={(e) => setColumns(Math.max(1, Math.min(64, Number.parseInt(e.target.value, 10) || 1)))}
+                />
+              </label>
+            ) : null}
+            <p style={{ fontSize: "11px", color: "#9aa4b2", margin: 0 }}>
+              Block size: {blockBytes} bytes. Use <strong>+blk / -blk</strong> to jump exactly one block at a time.
+            </p>
+            {fileSize ? <p style={{ fontSize: "11px", color: "#9aa4b2", margin: 0 }}>File size: {fileSize} B</p> : null}
+          </div>
+        </div>
+        <div className="docs-viewer">
+          <div className="detail-title-row">
+            <h4>{selectedPath || "No file"}</h4>
+            <span>offset=${offsetText.toUpperCase()} window=${windowText.toUpperCase()} {kind}{multicolor ? "·mc" : ""}</span>
+          </div>
+          {selectedPath ? (
+            <C64GraphicsView
+              bytes={bytes}
+              loading={loading}
+              error={error}
+              kind={(kind === "bitmap" ? (multicolor ? "multicolor_bitmap" : "hires_bitmap") : kind) as GraphicsRenderKind}
+              multicolor={kind !== "bitmap" ? multicolor : undefined}
+              showColourPicker={true}
+            />
+          ) : (
+            <div className="empty-state">No artifact available to scrub.</div>
           )}
         </div>
       </div>
@@ -1513,7 +1729,7 @@ function tabHasEntity(snapshot: WorkspaceUiSnapshot, entityId: string, tab: TabI
   const entity = snapshot.entities.find((candidate) => candidate.id === entityId);
   if (!entity) return false;
   if (tab === "dashboard") return true;
-  if (tab === "docs" || tab === "activity" || tab === "graphics") return false;
+  if (tab === "docs" || tab === "activity" || tab === "graphics" || tab === "scrub") return false;
   if (tab === "memory") {
     return Boolean(entity.addressRange)
       || snapshot.views.memoryMap.cells.some((cell) => cell.entityIds.includes(entityId) || cell.dominantEntityId === entityId)
@@ -2971,6 +3187,8 @@ export function App() {
   const [graphicsError, setGraphicsError] = useState<string | null>(null);
   const [charsetPairId, setCharsetPairId] = useState<string | null>(null);
   const [charsetPairBytes, setCharsetPairBytes] = useState<Uint8Array | null>(null);
+  const [graphicsMarks, setGraphicsMarks] = useState<Record<string, { status: "rejected" | "confirmed"; note?: string }>>({});
+  const [hideRejectedGraphics, setHideRejectedGraphics] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -3025,14 +3243,16 @@ export function App() {
     setError(null);
     try {
       const encoded = encodeURIComponent(nextProjectDir);
-      const [nextSnapshot, docsResponse, graphicsResponse] = await Promise.all([
+      const [nextSnapshot, docsResponse, graphicsResponse, marksResponse] = await Promise.all([
         fetchJson<WorkspaceUiSnapshot>(`/api/workspace?projectDir=${encoded}`),
         fetchJson<DocsApiResponse>(`/api/docs?projectDir=${encoded}`).catch(() => ({ projectDir: nextProjectDir, docs: [] as DiscoveredMarkdownDoc[] })),
         fetchJson<GraphicsApiResponse>(`/api/graphics?projectDir=${encoded}`).catch(() => ({ projectDir: nextProjectDir, items: [] as GraphicsItem[], warnings: [] as string[] })),
+        fetchJson<{ marks: Record<string, { status: "rejected" | "confirmed"; note?: string }> }>(`/api/graphics-marks?projectDir=${encoded}`).catch(() => ({ marks: {} })),
       ]);
       setSnapshot(nextSnapshot);
       setDiscoveredDocs(docsResponse.docs);
       setGraphicsItems(graphicsResponse.items);
+      setGraphicsMarks(marksResponse.marks ?? {});
       setSelectedGraphicsId(graphicsResponse.items[0]?.id ?? null);
       setSelectedEntityId(null);
       setTabSelections({});
@@ -3042,6 +3262,22 @@ export function App() {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function setGraphicsMark(itemId: string, status: "rejected" | "confirmed" | "clear") {
+    if (!snapshot) return;
+    try {
+      const response = await fetch("/api/graphics-marks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectDir: snapshot.project.rootPath, itemId, status }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json() as { marks: Record<string, { status: "rejected" | "confirmed"; note?: string }> };
+      setGraphicsMarks(payload.marks ?? {});
+    } catch (markError) {
+      console.error("graphics mark failed", markError);
     }
   }
 
@@ -3211,6 +3447,7 @@ export function App() {
         if (tab.id === "docs") return docs.length > 0;
         if (tab.id === "memory") return snapshot.views.memoryMap.cells.length > 0;
         if (tab.id === "graphics") return graphicsItems.length > 0;
+        if (tab.id === "scrub") return snapshot.artifacts.some((artifact) => artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw");
         if (tab.id === "cartridge") return snapshot.views.cartridgeLayout.cartridges.length > 0;
         if (tab.id === "disk") return snapshot.views.diskLayout.disks.length > 0;
         if (tab.id === "load") return snapshot.views.loadSequence.items.length > 0;
@@ -3338,6 +3575,7 @@ export function App() {
               />
             ) : null}
             {activeTab === "memory" ? <MemoryMapPanel snapshot={snapshot} selectedEntityId={selectedEntityId} onSelectEntity={(entityId) => handleSelectEntity(entityId, "memory")} /> : null}
+            {activeTab === "scrub" ? <ScrubPanel artifacts={snapshot.artifacts} projectRoot={snapshot.project.rootPath} /> : null}
             {activeTab === "graphics" ? (
               <GraphicsPanel
                 items={graphicsItems}
@@ -3349,6 +3587,10 @@ export function App() {
                 charsetPairId={charsetPairId}
                 onSelectCharsetPair={setCharsetPairId}
                 charsetBytes={charsetPairBytes}
+                marks={graphicsMarks}
+                onMark={setGraphicsMark}
+                hideRejected={hideRejectedGraphics}
+                onToggleHideRejected={setHideRejectedGraphics}
               />
             ) : null}
             {activeTab === "cartridge" ? (

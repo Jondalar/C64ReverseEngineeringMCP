@@ -33,6 +33,7 @@ interface PaletteParam {
   bg?: number; // background colour index (0..15)
   c1?: number; // multicolour pair colour 1
   c2?: number; // multicolour pair colour 2
+  multicolor?: boolean; // enable C64 multicolor (2-bit pair) decode for sprite/charset
 }
 
 const DEFAULT_FG = 1;  // white
@@ -78,6 +79,9 @@ export function decodeSprites(
 
   const fg = paletteRgba(options.fg ?? DEFAULT_FG);
   const bg = paletteRgba(options.bg ?? DEFAULT_BG);
+  const c1 = paletteRgba(options.c1 ?? DEFAULT_C1);
+  const c2 = paletteRgba(options.c2 ?? DEFAULT_C2);
+  const multicolor = options.multicolor ?? false;
   // Pre-fill with background so unused cells / gap rows aren't transparent.
   for (let i = 0; i < pixels.length; i += 4) setPixel(pixels, i, bg);
 
@@ -88,14 +92,30 @@ export function decodeSprites(
     const cellX = gridCol * cellWidth;
     const cellY = gridRow * cellHeight;
     for (let row = 0; row < SPRITE_HEIGHT; row += 1) {
-      for (let columnByte = 0; columnByte < 3; columnByte += 1) {
-        const byte = bytes[blockOffset + row * 3 + columnByte] ?? 0;
-        for (let bit = 0; bit < 8; bit += 1) {
-          const x = cellX + columnByte * 8 + (7 - bit);
-          const y = cellY + row;
-          const offset = (y * width + x) * 4;
-          const rgba = (byte & (1 << bit)) !== 0 ? fg : bg;
-          setPixel(pixels, offset, rgba);
+      if (multicolor) {
+        for (let columnByte = 0; columnByte < 3; columnByte += 1) {
+          const byte = bytes[blockOffset + row * 3 + columnByte] ?? 0;
+          for (let pair = 0; pair < 4; pair += 1) {
+            const shift = (3 - pair) * 2;
+            const code = (byte >> shift) & 0x03;
+            const colour = code === 0 ? bg : code === 1 ? c1 : code === 2 ? fg : c2;
+            const xLeft = cellX + columnByte * 8 + pair * 2;
+            const y = cellY + row;
+            const offsetLeft = (y * width + xLeft) * 4;
+            setPixel(pixels, offsetLeft, colour);
+            setPixel(pixels, offsetLeft + 4, colour);
+          }
+        }
+      } else {
+        for (let columnByte = 0; columnByte < 3; columnByte += 1) {
+          const byte = bytes[blockOffset + row * 3 + columnByte] ?? 0;
+          for (let bit = 0; bit < 8; bit += 1) {
+            const x = cellX + columnByte * 8 + (7 - bit);
+            const y = cellY + row;
+            const offset = (y * width + x) * 4;
+            const rgba = (byte & (1 << bit)) !== 0 ? fg : bg;
+            setPixel(pixels, offset, rgba);
+          }
         }
       }
     }
@@ -167,17 +187,34 @@ export function decodeCharset(bytes: Uint8Array, options: PaletteParam = {}): De
   // Pre-fill background so partial last row is not transparent.
   for (let i = 0; i < pixels.length; i += 4) setPixel(pixels, i, bg);
 
+  const c1 = paletteRgba(options.c1 ?? DEFAULT_C1);
+  const c2 = paletteRgba(options.c2 ?? DEFAULT_C2);
+  const multicolor = options.multicolor ?? false;
+
   for (let glyph = 0; glyph < glyphCount; glyph += 1) {
     const gridRow = Math.floor(glyph / COLUMNS);
     const gridCol = glyph % COLUMNS;
     for (let row = 0; row < GLYPH_HEIGHT; row += 1) {
       const byte = bytes[glyph * GLYPH_HEIGHT + row] ?? 0;
-      for (let bit = 0; bit < 8; bit += 1) {
-        const x = gridCol * GLYPH_WIDTH + (7 - bit);
-        const y = gridRow * GLYPH_HEIGHT + row;
-        const offset = (y * width + x) * 4;
-        const rgba = (byte & (1 << bit)) !== 0 ? fg : bg;
-        setPixel(pixels, offset, rgba);
+      if (multicolor) {
+        for (let pair = 0; pair < 4; pair += 1) {
+          const shift = (3 - pair) * 2;
+          const code = (byte >> shift) & 0x03;
+          const colour = code === 0 ? bg : code === 1 ? c1 : code === 2 ? fg : c2;
+          const xLeft = gridCol * GLYPH_WIDTH + pair * 2;
+          const y = gridRow * GLYPH_HEIGHT + row;
+          const offsetLeft = (y * width + xLeft) * 4;
+          setPixel(pixels, offsetLeft, colour);
+          setPixel(pixels, offsetLeft + 4, colour);
+        }
+      } else {
+        for (let bit = 0; bit < 8; bit += 1) {
+          const x = gridCol * GLYPH_WIDTH + (7 - bit);
+          const y = gridRow * GLYPH_HEIGHT + row;
+          const offset = (y * width + x) * 4;
+          const rgba = (byte & (1 << bit)) !== 0 ? fg : bg;
+          setPixel(pixels, offset, rgba);
+        }
       }
     }
   }

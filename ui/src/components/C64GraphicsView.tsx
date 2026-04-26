@@ -31,6 +31,7 @@ interface Props {
   bg?: number;            // palette index
   c1?: number;
   c2?: number;
+  multicolor?: boolean;   // toggle multicolor decode for sprite/charset
   screen?: Uint8Array;    // optional bitmap-companion data
   colorRam?: Uint8Array;
   charsetBytes?: Uint8Array; // optional charset for screen_ram charmap render
@@ -58,7 +59,7 @@ function defaultZoom(kind: GraphicsRenderKind): number {
 }
 
 function decodeFor(kind: GraphicsRenderKind, bytes: Uint8Array, props: Props): DecodedImage | null {
-  const palette = { fg: props.fg, bg: props.bg, c1: props.c1, c2: props.c2 };
+  const palette = { fg: props.fg, bg: props.bg, c1: props.c1, c2: props.c2, multicolor: props.multicolor ?? false };
   switch (kind) {
     case "sprite":
       return decodeSprites(bytes, palette);
@@ -118,7 +119,7 @@ export function C64GraphicsView(props: Props) {
     const imageData = ctx.createImageData(decoded.width, decoded.height);
     imageData.data.set(decoded.pixels);
     ctx.putImageData(imageData, 0, 0);
-  }, [bytes, kind, fg, bg, c1, c2, props.screen, props.colorRam, props.charsetBytes]);
+  }, [bytes, kind, fg, bg, c1, c2, props.multicolor, props.screen, props.colorRam, props.charsetBytes]);
 
   function emitColourChange(next: { fg?: number; bg?: number; c1?: number; c2?: number }) {
     const merged = {
