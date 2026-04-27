@@ -829,10 +829,10 @@ function ScrubPanel({
   );
   const [selectedPath, setSelectedPath] = useState<string>(scrubArtifacts[0]?.relativePath ?? "");
   const [offsetText, setOffsetText] = useState<string>("0000");
-  const [windowText, setWindowText] = useState<string>("0200");
+  const [windowText, setWindowText] = useState<string>("1000");
   const [kind, setKind] = useState<ScrubKind>("charset");
   const [multicolor, setMulticolor] = useState<boolean>(false);
-  const [columns, setColumns] = useState<number>(8);
+  const [columns, setColumns] = useState<number>(32);
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -1069,13 +1069,13 @@ function ScrubPanel({
             </label>
             {kind !== "bitmap" ? (
               <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px" }}>
-                Columns:
+                Columns per row ({kind === "sprite" ? `${columns}×24 = ${columns * 24}px wide` : `${columns}×8 = ${columns * 8}px wide`}):
                 <input
                   type="number"
                   min={1}
-                  max={64}
+                  max={128}
                   value={columns}
-                  onChange={(e) => setColumns(Math.max(1, Math.min(64, Number.parseInt(e.target.value, 10) || 1)))}
+                  onChange={(e) => setColumns(Math.max(1, Math.min(128, Number.parseInt(e.target.value, 10) || 1)))}
                 />
               </label>
             ) : null}
@@ -1131,6 +1131,7 @@ function ScrubPanel({
               error={error}
               kind={(kind === "bitmap" ? (multicolor ? "multicolor_bitmap" : "hires_bitmap") : kind) as GraphicsRenderKind}
               multicolor={kind !== "bitmap" ? multicolor : undefined}
+              columns={kind !== "bitmap" ? columns : undefined}
               showColourPicker={true}
             />
           ) : (
