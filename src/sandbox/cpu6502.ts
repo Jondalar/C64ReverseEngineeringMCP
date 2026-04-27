@@ -282,6 +282,7 @@ export class Cpu6502 {
       case 0xc9: { const v = imm(); this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
       case 0xca: this.x = (this.x - 1) & 0xff; this.setNZ(this.x); return "continue";
       case 0xcb: { const v = imm(); const r = (this.a & this.x) - v; this.c = r >= 0; this.x = r & 0xff; this.setNZ(this.x); return "continue"; }
+      case 0xcc: { const v = this.read(absAddr()); this.c = this.y >= v; this.setNZ((this.y - v) & 0xff); return "continue"; }
       case 0xcd: { const v = this.read(absAddr()); this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
       case 0xce: { const a = absAddr(); const v = (this.read(a) - 1) & 0xff; this.write(a, v); this.setNZ(v); return "continue"; }
       case 0xd0: { const t = rel(); if (!this.z) this.pc = t; return "continue"; }
@@ -315,6 +316,133 @@ export class Cpu6502 {
       case 0xfb: { const a = (absAddr() + this.y) & 0xffff; const v = (this.read(a) + 1) & 0xff; this.write(a, v); this.sbc(v); return "continue"; }
       case 0xfd: this.sbc(this.read((absAddr() + this.x) & 0xffff)); return "continue";
       case 0xff: { const a = (absAddr() + this.x) & 0xffff; const v = (this.read(a) + 1) & 0xff; this.write(a, v); this.sbc(v); return "continue"; }
+
+      // --- Missing documented NMOS opcodes (filled in to complete the 151-op set). ---
+      case 0x0e: { const a = absAddr(); let v = this.read(a); this.c = (v & 0x80) !== 0; v = (v << 1) & 0xff; this.write(a, v); this.setNZ(v); return "continue"; }
+      case 0x16: { const a = (zpAddr() + this.x) & 0xff; let v = this.mem[a]!; this.c = (v & 0x80) !== 0; v = (v << 1) & 0xff; this.mem[a] = v; this.setNZ(v); return "continue"; }
+      case 0x1e: { const a = (absAddr() + this.x) & 0xffff; let v = this.read(a); this.c = (v & 0x80) !== 0; v = (v << 1) & 0xff; this.write(a, v); this.setNZ(v); return "continue"; }
+      case 0x21: { const z = zpAddr(); const addr = this.readWord((z + this.x) & 0xff); this.a &= this.read(addr); this.setNZ(this.a); return "continue"; }
+      case 0x24: { const v = this.read(zpAddr()); this.z = (this.a & v) === 0; this.n = (v & 0x80) !== 0; this.v = (v & 0x40) !== 0; return "continue"; }
+      case 0x2d: this.a &= this.read(absAddr()); this.setNZ(this.a); return "continue";
+      case 0x2e: { const a = absAddr(); const old = this.read(a); const newc = (old & 0x80) !== 0; const v = ((old << 1) | (this.c ? 1 : 0)) & 0xff; this.c = newc; this.write(a, v); this.setNZ(v); return "continue"; }
+      case 0x31: { const z = zpAddr(); const addr = (this.readWord(z) + this.y) & 0xffff; this.a &= this.read(addr); this.setNZ(this.a); return "continue"; }
+      case 0x36: { const a = (zpAddr() + this.x) & 0xff; const old = this.mem[a]!; const newc = (old & 0x80) !== 0; const v = ((old << 1) | (this.c ? 1 : 0)) & 0xff; this.c = newc; this.mem[a] = v; this.setNZ(v); return "continue"; }
+      case 0x3e: { const a = (absAddr() + this.x) & 0xffff; const old = this.read(a); const newc = (old & 0x80) !== 0; const v = ((old << 1) | (this.c ? 1 : 0)) & 0xff; this.c = newc; this.write(a, v); this.setNZ(v); return "continue"; }
+      case 0x41: { const z = zpAddr(); const addr = this.readWord((z + this.x) & 0xff); this.a ^= this.read(addr); this.setNZ(this.a); return "continue"; }
+      case 0x4d: this.a ^= this.read(absAddr()); this.setNZ(this.a); return "continue";
+      case 0x4e: { const a = absAddr(); let v = this.read(a); this.c = (v & 1) !== 0; v >>= 1; this.write(a, v); this.setNZ(v); return "continue"; }
+      case 0x56: { const a = (zpAddr() + this.x) & 0xff; let v = this.mem[a]!; this.c = (v & 1) !== 0; v >>= 1; this.mem[a] = v; this.setNZ(v); return "continue"; }
+      case 0x6c: {
+        // JMP (indirect). NMOS page-wrap quirk: when the indirect pointer
+        // straddles a page boundary ($XXFF), the high byte is fetched from
+        // $XX00 of the same page, NOT $XY00 of the next page.
+        const ind = absAddr();
+        const lo = this.read(ind);
+        const hiAddr = (ind & 0xff) === 0xff ? (ind & 0xff00) : (ind + 1) & 0xffff;
+        const hi = this.read(hiAddr);
+        this.pc = lo | (hi << 8);
+        return "continue";
+      }
+      case 0x6d: this.adc(this.read(absAddr())); return "continue";
+      case 0x6e: { const a = absAddr(); const old = this.read(a); const newc = (old & 1) !== 0; const v = (old >> 1) | (this.c ? 0x80 : 0); this.c = newc; this.write(a, v); this.setNZ(v); return "continue"; }
+      case 0x81: { const z = zpAddr(); const addr = this.readWord((z + this.x) & 0xff); this.write(addr, this.a); return "continue"; }
+      case 0x96: this.write((zpAddr() + this.y) & 0xff, this.x); return "continue";
+      case 0xa1: { const z = zpAddr(); const addr = this.readWord((z + this.x) & 0xff); this.a = this.read(addr); this.setNZ(this.a); return "continue"; }
+      case 0xb4: this.y = this.read((zpAddr() + this.x) & 0xff); this.setNZ(this.y); return "continue";
+      case 0xc1: { const z = zpAddr(); const addr = this.readWord((z + this.x) & 0xff); const v = this.read(addr); this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
+      case 0xc4: { const v = this.read(zpAddr()); this.c = this.y >= v; this.setNZ((this.y - v) & 0xff); return "continue"; }
+      case 0xd1: { const z = zpAddr(); const addr = (this.readWord(z) + this.y) & 0xffff; const v = this.read(addr); this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
+      case 0xd5: { const v = this.read((zpAddr() + this.x) & 0xff); this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
+      case 0xd6: { const a = (zpAddr() + this.x) & 0xff; const v = (this.mem[a]! - 1) & 0xff; this.mem[a] = v; this.setNZ(v); return "continue"; }
+      case 0xde: { const a = (absAddr() + this.x) & 0xffff; const v = (this.read(a) - 1) & 0xff; this.write(a, v); this.setNZ(v); return "continue"; }
+      case 0xe1: { const z = zpAddr(); const addr = this.readWord((z + this.x) & 0xff); this.sbc(this.read(addr)); return "continue"; }
+      case 0xf5: this.sbc(this.read((zpAddr() + this.x) & 0xff)); return "continue";
+      case 0xfe: { const a = (absAddr() + this.x) & 0xffff; const v = (this.read(a) + 1) & 0xff; this.write(a, v); this.setNZ(v); return "continue"; }
+
+      // --- Remaining NMOS JAM opcodes (illegal halts). Returning "jam" lets
+      // callers see the halt instead of an unimplemented_opcode error.
+      case 0x02: case 0x12: case 0x22: case 0x32: case 0x42: case 0x52:
+      case 0x62: case 0x72: case 0x92: case 0xb2:
+        return "jam";
+
+      // --- Additional undocumented NOPs (per riff.2ix.at illops table). ---
+      case 0x3a: case 0x5a: case 0x7a: case 0xda: return "continue";
+      case 0x82: case 0xc2: case 0xe2: imm(); return "continue";
+      case 0x04: case 0x44: case 0x64: zpAddr(); return "continue";
+      case 0x14: case 0x34: case 0x54: case 0x74: case 0xd4: zpAddr(); return "continue";
+      case 0x1c: case 0x3c: case 0x5c: case 0x7c: case 0xfc: this.read((absAddr() + this.x) & 0xffff); return "continue";
+
+      // --- USBC ($EB) — undocumented duplicate of SBC #imm ($E9). ---
+      case 0xeb: this.sbc(imm()); return "continue";
+
+      // --- SLO (ASL + ORA): $03, $07, $0F, $13, $17, $1B ($1F handled above). ---
+      case 0x03: { const z = zpAddr(); const a = this.readWord((z + this.x) & 0xff); let v = this.read(a); this.c = (v & 0x80) !== 0; v = (v << 1) & 0xff; this.write(a, v); this.a = (this.a | v) & 0xff; this.setNZ(this.a); return "continue"; }
+      case 0x07: { const a = zpAddr(); let v = this.mem[a]!; this.c = (v & 0x80) !== 0; v = (v << 1) & 0xff; this.mem[a] = v; this.a = (this.a | v) & 0xff; this.setNZ(this.a); return "continue"; }
+      case 0x0f: { const a = absAddr(); let v = this.read(a); this.c = (v & 0x80) !== 0; v = (v << 1) & 0xff; this.write(a, v); this.a = (this.a | v) & 0xff; this.setNZ(this.a); return "continue"; }
+      case 0x13: { const z = zpAddr(); const a = (this.readWord(z) + this.y) & 0xffff; let v = this.read(a); this.c = (v & 0x80) !== 0; v = (v << 1) & 0xff; this.write(a, v); this.a = (this.a | v) & 0xff; this.setNZ(this.a); return "continue"; }
+      case 0x17: { const a = (zpAddr() + this.x) & 0xff; let v = this.mem[a]!; this.c = (v & 0x80) !== 0; v = (v << 1) & 0xff; this.mem[a] = v; this.a = (this.a | v) & 0xff; this.setNZ(this.a); return "continue"; }
+      case 0x1b: { const a = (absAddr() + this.y) & 0xffff; let v = this.read(a); this.c = (v & 0x80) !== 0; v = (v << 1) & 0xff; this.write(a, v); this.a = (this.a | v) & 0xff; this.setNZ(this.a); return "continue"; }
+
+      // --- RLA (ROL + AND): $23, $27, $33 ($2F, $37, $3B, $3F handled above). ---
+      case 0x23: { const z = zpAddr(); const a = this.readWord((z + this.x) & 0xff); const old = this.read(a); const newc = (old & 0x80) !== 0; const v = ((old << 1) | (this.c ? 1 : 0)) & 0xff; this.c = newc; this.write(a, v); this.a &= v; this.setNZ(this.a); return "continue"; }
+      case 0x27: { const a = zpAddr(); const old = this.mem[a]!; const newc = (old & 0x80) !== 0; const v = ((old << 1) | (this.c ? 1 : 0)) & 0xff; this.c = newc; this.mem[a] = v; this.a &= v; this.setNZ(this.a); return "continue"; }
+      case 0x33: { const z = zpAddr(); const a = (this.readWord(z) + this.y) & 0xffff; const old = this.read(a); const newc = (old & 0x80) !== 0; const v = ((old << 1) | (this.c ? 1 : 0)) & 0xff; this.c = newc; this.write(a, v); this.a &= v; this.setNZ(this.a); return "continue"; }
+
+      // --- SRE (LSR + EOR): $43, $4F, $53, $5B, $5F ($47, $57 handled above). ---
+      case 0x43: { const z = zpAddr(); const a = this.readWord((z + this.x) & 0xff); let v = this.read(a); this.c = (v & 1) !== 0; v >>= 1; this.write(a, v); this.a ^= v; this.setNZ(this.a); return "continue"; }
+      case 0x4f: { const a = absAddr(); let v = this.read(a); this.c = (v & 1) !== 0; v >>= 1; this.write(a, v); this.a ^= v; this.setNZ(this.a); return "continue"; }
+      case 0x53: { const z = zpAddr(); const a = (this.readWord(z) + this.y) & 0xffff; let v = this.read(a); this.c = (v & 1) !== 0; v >>= 1; this.write(a, v); this.a ^= v; this.setNZ(this.a); return "continue"; }
+      case 0x5b: { const a = (absAddr() + this.y) & 0xffff; let v = this.read(a); this.c = (v & 1) !== 0; v >>= 1; this.write(a, v); this.a ^= v; this.setNZ(this.a); return "continue"; }
+      case 0x5f: { const a = (absAddr() + this.x) & 0xffff; let v = this.read(a); this.c = (v & 1) !== 0; v >>= 1; this.write(a, v); this.a ^= v; this.setNZ(this.a); return "continue"; }
+
+      // --- RRA (ROR + ADC): $63, $6F, $73, $77, $7F ($67, $7B handled above). ---
+      case 0x63: { const z = zpAddr(); const a = this.readWord((z + this.x) & 0xff); const old = this.read(a); const newc = (old & 1) !== 0; const v = (old >> 1) | (this.c ? 0x80 : 0); this.c = newc; this.write(a, v); this.adc(v); return "continue"; }
+      case 0x6f: { const a = absAddr(); const old = this.read(a); const newc = (old & 1) !== 0; const v = (old >> 1) | (this.c ? 0x80 : 0); this.c = newc; this.write(a, v); this.adc(v); return "continue"; }
+      case 0x73: { const z = zpAddr(); const a = (this.readWord(z) + this.y) & 0xffff; const old = this.read(a); const newc = (old & 1) !== 0; const v = (old >> 1) | (this.c ? 0x80 : 0); this.c = newc; this.write(a, v); this.adc(v); return "continue"; }
+      case 0x77: { const a = (zpAddr() + this.x) & 0xff; const old = this.mem[a]!; const newc = (old & 1) !== 0; const v = (old >> 1) | (this.c ? 0x80 : 0); this.c = newc; this.mem[a] = v; this.adc(v); return "continue"; }
+      case 0x7f: { const a = (absAddr() + this.x) & 0xffff; const old = this.read(a); const newc = (old & 1) !== 0; const v = (old >> 1) | (this.c ? 0x80 : 0); this.c = newc; this.write(a, v); this.adc(v); return "continue"; }
+
+      // --- DCP (DEC + CMP): $C3, $CF, $D3, $D7, $DB ($C7, $DF handled above). ---
+      case 0xc3: { const z = zpAddr(); const a = this.readWord((z + this.x) & 0xff); const v = (this.read(a) - 1) & 0xff; this.write(a, v); this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
+      case 0xcf: { const a = absAddr(); const v = (this.read(a) - 1) & 0xff; this.write(a, v); this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
+      case 0xd3: { const z = zpAddr(); const a = (this.readWord(z) + this.y) & 0xffff; const v = (this.read(a) - 1) & 0xff; this.write(a, v); this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
+      case 0xd7: { const a = (zpAddr() + this.x) & 0xff; const v = (this.mem[a]! - 1) & 0xff; this.mem[a] = v; this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
+      case 0xdb: { const a = (absAddr() + this.y) & 0xffff; const v = (this.read(a) - 1) & 0xff; this.write(a, v); this.c = this.a >= v; this.setNZ((this.a - v) & 0xff); return "continue"; }
+
+      // --- ISC / ISB (INC + SBC): $E3, $F3 (others handled above). ---
+      case 0xe3: { const z = zpAddr(); const a = this.readWord((z + this.x) & 0xff); const v = (this.read(a) + 1) & 0xff; this.write(a, v); this.sbc(v); return "continue"; }
+      case 0xf3: { const z = zpAddr(); const a = (this.readWord(z) + this.y) & 0xffff; const v = (this.read(a) + 1) & 0xff; this.write(a, v); this.sbc(v); return "continue"; }
+
+      // --- SAX (A AND X → memory): $83, $8F (others handled above). ---
+      case 0x83: { const z = zpAddr(); const a = this.readWord((z + this.x) & 0xff); this.write(a, this.a & this.x); return "continue"; }
+      case 0x8f: this.write(absAddr(), this.a & this.x); return "continue";
+
+      // --- LAX (LDA + LDX): $B3, $AB (others handled above). ---
+      // $AB (LAX #imm) is unstable on real hardware ("magic constant" mixed
+      // with A); the common convention is `A = X = imm` which is what most
+      // documented depackers actually rely on.
+      case 0xb3: { const z = zpAddr(); const addr = (this.readWord(z) + this.y) & 0xffff; const v = this.read(addr); this.a = v; this.x = v; this.setNZ(v); return "continue"; }
+      case 0xab: { const v = imm(); this.a = v; this.x = v; this.setNZ(v); return "continue"; }
+
+      // --- ANC ($0B, $2B): A &= imm, then C ← N. ---
+      case 0x0b: case 0x2b: { this.a &= imm(); this.setNZ(this.a); this.c = (this.a & 0x80) !== 0; return "continue"; }
+
+      // --- XAA / ANE ($8B): unstable. Common emulation: A = (A | $EE) & X & imm. ---
+      case 0x8b: { const v = imm(); this.a = (this.a | 0xee) & this.x & v; this.setNZ(this.a); return "continue"; }
+
+      // --- TAS ($9B): SP = A & X; mem[abs+Y] = A & X & (highByte+1). ---
+      case 0x9b: { const lo = this.mem[this.pc]!; const hi = this.mem[(this.pc + 1) & 0xffff]!; this.pc = (this.pc + 2) & 0xffff; const base = lo | (hi << 8); const addr = (base + this.y) & 0xffff; this.sp = this.a & this.x; this.write(addr, this.a & this.x & ((hi + 1) & 0xff)); return "continue"; }
+
+      // --- AHX / SHA ($93 indy, $9F absy): mem = A & X & (highByte+1). ---
+      case 0x93: { const z = zpAddr(); const base = this.readWord(z); const hi = (base >> 8) & 0xff; const addr = (base + this.y) & 0xffff; this.write(addr, this.a & this.x & ((hi + 1) & 0xff)); return "continue"; }
+      case 0x9f: { const lo = this.mem[this.pc]!; const hi = this.mem[(this.pc + 1) & 0xffff]!; this.pc = (this.pc + 2) & 0xffff; const addr = ((lo | (hi << 8)) + this.y) & 0xffff; this.write(addr, this.a & this.x & ((hi + 1) & 0xff)); return "continue"; }
+
+      // --- SHX ($9E absy): mem = X & (highByte+1). ---
+      case 0x9e: { const lo = this.mem[this.pc]!; const hi = this.mem[(this.pc + 1) & 0xffff]!; this.pc = (this.pc + 2) & 0xffff; const addr = ((lo | (hi << 8)) + this.y) & 0xffff; this.write(addr, this.x & ((hi + 1) & 0xff)); return "continue"; }
+
+      // --- SHY ($9C absx): mem = Y & (highByte+1). ---
+      case 0x9c: { const lo = this.mem[this.pc]!; const hi = this.mem[(this.pc + 1) & 0xffff]!; this.pc = (this.pc + 2) & 0xffff; const addr = ((lo | (hi << 8)) + this.x) & 0xffff; this.write(addr, this.y & ((hi + 1) & 0xff)); return "continue"; }
+
       default:
         // Roll PC back so caller sees the offending opcode.
         this.pc = (this.pc - 1) & 0xffff;
