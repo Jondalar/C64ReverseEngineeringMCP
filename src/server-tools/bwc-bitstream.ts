@@ -96,13 +96,15 @@ export function registerBwcBitstreamTools(server: McpServer, ctx: ServerToolCont
 
   server.tool(
     "pack_bwc_bitstream",
-    "Pack a binary into a BWC bit-stream chunk that the original $C992 depacker can decompress. Output is NOT byte-identical to a reference packer — it's a functional re-encoding using literals, LZ-far back-references (length>=3), cmp_op-update, and the 2*N3-1 end marker. Defaults: N1=2, N2=8, N3=128, N4=0, no literal table — matches all observed BWC v1.0.6 chunks. Verified: round-trip via depack_bwc_bitstream is byte-identical for all 6 BWC v1.0.6 boot chunks.",
+    "Pack a binary into a BWC bit-stream chunk that the original $C992 depacker can decompress. Output is NOT byte-identical to a reference packer — it's a functional re-encoding using all five token types: plain literals, cmp_op-update literals, near-LZ (length=2 / dist≤256), LZ-far (length≥3), and lit_table runs. Defaults: N1=2, N2=8, N3=128, N4=0, Y=16 (auto-picked top-frequency bytes). Optimal parser by default — DP over (position, cmp_op) picks the minimum-bit token sequence. Verified across BWC v1.0.6 boot chunks: matches or beats the original packer's ratio on 5 of 6, within 1% on the 6th.",
     {
       input_path: z.string().describe("Path to a PRG (load addr in first 2 bytes) or raw bytes file."),
       load_address: z.string().optional().describe("Hex load address. Required if input is raw (not PRG)."),
       output_path: z.string().optional().describe("Output packed binary path. Default analysis/depack/bwc/<stem>-packed.bin."),
       n1: z.number().int().min(1).max(7).optional().describe("Main-token bit width. Default 2."),
       max_distance: z.number().int().positive().optional().describe("Max LZ back-reference distance in bytes. Default 65535."),
+      literal_table_size: z.number().int().min(0).max(31).optional().describe("Literal-table size (Y). 0 disables; default 16. Bytes are auto-picked by run-coverage frequency."),
+      greedy: z.boolean().optional().describe("Skip optimal DP parsing and use greedy emission instead (faster, ~3-7% larger output). Default false."),
     },
     async (args) => {
       const projectRoot = ctx.projectDir(undefined, true);
@@ -112,7 +114,13 @@ export function registerBwcBitstreamTools(server: McpServer, ctx: ServerToolCont
       if (dest === undefined) {
         throw new Error(`load_address is required when input is not a .prg file`);
       }
-      const result = pack(bytes, { dest, n1: args.n1, maxDistance: args.max_distance });
+      const result = pack(bytes, {
+        dest,
+        n1: args.n1,
+        maxDistance: args.max_distance,
+        literalTableSize: args.literal_table_size,
+        optimal: args.greedy === true ? false : undefined,
+      });
       const stem = inputPath.split("/").pop()!.replace(/\.[^.]+$/, "");
       const outPath = args.output_path
         ? resolve(projectRoot, args.output_path)

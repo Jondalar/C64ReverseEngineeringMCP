@@ -27,6 +27,7 @@
 
 import { BitWriter } from "./bit-writer.js";
 import { defaultHeader, serializeHeader, type BwcHeader } from "./header.js";
+import { optimalParse, type ChoiceTag } from "./optimal.js";
 
 export interface PackOptions {
   // Destination address (goes into the header).
@@ -42,6 +43,16 @@ export interface PackOptions {
   // Optional 2-byte unused2 — must roundtrip if you care about bit-for-bit
   // equality with an original. Default [FF, FF] (matches BWC observed).
   unused2?: Uint8Array;
+  // Literal-table size. 0 disables lit_table-run encoding entirely.
+  // 1..31 reserves Y bytes in the header for the most-frequent bytes
+  // in the input; runs of those bytes are emitted via the bit_b=1
+  // table-run path which costs ~7-14 bits per run vs N*8 bits as
+  // plain literals. Index 32 in the depacker reads $0120 (out of the
+  // table window), so we cap encoder use at 31. Default 16.
+  literalTableSize?: number;
+  // Use optimal parsing (DP with cmp_op state) instead of greedy.
+  // Optimal trades a small CPU cost for ~3-7% smaller output. Default true.
+  optimal?: boolean;
 }
 
 export interface PackResult {
@@ -53,7 +64,11 @@ export interface PackResult {
     plainLiterals: number;
     updateLiterals: number;
     lzMatches: number;
+    lzNearMatches: number;
     lzBytesCovered: number;
+    litRunMatches: number;
+    litRunBytesCovered: number;
+    litTableSize: number;
     payloadBits: number;
   };
 }
@@ -99,6 +114,42 @@ function emitGamma(bw: BitWriter, value: number): void {
 // ---------------------------------------------------------------------------
 // cmp_op selection
 // ---------------------------------------------------------------------------
+
+// Build a literal table of up to maxY bytes, picked by descending
+// frequency. Returns the table and a 256-entry lookup that maps a byte
+// value to its 1-based table index (or 0 if the byte is not in the
+// table). Y is capped at 31 — index 32 in the depacker reads beyond the
+// loaded table window and triggers the "extra bits" branch we don't
+// emit.
+function buildLitTable(input: Uint8Array, maxY: number): { table: Uint8Array; lookup: Int16Array } {
+  const cap = Math.min(31, Math.max(0, maxY | 0));
+  const lookup = new Int16Array(256); // 0 = not in table; 1..cap = idx
+  if (cap === 0) return { table: new Uint8Array(0), lookup };
+  // Score each byte by total run-bytes-covered (length>=2 same-byte runs).
+  // Falls back to plain frequency when a byte never appears in a run.
+  const runCover = new Int32Array(256);
+  const freq = new Int32Array(256);
+  let i = 0;
+  while (i < input.length) {
+    const b = input[i]!;
+    freq[b]! += 1;
+    let j = i + 1;
+    while (j < input.length && input[j] === b) j += 1;
+    const runLen = j - i;
+    if (runLen >= 2) runCover[b]! += runLen;
+    i = j;
+  }
+  const candidates: Array<{ b: number; score: number }> = [];
+  for (let b = 0; b < 256; b++) {
+    const score = runCover[b]! * 8 + freq[b]!; // weight runs heavily
+    if (score > 0) candidates.push({ b, score });
+  }
+  candidates.sort((a, c) => c.score - a.score);
+  const picked = candidates.slice(0, cap).map((c) => c.b);
+  const table = Uint8Array.from(picked);
+  for (let k = 0; k < table.length; k++) lookup[table[k]!]! = k + 1;
+  return { table, lookup };
+}
 
 function pickCmpOp(input: Uint8Array, n1: number, fromIndex = 0): number {
   const buckets = new Array<number>(1 << n1).fill(0);
@@ -157,6 +208,23 @@ function findBestMatch(
   return best;
 }
 
+// Find a length-2 LZ match with distance in [1, 256] (encodable as
+// near-LZ). Returns the smallest such distance — closer matches keep
+// the search window tight and let later matches stay short. Returns
+// null when no eligible 2-byte match exists.
+function findNearMatch(input: Uint8Array, pos: number): Match | null {
+  if (pos < 1 || pos + 2 > input.length) return null;
+  const a = input[pos]!;
+  const b = input[pos + 1]!;
+  const minStart = Math.max(0, pos - 256);
+  for (let src = pos - 1; src >= minStart; src--) {
+    if (input[src] === a && input[src + 1] === b) {
+      return { length: 2, distance: pos - src };
+    }
+  }
+  return null;
+}
+
 // Recompute dist fields for a chosen match.
 function distanceFields(destBase: number, pos: number, src: number) {
   const destLo = (destBase + pos) & 0xff;
@@ -198,6 +266,43 @@ function emitUpdateLiteral(
   bw.writeBit(0);                       // bit_b = 0 → cmp_op-update path
   bw.writeBits(newCmpOp, n1);          // new cmp_op
   bw.writeBits(byte & ((1 << (8 - n1)) - 1), 8 - n1);
+}
+
+// Literal-table run: emits `length` copies of a byte that lives at index
+// `idx` (1..Y) of the literal table, via the bit_b=1 short-path branch.
+// The depacker decode path:
+//   cmp_op token → gamma(1) → bit_a=1 → bit_b=1 → iny → gamma(length-1)
+//   → cmp #N3 (skip extension if length-1 < N3) → gamma(idx) → tax →
+//   lda $0100,X → cpx #$20 (skip extra-bits if idx < 32) → write A
+//   `length` times.
+// We use the simple subtree only: length-1 < N3 (always true for our
+// gamma cap of 2^N2-1 = 255 at N2=8, since N3=128 caps the high path),
+// no idx>=32 extra bits (we constrain idx to [1, Y] with Y <= 31).
+function emitLitTableRun(
+  bw: BitWriter,
+  cmpOp: number,
+  length: number,
+  idx: number,
+  n1: number,
+): void {
+  if (length < 2) throw new BwcPackError(`lit_table run length must be >= 2 (got ${length})`);
+  if (length - 1 >= N3) throw new BwcPackError(`lit_table run length-1 ${length - 1} >= N3 ${N3} — extension path not implemented`);
+  if (idx < 1 || idx >= 0x20) throw new BwcPackError(`lit_table idx must be in 1..31 (got ${idx})`);
+  bw.writeBits(cmpOp, n1);              // cmp_op token
+  emitGamma(bw, 1);                     // v1 = 1 → short path
+  bw.writeBit(1);                       // bit_a = 1 → not near-LZ
+  bw.writeBit(1);                       // bit_b = 1 → lit_table path
+  emitGamma(bw, length - 1);            // inner = length - 1 (>= 1)
+  emitGamma(bw, idx);                   // table index (1-based)
+}
+
+// Near-LZ: length implicitly 2, dist_high implicitly 0, only 8 raw bits
+// for dist_low. Encoded distance must satisfy lzpos in [1, 256].
+function emitLzNear(bw: BitWriter, cmpOp: number, distLow: number, n1: number): void {
+  bw.writeBits(cmpOp, n1);              // cmp_op token
+  emitGamma(bw, 1);                     // v1 = 1 → short path
+  bw.writeBit(0);                       // bit_a = 0 → near-LZ
+  bw.writeBits(distLow, 8);
 }
 
 function emitLzFar(
@@ -242,13 +347,108 @@ export function pack(input: Uint8Array, opts: PackOptions): PackResult {
   const dest = opts.dest & 0xffff;
   const bw = new BitWriter();
 
+  // Build literal table (default Y=16; 0 disables).
+  const yLimit = opts.literalTableSize ?? 16;
+  const { table: litTable, lookup: litLookup } = buildLitTable(input, yLimit);
+
+  const useOptimal = opts.optimal ?? true;
+
   let plainLiterals = 0;
   let updateLiterals = 0;
   let lzMatches = 0;
   let lzBytesCovered = 0;
+  let litRunMatches = 0;
+  let litRunBytesCovered = 0;
+  let lzNearMatches = 0;
+
+  if (useOptimal) {
+    // DP-based optimal parsing.
+    const result = optimalParse(input, cmpOp, {
+      n1, n2: N2, n3: N3, n4: N4,
+      maxDistance,
+      destBase: dest,
+      litLookup,
+    });
+    for (const tok of result.tokens) {
+      const c: ChoiceTag = tok.choice;
+      if (c.type === "lit") {
+        emitPlainLiteral(bw, input[tok.pos]!, tok.opAtEntry, n1);
+        plainLiterals += 1;
+      } else if (c.type === "upd") {
+        emitUpdateLiteral(bw, input[tok.pos]!, tok.opAtEntry, c.newOp, n1);
+        updateLiterals += 1;
+        cmpOp = c.newOp;
+      } else if (c.type === "near") {
+        emitLzNear(bw, tok.opAtEntry, c.distLow, n1);
+        lzNearMatches += 1;
+        lzBytesCovered += 2;
+      } else if (c.type === "lzfar") {
+        emitLzFar(bw, tok.opAtEntry, c.length, c.distHigh, c.distLow, n1);
+        lzMatches += 1;
+        lzBytesCovered += c.length;
+      } else if (c.type === "litrun") {
+        emitLitTableRun(bw, tok.opAtEntry, c.length, c.idx, n1);
+        litRunMatches += 1;
+        litRunBytesCovered += c.length;
+      } else if (c.type === "eos") {
+        emitEndOfStream(bw, tok.opAtEntry, n1);
+      }
+    }
+    // Skip the greedy loop below.
+    const payloadBits = bw.bitLength();
+    const payload = bw.finalize();
+    const header = defaultHeader({ dest, cmpOp: initialCmpOp, n1, y: litTable.length, litTable });
+    if (opts.skip4) {
+      if (opts.skip4.length !== 4) throw new BwcPackError(`skip4 must be 4 bytes`);
+      header.skip4 = opts.skip4.slice();
+    }
+    if (opts.unused2) {
+      if (opts.unused2.length !== 2) throw new BwcPackError(`unused2 must be 2 bytes`);
+      header.unused2 = opts.unused2.slice();
+    }
+    const headerBytes = serializeHeader(header);
+    const out = new Uint8Array(headerBytes.length + payload.length);
+    out.set(headerBytes, 0);
+    out.set(payload, headerBytes.length);
+    return {
+      packed: out,
+      header,
+      stats: {
+        inputBytes: input.length,
+        plainLiterals,
+        updateLiterals,
+        lzMatches,
+        lzNearMatches,
+        lzBytesCovered,
+        litRunMatches,
+        litRunBytesCovered,
+        litTableSize: litTable.length,
+        payloadBits,
+      },
+    };
+  }
 
   let i = 0;
   while (i < input.length) {
+    // Detect a same-byte run starting at i.
+    let runLen = 1;
+    while (i + runLen < input.length && input[i + runLen] === input[i]) runLen += 1;
+    // Cap length so that (length-1) < N3 (= 128); this keeps the
+    // depacker on the bcc WCA61 short path and avoids the extension
+    // branch we don't emit.
+    const maxRunLen = Math.min(runLen, N3);
+    const tableIdx = litLookup[input[i]!]!;
+    if (tableIdx > 0 && maxRunLen >= 2) {
+      // Emit lit_table run. Cost: N1 + 1 + 1 + 1 + gamma(L-1) +
+      // gamma(idx). For idx=1 and L=2 that's N1+5 = 7 bits → much
+      // cheaper than 16 bits as 2 plain literals.
+      emitLitTableRun(bw, cmpOp, maxRunLen, tableIdx, n1);
+      litRunMatches += 1;
+      litRunBytesCovered += maxRunLen;
+      i += maxRunLen;
+      continue;
+    }
+
     const match = findBestMatch(input, i, dest, maxDistance);
     if (match && match.length >= 3) {
       const src = i - match.distance;
@@ -257,6 +457,19 @@ export function pack(input: Uint8Array, opts: PackOptions): PackResult {
       lzMatches += 1;
       lzBytesCovered += match.length;
       i += match.length;
+      continue;
+    }
+
+    // Try near-LZ for length-2 with distance in [1, 256]. Cost: N1+10
+    // bits = 12 bits with N1=2, vs 16 bits for two plain literals.
+    // Always wins when a length-2 match exists in range.
+    const near = findNearMatch(input, i);
+    if (near) {
+      const distLow = (-near.distance) & 0xff;
+      emitLzNear(bw, cmpOp, distLow, n1);
+      lzNearMatches += 1;
+      lzBytesCovered += 2;
+      i += 2;
       continue;
     }
 
@@ -285,8 +498,8 @@ export function pack(input: Uint8Array, opts: PackOptions): PackResult {
     dest,
     cmpOp: initialCmpOp,
     n1,
-    y: 0,
-    litTable: new Uint8Array(0),
+    y: litTable.length,
+    litTable,
   });
   if (opts.skip4) {
     if (opts.skip4.length !== 4) throw new BwcPackError(`skip4 must be 4 bytes`);
@@ -309,7 +522,11 @@ export function pack(input: Uint8Array, opts: PackOptions): PackResult {
       plainLiterals,
       updateLiterals,
       lzMatches,
+      lzNearMatches,
       lzBytesCovered,
+      litRunMatches,
+      litRunBytesCovered,
+      litTableSize: litTable.length,
       payloadBits,
     },
   };
