@@ -47,6 +47,7 @@ const memBlockSchema = z.object({
   hex_bytes: z.string().optional().describe("Inline hex bytes loaded at `address`."),
   address: z.string().optional().describe("Load address as hex (required for raw_path / hex_bytes)."),
   load_address_override: z.string().optional().describe("Override the PRG load address (rare)."),
+  mapping: z.enum(["ram", "rom", "ef_roml", "ef_romh"]).optional().describe("Read/write mapping for this load. \"ram\" (default) is fully writable. \"rom\"/\"ef_roml\"/\"ef_romh\" map the bytes as a READ-ONLY overlay: CPU reads in this range return the load's bytes, writes pass through to a parallel RAM array under the same addresses. Use this for cart depackers where source ($8000+ in ROM) and destination ($8000+ in RAM) collide in a flat sandbox. The CPU port at $01 is NOT emulated — both ef_roml and ef_romh just install the read-only overlay."),
 });
 
 export function registerSandboxTools(server: McpServer, context: ServerToolContext): void {
@@ -84,14 +85,15 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
             return {
               prgPath: resolve(projectRoot, entry.prg_path),
               loadAddressOverride: entry.load_address_override ? parseHexWord(entry.load_address_override) : undefined,
+              mapping: entry.mapping,
             };
           }
           if (entry.raw_path) {
             if (!entry.address) throw new Error(`loads[${idx}]: address is required for raw_path`);
-            return { rawPath: resolve(projectRoot, entry.raw_path), address: parseHexWord(entry.address) };
+            return { rawPath: resolve(projectRoot, entry.raw_path), address: parseHexWord(entry.address), mapping: entry.mapping };
           }
           if (!entry.address) throw new Error(`loads[${idx}]: address is required for hex_bytes`);
-          return { bytes: parseHexBytes(entry.hex_bytes!), address: parseHexWord(entry.address) };
+          return { bytes: parseHexBytes(entry.hex_bytes!), address: parseHexWord(entry.address), mapping: entry.mapping };
         });
 
         const initialZp: Record<number, number> = {};
