@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -7,7 +7,7 @@ import type { ServerToolContext } from "./types.js";
 
 const AGENT_STATE_SCHEMA_VERSION = 1;
 
-export const AgentRoleSchema = z.enum(["analyst", "cartographer", "implementer", "unset"]);
+export const AgentRoleSchema = z.enum(["analyst", "cartographer", "implementer", "archivist", "unset"]);
 export type AgentRole = z.infer<typeof AgentRoleSchema>;
 
 const AgentHistoryEntrySchema = z.object({
@@ -132,12 +132,60 @@ function textContent(text: string) {
 
 interface ProposalCandidate {
   rank: number;
-  source: "phase" | "task" | "question" | "next-action" | "fallback";
+  source: "phase" | "task" | "question" | "next-action" | "fallback" | "stale-view";
   reason: string;
   suggestion: string;
 }
 
-function proposeNextActions(service: ProjectKnowledgeService, state: AgentState): ProposalCandidate[] {
+const KNOWLEDGE_FILES = [
+  "knowledge/entities.json",
+  "knowledge/findings.json",
+  "knowledge/relations.json",
+  "knowledge/flows.json",
+  "knowledge/tasks.json",
+  "knowledge/open-questions.json",
+  "knowledge/artifacts.json",
+];
+
+const VIEW_FILES = [
+  "views/project-dashboard.json",
+  "views/memory-map.json",
+  "views/cartridge-layout.json",
+  "views/disk-layout.json",
+  "views/load-sequence.json",
+  "views/flow-graph.json",
+  "views/annotated-listing.json",
+];
+
+function maxMtime(projectRoot: string, paths: string[]): number {
+  let max = 0;
+  for (const rel of paths) {
+    const full = join(projectRoot, rel);
+    if (!existsSync(full)) continue;
+    const m = statSync(full).mtimeMs;
+    if (m > max) max = m;
+  }
+  return max;
+}
+
+function detectStaleViews(projectRoot: string): string[] {
+  const knowledgeMtime = maxMtime(projectRoot, KNOWLEDGE_FILES);
+  if (knowledgeMtime === 0) return [];
+  const stale: string[] = [];
+  for (const rel of VIEW_FILES) {
+    const full = join(projectRoot, rel);
+    if (!existsSync(full)) {
+      stale.push(rel);
+      continue;
+    }
+    if (statSync(full).mtimeMs < knowledgeMtime) {
+      stale.push(rel);
+    }
+  }
+  return stale;
+}
+
+function proposeNextActions(service: ProjectKnowledgeService, state: AgentState, projectRoot: string): ProposalCandidate[] {
   const candidates: ProposalCandidate[] = [];
 
   if (state.nextAction?.trim()) {
@@ -146,6 +194,18 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState)
       source: "next-action",
       reason: "agent-state already has a queued next action",
       suggestion: state.nextAction.trim(),
+    });
+  }
+
+  const stale = detectStaleViews(projectRoot);
+  if (stale.length > 0) {
+    candidates.push({
+      rank: candidates.length,
+      source: "stale-view",
+      reason: `${stale.length} view file(s) older than knowledge: ${stale.map((p) => p.replace(/^views\//, "")).join(", ")}`,
+      suggestion: stale.length >= 3
+        ? `Run build_all_views — multiple views are out of sync with knowledge.`
+        : `Rebuild stale view(s): ${stale.map((p) => p.replace(/^views\//, "").replace(/\.json$/, "")).join(", ")}`,
     });
   }
 
@@ -239,7 +299,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const service = new ProjectKnowledgeService(projectRoot);
       const status = service.getProjectStatus();
       const state = loadAgentState(projectRoot);
-      const proposals = proposeNextActions(service, state);
+      const proposals = proposeNextActions(service, state, projectRoot);
 
       const lines: string[] = [];
       lines.push(`# Agent Onboarding`);
@@ -295,7 +355,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
     "Set the cognitive role for the current agent session (analyst, cartographer, implementer). Persists to agent-state.json + NEXT.md.",
     {
       project_dir: z.string().optional(),
-      role: AgentRoleSchema.describe("analyst (disasm/control flow), cartographer (memory/bank maps), implementer (tooling/code), or unset"),
+      role: AgentRoleSchema.describe("analyst (disasm/control flow), cartographer (memory/bank maps), implementer (tooling/code), archivist (continuity, tasks, checkpoints, artifact registration), or unset"),
       focus: z.string().optional().describe("Optional one-line focus statement for this role assignment"),
       constraints: z.array(z.string()).optional().describe("Optional list of constraints active for this role/session"),
     },
@@ -378,7 +438,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const projectRoot = ctx.projectDir(project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const state = loadAgentState(projectRoot);
-      const proposals = proposeNextActions(service, state);
+      const proposals = proposeNextActions(service, state, projectRoot);
       const lines: string[] = [];
       lines.push(`# Proposed Next Actions`);
       lines.push(``);
