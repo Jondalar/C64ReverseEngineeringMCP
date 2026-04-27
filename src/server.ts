@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { resolveProjectDir } from "./project-root.js";
 import { registerProjectKnowledgeTools } from "./project-knowledge/mcp-tools.js";
 import { registerToolKnowledge } from "./project-knowledge/integration.js";
+import { registerAgentWorkflowTools } from "./server-tools/agent-workflow.js";
 import { registerAnalysisWorkflowTools } from "./server-tools/analysis-workflow.js";
 import { registerMediaTools } from "./server-tools/media.js";
 import { registerArtifactTools } from "./server-tools/artifacts.js";
@@ -92,6 +93,7 @@ function createServer(): McpServer {
     tryRegisterKnowledgeArtifacts,
   };
 
+  registerAgentWorkflowTools(server, toolContext);
   registerAnalysisWorkflowTools(server, toolContext);
   registerMediaTools(server, toolContext);
   registerArtifactTools(server, toolContext);
