@@ -1,10 +1,25 @@
 import { readFileSync } from "node:fs";
 import { Cpu6502, type CpuWrite, type SandboxCpuState, type StopReason } from "./cpu6502.js";
 
+// Mapping mode for a single load:
+//   - "ram"     (default): writable RAM, identical to old behaviour.
+//   - "ef_roml" / "ef_romh": map this load's bytes as read-only ROM at the
+//     given address. CPU reads in that range return the ROM byte; writes
+//     pass through to a parallel RAM array. Models the EasyFlash split
+//     where source bytes are visible at $8000-$BFFF when $01 selects
+//     cart visibility, and writes target the RAM that lives "underneath"
+//     the cart window. We don't currently emulate the $01 port — both
+//     ef_roml and ef_romh are treated as plain "read-only overlay" so the
+//     read/write split is what matters; the names are kept for clarity at
+//     the call site.
+//   - "rom":  generic read-only overlay (same effect, no cart connotation).
+export type LoadMapping = "ram" | "rom" | "ef_roml" | "ef_romh";
+
 export interface MemBlock {
   // Hex byte sequence; loaded at `address`. Use this for inline patches.
   bytes: number[] | Uint8Array;
   address: number;
+  mapping?: LoadMapping;
 }
 
 export interface PrgBlock {
@@ -12,12 +27,14 @@ export interface PrgBlock {
   prgPath: string;
   // Optional override of the PRG load address (rarely needed).
   loadAddressOverride?: number;
+  mapping?: LoadMapping;
 }
 
 export interface RawBlock {
   // Path to a raw blob loaded at `address`.
   rawPath: string;
   address: number;
+  mapping?: LoadMapping;
 }
 
 export type SandboxLoad = MemBlock | PrgBlock | RawBlock;
@@ -60,18 +77,38 @@ export interface SandboxRunResult {
 export function runSandbox(options: SandboxRunOptions): SandboxRunResult {
   const mem = new Uint8Array(0x10000);
 
-  for (const load of options.loads) {
+  // Collect ROM-mapped loads to apply after CPU construction. Each entry
+  // captures the (address, bytes) pair that should overlay the read path.
+  // ROM-mapped bytes do NOT go into `mem` — `mem` represents the
+  // RAM-under-cart that writes target. Loading them only into the ROM
+  // overlay keeps the read/write split intact.
+  interface RomLoad { address: number; bytes: ArrayLike<number> }
+  const romLoads: RomLoad[] = [];
+
+  function applyLoad(load: SandboxLoad): void {
+    const mapping: LoadMapping = (load as { mapping?: LoadMapping }).mapping ?? "ram";
+    let address: number;
+    let bytes: ArrayLike<number>;
     if ("bytes" in load) {
-      writeBytes(mem, load.address, load.bytes);
+      address = load.address;
+      bytes = load.bytes;
     } else if ("prgPath" in load) {
       const buf = readFileSync(load.prgPath);
-      const addr = load.loadAddressOverride ?? (buf[0]! | (buf[1]! << 8));
-      writeBytes(mem, addr, buf.subarray(2));
+      address = load.loadAddressOverride ?? (buf[0]! | (buf[1]! << 8));
+      bytes = buf.subarray(2);
     } else {
       const buf = readFileSync(load.rawPath);
-      writeBytes(mem, load.address, buf);
+      address = load.address;
+      bytes = buf;
+    }
+    if (mapping === "ram") {
+      writeBytes(mem, address, bytes);
+    } else {
+      romLoads.push({ address, bytes });
     }
   }
+
+  for (const load of options.loads) applyLoad(load);
 
   for (const [zpStr, value] of Object.entries(options.initialZp ?? {})) {
     const addr = Number(zpStr) & 0xff;
@@ -79,6 +116,7 @@ export function runSandbox(options: SandboxRunOptions): SandboxRunResult {
   }
 
   const cpu = new Cpu6502(mem);
+  for (const r of romLoads) cpu.mapRom(r.address, r.bytes);
   cpu.pc = options.initialPc & 0xffff;
   cpu.sp = (options.initialSp ?? 0xfd) & 0xff;
   cpu.a = (options.initialA ?? 0) & 0xff;

@@ -58,18 +58,41 @@ export class Cpu6502 {
   streamPos = 0;
   hookEntries: Set<number> = new Set();
 
+  // Optional ROM overlay for EasyFlash-style "read source from ROM, write
+  // destination to RAM" depackers. When `romMask[addr]` is non-zero, reads
+  // at that address return `rom[addr]` instead of `mem[addr]`. Writes
+  // always go to `mem` (and are tracked in `writes`). Both arrays stay
+  // null when no ROM is mapped — the hot path then has a single null-check.
+  rom: Uint8Array | null = null;
+  romMask: Uint8Array | null = null;
+
   constructor(public readonly mem: Uint8Array) {
     if (mem.length !== 0x10000) {
       throw new Error(`Cpu6502 expects 64K memory, got ${mem.length}`);
     }
   }
 
+  // Map a contiguous range as ROM. Subsequent reads in that range return
+  // bytes from `source`; writes still go to `mem`. Calling this lazily
+  // allocates the overlay buffers.
+  mapRom(start: number, source: ArrayLike<number>): void {
+    if (!this.rom) this.rom = new Uint8Array(0x10000);
+    if (!this.romMask) this.romMask = new Uint8Array(0x10000);
+    for (let i = 0; i < source.length; i++) {
+      const a = (start + i) & 0xffff;
+      this.rom[a] = source[i]! & 0xff;
+      this.romMask[a] = 1;
+    }
+  }
+
   read(addr: number): number {
-    return this.mem[addr & 0xffff]!;
+    const a = addr & 0xffff;
+    if (this.romMask && this.romMask[a]) return this.rom![a]!;
+    return this.mem[a]!;
   }
 
   readWord(addr: number): number {
-    return (this.mem[addr & 0xffff]! | (this.mem[(addr + 1) & 0xffff]! << 8));
+    return this.read(addr) | (this.read((addr + 1) & 0xffff) << 8);
   }
 
   write(addr: number, value: number): void {
@@ -144,15 +167,15 @@ export class Cpu6502 {
       return "continue";
     }
 
-    const op = this.mem[this.pc]!;
+    const op = this.read(this.pc);
     this.pc = (this.pc + 1) & 0xffff;
     this.cycles += 1; // approximate; we don't track per-opcode cycle counts here
 
-    const imm = (): number => { const v = this.mem[this.pc]!; this.pc = (this.pc + 1) & 0xffff; return v; };
-    const absAddr = (): number => { const lo = this.mem[this.pc]!; const hi = this.mem[(this.pc + 1) & 0xffff]!; this.pc = (this.pc + 2) & 0xffff; return lo | (hi << 8); };
-    const zpAddr = (): number => { const a = this.mem[this.pc]!; this.pc = (this.pc + 1) & 0xffff; return a; };
+    const imm = (): number => { const v = this.read(this.pc); this.pc = (this.pc + 1) & 0xffff; return v; };
+    const absAddr = (): number => { const lo = this.read(this.pc); const hi = this.read((this.pc + 1) & 0xffff); this.pc = (this.pc + 2) & 0xffff; return lo | (hi << 8); };
+    const zpAddr = (): number => { const a = this.read(this.pc); this.pc = (this.pc + 1) & 0xffff; return a; };
     const rel = (): number => {
-      let off = this.mem[this.pc]!;
+      let off = this.read(this.pc);
       this.pc = (this.pc + 1) & 0xffff;
       if (off & 0x80) off -= 0x100;
       return (this.pc + off) & 0xffff;
@@ -431,17 +454,17 @@ export class Cpu6502 {
       case 0x8b: { const v = imm(); this.a = (this.a | 0xee) & this.x & v; this.setNZ(this.a); return "continue"; }
 
       // --- TAS ($9B): SP = A & X; mem[abs+Y] = A & X & (highByte+1). ---
-      case 0x9b: { const lo = this.mem[this.pc]!; const hi = this.mem[(this.pc + 1) & 0xffff]!; this.pc = (this.pc + 2) & 0xffff; const base = lo | (hi << 8); const addr = (base + this.y) & 0xffff; this.sp = this.a & this.x; this.write(addr, this.a & this.x & ((hi + 1) & 0xff)); return "continue"; }
+      case 0x9b: { const lo = this.read(this.pc); const hi = this.read((this.pc + 1) & 0xffff); this.pc = (this.pc + 2) & 0xffff; const base = lo | (hi << 8); const addr = (base + this.y) & 0xffff; this.sp = this.a & this.x; this.write(addr, this.a & this.x & ((hi + 1) & 0xff)); return "continue"; }
 
       // --- AHX / SHA ($93 indy, $9F absy): mem = A & X & (highByte+1). ---
       case 0x93: { const z = zpAddr(); const base = this.readWord(z); const hi = (base >> 8) & 0xff; const addr = (base + this.y) & 0xffff; this.write(addr, this.a & this.x & ((hi + 1) & 0xff)); return "continue"; }
-      case 0x9f: { const lo = this.mem[this.pc]!; const hi = this.mem[(this.pc + 1) & 0xffff]!; this.pc = (this.pc + 2) & 0xffff; const addr = ((lo | (hi << 8)) + this.y) & 0xffff; this.write(addr, this.a & this.x & ((hi + 1) & 0xff)); return "continue"; }
+      case 0x9f: { const lo = this.read(this.pc); const hi = this.read((this.pc + 1) & 0xffff); this.pc = (this.pc + 2) & 0xffff; const addr = ((lo | (hi << 8)) + this.y) & 0xffff; this.write(addr, this.a & this.x & ((hi + 1) & 0xff)); return "continue"; }
 
       // --- SHX ($9E absy): mem = X & (highByte+1). ---
-      case 0x9e: { const lo = this.mem[this.pc]!; const hi = this.mem[(this.pc + 1) & 0xffff]!; this.pc = (this.pc + 2) & 0xffff; const addr = ((lo | (hi << 8)) + this.y) & 0xffff; this.write(addr, this.x & ((hi + 1) & 0xff)); return "continue"; }
+      case 0x9e: { const lo = this.read(this.pc); const hi = this.read((this.pc + 1) & 0xffff); this.pc = (this.pc + 2) & 0xffff; const addr = ((lo | (hi << 8)) + this.y) & 0xffff; this.write(addr, this.x & ((hi + 1) & 0xff)); return "continue"; }
 
       // --- SHY ($9C absx): mem = Y & (highByte+1). ---
-      case 0x9c: { const lo = this.mem[this.pc]!; const hi = this.mem[(this.pc + 1) & 0xffff]!; this.pc = (this.pc + 2) & 0xffff; const addr = ((lo | (hi << 8)) + this.x) & 0xffff; this.write(addr, this.y & ((hi + 1) & 0xff)); return "continue"; }
+      case 0x9c: { const lo = this.read(this.pc); const hi = this.read((this.pc + 1) & 0xffff); this.pc = (this.pc + 2) & 0xffff; const addr = ((lo | (hi << 8)) + this.x) & 0xffff; this.write(addr, this.y & ((hi + 1) & 0xff)); return "continue"; }
 
       default:
         // Roll PC back so caller sees the offending opcode.
