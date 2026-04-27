@@ -11,6 +11,7 @@ import { registerAnalysisWorkflowTools } from "./server-tools/analysis-workflow.
 import { registerMediaTools } from "./server-tools/media.js";
 import { registerArtifactTools } from "./server-tools/artifacts.js";
 import { registerAssemblyTools } from "./server-tools/assembly.js";
+import { registerBwcBitstreamTools } from "./server-tools/bwc-bitstream.js";
 import { registerCompressionTools } from "./server-tools/compression.js";
 import { registerGraphicsRenderTools } from "./server-tools/graphics-render.js";
 import { registerInspectRangeTools } from "./server-tools/inspect-range.js";
@@ -98,6 +99,7 @@ function createServer(): McpServer {
   registerMediaTools(server, toolContext);
   registerArtifactTools(server, toolContext);
   registerAssemblyTools(server, toolContext);
+  registerBwcBitstreamTools(server, toolContext);
   registerCompressionTools(server, toolContext);
   registerGraphicsRenderTools(server, toolContext);
   registerInspectRangeTools(server, toolContext);
