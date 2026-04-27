@@ -137,7 +137,10 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
           `Writes returned: ${result.writes.length}`,
         ];
         if (result.unimplementedOpcode) {
-          lines.push(`Unimplemented opcode: $${formatHexByte(result.unimplementedOpcode.opcode)} @ $${formatHexWord(result.unimplementedOpcode.pc)}`);
+          const { describeOpcode } = await import("../sandbox/opcode-table.js");
+          const mn = describeOpcode(result.unimplementedOpcode.opcode);
+          const mnText = mn === "unknown" ? "" : ` (${mn})`;
+          lines.push(`Unimplemented opcode: $${formatHexByte(result.unimplementedOpcode.opcode)}${mnText} @ $${formatHexWord(result.unimplementedOpcode.pc)}`);
         }
         if (result.writtenSpan) {
           lines.push(`Write span: $${formatHexWord(result.writtenSpan.start)}-$${formatHexWord(result.writtenSpan.end)} (${result.writtenSpan.bytes.length} bytes)`);
