@@ -15,7 +15,36 @@ function canonicalProjectWorkflowPath(repoRoot: string): string {
   return resolve(repoRoot, "docs", "workflow.md");
 }
 
+function canonicalAgentDoctrinePath(repoRoot: string): string {
+  return resolve(repoRoot, "docs", "agent-doctrine.md");
+}
+
 export function registerPromptTools(server: McpServer, context: PromptContext): void {
+  server.prompt(
+    "c64re_agent_doctrine",
+    "Return the operating doctrine for an agent working in a C64 reverse-engineering project. Read this at session start to align role behavior, artifact contract, and continuation rules with the persistent project memory.",
+    {},
+    async () => {
+      const doctrinePath = canonicalAgentDoctrinePath(context.repoRoot);
+      const doctrineText = context.readTextFile(doctrinePath);
+      return {
+        messages: [{
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: `# C64 RE Agent Doctrine
+
+Source: \`${doctrinePath}\`
+
+Adopt this doctrine for the current session. Begin by calling \`agent_onboard\` to reload persistent project state.
+
+${doctrineText}`,
+          },
+        }],
+      };
+    },
+  );
+
   server.prompt(
     "debug_workflow",
     "Guidance for using the VICE runtime tools for breakpoint-driven debugging and runtime tracing.",

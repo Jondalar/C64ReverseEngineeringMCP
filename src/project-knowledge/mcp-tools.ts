@@ -101,8 +101,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         canonicalDocPaths: [
           resolve(options.repoDir, "docs", "workflow.md"),
           resolve(options.repoDir, "docs", "c64-reverse-engineering-skill.md"),
+          resolve(options.repoDir, "docs", "agent-doctrine.md"),
         ],
         canonicalPromptIds: [
+          "c64re_agent_doctrine",
           "project_workspace_workflow",
           "c64re_get_skill",
           "full_re_workflow",

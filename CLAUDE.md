@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Agent Doctrine (Mandatory)
+
+When operating inside an actual C64 RE *project* (i.e. a `C64RE_PROJECT_DIR` workspace, not this MCP repo itself):
+
+1. Load `docs/agent-doctrine.md` (or call MCP prompt `c64re_agent_doctrine`) and adopt it.
+2. Run `agent_onboard` at session start (or after context loss) to reload persistent project memory.
+3. Persist progress with `agent_record_step` and the `save_finding` / `save_entity` / `save_open_question` family — never leave knowledge only in chat.
+4. Use `agent_set_role` to mark whether you are operating as **analyst**, **cartographer**, or **implementer**.
+
+These rules apply to project work. They do **not** apply to ordinary edits to this MCP repo's source code.
+
 ## Project Overview
 
 MCP server for LLM-powered Commodore 64 reverse engineering. Bundles the TRXDis analysis pipeline to provide heuristic disassembly, semantic annotation, and dual-assembler output (KickAssembler + 64tass) for C64 PRG files, disk images (D64/G64), and CRT cartridges.
