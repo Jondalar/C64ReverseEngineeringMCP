@@ -32,6 +32,7 @@ interface Props {
   c1?: number;
   c2?: number;
   multicolor?: boolean;   // toggle multicolor decode for sprite/charset
+  columns?: number;       // grid columns for sprite/charset/charmap
   screen?: Uint8Array;    // optional bitmap-companion data
   colorRam?: Uint8Array;
   charsetBytes?: Uint8Array; // optional charset for screen_ram charmap render
@@ -60,12 +61,13 @@ function defaultZoom(kind: GraphicsRenderKind): number {
 
 function decodeFor(kind: GraphicsRenderKind, bytes: Uint8Array, props: Props): DecodedImage | null {
   const palette = { fg: props.fg, bg: props.bg, c1: props.c1, c2: props.c2, multicolor: props.multicolor ?? false };
+  const cols = props.columns;
   switch (kind) {
     case "sprite":
-      return decodeSprites(bytes, palette);
+      return decodeSprites(bytes, { ...palette, columns: cols });
     case "charset":
     case "charset_source":
-      return decodeCharset(bytes, palette);
+      return decodeCharset(bytes, { ...palette, columns: cols });
     case "bitmap":
     case "hires_bitmap":
     case "bitmap_source":
@@ -81,9 +83,9 @@ function decodeFor(kind: GraphicsRenderKind, bytes: Uint8Array, props: Props): D
       // charset is selected — useful as a sanity check but not the
       // intended visualization.
       if (props.charsetBytes && props.charsetBytes.length >= 8) {
-        return decodeCharmap(bytes, props.charsetBytes, palette);
+        return decodeCharmap(bytes, props.charsetBytes, { ...palette, columns: cols });
       }
-      return decodeCharset(bytes, palette);
+      return decodeCharset(bytes, { ...palette, columns: cols });
     default:
       return null;
   }

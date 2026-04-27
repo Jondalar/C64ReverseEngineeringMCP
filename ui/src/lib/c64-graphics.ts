@@ -171,10 +171,13 @@ export function decodeCharmap(
 // Decode a charset block. Each glyph is 8 bytes (1 byte per row, MSB-first).
 // `bytes` should be a multiple of 8. We arrange glyphs into a 32-glyph wide
 // grid for compact display. Monochrome.
-export function decodeCharset(bytes: Uint8Array, options: PaletteParam = {}): DecodedImage {
+export function decodeCharset(
+  bytes: Uint8Array,
+  options: PaletteParam & { columns?: number } = {},
+): DecodedImage {
   const GLYPH_HEIGHT = 8;
   const GLYPH_WIDTH = 8;
-  const COLUMNS = 32;
+  const COLUMNS = Math.max(1, options.columns ?? 32);
 
   const glyphCount = Math.max(1, Math.floor(bytes.length / GLYPH_HEIGHT));
   const rows = Math.max(1, Math.ceil(glyphCount / COLUMNS));
