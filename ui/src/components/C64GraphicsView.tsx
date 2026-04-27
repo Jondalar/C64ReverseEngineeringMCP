@@ -121,7 +121,7 @@ export function C64GraphicsView(props: Props) {
     const imageData = ctx.createImageData(decoded.width, decoded.height);
     imageData.data.set(decoded.pixels);
     ctx.putImageData(imageData, 0, 0);
-  }, [bytes, kind, fg, bg, c1, c2, props.multicolor, props.screen, props.colorRam, props.charsetBytes]);
+  }, [bytes, kind, fg, bg, c1, c2, props.multicolor, props.columns, props.screen, props.colorRam, props.charsetBytes]);
 
   function emitColourChange(next: { fg?: number; bg?: number; c1?: number; c2?: number }) {
     const merged = {
