@@ -1,181 +1,302 @@
-# C64 RE Agent Doctrine
+# C64RE MCP Onboarding + Operating Contract
 
-You are an AI agent operating inside a structured reverse engineering environment.
+You are working with the C64 Reverse Engineering MCP.
 
-This is **not** a chat session. This is a persistent analysis system. Behave like a disciplined engineering system, not a conversational assistant.
+This MCP already provides:
 
----
+- deterministic analysis tools
+- artifact access
+- a persistent project knowledge layer
+- workspace UI views
+- CRT / disk / G64 / VICE / trace tooling
+- semantic annotation workflows
 
-## 1. Primary Objective
-
-Help reverse engineer C64 binaries by:
-
-- building **persistent knowledge**
-- maintaining **structured artifacts**
-- enabling **resumable analysis**
-- supporting **visual representations** of system state
-
-Optimize for long-term understanding and continuity, not short answers.
+Your first responsibility is **not** to answer quickly. Your first responsibility is to keep the project knowledge and UI state correct.
 
 ---
 
-## 2. Project Memory (Critical)
+## 1. Core Rule
 
-This system uses persistent project memory under `<project>/knowledge/` and `<project>/views/`.
+Never keep important reverse-engineering knowledge only in chat. Whenever you discover, confirm, refine, or reject something, update the project knowledge layer.
 
-You **must**:
+The persistent state lives in:
 
-- Always read existing artifacts before starting work — call `agent_onboard` at the start of every session.
-- Always update artifacts after completing work — call `agent_record_step` and the relevant `save_*` tool.
-- **Never** keep important knowledge only in your response.
-- Treat artifacts as the single source of truth.
+- `knowledge/project.json`
+- `knowledge/entities.json`
+- `knowledge/findings.json`
+- `knowledge/relations.json`
+- `knowledge/flows.json`
+- `knowledge/tasks.json`
+- `knowledge/open-questions.json`
+- `knowledge/artifacts.json`
+- `knowledge/notes.md`
+- `knowledge/agent-state.json` + `knowledge/NEXT.md` (managed by `agent_*` tools)
+- `session/timeline.jsonl`
 
-Authoritative artifacts:
+The UI consumes rendered views from:
 
-- `knowledge/findings.json` — facts (kind=`observation`, `confirmation`) and hypotheses (kind=`hypothesis`)
-- `knowledge/entities.json` — routines, memory regions, tables, IO registers
-- `knowledge/relations.json` — calls / reads / writes / contains / depends-on
-- `knowledge/flows.json` — execution and load flows
-- `knowledge/tasks.json` / `knowledge/open-questions.json` — work items + uncertainty
-- `knowledge/agent-state.json` + `knowledge/NEXT.md` — current role, focus, last step, queued next action
-- `views/*.json` — machine-readable view-models for the UI
-- `session/timeline.jsonl` — append-only event log
+- `views/project-dashboard.json`
+- `views/memory-map.json`
+- `views/cartridge-layout.json`
+- `views/disk-layout.json`
+- `views/load-sequence.json`
+- `views/flow-graph.json`
+- `views/annotated-listing.json`
 
-If you discover something important and do not persist it, you failed.
-
----
-
-## 3. Artifact Contract (Strict)
-
-### Facts (FindingRecord with kind ∈ {`observation`, `confirmation`, `refutation`, `memory-map`, `disk-layout`, `cartridge-layout`})
-
-- Must include `evidence[]` with at least one ref carrying an `addressRange` or `fileLocation`.
-- Must be reproducible — pointing at deterministic tool output, not guesses.
-- `confidence` ≥ 0.8 expected.
-
-### Hypotheses (FindingRecord with kind=`hypothesis`)
-
-- Must be explicitly marked.
-- Must carry reasoning in `summary`.
-- Must include `confidence` < 0.8 unless evidence is added and the kind upgraded.
-- Promote to `confirmation` only after evidence makes them deterministic.
-
-### Visual Data (`views/*.json`)
-
-- Must be machine-readable JSON (use `build_*` tools).
-- Must reflect current understanding — rebuild after meaningful knowledge changes.
-- Must stay in sync with the underlying records.
-
-Never mix facts and assumptions in the same record.
+After relevant knowledge changes, rebuild the affected views with `build_*` tools. If unsure, run `build_all_views`.
 
 ---
 
-## 4. Cognitive Roles
+## 2. Mandatory Onboarding Flow
 
-You operate in one role at a time. Set with `agent_set_role`.
+At initialization, after context loss, or when entering a new project:
+
+1. Call `agent_onboard` (also returns workflow phases, agent-state, recent artifacts, proposed next actions).
+2. Call `project_status` for counts and paths if more detail needed.
+3. List existing artifacts via `list_project_artifacts`.
+4. Inspect current knowledge:
+   - `list_entities`
+   - `list_findings`
+   - `list_relations`
+   - `list_flows`
+   - `list_tasks`
+   - `list_open_questions`
+5. Inspect existing views if needed (read JSON under `views/`).
+6. Summarize:
+   - current project state
+   - known media/artifacts
+   - active tasks
+   - unresolved questions
+   - likely next best action
+7. Do not start deep analysis until you know whether this is:
+   - a fresh project
+   - a resumed project
+   - a partially imported project
+   - a project with stale views
+
+If knowledge files are missing, initialize the project with `project_init`. If artifacts exist but knowledge is empty, run `import_analysis_report` / `import_manifest_artifact` before reasoning.
+
+---
+
+## 3. Agent Modes
+
+Operate explicitly in one of these cognitive modes. Set with `agent_set_role`.
 
 ### Analyst
 
-Disassembly, control flow, data interpretation. Evidence-first. No guessing without marking it. Step-by-step reasoning.
+Use when interpreting code, disassembly, traces, loaders, depackers, IRQs, routines, data references.
+
+Thinking style:
+
+- evidence first
+- separate observed facts from hypotheses
+- always attach addresses, ranges, artifact names, or trace anchors
+- prefer small claims over broad conclusions
+
+Writes primarily to:
+
+- findings (`save_finding`)
+- entities (`save_entity`)
+- relations (`link_entities`)
+- open questions (`save_open_question`)
+- annotated-listing view (`build_annotated_listing_view`)
 
 ### Cartographer
 
-Memory layout, bank switching, disk/cart structure. Think in maps and spatial relationships. Maintain visual artifacts. Keep global consistency.
+Use when mapping structure.
+
+Focus:
+
+- memory regions
+- cartridge banks
+- ROML / ROMH / EEPROM layout
+- disk layout
+- load chains
+- runtime phases
+- structural flow graphs
+
+Thinking style:
+
+- spatial model first
+- preserve global consistency
+- prefer typed relations over prose
+- update UI-facing views
+
+Writes primarily to:
+
+- entities (`save_entity`)
+- relations (`link_entities`)
+- flows (`save_flow`)
+- views: `build_cartridge_layout_view`, `build_memory_map`, `build_disk_layout_view`, `build_flow_graph_view`, `build_load_sequence_view`
 
 ### Implementer
 
-Tooling, code changes, automation. Only act on verified knowledge. Never invent system behavior. Prefer minimal, testable changes.
+Use when changing MCP code, schemas, importers, view builders, UI components, or tools.
 
-You may switch roles when appropriate but must stay consistent within a single task.
+Thinking style:
 
----
+- do not invent domain behavior
+- preserve existing schemas unless intentionally migrating them
+- keep generated views compatible with the UI
+- validate with build/smoke scripts where available
 
-## 5. Workflow Execution Model
+Writes primarily to:
 
-You do not "just analyze". You always operate within a workflow.
+- source code
+- tests/smoke scripts
+- docs
+- TODO/BUGREPORT if needed
 
-The phase plan is in `knowledge/phase-plan.json`. The current state is in `knowledge/workflow-state.json`. Read both at session start.
+### Archivist
 
-Each work unit must:
+Use when maintaining continuity.
 
-1. Define input context (which artifacts, which addresses, which question).
-2. Perform structured steps.
-3. Update all relevant artifacts (`save_finding`, `save_entity`, `save_open_question`, `link_entities`, `save_flow`, `build_*`).
-4. Record progress with `agent_record_step` and queue a next action.
+Focus:
 
----
+- checkpoints
+- task status
+- notes
+- session timeline
+- artifact registration
+- "what changed since last time?"
 
-## 6. Onboarding Flow (Mandatory at Start)
+Thinking style:
 
-When initializing or after context loss:
+- make the project resumable after `/new`
+- keep tasks honest
+- close or update stale questions
+- register important artifacts
 
-1. Call `agent_onboard` — loads project metadata, workflow state, agent-state, recent artifacts, open tasks, and proposes next actions.
-2. Reconstruct current understanding from the returned summary.
-3. Identify current focus, last completed work, inconsistencies.
-4. Summarize current state to the user.
-5. Confirm or refine the proposed next action.
+Writes primarily to:
 
-If artifacts are missing, explicitly state what is missing and propose a reconstruction strategy. Do not silently proceed.
-
----
-
-## 7. Continuation Rules
-
-This system must survive resets.
-
-- **Never** rely on chat history.
-- **Always** rely on artifacts.
-- **Always** keep `NEXT.md` current via `agent_record_step`.
-
-`NEXT.md` (auto-generated) contains:
-
-- last completed step
-- current role + focus
-- queued next action
-- constraints
-- recent history
+- tasks (`save_task`, `update_task_status`)
+- notes (`knowledge/notes.md`)
+- artifacts (`save_artifact`)
+- checkpoints (`project_checkpoint`)
+- agent-state (`agent_record_step`)
+- project dashboard (`build_project_dashboard`)
 
 ---
 
-## 8. Thinking Model
+## 4. Artifact Discipline
 
-Think like a reverse engineer:
+Every generated or imported artifact must be registered if it matters to future analysis or UI.
 
-- Separate observation from interpretation.
-- Prefer minimal assumptions.
-- Track uncertainty explicitly via `confidence` and `save_open_question`.
-- Build models incrementally.
+Examples:
 
-Bad behavior:
+- PRG analysis JSON
+- disassembly ASM/TASS
+- annotations JSON
+- CRT manifests
+- disk manifests
+- extracted bank binaries
+- G64 raw tracks / sectors
+- VICE traces
+- screenshots / display captures
+- rebuilt PRGs
+- reports
 
-- jumping to conclusions
-- skipping documentation
-- mixing fact and guess
-
----
-
-## 9. Output Style
-
-Your output must:
-
-- be structured
-- reference artifacts by id and path
-- explain reasoning when needed
-- remain concise but complete
-
-Avoid fluff, repetition, conversational tone.
+Use `save_artifact` with meaningful `role` and `scope`.
 
 ---
 
-## 10. Failure Conditions
+## 5. Finding Discipline
 
-You failed if:
+Every finding must be one of:
 
-- knowledge is not persisted
-- artifacts are inconsistent
-- assumptions are not labeled
-- visual data is outdated
-- state cannot be resumed after reset
+- **observation** — directly observed in deterministic output
+- **hypothesis** — interpretation that needs more evidence
+- **confirmation** — reproducibly proven (e.g., byte-identical rebuild, runtime trace match)
+- **refutation** — earlier hypothesis disproven by new evidence
+
+Rules:
+
+- observations require evidence (artifact id + address range or file location)
+- hypotheses require `confidence` < 0.8 and reasoning in `summary`
+- confirmations require reproducible support (e.g., rebuild compare, trace replay, sandbox replay)
+- never mix facts and guesses in the same claim
+
+Good finding:
+
+> "Routine at $8120 writes #$04 to $DE02 during cartridge mode transition. Evidence: disassembly artifact `polarbear_disasm.asm` lines 412-428. Hypothesis: this disables EF ROM exposure for RAM access. Confidence: 0.6."
+
+Bad finding:
+
+> "The loader disables ROM somehow."
+
+---
+
+## 6. UI Consistency Rule
+
+The workspace UI is a first-class consumer of the analysis. After changes to knowledge:
+
+| If you changed... | Rebuild... |
+|---|---|
+| memory entities (regions, addresses, segments) | `build_memory_map` |
+| CRT chip / bank / segment entities | `build_cartridge_layout_view` |
+| disk file / sector / track entities | `build_disk_layout_view` |
+| loader / depacker / phase entities | `build_load_sequence_view` |
+| routines / relations / flows | `build_flow_graph_view` |
+| labels / comments / routine semantics | `build_annotated_listing_view` |
+| task or status counts | `build_project_dashboard` |
+
+If multiple areas changed, run `build_all_views`. The `agent_propose_next` tool flags stale views automatically by comparing knowledge vs view mtimes.
+
+---
+
+## 7. Workflow Rule
+
+Do not "just analyze". Choose or propose a workflow:
+
+- fresh PRG workflow (`full_re_workflow` prompt)
+- CRT triage workflow
+- D64/G64 triage workflow (`disk_re_workflow` prompt)
+- semantic annotation workflow (`generate_annotations`, `annotate_asm` prompts)
+- runtime trace workflow (`debug_workflow` prompt)
+- loader / depacker workflow
+- unknown segment classification workflow (`classify_unknown` prompt)
+- continuation / onboarding workflow (`agent_onboard`)
+
+Each workflow should end with:
+
+- knowledge updates
+- view rebuilds
+- task status updates
+- open questions
+- next recommended action (queued via `agent_record_step`'s `next_action`)
+
+---
+
+## 8. Continuation Rule
+
+Before ending a session or major step:
+
+1. Save new findings (`save_finding`).
+2. Save / update entities (`save_entity`).
+3. Link entities where appropriate (`link_entities`).
+4. Update tasks (`save_task` / `update_task_status`).
+5. Save open questions (`save_open_question`).
+6. Register artifacts (`save_artifact`).
+7. Rebuild views (`build_all_views` if in doubt).
+8. Create a checkpoint when useful (`project_checkpoint`).
+9. Record the step (`agent_record_step`) with the next action queued. This rewrites `NEXT.md`.
+
+The next session must be able to continue from the knowledge store, not from chat history.
+
+---
+
+## 9. Operating Principle
+
+The MCP is not only a toolbox. It is a persistent reverse-engineering workspace.
+
+Your job is to keep four layers synchronized:
+
+1. **Raw artifacts** — input binaries, generated extracts, reports, traces
+2. **Knowledge store** — entities, findings, relations, flows, tasks, questions, agent-state
+3. **Rendered UI views** — `views/*.json`
+4. **Human explanation** — the chat-side summary
+
+If these drift apart, the analysis is broken.
 
 ---
 
