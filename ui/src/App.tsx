@@ -1507,12 +1507,42 @@ function CartridgePanel({
   onSelectEntity,
   onSelectChunk,
   onOpenHex,
+  onOpenAsm,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectChunk: (cartridgeArtifactId: string, chunk: CartridgeLutChunk) => void;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
+  onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
 }) {
+  // Pre-index .asm/.tass artifacts by filename stem so we can resolve
+  // bank-stem → asm artifact in O(1) on every click.
+  const asmArtifactsByStem = useMemo(() => {
+    const map = new Map<string, typeof snapshot.artifacts>();
+    for (const artifact of snapshot.artifacts) {
+      if (!/\.(asm|tass|s|a65)$/i.test(artifact.relativePath)) continue;
+      const stem = artifact.relativePath.split("/").pop()!.replace(/\.[^.]+$/, "");
+      // Strip common annotation suffixes so bank_00_8000_annotated also
+      // matches bank_00_8000.bin.
+      const normalizedStem = stem.replace(/_annotated$/i, "").replace(/_final$/i, "");
+      const list = map.get(normalizedStem) ?? [];
+      list.push(artifact);
+      map.set(normalizedStem, list);
+      if (normalizedStem !== stem) {
+        const exactList = map.get(stem) ?? [];
+        exactList.push(artifact);
+        map.set(stem, exactList);
+      }
+    }
+    return map;
+  }, [snapshot.artifacts]);
+
+  function asmArtifactsForChip(chip: CartridgeChipView | undefined) {
+    if (!chip?.file) return [] as Array<typeof snapshot.artifacts[number]>;
+    const stem = chip.file.replace(/\.[^.]+$/, "");
+    const direct = asmArtifactsByStem.get(stem) ?? [];
+    return direct;
+  }
   function findChipEntity(bank: number, loadAddress: number) {
     return snapshot.entities.find((entity) =>
       entity.kind === "chip" &&
@@ -1600,6 +1630,13 @@ function CartridgePanel({
                   title: `${cartridge.cartridgeName ?? cartridge.title} · Bank ${String(chip.bank).padStart(2, "0")} ${chip.slot ?? "ROML"}`,
                   baseAddress: slotBase,
                 });
+              }}
+              bankHasAsm={(_bank, chip) => asmArtifactsForChip(chip).length > 0}
+              onOpenBankAsm={(bank, chip) => {
+                const candidates = asmArtifactsForChip(chip);
+                if (candidates.length === 0) return;
+                const sources = bestAsmSourcesForArtifacts(candidates);
+                onOpenAsm(`Bank ${String(bank.bank).padStart(2, "0")} ${chip?.slot ?? "ROML"}`, sources);
               }}
             />
           );
@@ -3905,6 +3942,7 @@ export function App() {
                   setSelectedEntityId(null);
                 }}
                 onOpenHex={openHexOverlay}
+                onOpenAsm={openAsmOverlay}
               />
             ) : null}
             {activeTab === "disk" ? (

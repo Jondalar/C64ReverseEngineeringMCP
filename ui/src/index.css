@@ -1464,6 +1464,30 @@ button {
   cursor: not-allowed;
 }
 
+.cart-bank-asm-button {
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #ffd87a;
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-transform: uppercase;
+  margin-left: 4px;
+}
+
+.cart-bank-asm-button:hover {
+  border-color: #ffd87a;
+  background: rgba(255, 216, 122, 0.12);
+}
+
+.cart-bank-asm-button[disabled] {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 .cart-lut-filter {
   display: flex;
   flex-wrap: wrap;
