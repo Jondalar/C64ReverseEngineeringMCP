@@ -3,7 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { scanRegistrationDelta } from "../lib/registration-delta.js";
+import { countUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import type { ServerToolContext } from "./types.js";
 
 const AGENT_STATE_SCHEMA_VERSION = 1;
@@ -133,7 +133,7 @@ function textContent(text: string) {
 
 interface ProposalCandidate {
   rank: number;
-  source: "phase" | "task" | "question" | "next-action" | "fallback" | "stale-view" | "unregistered-files";
+  source: "phase" | "task" | "question" | "next-action" | "fallback" | "stale-view" | "unregistered-files" | "unimported-analysis";
   reason: string;
   suggestion: string;
 }
@@ -224,6 +224,16 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
       source: "unregistered-files",
       reason: `${reg.unregisteredCount} files match c64re extensions but are absent from artifacts.json (${extSummary})`,
       suggestion: `Run register_existing_files with appropriate glob patterns, or scan_registration_delta to inspect first.`,
+    });
+  }
+
+  const unimportedAnalysis = countUnimportedAnalysisArtifacts(service);
+  if (unimportedAnalysis > 0) {
+    candidates.push({
+      rank: candidates.length,
+      source: "unimported-analysis",
+      reason: `${unimportedAnalysis} analysis-run artifact(s) registered but never imported into entities/findings`,
+      suggestion: `Run bulk_import_analysis_reports — closes the loadSequence/Memory-Map "Payload focus" gap so stages back-link to entities.`,
     });
   }
 
@@ -355,6 +365,13 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         lines.push(`  Top extensions: ${sorted.map(([e, n]) => `${e}=${n}`).join(", ")}`);
         lines.push(`  Run scan_registration_delta to inspect, then register_existing_files to fix.`);
       }
+      const unimportedAnalysis = countUnimportedAnalysisArtifacts(service);
+      if (unimportedAnalysis > 0) {
+        lines.push(``);
+        lines.push(`⚠ ${unimportedAnalysis} analysis-run artifact(s) are registered but never imported.`);
+        lines.push(`  Their entities/findings/relations are missing from the knowledge layer.`);
+        lines.push(`  Run bulk_import_analysis_reports to back-fill — closes the Memory-Map / loadSequence Payload-Focus gap.`);
+      }
       lines.push(``);
       lines.push(`## History (last ${Math.min(HISTORY_RENDERED, state.history.length)} of ${state.history.length})`);
       if (state.history.length === 0) {
@@ -445,6 +462,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       };
       const saved = persistState(projectRoot, project.name, next);
       const reg = scanRegistrationDelta(projectRoot, 0);
+      const unimportedAnalysis = countUnimportedAnalysisArtifacts(service);
       const out = [
         `Step recorded.`,
         `Role: ${saved.role}`,
@@ -458,6 +476,11 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         out.push(``);
         out.push(`⚠ ${reg.unregisteredCount} files on disk are NOT registered (top: ${sorted.map(([e, n]) => `${e}=${n}`).join(", ")}).`);
         out.push(`  A run is not finished until artifacts are registered. Call register_existing_files before sealing this step.`);
+      }
+      if (unimportedAnalysis > 0) {
+        out.push(``);
+        out.push(`⚠ ${unimportedAnalysis} analysis-run artifact(s) registered but not imported into entities.`);
+        out.push(`  Run bulk_import_analysis_reports to back-fill the knowledge layer.`);
       }
       return textContent(out.join("\n"));
     },

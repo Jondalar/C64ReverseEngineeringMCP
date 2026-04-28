@@ -169,6 +169,41 @@ export function listCandidateFiles(projectRoot: string): string[] {
   return out;
 }
 
+// Find analysis-run artifacts that have not yet been imported as entities.
+// "Imported" = at least one entity in the project references the artifact
+// id via its `artifactIds` field. Used by bulk_import_analysis_reports
+// and surfaced as a separate banner / propose-next signal.
+export interface UnimportedAnalysisArtifact {
+  id: string;
+  relativePath: string;
+  title: string;
+  createdAt: string;
+}
+
+export function findUnimportedAnalysisArtifacts(
+  service: import("../project-knowledge/service.js").ProjectKnowledgeService,
+): UnimportedAnalysisArtifact[] {
+  const artifacts = service.listArtifacts().filter((a) => a.kind === "analysis-run");
+  if (artifacts.length === 0) return [];
+  const referenced = new Set<string>();
+  for (const entity of service.listEntities()) {
+    for (const id of entity.artifactIds) referenced.add(id);
+  }
+  const out: UnimportedAnalysisArtifact[] = [];
+  for (const a of artifacts) {
+    if (!referenced.has(a.id)) {
+      out.push({ id: a.id, relativePath: a.relativePath, title: a.title, createdAt: a.createdAt });
+    }
+  }
+  return out;
+}
+
+export function countUnimportedAnalysisArtifacts(
+  service: import("../project-knowledge/service.js").ProjectKnowledgeService,
+): number {
+  return findUnimportedAnalysisArtifacts(service).length;
+}
+
 export function statSafe(path: string): { size: number; isFile: boolean } | null {
   try {
     const s = statSync(path);

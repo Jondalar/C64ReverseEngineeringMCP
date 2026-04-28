@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { listCandidateFiles, matchesGlob, scanRegistrationDelta, statSafe } from "../lib/registration-delta.js";
+import { findUnimportedAnalysisArtifacts, listCandidateFiles, matchesGlob, scanRegistrationDelta, statSafe } from "../lib/registration-delta.js";
 import type { ServerToolContext } from "./types.js";
 
 const KIND_VALUES = [
@@ -161,6 +161,70 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
         for (const f of delta.unregistered) lines.push(`  ${f}`);
       } else {
         lines.push(`✓ No unregistered files. Artifact store is in sync.`);
+      }
+      return textContent(lines.join("\n"));
+    },
+  );
+
+  server.tool(
+    "bulk_import_analysis_reports",
+    "Walk every analysis-run artifact in the project and call import_analysis_report on those whose entities are not yet back-linked. Closes the gap that opens when bulk CLI runs (`dist/pipeline/cli.cjs analyze-prg`) register the analysis JSON but never invoke the entity / finding importer. After this runs, the loadSequence Payload-Focus dropdown in the workspace UI populates with non-empty stages and memory-map filtering becomes meaningful again.",
+    {
+      project_dir: z.string().optional(),
+      limit: z.number().int().positive().max(2000).optional().describe("Max artifacts to import in one call. Default 500."),
+      dry_run: z.boolean().optional().describe("If true, return the planned import set without writing."),
+    },
+    async (args) => {
+      const projectRoot = ctx.projectDir(args.project_dir);
+      const service = new ProjectKnowledgeService(projectRoot);
+      const candidates = findUnimportedAnalysisArtifacts(service);
+      const limit = args.limit ?? 500;
+      const slice = candidates.slice(0, limit);
+      if (args.dry_run) {
+        const lines: string[] = [];
+        lines.push(`bulk_import_analysis_reports (dry run)`);
+        lines.push(`Project: ${projectRoot}`);
+        lines.push(`Unimported analysis-run artifacts: ${candidates.length}`);
+        lines.push(`Would import (limit=${limit}): ${slice.length}`);
+        if (slice.length > 0) {
+          lines.push(``);
+          lines.push(`Examples:`);
+          for (const a of slice.slice(0, 10)) lines.push(`  ${a.id} (${a.relativePath})`);
+        }
+        return textContent(lines.join("\n"));
+      }
+      let imported = 0;
+      let entityTotal = 0;
+      let findingTotal = 0;
+      let relationTotal = 0;
+      let flowTotal = 0;
+      let questionTotal = 0;
+      const errors: Array<{ id: string; error: string }> = [];
+      for (const a of slice) {
+        try {
+          const r = service.importAnalysisArtifact(a.id);
+          imported += 1;
+          entityTotal += r.importedEntityCount;
+          findingTotal += r.importedFindingCount;
+          relationTotal += r.importedRelationCount;
+          flowTotal += r.importedFlowCount;
+          questionTotal += r.importedOpenQuestionCount;
+        } catch (e) {
+          errors.push({ id: a.id, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      const lines: string[] = [];
+      lines.push(`bulk_import_analysis_reports complete.`);
+      lines.push(`Project: ${projectRoot}`);
+      lines.push(`Imported: ${imported} of ${slice.length} attempted (${candidates.length} candidates total).`);
+      if (candidates.length > slice.length) {
+        lines.push(`More candidates remain (${candidates.length - slice.length}); raise --limit or run again.`);
+      }
+      lines.push(`Aggregate: ${entityTotal} entities, ${findingTotal} findings, ${relationTotal} relations, ${flowTotal} flows, ${questionTotal} questions.`);
+      if (errors.length > 0) {
+        lines.push(``);
+        lines.push(`Errors (${errors.length}, first 5):`);
+        for (const e of errors.slice(0, 5)) lines.push(`  ${e.id}: ${e.error}`);
       }
       return textContent(lines.join("\n"));
     },

@@ -249,6 +249,14 @@ Detection helpers — surface the gap automatically:
 - `agent_propose_next` — promotes "register N unregistered files" to a top-rank suggestion.
 - `agent_record_step` — warns when sealing a step with unregistered files outstanding.
 
+### 4b. Bulk imports vs registration — the second leakage path
+
+Even when the artifact registration is in sync, a second gap appears when bulk CLI runs (`dist/pipeline/cli.cjs analyze-prg`) register the analysis JSON but never invoke `import_analysis_report`. The artifact is tracked, but the entities / findings / relations / open questions inside the report stay un-extracted, and any UI feature that filters by stage→entity (memory-map Payload-Focus, load-sequence stage tags) silently shows a no-op.
+
+Catch-up tool: `bulk_import_analysis_reports`. Walks every analysis-run artifact and runs `importAnalysisArtifact` on those whose entities are not yet back-linked. Same dry-run / live-run / progress-summary shape as `register_existing_files`.
+
+Detection: `agent_onboard`, `agent_propose_next`, and `agent_record_step` surface the unimported-analysis count alongside the unregistered-file count. The workspace UI banner shows both gaps as separate warning lines. A run is not finished until both are zero.
+
 Bypass guard: append `--no-register` to the pipeline CLI to suppress auto-registration in the rare cases where filesystem-only output is intentional (test fixtures, throwaway experiments).
 
 ---

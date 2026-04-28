@@ -222,6 +222,13 @@ button {
   background: rgba(0, 0, 0, 0.4);
 }
 
+.registration-banner-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1;
+}
+
 .app-main-grid {
   display: grid;
   gap: 1rem;

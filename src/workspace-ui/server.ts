@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { scanRegistrationDelta } from "../lib/registration-delta.js";
+import { findUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import { buildGraphicsView } from "./graphics-view.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
 import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx } from "../compression-tools.js";
@@ -992,7 +992,13 @@ const server = createServer((req, res) => {
         ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!.trim())
         : options.projectDir;
       const delta = scanRegistrationDelta(projectDir, 50);
-      send(res, jsonResponse(200, delta));
+      const service = new ProjectKnowledgeService(projectDir);
+      const unimported = findUnimportedAnalysisArtifacts(service);
+      send(res, jsonResponse(200, {
+        ...delta,
+        unimportedAnalysisCount: unimported.length,
+        unimportedAnalysisExamples: unimported.slice(0, 10).map((u) => u.relativePath),
+      }));
     } catch (e) {
       send(res, jsonResponse(500, { error: e instanceof Error ? e.message : String(e) }));
     }

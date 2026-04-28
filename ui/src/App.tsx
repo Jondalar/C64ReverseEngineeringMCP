@@ -3365,7 +3365,7 @@ function CartChunkInspector({
 }
 
 function RegistrationBanner() {
-  const [delta, setDelta] = useState<{ unregisteredCount: number; unregisteredByExt: Record<string, number> } | null>(null);
+  const [delta, setDelta] = useState<{ unregisteredCount: number; unregisteredByExt: Record<string, number>; unimportedAnalysisCount?: number } | null>(null);
   const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -3375,7 +3375,10 @@ function RegistrationBanner() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
-  if (!delta || delta.unregisteredCount === 0 || dismissed) return null;
+  if (!delta || dismissed) return null;
+  const hasUnregistered = delta.unregisteredCount > 0;
+  const hasUnimported = (delta.unimportedAnalysisCount ?? 0) > 0;
+  if (!hasUnregistered && !hasUnimported) return null;
   const exts = Object.entries(delta.unregisteredByExt)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
@@ -3383,10 +3386,20 @@ function RegistrationBanner() {
     .join(", ");
   return (
     <div className="registration-banner">
-      <span>
-        <strong>⚠ {delta.unregisteredCount} files on disk are not registered as artifacts.</strong>
-        {" "}Top extensions: {exts}. Run <code>register_existing_files</code> from the agent to fix.
-      </span>
+      <div className="registration-banner-lines">
+        {hasUnregistered ? (
+          <div>
+            <strong>⚠ {delta.unregisteredCount} files on disk are not registered as artifacts.</strong>
+            {" "}Top extensions: {exts}. Run <code>register_existing_files</code> from the agent to fix.
+          </div>
+        ) : null}
+        {hasUnimported ? (
+          <div>
+            <strong>⚠ {delta.unimportedAnalysisCount} analysis-run artifact(s) registered but never imported.</strong>
+            {" "}Entities / findings missing → loadSequence Payload-Focus stages have no linked entities. Run <code>bulk_import_analysis_reports</code> to back-fill.
+          </div>
+        ) : null}
+      </div>
       <button type="button" onClick={() => setDismissed(true)}>dismiss</button>
     </div>
   );
