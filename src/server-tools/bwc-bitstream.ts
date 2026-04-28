@@ -45,7 +45,8 @@ export function registerBwcBitstreamTools(server: McpServer, ctx: ServerToolCont
       input_path: z.string().describe("Path to the packed source (cart bank chip or arbitrary binary). Resolved against project dir."),
       offset: z.string().optional().describe("Hex offset into input_path where the chunk starts. Default 0."),
       output_path: z.string().optional().describe("Output PRG path. Default analysis/depack/bwc/<stem>-<offset>.prg."),
-      resident_loader_path: z.string().describe("Path to the BWC resident loader PRG containing $C992 (e.g. analysis/prg/resident_loader_c800.prg)."),
+      resident_loader_path: z.string().describe("Path to the BWC resident loader PRG containing the depacker (e.g. analysis/prg/resident_loader_c800.prg)."),
+      entry_pc: z.string().optional().describe("Hex PC of the depacker entry point. Default: byte-fingerprint scan of the resident loader, falls back to $C992 (BWC1). Pass explicitly for variants — BWC2 uses $CA13."),
       return_header: z.boolean().optional().describe("Include parsed header values in the response."),
       max_steps: z.number().int().positive().optional().describe("Max sandbox instruction count. Default 5_000_000."),
     },
@@ -62,6 +63,7 @@ export function registerBwcBitstreamTools(server: McpServer, ctx: ServerToolCont
         residentLoader: residentBytes,
         residentLoadAddress: loadAddress,
         maxSteps: args.max_steps,
+        entryPc: args.entry_pc ? parseHexU(args.entry_pc) : undefined,
       });
       const outPath = args.output_path
         ? resolve(projectRoot, args.output_path)
@@ -211,6 +213,7 @@ export function registerBwcBitstreamTools(server: McpServer, ctx: ServerToolCont
       offset: z.string().optional(),
       output_path: z.string().optional(),
       resident_loader_path: z.string().optional().describe("Required if the chunk is bitstream. Path to the resident loader PRG."),
+      entry_pc: z.string().optional().describe("Hex PC of the bitstream depacker. Default: byte-fingerprint scan, falls back to $C992. Pass $CA13 for BWC2."),
     },
     async (args) => {
       const projectRoot = ctx.projectDir(undefined, true);
@@ -229,6 +232,7 @@ export function registerBwcBitstreamTools(server: McpServer, ctx: ServerToolCont
           packed: buf.subarray(offset),
           residentLoader: residentBytes,
           residentLoadAddress: loadAddress,
+          entryPc: args.entry_pc ? parseHexU(args.entry_pc) : undefined,
         });
         const outPath = args.output_path
           ? resolve(projectRoot, args.output_path)

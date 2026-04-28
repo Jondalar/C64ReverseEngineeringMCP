@@ -22,6 +22,7 @@ import { registerPromptTools } from "./server-tools/prompts.js";
 import { registerPayloadTools } from "./server-tools/payloads.js";
 import { registerRegistrationTools } from "./server-tools/registration.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
+import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { registerViceTools } from "./server-tools/vice.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
 
@@ -112,6 +113,7 @@ function createServer(): McpServer {
   registerPayloadTools(server, toolContext);
   registerRegistrationTools(server, toolContext);
   registerSandboxTools(server, toolContext);
+  registerSandboxDepackTool(server, toolContext);
   registerViceTools(server, toolContext);
   registerProjectKnowledgeTools(server, { repoDir: repoDir() });
 

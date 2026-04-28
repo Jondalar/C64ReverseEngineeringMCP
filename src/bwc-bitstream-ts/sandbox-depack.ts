@@ -19,6 +19,11 @@ export interface SandboxDepackOptions {
   // Cap on instruction count. Default 5_000_000 (a single 16 KB chunk
   // typically depacks in <1M steps).
   maxSteps?: number;
+  // Entry point of the bit-stream depacker inside the resident loader.
+  // BWC1 = $C992 (default). BWC2 ships the same depacker shape one
+  // page later at $CA13. Other Pucrunch-derived loaders may move it
+  // again; passing entryPc keeps the tool format-agnostic.
+  entryPc?: number;
 }
 
 export interface SandboxDepackResult {
@@ -32,6 +37,30 @@ export interface SandboxDepackResult {
 }
 
 export class SandboxDepackError extends Error {}
+
+// Locate the bitstream depacker entry inside a resident loader by
+// fingerprint. The Pucrunch-derived BWC depacker starts with:
+//   lda $52              ; A5 52
+//   sta XX YY            ; 8D ?? ??   self-mod source pointer lo
+//   lda $53              ; A5 53
+//   sta XX YY            ; 8D ?? ??   self-mod source pointer hi
+//   ldx #$04             ; A2 04
+// Returns the absolute address (residentAddress + offset) of the first
+// match, or undefined if no match exists.
+export function detectBitstreamEntry(residentLoader: Uint8Array, residentAddress: number): number | undefined {
+  for (let i = 0; i + 12 <= residentLoader.length; i++) {
+    if (
+      residentLoader[i] === 0xa5 && residentLoader[i + 1] === 0x52 &&
+      residentLoader[i + 2] === 0x8d &&
+      residentLoader[i + 5] === 0xa5 && residentLoader[i + 6] === 0x53 &&
+      residentLoader[i + 7] === 0x8d &&
+      residentLoader[i + 10] === 0xa2 && residentLoader[i + 11] === 0x04
+    ) {
+      return residentAddress + i;
+    }
+  }
+  return undefined;
+}
 
 export function sandboxDepack(opts: SandboxDepackOptions): SandboxDepackResult {
   const chunk = parseHeader(opts.packed);
@@ -70,6 +99,7 @@ export function sandboxDepack(opts: SandboxDepackOptions): SandboxDepackResult {
   // Capture writes across the entire 64K. The depacker also writes the
   // small literal table to $0101..$0100+y but we filter by [dest,
   // dest+max_window] when extracting the unpacked block.
+  const entryPc = opts.entryPc ?? detectBitstreamEntry(opts.residentLoader, residentAddress) ?? 0xc992;
   const result = runSandbox({
     loads: [
       { bytes: opts.residentLoader, address: residentAddress },
@@ -80,7 +110,7 @@ export function sandboxDepack(opts: SandboxDepackOptions): SandboxDepackResult {
       // range coincide — see sandbox-depack history.
       { bytes: opts.packed, address: sourceLoad, mapping: "ram" },
     ],
-    initialPc: 0xc992,
+    initialPc: entryPc,
     initialZp: { 0x52: sourceLoad & 0xff, 0x53: (sourceLoad >> 8) & 0xff },
     maxSteps: opts.maxSteps ?? 5_000_000,
   });
