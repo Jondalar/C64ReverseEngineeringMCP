@@ -2,9 +2,10 @@
 
 Self-contained MCP server for LLM-driven reverse engineering of Commodore 64
 software. Bundles the TRXDis analysis pipeline, a project-knowledge layer,
-a workspace UI, and an MCP tool surface for an LLM client (Claude Code,
-Cursor, Codex, …) to reason about PRGs, CRTs, D64 / G64 disks, packed
-streams, runtime traces, and custom loaders.
+an agent-workflow doctrine, a workspace UI, and an MCP tool surface for an
+LLM client (Claude Code, Cursor, Codex, …) to reason about PRGs, CRTs,
+D64 / G64 disks, packed streams (incl. BWC / Pucrunch-derived bit-streams),
+runtime traces, and custom loaders.
 
 ## Why an LLM
 
@@ -27,20 +28,22 @@ against the original PRG.
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│  LLM Client (Claude Code, Cursor, Codex, …)                │
-│       │                                                    │
-│       │ MCP prompts + tools (stdio)                        │
-│       ▼                                                    │
-│  MCP Server  ─────────  Project Knowledge Layer            │
-│   - analysis              (entities · findings · flows ·   │
-│   - crt / disk             relations · tasks · views)      │
-│   - compression                  │                         │
-│   - vice runtime                 ▼                         │
-│   - headless runtime      Workspace UI Server              │
-│   - sandbox 6502           (Vite/React, hex overlay,       │
-│   - knowledge layer         cart bank grid, flow graph)    │
-└────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  LLM Client (Claude Code, Cursor, Codex, …)                 │
+│       │                                                     │
+│       │ MCP prompts + tools (stdio)                         │
+│       ▼                                                     │
+│  MCP Server  ─────────  Project Knowledge Layer             │
+│   - analysis              (entities · findings · flows ·    │
+│   - crt / disk             relations · tasks · views ·      │
+│   - compression            agent-state · NEXT.md)           │
+│   - bwc bitstream                │                          │
+│   - vice runtime                 ▼                          │
+│   - headless runtime      Workspace UI Server               │
+│   - sandbox 6502           (Vite/React, hex overlay,        │
+│   - agent-workflow         cart bank grid, flow graph,      │
+│   - knowledge layer        scrub / graphics tabs)           │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 Detailed walkthrough: [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md).
@@ -109,6 +112,31 @@ npm run ui:spike            # build + serve against the example example
 See [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md) for the cart
 grid, hex overlay, and flow-graph views.
 
+## Agent workflow
+
+The MCP ships an operating doctrine plus tooling that makes sessions
+resumable across context resets.
+
+- **Doctrine** ([docs/agent-doctrine.md](docs/agent-doctrine.md), MCP prompt
+  `c64re_agent_doctrine`) — onboarding flow, artifact contract
+  (facts vs hypotheses), four-layer model (artifacts → knowledge → views →
+  human explanation), continuation rules.
+- **Cognitive roles** (`agent_set_role`):
+  - **analyst** — disassembly, control flow, data interpretation.
+  - **cartographer** — memory layout, bank switching, disk / cart
+    structure, structural flows.
+  - **implementer** — MCP host code, schemas, importers, view builders,
+    UI components.
+  - **archivist** — continuity: tasks, checkpoints, notes, artifact
+    registration, session timeline.
+  - **cracker** — modifying target C64 binaries (patches, trainers, bug
+    fixes, mods, ports). Decision ladder spans single-byte patches up to
+    relocated routine rewrites.
+- **Tools**: `agent_onboard` (reload state at session start),
+  `agent_set_role`, `agent_record_step` (rewrites
+  `<project>/knowledge/NEXT.md`), `agent_propose_next` (ranked
+  next-action suggestions including stale-view detection).
+
 ## Tool surface
 
 Per-area docs (full tool tables + workflow notes):
@@ -119,10 +147,12 @@ Per-area docs (full tool tables + workflow notes):
 | CRT cartridges (`extract_crt`, `reconstruct_lut`, `disasm_menu`, …) | [docs/tools/crt.md](docs/tools/crt.md) |
 | Disk images (`inspect_disk`, `extract_disk`, G64 low-level, …) | [docs/tools/disk.md](docs/tools/disk.md) |
 | Compression (RLE, Exomizer raw / SFX / shared-encoding, BB2, depack triage) | [docs/tools/compression.md](docs/tools/compression.md) |
+| BWC bit-stream codec (`pack_bwc_bitstream`, `depack_bwc_bitstream`, raw + dispatch) | `src/bwc-bitstream-ts/` |
 | C64Ref ROM knowledge (BASIC + KERNAL lookup) | [docs/tools/c64ref.md](docs/tools/c64ref.md) |
 | VICE runtime / debugger (sessions, traces, monitor, breakpoints) | [docs/tools/vice.md](docs/tools/vice.md) |
 | Headless RE runtime (loader / depacker analysis) | [docs/tools/headless.md](docs/tools/headless.md) |
-| 6502 sandbox (`sandbox_6502_run` for porting depackers) | [docs/tools/sandbox.md](docs/tools/sandbox.md) |
+| 6502 sandbox (`sandbox_6502_run` — full 256-opcode coverage incl. undoc set, optional EasyFlash-style ROM overlay for cart depackers) | [docs/tools/sandbox.md](docs/tools/sandbox.md) |
+| Agent workflow (`agent_onboard`, `agent_set_role`, `agent_record_step`, `agent_propose_next`) | [docs/agent-doctrine.md](docs/agent-doctrine.md) |
 | Project knowledge (entities, findings, flows, view builders) | [docs/tools/knowledge.md](docs/tools/knowledge.md) |
 | Artifact access (`read_artifact`, `list_artifacts`, `build_tools`) | [docs/tools/artifacts.md](docs/tools/artifacts.md) |
 
@@ -134,6 +164,10 @@ Per-area docs (full tool tables + workflow notes):
 - [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md) — project
   knowledge store schema, view builders, workspace UI panels, hex
   overlay, server endpoints.
+- [docs/agent-doctrine.md](docs/agent-doctrine.md) — operating contract
+  for an LLM session inside a project: onboarding flow, artifact
+  discipline, cognitive roles, UI consistency rules, continuation
+  checklist.
 - [docs/c64-reverse-engineering-skill.md](docs/c64-reverse-engineering-skill.md)
   — canonical workflow / skill text the prompts reference.
 - [TODO.md](TODO.md) — roadmap and known gaps.
