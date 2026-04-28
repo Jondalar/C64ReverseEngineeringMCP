@@ -229,6 +229,79 @@ button {
   flex: 1;
 }
 
+.memory-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 240px;
+}
+
+.memory-filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.memory-filter-clear {
+  background: transparent;
+  border: none;
+  color: var(--accent-2, #4db5ff);
+  cursor: pointer;
+  font-size: 0.78rem;
+  text-decoration: underline;
+}
+
+.memory-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0.35rem;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+}
+
+.memory-filter-pill {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0.55rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.memory-filter-pill:hover {
+  background: rgba(77, 181, 255, 0.12);
+}
+
+.memory-filter-pill-active {
+  background: rgba(77, 181, 255, 0.25);
+  border-color: rgba(77, 181, 255, 0.55);
+}
+
+.memory-filter-pill-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memory-filter-pill-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
 .app-main-grid {
   display: grid;
   gap: 1rem;
@@ -1613,6 +1686,14 @@ button {
   pointer-events: auto;
   cursor: help;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.cart-segment-clickable {
+  cursor: pointer;
+}
+
+.cart-segment-clickable:hover {
+  outline: 1px solid rgba(77, 181, 255, 0.85);
 }
 
 .cart-segment-startup {

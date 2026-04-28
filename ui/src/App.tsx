@@ -1336,22 +1336,37 @@ function MemoryMapPanel({
             <span><i className="legend-swatch legend-system" /> system</span>
             <span><i className="legend-swatch legend-other" /> other</span>
           </div>
-          <label className="memory-filter">
-            <span>Payload focus</span>
-            <select
-              multiple
-              value={selectedStageKeys}
-              onChange={(event) => {
-                const next = Array.from(event.target.selectedOptions).map((option) => option.value);
-                setSelectedStageKeys(next);
-              }}
-            >
-              {stageOptions.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.title} — {item.effectiveEntityCount} entit{item.effectiveEntityCount === 1 ? "y" : "ies"}
-                </option>
-              ))}
-            </select>
+          <div className="memory-filter">
+            <div className="memory-filter-header">
+              <span>Payload focus</span>
+              {selectedStageKeys.length > 0 ? (
+                <button type="button" className="memory-filter-clear" onClick={() => setSelectedStageKeys([])}>clear</button>
+              ) : null}
+            </div>
+            <div className="memory-filter-list" role="listbox" aria-multiselectable="true">
+              {stageOptions.map((item) => {
+                const active = selectedStageKeys.includes(item.key);
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    className={active ? "memory-filter-pill memory-filter-pill-active" : "memory-filter-pill"}
+                    onClick={() => {
+                      setSelectedStageKeys((current) =>
+                        current.includes(item.key)
+                          ? current.filter((k) => k !== item.key)
+                          : [...current, item.key]
+                      );
+                    }}
+                  >
+                    <span className="memory-filter-pill-title">{item.title}</span>
+                    <span className="memory-filter-pill-count">{item.effectiveEntityCount}</span>
+                  </button>
+                );
+              })}
+            </div>
             <small>
               {hasStageFilter
                 ? `${focusedStages.length} payloads focused, ${focusedEntityIds.size} entities matched`
@@ -1359,7 +1374,7 @@ function MemoryMapPanel({
                   ? "No filterable stages yet. Run bulk_import_analysis_reports to back-fill analysis JSON into entities."
                   : "No filter. Showing full address space."}
             </small>
-          </label>
+          </div>
         </div>
         <div className="memory-grid-wrap">
           <table className="memory-grid-table">
@@ -1553,6 +1568,27 @@ function CartridgePanel({
                 if (entity) onSelectEntity(entity.id);
               }}
               onSelectLutChunk={(chunk) => onSelectChunk(cartridge.artifactId, chunk)}
+              onSelectSegment={(segment) => {
+                const chip = cartridge.chips.find((candidate) => {
+                  if (candidate.bank !== segment.bank) return false;
+                  const candidateSlot = candidate.slot ?? "ROML";
+                  if (segment.slot === "ROML" && candidateSlot !== "ROML") return false;
+                  if ((segment.slot === "ROMH" || segment.slot === "ULTIMAX_ROMH") && candidateSlot === "ROML") return false;
+                  return true;
+                });
+                const path = chipArtifactPath(chip?.file, manifestArtifact?.relativePath);
+                if (!path) return;
+                const slotBase = segment.slot === "ROMH"
+                  ? (cartridge.slotLayout?.isUltimax ? 0xe000 : 0xa000)
+                  : (segment.slot === "ULTIMAX_ROMH" ? 0xe000 : 0x8000);
+                const labelFragment = segment.label ? `${segment.label} · ` : "";
+                onOpenHex(path, {
+                  title: `${cartridge.cartridgeName ?? cartridge.title} · ${labelFragment}bank ${String(segment.bank).padStart(2, "0")} ${segment.slot} ${segment.kind} ($${segment.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} +${segment.length})`,
+                  baseAddress: slotBase + segment.offsetInBank,
+                  offset: segment.offsetInBank,
+                  length: segment.length,
+                });
+              }}
               onOpenBankHex={(_bank, chip) => {
                 if (!chip) return;
                 const path = chipArtifactPath(chip.file, manifestArtifact?.relativePath);
