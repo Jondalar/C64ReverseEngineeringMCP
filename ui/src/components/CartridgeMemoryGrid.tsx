@@ -28,8 +28,6 @@ interface CartridgeMemoryGridProps {
   onSelectLutChunk?: (chunk: CartridgeLutChunk) => void;
   onSelectSegment?: (segment: CartridgeSegment) => void;
   onOpenBankHex?: (bank: CartridgeBankView, chip: CartridgeChipView | undefined) => void;
-  onOpenBankAsm?: (bank: CartridgeBankView, chip: CartridgeChipView | undefined) => void;
-  bankHasAsm?: (bank: CartridgeBankView, chip: CartridgeChipView | undefined) => boolean;
 }
 
 function formatHexWord(value: number): string {
@@ -69,8 +67,6 @@ export function CartridgeMemoryGrid({
   onSelectLutChunk,
   onSelectSegment,
   onOpenBankHex,
-  onOpenBankAsm,
-  bankHasAsm,
 }: CartridgeMemoryGridProps) {
   // "all" = no filter; otherwise show only chunks where this LUT appears
   // in their refs[]. Empty string also means all so the chip-only view
@@ -376,18 +372,6 @@ export function CartridgeMemoryGrid({
                   }}
                 >
                   mon
-                </button>
-                <button
-                  type="button"
-                  className="cart-bank-asm-button"
-                  title={bankHasAsm?.(bank, monChip) ? `Open disassembly for bank ${bank.bank}` : "No matching .asm/.tass artifact registered for this bank"}
-                  disabled={!bankHasAsm?.(bank, monChip) || !onOpenBankAsm}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (onOpenBankAsm) onOpenBankAsm(bank, monChip);
-                  }}
-                >
-                  asm
                 </button>
                 <button
                   type="button"
