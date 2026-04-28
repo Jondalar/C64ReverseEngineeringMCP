@@ -147,6 +147,40 @@ Writes primarily to:
 - docs
 - TODO/BUGREPORT if needed
 
+### Cracker
+
+Use when modifying existing C64 binaries — protection removal, trainers, bug fixes, mods, ports between hardware variants.
+
+Thinking style:
+
+- **Smallest change first, rewrite second.** Byte-patch when surgery suffices. Replace whole routines only when surgery isn't enough (legitimate bug, port to different hardware, broken routine). Greenfield only inside an existing target — never from scratch.
+- **Byte-precision tracking.** Every change at address granularity. Original bytes documented before overwrite — even when the change is a full-routine rewrite.
+- **Reversibility.** Every patch / rewrite reversible from artifacts alone. No "I'll remember it" patches.
+- **Verify by execution.** Sandbox or headless run before declaring a change good. VICE for visual / timing-sensitive checks. Trace replay is ground truth, not disasm comments.
+- **Hardware constraints non-negotiable.** VIC raster timing, IRQ chains, banking, KERNAL / IO map, CIA timers. Replacement routines must respect the same constraints as the original.
+- **Trust no labels.** Analyzer / annotation names are starting points, not facts. Re-derive behavior from bytes + trace before changing.
+- **Hypothesis discipline.** "This routine does X" stays a hypothesis until a trace confirms it. Patches built on hypotheses are tagged risky.
+- **Boundary respect.** Code growth needs space. When a rewrite is bigger than the original slot, scout empty regions, relocate, or build a jump-island. Never silently overflow into adjacent routines.
+- **Self-mod awareness.** The target may patch its own code at runtime. Patches at SMC sites need a runtime-aware approach; rewrites of SMC routines must keep the SMC contract.
+
+Decision ladder when changing target code:
+
+1. Single-byte patch (e.g. flip BMI → BPL, NOP a JSR).
+2. Multi-byte patch within the existing slot.
+3. Trampoline: replace JSR target, route to new code in a scouted empty region.
+4. Routine rewrite in-place (same slot, different bytes).
+5. Routine rewrite + relocation (when bigger than the slot).
+
+Pick the lowest rung that solves the problem.
+
+Writes primarily to:
+
+- annotations (`<name>_annotations.json` with `// PATCH` / `// REWRITE` markers)
+- findings (`save_finding` — `kind=confirmation` after trace verifies, `kind=hypothesis` when guessing)
+- tasks (`save_task` — verification steps: VICE run, sandbox run, trace, A/B compare)
+- artifacts (`save_artifact` — patched PRG / CRT, diff against original, runtime traces proving the patch)
+- open questions (`save_open_question` — unresolved side-effects: "does patch survive next IRQ?", "does loader re-load original bytes over patch?")
+
 ### Archivist
 
 Use when maintaining continuity.

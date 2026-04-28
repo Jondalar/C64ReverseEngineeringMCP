@@ -7,7 +7,7 @@ import type { ServerToolContext } from "./types.js";
 
 const AGENT_STATE_SCHEMA_VERSION = 1;
 
-export const AgentRoleSchema = z.enum(["analyst", "cartographer", "implementer", "archivist", "unset"]);
+export const AgentRoleSchema = z.enum(["analyst", "cartographer", "implementer", "archivist", "cracker", "unset"]);
 export type AgentRole = z.infer<typeof AgentRoleSchema>;
 
 const AgentHistoryEntrySchema = z.object({
@@ -355,7 +355,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
     "Set the cognitive role for the current agent session (analyst, cartographer, implementer). Persists to agent-state.json + NEXT.md.",
     {
       project_dir: z.string().optional(),
-      role: AgentRoleSchema.describe("analyst (disasm/control flow), cartographer (memory/bank maps), implementer (tooling/code), archivist (continuity, tasks, checkpoints, artifact registration), or unset"),
+      role: AgentRoleSchema.describe("analyst (disasm/control flow), cartographer (memory/bank maps), implementer (MCP tooling/host code), archivist (continuity, tasks, checkpoints, artifact registration), cracker (modifying target C64 binaries: patches, trainers, bug fixes, ports), or unset"),
       focus: z.string().optional().describe("Optional one-line focus statement for this role assignment"),
       constraints: z.array(z.string()).optional().describe("Optional list of constraints active for this role/session"),
     },
