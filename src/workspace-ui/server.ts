@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { scanRegistrationDelta } from "../lib/registration-delta.js";
 import { buildGraphicsView } from "./graphics-view.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
 import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx } from "../compression-tools.js";
@@ -982,6 +983,19 @@ const server = createServer((req, res) => {
 
   if (requestUrl.pathname === "/api/health") {
     send(res, jsonResponse(200, { ok: true }));
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/registration-delta") {
+    try {
+      const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+        ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!.trim())
+        : options.projectDir;
+      const delta = scanRegistrationDelta(projectDir, 50);
+      send(res, jsonResponse(200, delta));
+    } catch (e) {
+      send(res, jsonResponse(500, { error: e instanceof Error ? e.message : String(e) }));
+    }
     return;
   }
 

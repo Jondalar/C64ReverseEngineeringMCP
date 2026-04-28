@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { scanRegistrationDelta } from "../lib/registration-delta.js";
 import type { ServerToolContext } from "./types.js";
 
 const AGENT_STATE_SCHEMA_VERSION = 1;
@@ -132,7 +133,7 @@ function textContent(text: string) {
 
 interface ProposalCandidate {
   rank: number;
-  source: "phase" | "task" | "question" | "next-action" | "fallback" | "stale-view";
+  source: "phase" | "task" | "question" | "next-action" | "fallback" | "stale-view" | "unregistered-files";
   reason: string;
   suggestion: string;
 }
@@ -206,6 +207,23 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
       suggestion: stale.length >= 3
         ? `Run build_all_views — multiple views are out of sync with knowledge.`
         : `Rebuild stale view(s): ${stale.map((p) => p.replace(/^views\//, "").replace(/\.json$/, "")).join(", ")}`,
+    });
+  }
+
+  // Failsafe: surface unregistered-file delta as a top candidate. When
+  // bulk operations bypassed the MCP layer (direct CLI loops, Node lib
+  // imports, hand-emitted files), the artifact store falls behind the
+  // filesystem. The agent must run register_existing_files before the
+  // next session can rely on agent_onboard.
+  const reg = scanRegistrationDelta(projectRoot, 5);
+  if (reg.unregisteredCount > 0) {
+    const sorted = Object.entries(reg.unregisteredByExt).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const extSummary = sorted.map(([ext, n]) => `${ext}=${n}`).join(", ");
+    candidates.push({
+      rank: candidates.length,
+      source: "unregistered-files",
+      reason: `${reg.unregisteredCount} files match c64re extensions but are absent from artifacts.json (${extSummary})`,
+      suggestion: `Run register_existing_files with appropriate glob patterns, or scan_registration_delta to inspect first.`,
     });
   }
 
@@ -327,6 +345,17 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const recent = recentArtifactSummary(service, projectRoot);
       lines.push(...(recent.length === 0 ? ["_(none registered)_"] : recent));
       lines.push(``);
+      lines.push(`## Registration Delta`);
+      const reg = scanRegistrationDelta(projectRoot, 0);
+      if (reg.unregisteredCount === 0) {
+        lines.push(`✓ Filesystem and artifact store are in sync.`);
+      } else {
+        const sorted = Object.entries(reg.unregisteredByExt).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        lines.push(`⚠ ${reg.unregisteredCount} files on disk are NOT registered in artifacts.json.`);
+        lines.push(`  Top extensions: ${sorted.map(([e, n]) => `${e}=${n}`).join(", ")}`);
+        lines.push(`  Run scan_registration_delta to inspect, then register_existing_files to fix.`);
+      }
+      lines.push(``);
       lines.push(`## History (last ${Math.min(HISTORY_RENDERED, state.history.length)} of ${state.history.length})`);
       if (state.history.length === 0) {
         lines.push("_(empty)_");
@@ -415,16 +444,22 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         history,
       };
       const saved = persistState(projectRoot, project.name, next);
-      return textContent(
-        [
-          `Step recorded.`,
-          `Role: ${saved.role}`,
-          `Last completed: ${saved.lastCompletedStep}`,
-          `Queued next action: ${saved.nextAction ?? "(none)"}`,
-          `History size: ${saved.history.length}`,
-          `NEXT.md: ${nextMdPath(projectRoot)}`,
-        ].join("\n"),
-      );
+      const reg = scanRegistrationDelta(projectRoot, 0);
+      const out = [
+        `Step recorded.`,
+        `Role: ${saved.role}`,
+        `Last completed: ${saved.lastCompletedStep}`,
+        `Queued next action: ${saved.nextAction ?? "(none)"}`,
+        `History size: ${saved.history.length}`,
+        `NEXT.md: ${nextMdPath(projectRoot)}`,
+      ];
+      if (reg.unregisteredCount > 0) {
+        const sorted = Object.entries(reg.unregisteredByExt).sort((a, b) => b[1] - a[1]).slice(0, 3);
+        out.push(``);
+        out.push(`⚠ ${reg.unregisteredCount} files on disk are NOT registered (top: ${sorted.map(([e, n]) => `${e}=${n}`).join(", ")}).`);
+        out.push(`  A run is not finished until artifacts are registered. Call register_existing_files before sealing this step.`);
+      }
+      return textContent(out.join("\n"));
     },
   );
 

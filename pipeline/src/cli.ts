@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { parseCrt, writeCrtOutputs } from "./lib/crt";
 import { exportMenuPayloads, reconstructBootPayloads } from "./lib/easyflash";
 import { emitKickAssemblerSources } from "./lib/kickasm";
@@ -8,6 +8,7 @@ import { analyzePrgFile, writeAnalysisReport } from "./analysis/pipeline";
 import { renderPointerTableMarkdown } from "./analysis/pointer-tables";
 import { renderRamStateMarkdown } from "./analysis/ram-state";
 import { analyzeSampleBuffer } from "./analysis/sample";
+import { consumeRegisterFlags, registerCliArtifact } from "./lib/artifact-register";
 
 function usage(): never {
   throw new Error(
@@ -22,12 +23,17 @@ function usage(): never {
       "  node dist/cli.js ram-report <analysisJson> [outputMd]",
       "  node dist/cli.js pointer-report <analysisJson> [outputMd]",
       "  node dist/cli.js analyze-sample [outputJson]",
+      "",
+      "Append --no-register to suppress automatic artifact registration when",
+      "writing into a project that already has knowledge/phase-plan.json.",
     ].join("\n"),
   );
 }
 
 function main(): void {
-  const [, , command, ...args] = process.argv;
+  const rawArgs = process.argv.slice(2);
+  const cleaned = consumeRegisterFlags(rawArgs);
+  const [command, ...args] = cleaned;
   if (!command) {
     usage();
   }
@@ -38,8 +44,18 @@ function main(): void {
     if (!crtPath) {
       usage();
     }
-    const parsed = parseCrt(readFileSync(resolve(crtPath)));
+    const crtAbs = resolve(crtPath);
+    const parsed = parseCrt(readFileSync(crtAbs));
     writeCrtOutputs(parsed, outputDir);
+    registerCliArtifact({
+      kind: "manifest",
+      scope: "generated",
+      title: `${basename(crtAbs)} CRT extract`,
+      path: resolve(outputDir, "manifest.json"),
+      format: "json",
+      role: "crt_manifest",
+      producedByTool: "pipeline_cli:extract-crt",
+    });
     return;
   }
 
@@ -69,10 +85,20 @@ function main(): void {
     const entryPoints = args[2]
       ? args[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
       : [0x0827];
-    disassemblePrgToKickAsm(resolve(prgPath), outputPath, {
+    const prgAbs = resolve(prgPath);
+    disassemblePrgToKickAsm(prgAbs, outputPath, {
       entryPoints,
       title: prgPath,
       analysisPath: args[3] ? resolve(args[3]) : undefined,
+    });
+    registerCliArtifact({
+      kind: "generated-source",
+      scope: "generated",
+      title: `${basename(prgAbs)} disassembly (KickAssembler)`,
+      path: outputPath,
+      format: "asm",
+      role: "disasm",
+      producedByTool: "pipeline_cli:disasm-prg",
     });
     return;
   }
@@ -86,16 +112,35 @@ function main(): void {
     const entryPoints = args[2]
       ? args[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
       : [];
-    const report = analyzePrgFile(resolve(prgPath), {
+    const prgAbs = resolve(prgPath);
+    const report = analyzePrgFile(prgAbs, {
       userEntryPoints: entryPoints,
     });
     writeAnalysisReport(report, outputPath);
+    registerCliArtifact({
+      kind: "analysis-run",
+      scope: "analysis",
+      title: `${basename(prgAbs)} analysis`,
+      path: outputPath,
+      format: "json",
+      role: "analysis",
+      producedByTool: "pipeline_cli:analyze-prg",
+    });
     return;
   }
 
   if (command === "analyze-sample") {
     const outputPath = resolve(args[0] ?? "analysis/sample-analysis.json");
     writeAnalysisReport(analyzeSampleBuffer(), outputPath);
+    registerCliArtifact({
+      kind: "analysis-run",
+      scope: "analysis",
+      title: "Sample analysis",
+      path: outputPath,
+      format: "json",
+      role: "analysis",
+      producedByTool: "pipeline_cli:analyze-sample",
+    });
     return;
   }
 
@@ -107,6 +152,15 @@ function main(): void {
     const outputPath = resolve(args[1] ?? "analysis/main-game/RAM_STATE_FACTS.md");
     const report = JSON.parse(readFileSync(resolve(analysisPath), "utf8"));
     writeFileSync(outputPath, renderRamStateMarkdown(report), "utf8");
+    registerCliArtifact({
+      kind: "report",
+      scope: "generated",
+      title: "RAM state facts",
+      path: outputPath,
+      format: "md",
+      role: "ram_report",
+      producedByTool: "pipeline_cli:ram-report",
+    });
     return;
   }
 
@@ -118,6 +172,15 @@ function main(): void {
     const outputPath = resolve(args[1] ?? "analysis/main-game/POINTER_TABLE_FACTS.md");
     const report = JSON.parse(readFileSync(resolve(analysisPath), "utf8"));
     writeFileSync(outputPath, renderPointerTableMarkdown(report), "utf8");
+    registerCliArtifact({
+      kind: "report",
+      scope: "generated",
+      title: "Pointer table facts",
+      path: outputPath,
+      format: "md",
+      role: "pointer_report",
+      producedByTool: "pipeline_cli:pointer-report",
+    });
     return;
   }
 

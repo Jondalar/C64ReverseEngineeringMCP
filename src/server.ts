@@ -19,6 +19,7 @@ import { registerDiskG64Tools } from "./server-tools/disk-g64.js";
 import { registerHeadlessTools } from "./server-tools/headless.js";
 import { registerReferenceTools } from "./server-tools/reference.js";
 import { registerPromptTools } from "./server-tools/prompts.js";
+import { registerRegistrationTools } from "./server-tools/registration.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerViceTools } from "./server-tools/vice.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
@@ -107,6 +108,7 @@ function createServer(): McpServer {
   registerHeadlessTools(server, toolContext);
   registerReferenceTools(server, toolContext, repoDir());
   registerPromptTools(server, { readTextFile, repoRoot: repoDir() });
+  registerRegistrationTools(server, toolContext);
   registerSandboxTools(server, toolContext);
   registerViceTools(server, toolContext);
   registerProjectKnowledgeTools(server, { repoDir: repoDir() });

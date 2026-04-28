@@ -232,6 +232,25 @@ Examples:
 
 Use `save_artifact` with meaningful `role` and `scope`.
 
+### 4a. Bulk operations and artifact registration
+
+When you call any of the c64re library entry points directly — Node imports of `dist/bwc-bitstream-ts/*`, `dist/graphics-render/*`, the pipeline CLI (`dist/pipeline/cli.cjs`), or shell-loop wrappers around them — you may bypass the MCP artifact-registration step. The pipeline CLI now auto-registers when it detects `knowledge/phase-plan.json` in the CWD ancestry, but other library imports do not. The same applies to files written by the `Write` tool (markdown docs, hand-emitted JSON) and shell-emitted output.
+
+**Every such call must be followed by `register_existing_files` covering the affected outputs**, or the files become invisible to the workspace UI and to future sessions.
+
+If you find yourself writing a file that did not come out of an MCP tool — `Write`-tool-produced markdown, hand-emitted JSON, screenshots dumped via shell — the same rule applies.
+
+A run is not finished until the artifacts are registered. Treat `register_existing_files` (or `save_artifact` for a single file) as part of the **definition of done**.
+
+Detection helpers — surface the gap automatically:
+
+- `scan_registration_delta` — read-only filesystem-vs-artifacts.json scan.
+- `agent_onboard` — surfaces the delta in its summary.
+- `agent_propose_next` — promotes "register N unregistered files" to a top-rank suggestion.
+- `agent_record_step` — warns when sealing a step with unregistered files outstanding.
+
+Bypass guard: append `--no-register` to the pipeline CLI to suppress auto-registration in the rare cases where filesystem-only output is intentional (test fixtures, throwaway experiments).
+
 ---
 
 ## 5. Finding Discipline

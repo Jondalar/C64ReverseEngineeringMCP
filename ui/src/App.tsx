@@ -3329,6 +3329,34 @@ function CartChunkInspector({
   );
 }
 
+function RegistrationBanner() {
+  const [delta, setDelta] = useState<{ unregisteredCount: number; unregisteredByExt: Record<string, number> } | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/registration-delta`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (!cancelled && d) setDelta(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  if (!delta || delta.unregisteredCount === 0 || dismissed) return null;
+  const exts = Object.entries(delta.unregisteredByExt)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([e, n]) => `${e}=${n}`)
+    .join(", ");
+  return (
+    <div className="registration-banner">
+      <span>
+        <strong>⚠ {delta.unregisteredCount} files on disk are not registered as artifacts.</strong>
+        {" "}Top extensions: {exts}. Run <code>register_existing_files</code> from the agent to fix.
+      </span>
+      <button type="button" onClick={() => setDismissed(true)}>dismiss</button>
+    </div>
+  );
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceUiSnapshot | null>(null);
   const [discoveredDocs, setDiscoveredDocs] = useState<DiscoveredMarkdownDoc[]>([]);
@@ -3684,6 +3712,7 @@ export function App() {
       </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
+      <RegistrationBanner />
 
       {!snapshot ? (
         <main className="loading-shell">
