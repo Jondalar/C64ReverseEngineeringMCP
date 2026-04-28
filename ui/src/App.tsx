@@ -1569,25 +1569,25 @@ function CartridgePanel({
               }}
               onSelectLutChunk={(chunk) => onSelectChunk(cartridge.artifactId, chunk)}
               onSelectSegment={(segment) => {
-                const chip = cartridge.chips.find((candidate) => {
-                  if (candidate.bank !== segment.bank) return false;
-                  const candidateSlot = candidate.slot ?? "ROML";
-                  if (segment.slot === "ROML" && candidateSlot !== "ROML") return false;
-                  if ((segment.slot === "ROMH" || segment.slot === "ULTIMAX_ROMH") && candidateSlot === "ROML") return false;
-                  return true;
-                });
-                const path = chipArtifactPath(chip?.file, manifestArtifact?.relativePath);
-                if (!path) return;
-                const slotBase = segment.slot === "ROMH"
-                  ? (cartridge.slotLayout?.isUltimax ? 0xe000 : 0xa000)
-                  : (segment.slot === "ULTIMAX_ROMH" ? 0xe000 : 0x8000);
-                const labelFragment = segment.label ? `${segment.label} · ` : "";
-                onOpenHex(path, {
-                  title: `${cartridge.cartridgeName ?? cartridge.title} · ${labelFragment}bank ${String(segment.bank).padStart(2, "0")} ${segment.slot} ${segment.kind} ($${segment.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} +${segment.length})`,
-                  baseAddress: slotBase + segment.offsetInBank,
-                  offset: segment.offsetInBank,
+                // Synthesize a CartridgeLutChunk from the segment so the
+                // existing CartChunkInspector renders for it. Segments do
+                // not have LUT refs, so we use a synthetic "(segment)"
+                // lut+index pair to drive the inspector header. The chip
+                // file is resolved the same way as for chunks.
+                const synthetic: CartridgeLutChunk = {
+                  bank: segment.bank,
+                  slot: segment.slot,
+                  offsetInBank: segment.offsetInBank,
                   length: segment.length,
-                });
+                  lut: "(segment)",
+                  index: 0,
+                  destAddress: segment.destAddress,
+                  refs: [],
+                  spans: [{ bank: segment.bank, offsetInBank: segment.offsetInBank, length: segment.length }],
+                  label: segment.label ?? segment.kind,
+                  notes: [`Resident segment classified as ${segment.kind}`],
+                };
+                onSelectChunk(cartridge.artifactId, synthetic);
               }}
               onOpenBankHex={(_bank, chip) => {
                 if (!chip) return;
