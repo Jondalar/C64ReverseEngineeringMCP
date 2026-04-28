@@ -1163,13 +1163,42 @@ function MemoryMapPanel({
     for (const artifact of snapshot.artifacts) map.set(artifact.id, artifact.kind);
     return map;
   }, [snapshot.artifacts]);
-  const allStageOptions = snapshot.views.loadSequence.items.map((item) => ({
-    key: item.key,
-    title: item.title,
-    entityIds: item.entityIds,
-    artifactIds: item.artifactIds,
-    mediaKinds: new Set(item.artifactIds.map((id) => artifactMediaClass(artifactKindById.get(id)))),
-  }));
+  // Pre-compute the effective entity count per stage. A stage filter only
+  // affects the heatmap when at least one entity resolves either via
+  // stage.entityIds directly OR via an entity whose artifactIds back-
+  // references one of stage.artifactIds. Without this hint, stages whose
+  // analysis-run artifact has no back-linked entities (very common when
+  // bulk CLI registers populate artifacts.json without corresponding
+  // import_analysis_report runs) silently filter to nothing — option
+  // turns blue, heatmap stays the same. Counting upfront lets the UI
+  // disable / annotate empty stages.
+  const entitiesByArtifactId = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const entity of snapshot.entities) {
+      for (const artifactId of entity.artifactIds) {
+        let set = map.get(artifactId);
+        if (!set) { set = new Set(); map.set(artifactId, set); }
+        set.add(entity.id);
+      }
+    }
+    return map;
+  }, [snapshot.entities]);
+
+  const allStageOptions = snapshot.views.loadSequence.items.map((item) => {
+    const effective = new Set<string>(item.entityIds);
+    for (const artifactId of item.artifactIds) {
+      const linked = entitiesByArtifactId.get(artifactId);
+      if (linked) for (const id of linked) effective.add(id);
+    }
+    return {
+      key: item.key,
+      title: item.title,
+      entityIds: item.entityIds,
+      artifactIds: item.artifactIds,
+      mediaKinds: new Set(item.artifactIds.map((id) => artifactMediaClass(artifactKindById.get(id)))),
+      effectiveEntityCount: effective.size,
+    };
+  });
   const diskStageCount = allStageOptions.filter((stage) => stage.mediaKinds.has("disk")).length;
   const cartStageCount = allStageOptions.filter((stage) => stage.mediaKinds.has("cartridge")).length;
   const showMediaFilter = diskStageCount > 0 && cartStageCount > 0;
@@ -1308,12 +1337,18 @@ function MemoryMapPanel({
               }}
             >
               {stageOptions.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.title}
+                <option key={item.key} value={item.key} disabled={item.effectiveEntityCount === 0}>
+                  {item.title}{item.effectiveEntityCount === 0 ? " (no linked entities)" : ` — ${item.effectiveEntityCount} entit${item.effectiveEntityCount === 1 ? "y" : "ies"}`}
                 </option>
               ))}
             </select>
-            <small>{hasStageFilter ? `${focusedStages.length} payloads focused` : "No filter. Showing full address space."}</small>
+            <small>
+              {hasStageFilter
+                ? `${focusedStages.length} payloads focused, ${focusedEntityIds.size} entities matched`
+                : selectedStageKeys.length > 0
+                  ? "Selected stages have no linked entities — filter is a no-op. Run import_analysis_report to link analysis JSON to entities."
+                  : "No filter. Showing full address space."}
+            </small>
           </label>
         </div>
         <div className="memory-grid-wrap">
