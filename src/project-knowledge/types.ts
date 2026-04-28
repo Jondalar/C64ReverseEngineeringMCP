@@ -206,6 +206,13 @@ export const EntityKindSchema = z.enum([
   "symbol",
   "io-register",
   "entry-point",
+  // Payload = the working abstraction across mediums. A payload is a
+  // byte-blob with identity: a disk file, a LUT-extracted cart chunk, a
+  // hand-extracted custom-loader blob, or a PRG. Operations like depack,
+  // disasm, repack, build are scoped to the payload, not the medium.
+  // Other entity kinds (routine / data-table / etc) hang off a payload
+  // via the payloadId field.
+  "payload",
   "other",
 ]);
 
@@ -232,6 +239,20 @@ export const EntityMediumSpanSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+export const PayloadFormatSchema = z.enum([
+  "raw",
+  "prg",
+  "exomizer-raw",
+  "exomizer-sfx",
+  "byteboozer",
+  "byteboozer-lykia",
+  "rle",
+  "bwc-bitstream",
+  "bwc-raw",
+  "pucrunch",
+  "unknown",
+]);
+
 export const EntityRecordSchema = z.object({
   id: IdSchema,
   kind: EntityKindSchema,
@@ -242,6 +263,19 @@ export const EntityRecordSchema = z.object({
   evidence: z.array(EvidenceRefSchema).default([]),
   artifactIds: z.array(IdSchema).default([]),
   relatedEntityIds: z.array(IdSchema).default([]),
+  // Payload this entity belongs to. Routines, data tables, IRQ handlers
+  // etc. hang off a payload via this field — surfaces "show every
+  // routine inside chunk X" or "every finding for disk file Y" in O(1).
+  payloadId: IdSchema.optional(),
+  // Payload-only fields (ignored for other entity kinds): describe the
+  // byte-blob's identity, format, and where it lands at runtime.
+  payloadLoadAddress: z.number().int().min(0).max(0xffff).optional(),
+  payloadFormat: PayloadFormatSchema.optional(),
+  payloadPacker: z.string().optional(),
+  payloadSourceArtifactId: IdSchema.optional(),
+  payloadDepackedArtifactId: IdSchema.optional(),
+  payloadAsmArtifactIds: z.array(IdSchema).default([]),
+  payloadContentHash: z.string().optional(),
   addressRange: AddressRangeSchema.optional(),
   // Optional physical placement on the medium (disk sectors / cart slots).
   // Drives the MediumResidentRegion overlay in the medium-layout adapter.
@@ -281,6 +315,9 @@ export const FindingRecordSchema = z.object({
   artifactIds: z.array(IdSchema).default([]),
   relationIds: z.array(IdSchema).default([]),
   flowIds: z.array(IdSchema).default([]),
+  // Optional: payload this finding scopes to (routine inside chunk X,
+  // data table inside disk file Y, etc.).
+  payloadId: IdSchema.optional(),
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
@@ -1087,6 +1124,7 @@ export type ArtifactRecord = z.infer<typeof ArtifactRecordSchema>;
 export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export type ArtifactScope = z.infer<typeof ArtifactScopeSchema>;
 export type EntityRecord = z.infer<typeof EntityRecordSchema>;
+export type PayloadFormat = z.infer<typeof PayloadFormatSchema>;
 export type FindingRecord = z.infer<typeof FindingRecordSchema>;
 export type FindingKind = z.infer<typeof FindingKindSchema>;
 export type RelationRecord = z.infer<typeof RelationRecordSchema>;

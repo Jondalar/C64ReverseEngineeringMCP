@@ -302,6 +302,105 @@ button {
   color: rgba(255, 255, 255, 0.78);
 }
 
+.payload-filter-input {
+  width: 100%;
+  padding: 0.55rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(137, 176, 208, 0.22);
+  background: rgba(7, 17, 28, 0.95);
+  color: var(--ink);
+  margin-bottom: 0.8rem;
+}
+
+.payload-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.payload-card {
+  background: rgba(8, 18, 29, 0.74);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+}
+
+.payload-card header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.8rem;
+  align-items: baseline;
+  margin-bottom: 0.3rem;
+}
+
+.payload-load {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-2);
+  font-size: 0.85rem;
+}
+
+.payload-format {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  background: rgba(77, 181, 255, 0.16);
+  border: 1px solid rgba(77, 181, 255, 0.32);
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+}
+
+.payload-packer {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: monospace;
+}
+
+.payload-card p {
+  margin: 0.2rem 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.payload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.payload-button {
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(137, 176, 208, 0.32);
+  background: rgba(7, 17, 28, 0.7);
+  color: inherit;
+}
+
+.payload-button-mon {
+  color: var(--accent-2);
+}
+
+.payload-button-mon:hover {
+  background: rgba(77, 181, 255, 0.16);
+  border-color: var(--accent-2);
+}
+
+.payload-button-asm {
+  color: var(--warning);
+}
+
+.payload-button-asm:hover {
+  background: rgba(255, 198, 92, 0.16);
+  border-color: var(--warning);
+}
+
+.payload-empty {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .app-main-grid {
   display: grid;
   gap: 1rem;

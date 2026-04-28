@@ -18,7 +18,7 @@ import type {
   WorkspaceUiSnapshot,
 } from "./types";
 
-type TabId = "dashboard" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "load" | "flow" | "listing" | "activity";
+type TabId = "dashboard" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "load" | "flow" | "listing" | "activity";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -91,6 +91,7 @@ const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "scrub", label: "Scrub" },
   { id: "cartridge", label: "Cartridge" },
   { id: "disk", label: "Disk" },
+  { id: "payloads", label: "Payloads" },
   { id: "load", label: "Load Sequence" },
   { id: "flow", label: "Flow Graph" },
   { id: "listing", label: "Annotated Listing" },
@@ -2438,6 +2439,130 @@ function ListingPanel({
   );
 }
 
+function PayloadsPanel({
+  snapshot,
+  onOpenHex,
+  onOpenAsm,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
+  onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
+}) {
+  // A payload is any entity that carries payload metadata (load address
+  // or kind=payload) — disk files imported via manifest-import already
+  // populate this. Cart chunks are surfaced via the cartridge view's
+  // chunk inspector; once they get entity records they will appear
+  // here too.
+  const payloads = useMemo(() => {
+    return snapshot.entities
+      .filter((entity) =>
+        entity.kind === "payload" ||
+        entity.kind === "disk-file" ||
+        entity.payloadLoadAddress !== undefined
+      )
+      .sort((a, b) => {
+        const la = a.payloadLoadAddress ?? a.addressRange?.start ?? 0xffff;
+        const lb = b.payloadLoadAddress ?? b.addressRange?.start ?? 0xffff;
+        if (la !== lb) return la - lb;
+        return a.name.localeCompare(b.name);
+      });
+  }, [snapshot.entities]);
+
+  const artifactById = useMemo(() => new Map(snapshot.artifacts.map((a) => [a.id, a])), [snapshot.artifacts]);
+
+  const [filter, setFilter] = useState<string>("");
+  const visible = filter
+    ? payloads.filter((p) =>
+        p.name.toLowerCase().includes(filter.toLowerCase()) ||
+        (p.payloadFormat ?? "").includes(filter.toLowerCase())
+      )
+    : payloads;
+
+  return (
+    <section className="panel-card">
+      <div className="section-heading">
+        <h3>Payloads</h3>
+        <span>{visible.length}{visible.length !== payloads.length ? ` of ${payloads.length}` : ""} payloads</span>
+      </div>
+      <input
+        type="search"
+        placeholder="filter by name or format"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        className="payload-filter-input"
+      />
+      <div className="payload-list">
+        {visible.length === 0 ? (
+          <div className="empty-state">
+            No payloads yet. Run <code>extract_disk</code> / <code>extract_crt</code> against this project, or call <code>register_payload</code> to register a custom-loader blob.
+          </div>
+        ) : null}
+        {visible.map((payload) => {
+          const sourceArtifact = payload.payloadSourceArtifactId ? artifactById.get(payload.payloadSourceArtifactId) : undefined;
+          const depackedArtifact = payload.payloadDepackedArtifactId ? artifactById.get(payload.payloadDepackedArtifactId) : undefined;
+          const asmArtifacts = (payload.payloadAsmArtifactIds ?? [])
+            .map((id) => artifactById.get(id))
+            .filter((a): a is typeof snapshot.artifacts[number] => Boolean(a));
+          const load = payload.payloadLoadAddress ?? payload.addressRange?.start;
+          const loadText = load !== undefined ? `$${load.toString(16).toUpperCase().padStart(4, "0")}` : "—";
+          return (
+            <article key={payload.id} className="payload-card">
+              <header>
+                <strong>{payload.name}</strong>
+                <span className="payload-load">load {loadText}</span>
+                {payload.payloadFormat ? <span className="payload-format">{payload.payloadFormat}</span> : null}
+                {payload.payloadPacker ? <span className="payload-packer">{payload.payloadPacker}</span> : null}
+              </header>
+              {payload.summary ? <p>{payload.summary}</p> : null}
+              <footer className="payload-actions">
+                {sourceArtifact ? (
+                  <button
+                    type="button"
+                    className="payload-button payload-button-mon"
+                    title={`Open hex view of ${sourceArtifact.relativePath}`}
+                    onClick={() => onOpenHex(sourceArtifact.relativePath, {
+                      title: `${payload.name} (raw)`,
+                      baseAddress: load,
+                    })}
+                  >
+                    mon (raw)
+                  </button>
+                ) : null}
+                {depackedArtifact ? (
+                  <button
+                    type="button"
+                    className="payload-button payload-button-mon"
+                    title={`Open hex view of depacked bytes ${depackedArtifact.relativePath}`}
+                    onClick={() => onOpenHex(depackedArtifact.relativePath, {
+                      title: `${payload.name} (depacked)`,
+                      baseAddress: load,
+                    })}
+                  >
+                    mon (depacked)
+                  </button>
+                ) : null}
+                {asmArtifacts.length > 0 ? (
+                  <button
+                    type="button"
+                    className="payload-button payload-button-asm"
+                    title={`Open disassembly (${asmArtifacts.length} source${asmArtifacts.length === 1 ? "" : "s"})`}
+                    onClick={() => onOpenAsm(payload.name, bestAsmSourcesForArtifacts(asmArtifacts))}
+                  >
+                    asm
+                  </button>
+                ) : null}
+                {!sourceArtifact && !depackedArtifact && asmArtifacts.length === 0 ? (
+                  <span className="payload-empty">no linked artifacts (run register_payload or link_payload_to_asm)</span>
+                ) : null}
+              </footer>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function ActivityPanel({ snapshot }: { snapshot: WorkspaceUiSnapshot }) {
   return (
     <section className="panel-card">
@@ -3921,6 +4046,13 @@ export function App() {
                   setSelectedCartChunk(null);
                 }}
                 onOpenHex={openHexOverlay}
+              />
+            ) : null}
+            {activeTab === "payloads" ? (
+              <PayloadsPanel
+                snapshot={snapshot}
+                onOpenHex={openHexOverlay}
+                onOpenAsm={openAsmOverlay}
               />
             ) : null}
             {activeTab === "load" ? (

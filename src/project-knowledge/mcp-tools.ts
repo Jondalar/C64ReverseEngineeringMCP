@@ -489,6 +489,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         "symbol",
         "io-register",
         "entry-point",
+        "payload",
         "other",
       ]),
       name: z.string(),

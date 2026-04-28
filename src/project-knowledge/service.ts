@@ -319,6 +319,14 @@ export interface SaveEntityInput {
   addressRange?: { start: number; end: number; bank?: number; label?: string };
   mediumSpans?: EntityRecord["mediumSpans"];
   mediumRole?: EntityRecord["mediumRole"];
+  payloadId?: string;
+  payloadLoadAddress?: number;
+  payloadFormat?: EntityRecord["payloadFormat"];
+  payloadPacker?: string;
+  payloadSourceArtifactId?: string;
+  payloadDepackedArtifactId?: string;
+  payloadAsmArtifactIds?: string[];
+  payloadContentHash?: string;
   tags?: string[];
 }
 
@@ -334,6 +342,7 @@ export interface SaveFindingInput {
   artifactIds?: string[];
   relationIds?: string[];
   flowIds?: string[];
+  payloadId?: string;
   tags?: string[];
 }
 
@@ -642,6 +651,14 @@ export class ProjectKnowledgeService {
       addressRange: input.addressRange ?? existing?.addressRange,
       mediumSpans: input.mediumSpans ?? existing?.mediumSpans ?? [],
       mediumRole: input.mediumRole ?? existing?.mediumRole,
+      payloadId: input.payloadId ?? existing?.payloadId,
+      payloadLoadAddress: input.payloadLoadAddress ?? existing?.payloadLoadAddress,
+      payloadFormat: input.payloadFormat ?? existing?.payloadFormat,
+      payloadPacker: input.payloadPacker ?? existing?.payloadPacker,
+      payloadSourceArtifactId: input.payloadSourceArtifactId ?? existing?.payloadSourceArtifactId,
+      payloadDepackedArtifactId: input.payloadDepackedArtifactId ?? existing?.payloadDepackedArtifactId,
+      payloadAsmArtifactIds: uniqueStrings(input.payloadAsmArtifactIds ?? existing?.payloadAsmArtifactIds),
+      payloadContentHash: input.payloadContentHash ?? existing?.payloadContentHash,
       tags: uniqueStrings(input.tags ?? existing?.tags),
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
@@ -684,6 +701,7 @@ export class ProjectKnowledgeService {
       artifactIds: uniqueStrings(input.artifactIds ?? existing?.artifactIds),
       relationIds: uniqueStrings(input.relationIds ?? existing?.relationIds),
       flowIds: uniqueStrings(input.flowIds ?? existing?.flowIds),
+      payloadId: input.payloadId ?? existing?.payloadId,
       tags: uniqueStrings(input.tags ?? existing?.tags),
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,

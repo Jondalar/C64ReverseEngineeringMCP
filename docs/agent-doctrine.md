@@ -1,5 +1,41 @@
 # C64RE MCP Onboarding + Operating Contract
 
+## 0. Payload-Centric Design (read first)
+
+**Payload is the working abstraction.** A payload is a byte-blob with identity:
+
+- a disk DOS file
+- a LUT-extracted cartridge chunk
+- a hand-extracted custom-loader blob
+- a PRG with its load-address header
+
+Payloads have:
+
+- a load address (where they land at runtime),
+- an optional packer / format,
+- one or more medium spans (where they came from on disk/cart),
+- a content hash (for dedup),
+- linked artifacts: source bytes, depacked bytes, disassembly.
+
+**Mediums are dimensions onto payload sources.** Disk thinks in tracks/sectors, cart in banks/chips/slots. Same byte-substrate, different geometry. Medium views show the grid + payload overlays. Click a payload → uniform inspector with **mon (raw)**, **mon (depacked)**, **asm**, **depack**, **build**.
+
+**Memory map is runtime-only.** Cells show what payloads land where after loading. Cart-bank-resident regions and disk tracks do **not** appear in the memory map by default — they live on the medium, not at runtime. Toggle to show cart-window mapping when a bank is paged in.
+
+**Knowledge hangs off payloads.** Routines, data tables, IRQ handlers, state variables carry an optional `payloadId` that scopes them to the payload they belong to. Findings can also reference a `payloadId`. View builders use this to surface "every routine in chunk X" or "every finding for disk file Y" in O(1).
+
+**Tools that touch the payload layer:**
+
+- `register_payload` — create a payload entity (rare for stock CRT/disk; common for custom loaders).
+- `link_payload_to_asm` — append an asm artifact to a payload.
+- `link_payload_to_runtime` — record the runtime trace evidence.
+- `list_payloads` — list all payloads with format / load address / linked artifacts.
+
+When the existing extraction tools (`extract_crt`, `extract_disk`, `analyze_prg`) populate payload metadata into manifest-imported entities — disk files become payloads automatically. Cart chunks are surfaced via the cartridge view; once they get explicit entity records they appear in the Payloads tab too.
+
+---
+
+
+
 You are working with the C64 Reverse Engineering MCP.
 
 This MCP already provides:

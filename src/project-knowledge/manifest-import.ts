@@ -131,7 +131,13 @@ export function importManifestKnowledge(artifact: ArtifactRecord): ImportedManif
       addressRange: file.loadAddress !== undefined
         ? { start: file.loadAddress, end: file.loadAddress + Math.max((file.sizeBytes ?? 1) - 1, 0) }
         : undefined,
-      tags: ["manifest-import", "disk-file", file.type ?? "unknown"],
+      // Payload metadata: a disk file IS a payload. Populating these
+      // fields lets list_payloads / Payload tab / runtime memory map
+      // treat the entity uniformly with cart chunks and PRG payloads.
+      payloadLoadAddress: file.loadAddress,
+      payloadFormat: file.type === "PRG" ? ("prg" as const) : ("raw" as const),
+      payloadSourceArtifactId: artifact.id,
+      tags: ["manifest-import", "disk-file", "payload", file.type ?? "unknown"],
     }));
     const findings = [{
       id: stableId("finding", artifact.id, "disk-layout"),

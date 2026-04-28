@@ -498,8 +498,31 @@ export function buildMemoryMapView(context: ViewBuildContext): MemoryMapView {
     }
   }
 
+  // Memory map = RUNTIME view. Filter out entities that live exclusively
+  // on a medium (cart bank, disk track) and have no runtime presence.
+  // Heuristic:
+  //   - kind === cartridge-bank | chip | disk-track → medium-only, exclude
+  //   - mediumSpans set AND no payloadLoadAddress AND addressRange falls
+  //     within the cart window ($8000-$BFFF, $E000-$FFFF) → medium-only
+  //   - everything else (routines, code-segment, payload with load addr,
+  //     state vars, etc.) → keep
+  // The toggle to view cart-window mapping anyway lives in the UI.
+  const MEDIUM_ONLY_KINDS = new Set(["cartridge-bank", "chip", "disk-track"]);
+  function isMediumOnlyEntity(entity: typeof context.entities[number]): boolean {
+    if (MEDIUM_ONLY_KINDS.has(entity.kind)) return true;
+    if (entity.kind === "payload") return false; // payloads are runtime-resident by definition
+    const range = entity.addressRange;
+    if (!range) return false;
+    const inCartWindow = (range.start >= 0x8000 && range.end <= 0xbfff) || (range.start >= 0xe000 && range.end <= 0xffff);
+    if (entity.mediumSpans && entity.mediumSpans.length > 0 && inCartWindow && entity.payloadLoadAddress === undefined) {
+      return true;
+    }
+    return false;
+  }
+
   const regions = context.entities
     .filter((entity) => entity.addressRange)
+    .filter((entity) => !isMediumOnlyEntity(entity))
     .sort((left, right) => {
       const leftRange = left.addressRange!;
       const rightRange = right.addressRange!;
