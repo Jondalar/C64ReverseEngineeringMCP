@@ -3338,12 +3338,33 @@ function CartChunkInspector({
           }),
       )
     : new Set<string>();
-  const cartAsmSources: AsmViewSource[] = bestAsmSourcesForArtifacts(
-    [...linkedAsmArtifactIds]
-      .map((artifactId) => snapshot.artifacts.find((artifact) => artifact.id === artifactId))
-      .filter((artifact): artifact is typeof snapshot.artifacts[number] => Boolean(artifact))
-      .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath)),
-  );
+  const linkedAsmArtifacts = [...linkedAsmArtifactIds]
+    .map((artifactId) => snapshot.artifacts.find((artifact) => artifact.id === artifactId))
+    .filter((artifact): artifact is typeof snapshot.artifacts[number] => Boolean(artifact))
+    .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath));
+
+  // Heuristic fallback: when the agent never ran link_cart_chunk_to_asm,
+  // fall back to matching by chip-file stem. e.g. a chunk that lives in
+  // bank_13_8000.bin with an asm artifact bank_13_8000.asm next to it
+  // gets surfaced even without an explicit relation.
+  let cartAsmSources: AsmViewSource[];
+  if (linkedAsmArtifacts.length > 0) {
+    cartAsmSources = bestAsmSourcesForArtifacts(linkedAsmArtifacts);
+  } else {
+    const chipStems = new Set<string>();
+    for (const span of spans) {
+      const chip = chipForSpan(span.bank);
+      if (!chip?.file) continue;
+      const stem = chip.file.replace(/\.[^.]+$/, "");
+      if (stem) chipStems.add(stem);
+    }
+    const fallbackAsm = snapshot.artifacts.filter((artifact) => {
+      if (!/\.(asm|tass|s|a65)$/i.test(artifact.relativePath)) return false;
+      const stem = artifact.relativePath.split("/").pop()!.replace(/\.[^.]+$/, "");
+      return chipStems.has(stem);
+    });
+    cartAsmSources = bestAsmSourcesForArtifacts(fallbackAsm);
+  }
 
   const fileSpans: FileInspectorSpanRow[] = spans.map((span, partIndex) => {
     const chipPath = chipPathForSpan(span.bank);
