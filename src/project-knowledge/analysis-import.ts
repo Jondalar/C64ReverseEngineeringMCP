@@ -103,6 +103,7 @@ export interface ImportedEntityDraft {
   evidence: EvidenceRef[];
   artifactIds: string[];
   addressRange?: { start: number; end: number; bank?: number; label?: string };
+  payloadId?: string;
   tags: string[];
 }
 
@@ -116,6 +117,7 @@ export interface ImportedFindingDraft {
   evidence: EvidenceRef[];
   entityIds: string[];
   artifactIds: string[];
+  payloadId?: string;
   tags: string[];
 }
 
@@ -318,7 +320,7 @@ function maybeCreateOpenQuestion(
   });
 }
 
-export function importAnalysisKnowledge(artifact: ArtifactRecord): ImportedAnalysisKnowledge | undefined {
+export function importAnalysisKnowledge(artifact: ArtifactRecord, options?: { payloadId?: string }): ImportedAnalysisKnowledge | undefined {
   if (!existsSync(artifact.path)) {
     return undefined;
   }
@@ -632,4 +634,15 @@ export function importAnalysisKnowledge(artifact: ArtifactRecord): ImportedAnaly
     flows: dedupeById(flows),
     openQuestions: dedupeById(openQuestions),
   };
+}
+
+// Stamp payloadId across all entity / finding drafts in-place so the
+// caller can scope the imported knowledge to a single payload (the PRG
+// or chunk that produced this analysis report). Idempotent.
+export function stampImportedKnowledgeWithPayload(
+  imported: ImportedAnalysisKnowledge,
+  payloadId: string,
+): void {
+  for (const entity of imported.entities) entity.payloadId = payloadId;
+  for (const finding of imported.findings) finding.payloadId = payloadId;
 }

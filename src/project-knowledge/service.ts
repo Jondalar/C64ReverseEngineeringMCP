@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { importAnalysisKnowledge } from "./analysis-import.js";
+import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./analysis-import.js";
 import { importManifestKnowledge } from "./manifest-import.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
@@ -922,6 +922,17 @@ export class ProjectKnowledgeService {
     const imported = importAnalysisKnowledge(artifact);
     if (!imported) {
       throw new Error(`Artifact is not a readable analysis report: ${artifact.path}`);
+    }
+    // Resolve the payload that owns this analysis: a payload entity
+    // whose payloadSourceArtifactId points at one of this artifact's
+    // sourceArtifactIds (the PRG / chip dump that fed analyze-prg).
+    // If found, stamp every imported entity / finding with that
+    // payloadId so the routine-to-payload linkage is automatic.
+    const sourceArtifactIds = new Set(artifact.sourceArtifactIds ?? []);
+    if (sourceArtifactIds.size > 0) {
+      const payload = this.listEntities({ kind: "payload" })
+        .find((p) => p.payloadSourceArtifactId !== undefined && sourceArtifactIds.has(p.payloadSourceArtifactId));
+      if (payload) stampImportedKnowledgeWithPayload(imported, payload.id);
     }
     this.purgeImportedKnowledgeForArtifact(artifactId, ["analysis-import"]);
     for (const entity of imported.entities) {

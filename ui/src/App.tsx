@@ -1156,6 +1156,7 @@ function MemoryMapPanel({
   const view = snapshot.views.memoryMap;
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [selectedStageKeys, setSelectedStageKeys] = useState<string[]>([]);
+  const [showMediumOnly, setShowMediumOnly] = useState<boolean>(false);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const columnOffsets = Array.from({ length: 16 }, (_, index) => index * view.cellSize);
   const rowBases = Array.from({ length: 16 }, (_, index) => index * view.rowStride);
@@ -1259,6 +1260,7 @@ function MemoryMapPanel({
   const selectedRegions = view.regions
     .filter((region) =>
       selectedCell?.regionIds.includes(region.id) &&
+      (showMediumOnly || !region.mediumOnly) &&
       (!hasStageFilter || (region.entityId !== undefined && focusedEntityIds.has(region.entityId)))
     )
     .sort((left, right) => left.start - right.start);
@@ -1338,6 +1340,14 @@ function MemoryMapPanel({
             <span><i className="legend-swatch legend-other" /> other</span>
           </div>
           <div className="memory-filter">
+            <label className="memory-medium-toggle">
+              <input
+                type="checkbox"
+                checked={showMediumOnly}
+                onChange={(e) => setShowMediumOnly(e.target.checked)}
+              />
+              <span>Show cart/disk-resident regions</span>
+            </label>
             <div className="memory-filter-header">
               <span>Payload focus</span>
               {selectedStageKeys.length > 0 ? (

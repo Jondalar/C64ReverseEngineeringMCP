@@ -554,6 +554,10 @@ export const MemoryMapRegionSchema = z.object({
   status: z.string().min(1),
   confidence: ConfidenceSchema,
   summary: z.string().optional(),
+  // Region lives exclusively on a medium (cart bank, disk track) and
+  // has no runtime presence by default. UI hides these unless the
+  // "show cart-window mapping" toggle is on.
+  mediumOnly: z.boolean().default(false),
 });
 
 export const MemoryMapCellSchema = z.object({

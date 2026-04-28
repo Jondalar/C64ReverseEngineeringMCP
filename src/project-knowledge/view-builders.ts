@@ -522,7 +522,6 @@ export function buildMemoryMapView(context: ViewBuildContext): MemoryMapView {
 
   const regions = context.entities
     .filter((entity) => entity.addressRange)
-    .filter((entity) => !isMediumOnlyEntity(entity))
     .sort((left, right) => {
       const leftRange = left.addressRange!;
       const rightRange = right.addressRange!;
@@ -546,16 +545,23 @@ export function buildMemoryMapView(context: ViewBuildContext): MemoryMapView {
       status: entity.status,
       confidence: entity.confidence,
       summary: entity.summary,
+      // Mark medium-only regions so the UI can hide them by default
+      // and surface them via the "show cart-window mapping" toggle.
+      mediumOnly: isMediumOnlyEntity(entity),
     }));
 
   const cellSize = 0x100;
   const rowStride = 0x1000;
+  // Runtime view: cell occupancy is computed from non-mediumOnly
+  // regions only. Cart-bank / disk-track residents stay in the
+  // regions[] list (UI surfaces them via the toggle).
+  const runtimeRegions = regions.filter((region) => !region.mediumOnly);
   const cells = Array.from({ length: 0x100 }, (_, index) => {
     const rowBase = Math.floor(index / 16) * rowStride;
     const columnOffset = (index % 16) * cellSize;
     const start = rowBase + columnOffset;
     const end = Math.min(0xffff, start + cellSize - 1);
-    const overlappingRegions = regions.filter((region) => region.start <= end && region.end >= start);
+    const overlappingRegions = runtimeRegions.filter((region) => region.start <= end && region.end >= start);
     const overlapIntervals = overlappingRegions.map((region) => ({
       start: Math.max(start, region.start),
       end: Math.min(end, region.end),

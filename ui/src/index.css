@@ -236,6 +236,19 @@ button {
   min-width: 240px;
 }
 
+.memory-medium-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.memory-medium-toggle input {
+  margin: 0;
+}
+
 .memory-filter-header {
   display: flex;
   justify-content: space-between;
