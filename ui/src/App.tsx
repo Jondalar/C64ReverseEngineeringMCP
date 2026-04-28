@@ -1184,21 +1184,31 @@ function MemoryMapPanel({
     return map;
   }, [snapshot.entities]);
 
-  const allStageOptions = snapshot.views.loadSequence.items.map((item) => {
-    const effective = new Set<string>(item.entityIds);
-    for (const artifactId of item.artifactIds) {
-      const linked = entitiesByArtifactId.get(artifactId);
-      if (linked) for (const id of linked) effective.add(id);
-    }
-    return {
-      key: item.key,
-      title: item.title,
-      entityIds: item.entityIds,
-      artifactIds: item.artifactIds,
-      mediaKinds: new Set(item.artifactIds.map((id) => artifactMediaClass(artifactKindById.get(id)))),
-      effectiveEntityCount: effective.size,
-    };
-  });
+  // Only include stages that actually filter the heatmap. A stage is
+  // "filterable" when it has at least one entity that lives somewhere in
+  // the address space (directly via item.entityIds, or transitively via
+  // an entity whose artifactIds back-references item.artifactIds).
+  // Stages built from generated-source / rebuilt PRG / preview artifacts
+  // never have entities and would render as no-op options. The banner
+  // separately surfaces unimported-analysis artifacts so the user knows
+  // why the dropdown looks short.
+  const allStageOptions = snapshot.views.loadSequence.items
+    .map((item) => {
+      const effective = new Set<string>(item.entityIds);
+      for (const artifactId of item.artifactIds) {
+        const linked = entitiesByArtifactId.get(artifactId);
+        if (linked) for (const id of linked) effective.add(id);
+      }
+      return {
+        key: item.key,
+        title: item.title,
+        entityIds: item.entityIds,
+        artifactIds: item.artifactIds,
+        mediaKinds: new Set(item.artifactIds.map((id) => artifactMediaClass(artifactKindById.get(id)))),
+        effectiveEntityCount: effective.size,
+      };
+    })
+    .filter((item) => item.effectiveEntityCount > 0);
   const diskStageCount = allStageOptions.filter((stage) => stage.mediaKinds.has("disk")).length;
   const cartStageCount = allStageOptions.filter((stage) => stage.mediaKinds.has("cartridge")).length;
   const showMediaFilter = diskStageCount > 0 && cartStageCount > 0;
@@ -1337,16 +1347,16 @@ function MemoryMapPanel({
               }}
             >
               {stageOptions.map((item) => (
-                <option key={item.key} value={item.key} disabled={item.effectiveEntityCount === 0}>
-                  {item.title}{item.effectiveEntityCount === 0 ? " (no linked entities)" : ` — ${item.effectiveEntityCount} entit${item.effectiveEntityCount === 1 ? "y" : "ies"}`}
+                <option key={item.key} value={item.key}>
+                  {item.title} — {item.effectiveEntityCount} entit{item.effectiveEntityCount === 1 ? "y" : "ies"}
                 </option>
               ))}
             </select>
             <small>
               {hasStageFilter
                 ? `${focusedStages.length} payloads focused, ${focusedEntityIds.size} entities matched`
-                : selectedStageKeys.length > 0
-                  ? "Selected stages have no linked entities — filter is a no-op. Run import_analysis_report to link analysis JSON to entities."
+                : stageOptions.length === 0
+                  ? "No filterable stages yet. Run bulk_import_analysis_reports to back-fill analysis JSON into entities."
                   : "No filter. Showing full address space."}
             </small>
           </label>
