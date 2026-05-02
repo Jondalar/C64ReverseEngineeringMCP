@@ -1677,8 +1677,29 @@ function ScrubPanel({
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number }) => void;
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
 }) {
-  const scrubArtifacts = artifacts.filter((artifact) =>
-    artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw"
+  // Filter rules:
+  //  1. Only PRG / CRT / raw — same as before.
+  //  2. Hide rebuild-check artifacts (Bug 14 followup; they pollute
+  //     the list with auto-generated *_disasm_rebuild_check.prg
+  //     entries that are not real source PRGs).
+  //  3. Lineage filter: only show the highest versionRank per
+  //     lineageRoot. Older same-lineage versions stay reachable
+  //     through Sprint 22's lineage chain UI; the Scrub picker only
+  //     needs the latest entry.
+  const scrubArtifactsRaw = artifacts.filter((artifact) =>
+    (artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw")
+    && artifact.role !== "rebuild-check"
+  );
+  const latestPerLineage = new Map<string, ArtifactRecord>();
+  for (const a of scrubArtifactsRaw) {
+    const root = a.lineageRoot ?? a.id;
+    const current = latestPerLineage.get(root);
+    if (!current || (a.versionRank ?? 0) > (current.versionRank ?? 0)) {
+      latestPerLineage.set(root, a);
+    }
+  }
+  const scrubArtifacts = [...latestPerLineage.values()].sort((a, b) =>
+    a.relativePath.localeCompare(b.relativePath)
   );
   const [selectedPath, setSelectedPath] = useState<string>(scrubArtifacts[0]?.relativePath ?? "");
   const [offsetText, setOffsetText] = useState<string>("0000");
