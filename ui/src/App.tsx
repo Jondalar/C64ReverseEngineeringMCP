@@ -458,6 +458,25 @@ function MetricTile({ title, value, tone }: { title: string; value: string; tone
   );
 }
 
+// Spec 050 Block D: 7-cell pill showing per-artifact phase
+// progress. ✓ done · ⨯ pending · — not required for active
+// workflow. Frozen artifacts get a 🔒 prefix.
+function PhaseBadge({ phase, frozen }: { phase?: number; frozen?: boolean }) {
+  const current = phase ?? 1;
+  const cells = [1, 2, 3, 4, 5, 6, 7].map((p) => {
+    if (frozen && p === current) return "🔒";
+    if (p < current) return "✓";
+    if (p === current) return "•";
+    return "⨯";
+  }).join("");
+  const label = frozen ? `frozen at phase ${current}` : `phase ${current}/7`;
+  return (
+    <span className="phase-badge" title={label} aria-label={label}>
+      {cells}
+    </span>
+  );
+}
+
 function RecordList({
   title,
   items,

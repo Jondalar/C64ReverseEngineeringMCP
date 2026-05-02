@@ -857,3 +857,89 @@ Any auto-pipeline that walks "all files in `analysis/disk/<image>/`" and calls `
 ### Cross-reference
 - Bug 18: schema-reject downstream that correctly catches this case but for the wrong reason (Bug 18's fix would let the garbage analysis import successfully — bad outcome).
 
+---
+
+## Bug 20 — Phase-1 candidate noise persists; Phase-2 / PNG-render confirmations don't propagate back
+
+**Status**: OPEN
+
+**Severity**: High — the Graphics, Findings, and Questions tabs are flooded with phase-1 heuristic noise that never gets pruned, even after deeper analysis has answered or invalidated each candidate.
+
+### Live numbers (Murder project after full Phase-1+2 run)
+- **Artifacts**: 357
+- **Active Findings**: **1203** — vast majority are auto-generated phase-1 RAM-region hypotheses ('RAM region $XYZ behaves like flag/counter/pointer_target/...') with confidence 0.42-0.85.
+- **Open Tasks**: 16
+- **Open Questions**: **570** — most are 'Validate: RAM region $XYZ behaves like mode_flag' type heuristic questions.
+- **Graphics tab**: "126 segments — 0 confirmed — 0 rejected" after rendering 240+ PNG previews via `scan_graphics_candidates` and visually confirming the content of 7 files.
+
+### Three-part problem
+
+**(a) Phase-1 sprite/data candidates do not get confirmed/rejected by Phase-2 annotations.**
+The `analyze_prg` sprite analyzer flags every 64-byte aligned region with mixed bits as "sprite" with confidence 1.0. These land as segments in `*_analysis.json`. The Graphics UI tab reads this list. When `propose_annotations` later refines or `render_graphics_preview` produces a visual proof, neither updates the underlying segment's `confirmed=true|false` flag. Result: 126 sprite-segments stay forever in the "0 confirmed / 0 rejected" purgatory.
+
+**(b) `render_graphics_preview` / `scan_graphics_candidates` outputs are not linked back to the originating segment.**
+When the agent runs `render_graphics_preview(input=chr2.prg, address=$5000, kind=sprite, length=$900)` and visually confirms "yes this is the NPC portrait set", the resulting PNG is saved as `session/graphics-previews/chr2_full.png` and registered with `kind=preview` — but there is NO `confirms_segment_id` reference, NO `segment_kind=sprite-mc` overwrite, NO writeback into `analysis/disk/motm/06_chr2_analysis.json` to mark the corresponding segment as confirmed.
+
+The Graphics tab continues to show all chr2's sprite-segments as "unconfirmed" even though we already rendered + visually confirmed them.
+
+**(c) Phase-1 RAM-region hypotheses pile up as findings/questions, never auto-archive when superseded.**
+`analyze_prg` saves a `hypothesis`-kind finding for every detected RAM region ('RAM region $031A behaves like mode_flag' etc.) AND a paired open question ('Validate: RAM region $031A behaves like mode_flag'). Phase-2 narrative annotations now describe these regions properly (e.g. "$031A: loader-busy/complete flag, set by bitbang_tx_24bit, polled by wait_loader_completion"). But the original auto-generated finding+question remain as `active`/`open`. There is no "this hypothesis is now subsumed by routine annotation X" auto-archive flow.
+
+Result: 1203 findings, 570 questions, of which only ~20 are human-curated. Signal-to-noise is awful.
+
+### Reproduction
+```
+project_init / extract_disk / analyze_prg on every PRG
+# observe: hundreds of 'hypothesis'-kind findings auto-saved per file
+# observe: corresponding 'open' questions per RAM region
+
+propose_annotations on every PRG  # Spec 042 / R15
+disasm_prg with annotations
+render_graphics_preview / scan_graphics_candidates on content files
+# render PNGs, visually confirm content of chr1-4, baby, romance, ingrid
+
+# Open the workspace UI Graphics tab:
+#   "126 segments — 0 confirmed — 0 rejected"
+# Open Findings tab:
+#   1200+ active findings, mostly heuristic noise, no way to mark obsolete in bulk
+# Open Questions tab:
+#   570 open, mostly auto-generated, no source-filter clarifies which ones are human-relevant
+```
+
+### Expected
+**(a)** When `render_graphics_preview` matches an existing sprite/charset/bitmap segment in `*_analysis.json`, automatically mark it as `confirmed: true` with `confirmation_kind: visual-render` and a back-pointer to the PNG path. Same for `propose_annotations` segment reclassifications.
+
+**(b)** Add a mechanism to mark a render result as confirming/rejecting a segment:
+```
+mark_segment_confirmed(prg_path, address, kind, confidence, evidence_artifact_id)
+mark_segment_rejected(prg_path, address, reason)
+```
+or a CLI flag on `render_graphics_preview` like `confirm_segment=true` that auto-writes back.
+
+**(c)** Auto-archive flow:
+- When a `routine` annotation is added at address $XXXX, all phase-1 hypothesis findings whose `addressRange` is fully inside that routine should be moved to `status=archived` with `archived_by_finding_id=<the new routine annotation finding>`.
+- Similarly, open-questions whose RAM-region is now documented in an annotation become `status=answered` automatically.
+- New tool: `archive_superseded_phase1_findings(project_dir)` that runs the heuristic and shows a dry-run before applying.
+
+### Suggested fix
+1. **Schema additions**:
+   - `Segment.confirmed?: boolean`
+   - `Segment.confirmedBy?: { kind: 'render' | 'annotation' | 'human', artifactId?: string, findingId?: string, capturedAt: string }`
+   - `Finding.archivedBy?: string` (id of newer finding that supersedes this)
+   - `OpenQuestion.answeredBy?: string` (id of finding that answers this)
+2. **`render_graphics_preview` enhancement**: accept optional `segment_id` parameter. When provided, write `confirmed=true` + back-pointer into the corresponding analysis JSON. Otherwise, attempt auto-match by `(input_path, address, length)` and only confirm if the match is unique.
+3. **`propose_annotations` enhancement**: when a segment reclassification has confidence > 0.8, mark the original segment as `confirmed`.
+4. **New tool `archive_phase1_noise(project_dir, dry_run=true)`**: walk all hypothesis-kind findings, find ones whose address range is now covered by a `routine` annotation, mark them archived. Walk open-questions, mark them `answered` when the source heuristic-phase1 region is now annotated.
+5. **UI Graphics tab**: respect `confirmed` flag — show three buckets (confirmed / unconfirmed / rejected) with counts. Also show the `confirmedBy.artifactId` PNG inline as a thumbnail when present.
+
+### Why this matters
+Without auto-archive, every project will accumulate phase-1 noise indefinitely. After 16 PRGs analyzed, MotM is at 1203 findings; a 50-PRG project would be at 4000+. The signal becomes invisible. Right now the agent has to manually save a "REFUTED: …" finding for each phase-1 hypothesis to invalidate it — that's not scalable.
+
+The graphics-preview-to-segment linkage gap is the same problem in microcosm: rendering a PNG and visually confirming it should propagate forward, not stay isolated as an unrelated `kind=preview` artifact.
+
+### Cross-reference
+- Bug 4: Markdown docs not auto-registered. Same family of "tool produces output but workflow doesn't surface it back".
+- Bug 15: structured findings JSON not rendered as docs. Adjacent — even when findings ARE good, they're hard to find.
+- R6 (REQUIREMENTS): open-question source tagging. Implemented in sprint 36 — partially helps because we can now filter by `source=heuristic-phase1`, but the auto-archive flow is still missing.
+- R7 (REQUIREMENTS): disk-layout sector status. Same general pattern — heuristic guesses need human/runtime confirmation flow that updates the underlying classification.
+
