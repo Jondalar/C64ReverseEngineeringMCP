@@ -356,17 +356,20 @@ Done when:
 Goal: surface the same audit/repair signal to the human in the
 workspace UI that the agent already gets via MCP.
 
-Status: not started. Surfaced after Sprint 6 to round out the
-"integrated UI" goal.
+Status: complete. `GET /api/audit` and `POST /api/repair` live in
+`src/workspace-ui/server.ts`. `AuditPanel` in
+`ui/src/App.tsx` renders severity, counts, findings, and exposes
+`Refresh audit` / `Dry-run repair` / `Run safe repair` buttons that
+reload the workspace snapshot.
 
 Todos:
 
-- [ ] Add `GET /api/audit` (defaulting to cached) and `POST /api/repair`
+- [x] Add `GET /api/audit` (defaulting to cached) and `POST /api/repair`
       to the workspace UI server.
-- [ ] Add an `AuditPanel` to the dashboard with severity, counts, top
+- [x] Add an `AuditPanel` to the dashboard with severity, counts, top
       findings, and `Refresh audit` / `Dry-run repair` /
       `Run safe repair` buttons.
-- [ ] Re-fetch the workspace snapshot after a safe repair so counts and
+- [x] Re-fetch the workspace snapshot after a safe repair so counts and
       views update.
 
 Specs:
@@ -528,10 +531,228 @@ Done when:
 - `node scripts/bootstrap-ui-fixture.mjs && npm run ui:fixture` boots
   the UI on the fixture with audit severity ok and populated panels
 
+## Sprint 21: Mechanics And Cleanup
+
+Goal: finish the housekeeping debt that has been sliding from sprint to
+sprint so later work does not trip over inconsistent error handling,
+duplicate registrations, or noisy artifact lists.
+
+Status: not started.
+
+Todos:
+
+- [ ] Wrap remaining handlers in `safeHandler`:
+      `src/server-tools/payloads.ts`, `compression.ts`, `sandbox.ts`,
+      `headless.ts`, `vice.ts`, and the listing/save tools in
+      `src/project-knowledge/mcp-tools.ts`.
+- [ ] Bug 9: document `register_existing_files` glob semantics; on
+      `Candidates scanned: 0` include the resolved walk root in the
+      response and add an explicit `dry_run` listing flag.
+- [ ] Bug 10: dedup `save_artifact` / `register_existing_files` by
+      `relativePath` (skip or update existing record instead of
+      accumulating duplicates).
+- [ ] Bug 14: `disasm_prg` registers the rebuild-check PRG with
+      `kind: "report"`, `role: "rebuild-check"`, and
+      `derivedFrom: <original-id>`; UI disk-layout / payload views
+      hide them by default.
+- [ ] R4: built-in default glob set when `register_existing_files` is
+      called with no `patterns`. Cover all c64re-produced extensions
+      (`*_analysis.json`, `*_disasm.asm`, `*_disasm.tass`, manifest,
+      raw sectors, runtime traces, docs).
+
+Specs:
+
+- `specs/024-mechanics-cleanup.md`
+
+Done when:
+
+- A deliberately failing handler in any wrapped tool returns the Spec
+  007 error envelope instead of crashing the stdio process.
+- Re-registering files on the BWC project produces zero new duplicate
+  artifacts.
+- Empty-glob `register_existing_files` covers a fresh project end to
+  end with one call.
+
+## Sprint 16: Disasm Quality
+
+Goal: eliminate silent rebuild divergence and false-positive segment
+classification on real-world PRGs.
+
+Status: not started. Driven by Bugs 5/6 follow-up, Bug 8 (text
+encoding), and Bug 11 (sprite over-eager).
+
+Todos:
+
+- [ ] Text classifier (Bug 8): when a candidate range is printable PETSCII
+      (`[\x20-\x7E]+`), default to a `.byte` list with inline
+      `// "..."` comment instead of `.text` / `screen_code_text`. Honor
+      explicit `kind: "petscii_text"` annotation overrides.
+- [ ] Sprite analyzer hardening (Bug 11): drop confidence to ≤0.3 when
+      first 3 bytes form a JMP/JSR landing inside the same range, or
+      when high-byte distribution looks like aligned 16-bit address
+      pairs.
+- [ ] Self-mod / branch-into-data follow-up (Bug 5/6): when a code
+      island holds a relative branch landing inside a data segment AND
+      surrounding decode looks broken (JAM, undocumented opcode), demote
+      island to data and re-render.
+- [ ] Rebuild-verify smoke against the Murder corpus (`11_riv1`,
+      `12_riv2`, `15_love`) and the synthetic fixture under
+      `fixtures/ui-smoke-project`.
+
+Specs:
+
+- `specs/019-disasm-quality.md`
+
+Done when:
+
+- The three Murder PRGs that currently rebuild non-byte-identical
+  pass `assemble_source --compare_to=<orig>` cleanly.
+- T1/S0 1541 buffer code no longer classified as `sprite` with
+  confidence 1.00.
+
+## Sprint 18: Knowledge Visibility Tabs
+
+Goal: make findings, entities, flows, and relations first-class in the
+workspace UI. Today the user only sees what is rendered as Markdown,
+which means the highest-value layer of c64re is invisible.
+
+Status: not started. Closes Bug 15, replaces R10's markdown render
+with direct UI tabs, and pays back R12.
+
+Todos:
+
+- [ ] Add `GET /api/findings`, `/api/entities`, `/api/flows`,
+      `/api/relations` to the workspace UI server.
+- [ ] Add Findings, Entities, Flows, Relations tabs to the UI with
+      sortable / filterable tables and a detail card per row.
+- [ ] Cross-link evidence rows to the matching listing artifact and
+      line range.
+- [ ] Virtualise row lists from the start so the BWC scale stays
+      responsive (4499 entities / 2814 findings / 546 relations).
+
+Specs:
+
+- `specs/021-knowledge-tabs.md`
+
+Done when:
+
+- Opening the BWC project no longer requires a separate Markdown
+  render to inspect findings/entities, and the UI stays responsive.
+- Clicking a finding's evidence row jumps to the source listing at
+  the right line.
+
+## Sprint 17: Platform Awareness
+
+Goal: stop hard-coding C64 conventions into disasm output. Drive code,
+C128, and other 6502 targets need their own annotation tables.
+
+Status: not started. Driven by Bug 12 and R2.
+
+Todos:
+
+- [ ] Add `platform` field (`c64 | c1541 | c128 | vic20 | plus4 | other`,
+      default `c64`) to artifact metadata and accept it on
+      `analyze_prg` / `disasm_prg`.
+- [ ] Add `src/platform-knowledge/c64.ts` and
+      `src/platform-knowledge/c1541.ts` with ZP names, I/O register
+      labels, and ROM routine names.
+- [ ] Disasm renderer selects the table based on artifact platform.
+- [ ] UI badge per artifact with platform tag.
+
+Specs:
+
+- `specs/020-platform-marker.md`
+
+Done when:
+
+- A 1541 drive-code disasm names $1800/$1C00 as VIA1/VIA2 and
+  $A47C/$A51A as 1541 ROM symbols instead of C64 KERNAL.
+- A C64 PRG disasm output stays unchanged for golden samples.
+
+## Sprint 19: Per-File Workflow Status
+
+Goal: replace project-global phase flags with a per-artifact "what is
+done" matrix the agent and the human can act on.
+
+Status: not started. Folds in R1 (badge), R5 (sub-phases), R13
+(quality metrics), Bug 16 (auto-import on onboard), and P1 (define
+"done").
+
+Todos:
+
+- [ ] Define the per-artifact done checklist (analyze, disasm pass 1,
+      annotations, disasm pass 2, rebuild byte-identical, ≥1 finding
+      linked).
+- [ ] Add `GET /api/per-artifact-status` that walks artifacts,
+      analysis-runs, listings, and findings to return the matrix.
+- [ ] UI: per-PRG status badge in disk-layout / payloads / dashboard;
+      click → artifact detail with pending steps.
+- [ ] Bug 16 fold-in: `agent_onboard` auto-runs
+      `bulk_import_analysis_reports` when any analysis-run carries
+      `imported: false`. `disasm_prg` no longer re-registers the
+      analysis-run artifact.
+- [ ] R13 quality metrics: % code/data/text/unknown, average segment
+      confidence, named-vs-`Wxxxx` ratio. Sortable on the dashboard.
+
+Specs:
+
+- `specs/022-per-artifact-status.md`
+
+Done when:
+
+- The dashboard ranks PRGs by completion and quality.
+- The audit no longer warns about unimported analysis-runs after
+  `agent_onboard` runs once.
+
+## Sprint 20: Custom Loader Semantics
+
+Goal: a binary's runtime address is not always its on-disk PRG header.
+Express that as a first-class concept so memory-map and load-sequence
+views match reality.
+
+Status: not started. Extends Sprint 15 payload work, closes Bug 13,
+R8, R14.
+
+Todos:
+
+- [ ] Add `register_load_context(artifact_id, runtime_address,
+      source_track?, source_sector?, triggered_by_pc?)` MCP tool.
+- [ ] Artifact stores `loadContexts: [{kind, address, evidence}]`
+      (`as-stored | runtime | after-decompression`).
+- [ ] Memory-map view: toggle context, highlight overlaps (KERNAL
+      replacement at $E000 etc.).
+- [ ] VICE trace integration: emit `load_event` entities when the
+      trace observes disk-read → memory-write pairs (R14).
+- [ ] Sprint 15 follow-up: confirm every extract tool sets
+      `payloadLoadAddress`, `payloadFormat`, and
+      `payloadSourceArtifactId` when known.
+
+Specs:
+
+- `specs/023-load-contexts.md`
+
+Done when:
+
+- `15_love.prg` analysable at runtime address `$E000` without
+  re-reading the PRG header.
+- A VICE trace populates load_event entities visible as arrows in the
+  disk-layout view.
+
 ## Backlog
 
 - Workspace UI filters for confidence, artifact role, payload, and
   phase.
+- R10 generated-docs pipeline (Findings → Markdown). Deferred:
+  Sprint 18 knowledge tabs cover the visibility gap directly; revisit
+  only if exporting to an external doc system becomes necessary.
+- R15 `propose_annotations` scaffolding tool — second-pass classifier
+  that emits a draft annotations JSON for the agent to review.
+- P2 / P3 cracker-vs-analyst role workflow split — different "done"
+  bars per role, depends on Sprint 19 checklist landing first.
+- Sprint 8 trace throughput (buffered writes, `trace_mode=sampled|off`);
+  required for Sprint 20 to stay practical on long depack traces.
+- Sprint 10 cross-reference matched shared-encoding artifact id in
+  `suggest_depacker` once the project layer surfaces them.
 
 The following items from the previous `TODO.md` are now closed:
 

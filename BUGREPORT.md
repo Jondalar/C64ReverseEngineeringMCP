@@ -476,3 +476,231 @@ ASM-button in UI loaded blank until `relativePath` rewritten.
 `01_murder.prg` SETNAM call still emits raw `ldx #$00 / ldy #$03` despite `filename_AB` symbol being resolvable from `(Y<<8)|X = $0300`.
 
 `docs/EF_PORT_PLAN.md`, `docs/STATUS.md`, `docs/PROTECTION.md`, `docs/LOADER.md`, `CLAUDE.md` — all written to the project but invisible in UI until manually registered as artifacts; even then no markdown rendering.
+
+---
+
+## Bug 9 — `register_existing_files` glob handling inconsistent / silent zero-match
+
+**Status**: OPEN
+
+**Severity**: Medium — agent gets misled into thinking nothing matched, falls back to direct `save_artifact` calls.
+
+### Summary
+Calling `register_existing_files` with `patterns: [{ glob: "input/disk/*.g64", kind: "g64", scope: "input" }]` returned `Registered: 0`, `Already registered: 0`, `Unmatched: 0`. Same call with `**/*.g64` also `0` candidates scanned. File `input/disk/motm.g64` clearly exists. Direct `save_artifact` worked.
+
+### Reproduction
+```
+project_init(name="X", project_dir=/abs/root)
+mv foo.g64 /abs/root/input/disk/motm.g64
+register_existing_files(project_dir=/abs/root,
+  patterns=[{glob:"input/disk/*.g64", kind:"g64", scope:"input"}])
+# expected: Registered: 1
+# actual:   Candidates scanned: 0; Registered: 0
+```
+
+### Expected
+- Glob walk inspects `<project_dir>/input/disk/` and matches the file
+- Or returns a clear error: "no files found matching pattern; did you mean …"
+- Documented glob semantics (relative to project_dir? bash-style? minimatch?)
+
+### Suggested fix
+1. Document glob semantics in tool description (relative to project_dir, supports `*`, `**`, etc.).
+2. When `Candidates scanned: 0`, include the resolved walk root in the response so user can debug.
+3. Add optional `dry_run`-style debug listing of what walker saw.
+
+---
+
+## Bug 10 — Doppelregistrierung: same path registered as multiple artifacts
+
+**Status**: OPEN
+
+**Severity**: Low — clutters artifact list, confuses UI counts.
+
+### Summary
+Same file path can end up as two artifact entries with different titles/IDs. Observed: `input/disk/motm.g64` registered first via `save_artifact("Murder on the Mississippi (Activision 1986) — source disk G64")`, later via `register_existing_files` glob auto-titled `"motm.g64"` — both with identical relative path. No de-dup-by-path logic.
+
+### Expected
+`save_artifact` / `register_existing_files` checks if `relativePath` already registered; if so, either skip silently or update existing record (configurable). Currently it accumulates duplicates.
+
+### Suggested fix
+Add path-based de-dup pass to `register_existing_files` (it already has a `Skipped: N` counter — extend that to recognize prior registrations under any title).
+
+---
+
+## Bug 11 — Sprite analyzer over-eager: classifies non-sprite 64-byte blocks
+
+**Status**: OPEN
+
+**Severity**: Medium — produces false-confidence segment classification, requires manual override via annotations.
+
+### Summary
+The drive-side fastloader at T1/S0 (1541 buffer #2 = $0300-$03FF) starts with a JMP $0340 followed by a 48-byte jump-table of 1541 ROM addresses ($A47C, $A51A, $A7E4, $A786, …). `analyze_prg` classified $0300-$033F as `sprite` with **confidence 1.00**.
+
+### Expected
+Sprite analyzer should:
+- Reject ranges where a JMP/JSR opcode at the start would land inside the same range (suggesting code/table use)
+- Lower confidence when bytes look like aligned 16-bit address pairs (multiple bytes in $80-$FF range, alternating with $00-$7F)
+- Cross-check whether the range is referenced by a load instruction with X/Y indexing — sprites get loaded with `LDA #$xx / STA $D000+`, jump-tables with `LDA $0300,X / STA …`
+
+### Reproduction
+```
+File contents at offset 0:
+  4C 40 03   # JMP $0340 — clear code prefix
+  A4 7C A5 1A A7 E4 A7 86 …  # 16-bit ROM addresses (high-byte > $80)
+
+analyze_prg → segment classification:
+  $0300-$033F  sprite  confidence=1.00  analyzers=sprite
+```
+
+### Suggested fix
+Pre-check: if the first 3 bytes look like a 6502 JMP/JSR opcode and the target lies within the same range, reduce sprite confidence to ≤0.3. Same for ranges starting with valid disasm opcodes.
+
+---
+
+## Bug 12 — C64-centric annotation comments emitted on 1541 drive-code disasm
+
+**Status**: OPEN
+
+**Severity**: Medium — misleads readers, requires platform context per artifact.
+
+### Summary
+Disassembling drive-side code (target = 1541 6502, NOT C64) produces comments hard-coded to the C64 memory map. Examples:
+- `LDA $01` → comment `// CPU port (ROM/IO banking)` — wrong; on the 1541 `$01` is regular RAM byte (host-comm flag in this fastloader)
+- `STA $D011` would be commented "VIC control register" — but on a 1541 there is no VIC
+
+### Expected
+Disasm tool needs a per-artifact platform marker (`platform: c64 | 1541 | drive`) that switches:
+- ZP RAM-fact lookup tables
+- I/O register annotations ($1800/$180E = VIA1, $1C00 = VIA2 on 1541; $D000-$D02E = VIC, $D400-$D41C = SID, $DD00-$DD0F = CIA2 on C64)
+- ROM routine name lookups ($A47C/$A51A/$A7E4 = 1541 DOS ROM; $FFBA/$FFD5/$ED0C = C64 KERNAL)
+
+### Reproduction
+Disasm of T1/S0 drive code (`drive_t1s0_disasm.asm`):
+```
+W036D: lda  #$80                         // A = $80 (128)
+       sta  $01                          // store A → CPU port (ROM/IO banking)
+```
+Comment is wrong for 1541 context.
+
+### Suggested fix
+1. Add `platform` parameter to `analyze_prg` / `disasm_prg` defaulting to `c64`. Accept `1541`, `vic20`, `c128`, etc.
+2. Maintain per-platform annotation tables in `src/platform-knowledge/{c64,1541}.ts`.
+3. Disasm rendering selects table based on artifact platform.
+4. Save platform onto artifact metadata.
+
+---
+
+## Bug 13 — PRG header load-addr ignored when fastloader uses a different runtime dest
+
+**Status**: OPEN
+
+**Severity**: Medium — disasm shows code at wrong address when game uses a custom dest table.
+
+### Summary
+`disasm_prg` always uses the 2-byte PRG load header as the disassembly base address. But many late-80s games use a custom fastloader with a host-side destination table that overrides the on-disk load address. Result: the PRG file appears to load at e.g. `$A000` (per its header), but at runtime the loader places it at `$E000`. All address references in the disasm are wrong relative to the runtime location.
+
+### Reproduction
+`15_love.prg` PRG header says `$A000`. Custom fastloader in `02_ab.prg` has dest table at `$4343/$4351` whose entries point to `$E000-$EEFF` for cmd code `$16`. If the game loads love.prg via cmd $16, the actual runtime base is `$E000`, not `$A000` — but disasm uses `$A000`.
+
+### Expected
+- `disasm_prg` accepts an optional `load_address` parameter that overrides the PRG header
+- Or accepts a list of `(file_offset, runtime_address, length)` mappings for files placed at multiple destinations
+
+### Suggested fix
+1. Add `load_address` (hex string) override to `analyze_prg` / `disasm_prg` schemas.
+2. Document: "When the file is placed at a non-standard address by a custom loader, override here."
+3. UI memory-map view: show loaded ranges with the override taken into account.
+
+---
+
+## Bug 14 — `*_disasm_rebuild_check.prg` artifacts pollute artifact list as if they were source PRGs
+
+**Status**: OPEN
+
+**Severity**: Low — confuses agent (and probably user) into thinking there are multiple "versions" of the same source PRG.
+
+### Summary
+`disasm_prg` produces an automatic rebuild-check PRG (`<basename>_disasm_rebuild_check.prg`) so the agent can verify byte-for-byte rebuild. When `register_existing_files` runs with broad `*.prg` glob, those rebuild PRGs get registered as separate `prg` artifacts alongside the originals.
+
+UI shows them as siblings of the original — looks like there are two PRG files on disk for the same logical thing.
+
+### Expected
+Either:
+- Disasm tool registers the rebuild PRG itself with `kind: "rebuild-check"` (not `prg`) and `derived_from: <original-id>` so the UI can group / hide them
+- Default `register_existing_files` glob set excludes `*_disasm_rebuild_check.prg`
+- UI groups artifacts by `derived_from` chain when present
+
+### Suggested fix
+1. `disasm_prg` calls `save_artifact(kind="report" or "checkpoint", role="rebuild-check", source_artifact_ids=[<original>])` for the check PRG instead of leaving it for blanket registration.
+2. UI `disk-layout` view filters out artifacts with `role=rebuild-check`.
+
+---
+
+## Bug 15 — Findings / open-questions / entities are JSON-only; no UI rendering, no markdown surface
+
+**Status**: OPEN  (related to Bug 4 but distinct)
+
+**Severity**: High — the entire structured-knowledge layer (the *value* that c64re adds over plain disasm) is invisible to humans.
+
+### Summary
+`save_finding`, `save_open_question`, `save_entity`, `save_flow`, `save_relation` write JSON into `knowledge/findings/*.json`, `knowledge/questions/*.json`, etc. UI Docs-tab renders only Markdown files. There is **no view** that surfaces:
+- Findings (with body, evidence, confidence, status)
+- Open questions (with description, status, priority)
+- Entities (with attributes, addresses, links)
+- Relations / flows
+
+Bug 4 covers `*.md` files written by the agent; this bug covers structured Knowledge JSON which is not even Markdown to begin with.
+
+Result: an agent can save 30 high-quality findings + 15 open questions + 60 entities and the user sees an empty Docs tab.
+
+### Expected
+Either of:
+- **(a) Auto-render**: server endpoint `/api/findings`, `/api/open-questions`, `/api/entities`, etc. returns JSON; UI has dedicated tabs that render rich tables/cards.
+- **(b) Auto-generate-docs**: every `save_finding` triggers an append/rebuild of `docs/findings/<topic>.md` (or one consolidated `FINDINGS.md`) with evidence excerpts.
+
+### Reproduction
+```
+save_finding(kind="classification", title="Custom fastloader", summary="...", evidence=[…])
+# UI Docs-tab → empty
+# UI never shows the finding
+```
+
+### Suggested fix
+1. Add `/api/findings`, `/api/open-questions`, `/api/entities` endpoints in `src/workspace-ui/server.ts`.
+2. Add corresponding UI panels (Findings tab, Questions tab, Entities tab) — sortable/filterable tables.
+3. Cross-link to Evidence-Artifacts (file + line range when present).
+4. Optional fallback: `bulk_render_findings_to_md` that produces a consolidated `docs/FINDINGS.md`.
+
+---
+
+## Bug 16 — `analysis-run` artifacts registered but never imported (12 stale on Murder dashboard)
+
+**Status**: OPEN
+
+**Severity**: Medium — entities and findings missing despite analysis tools reporting success; user gets warned but no obvious next step.
+
+### Summary
+After running `analyze_prg` on several PRGs, the project_audit / dashboard reports:
+> 12 analysis-run artifact(s) registered but never imported. Entities / findings missing → loadSequence Payload-Focus stages have no linked entities. Run bulk_import_analysis_reports to back-fill.
+
+The expected `analyze_prg` flow already imports the analysis run as part of its execution (it returns `Imported analysis knowledge: N entities, M findings, …`). But subsequent re-runs (e.g. via `disasm_prg` with `analysis_json` pointing to the same file, or rebuild-check side effects) appear to re-register the run artifact without re-importing.
+
+### Expected
+- Either: every tool that produces an `analysis-run` artifact also auto-imports its knowledge (idempotently, so re-runs are safe)
+- Or: project_audit auto-runs `bulk_import_analysis_reports` when it detects unimported runs, instead of just warning
+
+### Reproduction
+```
+analyze_prg(prg_path=foo.prg)
+# imports
+disasm_prg(prg_path=foo.prg, analysis_json=foo_analysis.json)
+# may re-register the analysis-run artifact without re-import
+project_audit
+# warns: 1 analysis-run registered but never imported
+```
+
+### Suggested fix
+1. `disasm_prg` should NOT re-register the analysis-run artifact (it's not the producer of that artifact, it's a consumer).
+2. `analyze_prg` import is idempotent; safe to re-run on the same JSON.
+3. Add `bulk_import_analysis_reports` as an automatic step in `agent_onboard` when the audit detects unimported runs, instead of leaving it as a manual command.
+

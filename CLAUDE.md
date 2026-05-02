@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working Process (Mandatory)
+
+Before starting ANY task in this repo:
+
+1. Read `BUGREPORT.md` — known bugs and fix status (open vs FIXED).
+2. Read `REQUIREMENTS.md` — refinement / enhancement backlog.
+3. Read `PLAN.md` — sprint state, what is open, what is next.
+
+These three files are source of truth. Do not propose work that duplicates a fixed bug, ignores a pending sprint, or contradicts plan order. Update them as work lands (mark bugs FIXED with commit ref, move requirements to specs/sprints, flip sprint status).
+
+Spec-driven flow stays: PLAN → spec under `specs/NNN-*.md` → sprint todos → implementation. New work without a spec is incomplete.
+
 ## Agent Doctrine (Mandatory)
 
 When operating inside an actual C64 RE *project* (i.e. a `C64RE_PROJECT_DIR` workspace, not this MCP repo itself):
