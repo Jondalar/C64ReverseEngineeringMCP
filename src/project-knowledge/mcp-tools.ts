@@ -392,6 +392,85 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 037: payload disk hint.
+  server.tool(
+    "set_payload_disk_hint",
+    "Spec 037: tag a payload entity with a disk-hint (drive-code | protected | raw-unanalyzed | bad-crc | gap). Surfaces as a colour overlay on the disk heatmap. Pass hint=null/omitted to clear.",
+    {
+      project_dir: z.string().optional(),
+      payload_entity_id: z.string(),
+      hint: z.enum(["drive-code", "protected", "raw-unanalyzed", "bad-crc", "gap"]).optional(),
+    },
+    safeHandler("set_payload_disk_hint", async ({ project_dir, payload_entity_id, hint }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const updated = service.setPayloadDiskHint(payload_entity_id, hint);
+      if (!updated) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "set_payload_disk_hint",
+          `Payload entity '${payload_entity_id}' not found.`,
+          `list_payloads() to discover valid ids.`,
+        );
+      }
+      return textContent(`Hint ${hint ?? "(cleared)"} set on ${updated.id}.`);
+    },
+));
+
+  // Spec 041: relevance ranking.
+  server.tool(
+    "set_artifact_relevance",
+    "Spec 041: tag an artifact with a relevance value (loader | protection | save | kernal | asset | other). Drives sorting in the dashboard + cracker-mode propose_next ranking.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string(),
+      relevance: z.enum(["loader", "protection", "save", "kernal", "asset", "other"]).optional(),
+    },
+    safeHandler("set_artifact_relevance", async ({ project_dir, artifact_id, relevance }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const updated = service.setArtifactRelevance(artifact_id, relevance);
+      if (!updated) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "set_artifact_relevance",
+          `Artifact '${artifact_id}' not found.`,
+          `list_artifacts() to discover valid ids.`,
+        );
+      }
+      return textContent(`Relevance ${relevance ?? "(cleared)"} set on ${updated.id}.`);
+    },
+));
+
+  server.tool(
+    "auto_tag_relevance",
+    "Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). Suggestions only — call set_artifact_relevance to apply. dry_run=true (default) returns proposals without writing.",
+    {
+      project_dir: z.string().optional(),
+      dry_run: z.boolean().optional(),
+    },
+    safeHandler("auto_tag_relevance", async ({ project_dir, dry_run }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const proposals = service.proposeArtifactRelevance();
+      const dry = dry_run ?? true;
+      if (dry || proposals.length === 0) {
+        if (proposals.length === 0) return textContent("No proposals — every artifact already tagged or no heuristic match.");
+        return textContent([
+          `Auto-relevance proposals (dry-run, ${proposals.length}):`,
+          ...proposals.map((p) => `  ${p.title}: ${p.proposed} (${p.reason})${p.current ? ` [current: ${p.current}]` : ""}`),
+          ``,
+          `Re-run with dry_run=false to apply.`,
+        ].join("\n"));
+      }
+      let applied = 0;
+      for (const p of proposals) {
+        if (p.proposed) {
+          service.setArtifactRelevance(p.artifactId, p.proposed);
+          applied += 1;
+        }
+      }
+      return textContent(`Applied relevance tags to ${applied} artifact(s).`);
+    },
+));
+
   // Spec 034 / 035: phase orchestration tools.
   server.tool(
     "agent_advance_phase",

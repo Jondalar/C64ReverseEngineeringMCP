@@ -1334,6 +1334,131 @@ export class ProjectKnowledgeService {
     return { written };
   }
 
+  // Spec 037: set / clear payload-level disk hint.
+  setPayloadDiskHint(payloadEntityId: string, hint?: "drive-code" | "protected" | "raw-unanalyzed" | "bad-crc" | "gap"): EntityRecord | undefined {
+    const store = this.storage.loadEntities();
+    const entity = store.items.find((item) => item.id === payloadEntityId);
+    if (!entity) return undefined;
+    const updated: EntityRecord = { ...entity, payloadDiskHint: hint, updatedAt: nowIso() };
+    this.storage.saveEntities({
+      ...store,
+      updatedAt: nowIso(),
+      items: store.items.map((item) => (item.id === payloadEntityId ? updated : item)),
+    });
+    return updated;
+  }
+
+  // Spec 041: set artifact relevance tag.
+  setArtifactRelevance(artifactId: string, relevance?: "loader" | "protection" | "save" | "kernal" | "asset" | "other"): ArtifactRecord | undefined {
+    const store = this.storage.loadArtifacts();
+    const artifact = store.items.find((item) => item.id === artifactId);
+    if (!artifact) return undefined;
+    const updated: ArtifactRecord = { ...artifact, relevance, updatedAt: nowIso() };
+    this.storage.saveArtifacts({
+      ...store,
+      updatedAt: nowIso(),
+      items: store.items.map((item) => (item.id === artifactId ? updated : item)),
+    });
+    return updated;
+  }
+
+  // Spec 041: auto-classifier — proposes relevance tags from
+  // heuristics. Only suggests; the caller writes the chosen tag via
+  // setArtifactRelevance.
+  proposeArtifactRelevance(): Array<{ artifactId: string; title: string; current?: string; proposed: ArtifactRecord["relevance"]; reason: string }> {
+    const out: Array<{ artifactId: string; title: string; current?: string; proposed: ArtifactRecord["relevance"]; reason: string }> = [];
+    const artifacts = this.listArtifacts();
+    const loaderEntries = this.listLoaderEntryPoints();
+    const antiPatterns = this.listAntiPatterns();
+    for (const artifact of artifacts) {
+      let proposed: ArtifactRecord["relevance"] | undefined;
+      let reason = "";
+      const title = artifact.title.toLowerCase();
+      if (loaderEntries.some((e) => e.artifactId === artifact.id)) {
+        proposed = "loader";
+        reason = "has declared loader-entrypoint";
+      } else if (/boot|loader|sys|fastload/.test(title)) {
+        proposed = "loader";
+        reason = "title matches loader pattern";
+      } else if (antiPatterns.some((a) => a.appliesTo?.toolName === artifact.id || a.title.toLowerCase().includes(artifact.title.toLowerCase()))) {
+        proposed = "protection";
+        reason = "anti-pattern referenced";
+      } else if (/protect|copy|prot/.test(title)) {
+        proposed = "protection";
+        reason = "title matches protection pattern";
+      } else if (/save|store|hi.?score|scoreboard/.test(title)) {
+        proposed = "save";
+        reason = "title matches save pattern";
+      } else if ((artifact.loadContexts ?? []).some((c) => c.kind === "runtime" && c.address >= 0xe000)) {
+        proposed = "kernal";
+        reason = "load context targets KERNAL replacement range";
+      } else if (/sprite|charset|font|level|map|asset|graphic/.test(title)) {
+        proposed = "asset";
+        reason = "title matches asset pattern";
+      }
+      if (proposed) {
+        out.push({ artifactId: artifact.id, title: artifact.title, current: artifact.relevance, proposed, reason });
+      }
+    }
+    return out;
+  }
+
+  // Spec 040: per-artifact quality metrics computed from
+  // *_analysis.json (segment kinds + confidence) and *_disasm.asm
+  // (label naming ratio).
+  computeQualityMetrics(analysisJsonPath: string, listingPath?: string): {
+    bytesByKind: Record<string, number>;
+    avgConfidence: number;
+    largeUnknownCount: number;
+    namedLabelRatio: number;
+    qualityScore: number;
+  } | undefined {
+    if (!existsSync(analysisJsonPath)) return undefined;
+    const profile = this.getProjectProfile();
+    const largeUnknownThreshold = (profile as ProjectProfile & { qualityMetrics?: { largeUnknownThreshold?: number } } | undefined)?.qualityMetrics?.largeUnknownThreshold ?? 16;
+    interface Seg { kind: string; start: number; end: number; score?: { confidence?: number } }
+    let analysis: { segments?: Seg[] };
+    try {
+      analysis = JSON.parse(readFileSync(analysisJsonPath, "utf8")) as { segments?: Seg[] };
+    } catch {
+      return undefined;
+    }
+    const segments = analysis.segments ?? [];
+    const bytesByKind: Record<string, number> = {};
+    let confidenceSum = 0;
+    let confidenceCount = 0;
+    let largeUnknownCount = 0;
+    for (const seg of segments) {
+      const length = Math.max(0, (seg.end ?? 0) - (seg.start ?? 0) + 1);
+      bytesByKind[seg.kind] = (bytesByKind[seg.kind] ?? 0) + length;
+      const conf = seg.score?.confidence;
+      if (typeof conf === "number") {
+        confidenceSum += conf;
+        confidenceCount += 1;
+      }
+      if (seg.kind === "unknown" && length > largeUnknownThreshold) {
+        largeUnknownCount += 1;
+      }
+    }
+    const avgConfidence = confidenceCount === 0 ? 0 : confidenceSum / confidenceCount;
+    let namedLabelRatio = 1;
+    if (listingPath && existsSync(listingPath)) {
+      try {
+        const text = readFileSync(listingPath, "utf8");
+        const labelLines = text.split("\n").filter((line) => /^[A-Za-z_][A-Za-z0-9_]*:/.test(line));
+        if (labelLines.length > 0) {
+          const named = labelLines.filter((line) => !/^W[0-9A-F]{4}:/.test(line)).length;
+          namedLabelRatio = named / labelLines.length;
+        }
+      } catch {
+        // best effort
+      }
+    }
+    const totalSegments = Math.max(1, segments.length);
+    const qualityScore = avgConfidence * (1 - Math.min(1, (largeUnknownCount / totalSegments) * 5));
+    return { bytesByKind, avgConfidence, largeUnknownCount, namedLabelRatio, qualityScore };
+  }
+
   // Spec 034: advance an artifact to a target phase. Evidence string
   // is required when jumping more than one phase forward.
   advanceArtifactPhase(artifactId: string, toPhase: 1 | 2 | 3 | 4 | 5 | 6 | 7, evidence?: string): ArtifactRecord | undefined {

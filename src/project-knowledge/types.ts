@@ -154,6 +154,11 @@ export const ArtifactRecordSchema = z.object({
   phase: z.number().int().min(1).max(7).optional(),
   phaseFrozen: z.boolean().optional(),
   phaseFrozenReason: z.string().optional(),
+  // Spec 041: per-artifact relevance tag for cracker / port priority.
+  // relevanceRank is derived (manual > load_sequence > load_event >
+  // alphabetic) and not persisted; it lives on the per-artifact
+  // status response.
+  relevance: z.enum(["loader", "protection", "save", "kernal", "asset", "other"]).optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });
@@ -514,6 +519,11 @@ export const EntityRecordSchema = z.object({
   payloadDepackedArtifactId: IdSchema.optional(),
   payloadAsmArtifactIds: z.array(IdSchema).default([]),
   payloadContentHash: z.string().optional(),
+  // Spec 037: payload-level disk-hint surfaces protection /
+  // drive-code / raw-unanalyzed sectors as colour overlay on the
+  // disk heatmap. Set automatically by inspect / extract tools or
+  // manually via set_payload_disk_hint.
+  payloadDiskHint: z.enum(["drive-code", "protected", "raw-unanalyzed", "bad-crc", "gap"]).optional(),
   addressRange: AddressRangeSchema.optional(),
   // Optional physical placement on the medium (disk sectors / cart slots).
   // Drives the MediumResidentRegion overlay in the medium-layout adapter.
