@@ -17,6 +17,8 @@
     "ui:build": "vite build --config ui/vite.config.ts",
     "ui:typecheck": "tsc -p ui/tsconfig.json",
     "ui:serve": "tsx src/workspace-ui/server.ts",
+    "ui:fixture": "npm run ui:build && npm run ui:serve -- --project fixtures/ui-smoke-project",
+    "bootstrap:ui-fixture": "npm run build && node scripts/bootstrap-ui-fixture.mjs",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {

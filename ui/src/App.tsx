@@ -24,7 +24,7 @@ import type {
   WorkspaceUiSnapshot,
 } from "./types";
 
-type TabId = "dashboard" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "load" | "flow" | "listing" | "activity";
+type TabId = "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "load" | "flow" | "listing" | "activity";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -91,6 +91,7 @@ type CartChunkSelection = { cartridgeArtifactId: string; chunk: CartridgeLutChun
 
 const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
+  { id: "questions", label: "Questions" },
   { id: "docs", label: "Docs" },
   { id: "memory", label: "Memory Map" },
   { id: "graphics", label: "Graphics" },
@@ -758,6 +759,228 @@ function WorkflowRunnerPanel({
   );
 }
 
+type QuestionStatusFilter = "all" | "open" | "researching" | "answered" | "invalidated" | "deferred";
+type QuestionPriorityFilter = "all" | "low" | "medium" | "high" | "critical";
+type QuestionSort = "updatedDesc" | "updatedAsc" | "confidenceAsc" | "confidenceDesc" | "priorityDesc";
+
+const PRIORITY_RANK: Record<string, number> = { low: 0, medium: 1, high: 2, critical: 3 };
+
+function QuestionsPanel({
+  snapshot,
+  onSelectQuestion,
+  onReloadWorkspace,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectQuestion: (questionId: string) => void;
+  onReloadWorkspace: () => Promise<void>;
+}) {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<QuestionStatusFilter>("open");
+  const [priorityFilter, setPriorityFilter] = useState<QuestionPriorityFilter>("all");
+  const [kindFilter, setKindFilter] = useState("");
+  const [sort, setSort] = useState<QuestionSort>("updatedDesc");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<string | null>(null);
+
+  const kinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const q of snapshot.openQuestions) set.add(q.kind);
+    return [...set].sort();
+  }, [snapshot.openQuestions]);
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    let list = snapshot.openQuestions.filter((q) => {
+      if (statusFilter !== "all" && q.status !== statusFilter) return false;
+      if (priorityFilter !== "all" && q.priority !== priorityFilter) return false;
+      if (kindFilter && q.kind !== kindFilter) return false;
+      if (needle) {
+        const hay = `${q.title} ${q.description ?? ""} ${q.answerSummary ?? ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      switch (sort) {
+        case "updatedAsc": return a.updatedAt.localeCompare(b.updatedAt);
+        case "updatedDesc": return b.updatedAt.localeCompare(a.updatedAt);
+        case "confidenceAsc": return a.confidence - b.confidence;
+        case "confidenceDesc": return b.confidence - a.confidence;
+        case "priorityDesc": return (PRIORITY_RANK[b.priority] ?? 0) - (PRIORITY_RANK[a.priority] ?? 0);
+      }
+    });
+    return list;
+  }, [snapshot.openQuestions, search, statusFilter, priorityFilter, kindFilter, sort]);
+
+  const visible = filtered.slice(0, 500);
+  const allVisibleSelected = visible.length > 0 && visible.every((q) => selected.has(q.id));
+
+  function toggleId(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllVisible() {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        for (const q of visible) next.delete(q.id);
+      } else {
+        for (const q of visible) next.add(q.id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  async function applyBatch(patch: { status?: "deferred" | "invalidated" | "answered" | "open"; priority?: "low" | "medium" | "high" | "critical"; answerSummary?: string }) {
+    if (selected.size === 0) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const ids = [...selected];
+      const data = await postJson<{ updated: string[]; errors: Array<{ id: string; error: string }> }>("/api/open-question/batch", {
+        projectDir: snapshot.project.rootPath,
+        ids,
+        patch,
+      });
+      setLastResult(`Updated ${data.updated.length} of ${ids.length}.${data.errors.length > 0 ? ` ${data.errors.length} errors.` : ""}`);
+      if (data.errors.length > 0) {
+        setError(data.errors.slice(0, 5).map((e) => `${e.id}: ${e.error}`).join("\n"));
+      }
+      setSelected(new Set());
+      await onReloadWorkspace();
+    } catch (batchError) {
+      setError(batchError instanceof Error ? batchError.message : String(batchError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function batchSetPriority() {
+    const value = window.prompt("New priority (low/medium/high/critical):", "medium")?.trim().toLowerCase();
+    if (!value) return;
+    if (!["low", "medium", "high", "critical"].includes(value)) {
+      setError("Invalid priority.");
+      return;
+    }
+    await applyBatch({ priority: value as "low" | "medium" | "high" | "critical" });
+  }
+
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Questions</h3>
+        <span>{filtered.length} of {snapshot.openQuestions.length} | selected {selected.size}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input
+          type="search"
+          placeholder="Search title / summary"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as QuestionStatusFilter)}>
+          <option value="all">all status</option>
+          <option value="open">open</option>
+          <option value="researching">researching</option>
+          <option value="answered">answered</option>
+          <option value="invalidated">invalidated</option>
+          <option value="deferred">deferred</option>
+        </select>
+        <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as QuestionPriorityFilter)}>
+          <option value="all">all priority</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="critical">critical</option>
+        </select>
+        <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}>
+          <option value="">all kinds</option>
+          {kinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+        </select>
+        <select value={sort} onChange={(event) => setSort(event.target.value as QuestionSort)}>
+          <option value="updatedDesc">updated ↓</option>
+          <option value="updatedAsc">updated ↑</option>
+          <option value="confidenceAsc">confidence ↑</option>
+          <option value="confidenceDesc">confidence ↓</option>
+          <option value="priorityDesc">priority ↓</option>
+        </select>
+      </div>
+      <div className="inspector-chip-row">
+        <button type="button" className="inspector-chip" onClick={selectAllVisible} disabled={busy || visible.length === 0}>
+          {allVisibleSelected ? "Unselect visible" : `Select visible (${visible.length})`}
+        </button>
+        <button type="button" className="inspector-chip" onClick={clearSelection} disabled={busy || selected.size === 0}>
+          Clear selection
+        </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={() => applyBatch({ status: "deferred" })}>
+          {busy ? "..." : `Defer ${selected.size}`}
+        </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={() => applyBatch({ status: "invalidated" })}>
+          {`Invalidate ${selected.size}`}
+        </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={() => applyBatch({ status: "open" })}>
+          {`Reopen ${selected.size}`}
+        </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={batchSetPriority}>
+          {`Set priority ${selected.size}`}
+        </button>
+      </div>
+      {lastResult ? <div className="empty-inline">{lastResult}</div> : null}
+      {error ? <div className="inspector-error"><pre>{error}</pre></div> : null}
+      {filtered.length > visible.length ? (
+        <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div>
+      ) : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-check"></span>
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">prio</span>
+          <span className="questions-cell-meta">conf</span>
+          <span className="questions-cell-meta">status</span>
+          <span className="questions-cell-meta">updated</span>
+        </div>
+        {visible.map((question) => (
+          <div key={question.id} className="questions-row">
+            <span className="questions-cell-check">
+              <input
+                type="checkbox"
+                checked={selected.has(question.id)}
+                onChange={() => toggleId(question.id)}
+                disabled={busy}
+              />
+            </span>
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => onSelectQuestion(question.id)}
+            >
+              {question.title}
+            </button>
+            <span className="questions-cell-meta">{question.kind}</span>
+            <span className="questions-cell-meta">{question.priority}</span>
+            <span className="questions-cell-meta">{pct(question.confidence)}</span>
+            <span className="questions-cell-meta">{question.status}</span>
+            <span className="questions-cell-meta">{shortTime(question.updatedAt)}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No questions match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
 function DashboardPanel({
   snapshot,
   onSelectEntity,
@@ -787,17 +1010,38 @@ function DashboardPanel({
           ))}
         </div>
       </section>
-      <AuditPanel projectDir={snapshot.project.rootPath} onReloadWorkspace={onReloadWorkspace} />
-      <WorkflowRunnerPanel snapshot={snapshot} onReloadWorkspace={onReloadWorkspace} />
+      <section className="panel-card">
+        <div className="section-heading">
+          <h3>Open Questions</h3>
+          <span>{snapshot.openQuestions.filter((q) => q.status === "open" || q.status === "researching").length} open · click to inspect</span>
+        </div>
+        <div className="record-stack">
+          {snapshot.views.projectDashboard.openQuestions.length === 0 ? (
+            <div className="empty-inline">No open questions in the dashboard view. Run build_all_views or rebuild from the audit panel below.</div>
+          ) : null}
+          {snapshot.views.projectDashboard.openQuestions.slice(0, 8).map((question) => (
+            <button key={question.id} type="button" className="record-card" onClick={() => onSelectQuestion(question.id)}>
+              <div className="record-topline">
+                <span>{question.title}</span>
+                <span className="record-status">{question.status}</span>
+              </div>
+              {question.summary ? <p>{question.summary}</p> : null}
+            </button>
+          ))}
+        </div>
+      </section>
 
       <div className="split-columns">
         <section className="panel-card">
           <div className="section-heading">
             <h3>Current Work</h3>
-            <span>tasks and questions</span>
+            <span>tasks</span>
           </div>
           <div className="record-stack">
-            {snapshot.views.projectDashboard.openTasks.slice(0, 4).map((task) => (
+            {snapshot.views.projectDashboard.openTasks.length === 0 ? (
+              <div className="empty-inline">No open tasks.</div>
+            ) : null}
+            {snapshot.views.projectDashboard.openTasks.slice(0, 6).map((task) => (
               <button
                 key={task.id}
                 type="button"
@@ -812,15 +1056,6 @@ function DashboardPanel({
                   <span className="record-status">{task.status}</span>
                 </div>
                 {task.summary ? <p>{task.summary}</p> : null}
-              </button>
-            ))}
-            {snapshot.views.projectDashboard.openQuestions.slice(0, 3).map((question) => (
-              <button key={question.id} type="button" className="record-card" onClick={() => onSelectQuestion(question.id)}>
-                <div className="record-topline">
-                  <span>{question.title}</span>
-                  <span className="record-status">{question.status}</span>
-                </div>
-                {question.summary ? <p>{question.summary}</p> : null}
               </button>
             ))}
           </div>
@@ -851,6 +1086,9 @@ function DashboardPanel({
           </div>
         </section>
       </div>
+
+      <AuditPanel projectDir={snapshot.project.rootPath} onReloadWorkspace={onReloadWorkspace} />
+      <WorkflowRunnerPanel snapshot={snapshot} onReloadWorkspace={onReloadWorkspace} />
     </div>
   );
 }
@@ -4352,6 +4590,7 @@ export function App() {
   const visibleTabs = snapshot
     ? allTabs.filter((tab) => {
         if (tab.id === "dashboard") return true;
+        if (tab.id === "questions") return snapshot.openQuestions.length > 0;
         if (tab.id === "docs") return docs.length > 0;
         if (tab.id === "memory") return snapshot.views.memoryMap.cells.length > 0;
         if (tab.id === "graphics") return graphicsItems.length > 0;
@@ -4489,6 +4728,14 @@ export function App() {
                   setSelectedDocPath(path);
                   handleOpenTab("docs");
                 }}
+                onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
+              />
+            ) : null}
+
+            {activeTab === "questions" ? (
+              <QuestionsPanel
+                snapshot={snapshot}
+                onSelectQuestion={handleSelectQuestion}
                 onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
               />
             ) : null}

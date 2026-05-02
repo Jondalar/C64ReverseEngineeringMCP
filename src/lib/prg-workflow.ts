@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import { runCli } from "../run-cli.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { registerToolKnowledge } from "../project-knowledge/integration.js";
@@ -88,6 +88,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
   const baseAbs = opts.outputDir
     ? resolve(projectRoot, opts.outputDir, basename(prgAbs).replace(/\.prg$/i, ""))
     : prgAbs.replace(/\.prg$/i, "");
+  mkdirSync(dirname(baseAbs), { recursive: true });
   const analysisPath = `${baseAbs}_analysis.json`;
   const asmPath = `${baseAbs}_disasm.asm`;
   const tassPath = `${baseAbs}_disasm.tass`;

@@ -316,6 +316,65 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/open-question/batch" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          ids: string[];
+          patch: {
+            status?: "open" | "researching" | "answered" | "invalidated" | "deferred";
+            priority?: "low" | "medium" | "high" | "critical";
+            answerSummary?: string;
+            answeredByFindingId?: string;
+          };
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!Array.isArray(payload.ids) || payload.ids.length === 0) {
+          send(res, jsonResponse(400, { error: "ids must be a non-empty array." }));
+          return;
+        }
+        const service = new ProjectKnowledgeService(projectDir);
+        const errors: Array<{ id: string; error: string }> = [];
+        const updated: string[] = [];
+        for (const id of payload.ids) {
+          const existing = service.listOpenQuestions().find((question) => question.id === id);
+          if (!existing) {
+            errors.push({ id, error: "not found" });
+            continue;
+          }
+          try {
+            service.saveOpenQuestion({
+              id,
+              kind: existing.kind,
+              title: existing.title,
+              description: existing.description,
+              status: payload.patch.status ?? existing.status,
+              priority: payload.patch.priority ?? existing.priority,
+              confidence: existing.confidence,
+              entityIds: existing.entityIds,
+              artifactIds: existing.artifactIds,
+              findingIds: existing.findingIds,
+              answeredByFindingId: payload.patch.answeredByFindingId ?? existing.answeredByFindingId,
+              answerSummary: payload.patch.answerSummary ?? existing.answerSummary,
+            });
+            updated.push(id);
+          } catch (error) {
+            errors.push({ id, error: error instanceof Error ? error.message : String(error) });
+          }
+        }
+        send(res, jsonResponse(200, { updated, errors }));
+      } catch (error) {
+        send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/run-prg-workflow" && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });

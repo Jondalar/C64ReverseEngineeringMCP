@@ -404,6 +404,77 @@ Done when:
   packed file
 - non-Lykia samples keep their current ranking
 
+## Sprint 13: Open Questions Tab With Batch Operations
+
+Goal: replace the dashboard "Current Work" sliver with a dedicated
+Questions tab that scales to thousands of open questions and supports
+multi-select batch triage.
+
+Status: first pass landed. New `Questions` tab with search, status /
+priority / kind filter dropdowns, sort dropdown, count summary, and a
+flat row list (capped at 500 visible rows; tighten the filter for
+more). Multi-select toolbar supports `Defer N`, `Invalidate N`,
+`Reopen N`, and `Set priority N`, all routed through a single
+`POST /api/open-question/batch` round-trip with per-id error
+reporting. Successful batches reload the workspace snapshot. Row
+title click still opens the existing `QuestionInspector`.
+
+Todos:
+
+- [x] Add `POST /api/open-question/batch` to apply a status / priority
+      patch to many ids in one request, with per-id error reporting.
+- [x] Add a `questions` tab with search, status / priority / kind
+      filter dropdowns, sort dropdown, count summary, and a flat row
+      list.
+- [x] Multi-select toolbar: `Defer N`, `Invalidate N`,
+      `Reopen N`, `Set priority N`.
+- [x] Reload snapshot after a successful batch.
+- [ ] Virtualise the row list once a real-world project pushes past a
+      few thousand visible rows.
+
+Specs:
+
+- `specs/016-open-questions-tab.md`
+
+Done when:
+
+- a project with 1000+ open questions stays responsive in the
+  Questions tab
+- one round-trip defers / invalidates a multi-selection and the
+  dashboard counts and audit reflect the change
+
+## Sprint 14: Clean Fixture Project For UI Testing
+
+Goal: stop validating UI changes against BWC's accumulated chaos. Ship
+a small, in-tree synthetic project with a hand-written PRG so any
+contributor can boot the UI against deterministic state.
+
+Status: landed. `fixtures/ui-smoke-project/` ships a hand-assembled
+HELLO PRG, a documenting `src/sample.asm`, and a `.gitignore` for
+generated state. `scripts/bootstrap-ui-fixture.mjs` wipes generated
+state, runs the PRG workflow, seeds 6 open questions / 1 task / 1
+checkpoint, and rebuilds views. `package.json` gains
+`bootstrap:ui-fixture` and `ui:fixture` scripts.
+
+Todos:
+
+- [x] Hand-write a tiny KickAssembler source under
+      `fixtures/ui-smoke-project/src/sample.asm` (HELLO + busy loop)
+      and commit the assembled PRG.
+- [x] Add `scripts/bootstrap-ui-fixture.mjs` that wipes generated
+      state and re-runs the PRG workflow against the fixture.
+- [x] Add an `ui:fixture` npm script.
+- [ ] Add a tiny smoke that asserts the bootstrapped knowledge counts.
+
+Specs:
+
+- `specs/017-clean-fixture-project.md`
+
+Done when:
+
+- `node scripts/bootstrap-ui-fixture.mjs && npm run ui:fixture` boots
+  the UI on the fixture with audit severity ok and populated panels
+
 ## Backlog
 
 - Workspace UI filters for confidence, artifact role, payload, and
