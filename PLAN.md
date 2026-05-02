@@ -708,19 +708,28 @@ Goal: make findings, entities, flows, and relations first-class in the
 workspace UI. Today the user only sees what is rendered as Markdown,
 which means the highest-value layer of c64re is invisible.
 
-Status: not started. Closes Bug 15, replaces R10's markdown render
-with direct UI tabs, and pays back R12.
+Status: first pass landed. Endpoints + tabs ship; row click selects
+the linked entity; rows capped at 500 with filter hint. Cross-link
+evidence-to-listing-line and lineage-grouped UI rendering remain as
+follow-ups.
 
 Todos:
 
-- [ ] Add `GET /api/findings`, `/api/entities`, `/api/flows`,
-      `/api/relations` to the workspace UI server.
-- [ ] Add Findings, Entities, Flows, Relations tabs to the UI with
-      sortable / filterable tables and a detail card per row.
+- [x] Add `GET /api/findings`, `/api/entities`, `/api/flows`,
+      `/api/relations` to the workspace UI server. Plus new
+      `/api/artifact/lineage` and `/api/containers` for Sprint 22
+      data.
+- [x] Add Findings, Entities, Flows, Relations tabs to the UI with
+      sortable / filterable tables.
+- [x] Virtualise row lists from the start so the BWC scale stays
+      responsive (cap 500 visible rows; tighten filter for more).
 - [ ] Cross-link evidence rows to the matching listing artifact and
-      line range.
-- [ ] Virtualise row lists from the start so the BWC scale stays
-      responsive (4499 entities / 2814 findings / 546 relations).
+      line range. Deferred — needs an evidence-coordinate detail
+      card refactor.
+- [ ] Lineage grouping render (Sprint 22 carryover): default-group
+      rows by `lineageRoot`, V0 card header, latest highlighted.
+      Deferred — entities/findings/flows do not carry lineageRoot
+      directly, requires resolving via artifactIds[0].
 
 Specs:
 

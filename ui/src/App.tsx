@@ -24,7 +24,7 @@ import type {
   WorkspaceUiSnapshot,
 } from "./types";
 
-type TabId = "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "load" | "flow" | "listing" | "activity";
+type TabId = "dashboard" | "questions" | "findings" | "entities" | "flows" | "relations" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "load" | "flow" | "listing" | "activity";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -92,6 +92,10 @@ type CartChunkSelection = { cartridgeArtifactId: string; chunk: CartridgeLutChun
 const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "questions", label: "Questions" },
+  { id: "findings", label: "Findings" },
+  { id: "entities", label: "Entities" },
+  { id: "flows", label: "Flows" },
+  { id: "relations", label: "Relations" },
   { id: "docs", label: "Docs" },
   { id: "memory", label: "Memory Map" },
   { id: "graphics", label: "Graphics" },
@@ -976,6 +980,338 @@ function QuestionsPanel({
           </div>
         ))}
         {filtered.length === 0 ? <div className="empty-inline">No questions match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
+// Spec 021 knowledge tabs: read-only flat-table panels for findings,
+// entities, flows, relations. Each panel mirrors the QuestionsPanel
+// pattern (search + filters + sort + virtualised rows capped at 500).
+// Click a row title -> selects the related entity in the workspace.
+
+function visibleSlice<T>(items: T[]): { visible: T[]; truncated: number } {
+  const visible = items.slice(0, 500);
+  return { visible, truncated: items.length - visible.length };
+}
+
+function FindingsPanel({
+  snapshot,
+  onSelectEntity,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectEntity: (entityId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [kindFilter, setKindFilter] = useState("");
+  const [sort, setSort] = useState<"updatedDesc" | "updatedAsc" | "confidenceDesc" | "confidenceAsc">("updatedDesc");
+  const kinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of snapshot.findings) set.add(f.kind);
+    return [...set].sort();
+  }, [snapshot.findings]);
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    let list = snapshot.findings.filter((f) => {
+      if (statusFilter !== "all" && f.status !== statusFilter) return false;
+      if (kindFilter && f.kind !== kindFilter) return false;
+      if (needle) {
+        const hay = `${f.title} ${f.summary ?? ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      switch (sort) {
+        case "updatedAsc": return a.updatedAt.localeCompare(b.updatedAt);
+        case "updatedDesc": return b.updatedAt.localeCompare(a.updatedAt);
+        case "confidenceAsc": return a.confidence - b.confidence;
+        case "confidenceDesc": return b.confidence - a.confidence;
+      }
+    });
+    return list;
+  }, [snapshot.findings, search, statusFilter, kindFilter, sort]);
+  const { visible, truncated } = visibleSlice(filtered);
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Findings</h3>
+        <span>{filtered.length} of {snapshot.findings.length}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input type="search" placeholder="Search title / summary" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">all status</option>
+          <option value="proposed">proposed</option>
+          <option value="active">active</option>
+          <option value="confirmed">confirmed</option>
+          <option value="rejected">rejected</option>
+          <option value="archived">archived</option>
+        </select>
+        <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+          <option value="">all kinds</option>
+          {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+          <option value="updatedDesc">updated ↓</option>
+          <option value="updatedAsc">updated ↑</option>
+          <option value="confidenceDesc">confidence ↓</option>
+          <option value="confidenceAsc">confidence ↑</option>
+        </select>
+      </div>
+      {truncated > 0 ? <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div> : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">conf</span>
+          <span className="questions-cell-meta">status</span>
+          <span className="questions-cell-meta">entities</span>
+          <span className="questions-cell-meta">updated</span>
+        </div>
+        {visible.map((finding) => (
+          <div key={finding.id} className="questions-row">
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => finding.entityIds[0] && onSelectEntity(finding.entityIds[0])}
+              disabled={finding.entityIds.length === 0}
+              title={finding.summary ?? ""}
+            >
+              {finding.title}
+            </button>
+            <span className="questions-cell-meta">{finding.kind}</span>
+            <span className="questions-cell-meta">{pct(finding.confidence)}</span>
+            <span className="questions-cell-meta">{finding.status}</span>
+            <span className="questions-cell-meta">{finding.entityIds.length}</span>
+            <span className="questions-cell-meta">{shortTime(finding.updatedAt)}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No findings match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function EntitiesPanel({
+  snapshot,
+  onSelectEntity,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectEntity: (entityId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState("");
+  const [sort, setSort] = useState<"name" | "addressAsc" | "confidenceDesc">("name");
+  const kinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of snapshot.entities) set.add(e.kind);
+    return [...set].sort();
+  }, [snapshot.entities]);
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    let list = snapshot.entities.filter((e) => {
+      if (kindFilter && e.kind !== kindFilter) return false;
+      if (needle) {
+        const hay = `${e.name} ${e.summary ?? ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      switch (sort) {
+        case "name": return a.name.localeCompare(b.name);
+        case "addressAsc": return (a.addressRange?.start ?? Number.POSITIVE_INFINITY) - (b.addressRange?.start ?? Number.POSITIVE_INFINITY);
+        case "confidenceDesc": return b.confidence - a.confidence;
+      }
+    });
+    return list;
+  }, [snapshot.entities, search, kindFilter, sort]);
+  const { visible, truncated } = visibleSlice(filtered);
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Entities</h3>
+        <span>{filtered.length} of {snapshot.entities.length}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input type="search" placeholder="Search name / summary" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+          <option value="">all kinds</option>
+          {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+          <option value="name">name ↑</option>
+          <option value="addressAsc">address ↑</option>
+          <option value="confidenceDesc">confidence ↓</option>
+        </select>
+      </div>
+      {truncated > 0 ? <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div> : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Name</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">address</span>
+          <span className="questions-cell-meta">conf</span>
+          <span className="questions-cell-meta">artifacts</span>
+        </div>
+        {visible.map((entity) => (
+          <div key={entity.id} className="questions-row">
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => onSelectEntity(entity.id)}
+              title={entity.summary ?? ""}
+            >
+              {entity.name}
+            </button>
+            <span className="questions-cell-meta">{entity.kind}</span>
+            <span className="questions-cell-meta">
+              {entity.addressRange ? `$${entity.addressRange.start.toString(16).toUpperCase().padStart(4, "0")}` : "—"}
+            </span>
+            <span className="questions-cell-meta">{pct(entity.confidence)}</span>
+            <span className="questions-cell-meta">{entity.artifactIds.length}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No entities match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function FlowsPanel({
+  snapshot,
+  onSelectEntity,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectEntity: (entityId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return snapshot.flows.filter((f) => {
+      if (!needle) return true;
+      const hay = `${f.title} ${f.summary ?? ""}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [snapshot.flows, search]);
+  const { visible, truncated } = visibleSlice(filtered);
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Flows</h3>
+        <span>{filtered.length} of {snapshot.flows.length}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input type="search" placeholder="Search title / summary" value={search} onChange={(e) => setSearch(e.target.value)} />
+      </div>
+      {truncated > 0 ? <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div> : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">steps</span>
+          <span className="questions-cell-meta">entities</span>
+          <span className="questions-cell-meta">updated</span>
+        </div>
+        {visible.map((flow) => (
+          <div key={flow.id} className="questions-row">
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => flow.entityIds[0] && onSelectEntity(flow.entityIds[0])}
+              disabled={flow.entityIds.length === 0}
+              title={flow.summary ?? ""}
+            >
+              {flow.title}
+            </button>
+            <span className="questions-cell-meta">{flow.kind}</span>
+            <span className="questions-cell-meta">{flow.nodes.length}</span>
+            <span className="questions-cell-meta">{flow.entityIds.length}</span>
+            <span className="questions-cell-meta">{shortTime(flow.updatedAt)}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No flows match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function RelationsPanel({
+  snapshot,
+  onSelectEntity,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectEntity: (entityId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState("");
+  const kinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of snapshot.relations) set.add(r.kind);
+    return [...set].sort();
+  }, [snapshot.relations]);
+  const entityNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of snapshot.entities) map.set(e.id, e.name);
+    return map;
+  }, [snapshot.entities]);
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return snapshot.relations.filter((r) => {
+      if (kindFilter && r.kind !== kindFilter) return false;
+      if (!needle) return true;
+      const sourceName = entityNameById.get(r.sourceEntityId) ?? r.sourceEntityId;
+      const targetName = entityNameById.get(r.targetEntityId) ?? r.targetEntityId;
+      const hay = `${r.title} ${r.summary ?? ""} ${sourceName} ${targetName}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [snapshot.relations, search, kindFilter, entityNameById]);
+  const { visible, truncated } = visibleSlice(filtered);
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Relations</h3>
+        <span>{filtered.length} of {snapshot.relations.length}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input type="search" placeholder="Search source/target/title" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+          <option value="">all kinds</option>
+          {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </div>
+      {truncated > 0 ? <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div> : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">source</span>
+          <span className="questions-cell-meta">target</span>
+          <span className="questions-cell-meta">conf</span>
+        </div>
+        {visible.map((relation) => (
+          <div key={relation.id} className="questions-row">
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => onSelectEntity(relation.sourceEntityId)}
+              title={relation.summary ?? ""}
+            >
+              {relation.title}
+            </button>
+            <span className="questions-cell-meta">{relation.kind}</span>
+            <span className="questions-cell-meta" title={relation.sourceEntityId}>
+              {entityNameById.get(relation.sourceEntityId) ?? relation.sourceEntityId.slice(0, 12)}
+            </span>
+            <span className="questions-cell-meta" title={relation.targetEntityId}>
+              {entityNameById.get(relation.targetEntityId) ?? relation.targetEntityId.slice(0, 12)}
+            </span>
+            <span className="questions-cell-meta">{pct(relation.confidence)}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No relations match the current filter.</div> : null}
       </div>
     </section>
   );
@@ -4725,6 +5061,10 @@ export function App() {
     ? allTabs.filter((tab) => {
         if (tab.id === "dashboard") return true;
         if (tab.id === "questions") return snapshot.openQuestions.length > 0;
+        if (tab.id === "findings") return snapshot.findings.length > 0;
+        if (tab.id === "entities") return snapshot.entities.length > 0;
+        if (tab.id === "flows") return snapshot.flows.length > 0;
+        if (tab.id === "relations") return snapshot.relations.length > 0;
         if (tab.id === "docs") return docs.length > 0;
         if (tab.id === "memory") return snapshot.views.memoryMap.cells.length > 0;
         if (tab.id === "graphics") return graphicsItems.length > 0;
@@ -4871,6 +5211,34 @@ export function App() {
                 snapshot={snapshot}
                 onSelectQuestion={handleSelectQuestion}
                 onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
+              />
+            ) : null}
+
+            {activeTab === "findings" ? (
+              <FindingsPanel
+                snapshot={snapshot}
+                onSelectEntity={(entityId) => handleSelectEntity(entityId, "findings")}
+              />
+            ) : null}
+
+            {activeTab === "entities" ? (
+              <EntitiesPanel
+                snapshot={snapshot}
+                onSelectEntity={(entityId) => handleSelectEntity(entityId, "entities")}
+              />
+            ) : null}
+
+            {activeTab === "flows" ? (
+              <FlowsPanel
+                snapshot={snapshot}
+                onSelectEntity={(entityId) => handleSelectEntity(entityId, "flows")}
+              />
+            ) : null}
+
+            {activeTab === "relations" ? (
+              <RelationsPanel
+                snapshot={snapshot}
+                onSelectEntity={(entityId) => handleSelectEntity(entityId, "relations")}
               />
             ) : null}
 

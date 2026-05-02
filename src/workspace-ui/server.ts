@@ -297,6 +297,102 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 021 knowledge tabs: read-only stores for the new UI tabs.
+  // Each endpoint reads the matching JSON store via the service layer
+  // and returns `{ items, projectDir, count }`. The UI does its own
+  // filtering and virtualisation.
+  if (requestUrl.pathname === "/api/findings" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listFindings();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/entities" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listEntities();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/flows" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listFlows();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/relations" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listRelations();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  // Spec 025 lineage: read the V0..Vn chain for an artifact id.
+  if (requestUrl.pathname === "/api/artifact/lineage" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const artifactId = requestUrl.searchParams.get("artifactId")?.trim();
+    if (!artifactId) {
+      send(res, jsonResponse(400, { error: "missing artifactId query param" }));
+      return;
+    }
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const chain = service.getLineage(artifactId);
+      send(res, jsonResponse(200, { projectDir, artifactId, count: chain.length, items: chain }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  // Spec 025 R23 containers: list sub-entries for a parent artifact.
+  if (requestUrl.pathname === "/api/containers" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const parentArtifactId = requestUrl.searchParams.get("parentArtifactId")?.trim() || undefined;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listContainerEntries(parentArtifactId);
+      send(res, jsonResponse(200, { projectDir, parentArtifactId, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
   if (requestUrl.pathname === "/api/audit" && req.method === "GET") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
