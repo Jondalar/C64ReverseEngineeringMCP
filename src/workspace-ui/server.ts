@@ -62,7 +62,9 @@ interface ServerReply {
 function parseArgs(argv: string[]): ServerOptions {
   const options: ServerOptions = {
     port: 4310,
-    projectDir: resolve(process.cwd(), "examples", "example-project"),
+    projectDir: process.env.C64RE_PROJECT_DIR
+      ? resolve(process.env.C64RE_PROJECT_DIR)
+      : process.cwd(),
     apiOnly: false,
   };
 
@@ -486,32 +488,43 @@ const server = createServer((req, res) => {
       try {
         const payload = JSON.parse(body) as {
           projectDir?: string;
+          id?: string;
           title?: string;
           description?: string;
           kind?: string;
+          status?: "open" | "researching" | "answered" | "invalidated" | "deferred";
           priority?: "low" | "medium" | "high" | "critical";
           confidence?: number;
           entityIds?: string[];
           artifactIds?: string[];
           findingIds?: string[];
+          answeredByFindingId?: string;
+          answerSummary?: string;
         };
         const projectDir = payload.projectDir?.trim()
           ? resolve(process.cwd(), payload.projectDir)
           : options.projectDir;
-        if (!payload.title?.trim()) {
+        const service = new ProjectKnowledgeService(projectDir);
+        const existing = payload.id
+          ? service.listOpenQuestions().find((question) => question.id === payload.id)
+          : undefined;
+        if (!existing && !payload.title?.trim()) {
           send(res, jsonResponse(400, { error: "Missing question title." }));
           return;
         }
-        const service = new ProjectKnowledgeService(projectDir);
         const question = service.saveOpenQuestion({
-          title: payload.title.trim(),
-          description: payload.description?.trim() || undefined,
-          kind: payload.kind?.trim() || "llm-question",
-          priority: payload.priority ?? "medium",
-          confidence: payload.confidence ?? 0.65,
-          entityIds: payload.entityIds ?? [],
-          artifactIds: payload.artifactIds ?? [],
-          findingIds: payload.findingIds ?? [],
+          id: payload.id,
+          title: payload.title?.trim() || existing?.title || "(untitled)",
+          description: payload.description?.trim() ?? existing?.description,
+          kind: payload.kind?.trim() || existing?.kind || "llm-question",
+          status: payload.status ?? existing?.status,
+          priority: payload.priority ?? existing?.priority ?? "medium",
+          confidence: payload.confidence ?? existing?.confidence ?? 0.65,
+          entityIds: payload.entityIds ?? existing?.entityIds ?? [],
+          artifactIds: payload.artifactIds ?? existing?.artifactIds ?? [],
+          findingIds: payload.findingIds ?? existing?.findingIds ?? [],
+          answeredByFindingId: payload.answeredByFindingId ?? existing?.answeredByFindingId,
+          answerSummary: payload.answerSummary ?? existing?.answerSummary,
         });
         send(res, jsonResponse(200, { question }));
       } catch (error) {

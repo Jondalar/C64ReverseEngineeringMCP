@@ -11,7 +11,7 @@ export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 
 export const EntityStatusSchema = z.enum(["proposed", "active", "confirmed", "rejected", "archived"]);
 export const TaskStatusSchema = z.enum(["open", "in_progress", "blocked", "done", "wont_fix"]);
-export const QuestionStatusSchema = z.enum(["open", "researching", "answered", "invalidated"]);
+export const QuestionStatusSchema = z.enum(["open", "researching", "answered", "invalidated", "deferred"]);
 export const TimelineEventKindSchema = z.enum([
   "project.initialized",
   "artifact.registered",

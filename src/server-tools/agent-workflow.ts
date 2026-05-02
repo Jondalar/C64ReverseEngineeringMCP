@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { auditProject, type ProjectAuditResult } from "../project-knowledge/audit.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { countUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import type { ServerToolContext } from "./types.js";
@@ -133,7 +134,7 @@ function textContent(text: string) {
 
 interface ProposalCandidate {
   rank: number;
-  source: "phase" | "task" | "question" | "next-action" | "fallback" | "stale-view" | "unregistered-files" | "unimported-analysis";
+  source: "audit" | "phase" | "task" | "question" | "next-action" | "fallback" | "stale-view" | "unregistered-files" | "unimported-analysis";
   reason: string;
   suggestion: string;
 }
@@ -186,8 +187,30 @@ function detectStaleViews(projectRoot: string): string[] {
   return stale;
 }
 
-function proposeNextActions(service: ProjectKnowledgeService, state: AgentState, projectRoot: string): ProposalCandidate[] {
+function summarizeAuditState(audit: ProjectAuditResult): { knowledge: string; views: string } {
+  const knowledge = audit.counts.nestedKnowledgeStores > 0
+    ? "fragmented"
+    : audit.counts.unimportedAnalysisArtifacts > 0 || audit.counts.unimportedManifestArtifacts > 0 || audit.counts.unregisteredFiles > 0
+      ? "incomplete"
+      : audit.counts.brokenArtifactPaths > 0 || audit.counts.missingArtifacts > 0
+        ? "broken"
+        : "ok";
+  const views = audit.counts.staleViews > 0 ? "stale" : "fresh";
+  return { knowledge, views };
+}
+
+function proposeNextActions(service: ProjectKnowledgeService, state: AgentState, projectRoot: string, audit?: ProjectAuditResult): ProposalCandidate[] {
   const candidates: ProposalCandidate[] = [];
+  const auditResult = audit ?? auditProject(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
+
+  for (const finding of auditResult.findings.filter((item) => item.severity === "high" || item.severity === "medium").slice(0, 5)) {
+    candidates.push({
+      rank: candidates.length,
+      source: "audit",
+      reason: `${finding.severity}: ${finding.whyItMatters}`,
+      suggestion: finding.suggestedFix,
+    });
+  }
 
   if (state.nextAction?.trim()) {
     candidates.push({
@@ -198,7 +221,7 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
     });
   }
 
-  const stale = detectStaleViews(projectRoot);
+  const stale = auditResult.counts.staleViews > 0 ? detectStaleViews(projectRoot) : [];
   if (stale.length > 0) {
     candidates.push({
       rank: candidates.length,
@@ -215,7 +238,7 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
   // imports, hand-emitted files), the artifact store falls behind the
   // filesystem. The agent must run register_existing_files before the
   // next session can rely on agent_onboard.
-  const reg = scanRegistrationDelta(projectRoot, 5);
+  const reg = auditResult.counts.unregisteredFiles > 0 ? scanRegistrationDelta(projectRoot, 5) : { unregisteredCount: 0, unregisteredByExt: {} as Record<string, number> };
   if (reg.unregisteredCount > 0) {
     const sorted = Object.entries(reg.unregisteredByExt).sort((a, b) => b[1] - a[1]).slice(0, 3);
     const extSummary = sorted.map(([ext, n]) => `${ext}=${n}`).join(", ");
@@ -227,7 +250,7 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
     });
   }
 
-  const unimportedAnalysis = countUnimportedAnalysisArtifacts(service);
+  const unimportedAnalysis = auditResult.counts.unimportedAnalysisArtifacts;
   if (unimportedAnalysis > 0) {
     candidates.push({
       rank: candidates.length,
@@ -327,7 +350,9 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const service = new ProjectKnowledgeService(projectRoot);
       const status = service.getProjectStatus();
       const state = loadAgentState(projectRoot);
-      const proposals = proposeNextActions(service, state, projectRoot);
+      const audit = auditProject(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
+      const auditState = summarizeAuditState(audit);
+      const proposals = proposeNextActions(service, state, projectRoot, audit);
 
       const lines: string[] = [];
       lines.push(`# Agent Onboarding`);
@@ -335,6 +360,9 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push(`Project: ${status.project.name}`);
       lines.push(`Root: ${status.project.rootPath}`);
       lines.push(`Status: ${status.project.status}`);
+      lines.push(`Knowledge: ${auditState.knowledge}`);
+      lines.push(`Views: ${auditState.views}`);
+      lines.push(`Recommended next action: ${proposals[0]?.suggestion ?? "(none)"}`);
       lines.push(``);
       lines.push(`## Agent State`);
       lines.push(`Role: ${state.role}`);
@@ -350,6 +378,16 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push(``);
       lines.push(`## Counts`);
       lines.push(`artifacts=${status.counts.artifacts} entities=${status.counts.entities} findings=${status.counts.findings} relations=${status.counts.relations} flows=${status.counts.flows} tasks=${status.counts.tasks} openQuestions=${status.counts.openQuestions} checkpoints=${status.counts.checkpoints}`);
+      lines.push(``);
+      lines.push(`## Audit`);
+      lines.push(`severity=${audit.severity} nestedKnowledgeStores=${audit.counts.nestedKnowledgeStores} missingArtifacts=${audit.counts.missingArtifacts} brokenArtifactPaths=${audit.counts.brokenArtifactPaths} unregisteredFiles=${audit.counts.unregisteredFiles} unimportedAnalysisArtifacts=${audit.counts.unimportedAnalysisArtifacts} unimportedManifestArtifacts=${audit.counts.unimportedManifestArtifacts} staleViews=${audit.counts.staleViews}`);
+      if (audit.findings.length === 0) {
+        lines.push(`No audit findings.`);
+      } else {
+        for (const finding of audit.findings.slice(0, 6)) {
+          lines.push(`- [${finding.severity}] ${finding.title}: ${finding.suggestedFix}`);
+        }
+      }
       lines.push(``);
       lines.push(`## Recent Artifacts`);
       const recent = recentArtifactSummary(service, projectRoot);
@@ -496,12 +534,14 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const projectRoot = ctx.projectDir(project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const state = loadAgentState(projectRoot);
-      const proposals = proposeNextActions(service, state, projectRoot);
+      const audit = auditProject(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
+      const proposals = proposeNextActions(service, state, projectRoot, audit);
       const lines: string[] = [];
       lines.push(`# Proposed Next Actions`);
       lines.push(``);
       lines.push(`Current role: ${state.role}`);
       lines.push(`Current focus: ${state.currentFocus ?? "(unset)"}`);
+      lines.push(`Audit severity: ${audit.severity}`);
       lines.push(``);
       for (const c of proposals) {
         lines.push(`${c.rank + 1}. (${c.source}) ${c.suggestion}`);

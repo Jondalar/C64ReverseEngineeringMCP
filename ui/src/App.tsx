@@ -14,6 +14,7 @@ import type {
   FlowGraphView,
   LoadSequenceView,
   MemoryMapView,
+  OpenQuestionRecord,
   RelationRecord,
   WorkspaceUiSnapshot,
 } from "./types";
@@ -490,10 +491,12 @@ function RecordList({
 function DashboardPanel({
   snapshot,
   onSelectEntity,
+  onSelectQuestion,
   onOpenDocument,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
+  onSelectQuestion: (questionId: string) => void;
   onOpenDocument: (path: string) => void;
 }) {
   return (
@@ -537,13 +540,13 @@ function DashboardPanel({
               </button>
             ))}
             {snapshot.views.projectDashboard.openQuestions.slice(0, 3).map((question) => (
-              <article key={question.id} className="record-card static-card">
+              <button key={question.id} type="button" className="record-card" onClick={() => onSelectQuestion(question.id)}>
                 <div className="record-topline">
                   <span>{question.title}</span>
                   <span className="record-status">{question.status}</span>
                 </div>
                 {question.summary ? <p>{question.summary}</p> : null}
-              </article>
+              </button>
             ))}
           </div>
         </section>
@@ -3080,6 +3083,185 @@ function EntityInspector({
   );
 }
 
+function QuestionInspector({
+  snapshot,
+  question,
+  onClose,
+  onSelectEntity,
+  onOpenDocument,
+  onOpenHex,
+  onCreateTask,
+  onUpdateStatus,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  question: OpenQuestionRecord;
+  onClose: () => void;
+  onSelectEntity: (entityId: string) => void;
+  onOpenDocument: (path: string) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
+  onCreateTask: (defaults: { title: string; description?: string; entityIds?: string[]; artifactIds?: string[] }) => void;
+  onUpdateStatus: (questionId: string, status: "answered" | "invalidated" | "deferred" | "open", answerSummary?: string) => Promise<void>;
+}) {
+  const [busyAction, setBusyAction] = useState<"answered" | "invalidated" | "deferred" | "open" | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function runStatusChange(next: "answered" | "invalidated" | "deferred" | "open") {
+    setActionError(null);
+    setBusyAction(next);
+    try {
+      let answerSummary: string | undefined;
+      if (next === "answered") {
+        const reply = window.prompt("Answer summary (optional):", question.answerSummary ?? "") ?? "";
+        answerSummary = reply.trim() || undefined;
+      }
+      await onUpdateStatus(question.id, next, answerSummary);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  const entitiesById = new Map(snapshot.entities.map((entity) => [entity.id, entity]));
+  const findingsById = new Map(snapshot.findings.map((finding) => [finding.id, finding]));
+  const artifactsById = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
+  const linkedFindings = question.findingIds
+    .map((findingId) => findingsById.get(findingId))
+    .filter((finding): finding is FindingRecord => finding !== undefined);
+  const linkedEntities = uniqueById(
+    [...question.entityIds, ...linkedFindings.flatMap((finding) => finding.entityIds)]
+      .map((entityId) => entitiesById.get(entityId))
+      .filter((entity): entity is EntityRecord => entity !== undefined),
+  );
+  const linkedArtifacts = uniqueById(
+    [...question.artifactIds, ...linkedFindings.flatMap((finding) => finding.artifactIds)]
+      .map((artifactId) => artifactsById.get(artifactId))
+      .filter((artifact): artifact is ArtifactRecord => artifact !== undefined),
+  );
+
+  function openArtifact(artifact: ArtifactRecord) {
+    if (artifact.relativePath.toLowerCase().endsWith(".md")) {
+      onOpenDocument(artifact.relativePath);
+      return;
+    }
+    if (isC64BinaryArtifact(artifact.relativePath)) {
+      onOpenHex(artifact.relativePath, { title: artifact.title });
+    }
+  }
+
+  return (
+    <section className="panel-card inspector-card">
+      <div className="section-heading">
+        <h3>Open Question</h3>
+        <button type="button" className="mon-icon-button" onClick={onClose}>back</button>
+      </div>
+      <div className="inspector-head">
+        <strong>{question.title}</strong>
+        <span>{question.status}</span>
+      </div>
+      <div className="record-meta">
+        <span>{question.kind}</span>
+        <span>{question.priority}</span>
+        <span>{pct(question.confidence)}</span>
+        <span>{shortTime(question.updatedAt)}</span>
+      </div>
+      {question.description ? <p className="inspector-copy">{question.description}</p> : null}
+      {question.answerSummary ? <p className="inspector-copy">{question.answerSummary}</p> : null}
+      <div className="inspector-chip-row">
+        {linkedEntities.slice(0, 4).map((entity) => (
+          <button key={entity.id} type="button" className="inspector-chip" onClick={() => onSelectEntity(entity.id)}>
+            {entity.name}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="inspector-chip"
+          onClick={() => onCreateTask({
+            title: `Resolve question: ${question.title}`,
+            description: question.description,
+            entityIds: linkedEntities.map((entity) => entity.id),
+            artifactIds: linkedArtifacts.map((artifact) => artifact.id),
+          })}
+        >
+          + LLM Task
+        </button>
+      </div>
+      <div className="inspector-chip-row">
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busyAction !== null || question.status === "answered"}
+          onClick={() => runStatusChange("answered")}
+        >
+          {busyAction === "answered" ? "Answering…" : "Answer"}
+        </button>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busyAction !== null || question.status === "invalidated"}
+          onClick={() => runStatusChange("invalidated")}
+        >
+          {busyAction === "invalidated" ? "Invalidating…" : "Invalidate"}
+        </button>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busyAction !== null || question.status === "deferred"}
+          onClick={() => runStatusChange("deferred")}
+        >
+          {busyAction === "deferred" ? "Deferring…" : "Defer"}
+        </button>
+        {question.status !== "open" ? (
+          <button
+            type="button"
+            className="inspector-chip"
+            disabled={busyAction !== null}
+            onClick={() => runStatusChange("open")}
+          >
+            {busyAction === "open" ? "Reopening…" : "Reopen"}
+          </button>
+        ) : null}
+      </div>
+      {actionError ? <div className="inspector-error">{actionError}</div> : null}
+      <div className="inspector-block">
+        <h4>Linked Findings</h4>
+        {linkedFindings.length === 0 ? <div className="empty-inline">No linked findings.</div> : null}
+        <div className="record-stack compact">
+          {linkedFindings.map((finding) => (
+            <article key={finding.id} className="mini-card">
+              <strong>{finding.title}</strong>
+              <p>{finding.summary ?? finding.kind}</p>
+              <div className="record-meta">
+                <span>{finding.status}</span>
+                <span>{pct(finding.confidence)}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+      <div className="inspector-block">
+        <h4>Linked Artifacts</h4>
+        {linkedArtifacts.length === 0 ? <div className="empty-inline">No linked artifacts.</div> : null}
+        <div className="record-stack compact">
+          {linkedArtifacts.map((artifact) => (
+            <button key={artifact.id} type="button" className="record-card" onClick={() => openArtifact(artifact)}>
+              <div className="record-topline">
+                <span>{artifact.title}</span>
+                <span className="record-status">{artifact.kind}</span>
+              </div>
+              <p>{artifact.relativePath}</p>
+              <div className="record-meta">
+                <span>{artifact.role ?? artifact.scope}</span>
+                <span>{pct(artifact.confidence)}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function d64SectorOffset(track: number, sector: number): number {
   let offset = 0;
   for (let t = 1; t < track; t += 1) {
@@ -3624,6 +3806,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [listingQuery, setListingQuery] = useState("");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [tabSelections, setTabSelections] = useState<Partial<Record<TabId, string>>>({});
   const [selectedDocPath, setSelectedDocPath] = useState<string | null>(null);
   const [docContent, setDocContent] = useState("");
@@ -3685,6 +3868,7 @@ export function App() {
       setGraphicsMarks(marksResponse.marks ?? {});
       setSelectedGraphicsId(graphicsResponse.items[0]?.id ?? null);
       setSelectedEntityId(null);
+      setSelectedQuestionId(null);
       setTabSelections({});
       const nextDocs = buildDocs(nextSnapshot.artifacts, docsResponse.docs);
       setSelectedDocPath(nextDocs[0]?.relativePath ?? null);
@@ -3731,6 +3915,24 @@ export function App() {
       entityIds: defaults.entityIds ?? [],
       artifactIds: defaults.artifactIds ?? [],
     });
+  }
+
+  async function updateQuestionStatus(
+    questionId: string,
+    status: "answered" | "invalidated" | "deferred" | "open",
+    answerSummary?: string,
+  ) {
+    if (!snapshot) return;
+    await postJson("/api/open-question", {
+      projectDir: snapshot.project.rootPath,
+      id: questionId,
+      status,
+      answerSummary,
+    });
+    await loadWorkspace(snapshot.project.rootPath);
+    if (status !== "open") {
+      setSelectedQuestionId(null);
+    }
   }
 
   async function saveTodoComposer() {
@@ -3870,6 +4072,7 @@ export function App() {
   }, [snapshot, selectedDocPath]);
 
   const selectedEntity = snapshot?.entities.find((entity) => entity.id === selectedEntityId);
+  const selectedQuestion = snapshot?.openQuestions.find((question) => question.id === selectedQuestionId);
   const docs = snapshot ? buildDocs(snapshot.artifacts, discoveredDocs) : [];
   const visibleTabs = snapshot
     ? allTabs.filter((tab) => {
@@ -3896,7 +4099,23 @@ export function App() {
 
   function handleSelectEntity(entityId: string, tabId: TabId = activeTab) {
     setSelectedEntityId(entityId);
+    setSelectedQuestionId(null);
     setTabSelections((current) => ({ ...current, [tabId]: entityId }));
+    setSelectedCartChunk(null);
+    setSelectedDiskFile(null);
+  }
+
+  function handleSelectQuestion(questionId: string) {
+    if (!snapshot) return;
+    const question = snapshot.openQuestions.find((candidate) => candidate.id === questionId);
+    if (!question) return;
+    const linkedFindingEntityId = question.findingIds
+      .map((findingId) => snapshot.findings.find((finding) => finding.id === findingId)?.entityIds[0])
+      .find((entityId): entityId is string => entityId !== undefined);
+    const nextEntityId = question.entityIds[0] ?? linkedFindingEntityId ?? null;
+    setSelectedQuestionId(questionId);
+    setSelectedEntityId(nextEntityId);
+    if (nextEntityId) setTabSelections((current) => ({ ...current, dashboard: nextEntityId }));
     setSelectedCartChunk(null);
     setSelectedDiskFile(null);
   }
@@ -3927,11 +4146,13 @@ export function App() {
           ?? firstDiskFileSelection(snapshot);
       setSelectedDiskFile(nextDiskSelection);
       setSelectedCartChunk(null);
+      setSelectedQuestionId(null);
       setSelectedEntityId(nextEntityId ?? diskSelectionEntityId(snapshot, nextDiskSelection));
       if (nextEntityId) setTabSelections((current) => ({ ...current, disk: nextEntityId }));
     } else {
       setSelectedDiskFile(null);
       if (nextTab !== "cartridge") setSelectedCartChunk(null);
+      if (nextTab !== "dashboard") setSelectedQuestionId(null);
       setSelectedEntityId(nextEntityId);
       if (nextEntityId) setTabSelections((current) => ({ ...current, [nextTab]: nextEntityId }));
     }
@@ -3988,6 +4209,7 @@ export function App() {
               <DashboardPanel
                 snapshot={snapshot}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "dashboard")}
+                onSelectQuestion={handleSelectQuestion}
                 onOpenDocument={(path) => {
                   setSelectedDocPath(path);
                   handleOpenTab("docs");
@@ -4038,6 +4260,7 @@ export function App() {
                 onSelectChunk={(cartridgeArtifactId, chunk) => {
                   setSelectedCartChunk({ cartridgeArtifactId, chunk });
                   setSelectedEntityId(null);
+                  setSelectedQuestionId(null);
                 }}
                 onOpenHex={openHexOverlay}
               />
@@ -4052,6 +4275,7 @@ export function App() {
                   const file = disk?.files.find((candidate) => candidate.id === fileId);
                   setSelectedDiskFile({ diskArtifactId, fileId });
                   setSelectedEntityId(file?.entityId ?? null);
+                  setSelectedQuestionId(null);
                   if (file?.entityId) setTabSelections((current) => ({ ...current, disk: file.entityId! }));
                   setSelectedCartChunk(null);
                 }}
@@ -4115,6 +4339,20 @@ export function App() {
                   onSelectEntity={(entityId) => handleSelectEntity(entityId)}
                   onCreateTask={createTaskFromUi}
                   onCreateQuestion={createQuestionFromUi}
+                />
+              ) : selectedQuestion ? (
+                <QuestionInspector
+                  snapshot={snapshot}
+                  question={selectedQuestion}
+                  onClose={() => setSelectedQuestionId(null)}
+                  onSelectEntity={handleSelectEntity}
+                  onOpenDocument={(path) => {
+                    setSelectedDocPath(path);
+                    handleOpenTab("docs");
+                  }}
+                  onOpenHex={openHexOverlay}
+                  onCreateTask={createTaskFromUi}
+                  onUpdateStatus={updateQuestionStatus}
                 />
               ) : (
                 <EntityInspector

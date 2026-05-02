@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { importAnalysisKnowledge } from "../project-knowledge/analysis-import.js";
 
 const KNOWN_EXTENSIONS = new Set([
   ".prg", ".crt", ".d64", ".g64", ".bin",
@@ -183,11 +184,36 @@ export interface UnimportedAnalysisArtifact {
 export function findUnimportedAnalysisArtifacts(
   service: import("../project-knowledge/service.js").ProjectKnowledgeService,
 ): UnimportedAnalysisArtifact[] {
-  const artifacts = service.listArtifacts().filter((a) => a.kind === "analysis-run");
+  const artifacts = service.listArtifacts().filter((a) =>
+    (a.kind === "analysis-run" && a.role !== "tool-run-record")
+    || a.role === "analysis-json"
+    || a.role === "analysis-report"
+    || (a.scope === "analysis" && a.format === "json" && /analysis/i.test(a.title)),
+  ).filter((a) => {
+    const imported = importAnalysisKnowledge(a);
+    if (!imported) return false;
+    return imported.entities.length
+      + imported.findings.length
+      + imported.relations.length
+      + imported.flows.length
+      + imported.openQuestions.length > 0;
+  });
   if (artifacts.length === 0) return [];
   const referenced = new Set<string>();
   for (const entity of service.listEntities()) {
     for (const id of entity.artifactIds) referenced.add(id);
+  }
+  for (const finding of service.listFindings()) {
+    for (const id of finding.artifactIds) referenced.add(id);
+  }
+  for (const relation of service.listRelations()) {
+    for (const id of relation.artifactIds) referenced.add(id);
+  }
+  for (const flow of service.listFlows()) {
+    for (const id of flow.artifactIds) referenced.add(id);
+  }
+  for (const question of service.listOpenQuestions()) {
+    for (const id of question.artifactIds) referenced.add(id);
   }
   const out: UnimportedAnalysisArtifact[] = [];
   for (const a of artifacts) {

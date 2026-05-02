@@ -51,6 +51,12 @@ export interface EntityRecord {
     | { kind: "slot"; bank: number; slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" | "EEPROM" | "OTHER"; offsetInBank: number; length: number }
   >;
   mediumRole?: "dos" | "loader" | "eapi" | "startup" | "code" | "data" | "padding" | "unknown";
+  payloadLoadAddress?: number;
+  payloadFormat?: string;
+  payloadPacker?: string;
+  payloadSourceArtifactId?: string;
+  payloadDepackedArtifactId?: string;
+  payloadAsmArtifactIds?: string[];
   artifactIds: string[];
   relatedEntityIds: string[];
   tags?: string[];
@@ -132,8 +138,12 @@ export interface OpenQuestionRecord {
   priority: string;
   confidence: number;
   entityIds: string[];
+  artifactIds: string[];
   findingIds: string[];
+  createdAt: string;
   updatedAt: string;
+  answeredByFindingId?: string;
+  answerSummary?: string;
 }
 
 export interface TimelineEvent {
@@ -197,6 +207,7 @@ export interface MemoryMapView {
     status: string;
     confidence: number;
     summary?: string;
+    mediumOnly?: boolean;
   }>;
 }
 

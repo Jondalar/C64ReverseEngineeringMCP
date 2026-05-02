@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { resolveProjectDir } from "../project-root.js";
+import { auditProject, renderProjectAudit } from "./audit.js";
+import { PROJECT_REPAIR_OPERATIONS, repairProject, renderProjectRepair } from "./repair.js";
 import { ProjectKnowledgeService } from "./service.js";
 
 interface RegisterProjectKnowledgeToolsOptions {
@@ -133,6 +135,40 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Phase status:`,
         ...workflow.state.phases.map((phase) => formatWorkflowPhaseLine(phase)),
       ].join("\n"));
+    },
+  );
+
+  server.tool(
+    "project_audit",
+    "Read-only audit for project integrity: nested knowledge stores, missing/broken artifacts, unregistered files, unimported analysis/manifests, and stale UI views.",
+    {
+      project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
+      include_file_scan: z.boolean().optional().describe("Scan project artifact folders for files missing from artifacts.json. Defaults to true."),
+    },
+    async ({ project_dir, include_file_scan }) => {
+      const projectRoot = resolveWorkspaceRoot(options, project_dir);
+      const audit = auditProject(projectRoot, { includeFileScan: include_file_scan ?? true });
+      return textContent(renderProjectAudit(audit));
+    },
+  );
+
+  server.tool(
+    "project_repair",
+    "Repair project knowledge integrity using audited safe operations. Defaults to dry-run. Safe mode can merge new records from nested stores, register obvious files, import analysis/manifests, and rebuild views; it does not delete files or invent semantic knowledge.",
+    {
+      project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
+      mode: z.enum(["dry-run", "safe"]).optional().describe("dry-run previews planned work. safe performs non-destructive repairs. Default dry-run."),
+      operations: z.array(z.enum(PROJECT_REPAIR_OPERATIONS)).optional().describe("Subset of repair operations to run. Defaults to all safe operations."),
+      limit: z.number().int().positive().max(2000).optional().describe("Maximum records/files per operation. Default 500."),
+    },
+    async ({ project_dir, mode, operations, limit }) => {
+      const projectRoot = resolveWorkspaceRoot(options, project_dir);
+      const result = repairProject(projectRoot, {
+        mode: mode ?? "dry-run",
+        operations,
+        limit,
+      });
+      return textContent(renderProjectRepair(result));
     },
   );
 
@@ -430,7 +466,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       kind: z.string(),
       title: z.string(),
       description: z.string().optional(),
-      status: z.enum(["open", "researching", "answered", "invalidated"]).optional(),
+      status: z.enum(["open", "researching", "answered", "invalidated", "deferred"]).optional(),
       priority: z.enum(["low", "medium", "high", "critical"]).optional(),
       confidence: z.number().min(0).max(1).optional(),
       entity_ids: z.array(z.string()).optional(),

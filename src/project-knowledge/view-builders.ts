@@ -357,7 +357,9 @@ function formatByteCount(sizeBytes: number): string {
 
 export function buildProjectDashboardView(context: ViewBuildContext): ProjectDashboardView {
   const openTasks = context.tasks.filter((task) => task.status !== "done" && task.status !== "wont_fix").sort(compareByUpdatedAt);
-  const openQuestions = context.openQuestions.filter((question) => question.status !== "answered" && question.status !== "invalidated").sort(compareByUpdatedAt);
+  const openQuestions = context.openQuestions
+    .filter((question) => question.status !== "answered" && question.status !== "invalidated" && question.status !== "deferred")
+    .sort(compareByUpdatedAt);
   const activeFindings = context.findings
     .filter((finding) => finding.status !== "archived" && finding.status !== "rejected")
     .sort(compareByUpdatedAt);
