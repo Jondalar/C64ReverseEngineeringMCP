@@ -31,8 +31,12 @@ execution sequence is:
 21 (done) → 22 (done) → 16 (partial) → 18 (v1) → 17 (v1) → 19 (v1)
        → 20 (v1) → 23 (v1) → 24 (v1) → 25 (v1) → 27 (v1)
        → 33 (doc) → 34 (done) → 35 (done)
-       → 36 → 37 → 38 → 8 → 26 → 28
+       → 36 (done) → 37 (done) → 38 (done) → 8 (done) → 26 (done)
+       → 28 (done) → 39 (done)
+       → 40 → 41 → 42 → 43 → 44
 ```
+
+Refinement Phase 3 added Sprints 40-44 covering the deferred follow-ups.
 
 Refinement Phase 2 added Sprints 36/37/38 plus reactivated 8/26/28.
 
@@ -1321,6 +1325,141 @@ Done when:
   spawn + reminder.
 - `start_re_workflow(workflow="bugfix")` flips the workflow;
   `requiredPhasesFor("bugfix", "analyst")` returns [1, 5, 7].
+
+## Sprint 40: Code-Island Demotion (Spec 047)
+
+Goal: classifier-side demote pass that turns broken code islands
+into data so the renderer no longer needs the defensive-fallback
+workaround. Bug 5 / Bug 6 follow-up.
+
+Status: spec written, implementation pending.
+
+Todos:
+
+- [ ] Add `demoteBrokenCodeIslands` pass after `resolveSegments`
+      in `pipeline/src/analysis/pipeline.ts`. Iterate min 3, max
+      10, until stable.
+- [ ] Heuristics: JAM opcode (-0.4), adjacent undocumented ops
+      (-0.3), branch into data (-0.2 per offender), invalid
+      first opcode (-0.5). Demote when final confidence < 0.3
+      (or 0.45 in aggressive mode).
+- [ ] Project profile flag `disasmDemoteAggressive` (default false).
+- [ ] Synthetic fixture under `fixtures/code-island-demotion/`
+      with JAM + branch-into-data; smoke asserts demotion +
+      byte-identical rebuild.
+- [ ] Optional Murder local smoke (skipped when corpus absent).
+
+Spec: `specs/047-code-island-demotion.md`
+
+## Sprint 41: Platform Renderer Rewiring (Spec 048)
+
+Goal: route disasm comments through the platform-knowledge tables
+shipped in Sprint 17 instead of the hardcoded C64 constants.
+
+Status: spec written, implementation pending.
+
+Todos:
+
+- [ ] Duplicate `src/platform-knowledge/{c64,c1541,index}.ts` to
+      `pipeline/src/platform-knowledge/` (CommonJS bridge). Add
+      `npm run sync:platform-tables` script for drift detection.
+- [ ] Drop c128 / vic20 / plus4 stubs from
+      `src/platform-knowledge/index.ts` per scope reduction
+      (C64RE, not C=6502RE).
+- [ ] Renderer accepts `platform: PlatformKnowledge` parameter;
+      ZP / I/O / ROM lookups go through it.
+- [ ] CLI `disasm-prg --platform c64|c1541` flag, default c64.
+- [ ] MCP plumbing: `disasm_prg`, `analyze_prg`,
+      `run_prg_reverse_workflow`, `run_payload_reverse_workflow`
+      pass through `platform` arg; auto-resolve from artifact
+      tag if absent.
+- [ ] Golden compare: HELLO fixture C64 disasm byte-identical.
+- [ ] Synthetic 1541 fixture with VIA + DOS routine references;
+      assert platform-correct comments.
+
+Spec: `specs/048-platform-renderer-rewiring.md`
+
+## Sprint 42: Hard-Refuse Phase Gate (Spec 049)
+
+Goal: turn the soft propose_next phase gate into an actual refuse
+when `projectProfile.phaseGateStrict === true`. Default false so
+no regression for unopted users.
+
+Status: spec written, implementation pending.
+
+Todos:
+
+- [ ] `src/server-tools/phase-gate-handler.ts` exports
+      `phaseGatedHandler(toolName, handler)` that wraps
+      `safeHandler` outermost.
+- [ ] Argument resolution: try `artifact_id`, `payload_id`,
+      `recipe_id`, `prg_path`, `analysis_json` in order. Fall
+      through allow if no artifact resolved.
+- [ ] Spec 034 "Phase Gate Refused" output format on refuse.
+      Reuses Spec 045 nextStepError shape.
+- [ ] Wire into `src/server.ts` analogous to Spec 039 description
+      tagger — monkey-patch `server.tool()` so wrapper applies to
+      every registration.
+- [ ] Smoke: enable strict gate, attempt phase-skip, assert
+      refusal text + finding store unchanged.
+- [ ] Smoke: gate off, same call, assert finding saved.
+
+Spec: `specs/049-hard-refuse-phase-gate.md`
+
+## Sprint 43: UI Phase Badges + Quality Columns + Heatmap Overlay (Spec 050)
+
+Goal: surface Sprint 19 / Sprint 37 data in the existing UI
+panels. Three blocks: heatmap status overlay (A), dashboard
+quality+relevance columns (B), per-PRG phase badges (D). Block C
+(annotation draft viewer) split into Sprint 44.
+
+Status: spec written, implementation pending.
+
+Todos:
+
+- [ ] Block A: DiskPanel SVG gains second path layer per sector
+      with hint colour stroke (drive-code purple, protected red,
+      raw-unanalyzed blue, bad-crc red dashed, gap yellow).
+      Tooltip + legend.
+- [ ] Block B: DashboardPanel rows gain completionPct +
+      qualityScore + relevanceRank columns, sortable, color-coded
+      (green ≥80, yellow 50-80, red <50). Default sort by
+      relevanceRank in cracker mode.
+- [ ] Block D: `PhaseBadge` component (7-cell pill) rendered in
+      Dashboard, Disk-Layout, Payloads, Cartridge panels. Click →
+      detail panel with steps + recommended action + Freeze
+      button.
+- [ ] `buildDiskLayoutView` aggregator emits `sectorHints[]` from
+      payloadDiskHint.
+- [ ] Smoke + UI snapshot.
+
+Spec: `specs/050-ui-phase-badges-quality-heatmap.md`
+
+## Sprint 44: UI Annotation Draft Viewer (Spec 051)
+
+Goal: side-panel in Listing tab for `*_annotations.draft.json`
+with per-suggestion accept / reject / edit and Save-All commit
+to `*_annotations.json`.
+
+Status: spec written, implementation pending.
+
+Todos:
+
+- [ ] Listing tab side panel auto-detects matching draft for
+      active artifact. Empty state shows "Run propose_annotations"
+      button that calls the MCP tool inline.
+- [ ] Three sections (segments / labels / routines) + open
+      questions sub-panel. Per-suggestion ✓/✗/✎ buttons. Bulk
+      "Accept all (≥0.8)" button.
+- [ ] In-memory pending state. Save All builds merged JSON,
+      confirm modal, POST to new `/api/annotations/save`
+      endpoint, server writes the file.
+- [ ] Question persistence routes through `save_open_question`
+      with `source: "static-analysis"`.
+- [ ] Smoke: server endpoint round-trip; UI snapshot of populated
+      draft.
+
+Spec: `specs/051-ui-annotation-draft-viewer.md`
 
 ## Backlog
 
