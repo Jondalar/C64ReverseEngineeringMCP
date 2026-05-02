@@ -668,23 +668,25 @@ Done when:
 Goal: eliminate silent rebuild divergence and false-positive segment
 classification on real-world PRGs.
 
-Status: not started. Driven by Bugs 5/6 follow-up, Bug 8 (text
-encoding), and Bug 11 (sprite over-eager).
+Status: first pass landed. Bug 8 + Bug 11 fixed. Bug 5/6 follow-up
+classifier-side demotion deferred to Sprint 16.5; defensive
+renderer-side fixes from earlier work still cover the common cases.
 
 Todos:
 
-- [ ] Text classifier (Bug 8): when a candidate range is printable PETSCII
-      (`[\x20-\x7E]+`), default to a `.byte` list with inline
-      `// "..."` comment instead of `.text` / `screen_code_text`. Honor
-      explicit `kind: "petscii_text"` annotation overrides.
-- [ ] Sprite analyzer hardening (Bug 11): drop confidence to ≤0.3 when
-      first 3 bytes form a JMP/JSR landing inside the same range, or
-      when high-byte distribution looks like aligned 16-bit address
-      pairs.
-- [ ] Self-mod / branch-into-data follow-up (Bug 5/6): when a code
-      island holds a relative branch landing inside a data segment AND
-      surrounding decode looks broken (JAM, undocumented opcode), demote
-      island to data and re-render.
+- [x] Text classifier (Bug 8): renderer now emits `.byte` lines with
+      inline ASCII comments for any PETSCII span instead of `.text`.
+      KickAssembler `.text` translates PETSCII to screen-codes, which
+      silently broke byte-identity for PRGs that store raw PETSCII.
+      `.byte` always rebuilds byte-identical.
+- [x] Sprite analyzer hardening (Bug 11): caps candidate confidence at
+      0.3 when the first 3 bytes decode as JMP/JSR landing inside the
+      same range, or when the first 8 16-bit pairs have high bytes in
+      the C64 ROM/IO range ($A0-$FF) — both classic jump-table shapes.
+- [ ] Self-mod / branch-into-data follow-up (Bug 5/6): classifier-side
+      island demotion based on JAM / adjacent undocumented opcodes.
+      Deferred — defensive renderer-side `<segment>+<offset>` /
+      raw `$XXXX` fallback already covers the assemble-failure cases.
 - [ ] Rebuild-verify smoke against the Murder corpus (`11_riv1`,
       `12_riv2`, `15_love`) and the synthetic fixture under
       `fixtures/ui-smoke-project`.

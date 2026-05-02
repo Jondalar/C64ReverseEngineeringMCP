@@ -1927,51 +1927,29 @@ function escapeKickAsmText(text: string): string {
   return text.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
 }
 
+// Spec 019 Bug 8: render PETSCII spans as `.byte` lists with an inline
+// ASCII comment instead of `.text`. KickAssembler `.text` translates
+// PETSCII to screen-codes by default, which silently breaks byte-identity
+// for PRGs that store raw PETSCII (CHROUT-style print routines). `.byte`
+// always rebuilds byte-identical; the inline comment preserves human
+// readability. Annotation-driven `.text` rendering can be reintroduced
+// later via an explicit override that also emits a KickAss `.encoding`
+// directive.
 function emitPetsciiTextSegment(prg: PrgImage, segment: Segment, lines: string[]): void {
   const offset = segment.start - prg.loadAddress;
   const bytes = Array.from(prg.data.subarray(offset, offset + segment.length));
+  emitBytesWithAsciiComment(bytes, lines);
+}
 
-  if (!canRenderAsKickAsmText(bytes)) {
-    const pagedText = segment.attributes?.pagedText === true;
-    const printableOrZero = bytes.every((value) => value === 0x00 || (value >= 0x20 && value <= 0x7e));
-    if (!(pagedText && printableOrZero)) {
-      emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines);
-      return;
-    }
-
-    let runStart = 0;
-    while (runStart < bytes.length) {
-      if (bytes[runStart] === 0x00) {
-        lines.push(`      .byte $00`);
-        runStart += 1;
-        continue;
-      }
-
-      let runEnd = runStart;
-      while (runEnd < bytes.length && bytes[runEnd] !== 0x00) {
-        runEnd += 1;
-      }
-
-      const text = bytes
-        .slice(runStart, runEnd)
-        .map((value) => String.fromCharCode(value))
-        .join("");
-      const chunkSize = 40;
-      for (let index = 0; index < text.length; index += chunkSize) {
-        const chunk = text.slice(index, index + chunkSize);
-        lines.push(`      .text "${escapeKickAsmText(chunk)}"`);
-      }
-
-      runStart = runEnd;
-    }
-    return;
-  }
-
-  const text = bytes.map((value) => String.fromCharCode(value)).join("");
-  const chunkSize = 40;
-  for (let index = 0; index < text.length; index += chunkSize) {
-    const chunk = text.slice(index, index + chunkSize);
-    lines.push(`      .text "${escapeKickAsmText(chunk)}"`);
+function emitBytesWithAsciiComment(bytes: number[], lines: string[]): void {
+  const chunkSize = 16;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.slice(index, index + chunkSize);
+    const hex = chunk.map((value) => `$${formatHex8(value)}`).join(", ");
+    const ascii = chunk
+      .map((value) => (value >= 0x20 && value <= 0x7e ? String.fromCharCode(value) : "."))
+      .join("");
+    lines.push(`      .byte ${hex.padEnd(16 * 5)} // "${ascii.replace(/"/g, '\\"')}"`);
   }
 }
 

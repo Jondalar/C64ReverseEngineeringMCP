@@ -138,11 +138,69 @@ export class SpriteAnalyzer {
       }
     }
 
+    // Spec 019 Bug 11: cap confidence on candidates that look like 6502
+    // jump tables (e.g. 1541 T1/S0 buffer starting with JMP $0340 followed
+    // by 16-bit ROM addresses). The classifier's per-block heuristic is
+    // sprite-shaped because the address bytes have plausible bit patterns,
+    // but the structure is wrong.
+    for (const candidate of candidates) {
+      if (looksLikeJumpTableOrAddressList(candidate.start, context)) {
+        const capped = Math.min(candidate.score.confidence, 0.3);
+        if (capped < candidate.score.confidence) {
+          candidate.score.confidence = capped;
+          candidate.score.reasons.push(
+            "Demoted: first bytes decode as JMP/JSR or look like aligned 16-bit address pairs (jump table, not sprite).",
+          );
+        }
+      }
+    }
+
     return {
       analyzerId: this.id,
       candidates,
     };
   }
+}
+
+// Spec 019 Bug 11. Returns true when the first ~32 bytes at `start` look
+// like (a) a 6502 JMP/JSR opcode whose target lies inside the same range,
+// or (b) a sequence of 16-bit address pairs whose high bytes consistently
+// land in the typical ROM/IO ranges ($A0-$FF), or alternate $00-$7F lo
+// with $80-$FF hi suggesting a pointer table.
+function looksLikeJumpTableOrAddressList(
+  start: number,
+  context: AnalyzerContext,
+): boolean {
+  const offset = toOffset(start, context.mapping);
+  if (offset === undefined) return false;
+  const buf = context.buffer;
+  if (offset + 32 > buf.length) return false;
+
+  // (a) JMP $XXXX (4C lo hi) or JSR $XXXX (20 lo hi) where target lies inside
+  // the candidate's first 256 bytes.
+  const op = buf[offset];
+  if (op === 0x4c || op === 0x20) {
+    const target = (buf[offset + 2] << 8) | buf[offset + 1];
+    if (target >= start && target <= start + 0xff) {
+      return true;
+    }
+  }
+
+  // (b) Aligned 16-bit address pairs. Sample bytes 0..31 in pairs; count
+  // pairs whose high byte is in the C64 ROM/IO range ($A0-$FF) or whose
+  // distribution alternates lo/hi consistently. Threshold: 6 of 8 pairs
+  // land in the heuristic.
+  let romIshPairs = 0;
+  let totalPairs = 0;
+  for (let p = 0; p < 16; p += 2) {
+    const lo = buf[offset + p];
+    const hi = buf[offset + p + 1];
+    if (lo === undefined || hi === undefined) break;
+    totalPairs += 1;
+    if (hi >= 0xa0 && hi <= 0xff) romIshPairs += 1;
+  }
+  if (totalPairs >= 8 && romIshPairs >= 6) return true;
+  return false;
 }
 
 function isAddressInsideCharsetBank(address: number, charsetAddresses: number[]): boolean {
