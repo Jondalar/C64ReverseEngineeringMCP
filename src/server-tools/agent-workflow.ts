@@ -546,6 +546,111 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
   );
 
   server.tool(
+    "c64re_whats_next",
+    "Spec 043: the permanent nudger — call after every user turn (Spec 044 setup wires this into the agent config). Returns active per-artifact phase, the single next required action, optional worker spawn block, audit warnings if any, and a reminder line. Concise format meant to be parsed every turn without context bloat.",
+    {
+      project_dir: z.string().optional(),
+      conversation_summary: z.string().optional(),
+      user_input: z.string().optional(),
+      context: z.string().optional(),
+    },
+    async ({ project_dir }) => {
+      const projectRoot = ctx.projectDir(project_dir);
+      // Spec 045 self-documenting: refuse politely if not onboarded.
+      const { isProjectInitialised, nextStepError } = await import("./error-helpers.js");
+      if (!isProjectInitialised(projectRoot)) {
+        return nextStepError(
+          "c64re_whats_next",
+          "Project not initialised. The c64re session needs to load persistent state before it can recommend a next action.",
+          `agent_onboard(project_dir="${projectRoot}")`,
+        );
+      }
+      const service = new ProjectKnowledgeService(projectRoot);
+      const state = loadAgentState(projectRoot);
+      const cached = auditProjectCached(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
+      const audit = cached.audit;
+      const proposals = proposeNextActions(service, state, projectRoot, audit);
+      const profile = service.getProjectProfile();
+      const workflow = profile?.workflow ?? "full-re";
+      const { visiblePhasesFor, WORKFLOW_TITLES } = await import("../agent-orchestrator/workflows.js");
+      const visiblePhases = visiblePhasesFor(workflow);
+      const artifacts = service.listArtifacts().filter((a) =>
+        !a.phaseFrozen
+        && (a.kind === "prg" || a.kind === "raw" || a.kind === "extract" || a.role === "source-prg")
+        && visiblePhases.has((a.phase ?? 1) as 1|2|3|4|5|6|7),
+      );
+
+      const lines: string[] = [];
+      lines.push(`# What's next`);
+      lines.push("");
+      lines.push(`Workflow: **${WORKFLOW_TITLES[workflow]}** | Role: ${state.role} | Audit: ${audit.severity}`);
+      lines.push("");
+      const top = proposals[0];
+      if (top) {
+        lines.push(`## Next required action`);
+        lines.push("");
+        lines.push(`- ${top.suggestion}`);
+        if (top.reason) lines.push(`  reason: ${top.reason}`);
+        lines.push("");
+      }
+      const focusArtifact = artifacts[0];
+      if (focusArtifact) {
+        const phase = focusArtifact.phase ?? 1;
+        lines.push(`## Worker spawn`);
+        lines.push("");
+        lines.push("```");
+        lines.push(`Prompt: c64re_worker_phase(phase=${phase}, artifact_id="${focusArtifact.id}", role="${state.role ?? "analyst"}")`);
+        lines.push("```");
+        lines.push("");
+      }
+      if (audit.severity !== "low" && audit.findings.length > 0) {
+        lines.push(`## Audit warnings`);
+        lines.push("");
+        for (const f of audit.findings.slice(0, 3)) lines.push(`- [${f.severity}] ${f.title}`);
+        lines.push("");
+      }
+      lines.push(`---`);
+      lines.push(`After acting: agent_record_step(...) → c64re_whats_next.`);
+      return textContent(lines.join("\n"));
+    },
+  );
+
+  server.tool(
+    "start_re_workflow",
+    "Spec 046: pick a workflow template (full-re | cracker-only | analyst-deep | targeted-routine | bugfix). Required phases per artifact + propose_next visibility adapt to the chosen workflow. Refuses if a workflow is already set unless force=true.",
+    {
+      project_dir: z.string().optional(),
+      workflow: z.enum(["full-re", "cracker-only", "analyst-deep", "targeted-routine", "bugfix"]),
+      force: z.boolean().optional(),
+    },
+    async ({ project_dir, workflow, force }) => {
+      const projectRoot = ctx.projectDir(project_dir);
+      const service = new ProjectKnowledgeService(projectRoot);
+      const profile = service.getProjectProfile();
+      if (profile?.workflow && !force) {
+        const { nextStepError } = await import("./error-helpers.js");
+        return nextStepError(
+          "start_re_workflow",
+          `Workflow already set to '${profile.workflow}' (since ${profile.workflowSelectedAt ?? "unknown"}).`,
+          `start_re_workflow(workflow="${workflow}", force=true) to override.`,
+        );
+      }
+      const updated = service.saveProjectProfile({
+        workflow,
+        workflowSelectedAt: new Date().toISOString(),
+      });
+      const { WORKFLOW_TITLES, WORKFLOW_DESCRIPTIONS } = await import("../agent-orchestrator/workflows.js");
+      return textContent([
+        `Workflow set: ${WORKFLOW_TITLES[workflow]}`,
+        ``,
+        WORKFLOW_DESCRIPTIONS[workflow],
+        ``,
+        `Saved at ${updated.workflowSelectedAt}.`,
+      ].join("\n"));
+    },
+  );
+
+  server.tool(
     "agent_propose_next",
     "[Phase agnostic] Read-only: examine workflow phases, open tasks, open questions, and current agent-state to propose ranked next actions. Spec 034 / 035: lists phase-consistent actions for each non-frozen artifact and recommends spawning a worker subagent via the c64re_worker_phase prompt. Does not mutate state.",
     {

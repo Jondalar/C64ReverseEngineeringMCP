@@ -1280,6 +1280,48 @@ structured steps with stale-output detection. Spec 032 unchanged.
 
 Status: reactivated, depends on Sprint 24 (✓ shipped).
 
+## Sprint 39: codemcp Pattern Adoption
+
+Goal: borrow the strongest part of codemcp/workflows — the
+"permanent nudger" + setup-CLI pattern — so process discipline is
+enforced by integration convention rather than agent willpower.
+Plus self-documenting errors and workflow templates.
+
+Status: shipped.
+
+Todos:
+
+- [x] Spec 043: `c64re_whats_next` MCP tool — concise per-turn
+      action plan. Refuses politely if `agent_onboard` has not
+      run.
+- [x] Spec 044: `c64re setup <agent>` CLI patches CLAUDE.md (or
+      `print` mode dumps the block). Idempotent via marker
+      comments.
+- [x] Spec 045: `nextStepError(toolName, message, recommended)`
+      helper + adoption on agent_advance_phase, agent_freeze,
+      c64re_whats_next.
+- [x] Spec 046: workflow templates (full-re | cracker-only |
+      analyst-deep | targeted-routine | bugfix). ProjectProfile
+      stores selected workflow. `start_re_workflow` MCP tool sets
+      it; `requiredPhasesFor` and `visiblePhasesFor` filter
+      per-artifact behavior.
+
+Specs:
+
+- `specs/043-whats-next-permanent-nudger.md`
+- `specs/044-setup-cli.md`
+- `specs/045-self-documenting-errors.md`
+- `specs/046-workflow-templates.md`
+
+Done when:
+
+- `npx c64re setup claude --project <path>` writes the marker
+  block; re-run is idempotent.
+- `c64re_whats_next` returns < 30 lines with action + worker
+  spawn + reminder.
+- `start_re_workflow(workflow="bugfix")` flips the workflow;
+  `requiredPhasesFor("bugfix", "analyst")` returns [1, 5, 7].
+
 ## Backlog
 
 - Workspace UI filters for confidence, artifact role, payload, and

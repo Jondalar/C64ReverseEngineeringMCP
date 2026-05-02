@@ -1042,6 +1042,13 @@ export class ProjectKnowledgeService {
       glossary: patch.glossary ?? existing.glossary,
       antiPatterns: patch.antiPatterns ?? existing.antiPatterns,
       crackerOverrides: patch.crackerOverrides ?? existing.crackerOverrides,
+      // Spec 034 + 035 + 046: phase gates, reminders, role default,
+      // workflow.
+      phaseGateStrict: patch.phaseGateStrict ?? existing.phaseGateStrict,
+      phaseReminders: patch.phaseReminders ?? existing.phaseReminders,
+      defaultRole: patch.defaultRole ?? existing.defaultRole,
+      workflow: patch.workflow ?? existing.workflow,
+      workflowSelectedAt: patch.workflowSelectedAt ?? existing.workflowSelectedAt,
       updatedAt: nowIso(),
     };
     return this.storage.saveProjectProfile(merged);

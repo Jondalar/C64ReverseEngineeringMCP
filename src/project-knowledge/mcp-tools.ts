@@ -405,7 +405,14 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     safeHandler("agent_advance_phase", async ({ project_dir, artifact_id, to_phase, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const updated = service.advanceArtifactPhase(artifact_id, to_phase as 1|2|3|4|5|6|7, evidence);
-      if (!updated) return textContent(`Artifact ${artifact_id} not found.`);
+      if (!updated) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "agent_advance_phase",
+          `Artifact id '${artifact_id}' not found in the project.`,
+          `list_artifacts() to discover valid ids, then re-run agent_advance_phase.`,
+        );
+      }
       return textContent(`Phase advanced.\nArtifact: ${updated.id}\nNew phase: ${updated.phase}`);
     },
 ));
@@ -421,7 +428,14 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     safeHandler("agent_freeze_artifact", async ({ project_dir, artifact_id, reason }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const updated = service.freezeArtifactAtPhase(artifact_id, reason);
-      if (!updated) return textContent(`Artifact ${artifact_id} not found.`);
+      if (!updated) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "agent_freeze_artifact",
+          `Artifact id '${artifact_id}' not found.`,
+          `list_artifacts() to discover valid ids.`,
+        );
+      }
       return textContent(`Frozen at phase ${updated.phase ?? 1}: ${reason}`);
     },
 ));

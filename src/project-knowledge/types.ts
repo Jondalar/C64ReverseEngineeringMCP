@@ -204,6 +204,9 @@ export const ProjectProfileSchema = z.object({
   phaseGateStrict: z.boolean().optional(),
   phaseReminders: z.enum(["every-tool", "phase-transition", "off"]).optional(),
   defaultRole: z.enum(["analyst", "cracker"]).optional(),
+  // Spec 046: workflow template the project follows.
+  workflow: z.enum(["full-re", "cracker-only", "analyst-deep", "targeted-routine", "bugfix"]).optional(),
+  workflowSelectedAt: TimestampSchema.optional(),
   updatedAt: TimestampSchema,
 });
 
