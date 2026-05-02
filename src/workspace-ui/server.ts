@@ -454,6 +454,55 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 053 / Bug 21: segment confirm / reject endpoints.
+  if (requestUrl.pathname === "/api/segment/confirm" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; artifactId: string; address: number; length: number; kind: string; evidenceArtifactId?: string };
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const result = service.markSegmentConfirmed({
+          artifactId: payload.artifactId,
+          address: payload.address,
+          length: payload.length,
+          kind: payload.kind,
+          evidenceArtifactId: payload.evidenceArtifactId,
+        });
+        if (!result) { send(res, jsonResponse(404, { error: "artifact not found" })); return; }
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/segment/reject" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; artifactId: string; address: number; length: number; kind: string; reason: string };
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const result = service.markSegmentRejected({
+          artifactId: payload.artifactId,
+          address: payload.address,
+          length: payload.length,
+          kind: payload.kind,
+          reason: payload.reason,
+        });
+        if (!result) { send(res, jsonResponse(404, { error: "artifact not found" })); return; }
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/audit" && req.method === "GET") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)

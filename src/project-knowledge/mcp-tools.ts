@@ -717,6 +717,37 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 053 / Bug 21: companion to mark_segment_confirmed.
+  server.tool(
+    "mark_segment_rejected",
+    "Spec 053 (Bug 20/21): mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification. Writes rejected:true + rejectedReason into the segment AND creates a refutation finding.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string(),
+      address: z.number().int().nonnegative(),
+      length: z.number().int().positive(),
+      kind: z.string(),
+      reason: z.string(),
+    },
+    safeHandler("mark_segment_rejected", async ({ project_dir, artifact_id, address, length, kind, reason }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.markSegmentRejected({ artifactId: artifact_id, address, length, kind, reason });
+      if (!result) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "mark_segment_rejected",
+          `Artifact ${artifact_id} not found.`,
+          `list_artifacts() to discover valid ids.`,
+        );
+      }
+      const lines = [
+        `Segment refutation finding: ${result.findingId}`,
+        result.segmentMatched ? `Analysis JSON updated: ${result.analysisPath}` : `No matching segment found in analysis JSON; finding still recorded.`,
+      ];
+      return textContent(lines.join("\n"));
+    },
+));
+
   // Spec 052: question auto-resolution.
   server.tool(
     "propose_question_resolutions",

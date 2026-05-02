@@ -1589,6 +1589,60 @@ export class ProjectKnowledgeService {
     return { findingId: finding.id, analysisPath, segmentMatched };
   }
 
+  // Spec 053 / Bug 21: companion to markSegmentConfirmed. Marks a
+  // sprite/charset/bitmap segment as rejected (false-positive
+  // analyzer classification). Writes back into *_analysis.json AND
+  // creates a refutation finding.
+  markSegmentRejected(args: {
+    artifactId: string;
+    address: number;
+    length: number;
+    kind: string;
+    reason: string;
+  }): { findingId: string; analysisPath?: string; segmentMatched: boolean } | undefined {
+    const artifact = this.listArtifacts().find((a) => a.id === args.artifactId);
+    if (!artifact) return undefined;
+    let analysisPath: string | undefined;
+    let segmentMatched = false;
+    const analysisArtifact = this.listArtifacts().find((a) =>
+      a.kind === "analysis-run"
+      && (a.sourceArtifactIds ?? []).includes(args.artifactId)
+    );
+    if (analysisArtifact && existsSync(analysisArtifact.path)) {
+      try {
+        const raw = JSON.parse(readFileSync(analysisArtifact.path, "utf8"));
+        if (raw && typeof raw === "object" && Array.isArray((raw as { segments?: unknown[] }).segments)) {
+          const segments = (raw as { segments: Array<{ start: number; end: number; kind: string; rejected?: boolean; rejectedReason?: string }> }).segments;
+          const match = segments.find((s) =>
+            s.start === args.address
+            && s.end === args.address + args.length - 1
+            && s.kind === args.kind
+          );
+          if (match) {
+            match.rejected = true;
+            match.rejectedReason = args.reason;
+            writeFileSync(analysisArtifact.path, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+            analysisPath = analysisArtifact.path;
+            segmentMatched = true;
+          }
+        }
+      } catch {
+        // best effort
+      }
+    }
+    const finding = this.saveFinding({
+      kind: "refutation",
+      title: `Segment rejected at $${args.address.toString(16).toUpperCase()}-$${(args.address + args.length - 1).toString(16).toUpperCase()} (${args.kind})`,
+      summary: args.reason,
+      confidence: 0.9,
+      status: "rejected",
+      artifactIds: [args.artifactId],
+      addressRange: { start: args.address, end: args.address + args.length - 1 },
+      tags: ["segment-rejection"],
+    });
+    return { findingId: finding.id, analysisPath, segmentMatched };
+  }
+
   // Spec 052: walk open auto-resolvable questions whose entityIds
   // intersect the just-saved finding. High-confidence matches
   // auto-close; low-confidence become resolution-pending.

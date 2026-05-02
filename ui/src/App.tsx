@@ -5232,6 +5232,28 @@ export function App() {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json() as { marks: Record<string, { status: "rejected" | "confirmed"; note?: string }> };
       setGraphicsMarks(payload.marks ?? {});
+      // Spec 053 / Bug 21: also write back into *_analysis.json so
+      // the segment's underlying classification reflects the user's
+      // human verdict. Best-effort — graphics-marks is the
+      // ephemeral source of truth; segment writeback is the durable
+      // propagation path.
+      const item = graphicsItems.find((g) => g.id === itemId);
+      if (item && status !== "clear") {
+        const endpoint = status === "confirmed" ? "/api/segment/confirm" : "/api/segment/reject";
+        const body: Record<string, unknown> = {
+          projectDir: snapshot.project.rootPath,
+          artifactId: item.prgArtifactId,
+          address: item.start,
+          length: item.length,
+          kind: item.kind,
+        };
+        if (status === "rejected") body.reason = "User marked wrong via Graphics tab.";
+        await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).catch((segError) => console.error("segment writeback failed", segError));
+      }
     } catch (markError) {
       console.error("graphics mark failed", markError);
     }

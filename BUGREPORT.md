@@ -947,7 +947,7 @@ The graphics-preview-to-segment linkage gap is the same problem in microcosm: re
 
 ## Bug 21 — Spec 053 / Bug 20 fix landed in code but not exposed in running MCP server (sprint 46 partial)
 
-**Status**: OPEN — partial fix in commit `be048da` ("sprint 46: phase-1 noise archive (Spec 053, Bug 20 fix data layer)"). Tool implementation exists in `src/project-knowledge/mcp-tools.ts:660` and `src/project-knowledge/service.ts:1536`. Not visible to a connected agent, and the Graphics-tab `Confirm graphics` / `Mark wrong` buttons in UI still appear to be stubs.
+**Status**: FIXED — followup commit on agent-workflows. Added the missing companion `mark_segment_rejected` MCP tool, new `/api/segment/confirm` and `/api/segment/reject` workspace-ui endpoints, and wired the Graphics-tab `Confirm graphics` / `Mark wrong` buttons in `App.tsx` to POST to those endpoints alongside the existing `/api/graphics-marks` ephemeral-store call. The original `mark_segment_confirmed` was already present in `dist/` after sprint 46 — visibility issue would resolve once the agent's MCP host reconnected to a freshly rebuilt server. User must `npm run build:mcp` and reconnect after this commit to see the new tools.
 
 **Severity**: Medium — Bug 20's actual mitigation is unreachable until this lands.
 
