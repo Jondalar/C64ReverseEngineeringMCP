@@ -3798,6 +3798,7 @@ function DiskFileInspector({
   onSelectEntity,
   onCreateTask,
   onCreateQuestion,
+  onRunPrgWorkflow,
 }: {
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
@@ -3806,7 +3807,9 @@ function DiskFileInspector({
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
   onOpenTab: (tab: TabId) => void;
   onSelectEntity: (entityId: string) => void;
+  onRunPrgWorkflow: (prgPath: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
 } & LlmTodoActions) {
+  const [workflowBusy, setWorkflowBusy] = useState(false);
   const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
   const file = disk?.files.find((candidate) => candidate.id === selection.fileId);
   const diskArtifact = snapshot.artifacts.find((artifact) => artifact.id === selection.diskArtifactId);
@@ -3965,6 +3968,25 @@ function DiskFileInspector({
         title: `${file.title} · ${payloadBinaryArtifact.title}`,
         baseAddress: file.loadAddress,
       }),
+    });
+  }
+  if (payloadBinaryArtifact && payloadBinaryArtifact.relativePath.toLowerCase().endsWith(".prg")) {
+    const prgPath = payloadBinaryArtifact.relativePath;
+    secondaryActions.push({
+      label: workflowBusy ? "running..." : "reverse workflow",
+      title: `Run analyze + disasm + reports + view rebuild on ${prgPath}`,
+      enabled: !workflowBusy,
+      onClick: () => {
+        setWorkflowBusy(true);
+        onRunPrgWorkflow(prgPath, "full")
+          .then((result) => {
+            window.alert(`Workflow ${result.status}.\nImported entities=${result.importedCounts.entities} findings=${result.importedCounts.findings}.\nNext: ${result.nextRequiredAction}`);
+          })
+          .catch((error) => {
+            window.alert(`Workflow failed: ${error instanceof Error ? error.message : String(error)}`);
+          })
+          .finally(() => setWorkflowBusy(false));
+      },
     });
   }
   if (linkedLoadItems.length > 0) {
@@ -4448,6 +4470,17 @@ export function App() {
     }
   }
 
+  async function runPrgWorkflowFromInspector(prgPath: string, mode: "quick" | "full" = "full"): Promise<PrgReverseWorkflowResponse> {
+    if (!snapshot) throw new Error("No workspace loaded");
+    const result = await postJson<PrgReverseWorkflowResponse>("/api/run-prg-workflow", {
+      projectDir: snapshot.project.rootPath,
+      prgPath,
+      mode,
+    });
+    await loadWorkspace(snapshot.project.rootPath);
+    return result;
+  }
+
   async function saveTodoComposer() {
     if (!snapshot || !todoComposer || !todoComposer.title.trim()) return;
     setTodoSaving(true);
@@ -4862,6 +4895,7 @@ export function App() {
                   onSelectEntity={(entityId) => handleSelectEntity(entityId)}
                   onCreateTask={createTaskFromUi}
                   onCreateQuestion={createQuestionFromUi}
+                  onRunPrgWorkflow={runPrgWorkflowFromInspector}
                 />
               ) : selectedQuestion ? (
                 <QuestionInspector

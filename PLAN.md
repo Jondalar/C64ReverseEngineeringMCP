@@ -317,11 +317,11 @@ Goal: extend the workflow tool from Sprint 2 into a one-click button
 in the workspace UI so the agent and the human start the same
 workflow with the same side effects.
 
-Status: first pass landed. `runPrgReverseWorkflow` extracted into
-`src/lib/prg-workflow.ts` and shared by the MCP tool and a new
-`POST /api/run-prg-workflow` workspace endpoint. The dashboard ships a
-`WorkflowRunnerPanel` with a PRG selector, mode toggle, and run
-button; the workspace snapshot reloads after a successful run.
+Status: complete. The shared `runPrgReverseWorkflow` library powers
+both the MCP tool, the dashboard `WorkflowRunnerPanel`, and an
+in-context `reverse workflow` button in the disk file inspector that
+triggers on PRG-typed payload artifacts. Successful runs reload the
+workspace snapshot in every entry point.
 
 Todos:
 
@@ -331,8 +331,8 @@ Todos:
 - [x] Add `POST /api/run-prg-workflow` in the workspace UI server.
 - [x] Add `Run reverse workflow` UI in the dashboard with a PRG
       selector and mode toggle.
-- [ ] Wire the same control into the PRG file inspector and PRG
-      entries in the disk file inspector for in-context launching.
+- [x] Wire the same control into the disk file inspector when the
+      file resolves to a PRG payload artifact.
 - [x] Refresh the workspace snapshot (and audit) after a successful
       run.
 
