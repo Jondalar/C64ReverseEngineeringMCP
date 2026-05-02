@@ -22,7 +22,7 @@ workspace UI cartridge grid) can consume.
   "header": {
     "hardwareType": 32,
     "exrom": 0, "game": 1,
-    "name": "EXAMPLE CART"
+    "name": "EXAMPLE CART NAME"
   },
   "chips": [
     { "bank": 0, "load_address": 32768, "size": 8192, "file": "chips/bank_00_8000.bin" },

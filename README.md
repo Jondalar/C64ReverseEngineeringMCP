@@ -106,7 +106,6 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 npm run ui:build
 npm run ui:serve            # API + bundled UI on http://127.0.0.1:4310
 npm run ui:dev              # Vite live-reload on http://127.0.0.1:4311
-npm run ui:spike            # build + serve against the example example
 ```
 
 See [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md) for the cart

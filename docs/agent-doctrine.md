@@ -315,7 +315,7 @@ Rules:
 
 Good finding:
 
-> "Routine at $8120 writes #$04 to $DE02 during cartridge mode transition. Evidence: disassembly artifact `example_disasm.asm` lines 412-428. Hypothesis: this disables EF ROM exposure for RAM access. Confidence: 0.6."
+> "Routine at $8120 writes #$04 to $DE02 during cartridge mode transition. Evidence: disassembly artifact `loader_disasm.asm` lines 412-428. Hypothesis: this disables EF ROM exposure for RAM access. Confidence: 0.6."
 
 Bad finding:
 

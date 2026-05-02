@@ -85,7 +85,6 @@ self-contained — the UI never reads the raw knowledge store.
 npm run ui:build         # bundle React app
 npm run ui:serve         # serve API + bundled UI on http://127.0.0.1:4310
 npm run ui:dev           # live-reload via Vite on http://127.0.0.1:4311
-npm run ui:spike         # build + serve against the example example
 ```
 
 The UI is React + Vite, no global state library. Tabs map 1:1 to views.
@@ -128,12 +127,9 @@ CORS is open (`Access-Control-Allow-Origin: *`) so the dev server on
 
 ## Example workspace
 
-`examples/example-project/` is bootstrapped from real CRT + D64
-inputs and contains the full set of knowledge files + rendered views. The
-`refresh-example-example` script re-runs the import + view pipeline so
-the example keeps tracking schema changes.
+There is no in-tree sample workspace. Smoke coverage is provided by the
+project-knowledge smoke harness.
 
 ```sh
-node scripts/refresh-example-example.mjs
 node scripts/project-knowledge-smoke.mjs
 ```
