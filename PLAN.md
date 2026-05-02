@@ -299,18 +299,23 @@ Goal: extend the workflow tool from Sprint 2 into a one-click button
 in the workspace UI so the agent and the human start the same
 workflow with the same side effects.
 
-Status: not started. Surfaced after Sprints 2 and 11 to round out the
-"integrated UI" goal.
+Status: first pass landed. `runPrgReverseWorkflow` extracted into
+`src/lib/prg-workflow.ts` and shared by the MCP tool and a new
+`POST /api/run-prg-workflow` workspace endpoint. The dashboard ships a
+`WorkflowRunnerPanel` with a PRG selector, mode toggle, and run
+button; the workspace snapshot reloads after a successful run.
 
 Todos:
 
-- [ ] Extract `runPrgReverseWorkflow(opts)` from
+- [x] Extract `runPrgReverseWorkflow(opts)` from
       `src/server-tools/analysis-workflow.ts` into
       `src/lib/prg-workflow.ts`.
-- [ ] Add `POST /api/run-prg-workflow` in the workspace UI server.
-- [ ] Add `Run reverse workflow` buttons to the PRG file inspector
-      and PRG entries in the disk file inspector.
-- [ ] Refresh the workspace snapshot (and audit) after a successful
+- [x] Add `POST /api/run-prg-workflow` in the workspace UI server.
+- [x] Add `Run reverse workflow` UI in the dashboard with a PRG
+      selector and mode toggle.
+- [ ] Wire the same control into the PRG file inspector and PRG
+      entries in the disk file inspector for in-context launching.
+- [x] Refresh the workspace snapshot (and audit) after a successful
       run.
 
 Specs:
@@ -355,13 +360,19 @@ Done when:
 
 Goal: stop guessing the depacker for shared-encoding / Lykia streams.
 
-Status: not started. Migrated from the old `TODO.md` backlog.
+Status: Lykia BB2 probe and the generic `00 XX` shared-encoding hint
+landed in `suggestDepackers`. Cross-referencing the matched
+shared-encoding artifact id is still pending and depends on the
+project layer surfacing registered shared-encoding artifacts to the
+suggester.
 
 Todos:
 
-- [ ] Add Exomizer shared-encoding prefix detection (e.g.
-      `00 0C 40 3F ...`).
-- [ ] Add Lykia 2-byte-prefix LZ77 detection.
+- [ ] Add Exomizer shared-encoding prefix detection that consults
+      registered shared-encoding artifacts and matches their canonical
+      prefix (e.g. `00 0C 40 3F ...`).
+- [x] Add Lykia 2-byte-prefix BB2 detection via `lykiaDecompress`
+      probe with a separate weak `00 XX` heuristic fallback.
 - [ ] Surface the matched shared-encoding artifact id when the project
       has one registered.
 

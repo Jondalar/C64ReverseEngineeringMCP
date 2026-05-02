@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { RawCruncher, ExomizerRawDepacker, ExomizerSfxDepacker } from "./exomizer-ts/index.js";
+import { lykiaDecompress } from "./byteboozer-lykia-decoder.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -728,6 +729,65 @@ export async function suggestDepackers(options: {
     // Ignore failed Exomizer probes.
   }
 
+  // Lykia BB2 variant detection. The 4-byte stream header carries
+  // dest_lo/dest_hi/end_lo/end_hi. BITBUF is seeded with dest_hi (== data[1]).
+  // A clean depack with a sane unpacked size and bytesRead == data.length is
+  // a strong signal that the file is a Lykia-format payload.
+  if (data.length >= 8) {
+    try {
+      const lykia = lykiaDecompress(data, data[1]!);
+      const bytesRead = lykia.bytesRead ?? data.length;
+      const unpackedSize = lykia.data.length;
+      const consumedAll = bytesRead === data.length;
+      const ratio = unpackedSize / Math.max(1, data.length);
+      if (consumedAll && unpackedSize >= 64 && ratio >= 0.5 && ratio <= 64) {
+        suggestions.push({
+          format: "byteboozer_lykia",
+          confidence: 0.88,
+          reason: `Lykia BB2 variant decrunch succeeded structurally and consumed all ${data.length} input bytes.`,
+          offset,
+          length: data.length,
+          unpackedSize,
+          notes: [
+            `Header dest=$${(data[0]! | (data[1]! << 8)).toString(16).toUpperCase()} end=$${(data[2]! | (data[3]! << 8)).toString(16).toUpperCase()}`,
+            `Termination: ${lykia.termination}`,
+            `Expansion ratio: ${ratio.toFixed(2)}x`,
+            "Use depack_byteboozer_lykia to materialize the unpacked bytes.",
+          ],
+        });
+      } else if (consumedAll && unpackedSize >= 16) {
+        suggestions.push({
+          format: "byteboozer_lykia",
+          confidence: 0.5,
+          reason: "Lykia BB2 variant depack completed but produced an unusual size; treat as a weak hint.",
+          offset,
+          length: data.length,
+          unpackedSize,
+        });
+      }
+    } catch {
+      // Not Lykia.
+    }
+  }
+
+  // Generic Lykia / shared-encoding 2-byte prefix hint. Lykia disk streams
+  // typically start with a `00 XX` header where XX is the destination high
+  // byte. Without successful decrunch this is only a weak hint, but it is
+  // useful to surface when the strict probes above missed.
+  if (data.length >= 4 && data[0] === 0x00 && (data[1]! & 0xc0) !== 0x00 && !suggestions.some((entry) => entry.format === "byteboozer_lykia")) {
+    suggestions.push({
+      format: "exomizer_shared_candidate",
+      confidence: 0.25,
+      reason: "Stream starts with a `00 XX` 2-byte prefix typical of Lykia / Exomizer shared-encoding payloads, but the strict depacker probes did not decrunch this window.",
+      offset,
+      length: data.length,
+      notes: [
+        "Try depack_exomizer_raw with a registered shared-encoding artifact, or depack_byteboozer_lykia with the correct LUT entry.",
+        "If a packer was confirmed earlier in the project, record_file_packer can pin the metadata.",
+      ],
+    });
+  }
+
   if (suggestions.length === 0) {
     suggestions.push({
       format: "unknown",
@@ -753,7 +813,7 @@ export interface ExternalToolResult {
 }
 
 export interface DepackerSuggestion {
-  format: "loader_wrapper" | "disk_loader_wrapper" | "rle" | "exomizer_raw" | "exomizer_sfx" | "byteboozer2_executable" | "byteboozer2_raw" | "byteboozer2_maybe" | "unknown";
+  format: "loader_wrapper" | "disk_loader_wrapper" | "rle" | "exomizer_raw" | "exomizer_sfx" | "byteboozer2_executable" | "byteboozer2_raw" | "byteboozer2_maybe" | "byteboozer_lykia" | "exomizer_shared_candidate" | "unknown";
   confidence: number;
   reason: string;
   offset: number;

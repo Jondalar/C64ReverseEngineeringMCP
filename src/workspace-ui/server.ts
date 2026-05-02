@@ -4,6 +4,7 @@ import { extname, join, normalize, relative, resolve, dirname } from "node:path"
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { auditProject, auditProjectCached } from "../project-knowledge/audit.js";
 import { repairProject } from "../project-knowledge/repair.js";
+import { runPrgReverseWorkflow } from "../lib/prg-workflow.js";
 import { findUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import { buildGraphicsView } from "./graphics-view.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
@@ -312,6 +313,42 @@ const server = createServer((req, res) => {
     } catch (error) {
       send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
     }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/run-prg-workflow" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          prgPath: string;
+          mode?: "quick" | "full";
+          outputDir?: string;
+          rebuildViews?: boolean;
+          entryPoints?: string[];
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!payload.prgPath?.trim()) {
+          send(res, jsonResponse(400, { error: "Missing prgPath." }));
+          return;
+        }
+        const result = await runPrgReverseWorkflow({
+          projectRoot: projectDir,
+          prgPath: payload.prgPath,
+          mode: payload.mode,
+          outputDir: payload.outputDir,
+          rebuildViews: payload.rebuildViews,
+          entryPoints: payload.entryPoints,
+        });
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
     return;
   }
 

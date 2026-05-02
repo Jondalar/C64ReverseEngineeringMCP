@@ -16,6 +16,7 @@ import type {
   LoadSequenceView,
   MemoryMapView,
   OpenQuestionRecord,
+  PrgReverseWorkflowResponse,
   ProjectAuditFinding,
   ProjectRepairOperation,
   ProjectRepairResponse,
@@ -643,6 +644,120 @@ function AuditPanel({
   );
 }
 
+function WorkflowRunnerPanel({
+  snapshot,
+  onReloadWorkspace,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onReloadWorkspace: () => Promise<void>;
+}) {
+  const prgArtifacts = useMemo(
+    () => snapshot.artifacts.filter((artifact) => artifact.kind === "prg" || artifact.relativePath.toLowerCase().endsWith(".prg")),
+    [snapshot.artifacts],
+  );
+  const [selected, setSelected] = useState<string | null>(prgArtifacts[0]?.id ?? null);
+  const [mode, setMode] = useState<"quick" | "full">("full");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<PrgReverseWorkflowResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selected || !prgArtifacts.find((artifact) => artifact.id === selected)) {
+      setSelected(prgArtifacts[0]?.id ?? null);
+    }
+  }, [prgArtifacts, selected]);
+
+  async function runWorkflow() {
+    const artifact = prgArtifacts.find((entry) => entry.id === selected);
+    if (!artifact) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const data = await postJson<PrgReverseWorkflowResponse>("/api/run-prg-workflow", {
+        projectDir: snapshot.project.rootPath,
+        prgPath: artifact.relativePath,
+        mode,
+      });
+      setResult(data);
+      await onReloadWorkspace();
+    } catch (workflowError) {
+      setError(workflowError instanceof Error ? workflowError.message : String(workflowError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (prgArtifacts.length === 0) {
+    return (
+      <section className="panel-card workflow-panel">
+        <div className="section-heading">
+          <h3>PRG Reverse Workflow</h3>
+          <span>no PRG artifacts</span>
+        </div>
+        <p className="empty-inline">Register a PRG with project_init / register_existing_files to enable the workflow runner.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel-card workflow-panel">
+      <div className="section-heading">
+        <h3>PRG Reverse Workflow</h3>
+        <span>{result ? result.status : "idle"}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <select
+          value={selected ?? ""}
+          onChange={(event) => setSelected(event.target.value || null)}
+          disabled={busy}
+        >
+          {prgArtifacts.map((artifact) => (
+            <option key={artifact.id} value={artifact.id}>{artifact.relativePath}</option>
+          ))}
+        </select>
+        <select value={mode} onChange={(event) => setMode(event.target.value === "quick" ? "quick" : "full")} disabled={busy}>
+          <option value="full">full (analyze + disasm + reports)</option>
+          <option value="quick">quick (analyze + disasm only)</option>
+        </select>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busy || !selected}
+          onClick={runWorkflow}
+        >
+          {busy ? "Running..." : "Run reverse workflow"}
+        </button>
+      </div>
+      {error ? <div className="inspector-error">{error}</div> : null}
+      {result ? (
+        <div className="record-stack compact">
+          <article className="mini-card">
+            <strong>Status: {result.status}</strong>
+            <p>Imported entities={result.importedCounts.entities} findings={result.importedCounts.findings} relations={result.importedCounts.relations} flows={result.importedCounts.flows} questions={result.importedCounts.openQuestions}</p>
+            <p>{result.nextRequiredAction}</p>
+          </article>
+          <article className="mini-card">
+            <strong>Phases</strong>
+            <pre>{result.phases.map((p) => `[${p.status}] ${p.phase}${p.reason ? " — " + p.reason : ""}`).join("\n")}</pre>
+          </article>
+          {result.artifactsWritten.length > 0 ? (
+            <article className="mini-card">
+              <strong>Artifacts written</strong>
+              <pre>{result.artifactsWritten.join("\n")}</pre>
+            </article>
+          ) : null}
+          {result.viewsBuilt.length > 0 ? (
+            <article className="mini-card">
+              <strong>Views rebuilt</strong>
+              <pre>{result.viewsBuilt.join("\n")}</pre>
+            </article>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function DashboardPanel({
   snapshot,
   onSelectEntity,
@@ -673,6 +788,7 @@ function DashboardPanel({
         </div>
       </section>
       <AuditPanel projectDir={snapshot.project.rootPath} onReloadWorkspace={onReloadWorkspace} />
+      <WorkflowRunnerPanel snapshot={snapshot} onReloadWorkspace={onReloadWorkspace} />
 
       <div className="split-columns">
         <section className="panel-card">

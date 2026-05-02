@@ -544,3 +544,36 @@ export interface ProjectRepairResponse {
   after?: ProjectAuditResult;
 }
 
+export interface PrgReverseWorkflowPhase {
+  phase: string;
+  status: "done" | "skipped" | "blocked";
+  output?: string;
+  artifact?: string;
+  reason?: string;
+  log?: string;
+}
+
+export interface PrgReverseWorkflowResponse {
+  projectRoot: string;
+  prgPath: string;
+  mode: "quick" | "full";
+  startedAt: string;
+  status: "done" | "incomplete" | "blocked";
+  phases: PrgReverseWorkflowPhase[];
+  importedCounts: {
+    entities: number;
+    findings: number;
+    relations: number;
+    flows: number;
+    openQuestions: number;
+  };
+  artifactsWritten: string[];
+  viewsBuilt: string[];
+  nextRequiredAction: string;
+  analysisPath: string;
+  asmPath: string;
+  tassPath: string;
+  ramReportPath?: string;
+  pointerReportPath?: string;
+}
+
