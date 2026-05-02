@@ -136,7 +136,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       output_json: z.string().optional().describe("Output path for the analysis JSON (default: next to PRG)"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses, e.g. [\"0827\", \"3E07\"]"),
     },
-    async ({ project_dir, prg_path, output_json, entry_points }) => {
+    safeHandler("analyze_prg", async ({ project_dir, prg_path, output_json, entry_points }) => {
       const pd = context.projectDir(project_dir ?? prg_path, true);
       const prgAbs = resolve(pd, prg_path);
       const outAbs = output_json
@@ -196,7 +196,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         }
       }
       return context.cliResultToContent(result);
-    },
+    }),
   );
 
   server.tool(
@@ -209,7 +209,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses"),
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
     },
-    async ({ project_dir, prg_path, output_asm, entry_points, analysis_json }) => {
+    safeHandler("disasm_prg", async ({ project_dir, prg_path, output_asm, entry_points, analysis_json }) => {
       const pd = context.projectDir(project_dir ?? prg_path, true);
       const prgAbs = resolve(pd, prg_path);
       const outAbs = output_asm
@@ -287,7 +287,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         }
       }
       return context.cliResultToContent(result);
-    },
+    }),
   );
 
   server.tool(
@@ -297,7 +297,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       analysis_json: z.string().describe("Path to the analysis JSON"),
       output_md: z.string().optional().describe("Output path for the markdown report"),
     },
-    async ({ analysis_json, output_md }) => {
+    safeHandler("ram_report", async ({ analysis_json, output_md }) => {
       const pd = context.projectDir(analysis_json, true);
       const jsonAbs = resolve(pd, analysis_json);
       const outAbs = output_md
@@ -337,7 +337,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         }
       }
       return context.cliResultToContent(result);
-    },
+    }),
   );
 
   server.tool(
@@ -347,7 +347,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       analysis_json: z.string().describe("Path to the analysis JSON"),
       output_md: z.string().optional().describe("Output path for the markdown report"),
     },
-    async ({ analysis_json, output_md }) => {
+    safeHandler("pointer_report", async ({ analysis_json, output_md }) => {
       const pd = context.projectDir(analysis_json, true);
       const jsonAbs = resolve(pd, analysis_json);
       const outAbs = output_md
@@ -387,7 +387,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         }
       }
       return context.cliResultToContent(result);
-    },
+    }),
   );
 
   registerPrgReverseWorkflow(server, context);

@@ -265,8 +265,10 @@ Goal: every MCP tool returns a structured error on failure, not an
 unhandled rejection.
 
 Status: helper landed in `src/server-tools/safe-handler.ts`. Applied
-to `project_audit`, `project_repair`, and `run_prg_reverse_workflow`
-as the showcase. Remaining handlers across `src/server-tools/*.ts` and
+to `project_audit`, `project_repair`, `run_prg_reverse_workflow`, and
+the four analysis-workflow tools (`analyze_prg`, `disasm_prg`,
+`ram_report`, `pointer_report`). Remaining handlers in other
+`src/server-tools/*.ts` files and the listing/save tools in
 `src/project-knowledge/mcp-tools.ts` should adopt it incrementally.
 
 Todos:
@@ -275,8 +277,11 @@ Todos:
       shape and logs the tool name to stderr.
 - [x] Wrap the new agentic-workflow tools (audit, repair, prg
       workflow).
-- [ ] Wrap remaining handlers in `src/server-tools/*.ts` and
-      `src/project-knowledge/mcp-tools.ts`.
+- [x] Wrap the analysis-workflow tools (`analyze_prg`, `disasm_prg`,
+      `ram_report`, `pointer_report`).
+- [ ] Wrap remaining handlers in `src/server-tools/payloads.ts`,
+      `compression.ts`, `sandbox.ts`, `headless.ts`, `vice.ts`, and
+      the listing/save tools in `src/project-knowledge/mcp-tools.ts`.
 
 Specs:
 
@@ -287,6 +292,36 @@ Done when:
 
 - a deliberately failing handler returns a structured error instead of
   crashing the stdio process
+
+## Sprint 12: UI-Driven PRG Reverse Workflow
+
+Goal: extend the workflow tool from Sprint 2 into a one-click button
+in the workspace UI so the agent and the human start the same
+workflow with the same side effects.
+
+Status: not started. Surfaced after Sprints 2 and 11 to round out the
+"integrated UI" goal.
+
+Todos:
+
+- [ ] Extract `runPrgReverseWorkflow(opts)` from
+      `src/server-tools/analysis-workflow.ts` into
+      `src/lib/prg-workflow.ts`.
+- [ ] Add `POST /api/run-prg-workflow` in the workspace UI server.
+- [ ] Add `Run reverse workflow` buttons to the PRG file inspector
+      and PRG entries in the disk file inspector.
+- [ ] Refresh the workspace snapshot (and audit) after a successful
+      run.
+
+Specs:
+
+- `specs/015-ui-workflow-runner.md`
+
+Done when:
+
+- a click on a PRG runs the same workflow the MCP tool runs and the
+  dashboard counts and audit panel reflect the new state without a
+  manual refresh
 
 ## Sprint 11: Audit / Repair UI Panel
 
