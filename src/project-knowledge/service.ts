@@ -1443,6 +1443,179 @@ export class ProjectKnowledgeService {
     return out;
   }
 
+  // Spec 052: walk open auto-resolvable questions whose entityIds
+  // intersect the just-saved finding. High-confidence matches
+  // auto-close; low-confidence become resolution-pending.
+  // Returns count summary so callers can surface it.
+  resolveQuestionsForFinding(findingId: string): { autoResolved: number; pending: number } {
+    const allFindings = this.listFindings();
+    const finding = allFindings.find((f) => f.id === findingId);
+    if (!finding) return { autoResolved: 0, pending: 0 };
+    const profile = this.getProjectProfile();
+    const proposeOnly = profile?.questionAutoResolveMode === "propose-only";
+    const findingEntityIds = new Set(finding.entityIds);
+    const questions = this.listOpenQuestions();
+    let autoResolved = 0;
+    let pending = 0;
+    for (const q of questions) {
+      if (q.status !== "open" && q.status !== "researching" && q.status !== "resolution-pending") continue;
+      if (q.autoResolvable !== true) continue;
+      if (q.entityIds.length === 0) continue;
+      const overlaps = q.entityIds.some((id) => findingEntityIds.has(id));
+      if (!overlaps) continue;
+      const highConfidence =
+        !proposeOnly
+        && finding.confidence >= 0.85
+        && finding.entityIds.length === 1
+        && q.entityIds.length === 1;
+      if (highConfidence) {
+        this.saveOpenQuestion({
+          id: q.id,
+          kind: q.kind,
+          title: q.title,
+          status: "answered",
+          answeredByFindingId: finding.id,
+          answerSummary: finding.summary,
+        });
+        autoResolved += 1;
+      } else if (q.status !== "resolution-pending") {
+        this.saveOpenQuestion({
+          id: q.id,
+          kind: q.kind,
+          title: q.title,
+          status: "resolution-pending",
+          answeredByFindingId: finding.id,
+          answerSummary: finding.summary ? `Proposed: ${finding.summary}` : `Proposed by finding ${finding.id}`,
+        });
+        pending += 1;
+      }
+    }
+    return { autoResolved, pending };
+  }
+
+  // Spec 052: phase-reached resolution. Called from
+  // advanceArtifactPhase. Closes any auto-resolvable question whose
+  // structured hint is satisfied.
+  resolveQuestionsForPhase(artifactId: string, reachedPhase: number): number {
+    const questions = this.listOpenQuestions();
+    let closed = 0;
+    for (const q of questions) {
+      if (q.status !== "open" && q.status !== "researching") continue;
+      const hint = q.autoResolveHint;
+      if (!hint || typeof hint === "string") continue;
+      if (hint.kind !== "phase-reached") continue;
+      if (hint.artifactId !== artifactId) continue;
+      if (reachedPhase < hint.phase) continue;
+      this.saveOpenQuestion({
+        id: q.id,
+        kind: q.kind,
+        title: q.title,
+        status: "answered",
+        answerSummary: `Auto-resolved: artifact ${artifactId} reached phase ${reachedPhase} (>= required ${hint.phase}).`,
+      });
+      closed += 1;
+    }
+    return closed;
+  }
+
+  // Spec 052: annotation-applied resolution. Called from the
+  // annotation-save endpoint (Spec 051) or as a catch-up sweep.
+  resolveQuestionsForAnnotation(artifactId: string, addresses: number[]): number {
+    const questions = this.listOpenQuestions();
+    let closed = 0;
+    for (const q of questions) {
+      if (q.status !== "open" && q.status !== "researching") continue;
+      const hint = q.autoResolveHint;
+      if (!hint || typeof hint === "string") continue;
+      if (hint.kind !== "annotation-applied") continue;
+      if (hint.artifactId !== artifactId) continue;
+      if (hint.address !== undefined && !addresses.includes(hint.address)) continue;
+      this.saveOpenQuestion({
+        id: q.id,
+        kind: q.kind,
+        title: q.title,
+        status: "answered",
+        answerSummary: `Auto-resolved: annotations applied for ${artifactId}${hint.address !== undefined ? ` covering $${hint.address.toString(16).toUpperCase()}` : ""}.`,
+      });
+      closed += 1;
+    }
+    return closed;
+  }
+
+  // Spec 052: read-only proposal — what would the resolver do?
+  proposeQuestionResolutions(): Array<{ questionId: string; questionTitle: string; reason: string; via?: string; confidence?: number }> {
+    const out: Array<{ questionId: string; questionTitle: string; reason: string; via?: string; confidence?: number }> = [];
+    const questions = this.listOpenQuestions();
+    const findings = this.listFindings();
+    const artifacts = this.listArtifacts();
+    for (const q of questions) {
+      if (q.status !== "open" && q.status !== "researching") continue;
+      if (q.autoResolvable !== true) continue;
+      // Pfad A: any finding whose entityIds overlap?
+      const candidate = findings.find((f) => f.entityIds.some((id) => q.entityIds.includes(id)));
+      if (candidate) {
+        out.push({
+          questionId: q.id,
+          questionTitle: q.title,
+          reason: `Finding "${candidate.title}" references shared entity`,
+          via: candidate.id,
+          confidence: candidate.confidence,
+        });
+        continue;
+      }
+      // Pfad B: phase-reached hint already satisfied?
+      const hint = q.autoResolveHint;
+      if (hint && typeof hint !== "string" && hint.kind === "phase-reached") {
+        const a = artifacts.find((art) => art.id === hint.artifactId);
+        if (a && (a.phase ?? 1) >= hint.phase) {
+          out.push({
+            questionId: q.id,
+            questionTitle: q.title,
+            reason: `Artifact ${hint.artifactId} already at phase ${a.phase} (>= ${hint.phase})`,
+            via: hint.artifactId,
+          });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Spec 052: resolution-pending → answered (accept) or back to
+  // open with rejection note (accept=false).
+  confirmQuestionResolution(questionId: string, accept: boolean): OpenQuestionRecord | undefined {
+    const all = this.listOpenQuestions();
+    const q = all.find((item) => item.id === questionId);
+    if (!q) return undefined;
+    if (q.status !== "resolution-pending") return q; // no-op
+    return this.saveOpenQuestion({
+      id: q.id,
+      kind: q.kind,
+      title: q.title,
+      status: accept ? "answered" : "open",
+      answerSummary: accept ? q.answerSummary : `Auto-resolution rejected by user.`,
+    });
+  }
+
+  // Spec 052: catch-up sweep. Re-runs Pfad A + B + C across all
+  // open auto-resolvable questions. Called from agent_onboard.
+  sweepQuestionResolutions(): { autoResolved: number; pending: number; phaseClosed: number } {
+    const findings = this.listFindings();
+    let autoResolved = 0;
+    let pending = 0;
+    for (const f of findings) {
+      const r = this.resolveQuestionsForFinding(f.id);
+      autoResolved += r.autoResolved;
+      pending += r.pending;
+    }
+    let phaseClosed = 0;
+    for (const a of this.listArtifacts()) {
+      if (a.phase !== undefined) {
+        phaseClosed += this.resolveQuestionsForPhase(a.id, a.phase);
+      }
+    }
+    return { autoResolved, pending, phaseClosed };
+  }
+
   // Spec 030 runtime scenarios.
   saveRuntimeScenario(input: Omit<RuntimeScenario, "id" | "createdAt" | "updatedAt"> & { id?: string }): RuntimeScenario {
     const store = this.storage.loadRuntimeScenarios();
@@ -1710,6 +1883,12 @@ export class ProjectKnowledgeService {
       summary: evidence,
       payload: { from: current, to: toPhase },
     });
+    // Spec 052: phase-reached question resolution.
+    try {
+      this.resolveQuestionsForPhase(artifactId, toPhase);
+    } catch {
+      // best effort
+    }
     return updated;
   }
 
@@ -1945,6 +2124,13 @@ export class ProjectKnowledgeService {
       findingId: finding.id,
       summary: finding.kind,
     });
+    // Spec 052: in-band auto-resolution. Walk auto-resolvable
+    // questions sharing entityIds with this finding.
+    try {
+      this.resolveQuestionsForFinding(finding.id);
+    } catch {
+      // best effort
+    }
     return finding;
   }
 

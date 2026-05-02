@@ -353,6 +353,8 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const autoImport = service.autoImportUnimportedAnalysisRuns();
       // Spec 038: close auto-suggested tasks whose hint is satisfied.
       const autoClose = service.closeCompletedAutoTasks();
+      // Spec 052: catch-up sweep for question auto-resolution.
+      const questionSweep = service.sweepQuestionResolutions();
       const status = service.getProjectStatus();
       const state = loadAgentState(projectRoot);
       const cached: AuditCachedResult = auditProjectCached(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
@@ -368,6 +370,10 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       }
       if (autoClose.closed > 0) {
         lines.push(`Auto-closed ${autoClose.closed} of ${autoClose.checked} auto-suggested task(s) whose hint conditions are now satisfied.`);
+        lines.push(``);
+      }
+      if (questionSweep.autoResolved + questionSweep.pending + questionSweep.phaseClosed > 0) {
+        lines.push(`Question auto-resolution sweep: ${questionSweep.autoResolved} answered, ${questionSweep.pending} resolution-pending, ${questionSweep.phaseClosed} closed via phase-reached.`);
         lines.push(``);
       }
       lines.push(``);

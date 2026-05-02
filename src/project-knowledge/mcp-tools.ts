@@ -629,6 +629,56 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 052: question auto-resolution.
+  server.tool(
+    "propose_question_resolutions",
+    "Spec 052: read-only proposal — list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached). Useful before flipping projectProfile.questionAutoResolveMode.",
+    { project_dir: z.string().optional() },
+    safeHandler("propose_question_resolutions", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const proposals = service.proposeQuestionResolutions();
+      if (proposals.length === 0) return textContent("No proposals — no auto-resolvable questions match.");
+      return textContent([
+        `Question resolution proposals (${proposals.length}):`,
+        ...proposals.map((p) => `  ${p.questionId} | ${p.questionTitle} → ${p.reason}${p.confidence !== undefined ? ` (conf ${p.confidence.toFixed(2)})` : ""}`),
+      ].join("\n"));
+    },
+));
+
+  server.tool(
+    "auto_resolve_questions",
+    "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). Pfad C runs from the annotation-save endpoint. Returns counts.",
+    { project_dir: z.string().optional() },
+    safeHandler("auto_resolve_questions", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.sweepQuestionResolutions();
+      return textContent(`Sweep done: ${result.autoResolved} answered, ${result.pending} resolution-pending, ${result.phaseClosed} closed via phase-reached.`);
+    },
+));
+
+  server.tool(
+    "confirm_question_resolution",
+    "Spec 052: confirm or reject a resolution-pending question. accept=true marks it answered with the proposed summary; accept=false flips it back to open with a rejection note.",
+    {
+      project_dir: z.string().optional(),
+      question_id: z.string(),
+      accept: z.boolean(),
+    },
+    safeHandler("confirm_question_resolution", async ({ project_dir, question_id, accept }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const updated = service.confirmQuestionResolution(question_id, accept);
+      if (!updated) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "confirm_question_resolution",
+          `Question ${question_id} not found.`,
+          `list_open_questions() to discover ids.`,
+        );
+      }
+      return textContent(`Question ${updated.id} → status ${updated.status}.`);
+    },
+));
+
   // Spec 037: payload disk hint.
   server.tool(
     "set_payload_disk_hint",

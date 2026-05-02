@@ -11,7 +11,9 @@ export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 
 export const EntityStatusSchema = z.enum(["proposed", "active", "confirmed", "rejected", "archived"]);
 export const TaskStatusSchema = z.enum(["open", "in_progress", "blocked", "done", "wont_fix"]);
-export const QuestionStatusSchema = z.enum(["open", "researching", "answered", "invalidated", "deferred"]);
+// Spec 052: resolution-pending added so auto-resolution proposals
+// stay visible without committing to "answered" until user confirms.
+export const QuestionStatusSchema = z.enum(["open", "researching", "answered", "invalidated", "deferred", "resolution-pending"]);
 export const TimelineEventKindSchema = z.enum([
   "project.initialized",
   "artifact.registered",
@@ -219,6 +221,10 @@ export const ProjectProfileSchema = z.object({
   // Spec 046: workflow template the project follows.
   workflow: z.enum(["full-re", "cracker-only", "analyst-deep", "targeted-routine", "bugfix"]).optional(),
   workflowSelectedAt: TimestampSchema.optional(),
+  // Spec 052: question-resolution mode. auto = high-confidence
+  // matches close immediately; propose-only = every match becomes
+  // resolution-pending for explicit user confirmation.
+  questionAutoResolveMode: z.enum(["auto", "propose-only"]).optional(),
   updatedAt: TimestampSchema,
 });
 
@@ -790,6 +796,15 @@ export const TaskRecordSchema = z.object({
   completedAt: TimestampSchema.optional(),
 });
 
+// Spec 052 structured auto-resolve hint. Free-form string from
+// Spec 036 still readable through the legacy `free-form` variant.
+export const QuestionAutoResolveHintSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("phase-reached"), artifactId: IdSchema, phase: z.number().int().min(1).max(7) }),
+  z.object({ kind: z.literal("finding-with-entity"), entityId: IdSchema }),
+  z.object({ kind: z.literal("annotation-applied"), artifactId: IdSchema, address: z.number().int().nonnegative().optional() }),
+  z.object({ kind: z.literal("free-form"), note: z.string() }),
+]);
+
 // Spec 036 source provenance for open questions. Default "untagged"
 // for legacy records; new questions are expected to set source
 // explicitly via the producing tool.
@@ -817,7 +832,9 @@ export const OpenQuestionRecordSchema = z.object({
   // Spec 036: provenance + auto-resolvable hint.
   source: OpenQuestionSourceSchema.default("untagged"),
   autoResolvable: z.boolean().optional(),
-  autoResolveHint: z.string().optional(),
+  // Spec 036 + 052: free-form text accepted (legacy) OR structured
+  // hint (new). Service layer normalises strings to {kind: "free-form"}.
+  autoResolveHint: z.union([z.string(), QuestionAutoResolveHintSchema]).optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
   answeredByFindingId: IdSchema.optional(),
