@@ -234,8 +234,9 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       derived_from: z.string().optional().describe("Artifact id of the direct parent in the lineage chain (V0 if absent)."),
       version_label: z.string().optional().describe("Free-form version label. Defaults to V<rank>."),
       enable_snapshot: z.boolean().optional().describe("If true (default), record same-path content changes in versions[]. Set false for ephemeral saves."),
+      platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional().describe("Spec 020 platform marker. Default c64 when absent."),
     },
-    safeHandler("save_artifact", async ({ project_dir, id, kind, scope, title, path, description, mime_type, format, role, produced_by_tool, source_artifact_ids, entity_ids, confidence, status, tags, evidence, derived_from, version_label, enable_snapshot }) => {
+    safeHandler("save_artifact", async ({ project_dir, id, kind, scope, title, path, description, mime_type, format, role, produced_by_tool, source_artifact_ids, entity_ids, confidence, status, tags, evidence, derived_from, version_label, enable_snapshot, platform }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const artifact = service.saveArtifact({
         id,
@@ -260,6 +261,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         derivedFrom: derived_from,
         versionLabel: version_label,
         enableSnapshot: enable_snapshot,
+        platform,
       });
       const lineageBits = artifact.lineageRoot && artifact.lineageRoot !== artifact.id
         ? `\nLineage: root=${artifact.lineageRoot}, ${artifact.versionLabel ?? `V${artifact.versionRank ?? 0}`} (rank ${artifact.versionRank ?? 0})`

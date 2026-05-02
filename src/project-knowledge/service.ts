@@ -327,6 +327,8 @@ export interface SaveArtifactInput {
   // false for ephemeral one-shot saves or when the caller is
   // certain the file content has not changed.
   enableSnapshot?: boolean;
+  // Spec 020: per-artifact platform marker. Default c64 when absent.
+  platform?: ArtifactRecord["platform"];
 }
 
 export interface SnapshotResult {
@@ -690,6 +692,7 @@ export class ProjectKnowledgeService {
       versionLabel,
       versionRank,
       versions,
+      platform: input.platform ?? existing?.platform,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     });

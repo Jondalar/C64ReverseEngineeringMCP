@@ -32,6 +32,13 @@ export interface ArtifactRecord {
   status: string;
   confidence: number;
   updatedAt: string;
+  // Spec 020 platform marker. Default c64 when absent.
+  platform?: "c64" | "c1541" | "c128" | "vic20" | "plus4" | "other";
+  // Spec 025 lineage fields. Surfaced in tabs for grouping later.
+  derivedFrom?: string;
+  lineageRoot?: string;
+  versionLabel?: string;
+  versionRank?: number;
 }
 
 export interface EntityRecord {

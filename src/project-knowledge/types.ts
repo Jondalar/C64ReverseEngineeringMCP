@@ -124,6 +124,9 @@ export const ArtifactRecordSchema = z.object({
   // Same-path history. The latest entry's snapshot lives at the
   // current path; older entries point to snapshots/<artifact-id>/<hash>.bin.
   versions: z.array(ArtifactVersionEntrySchema).default([]),
+  // Spec 020: per-artifact platform marker. Default is c64 when absent.
+  // Drives ZP / I/O register / ROM symbol annotation in the renderer.
+  platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });
