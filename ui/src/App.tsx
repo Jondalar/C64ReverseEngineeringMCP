@@ -3834,6 +3834,7 @@ function DiskFileInspector({
   onCreateTask,
   onCreateQuestion,
   onRunPrgWorkflow,
+  onRunPayloadWorkflow,
 }: {
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
@@ -3843,6 +3844,7 @@ function DiskFileInspector({
   onOpenTab: (tab: TabId) => void;
   onSelectEntity: (entityId: string) => void;
   onRunPrgWorkflow: (prgPath: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
+  onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
 } & LlmTodoActions) {
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
@@ -4005,7 +4007,28 @@ function DiskFileInspector({
       }),
     });
   }
-  if (payloadBinaryArtifact && payloadBinaryArtifact.relativePath.toLowerCase().endsWith(".prg")) {
+  // Prefer the payload-aware workflow when the disk file has an entity
+  // record (any kind) carrying enough metadata. Fall back to the legacy
+  // PRG-path workflow only when the file has a `.prg` extension and no
+  // entity record exists.
+  if (file.entityId) {
+    secondaryActions.push({
+      label: workflowBusy ? "running..." : "reverse workflow",
+      title: `Run analyze + disasm + reports + view rebuild on payload ${file.entityId}`,
+      enabled: !workflowBusy,
+      onClick: () => {
+        setWorkflowBusy(true);
+        onRunPayloadWorkflow(file.entityId!, "full")
+          .then((result) => {
+            window.alert(`Workflow ${result.status}.\nImported entities=${result.importedCounts.entities} findings=${result.importedCounts.findings}.\nNext: ${result.nextRequiredAction}`);
+          })
+          .catch((error) => {
+            window.alert(`Workflow failed: ${error instanceof Error ? error.message : String(error)}`);
+          })
+          .finally(() => setWorkflowBusy(false));
+      },
+    });
+  } else if (payloadBinaryArtifact && payloadBinaryArtifact.relativePath.toLowerCase().endsWith(".prg")) {
     const prgPath = payloadBinaryArtifact.relativePath;
     secondaryActions.push({
       label: workflowBusy ? "running..." : "reverse workflow",
@@ -4100,13 +4123,16 @@ function CartChunkInspector({
   onClose,
   onOpenHex,
   onOpenAsm,
+  onRunPayloadWorkflow,
 }: {
   snapshot: WorkspaceUiSnapshot;
   selection: { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
   onClose: () => void;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
+  onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
 }) {
+  const [chunkWorkflowBusy, setChunkWorkflowBusy] = useState(false);
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
   const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
@@ -4291,6 +4317,35 @@ function CartChunkInspector({
       title: `Open linked disassembly (${cartAsmSources.map((source) => source.label).join(" / ")})`,
       enabled: true,
       onClick: () => onOpenAsm(`${chunk.lut}.${String(chunk.index).padStart(2, "0")}`, cartAsmSources),
+    });
+  }
+  const chunkPayloadKey = `cart-chunk:${chunk.bank}:${chunk.slot}:${chunk.offsetInBank}:${chunk.length}`;
+  const matchingPayload = snapshot.entities.find((entity) =>
+    entity.kind === "payload" && (entity.tags ?? []).includes(chunkPayloadKey),
+  );
+  if (matchingPayload) {
+    chunkSecondaryActions.push({
+      label: chunkWorkflowBusy ? "running..." : "reverse workflow",
+      title: `Run analyze + disasm + reports + view rebuild on payload ${matchingPayload.name}`,
+      enabled: !chunkWorkflowBusy,
+      onClick: () => {
+        setChunkWorkflowBusy(true);
+        onRunPayloadWorkflow(matchingPayload.id, "full")
+          .then((result) => {
+            window.alert(`Workflow ${result.status}.\nImported entities=${result.importedCounts.entities} findings=${result.importedCounts.findings}.\nNext: ${result.nextRequiredAction}`);
+          })
+          .catch((error) => {
+            window.alert(`Workflow failed: ${error instanceof Error ? error.message : String(error)}`);
+          })
+          .finally(() => setChunkWorkflowBusy(false));
+      },
+    });
+  } else {
+    chunkSecondaryActions.push({
+      label: "reverse workflow (no payload)",
+      title: "Run bulk_create_cart_chunk_payloads or register_payload first to promote this chunk to a payload entity, then re-open this inspector.",
+      enabled: false,
+      onClick: () => undefined,
     });
   }
 
@@ -4930,6 +4985,7 @@ export function App() {
                   onClose={() => setSelectedCartChunk(null)}
                   onOpenHex={openHexOverlay}
                   onOpenAsm={openAsmOverlay}
+                  onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
                 />
               ) : selectedDiskFile ? (
                 <DiskFileInspector
@@ -4943,6 +4999,7 @@ export function App() {
                   onCreateTask={createTaskFromUi}
                   onCreateQuestion={createQuestionFromUi}
                   onRunPrgWorkflow={runPrgWorkflowFromInspector}
+                  onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
                 />
               ) : selectedQuestion ? (
                 <QuestionInspector

@@ -298,22 +298,35 @@ export interface PayloadReverseWorkflowOptions {
 export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOptions): Promise<PrgReverseWorkflowResult> {
   const projectRoot = resolve(opts.projectRoot);
   const service = new ProjectKnowledgeService(projectRoot);
-  const payload = service.listEntities().find((entity) => entity.id === opts.payloadId && entity.kind === "payload");
+  const payload = service.listEntities().find((entity) => entity.id === opts.payloadId);
   if (!payload) {
-    throw new Error(`No payload entity with id=${opts.payloadId} (kind must be "payload").`);
+    throw new Error(`No entity with id=${opts.payloadId}.`);
   }
-  const sourceArtifactId = payload.payloadDepackedArtifactId ?? payload.payloadSourceArtifactId;
+
+  // Resolve the source artifact. Prefer a depacked artifact when present;
+  // otherwise the source artifact; otherwise the first artifact linked to
+  // the entity (covers disk-file / cart-chunk entities that carry the
+  // file via artifactIds[] without the explicit payloadSourceArtifactId
+  // field).
+  const sourceArtifactId = payload.payloadDepackedArtifactId
+    ?? payload.payloadSourceArtifactId
+    ?? payload.artifactIds[0];
   if (!sourceArtifactId) {
-    throw new Error(`Payload ${opts.payloadId} has no source artifact (payloadDepackedArtifactId / payloadSourceArtifactId).`);
+    throw new Error(`Entity ${opts.payloadId} has no source artifact (payloadDepackedArtifactId / payloadSourceArtifactId / artifactIds).`);
   }
   const artifact = service.listArtifacts().find((entry) => entry.id === sourceArtifactId);
   if (!artifact) {
-    throw new Error(`Payload ${opts.payloadId} references missing artifact ${sourceArtifactId}.`);
+    throw new Error(`Entity ${opts.payloadId} references missing artifact ${sourceArtifactId}.`);
   }
-  if (payload.payloadLoadAddress === undefined && payload.payloadFormat !== "prg") {
-    throw new Error(`Payload ${opts.payloadId} has no payloadLoadAddress and is not a PRG. Set payloadLoadAddress before running the workflow.`);
+
+  // Resolve load address. Payload entities carry payloadLoadAddress; other
+  // kinds (disk-file, cart-chunk) often carry it through addressRange.start.
+  // If the artifact path ends in .prg, we can fall through to PRG-header mode.
+  const explicitLoad = payload.payloadLoadAddress ?? payload.addressRange?.start;
+  const isPrg = payload.payloadFormat === "prg" || artifact.relativePath.toLowerCase().endsWith(".prg");
+  if (explicitLoad === undefined && !isPrg) {
+    throw new Error(`Entity ${opts.payloadId} has no load address and the source artifact is not a PRG. Set payloadLoadAddress / addressRange before running the workflow.`);
   }
-  const isPrg = payload.payloadFormat === "prg";
 
   const outputDir = opts.outputDir ?? `artifacts/generated/payloads/${payload.id}`;
   const result = await runPrgReverseWorkflow({
@@ -323,13 +336,16 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
     outputDir,
     rebuildViews: opts.rebuildViews,
     entryPoints: opts.entryPoints,
-    loadAddress: isPrg ? undefined : payload.payloadLoadAddress,
+    loadAddress: isPrg ? undefined : explicitLoad,
     payloadId: payload.id,
   });
 
   // Stamp the produced asm artifacts back onto the payload entity so the
-  // UI shows them next time the payload is selected.
-  try {
+  // UI shows them next time the payload is selected. Only do this for
+  // proper payload entities; other kinds (disk-file, cart-chunk) keep
+  // their original kind and the workflow output is discoverable via the
+  // analysis JSON registration alone.
+  if (payload.kind === "payload") try {
     const refreshedService = new ProjectKnowledgeService(projectRoot);
     const asmArtifactIds = refreshedService.listArtifacts()
       .filter((entry) => entry.relativePath === relative(projectRoot, result.asmPath) || entry.relativePath === relative(projectRoot, result.tassPath))

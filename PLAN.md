@@ -469,10 +469,13 @@ Todos:
 - [x] MCP: register `run_payload_reverse_workflow(payload_id)`.
 - [x] Workspace UI: `POST /api/run-payload-workflow` plus a
       `reverse workflow` button on every payload card.
-- [ ] Surface the same payload-aware control in the cart chunk
-      inspector and the disk file inspector (today the disk inspector
-      uses the legacy PRG-path entry point and only fires when the
-      file ends in `.prg`).
+- [x] Surface the same payload-aware control in the cart chunk
+      inspector and the disk file inspector. Cart chunks resolve to
+      a payload entity by `cart-chunk:<bank>:<slot>:<offset>:<length>`
+      tag (run `bulk_create_cart_chunk_payloads` once to populate),
+      and the disk inspector prefers the payload-aware workflow
+      whenever the file already has an entity record, regardless of
+      file extension.
 - [ ] Inspect / extract coverage: confirm every extract tool produces
       payload entities with `payloadLoadAddress`, `payloadFormat`, and
       `payloadSourceArtifactId` set when known.
