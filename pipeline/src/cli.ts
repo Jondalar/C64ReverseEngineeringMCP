@@ -235,6 +235,37 @@ function main(): void {
     return;
   }
 
+  // Spec 042: propose-annotations 2nd-pass classifier writes
+  // *_annotations.draft.json from *_analysis.json + optional listing.
+  if (command === "propose-annotations") {
+    const analysisPath = args[0];
+    if (!analysisPath) {
+      usage();
+    }
+    const analysisAbs = resolve(analysisPath);
+    const draftPath = resolve(args[1] ?? analysisAbs.replace(/_analysis\.json$/i, "_annotations.draft.json"));
+    const listingPath = args[2] ? resolve(args[2]) : undefined;
+    const { proposeAnnotations } = require("./analysis/annotators/index");
+    const draft = proposeAnnotations({
+      analysisJsonPath: analysisAbs,
+      listingPath,
+      outputPath: draftPath,
+    });
+    process.stdout.write(`Draft annotations: ${draftPath}\n`);
+    process.stdout.write(`Segments: ${draft.segments.length} | Labels: ${draft.labels.length} | Routines: ${draft.routines.length} | Open questions: ${draft.openQuestions.length}\n`);
+    process.stdout.write(`Buckets: high=${draft.buckets.high} medium=${draft.buckets.medium} low=${draft.buckets.low}\n`);
+    registerCliArtifact({
+      kind: "report",
+      scope: "analysis",
+      title: "Annotation draft",
+      path: draftPath,
+      format: "json",
+      role: "annotation-draft",
+      producedByTool: "pipeline_cli:propose-annotations",
+    });
+    return;
+  }
+
   usage();
 }
 

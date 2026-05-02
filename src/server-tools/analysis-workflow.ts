@@ -451,6 +451,53 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
 function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContext): void {
   server.tool(
+    "propose_annotations",
+    "Spec 042: emit a draft *_annotations.draft.json by walking *_analysis.json + (optional) *_disasm.asm. Pattern fingerprints (pointer-table naming, text segment promotion, frequent call-target routines, large-unknown questions) feed the draft. Manual *_annotations.json is never touched. Pass persist_questions=true to also save openQuestions[] via save_open_question (source=static-analysis).",
+    {
+      project_dir: z.string().optional(),
+      analysis_json: z.string().describe("Path to the *_analysis.json file (relative to project_dir)."),
+      output_path: z.string().optional().describe("Optional draft output path; defaults to <stem>_annotations.draft.json next to the analysis."),
+      listing_path: z.string().optional().describe("Optional *_disasm.asm path for label naming heuristics."),
+      persist_questions: z.boolean().optional().describe("If true, also save openQuestions[] entries via save_open_question with source=static-analysis."),
+    },
+    safeHandler("propose_annotations", async ({ project_dir, analysis_json, output_path, listing_path, persist_questions }) => {
+      const pd = context.projectDir(project_dir, true);
+      const analysisAbs = resolve(pd, analysis_json);
+      const draftAbs = output_path ? resolve(pd, output_path) : analysisAbs.replace(/_analysis\.json$/i, "_annotations.draft.json");
+      const listingAbs = listing_path ? resolve(pd, listing_path) : undefined;
+      // Pipeline runs in CommonJS; spawn the child to keep the
+      // ESM/CommonJS boundary clean and reuse the existing
+      // registerCliArtifact pipeline.
+      const args = [analysisAbs, draftAbs];
+      if (listingAbs) args.push(listingAbs);
+      const result = await runCli("propose-annotations", args, { projectDir: pd });
+      // Optional: walk the draft and persist openQuestions.
+      if (persist_questions && result.exitCode === 0 && existsSync(draftAbs)) {
+        try {
+          const draft = JSON.parse(readFileSync(draftAbs, "utf8")) as { openQuestions?: Array<{ title: string; description: string; confidence: number }> };
+          const service = new ProjectKnowledgeService(pd);
+          let saved = 0;
+          for (const q of draft.openQuestions ?? []) {
+            service.saveOpenQuestion({
+              kind: "static-analysis",
+              title: q.title,
+              description: q.description,
+              confidence: q.confidence,
+              source: "static-analysis",
+              autoResolvable: true,
+            });
+            saved += 1;
+          }
+          result.stdout = (result.stdout ?? "") + `\nPersisted ${saved} open question(s) (source=static-analysis).`;
+        } catch (error) {
+          result.stdout = (result.stdout ?? "") + `\nPersist questions skipped: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+      return context.cliResultToContent(result);
+    }),
+  );
+
+  server.tool(
     "run_prg_reverse_workflow",
     "Run the full first-pass PRG reverse-engineering workflow: register input, analyze, disassemble, generate RAM and pointer reports, import knowledge, and rebuild views. Returns done/incomplete/blocked plus the next required semantic action.",
     {
