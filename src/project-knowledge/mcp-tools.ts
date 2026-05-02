@@ -596,7 +596,16 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     safeHandler("apply_patch_recipe", async ({ project_dir, recipe_id, allow_mismatch }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const result = service.applyPatchRecipe(recipe_id, { allowMismatch: allow_mismatch });
-      if (!result.ok) return textContent(`Patch refused: ${result.reason}`);
+      if (!result.ok) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "apply_patch_recipe",
+          `Patch refused: ${result.reason}`,
+          result.reason?.includes("recipe not found")
+            ? `list_patch_recipes() to discover valid recipe ids.`
+            : `apply_patch_recipe(recipe_id="${recipe_id}", allow_mismatch=true) to override the byte assertion (only if you are sure).`,
+        );
+      }
       return textContent(`Patch applied.\nNew hash: ${result.appliedHash}`);
     },
 ));
@@ -723,7 +732,14 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         evidence: [],
         capturedAt: new Date().toISOString(),
       });
-      if (!updated) return textContent(`Artifact ${artifact_id} not found.`);
+      if (!updated) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "register_load_context",
+          `Artifact id '${artifact_id}' not found.`,
+          `list_artifacts() to discover valid ids.`,
+        );
+      }
       return textContent(`Load context registered. ${updated.loadContexts?.length ?? 0} context(s) total on ${artifact_id}.`);
     },
 ));

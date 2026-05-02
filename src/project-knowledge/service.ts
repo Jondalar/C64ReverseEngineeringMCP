@@ -917,6 +917,8 @@ export class ProjectKnowledgeService {
         title: subject.title,
         kind: subject.kind,
         platform: subject.platform,
+        phase: subject.phase,
+        phaseFrozen: subject.phaseFrozen,
         relativePath: subject.relativePath,
         steps,
         completionPctAnalyst: analystSteps.length === 0 ? 0 : Math.round((analystDone / analystSteps.length) * 100),
