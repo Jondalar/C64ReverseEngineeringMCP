@@ -1067,6 +1067,9 @@ export const DiskLayoutSectorCellSchema = z.object({
   occupied: z.boolean(),
   category: z.enum(["free", "free_zero", "free_data", "orphan_allocated", "file", "directory", "bam", "unknown"]),
   color: z.string().optional(),
+  // Spec 037 / Sprint 43 Block A: optional payload-level disk hint.
+  // Drives a border-overlay layer in the cylindrical heatmap.
+  hint: z.enum(["drive-code", "protected", "raw-unanalyzed", "bad-crc", "gap"]).optional(),
 });
 
 export const DiskLayoutDiskSchema = z.object({

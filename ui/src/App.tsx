@@ -477,6 +477,102 @@ function PhaseBadge({ phase, frozen }: { phase?: number; frozen?: boolean }) {
   );
 }
 
+// Spec 050 Block B: dashboard panel that fetches the per-artifact
+// status matrix and renders one row per PRG / raw / extract
+// artifact with phase badge + completion + quality + relevance.
+interface PerArtifactStatusRow {
+  artifactId: string;
+  title: string;
+  kind: string;
+  platform?: string;
+  phase?: number;
+  phaseFrozen?: boolean;
+  relativePath: string;
+  steps: Array<{ name: string; status: "done" | "pending" | "blocked" }>;
+  completionPctAnalyst: number;
+  completionPctCracker: number;
+}
+
+interface PerArtifactStatusResponse {
+  projectDir: string;
+  count: number;
+  items: PerArtifactStatusRow[];
+}
+
+function PerArtifactStatusPanel({ projectDir }: { projectDir: string }) {
+  const [rows, setRows] = useState<PerArtifactStatusRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"completion" | "title" | "phase">("completion");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await fetchJson<PerArtifactStatusResponse>(`/api/per-artifact-status?projectDir=${encodeURIComponent(projectDir)}`);
+        if (!cancelled) setRows(data.items ?? []);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [projectDir]);
+
+  const sorted = useMemo(() => {
+    const copy = [...rows];
+    switch (sortBy) {
+      case "completion": copy.sort((a, b) => b.completionPctAnalyst - a.completionPctAnalyst); break;
+      case "title": copy.sort((a, b) => a.title.localeCompare(b.title)); break;
+      case "phase": copy.sort((a, b) => (b.phase ?? 1) - (a.phase ?? 1)); break;
+    }
+    return copy;
+  }, [rows, sortBy]);
+
+  if (loading) return <div className="empty-inline">Loading per-artifact status…</div>;
+  if (error) return <div className="inspector-error"><pre>{error}</pre></div>;
+  if (rows.length === 0) return <div className="empty-inline">No phase-tracked artifacts.</div>;
+
+  return (
+    <section className="panel-card">
+      <div className="section-heading">
+        <h3>Per-Artifact Status</h3>
+        <span>{rows.length} artifacts</span>
+      </div>
+      <div className="inspector-chip-row">
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+          <option value="completion">sort: completion ↓</option>
+          <option value="title">sort: title ↑</option>
+          <option value="phase">sort: phase ↓</option>
+        </select>
+      </div>
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">phase</span>
+          <span className="questions-cell-meta">analyst%</span>
+          <span className="questions-cell-meta">cracker%</span>
+          <span className="questions-cell-meta">platform</span>
+        </div>
+        {sorted.slice(0, 200).map((r) => (
+          <div key={r.artifactId} className="questions-row">
+            <span className="questions-cell-title" title={r.relativePath}>{r.title}</span>
+            <span className="questions-cell-meta"><PhaseBadge phase={r.phase} frozen={r.phaseFrozen} /></span>
+            <span className="questions-cell-meta">{r.completionPctAnalyst}%</span>
+            <span className="questions-cell-meta">{r.completionPctCracker}%</span>
+            <span className="questions-cell-meta">{r.platform ?? "c64"}</span>
+          </div>
+        ))}
+        {sorted.length > 200 ? <div className="empty-inline">Showing first 200 of {sorted.length}.</div> : null}
+      </div>
+    </section>
+  );
+}
+
 function RecordList({
   title,
   items,
@@ -1443,6 +1539,7 @@ function DashboardPanel({
       </div>
 
       <AuditPanel projectDir={snapshot.project.rootPath} onReloadWorkspace={onReloadWorkspace} />
+      <PerArtifactStatusPanel projectDir={snapshot.project.rootPath} />
       <WorkflowRunnerPanel snapshot={snapshot} onReloadWorkspace={onReloadWorkspace} />
     </div>
   );
@@ -2764,13 +2861,31 @@ function DiskPanel({
                     filteredOut ? "disk-sector-filtered-out" : "",
                   ].filter(Boolean).join(" ");
                   const useFileColor = sector.category === "file" && sector.color && !filteredOut;
+                  // Spec 037 / Sprint 43 Block A: hint border overlay.
+                  const hintColor = sector.hint === "drive-code" ? "#a855f7"
+                    : sector.hint === "protected" ? "#ef4444"
+                    : sector.hint === "raw-unanalyzed" ? "#3b82f6"
+                    : sector.hint === "bad-crc" ? "#dc2626"
+                    : sector.hint === "gap" ? "#facc15"
+                    : undefined;
                   return (
-                    <path
-                      key={sector.id}
-                      d={sectorPath(sector.track, sector.angleStart, sector.angleEnd)}
-                      className={className}
-                      style={useFileColor ? { fill: sector.color } : undefined}
-                    />
+                    <g key={sector.id}>
+                      <path
+                        d={sectorPath(sector.track, sector.angleStart, sector.angleEnd)}
+                        className={className}
+                        style={useFileColor ? { fill: sector.color } : undefined}
+                      />
+                      {hintColor ? (
+                        <path
+                          d={sectorPath(sector.track, sector.angleStart, sector.angleEnd)}
+                          fill="none"
+                          stroke={hintColor}
+                          strokeWidth={1.5}
+                          strokeDasharray={sector.hint === "bad-crc" ? "2,2" : undefined}
+                          pointerEvents="none"
+                        />
+                      ) : null}
+                    </g>
                   );
                 })}
                 {[1, 18, 25, 31, activeDisk.trackCount].filter((value, index, array) => array.indexOf(value) === index).map((track) => {

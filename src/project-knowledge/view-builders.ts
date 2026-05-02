@@ -865,6 +865,22 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         ...files.flatMap((file) => file.sectorChain.map((cell) => cell.track)),
         ...files.map((file) => file.track ?? 0),
       );
+      // Spec 037 / Sprint 43 Block A: build (track,sector) → hint
+      // map from payload entities whose mediumSpans cover sectors
+      // and whose payloadDiskHint is set.
+      const hintByCell = new Map<string, "drive-code" | "protected" | "raw-unanalyzed" | "bad-crc" | "gap">();
+      for (const entity of context.entities) {
+        if (!entity.payloadDiskHint) continue;
+        for (const span of entity.mediumSpans ?? []) {
+          if (span.kind !== "sector") continue;
+          // Map sector chain start cell. Refining to "all touched
+          // sectors" requires walking the chain in the manifest
+          // which we can do later; for v1 mark just the starting
+          // sector — agents typically inspect the start cell.
+          hintByCell.set(`${span.track}:${span.sector}`, entity.payloadDiskHint);
+        }
+      }
+
       const sectors = Array.from({ length: trackCount }, (_, trackIndex) => trackIndex + 1)
         .flatMap((track) => {
           const sectorCount = SECTORS_PER_TRACK[track] ?? 17;
@@ -898,6 +914,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
               occupied: Boolean(match) || isBam || isDirectory || category === "orphan_allocated",
               category,
               color: match?.color,
+              hint: hintByCell.get(`${track}:${sector}`),
             };
           });
         });

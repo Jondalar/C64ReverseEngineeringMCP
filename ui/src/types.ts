@@ -240,6 +240,8 @@ export interface DiskLayoutView {
       occupied: boolean;
       category: "free" | "free_zero" | "free_data" | "orphan_allocated" | "file" | "directory" | "bam" | "unknown";
       color?: string;
+      // Spec 037 / Sprint 43 Block A: payload-level disk hint.
+      hint?: "drive-code" | "protected" | "raw-unanalyzed" | "bad-crc" | "gap";
     }>;
     files: Array<{
       id: string;
