@@ -68,11 +68,16 @@ cli.ts → server.ts (MCP tools/prompts) → run-cli.ts (spawns node) → pipeli
 - `pipeline/src/lib/tass-converter.ts` — KickAssembler→64tass dialect conversion
 - `pipeline/src/lib/annotations.ts` — Annotation schema and loading
 
-## Three-Phase RE Workflow
+## Three-Phase RE Workflow (legacy framing)
+
+The original three-phase framing (analysis → annotation → verification) is
+the per-PRG building block. The current canonical model is the
+**seven-phase workflow** (Spec 034) — see `docs/re-phases.md`. The three
+phases below map roughly to phases 3 / 5 / 7 of the seven-phase model.
 
 1. **Heuristic Analysis** (deterministic, seconds) — `analyze_prg` tool runs 9 parallel analyzers (code discovery, text, sprite, charset, screen RAM, bitmap, pointer table, SID, probable code), resolves overlaps, outputs `_analysis.json`
-2. **Semantic Annotation** (LLM-driven) — LLM reads full ASM, produces `_annotations.json` with segment reclassifications, labels, and routine descriptions. Annotations are non-destructive (comments/labels only, never bytes)
-3. **Verification** — `disasm_prg` applies annotations, KickAssembler rebuild, `cmp -l` confirms byte-identical output
+2. **Semantic Annotation** (LLM-driven) — LLM reads full ASM, produces `_annotations.json` with segment reclassifications, labels, and routine descriptions. Annotations are non-destructive (comments/labels only, never bytes). Spec 042 `propose_annotations` writes a draft for review.
+3. **Verification** — `disasm_prg` applies annotations, KickAssembler rebuild, `cmp -l` confirms byte-identical output. Code-island demotion (Spec 047, Sprint 40) removes broken-code false positives so rebuild stays green.
 
 ## Environment Variables
 

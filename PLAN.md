@@ -28,15 +28,27 @@ over time and number-jump as new requirements landed. The active
 execution sequence is:
 
 ```
-21 (done) → 22 (done) → 16 (partial) → 18 (v1) → 17 (v1) → 19 (v1)
-       → 20 (v1) → 23 (v1) → 24 (v1) → 25 (v1) → 27 (v1)
-       → 33 (doc) → 34 (done) → 35 (done)
-       → 36 (done) → 37 (done) → 38 (done) → 8 (done) → 26 (done)
-       → 28 (done) → 39 (done)
-       → 40 → 41 → 42 → 43 → 44
+21 → 22 → 16 → 18 → 17 → 19 → 20 → 23 → 24 → 25 → 27 → 33
+     → 34 → 35 → 36 → 37 → 38 → 8 → 26 → 28 → 39
+     → 40 → 41 → 42 → 43 → 44 → 45 → 46 → followup-batch
 ```
 
-Refinement Phase 3 added Sprints 40-44 covering the deferred follow-ups.
+All sprints shipped. Status snapshot:
+
+- **Sprints 1-46 + follow-ups**: every sprint at least v1 / data
+  layer done. UI follow-ups for Cartridge phase badges + draft
+  edit form polish remain as 43.5 / 44.5 backlog items.
+- **35 specs** under `specs/` (019-053).
+- **Bug fixes**: Bugs 1-19, 21 FIXED. Bug 20 data layer FIXED;
+  UI Graphics-tab refactor (confirm/reject/unconfirmed buckets,
+  thumbnails) is the only remaining Bug-20 follow-up.
+- **All R1-R25 + P1-P3** done.
+
+The seven-phase RE workflow (Spec 034), Master/Worker pattern
+(Spec 035), permanent nudger (Spec 043), self-documenting errors
+(Spec 045), workflow templates (Spec 046), and question
+auto-resolution (Spec 052) are the load-bearing process pieces;
+everything else hangs off them.
 
 Refinement Phase 2 added Sprints 36/37/38 plus reactivated 8/26/28.
 

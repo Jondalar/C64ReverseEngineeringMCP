@@ -996,3 +996,76 @@ grep mark_segment_confirmed src/project-knowledge/mcp-tools.ts
 - Bug 20: parent bug. This is the "code wrote but not landed" sub-issue.
 - Spec 053 (in `specs/`): the design that sprint 46 implemented partially.
 
+---
+
+## Bug 22 — `mark_segment_confirmed` / `mark_segment_rejected` cannot find the analysis JSON because of artifact-kind mismatch
+
+**Status**: OPEN
+
+**Severity**: Medium — the Bug 20/21 mitigation tools are reachable but every call returns "No matching segment found" because the lookup never reaches the analysis file. Refutation/confirmation findings ARE recorded, but the segment in `*_analysis.json` is NOT updated, so the Graphics-tab counter stays at 0 confirmed / 0 rejected.
+
+### Summary
+`service.markSegmentConfirmed` (and the rejected counterpart) try to locate the analysis JSON via:
+
+```ts
+const analysisArtifact = this.listArtifacts().find((a) =>
+  a.kind === "analysis-run"
+  && (a.sourceArtifactIds ?? []).includes(args.artifactId)
+);
+```
+
+But in practice, the analysis JSON artifact gets registered with `kind: "other"` (verified live on the Murder project via `jq '.items[] | select(.path | test("drive_t1s0_analysis"))' knowledge/artifacts.json`):
+
+```json
+{
+  "id": "artifact-drive-t1s0-analysis-json-mood3yfv",
+  "kind": "other",                             ← service expects "analysis-run"
+  "sourceArtifactIds": ["artifact-drive-t1s0-prg-mood3yfu"],
+  "path": "/abs/.../drive_t1s0_analysis.json"
+}
+```
+
+So the lookup fails, the service falls back to "no match" path, returns:
+```
+Segment refutation finding: finding-segment-rejected-at-300-33f-sprite-...
+No matching segment found in analysis JSON; finding still recorded.
+```
+
+Result: the refutation finding lives in `findings.json` but the segment in `analysis/disk/motm/raw_sectors/drive_t1s0_analysis.json` is NOT updated with `rejected: true` / `rejectedReason: ...`. The Graphics tab still shows the segment as unmarked.
+
+A second, related issue: the same analysis JSON is registered as TWO artifacts (Bug 10 — duplicate registration), one with `kind: "other" + sourceArtifactIds: [prg-id]` and one with `kind: "other" + sourceArtifactIds: []`. Even if the kind filter were widened, the service still has to disambiguate.
+
+### Reproduction
+```
+project_init / analyze_prg / disasm_prg / register_existing_files (auto)
+
+# Live verification of the kind tag:
+jq '.items[] | select(.path | test("_analysis.json$")) | {id, kind, sourceArtifactIds: (.sourceArtifactIds // [])[0]}' knowledge/artifacts.json | head -20
+# Most entries: kind="other"
+
+# Try to mark a segment:
+mark_segment_rejected(
+  artifact_id="artifact-drive-t1s0-prg-mood3yfu",
+  address=768, length=64, kind="sprite",
+  reason="$0300-$033F is the 1541 DOS jump-table, not a sprite"
+)
+# Returns: "No matching segment found in analysis JSON; finding still recorded."
+# Verify: jq '.segments[] | select(.kind=="sprite") | .rejected' analysis/disk/motm/raw_sectors/drive_t1s0_analysis.json
+# → null (the segment was NOT updated)
+```
+
+### Expected
+1. Lookup widens the artifact-kind filter to include `kind in ("analysis-run", "other") AND path matches "*_analysis.json"`. OR `analyze_prg` should ALWAYS register its output with `kind="analysis-run"` (the canonical kind for that artifact role).
+2. After widening, calling `mark_segment_rejected` flips `segments[i].rejected=true` in the JSON file. Re-reading the JSON shows the change.
+3. UI Graphics tab reflects the change: counter increments, the row moves to "rejected" bucket.
+
+### Suggested fix
+1. **Service-side**: change the filter to accept either kind, OR match by `path.endsWith("_analysis.json")` on entries whose `sourceArtifactIds` includes the target.
+2. **Producer-side fix**: in the auto-registration path that follows `analyze_prg`, set `kind: "analysis-run"` consistently for `*_analysis.json` artifacts. This will also help Bug 16 (analysis-run artifacts not always recognized as such).
+3. **De-dup**: when `register_existing_files` or `save_artifact` would create a second entry for the same path, merge into the existing one (Bug 10 family).
+
+### Cross-reference
+- Bug 10: duplicate artifact registration. Same root path appears twice.
+- Bug 16: analysis-run artifacts registered but never imported. Same kind-tagging confusion.
+- Bug 21: Bug 20 mitigation landed but matching logic incomplete.
+

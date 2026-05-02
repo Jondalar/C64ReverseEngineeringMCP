@@ -120,6 +120,23 @@ resumable across context resets.
   `c64re_agent_doctrine`) — onboarding flow, artifact contract
   (facts vs hypotheses), four-layer model (artifacts → knowledge → views →
   human explanation), continuation rules.
+- **Seven-phase RE workflow** ([docs/re-phases.md](docs/re-phases.md), MCP
+  prompt `c64re_re_phases`) — extraction → loader → heuristic disasm →
+  segment analysis → semantic V1 → meta connections → semantic V2.
+  Per-artifact `phase` tracking, `agent_advance_phase` with evidence,
+  `agent_freeze_artifact` for asset PRGs, optional hard-refuse
+  `phaseGateStrict` enforcement.
+- **Master + Worker pattern** — `agent_propose_next` recommends
+  spawning a Task subagent with the parametrized
+  `c64re_worker_phase(phase, artifact_id, role)` prompt. Worker has
+  only its phase's tools; master collects results, calls
+  `agent_record_step`, loops.
+- **Cracker-mode doctrine** ([docs/cracker-doctrine.md](docs/cracker-doctrine.md),
+  MCP prompt `c64re_cracker_doctrine`) — priority order
+  loader > protection > save > KERNAL > asset, required artifacts per
+  patch, scenario discipline.
+- **Workflow templates** — `start_re_workflow(workflow=…)` with
+  full-re | cracker-only | analyst-deep | targeted-routine | bugfix.
 - **Cognitive roles** (`agent_set_role`):
   - **analyst** — disassembly, control flow, data interpretation.
   - **cartographer** — memory layout, bank switching, disk / cart
@@ -131,10 +148,15 @@ resumable across context resets.
   - **cracker** — modifying target C64 binaries (patches, trainers, bug
     fixes, mods, ports). Decision ladder spans single-byte patches up to
     relocated routine rewrites.
-- **Tools**: `agent_onboard` (reload state at session start),
-  `agent_set_role`, `agent_record_step` (rewrites
-  `<project>/knowledge/NEXT.md`), `agent_propose_next` (ranked
-  next-action suggestions including stale-view detection).
+- **Permanent nudger** — `c64re_whats_next` returns the per-turn action
+  plan, configured via `npx c64re setup claude --project <path>` so
+  Claude calls it after every user turn.
+- **Tools**: `agent_onboard` (reload state at session start, runs
+  question auto-resolution sweep + auto-imports analysis runs),
+  `agent_set_role`, `agent_record_step` (rewrites NEXT.md),
+  `agent_propose_next` (ranked phase-aware next-action suggestions),
+  `c64re_whats_next` (per-turn nudger), `agent_advance_phase` /
+  `agent_freeze_artifact`.
 
 ## Tool surface
 
@@ -151,8 +173,14 @@ Per-area docs (full tool tables + workflow notes):
 | VICE runtime / debugger (sessions, traces, monitor, breakpoints) | [docs/tools/vice.md](docs/tools/vice.md) |
 | Headless RE runtime (loader / depacker analysis) | [docs/tools/headless.md](docs/tools/headless.md) |
 | 6502 sandbox (`sandbox_6502_run` — full 256-opcode coverage incl. undoc set, optional EasyFlash-style ROM overlay for cart depackers) | [docs/tools/sandbox.md](docs/tools/sandbox.md) |
-| Agent workflow (`agent_onboard`, `agent_set_role`, `agent_record_step`, `agent_propose_next`) | [docs/agent-doctrine.md](docs/agent-doctrine.md) |
+| Agent workflow (`agent_onboard`, `agent_set_role`, `agent_record_step`, `agent_propose_next`, `c64re_whats_next`, `agent_advance_phase`, `agent_freeze_artifact`, `start_re_workflow`) | [docs/agent-doctrine.md](docs/agent-doctrine.md) + [docs/re-phases.md](docs/re-phases.md) |
 | Project knowledge (entities, findings, flows, view builders) | [docs/tools/knowledge.md](docs/tools/knowledge.md) |
+| Lineage + versions + containers (Spec 025: `save_artifact derived_from=…`, `snapshot_artifact_before_overwrite`, `rename_artifact_version`, `get_artifact_lineage`, `register_container_entry`, `list_container_entries`) | `specs/025-artifact-lineage-and-versions.md` |
+| Loader ABI (Spec 028: `declare_loader_entrypoint`, `record_loader_event`, `register_load_context`) | `specs/023-load-contexts.md`, `specs/028-loader-abi-model.md` |
+| Patches / constraints / scenarios / pipelines (Specs 027/029/030/032: `save_patch_recipe`, `apply_patch_recipe`, `register_resource_region`, `verify_constraints`, `define_runtime_scenario`, `diff_scenario_runs`, `save_build_pipeline`, `run_build_pipeline`) | `specs/027-patch-recipes.md`, `specs/029-constraint-checker.md`, `specs/030-scenario-traces-and-diff.md`, `specs/032-build-pipeline-as-artifact.md` |
+| Annotation helper (Spec 042: `propose_annotations` 2nd-pass classifier + draft viewer in Listing tab) | `specs/042-annotation-helper.md` |
+| Phase-1 noise archive (Spec 053: `archive_phase1_noise`, `mark_segment_confirmed`, `mark_segment_rejected`) | `specs/053-bug20-phase1-noise-archive.md` |
+| Question auto-resolution (Spec 052: in-band trigger on save_finding / advance_phase / annotation save) | `specs/052-question-auto-resolution.md` |
 | Artifact access (`read_artifact`, `list_artifacts`, `build_tools`) | [docs/tools/artifacts.md](docs/tools/artifacts.md) |
 
 ## Workflow + semantic UI
@@ -169,7 +197,16 @@ Per-area docs (full tool tables + workflow notes):
   checklist.
 - [docs/c64-reverse-engineering-skill.md](docs/c64-reverse-engineering-skill.md)
   — canonical workflow / skill text the prompts reference.
-- [TODO.md](TODO.md) — roadmap and known gaps.
+- [docs/re-phases.md](docs/re-phases.md) — seven-phase RE workflow
+  (Spec 034) with allowed-tool sets per phase.
+- [docs/cracker-doctrine.md](docs/cracker-doctrine.md) — cracker-mode
+  priority order + required artifacts per patch (Spec 033).
+- [PLAN.md](PLAN.md) — sprint plan (Sprints 1-46 + follow-ups,
+  spec-driven flow).
+- [BUGREPORT.md](BUGREPORT.md) — bug status (1-21, 19 fixed).
+- [REQUIREMENTS.md](REQUIREMENTS.md) — refinement backlog (R1-R25
+  + P1-P3, all done).
+- `specs/` — 53 specs (001-053) covering every shipped feature.
 
 ## License
 
