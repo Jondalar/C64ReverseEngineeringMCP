@@ -231,11 +231,16 @@ Done when:
 Goal: replace the Lykia-style throw-away Python with first-class
 custom-LUT extraction in the MCP.
 
-Status: not started. Migrated from the old `TODO.md` backlog.
+Status: schema slice landed. `ExtractedDiskFile` gains `origin`,
+`md5`, `first16`, `last16`, `kindGuess`, and `origin_detail`. The
+`extract_disk` tool now stamps `origin: "kernal"`, an md5, the head
+and tail 16 bytes, and a `directoryEntry: {track,sector}` origin
+detail on every file. The new MCP tools and the disk-layout colour
+coding remain follow-ups.
 
 Todos:
 
-- [ ] Add `origin`, `md5`, `first16`, `last16`, `kindGuess`,
+- [x] Add `origin`, `md5`, `first16`, `last16`, `kindGuess`,
       `origin_detail` to the disk-file descriptor and fill them from
       `extract_disk` for KERNAL files.
 - [ ] Implement `extract_disk_custom_lut`, `disk_sector_allocation`,
