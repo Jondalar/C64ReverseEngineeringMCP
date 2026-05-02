@@ -161,12 +161,30 @@ Done when:
 
 Goal: prove the workflow on a real, already messy project.
 
+Status: pilot run on 2026-05-02 via
+`scripts/bwc-pilot.mjs /Users/alex/Development/C64/Cracking/BWC Reverse`.
+The project is already in healthy shape:
+
+- audit severity = ok (0 nested stores, 0 broken paths, 0 unimported,
+  0 stale views)
+- 2706 artifacts, 4499 entities, 2814 findings, 546 relations, 376
+  flows, 1112 open questions, 11 checkpoints
+- repair dry-run planned only the unconditional `build-views` step
+- `safeRepairAvailable = false` (nothing to repair)
+
+The optional workflow run on a chosen PRG is left to manual invocation
+(`scripts/bwc-pilot.mjs --apply --run-prg=<relative.prg>`) so the
+pilot does not write a new disassembly tree without explicit selection.
+
 Todos:
 
-- Run audit against `/Users/alex/Development/C64/Cracking/BWC Reverse`.
-- Repair safely where possible.
-- Run the orchestrated workflow on one selected PRG/payload.
-- Document remaining manual questions as structured tasks/questions.
+- [x] Run audit against `/Users/alex/Development/C64/Cracking/BWC Reverse`.
+- [x] Repair safely where possible (no high-severity findings; only
+      unconditional build-views in dry-run plan).
+- [ ] Run the orchestrated workflow on one selected PRG/payload
+      (manual invocation pending).
+- [ ] Document remaining manual questions as structured tasks/questions
+      once specific gaps are identified.
 
 Specs:
 
