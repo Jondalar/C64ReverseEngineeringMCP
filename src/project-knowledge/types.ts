@@ -763,12 +763,18 @@ export const ProjectDashboardViewSchema = z.object({
   recentTimeline: z.array(TimelineEventSchema),
 });
 
+// Bug 17 (BUGREPORT): cart banks live at flattened offsets >= $10000
+// (bank 0 = $0000-$1FFF, bank 8 = $10000-$11FFF, etc.). Widen the
+// region/cell/entry start+end fields to accept up to $FFFFFF (1 MB)
+// so multi-bank cart layouts pass schema validation. C64 main-CPU
+// addresses are still naturally bounded to $FFFF; the wider range
+// only matters for cart-internal offsets.
 export const MemoryMapRegionSchema = z.object({
   id: IdSchema,
   title: z.string().min(1),
   kind: z.string().min(1),
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
   bank: z.number().int().nonnegative().optional(),
   entityId: IdSchema.optional(),
   findingIds: z.array(IdSchema).default([]),
@@ -783,9 +789,9 @@ export const MemoryMapRegionSchema = z.object({
 
 export const MemoryMapCellSchema = z.object({
   id: IdSchema,
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
-  rowBase: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
+  rowBase: z.number().int().min(0).max(0xffffff),
   columnOffset: z.number().int().min(0).max(0x0f00),
   category: z.enum(["free", "code", "data", "system", "other"]),
   dominantKind: z.string().min(1),
@@ -1187,8 +1193,8 @@ export const MediumLayoutViewSchema = z.object({
 
 export const AnnotatedListingEntrySchema = z.object({
   id: IdSchema,
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
   title: z.string().min(1),
   kind: z.string().min(1),
   entityId: IdSchema.optional(),

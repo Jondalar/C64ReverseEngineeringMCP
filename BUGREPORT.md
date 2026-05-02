@@ -704,3 +704,40 @@ project_audit
 2. `analyze_prg` import is idempotent; safe to re-run on the same JSON.
 3. Add `bulk_import_analysis_reports` as an automatic step in `agent_onboard` when the audit detects unimported runs, instead of leaving it as a manual command.
 
+---
+
+## Bug 17 — `build_all_views` rejects address ranges > $FFFF (cart bank entries fail schema)
+
+**Status**: OPEN — appeared after sprint 20 (custom loader semantics + loader ABI data layer)
+
+**Severity**: High — `build_all_views` returns a Zod validation error and aborts; UI views go stale because no rebuild succeeds.
+
+### Summary
+After registering / saving cart-layout / memory-map entries that span cartridge banks (which live at file offsets >= $10000 — bank 0 = $0000-$1FFF, bank 1 = $2000-$3FFF, …, bank 8 = $10000-$11FFF), `build_all_views` fails with hundreds of:
+
+```
+"too_big", maximum: 65535, path: ["entries", N, "start" or "end"]
+```
+
+The `entries[].start`/`end` fields appear to be 16-bit-bounded (`max(65535)`), but multi-bank cart layouts inherently exceed $FFFF when flattened to a global byte offset.
+
+### Reproduction
+Murder project after running:
+```
+save_artifact(kind="other", scope="knowledge", title="EasyFlash Port Plan v0",
+              path="docs/EF_PORT_PLAN.md", format="md", role="port-plan")
+build_all_views(project_dir=/abs/root)
+```
+On a project with many registered entries (here ~890 entries across artifacts + analysis runs + cart-bank descriptors), `build_all_views` fails with the Zod error above.
+
+### Expected
+Either:
+- Address range schema accepts ≥ 24-bit values for cart-internal offsets (cart can be up to 1 MB = $FFFFF)
+- Or: cart entries use a structured `{bank: int, addr: u16}` pair instead of a flattened global offset
+- Or: cartridge-layout view uses its own schema separate from main-CPU memory-map (which legitimately is 16-bit only)
+
+### Suggested fix
+1. Pick one schema per view: memory-map = 16-bit only (skip entries that overflow); cartridge-layout = `{bank, addr_in_bank}` 2-tuple, no flattening.
+2. If schema split is too invasive, widen `entries[].start/end` to `u32` everywhere and treat values > $FFFF as "outside main CPU view" (cart-internal offset).
+3. Either way, surface a count of skipped/clamped entries in the response so the agent knows partial views built.
+
