@@ -16,6 +16,12 @@ import {
   ContainerEntryStoreSchema,
   type ContainerEntry,
   type ContainerEntryStore,
+  LoaderEntryPointStoreSchema,
+  type LoaderEntryPoint,
+  type LoaderEntryPointStore,
+  LoaderEventStoreSchema,
+  type LoaderEvent,
+  type LoaderEventStore,
   type AnnotatedListingView,
   AnnotatedListingViewSchema,
   type CartridgeLayoutView,
@@ -95,6 +101,8 @@ export interface ProjectKnowledgePaths {
   knowledgeTasks: string;
   knowledgeOpenQuestions: string;
   knowledgeContainers: string;
+  knowledgeLoaderEntryPoints: string;
+  knowledgeLoaderEvents: string;
   knowledgeLabelsUser: string;
   snapshotsRoot: string;
   knowledgeNotes: string;
@@ -206,6 +214,8 @@ export class ProjectKnowledgeStorage {
     this.ensureJsonFile(this.paths.knowledgeTasks, emptyStore<TaskRecord>());
     this.ensureJsonFile(this.paths.knowledgeOpenQuestions, emptyStore<OpenQuestionRecord>());
     this.ensureJsonFile(this.paths.knowledgeContainers, emptyStore<ContainerEntry>());
+    this.ensureJsonFile(this.paths.knowledgeLoaderEntryPoints, emptyStore<LoaderEntryPoint>());
+    this.ensureJsonFile(this.paths.knowledgeLoaderEvents, emptyStore<LoaderEvent>());
     this.ensureJsonFile(this.paths.knowledgeLabelsUser, emptyStore<UserLabelStore["items"][number]>());
     this.ensureJsonFile(this.paths.knowledgePhasePlan, emptyWorkflowPlan() as unknown as JsonValue);
     this.ensureJsonFile(this.paths.knowledgeWorkflowState, emptyWorkflowState() as unknown as JsonValue);
@@ -252,6 +262,26 @@ export class ProjectKnowledgeStorage {
   saveContainerEntries(store: ContainerEntryStore): ContainerEntryStore {
     const parsed = ContainerEntryStoreSchema.parse(store);
     writeJsonAtomically(this.paths.knowledgeContainers, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadLoaderEntryPoints(): LoaderEntryPointStore {
+    return LoaderEntryPointStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeLoaderEntryPoints, emptyStore<LoaderEntryPoint>()));
+  }
+
+  saveLoaderEntryPoints(store: LoaderEntryPointStore): LoaderEntryPointStore {
+    const parsed = LoaderEntryPointStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeLoaderEntryPoints, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadLoaderEvents(): LoaderEventStore {
+    return LoaderEventStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeLoaderEvents, emptyStore<LoaderEvent>()));
+  }
+
+  saveLoaderEvents(store: LoaderEventStore): LoaderEventStore {
+    const parsed = LoaderEventStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeLoaderEvents, parsed as unknown as JsonValue);
     return parsed;
   }
 
@@ -433,13 +463,14 @@ export class ProjectKnowledgeStorage {
     return relative(this.paths.root, resolve(this.paths.root, path)).replace(/\\/g, "/");
   }
 
-  buildArtifactRecord(params: Omit<ArtifactRecord, "relativePath" | "createdAt" | "updatedAt" | "fileSize" | "versions"> & { createdAt?: string; updatedAt?: string; versions?: ArtifactRecord["versions"] }): ArtifactRecord {
+  buildArtifactRecord(params: Omit<ArtifactRecord, "relativePath" | "createdAt" | "updatedAt" | "fileSize" | "versions" | "loadContexts"> & { createdAt?: string; updatedAt?: string; versions?: ArtifactRecord["versions"]; loadContexts?: ArtifactRecord["loadContexts"] }): ArtifactRecord {
     const relativePath = this.resolveRelativePath(params.path);
     const createdAt = params.createdAt ?? nowIso();
     const updatedAt = params.updatedAt ?? createdAt;
     return {
       ...params,
       versions: params.versions ?? [],
+      loadContexts: params.loadContexts ?? [],
       relativePath,
       createdAt,
       updatedAt,
@@ -495,6 +526,8 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeTasks: join(root, "knowledge", "tasks.json"),
     knowledgeOpenQuestions: join(root, "knowledge", "open-questions.json"),
     knowledgeContainers: join(root, "knowledge", "containers.json"),
+    knowledgeLoaderEntryPoints: join(root, "knowledge", "loader-entry-points.json"),
+    knowledgeLoaderEvents: join(root, "knowledge", "loader-events.json"),
     knowledgeLabelsUser: join(root, "knowledge", "labels.user.json"),
     snapshotsRoot: join(root, "snapshots"),
     knowledgeNotes: join(root, "knowledge", "notes.md"),

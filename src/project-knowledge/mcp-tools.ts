@@ -380,6 +380,153 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 ));
 
   server.tool(
+    "register_load_context",
+    "Spec 023: register a runtime / after-decompression load context on an artifact. Use when a custom fastloader places the file at a runtime address that differs from the on-disk PRG header. Idempotent on (artifact_id, kind, address, bank).",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string(),
+      kind: z.enum(["as-stored", "runtime", "after-decompression"]),
+      address: z.number().int().nonnegative(),
+      bank: z.number().int().nonnegative().optional(),
+      triggered_by_pc: z.number().int().nonnegative().optional(),
+      source_track: z.number().int().nonnegative().optional(),
+      source_sector: z.number().int().nonnegative().optional(),
+    },
+    safeHandler("register_load_context", async ({ project_dir, artifact_id, kind, address, bank, triggered_by_pc, source_track, source_sector }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const updated = service.registerLoadContext(artifact_id, {
+        kind,
+        address,
+        bank,
+        triggeredByPc: triggered_by_pc,
+        sourceTrack: source_track,
+        sourceSector: source_sector,
+        evidence: [],
+        capturedAt: new Date().toISOString(),
+      });
+      if (!updated) return textContent(`Artifact ${artifact_id} not found.`);
+      return textContent(`Load context registered. ${updated.loadContexts?.length ?? 0} context(s) total on ${artifact_id}.`);
+    },
+));
+
+  server.tool(
+    "declare_loader_entrypoint",
+    "Spec 028: declare a loader entry point on an artifact (jump-table, sector-load, container-decode, dispatch, init, other). Idempotent on (artifact_id, address, kind).",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      artifact_id: z.string(),
+      address: z.number().int().nonnegative(),
+      bank: z.number().int().nonnegative().optional(),
+      kind: z.enum(["jump-table", "sector-load", "container-decode", "dispatch", "init", "other"]),
+      name: z.string().optional(),
+      param_block_address: z.number().int().nonnegative().optional(),
+      param_block_layout: z.string().optional(),
+      notes: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+    safeHandler("declare_loader_entrypoint", async ({ project_dir, id, artifact_id, address, bank, kind, name, param_block_address, param_block_layout, notes, tags }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const entry = service.declareLoaderEntryPoint({
+        id,
+        artifactId: artifact_id,
+        address,
+        bank,
+        kind,
+        name,
+        paramBlock: (param_block_address !== undefined || param_block_layout !== undefined) ? {
+          address: param_block_address,
+          layout: param_block_layout,
+        } : undefined,
+        notes,
+        tags: tags ?? [],
+      });
+      return textContent(`Loader entry point declared.\nID: ${entry.id}\nArtifact: ${entry.artifactId}\nAddress: $${entry.address.toString(16).toUpperCase()}\nKind: ${entry.kind}${entry.name ? `\nName: ${entry.name}` : ""}`);
+    },
+));
+
+  server.tool(
+    "list_loader_entrypoints",
+    "Spec 028: list declared loader entry points (optionally filtered to one artifact).",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string().optional(),
+    },
+    safeHandler("list_loader_entrypoints", async ({ project_dir, artifact_id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const items = service.listLoaderEntryPoints(artifact_id);
+      if (items.length === 0) return textContent(`No loader entry points${artifact_id ? ` for artifact ${artifact_id}` : ""}.`);
+      const lines = [`Loader entry points: ${items.length}`];
+      for (const e of items) {
+        lines.push(`  $${e.address.toString(16).toUpperCase()}  ${e.kind}  ${e.name ?? "(unnamed)"}  artifact=${e.artifactId}`);
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
+  server.tool(
+    "record_loader_event",
+    "Spec 028: persist one observed loader call. Source 'static' for code-pattern inferences, 'trace' for VICE-observed events. Used by Spec 030 scenario diff.",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      source: z.enum(["static", "trace"]),
+      scenario_id: z.string().optional(),
+      loader_entry_point_id: z.string().optional(),
+      file_key: z.string().optional(),
+      track: z.number().int().nonnegative().optional(),
+      sector: z.number().int().nonnegative().optional(),
+      destination_start: z.number().int().nonnegative().optional(),
+      destination_end: z.number().int().nonnegative().optional(),
+      caller_pc: z.number().int().nonnegative().optional(),
+      container_sub_key: z.string().optional(),
+      side_index: z.number().int().nonnegative().optional(),
+      success: z.boolean().optional(),
+      notes: z.string().optional(),
+    },
+    safeHandler("record_loader_event", async ({ project_dir, id, source, scenario_id, loader_entry_point_id, file_key, track, sector, destination_start, destination_end, caller_pc, container_sub_key, side_index, success, notes }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const event = service.recordLoaderEvent({
+        id,
+        source,
+        scenarioId: scenario_id,
+        loaderEntryPointId: loader_entry_point_id,
+        fileKey: file_key,
+        trackSector: (track !== undefined && sector !== undefined) ? { track, sector } : undefined,
+        destinationStart: destination_start,
+        destinationEnd: destination_end,
+        callerPc: caller_pc,
+        containerSubKey: container_sub_key,
+        sideIndex: side_index,
+        success: success ?? true,
+        notes,
+      });
+      return textContent(`Loader event recorded.\nID: ${event.id}\nSource: ${event.source}${event.fileKey ? `\nFile key: ${event.fileKey}` : ""}${event.destinationStart !== undefined ? `\nDestination: $${event.destinationStart.toString(16).toUpperCase()}` : ""}`);
+    },
+));
+
+  server.tool(
+    "list_loader_events",
+    "Spec 028: list recorded loader events. Filter by scenario_id or loader_entry_point_id.",
+    {
+      project_dir: z.string().optional(),
+      scenario_id: z.string().optional(),
+      loader_entry_point_id: z.string().optional(),
+    },
+    safeHandler("list_loader_events", async ({ project_dir, scenario_id, loader_entry_point_id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const items = service.listLoaderEvents({ scenarioId: scenario_id, loaderEntryPointId: loader_entry_point_id });
+      if (items.length === 0) return textContent(`No loader events match the filter.`);
+      const lines = [`Loader events: ${items.length}`];
+      for (const e of items.slice(0, 50)) {
+        lines.push(`  ${e.capturedAt} [${e.source}]${e.fileKey ? ` key=${e.fileKey}` : ""}${e.trackSector ? ` ts=${e.trackSector.track}/${e.trackSector.sector}` : ""}${e.destinationStart !== undefined ? ` dest=$${e.destinationStart.toString(16).toUpperCase()}` : ""}`);
+      }
+      if (items.length > 50) lines.push(`  ... ${items.length - 50} more`);
+      return textContent(lines.join("\n"));
+    },
+));
+
+  server.tool(
     "list_container_entries",
     "Spec 025 R23: list container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted). Sorted by container offset ascending.",
     {

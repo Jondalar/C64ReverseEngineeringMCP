@@ -92,6 +92,21 @@ export const ArtifactVersionEntrySchema = z.object({
   note: z.string().optional(),
 });
 
+// Spec 023 load contexts: an artifact's runtime address is not always
+// its on-disk PRG header (custom fastloaders can place the same file
+// at a different address). Express alternates as a list. Defined here
+// so ArtifactRecordSchema below can reference it.
+export const LoadContextSchema = z.object({
+  kind: z.enum(["as-stored", "runtime", "after-decompression"]),
+  address: z.number().int().nonnegative(),
+  bank: z.number().int().nonnegative().optional(),
+  evidence: z.array(EvidenceRefSchema).default([]),
+  triggeredByPc: z.number().int().nonnegative().optional(),
+  sourceTrack: z.number().int().nonnegative().optional(),
+  sourceSector: z.number().int().nonnegative().optional(),
+  capturedAt: TimestampSchema.optional(),
+});
+
 export const ArtifactRecordSchema = z.object({
   id: IdSchema,
   kind: ArtifactKindSchema,
@@ -127,6 +142,8 @@ export const ArtifactRecordSchema = z.object({
   // Spec 020: per-artifact platform marker. Default is c64 when absent.
   // Drives ZP / I/O register / ROM symbol annotation in the renderer.
   platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional(),
+  // Spec 023: alternate load contexts beyond the on-disk PRG header.
+  loadContexts: z.array(LoadContextSchema).default([]),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });
@@ -134,6 +151,42 @@ export const ArtifactRecordSchema = z.object({
 // Container sub-entry (Spec 025 R23 fold-in). A disk file may contain
 // named subentries that are not separate BAM/LUT files. Each sub-entry
 // is also represented as a normal artifact via derivedFrom = parentId.
+// Spec 028 loader ABI: declared loader entry points and recorded loader
+// events (static or trace-derived).
+export const LoaderEntryPointSchema = z.object({
+  id: IdSchema,
+  artifactId: IdSchema,
+  address: z.number().int().nonnegative(),
+  bank: z.number().int().nonnegative().optional(),
+  kind: z.enum(["jump-table", "sector-load", "container-decode", "dispatch", "init", "other"]),
+  name: z.string().optional(),
+  paramBlock: z.object({
+    address: z.number().int().nonnegative().optional(),
+    layout: z.string().optional(),
+  }).optional(),
+  notes: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const LoaderEventSchema = z.object({
+  id: IdSchema,
+  scenarioId: IdSchema.optional(),
+  loaderEntryPointId: IdSchema.optional(),
+  source: z.enum(["static", "trace"]),
+  fileKey: z.string().optional(),
+  trackSector: z.object({ track: z.number().int(), sector: z.number().int() }).optional(),
+  destinationStart: z.number().int().nonnegative().optional(),
+  destinationEnd: z.number().int().nonnegative().optional(),
+  callerPc: z.number().int().nonnegative().optional(),
+  containerSubKey: z.string().optional(),
+  sideIndex: z.number().int().nonnegative().optional(),
+  success: z.boolean().default(true),
+  notes: z.string().optional(),
+  capturedAt: TimestampSchema,
+});
+
 export const ContainerEntrySchema = z.object({
   id: IdSchema,
   parentArtifactId: IdSchema,
@@ -1153,6 +1206,8 @@ export function createRecordListSchema<T extends z.ZodTypeAny>(itemSchema: T) {
 
 export const ArtifactStoreSchema = createRecordListSchema(ArtifactRecordSchema);
 export const ContainerEntryStoreSchema = createRecordListSchema(ContainerEntrySchema);
+export const LoaderEntryPointStoreSchema = createRecordListSchema(LoaderEntryPointSchema);
+export const LoaderEventStoreSchema = createRecordListSchema(LoaderEventSchema);
 export const EntityStoreSchema = createRecordListSchema(EntityRecordSchema);
 export const FindingStoreSchema = createRecordListSchema(FindingRecordSchema);
 export const RelationStoreSchema = createRecordListSchema(RelationRecordSchema);
@@ -1175,6 +1230,11 @@ export type ArtifactRecord = z.infer<typeof ArtifactRecordSchema>;
 export type ArtifactVersionEntry = z.infer<typeof ArtifactVersionEntrySchema>;
 export type ContainerEntry = z.infer<typeof ContainerEntrySchema>;
 export type ContainerEntryStore = z.infer<typeof ContainerEntryStoreSchema>;
+export type LoadContext = z.infer<typeof LoadContextSchema>;
+export type LoaderEntryPoint = z.infer<typeof LoaderEntryPointSchema>;
+export type LoaderEntryPointStore = z.infer<typeof LoaderEntryPointStoreSchema>;
+export type LoaderEvent = z.infer<typeof LoaderEventSchema>;
+export type LoaderEventStore = z.infer<typeof LoaderEventStoreSchema>;
 export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export type ArtifactScope = z.infer<typeof ArtifactScopeSchema>;
 export type EntityRecord = z.infer<typeof EntityRecordSchema>;

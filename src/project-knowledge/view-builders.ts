@@ -261,6 +261,7 @@ function inferDiskFileLoader(args: {
     status: "active",
     confidence: 1,
     versions: [],
+    loadContexts: [],
     createdAt: "",
     updatedAt: "",
     sourceArtifactIds: [],

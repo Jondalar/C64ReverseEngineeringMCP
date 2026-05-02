@@ -12,6 +12,9 @@ import type {
   ArtifactScope,
   ContainerEntry,
   EntityRecord,
+  LoadContext,
+  LoaderEntryPoint,
+  LoaderEvent,
   EvidenceRef,
   FindingKind,
   FindingRecord,
@@ -918,6 +921,87 @@ export class ProjectKnowledgeService {
     } catch {
       return false;
     }
+  }
+
+  // Spec 023: register a runtime / after-decompression load context on
+  // an artifact. Idempotent on (artifactId, kind, address).
+  registerLoadContext(artifactId: string, ctx: LoadContext): ArtifactRecord | undefined {
+    const store = this.storage.loadArtifacts();
+    const artifact = store.items.find((item) => item.id === artifactId);
+    if (!artifact) return undefined;
+    const existing = (artifact.loadContexts ?? []).find((c) =>
+      c.kind === ctx.kind && c.address === ctx.address && (c.bank ?? null) === (ctx.bank ?? null),
+    );
+    let updatedContexts: LoadContext[];
+    if (existing) {
+      updatedContexts = (artifact.loadContexts ?? []).map((c) => (c === existing ? { ...existing, ...ctx } : c));
+    } else {
+      updatedContexts = [...(artifact.loadContexts ?? []), ctx];
+    }
+    const updated: ArtifactRecord = { ...artifact, loadContexts: updatedContexts, updatedAt: nowIso() };
+    this.storage.saveArtifacts({
+      ...store,
+      updatedAt: nowIso(),
+      items: store.items.map((item) => (item.id === artifactId ? updated : item)),
+    });
+    return updated;
+  }
+
+  // Spec 028: declare a loader entry point on an artifact.
+  declareLoaderEntryPoint(input: Omit<LoaderEntryPoint, "id" | "createdAt" | "updatedAt"> & { id?: string }): LoaderEntryPoint {
+    const store = this.storage.loadLoaderEntryPoints();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("loader-ep", `${input.artifactId}-${input.address.toString(16)}`);
+    const existing = store.items.find((item) => item.id === id)
+      ?? store.items.find((item) => item.artifactId === input.artifactId && item.address === input.address && item.kind === input.kind);
+    const entry: LoaderEntryPoint = {
+      ...input,
+      id: existing?.id ?? id,
+      tags: input.tags ?? existing?.tags ?? [],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveLoaderEntryPoints({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, entry),
+    });
+    return entry;
+  }
+
+  listLoaderEntryPoints(artifactId?: string): LoaderEntryPoint[] {
+    const store = this.storage.loadLoaderEntryPoints();
+    const items = store.items.slice().sort((a, b) => a.address - b.address);
+    return artifactId ? items.filter((item) => item.artifactId === artifactId) : items;
+  }
+
+  // Spec 028: persist one observed loader call (static or trace).
+  recordLoaderEvent(input: Omit<LoaderEvent, "id" | "capturedAt"> & { id?: string; capturedAt?: string }): LoaderEvent {
+    const store = this.storage.loadLoaderEvents();
+    const timestamp = input.capturedAt ?? nowIso();
+    const id = input.id ?? createId("loader-event", `${input.source}-${input.fileKey ?? input.callerPc?.toString(16) ?? Math.random().toString(36).slice(2)}`);
+    const event: LoaderEvent = {
+      ...input,
+      id,
+      capturedAt: timestamp,
+    };
+    const items = store.items.some((item) => item.id === event.id)
+      ? store.items.map((item) => (item.id === event.id ? event : item))
+      : [...store.items, event];
+    this.storage.saveLoaderEvents({
+      ...store,
+      updatedAt: nowIso(),
+      items,
+    });
+    return event;
+  }
+
+  listLoaderEvents(filter?: { scenarioId?: string; loaderEntryPointId?: string }): LoaderEvent[] {
+    const store = this.storage.loadLoaderEvents();
+    let items = store.items.slice().sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+    if (filter?.scenarioId) items = items.filter((item) => item.scenarioId === filter.scenarioId);
+    if (filter?.loaderEntryPointId) items = items.filter((item) => item.loaderEntryPointId === filter.loaderEntryPointId);
+    return items;
   }
 
   // Spec 022 / Bug 16: re-import analysis-run artifacts whose entities
