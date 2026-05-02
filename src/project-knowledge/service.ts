@@ -834,6 +834,124 @@ export class ProjectKnowledgeService {
     return items.filter((item) => item.parentArtifactId === parentArtifactId);
   }
 
+  // Spec 022: per-artifact status checklist. Returns one row per
+  // PRG / payload artifact with the six steps: analyze, disasm pass 1,
+  // annotations, disasm pass 2, rebuild byte-identical, linked finding.
+  // Each step carries requiredForRole so the UI / agent filters by the
+  // active role (analyst vs cracker per Spec 033).
+  getPerArtifactStatus(): Array<{
+    artifactId: string;
+    title: string;
+    kind: string;
+    platform?: string;
+    relativePath: string;
+    steps: Array<{
+      name: string;
+      status: "done" | "pending" | "blocked";
+      reason?: string;
+      requiredForRole: Array<"analyst" | "cracker">;
+    }>;
+    completionPctAnalyst: number;
+    completionPctCracker: number;
+  }> {
+    const artifacts = this.listArtifacts();
+    const findings = this.listFindings();
+    const subjectKinds = new Set(["prg", "raw", "extract", "listing"]);
+    const subjects = artifacts.filter((a) => subjectKinds.has(a.kind) || a.role === "source-prg");
+    const findingsByArtifact = new Map<string, number>();
+    for (const f of findings) {
+      for (const aid of f.artifactIds) {
+        findingsByArtifact.set(aid, (findingsByArtifact.get(aid) ?? 0) + 1);
+      }
+    }
+    const listingsBySubject = new Map<string, ArtifactRecord>();
+    for (const a of artifacts) {
+      if (a.kind !== "listing") continue;
+      for (const sid of a.sourceArtifactIds ?? []) listingsBySubject.set(sid, a);
+    }
+    const analysisRunsBySubject = new Map<string, ArtifactRecord>();
+    for (const a of artifacts) {
+      if (a.kind !== "analysis-run") continue;
+      for (const sid of a.sourceArtifactIds ?? []) analysisRunsBySubject.set(sid, a);
+    }
+    return subjects.map((subject) => {
+      const analysisRun = analysisRunsBySubject.get(subject.id);
+      const listing = listingsBySubject.get(subject.id);
+      const annotationsPath = subject.relativePath.replace(/\.[^./]+$/, "_annotations.json");
+      const annotationsExist = existsSync(resolve(this.storage.paths.root, annotationsPath));
+      const rebuildOk = listing
+        ? this.checkListingRebuildVerified(listing)
+        : false;
+      const linkedFindings = findingsByArtifact.get(subject.id) ?? 0;
+      const steps = [
+        { name: "analyze", status: analysisRun ? "done" as const : "pending" as const, requiredForRole: ["analyst", "cracker"] as Array<"analyst" | "cracker"> },
+        { name: "disasm-pass-1", status: listing ? "done" as const : "pending" as const, requiredForRole: ["analyst", "cracker"] as Array<"analyst" | "cracker"> },
+        { name: "annotations", status: annotationsExist ? "done" as const : "pending" as const, requiredForRole: ["analyst"] as Array<"analyst" | "cracker"> },
+        { name: "disasm-pass-2", status: annotationsExist && listing ? "done" as const : "pending" as const, requiredForRole: ["analyst"] as Array<"analyst" | "cracker"> },
+        { name: "rebuild-byte-identical", status: rebuildOk ? "done" as const : "pending" as const, requiredForRole: ["analyst", "cracker"] as Array<"analyst" | "cracker"> },
+        { name: "linked-finding", status: linkedFindings > 0 ? "done" as const : "pending" as const, requiredForRole: ["analyst"] as Array<"analyst" | "cracker"> },
+      ];
+      const analystSteps = steps.filter((s) => s.requiredForRole.includes("analyst"));
+      const crackerSteps = steps.filter((s) => s.requiredForRole.includes("cracker"));
+      const analystDone = analystSteps.filter((s) => s.status === "done").length;
+      const crackerDone = crackerSteps.filter((s) => s.status === "done").length;
+      return {
+        artifactId: subject.id,
+        title: subject.title,
+        kind: subject.kind,
+        platform: subject.platform,
+        relativePath: subject.relativePath,
+        steps,
+        completionPctAnalyst: analystSteps.length === 0 ? 0 : Math.round((analystDone / analystSteps.length) * 100),
+        completionPctCracker: crackerSteps.length === 0 ? 0 : Math.round((crackerDone / crackerSteps.length) * 100),
+      };
+    });
+  }
+
+  private checkListingRebuildVerified(listing: ArtifactRecord): boolean {
+    try {
+      const text = readFileSync(listing.path, "utf8");
+      // disasm_prg writes a header line containing either
+      // "// rebuild verified byte-identical" or
+      // "// WARNING: rebuild diverges". We only count the verified one.
+      return text.includes("rebuild verified byte-identical");
+    } catch {
+      return false;
+    }
+  }
+
+  // Spec 022 / Bug 16: re-import analysis-run artifacts whose entities
+  // are not yet back-linked. Idempotent. Called automatically by
+  // agent_onboard so the audit no longer warns about unimported runs.
+  autoImportUnimportedAnalysisRuns(): { imported: number; entities: number; findings: number; relations: number; flows: number; questions: number } {
+    const candidates = this.listArtifacts().filter((a) => a.kind === "analysis-run" && a.role !== "tool-run-record");
+    const linkedArtifactIds = new Set<string>();
+    for (const e of this.listEntities()) {
+      for (const aid of e.artifactIds ?? []) linkedArtifactIds.add(aid);
+    }
+    let imported = 0;
+    let entities = 0;
+    let findings = 0;
+    let relations = 0;
+    let flows = 0;
+    let questions = 0;
+    for (const candidate of candidates) {
+      if (linkedArtifactIds.has(candidate.id)) continue;
+      try {
+        const r = this.importAnalysisArtifact(candidate.id);
+        imported += 1;
+        entities += r.importedEntityCount;
+        findings += r.importedFindingCount;
+        relations += r.importedRelationCount;
+        flows += r.importedFlowCount;
+        questions += r.importedOpenQuestionCount;
+      } catch {
+        // skip failing artifacts; they will surface in the audit
+      }
+    }
+    return { imported, entities, findings, relations, flows, questions };
+  }
+
   listArtifacts(): ArtifactRecord[] {
     return [...this.storage.loadArtifacts().items].sort((left, right) => left.title.localeCompare(right.title));
   }

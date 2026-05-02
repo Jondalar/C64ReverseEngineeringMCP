@@ -348,6 +348,9 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
     async ({ project_dir }) => {
       const projectRoot = ctx.projectDir(project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
+      // Bug 16 / Spec 022: auto-import analysis runs whose entities are
+      // not yet back-linked, so the audit no longer warns about them.
+      const autoImport = service.autoImportUnimportedAnalysisRuns();
       const status = service.getProjectStatus();
       const state = loadAgentState(projectRoot);
       const cached: AuditCachedResult = auditProjectCached(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
@@ -357,6 +360,10 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
       const lines: string[] = [];
       lines.push(`# Agent Onboarding`);
+      if (autoImport.imported > 0) {
+        lines.push(`Auto-imported ${autoImport.imported} analysis-run artifact(s): ${autoImport.entities} entities, ${autoImport.findings} findings, ${autoImport.relations} relations, ${autoImport.flows} flows, ${autoImport.questions} open questions.`);
+        lines.push(``);
+      }
       lines.push(``);
       lines.push(`Project: ${status.project.name}`);
       lines.push(`Root: ${status.project.rootPath}`);

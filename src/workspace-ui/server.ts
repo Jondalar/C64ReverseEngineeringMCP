@@ -393,6 +393,21 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 022: per-artifact workflow status matrix.
+  if (requestUrl.pathname === "/api/per-artifact-status" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.getPerArtifactStatus();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
   if (requestUrl.pathname === "/api/audit" && req.method === "GET") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
