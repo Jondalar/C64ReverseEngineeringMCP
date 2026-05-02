@@ -1,6 +1,6 @@
 // Spec 053 (Sprint 46) — Bug 20 phase-1 noise archive smoke.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,6 +67,45 @@ try {
   assert.ok(conf.findingId);
   // No analysis JSON registered → segmentMatched is false but finding still saved
   assert.equal(conf.segmentMatched, false);
+
+  // Bug 22 (REOPEN) regression: when both an analysis-run RUN-LOG
+  // (kind="analysis-run") AND the actual *_analysis.json exist as
+  // artifacts pointing at the same source PRG, the path-based
+  // filter must pick the segments JSON, not the run log.
+  writeFileSync(join(root, "y.prg"), Buffer.alloc(64));
+  const yArtifact = service.saveArtifact({ kind: "prg", scope: "input", title: "y.prg", path: "y.prg" });
+  // The misleading run-event-log artifact (analyze_prg auto-registers it)
+  writeFileSync(join(root, "y_run.json"), JSON.stringify({ events: [{ at: "2026-05-03", kind: "analyze-prg" }] }));
+  service.saveArtifact({
+    kind: "analysis-run",
+    scope: "analysis",
+    title: "y run log",
+    path: "y_run.json",
+    sourceArtifactIds: [yArtifact.id],
+  });
+  // The actual segments JSON
+  writeFileSync(join(root, "y_analysis.json"), JSON.stringify({
+    segments: [{ kind: "sprite", start: 0x1000, end: 0x103f }],
+  }));
+  service.saveArtifact({
+    kind: "other",
+    scope: "analysis",
+    title: "y analysis",
+    path: "y_analysis.json",
+    sourceArtifactIds: [yArtifact.id],
+  });
+  const rejected = service.markSegmentRejected({
+    artifactId: yArtifact.id,
+    address: 0x1000,
+    length: 0x40,
+    kind: "sprite",
+    reason: "not a sprite",
+  });
+  assert.ok(rejected);
+  assert.equal(rejected.segmentMatched, true, "Bug 22 fix: matched the segments JSON, not the run log");
+  const yJson = JSON.parse(readFileSync(join(root, "y_analysis.json"), "utf8"));
+  assert.equal(yJson.segments[0].rejected, true);
+  assert.equal(yJson.segments[0].rejectedReason, "not a sprite");
 
   console.log("sprint 46 smoke test passed");
   console.log(root);

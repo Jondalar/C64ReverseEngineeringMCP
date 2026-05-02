@@ -1546,12 +1546,15 @@ export class ProjectKnowledgeService {
     let analysisPath: string | undefined;
     let segmentMatched = false;
     // Find associated analysis-run artifact and try to mutate segment.
-    // Bug 22: widen kind filter — analyze_prg auto-registers its
-    // output JSON with kind "other" rather than "analysis-run" in
-    // many code paths, so accept either as long as the path ends
-    // in `_analysis.json` and the source artifact id matches.
+    // Bug 22 (REOPEN): match by file shape, not by kind. The
+    // analyze_prg RUN-EVENT-LOG also gets kind="analysis-run" but
+    // its content is { events: [...] } with no segments[], so the
+    // first-found-by-kind heuristic returned the wrong file. The
+    // canonical analysis JSON always lives at `*_analysis.json`,
+    // so match by path. Post-read shape validation guards against
+    // cases where the file exists but isn't the segments dump.
     const analysisArtifact = this.listArtifacts().find((a) =>
-      ((a.kind === "analysis-run") || (a.kind === "other" && a.path.endsWith("_analysis.json")))
+      a.path.endsWith("_analysis.json")
       && (a.sourceArtifactIds ?? []).includes(args.artifactId)
     );
     if (analysisArtifact && existsSync(analysisArtifact.path)) {
@@ -1608,12 +1611,15 @@ export class ProjectKnowledgeService {
     if (!artifact) return undefined;
     let analysisPath: string | undefined;
     let segmentMatched = false;
-    // Bug 22: widen kind filter — analyze_prg auto-registers its
-    // output JSON with kind "other" rather than "analysis-run" in
-    // many code paths, so accept either as long as the path ends
-    // in `_analysis.json` and the source artifact id matches.
+    // Bug 22 (REOPEN): match by file shape, not by kind. The
+    // analyze_prg RUN-EVENT-LOG also gets kind="analysis-run" but
+    // its content is { events: [...] } with no segments[], so the
+    // first-found-by-kind heuristic returned the wrong file. The
+    // canonical analysis JSON always lives at `*_analysis.json`,
+    // so match by path. Post-read shape validation guards against
+    // cases where the file exists but isn't the segments dump.
     const analysisArtifact = this.listArtifacts().find((a) =>
-      ((a.kind === "analysis-run") || (a.kind === "other" && a.path.endsWith("_analysis.json")))
+      a.path.endsWith("_analysis.json")
       && (a.sourceArtifactIds ?? []).includes(args.artifactId)
     );
     if (analysisArtifact && existsSync(analysisArtifact.path)) {

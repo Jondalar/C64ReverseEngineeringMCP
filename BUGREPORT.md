@@ -1069,3 +1069,51 @@ mark_segment_rejected(
 - Bug 16: analysis-run artifacts registered but never imported. Same kind-tagging confusion.
 - Bug 21: Bug 20 mitigation landed but matching logic incomplete.
 
+### REOPEN: Bug 22 fix in commit `3654140` is incomplete
+
+After commit `3654140` ("Bug 22 fix: widen kind filter") and a fresh MCP server restart (PID 12745, started 01:09 May 3, AFTER fix at 01:03), `mark_segment_rejected` still returns `No matching segment found in analysis JSON; finding still recorded`. Direct probe of the running service via a smoke script:
+
+```js
+import { ProjectKnowledgeService } from "dist/project-knowledge/service.js";
+const svc = new ProjectKnowledgeService("/abs/Murder");
+const matches = svc.listArtifacts().filter(a =>
+  ((a.kind === "analysis-run") || (a.kind === "other" && a.path.endsWith("_analysis.json")))
+  && (a.sourceArtifactIds ?? []).includes("artifact-drive-t1s0-prg-mood3yfu")
+);
+// matches.length === 2:
+//   1) artifact-analyze-prg-drive-t1s0-prg-mood3yfw  kind=analysis-run
+//      path = analysis/runs/run-analyze-prg-analyze-prg-drive-t1s0-prg-mood3yfv.json   ← RUN-EVENT LOG
+//   2) artifact-drive-t1s0-analysis-json-mood3yfv  kind=other
+//      path = analysis/disk/motm/raw_sectors/drive_t1s0_analysis.json                  ← ACTUAL ANALYSIS JSON
+```
+
+`Array.find()` returns the FIRST entry → the run-event-log (a JSON file, but its content is `{events: [...]}` with no top-level `segments[]`). Service then does `Array.isArray(raw.segments)` → false → bails → no JSON write. Refutation finding is recorded but the segment in the analysis JSON keeps its old state.
+
+### Root cause
+The Bug 22 fix's `||` operator made the filter MORE permissive in the wrong direction. The `kind === "analysis-run"` arm has NO path constraint, so any artifact with `kind=analysis-run` qualifies — including the analyze_prg RUN-event-log artifact, which is also kind=analysis-run by convention, but whose JSON content is a run-log, not an analysis result.
+
+### Correct fix
+Drop the kind check entirely (or keep as a soft hint) — match by file shape:
+
+```ts
+const analysisArtifact = this.listArtifacts().find((a) =>
+  a.path.endsWith("_analysis.json")
+  && (a.sourceArtifactIds ?? []).includes(args.artifactId)
+);
+```
+
+OR validate after read:
+
+```ts
+if (raw && Array.isArray(raw.segments) && raw.segments.length > 0 && typeof raw.segments[0]?.start === "number") {
+  // good — proceed with match
+} else {
+  // wrong artifact, try next one
+}
+```
+
+The first form is simpler and unambiguous. Verified by manual filter walk on the live data — only the second entry (the actual `_analysis.json`) survives.
+
+### Status
+**REOPEN** — Bug 22's commit `3654140` does not fix the actual issue. Need a follow-up commit with the correct filter (path-only, drop the kind branch).
+
