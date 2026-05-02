@@ -260,6 +260,7 @@ function inferDiskFileLoader(args: {
     relativePath: stem,
     status: "active",
     confidence: 1,
+    versions: [],
     createdAt: "",
     updatedAt: "",
     sourceArtifactIds: [],

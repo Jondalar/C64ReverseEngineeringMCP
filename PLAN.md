@@ -609,30 +609,39 @@ history (re-runs of `disasm_prg` overwrite the file but keep prior
 bytes recoverable), and container sub-entries (a disk file may itself
 contain named subpayloads — Accolade `/0` and `/1`).
 
-Status: not started. Direct follow-up to Sprint 21.
+Status: data layer complete. Schema, service helpers, MCP tools, and
+audit hook landed. UI grouping deferred to Sprint 18 per API-first.
 
 Todos:
 
-- [ ] Extend `ArtifactRecord` with `lineageRoot`, `derivedFrom`,
+- [x] Extend `ArtifactRecord` with `lineageRoot`, `derivedFrom`,
       `versionLabel`, `versionRank`, `versions[]`.
-- [ ] Auto-compute `lineageRoot` and `versionRank` from
+- [x] Auto-compute `lineageRoot` and `versionRank` from
       `derivedFrom` in `service.saveArtifact`.
-- [ ] On same-path overwrite, sha256 the new bytes; if they differ
+- [x] On same-path overwrite, sha256 the new bytes; if they differ
       from the prior file, snapshot the prior file to
       `<root>/snapshots/<artifact-id>/<hash>.bin` (default on) and
-      append to `versions[]`.
-- [ ] Add `service.getLineage(artifactId)` returning the V0..Vn
+      append to `versions[]`. Implemented as
+      `snapshotArtifactBeforeOverwrite(id)` (callers invoke before
+      writing; saveArtifact records lossy transitions if the helper
+      was not called).
+- [x] Add `service.getLineage(artifactId)` returning the V0..Vn
       chain ordered by rank.
-- [ ] Register `rename_artifact_version(artifact_id, label)` MCP
+- [x] Register `rename_artifact_version(artifact_id, label)` MCP
       tool. User-free labels; default `V<rank>` when not supplied.
-- [ ] Workspace UI: group artifacts/findings/entities tables by
-      `lineageRoot`. V0 as the card header, latest version
-      highlighted.
-- [ ] `project_audit` reports total snapshot disk usage.
-- [ ] `.gitignore` template adds `snapshots/`.
-- [ ] R23 fold-in: `register_container_entry(...)` plus
-      `containers.json` store; sub-payloads register as artifacts
-      with `derivedFrom: <parent>` and join the lineage chain.
+- [x] `project_audit` reports total snapshot disk usage.
+- [x] `.gitignore` template adds `snapshots/`. Project init also
+      writes `<root>/snapshots/.gitignore` so the dir self-ignores.
+- [x] R23 fold-in: `register_container_entry(...)` /
+      `list_container_entries(...)` plus `containers.json` store;
+      sub-payloads register as artifacts with `derivedFrom: <parent>`
+      and join the lineage chain.
+- [ ] UI groups artifacts / findings / entities tables by
+      `lineageRoot`; V0 card header, latest version highlighted.
+      Deferred to Sprint 18.
+- [ ] UI groups sub-payloads under their parent container card; a
+      red badge marks missing / truncated tails. Deferred to
+      Sprint 18.
 
 UI scope deferred to Sprint 18 per the API-first rule. Sprint 22
 ships data layer + service helpers + MCP tools only; the lineage

@@ -13,6 +13,9 @@ import {
   ArtifactStoreSchema,
   type ArtifactRecord,
   type ArtifactStore,
+  ContainerEntryStoreSchema,
+  type ContainerEntry,
+  type ContainerEntryStore,
   type AnnotatedListingView,
   AnnotatedListingViewSchema,
   type CartridgeLayoutView,
@@ -91,7 +94,9 @@ export interface ProjectKnowledgePaths {
   knowledgeFlows: string;
   knowledgeTasks: string;
   knowledgeOpenQuestions: string;
+  knowledgeContainers: string;
   knowledgeLabelsUser: string;
+  snapshotsRoot: string;
   knowledgeNotes: string;
   knowledgePhasePlan: string;
   knowledgeWorkflowState: string;
@@ -200,11 +205,19 @@ export class ProjectKnowledgeStorage {
     this.ensureJsonFile(this.paths.knowledgeFlows, emptyStore<FlowRecord>());
     this.ensureJsonFile(this.paths.knowledgeTasks, emptyStore<TaskRecord>());
     this.ensureJsonFile(this.paths.knowledgeOpenQuestions, emptyStore<OpenQuestionRecord>());
+    this.ensureJsonFile(this.paths.knowledgeContainers, emptyStore<ContainerEntry>());
     this.ensureJsonFile(this.paths.knowledgeLabelsUser, emptyStore<UserLabelStore["items"][number]>());
     this.ensureJsonFile(this.paths.knowledgePhasePlan, emptyWorkflowPlan() as unknown as JsonValue);
     this.ensureJsonFile(this.paths.knowledgeWorkflowState, emptyWorkflowState() as unknown as JsonValue);
     this.ensureTextFile(this.paths.knowledgeNotes, "# Notes\n");
     this.ensureTextFile(this.paths.sessionTimeline, "");
+
+    // Spec 025: snapshots dir kept untracked by default. Auto-create the
+    // snapshots/.gitignore so the directory exists with a .gitignore that
+    // ignores its contents but keeps the directory itself committed when
+    // present.
+    mkdirSync(this.paths.snapshotsRoot, { recursive: true });
+    this.ensureTextFile(join(this.paths.snapshotsRoot, ".gitignore"), "*\n!.gitignore\n");
 
     return this.paths;
   }
@@ -229,6 +242,16 @@ export class ProjectKnowledgeStorage {
   saveArtifacts(store: ArtifactStore): ArtifactStore {
     const parsed = ArtifactStoreSchema.parse(store);
     writeJsonAtomically(this.paths.knowledgeArtifacts, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadContainerEntries(): ContainerEntryStore {
+    return ContainerEntryStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeContainers, emptyStore<ContainerEntry>()));
+  }
+
+  saveContainerEntries(store: ContainerEntryStore): ContainerEntryStore {
+    const parsed = ContainerEntryStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeContainers, parsed as unknown as JsonValue);
     return parsed;
   }
 
@@ -410,12 +433,13 @@ export class ProjectKnowledgeStorage {
     return relative(this.paths.root, resolve(this.paths.root, path)).replace(/\\/g, "/");
   }
 
-  buildArtifactRecord(params: Omit<ArtifactRecord, "relativePath" | "createdAt" | "updatedAt" | "fileSize"> & { createdAt?: string; updatedAt?: string }): ArtifactRecord {
+  buildArtifactRecord(params: Omit<ArtifactRecord, "relativePath" | "createdAt" | "updatedAt" | "fileSize" | "versions"> & { createdAt?: string; updatedAt?: string; versions?: ArtifactRecord["versions"] }): ArtifactRecord {
     const relativePath = this.resolveRelativePath(params.path);
     const createdAt = params.createdAt ?? nowIso();
     const updatedAt = params.updatedAt ?? createdAt;
     return {
       ...params,
+      versions: params.versions ?? [],
       relativePath,
       createdAt,
       updatedAt,
@@ -470,7 +494,9 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeFlows: join(root, "knowledge", "flows.json"),
     knowledgeTasks: join(root, "knowledge", "tasks.json"),
     knowledgeOpenQuestions: join(root, "knowledge", "open-questions.json"),
+    knowledgeContainers: join(root, "knowledge", "containers.json"),
     knowledgeLabelsUser: join(root, "knowledge", "labels.user.json"),
+    snapshotsRoot: join(root, "snapshots"),
     knowledgeNotes: join(root, "knowledge", "notes.md"),
     knowledgePhasePlan: join(root, "knowledge", "phase-plan.json"),
     knowledgeWorkflowState: join(root, "knowledge", "workflow-state.json"),

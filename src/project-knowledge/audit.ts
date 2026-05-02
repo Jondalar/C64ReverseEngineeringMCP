@@ -31,6 +31,8 @@ export interface ProjectAuditResult {
     unimportedAnalysisArtifacts: number;
     unimportedManifestArtifacts: number;
     staleViews: number;
+    snapshotBytes: number;
+    snapshotFileCount: number;
   };
 }
 
@@ -332,6 +334,18 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
     });
   }
 
+  const snapshotUsage = computeSnapshotUsage(root);
+  if (snapshotUsage.fileCount > 0) {
+    addFinding(findings, {
+      id: "snapshot-disk-usage",
+      severity: "low",
+      title: `Spec 025 snapshots: ${snapshotUsage.fileCount} files, ${formatBytes(snapshotUsage.bytes)}`,
+      paths: snapshotUsage.topArtifacts.map((entry) => `${entry.artifactId}: ${entry.fileCount} files, ${formatBytes(entry.bytes)}`),
+      whyItMatters: "Snapshots preserve prior bytes for rollback. Trace files dwarf this; surface only as informational.",
+      suggestedFix: "Prune <root>/snapshots/<artifact-id>/<old-hash>.bin if disk pressure becomes a concern.",
+    });
+  }
+
   return {
     root,
     severity: maxSeverity(findings),
@@ -346,8 +360,61 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
       unimportedAnalysisArtifacts: unimportedAnalysis.length,
       unimportedManifestArtifacts: unimportedManifests.length,
       staleViews: staleViews.length,
+      snapshotBytes: snapshotUsage.bytes,
+      snapshotFileCount: snapshotUsage.fileCount,
     },
   };
+}
+
+function computeSnapshotUsage(root: string): { bytes: number; fileCount: number; topArtifacts: Array<{ artifactId: string; bytes: number; fileCount: number }> } {
+  const snapshotsRoot = join(root, "snapshots");
+  if (!existsSync(snapshotsRoot)) return { bytes: 0, fileCount: 0, topArtifacts: [] };
+  let bytes = 0;
+  let fileCount = 0;
+  const perArtifact: Record<string, { bytes: number; fileCount: number }> = {};
+  let dirEntries: Dirent[];
+  try {
+    dirEntries = readdirSync(snapshotsRoot, { withFileTypes: true });
+  } catch {
+    return { bytes: 0, fileCount: 0, topArtifacts: [] };
+  }
+  for (const sub of dirEntries) {
+    if (!sub.isDirectory()) continue;
+    const artifactId = sub.name;
+    const subPath = join(snapshotsRoot, artifactId);
+    let snaps: Dirent[];
+    try {
+      snaps = readdirSync(subPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const snap of snaps) {
+      if (!snap.isFile()) continue;
+      try {
+        const size = statSync(join(subPath, snap.name)).size;
+        bytes += size;
+        fileCount += 1;
+        const e = perArtifact[artifactId] ?? { bytes: 0, fileCount: 0 };
+        e.bytes += size;
+        e.fileCount += 1;
+        perArtifact[artifactId] = e;
+      } catch {
+        continue;
+      }
+    }
+  }
+  const topArtifacts = Object.entries(perArtifact)
+    .map(([artifactId, v]) => ({ artifactId, bytes: v.bytes, fileCount: v.fileCount }))
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 5);
+  return { bytes, fileCount, topArtifacts };
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MiB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GiB`;
 }
 
 interface AuditFingerprint {

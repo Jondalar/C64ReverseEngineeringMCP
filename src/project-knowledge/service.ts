@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./analysis-import.js";
 import { importManifestKnowledge } from "./manifest-import.js";
@@ -9,6 +10,7 @@ import type {
   ArtifactKind,
   ArtifactRecord,
   ArtifactScope,
+  ContainerEntry,
   EntityRecord,
   EvidenceRef,
   FindingKind,
@@ -34,6 +36,16 @@ import type {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function sha256OfFile(absPath: string): string | undefined {
+  if (!existsSync(absPath)) return undefined;
+  try {
+    const data = readFileSync(absPath);
+    return createHash("sha256").update(data).digest("hex");
+  } catch {
+    return undefined;
+  }
 }
 
 function slugify(value: string): string {
@@ -304,6 +316,24 @@ export interface SaveArtifactInput {
   status?: ArtifactRecord["status"];
   confidence?: number;
   tags?: string[];
+  // Spec 025 lineage fields. derivedFrom names the direct parent
+  // artifact id; lineageRoot and versionRank are auto-computed when
+  // not supplied. versionLabel defaults to "V<rank>" but the caller
+  // can supply any free-form string and rename it later via
+  // rename_artifact_version.
+  derivedFrom?: string;
+  versionLabel?: string;
+  // Disable snapshotting on same-path overwrite. Default true. Set
+  // false for ephemeral one-shot saves or when the caller is
+  // certain the file content has not changed.
+  enableSnapshot?: boolean;
+}
+
+export interface SnapshotResult {
+  artifactId: string;
+  contentHash: string;
+  snapshotPath: string;
+  bytes: number;
 }
 
 export interface SaveEntityInput {
@@ -594,12 +624,55 @@ export class ProjectKnowledgeService {
     const existing = input.id
       ? store.items.find((item) => item.id === input.id)
       : store.items.find((item) => item.path === absPath);
+    const artifactId = input.id ?? existing?.id ?? createId("artifact", input.title);
+    // Lineage: walk parent chain to compute lineageRoot and versionRank.
+    const derivedFrom = input.derivedFrom ?? existing?.derivedFrom;
+    let lineageRoot = artifactId;
+    let versionRank = 0;
+    if (derivedFrom) {
+      const parent = store.items.find((item) => item.id === derivedFrom);
+      if (parent) {
+        lineageRoot = parent.lineageRoot ?? parent.id;
+        versionRank = (parent.versionRank ?? 0) + 1;
+      }
+    } else if (existing) {
+      lineageRoot = existing.lineageRoot ?? existing.id;
+      versionRank = existing.versionRank ?? 0;
+    }
+    const versionLabel = input.versionLabel ?? existing?.versionLabel ?? `V${versionRank}`;
+    // Same-path content hashing + snapshot bookkeeping. Hash the file as
+    // it sits on disk now. If the hash differs from the prior contentHash
+    // and the prior bytes were preserved via snapshotArtifactBeforeOverwrite,
+    // we will already have an entry in versions[] for the prior hash. If
+    // the prior bytes were lost (caller did not snapshot before overwriting),
+    // we record the transition in versions[] without a snapshotPath so the
+    // history is still visible, even if the bytes are gone.
+    const newHash = sha256OfFile(absPath);
+    let versions: ArtifactRecord["versions"] = existing?.versions ?? [];
+    const enableSnapshot = input.enableSnapshot ?? true;
+    if (existing && existing.contentHash && newHash && existing.contentHash !== newHash) {
+      const priorHash = existing.contentHash;
+      const alreadyRecorded = versions.some((v) => v.contentHash === priorHash);
+      if (!alreadyRecorded) {
+        versions = [
+          ...versions,
+          {
+            contentHash: priorHash,
+            capturedAt: timestamp,
+            snapshotPath: undefined,
+            note: enableSnapshot
+              ? "prior bytes not snapshotted (caller did not invoke snapshotArtifactBeforeOverwrite)"
+              : "snapshot disabled by caller",
+          },
+        ];
+      }
+    }
     const artifact = this.storage.buildArtifactRecord({
-      id: input.id ?? existing?.id ?? createId("artifact", input.title),
+      id: artifactId,
       kind: input.kind,
       scope: input.scope,
       title: input.title,
-      path: resolve(this.storage.paths.root, input.path),
+      path: absPath,
       description: input.description,
       mimeType: input.mimeType,
       format: input.format,
@@ -611,6 +684,12 @@ export class ProjectKnowledgeService {
       status: input.status ?? existing?.status ?? "active",
       confidence: input.confidence ?? existing?.confidence ?? 1,
       tags: uniqueStrings(input.tags ?? existing?.tags),
+      contentHash: newHash ?? existing?.contentHash,
+      derivedFrom,
+      lineageRoot,
+      versionLabel,
+      versionRank,
+      versions,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     });
@@ -630,6 +709,126 @@ export class ProjectKnowledgeService {
       },
     });
     return artifact;
+  }
+
+  // Spec 025: call before overwriting an artifact's on-disk file so the
+  // prior bytes are preserved under <root>/snapshots/<id>/<hash>.bin and
+  // appended to artifact.versions[]. The next saveArtifact call will
+  // see the new hash on disk and skip duplicating the version entry.
+  snapshotArtifactBeforeOverwrite(artifactId: string): SnapshotResult | undefined {
+    const store = this.storage.loadArtifacts();
+    const artifact = store.items.find((item) => item.id === artifactId);
+    if (!artifact) return undefined;
+    if (!existsSync(artifact.path)) return undefined;
+    const hash = sha256OfFile(artifact.path);
+    if (!hash) return undefined;
+    const snapshotDir = resolve(this.storage.paths.snapshotsRoot, artifactId);
+    if (!existsSync(snapshotDir)) {
+      mkdirSync(snapshotDir, { recursive: true });
+    }
+    const snapshotPath = resolve(snapshotDir, `${hash}.bin`);
+    if (!existsSync(snapshotPath)) {
+      writeFileSync(snapshotPath, readFileSync(artifact.path));
+    }
+    const alreadyRecorded = (artifact.versions ?? []).some((v) => v.contentHash === hash);
+    const versions = alreadyRecorded
+      ? artifact.versions
+      : [
+          ...(artifact.versions ?? []),
+          { contentHash: hash, capturedAt: nowIso(), snapshotPath },
+        ];
+    const updated: ArtifactRecord = {
+      ...artifact,
+      versions,
+      contentHash: artifact.contentHash ?? hash,
+      updatedAt: nowIso(),
+    };
+    this.storage.saveArtifacts({
+      ...store,
+      updatedAt: nowIso(),
+      items: store.items.map((item) => (item.id === artifactId ? updated : item)),
+    });
+    const bytes = statSync(snapshotPath).size;
+    return { artifactId, contentHash: hash, snapshotPath, bytes };
+  }
+
+  // Spec 025: walk the lineage chain root-down for a given artifact id.
+  // Returns artifacts ordered by versionRank ascending. Includes the
+  // queried artifact at the end of the chain (or earlier if it has
+  // descendants). If the artifact has no lineage info, returns [artifact].
+  getLineage(artifactId: string): ArtifactRecord[] {
+    const store = this.storage.loadArtifacts();
+    const artifact = store.items.find((item) => item.id === artifactId);
+    if (!artifact) return [];
+    const root = artifact.lineageRoot ?? artifact.id;
+    const chain = store.items.filter((item) => (item.lineageRoot ?? item.id) === root);
+    return chain.sort((a, b) => (a.versionRank ?? 0) - (b.versionRank ?? 0));
+  }
+
+  // Spec 025: rename a version label without touching bytes or hash.
+  renameArtifactVersion(artifactId: string, versionLabel: string): ArtifactRecord | undefined {
+    const store = this.storage.loadArtifacts();
+    const artifact = store.items.find((item) => item.id === artifactId);
+    if (!artifact) return undefined;
+    const updated: ArtifactRecord = { ...artifact, versionLabel, updatedAt: nowIso() };
+    this.storage.saveArtifacts({
+      ...store,
+      updatedAt: nowIso(),
+      items: store.items.map((item) => (item.id === artifactId ? updated : item)),
+    });
+    return updated;
+  }
+
+  // Spec 025 R23: container sub-entry support. A disk file may be a
+  // container with named subentries that are not separate BAM/LUT files.
+  saveContainerEntry(input: {
+    id?: string;
+    parentArtifactId: string;
+    childArtifactId?: string;
+    subKey: string;
+    containerOffset: number;
+    containerLength: number;
+    loadAddress?: number;
+    registrationMode?: ContainerEntry["registrationMode"];
+    status?: ContainerEntry["status"];
+    inheritedFrom?: string;
+    evidence?: EvidenceRef[];
+    tags?: string[];
+  }): ContainerEntry {
+    const store = this.storage.loadContainerEntries();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("container", `${input.parentArtifactId}-${input.subKey}`);
+    const existing = store.items.find((item) => item.id === id)
+      ?? store.items.find((item) => item.parentArtifactId === input.parentArtifactId && item.subKey === input.subKey);
+    const entry: ContainerEntry = {
+      id: existing?.id ?? id,
+      parentArtifactId: input.parentArtifactId,
+      childArtifactId: input.childArtifactId ?? existing?.childArtifactId,
+      subKey: input.subKey,
+      containerOffset: input.containerOffset,
+      containerLength: input.containerLength,
+      loadAddress: input.loadAddress ?? existing?.loadAddress,
+      registrationMode: input.registrationMode ?? existing?.registrationMode,
+      status: input.status ?? existing?.status ?? "physically-present",
+      inheritedFrom: input.inheritedFrom ?? existing?.inheritedFrom,
+      evidence: input.evidence ?? existing?.evidence ?? [],
+      tags: uniqueStrings(input.tags ?? existing?.tags),
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveContainerEntries({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, entry),
+    });
+    return entry;
+  }
+
+  listContainerEntries(parentArtifactId?: string): ContainerEntry[] {
+    const store = this.storage.loadContainerEntries();
+    const items = store.items.slice().sort((a, b) => a.containerOffset - b.containerOffset);
+    if (!parentArtifactId) return items;
+    return items.filter((item) => item.parentArtifactId === parentArtifactId);
   }
 
   listArtifacts(): ArtifactRecord[] {

@@ -85,6 +85,13 @@ export const ArtifactKindSchema = z.enum([
   "other",
 ]);
 
+export const ArtifactVersionEntrySchema = z.object({
+  contentHash: z.string(),
+  capturedAt: TimestampSchema,
+  snapshotPath: z.string().optional(),
+  note: z.string().optional(),
+});
+
 export const ArtifactRecordSchema = z.object({
   id: IdSchema,
   kind: ArtifactKindSchema,
@@ -105,6 +112,37 @@ export const ArtifactRecordSchema = z.object({
   fileSize: z.number().int().nonnegative().optional(),
   contentHash: z.string().optional(),
   addressRange: AddressRangeSchema.optional(),
+  tags: z.array(z.string()).default([]),
+  // Lineage chain (Spec 025): derivedFrom names the direct parent;
+  // lineageRoot is the V0 of the chain (computed automatically);
+  // versionLabel defaults to "V<rank>" but the caller can set any
+  // free-form label and rename later via rename_artifact_version.
+  derivedFrom: IdSchema.optional(),
+  lineageRoot: IdSchema.optional(),
+  versionLabel: z.string().optional(),
+  versionRank: z.number().int().nonnegative().optional(),
+  // Same-path history. The latest entry's snapshot lives at the
+  // current path; older entries point to snapshots/<artifact-id>/<hash>.bin.
+  versions: z.array(ArtifactVersionEntrySchema).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+// Container sub-entry (Spec 025 R23 fold-in). A disk file may contain
+// named subentries that are not separate BAM/LUT files. Each sub-entry
+// is also represented as a normal artifact via derivedFrom = parentId.
+export const ContainerEntrySchema = z.object({
+  id: IdSchema,
+  parentArtifactId: IdSchema,
+  childArtifactId: IdSchema.optional(),
+  subKey: z.string().min(1),
+  containerOffset: z.number().int().nonnegative(),
+  containerLength: z.number().int().nonnegative(),
+  loadAddress: z.number().int().nonnegative().optional(),
+  registrationMode: z.enum(["resident", "transient", "deduped"]).optional(),
+  status: z.enum(["physically-present", "missing", "inherited"]).default("physically-present"),
+  inheritedFrom: IdSchema.optional(),
+  evidence: z.array(EvidenceRefSchema).default([]),
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
@@ -1111,6 +1149,7 @@ export function createRecordListSchema<T extends z.ZodTypeAny>(itemSchema: T) {
 }
 
 export const ArtifactStoreSchema = createRecordListSchema(ArtifactRecordSchema);
+export const ContainerEntryStoreSchema = createRecordListSchema(ContainerEntrySchema);
 export const EntityStoreSchema = createRecordListSchema(EntityRecordSchema);
 export const FindingStoreSchema = createRecordListSchema(FindingRecordSchema);
 export const RelationStoreSchema = createRecordListSchema(RelationRecordSchema);
@@ -1130,6 +1169,9 @@ export type WorkflowPlan = z.infer<typeof WorkflowPlanSchema>;
 export type WorkflowPhaseState = z.infer<typeof WorkflowPhaseStateSchema>;
 export type WorkflowState = z.infer<typeof WorkflowStateSchema>;
 export type ArtifactRecord = z.infer<typeof ArtifactRecordSchema>;
+export type ArtifactVersionEntry = z.infer<typeof ArtifactVersionEntrySchema>;
+export type ContainerEntry = z.infer<typeof ContainerEntrySchema>;
+export type ContainerEntryStore = z.infer<typeof ContainerEntryStoreSchema>;
 export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export type ArtifactScope = z.infer<typeof ArtifactScopeSchema>;
 export type EntityRecord = z.infer<typeof EntityRecordSchema>;

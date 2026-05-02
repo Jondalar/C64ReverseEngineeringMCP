@@ -212,7 +212,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "save_artifact",
-    "Persist an input, generated, analysis, or view artifact in the project knowledge layer. For project-level markdown documents (CLAUDE.md, docs/*.md, BUGREPORT.md, TODO.md, plans, status notes) call this with kind=\"other\", scope=\"knowledge\", format=\"md\", and a meaningful title so the workspace UI Docs tab surfaces them.",
+    "Persist an input, generated, analysis, or view artifact in the project knowledge layer. Lineage: pass `derived_from` to chain this artifact under a parent (V0 → V1 → ... → Vn); `version_label` defaults to `V<rank>` and can be renamed later via rename_artifact_version. For project-level markdown documents (CLAUDE.md, docs/*.md, BUGREPORT.md, TODO.md, plans, status notes) call this with kind=\"other\", scope=\"knowledge\", format=\"md\", and a meaningful title so the workspace UI Docs tab surfaces them.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -231,8 +231,11 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       status: z.enum(["proposed", "active", "confirmed", "rejected", "archived"]).optional(),
       tags: z.array(z.string()).optional(),
       evidence: z.array(evidenceSchema).optional(),
+      derived_from: z.string().optional().describe("Artifact id of the direct parent in the lineage chain (V0 if absent)."),
+      version_label: z.string().optional().describe("Free-form version label. Defaults to V<rank>."),
+      enable_snapshot: z.boolean().optional().describe("If true (default), record same-path content changes in versions[]. Set false for ephemeral saves."),
     },
-    safeHandler("save_artifact", async ({ project_dir, id, kind, scope, title, path, description, mime_type, format, role, produced_by_tool, source_artifact_ids, entity_ids, confidence, status, tags, evidence }) => {
+    safeHandler("save_artifact", async ({ project_dir, id, kind, scope, title, path, description, mime_type, format, role, produced_by_tool, source_artifact_ids, entity_ids, confidence, status, tags, evidence, derived_from, version_label, enable_snapshot }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const artifact = service.saveArtifact({
         id,
@@ -254,8 +257,143 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
           ...item,
           capturedAt: item.capturedAt ?? new Date().toISOString(),
         })),
+        derivedFrom: derived_from,
+        versionLabel: version_label,
+        enableSnapshot: enable_snapshot,
       });
-      return textContent(`Artifact saved.\nID: ${artifact.id}\nKind: ${artifact.kind}\nPath: ${artifact.relativePath}`);
+      const lineageBits = artifact.lineageRoot && artifact.lineageRoot !== artifact.id
+        ? `\nLineage: root=${artifact.lineageRoot}, ${artifact.versionLabel ?? `V${artifact.versionRank ?? 0}`} (rank ${artifact.versionRank ?? 0})`
+        : `\nLineage: root (${artifact.versionLabel ?? "V0"})`;
+      const versionsBits = artifact.versions && artifact.versions.length > 0
+        ? `\nVersions: ${artifact.versions.length} prior content hash(es) recorded.`
+        : "";
+      return textContent(`Artifact saved.\nID: ${artifact.id}\nKind: ${artifact.kind}\nPath: ${artifact.relativePath}${lineageBits}${versionsBits}`);
+    },
+));
+
+  server.tool(
+    "snapshot_artifact_before_overwrite",
+    "Spec 025: snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file. Appends a versions[] entry to the artifact so the prior bytes stay recoverable without git. Call this once per overwrite; saveArtifact afterwards will see the new hash and skip duplicating the version entry. Returns the snapshot path and byte size.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string(),
+    },
+    safeHandler("snapshot_artifact_before_overwrite", async ({ project_dir, artifact_id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.snapshotArtifactBeforeOverwrite(artifact_id);
+      if (!result) {
+        return textContent(`No snapshot taken. Either the artifact id was unknown or the on-disk file was missing.`);
+      }
+      return textContent([
+        `Snapshot recorded.`,
+        `Artifact: ${result.artifactId}`,
+        `Content hash: ${result.contentHash}`,
+        `Snapshot path: ${result.snapshotPath}`,
+        `Bytes: ${result.bytes}`,
+      ].join("\n"));
+    },
+));
+
+  server.tool(
+    "rename_artifact_version",
+    "Spec 025: change an artifact's free-form versionLabel without touching bytes or hash.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string(),
+      version_label: z.string().min(1),
+    },
+    safeHandler("rename_artifact_version", async ({ project_dir, artifact_id, version_label }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const updated = service.renameArtifactVersion(artifact_id, version_label);
+      if (!updated) return textContent(`Artifact ${artifact_id} not found.`);
+      return textContent(`Renamed to ${updated.versionLabel} (rank ${updated.versionRank ?? 0}).`);
+    },
+));
+
+  server.tool(
+    "get_artifact_lineage",
+    "Spec 025: return the V0..Vn lineage chain for the artifact's lineageRoot, ordered by versionRank ascending.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string(),
+    },
+    safeHandler("get_artifact_lineage", async ({ project_dir, artifact_id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const chain = service.getLineage(artifact_id);
+      if (chain.length === 0) return textContent(`Artifact ${artifact_id} not found.`);
+      const lines = [`Lineage (${chain.length} entries, root=${chain[0]!.lineageRoot ?? chain[0]!.id}):`];
+      for (const item of chain) {
+        const label = item.versionLabel ?? `V${item.versionRank ?? 0}`;
+        const versions = item.versions && item.versions.length > 0 ? ` (${item.versions.length} same-path version(s))` : "";
+        lines.push(`  [rank ${item.versionRank ?? 0}] ${label} ${item.id} ${item.relativePath}${versions}`);
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
+  server.tool(
+    "register_container_entry",
+    "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.). Idempotent on (parent_artifact_id, sub_key).",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      parent_artifact_id: z.string(),
+      child_artifact_id: z.string().optional().describe("Optional artifact id for the sub-entry as a first-class artifact. Use derived_from on save_artifact to chain it into the lineage."),
+      sub_key: z.string().describe("Identifier for the sub-entry (e.g. file key, frame name)."),
+      container_offset: z.number().int().nonnegative(),
+      container_length: z.number().int().nonnegative(),
+      load_address: z.number().int().nonnegative().optional(),
+      registration_mode: z.enum(["resident", "transient", "deduped"]).optional(),
+      status: z.enum(["physically-present", "missing", "inherited"]).optional(),
+      inherited_from: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+      evidence: z.array(evidenceSchema).optional(),
+    },
+    safeHandler("register_container_entry", async ({ project_dir, id, parent_artifact_id, child_artifact_id, sub_key, container_offset, container_length, load_address, registration_mode, status, inherited_from, tags, evidence }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const entry = service.saveContainerEntry({
+        id,
+        parentArtifactId: parent_artifact_id,
+        childArtifactId: child_artifact_id,
+        subKey: sub_key,
+        containerOffset: container_offset,
+        containerLength: container_length,
+        loadAddress: load_address,
+        registrationMode: registration_mode,
+        status,
+        inheritedFrom: inherited_from,
+        tags,
+        evidence: evidence?.map((item) => ({ ...item, capturedAt: item.capturedAt ?? new Date().toISOString() })),
+      });
+      return textContent([
+        `Container entry saved.`,
+        `ID: ${entry.id}`,
+        `Parent: ${entry.parentArtifactId}`,
+        `Sub-key: ${entry.subKey}`,
+        `Range: offset ${entry.containerOffset}, length ${entry.containerLength}`,
+        `Status: ${entry.status}`,
+        entry.childArtifactId ? `Child artifact: ${entry.childArtifactId}` : `(no child artifact id linked)`,
+      ].join("\n"));
+    },
+));
+
+  server.tool(
+    "list_container_entries",
+    "Spec 025 R23: list container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted). Sorted by container offset ascending.",
+    {
+      project_dir: z.string().optional(),
+      parent_artifact_id: z.string().optional(),
+    },
+    safeHandler("list_container_entries", async ({ project_dir, parent_artifact_id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const entries = service.listContainerEntries(parent_artifact_id);
+      if (entries.length === 0) return textContent(`No container entries${parent_artifact_id ? ` for parent ${parent_artifact_id}` : ""}.`);
+      const lines = [`Container entries: ${entries.length}`];
+      for (const entry of entries) {
+        const status = entry.status === "physically-present" ? "✓" : entry.status === "missing" ? "MISSING" : "inherited";
+        lines.push(`  ${entry.parentArtifactId} :: ${entry.subKey}  off=${entry.containerOffset} len=${entry.containerLength}  [${status}]${entry.childArtifactId ? ` → ${entry.childArtifactId}` : ""}`);
+      }
+      return textContent(lines.join("\n"));
     },
 ));
 
