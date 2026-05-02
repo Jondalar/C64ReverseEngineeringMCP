@@ -408,6 +408,52 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 051 Sprint 44: annotation draft endpoints.
+  if (requestUrl.pathname === "/api/annotations/draft" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const draftPath = requestUrl.searchParams.get("path")?.trim();
+    if (!draftPath) {
+      send(res, jsonResponse(400, { error: "missing path query param" }));
+      return;
+    }
+    try {
+      const fullPath = resolve(projectDir, draftPath);
+      if (!existsSync(fullPath)) {
+        send(res, jsonResponse(404, { error: "draft not found", path: fullPath }));
+        return;
+      }
+      const text = readFileSync(fullPath, "utf8");
+      send(res, jsonResponse(200, { projectDir, path: draftPath, content: JSON.parse(text) }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/annotations/save" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; finalPath: string; payload: unknown };
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const fullPath = resolve(projectDir, payload.finalPath);
+        const dir = dirname(fullPath);
+        if (!existsSync(dir)) {
+          send(res, jsonResponse(404, { error: `target directory missing: ${dir}` }));
+          return;
+        }
+        writeFileSync(fullPath, `${JSON.stringify(payload.payload, null, 2)}\n`, "utf8");
+        send(res, jsonResponse(200, { projectDir, finalPath: fullPath, ok: true }));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/audit" && req.method === "GET") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
