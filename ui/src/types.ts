@@ -238,6 +238,7 @@ export interface DiskLayoutView {
       id: string;
       title: string;
       type: string;
+      origin?: "kernal" | "custom";
       sizeSectors?: number;
       sizeBytes?: number;
       track?: number;
@@ -261,6 +262,10 @@ export interface DiskLayoutView {
       packer?: string;
       format?: string;
       notes?: string[];
+      md5?: string;
+      first16?: string;
+      last16?: string;
+      kindGuess?: string;
     }>;
   }>;
 }

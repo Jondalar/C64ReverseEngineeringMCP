@@ -605,6 +605,7 @@ export const DiskLayoutFileSchema = z.object({
   id: IdSchema,
   title: z.string().min(1),
   type: z.string().min(1),
+  origin: z.enum(["kernal", "custom"]).default("kernal"),
   sizeSectors: z.number().int().nonnegative().optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
   track: z.number().int().nonnegative().optional(),
@@ -628,6 +629,10 @@ export const DiskLayoutFileSchema = z.object({
   packer: z.string().optional(),
   format: z.string().optional(),
   notes: z.array(z.string()).default([]),
+  md5: z.string().optional(),
+  first16: z.string().optional(),
+  last16: z.string().optional(),
+  kindGuess: z.string().optional(),
 });
 
 export const DiskLayoutSectorCellSchema = z.object({

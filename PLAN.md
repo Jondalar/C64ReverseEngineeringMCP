@@ -231,21 +231,21 @@ Done when:
 Goal: replace the Lykia-style throw-away Python with first-class
 custom-LUT extraction in the MCP.
 
-Status: schema slice landed. `ExtractedDiskFile` gains `origin`,
-`md5`, `first16`, `last16`, `kindGuess`, and `origin_detail`. The
-`extract_disk` tool now stamps `origin: "kernal"`, an md5, the head
-and tail 16 bytes, and a `directoryEntry: {track,sector}` origin
-detail on every file. The new MCP tools and the disk-layout colour
-coding remain follow-ups.
+Status: complete for the first pass. Schema, three MCP tools, and the
+view-builder colour coding all landed.
 
 Todos:
 
 - [x] Add `origin`, `md5`, `first16`, `last16`, `kindGuess`,
       `origin_detail` to the disk-file descriptor and fill them from
       `extract_disk` for KERNAL files.
-- [ ] Implement `extract_disk_custom_lut`, `disk_sector_allocation`,
-      and `suggest_disk_lut_sector`.
-- [ ] Update the disk-layout view to colour-code by `origin`.
+- [x] Implement `extract_disk_custom_lut`, `disk_sector_allocation`,
+      and `suggest_disk_lut_sector` (`src/disk-custom-lut.ts` +
+      `src/server-tools/media.ts`).
+- [x] Update the disk-layout view to expose `origin`, `md5`,
+      `first16`, `last16`, `kindGuess` on every file and shift the
+      colour-hash 180° for `custom` so the UI reads as a distinct
+      family.
 
 Specs:
 

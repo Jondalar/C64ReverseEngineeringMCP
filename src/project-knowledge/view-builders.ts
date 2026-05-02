@@ -710,12 +710,17 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
           index?: number;
           name?: string;
           type?: string;
+          origin?: "kernal" | "custom";
           sizeSectors?: number;
           sizeBytes?: number;
           track?: number;
           sector?: number;
           loadAddress?: number;
           relativePath?: string;
+          md5?: string;
+          first16?: string;
+          last16?: string;
+          kindGuess?: string;
           sectorChain?: Array<{
             index?: number;
             track?: number;
@@ -781,11 +786,19 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             annotationCommentsByStage,
           });
           const title = file.name ?? `File ${index + 1}`;
-          const color = fnvHslColor([artifact.id, index, title, file.track ?? 0, file.sector ?? 0]);
+          const origin: "kernal" | "custom" = (file.origin === "custom" ? "custom" : "kernal");
+          // Bias the per-file colour so custom-LUT files read as a
+          // distinct family in the disk-layout grid: kernal gets the
+          // existing hash-derived hue, custom shifts it 180° around the
+          // wheel.
+          const colorKey: Array<string | number> = [artifact.id, index, title, file.track ?? 0, file.sector ?? 0];
+          if (origin === "custom") colorKey.push("custom");
+          const color = fnvHslColor(colorKey);
           return {
             id: `${artifact.id}-file-${index}`,
             title,
             type: file.type ?? "unknown",
+            origin,
             sizeSectors: file.sizeSectors,
             sizeBytes: file.sizeBytes,
             track: file.track,
@@ -801,6 +814,10 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             packer: file.packer ?? manifest?.defaultPacker,
             format: file.format ?? manifest?.defaultFormat,
             notes: file.notes ?? [],
+            md5: file.md5,
+            first16: file.first16,
+            last16: file.last16,
+            kindGuess: file.kindGuess,
           };
         });
       const fileBySector = new Map<string, { id: string; title: string; color?: string }>();
