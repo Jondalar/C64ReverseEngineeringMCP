@@ -11,14 +11,12 @@
     "build:pipeline": "tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
     "bootstrap:workspace": "npm run build:mcp && node scripts/bootstrap-existing-re-workspace.mjs",
-    "refresh:example-example": "npm run build:mcp && node scripts/refresh-example-example.mjs",
     "test:project-knowledge": "npm run build:mcp && node scripts/project-knowledge-smoke.mjs",
     "ui:api": "tsx src/workspace-ui/server.ts --api-only",
     "ui:dev": "vite --config ui/vite.config.ts --host 0.0.0.0 --port 4311",
     "ui:build": "vite build --config ui/vite.config.ts",
     "ui:typecheck": "tsc -p ui/tsconfig.json",
     "ui:serve": "tsx src/workspace-ui/server.ts",
-    "ui:spike": "npm run ui:build && npm run ui:serve -- --project examples/example-project",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {

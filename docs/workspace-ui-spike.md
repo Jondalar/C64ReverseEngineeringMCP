@@ -37,12 +37,11 @@ It is intentionally thin:
 
 ## Commands
 
-Use the seeded example project:
+Point the UI at any local C64RE project directory:
 
 ```bash
-npm run refresh:example-example
 npm run ui:build
-npm run ui:serve -- --project examples/example-project
+npm run ui:serve -- --project /path/to/your/re-project
 ```
 
 Then open:

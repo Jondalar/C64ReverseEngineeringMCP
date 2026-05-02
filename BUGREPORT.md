@@ -222,7 +222,7 @@ Then optionally:
 
 ## Bug 5 — Self-mod operand-patch target uses non-existent label, breaks rebuild
 
-**Status**: FIXED — `pipeline/src/lib/prg-disasm.ts` label collection now keeps mid-instruction xref targets out of the free-standing label set; the renderer falls through to `findCodeLabelExpression` which emits `<owner>+<offset>` (e.g. `WFF3D+1`) using the synthetic `W<addr>` label that the renderer already declares at every instruction boundary referenced by an xref. Verified on the example PRG: 274 self-mod patch sites now render as `W<addr>+1`/`+2` and the rebuild compares byte-identical.
+**Status**: FIXED — `pipeline/src/lib/prg-disasm.ts` label collection now keeps mid-instruction xref targets out of the free-standing label set; the renderer falls through to `findCodeLabelExpression` which emits `<owner>+<offset>` (e.g. `WFF3D+1`) using the synthetic `W<addr>` label that the renderer already declares at every instruction boundary referenced by an xref. Verified on a real-world PRG with heavy self-modifying code: 274 self-mod patch sites now render as `W<addr>+1`/`+2` and the rebuild compares byte-identical.
 
 **Severity**: High — disassembly does not assemble; defeats the byte-identity guarantee that is the tool's headline feature.
 

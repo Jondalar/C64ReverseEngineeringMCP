@@ -55,9 +55,6 @@ The design keeps semantic interpretation, persistence, derived views, and analys
 5. `src/project-knowledge/integration.ts`
    Thin integration layer that registers existing analysis outputs as structured artifacts and tool-run records without rewriting the underlying TRXDis, CRT, or disk extraction pipelines.
 
-7. `scripts/refresh-example-example.mjs`
-   Re-imports the seeded `example-project` artifacts and rebuilds every view so the example stays aligned with the current knowledge model.
-
 6. `src/project-knowledge/mcp-tools.ts`
    MCP-facing tool registration for the knowledge layer.
 
@@ -250,8 +247,6 @@ This keeps legacy output paths working while making the results available as str
 
 ## Example Workspace
 
-A seeded sample workspace is included at:
-
-- `examples/example-project`
-
-It contains persisted knowledge JSON, sample manifests, session history, checkpoints, and derived view-model files for the imaginary project `Example Cart`.
+There is no in-tree sample workspace. Point `C64RE_PROJECT_DIR` at any
+local reverse-engineering project and run `npm run ui:serve` to use the
+workspace UI against it.
