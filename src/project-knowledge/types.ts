@@ -632,6 +632,13 @@ export const FlowRecordSchema = z.object({
 
 export const TaskPrioritySchema = z.enum(["low", "medium", "high", "critical"]);
 
+// Spec 038: auto-close hints for NEXT-hint generated tasks.
+export const TaskAutoCloseHintSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("file-exists"), path: z.string() }),
+  z.object({ kind: z.literal("artifact-registered"), role: z.string() }),
+  z.object({ kind: z.literal("phase-reached"), artifactId: IdSchema, phase: z.number().int().min(1).max(7) }),
+]);
+
 export const TaskRecordSchema = z.object({
   id: IdSchema,
   kind: z.string().min(1),
@@ -644,10 +651,26 @@ export const TaskRecordSchema = z.object({
   entityIds: z.array(IdSchema).default([]),
   artifactIds: z.array(IdSchema).default([]),
   questionIds: z.array(IdSchema).default([]),
+  // Spec 038: auto-suggested NEXT-hint tasks.
+  producedByTool: z.string().optional(),
+  autoSuggested: z.boolean().optional(),
+  autoCloseHint: TaskAutoCloseHintSchema.optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
   completedAt: TimestampSchema.optional(),
 });
+
+// Spec 036 source provenance for open questions. Default "untagged"
+// for legacy records; new questions are expected to set source
+// explicitly via the producing tool.
+export const OpenQuestionSourceSchema = z.enum([
+  "heuristic-phase1",
+  "human-review",
+  "runtime-observation",
+  "static-analysis",
+  "other",
+  "untagged",
+]);
 
 export const OpenQuestionRecordSchema = z.object({
   id: IdSchema,
@@ -661,6 +684,10 @@ export const OpenQuestionRecordSchema = z.object({
   entityIds: z.array(IdSchema).default([]),
   artifactIds: z.array(IdSchema).default([]),
   findingIds: z.array(IdSchema).default([]),
+  // Spec 036: provenance + auto-resolvable hint.
+  source: OpenQuestionSourceSchema.default("untagged"),
+  autoResolvable: z.boolean().optional(),
+  autoResolveHint: z.string().optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
   answeredByFindingId: IdSchema.optional(),

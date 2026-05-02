@@ -216,6 +216,21 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         } else if (knowledgeRegistration.message) {
           result.stdout += `\n${knowledgeRegistration.message}`;
         }
+        // Spec 038: emit auto-suggested NEXT-step task.
+        try {
+          const knowledgeService = new ProjectKnowledgeService(pd);
+          const expectedAsm = prgAbs.replace(/\.prg$/i, "_disasm.asm");
+          knowledgeService.emitNextStepTask({
+            producedByTool: "analyze_prg",
+            artifactIds: [knowledgeRegistration.outputArtifacts?.[0] ?? basename(prgAbs)],
+            title: `Run disasm_prg on ${basename(prgAbs)}`,
+            description: `Disassemble using ${basename(outAbs)} and verify rebuild.`,
+            autoCloseHint: { kind: "file-exists", path: expectedAsm },
+            priority: "medium",
+          });
+        } catch {
+          // best effort
+        }
         const packerSummary = summarizePackerHints(packerHints);
         if (packerSummary.length > 0) {
           result.stdout += `\n${packerSummary.join("\n")}`;
@@ -303,6 +318,21 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}\n${verificationSummary}`;
         if (!hasAnnotations) {
           result.stdout += `\n\nNEXT STEP: Read the full ASM with read_artifact, then create ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then run disasm_prg again to produce the final annotated version.`;
+          // Spec 038: track NEXT-hint as auto-suggested task.
+          try {
+            const knowledgeService = new ProjectKnowledgeService(pd);
+            const subjectId = knowledgeRegistration.runPath ? `analysis-run:${basename(prgAbs)}` : basename(prgAbs);
+            knowledgeService.emitNextStepTask({
+              producedByTool: "disasm_prg",
+              artifactIds: [subjectId],
+              title: `Write ${basename(annotationsPath)}`,
+              description: `Write semantic annotations file then re-run disasm_prg with annotations.`,
+              autoCloseHint: { kind: "file-exists", path: annotationsPath },
+              priority: "medium",
+            });
+          } catch {
+            // best effort
+          }
         } else {
           result.stdout += `\nAnnotations applied from: ${annotationsPath}`;
         }

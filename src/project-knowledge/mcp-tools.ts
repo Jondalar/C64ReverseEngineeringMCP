@@ -379,6 +379,19 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 038: walk auto-suggested tasks, close those whose
+  // autoCloseHint is satisfied. Also runs in agent_onboard.
+  server.tool(
+    "close_completed_tasks",
+    "Spec 038: walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied. Idempotent. Also runs automatically in agent_onboard.",
+    { project_dir: z.string().optional() },
+    safeHandler("close_completed_tasks", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.closeCompletedAutoTasks();
+      return textContent(`Auto-task sweep: ${result.closed} closed of ${result.checked} eligible.`);
+    },
+));
+
   // Spec 034 / 035: phase orchestration tools.
   server.tool(
     "agent_advance_phase",
@@ -1039,7 +1052,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "save_open_question",
-    "Persist a structured open question or ambiguity in the project knowledge layer.",
+    "Persist a structured open question or ambiguity in the project knowledge layer. Spec 036: pass `source` to tag provenance (default `human-review`); the Questions tab sorts by source so heuristic-phase1 noise sinks below human-review questions.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1052,11 +1065,14 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       entity_ids: z.array(z.string()).optional(),
       artifact_ids: z.array(z.string()).optional(),
       finding_ids: z.array(z.string()).optional(),
+      source: z.enum(["heuristic-phase1", "human-review", "runtime-observation", "static-analysis", "other", "untagged"]).optional().describe("Spec 036 provenance. Default human-review when called manually."),
+      auto_resolvable: z.boolean().optional().describe("Spec 036: if true, the next disasm pass / phase advance should answer this."),
+      auto_resolve_hint: z.string().optional().describe("Free-form note describing when this question becomes resolvable."),
       answered_by_finding_id: z.string().optional(),
       answer_summary: z.string().optional(),
       evidence: z.array(evidenceSchema).optional(),
     },
-    safeHandler("save_open_question", async ({ project_dir, id, kind, title, description, status, priority, confidence, entity_ids, artifact_ids, finding_ids, answered_by_finding_id, answer_summary, evidence }) => {
+    safeHandler("save_open_question", async ({ project_dir, id, kind, title, description, status, priority, confidence, entity_ids, artifact_ids, finding_ids, source, auto_resolvable, auto_resolve_hint, answered_by_finding_id, answer_summary, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const question = service.saveOpenQuestion({
         id,
@@ -1069,6 +1085,9 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         entityIds: entity_ids,
         artifactIds: artifact_ids,
         findingIds: finding_ids,
+        source: source ?? "human-review",
+        autoResolvable: auto_resolvable,
+        autoResolveHint: auto_resolve_hint,
         answeredByFindingId: answered_by_finding_id,
         answerSummary: answer_summary,
         evidence: evidence?.map((item) => ({
@@ -1076,7 +1095,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
           capturedAt: item.capturedAt ?? new Date().toISOString(),
         })),
       });
-      return textContent(`Open question saved.\nID: ${question.id}\nTitle: ${question.title}\nStatus: ${question.status}`);
+      return textContent(`Open question saved.\nID: ${question.id}\nTitle: ${question.title}\nStatus: ${question.status}\nSource: ${question.source}`);
     },
 ));
 

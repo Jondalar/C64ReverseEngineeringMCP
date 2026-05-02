@@ -11,6 +11,7 @@ export const PROJECT_REPAIR_OPERATIONS = [
   "import-analysis",
   "import-manifest",
   "build-views",
+  "backfill-question-source",
 ] as const;
 
 export type ProjectRepairOperation = typeof PROJECT_REPAIR_OPERATIONS[number];
@@ -182,7 +183,7 @@ function manifestImportCandidates(service: ProjectKnowledgeService): Array<{ id:
 function operationList(options?: ProjectRepairOperation[]): ProjectRepairOperation[] {
   return options?.length
     ? options
-    : ["merge-fragments", "register-artifacts", "import-analysis", "import-manifest", "build-views"];
+    : ["merge-fragments", "register-artifacts", "import-analysis", "import-manifest", "backfill-question-source", "build-views"];
 }
 
 export function repairProject(projectRoot: string, options: ProjectRepairOptions = {}): ProjectRepairResult {
@@ -292,6 +293,32 @@ export function repairProject(projectRoot: string, options: ProjectRepairOptions
       }
     }
     if (manifests.length === 0) skipped.push("import-manifest: no unimported manifest artifacts found");
+  }
+
+  if (operations.includes("backfill-question-source")) {
+    // Spec 036: tag legacy questions whose source is missing or
+    // "untagged" using a heuristic mapping from producedByTool /
+    // title regex.
+    const allQuestions = service.listOpenQuestions();
+    const untagged = allQuestions.filter((q) => !q.source || q.source === "untagged");
+    planned.push(`backfill-question-source: ${untagged.length} untagged question(s)`);
+    if (mode === "safe" && untagged.length > 0) {
+      const counts: Record<string, number> = {};
+      for (const q of untagged) {
+        const title = q.title.toLowerCase();
+        const description = (q.description ?? "").toLowerCase();
+        let source: "heuristic-phase1" | "human-review" | "runtime-observation" | "static-analysis" | "other";
+        if (/classification uncertain|unknown range|heuristic/.test(title)) source = "heuristic-phase1";
+        else if (/trace|observed|runtime/.test(title) || /trace/.test(description)) source = "runtime-observation";
+        else if (/draft|auto-suggest|propose_annotations|static.*analysis/.test(title)) source = "static-analysis";
+        else source = "other";
+        counts[source] = (counts[source] ?? 0) + 1;
+        service.saveOpenQuestion({ id: q.id, kind: q.kind, title: q.title, source });
+      }
+      executed.push(`backfilled ${untagged.length} question(s): ${Object.entries(counts).map(([s, n]) => `${s}=${n}`).join(", ")}`);
+    } else if (untagged.length === 0) {
+      skipped.push("backfill-question-source: nothing untagged");
+    }
   }
 
   if (operations.includes("build-views")) {

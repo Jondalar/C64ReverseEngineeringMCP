@@ -351,6 +351,8 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // Bug 16 / Spec 022: auto-import analysis runs whose entities are
       // not yet back-linked, so the audit no longer warns about them.
       const autoImport = service.autoImportUnimportedAnalysisRuns();
+      // Spec 038: close auto-suggested tasks whose hint is satisfied.
+      const autoClose = service.closeCompletedAutoTasks();
       const status = service.getProjectStatus();
       const state = loadAgentState(projectRoot);
       const cached: AuditCachedResult = auditProjectCached(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
@@ -362,6 +364,10 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push(`# Agent Onboarding`);
       if (autoImport.imported > 0) {
         lines.push(`Auto-imported ${autoImport.imported} analysis-run artifact(s): ${autoImport.entities} entities, ${autoImport.findings} findings, ${autoImport.relations} relations, ${autoImport.flows} flows, ${autoImport.questions} open questions.`);
+        lines.push(``);
+      }
+      if (autoClose.closed > 0) {
+        lines.push(`Auto-closed ${autoClose.closed} of ${autoClose.checked} auto-suggested task(s) whose hint conditions are now satisfied.`);
         lines.push(``);
       }
       lines.push(``);

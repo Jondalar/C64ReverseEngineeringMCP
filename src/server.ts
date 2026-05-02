@@ -23,6 +23,7 @@ import { registerPayloadTools } from "./server-tools/payloads.js";
 import { registerRegistrationTools } from "./server-tools/registration.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
+import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
 import { registerViceTools } from "./server-tools/vice.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
 
@@ -81,6 +82,28 @@ function tryRegisterKnowledgeArtifacts(
   }
 }
 
+// Spec 039: wrap server.tool() so descriptions get an auto-injected
+// `[Phase N]` (or `[Phase agnostic]`) prefix sourced from
+// src/agent-orchestrator/phase-tools.ts. Tools without a registered
+// phase keep their original description unchanged.
+function applyPhaseTagInjector(server: McpServer): void {
+  const original = server.tool.bind(server) as (...args: unknown[]) => unknown;
+  (server as { tool: (...args: unknown[]) => unknown }).tool = (...args: unknown[]) => {
+    if (args.length >= 2 && typeof args[0] === "string" && typeof args[1] === "string") {
+      const toolName = args[0];
+      const description = args[1];
+      const tag = phaseForTool(toolName);
+      if (tag !== undefined) {
+        const prefix = tag === "agnostic" ? "[Phase agnostic]" : `[Phase ${tag}: ${PHASE_TITLES[tag]}]`;
+        if (!description.startsWith("[Phase")) {
+          args[1] = `${prefix} ${description}`;
+        }
+      }
+    }
+    return original(...args);
+  };
+}
+
 function createServer(): McpServer {
   const server = new McpServer({
     name: "c64-reverse-engineering",
@@ -88,6 +111,9 @@ function createServer(): McpServer {
   }, {
     capabilities: { logging: {} },
   });
+
+  // Spec 039: phase-tag prefix injection on every server.tool() call.
+  applyPhaseTagInjector(server);
 
   const toolContext: ServerToolContext = {
     projectDir,

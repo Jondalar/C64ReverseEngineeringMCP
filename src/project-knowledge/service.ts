@@ -426,6 +426,10 @@ export interface SaveTaskInput {
   entityIds?: string[];
   artifactIds?: string[];
   questionIds?: string[];
+  // Spec 038: NEXT-hint auto-suggested task metadata.
+  producedByTool?: string;
+  autoSuggested?: boolean;
+  autoCloseHint?: TaskRecord["autoCloseHint"];
 }
 
 export interface SaveOpenQuestionInput {
@@ -440,6 +444,10 @@ export interface SaveOpenQuestionInput {
   entityIds?: string[];
   artifactIds?: string[];
   findingIds?: string[];
+  // Spec 036: provenance tagging.
+  source?: OpenQuestionRecord["source"];
+  autoResolvable?: boolean;
+  autoResolveHint?: string;
   answeredByFindingId?: string;
   answerSummary?: string;
 }
@@ -1367,6 +1375,94 @@ export class ProjectKnowledgeService {
     return updated;
   }
 
+  // Spec 038: helper called by every NEXT-hint emitter (analyze_prg,
+  // disasm_prg, etc.). Idempotent on
+  // (producedByTool, artifactId, sha1(title)). Cascade-suppress: if
+  // an open auto-task exists for the same producedByTool +
+  // artifactId, close it before emitting the new one.
+  emitNextStepTask(args: {
+    producedByTool: string;
+    artifactIds: string[];
+    title: string;
+    description?: string;
+    autoCloseHint?: TaskRecord["autoCloseHint"];
+    priority?: TaskRecord["priority"];
+  }): TaskRecord {
+    const { producedByTool, artifactIds, title } = args;
+    const primaryArtifactId = artifactIds[0] ?? "";
+    const titleHash = createHash("sha1").update(title).digest("hex").slice(0, 8);
+    const id = `auto-task:${producedByTool}:${primaryArtifactId}:${titleHash}`.replace(/[^a-zA-Z0-9_:.-]+/g, "-").toLowerCase();
+    // Cascade-suppress earlier auto-tasks from same producedByTool on
+    // the same artifact whose hash differs.
+    const store = this.storage.loadTasks();
+    const cascadeTargets = store.items.filter((item) =>
+      item.autoSuggested === true
+      && item.producedByTool === producedByTool
+      && item.id !== id
+      && item.status !== "done"
+      && item.status !== "wont_fix"
+      && primaryArtifactId
+      && item.artifactIds.includes(primaryArtifactId)
+    );
+    for (const target of cascadeTargets) {
+      this.saveTask({
+        id: target.id,
+        kind: target.kind,
+        title: target.title,
+        status: "done",
+      });
+    }
+    return this.saveTask({
+      id,
+      kind: "auto-suggested",
+      title,
+      description: args.description,
+      priority: args.priority,
+      artifactIds,
+      producedByTool,
+      autoSuggested: true,
+      autoCloseHint: args.autoCloseHint,
+    });
+  }
+
+  // Spec 038: walk auto-suggested tasks, evaluate autoCloseHint,
+  // close those whose hint is satisfied. Returns counts.
+  closeCompletedAutoTasks(): { closed: number; checked: number } {
+    const store = this.storage.loadTasks();
+    let checked = 0;
+    let closed = 0;
+    const allArtifacts = this.listArtifacts();
+    for (const task of store.items) {
+      if (task.autoSuggested !== true) continue;
+      if (task.status === "done" || task.status === "wont_fix") continue;
+      if (!task.autoCloseHint) continue;
+      checked += 1;
+      let satisfied = false;
+      const hint = task.autoCloseHint;
+      switch (hint.kind) {
+        case "file-exists": {
+          const fullPath = resolve(this.storage.paths.root, hint.path);
+          satisfied = existsSync(fullPath);
+          break;
+        }
+        case "artifact-registered": {
+          satisfied = allArtifacts.some((a) => a.role === hint.role);
+          break;
+        }
+        case "phase-reached": {
+          const target = allArtifacts.find((a) => a.id === hint.artifactId);
+          satisfied = !!target && (target.phase ?? 1) >= hint.phase;
+          break;
+        }
+      }
+      if (satisfied) {
+        this.saveTask({ id: task.id, kind: task.kind, title: task.title, status: "done" });
+        closed += 1;
+      }
+    }
+    return { closed, checked };
+  }
+
   // Spec 022 / Bug 16: re-import analysis-run artifacts whose entities
   // are not yet back-linked. Idempotent. Called automatically by
   // agent_onboard so the audit no longer warns about unimported runs.
@@ -1598,6 +1694,9 @@ export class ProjectKnowledgeService {
       entityIds: uniqueStrings(input.entityIds ?? existing?.entityIds),
       artifactIds: uniqueStrings(input.artifactIds ?? existing?.artifactIds),
       questionIds: uniqueStrings(input.questionIds ?? existing?.questionIds),
+      producedByTool: input.producedByTool ?? existing?.producedByTool,
+      autoSuggested: input.autoSuggested ?? existing?.autoSuggested,
+      autoCloseHint: input.autoCloseHint ?? existing?.autoCloseHint,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
       completedAt: input.status === "done" ? timestamp : existing?.completedAt,
@@ -1659,6 +1758,9 @@ export class ProjectKnowledgeService {
       entityIds: uniqueStrings(input.entityIds ?? existing?.entityIds),
       artifactIds: uniqueStrings(input.artifactIds ?? existing?.artifactIds),
       findingIds: uniqueStrings(input.findingIds ?? existing?.findingIds),
+      source: input.source ?? existing?.source ?? "untagged",
+      autoResolvable: input.autoResolvable ?? existing?.autoResolvable,
+      autoResolveHint: input.autoResolveHint ?? existing?.autoResolveHint,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
       answeredByFindingId: input.answeredByFindingId ?? existing?.answeredByFindingId,
@@ -1721,7 +1823,10 @@ export class ProjectKnowledgeService {
       this.saveFlow(flow);
     }
     for (const question of imported.openQuestions) {
-      this.saveOpenQuestion(question);
+      // Spec 036: questions imported from analysis-run artifacts are
+      // by definition heuristic Phase-1 output. Tag them so the UI
+      // can sort them below human-review questions.
+      this.saveOpenQuestion({ ...question, source: "heuristic-phase1" });
     }
     this.appendTimelineEvent({
       kind: "note",
