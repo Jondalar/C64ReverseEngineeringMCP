@@ -6,11 +6,43 @@ export interface LoadedPrg {
   mapping: MemoryMapping;
 }
 
+// Bug 19 (BUGREPORT): analyze_prg used to accept any file and
+// reinterpret the first two bytes as a PRG load address, producing
+// garbage analysis (and overflow-rejected schemas via Bug 18) for
+// JSON / text / oversized blobs that auto-pipelines mistakenly
+// fed in. Validate input shape before reading anything.
+function validatePrgInput(file: Buffer, prgPath: string): void {
+  if (file.length < 3) {
+    throw new Error(`PRG too small: ${prgPath} is ${file.length} bytes; need at least 3 (2-byte header + body).`);
+  }
+  // 2-byte header + max 64 KB body = 65538 bytes total.
+  if (file.length > 65538) {
+    throw new Error(
+      `Not a PRG: ${prgPath} is ${file.length} bytes, exceeds the 65538-byte PRG limit. ` +
+      `If this is a raw blob with a known load address, use analyze_raw / --load-address instead.`,
+    );
+  }
+  const load = file[0]! | (file[1]! << 8);
+  const end = load + (file.length - 2) - 1;
+  if (end > 0xffff) {
+    throw new Error(
+      `Not a PRG: ${prgPath} load=$${load.toString(16).padStart(4, "0").toUpperCase()} + body=${file.length - 2} bytes overflows the 16-bit address space ` +
+      `(end=$${end.toString(16).toUpperCase()}). Use analyze_raw with an explicit load address if this is a cart or other non-CPU-mapped blob.`,
+    );
+  }
+  // Soft warning if the first body byte is printable-ASCII brace /
+  // bracket / quote — strong hint the file is actually JSON or text.
+  const firstBody = file[2];
+  if (firstBody !== undefined && [0x7b, 0x5b, 0x22].includes(firstBody)) {
+    process.stderr.write(
+      `[c64re analyze_prg] WARNING: ${prgPath} body starts with 0x${firstBody.toString(16)} ('${String.fromCharCode(firstBody)}') — looks like JSON/text. Continuing anyway, but the analysis will likely be garbage.\n`,
+    );
+  }
+}
+
 export function loadPrg(prgPath: string): LoadedPrg {
   const file = readFileSync(prgPath);
-  if (file.length < 2) {
-    throw new Error(`PRG too small: ${prgPath}`);
-  }
+  validatePrgInput(file, prgPath);
 
   const loadAddress = file.readUInt16LE(0);
   const buffer = file.subarray(2);

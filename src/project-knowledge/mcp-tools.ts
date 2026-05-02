@@ -392,6 +392,243 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 032 R24: build pipelines.
+  server.tool(
+    "save_build_pipeline",
+    "Spec 032 / R24: define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes. Idempotent on id; pass id to update.",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      title: z.string(),
+      description: z.string().optional(),
+      steps: z.array(z.object({
+        id: z.string(),
+        title: z.string(),
+        command: z.string(),
+        cwd: z.string().optional(),
+        inputArtifactIds: z.array(z.string()).optional(),
+        outputArtifactIds: z.array(z.string()).optional(),
+        expectedOutputHashes: z.record(z.string(), z.string()).optional(),
+        sideEffects: z.array(z.string()).optional(),
+      })),
+      tags: z.array(z.string()).optional(),
+    },
+    safeHandler("save_build_pipeline", async ({ project_dir, id, title, description, steps, tags }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const pipeline = service.saveBuildPipeline({
+        id,
+        title,
+        description,
+        steps: steps.map((s) => ({
+          id: s.id,
+          title: s.title,
+          command: s.command,
+          cwd: s.cwd,
+          inputArtifactIds: s.inputArtifactIds ?? [],
+          outputArtifactIds: s.outputArtifactIds ?? [],
+          expectedOutputHashes: s.expectedOutputHashes,
+          sideEffects: s.sideEffects ?? [],
+          evidence: [],
+        })),
+        tags: tags ?? [],
+      });
+      return textContent(`Pipeline saved.\nID: ${pipeline.id}\nSteps: ${pipeline.steps.length}`);
+    },
+));
+
+  server.tool(
+    "list_build_pipelines",
+    "Spec 032: list registered build pipelines.",
+    { project_dir: z.string().optional() },
+    safeHandler("list_build_pipelines", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const items = service.listBuildPipelines();
+      if (items.length === 0) return textContent("No build pipelines defined.");
+      return textContent(items.map((p) => `${p.id} | ${p.title} | steps=${p.steps.length}`).join("\n"));
+    },
+));
+
+  server.tool(
+    "start_build_run",
+    "Spec 032: start a build run for a pipeline. mode='dry-run' (default) records all steps as skipped; mode='record' marks them pending so record_build_step_result can update them as the caller executes the commands externally.",
+    {
+      project_dir: z.string().optional(),
+      pipeline_id: z.string(),
+      mode: z.enum(["dry-run", "record"]).optional(),
+    },
+    safeHandler("start_build_run", async ({ project_dir, pipeline_id, mode }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      try {
+        const run = service.startBuildRun(pipeline_id, mode ?? "dry-run");
+        return textContent(`Build run started.\nRun: ${run.id}\nPipeline: ${run.pipelineId}\nSteps: ${run.steps.length}`);
+      } catch (error) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "start_build_run",
+          error instanceof Error ? error.message : String(error),
+          `list_build_pipelines() to discover valid pipeline ids.`,
+        );
+      }
+    },
+));
+
+  server.tool(
+    "record_build_step_result",
+    "Spec 032: record the outcome of a single build step (status + exit code + actual output hashes).",
+    {
+      project_dir: z.string().optional(),
+      run_id: z.string(),
+      step_id: z.string(),
+      status: z.enum(["pending", "running", "ok", "failed", "skipped"]),
+      exit_code: z.number().int().optional(),
+      stdout_tail: z.string().optional(),
+      stderr_tail: z.string().optional(),
+      actual_output_hashes: z.record(z.string(), z.string()).optional(),
+      duration_ms: z.number().int().nonnegative().optional(),
+    },
+    safeHandler("record_build_step_result", async ({ project_dir, run_id, step_id, status, exit_code, stdout_tail, stderr_tail, actual_output_hashes, duration_ms }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const run = service.recordBuildStepResult(run_id, {
+        stepId: step_id,
+        status,
+        exitCode: exit_code,
+        stdoutTail: stdout_tail,
+        stderrTail: stderr_tail,
+        actualOutputHashes: actual_output_hashes,
+        durationMs: duration_ms,
+      });
+      if (!run) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "record_build_step_result",
+          `Build run '${run_id}' not found.`,
+          `list_build_pipelines + manual list_build_runs to discover valid run ids.`,
+        );
+      }
+      return textContent(`Step ${step_id} -> ${status}.\nRun status: ${run.status}.`);
+    },
+));
+
+  // Spec 030 R20: runtime scenarios + diff.
+  server.tool(
+    "define_runtime_scenario",
+    "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Used by run_runtime_scenario + diff_scenario_runs to compare original vs port builds.",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      title: z.string(),
+      description: z.string().optional(),
+      target_kind: z.enum(["disk", "crt", "prg"]),
+      target_artifact_id: z.string(),
+      start_media: z.array(z.string()).optional(),
+      breakpoints: z.array(z.object({ pc: z.number().int().nonnegative(), label: z.string().optional(), bank: z.number().int().nonnegative().optional() })).optional(),
+      stop_kind: z.enum(["frame-count", "pc-hit", "timeout-seconds"]),
+      stop_value: z.union([z.number().int(), z.string()]),
+      expected_milestone: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+    safeHandler("define_runtime_scenario", async ({ project_dir, id, title, description, target_kind, target_artifact_id, start_media, breakpoints, stop_kind, stop_value, expected_milestone, tags }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const scenario = service.saveRuntimeScenario({
+        id,
+        title,
+        description,
+        target: { kind: target_kind, artifactId: target_artifact_id },
+        startMedia: start_media ?? [],
+        breakpoints: breakpoints ?? [],
+        stopCondition: { kind: stop_kind, value: stop_value },
+        expectedMilestone: expected_milestone,
+        tags: tags ?? [],
+      });
+      return textContent(`Scenario saved.\nID: ${scenario.id}\nTitle: ${scenario.title}\nTarget: ${scenario.target.kind}/${scenario.target.artifactId}`);
+    },
+));
+
+  server.tool(
+    "list_runtime_scenarios",
+    "Spec 030: list defined scenarios.",
+    { project_dir: z.string().optional() },
+    safeHandler("list_runtime_scenarios", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const items = service.listRuntimeScenarios();
+      if (items.length === 0) return textContent("No scenarios defined.");
+      return textContent(items.map((s) => `${s.id} | ${s.title} | target=${s.target.artifactId}`).join("\n"));
+    },
+));
+
+  server.tool(
+    "record_runtime_event_summary",
+    "Spec 030: persist a runtime-event summary for a scenario run. Pass scenarios id + observed events; usually emitted by trace tooling. Returns the assigned runId.",
+    {
+      project_dir: z.string().optional(),
+      run_id: z.string().optional(),
+      scenario_id: z.string(),
+      build_label: z.string().optional(),
+      target_kind: z.string(),
+      target_artifact_id: z.string(),
+      events: z.array(z.object({
+        capturedAt: z.string(),
+        pc: z.number().int().nonnegative(),
+        bank: z.number().int().nonnegative().optional(),
+        caller: z.number().int().nonnegative().optional(),
+        fileKey: z.string().optional(),
+        trackSector: z.object({ track: z.number().int(), sector: z.number().int() }).optional(),
+        destinationStart: z.number().int().nonnegative().optional(),
+        destinationEnd: z.number().int().nonnegative().optional(),
+        sideIndex: z.number().int().nonnegative().optional(),
+        containerSubKey: z.string().optional(),
+        success: z.boolean().optional(),
+        notes: z.string().optional(),
+      })),
+      hashes: z.record(z.string(), z.string()).optional(),
+      reached_milestone: z.boolean().optional(),
+    },
+    safeHandler("record_runtime_event_summary", async ({ project_dir, run_id, scenario_id, build_label, target_kind, target_artifact_id, events, hashes, reached_milestone }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const summary = service.recordRuntimeEventSummary({
+        runId: run_id,
+        scenarioId: scenario_id,
+        buildLabel: build_label,
+        target: { kind: target_kind, artifactId: target_artifact_id },
+        events: events.map((e) => ({ ...e, success: e.success ?? true })),
+        hashes: hashes ?? {},
+        reachedMilestone: reached_milestone ?? false,
+      });
+      return textContent(`Run summary saved.\nRun: ${summary.runId}\nScenario: ${summary.scenarioId}\nEvents: ${summary.events.length}`);
+    },
+));
+
+  server.tool(
+    "diff_scenario_runs",
+    "Spec 030: diff two recorded scenario runs (baseline vs candidate). Emits + persists a RuntimeDiff with missingLoads, extraLoads, diffDestination, diffPayloadHash, divergentPc.",
+    {
+      project_dir: z.string().optional(),
+      baseline_run_id: z.string(),
+      candidate_run_id: z.string(),
+    },
+    safeHandler("diff_scenario_runs", async ({ project_dir, baseline_run_id, candidate_run_id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const diff = service.diffRuntimeRuns(baseline_run_id, candidate_run_id);
+      if (!diff) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "diff_scenario_runs",
+          `One or both run ids not found.`,
+          `list_runtime_scenarios + list_runtime_event_summaries to discover valid runs.`,
+        );
+      }
+      return textContent([
+        `Diff written.`,
+        `ID: ${diff.id}`,
+        `Missing loads: ${diff.missingLoads.length}`,
+        `Extra loads: ${diff.extraLoads.length}`,
+        `Diff destinations: ${diff.diffDestination.length}`,
+        `Diff payload hashes: ${diff.diffPayloadHash.length}`,
+        `Divergent PCs (first 20): ${diff.divergentPc.length}`,
+      ].join("\n"));
+    },
+));
+
   // Spec 037: payload disk hint.
   server.tool(
     "set_payload_disk_hint",

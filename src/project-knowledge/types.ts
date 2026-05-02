@@ -33,9 +33,16 @@ export const ConfidenceSchema = z.number().min(0).max(1);
 export const IdSchema = z.string().min(1);
 export const TimestampSchema = z.string().min(1);
 
+// Bug 17 / Bug 18 (BUGREPORT): cart banks live at flattened offsets
+// >= $10000 (bank 0 = $0000-$1FFF, bank 8 = $10000-$11FFF, etc.).
+// AddressRangeSchema is reused across entities, findings, evidence,
+// flows, relations, view models, etc. — widening here propagates
+// the fix to every consumer in one edit (Bug 17 only widened the
+// view schemas). C64 main-CPU addresses still naturally fit 16 bits;
+// the wider range only matters for cart-internal offsets.
 export const AddressRangeSchema = z.object({
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
   bank: z.number().int().nonnegative().optional(),
   label: z.string().optional(),
 });
@@ -298,6 +305,116 @@ export const ConstraintRuleSchema = z.object({
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
+});
+
+// Spec 032 build pipelines: ordered structured steps with explicit
+// inputs / outputs / expected hashes / verification. Used by R24
+// stale-output detection + run_build_pipeline orchestrator.
+export const BuildStepSchema = z.object({
+  id: IdSchema,
+  title: z.string().min(1),
+  command: z.string().min(1),
+  cwd: z.string().optional(),
+  inputArtifactIds: z.array(IdSchema).default([]),
+  outputArtifactIds: z.array(IdSchema).default([]),
+  expectedOutputHashes: z.record(z.string(), z.string()).optional(),
+  byteIdentityCheck: z.object({ artifactId: IdSchema, against: z.string() }).optional(),
+  sideEffects: z.array(z.string()).default([]),
+  evidence: z.array(EvidenceRefSchema).default([]),
+});
+
+export const BuildPipelineSchema = z.object({
+  id: IdSchema,
+  title: z.string().min(1),
+  description: z.string().optional(),
+  steps: z.array(BuildStepSchema).default([]),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const BuildRunStepResultSchema = z.object({
+  stepId: IdSchema,
+  status: z.enum(["pending", "running", "ok", "failed", "skipped"]),
+  exitCode: z.number().int().optional(),
+  stdoutTail: z.string().optional(),
+  stderrTail: z.string().optional(),
+  actualOutputHashes: z.record(z.string(), z.string()).optional(),
+  durationMs: z.number().int().nonnegative().optional(),
+});
+
+export const BuildRunSchema = z.object({
+  id: IdSchema,
+  pipelineId: IdSchema,
+  startedAt: TimestampSchema,
+  completedAt: TimestampSchema.optional(),
+  steps: z.array(BuildRunStepResultSchema).default([]),
+  status: z.enum(["running", "ok", "partial", "failed"]),
+});
+
+// Spec 030 runtime scenarios: define-once-run-many. Used by R20
+// scenario diffs (original vs port build N).
+export const RuntimeScenarioSchema = z.object({
+  id: IdSchema,
+  title: z.string().min(1),
+  description: z.string().optional(),
+  target: z.object({
+    kind: z.enum(["disk", "crt", "prg"]),
+    artifactId: IdSchema,
+  }),
+  startMedia: z.array(z.string()).default([]),
+  breakpoints: z.array(z.object({
+    pc: z.number().int().nonnegative(),
+    label: z.string().optional(),
+    bank: z.number().int().nonnegative().optional(),
+  })).default([]),
+  stopCondition: z.object({
+    kind: z.enum(["frame-count", "pc-hit", "timeout-seconds"]),
+    value: z.union([z.number().int(), z.string()]),
+  }),
+  expectedMilestone: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const RuntimeEventSchema = z.object({
+  capturedAt: TimestampSchema,
+  pc: z.number().int().nonnegative(),
+  bank: z.number().int().nonnegative().optional(),
+  caller: z.number().int().nonnegative().optional(),
+  fileKey: z.string().optional(),
+  trackSector: z.object({ track: z.number().int(), sector: z.number().int() }).optional(),
+  destinationStart: z.number().int().nonnegative().optional(),
+  destinationEnd: z.number().int().nonnegative().optional(),
+  sideIndex: z.number().int().nonnegative().optional(),
+  containerSubKey: z.string().optional(),
+  success: z.boolean().default(true),
+  notes: z.string().optional(),
+});
+
+export const RuntimeEventSummarySchema = z.object({
+  scenarioId: IdSchema,
+  runId: IdSchema,
+  capturedAt: TimestampSchema,
+  buildLabel: z.string().optional(),
+  target: z.object({ kind: z.string(), artifactId: IdSchema }),
+  events: z.array(RuntimeEventSchema).default([]),
+  hashes: z.record(z.string(), z.string()).default({}),
+  reachedMilestone: z.boolean().default(false),
+});
+
+export const RuntimeDiffSchema = z.object({
+  id: IdSchema,
+  baselineRunId: IdSchema,
+  candidateRunId: IdSchema,
+  scenarioId: IdSchema,
+  capturedAt: TimestampSchema,
+  missingLoads: z.array(RuntimeEventSchema).default([]),
+  extraLoads: z.array(RuntimeEventSchema).default([]),
+  diffPayloadHash: z.array(z.object({ key: z.string(), baselineHash: z.string(), candidateHash: z.string() })).default([]),
+  diffDestination: z.array(z.object({ key: z.string(), baselineDest: z.number().int().nonnegative(), candidateDest: z.number().int().nonnegative() })).default([]),
+  divergentPc: z.array(z.object({ index: z.number().int().nonnegative(), baselinePc: z.number().int().nonnegative(), candidatePc: z.number().int().nonnegative() })).default([]),
 });
 
 // Spec 028 loader ABI: declared loader entry points and recorded loader
@@ -862,8 +979,8 @@ export const MemoryMapHighlightSchema = z.object({
   id: IdSchema,
   title: z.string().min(1),
   kind: z.enum(["free-space", "code-block", "data-block", "mapped-block"]),
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
   sizeBytes: z.number().int().nonnegative(),
   entityId: IdSchema.optional(),
   summary: z.string().optional(),
@@ -1400,6 +1517,11 @@ export const PatchRecipeStoreSchema = createRecordListSchema(PatchRecipeSchema);
 export const ResourceRegionStoreSchema = createRecordListSchema(ResourceRegionSchema);
 export const OperationStoreSchema = createRecordListSchema(OperationSchema);
 export const ConstraintRuleStoreSchema = createRecordListSchema(ConstraintRuleSchema);
+export const RuntimeScenarioStoreSchema = createRecordListSchema(RuntimeScenarioSchema);
+export const RuntimeEventSummaryStoreSchema = createRecordListSchema(RuntimeEventSummarySchema);
+export const RuntimeDiffStoreSchema = createRecordListSchema(RuntimeDiffSchema);
+export const BuildPipelineStoreSchema = createRecordListSchema(BuildPipelineSchema);
+export const BuildRunStoreSchema = createRecordListSchema(BuildRunSchema);
 export const EntityStoreSchema = createRecordListSchema(EntityRecordSchema);
 export const FindingStoreSchema = createRecordListSchema(FindingRecordSchema);
 export const RelationStoreSchema = createRecordListSchema(RelationRecordSchema);
@@ -1438,6 +1560,19 @@ export type Operation = z.infer<typeof OperationSchema>;
 export type OperationStore = z.infer<typeof OperationStoreSchema>;
 export type ConstraintRule = z.infer<typeof ConstraintRuleSchema>;
 export type ConstraintRuleStore = z.infer<typeof ConstraintRuleStoreSchema>;
+export type RuntimeScenario = z.infer<typeof RuntimeScenarioSchema>;
+export type RuntimeScenarioStore = z.infer<typeof RuntimeScenarioStoreSchema>;
+export type RuntimeEvent = z.infer<typeof RuntimeEventSchema>;
+export type RuntimeEventSummary = z.infer<typeof RuntimeEventSummarySchema>;
+export type RuntimeEventSummaryStore = z.infer<typeof RuntimeEventSummaryStoreSchema>;
+export type RuntimeDiff = z.infer<typeof RuntimeDiffSchema>;
+export type RuntimeDiffStore = z.infer<typeof RuntimeDiffStoreSchema>;
+export type BuildPipeline = z.infer<typeof BuildPipelineSchema>;
+export type BuildPipelineStore = z.infer<typeof BuildPipelineStoreSchema>;
+export type BuildStep = z.infer<typeof BuildStepSchema>;
+export type BuildRun = z.infer<typeof BuildRunSchema>;
+export type BuildRunStore = z.infer<typeof BuildRunStoreSchema>;
+export type BuildRunStepResult = z.infer<typeof BuildRunStepResultSchema>;
 export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export type ArtifactScope = z.infer<typeof ArtifactScopeSchema>;
 export type EntityRecord = z.infer<typeof EntityRecordSchema>;

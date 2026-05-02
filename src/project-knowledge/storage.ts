@@ -39,6 +39,21 @@ import {
   ConstraintRuleStoreSchema,
   type ConstraintRule,
   type ConstraintRuleStore,
+  RuntimeScenarioStoreSchema,
+  type RuntimeScenario,
+  type RuntimeScenarioStore,
+  RuntimeEventSummaryStoreSchema,
+  type RuntimeEventSummary,
+  type RuntimeEventSummaryStore,
+  RuntimeDiffStoreSchema,
+  type RuntimeDiff,
+  type RuntimeDiffStore,
+  BuildPipelineStoreSchema,
+  type BuildPipeline,
+  type BuildPipelineStore,
+  BuildRunStoreSchema,
+  type BuildRun,
+  type BuildRunStore,
   type AnnotatedListingView,
   AnnotatedListingViewSchema,
   type CartridgeLayoutView,
@@ -126,6 +141,11 @@ export interface ProjectKnowledgePaths {
   knowledgeResources: string;
   knowledgeOperations: string;
   knowledgeConstraints: string;
+  knowledgeRuntimeScenarios: string;
+  knowledgeRuntimeEvents: string;
+  knowledgeRuntimeDiffs: string;
+  knowledgeBuildPipelines: string;
+  knowledgeBuildRuns: string;
   knowledgeLabelsUser: string;
   snapshotsRoot: string;
   knowledgeNotes: string;
@@ -244,6 +264,11 @@ export class ProjectKnowledgeStorage {
     this.ensureJsonFile(this.paths.knowledgeResources, emptyStore<ResourceRegion>());
     this.ensureJsonFile(this.paths.knowledgeOperations, emptyStore<Operation>());
     this.ensureJsonFile(this.paths.knowledgeConstraints, emptyStore<ConstraintRule>());
+    this.ensureJsonFile(this.paths.knowledgeRuntimeScenarios, emptyStore<RuntimeScenario>());
+    this.ensureJsonFile(this.paths.knowledgeRuntimeEvents, emptyStore<RuntimeEventSummary>());
+    this.ensureJsonFile(this.paths.knowledgeRuntimeDiffs, emptyStore<RuntimeDiff>());
+    this.ensureJsonFile(this.paths.knowledgeBuildPipelines, emptyStore<BuildPipeline>());
+    this.ensureJsonFile(this.paths.knowledgeBuildRuns, emptyStore<BuildRun>());
     this.ensureJsonFile(this.paths.knowledgeLabelsUser, emptyStore<UserLabelStore["items"][number]>());
     this.ensureJsonFile(this.paths.knowledgePhasePlan, emptyWorkflowPlan() as unknown as JsonValue);
     this.ensureJsonFile(this.paths.knowledgeWorkflowState, emptyWorkflowState() as unknown as JsonValue);
@@ -376,6 +401,56 @@ export class ProjectKnowledgeStorage {
   saveConstraints(store: ConstraintRuleStore): ConstraintRuleStore {
     const parsed = ConstraintRuleStoreSchema.parse(store);
     writeJsonAtomically(this.paths.knowledgeConstraints, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadRuntimeScenarios(): RuntimeScenarioStore {
+    return RuntimeScenarioStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeRuntimeScenarios, emptyStore<RuntimeScenario>()));
+  }
+
+  saveRuntimeScenarios(store: RuntimeScenarioStore): RuntimeScenarioStore {
+    const parsed = RuntimeScenarioStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeRuntimeScenarios, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadRuntimeEvents(): RuntimeEventSummaryStore {
+    return RuntimeEventSummaryStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeRuntimeEvents, emptyStore<RuntimeEventSummary>()));
+  }
+
+  saveRuntimeEvents(store: RuntimeEventSummaryStore): RuntimeEventSummaryStore {
+    const parsed = RuntimeEventSummaryStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeRuntimeEvents, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadRuntimeDiffs(): RuntimeDiffStore {
+    return RuntimeDiffStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeRuntimeDiffs, emptyStore<RuntimeDiff>()));
+  }
+
+  saveRuntimeDiffs(store: RuntimeDiffStore): RuntimeDiffStore {
+    const parsed = RuntimeDiffStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeRuntimeDiffs, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadBuildPipelines(): BuildPipelineStore {
+    return BuildPipelineStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeBuildPipelines, emptyStore<BuildPipeline>()));
+  }
+
+  saveBuildPipelines(store: BuildPipelineStore): BuildPipelineStore {
+    const parsed = BuildPipelineStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeBuildPipelines, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadBuildRuns(): BuildRunStore {
+    return BuildRunStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeBuildRuns, emptyStore<BuildRun>()));
+  }
+
+  saveBuildRuns(store: BuildRunStore): BuildRunStore {
+    const parsed = BuildRunStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeBuildRuns, parsed as unknown as JsonValue);
     return parsed;
   }
 
@@ -628,6 +703,11 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeResources: join(root, "knowledge", "resources.json"),
     knowledgeOperations: join(root, "knowledge", "operations.json"),
     knowledgeConstraints: join(root, "knowledge", "constraints.json"),
+    knowledgeRuntimeScenarios: join(root, "knowledge", "runtime-scenarios.json"),
+    knowledgeRuntimeEvents: join(root, "knowledge", "runtime-events.json"),
+    knowledgeRuntimeDiffs: join(root, "knowledge", "runtime-diffs.json"),
+    knowledgeBuildPipelines: join(root, "knowledge", "build-pipelines.json"),
+    knowledgeBuildRuns: join(root, "knowledge", "build-runs.json"),
     knowledgeLabelsUser: join(root, "knowledge", "labels.user.json"),
     snapshotsRoot: join(root, "snapshots"),
     knowledgeNotes: join(root, "knowledge", "notes.md"),

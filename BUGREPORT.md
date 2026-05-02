@@ -741,3 +741,119 @@ Either:
 2. If schema split is too invasive, widen `entries[].start/end` to `u32` everywhere and treat values > $FFFF as "outside main CPU view" (cart-internal offset).
 3. Either way, surface a count of skipped/clamped entries in the response so the agent knows partial views built.
 
+---
+
+## Bug 18 — `import_analysis_report` / `bulk_import_analysis_reports` reject addressRange > $FFFF (related to Bug 17, but in import path)
+
+**Status**: FIXED — followup commit on the agent-workflows branch widened `AddressRangeSchema` (the canonical schema reused across entities, findings, evidence, flows, relations, and views) plus the remaining `MemoryMapFreeRegion`/cell schemas to `max(0xffffff)`. Bug 17's commit (`de23b3d`) only widened the view-builder branch; this followup propagates it to the import + entity / finding paths so cart-bank entries no longer fail Zod validation.
+
+**Severity**: Medium — analysis runs that span cart-internal offsets are silently skipped during bulk import; their entities and findings never appear in the knowledge layer even though `project_repair` reports `severity: ok`.
+
+### Summary
+Bug 17 widened `MemoryMapRegion` / `MemoryMapCell` / `AnnotatedListingEntry` from `max(0xffff)` to `max(0xffffff)` so view-builder accepts cart offsets. But the **entity / finding evidence schemas** still use 16-bit `addressRange.start` / `addressRange.end`. When an analysis-run JSON contains entities or findings with cart-bank addresses, `import_analysis_report` (and therefore `bulk_import_analysis_reports`, plus the `import-analysis` op of `project_repair`) skips the entire run with a Zod error.
+
+### Reproduction (live, from the Murder project)
+```
+project_repair(mode=safe, operations=["import-analysis"])
+# … most analysis runs imported fine, but one is skipped:
+# Skipped:
+#  - import-analysis artifact-manifest-json-analysis-mooke7e7:
+#    [
+#      {"code":"too_big","maximum":65535,"path":["items",1641,"evidence",0,"addressRange","start"]},
+#      {"code":"too_big","maximum":65535,"path":["items",1641,"evidence",0,"addressRange","end"]},
+#      {"code":"too_big","maximum":65535,"path":["items",1641,"addressRange","start"]},
+#      {"code":"too_big","maximum":65535,"path":["items",1641,"addressRange","end"]}
+#    ]
+```
+
+The skipped artifact:
+`artifacts/generated/payloads/entity-artifact-manifest-json-moocmvpu-disk-file-15-16_dad-prg/manifest.json_analysis.json`
+
+The four error paths show both the per-item top-level `addressRange` AND nested `evidence[].addressRange` reject > $FFFF. Bug 17's commit (`de23b3d`) only touched the view-builder schemas — these import-side ones were missed.
+
+### Expected
+- All schemas that may carry cart-bank addresses should be widened to 24-bit (or use the `{bank, addr_in_bank}` structured pair from Bug 17 option (2)).
+- Affected schemas to audit and widen consistently:
+  - `entities[].addressRange.{start,end}`
+  - `findings[].addressRange.{start,end}`
+  - `findings[].evidence[].addressRange.{start,end}`
+  - any other `addressRange` in flows / relations / open-questions
+- The `import-analysis` path should never silently lose data on a known-fixed-shape problem.
+
+### Suggested fix
+1. Grep `pipeline/src/` and `src/` for `max(0xffff)` / `max(65535)` and audit each occurrence — if it could carry a cart-internal offset, widen to `max(0xffffff)`.
+2. Add a regression test: `import_analysis_report` on a JSON with `addressRange.start = 0x12000` should round-trip without skip.
+3. After widening, re-run `project_repair safe import-analysis` on the Murder project and confirm the previously-skipped artifact imports cleanly.
+
+### Cross-reference
+- Bug 17 (FIXED `de23b3d`): same root cause in view-builder schemas. This bug is the import-side counterpart.
+- Bug 19: in the live Murder repro the > $FFFF addresses came from analyzing a 76 KB manifest.json as if it were a PRG (Bug 19). The 16-bit reject is therefore *correct* for that artifact and Bug 18's fix is only needed for legitimate cart-bank imports. Still file Bug 18 — the import path should match Bug 17's view-builder behaviour even if the only present case is a side-effect of Bug 19.
+
+---
+
+## Bug 19 — `analyze_prg` accepts non-PRG files; treats arbitrary bytes as load header
+
+**Status**: FIXED — followup commit on agent-workflows branch. `pipeline/src/analysis/prg.ts` now runs `validatePrgInput` before reading any byte: rejects files <3 bytes, files >65538 bytes (max PRG = 2-byte header + 64 KB body), and PRGs whose `load + body - 1` overflows the 16-bit address space. Soft warning when body starts with `{`, `[`, or `"` (looks like JSON/text). Smoke `scripts/bug19-murder-example-smoke.mjs` recreates the Murder manifest.json case (76971-byte JSON) and asserts the rejection plus three other edge cases.
+
+**Severity**: High — silently produces garbage analysis (nonsense entry points, fake address ranges that overflow 16-bit) for files that are not actual PRGs. Trips downstream schemas (Bug 18).
+
+### Summary
+`analyze_prg` does no input-shape validation. It always reads the first two bytes as a little-endian PRG load address. Pass it any file (JSON, binary blob, text), and it computes:
+- `loadAddress = file[0] | (file[1] << 8)`
+- `endAddress = loadAddress + file.length - 2`
+- proceeds with full disasm pipeline on the body
+
+For a non-PRG file >64 KB this generates `endAddress` outside 16-bit space, polluting the analysis JSON, the entity store, and the artifact registry with garbage.
+
+### Reproduction (live, from the Murder project)
+```
+ls -l analysis/disk/motm/manifest.json   # 76,971 bytes of JSON
+# An auto-workflow registered the manifest as a disk-file payload entity:
+#   entity-artifact-manifest-json-moocmvpu-disk-file-15-16_dad-prg
+# Then analyze_prg was triggered against it and produced:
+#   artifacts/generated/payloads/.../manifest.json_analysis.json
+jq '{binaryName, mapping}' .../manifest.json_analysis.json
+# {
+#   "binaryName": "/abs/.../analysis/disk/motm/manifest.json",
+#   "mapping": {
+#     "format": "prg",
+#     "loadAddress": 2683,    // = $0A7B = bytes "{\n" reinterpreted
+#     "startAddress": 2683,
+#     "endAddress": 79653,    // = $13725, > $FFFF — INVALID
+#     "fileOffset": 0,
+#     "fileSize": 76971
+#   }
+# }
+```
+
+`mapping.format` is hardcoded to `"prg"` regardless of the actual content.
+
+### Expected
+`analyze_prg` should validate the input is a plausible PRG before doing anything:
+1. **File-size sanity**: `fileSize <= 65538` (PRG header 2 + max 64 KB body). Reject larger files with a clear error.
+2. **Path / extension hint**: warn (or hard-reject in strict mode) when `prg_path` doesn't end in `.prg`.
+3. **Header plausibility**: `loadAddress + (fileSize - 2) - 1 <= $FFFF`. If overflow, reject as "not a PRG".
+4. **(Optional)** content sniffing: if first byte is printable-ASCII (`{ [ "` etc.), warn it looks like JSON/text.
+
+When rejecting, do NOT register an analysis-run artifact, do NOT emit `*_analysis.json` — fail fast with a useful error message naming the input.
+
+### Suggested fix
+Add `validatePrgInput(buffer, path)` early in `pipeline/src/analysis/analyze-prg.ts` (or wherever the entry sits):
+```ts
+function validatePrgInput(buffer: Uint8Array, path: string): void {
+  if (buffer.length < 3) throw new Error(`PRG too small: ${path}`);
+  if (buffer.length > 65538) throw new Error(
+    `Not a PRG: ${path} is ${buffer.length} bytes, exceeds max 65538`);
+  const load = buffer[0] | (buffer[1] << 8);
+  const end = load + (buffer.length - 2) - 1;
+  if (end > 0xffff) throw new Error(
+    `Not a PRG: ${path} load=$${hex(load)} + size=${buffer.length-2} -> $${hex(end)} overflows 16-bit`);
+}
+```
+
+### Why this matters beyond the one repro
+Any auto-pipeline that walks "all files in `analysis/disk/<image>/`" and calls `analyze_prg` per file will hit this on `manifest.json` and `track-metadata.json`. The auto-workflow that produced the entity in the live repro should also be audited for "treats every container entry as a PRG payload" — see related entity-naming oddity: the entity ID combined `manifest.json` with `disk-file-15` + `16_dad.prg`, suggesting payload registration mistakenly fused two file references.
+
+### Cross-reference
+- Bug 18: schema-reject downstream that correctly catches this case but for the wrong reason (Bug 18's fix would let the garbage analysis import successfully — bad outcome).
+

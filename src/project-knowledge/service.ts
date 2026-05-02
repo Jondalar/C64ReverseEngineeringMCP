@@ -21,6 +21,14 @@ import type {
   PatchRecipe,
   ProjectProfile,
   ResourceRegion,
+  RuntimeScenario,
+  RuntimeEvent,
+  RuntimeEventSummary,
+  RuntimeDiff,
+  BuildPipeline,
+  BuildRun,
+  BuildStep,
+  BuildRunStepResult,
   EvidenceRef,
   FindingKind,
   FindingRecord,
@@ -65,7 +73,13 @@ function slugify(value: string): string {
 }
 
 function createId(prefix: string, title: string): string {
-  return `${prefix}-${slugify(title)}-${Date.now().toString(36)}`;
+  // Append both ms timestamp and a 4-char random suffix so two ids
+  // generated in the same millisecond do not collide. Pre-existing
+  // bug surfaced when recordRuntimeEventSummary auto-generated runIds
+  // for two consecutive calls in the same tick.
+  const stamp = Date.now().toString(36);
+  const random = Math.floor(Math.random() * 0x10000).toString(36).padStart(4, "0");
+  return `${prefix}-${slugify(title)}-${stamp}${random}`;
 }
 
 function uniqueStrings(values: string[] | undefined): string[] {
@@ -1332,6 +1346,217 @@ export class ProjectKnowledgeService {
       written.push(path);
     }
     return { written };
+  }
+
+  // Spec 032 build pipelines.
+  saveBuildPipeline(input: Omit<BuildPipeline, "id" | "createdAt" | "updatedAt"> & { id?: string }): BuildPipeline {
+    const store = this.storage.loadBuildPipelines();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("pipeline", input.title);
+    const existing = store.items.find((item) => item.id === id);
+    const pipeline: BuildPipeline = {
+      ...input,
+      id,
+      tags: input.tags ?? existing?.tags ?? [],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveBuildPipelines({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, pipeline),
+    });
+    return pipeline;
+  }
+
+  listBuildPipelines(): BuildPipeline[] {
+    return this.storage.loadBuildPipelines().items.slice();
+  }
+
+  // Spec 032: dry-run / orchestration of a pipeline. v1 records the
+  // run shell-by-shell; the actual command execution stays the
+  // caller's responsibility (no shell sandbox in v1).
+  startBuildRun(pipelineId: string, mode: "dry-run" | "record" = "dry-run"): BuildRun {
+    const pipeline = this.listBuildPipelines().find((p) => p.id === pipelineId);
+    if (!pipeline) throw new Error(`pipeline ${pipelineId} not found`);
+    const run: BuildRun = {
+      id: createId("build-run", pipelineId),
+      pipelineId,
+      startedAt: nowIso(),
+      steps: pipeline.steps.map((step) => ({ stepId: step.id, status: mode === "dry-run" ? "skipped" : "pending" })),
+      status: "running",
+    };
+    const store = this.storage.loadBuildRuns();
+    this.storage.saveBuildRuns({
+      ...store,
+      updatedAt: nowIso(),
+      items: [...store.items, run],
+    });
+    return run;
+  }
+
+  recordBuildStepResult(runId: string, result: BuildRunStepResult): BuildRun | undefined {
+    const store = this.storage.loadBuildRuns();
+    const run = store.items.find((item) => item.id === runId);
+    if (!run) return undefined;
+    const updatedSteps = run.steps.map((s) => (s.stepId === result.stepId ? result : s));
+    const allOk = updatedSteps.every((s) => s.status === "ok");
+    const anyFailed = updatedSteps.some((s) => s.status === "failed");
+    const allTerminal = updatedSteps.every((s) => s.status === "ok" || s.status === "failed" || s.status === "skipped");
+    const status: BuildRun["status"] = allOk ? "ok" : anyFailed && allTerminal ? "failed" : allTerminal ? "partial" : "running";
+    const updated: BuildRun = { ...run, steps: updatedSteps, status, completedAt: allTerminal ? nowIso() : undefined };
+    this.storage.saveBuildRuns({
+      ...store,
+      updatedAt: nowIso(),
+      items: store.items.map((item) => (item.id === runId ? updated : item)),
+    });
+    return updated;
+  }
+
+  listBuildRuns(pipelineId?: string): BuildRun[] {
+    const items = this.storage.loadBuildRuns().items.slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    return pipelineId ? items.filter((item) => item.pipelineId === pipelineId) : items;
+  }
+
+  // Spec 032: stale-output detection — compare current input
+  // artifact contentHash to the most recent successful run's
+  // recorded inputs.
+  detectStaleOutputs(): Array<{ pipelineId: string; pipelineTitle: string; reason: string }> {
+    const out: Array<{ pipelineId: string; pipelineTitle: string; reason: string }> = [];
+    const pipelines = this.listBuildPipelines();
+    const artifacts = this.listArtifacts();
+    for (const pipeline of pipelines) {
+      const runs = this.listBuildRuns(pipeline.id);
+      const lastOk = runs.find((r) => r.status === "ok");
+      if (!lastOk) {
+        out.push({ pipelineId: pipeline.id, pipelineTitle: pipeline.title, reason: "no successful run yet" });
+        continue;
+      }
+      for (const step of pipeline.steps) {
+        const sourceHashes = step.inputArtifactIds.map((id) => artifacts.find((a) => a.id === id)?.contentHash).filter(Boolean) as string[];
+        const observed = lastOk.steps.find((s) => s.stepId === step.id);
+        if (observed?.actualOutputHashes && Object.keys(observed.actualOutputHashes).length > 0 && sourceHashes.length === 0) {
+          out.push({ pipelineId: pipeline.id, pipelineTitle: pipeline.title, reason: `step ${step.id}: input artifacts have no contentHash for diff` });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Spec 030 runtime scenarios.
+  saveRuntimeScenario(input: Omit<RuntimeScenario, "id" | "createdAt" | "updatedAt"> & { id?: string }): RuntimeScenario {
+    const store = this.storage.loadRuntimeScenarios();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("scenario", input.title);
+    const existing = store.items.find((item) => item.id === id);
+    const scenario: RuntimeScenario = {
+      ...input,
+      id,
+      tags: input.tags ?? existing?.tags ?? [],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveRuntimeScenarios({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, scenario),
+    });
+    return scenario;
+  }
+
+  listRuntimeScenarios(): RuntimeScenario[] {
+    return this.storage.loadRuntimeScenarios().items.slice();
+  }
+
+  recordRuntimeEventSummary(input: Omit<RuntimeEventSummary, "runId" | "capturedAt"> & { runId?: string; capturedAt?: string }): RuntimeEventSummary {
+    const store = this.storage.loadRuntimeEvents();
+    const runId = input.runId ?? createId("run", input.scenarioId);
+    const summary: RuntimeEventSummary = {
+      ...input,
+      runId,
+      capturedAt: input.capturedAt ?? nowIso(),
+    };
+    const items = store.items.some((item) => item.runId === runId)
+      ? store.items.map((item) => (item.runId === runId ? summary : item))
+      : [...store.items, summary];
+    this.storage.saveRuntimeEvents({
+      ...store,
+      updatedAt: nowIso(),
+      items,
+    });
+    return summary;
+  }
+
+  listRuntimeEventSummaries(scenarioId?: string): RuntimeEventSummary[] {
+    const items = this.storage.loadRuntimeEvents().items.slice().sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+    return scenarioId ? items.filter((item) => item.scenarioId === scenarioId) : items;
+  }
+
+  // Spec 030: diff two runs of the same scenario. baseline + candidate
+  // run ids must exist; emits + persists a RuntimeDiff record.
+  diffRuntimeRuns(baselineRunId: string, candidateRunId: string): RuntimeDiff | undefined {
+    const events = this.storage.loadRuntimeEvents();
+    const baseline = events.items.find((item) => item.runId === baselineRunId);
+    const candidate = events.items.find((item) => item.runId === candidateRunId);
+    if (!baseline || !candidate) return undefined;
+    const keyOf = (e: RuntimeEvent): string => `${e.fileKey ?? "?"}|${e.trackSector?.track ?? ""}|${e.trackSector?.sector ?? ""}`;
+    const baseMap = new Map<string, RuntimeEvent>();
+    for (const e of baseline.events) baseMap.set(keyOf(e), e);
+    const candMap = new Map<string, RuntimeEvent>();
+    for (const e of candidate.events) candMap.set(keyOf(e), e);
+    const missingLoads: RuntimeEvent[] = [];
+    const extraLoads: RuntimeEvent[] = [];
+    const diffDestination: RuntimeDiff["diffDestination"] = [];
+    for (const [k, e] of baseMap.entries()) {
+      const matchingCand = candMap.get(k);
+      if (!matchingCand) {
+        missingLoads.push(e);
+      } else if (e.destinationStart !== undefined && matchingCand.destinationStart !== undefined && e.destinationStart !== matchingCand.destinationStart) {
+        diffDestination.push({ key: k, baselineDest: e.destinationStart, candidateDest: matchingCand.destinationStart });
+      }
+    }
+    for (const [k, e] of candMap.entries()) {
+      if (!baseMap.has(k)) extraLoads.push(e);
+    }
+    const diffPayloadHash: RuntimeDiff["diffPayloadHash"] = [];
+    for (const [k, baseHash] of Object.entries(baseline.hashes)) {
+      const candHash = candidate.hashes[k];
+      if (candHash !== undefined && candHash !== baseHash) {
+        diffPayloadHash.push({ key: k, baselineHash: baseHash, candidateHash: candHash });
+      }
+    }
+    const divergentPc: RuntimeDiff["divergentPc"] = [];
+    const minLen = Math.min(baseline.events.length, candidate.events.length);
+    for (let i = 0; i < minLen; i += 1) {
+      const a = baseline.events[i];
+      const b = candidate.events[i];
+      if (a && b && a.pc !== b.pc) {
+        divergentPc.push({ index: i, baselinePc: a.pc, candidatePc: b.pc });
+        if (divergentPc.length >= 20) break;
+      }
+    }
+    const diff: RuntimeDiff = {
+      id: createId("diff", `${baselineRunId}-vs-${candidateRunId}`),
+      baselineRunId,
+      candidateRunId,
+      scenarioId: baseline.scenarioId,
+      capturedAt: nowIso(),
+      missingLoads,
+      extraLoads,
+      diffPayloadHash,
+      diffDestination,
+      divergentPc,
+    };
+    const store = this.storage.loadRuntimeDiffs();
+    const items = store.items.some((item) => item.id === diff.id)
+      ? store.items.map((item) => (item.id === diff.id ? diff : item))
+      : [...store.items, diff];
+    this.storage.saveRuntimeDiffs({
+      ...store,
+      updatedAt: nowIso(),
+      items,
+    });
+    return diff;
   }
 
   // Spec 037: set / clear payload-level disk hint.
