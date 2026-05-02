@@ -39,6 +39,12 @@ export interface ArtifactRecord {
   lineageRoot?: string;
   versionLabel?: string;
   versionRank?: number;
+  // Spec 034 phase tracking.
+  phase?: number;
+  phaseFrozen?: boolean;
+  phaseFrozenReason?: string;
+  // Spec 041 relevance.
+  relevance?: "loader" | "protection" | "save" | "kernal" | "asset" | "other";
 }
 
 export interface EntityRecord {

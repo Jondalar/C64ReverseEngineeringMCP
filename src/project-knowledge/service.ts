@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./analysis-import.js";
 import { importManifestKnowledge } from "./manifest-import.js";
@@ -1759,6 +1760,57 @@ export class ProjectKnowledgeService {
       }
     }
     return { autoResolved, pending, phaseClosed };
+  }
+
+  // Spec 032 follow-up: run a build pipeline end-to-end, executing
+  // each step's command via child_process.spawnSync. Records per-step
+  // exit code, stdout/stderr tails, actual output hashes, duration.
+  // Returns the BuildRun. Stops at the first failed step unless
+  // continueOnError is true.
+  runBuildPipeline(pipelineId: string, opts: { continueOnError?: boolean } = {}): BuildRun {
+    const pipeline = this.listBuildPipelines().find((p) => p.id === pipelineId);
+    if (!pipeline) throw new Error(`pipeline ${pipelineId} not found`);
+    const run = this.startBuildRun(pipelineId, "record");
+    for (const step of pipeline.steps) {
+      const startedAt = Date.now();
+      const cwd = step.cwd ? resolve(this.storage.paths.root, step.cwd) : this.storage.paths.root;
+      try {
+        const result = spawnSync(step.command, { cwd, shell: true, encoding: "utf8" });
+        const durationMs = Date.now() - startedAt;
+        const stdoutTail = (result.stdout ?? "").slice(-2048);
+        const stderrTail = (result.stderr ?? "").slice(-2048);
+        const exitCode = result.status ?? -1;
+        const actualOutputHashes: Record<string, string> = {};
+        for (const outId of step.outputArtifactIds) {
+          const out = this.listArtifacts().find((a) => a.id === outId);
+          if (out && existsSync(out.path)) {
+            const hash = sha256OfFile(out.path);
+            if (hash) actualOutputHashes[outId] = hash;
+          }
+        }
+        const status: "ok" | "failed" = exitCode === 0 ? "ok" : "failed";
+        this.recordBuildStepResult(run.id, {
+          stepId: step.id,
+          status,
+          exitCode,
+          stdoutTail,
+          stderrTail,
+          actualOutputHashes,
+          durationMs,
+        });
+        if (status === "failed" && !opts.continueOnError) break;
+      } catch (error) {
+        this.recordBuildStepResult(run.id, {
+          stepId: step.id,
+          status: "failed",
+          stderrTail: error instanceof Error ? error.message : String(error),
+          durationMs: Date.now() - startedAt,
+        });
+        if (!opts.continueOnError) break;
+      }
+    }
+    const updated = this.listBuildRuns(pipelineId).find((r) => r.id === run.id);
+    return updated ?? run;
   }
 
   // Spec 030 runtime scenarios.

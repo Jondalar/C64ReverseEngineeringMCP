@@ -943,3 +943,56 @@ The graphics-preview-to-segment linkage gap is the same problem in microcosm: re
 - R6 (REQUIREMENTS): open-question source tagging. Implemented in sprint 36 — partially helps because we can now filter by `source=heuristic-phase1`, but the auto-archive flow is still missing.
 - R7 (REQUIREMENTS): disk-layout sector status. Same general pattern — heuristic guesses need human/runtime confirmation flow that updates the underlying classification.
 
+---
+
+## Bug 21 — Spec 053 / Bug 20 fix landed in code but not exposed in running MCP server (sprint 46 partial)
+
+**Status**: OPEN — partial fix in commit `be048da` ("sprint 46: phase-1 noise archive (Spec 053, Bug 20 fix data layer)"). Tool implementation exists in `src/project-knowledge/mcp-tools.ts:660` and `src/project-knowledge/service.ts:1536`. Not visible to a connected agent, and the Graphics-tab `Confirm graphics` / `Mark wrong` buttons in UI still appear to be stubs.
+
+**Severity**: Medium — Bug 20's actual mitigation is unreachable until this lands.
+
+### Summary
+Sprint 46 commit message says "Bug 20 fix data layer". The data-layer service method (`markSegmentConfirmed`) and its MCP tool wrapper (`mark_segment_confirmed`) ARE implemented:
+
+```ts
+server.tool(
+  "mark_segment_confirmed",
+  "Spec 053 (Bug 20): mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence. Also creates a confirmation finding with status confirmed.",
+  { project_dir, artifact_id, address, length, kind, evidence_artifact_id },
+  …
+);
+```
+
+But:
+1. **Tool not in the MCP server's deferred tool catalogue** as observed by a freshly-reconnected agent. `ToolSearch select:mcp__c64-re__mark_segment_confirmed` returns `No matching deferred tools found`. Probably the dist build is stale or the tool registration is gated on a feature flag that's off.
+2. **No `mark_segment_rejected` companion**. The "Mark wrong" UI button has nowhere to go.
+3. **UI button wiring not verified**. The `Confirm graphics` / `Mark wrong` buttons render in `App.tsx` but the click handler has not been confirmed to call the new endpoint. Likely still a stub.
+
+### Reproduction
+```
+# Agent connected to the live MCP server (after Claude2 finished sprint 44+46)
+ToolSearch query="mark_segment"   # → No matching deferred tools found
+ToolSearch query="select:mcp__c64-re__mark_segment_confirmed" # → same
+# But:
+grep mark_segment_confirmed src/project-knowledge/mcp-tools.ts
+# → tool definition exists at line 660
+```
+
+### Expected
+- Rebuild the MCP server / dist after sprint 46 so the new tool is registered.
+- Add `mark_segment_rejected` companion (one-line wrapper around the same service path with kind=rejected status).
+- Wire the UI buttons in `Graphics` tab (App.tsx) to call `/api/segment/confirm` and `/api/segment/reject` server endpoints, which delegate to the same service.
+- After reconnect: `ToolSearch select:mcp__c64-re__mark_segment_confirmed` → loads schema. `ToolSearch select:mcp__c64-re__mark_segment_rejected` → loads schema.
+- After UI rebuild: clicking `Confirm graphics` on a candidate flips its row to "confirmed" and the counter on the Graphics tab header updates from "0 confirmed" to "1 confirmed".
+
+### Suggested fix
+1. Verify build artifacts in `dist/` reflect sprint 46. Re-run `npm run build:mcp` and restart the MCP server.
+2. Add `mark_segment_rejected` MCP tool (parallel to `mark_segment_confirmed`).
+3. Add `/api/segment/confirm` and `/api/segment/reject` HTTP endpoints in `src/workspace-ui/server.ts` that delegate to the service methods.
+4. Wire UI button handlers in App.tsx (Graphics tab section) to POST to those endpoints with `{ artifact_id, address, length, kind, evidence_artifact_id? }`.
+5. Smoke test: open Murder project's Graphics tab, click `Mark wrong` on `sprite_0300` from drive_t1s0.prg (which is the 1541 DOS jump-table, NOT a sprite), confirm row flips to "rejected" and counter increments.
+
+### Cross-reference
+- Bug 20: parent bug. This is the "code wrote but not landed" sub-issue.
+- Spec 053 (in `specs/`): the design that sprint 46 implemented partially.
+

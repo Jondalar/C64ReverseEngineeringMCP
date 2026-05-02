@@ -473,6 +473,36 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 ));
 
   server.tool(
+    "run_build_pipeline",
+    "Spec 032 follow-up: orchestrate a build pipeline end-to-end. Runs each step's shell command via spawnSync, captures exit code + stdout/stderr tails + per-output sha256, records the BuildRun. Stops at first failed step unless continue_on_error=true. WARNING: executes shell commands; only run on trusted pipelines.",
+    {
+      project_dir: z.string().optional(),
+      pipeline_id: z.string(),
+      continue_on_error: z.boolean().optional(),
+    },
+    safeHandler("run_build_pipeline", async ({ project_dir, pipeline_id, continue_on_error }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      try {
+        const run = service.runBuildPipeline(pipeline_id, { continueOnError: continue_on_error });
+        const lines = [
+          `Build run: ${run.id}`,
+          `Status: ${run.status}`,
+          `Steps:`,
+          ...run.steps.map((s) => `  ${s.stepId} → ${s.status}${s.exitCode !== undefined ? ` (exit ${s.exitCode})` : ""}${s.durationMs ? ` ${s.durationMs}ms` : ""}`),
+        ];
+        return textContent(lines.join("\n"));
+      } catch (error) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "run_build_pipeline",
+          error instanceof Error ? error.message : String(error),
+          `list_build_pipelines() to discover valid ids.`,
+        );
+      }
+    },
+));
+
+  server.tool(
     "record_build_step_result",
     "Spec 032: record the outcome of a single build step (status + exit code + actual output hashes).",
     {

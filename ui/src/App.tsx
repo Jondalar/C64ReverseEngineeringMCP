@@ -2773,31 +2773,38 @@ function DiskPanel({
                 <span>{activeDisk.format.toUpperCase()} [{activeDisk.diskId ?? "--"}]</span>
               </div>
               <div className="record-stack disk-file-stack">
-                {visibleFiles.map((file) => (
-                  <button
-                    key={file.id}
-                    type="button"
-                    className={selectedFile?.id === file.id ? "record-card active-record" : "record-card"}
-                    onClick={() => {
-                      setSelectedFileId(file.id);
-                      onSelectDiskFile(activeDisk.artifactId, file.id);
-                    }}
-                  >
-                    <div className="record-topline">
-                      <span className="disk-file-row-title">
-                        <span className="disk-file-color-dot" style={{ background: file.color ?? "#6e7681" }} />
-                        <span>{file.relativePath ?? file.title}</span>
-                      </span>
-                      <span className="record-status">{file.loadType}</span>
-                    </div>
-                    <div className="record-meta">
-                      <span>{file.sizeSectors ?? 0} blk</span>
-                      {file.loadAddress !== undefined ? <span>{hex(file.loadAddress)}</span> : null}
-                      {file.loaderSource ? <span>via {file.loaderSource}</span> : null}
-                      {file.packer ? <span>{file.packer}</span> : null}
-                    </div>
-                  </button>
-                ))}
+                {visibleFiles.map((file) => {
+                  // Spec 050 Block D: phase badge per disk file via
+                  // entity → payloadSourceArtifactId → artifact.phase.
+                  const entity = file.entityId ? snapshot.entities.find((e) => e.id === file.entityId) : undefined;
+                  const sourceArt = entity ? snapshot.artifacts.find((a) => a.id === (entity.payloadSourceArtifactId ?? entity.artifactIds[0])) : undefined;
+                  return (
+                    <button
+                      key={file.id}
+                      type="button"
+                      className={selectedFile?.id === file.id ? "record-card active-record" : "record-card"}
+                      onClick={() => {
+                        setSelectedFileId(file.id);
+                        onSelectDiskFile(activeDisk.artifactId, file.id);
+                      }}
+                    >
+                      <div className="record-topline">
+                        <span className="disk-file-row-title">
+                          <span className="disk-file-color-dot" style={{ background: file.color ?? "#6e7681" }} />
+                          <span>{file.relativePath ?? file.title}</span>
+                        </span>
+                        {sourceArt ? <PhaseBadge phase={sourceArt.phase} frozen={sourceArt.phaseFrozen} /> : null}
+                        <span className="record-status">{file.loadType}</span>
+                      </div>
+                      <div className="record-meta">
+                        <span>{file.sizeSectors ?? 0} blk</span>
+                        {file.loadAddress !== undefined ? <span>{hex(file.loadAddress)}</span> : null}
+                        {file.loaderSource ? <span>via {file.loaderSource}</span> : null}
+                        {file.packer ? <span>{file.packer}</span> : null}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <div className="panel-card inner-panel">
@@ -3411,6 +3418,16 @@ function AnnotationDraftPanel({ projectDir }: { projectDir: string }) {
   const [pending, setPending] = useState<{
     segments: Set<number>; labels: Set<number>; routines: Set<number>;
   }>({ segments: new Set(), labels: new Set(), routines: new Set() });
+  // Spec 051 follow-up: per-suggestion edit overrides. Maps
+  // (kind, index) -> { label?, comment?, summary? }. Save merges
+  // overrides into the persisted JSON.
+  const [edits, setEdits] = useState<Record<string, { label?: string; comment?: string; summary?: string }>>({});
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+
+  function editKey(kind: string, i: number) { return `${kind}:${i}`; }
+  function setEditField(key: string, field: "label" | "comment" | "summary", value: string) {
+    setEdits((current) => ({ ...current, [key]: { ...current[key], [field]: value } }));
+  }
 
   async function loadDraft() {
     setLoading(true);
@@ -3447,9 +3464,18 @@ function AnnotationDraftPanel({ projectDir }: { projectDir: string }) {
     try {
       const finalPath = draftPath.replace(/\.draft\.json$/i, ".json");
       const payload = {
-        segments: draft.segments.filter((_, i) => pending.segments.has(i)).map(({ start, end, kind, label, comment }) => ({ start, end, kind, label, comment })),
-        labels: draft.labels.filter((_, i) => pending.labels.has(i)).map(({ address, label, comment }) => ({ address, label, comment })),
-        routines: draft.routines.filter((_, i) => pending.routines.has(i)).map(({ address, name, summary }) => ({ address, name, summary })),
+        segments: draft.segments.filter((_, i) => pending.segments.has(i)).map(({ start, end, kind, label, comment }, i) => {
+          const override = edits[editKey("segments", i)];
+          return { start, end, kind, label: override?.label ?? label, comment: override?.comment ?? comment };
+        }),
+        labels: draft.labels.filter((_, i) => pending.labels.has(i)).map(({ address, label, comment }, i) => {
+          const override = edits[editKey("labels", i)];
+          return { address, label: override?.label ?? label, comment: override?.comment ?? comment };
+        }),
+        routines: draft.routines.filter((_, i) => pending.routines.has(i)).map(({ address, name, summary }, i) => {
+          const override = edits[editKey("routines", i)];
+          return { address, name: override?.label ?? name, summary: override?.summary ?? summary };
+        }),
       };
       const result = await postJson<{ projectDir: string; finalPath: string; ok: boolean }>("/api/annotations/save", {
         projectDir,
@@ -3496,36 +3522,87 @@ function AnnotationDraftPanel({ projectDir }: { projectDir: string }) {
             <span className="questions-cell-meta">type</span>
             <span className="questions-cell-meta">confidence</span>
           </div>
-          {draft.segments.map((s, i) => (
-            <div key={`s-${i}`} className="questions-row">
-              <span className="questions-cell-check">
-                <input type="checkbox" checked={pending.segments.has(i)} onChange={() => toggle("segments", i)} />
-              </span>
-              <span className="questions-cell-title" title={s.reason}>${s.start}-${s.end} {s.kind} {s.label ?? ""}</span>
-              <span className="questions-cell-meta">segment</span>
-              <span className="questions-cell-meta">{s.confidence.toFixed(2)}</span>
-            </div>
-          ))}
-          {draft.labels.map((l, i) => (
-            <div key={`l-${i}`} className="questions-row">
-              <span className="questions-cell-check">
-                <input type="checkbox" checked={pending.labels.has(i)} onChange={() => toggle("labels", i)} />
-              </span>
-              <span className="questions-cell-title" title={l.reason}>${l.address} {l.label}</span>
-              <span className="questions-cell-meta">label</span>
-              <span className="questions-cell-meta">{l.confidence.toFixed(2)}</span>
-            </div>
-          ))}
-          {draft.routines.map((r, i) => (
-            <div key={`r-${i}`} className="questions-row">
-              <span className="questions-cell-check">
-                <input type="checkbox" checked={pending.routines.has(i)} onChange={() => toggle("routines", i)} />
-              </span>
-              <span className="questions-cell-title" title={r.reason}>${r.address} {r.name} — {r.summary}</span>
-              <span className="questions-cell-meta">routine</span>
-              <span className="questions-cell-meta">{r.confidence.toFixed(2)}</span>
-            </div>
-          ))}
+          {draft.segments.map((s, i) => {
+            const key = editKey("segments", i);
+            const override = edits[key];
+            const editing = editingKey === key;
+            return (
+              <div key={`s-${i}`} className="questions-row">
+                <span className="questions-cell-check">
+                  <input type="checkbox" checked={pending.segments.has(i)} onChange={() => toggle("segments", i)} />
+                </span>
+                <span className="questions-cell-title" title={s.reason}>
+                  ${s.start}-${s.end} {s.kind}{" "}
+                  {editing ? (
+                    <>
+                      <input value={override?.label ?? s.label ?? ""} onChange={(e) => setEditField(key, "label", e.target.value)} placeholder="label" />
+                      <input value={override?.comment ?? s.comment ?? ""} onChange={(e) => setEditField(key, "comment", e.target.value)} placeholder="comment" />
+                    </>
+                  ) : (
+                    <>{override?.label ?? s.label ?? ""}{override?.comment ? ` // ${override.comment}` : ""}</>
+                  )}
+                </span>
+                <span className="questions-cell-meta">segment</span>
+                <span className="questions-cell-meta">
+                  {s.confidence.toFixed(2)}
+                  <button type="button" className="inspector-chip" onClick={() => setEditingKey(editing ? null : key)}>{editing ? "✓" : "✎"}</button>
+                </span>
+              </div>
+            );
+          })}
+          {draft.labels.map((l, i) => {
+            const key = editKey("labels", i);
+            const override = edits[key];
+            const editing = editingKey === key;
+            return (
+              <div key={`l-${i}`} className="questions-row">
+                <span className="questions-cell-check">
+                  <input type="checkbox" checked={pending.labels.has(i)} onChange={() => toggle("labels", i)} />
+                </span>
+                <span className="questions-cell-title" title={l.reason}>
+                  ${l.address}{" "}
+                  {editing ? (
+                    <input value={override?.label ?? l.label} onChange={(e) => setEditField(key, "label", e.target.value)} placeholder="label" />
+                  ) : (
+                    override?.label ?? l.label
+                  )}
+                </span>
+                <span className="questions-cell-meta">label</span>
+                <span className="questions-cell-meta">
+                  {l.confidence.toFixed(2)}
+                  <button type="button" className="inspector-chip" onClick={() => setEditingKey(editing ? null : key)}>{editing ? "✓" : "✎"}</button>
+                </span>
+              </div>
+            );
+          })}
+          {draft.routines.map((r, i) => {
+            const key = editKey("routines", i);
+            const override = edits[key];
+            const editing = editingKey === key;
+            return (
+              <div key={`r-${i}`} className="questions-row">
+                <span className="questions-cell-check">
+                  <input type="checkbox" checked={pending.routines.has(i)} onChange={() => toggle("routines", i)} />
+                </span>
+                <span className="questions-cell-title" title={r.reason}>
+                  ${r.address}{" "}
+                  {editing ? (
+                    <>
+                      <input value={override?.label ?? r.name} onChange={(e) => setEditField(key, "label", e.target.value)} placeholder="name" />
+                      <input value={override?.summary ?? r.summary} onChange={(e) => setEditField(key, "summary", e.target.value)} placeholder="summary" />
+                    </>
+                  ) : (
+                    <>{override?.label ?? r.name} — {override?.summary ?? r.summary}</>
+                  )}
+                </span>
+                <span className="questions-cell-meta">routine</span>
+                <span className="questions-cell-meta">
+                  {r.confidence.toFixed(2)}
+                  <button type="button" className="inspector-chip" onClick={() => setEditingKey(editing ? null : key)}>{editing ? "✓" : "✎"}</button>
+                </span>
+              </div>
+            );
+          })}
           {draft.openQuestions.length > 0 ? (
             <div className="empty-inline">{draft.openQuestions.length} open question(s) in draft. Use propose_annotations --persist-questions to save them.</div>
           ) : null}
@@ -3690,10 +3767,14 @@ function PayloadsPanel({
             .filter((a): a is typeof snapshot.artifacts[number] => Boolean(a));
           const load = payload.payloadLoadAddress ?? payload.addressRange?.start;
           const loadText = load !== undefined ? `$${load.toString(16).toUpperCase().padStart(4, "0")}` : "—";
+          // Spec 050 Block D: phase badge per payload (resolves
+          // through payloadSourceArtifactId or first artifactId).
+          const sourceArtifactForBadge = artifactById.get(payload.payloadSourceArtifactId ?? payload.artifactIds[0] ?? "");
           return (
             <article key={payload.id} className="payload-card">
               <header>
                 <strong>{payload.name}</strong>
+                {sourceArtifactForBadge ? <PhaseBadge phase={sourceArtifactForBadge.phase} frozen={sourceArtifactForBadge.phaseFrozen} /> : null}
                 <span className="payload-load">load {loadText}</span>
                 {payload.payloadFormat ? <span className="payload-format">{payload.payloadFormat}</span> : null}
                 {payload.payloadPacker ? <span className="payload-packer">{payload.payloadPacker}</span> : null}

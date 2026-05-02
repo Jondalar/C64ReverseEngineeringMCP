@@ -77,6 +77,34 @@ try {
   const after = service.listBuildRuns(pipeline.id)[0];
   assert.equal(after.status, "ok");
 
+  // Sprint 28 follow-up: run_build_pipeline orchestrator
+  const orchPipeline = service.saveBuildPipeline({
+    title: "Echo pipeline",
+    steps: [
+      { id: "echo-ok", title: "Echo ok", command: "echo ok", inputArtifactIds: [], outputArtifactIds: [], sideEffects: [], evidence: [] },
+      { id: "exit-zero", title: "Exit 0", command: "exit 0", inputArtifactIds: [], outputArtifactIds: [], sideEffects: [], evidence: [] },
+    ],
+    tags: [],
+  });
+  const orchRun = service.runBuildPipeline(orchPipeline.id);
+  assert.equal(orchRun.status, "ok");
+  assert.equal(orchRun.steps.length, 2);
+  assert.equal(orchRun.steps[0].status, "ok");
+  assert.equal(orchRun.steps[0].exitCode, 0);
+
+  // Failing pipeline: stops at first failed step
+  const failPipeline = service.saveBuildPipeline({
+    title: "Failing pipeline",
+    steps: [
+      { id: "fail", title: "Fail", command: "exit 1", inputArtifactIds: [], outputArtifactIds: [], sideEffects: [], evidence: [] },
+      { id: "after", title: "After", command: "echo after", inputArtifactIds: [], outputArtifactIds: [], sideEffects: [], evidence: [] },
+    ],
+    tags: [],
+  });
+  const failRun = service.runBuildPipeline(failPipeline.id);
+  assert.equal(failRun.steps[0].status, "failed");
+  assert.equal(failRun.steps[1].status, "pending", "stopped at first failure");
+
   console.log("sprint 8/26/28 smoke test passed");
   console.log(root);
 } catch (error) {
