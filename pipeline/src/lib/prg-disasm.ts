@@ -19,6 +19,11 @@ import {
 import { AnnotationsIndex, buildAnnotationsIndex, loadAnnotations } from "./annotations";
 import { convertKickAsmToTass } from "./tass-converter";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
+import { getPlatformOverrides, type PlatformTag } from "../platform-knowledge/index";
+
+// Spec 048: per-render platform override. Set at the top of
+// disassemblePrgToKickAsm; consulted by the comment generators.
+let activePlatform: PlatformTag = "c64";
 import { decodeInstruction, DecodedInstruction, isBranchInstruction, isCallInstruction, isJumpInstruction } from "./mos6502";
 import { hex16, hex8 } from "./format";
 import { lookupKernalAbi, RegisterName } from "./kernal-abi";
@@ -32,6 +37,11 @@ interface PrgDisasmOptions {
   entryPoints?: number[];
   title?: string;
   analysisPath?: string;
+  // Spec 048: optional platform tag. Default is "c64". When
+  // "c1541", renderer overlays the c1541 ZP / IO / ROM tables on
+  // top of the existing C64 lookups so drive disasm gets correct
+  // labels.
+  platform?: "c64" | "c1541";
 }
 
 interface InstructionIndex {
@@ -410,15 +420,28 @@ function generateInstructionComment(
     }
   }
 
-  // 2. KERNAL call
-  if ((mnem === "jsr" || mnem === "jmp") && target !== undefined && C64_KERNAL[target]) {
-    return `// ${C64_KERNAL[target]}`;
+  // 2. KERNAL call (or platform-specific ROM symbol — Spec 048)
+  if ((mnem === "jsr" || mnem === "jmp") && target !== undefined) {
+    const overrides = getPlatformOverrides(activePlatform);
+    if (overrides.rom[target]) {
+      return `// ${overrides.rom[target]}`;
+    }
+    if (C64_KERNAL[target]) {
+      return `// ${C64_KERNAL[target]}`;
+    }
   }
 
-  // 3. Zero-page stores/loads with known meaning
-  if (mode === "zp" && operand !== undefined && ZP_COMMON[operand]) {
-    const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
-    return `// ${desc} ${ZP_COMMON[operand]}`;
+  // 3. Zero-page stores/loads with known meaning (platform overlay first)
+  if (mode === "zp" && operand !== undefined) {
+    const overrides = getPlatformOverrides(activePlatform);
+    if (overrides.zp[operand]) {
+      const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
+      return `// ${desc} ${overrides.zp[operand]}`;
+    }
+    if (ZP_COMMON[operand]) {
+      const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
+      return `// ${desc} ${ZP_COMMON[operand]}`;
+    }
   }
 
   // 4. Self-modifying code: STA into code region
@@ -2243,6 +2266,8 @@ function renderLegacy(prg: PrgImage, entryPoints: number[], lines: string[]): vo
 }
 
 export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): void {
+  // Spec 048: set per-render platform override. Default c64.
+  activePlatform = options.platform ?? "c64";
   const resolvedPrgPath = resolve(prgPath);
   const prg = readPrg(resolvedPrgPath);
   const analysisReport = maybeLoadAnalysis(resolvedPrgPath, options.analysisPath);

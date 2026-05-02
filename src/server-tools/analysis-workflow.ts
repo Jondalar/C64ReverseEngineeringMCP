@@ -249,15 +249,30 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       output_asm: z.string().optional().describe("Output path for the .asm file"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses"),
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
+      platform: z.enum(["c64", "c1541"]).optional().describe("Spec 048: target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly."),
     },
-    safeHandler("disasm_prg", async ({ project_dir, prg_path, output_asm, entry_points, analysis_json }) => {
+    safeHandler("disasm_prg", async ({ project_dir, prg_path, output_asm, entry_points, analysis_json, platform }) => {
       const pd = context.projectDir(project_dir ?? prg_path, true);
       const prgAbs = resolve(pd, prg_path);
       const outAbs = output_asm
         ? resolve(pd, output_asm)
         : prgAbs.replace(/\.prg$/i, "_disasm.asm");
       const entries = entry_points?.join(",") ?? "";
-      const args = [prgAbs, outAbs];
+      // Spec 048: resolve platform — explicit arg wins, else read
+      // from the artifact tag if registered, else default c64.
+      let resolvedPlatform: "c64" | "c1541" = platform ?? "c64";
+      if (!platform) {
+        try {
+          const knowledgeService = new ProjectKnowledgeService(pd);
+          const a = knowledgeService.listArtifacts().find((art) => art.path === prgAbs);
+          if (a?.platform === "c1541") resolvedPlatform = "c1541";
+        } catch {
+          // best effort
+        }
+      }
+      const args: string[] = [];
+      if (resolvedPlatform !== "c64") args.push("--platform", resolvedPlatform);
+      args.push(prgAbs, outAbs);
       if (entries) args.push(entries);
       if (analysis_json) args.push(resolve(pd, analysis_json));
       const result = await runCli("disasm-prg", args, { projectDir: pd });

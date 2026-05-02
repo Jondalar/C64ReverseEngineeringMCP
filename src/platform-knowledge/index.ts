@@ -7,15 +7,15 @@
 import { c64PlatformKnowledge, type PlatformKnowledge } from "./c64.js";
 import { c1541PlatformKnowledge } from "./c1541.js";
 
-export type PlatformTag = "c64" | "c1541" | "c128" | "vic20" | "plus4" | "other";
+// Spec 048: scope reduction. Project name is C64RE, not C=6502RE.
+// Only c64 + c1541 supported; other 6502 platforms removed from
+// the registry. ArtifactRecord.platform schema still accepts the
+// legacy enum values so historical projects keep parsing.
+export type PlatformTag = "c64" | "c1541";
 
 const PLATFORM_TABLE: Record<PlatformTag, PlatformKnowledge | undefined> = {
   c64: c64PlatformKnowledge,
   c1541: c1541PlatformKnowledge,
-  c128: undefined,
-  vic20: undefined,
-  plus4: undefined,
-  other: undefined,
 };
 
 export function getPlatformKnowledge(platform?: PlatformTag): PlatformKnowledge {

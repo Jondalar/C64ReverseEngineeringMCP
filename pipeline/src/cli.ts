@@ -78,19 +78,35 @@ function main(): void {
   }
 
   if (command === "disasm-prg") {
-    const prgPath = args[0];
+    // Spec 048: optional --platform <c64|c1541> flag. Strip it from
+    // the positional args before the existing arg parsing so we keep
+    // the public CLI shape stable.
+    let platform: "c64" | "c1541" = "c64";
+    const remaining: string[] = [];
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i] === "--platform" && args[i + 1]) {
+        platform = args[i + 1] as "c64" | "c1541";
+        i += 1;
+      } else if (args[i].startsWith("--platform=")) {
+        platform = args[i].slice("--platform=".length) as "c64" | "c1541";
+      } else {
+        remaining.push(args[i]);
+      }
+    }
+    const prgPath = remaining[0];
     if (!prgPath) {
       usage();
     }
-    const outputPath = resolve(args[1] ?? "analysis/main-game/main_disasm.asm");
-    const entryPoints = args[2]
-      ? args[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
+    const outputPath = resolve(remaining[1] ?? "analysis/main-game/main_disasm.asm");
+    const entryPoints = remaining[2]
+      ? remaining[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
       : [0x0827];
     const prgAbs = resolve(prgPath);
     disassemblePrgToKickAsm(prgAbs, outputPath, {
       entryPoints,
       title: prgPath,
-      analysisPath: args[3] ? resolve(args[3]) : undefined,
+      analysisPath: remaining[3] ? resolve(remaining[3]) : undefined,
+      platform,
     });
     registerCliArtifact({
       kind: "generated-source",
