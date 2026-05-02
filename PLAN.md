@@ -30,8 +30,11 @@ execution sequence is:
 ```
 21 (done) → 22 (done) → 16 (partial) → 18 (v1) → 17 (v1) → 19 (v1)
        → 20 (v1) → 23 (v1) → 24 (v1) → 25 (v1) → 27 (v1)
-       → 33 (doc) → 8 → 26 → 28
+       → 33 (doc) → 34 (done) → 35 (done)
+       → 36 → 37 → 38 → 8 → 26 → 28
 ```
+
+Refinement Phase 2 added Sprints 36/37/38 plus reactivated 8/26/28.
 
 Status snapshot:
 - Sprints 1-15 landed previously.
@@ -1136,6 +1139,146 @@ Done when:
   prompt.
 - Smoke `scripts/sprint34-35-smoke.mjs` covers worker prompt
   builder + phase advance + freeze + tool allow-list.
+
+## Sprint 36: QoL — Open-question source, NEXT-task auto-create, doctrine hints
+
+Goal: three small but compounding visibility wins. (1) Open
+questions carry a `source` tag so heuristic noise sinks below
+human-review questions. (2) NEXT-hints from analyze / disasm /
+extract tools turn into tracked tasks that auto-close when the
+follow-up tool runs. (3) Tool descriptions get auto-injected phase
+tags + curated 1-line doctrine notes so the agent reads the
+workflow context with every tool call.
+
+Status: not started.
+
+Todos:
+
+- [ ] Spec 036: extend OpenQuestionRecord with source +
+      autoResolvable; auto-tag at producer tools; UI Option C
+      (sort by source, badge, hidden-count banner);
+      project_repair backfill operation.
+- [ ] Spec 038: emitNextStepTask helper + auto-close-checker in
+      agent_onboard + cascade-suppression; integrate at every
+      NEXT-hint emitter (analyze_prg, disasm_prg, ram_report,
+      pointer_report, run_prg_reverse_workflow, extract_disk,
+      extract_crt).
+- [ ] Spec 039: tagDescriptionWithPhase wrapper around
+      server.tool() that injects phase prefix from
+      phase-tools.ts; manual Note: addendum on save_*, apply_*,
+      register_*, declare_*, render_*, advance_*, freeze_*
+      tools (~50 tools).
+
+Specs:
+
+- `specs/036-open-question-source-tagging.md`
+- `specs/038-next-hint-task-autocreate.md`
+- `specs/039-doctrine-hints-in-tool-descriptions.md`
+
+Done when:
+
+- BWC questions tab default view sorts human → runtime → static →
+  heuristic-phase1 with the noise banner.
+- Running analyze_prg → disasm_prg → annotations.json sequence
+  produces and auto-closes the matching tasks without duplicates.
+- save_finding description carries `[Phase 5]` prefix and the
+  visibility / render_docs note.
+
+## Sprint 37: Heatmap status + Quality metrics + Relevance
+
+Goal: payload-level diskHint surfaces protection / drive-code /
+raw-unanalyzed sectors as a colour overlay on the existing
+cylindrical heatmap. Per-artifact quality metrics finally populate
+the Spec 022 row. Relevance ranking lets the dashboard sort by
+crack/port priority; cracker-mode default-orders by relevance so
+worker subagents hit the loader before asset PRGs.
+
+Status: not started.
+
+Todos:
+
+- [ ] Spec 037: payloadDiskHint on payload entity + auto-tag in
+      inspect_g64_*, extract_disk, register_existing_files +
+      manual set_payload_disk_hint MCP tool; aggregator extends
+      buildDiskLayoutView with sectorHints; renderer adds border
+      overlay layer; legend with counts.
+- [ ] Spec 040: computeQualityMetrics helper +
+      knowledge/.cache/quality-metrics/ cache + dashboard columns
+      (completionPct, qualityScore, relevanceRank);
+      projectProfile.qualityMetrics.largeUnknownThreshold config.
+- [ ] Spec 041: ArtifactRecord.relevance + auto-derived
+      relevanceRank (manual > load_sequence > load_event >
+      alphabetic); set_artifact_relevance,
+      auto_tag_relevance MCP tools; cracker-mode default sort by
+      relevance; agent_propose_next walks artifacts in
+      relevanceRank order.
+
+Specs:
+
+- `specs/037-disk-heatmap-status-overlay.md`
+- `specs/040-per-artifact-quality-metrics.md`
+- `specs/041-relevance-ranking.md`
+
+Done when:
+
+- The fixture project's disk heatmap shows red border on bad-CRC
+  sectors and purple on T1/S0 drive code.
+- The dashboard shows per-PRG qualityScore + relevanceRank columns
+  and sorts on each.
+- Cracker-mode agent_propose_next prioritises a loader-tagged
+  artifact above an asset-tagged artifact.
+
+## Sprint 38: Annotation Helper
+
+Goal: cut Phase 5 (Semantic Analysis V1) effort 5-10x by emitting
+a draft annotations file from a pattern-fingerprint pass.
+
+Status: not started.
+
+Todos:
+
+- [ ] Spec 042: pipeline/src/analysis/annotators/ module set
+      (kernal-call, loop-shape, pointer-table, string-table,
+      irq-handler, cross-ref-namer); CLI command
+      propose-annotations; MCP tool propose_annotations;
+      `*_annotations.draft.json` output; --persist-questions
+      flag (writes openQuestions via Spec 036 source=static-analysis).
+
+Specs:
+
+- `specs/042-annotation-helper.md`
+
+Done when:
+
+- Running propose_annotations on the fixture HELLO PRG emits a
+  draft with at least one segment / label / routine candidate.
+- Existing manual `*_annotations.json` is never touched.
+- `--persist-questions` saves draft questions with
+  `source: "static-analysis"` and `autoResolvable: true`.
+
+## Sprint 8 (reactivated): Headless Trace Throughput
+
+Goal: buffered trace writes + sampled mode so long depack traces
+finish in reasonable wall time. Required before Sprint 26.
+
+Status: reactivated. Specs and todos already in the original
+Sprint 8 entry (search above for "Sprint 8: Headless Trace
+Throughput").
+
+## Sprint 26 (reactivated): Runtime Scenario Traces + Diff (R20)
+
+Goal: define a scenario once, run it against multiple targets
+(original / port build N-1 / port build N), produce a structured
+diff. Spec 030 unchanged.
+
+Status: reactivated, depends on Sprint 8.
+
+## Sprint 28 (reactivated): Build Pipeline (R24)
+
+Goal: assemble → patch → pack → CRT pipelines as ordered
+structured steps with stale-output detection. Spec 032 unchanged.
+
+Status: reactivated, depends on Sprint 24 (✓ shipped).
 
 ## Backlog
 
