@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { auditProject } from "../dist/project-knowledge/audit.js";
+import { auditProject, auditProjectCached } from "../dist/project-knowledge/audit.js";
 import { repairProject } from "../dist/project-knowledge/repair.js";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
 import { resolveProjectDir } from "../dist/project-root.js";
@@ -288,6 +288,34 @@ try {
     assert.equal(safe.after?.counts.unimportedAnalysisArtifacts, 0);
   } finally {
     rmSync(importRoot, { recursive: true, force: true });
+  }
+
+  const cacheRoot = mkdtempSync(join(tmpdir(), "c64re-knowledge-cache-"));
+  try {
+    const cacheService = new ProjectKnowledgeService(cacheRoot);
+    cacheService.initProject({ name: "Cache fixture", description: "audit cache smoke", tags: ["smoke"] });
+    cacheService.buildAllViews();
+
+    const first = auditProjectCached(cacheRoot);
+    assert.equal(first.cacheStatus, "fresh");
+    assert.equal(existsSync(join(cacheRoot, "knowledge", ".cache", "project-audit.json")), true);
+
+    const second = auditProjectCached(cacheRoot);
+    assert.equal(second.cacheStatus, "cached");
+    assert.equal(second.cachedAt, first.cachedAt);
+
+    const entitiesPath = join(cacheRoot, "knowledge", "entities.json");
+    const future = new Date(Date.now() + 5000);
+    utimesSync(entitiesPath, future, future);
+
+    const third = auditProjectCached(cacheRoot);
+    assert.equal(third.cacheStatus, "fresh");
+    assert.notEqual(third.cachedAt, first.cachedAt);
+
+    const direct = auditProject(cacheRoot);
+    assert.ok(direct.severity);
+  } finally {
+    rmSync(cacheRoot, { recursive: true, force: true });
   }
 
   console.log("project-knowledge smoke test passed");

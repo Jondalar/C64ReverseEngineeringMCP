@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { auditProject, type ProjectAuditResult } from "../project-knowledge/audit.js";
+import { auditProject, auditProjectCached, type AuditCachedResult, type ProjectAuditResult } from "../project-knowledge/audit.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { countUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import type { ServerToolContext } from "./types.js";
@@ -350,7 +350,8 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const service = new ProjectKnowledgeService(projectRoot);
       const status = service.getProjectStatus();
       const state = loadAgentState(projectRoot);
-      const audit = auditProject(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
+      const cached: AuditCachedResult = auditProjectCached(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
+      const audit = cached.audit;
       const auditState = summarizeAuditState(audit);
       const proposals = proposeNextActions(service, state, projectRoot, audit);
 
@@ -362,6 +363,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push(`Status: ${status.project.status}`);
       lines.push(`Knowledge: ${auditState.knowledge}`);
       lines.push(`Views: ${auditState.views}`);
+      lines.push(`Audit: ${cached.cacheStatus}${cached.cachedAt ? ` (since ${cached.cachedAt})` : ""}`);
       lines.push(`Recommended next action: ${proposals[0]?.suggestion ?? "(none)"}`);
       lines.push(``);
       lines.push(`## Agent State`);
@@ -534,14 +536,15 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const projectRoot = ctx.projectDir(project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const state = loadAgentState(projectRoot);
-      const audit = auditProject(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
+      const cached = auditProjectCached(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });
+      const audit = cached.audit;
       const proposals = proposeNextActions(service, state, projectRoot, audit);
       const lines: string[] = [];
       lines.push(`# Proposed Next Actions`);
       lines.push(``);
       lines.push(`Current role: ${state.role}`);
       lines.push(`Current focus: ${state.currentFocus ?? "(unset)"}`);
-      lines.push(`Audit severity: ${audit.severity}`);
+      lines.push(`Audit severity: ${audit.severity} (${cached.cacheStatus})`);
       lines.push(``);
       for (const c of proposals) {
         lines.push(`${c.rank + 1}. (${c.source}) ${c.suggestion}`);

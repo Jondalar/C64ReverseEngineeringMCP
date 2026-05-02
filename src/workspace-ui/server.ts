@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { auditProject, auditProjectCached } from "../project-knowledge/audit.js";
+import { repairProject } from "../project-knowledge/repair.js";
 import { findUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import { buildGraphicsView } from "./graphics-view.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
@@ -291,6 +293,52 @@ const server = createServer((req, res) => {
         projectDir,
       }));
     }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/audit" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const fresh = requestUrl.searchParams.get("fresh") === "1";
+    try {
+      if (fresh) {
+        const audit = auditProject(projectDir, { includeFileScan: true });
+        send(res, jsonResponse(200, { audit, cacheStatus: "fresh", cachedAt: new Date().toISOString() }));
+      } else {
+        const cached = auditProjectCached(projectDir, { includeFileScan: true });
+        send(res, jsonResponse(200, cached));
+      }
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/repair" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          mode?: "dry-run" | "safe";
+          operations?: Array<"merge-fragments" | "register-artifacts" | "import-analysis" | "import-manifest" | "build-views">;
+          limit?: number;
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        const result = repairProject(projectDir, {
+          mode: payload.mode ?? "dry-run",
+          operations: payload.operations,
+          limit: payload.limit,
+        });
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
     return;
   }
 

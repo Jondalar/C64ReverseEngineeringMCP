@@ -67,11 +67,20 @@ Done when:
 Goal: a user saying "disassemble this" should trigger a complete,
 repeatable workflow, not a partial local command sequence.
 
+Status: first pass landed. `run_prg_reverse_workflow` orchestrates
+register-input → analyze → import → disasm → ram-report →
+pointer-report → build-views and returns done/incomplete/blocked plus a
+concrete next required action. End-to-end smoke against a real PRG is
+still pending (PRGs in `analysis/tmp/` are gitignored fixtures).
+
 Todos:
 
-- Implement a full PRG reverse workflow tool.
-- Ensure deterministic outputs are registered, imported, and view-built.
-- Return explicit done/incomplete/blocked status with next actions.
+- [x] Implement a full PRG reverse workflow tool.
+- [x] Ensure deterministic outputs are registered, imported, and
+      view-built.
+- [x] Return explicit done/incomplete/blocked status with next actions.
+- [ ] Add an end-to-end smoke fixture (synthetic PRG or
+      non-commercial sample under `samples/`).
 
 Specs:
 
@@ -175,16 +184,18 @@ Done when:
 Goal: keep `agent_onboard` fast on large projects without losing the
 audit signal.
 
-Status: not started. Surfaced while reviewing Sprint 1; deferred so it
-does not block the BWC pilot.
+Status: implemented. `auditProjectCached` keeps a fingerprint envelope
+at `knowledge/.cache/project-audit.json`; `agent_onboard` and
+`agent_propose_next` use it, while `project_audit` still always runs
+fresh. Smoke covers fresh / cached / invalidate-on-knowledge-edit.
 
 Todos:
 
-- [ ] Implement `auditProjectCached` with a knowledge-fingerprint cache
+- [x] Implement `auditProjectCached` with a knowledge-fingerprint cache
       under `knowledge/.cache/project-audit.json`.
-- [ ] Switch `agent_onboard` and `agent_propose_next` to the cached
+- [x] Switch `agent_onboard` and `agent_propose_next` to the cached
       entry point. `project_audit` stays uncached.
-- [ ] Add smoke for cache hit, invalidation on knowledge edit, and
+- [x] Add smoke for cache hit, invalidation on knowledge edit, and
       uncached `project_audit`.
 
 Specs:
@@ -272,6 +283,34 @@ Done when:
 
 - a deliberately failing handler returns a structured error instead of
   crashing the stdio process
+
+## Sprint 11: Audit / Repair UI Panel
+
+Goal: surface the same audit/repair signal to the human in the
+workspace UI that the agent already gets via MCP.
+
+Status: not started. Surfaced after Sprint 6 to round out the
+"integrated UI" goal.
+
+Todos:
+
+- [ ] Add `GET /api/audit` (defaulting to cached) and `POST /api/repair`
+      to the workspace UI server.
+- [ ] Add an `AuditPanel` to the dashboard with severity, counts, top
+      findings, and `Refresh audit` / `Dry-run repair` /
+      `Run safe repair` buttons.
+- [ ] Re-fetch the workspace snapshot after a safe repair so counts and
+      views update.
+
+Specs:
+
+- `specs/014-audit-repair-ui-panel.md`
+
+Done when:
+
+- a stale-views project shows the finding in the dashboard without an
+  explicit refresh
+- "Run safe repair" rebuilds views and the panel reports the new state
 
 ## Sprint 10: Suggest Depacker — Lykia Variants
 

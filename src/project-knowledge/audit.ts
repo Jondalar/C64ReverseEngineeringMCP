@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync, type Dirent } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, type Dirent } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { findUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import { importManifestKnowledge } from "./manifest-import.js";
@@ -348,6 +348,134 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
       staleViews: staleViews.length,
     },
   };
+}
+
+interface AuditFingerprint {
+  knowledge: Array<{ path: string; mtimeMs: number; size: number }>;
+  views: { newestMtimeMs: number };
+  scan: {
+    analysisNewest: number;
+    artifactsNewest: number;
+    mediaNewest: number;
+  };
+}
+
+function newestMtimeIn(dir: string): number {
+  let newest = 0;
+  function walk(target: string, depth: number): void {
+    if (depth > 4) return;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(target, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const full = join(target, entry.name);
+      try {
+        const stat = statSync(full);
+        if (stat.mtimeMs > newest) newest = stat.mtimeMs;
+        if (entry.isDirectory()) walk(full, depth + 1);
+      } catch {
+        // ignore unreadable entries
+      }
+    }
+  }
+  walk(dir, 0);
+  return newest;
+}
+
+function computeAuditFingerprint(projectRoot: string): AuditFingerprint {
+  const knowledge: AuditFingerprint["knowledge"] = [];
+  for (const rel of KNOWLEDGE_FILES) {
+    const full = join(projectRoot, rel);
+    if (!existsSync(full)) continue;
+    const stat = statSync(full);
+    knowledge.push({ path: rel, mtimeMs: stat.mtimeMs, size: stat.size });
+  }
+  let viewsNewest = 0;
+  for (const rel of VIEW_FILES) {
+    const full = join(projectRoot, rel);
+    if (!existsSync(full)) continue;
+    const stat = statSync(full);
+    if (stat.mtimeMs > viewsNewest) viewsNewest = stat.mtimeMs;
+  }
+  return {
+    knowledge,
+    views: { newestMtimeMs: viewsNewest },
+    scan: {
+      analysisNewest: newestMtimeIn(join(projectRoot, "analysis")),
+      artifactsNewest: newestMtimeIn(join(projectRoot, "artifacts")),
+      mediaNewest: newestMtimeIn(join(projectRoot, "media")),
+    },
+  };
+}
+
+interface AuditCacheEnvelope {
+  schemaVersion: 1;
+  fingerprint: AuditFingerprint;
+  computedAt: string;
+  result: ProjectAuditResult;
+}
+
+function auditCachePath(projectRoot: string): string {
+  return join(projectRoot, "knowledge", ".cache", "project-audit.json");
+}
+
+function readAuditCache(projectRoot: string): AuditCacheEnvelope | undefined {
+  const path = auditCachePath(projectRoot);
+  if (!existsSync(path)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as AuditCacheEnvelope;
+    if (parsed.schemaVersion !== 1) return undefined;
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeAuditCache(projectRoot: string, envelope: AuditCacheEnvelope): void {
+  const path = auditCachePath(projectRoot);
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify(envelope, null, 2)}\n`, "utf8");
+  } catch {
+    // best-effort
+  }
+}
+
+function fingerprintsEqual(left: AuditFingerprint, right: AuditFingerprint): boolean {
+  if (left.knowledge.length !== right.knowledge.length) return false;
+  if (left.views.newestMtimeMs !== right.views.newestMtimeMs) return false;
+  if (left.scan.analysisNewest !== right.scan.analysisNewest) return false;
+  if (left.scan.artifactsNewest !== right.scan.artifactsNewest) return false;
+  if (left.scan.mediaNewest !== right.scan.mediaNewest) return false;
+  for (let index = 0; index < left.knowledge.length; index += 1) {
+    const a = left.knowledge[index]!;
+    const b = right.knowledge[index]!;
+    if (a.path !== b.path || a.mtimeMs !== b.mtimeMs || a.size !== b.size) return false;
+  }
+  return true;
+}
+
+export interface AuditCachedResult {
+  audit: ProjectAuditResult;
+  cacheStatus: "fresh" | "cached";
+  cachedAt?: string;
+}
+
+export function auditProjectCached(projectRoot: string, options: ProjectAuditOptions = {}): AuditCachedResult {
+  const root = resolve(projectRoot);
+  const fingerprint = computeAuditFingerprint(root);
+  const cached = readAuditCache(root);
+  if (cached && fingerprintsEqual(cached.fingerprint, fingerprint)) {
+    return { audit: cached.result, cacheStatus: "cached", cachedAt: cached.computedAt };
+  }
+  const audit = auditProject(root, options);
+  const computedAt = new Date().toISOString();
+  writeAuditCache(root, { schemaVersion: 1, fingerprint, computedAt, result: audit });
+  return { audit, cacheStatus: "fresh", cachedAt: computedAt };
 }
 
 export function renderProjectAudit(audit: ProjectAuditResult): string {

@@ -388,4 +388,302 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       return context.cliResultToContent(result);
     },
   );
+
+  registerPrgReverseWorkflow(server, context);
+}
+
+interface PhaseResult {
+  phase: string;
+  status: "done" | "skipped" | "blocked";
+  output?: string;
+  artifact?: string;
+  reason?: string;
+  log?: string;
+}
+
+interface RegistrationOutcome {
+  outputArtifactIds: string[];
+  message?: string;
+  runPath?: string;
+}
+
+function tryRegister(
+  context: ServerToolContext,
+  projectRoot: string,
+  toolName: string,
+  title: string,
+  parameters: Record<string, string | number | boolean | null | string[]>,
+  inputs: Array<{ path: string; kind: string; scope: string; role?: string; format?: string }>,
+  outputs: Array<{ path: string; kind: string; scope: string; role?: string; format?: string }>,
+): RegistrationOutcome {
+  const registration = context.tryRegisterKnowledgeArtifacts(projectRoot, {
+    toolName,
+    title,
+    parameters,
+    inputs: inputs.map((entry) => ({ ...entry, producedByTool: toolName })) as never,
+    outputs: outputs.map((entry) => ({ ...entry, producedByTool: toolName })) as never,
+  });
+  return {
+    outputArtifactIds: registration.outputArtifacts ?? [],
+    message: registration.message,
+    runPath: registration.runPath,
+  };
+}
+
+function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContext): void {
+  server.tool(
+    "run_prg_reverse_workflow",
+    "Run the full first-pass PRG reverse-engineering workflow: register input, analyze, disassemble, generate RAM and pointer reports, import knowledge, and rebuild views. Returns done/incomplete/blocked plus the next required semantic action.",
+    {
+      project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
+      prg_path: z.string().describe("Path to the .prg file (absolute or relative to project_dir)."),
+      mode: z.enum(["quick", "full"]).optional().describe("quick = analyze + disasm only. full = also ram_report + pointer_report. Default full."),
+      output_dir: z.string().optional().describe("Override output directory. Default places outputs next to the PRG."),
+      rebuild_views: z.boolean().optional().describe("Run build_all_views after the workflow. Default true."),
+      entry_points: z.array(z.string()).optional().describe("Optional hex entry-point overrides (e.g. [\"0827\"])."),
+    },
+    async ({ project_dir, prg_path, mode, output_dir, rebuild_views, entry_points }) => {
+      const startedAt = new Date().toISOString();
+      const pd = context.projectDir(project_dir ?? prg_path, true);
+      const prgAbs = resolve(pd, prg_path);
+      const phases: PhaseResult[] = [];
+      const importedCounts = { entities: 0, findings: 0, relations: 0, flows: 0, openQuestions: 0 };
+      const writtenArtifacts: string[] = [];
+      let viewsBuilt: string[] = [];
+      let blocked = false;
+
+      if (!existsSync(prgAbs)) {
+        return context.cliResultToContent({
+          stdout: "",
+          stderr: `PRG not found at ${prgAbs}`,
+          exitCode: 1,
+        });
+      }
+
+      const baseAbs = output_dir
+        ? resolve(pd, output_dir, basename(prgAbs).replace(/\.prg$/i, ""))
+        : prgAbs.replace(/\.prg$/i, "");
+      const analysisAbs = `${baseAbs}_analysis.json`;
+      const asmAbs = `${baseAbs}_disasm.asm`;
+      const tassAbs = `${baseAbs}_disasm.tass`;
+      const ramReportAbs = `${baseAbs}_RAM_STATE_FACTS.md`;
+      const pointerReportAbs = `${baseAbs}_POINTER_TABLE_FACTS.md`;
+      const effectiveMode = mode ?? "full";
+      const wantRebuildViews = rebuild_views ?? true;
+      const entries = entry_points?.join(",") ?? "";
+
+      const inputRegistration = tryRegister(
+        context,
+        pd,
+        "run_prg_reverse_workflow",
+        `Register input PRG: ${basename(prgAbs)}`,
+        { prg_path },
+        [],
+        [{ path: prgAbs, kind: "prg", scope: "input", role: "analysis-target" }],
+      );
+      phases.push({
+        phase: "register-input",
+        status: "done",
+        output: prgAbs,
+        artifact: inputRegistration.outputArtifactIds[0],
+      });
+
+      const analysisArgs = [prgAbs, analysisAbs];
+      if (entries) analysisArgs.push(entries);
+      const analysisRun = await runCli("analyze-prg", analysisArgs, { projectDir: pd });
+      if (analysisRun.exitCode !== 0) {
+        phases.push({ phase: "analyze", status: "blocked", reason: analysisRun.stderr || "analyze-prg failed", log: analysisRun.stdout });
+        blocked = true;
+      } else {
+        const analysisRegistration = tryRegister(
+          context,
+          pd,
+          "analyze_prg",
+          `Analyze PRG: ${basename(prgAbs)}`,
+          { prg_path, output_json: analysisAbs, entry_points: entry_points ?? [] },
+          [{ path: prgAbs, kind: "prg", scope: "input", role: "analysis-target" }],
+          [{ path: analysisAbs, kind: "other", scope: "analysis", role: "analysis-json", format: "json" }],
+        );
+        writtenArtifacts.push(analysisAbs);
+        phases.push({
+          phase: "analyze",
+          status: "done",
+          output: analysisAbs,
+          artifact: analysisRegistration.outputArtifactIds[0],
+        });
+
+        if (analysisRegistration.outputArtifactIds[0]) {
+          try {
+            const knowledgeService = new ProjectKnowledgeService(pd);
+            const imported = knowledgeService.importAnalysisArtifact(analysisRegistration.outputArtifactIds[0]);
+            importedCounts.entities += imported.importedEntityCount;
+            importedCounts.findings += imported.importedFindingCount;
+            importedCounts.relations += imported.importedRelationCount;
+            importedCounts.flows += imported.importedFlowCount;
+            importedCounts.openQuestions += imported.importedOpenQuestionCount;
+            phases.push({
+              phase: "import-analysis",
+              status: "done",
+              artifact: analysisRegistration.outputArtifactIds[0],
+              reason: `entities=${imported.importedEntityCount} findings=${imported.importedFindingCount} relations=${imported.importedRelationCount} flows=${imported.importedFlowCount} questions=${imported.importedOpenQuestionCount}`,
+            });
+          } catch (error) {
+            phases.push({
+              phase: "import-analysis",
+              status: "blocked",
+              reason: error instanceof Error ? error.message : String(error),
+            });
+            blocked = true;
+          }
+        }
+      }
+
+      if (!blocked) {
+        const disasmArgs = [prgAbs, asmAbs];
+        if (entries) disasmArgs.push(entries);
+        if (existsSync(analysisAbs)) disasmArgs.push(analysisAbs);
+        const disasmRun = await runCli("disasm-prg", disasmArgs, { projectDir: pd });
+        if (disasmRun.exitCode !== 0) {
+          phases.push({ phase: "disasm", status: "blocked", reason: disasmRun.stderr || "disasm-prg failed", log: disasmRun.stdout });
+          blocked = true;
+        } else {
+          tryRegister(
+            context,
+            pd,
+            "disasm_prg",
+            `Disassemble PRG: ${basename(prgAbs)}`,
+            { prg_path, output_asm: asmAbs, analysis_json: analysisAbs },
+            [
+              { path: prgAbs, kind: "prg", scope: "input", role: "disasm-target" },
+              { path: analysisAbs, kind: "other", scope: "analysis", role: "analysis-json", format: "json" },
+            ],
+            [
+              { path: asmAbs, kind: "generated-source", scope: "generated", role: "kickassembler-source", format: "asm" },
+              { path: tassAbs, kind: "generated-source", scope: "generated", role: "64tass-source", format: "tass" },
+            ],
+          );
+          writtenArtifacts.push(asmAbs);
+          if (existsSync(tassAbs)) writtenArtifacts.push(tassAbs);
+          phases.push({ phase: "disasm", status: "done", output: asmAbs });
+        }
+      }
+
+      if (!blocked && effectiveMode === "full" && existsSync(analysisAbs)) {
+        const ramRun = await runCli("ram-report", [analysisAbs, ramReportAbs], { projectDir: pd });
+        if (ramRun.exitCode === 0) {
+          tryRegister(
+            context,
+            pd,
+            "ram_report",
+            `RAM report: ${basename(analysisAbs)}`,
+            { analysis_json: analysisAbs, output_md: ramReportAbs },
+            [{ path: analysisAbs, kind: "other", scope: "analysis", role: "analysis-json", format: "json" }],
+            [{ path: ramReportAbs, kind: "report", scope: "generated", role: "ram-report", format: "markdown" }],
+          );
+          writtenArtifacts.push(ramReportAbs);
+          phases.push({ phase: "ram-report", status: "done", output: ramReportAbs });
+        } else {
+          phases.push({ phase: "ram-report", status: "blocked", reason: ramRun.stderr || "ram-report failed" });
+        }
+
+        const pointerRun = await runCli("pointer-report", [analysisAbs, pointerReportAbs], { projectDir: pd });
+        if (pointerRun.exitCode === 0) {
+          tryRegister(
+            context,
+            pd,
+            "pointer_report",
+            `Pointer report: ${basename(analysisAbs)}`,
+            { analysis_json: analysisAbs, output_md: pointerReportAbs },
+            [{ path: analysisAbs, kind: "other", scope: "analysis", role: "analysis-json", format: "json" }],
+            [{ path: pointerReportAbs, kind: "report", scope: "generated", role: "pointer-report", format: "markdown" }],
+          );
+          writtenArtifacts.push(pointerReportAbs);
+          phases.push({ phase: "pointer-report", status: "done", output: pointerReportAbs });
+        } else {
+          phases.push({ phase: "pointer-report", status: "blocked", reason: pointerRun.stderr || "pointer-report failed" });
+        }
+      } else if (effectiveMode === "quick") {
+        phases.push({ phase: "ram-report", status: "skipped", reason: "mode=quick" });
+        phases.push({ phase: "pointer-report", status: "skipped", reason: "mode=quick" });
+      }
+
+      if (wantRebuildViews && !blocked) {
+        try {
+          const service = new ProjectKnowledgeService(pd);
+          const built = service.buildAllViews();
+          viewsBuilt = [
+            built.projectDashboard.path,
+            built.memoryMap.path,
+            built.diskLayout.path,
+            built.cartridgeLayout.path,
+            built.loadSequence.path,
+            built.flowGraph.path,
+            built.annotatedListing.path,
+          ];
+          phases.push({ phase: "build-views", status: "done", reason: `${viewsBuilt.length} views` });
+        } catch (error) {
+          phases.push({
+            phase: "build-views",
+            status: "blocked",
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } else if (!wantRebuildViews) {
+        phases.push({ phase: "build-views", status: "skipped", reason: "rebuild_views=false" });
+      }
+
+      const overall = phases.some((p) => p.status === "blocked") ? "blocked"
+        : phases.some((p) => p.status === "skipped") ? "incomplete"
+          : "done";
+
+      const annotationsPath = `${baseAbs}_disasm_annotations.json`;
+      const nextRequiredAction = overall === "blocked"
+        ? "Resolve the blocked phase before continuing."
+        : existsSync(annotationsPath)
+          ? "Re-run disasm_prg to render the annotated listing."
+          : `Read ${asmAbs} and write ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then re-run disasm_prg.`;
+
+      const lines: string[] = [];
+      lines.push(`# run_prg_reverse_workflow`);
+      lines.push(``);
+      lines.push(`Project root: ${pd}`);
+      lines.push(`Knowledge written to: ${resolve(pd, "knowledge")}`);
+      lines.push(`Started at: ${startedAt}`);
+      lines.push(`Mode: ${effectiveMode}`);
+      lines.push(`Status: ${overall}`);
+      lines.push(``);
+      lines.push(`## Phases`);
+      for (const p of phases) {
+        const tail = [p.output ? `output=${p.output}` : null, p.artifact ? `artifactId=${p.artifact}` : null, p.reason ? `note=${p.reason}` : null]
+          .filter(Boolean)
+          .join(" | ");
+        lines.push(`- [${p.status}] ${p.phase}${tail ? ` — ${tail}` : ""}`);
+      }
+      lines.push(``);
+      lines.push(`## Imported knowledge`);
+      lines.push(`entities=${importedCounts.entities} findings=${importedCounts.findings} relations=${importedCounts.relations} flows=${importedCounts.flows} openQuestions=${importedCounts.openQuestions}`);
+      lines.push(``);
+      lines.push(`## Artifacts written`);
+      if (writtenArtifacts.length === 0) {
+        lines.push(`(none)`);
+      } else {
+        for (const path of writtenArtifacts) lines.push(`- ${path}`);
+      }
+      lines.push(``);
+      lines.push(`## Views rebuilt`);
+      if (viewsBuilt.length === 0) {
+        lines.push(`(none)`);
+      } else {
+        for (const path of viewsBuilt) lines.push(`- ${path}`);
+      }
+      lines.push(``);
+      lines.push(`## Next required step`);
+      lines.push(nextRequiredAction);
+      return context.cliResultToContent({
+        stdout: lines.join("\n"),
+        stderr: "",
+        exitCode: overall === "blocked" ? 1 : 0,
+      });
+    },
+  );
 }

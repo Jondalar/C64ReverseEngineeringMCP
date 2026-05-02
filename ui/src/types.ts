@@ -490,3 +490,57 @@ export interface WorkspaceUiSnapshot {
     flowGraph: FlowGraphView;
   };
 }
+
+export type ProjectAuditSeverity = "ok" | "low" | "medium" | "high";
+
+export interface ProjectAuditFinding {
+  id: string;
+  severity: Exclude<ProjectAuditSeverity, "ok">;
+  title: string;
+  paths: string[];
+  whyItMatters: string;
+  suggestedFix: string;
+}
+
+export interface ProjectAuditResult {
+  root: string;
+  severity: ProjectAuditSeverity;
+  findings: ProjectAuditFinding[];
+  suggestedActions: string[];
+  safeRepairAvailable: boolean;
+  counts: {
+    nestedKnowledgeStores: number;
+    missingArtifacts: number;
+    brokenArtifactPaths: number;
+    unregisteredFiles: number;
+    unimportedAnalysisArtifacts: number;
+    unimportedManifestArtifacts: number;
+    staleViews: number;
+  };
+}
+
+export interface AuditCachedResponse {
+  audit: ProjectAuditResult;
+  cacheStatus: "fresh" | "cached";
+  cachedAt?: string;
+}
+
+export type ProjectRepairOperation =
+  | "merge-fragments"
+  | "register-artifacts"
+  | "import-analysis"
+  | "import-manifest"
+  | "build-views";
+
+export interface ProjectRepairResponse {
+  root: string;
+  mode: "dry-run" | "safe";
+  operations: ProjectRepairOperation[];
+  planned: string[];
+  executed: string[];
+  skipped: string[];
+  filesChanged: string[];
+  before: ProjectAuditResult;
+  after?: ProjectAuditResult;
+}
+

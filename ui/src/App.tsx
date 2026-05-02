@@ -9,12 +9,16 @@ import { C64GraphicsView, type GraphicsRenderKind } from "./components/C64Graphi
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
+  AuditCachedResponse,
   EntityRecord,
   FindingRecord,
   FlowGraphView,
   LoadSequenceView,
   MemoryMapView,
   OpenQuestionRecord,
+  ProjectAuditFinding,
+  ProjectRepairOperation,
+  ProjectRepairResponse,
   RelationRecord,
   WorkspaceUiSnapshot,
 } from "./types";
@@ -488,16 +492,169 @@ function RecordList({
   );
 }
 
+const ALL_REPAIR_OPS: ProjectRepairOperation[] = [
+  "merge-fragments",
+  "register-artifacts",
+  "import-analysis",
+  "import-manifest",
+  "build-views",
+];
+
+function AuditPanel({
+  projectDir,
+  onReloadWorkspace,
+}: {
+  projectDir: string;
+  onReloadWorkspace: () => Promise<void>;
+}) {
+  const [audit, setAudit] = useState<AuditCachedResponse | null>(null);
+  const [busy, setBusy] = useState<"audit" | "audit-fresh" | "repair-dry" | "repair-safe" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lastRepair, setLastRepair] = useState<ProjectRepairResponse | null>(null);
+
+  async function loadAudit(fresh: boolean) {
+    setError(null);
+    setBusy(fresh ? "audit-fresh" : "audit");
+    try {
+      const url = `/api/audit?projectDir=${encodeURIComponent(projectDir)}${fresh ? "&fresh=1" : ""}`;
+      const data = await fetchJson<AuditCachedResponse>(url);
+      setAudit(data);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runRepair(mode: "dry-run" | "safe") {
+    if (mode === "safe" && !window.confirm("Run safe repair? This will write to knowledge/ and views/. Source files are not deleted.")) {
+      return;
+    }
+    setError(null);
+    setBusy(mode === "safe" ? "repair-safe" : "repair-dry");
+    try {
+      const data = await postJson<ProjectRepairResponse>("/api/repair", {
+        projectDir,
+        mode,
+        operations: ALL_REPAIR_OPS,
+      });
+      setLastRepair(data);
+      await loadAudit(true);
+      if (mode === "safe") await onReloadWorkspace();
+    } catch (repairError) {
+      setError(repairError instanceof Error ? repairError.message : String(repairError));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  useEffect(() => {
+    void loadAudit(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectDir]);
+
+  const findings: ProjectAuditFinding[] = audit?.audit.findings ?? [];
+  const counts = audit?.audit.counts;
+
+  return (
+    <section className="panel-card audit-panel">
+      <div className="section-heading">
+        <h3>Project Audit</h3>
+        <span>{audit ? `${audit.audit.severity} (${audit.cacheStatus})` : "loading..."}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <button type="button" className="inspector-chip" disabled={busy !== null} onClick={() => loadAudit(true)}>
+          {busy === "audit-fresh" ? "Auditing..." : "Refresh audit"}
+        </button>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busy !== null || !audit?.audit.safeRepairAvailable}
+          onClick={() => runRepair("dry-run")}
+        >
+          {busy === "repair-dry" ? "Planning..." : "Dry-run repair"}
+        </button>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busy !== null || !audit?.audit.safeRepairAvailable}
+          onClick={() => runRepair("safe")}
+        >
+          {busy === "repair-safe" ? "Repairing..." : "Run safe repair"}
+        </button>
+      </div>
+      {error ? <div className="inspector-error">{error}</div> : null}
+      {counts ? (
+        <div className="record-meta">
+          <span>nested={counts.nestedKnowledgeStores}</span>
+          <span>broken={counts.brokenArtifactPaths}</span>
+          <span>missing={counts.missingArtifacts}</span>
+          <span>unregistered={counts.unregisteredFiles}</span>
+          <span>unimported={counts.unimportedAnalysisArtifacts + counts.unimportedManifestArtifacts}</span>
+          <span>staleViews={counts.staleViews}</span>
+        </div>
+      ) : null}
+      <div className="record-stack compact">
+        {findings.length === 0 ? (
+          <div className="empty-inline">No audit findings.</div>
+        ) : (
+          findings.slice(0, 5).map((finding) => (
+            <article key={finding.id} className="mini-card">
+              <div className="record-topline">
+                <span>[{finding.severity}] {finding.title}</span>
+              </div>
+              <p>{finding.whyItMatters}</p>
+              <p><strong>Fix:</strong> {finding.suggestedFix}</p>
+              {finding.paths.length > 0 ? (
+                <div className="record-meta">
+                  <span>{finding.paths.length} affected path(s)</span>
+                </div>
+              ) : null}
+            </article>
+          ))
+        )}
+      </div>
+      {lastRepair ? (
+        <details className="audit-repair-result">
+          <summary>{`Last repair (${lastRepair.mode}) — executed=${lastRepair.executed.length} skipped=${lastRepair.skipped.length}`}</summary>
+          <div className="record-stack compact">
+            {lastRepair.planned.length > 0 ? (
+              <article className="mini-card">
+                <strong>Planned</strong>
+                <pre>{lastRepair.planned.slice(0, 20).join("\n")}</pre>
+              </article>
+            ) : null}
+            {lastRepair.executed.length > 0 ? (
+              <article className="mini-card">
+                <strong>Executed</strong>
+                <pre>{lastRepair.executed.slice(0, 20).join("\n")}</pre>
+              </article>
+            ) : null}
+            {lastRepair.skipped.length > 0 ? (
+              <article className="mini-card">
+                <strong>Skipped</strong>
+                <pre>{lastRepair.skipped.slice(0, 20).join("\n")}</pre>
+              </article>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
 function DashboardPanel({
   snapshot,
   onSelectEntity,
   onSelectQuestion,
   onOpenDocument,
+  onReloadWorkspace,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectQuestion: (questionId: string) => void;
   onOpenDocument: (path: string) => void;
+  onReloadWorkspace: () => Promise<void>;
 }) {
   return (
     <div className="dashboard-shell">
@@ -515,6 +672,8 @@ function DashboardPanel({
           ))}
         </div>
       </section>
+      <AuditPanel projectDir={snapshot.project.rootPath} onReloadWorkspace={onReloadWorkspace} />
+
       <div className="split-columns">
         <section className="panel-card">
           <div className="section-heading">
@@ -4214,6 +4373,7 @@ export function App() {
                   setSelectedDocPath(path);
                   handleOpenTab("docs");
                 }}
+                onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
               />
             ) : null}
 
