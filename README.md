@@ -108,8 +108,8 @@ npm run ui:serve            # API + bundled UI on http://127.0.0.1:4310
 npm run ui:dev              # Vite live-reload on http://127.0.0.1:4311
 ```
 
-See [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md) for the cart
-grid, hex overlay, and flow-graph views.
+See [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md) for screenshots,
+the cart grid, hex overlay, and flow-graph views.
 
 ## Agent workflow
 

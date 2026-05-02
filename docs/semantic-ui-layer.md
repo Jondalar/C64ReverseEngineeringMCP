@@ -89,6 +89,26 @@ npm run ui:dev           # live-reload via Vite on http://127.0.0.1:4311
 
 The UI is React + Vite, no global state library. Tabs map 1:1 to views.
 
+### Screenshots
+
+Example MotM64 workspace captures from the bundled UI:
+
+| Dashboard | Memory map |
+|---|---|
+| ![Dashboard](assets/ui/02-dashboard-clean-fullscreen.png) | ![Memory map](assets/ui/04-memory-map-fullscreen.png) |
+
+| Disk layout | Load sequence |
+|---|---|
+| ![Disk layout](assets/ui/05-disk-layout-fullscreen.png) | ![Load sequence](assets/ui/07-load-sequence-fullscreen.png) |
+
+| Flow graph | Annotated listing |
+|---|---|
+| ![Flow graph](assets/ui/08-flow-graph-fullscreen.png) | ![Annotated listing](assets/ui/11-annotated-listing-fullscreen.png) |
+
+Additional captured views live under `docs/assets/ui/`:
+dashboard with audit warnings, questions, payloads, graphics, and the
+free-form scrubber.
+
 ### Hex overlay (mon icon)
 
 Every artifact in the inspector — and every cart chip in the bank grid —
