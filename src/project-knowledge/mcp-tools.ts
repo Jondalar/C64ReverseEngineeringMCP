@@ -379,6 +379,264 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 026 project profile.
+  server.tool(
+    "save_project_profile",
+    "Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns). Onboarding consumes this before suggesting next actions. Patch semantics — undefined fields keep their existing value.",
+    {
+      project_dir: z.string().optional(),
+      goals: z.array(z.string()).optional(),
+      non_goals: z.array(z.string()).optional(),
+      hardware_constraints: z.array(z.object({ resource: z.string(), constraint: z.string(), reason: z.string().optional() })).optional(),
+      loader_model: z.string().optional(),
+      destructive_operations: z.array(z.object({ commandPattern: z.string(), warning: z.string() })).optional(),
+      build: z.object({ command: z.string(), cwd: z.string().optional(), outputs: z.array(z.string()).optional() }).optional(),
+      test: z.object({ command: z.string(), cwd: z.string().optional() }).optional(),
+      active_workspace: z.string().optional(),
+      danger_zones: z.array(z.object({ pathOrAddress: z.string(), reason: z.string() })).optional(),
+      glossary: z.array(z.object({ term: z.string(), definition: z.string(), aliases: z.array(z.string()).optional() })).optional(),
+      anti_patterns: z.array(z.object({ title: z.string(), reason: z.string(), refutationEvidence: z.string().optional() })).optional(),
+      cracker_overrides: z.array(z.string()).optional(),
+    },
+    safeHandler("save_project_profile", async ({ project_dir, goals, non_goals, hardware_constraints, loader_model, destructive_operations, build, test, active_workspace, danger_zones, glossary, anti_patterns, cracker_overrides }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const profile = service.saveProjectProfile({
+        goals,
+        nonGoals: non_goals,
+        hardwareConstraints: hardware_constraints,
+        loaderModel: loader_model,
+        destructiveOperations: destructive_operations,
+        build: build ? { command: build.command, cwd: build.cwd, outputs: build.outputs ?? [] } : undefined,
+        test,
+        activeWorkspace: active_workspace,
+        dangerZones: danger_zones,
+        glossary: glossary?.map((g) => ({ term: g.term, definition: g.definition, aliases: g.aliases ?? [] })),
+        antiPatterns: anti_patterns,
+        crackerOverrides: cracker_overrides,
+      });
+      return textContent(`Project profile saved.\nGoals: ${profile.goals.length}, non-goals: ${profile.nonGoals.length}, destructive ops: ${profile.destructiveOperations.length}, danger zones: ${profile.dangerZones.length}.`);
+    },
+));
+
+  server.tool(
+    "get_project_profile",
+    "Spec 026: read the current project profile.",
+    { project_dir: z.string().optional() },
+    safeHandler("get_project_profile", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const profile = service.getProjectProfile();
+      if (!profile) return textContent("No project profile saved yet. Use save_project_profile to scaffold.");
+      return textContent(JSON.stringify(profile, null, 2));
+    },
+));
+
+  // Spec 031 anti-patterns + doc render.
+  server.tool(
+    "save_anti_pattern",
+    "Spec 031: record a 'do not try this again' anti-pattern. Severity drives whether onboarding surfaces it as a warning. Optional commandPattern lets agent_propose_next filter actions matching the pattern.",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      title: z.string(),
+      reason: z.string(),
+      severity: z.enum(["info", "warn", "error"]).optional(),
+      command_pattern: z.string().optional(),
+      tool_name: z.string().optional(),
+      phase: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+    safeHandler("save_anti_pattern", async ({ project_dir, id, title, reason, severity, command_pattern, tool_name, phase, tags }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const entry = service.saveAntiPattern({
+        id,
+        title,
+        reason,
+        severity: severity ?? "warn",
+        appliesTo: (command_pattern || tool_name || phase) ? { commandPattern: command_pattern, toolName: tool_name, phase } : undefined,
+        tags: tags ?? [],
+        evidence: [],
+      });
+      return textContent(`Anti-pattern saved.\nID: ${entry.id}\nSeverity: ${entry.severity}\nTitle: ${entry.title}`);
+    },
+));
+
+  server.tool(
+    "list_anti_patterns",
+    "Spec 031: list registered anti-patterns sorted by recency.",
+    { project_dir: z.string().optional() },
+    safeHandler("list_anti_patterns", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const items = service.listAntiPatterns();
+      if (items.length === 0) return textContent("No anti-patterns registered.");
+      return textContent(items.map((a) => `[${a.severity}] ${a.title} — ${a.reason}`).join("\n"));
+    },
+));
+
+  server.tool(
+    "render_docs",
+    "Spec 031: render Markdown summaries of findings, entities, open questions, anti-patterns, and the project profile under docs/. Bulk operations should set defer=true (caller invokes once at the end).",
+    {
+      project_dir: z.string().optional(),
+      scope: z.enum(["all", "findings", "entities", "open-questions", "anti-patterns", "project-profile"]).optional(),
+    },
+    safeHandler("render_docs", async ({ project_dir, scope }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.renderDocs(scope ?? "all");
+      return textContent(`Rendered ${result.written.length} doc(s):\n${result.written.join("\n")}`);
+    },
+));
+
+  // Spec 027 patch recipes.
+  server.tool(
+    "save_patch_recipe",
+    "Spec 027: persist a binary patch recipe with byte-level assertions. Status starts at draft.",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      title: z.string(),
+      reason: z.string(),
+      target_artifact_id: z.string(),
+      target_file_offset: z.number().int().nonnegative().optional(),
+      target_runtime_address: z.number().int().nonnegative().optional(),
+      expected_bytes: z.string().describe("Hex (e.g. 'ad 21 d0')."),
+      replacement_bytes: z.string().optional().describe("Hex bytes; alternatively use replacement_source_path."),
+      replacement_source_path: z.string().optional().describe("Path (project-relative) of a file holding the replacement bytes."),
+      verification_command: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+    safeHandler("save_patch_recipe", async ({ project_dir, id, title, reason, target_artifact_id, target_file_offset, target_runtime_address, expected_bytes, replacement_bytes, replacement_source_path, verification_command, tags }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const recipe = service.savePatchRecipe({
+        id,
+        title,
+        reason,
+        targetArtifactId: target_artifact_id,
+        targetFileOffset: target_file_offset,
+        targetRuntimeAddress: target_runtime_address,
+        expectedBytes: expected_bytes,
+        replacementBytes: replacement_bytes,
+        replacementSourcePath: replacement_source_path,
+        verificationCommand: verification_command,
+        evidence: [],
+        tags: tags ?? [],
+      });
+      return textContent(`Patch recipe saved.\nID: ${recipe.id}\nStatus: ${recipe.status}\nTarget: ${recipe.targetArtifactId}@${recipe.targetFileOffset ?? 0}`);
+    },
+));
+
+  server.tool(
+    "apply_patch_recipe",
+    "Spec 027: apply a patch recipe. Refuses if expected bytes do not match the target unless allow_mismatch is set. Snapshots prior bytes via Spec 025 versioning.",
+    {
+      project_dir: z.string().optional(),
+      recipe_id: z.string(),
+      allow_mismatch: z.boolean().optional(),
+    },
+    safeHandler("apply_patch_recipe", async ({ project_dir, recipe_id, allow_mismatch }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.applyPatchRecipe(recipe_id, { allowMismatch: allow_mismatch });
+      if (!result.ok) return textContent(`Patch refused: ${result.reason}`);
+      return textContent(`Patch applied.\nNew hash: ${result.appliedHash}`);
+    },
+));
+
+  server.tool(
+    "list_patch_recipes",
+    "Spec 027: list patch recipes (optionally filtered by status or target artifact).",
+    {
+      project_dir: z.string().optional(),
+      status: z.enum(["draft", "applied", "verified", "reverted", "failed"]).optional(),
+      target_artifact_id: z.string().optional(),
+    },
+    safeHandler("list_patch_recipes", async ({ project_dir, status, target_artifact_id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const items = service.listPatchRecipes({ status, targetArtifactId: target_artifact_id });
+      if (items.length === 0) return textContent("No patch recipes.");
+      return textContent(items.map((r) => `[${r.status}] ${r.title} → ${r.targetArtifactId}@${r.targetFileOffset ?? 0}`).join("\n"));
+    },
+));
+
+  // Spec 029 constraints.
+  server.tool(
+    "register_resource_region",
+    "Spec 029: declare a memory / cart / IO resource region for the constraint checker.",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      kind: z.enum(["ram-range", "zp-byte", "vic-region", "cart-bank", "cart-erase-sector", "eapi-runtime", "io-register"]),
+      name: z.string(),
+      start: z.number().int().nonnegative().optional(),
+      end: z.number().int().nonnegative().optional(),
+      bank: z.number().int().nonnegative().optional(),
+      attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+      notes: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+    safeHandler("register_resource_region", async ({ project_dir, id, kind, name, start, end, bank, attributes, notes, tags }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const region = service.registerResourceRegion({ id, kind, name, start, end, bank, attributes, notes, tags: tags ?? [] });
+      return textContent(`Region registered.\nID: ${region.id}\nName: ${region.name}\nKind: ${region.kind}`);
+    },
+));
+
+  server.tool(
+    "register_operation",
+    "Spec 029: declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.).",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      kind: z.enum(["overlay-copy", "flash-erase", "flash-write", "bank-switch", "decrunch-write", "runtime-patch", "kernal-call"]),
+      triggered_by: z.string(),
+      affects: z.array(z.string()).default([]),
+      preconditions: z.array(z.string()).optional(),
+      notes: z.string().optional(),
+    },
+    safeHandler("register_operation", async ({ project_dir, id, kind, triggered_by, affects, preconditions, notes }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const op = service.registerOperation({ id, kind, triggeredBy: triggered_by, affects, preconditions: preconditions ?? [], evidence: [], notes });
+      return textContent(`Operation registered.\nID: ${op.id}\nKind: ${op.kind}\nAffects: ${op.affects.length} region(s)`);
+    },
+));
+
+  server.tool(
+    "register_constraint",
+    "Spec 029: declare a constraint rule. v1 stores rule text only; downstream evaluation is via built-in predicates.",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      title: z.string(),
+      rule: z.string(),
+      severity: z.enum(["info", "warn", "error"]).optional(),
+      applies_to_region_kind: z.string().optional(),
+      applies_to_op_kind: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+    safeHandler("register_constraint", async ({ project_dir, id, title, rule, severity, applies_to_region_kind, applies_to_op_kind, tags }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const r = service.registerConstraintRule({
+        id,
+        title,
+        rule,
+        severity: severity ?? "warn",
+        appliesTo: (applies_to_region_kind || applies_to_op_kind) ? { regionKind: applies_to_region_kind, opKind: applies_to_op_kind } : undefined,
+        tags: tags ?? [],
+      });
+      return textContent(`Constraint rule registered.\nID: ${r.id}\nSeverity: ${r.severity}`);
+    },
+));
+
+  server.tool(
+    "verify_constraints",
+    "Spec 029: run the built-in constraint checker. v1 detects operations whose affects[] overlap a region tagged protected:true. User-registered rules are surfaced as informational text.",
+    { project_dir: z.string().optional() },
+    safeHandler("verify_constraints", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const violations = service.verifyConstraints();
+      if (violations.length === 0) return textContent("No violations.");
+      return textContent(violations.map((v) => `[${v.severity}] ${v.ruleId}: ${v.message}`).join("\n"));
+    },
+));
+
   server.tool(
     "register_load_context",
     "Spec 023: register a runtime / after-decompression load context on an artifact. Use when a custom fastloader places the file at a runtime address that differs from the on-disk PRG header. Idempotent on (artifact_id, kind, address, bank).",

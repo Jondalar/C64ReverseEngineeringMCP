@@ -151,6 +151,133 @@ export const ArtifactRecordSchema = z.object({
 // Container sub-entry (Spec 025 R23 fold-in). A disk file may contain
 // named subentries that are not separate BAM/LUT files. Each sub-entry
 // is also represented as a normal artifact via derivedFrom = parentId.
+// Spec 026 project profile: structured project-specific bootstrap.
+export const ProjectProfileSchema = z.object({
+  goals: z.array(z.string()).default([]),
+  nonGoals: z.array(z.string()).default([]),
+  hardwareConstraints: z.array(z.object({
+    resource: z.string(),
+    constraint: z.string(),
+    reason: z.string().optional(),
+  })).default([]),
+  loaderModel: z.string().optional(),
+  destructiveOperations: z.array(z.object({
+    commandPattern: z.string(),
+    warning: z.string(),
+  })).default([]),
+  build: z.object({
+    command: z.string(),
+    cwd: z.string().optional(),
+    outputs: z.array(z.string()).default([]),
+  }).optional(),
+  test: z.object({
+    command: z.string(),
+    cwd: z.string().optional(),
+  }).optional(),
+  activeWorkspace: z.string().optional(),
+  dangerZones: z.array(z.object({
+    pathOrAddress: z.string(),
+    reason: z.string(),
+  })).default([]),
+  glossary: z.array(z.object({
+    term: z.string(),
+    definition: z.string(),
+    aliases: z.array(z.string()).default([]),
+  })).default([]),
+  antiPatterns: z.array(z.object({
+    title: z.string(),
+    reason: z.string(),
+    refutationEvidence: z.string().optional(),
+  })).default([]),
+  crackerOverrides: z.array(z.string()).default([]),
+  updatedAt: TimestampSchema,
+});
+
+// Spec 031 negative knowledge: anti-pattern record.
+export const AntiPatternSchema = z.object({
+  id: IdSchema,
+  title: z.string(),
+  reason: z.string(),
+  severity: z.enum(["info", "warn", "error"]).default("warn"),
+  evidence: z.array(EvidenceRefSchema).default([]),
+  appliesTo: z.object({
+    phase: z.string().optional(),
+    toolName: z.string().optional(),
+    commandPattern: z.string().optional(),
+  }).optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+// Spec 027 patch recipes.
+export const PatchRecipeSchema = z.object({
+  id: IdSchema,
+  title: z.string(),
+  reason: z.string(),
+  evidence: z.array(EvidenceRefSchema).default([]),
+  targetArtifactId: IdSchema,
+  targetFileOffset: z.number().int().nonnegative().optional(),
+  targetRuntimeAddress: z.number().int().nonnegative().optional(),
+  expectedBytes: z.string(), // hex
+  replacementBytes: z.string().optional(),
+  replacementSourcePath: z.string().optional(),
+  relocation: z.union([
+    z.object({ kind: z.literal("bias"), delta: z.number().int() }),
+    z.object({ kind: z.literal("absolute"), baseAddress: z.number().int().nonnegative() }),
+  ]).optional(),
+  sourceAssembler: z.string().optional(),
+  backupArtifactId: IdSchema.optional(),
+  verificationCommand: z.string().optional(),
+  status: z.enum(["draft", "applied", "verified", "reverted", "failed"]).default("draft"),
+  appliedAt: TimestampSchema.optional(),
+  appliedHash: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+// Spec 029 constraint checker: resource regions, operations, rules.
+export const ResourceRegionSchema = z.object({
+  id: IdSchema,
+  kind: z.enum(["ram-range", "zp-byte", "vic-region", "cart-bank", "cart-erase-sector", "eapi-runtime", "io-register"]),
+  name: z.string(),
+  start: z.number().int().nonnegative().optional(),
+  end: z.number().int().nonnegative().optional(),
+  bank: z.number().int().nonnegative().optional(),
+  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  notes: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const OperationSchema = z.object({
+  id: IdSchema,
+  kind: z.enum(["overlay-copy", "flash-erase", "flash-write", "bank-switch", "decrunch-write", "runtime-patch", "kernal-call"]),
+  triggeredBy: z.string(),
+  affects: z.array(IdSchema).default([]),
+  preconditions: z.array(z.string()).default([]),
+  evidence: z.array(EvidenceRefSchema).default([]),
+  notes: z.string().optional(),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const ConstraintRuleSchema = z.object({
+  id: IdSchema,
+  title: z.string(),
+  appliesTo: z.object({
+    regionKind: z.string().optional(),
+    opKind: z.string().optional(),
+  }).optional(),
+  rule: z.string(),
+  severity: z.enum(["info", "warn", "error"]).default("warn"),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
 // Spec 028 loader ABI: declared loader entry points and recorded loader
 // events (static or trace-derived).
 export const LoaderEntryPointSchema = z.object({
@@ -1208,6 +1335,11 @@ export const ArtifactStoreSchema = createRecordListSchema(ArtifactRecordSchema);
 export const ContainerEntryStoreSchema = createRecordListSchema(ContainerEntrySchema);
 export const LoaderEntryPointStoreSchema = createRecordListSchema(LoaderEntryPointSchema);
 export const LoaderEventStoreSchema = createRecordListSchema(LoaderEventSchema);
+export const AntiPatternStoreSchema = createRecordListSchema(AntiPatternSchema);
+export const PatchRecipeStoreSchema = createRecordListSchema(PatchRecipeSchema);
+export const ResourceRegionStoreSchema = createRecordListSchema(ResourceRegionSchema);
+export const OperationStoreSchema = createRecordListSchema(OperationSchema);
+export const ConstraintRuleStoreSchema = createRecordListSchema(ConstraintRuleSchema);
 export const EntityStoreSchema = createRecordListSchema(EntityRecordSchema);
 export const FindingStoreSchema = createRecordListSchema(FindingRecordSchema);
 export const RelationStoreSchema = createRecordListSchema(RelationRecordSchema);
@@ -1235,6 +1367,17 @@ export type LoaderEntryPoint = z.infer<typeof LoaderEntryPointSchema>;
 export type LoaderEntryPointStore = z.infer<typeof LoaderEntryPointStoreSchema>;
 export type LoaderEvent = z.infer<typeof LoaderEventSchema>;
 export type LoaderEventStore = z.infer<typeof LoaderEventStoreSchema>;
+export type ProjectProfile = z.infer<typeof ProjectProfileSchema>;
+export type AntiPattern = z.infer<typeof AntiPatternSchema>;
+export type AntiPatternStore = z.infer<typeof AntiPatternStoreSchema>;
+export type PatchRecipe = z.infer<typeof PatchRecipeSchema>;
+export type PatchRecipeStore = z.infer<typeof PatchRecipeStoreSchema>;
+export type ResourceRegion = z.infer<typeof ResourceRegionSchema>;
+export type ResourceRegionStore = z.infer<typeof ResourceRegionStoreSchema>;
+export type Operation = z.infer<typeof OperationSchema>;
+export type OperationStore = z.infer<typeof OperationStoreSchema>;
+export type ConstraintRule = z.infer<typeof ConstraintRuleSchema>;
+export type ConstraintRuleStore = z.infer<typeof ConstraintRuleStoreSchema>;
 export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export type ArtifactScope = z.infer<typeof ArtifactScopeSchema>;
 export type EntityRecord = z.infer<typeof EntityRecordSchema>;

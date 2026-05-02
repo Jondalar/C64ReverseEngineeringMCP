@@ -7,14 +7,20 @@ import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutVie
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
 import type {
   AnnotatedListingView,
+  AntiPattern,
   ArtifactKind,
   ArtifactRecord,
   ArtifactScope,
+  ConstraintRule,
   ContainerEntry,
   EntityRecord,
   LoadContext,
   LoaderEntryPoint,
   LoaderEvent,
+  Operation,
+  PatchRecipe,
+  ProjectProfile,
+  ResourceRegion,
   EvidenceRef,
   FindingKind,
   FindingRecord,
@@ -1002,6 +1008,313 @@ export class ProjectKnowledgeService {
     if (filter?.scenarioId) items = items.filter((item) => item.scenarioId === filter.scenarioId);
     if (filter?.loaderEntryPointId) items = items.filter((item) => item.loaderEntryPointId === filter.loaderEntryPointId);
     return items;
+  }
+
+  // Spec 026 project profile.
+  getProjectProfile(): ProjectProfile | undefined {
+    return this.storage.loadProjectProfile();
+  }
+
+  saveProjectProfile(patch: Partial<Omit<ProjectProfile, "updatedAt">>): ProjectProfile {
+    const existing = this.storage.loadProjectProfile() ?? {
+      goals: [], nonGoals: [], hardwareConstraints: [], destructiveOperations: [],
+      dangerZones: [], glossary: [], antiPatterns: [], crackerOverrides: [],
+      updatedAt: nowIso(),
+    };
+    const merged: ProjectProfile = {
+      goals: patch.goals ?? existing.goals,
+      nonGoals: patch.nonGoals ?? existing.nonGoals,
+      hardwareConstraints: patch.hardwareConstraints ?? existing.hardwareConstraints,
+      loaderModel: patch.loaderModel ?? existing.loaderModel,
+      destructiveOperations: patch.destructiveOperations ?? existing.destructiveOperations,
+      build: patch.build ?? existing.build,
+      test: patch.test ?? existing.test,
+      activeWorkspace: patch.activeWorkspace ?? existing.activeWorkspace,
+      dangerZones: patch.dangerZones ?? existing.dangerZones,
+      glossary: patch.glossary ?? existing.glossary,
+      antiPatterns: patch.antiPatterns ?? existing.antiPatterns,
+      crackerOverrides: patch.crackerOverrides ?? existing.crackerOverrides,
+      updatedAt: nowIso(),
+    };
+    return this.storage.saveProjectProfile(merged);
+  }
+
+  // Spec 031 anti-patterns.
+  saveAntiPattern(input: Omit<AntiPattern, "id" | "createdAt" | "updatedAt"> & { id?: string }): AntiPattern {
+    const store = this.storage.loadAntiPatterns();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("antipattern", input.title);
+    const existing = store.items.find((item) => item.id === id);
+    const entry: AntiPattern = {
+      ...input,
+      id,
+      tags: input.tags ?? existing?.tags ?? [],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveAntiPatterns({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, entry),
+    });
+    return entry;
+  }
+
+  listAntiPatterns(): AntiPattern[] {
+    return this.storage.loadAntiPatterns().items.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  // Spec 027 patches.
+  savePatchRecipe(input: Omit<PatchRecipe, "id" | "createdAt" | "updatedAt" | "status"> & { id?: string; status?: PatchRecipe["status"] }): PatchRecipe {
+    const store = this.storage.loadPatches();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("patch", input.title);
+    const existing = store.items.find((item) => item.id === id);
+    const recipe: PatchRecipe = {
+      ...input,
+      id,
+      status: input.status ?? existing?.status ?? "draft",
+      tags: input.tags ?? existing?.tags ?? [],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.savePatches({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, recipe),
+    });
+    return recipe;
+  }
+
+  listPatchRecipes(filter?: { status?: PatchRecipe["status"]; targetArtifactId?: string }): PatchRecipe[] {
+    let items = this.storage.loadPatches().items.slice();
+    if (filter?.status) items = items.filter((p) => p.status === filter.status);
+    if (filter?.targetArtifactId) items = items.filter((p) => p.targetArtifactId === filter.targetArtifactId);
+    return items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  applyPatchRecipe(recipeId: string, opts?: { allowMismatch?: boolean }): { ok: boolean; reason?: string; appliedHash?: string } {
+    const store = this.storage.loadPatches();
+    const recipe = store.items.find((item) => item.id === recipeId);
+    if (!recipe) return { ok: false, reason: "recipe not found" };
+    const artifact = this.listArtifacts().find((a) => a.id === recipe.targetArtifactId);
+    if (!artifact) return { ok: false, reason: "target artifact not found" };
+    if (!existsSync(artifact.path)) return { ok: false, reason: "target file missing on disk" };
+    const offset = recipe.targetFileOffset ?? 0;
+    const expected = Buffer.from(recipe.expectedBytes.replace(/\s+/g, ""), "hex");
+    const replacement = recipe.replacementBytes
+      ? Buffer.from(recipe.replacementBytes.replace(/\s+/g, ""), "hex")
+      : recipe.replacementSourcePath
+        ? readFileSync(resolve(this.storage.paths.root, recipe.replacementSourcePath))
+        : undefined;
+    if (!replacement) return { ok: false, reason: "no replacement bytes or source" };
+    const data = readFileSync(artifact.path);
+    const slice = data.subarray(offset, offset + expected.length);
+    if (!slice.equals(expected) && !opts?.allowMismatch) {
+      return { ok: false, reason: `expected bytes mismatch at offset ${offset}; saw ${slice.toString("hex")}, expected ${expected.toString("hex")}` };
+    }
+    // Snapshot prior bytes via Spec 025
+    this.snapshotArtifactBeforeOverwrite(artifact.id);
+    const out = Buffer.from(data);
+    replacement.copy(out, offset);
+    writeFileSync(artifact.path, out);
+    const appliedHash = sha256OfFile(artifact.path) ?? "";
+    const updatedRecipe: PatchRecipe = {
+      ...recipe,
+      status: "applied",
+      appliedAt: nowIso(),
+      appliedHash,
+      updatedAt: nowIso(),
+    };
+    this.storage.savePatches({
+      ...store,
+      updatedAt: nowIso(),
+      items: store.items.map((item) => (item.id === recipeId ? updatedRecipe : item)),
+    });
+    // Re-record artifact so versions[] picks up the new hash
+    this.saveArtifact({
+      id: artifact.id,
+      kind: artifact.kind,
+      scope: artifact.scope,
+      title: artifact.title,
+      path: artifact.path,
+      role: artifact.role,
+    });
+    return { ok: true, appliedHash };
+  }
+
+  // Spec 029 constraints.
+  registerResourceRegion(input: Omit<ResourceRegion, "id" | "createdAt" | "updatedAt"> & { id?: string }): ResourceRegion {
+    const store = this.storage.loadResources();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("region", input.name);
+    const existing = store.items.find((item) => item.id === id);
+    const region: ResourceRegion = {
+      ...input,
+      id,
+      tags: input.tags ?? existing?.tags ?? [],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveResources({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, region),
+    });
+    return region;
+  }
+
+  listResources(): ResourceRegion[] {
+    return this.storage.loadResources().items.slice();
+  }
+
+  registerOperation(input: Omit<Operation, "id" | "createdAt" | "updatedAt"> & { id?: string }): Operation {
+    const store = this.storage.loadOperations();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("operation", input.kind);
+    const existing = store.items.find((item) => item.id === id);
+    const op: Operation = {
+      ...input,
+      id,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveOperations({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, op),
+    });
+    return op;
+  }
+
+  listOperations(): Operation[] {
+    return this.storage.loadOperations().items.slice();
+  }
+
+  registerConstraintRule(input: Omit<ConstraintRule, "id" | "createdAt" | "updatedAt"> & { id?: string }): ConstraintRule {
+    const store = this.storage.loadConstraints();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("rule", input.title);
+    const existing = store.items.find((item) => item.id === id);
+    const rule: ConstraintRule = {
+      ...input,
+      id,
+      tags: input.tags ?? existing?.tags ?? [],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveConstraints({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, rule),
+    });
+    return rule;
+  }
+
+  listConstraintRules(): ConstraintRule[] {
+    return this.storage.loadConstraints().items.slice();
+  }
+
+  // Spec 029 v1 verifier: returns rule violations based on simple
+  // built-in predicates. Built-in: any operation whose `affects[]`
+  // overlaps a region with attribute `protected: true` triggers an
+  // error. Custom rules render as informational text only in v1.
+  verifyConstraints(): Array<{ ruleId: string; severity: "info" | "warn" | "error"; message: string; affectedIds: string[] }> {
+    const violations: Array<{ ruleId: string; severity: "info" | "warn" | "error"; message: string; affectedIds: string[] }> = [];
+    const regions = this.listResources();
+    const operations = this.listOperations();
+    const protectedRegions = regions.filter((r) => r.attributes && r.attributes["protected"] === true);
+    for (const op of operations) {
+      const conflicts = op.affects.filter((aid) => protectedRegions.some((r) => r.id === aid));
+      if (conflicts.length > 0) {
+        violations.push({
+          ruleId: "builtin.protected-region",
+          severity: "error",
+          message: `Operation ${op.id} (${op.kind}) affects ${conflicts.length} protected region(s): ${conflicts.join(", ")}`,
+          affectedIds: [op.id, ...conflicts],
+        });
+      }
+    }
+    // Each user-declared rule is rendered as an info entry so the audit
+    // surface them; v1 does not evaluate the rule body.
+    for (const rule of this.listConstraintRules()) {
+      violations.push({
+        ruleId: rule.id,
+        severity: rule.severity,
+        message: `Declared rule: ${rule.title} — ${rule.rule}`,
+        affectedIds: [],
+      });
+    }
+    return violations;
+  }
+
+  // Spec 031 doc render. Writes Markdown summaries for findings,
+  // entities, open questions, anti-patterns, and the project profile.
+  // In-band by default; bulk operations should pass deferRender to skip.
+  renderDocs(scope: "all" | "findings" | "entities" | "open-questions" | "anti-patterns" | "project-profile" = "all"): { written: string[] } {
+    const written: string[] = [];
+    const docsDir = resolve(this.storage.paths.root, "docs");
+    if (!existsSync(docsDir)) mkdirSync(docsDir, { recursive: true });
+    const header = "<!-- generated by c64re render_docs; do not edit by hand -->\n\n";
+    if (scope === "all" || scope === "findings") {
+      const items = this.listFindings();
+      const lines = ["# Findings", "", `${items.length} findings.`, ""];
+      for (const f of items) lines.push(`- **${f.title}** (${f.kind}, ${f.status}, conf ${f.confidence}) — ${f.summary ?? "(no summary)"}`);
+      const path = resolve(docsDir, "FINDINGS.md");
+      writeFileSync(path, header + lines.join("\n") + "\n");
+      written.push(path);
+    }
+    if (scope === "all" || scope === "entities") {
+      const items = this.listEntities();
+      const lines = ["# Entities", "", `${items.length} entities.`, ""];
+      for (const e of items) lines.push(`- **${e.name}** (${e.kind}) — ${e.summary ?? "(no summary)"}`);
+      const path = resolve(docsDir, "ENTITIES.md");
+      writeFileSync(path, header + lines.join("\n") + "\n");
+      written.push(path);
+    }
+    if (scope === "all" || scope === "open-questions") {
+      const items = this.listOpenQuestions();
+      const lines = ["# Open Questions", "", `${items.length} questions.`, ""];
+      for (const q of items) lines.push(`- **${q.title}** (${q.kind}, ${q.priority}, ${q.status}) — ${q.description ?? "(no description)"}`);
+      const path = resolve(docsDir, "OPEN_QUESTIONS.md");
+      writeFileSync(path, header + lines.join("\n") + "\n");
+      written.push(path);
+    }
+    if (scope === "all" || scope === "anti-patterns") {
+      const items = this.listAntiPatterns();
+      const lines = ["# Anti-Patterns", "", `${items.length} anti-pattern(s).`, ""];
+      for (const a of items) lines.push(`- **${a.title}** (${a.severity}) — ${a.reason}`);
+      const path = resolve(docsDir, "ANTI_PATTERNS.md");
+      writeFileSync(path, header + lines.join("\n") + "\n");
+      written.push(path);
+    }
+    if (scope === "all" || scope === "project-profile") {
+      const profile = this.getProjectProfile();
+      const lines = ["# Project Profile", ""];
+      if (!profile) {
+        lines.push("(profile not yet scaffolded)");
+      } else {
+        lines.push(`## Goals`);
+        for (const g of profile.goals) lines.push(`- ${g}`);
+        lines.push("");
+        lines.push(`## Non-Goals`);
+        for (const g of profile.nonGoals) lines.push(`- ${g}`);
+        lines.push("");
+        lines.push(`## Hardware Constraints`);
+        for (const c of profile.hardwareConstraints) lines.push(`- **${c.resource}**: ${c.constraint}${c.reason ? ` (${c.reason})` : ""}`);
+        lines.push("");
+        lines.push(`## Destructive Operations`);
+        for (const d of profile.destructiveOperations) lines.push(`- \`${d.commandPattern}\` — ${d.warning}`);
+        lines.push("");
+        if (profile.build) lines.push(`## Build\n\n\`${profile.build.command}\`${profile.build.cwd ? ` (cwd: ${profile.build.cwd})` : ""}\n`);
+        if (profile.test) lines.push(`## Test\n\n\`${profile.test.command}\`${profile.test.cwd ? ` (cwd: ${profile.test.cwd})` : ""}\n`);
+        if (profile.activeWorkspace) lines.push(`## Active Workspace\n\n${profile.activeWorkspace}\n`);
+      }
+      const path = resolve(docsDir, "..", "PROJECT_PROFILE.md");
+      writeFileSync(path, header + lines.join("\n") + "\n");
+      written.push(path);
+    }
+    return { written };
   }
 
   // Spec 022 / Bug 16: re-import analysis-run artifacts whose entities

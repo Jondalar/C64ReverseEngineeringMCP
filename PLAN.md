@@ -28,17 +28,24 @@ over time and number-jump as new requirements landed. The active
 execution sequence is:
 
 ```
-21 (done) → 22 → 16 → 18 → 17 → 19 → 20 → 23 → 24 → 25
-        → 8 → 26 → 27 → 28
+21 (done) → 22 (done) → 16 (partial) → 18 (v1) → 17 (v1) → 19 (v1)
+       → 20 (v1) → 23 (v1) → 24 (v1) → 25 (v1) → 27 (v1)
+       → 33 (doc) → 8 → 26 → 28
 ```
 
-- Sprints 1-15 already landed.
-- Sprint 21 done (commit `aeb0052`).
-- Sprint 22 next: lineage + versions + container subpayloads.
-- Sprint 8 (trace throughput) pulled forward before Sprint 26 so
-  scenario traces do not bottleneck on slow trace I/O.
-- Sprint 33 (cracker doctrine) ships parallel with Sprint 23 (project
-  profile) — same iteration, separate spec.
+Status snapshot:
+- Sprints 1-15 landed previously.
+- Sprints 21, 22, 16 (partial), 17 (v1 data layer), 18 (v1 tabs),
+  19 (v1 status + auto-import), 20 (v1 load contexts + loader ABI),
+  23 (v1 project profile), 24 (v1 patch recipes), 25 (v1 constraint
+  checker), 27 (v1 anti-patterns + doc render), 33 (cracker
+  doctrine doc) all shipped as data-layer / API-first first passes.
+- UI surfaces, renderer rewiring, and runtime-heavy work tracked as
+  follow-up half-sprints (16.5, 17.5, 19.5, 20.5).
+- Sprint 8 (trace throughput), Sprint 26 (scenario traces +
+  diff), Sprint 28 (build pipeline orchestration) deferred — each
+  needs deeper headless / VICE refactors and is best done after
+  the data layer stabilises.
 
 Linear roadmap; do not reorder without revisiting dependencies in
 the spec headers.

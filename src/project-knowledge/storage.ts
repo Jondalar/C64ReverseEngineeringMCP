@@ -22,6 +22,23 @@ import {
   LoaderEventStoreSchema,
   type LoaderEvent,
   type LoaderEventStore,
+  ProjectProfileSchema,
+  type ProjectProfile,
+  AntiPatternStoreSchema,
+  type AntiPattern,
+  type AntiPatternStore,
+  PatchRecipeStoreSchema,
+  type PatchRecipe,
+  type PatchRecipeStore,
+  ResourceRegionStoreSchema,
+  type ResourceRegion,
+  type ResourceRegionStore,
+  OperationStoreSchema,
+  type Operation,
+  type OperationStore,
+  ConstraintRuleStoreSchema,
+  type ConstraintRule,
+  type ConstraintRuleStore,
   type AnnotatedListingView,
   AnnotatedListingViewSchema,
   type CartridgeLayoutView,
@@ -103,6 +120,12 @@ export interface ProjectKnowledgePaths {
   knowledgeContainers: string;
   knowledgeLoaderEntryPoints: string;
   knowledgeLoaderEvents: string;
+  knowledgeProjectProfile: string;
+  knowledgeAntiPatterns: string;
+  knowledgePatches: string;
+  knowledgeResources: string;
+  knowledgeOperations: string;
+  knowledgeConstraints: string;
   knowledgeLabelsUser: string;
   snapshotsRoot: string;
   knowledgeNotes: string;
@@ -216,6 +239,11 @@ export class ProjectKnowledgeStorage {
     this.ensureJsonFile(this.paths.knowledgeContainers, emptyStore<ContainerEntry>());
     this.ensureJsonFile(this.paths.knowledgeLoaderEntryPoints, emptyStore<LoaderEntryPoint>());
     this.ensureJsonFile(this.paths.knowledgeLoaderEvents, emptyStore<LoaderEvent>());
+    this.ensureJsonFile(this.paths.knowledgeAntiPatterns, emptyStore<AntiPattern>());
+    this.ensureJsonFile(this.paths.knowledgePatches, emptyStore<PatchRecipe>());
+    this.ensureJsonFile(this.paths.knowledgeResources, emptyStore<ResourceRegion>());
+    this.ensureJsonFile(this.paths.knowledgeOperations, emptyStore<Operation>());
+    this.ensureJsonFile(this.paths.knowledgeConstraints, emptyStore<ConstraintRule>());
     this.ensureJsonFile(this.paths.knowledgeLabelsUser, emptyStore<UserLabelStore["items"][number]>());
     this.ensureJsonFile(this.paths.knowledgePhasePlan, emptyWorkflowPlan() as unknown as JsonValue);
     this.ensureJsonFile(this.paths.knowledgeWorkflowState, emptyWorkflowState() as unknown as JsonValue);
@@ -282,6 +310,72 @@ export class ProjectKnowledgeStorage {
   saveLoaderEvents(store: LoaderEventStore): LoaderEventStore {
     const parsed = LoaderEventStoreSchema.parse(store);
     writeJsonAtomically(this.paths.knowledgeLoaderEvents, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadProjectProfile(): ProjectProfile | undefined {
+    if (!existsSync(this.paths.knowledgeProjectProfile)) return undefined;
+    try {
+      const raw = JSON.parse(readFileSync(this.paths.knowledgeProjectProfile, "utf8"));
+      return ProjectProfileSchema.parse(raw);
+    } catch {
+      return undefined;
+    }
+  }
+
+  saveProjectProfile(profile: ProjectProfile): ProjectProfile {
+    const parsed = ProjectProfileSchema.parse(profile);
+    writeJsonAtomically(this.paths.knowledgeProjectProfile, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadAntiPatterns(): AntiPatternStore {
+    return AntiPatternStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeAntiPatterns, emptyStore<AntiPattern>()));
+  }
+
+  saveAntiPatterns(store: AntiPatternStore): AntiPatternStore {
+    const parsed = AntiPatternStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeAntiPatterns, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadPatches(): PatchRecipeStore {
+    return PatchRecipeStoreSchema.parse(readJsonOrDefault(this.paths.knowledgePatches, emptyStore<PatchRecipe>()));
+  }
+
+  savePatches(store: PatchRecipeStore): PatchRecipeStore {
+    const parsed = PatchRecipeStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgePatches, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadResources(): ResourceRegionStore {
+    return ResourceRegionStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeResources, emptyStore<ResourceRegion>()));
+  }
+
+  saveResources(store: ResourceRegionStore): ResourceRegionStore {
+    const parsed = ResourceRegionStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeResources, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadOperations(): OperationStore {
+    return OperationStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeOperations, emptyStore<Operation>()));
+  }
+
+  saveOperations(store: OperationStore): OperationStore {
+    const parsed = OperationStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeOperations, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadConstraints(): ConstraintRuleStore {
+    return ConstraintRuleStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeConstraints, emptyStore<ConstraintRule>()));
+  }
+
+  saveConstraints(store: ConstraintRuleStore): ConstraintRuleStore {
+    const parsed = ConstraintRuleStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeConstraints, parsed as unknown as JsonValue);
     return parsed;
   }
 
@@ -528,6 +622,12 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeContainers: join(root, "knowledge", "containers.json"),
     knowledgeLoaderEntryPoints: join(root, "knowledge", "loader-entry-points.json"),
     knowledgeLoaderEvents: join(root, "knowledge", "loader-events.json"),
+    knowledgeProjectProfile: join(root, "knowledge", "project-profile.json"),
+    knowledgeAntiPatterns: join(root, "knowledge", "anti-patterns.json"),
+    knowledgePatches: join(root, "knowledge", "patches.json"),
+    knowledgeResources: join(root, "knowledge", "resources.json"),
+    knowledgeOperations: join(root, "knowledge", "operations.json"),
+    knowledgeConstraints: join(root, "knowledge", "constraints.json"),
     knowledgeLabelsUser: join(root, "knowledge", "labels.user.json"),
     snapshotsRoot: join(root, "snapshots"),
     knowledgeNotes: join(root, "knowledge", "notes.md"),
