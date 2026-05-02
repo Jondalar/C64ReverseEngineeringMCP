@@ -21,6 +21,28 @@ The fix is not more documentation alone. The MCP needs workflow tools,
 audit tools, repair tools, and UI affordances that make the expected
 process the path of least resistance.
 
+## Execution Order
+
+Sprint sections below are not in execution order — they accumulated
+over time and number-jump as new requirements landed. The active
+execution sequence is:
+
+```
+21 (done) → 22 → 16 → 18 → 17 → 19 → 20 → 23 → 24 → 25
+        → 8 → 26 → 27 → 28
+```
+
+- Sprints 1-15 already landed.
+- Sprint 21 done (commit `aeb0052`).
+- Sprint 22 next: lineage + versions + container subpayloads.
+- Sprint 8 (trace throughput) pulled forward before Sprint 26 so
+  scenario traces do not bottleneck on slow trace I/O.
+- Sprint 33 (cracker doctrine) ships parallel with Sprint 23 (project
+  profile) — same iteration, separate spec.
+
+Linear roadmap; do not reorder without revisiting dependencies in
+the spec headers.
+
 ## Work Rules
 
 - Every reverse-engineering step must write project-root-relative
@@ -537,25 +559,30 @@ Goal: finish the housekeeping debt that has been sliding from sprint to
 sprint so later work does not trip over inconsistent error handling,
 duplicate registrations, or noisy artifact lists.
 
-Status: not started.
+Status: complete (commit `aeb0052`). 121 MCP handlers now wrapped in
+`safeHandler`; `register_existing_files` ships with a built-in
+default glob set, walk-root diagnostics on zero matches, and
+rebuild-check PRG exclusion; `saveArtifact` deduplicates by absolute
+path; `disasm_prg` registers the rebuild-check PRG as
+`kind=report role=rebuild-check derivedFrom <original>`.
 
 Todos:
 
-- [ ] Wrap remaining handlers in `safeHandler`:
+- [x] Wrap remaining handlers in `safeHandler`:
       `src/server-tools/payloads.ts`, `compression.ts`, `sandbox.ts`,
       `headless.ts`, `vice.ts`, and the listing/save tools in
       `src/project-knowledge/mcp-tools.ts`.
-- [ ] Bug 9: document `register_existing_files` glob semantics; on
+- [x] Bug 9: document `register_existing_files` glob semantics; on
       `Candidates scanned: 0` include the resolved walk root in the
       response and add an explicit `dry_run` listing flag.
-- [ ] Bug 10: dedup `save_artifact` / `register_existing_files` by
+- [x] Bug 10: dedup `save_artifact` / `register_existing_files` by
       `relativePath` (skip or update existing record instead of
       accumulating duplicates).
-- [ ] Bug 14: `disasm_prg` registers the rebuild-check PRG with
+- [x] Bug 14: `disasm_prg` registers the rebuild-check PRG with
       `kind: "report"`, `role: "rebuild-check"`, and
       `derivedFrom: <original-id>`; UI disk-layout / payload views
       hide them by default.
-- [ ] R4: built-in default glob set when `register_existing_files` is
+- [x] R4: built-in default glob set when `register_existing_files` is
       called with no `patterns`. Cover all c64re-produced extensions
       (`*_analysis.json`, `*_disasm.asm`, `*_disasm.tass`, manifest,
       raw sectors, runtime traces, docs).
@@ -573,13 +600,14 @@ Done when:
 - Empty-glob `register_existing_files` covers a fresh project end to
   end with one call.
 
-## Sprint 22: Artifact Lineage And Versions
+## Sprint 22: Artifact Lineage, Versions, And Container Subpayloads
 
 Goal: stop showing five sibling rows for one logical
-reverse-engineering effort. Express both the lineage chain
-(V0 → V1 → ... → Vn across paths via `derivedFrom`) and the
-same-path history (re-runs of `disasm_prg` overwrite the file but
-keep prior bytes recoverable).
+reverse-engineering effort. Express the lineage chain
+(V0 → V1 → ... → Vn across paths via `derivedFrom`), the same-path
+history (re-runs of `disasm_prg` overwrite the file but keep prior
+bytes recoverable), and container sub-entries (a disk file may itself
+contain named subpayloads — Accolade `/0` and `/1`).
 
 Status: not started. Direct follow-up to Sprint 21.
 
@@ -602,15 +630,25 @@ Todos:
       highlighted.
 - [ ] `project_audit` reports total snapshot disk usage.
 - [ ] `.gitignore` template adds `snapshots/`.
+- [ ] R23 fold-in: `register_container_entry(...)` plus
+      `containers.json` store; sub-payloads register as artifacts
+      with `derivedFrom: <parent>` and join the lineage chain.
+- [ ] UI groups sub-payloads under their parent container card; a
+      red badge marks missing / truncated tails (Accolade `/1`
+      `WT` case).
 
 Specs:
 
-- `specs/025-artifact-lineage-and-versions.md`
+- `specs/025-artifact-lineage-and-versions.md` (includes R23
+  container-subpayload section)
 
 Done when:
 
 - Building a V0→V4 chain on the fixture project shows one card
   with five expandable rows in the UI.
+- A container with two declared sub-entries shows the parent card
+  with both children listed; one of them flagged missing renders
+  with a red badge.
 - Re-running `disasm_prg` on the same file with new content
   preserves the prior bytes in `snapshots/<id>/<hash>.bin` and
   appends a `versions[]` entry.
@@ -746,14 +784,16 @@ Done when:
 - The audit no longer warns about unimported analysis-runs after
   `agent_onboard` runs once.
 
-## Sprint 20: Custom Loader Semantics
+## Sprint 20: Custom Loader Semantics + Loader ABI Model
 
-Goal: a binary's runtime address is not always its on-disk PRG header.
-Express that as a first-class concept so memory-map and load-sequence
-views match reality.
+Goal: a binary's runtime address is not always its on-disk PRG
+header, and many real titles route content through a private engine
+loader instead of KERNAL `LOAD`. Express both: where bytes land
+(load contexts) AND the semantic file API (jump tables, file keys,
+sentinel calls, container disk-state).
 
 Status: not started. Extends Sprint 15 payload work, closes Bug 13,
-R8, R14.
+R8, R14, and folds in R19 critical via Spec 028.
 
 Todos:
 
@@ -768,17 +808,227 @@ Todos:
 - [ ] Sprint 15 follow-up: confirm every extract tool sets
       `payloadLoadAddress`, `payloadFormat`, and
       `payloadSourceArtifactId` when known.
+- [ ] R19 / Spec 028: declare loader entry points
+      (`declare_loader_entrypoint`), decode loader calls
+      (`decode_loader_call`), record loader events
+      (`record_loader_event`), expose the Game File API view.
+- [ ] Static disasm pass infers loader events from immediate-load
+      chains preceding `JSR <jump-table>`.
 
 Specs:
 
 - `specs/023-load-contexts.md`
+- `specs/028-loader-abi-model.md`
 
 Done when:
 
 - `15_love.prg` analysable at runtime address `$E000` without
   re-reading the PRG header.
-- A VICE trace populates load_event entities visible as arrows in the
-  disk-layout view.
+- A VICE trace populates `load_event` entities visible as arrows in
+  the disk-layout view.
+- Accolade-style `$0800-$082F` jump table can be declared and the
+  Game File API view shows `key → container → destination → caller`.
+
+## Sprint 23: Project Profile Bootstrap (with Cracker-Mode Doctrine)
+
+Goal: every project carries a structured profile (goals, non-goals,
+constraints, build/test commands, danger zones, glossary,
+anti-patterns) that onboarding consumes before suggesting next
+actions. Land the cracker-mode doctrine alongside so role-aware
+behavior ships in the same iteration.
+
+Status: not started.
+
+Todos:
+
+- [ ] `knowledge/project-profile.json` schema and storage.
+- [ ] `save_project_profile`, `get_project_profile`,
+      `add_destructive_operation`, `add_anti_pattern` MCP tools.
+- [ ] `scaffold_project_profile` writes a draft from discovered
+      build configs and existing top-level docs.
+- [ ] `agent_onboard` surfaces profile (goals, non-goals,
+      destructive ops, danger zones, anti-patterns) before tool
+      suggestions.
+- [ ] `agent_propose_next` blocks suggestions matching registered
+      destructive operations / anti-patterns unless explicitly
+      acknowledged.
+- [ ] Spec 033 cracker doctrine: `docs/cracker-doctrine.md`,
+      `c64re_cracker_doctrine` prompt, `agent_set_role(role)` flips
+      proposed-next ranking and onboarding text.
+
+Specs:
+
+- `specs/026-project-profile-bootstrap.md`
+- `specs/033-cracker-mode-doctrine.md`
+
+Done when:
+
+- `scaffold_project_profile` against the fixture project produces a
+  populated profile and `agent_onboard` quotes its goals.
+- Setting role to `cracker` ranks loader/protection PRGs above
+  asset PRGs in `agent_propose_next`.
+
+## Sprint 24: Patch Recipes With Byte Assertions
+
+Goal: replace ad-hoc shell-snippet patching with a structured
+patch-recipe model that asserts expected bytes, snapshots originals,
+records derived artifacts, and supports rollback. R18 critical for
+crack/port work.
+
+Status: not started.
+
+Todos:
+
+- [ ] `knowledge/patches/<id>.json` storage + schema (Spec 027).
+- [ ] `save_patch_recipe`, `apply_patch_recipe`,
+      `revert_patch_recipe`, `list_patch_recipes` MCP tools.
+- [ ] `apply_patch_recipe` snapshots the pre-patch file via Spec
+      025 versioning before writing.
+- [ ] Patched output registered as derived artifact via lineage.
+- [ ] Optional `verificationCommand` runs and exit code persisted.
+- [ ] `project_audit` reports drifted-target recipes and stale
+      verifications.
+- [ ] UI patches tab (joins Sprint 18 work).
+
+Specs:
+
+- `specs/027-patch-recipes.md`
+
+Done when:
+
+- A recipe like Accolade `/0` prompt-skip can be saved, applied,
+  rolled back, and re-applied without losing the original bytes.
+- `apply_patch_recipe` against drifted target bytes refuses by
+  default and reports the actual bytes seen.
+
+## Sprint 25: Memory / Cart / Flash Constraint Checker
+
+Goal: declare resource regions, operations, and rules. Run the
+checker as part of `project_audit` so collisions and unsafe
+assumptions surface without manual triage.
+
+Status: not started.
+
+Todos:
+
+- [ ] Schemas + storage: `knowledge/resources.json`,
+      `operations.json`, `constraints.json`.
+- [ ] `register_resource_region`, `register_operation`,
+      `register_constraint`, `verify_constraints`,
+      `list_resources`, `list_operations`, `list_constraints`
+      tools.
+- [ ] Built-in starter rule library
+      (`src/constraint-rules/built-in.ts`).
+- [ ] `project_audit` runs `verify_constraints` and surfaces high
+      severity violations.
+- [ ] UI Constraints tab.
+
+Specs:
+
+- `specs/029-constraint-checker.md`
+
+Done when:
+
+- A patch recipe that overlays into a region marked `live-code`
+  fails `verify_constraints` with severity `error`.
+- The audit reports the violation without a separate manual call.
+
+## Sprint 26: Runtime Scenario Traces With Original-Vs-Port Diff
+
+Goal: define a scenario once. Run it against multiple targets
+(original disk, port build N-1, port build N). Capture normalised
+loader events. Produce a compact diff that names what changed.
+
+Status: not started.
+
+Todos:
+
+- [ ] `knowledge/scenarios/`, `runtime-events/`, `runtime-diffs/`
+      stores + schemas.
+- [ ] `define_runtime_scenario`, `run_runtime_scenario`,
+      `list_scenario_runs`, `diff_scenario_runs`,
+      `summarise_scenario_run` tools.
+- [ ] Loader-event normalisation via Spec 028 (
+      `decode_loader_call`).
+- [ ] UI Scenarios tab with diff view.
+
+Specs:
+
+- `specs/030-scenario-traces-and-diff.md`
+
+Done when:
+
+- "Story 2 after Robots win" can be defined as a scenario, run
+  against the original disk, and saved as a baseline.
+- Same scenario re-run against a port build produces a diff that
+  highlights any missing `WT` / `/1` subentry loads.
+
+## Sprint 27: Negative Knowledge + Markdown Doc Render
+
+Goal: refuted theories, anti-patterns, and dangerous-operation
+warnings become first-class. Findings, entities, open questions,
+anti-patterns, and the project profile render to Markdown so git
+review and external readers see the same content the UI shows.
+
+Status: not started. Closes the remaining R10 deferral and adds
+R21 negative knowledge.
+
+Todos:
+
+- [ ] Extend finding status enum: `refuted`, `stale`, `dangerous`.
+- [ ] `AntiPattern` record kind + `anti-patterns.json` store.
+- [ ] `save_anti_pattern`, `list_anti_patterns`,
+      `mark_finding_refuted`, `mark_finding_dangerous` tools.
+- [ ] Onboarding surfaces high-severity anti-patterns and recently
+      refuted findings.
+- [ ] `agent_propose_next` filters actions matching
+      `commandPattern` of registered anti-patterns.
+- [ ] `src/doc-render/` library + `render_docs` MCP tool emitting
+      `FINDINGS.md`, `ENTITIES.md`, `OPEN_QUESTIONS.md`,
+      `ANTI_PATTERNS.md`, `PROJECT_PROFILE.md`.
+- [ ] Auto re-render on the matching `save_*` calls.
+
+Specs:
+
+- `specs/031-negative-knowledge-and-doc-render.md`
+
+Done when:
+
+- A finding can be marked `refuted` with evidence; the prior
+  finding stays visible with its replacement linked.
+- `render_docs` produces the doc set on the BWC project; re-running
+  is idempotent.
+
+## Sprint 28: Build Pipeline As Registered Workflow Artifact
+
+Goal: express assemble → patch → pack → CRT pipelines as ordered
+structured steps with input/output artifacts and expected hashes.
+Detect stale outputs when inputs change. Optional orchestration via
+`run_build_pipeline`.
+
+Status: not started.
+
+Todos:
+
+- [ ] `knowledge/pipelines/`, `build-runs/` stores + schemas.
+- [ ] `save_build_pipeline`, `run_build_pipeline`,
+      `compare_build_runs`, `mark_step_skipped`,
+      `list_build_pipelines` tools.
+- [ ] Output artifacts auto-registered with `derivedFrom` chain
+      via Spec 025.
+- [ ] `project_audit` reports stale-output warnings.
+- [ ] UI Pipelines tab.
+
+Specs:
+
+- `specs/032-build-pipeline-as-artifact.md`
+
+Done when:
+
+- A 5-step pipeline can be declared and run end to end; outputs
+  appear in the lineage view.
+- Modifying an input artifact and re-running the audit reports
+  affected outputs as stale.
 
 ## Backlog
 

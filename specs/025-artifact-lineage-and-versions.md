@@ -131,6 +131,56 @@ artifact with the most snapshots so the human can prune if wanted.
   one snapshot file and one `versions[]` entry.
 - Smoke: snapshots dir excluded from artifact registration globs.
 
+## Container Subpayloads (R23 Fold-In)
+
+A disk file may itself contain named subentries that are not
+separate BAM/LUT files (Accolade `/0` and `/1` containers). The
+lineage chain extends downward from a parent payload into named
+sub-payloads.
+
+### Schema additions
+
+```ts
+interface ContainerEntry {
+  parentArtifactId: string;
+  subKey: string;             // e.g. "WT", "AM", "FRAME-12"
+  containerOffset: number;    // byte offset inside parent
+  containerLength: number;
+  loadAddress?: number;
+  registrationMode?: "resident" | "transient" | "deduped";
+  status: "physically-present" | "missing" | "inherited";
+  inheritedFrom?: string;     // artifact id of the source where it
+                              // was physically present
+  evidence?: EvidenceRef[];
+}
+```
+
+Stored as additional records in `knowledge/containers.json`. Each
+sub-payload is also a normal artifact with `derivedFrom: parent.id`
+so it joins the lineage chain.
+
+### Relations (used in concert with Spec 028)
+
+- `contains(parent, sub)`: parent payload contains sub-payload.
+- `registers(parent, sub)`: parent's loader registers the sub at
+  runtime.
+- `resident-through(sub, container)`: sub stays resident as long as
+  container is loaded.
+- `replaced-by(sub_a, sub_b)`: an overwrite during a later load.
+- `deduped-with(sub_a, sub_b)`: identical bytes share one snapshot.
+
+### MCP tools
+
+- `register_container_entry(...)` — declare a sub-entry.
+- `list_container_entries(parent_artifact_id)` — enumerate
+  children with status badges.
+
+### UI grouping
+
+The Sprint 18 artifacts panel groups sub-payloads under their
+parent container card. Missing / truncated tails (Bug 5 of the
+Accolade case) render with a red badge so the human spots them.
+
 ## Out Of Scope
 
 - Branching (model D from the design discussion). Defer until a
@@ -138,6 +188,9 @@ artifact with the most snapshots so the human can prune if wanted.
 - Diff UI between two versions. The data is in place; UI diff comes
   later if asked.
 - Auto-pruning old snapshots; manual or audit-suggested for now.
+- Auto-detecting container boundaries from byte heuristics; v1
+  requires explicit `register_container_entry` calls (or a
+  companion tool that proposes them).
 
 ## Dependencies
 

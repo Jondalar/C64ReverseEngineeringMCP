@@ -123,3 +123,11 @@ when knowable. Document gaps as TODOs against Sprint 20.
   C128 KERNAL differs).
 - Sprint 8 trace throughput recommended before populating
   `load_event` entities at scale.
+
+## Companion Spec
+
+Spec 028 (custom loader ABI / file API model) ships in the same
+Sprint 20. Spec 023 owns the **data layer** (where bytes land at
+runtime); Spec 028 owns the **semantic layer** (file keys, jump
+tables, sentinel calls, container disk-state). The two share
+storage and the load-event recorder.
