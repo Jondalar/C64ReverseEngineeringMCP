@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import { runCli } from "../run-cli.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { registerToolKnowledge } from "../project-knowledge/integration.js";
@@ -13,6 +13,18 @@ export interface PrgReverseWorkflowOptions {
   outputDir?: string;
   rebuildViews?: boolean;
   entryPoints?: string[];
+  /**
+   * When set, treat the input file as a raw blob (no 2-byte PRG header).
+   * Pipeline analyze-prg receives `--load-address $<hex>`. Disasm follows
+   * the analysis JSON header, so it picks up the same mapping.
+   */
+  loadAddress?: number;
+  /**
+   * Optional payload id to update with the produced asm/analysis artifact
+   * ids. When set, runPayloadReverseWorkflow stamps the payload entity
+   * after the run.
+   */
+  payloadId?: string;
 }
 
 export type WorkflowPhaseStatus = "done" | "skipped" | "blocked";
@@ -116,6 +128,9 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
 
   const analysisArgs = [prgAbs, analysisPath];
   if (entries) analysisArgs.push(entries);
+  if (opts.loadAddress !== undefined) {
+    analysisArgs.push("--load-address", `$${opts.loadAddress.toString(16).toUpperCase()}`);
+  }
   const analysisRun = await runCli("analyze-prg", analysisArgs, { projectDir: projectRoot });
   if (analysisRun.exitCode !== 0) {
     phases.push({ phase: "analyze", status: "blocked", reason: analysisRun.stderr || "analyze-prg failed", log: analysisRun.stdout });
@@ -269,6 +284,83 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     ramReportPath: mode === "full" ? ramReportPath : undefined,
     pointerReportPath: mode === "full" ? pointerReportPath : undefined,
   };
+}
+
+export interface PayloadReverseWorkflowOptions {
+  projectRoot: string;
+  payloadId: string;
+  mode?: WorkflowMode;
+  outputDir?: string;
+  rebuildViews?: boolean;
+  entryPoints?: string[];
+}
+
+export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOptions): Promise<PrgReverseWorkflowResult> {
+  const projectRoot = resolve(opts.projectRoot);
+  const service = new ProjectKnowledgeService(projectRoot);
+  const payload = service.listEntities().find((entity) => entity.id === opts.payloadId && entity.kind === "payload");
+  if (!payload) {
+    throw new Error(`No payload entity with id=${opts.payloadId} (kind must be "payload").`);
+  }
+  const sourceArtifactId = payload.payloadDepackedArtifactId ?? payload.payloadSourceArtifactId;
+  if (!sourceArtifactId) {
+    throw new Error(`Payload ${opts.payloadId} has no source artifact (payloadDepackedArtifactId / payloadSourceArtifactId).`);
+  }
+  const artifact = service.listArtifacts().find((entry) => entry.id === sourceArtifactId);
+  if (!artifact) {
+    throw new Error(`Payload ${opts.payloadId} references missing artifact ${sourceArtifactId}.`);
+  }
+  if (payload.payloadLoadAddress === undefined && payload.payloadFormat !== "prg") {
+    throw new Error(`Payload ${opts.payloadId} has no payloadLoadAddress and is not a PRG. Set payloadLoadAddress before running the workflow.`);
+  }
+  const isPrg = payload.payloadFormat === "prg";
+
+  const outputDir = opts.outputDir ?? `artifacts/generated/payloads/${payload.id}`;
+  const result = await runPrgReverseWorkflow({
+    projectRoot,
+    prgPath: artifact.relativePath,
+    mode: opts.mode,
+    outputDir,
+    rebuildViews: opts.rebuildViews,
+    entryPoints: opts.entryPoints,
+    loadAddress: isPrg ? undefined : payload.payloadLoadAddress,
+    payloadId: payload.id,
+  });
+
+  // Stamp the produced asm artifacts back onto the payload entity so the
+  // UI shows them next time the payload is selected.
+  try {
+    const refreshedService = new ProjectKnowledgeService(projectRoot);
+    const asmArtifactIds = refreshedService.listArtifacts()
+      .filter((entry) => entry.relativePath === relative(projectRoot, result.asmPath) || entry.relativePath === relative(projectRoot, result.tassPath))
+      .map((entry) => entry.id);
+    if (asmArtifactIds.length > 0) {
+      const merged = Array.from(new Set([...(payload.payloadAsmArtifactIds ?? []), ...asmArtifactIds]));
+      refreshedService.saveEntity({
+        id: payload.id,
+        kind: "payload",
+        name: payload.name,
+        summary: payload.summary,
+        status: payload.status,
+        confidence: payload.confidence,
+        evidence: payload.evidence,
+        artifactIds: payload.artifactIds,
+        relatedEntityIds: payload.relatedEntityIds,
+        payloadId: payload.payloadId,
+        payloadLoadAddress: payload.payloadLoadAddress,
+        payloadFormat: payload.payloadFormat,
+        payloadPacker: payload.payloadPacker,
+        payloadSourceArtifactId: payload.payloadSourceArtifactId,
+        payloadDepackedArtifactId: payload.payloadDepackedArtifactId,
+        payloadAsmArtifactIds: merged,
+        payloadContentHash: payload.payloadContentHash,
+      });
+    }
+  } catch {
+    // best-effort stamping; do not fail the workflow because of it
+  }
+
+  return result;
 }
 
 export function renderPrgReverseWorkflowResult(result: PrgReverseWorkflowResult): string {

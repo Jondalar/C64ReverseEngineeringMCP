@@ -2969,11 +2969,34 @@ function PayloadsPanel({
   snapshot,
   onOpenHex,
   onOpenAsm,
+  onRunPayloadWorkflow,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
+  onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
 }) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [errorPerId, setErrorPerId] = useState<Record<string, string>>({});
+
+  function handleRun(payloadId: string) {
+    setErrorPerId((current) => {
+      const next = { ...current };
+      delete next[payloadId];
+      return next;
+    });
+    setBusyId(payloadId);
+    onRunPayloadWorkflow(payloadId, "full")
+      .then((result) => {
+        window.alert(`Workflow ${result.status}.\nImported entities=${result.importedCounts.entities} findings=${result.importedCounts.findings}.\nNext: ${result.nextRequiredAction}`);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setErrorPerId((current) => ({ ...current, [payloadId]: message }));
+      })
+      .finally(() => setBusyId((current) => (current === payloadId ? null : current)));
+  }
+
   // A payload is any entity that carries payload metadata (load address
   // or kind=payload) — disk files imported via manifest-import already
   // populate this. Cart chunks are surfaced via the cartridge view's
@@ -3080,7 +3103,19 @@ function PayloadsPanel({
                 {!sourceArtifact && !depackedArtifact && asmArtifacts.length === 0 ? (
                   <span className="payload-empty">no linked artifacts (run register_payload or link_payload_to_asm)</span>
                 ) : null}
+                {(sourceArtifact || depackedArtifact) ? (
+                  <button
+                    type="button"
+                    className="payload-button"
+                    title={load !== undefined ? `Run reverse workflow on ${payload.name}` : "Set payloadLoadAddress before running the workflow"}
+                    disabled={busyId !== null || (payload.payloadFormat !== "prg" && load === undefined)}
+                    onClick={() => handleRun(payload.id)}
+                  >
+                    {busyId === payload.id ? "running..." : "reverse workflow"}
+                  </button>
+                ) : null}
               </footer>
+              {errorPerId[payload.id] ? <div className="inspector-error"><pre>{errorPerId[payload.id]}</pre></div> : null}
             </article>
           );
         })}
@@ -4481,6 +4516,17 @@ export function App() {
     return result;
   }
 
+  async function runPayloadWorkflowFromInspector(payloadId: string, mode: "quick" | "full" = "full"): Promise<PrgReverseWorkflowResponse> {
+    if (!snapshot) throw new Error("No workspace loaded");
+    const result = await postJson<PrgReverseWorkflowResponse>("/api/run-payload-workflow", {
+      projectDir: snapshot.project.rootPath,
+      payloadId,
+      mode,
+    });
+    await loadWorkspace(snapshot.project.rootPath);
+    return result;
+  }
+
   async function saveTodoComposer() {
     if (!snapshot || !todoComposer || !todoComposer.title.trim()) return;
     setTodoSaving(true);
@@ -4843,6 +4889,7 @@ export function App() {
                 snapshot={snapshot}
                 onOpenHex={openHexOverlay}
                 onOpenAsm={openAsmOverlay}
+                onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
               />
             ) : null}
             {activeTab === "load" ? (

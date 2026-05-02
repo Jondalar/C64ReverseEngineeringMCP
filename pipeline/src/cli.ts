@@ -4,7 +4,7 @@ import { parseCrt, writeCrtOutputs } from "./lib/crt";
 import { exportMenuPayloads, reconstructBootPayloads } from "./lib/easyflash";
 import { emitKickAssemblerSources } from "./lib/kickasm";
 import { disassemblePrgToKickAsm } from "./lib/prg-disasm";
-import { analyzePrgFile, writeAnalysisReport } from "./analysis/pipeline";
+import { analyzePrgFile, analyzeRawFile, writeAnalysisReport } from "./analysis/pipeline";
 import { renderPointerTableMarkdown } from "./analysis/pointer-tables";
 import { renderRamStateMarkdown } from "./analysis/ram-state";
 import { analyzeSampleBuffer } from "./analysis/sample";
@@ -105,18 +105,42 @@ function main(): void {
   }
 
   if (command === "analyze-prg") {
-    const prgPath = args[0];
+    // Pull --load-address $XXXX (or 0xXXXX) out of args before consuming
+    // positional slots so callers can pass it anywhere.
+    let loadAddressOverride: number | undefined;
+    const positional: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index]!;
+      if (arg === "--load-address" || arg === "--loadAddress") {
+        const value = args[index + 1];
+        if (!value) throw new Error("--load-address requires a value");
+        const cleanedValue = value.startsWith("$") ? value.slice(1) : value;
+        loadAddressOverride = Number.parseInt(cleanedValue, 16);
+        if (Number.isNaN(loadAddressOverride)) throw new Error(`Invalid --load-address: ${value}`);
+        index += 1;
+        continue;
+      }
+      if (arg.startsWith("--load-address=")) {
+        const value = arg.slice("--load-address=".length);
+        const cleanedValue = value.startsWith("$") ? value.slice(1) : value;
+        loadAddressOverride = Number.parseInt(cleanedValue, 16);
+        if (Number.isNaN(loadAddressOverride)) throw new Error(`Invalid --load-address: ${value}`);
+        continue;
+      }
+      positional.push(arg);
+    }
+    const prgPath = positional[0];
     if (!prgPath) {
       usage();
     }
-    const outputPath = resolve(args[1] ?? "analysis/main-game/main_analysis.json");
-    const entryPoints = args[2]
-      ? args[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
+    const outputPath = resolve(positional[1] ?? "analysis/main-game/main_analysis.json");
+    const entryPoints = positional[2]
+      ? positional[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
       : [];
     const prgAbs = resolve(prgPath);
-    const report = analyzePrgFile(prgAbs, {
-      userEntryPoints: entryPoints,
-    });
+    const report = loadAddressOverride !== undefined
+      ? analyzeRawFile(prgAbs, loadAddressOverride, { userEntryPoints: entryPoints })
+      : analyzePrgFile(prgAbs, { userEntryPoints: entryPoints });
     writeAnalysisReport(report, outputPath);
     registerCliArtifact({
       kind: "analysis-run",
@@ -128,12 +152,19 @@ function main(): void {
       producedByTool: "pipeline_cli:analyze-prg",
       sourceArtifactIds: [], // resolved later via path; not yet known here
     });
-    // Auto-register a payload entity for the PRG itself. Load address
-    // = first 2 bytes of the file. Idempotent — re-running analyze-prg
-    // does not duplicate.
+    // Auto-register a payload entity for the input. Idempotent — re-running
+    // analyze-prg does not duplicate.
     try {
       const buf = readFileSyncFs(prgAbs);
-      if (buf.length >= 2) {
+      if (loadAddressOverride !== undefined) {
+        registerCliPayload({
+          name: basename(prgAbs).replace(/\.[^.]+$/, ""),
+          loadAddress: loadAddressOverride,
+          format: "raw",
+          sourceArtifactPath: prgAbs,
+          size: buf.length,
+        });
+      } else if (buf.length >= 2) {
         const loadAddr = buf[0]! | (buf[1]! << 8);
         registerCliPayload({
           name: basename(prgAbs).replace(/\.prg$/i, ""),

@@ -4,7 +4,7 @@ import { extname, join, normalize, relative, resolve, dirname } from "node:path"
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { auditProject, auditProjectCached } from "../project-knowledge/audit.js";
 import { repairProject } from "../project-knowledge/repair.js";
-import { runPrgReverseWorkflow } from "../lib/prg-workflow.js";
+import { runPayloadReverseWorkflow, runPrgReverseWorkflow } from "../lib/prg-workflow.js";
 import { findUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import { buildGraphicsView } from "./graphics-view.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
@@ -370,6 +370,42 @@ const server = createServer((req, res) => {
         send(res, jsonResponse(200, { updated, errors }));
       } catch (error) {
         send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/run-payload-workflow" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          payloadId: string;
+          mode?: "quick" | "full";
+          outputDir?: string;
+          rebuildViews?: boolean;
+          entryPoints?: string[];
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!payload.payloadId?.trim()) {
+          send(res, jsonResponse(400, { error: "Missing payloadId." }));
+          return;
+        }
+        const result = await runPayloadReverseWorkflow({
+          projectRoot: projectDir,
+          payloadId: payload.payloadId,
+          mode: payload.mode,
+          outputDir: payload.outputDir,
+          rebuildViews: payload.rebuildViews,
+          entryPoints: payload.entryPoints,
+        });
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
       }
     });
     return;

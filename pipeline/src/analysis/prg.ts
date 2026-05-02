@@ -26,6 +26,26 @@ export function loadPrg(prgPath: string): LoadedPrg {
   return { buffer, mapping };
 }
 
+export function loadRaw(rawPath: string, loadAddress: number): LoadedPrg {
+  const file = readFileSync(rawPath);
+  if (file.length === 0) {
+    throw new Error(`Raw blob empty: ${rawPath}`);
+  }
+  if (loadAddress < 0 || loadAddress > 0xffff) {
+    throw new Error(`Invalid load address $${loadAddress.toString(16)} for raw blob ${rawPath}`);
+  }
+  const buffer = Buffer.from(file);
+  const mapping: MemoryMapping = {
+    format: "prg",
+    loadAddress,
+    startAddress: loadAddress,
+    endAddress: Math.min(0xffff, loadAddress + buffer.length - 1),
+    fileOffset: 0,
+    fileSize: buffer.length,
+  };
+  return { buffer, mapping };
+}
+
 export function detectBasicSysEntry(buffer: Buffer, mapping: MemoryMapping): EntryPoint[] {
   if (mapping.startAddress > 0x0801 || buffer.length < 12) {
     return [];

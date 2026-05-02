@@ -9,7 +9,7 @@ import { ScreenRamAnalyzer } from "./analyzers/screen-ram-analyzer";
 import { SidAnalyzer } from "./analyzers/sid-analyzer";
 import { SpriteAnalyzer } from "./analyzers/sprite-analyzer";
 import { TextAnalyzer } from "./analyzers/text-analyzer";
-import { deriveEntryPoints, loadPrg } from "./prg";
+import { deriveEntryPoints, loadPrg, loadRaw } from "./prg";
 import { resolveSegments } from "./resolver";
 import { extractCodeSemantics } from "./code-semantics";
 import { extractSidEvidence, extractVicEvidence } from "./c64-hardware";
@@ -330,6 +330,11 @@ export function analyzeMappedBuffer(
 export function analyzePrgFile(prgPath: string, options: AnalysisOptions = {}): AnalysisReport {
   const loaded = loadPrg(resolve(prgPath));
   return analyzeMappedBuffer(prgPath, loaded.buffer, loaded.mapping, options);
+}
+
+export function analyzeRawFile(rawPath: string, loadAddress: number, options: AnalysisOptions = {}): AnalysisReport {
+  const loaded = loadRaw(resolve(rawPath), loadAddress);
+  return analyzeMappedBuffer(rawPath, loaded.buffer, loaded.mapping, options);
 }
 
 export function writeAnalysisReport(report: AnalysisReport, outputPath: string): void {

@@ -6,7 +6,7 @@ import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
 import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { runPrgReverseWorkflow, renderPrgReverseWorkflowResult } from "../lib/prg-workflow.js";
+import { runPayloadReverseWorkflow, runPrgReverseWorkflow, renderPrgReverseWorkflowResult } from "../lib/prg-workflow.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
@@ -411,6 +411,35 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
       const result = await runPrgReverseWorkflow({
         projectRoot: pd,
         prgPath: prg_path,
+        mode,
+        outputDir: output_dir,
+        rebuildViews: rebuild_views,
+        entryPoints: entry_points,
+      });
+      return context.cliResultToContent({
+        stdout: renderPrgReverseWorkflowResult(result),
+        stderr: "",
+        exitCode: result.status === "blocked" ? 1 : 0,
+      });
+    }),
+  );
+
+  server.tool(
+    "run_payload_reverse_workflow",
+    "Run the reverse-engineering workflow on a payload entity. Resolves the payload's source artifact and load address, supports both PRG-header and raw blobs, stamps produced asm artifact ids back onto the payload.",
+    {
+      project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
+      payload_id: z.string().describe("Payload entity id (kind=payload)."),
+      mode: z.enum(["quick", "full"]).optional().describe("quick = analyze + disasm only. full = also ram_report + pointer_report. Default full."),
+      output_dir: z.string().optional().describe("Override output directory. Default artifacts/generated/payloads/<payload_id>."),
+      rebuild_views: z.boolean().optional().describe("Run build_all_views after the workflow. Default true."),
+      entry_points: z.array(z.string()).optional().describe("Optional hex entry-point overrides."),
+    },
+    safeHandler("run_payload_reverse_workflow", async ({ project_dir, payload_id, mode, output_dir, rebuild_views, entry_points }) => {
+      const pd = context.projectDir(project_dir, false);
+      const result = await runPayloadReverseWorkflow({
+        projectRoot: pd,
+        payloadId: payload_id,
         mode,
         outputDir: output_dir,
         rebuildViews: rebuild_views,

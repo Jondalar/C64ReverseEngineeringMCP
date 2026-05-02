@@ -443,6 +443,51 @@ Done when:
 - one round-trip defers / invalidates a multi-selection and the
   dashboard counts and audit reflect the change
 
+## Sprint 15: Payload-Centric Reverse Workflow
+
+Goal: stop assuming PRG headers. Every binary the inspect / extract
+phases produce — cart chunks, custom-LUT disk files, depacker outputs,
+runtime-trace slices — must be reversable through the same workflow,
+keyed on a payload entity that carries the load address and source
+artifact.
+
+Status: first pass landed. Pipeline `analyze-prg --load-address $XXXX`
+treats the input as raw bytes. Library exports
+`runPayloadReverseWorkflow` that resolves a payload entity, picks the
+source/depacked artifact, runs the full chain in raw mode when the
+format is not `prg`, and stamps the produced asm artifact ids back
+onto the payload. MCP tool `run_payload_reverse_workflow` and a
+workspace endpoint `POST /api/run-payload-workflow` route to the same
+library. The Payloads tab in the UI now ships a `reverse workflow`
+button per payload that disables when the load address is missing.
+
+Todos:
+
+- [x] Pipeline: add `--load-address $XXXX` flag to `analyze-prg` so a
+      raw blob can be analysed without the 2-byte PRG header.
+- [x] Library: add `runPayloadReverseWorkflow({ projectRoot, payloadId })`.
+- [x] MCP: register `run_payload_reverse_workflow(payload_id)`.
+- [x] Workspace UI: `POST /api/run-payload-workflow` plus a
+      `reverse workflow` button on every payload card.
+- [ ] Surface the same payload-aware control in the cart chunk
+      inspector and the disk file inspector (today the disk inspector
+      uses the legacy PRG-path entry point and only fires when the
+      file ends in `.prg`).
+- [ ] Inspect / extract coverage: confirm every extract tool produces
+      payload entities with `payloadLoadAddress`, `payloadFormat`, and
+      `payloadSourceArtifactId` set when known.
+
+Specs:
+
+- `specs/018-payload-centric-reverse-workflow.md`
+
+Done when:
+
+- a non-`.prg` cart chunk with a load address from a custom LUT can
+  be analysed and disassembled with one button click
+- inspect / extract tools fill payload metadata so the workflow runner
+  never has to guess
+
 ## Sprint 14: Clean Fixture Project For UI Testing
 
 Goal: stop validating UI changes against BWC's accumulated chaos. Ship
