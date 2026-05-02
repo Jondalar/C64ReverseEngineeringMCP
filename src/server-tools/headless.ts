@@ -227,18 +227,22 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "headless_session_run",
-    "Run the active headless runtime session for a bounded number of instructions or until a stop PC is reached.",
+    "Run the active headless runtime session for a bounded number of instructions or until a stop PC is reached. Spec 011 Sprint 8: trace_mode controls trace I/O cost — 'full' logs every event (default), 'sampled' logs every Nth event (sample_every, default 16), 'off' disables trace writes for the run.",
     {
       max_instructions: z.number().int().positive().optional().describe("Maximum instruction count to execute (default: 1000)."),
       stop_pc: z.string().optional().describe("Optional stop PC in hex."),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
+      trace_mode: z.enum(["full", "sampled", "off"]).optional().describe("Spec 011: trace mode for this run. Default 'full'."),
+      sample_every: z.number().int().positive().optional().describe("Spec 011: when trace_mode='sampled', log every Nth event. Default 16."),
     },
-    safeHandler("headless_session_run", async ({ max_instructions, stop_pc, hint_path }) => {
+    safeHandler("headless_session_run", async ({ max_instructions, stop_pc, hint_path, trace_mode, sample_every }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const result = manager.runSession({
           maxInstructions: max_instructions,
           stopPc: stop_pc ? parseHexWord(stop_pc) : undefined,
+          traceMode: trace_mode,
+          sampleEvery: sample_every,
         });
         const record = manager.getStatus();
         if (!record) {
