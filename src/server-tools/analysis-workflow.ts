@@ -6,6 +6,7 @@ import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
 import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
 const PACKER_DETECTION_THRESHOLD = 0.7;
@@ -442,7 +443,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
       rebuild_views: z.boolean().optional().describe("Run build_all_views after the workflow. Default true."),
       entry_points: z.array(z.string()).optional().describe("Optional hex entry-point overrides (e.g. [\"0827\"])."),
     },
-    async ({ project_dir, prg_path, mode, output_dir, rebuild_views, entry_points }) => {
+    safeHandler("run_prg_reverse_workflow", async ({ project_dir, prg_path, mode, output_dir, rebuild_views, entry_points }) => {
       const startedAt = new Date().toISOString();
       const pd = context.projectDir(project_dir ?? prg_path, true);
       const prgAbs = resolve(pd, prg_path);
@@ -684,6 +685,6 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
         stderr: "",
         exitCode: overall === "blocked" ? 1 : 0,
       });
-    },
+    }),
   );
 }

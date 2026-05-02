@@ -5,6 +5,7 @@ import { z } from "zod";
 import { resolveProjectDir } from "../project-root.js";
 import { auditProject, renderProjectAudit } from "./audit.js";
 import { PROJECT_REPAIR_OPERATIONS, repairProject, renderProjectRepair } from "./repair.js";
+import { safeHandler } from "../server-tools/safe-handler.js";
 import { ProjectKnowledgeService } from "./service.js";
 
 interface RegisterProjectKnowledgeToolsOptions {
@@ -145,11 +146,11 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       include_file_scan: z.boolean().optional().describe("Scan project artifact folders for files missing from artifacts.json. Defaults to true."),
     },
-    async ({ project_dir, include_file_scan }) => {
+    safeHandler("project_audit", async ({ project_dir, include_file_scan }) => {
       const projectRoot = resolveWorkspaceRoot(options, project_dir);
       const audit = auditProject(projectRoot, { includeFileScan: include_file_scan ?? true });
       return textContent(renderProjectAudit(audit));
-    },
+    }),
   );
 
   server.tool(
@@ -161,7 +162,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       operations: z.array(z.enum(PROJECT_REPAIR_OPERATIONS)).optional().describe("Subset of repair operations to run. Defaults to all safe operations."),
       limit: z.number().int().positive().max(2000).optional().describe("Maximum records/files per operation. Default 500."),
     },
-    async ({ project_dir, mode, operations, limit }) => {
+    safeHandler("project_repair", async ({ project_dir, mode, operations, limit }) => {
       const projectRoot = resolveWorkspaceRoot(options, project_dir);
       const result = repairProject(projectRoot, {
         mode: mode ?? "dry-run",
@@ -169,7 +170,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         limit,
       });
       return textContent(renderProjectRepair(result));
-    },
+    }),
   );
 
   server.tool(

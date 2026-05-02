@@ -264,14 +264,18 @@ Done when:
 Goal: every MCP tool returns a structured error on failure, not an
 unhandled rejection.
 
-Status: process-level handlers exist (commit 91c86f8). Per-handler
-wrapping pending. Migrated from the old `TODO.md` backlog.
+Status: helper landed in `src/server-tools/safe-handler.ts`. Applied
+to `project_audit`, `project_repair`, and `run_prg_reverse_workflow`
+as the showcase. Remaining handlers across `src/server-tools/*.ts` and
+`src/project-knowledge/mcp-tools.ts` should adopt it incrementally.
 
 Todos:
 
-- [ ] Add a `safeHandler` wrapper that returns the Spec 007 error
+- [x] Add a `safeHandler` wrapper that returns the Spec 007 error
       shape and logs the tool name to stderr.
-- [ ] Wrap every handler in `src/server-tools/*.ts` and
+- [x] Wrap the new agentic-workflow tools (audit, repair, prg
+      workflow).
+- [ ] Wrap remaining handlers in `src/server-tools/*.ts` and
       `src/project-knowledge/mcp-tools.ts`.
 
 Specs:
