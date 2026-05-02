@@ -61,7 +61,9 @@ interface ServerReply {
 function parseArgs(argv: string[]): ServerOptions {
   const options: ServerOptions = {
     port: 4310,
-    projectDir: resolve(process.cwd(), "examples", "example-project"),
+    projectDir: process.env.C64RE_PROJECT_DIR
+      ? resolve(process.env.C64RE_PROJECT_DIR)
+      : process.cwd(),
     apiOnly: false,
   };
 
