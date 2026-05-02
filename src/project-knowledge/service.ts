@@ -1317,6 +1317,56 @@ export class ProjectKnowledgeService {
     return { written };
   }
 
+  // Spec 034: advance an artifact to a target phase. Evidence string
+  // is required when jumping more than one phase forward.
+  advanceArtifactPhase(artifactId: string, toPhase: 1 | 2 | 3 | 4 | 5 | 6 | 7, evidence?: string): ArtifactRecord | undefined {
+    const store = this.storage.loadArtifacts();
+    const artifact = store.items.find((item) => item.id === artifactId);
+    if (!artifact) return undefined;
+    const current = artifact.phase ?? 1;
+    if (toPhase < current) {
+      throw new Error(`Cannot move artifact backward from phase ${current} to phase ${toPhase}.`);
+    }
+    if (toPhase - current > 1 && !evidence) {
+      throw new Error(`Skipping more than one phase forward (${current} -> ${toPhase}) requires an evidence string.`);
+    }
+    const updated: ArtifactRecord = { ...artifact, phase: toPhase, updatedAt: nowIso() };
+    this.storage.saveArtifacts({
+      ...store,
+      updatedAt: nowIso(),
+      items: store.items.map((item) => (item.id === artifactId ? updated : item)),
+    });
+    this.appendTimelineEvent({
+      kind: "artifact.phase-advanced",
+      title: `Phase advanced: ${artifact.title} -> ${toPhase}`,
+      artifactId,
+      summary: evidence,
+      payload: { from: current, to: toPhase },
+    });
+    return updated;
+  }
+
+  // Spec 034: freeze an artifact at its current phase (cracker mode
+  // for asset PRGs). Frozen artifacts skip propose_next and count as
+  // "done" for completion math.
+  freezeArtifactAtPhase(artifactId: string, reason: string): ArtifactRecord | undefined {
+    const store = this.storage.loadArtifacts();
+    const artifact = store.items.find((item) => item.id === artifactId);
+    if (!artifact) return undefined;
+    const updated: ArtifactRecord = {
+      ...artifact,
+      phaseFrozen: true,
+      phaseFrozenReason: reason,
+      updatedAt: nowIso(),
+    };
+    this.storage.saveArtifacts({
+      ...store,
+      updatedAt: nowIso(),
+      items: store.items.map((item) => (item.id === artifactId ? updated : item)),
+    });
+    return updated;
+  }
+
   // Spec 022 / Bug 16: re-import analysis-run artifacts whose entities
   // are not yet back-linked. Idempotent. Called automatically by
   // agent_onboard so the audit no longer warns about unimported runs.

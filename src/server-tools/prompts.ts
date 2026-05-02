@@ -45,6 +45,66 @@ ${doctrineText}`,
     },
   );
 
+  // Spec 034 + 035: phase doctrine + parametrized worker prompt.
+  server.prompt(
+    "c64re_re_phases",
+    "Return the seven-phase reverse-engineering workflow doctrine. Read at session start so the agent knows which phase each tool belongs to and how the master + worker pattern is supposed to be used.",
+    {},
+    async () => {
+      const phasesPath = `${context.repoRoot}/docs/re-phases.md`;
+      const phasesText = context.readTextFile(phasesPath);
+      return {
+        messages: [{
+          role: "user" as const,
+          content: { type: "text" as const, text: phasesText },
+        }],
+      };
+    },
+  );
+
+  server.prompt(
+    "c64re_worker_phase",
+    "Spec 035: return a worker briefing for a single phase task on a single artifact. Hand the returned text to a Task subagent (or to a freshly spawned Claude Code subagent). The worker stops when its hand-off contract is met and returns control to the master.",
+    {
+      phase: z.string().describe("Phase number (1..7)."),
+      artifact_id: z.string().describe("Target artifact id."),
+      artifact_title: z.string().optional(),
+      role: z.enum(["analyst", "cracker"]).optional().describe("Active role; default analyst."),
+    },
+    async ({ phase, artifact_id, artifact_title, role }) => {
+      // Lazy import so the server-tools layer can stay light.
+      const { buildWorkerPrompt } = await import("../agent-orchestrator/phase-tools.js");
+      const phaseNum = Number(phase);
+      if (!Number.isInteger(phaseNum) || phaseNum < 1 || phaseNum > 7) {
+        return {
+          messages: [{ role: "user" as const, content: { type: "text" as const, text: `Invalid phase: ${phase}. Must be 1..7.` } }],
+        };
+      }
+      const text = buildWorkerPrompt({
+        phase: phaseNum as 1|2|3|4|5|6|7,
+        artifactId: artifact_id,
+        artifactTitle: artifact_title,
+        role,
+      });
+      return {
+        messages: [{ role: "user" as const, content: { type: "text" as const, text } }],
+      };
+    },
+  );
+
+  server.prompt(
+    "c64re_cracker_doctrine",
+    "Return the cracker-mode doctrine (Spec 033). Read once when agent_set_role(role='cracker') is called.",
+    {},
+    async () => {
+      const doctrinePath = `${context.repoRoot}/docs/cracker-doctrine.md`;
+      const doctrineText = context.readTextFile(doctrinePath);
+      return {
+        messages: [{ role: "user" as const, content: { type: "text" as const, text: doctrineText } }],
+      };
+    },
+  );
+
   server.prompt(
     "debug_workflow",
     "Guidance for using the VICE runtime tools for breakpoint-driven debugging and runtime tracing.",

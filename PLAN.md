@@ -1058,6 +1058,85 @@ Done when:
 - Modifying an input artifact and re-running the audit reports
   affected outputs as stale.
 
+## Sprint 34: Seven-Phase Workflow
+
+Goal: make the seven-phase RE workflow (Spec 034) first-class so
+agents stop drifting across phases. Per-artifact `phase` field,
+phase-tagged tools, phase-aware `propose_next`, optional hard gate,
+reminder loop, cracker freeze for asset PRGs.
+
+Status: data layer + phase doctrine + phase tagging shipped.
+Hard-gate enforcement is wired through the helper module
+(`isToolAllowedInPhase`); per-tool refuse path is tracked as
+Sprint 34.5 (needs request-level interception).
+
+Todos:
+
+- [x] Add `phase`, `phaseFrozen`, `phaseFrozenReason` to ArtifactRecord.
+- [x] `agent_advance_phase(artifact_id, to_phase, evidence?)` MCP
+      tool. Skipping more than one phase forward requires evidence;
+      backward refused.
+- [x] `agent_freeze_artifact(artifact_id, reason)` for cracker mode.
+- [x] `src/agent-orchestrator/phase-tools.ts` with PHASE_TOOLS,
+      PHASE_TITLES, PHASE_NARRATIVES, PHASE_AGNOSTIC_TOOLS,
+      `phaseForTool`, `isToolAllowedInPhase`.
+- [x] `docs/re-phases.md` agent-facing doctrine.
+- [x] `c64re_re_phases` MCP prompt returns the doctrine doc.
+- [x] `agent_propose_next` per-artifact phase section + master/worker
+      recommendation block + reminder line.
+- [x] `agent_record_step` ends with reminder pointing at
+      `agent_propose_next` (loop enforcement).
+- [x] `projectProfile` gains `phaseGateStrict`, `phaseReminders`,
+      `defaultRole` fields.
+- [ ] Per-tool hard refuse path (intercept tool dispatch). Sprint 34.5.
+
+Specs:
+
+- `specs/034-seven-phase-workflow.md`
+
+Done when:
+
+- A new artifact starts at phase 1; `agent_advance_phase` walks it
+  through 1..7 with evidence guards.
+- `agent_propose_next` lists per-artifact phase actions and
+  recommends spawning a worker subagent.
+- Frozen artifacts skip propose_next and count as done.
+
+## Sprint 35: Master + Worker Orchestration Pattern
+
+Goal: external Master/Worker pattern (user's main Claude session
+acts as master, spawns Task subagents per phase task) backed by
+first-class C64RE machinery so users do not invent prompts each
+time.
+
+Status: parametrized worker prompt shipped + `agent_propose_next`
+emits master-mode recommendation block.
+
+Todos:
+
+- [x] Single parametrized prompt `c64re_worker_phase(phase,
+      artifact_id, artifact_title?, role?)` returns a Markdown
+      worker briefing with allowed tools, required outputs, and
+      hand-off contract.
+- [x] `c64re_cracker_doctrine` prompt returns the cracker doctrine
+      (Sprint 33 doc) so role-aware briefings work.
+- [x] `agent_propose_next` master-mode block names the exact prompt
+      invocation.
+- [x] CLAUDE.md mentions the pattern so the master agent reads it
+      at session start.
+
+Specs:
+
+- `specs/035-master-worker-orchestration.md`
+
+Done when:
+
+- `c64re_worker_phase(phase=4, artifact_id="X")` returns a
+  Markdown briefing the master can paste into a Task subagent
+  prompt.
+- Smoke `scripts/sprint34-35-smoke.mjs` covers worker prompt
+  builder + phase advance + freeze + tool allow-list.
+
 ## Backlog
 
 - Workspace UI filters for confidence, artifact role, payload, and

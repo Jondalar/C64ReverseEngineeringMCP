@@ -379,6 +379,40 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 034 / 035: phase orchestration tools.
+  server.tool(
+    "agent_advance_phase",
+    "Spec 034: advance an artifact to a target phase (1..7) in the seven-phase RE workflow. Skipping more than one phase forward requires an evidence string. Cannot move backward.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string(),
+      to_phase: z.number().int().min(1).max(7),
+      evidence: z.string().optional(),
+    },
+    safeHandler("agent_advance_phase", async ({ project_dir, artifact_id, to_phase, evidence }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const updated = service.advanceArtifactPhase(artifact_id, to_phase as 1|2|3|4|5|6|7, evidence);
+      if (!updated) return textContent(`Artifact ${artifact_id} not found.`);
+      return textContent(`Phase advanced.\nArtifact: ${updated.id}\nNew phase: ${updated.phase}`);
+    },
+));
+
+  server.tool(
+    "agent_freeze_artifact",
+    "Spec 034: freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack). Frozen artifacts skip propose_next and count as 'done' for completion math.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string(),
+      reason: z.string(),
+    },
+    safeHandler("agent_freeze_artifact", async ({ project_dir, artifact_id, reason }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const updated = service.freezeArtifactAtPhase(artifact_id, reason);
+      if (!updated) return textContent(`Artifact ${artifact_id} not found.`);
+      return textContent(`Frozen at phase ${updated.phase ?? 1}: ${reason}`);
+    },
+));
+
   // Spec 026 project profile.
   server.tool(
     "save_project_profile",

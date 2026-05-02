@@ -708,7 +708,7 @@ project_audit
 
 ## Bug 17 — `build_all_views` rejects address ranges > $FFFF (cart bank entries fail schema)
 
-**Status**: OPEN — appeared after sprint 20 (custom loader semantics + loader ABI data layer)
+**Status**: FIXED — commit `de23b3d`. MemoryMapRegion / MemoryMapCell / AnnotatedListingEntry start+end widened from `max(0xffff)` to `max(0xffffff)` so cart-bank entries (flattened offsets ≥ $10000) pass schema validation. C64 main-CPU addresses still naturally fit 16 bits; the wider range only matters for cart-internal offsets.
 
 **Severity**: High — `build_all_views` returns a Zod validation error and aborts; UI views go stale because no rebuild succeeds.
 

@@ -529,13 +529,19 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         out.push(`⚠ ${unimportedAnalysis} analysis-run artifact(s) registered but not imported into entities.`);
         out.push(`  Run bulk_import_analysis_reports to back-fill the knowledge layer.`);
       }
+      // Spec 034 reminder loop: every record_step ends pointing at
+      // propose_next so the master agent stays in the orchestration
+      // loop instead of free-form drifting.
+      out.push(``);
+      out.push(`---`);
+      out.push(`Next step: call agent_propose_next to get the phase-aware action plan, then spawn a worker subagent via c64re_worker_phase if the next action is phase-bound.`);
       return textContent(out.join("\n"));
     },
   );
 
   server.tool(
     "agent_propose_next",
-    "Read-only: examine workflow phases, open tasks, open questions, and current agent-state to propose ranked next actions. Does not mutate state.",
+    "[Phase agnostic] Read-only: examine workflow phases, open tasks, open questions, and current agent-state to propose ranked next actions. Spec 034 / 035: lists phase-consistent actions for each non-frozen artifact and recommends spawning a worker subagent via the c64re_worker_phase prompt. Does not mutate state.",
     {
       project_dir: z.string().optional(),
     },
@@ -557,6 +563,39 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         lines.push(`${c.rank + 1}. (${c.source}) ${c.suggestion}`);
         lines.push(`   reason: ${c.reason}`);
       }
+
+      // Spec 034 + 035: per-artifact phase-aware section.
+      const artifacts = service.listArtifacts();
+      const phaseSubjects = artifacts.filter((a) => {
+        if (a.phaseFrozen) return false;
+        return a.kind === "prg" || a.kind === "raw" || a.kind === "extract" || a.role === "source-prg";
+      });
+      if (phaseSubjects.length > 0) {
+        lines.push(``);
+        lines.push(`## Per-Artifact Phase Actions (Spec 034)`);
+        for (const subj of phaseSubjects.slice(0, 5)) {
+          const phase = subj.phase ?? 1;
+          lines.push(``);
+          lines.push(`### ${subj.title} (phase ${phase})`);
+          lines.push(``);
+          lines.push(`Spawn worker subagent for phase ${phase}:`);
+          lines.push("");
+          lines.push("```");
+          lines.push(`Prompt: c64re_worker_phase(phase=${phase}, artifact_id="${subj.id}", role="${state.role ?? "analyst"}")`);
+          lines.push(`Stop: when worker reports "Phase ${phase} done" or "Phase ${phase} blocked".`);
+          lines.push("```");
+          lines.push("");
+          lines.push(`After worker returns: agent_record_step(...result...) → agent_propose_next.`);
+        }
+        if (phaseSubjects.length > 5) {
+          lines.push(``);
+          lines.push(`... ${phaseSubjects.length - 5} more phase-bound artifacts. Filter or freeze irrelevant ones with agent_freeze_artifact.`);
+        }
+      }
+
+      lines.push(``);
+      lines.push(`---`);
+      lines.push(`Reminder: every cycle ends with agent_record_step → agent_propose_next. Master + Worker pattern: see c64re_re_phases prompt.`);
       return textContent(lines.join("\n"));
     },
   );

@@ -25,6 +25,8 @@ export const TimelineEventKindSchema = z.enum([
   "checkpoint.created",
   "view.built",
   "note",
+  "artifact.phase-advanced",
+  "artifact.frozen",
 ]);
 
 export const ConfidenceSchema = z.number().min(0).max(1);
@@ -144,6 +146,14 @@ export const ArtifactRecordSchema = z.object({
   platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional(),
   // Spec 023: alternate load contexts beyond the on-disk PRG header.
   loadContexts: z.array(LoadContextSchema).default([]),
+  // Spec 034: current phase in the seven-phase RE workflow. Default 1
+  // (extraction). Advanced explicitly via agent_advance_phase. A
+  // frozen artifact stays at its current phase and counts as "done"
+  // there for completion percentages — used by cracker mode for
+  // asset PRGs that do not need full annotation.
+  phase: z.number().int().min(1).max(7).optional(),
+  phaseFrozen: z.boolean().optional(),
+  phaseFrozenReason: z.string().optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });
@@ -190,6 +200,10 @@ export const ProjectProfileSchema = z.object({
     refutationEvidence: z.string().optional(),
   })).default([]),
   crackerOverrides: z.array(z.string()).default([]),
+  // Spec 034 + 035: optional gates and reminders.
+  phaseGateStrict: z.boolean().optional(),
+  phaseReminders: z.enum(["every-tool", "phase-transition", "off"]).optional(),
+  defaultRole: z.enum(["analyst", "cracker"]).optional(),
   updatedAt: TimestampSchema,
 });
 
