@@ -29,7 +29,10 @@ interface ProjectProfile {
   nonGoals: string[];
   hardwareConstraints: Array<{ resource: string; constraint: string; reason?: string }>;
   loaderModel?: string;            // free-form pointer to docs/loader.md
-  destructiveOperations: Array<{ command: string; warning: string }>;
+  destructiveOperations: Array<{
+    commandPattern: string;        // glob-style: "rm -rf*", "git push --force*"
+    warning: string;
+  }>;
   build?: { command: string; cwd?: string; outputs?: string[] };
   test?: { command: string; cwd?: string };
   activeWorkspace?: string;        // relative path that work currently focuses on
@@ -38,6 +41,10 @@ interface ProjectProfile {
   antiPatterns: Array<{ title: string; reason: string; refutationEvidence?: string }>;
 }
 ```
+
+Match strategy for `commandPattern`: glob-style with `*` and `?`.
+Exact match when no wildcard. Used by `agent_propose_next` to
+filter or block proposed actions whose serialised command matches.
 
 Stored at `knowledge/project-profile.json`, mirrored as Markdown via
 the doc renderer (Spec 031).

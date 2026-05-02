@@ -14,6 +14,8 @@ These three files are source of truth. Do not propose work that duplicates a fix
 
 Spec-driven flow stays: PLAN → spec under `specs/NNN-*.md` → sprint todos → implementation. New work without a spec is incomplete.
 
+**API-first via headless.** Every feature lands first as MCP tool / library / endpoint with smoke coverage. UI follows in a later sprint once the API is stable. Do not block API work on UI design; do not ship UI without the underlying API.
+
 ## Agent Doctrine (Mandatory)
 
 When operating inside an actual C64 RE *project* (i.e. a `C64RE_PROJECT_DIR` workspace, not this MCP repo itself):

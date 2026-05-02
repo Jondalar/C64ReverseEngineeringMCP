@@ -92,9 +92,13 @@ that updates `versionLabel` only. Idempotent.
 `derivedFrom` chain root-down and returns the list ordered by
 `versionRank`.
 
-### UI grouping
+### UI grouping (Sprint 18 carryover)
 
-In the Artifacts / Findings / Entities tabs (Sprint 18):
+Sprint 22 ships data layer + service helpers + MCP tools only.
+The UI grouping itself ships as part of Sprint 18 (knowledge tabs)
+because the tabs that would show grouped lineages do not exist yet.
+Sprint 18 reads the `lineageRoot` field set by Sprint 22 and
+defaults to grouped rendering:
 
 1. Default group = `lineageRoot`. One card per lineage with V0 title.
 2. Card header shows `V0 title (5 versions, latest = V4 "mod")` with
@@ -103,7 +107,7 @@ In the Artifacts / Findings / Entities tabs (Sprint 18):
    opens the artifact detail panel for that version.
 4. Same-path history (the `versions[]` of any single artifact) is
    shown as a sub-list under that artifact's detail.
-5. Rename label inline.
+5. Rename label inline (calls the `rename_artifact_version` tool).
 
 ### Snapshot directory
 

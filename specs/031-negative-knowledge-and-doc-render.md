@@ -83,12 +83,18 @@ New library `src/doc-render/`:
 | `views/memory-map.json` | `docs/MEMORY_MAP.md` (optional) |
 
 MCP tool `render_docs(scope?: "all" | "findings" | "entities" | ...)`.
+
 Triggers:
 
-- `save_finding` / `save_entity` / `save_open_question` /
-  `save_anti_pattern` / `save_project_profile` re-render the
-  matching doc.
-- `build_all_views` re-renders everything.
+- Single `save_finding` / `save_entity` / `save_open_question` /
+  `save_anti_pattern` / `save_project_profile` calls re-render the
+  matching doc in-band by default.
+- Bulk operations (`bulk_import_analysis_reports`,
+  `register_existing_files`, `project_repair`, etc.) accept a
+  `defer_render: boolean` arg (default `true` for bulk). With
+  `defer_render` set, individual saves skip the per-call render
+  and a single `render_docs("all")` runs once at the end.
+- `build_all_views` always re-renders everything.
 
 Generated files carry a header:
 

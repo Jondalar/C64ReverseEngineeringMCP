@@ -633,9 +633,10 @@ Todos:
 - [ ] R23 fold-in: `register_container_entry(...)` plus
       `containers.json` store; sub-payloads register as artifacts
       with `derivedFrom: <parent>` and join the lineage chain.
-- [ ] UI groups sub-payloads under their parent container card; a
-      red badge marks missing / truncated tails (Accolade `/1`
-      `WT` case).
+
+UI scope deferred to Sprint 18 per the API-first rule. Sprint 22
+ships data layer + service helpers + MCP tools only; the lineage
+grouping render lands when Sprint 18 builds the knowledge tabs.
 
 Specs:
 

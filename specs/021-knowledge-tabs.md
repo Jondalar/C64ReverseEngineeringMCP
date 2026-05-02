@@ -63,6 +63,20 @@ height + offset math). Cap visible rows at 500 with a
 `Refine filter to see more` hint when truncated, matching the
 existing Questions tab pattern.
 
+### Lineage grouping (Sprint 22 fold-in)
+
+Sprint 22 adds `lineageRoot` to artifact / entity / finding records.
+Sprint 18 tabs default-group rows by `lineageRoot`:
+
+- One card per lineage; V0 title in the card header; latest
+  version highlighted.
+- Expand → ordered V0..Vn rows. Click a row → opens the artifact
+  detail panel for that version.
+- A toggle switches between grouped (default) and flat view.
+- Rename inline through `rename_artifact_version`.
+
+Tabs without lineage-bearing records (relations, flows) render flat.
+
 ## Acceptance Criteria
 
 - Opening the BWC project shows 2814 findings, 4499 entities, 376

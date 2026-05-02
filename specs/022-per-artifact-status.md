@@ -36,7 +36,9 @@ the payload-centric workflow.
 
 ### Endpoint
 
-`GET /api/per-artifact-status?projectDir=...` returns:
+`GET /api/per-artifact-status?projectDir=...` returns role-agnostic
+data. Each step carries `requiredForRole` so the UI / agent can
+filter by active role (analyst vs cracker — see Spec 033).
 
 ```ts
 {
@@ -44,8 +46,13 @@ the payload-centric workflow.
     artifactId: string;
     title: string;
     platform?: string;
-    steps: Array<{ name: string; status: "done" | "pending" | "blocked"; reason?: string }>;
-    completionPct: number;
+    steps: Array<{
+      name: string;
+      status: "done" | "pending" | "blocked";
+      reason?: string;
+      requiredForRole: Array<"analyst" | "cracker">;
+    }>;
+    completionPct: number;          // computed against active role's required steps
     qualityMetrics?: {
       bytesByKind: Record<SegmentKind, number>;
       avgConfidence: number;
@@ -54,6 +61,11 @@ the payload-centric workflow.
   }>
 }
 ```
+
+Example: an asset PRG with `analyze` ✓ and `preview` ✓ shows
+`completionPct = 100` for role `cracker` (those are the only steps
+required), but `completionPct ≈ 33` for role `analyst` (full
+checklist). Sprint 33 plumbs the active role through the call.
 
 ### Auto-import on onboard
 

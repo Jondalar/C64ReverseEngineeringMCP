@@ -72,8 +72,10 @@ games) from "engine loader call" (common, currently invisible).
 
 ### UI view
 
-New "Game File API" view (mounted under load-sequence or its own
-tab):
+New "Game File API" view as its **own** tab (consistent with
+findings / entities / flows / relations tabs). UX consolidation
+across tabs is deferred to a separate refactor sprint after the
+feature set stabilises.
 
 - Table: file key → container → runtime destination → caller chain.
 - Subpayload nesting (Spec 025 R23 fold-in).

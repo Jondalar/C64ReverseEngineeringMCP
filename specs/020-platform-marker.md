@@ -45,7 +45,11 @@ New module `src/platform-knowledge/` with one file per platform:
   vectors, common ROM entry points).
 - `c1541.ts` — 1541 RAM map (ZP, $0100 stack, $0200-$07FF buffers),
   VIA1 ($1800-$180F) and VIA2 ($1C00-$1C0F) registers, DOS ROM symbol
-  table for `$A000-$FFFF` (`dos_search_header` etc.).
+  table for `$A000-$FFFF` (`dos_search_header` etc.). Symbol source:
+  https://g3sl.github.io/c1541rom.html (public 1541 ROM annotation
+  set; scrape-and-commit a snapshot under
+  `tools/data/c1541-rom.json` so the table is reproducible without
+  hitting the network at build time).
 - `c128.ts`, `vic20.ts`, `plus4.ts` — stub with header comment, no
   populated tables yet.
 
