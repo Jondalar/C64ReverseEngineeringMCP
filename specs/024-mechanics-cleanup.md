@@ -54,16 +54,21 @@ In `register_existing_files`:
 3. Add an explicit `dry_run: true` flag that lists matches without
    registering anything.
 
-### Bug 10 — path dedup
+### Bug 10 — path dedup (merge-update only)
 
 In `save_artifact` and `register_existing_files`:
 
-1. Index artifacts by `relativePath` on load.
-2. On save, if `relativePath` already exists, default to
-   `update existing record` (merge title/role/kind if newer is
-   non-empty) and increment a `Skipped (duplicate path)` counter.
-3. Add a `dedup_strategy: "update" | "skip" | "reject"` arg, default
-   `update`.
+1. When `id` is not supplied, look up an existing record by absolute
+   `path` (computed from `input.path`).
+2. If found, reuse its id so the save updates the record instead of
+   appending a duplicate.
+3. Increment a `Skipped (duplicate path)` counter in
+   `register_existing_files` output.
+
+Same-path history (`versions[]` with content snapshots) is **not**
+part of this sprint — Spec 025 / Sprint 22 owns that work. Sprint 21
+only stops accidental duplicates; Sprint 22 turns the merged record
+into a versioned one.
 
 ### Bug 14 — rebuild-check classification
 

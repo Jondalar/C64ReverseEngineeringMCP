@@ -3,8 +3,42 @@ import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { findUnimportedAnalysisArtifacts, listCandidateFiles, matchesGlob, scanRegistrationDelta, statSafe } from "../lib/registration-delta.js";
+import { describeWalkRoots, findUnimportedAnalysisArtifacts, listCandidateFiles, matchesGlob, scanRegistrationDelta, statSafe } from "../lib/registration-delta.js";
+import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
+
+// Built-in glob set used when register_existing_files is called with no
+// `patterns` arg (R4 in REQUIREMENTS.md). Covers every c64re-produced
+// extension across input, analysis, generated, view, knowledge, and session
+// scopes, and excludes rebuild-check PRGs (Bug 14).
+const DEFAULT_PATTERNS: Array<{
+  glob: string;
+  kind: typeof KIND_VALUES[number];
+  scope: typeof SCOPE_VALUES[number];
+  role?: string;
+  format?: string;
+}> = [
+  { glob: "input/disk/*.d64", kind: "d64", scope: "input", role: "source-disk" },
+  { glob: "input/disk/*.g64", kind: "g64", scope: "input", role: "source-disk" },
+  { glob: "input/cart/*.crt", kind: "crt", scope: "input", role: "source-cart" },
+  { glob: "input/prg/*.prg", kind: "prg", scope: "input", role: "source-prg" },
+  { glob: "analysis/disk/*/manifest.json", kind: "manifest", scope: "analysis", role: "disk-manifest", format: "json" },
+  { glob: "analysis/disk/**/*_analysis.json", kind: "analysis-run", scope: "analysis", role: "prg-analysis", format: "json" },
+  { glob: "analysis/disk/**/*_disasm.asm", kind: "listing", scope: "analysis", role: "disasm", format: "asm" },
+  { glob: "analysis/disk/**/*_disasm.tass", kind: "generated-source", scope: "generated", role: "disasm-tass", format: "tass" },
+  { glob: "analysis/disk/**/raw_sectors/**/*.bin", kind: "raw", scope: "analysis", role: "raw-sector", format: "bin" },
+  { glob: "analysis/runtime/**/session.json", kind: "checkpoint", scope: "session", role: "vice-session", format: "json" },
+  { glob: "analysis/runtime/**/trace/summary.json", kind: "report", scope: "session", role: "trace-summary", format: "json" },
+  { glob: "analysis/runtime/**/trace/trace-analysis.json", kind: "report", scope: "session", role: "trace-analysis", format: "json" },
+  { glob: "analysis/runtime/**/trace/events.jsonl", kind: "trace", scope: "session", role: "trace-events", format: "jsonl" },
+  { glob: "views/*.json", kind: "view-model", scope: "view", format: "json" },
+  { glob: "docs/**/*.md", kind: "other", scope: "knowledge", role: "doc", format: "md" },
+];
+
+// Files we never want to auto-register through default globs. Currently
+// only rebuild-check PRGs (Bug 14) — they are byproducts of disasm_prg's
+// verify step, not source assets.
+const DEFAULT_EXCLUDE_GLOBS = ["**/*_disasm_rebuild_check.prg"];
 
 const KIND_VALUES = [
   "prg", "crt", "d64", "g64", "raw",
@@ -33,16 +67,24 @@ function textContent(text: string) {
 export function registerRegistrationTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "register_existing_files",
-    "Walk the project filesystem and register files that match one or more glob patterns into knowledge/artifacts.json. Idempotent: files already registered (by relativePath) are skipped. Use this after bulk operations that bypassed MCP — direct pipeline CLI loops, Node imports of bwc-bitstream-ts / graphics-render, hand-emitted reports — to bring the artifact store in sync with the filesystem. dry_run=true previews the work without writing.",
+    "Walk the project filesystem and register files that match one or more glob patterns into knowledge/artifacts.json. When called with no patterns, applies a built-in default set covering every c64re-produced extension (input/disk, analysis JSON, listing ASM, raw sectors, runtime traces, view models, docs). Glob semantics: patterns are relative to the project root, * matches within a single path component, ** matches across components. Idempotent: files already registered (by relativePath) are skipped. dry_run=true previews the work without writing.",
     {
       project_dir: z.string().optional(),
-      patterns: z.array(patternSchema).min(1).describe("One or more glob+metadata patterns. Each matched file becomes a save_artifact call with the pattern's kind/scope/role/format."),
+      patterns: z.array(patternSchema).optional().describe("Optional glob+metadata patterns. When omitted, the built-in default set is used."),
       dry_run: z.boolean().optional().describe("If true, return the planned registrations without writing. Default false."),
+      include_excluded: z.boolean().optional().describe("If true, do not apply the default exclude list (e.g. *_disasm_rebuild_check.prg). Default false."),
     },
-    async (args) => {
+    safeHandler("register_existing_files", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
-      const candidates = listCandidateFiles(projectRoot);
+      const patterns = args.patterns && args.patterns.length > 0 ? args.patterns : DEFAULT_PATTERNS.map((p) => ({ ...p }));
+      const usingDefaults = !args.patterns || args.patterns.length === 0;
+      const allCandidates = listCandidateFiles(projectRoot);
+      const excludeGlobs = args.include_excluded ? [] : DEFAULT_EXCLUDE_GLOBS;
+      const candidates = excludeGlobs.length > 0
+        ? allCandidates.filter((rel) => !excludeGlobs.some((g) => matchesGlob(rel, g)))
+        : allCandidates;
+      const excluded = allCandidates.length - candidates.length;
       // Already-registered set so we count "skipped" too.
       const existing = new Set<string>(
         service.listArtifacts().map((a) => a.relativePath),
@@ -54,14 +96,14 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
 
       for (const rel of candidates) {
         let matchedAny = false;
-        for (let pi = 0; pi < args.patterns.length; pi++) {
-          if (matchesGlob(rel, args.patterns[pi]!.glob)) {
+        for (let pi = 0; pi < patterns.length; pi++) {
+          if (matchesGlob(rel, patterns[pi]!.glob)) {
             matchedAny = true;
             if (existing.has(rel)) {
               skippedAlreadyRegistered.push(rel);
               break;
             }
-            planned.push({ pattern: pi, relativePath: rel, kind: args.patterns[pi]!.kind, scope: args.patterns[pi]!.scope });
+            planned.push({ pattern: pi, relativePath: rel, kind: patterns[pi]!.kind, scope: patterns[pi]!.scope });
             // Mark to avoid double-adding when multiple patterns match.
             existing.add(rel);
             break;
@@ -70,36 +112,63 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
         if (!matchedAny) unmatched.push(rel);
       }
 
-      if (args.dry_run) {
+      // Bug 9 diagnostics: when the scan found zero candidates, surface the
+      // walk roots and observed top-level entries so the user can debug
+      // glob-vs-layout mismatches without re-running with --dry_run.
+      const zeroMatch = candidates.length === 0;
+
+      if (args.dry_run || zeroMatch && !args.include_excluded) {
         const lines: string[] = [];
-        lines.push(`register_existing_files (dry run)`);
+        lines.push(`register_existing_files${args.dry_run ? " (dry run)" : ""}`);
         lines.push(`Project: ${projectRoot}`);
-        lines.push(`Candidates scanned: ${candidates.length}`);
+        lines.push(`Patterns: ${usingDefaults ? `built-in defaults (${patterns.length})` : `user-supplied (${patterns.length})`}`);
+        lines.push(`Candidates scanned: ${candidates.length}${excluded > 0 ? ` (${excluded} excluded by default exclude globs)` : ""}`);
         lines.push(`Would register: ${planned.length}`);
         lines.push(`Already registered (skipped): ${skippedAlreadyRegistered.length}`);
         lines.push(`No-match (no pattern covers them): ${unmatched.length}`);
         lines.push(``);
         lines.push(`Planned by pattern:`);
-        for (let pi = 0; pi < args.patterns.length; pi++) {
+        for (let pi = 0; pi < patterns.length; pi++) {
           const cnt = planned.filter((p) => p.pattern === pi).length;
-          lines.push(`  [${pi}] glob=${args.patterns[pi]!.glob} kind=${args.patterns[pi]!.kind} scope=${args.patterns[pi]!.scope} → ${cnt} files`);
+          lines.push(`  [${pi}] glob=${patterns[pi]!.glob} kind=${patterns[pi]!.kind} scope=${patterns[pi]!.scope} → ${cnt} files`);
         }
         if (unmatched.length > 0) {
           lines.push(``);
           lines.push(`Unmatched samples (first 10):`);
           for (const u of unmatched.slice(0, 10)) lines.push(`  ${u}`);
         }
-        return textContent(lines.join("\n"));
+        if (zeroMatch) {
+          lines.push(``);
+          lines.push(`Walk roots and observed top-level entries:`);
+          for (const root of describeWalkRoots(projectRoot)) {
+            lines.push(`  ${root.subdir}/  ${root.exists ? "(exists)" : "(missing)"}`);
+            if (root.exists && root.topLevelEntries.length > 0) {
+              lines.push(`    entries: ${root.topLevelEntries.join(", ")}`);
+            }
+          }
+          if (args.dry_run) {
+            // user already asked for a dry run; no further hint needed
+          } else {
+            lines.push(``);
+            lines.push(`Hint: re-run with dry_run=true to inspect plan, or include_excluded=true to also walk *_disasm_rebuild_check.prg files.`);
+          }
+        }
+        if (args.dry_run || zeroMatch) {
+          return textContent(lines.join("\n"));
+        }
       }
 
       // Live run: invoke saveArtifact for each planned entry.
       const summaryByKind: Record<string, number> = {};
       for (const p of planned) {
-        const pat = args.patterns[p.pattern]!;
+        const pat = patterns[p.pattern]!;
         const absPath = resolve(projectRoot, p.relativePath);
         const stat = statSafe(absPath);
         const stem = p.relativePath.split("/").pop()!;
-        const title = pat.title_template ?? stem;
+        const patAny = pat as { title_template?: string; produced_by_tool?: string; tags?: string[] };
+        const title = patAny.title_template ?? stem;
+        const producedByTool = patAny.produced_by_tool ?? "register_existing_files";
+        const tags = patAny.tags;
         try {
           service.saveArtifact({
             kind: pat.kind,
@@ -108,8 +177,8 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
             path: absPath,
             format: pat.format,
             role: pat.role,
-            producedByTool: pat.produced_by_tool ?? "register_existing_files",
-            tags: pat.tags,
+            producedByTool,
+            tags,
           });
           summaryByKind[pat.kind] = (summaryByKind[pat.kind] ?? 0) + 1;
           void stat;
@@ -122,8 +191,10 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
       const lines: string[] = [];
       lines.push(`register_existing_files complete.`);
       lines.push(`Project: ${projectRoot}`);
+      lines.push(`Patterns: ${usingDefaults ? `built-in defaults (${patterns.length})` : `user-supplied (${patterns.length})`}`);
       lines.push(`Registered: ${planned.length}`);
       lines.push(`Already registered (skipped): ${skippedAlreadyRegistered.length}`);
+      lines.push(`Excluded by default exclude globs: ${excluded}`);
       lines.push(`Unmatched (no pattern covers them): ${unmatched.length}`);
       lines.push(``);
       lines.push(`By kind:`);
@@ -131,7 +202,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
         lines.push(`  ${kind}: ${n}`);
       }
       return textContent(lines.join("\n"));
-    },
+    }),
   );
 
   server.tool(
@@ -141,7 +212,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
       project_dir: z.string().optional(),
       cap: z.number().int().positive().max(500).optional().describe("Maximum example file paths to return (default 50)."),
     },
-    async ({ project_dir, cap }) => {
+    safeHandler("scan_registration_delta", async ({ project_dir, cap }: { project_dir?: string; cap?: number }) => {
       const projectRoot = ctx.projectDir(project_dir);
       const delta = scanRegistrationDelta(projectRoot, cap ?? 50);
       const lines: string[] = [];
@@ -163,7 +234,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
         lines.push(`✓ No unregistered files. Artifact store is in sync.`);
       }
       return textContent(lines.join("\n"));
-    },
+    }),
   );
 
   server.tool(
@@ -174,7 +245,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
       limit: z.number().int().positive().max(2000).optional().describe("Max artifacts to import in one call. Default 500."),
       dry_run: z.boolean().optional().describe("If true, return the planned import set without writing."),
     },
-    async (args) => {
+    safeHandler("bulk_import_analysis_reports", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const candidates = findUnimportedAnalysisArtifacts(service);
@@ -227,7 +298,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
         for (const e of errors.slice(0, 5)) lines.push(`  ${e.id}: ${e.error}`);
       }
       return textContent(lines.join("\n"));
-    },
+    }),
   );
 
   void existsSync; // tree-shake guard

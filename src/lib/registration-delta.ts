@@ -114,6 +114,36 @@ export function scanRegistrationDelta(projectRoot: string, cap = 50): Registrati
   };
 }
 
+// Describe the resolved walk roots so register_existing_files can report
+// what it actually scanned. Used by the zero-match diagnostic path.
+export interface WalkRootInfo {
+  subdir: string;
+  absPath: string;
+  exists: boolean;
+  topLevelEntries: string[];
+}
+
+export function describeWalkRoots(projectRoot: string): WalkRootInfo[] {
+  const out: WalkRootInfo[] = [];
+  for (const sub of SCAN_ROOTS) {
+    const absPath = resolve(projectRoot, sub);
+    const exists = existsSync(absPath);
+    let entries: string[] = [];
+    if (exists) {
+      try {
+        entries = readdirSync(absPath, { withFileTypes: true })
+          .filter((e) => !e.name.startsWith(".") && !SKIP_DIRS.has(e.name))
+          .map((e) => `${e.name}${e.isDirectory() ? "/" : ""}`)
+          .sort();
+      } catch {
+        entries = [];
+      }
+    }
+    out.push({ subdir: sub, absPath, exists, topLevelEntries: entries.slice(0, 20) });
+  }
+  return out;
+}
+
 // Cheap variant: only return the count, not the file list.
 export function countUnregisteredFiles(projectRoot: string): number {
   const registered = loadRegisteredPaths(projectRoot);

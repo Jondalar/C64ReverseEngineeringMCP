@@ -317,6 +317,155 @@ Cuts annotation effort 5-10x in many cases.
 
 ---
 
+## R17 — Project profile bootstrap from real crack/port constraints
+
+**Priority**: High
+
+**Source**: Accolade Comics EF port.
+
+**Problem**: Real projects need project-specific rules before useful work starts: goals, non-goals, hardware constraints, loader model, destructive-operation warnings, build rules, active version folder, and known danger zones. In Accolade this emerged manually as `CLAUDE.md`, `docs/arc42.md`, `docs/GLOSSARY.md`, and `docs/ANTI_PATTERNS.md`.
+
+**Want**: `project_init` / `agent_onboard` support a project-profile layer:
+- canonical docs: `PROJECT_PROFILE.md`, `GLOSSARY.md`, `ANTI_PATTERNS.md`, optional `ARCHITECTURE.md`
+- structured records for quality goals, non-goals, constraints, active workspace, build command, test command, destructive-operation warnings
+- onboarding summary that says "read these first" and surfaces the hard constraints before tool suggestions
+- optional scaffold generator that asks the agent to create a minimal profile from discovered files and user walkthrough notes
+
+Acceptance: a fresh project can produce a compact profile before deep analysis, and later sessions load it without relying on chat history.
+
+---
+
+## R18 — Patch recipe model with byte assertions and relocation rules
+
+**Priority**: Critical
+
+**Source**: Accolade Comics EF build pipeline.
+
+**Problem**: Crack/port work repeatedly patches extracted binaries. Today patches live in shell/Python snippets or hand notes. The important safety properties are not first-class: expected original bytes, file offset, runtime address, relocation bias, source assembler, backup/original artifact, verification command, and resulting derived artifact.
+
+**Want**: New knowledge record / artifact role `patch-recipe` plus tooling:
+- `save_patch_recipe` with target artifact, expected bytes, replacement bytes or source file, offset/runtime address, relocation transform, reason, evidence
+- `apply_patch_recipe` verifies expected bytes before writing and refuses mismatches unless explicitly overridden
+- recipe output registers patched artifact as derived from original
+- UI shows patch table: target, status, original hash, patched hash, verification result
+- generated docs list all intentional modifications
+
+Acceptance: a patch like Accolade `/0` prompt skip or `/1` F7 remap can be represented, applied, rebuilt, and audited without hiding logic inside an ad-hoc build script.
+
+---
+
+## R19 — Custom loader ABI / application file API model
+
+**Priority**: Critical
+
+**Source**: Accolade Comics Kevin loader.
+
+**Problem**: Many C64 titles do not use KERNAL `LOAD`. Accolade routes content through a private engine jump table and a `$1998` sector-loader ABI with 2-byte file keys, param blocks, container sub-entries, sentinel calls, and disk-side state. C64RE has disk/CRT/payload abstractions, but no explicit model for the game's own loader API.
+
+**Want**: First-class `loader-abi` model:
+- entities for jump-table entries, loader stages, param-block layouts, file-key formats, sentinel values, side/disk selector state
+- relation kinds for "loads-key", "dispatches-to", "registers-subentry", "invalidates-cache", "mirrors-disk-state"
+- tool to declare loader entry points and decode observed calls from static code or runtime trace
+- UI view for "game file API": key -> container/file -> runtime destination -> caller chain
+
+Acceptance: Accolade's `$0800-$082F` API, `$081B/$1998` sector load, `/0` disk-swap flow, and `M! -> GB -> UL -> SQ -> Q!/R!` chain can be modeled without flattening everything into generic xrefs.
+
+---
+
+## R20 — Runtime scenario traces with original-vs-port diff
+
+**Priority**: High
+
+**Source**: Accolade Comics Bug 5 and orphan-file lessons.
+
+**Problem**: Static analysis produced false orphan conclusions in Accolade. The useful evidence was scenario-specific runtime trace: original disk vs EF port, breakpoints on loader entries, compare which file keys/load destinations occur before a gameplay milestone.
+
+**Want**: Scenario trace workflow:
+- `define_runtime_scenario(title, target, start_media, breakpoints, stop_condition, expected_milestone)`
+- capture normalized events: PC, key/file id, T/S, destination, bank, caller, side index, success/fail, timestamp/frame
+- compare two scenario runs: original vs port, old build vs new build
+- emit compact diff: missing loads, extra loads, different source medium, different payload hash, different destination, divergent PC
+- persist as `runtime-scenario`, `runtime-event-summary`, and `runtime-diff` artifacts
+
+Acceptance: "Story 2 after Robots win" can become a repeatable scenario that proves whether `WT` / `/1` subentries were loaded and retained.
+
+---
+
+## R21 — Negative knowledge / do-not-repeat lessons
+
+**Priority**: High
+
+**Source**: Accolade Comics `ANTI_PATTERNS.md` and `BUG5_CURRENT.md`.
+
+**Problem**: Findings and open questions capture what may be true. Real work also needs explicit "do not try this again" knowledge: refuted theories, failed heuristics, dangerous commands, stale assumptions, and project-specific rules like "do not trust memory system for Bug 5; read trace first".
+
+**Want**: Structured negative-knowledge support:
+- new record kind or finding status for `anti-pattern`, `refuted-theory`, `dangerous-operation`, `stale-assumption`
+- evidence links to failed attempts, traces, commits, or docs
+- onboarding surfaces high-priority negative knowledge before next actions
+- `agent_propose_next` avoids proposing actions blocked by negative knowledge unless new evidence exists
+- optional generated `docs/ANTI_PATTERNS.md`
+
+Acceptance: Accolade's "static orphan detection without runtime trace is unreliable" and "single RAM snapshot is only a hypothesis" become machine-readable warnings, not just prose.
+
+---
+
+## R22 — Memory / cartridge / flash constraint checker
+
+**Priority**: High
+
+**Source**: Accolade Comics EasyFlash save implementation.
+
+**Problem**: Crack/port changes are constrained by scarce memory and cartridge geometry: EasyFlash erase sector size, free banks, overlay RAM, `$01` CPU port state, EAPI cart visibility, VIC bitmap/color regions, zero-page preservation. Today these rules live in project docs and build comments.
+
+**Want**: Constraint model and checker:
+- declare resource regions: RAM ranges, ZP bytes, VIC-visible ranges, cart banks/chips/erase sectors, EAPI runtime areas
+- declare operations: overlay copy, flash erase/write, bank switch, decrunch destination, runtime patch
+- checker reports collisions and unsafe assumptions: erase would destroy data banks, overlay overlaps live code, cart hidden during EAPI init, caller ZP not preserved
+- build/artifact recipes can attach required constraints and verification results
+
+Acceptance: Accolade's Bank 63 save slots plus Banks 56-62 erase-margin and `$0C23-$0FFF` transient overlay can be checked from data instead of remembered manually.
+
+---
+
+## R23 — Container payload and sub-entry lineage
+
+**Priority**: High
+
+**Source**: Accolade Comics `/0` and `/1` container files.
+
+**Problem**: A disk file may be a container with internal subentries that are not separate BAM/LUT files. Bug 5 showed this matters: a truncated `/1` lost a tail subentry (`WT`) even though the external file list did not expose it independently.
+
+**Want**: Extend payload model for nested/container payloads:
+- parent payload can contain named subpayloads with offsets, sizes, keys, load addresses, and registration mode
+- relations: `contains`, `registers`, `resident-through`, `replaced-by`, `deduped-with`
+- extraction/import tools can register subentries as first-class payloads while preserving parent lineage
+- runtime trace can distinguish "loaded external file" vs "registered/executed subentry from resident container"
+- UI groups subpayloads under parent artifact and shows missing/truncated tails
+
+Acceptance: Accolade `/1` can show `WT`, `AM`, and sprite-frame tail as subpayloads, with evidence whether each exists physically on disk or is inherited from another side/version.
+
+---
+
+## R24 — Build pipeline as registered workflow artifact
+
+**Priority**: Medium
+
+**Source**: Accolade Comics `ef_build.sh`, `ef_pack.py`, `ef_build_crt.py`.
+
+**Problem**: Port/crack projects often have a meaningful build pipeline: assemble sources, patch extracted files, pack payloads, build CRT, verify byte-exactness, compare hashes, reserve banks. Today C64RE registers outputs, but the pipeline itself remains opaque.
+
+**Want**: Build pipeline model:
+- register ordered build steps with command, inputs, outputs, expected hashes/byte identity, and side effects
+- attach generated artifacts to the step that produced them
+- expose pipeline view: source -> patch -> pack -> CRT
+- audit detects stale outputs when inputs changed
+- optional `run_build_pipeline` wrapper that records tool-run metadata and verification results
+
+Acceptance: Accolade's EF build can be represented as a reproducible pipeline with explicit outputs, instead of a shell script that the knowledge layer only sees after the fact.
+
+---
+
 ## Process / Doctrine items
 
 These are workflow questions that the tool *can* answer but currently leaves open.

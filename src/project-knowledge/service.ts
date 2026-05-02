@@ -587,7 +587,13 @@ export class ProjectKnowledgeService {
   saveArtifact(input: SaveArtifactInput): ArtifactRecord {
     const store = this.storage.loadArtifacts();
     const timestamp = nowIso();
-    const existing = input.id ? store.items.find((item) => item.id === input.id) : undefined;
+    const absPath = resolve(this.storage.paths.root, input.path);
+    // Dedup: if the caller didn't supply an id, look up by absolute path so
+    // two different titles for the same file do not produce two artifacts.
+    // (Bug 10 in BUGREPORT.md.)
+    const existing = input.id
+      ? store.items.find((item) => item.id === input.id)
+      : store.items.find((item) => item.path === absPath);
     const artifact = this.storage.buildArtifactRecord({
       id: input.id ?? existing?.id ?? createId("artifact", input.title),
       kind: input.kind,

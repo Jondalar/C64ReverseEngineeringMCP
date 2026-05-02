@@ -96,7 +96,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       tags: z.array(z.string()).optional().describe("Optional project tags"),
       preferred_assembler: z.enum(["kickass", "64tass"]).optional().describe("Preferred assembler dialect for generated source and later workflow defaults."),
     },
-    async ({ project_dir, name, description, tags, preferred_assembler }) => {
+    safeHandler("project_init", async ({ project_dir, name, description, tags, preferred_assembler }) => {
       const projectRoot = resolveWorkspaceRoot(options, project_dir, true);
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler });
@@ -137,7 +137,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         ...workflow.state.phases.map((phase) => formatWorkflowPhaseLine(phase)),
       ].join("\n"));
     },
-  );
+));
 
   server.tool(
     "project_audit",
@@ -179,7 +179,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
     },
-    async ({ project_dir }) => {
+    safeHandler("project_status", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const status = service.getProjectStatus();
       return textContent([
@@ -208,7 +208,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         ...status.workflowState.phases.map((phase) => formatWorkflowPhaseLine(phase)),
       ].join("\n"));
     },
-  );
+));
 
   server.tool(
     "save_artifact",
@@ -232,7 +232,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       tags: z.array(z.string()).optional(),
       evidence: z.array(evidenceSchema).optional(),
     },
-    async ({ project_dir, id, kind, scope, title, path, description, mime_type, format, role, produced_by_tool, source_artifact_ids, entity_ids, confidence, status, tags, evidence }) => {
+    safeHandler("save_artifact", async ({ project_dir, id, kind, scope, title, path, description, mime_type, format, role, produced_by_tool, source_artifact_ids, entity_ids, confidence, status, tags, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const artifact = service.saveArtifact({
         id,
@@ -257,7 +257,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       });
       return textContent(`Artifact saved.\nID: ${artifact.id}\nKind: ${artifact.kind}\nPath: ${artifact.relativePath}`);
     },
-  );
+));
 
   server.tool(
     "list_project_artifacts",
@@ -268,7 +268,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       role: z.string().optional(),
       limit: z.number().int().positive().max(200).optional(),
     },
-    async ({ project_dir, scope, role, limit }) => {
+    safeHandler("list_project_artifacts", async ({ project_dir, scope, role, limit }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const artifacts = service.listArtifacts()
         .filter((artifact) => !scope || artifact.scope === scope)
@@ -281,7 +281,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `${artifact.id} | ${artifact.scope}/${artifact.kind} | ${artifact.title} | ${artifact.relativePath}`,
       ).join("\n"));
     },
-  );
+));
 
   server.tool(
     "save_finding",
@@ -301,7 +301,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       tags: z.array(z.string()).optional(),
       evidence: z.array(evidenceSchema).optional(),
     },
-    async ({ project_dir, id, kind, title, summary, confidence, status, entity_ids, artifact_ids, relation_ids, flow_ids, tags, evidence }) => {
+    safeHandler("save_finding", async ({ project_dir, id, kind, title, summary, confidence, status, entity_ids, artifact_ids, relation_ids, flow_ids, tags, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const finding = service.saveFinding({
         id,
@@ -322,7 +322,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       });
       return textContent(`Finding saved.\nID: ${finding.id}\nKind: ${finding.kind}\nTitle: ${finding.title}\nStatus: ${finding.status}\nConfidence: ${finding.confidence}`);
     },
-  );
+));
 
   server.tool(
     "list_findings",
@@ -334,7 +334,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       entity_id: z.string().optional(),
       limit: z.number().int().positive().max(100).optional(),
     },
-    async ({ project_dir, kind, status, entity_id, limit }) => {
+    safeHandler("list_findings", async ({ project_dir, kind, status, entity_id, limit }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const findings = service.listFindings({ kind, status, entityId: entity_id }).slice(0, limit ?? 20);
       if (findings.length === 0) {
@@ -344,7 +344,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `${finding.id} | ${finding.kind} | ${finding.status} | c=${finding.confidence.toFixed(2)} | ${finding.title}`,
       ).join("\n"));
     },
-  );
+));
 
   server.tool(
     "list_entities",
@@ -356,7 +356,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       artifact_id: z.string().optional(),
       limit: z.number().int().positive().max(200).optional(),
     },
-    async ({ project_dir, kind, status, artifact_id, limit }) => {
+    safeHandler("list_entities", async ({ project_dir, kind, status, artifact_id, limit }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const entities = service.listEntities({ kind, status, artifactId: artifact_id }).slice(0, limit ?? 50);
       if (entities.length === 0) {
@@ -366,7 +366,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `${entity.id} | ${entity.kind} | ${entity.status} | c=${entity.confidence.toFixed(2)} | ${entity.name}`,
       ).join("\n"));
     },
-  );
+));
 
   server.tool(
     "list_relations",
@@ -378,7 +378,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       artifact_id: z.string().optional(),
       limit: z.number().int().positive().max(200).optional(),
     },
-    async ({ project_dir, kind, entity_id, artifact_id, limit }) => {
+    safeHandler("list_relations", async ({ project_dir, kind, entity_id, artifact_id, limit }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const relations = service.listRelations({ kind, entityId: entity_id, artifactId: artifact_id }).slice(0, limit ?? 50);
       if (relations.length === 0) {
@@ -388,7 +388,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `${relation.id} | ${relation.kind} | ${relation.status} | c=${relation.confidence.toFixed(2)} | ${relation.sourceEntityId} -> ${relation.targetEntityId}`,
       ).join("\n"));
     },
-  );
+));
 
   server.tool(
     "list_open_questions",
@@ -401,7 +401,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       finding_id: z.string().optional(),
       limit: z.number().int().positive().max(200).optional(),
     },
-    async ({ project_dir, status, priority, entity_id, finding_id, limit }) => {
+    safeHandler("list_open_questions", async ({ project_dir, status, priority, entity_id, finding_id, limit }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const questions = service.listOpenQuestions({ status, priority, entityId: entity_id, findingId: finding_id }).slice(0, limit ?? 50);
       if (questions.length === 0) {
@@ -411,7 +411,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `${question.id} | ${question.status} | ${question.priority} | c=${question.confidence.toFixed(2)} | ${question.title}`,
       ).join("\n"));
     },
-  );
+));
 
   server.tool(
     "list_tasks",
@@ -424,7 +424,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       question_id: z.string().optional(),
       limit: z.number().int().positive().max(200).optional(),
     },
-    async ({ project_dir, status, priority, entity_id, question_id, limit }) => {
+    safeHandler("list_tasks", async ({ project_dir, status, priority, entity_id, question_id, limit }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const tasks = service.listTasks({ status, priority, entityId: entity_id, questionId: question_id }).slice(0, limit ?? 50);
       if (tasks.length === 0) {
@@ -434,7 +434,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `${task.id} | ${task.status} | ${task.priority} | c=${task.confidence.toFixed(2)} | ${task.title}`,
       ).join("\n"));
     },
-  );
+));
 
   server.tool(
     "list_flows",
@@ -446,7 +446,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       artifact_id: z.string().optional(),
       limit: z.number().int().positive().max(200).optional(),
     },
-    async ({ project_dir, kind, entity_id, artifact_id, limit }) => {
+    safeHandler("list_flows", async ({ project_dir, kind, entity_id, artifact_id, limit }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const flows = service.listFlows({ kind, entityId: entity_id, artifactId: artifact_id }).slice(0, limit ?? 50);
       if (flows.length === 0) {
@@ -456,7 +456,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `${flow.id} | ${flow.kind} | ${flow.status} | c=${flow.confidence.toFixed(2)} | ${flow.title} | ${flow.nodes.length} nodes / ${flow.edges.length} edges`,
       ).join("\n"));
     },
-  );
+));
 
   server.tool(
     "save_open_question",
@@ -477,7 +477,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       answer_summary: z.string().optional(),
       evidence: z.array(evidenceSchema).optional(),
     },
-    async ({ project_dir, id, kind, title, description, status, priority, confidence, entity_ids, artifact_ids, finding_ids, answered_by_finding_id, answer_summary, evidence }) => {
+    safeHandler("save_open_question", async ({ project_dir, id, kind, title, description, status, priority, confidence, entity_ids, artifact_ids, finding_ids, answered_by_finding_id, answer_summary, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const question = service.saveOpenQuestion({
         id,
@@ -499,7 +499,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       });
       return textContent(`Open question saved.\nID: ${question.id}\nTitle: ${question.title}\nStatus: ${question.status}`);
     },
-  );
+));
 
   server.tool(
     "save_entity",
@@ -558,7 +558,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       medium_role: z.enum(["dos", "loader", "eapi", "startup", "code", "data", "padding", "unknown"]).optional().describe("Optional role hint for the medium-resident overlay. Default 'unknown'."),
       evidence: z.array(evidenceSchema).optional(),
     },
-    async ({ project_dir, id, kind, name, summary, confidence, status, artifact_ids, related_entity_ids, tags, address_start, address_end, bank, medium_spans, medium_role, evidence }) => {
+    safeHandler("save_entity", async ({ project_dir, id, kind, name, summary, confidence, status, artifact_ids, related_entity_ids, tags, address_start, address_end, bank, medium_spans, medium_role, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const entity = service.saveEntity({
         id,
@@ -584,7 +584,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       });
       return textContent(`Entity saved.\nID: ${entity.id}\nKind: ${entity.kind}\nName: ${entity.name}`);
     },
-  );
+));
 
   server.tool(
     "import_analysis_report",
@@ -593,7 +593,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       project_dir: z.string().optional(),
       artifact_id: z.string().describe("Artifact id of a previously registered analysis JSON"),
     },
-    async ({ project_dir, artifact_id }) => {
+    safeHandler("import_analysis_report", async ({ project_dir, artifact_id }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const result = service.importAnalysisArtifact(artifact_id);
       return textContent([
@@ -606,7 +606,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Open questions: ${result.importedOpenQuestionCount}`,
       ].join("\n"));
     },
-  );
+));
 
   server.tool(
     "import_manifest_artifact",
@@ -615,7 +615,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       project_dir: z.string().optional(),
       artifact_id: z.string().describe("Artifact id of a previously registered manifest JSON"),
     },
-    async ({ project_dir, artifact_id }) => {
+    safeHandler("import_manifest_artifact", async ({ project_dir, artifact_id }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const result = service.importManifestArtifact(artifact_id);
       return textContent([
@@ -626,7 +626,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Relations: ${result.importedRelationCount}`,
       ].join("\n"));
     },
-  );
+));
 
   server.tool(
     "link_entities",
@@ -644,7 +644,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       artifact_ids: z.array(z.string()).optional(),
       evidence: z.array(evidenceSchema).optional(),
     },
-    async ({ project_dir, id, kind, title, source_entity_id, target_entity_id, summary, confidence, status, artifact_ids, evidence }) => {
+    safeHandler("link_entities", async ({ project_dir, id, kind, title, source_entity_id, target_entity_id, summary, confidence, status, artifact_ids, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const relation = service.linkEntities({
         id,
@@ -663,7 +663,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       });
       return textContent(`Relation saved.\nID: ${relation.id}\nKind: ${relation.kind}\nSource: ${relation.sourceEntityId}\nTarget: ${relation.targetEntityId}`);
     },
-  );
+));
 
   server.tool(
     "save_flow",
@@ -707,7 +707,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         evidence: z.array(evidenceSchema).optional(),
       })).optional(),
     },
-    async ({ project_dir, id, kind, title, summary, confidence, status, entity_ids, artifact_ids, evidence, nodes, edges }) => {
+    safeHandler("save_flow", async ({ project_dir, id, kind, title, summary, confidence, status, entity_ids, artifact_ids, evidence, nodes, edges }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const flow = service.saveFlow({
         id,
@@ -739,7 +739,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       });
       return textContent(`Flow saved.\nID: ${flow.id}\nTitle: ${flow.title}\nNodes: ${flow.nodes.length}\nEdges: ${flow.edges.length}`);
     },
-  );
+));
 
   server.tool(
     "save_task",
@@ -758,7 +758,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       question_ids: z.array(z.string()).optional(),
       evidence: z.array(evidenceSchema).optional(),
     },
-    async ({ project_dir, id, kind, title, description, status, priority, confidence, entity_ids, artifact_ids, question_ids, evidence }) => {
+    safeHandler("save_task", async ({ project_dir, id, kind, title, description, status, priority, confidence, entity_ids, artifact_ids, question_ids, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const task = service.saveTask({
         id,
@@ -778,7 +778,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       });
       return textContent(`Task saved.\nID: ${task.id}\nTitle: ${task.title}\nStatus: ${task.status}\nPriority: ${task.priority}`);
     },
-  );
+));
 
   server.tool(
     "update_task_status",
@@ -788,12 +788,12 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       task_id: z.string(),
       status: z.enum(["open", "in_progress", "blocked", "done", "wont_fix"]),
     },
-    async ({ project_dir, task_id, status }) => {
+    safeHandler("update_task_status", async ({ project_dir, task_id, status }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const task = service.updateTaskStatus(task_id, status);
       return textContent(`Task updated.\nID: ${task.id}\nTitle: ${task.title}\nStatus: ${task.status}`);
     },
-  );
+));
 
   server.tool(
     "project_checkpoint",
@@ -811,7 +811,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       question_ids: z.array(z.string()).optional(),
       evidence: z.array(evidenceSchema).optional(),
     },
-    async ({ project_dir, id, title, summary, artifact_ids, entity_ids, finding_ids, flow_ids, task_ids, question_ids, evidence }) => {
+    safeHandler("project_checkpoint", async ({ project_dir, id, title, summary, artifact_ids, entity_ids, finding_ids, flow_ids, task_ids, question_ids, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const checkpoint = service.createCheckpoint({
         id,
@@ -830,7 +830,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       });
       return textContent(`Checkpoint created.\nID: ${checkpoint.id}\nTitle: ${checkpoint.title}`);
     },
-  );
+));
 
   server.tool(
     "build_project_dashboard",
@@ -838,12 +838,12 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
     },
-    async ({ project_dir }) => {
+    safeHandler("build_project_dashboard", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const { path, view } = service.buildProjectDashboardView();
       return textContent(`Project dashboard view built.\nPath: ${path}\nMetrics: ${view.metrics.length}`);
     },
-  );
+));
 
   server.tool(
     "build_memory_map",
@@ -851,12 +851,12 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
     },
-    async ({ project_dir }) => {
+    safeHandler("build_memory_map", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const { path, view } = service.buildMemoryMapView();
       return textContent(`Memory map view built.\nPath: ${path}\nRegions: ${view.regions.length}`);
     },
-  );
+));
 
   server.tool(
     "build_cartridge_layout_view",
@@ -864,12 +864,12 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
     },
-    async ({ project_dir }) => {
+    safeHandler("build_cartridge_layout_view", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const { path, view } = service.buildCartridgeLayoutView();
       return textContent(`Cartridge layout view built.\nPath: ${path}\nCartridges: ${view.cartridges.length}`);
     },
-  );
+));
 
   server.tool(
     "build_disk_layout_view",
@@ -877,12 +877,12 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
     },
-    async ({ project_dir }) => {
+    safeHandler("build_disk_layout_view", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const { path, view } = service.buildDiskLayoutView();
       return textContent(`Disk layout view built.\nPath: ${path}\nDisks: ${view.disks.length}`);
     },
-  );
+));
 
   server.tool(
     "build_load_sequence_view",
@@ -890,12 +890,12 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
     },
-    async ({ project_dir }) => {
+    safeHandler("build_load_sequence_view", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const { path, view } = service.buildLoadSequenceView();
       return textContent(`Load sequence view built.\nPath: ${path}\nItems: ${view.items.length}\nEdges: ${view.edges.length}`);
     },
-  );
+));
 
   server.tool(
     "build_flow_graph_view",
@@ -903,12 +903,12 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
     },
-    async ({ project_dir }) => {
+    safeHandler("build_flow_graph_view", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const { path, view } = service.buildFlowGraphView();
       return textContent(`Flow graph view built.\nPath: ${path}\nNodes: ${view.nodes.length}\nEdges: ${view.edges.length}`);
     },
-  );
+));
 
   server.tool(
     "build_annotated_listing_view",
@@ -916,12 +916,12 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
     },
-    async ({ project_dir }) => {
+    safeHandler("build_annotated_listing_view", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const { path, view } = service.buildAnnotatedListingView();
       return textContent(`Annotated listing view built.\nPath: ${path}\nEntries: ${view.entries.length}`);
     },
-  );
+));
 
   server.tool(
     "build_all_views",
@@ -929,7 +929,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
     },
-    async ({ project_dir }) => {
+    safeHandler("build_all_views", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const result = service.buildAllViews();
       return textContent([
@@ -943,5 +943,5 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Annotated listing: ${result.annotatedListing.path}`,
       ].join("\n"));
     },
-  );
+));
 }

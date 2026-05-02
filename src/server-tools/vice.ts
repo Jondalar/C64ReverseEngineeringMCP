@@ -42,6 +42,7 @@ import {
   type ViceTraceContextSummary,
 } from "../runtime/vice/trace-context-index.js";
 import type { ServerToolContext } from "./types.js";
+import { safeHandler } from "./safe-handler.js";
 
 
 export function registerViceTools(server: McpServer, context: ServerToolContext): void {
@@ -440,7 +441,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         media_type: z.enum(["prg", "crt", "d64", "g64"]).optional().describe("Optional media type override"),
         autostart: z.boolean().optional().describe("Autostart media on startup (default: true). D64/G64 with false attaches to drive 8 only."),
       },
-      async ({ media_path, media_type, autostart }) => {
+      safeHandler("vice_session_start", async ({ media_path, media_type, autostart }) => {
         try {
           const { manager } = await resolveViceManager(media_path);
           const record = await manager.startSession({
@@ -457,7 +458,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-runtime-start ──────────────────────────────────
     server.tool(
@@ -472,7 +473,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         cpu_history_count: z.number().int().positive().optional().describe(`CPU-history depth to request per sample (default: ${VICE_TRACE_DEFAULT_CPU_HISTORY_COUNT})`),
         monitor_chis_lines: z.number().int().positive().optional().describe(`Monitor CPU-history retention size to configure for the session (default: ${VICE_TRACE_DEFAULT_MONITOR_CHIS_LINES})`),
       },
-      async ({ media_path, media_type, autostart, bootstrap_reset, sample_interval_ms, cpu_history_count, monitor_chis_lines }) => {
+      safeHandler("vice_trace_runtime_start", async ({ media_path, media_type, autostart, bootstrap_reset, sample_interval_ms, cpu_history_count, monitor_chis_lines }) => {
         try {
           const { manager } = await resolveViceManager(media_path);
           const record = await manager.startSession({
@@ -496,7 +497,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-start ──────────────────────────────────────────
     server.tool(
@@ -507,7 +508,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         cpu_history_count: z.number().int().positive().optional().describe(`CPU-history depth to request per sample (default: ${VICE_TRACE_DEFAULT_CPU_HISTORY_COUNT})`),
         monitor_chis_lines: z.number().int().positive().optional().describe(`Monitor CPU-history retention size to record in trace config (default: ${VICE_TRACE_DEFAULT_MONITOR_CHIS_LINES})`),
       },
-      async ({ sample_interval_ms, cpu_history_count, monitor_chis_lines }) => {
+      safeHandler("vice_trace_start", async ({ sample_interval_ms, cpu_history_count, monitor_chis_lines }) => {
         try {
           const { manager } = await resolveViceManager();
           const status = await manager.startRuntimeTrace({
@@ -525,14 +526,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-status ─────────────────────────────────────────
     server.tool(
       "vice_trace_status",
       "Report whether runtime tracing is currently active on the active VICE session.",
       {},
-      async () => {
+      safeHandler("vice_trace_status", async () => {
         try {
           const { manager } = await resolveViceManager();
           const status = await manager.getRuntimeTraceStatus();
@@ -548,14 +549,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-stop ───────────────────────────────────────────
     server.tool(
       "vice_trace_stop",
       "Stop periodic CPU-history sampling on the active VICE session without closing VICE.",
       {},
-      async () => {
+      safeHandler("vice_trace_stop", async () => {
         try {
           const { manager } = await resolveViceManager();
           const status = await manager.stopRuntimeTrace();
@@ -568,14 +569,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-session-status ────────────────────────────────────────
     server.tool(
       "vice_session_status",
       "Report the current or most recent VICE session state, including workspace paths and monitor-port readiness.",
       {},
-      async () => {
+      safeHandler("vice_session_status", async () => {
         try {
           const { manager } = await resolveViceManager();
           const record = await manager.getStatus();
@@ -591,14 +592,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-session-stop ──────────────────────────────────────────
     server.tool(
       "vice_session_stop",
       "Stop the active VICE session. The server waits briefly, then escalates to SIGTERM and SIGKILL if needed, and finalizes session artifacts.",
       {},
-      async () => {
+      safeHandler("vice_session_stop", async () => {
         try {
           const { manager } = await resolveViceManager();
           const result = await manager.stopSession();
@@ -611,7 +612,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-stop-and-analyze ───────────────────────────────
     server.tool(
@@ -620,7 +621,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
       {
         cpu_history_count: z.number().int().positive().optional().describe("How many CPU-history items to request before stopping (default: 20000)"),
       },
-      async ({ cpu_history_count }) => {
+      safeHandler("vice_trace_stop_and_analyze", async ({ cpu_history_count }) => {
         try {
           const { manager } = await resolveViceManager();
           const result = await manager.stopAndAnalyze(cpu_history_count ?? 20_000);
@@ -633,14 +634,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-analyze-last-session ───────────────────────────
     server.tool(
       "vice_trace_analyze_last_session",
       "Analyze the most recently completed VICE runtime-trace session. Use this after the user has closed VICE manually.",
       {},
-      async () => {
+      safeHandler("vice_trace_analyze_last_session", async () => {
         try {
           const { manager } = await resolveViceManager();
           const analysis = await manager.analyzeLastSession();
@@ -653,7 +654,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-build-index ────────────────────────────────────
     server.tool(
@@ -663,7 +664,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to link observed PCs back to semantic code knowledge."),
       },
-      async ({ session_id, annotations_path }) => {
+      safeHandler("vice_trace_build_index", async ({ session_id, annotations_path }) => {
         try {
           const pd = annotations_path ? projectDir(annotations_path) : await resolveTraceProjectDir();
           const record = await loadTraceSession(pd, session_id);
@@ -696,7 +697,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-build-pyramid-index ────────────────────────────
     server.tool(
@@ -707,7 +708,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to attach routine/segment semantics."),
         window_sizes: z.array(z.number().int().positive()).optional().describe("Optional explicit window sizes in instructions, e.g. [256, 1024, 4096]."),
       },
-      async ({ session_id, annotations_path, window_sizes }) => {
+      safeHandler("vice_trace_build_pyramid_index", async ({ session_id, annotations_path, window_sizes }) => {
         try {
           const pd = annotations_path ? projectDir(annotations_path) : await resolveTraceProjectDir();
           const record = await loadTraceSession(pd, session_id);
@@ -741,7 +742,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-build-context-index ────────────────────────────
     server.tool(
@@ -751,7 +752,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to identify known IRQ/NMI handlers."),
       },
-      async ({ session_id, annotations_path }) => {
+      safeHandler("vice_trace_build_context_index", async ({ session_id, annotations_path }) => {
         try {
           const pd = annotations_path ? projectDir(annotations_path) : await resolveTraceProjectDir();
           const record = await loadTraceSession(pd, session_id);
@@ -775,7 +776,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-hotspots ───────────────────────────────────────
     server.tool(
@@ -785,7 +786,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many hotspots to return (default: 20)"),
       },
-      async ({ session_id, limit }) => {
+      safeHandler("vice_trace_hotspots", async ({ session_id, limit }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const index = await loadTraceIndex(record);
@@ -814,7 +815,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-zoom-overview ──────────────────────────────────
     server.tool(
@@ -825,7 +826,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         level: z.number().int().nonnegative().optional().describe("Optional pyramid level to highlight. Defaults to 0."),
         limit: z.number().int().positive().optional().describe("How many windows/phases to include (default: 8)."),
       },
-      async ({ session_id, level, limit }) => {
+      safeHandler("vice_trace_zoom_overview", async ({ session_id, level, limit }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const index = await loadTraceWindowIndex(record);
@@ -867,7 +868,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-zoom-window ────────────────────────────────────
     server.tool(
@@ -879,7 +880,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         window_index: z.number().int().nonnegative().optional().describe("Window index inside the selected level."),
         phase_id: z.number().int().nonnegative().optional().describe("Optional phase id to inspect instead of a single window."),
       },
-      async ({ session_id, level, window_index, phase_id }) => {
+      safeHandler("vice_trace_zoom_window", async ({ session_id, level, window_index, phase_id }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const index = await loadTraceWindowIndex(record);
@@ -928,7 +929,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-find-phase-changes ─────────────────────────────
     server.tool(
@@ -938,7 +939,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many boundaries to include (default: 12)."),
       },
-      async ({ session_id, limit }) => {
+      safeHandler("vice_trace_find_phase_changes", async ({ session_id, limit }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const index = await loadTraceWindowIndex(record);
@@ -961,7 +962,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-find-pc ────────────────────────────────────────
     server.tool(
@@ -972,7 +973,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many matches to return (default: 20)"),
       },
-      async ({ pc, session_id, limit }) => {
+      safeHandler("vice_trace_find_pc", async ({ pc, session_id, limit }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const pcValue = parseHexWord(pc);
@@ -1002,7 +1003,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-list-contexts ──────────────────────────────────
     server.tool(
@@ -1013,7 +1014,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         kind: z.enum(["irq", "nmi", "interrupt"]).optional().describe("Optional context kind filter."),
         limit: z.number().int().positive().optional().describe("How many contexts to include (default: 20)."),
       },
-      async ({ session_id, kind, limit }) => {
+      safeHandler("vice_trace_list_contexts", async ({ session_id, kind, limit }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const index = await loadTraceContextIndex(record);
@@ -1041,7 +1042,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-slice-context ──────────────────────────────────
     server.tool(
@@ -1053,7 +1054,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         before: z.number().int().nonnegative().optional().describe("How many instructions before the context to include."),
         after: z.number().int().nonnegative().optional().describe("How many instructions after the context to include."),
       },
-      async ({ context_id, session_id, before, after }) => {
+      safeHandler("vice_trace_slice_context", async ({ context_id, session_id, before, after }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const index = await loadTraceContextIndex(record);
@@ -1082,7 +1083,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-context-writes ─────────────────────────────────
     server.tool(
@@ -1092,7 +1093,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         context_id: z.string().describe("Context id from vice_trace_list_contexts, e.g. ctx-0003"),
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
       },
-      async ({ context_id, session_id }) => {
+      safeHandler("vice_trace_context_writes", async ({ context_id, session_id }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const index = await loadTraceContextIndex(record);
@@ -1125,7 +1126,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-follow-from-pc ─────────────────────────────────
     server.tool(
@@ -1138,7 +1139,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         max_instructions: z.number().int().positive().optional().describe("Maximum instructions to include before truncating (default: 200)."),
         stop_on_return: z.boolean().optional().describe("Whether to stop when the traced frame returns via RTS/RTI (default: true)."),
       },
-      async ({ pc, session_id, occurrence, max_instructions, stop_on_return }) => {
+      safeHandler("vice_trace_follow_from_pc", async ({ pc, session_id, occurrence, max_instructions, stop_on_return }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const pcValue = parseHexWord(pc);
@@ -1167,7 +1168,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-find-bytes ─────────────────────────────────────
     server.tool(
@@ -1179,7 +1180,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many matches to return (default: 20)"),
       },
-      async ({ bytes, mode, session_id, limit }) => {
+      safeHandler("vice_trace_find_bytes", async ({ bytes, mode, session_id, limit }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const parsedBytes = parseHexByteSequence(bytes);
@@ -1201,7 +1202,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-find-operand ───────────────────────────────────
     server.tool(
@@ -1212,7 +1213,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many matches to return (default: 20)"),
       },
-      async ({ address, session_id, limit }) => {
+      safeHandler("vice_trace_find_operand", async ({ address, session_id, limit }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const parsedAddress = parseHexWord(address);
@@ -1233,7 +1234,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-find-memory-access ─────────────────────────────
     server.tool(
@@ -1245,7 +1246,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many matches to return (default: 20)"),
       },
-      async ({ address, access, session_id, limit }) => {
+      safeHandler("vice_trace_find_memory_access", async ({ address, access, session_id, limit }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const parsedAddress = parseHexWord(address);
@@ -1275,7 +1276,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-slice ──────────────────────────────────────────
     server.tool(
@@ -1287,7 +1288,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         before: z.number().int().nonnegative().optional().describe("How many instructions before the anchor to include (default: 40)"),
         after: z.number().int().nonnegative().optional().describe("How many instructions after the anchor to include (default: 80)"),
       },
-      async ({ anchor_clock, session_id, before, after }) => {
+      safeHandler("vice_trace_slice", async ({ anchor_clock, session_id, before, after }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const slice = await sliceTraceByClock(record, anchor_clock, before ?? 40, after ?? 80);
@@ -1309,7 +1310,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-call-path ──────────────────────────────────────
     server.tool(
@@ -1320,7 +1321,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         before: z.number().int().positive().optional().describe("How many prior instructions to scan for the call chain (default: 600)"),
       },
-      async ({ anchor_clock, session_id, before }) => {
+      safeHandler("vice_trace_call_path", async ({ anchor_clock, session_id, before }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const index = await loadTraceIndex(record);
@@ -1350,7 +1351,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-add-note ───────────────────────────────────────
     server.tool(
@@ -1364,7 +1365,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         pc: z.string().optional().describe("Optional PC this note refers to, e.g. 63A1"),
         sample_index: z.number().int().nonnegative().optional().describe("Optional sample index this note refers to"),
       },
-      async ({ title, note, session_id, anchor_clock, pc, sample_index }) => {
+      safeHandler("vice_trace_add_note", async ({ title, note, session_id, anchor_clock, pc, sample_index }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const saved = await addTraceNote(record, {
@@ -1383,7 +1384,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-trace-list-notes ─────────────────────────────────────
     server.tool(
@@ -1393,7 +1394,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many recent notes to return (default: 50)"),
       },
-      async ({ session_id, limit }) => {
+      safeHandler("vice_trace_list_notes", async ({ session_id, limit }) => {
         try {
           const record = await loadTraceSession(await resolveTraceProjectDir(), session_id);
           const notes = await listTraceNotes(record, limit ?? 50);
@@ -1406,14 +1407,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-registers ─────────────────────────────────────
     server.tool(
       "vice_monitor_registers",
       "Read CPU register values from the active VICE session. If the machine is running, the monitor may stop it to collect state.",
       {},
-      async () => {
+      safeHandler("vice_monitor_registers", async () => {
         try {
           const { manager } = await resolveViceManager();
           const { registers, descriptors } = await manager.readRegisters();
@@ -1432,7 +1433,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-memory ────────────────────────────────────────
     server.tool(
@@ -1444,7 +1445,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         bank_id: z.number().int().nonnegative().optional().describe("Optional bank ID; defaults to 0"),
         memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
       },
-      async ({ start, end, bank_id, memspace }) => {
+      safeHandler("vice_monitor_memory", async ({ start, end, bank_id, memspace }) => {
         try {
           const startAddress = parseHexWord(start);
           const endAddress = parseHexWord(end);
@@ -1469,7 +1470,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-write-memory ─────────────────────────────────
     server.tool(
@@ -1482,7 +1483,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
         side_effects: z.boolean().optional().describe("Whether the write should trigger side effects"),
       },
-      async ({ start, data_hex, bank_id, memspace, side_effects }) => {
+      safeHandler("vice_monitor_write_memory", async ({ start, data_hex, bank_id, memspace, side_effects }) => {
         try {
           const startAddress = parseHexWord(start);
           const bytes = data_hex.replace(/[^0-9a-fA-F]/g, "");
@@ -1507,7 +1508,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-set-registers ────────────────────────────────
     server.tool(
@@ -1517,7 +1518,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         registers: z.record(z.string(), z.string()).describe("Register map, e.g. {\"PC\":\"080D\",\"A\":\"00\",\"X\":\"10\"}"),
         memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
       },
-      async ({ registers, memspace }) => {
+      safeHandler("vice_monitor_set_registers", async ({ registers, memspace }) => {
         try {
           const parsedRegisters = Object.fromEntries(
             Object.entries(registers).map(([name, value]) => [name, parseHexWord(value)]),
@@ -1538,7 +1539,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-breakpoint-add ───────────────────────────────
     server.tool(
@@ -1553,7 +1554,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         temporary: z.boolean().optional().describe("Whether the checkpoint is temporary"),
         memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
       },
-      async ({ start, end, operation, stop_when_hit, enabled, temporary, memspace }) => {
+      safeHandler("vice_monitor_breakpoint_add", async ({ start, end, operation, stop_when_hit, enabled, temporary, memspace }) => {
         try {
           const { manager } = await resolveViceManager();
           const checkpoint = await manager.addBreakpoint({
@@ -1583,14 +1584,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-breakpoint-list ──────────────────────────────
     server.tool(
       "vice_monitor_breakpoint_list",
       "List checkpoints currently configured in the active VICE session.",
       {},
-      async () => {
+      safeHandler("vice_monitor_breakpoint_list", async () => {
         try {
           const { manager } = await resolveViceManager();
           const result = await manager.listBreakpoints();
@@ -1609,7 +1610,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-breakpoint-delete ────────────────────────────
     server.tool(
@@ -1618,7 +1619,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
       {
         checkpoint_number: z.number().int().nonnegative().describe("Checkpoint number to delete"),
       },
-      async ({ checkpoint_number }) => {
+      safeHandler("vice_monitor_breakpoint_delete", async ({ checkpoint_number }) => {
         try {
           const { manager } = await resolveViceManager();
           await manager.deleteBreakpoint(checkpoint_number);
@@ -1633,7 +1634,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-session-send-keys ────────────────────────────────────
     server.tool(
@@ -1644,7 +1645,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         petscii_bytes: z.array(z.number().int().min(0).max(255)).optional().describe("Raw PETSCII bytes to queue into the keyboard buffer"),
         special_keys: z.array(z.enum(["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "RETURN"])).optional().describe("Named C64 special keys to queue using PETSCII control codes"),
       },
-      async ({ text, petscii_bytes, special_keys }) => {
+      safeHandler("vice_session_send_keys", async ({ text, petscii_bytes, special_keys }) => {
         try {
           const { manager } = await resolveViceManager();
           const provided = [text !== undefined, petscii_bytes !== undefined, special_keys !== undefined].filter(Boolean).length;
@@ -1678,7 +1679,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-session-joystick ────────────────────────────────────
     server.tool(
@@ -1689,7 +1690,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         duration_ms: z.number().int().positive().optional().describe("How long to hold the joystick input before releasing it (default: 120 ms)"),
         port: z.number().int().min(1).max(2).optional().describe("Control port / keyset number to use (default: 2)"),
       },
-      async ({ directions, duration_ms, port }) => {
+      safeHandler("vice_session_joystick", async ({ directions, duration_ms, port }) => {
         try {
           const { manager } = await resolveViceManager();
           const result = await manager.sendJoystickInput(port ?? 2, directions, duration_ms ?? 120);
@@ -1707,7 +1708,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-session-attach-media ─────────────────────────────────
     server.tool(
@@ -1718,7 +1719,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         run_after_loading: z.boolean().optional().describe("Whether to run after loading (default: true)"),
         file_index: z.number().int().nonnegative().optional().describe("File index for disk-image autoload; defaults to 0"),
       },
-      async ({ media_path, run_after_loading, file_index }) => {
+      safeHandler("vice_session_attach_media", async ({ media_path, run_after_loading, file_index }) => {
         try {
           const { manager, projectRoot } = await resolveViceManager();
           await manager.attachMedia(media_path, run_after_loading ?? true, file_index ?? 0);
@@ -1733,7 +1734,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-display ──────────────────────────────────────
     server.tool(
@@ -1743,7 +1744,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         output_path: z.string().optional().describe("Output path for the PGM image; defaults to analysis/runtime/exports/display-<timestamp>.pgm"),
         use_vicii: z.boolean().optional().describe("On C128, capture VIC-II instead of VDC (default: true)"),
       },
-      async ({ output_path, use_vicii }) => {
+      safeHandler("vice_monitor_display", async ({ output_path, use_vicii }) => {
         try {
           const { manager, projectRoot } = await resolveViceManager();
           const result = await manager.captureDisplay(output_path ?? defaultViceDisplayPath(projectRoot), use_vicii ?? true);
@@ -1769,7 +1770,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-reset ────────────────────────────────────────
     server.tool(
@@ -1778,7 +1779,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
       {
         target: z.enum(["system", "power", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Reset target; defaults to system"),
       },
-      async ({ target }) => {
+      safeHandler("vice_monitor_reset", async ({ target }) => {
         try {
           const { manager } = await resolveViceManager();
           const code = parseResetTarget(target);
@@ -1794,7 +1795,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-backtrace ─────────────────────────────────────
     server.tool(
@@ -1803,7 +1804,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
       {
         max_frames: z.number().int().positive().optional().describe("Maximum number of stack-derived frames to return (default: 16)"),
       },
-      async ({ max_frames }) => {
+      safeHandler("vice_monitor_backtrace", async ({ max_frames }) => {
         try {
           const { manager } = await resolveViceManager();
           const result = await manager.buildBacktrace(max_frames ?? 16);
@@ -1831,14 +1832,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-bank ──────────────────────────────────────────
     server.tool(
       "vice_monitor_bank",
       "List the available VICE memory banks for the active machine. Use the returned bank IDs with vice_monitor_memory, vice_monitor_save, or vice_monitor_binary_save.",
       {},
-      async () => {
+      safeHandler("vice_monitor_bank", async () => {
         try {
           const { manager } = await resolveViceManager();
           const banks = await manager.getBanksAvailable();
@@ -1855,7 +1856,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-snapshot ──────────────────────────────────────
     server.tool(
@@ -1866,7 +1867,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         save_roms: z.boolean().optional().describe("Include ROMs in the snapshot (default: true)"),
         save_disks: z.boolean().optional().describe("Include disk state in the snapshot (default: true)"),
       },
-      async ({ output_path, save_roms, save_disks }) => {
+      safeHandler("vice_monitor_snapshot", async ({ output_path, save_roms, save_disks }) => {
         try {
           const { manager, projectRoot } = await resolveViceManager();
           const writtenPath = await manager.saveSnapshot(
@@ -1885,7 +1886,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-save ──────────────────────────────────────────
     server.tool(
@@ -1898,7 +1899,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         bank_id: z.number().int().nonnegative().optional().describe("Optional bank ID; defaults to 0"),
         memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
       },
-      async ({ start, end, output_path, bank_id, memspace }) => {
+      safeHandler("vice_monitor_save", async ({ start, end, output_path, bank_id, memspace }) => {
         try {
           const startAddress = parseHexWord(start);
           const endAddress = parseHexWord(end);
@@ -1934,7 +1935,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-binary-save ───────────────────────────────────
     server.tool(
@@ -1947,7 +1948,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         bank_id: z.number().int().nonnegative().optional().describe("Optional bank ID; defaults to 0"),
         memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
       },
-      async ({ start, end, output_path, bank_id, memspace }) => {
+      safeHandler("vice_monitor_binary_save", async ({ start, end, output_path, bank_id, memspace }) => {
         try {
           const startAddress = parseHexWord(start);
           const endAddress = parseHexWord(end);
@@ -1983,14 +1984,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-continue ──────────────────────────────────────
     server.tool(
       "vice_monitor_continue",
       "Resume execution in the active VICE session until the next breakpoint or manual stop.",
       {},
-      async () => {
+      safeHandler("vice_monitor_continue", async () => {
         try {
           const { manager } = await resolveViceManager();
           const result = await manager.continueExecution();
@@ -2005,14 +2006,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-step ──────────────────────────────────────────
     server.tool(
       "vice_monitor_step",
       "Advance the active VICE session by one instruction and stop again.",
       {},
-      async () => {
+      safeHandler("vice_monitor_step", async () => {
         try {
           const { manager } = await resolveViceManager();
           const result = await manager.stepInto();
@@ -2027,14 +2028,14 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-monitor-next ──────────────────────────────────────────
     server.tool(
       "vice_monitor_next",
       "Advance the active VICE session by one instruction, stepping over subroutine calls.",
       {},
-      async () => {
+      safeHandler("vice_monitor_next", async () => {
         try {
           const { manager } = await resolveViceManager();
           const result = await manager.stepOver();
@@ -2049,7 +2050,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-    );
+));
   
     // ── Tool: vice-debug-run ─────────────────────────────────────────────
     server.tool(
@@ -2060,7 +2061,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
         timeout_ms: z.number().int().positive().optional().describe("How long to wait for a breakpoint or stop event (default: 15000)"),
         temporary: z.boolean().optional().describe("Whether created breakpoints are temporary"),
       },
-      async ({ breakpoints, timeout_ms, temporary }) => {
+      safeHandler("vice_debug_run", async ({ breakpoints, timeout_ms, temporary }) => {
         try {
           const { manager } = await resolveViceManager();
           const result = await manager.debugRun(breakpoints.map(parseHexWord), timeout_ms ?? 15_000, temporary ?? false);
@@ -2078,5 +2079,5 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
           });
         }
       },
-  );
+));
 }

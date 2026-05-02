@@ -573,6 +573,48 @@ Done when:
 - Empty-glob `register_existing_files` covers a fresh project end to
   end with one call.
 
+## Sprint 22: Artifact Lineage And Versions
+
+Goal: stop showing five sibling rows for one logical
+reverse-engineering effort. Express both the lineage chain
+(V0 → V1 → ... → Vn across paths via `derivedFrom`) and the
+same-path history (re-runs of `disasm_prg` overwrite the file but
+keep prior bytes recoverable).
+
+Status: not started. Direct follow-up to Sprint 21.
+
+Todos:
+
+- [ ] Extend `ArtifactRecord` with `lineageRoot`, `derivedFrom`,
+      `versionLabel`, `versionRank`, `versions[]`.
+- [ ] Auto-compute `lineageRoot` and `versionRank` from
+      `derivedFrom` in `service.saveArtifact`.
+- [ ] On same-path overwrite, sha256 the new bytes; if they differ
+      from the prior file, snapshot the prior file to
+      `<root>/snapshots/<artifact-id>/<hash>.bin` (default on) and
+      append to `versions[]`.
+- [ ] Add `service.getLineage(artifactId)` returning the V0..Vn
+      chain ordered by rank.
+- [ ] Register `rename_artifact_version(artifact_id, label)` MCP
+      tool. User-free labels; default `V<rank>` when not supplied.
+- [ ] Workspace UI: group artifacts/findings/entities tables by
+      `lineageRoot`. V0 as the card header, latest version
+      highlighted.
+- [ ] `project_audit` reports total snapshot disk usage.
+- [ ] `.gitignore` template adds `snapshots/`.
+
+Specs:
+
+- `specs/025-artifact-lineage-and-versions.md`
+
+Done when:
+
+- Building a V0→V4 chain on the fixture project shows one card
+  with five expandable rows in the UI.
+- Re-running `disasm_prg` on the same file with new content
+  preserves the prior bytes in `snapshots/<id>/<hash>.bin` and
+  appends a `versions[]` entry.
+
 ## Sprint 16: Disasm Quality
 
 Goal: eliminate silent rebuild divergence and false-positive segment

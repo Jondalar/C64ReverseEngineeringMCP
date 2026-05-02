@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runSandbox, type SandboxLoad } from "../sandbox/index.js";
 import type { ServerToolContext } from "./types.js";
+import { safeHandler } from "./safe-handler.js";
 
 function parseHexWord(value: string): number {
   const normalized = value.trim().replace(/^\$/, "").replace(/^0x/i, "");
@@ -73,7 +74,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
       return_memory_ranges: z.array(z.object({ start: z.string(), end: z.string() })).optional().describe("Memory ranges to snapshot at end of run."),
       output_path: z.string().optional().describe("If set, write the contiguous span of all returned writes as a PRG (2-byte load header + bytes) to this path."),
     },
-    async (args) => {
+    safeHandler("sandbox_6502_run", async (args) => {
       try {
         const projectRoot = context.projectDir(undefined, true);
         const loads: SandboxLoad[] = args.loads.map((entry, idx) => {
@@ -170,5 +171,5 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 }

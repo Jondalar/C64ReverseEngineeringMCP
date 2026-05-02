@@ -78,9 +78,11 @@ async function rebuildVerification(args: {
   projectDir: string;
   asmPath: string;
   prgPath: string;
+  sourceArtifactId?: string;
 }): Promise<string> {
   const tempPrg = args.asmPath.replace(/\.asm$/i, "_rebuild_check.prg");
   let summaryLine: string;
+  let assemblyOk = false;
   try {
     const result = await assembleSource({
       projectDir: args.projectDir,
@@ -92,15 +94,38 @@ async function rebuildVerification(args: {
     if (result.exitCode !== 0) {
       summaryLine = `// WARNING: rebuild assembler exited ${result.exitCode}; this listing is not byte-identical with ${basename(args.prgPath)}`;
     } else if (result.compareMatches === false) {
+      assemblyOk = true;
       const offset = result.firstDiffOffset !== undefined ? `0x${result.firstDiffOffset.toString(16).toUpperCase()}` : "?";
       summaryLine = `// WARNING: rebuild diverges from ${basename(args.prgPath)} at body offset ${offset}; disassembly is not byte-identical`;
     } else if (result.compareMatches) {
+      assemblyOk = true;
       summaryLine = `// rebuild verified byte-identical against ${basename(args.prgPath)} (${result.comparedBytes ?? "?"} bytes)`;
     } else {
       summaryLine = `// rebuild verification skipped (no compare result)`;
     }
   } catch (error) {
     summaryLine = `// WARNING: rebuild verification failed to run: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  // Bug 14: classify the rebuild-check PRG as a verification report rather
+  // than letting blanket *.prg globs file it as a regular source PRG.
+  if (assemblyOk && existsSync(tempPrg)) {
+    try {
+      const service = new ProjectKnowledgeService(args.projectDir);
+      service.saveArtifact({
+        kind: "report",
+        scope: "analysis",
+        title: `Rebuild check: ${basename(tempPrg)}`,
+        path: tempPrg,
+        format: "prg",
+        role: "rebuild-check",
+        producedByTool: "disasm_prg",
+        sourceArtifactIds: args.sourceArtifactId ? [args.sourceArtifactId] : undefined,
+        tags: ["rebuild-check", "auto"],
+      });
+    } catch {
+      // best effort; don't fail the disasm flow over a registration hiccup
+    }
   }
 
   // Bake the verdict into the head of the ASM so a human reading the file

@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import type { ServerToolContext } from "./types.js";
+import { safeHandler } from "./safe-handler.js";
 
 const PAYLOAD_FORMATS = [
   "raw", "prg",
@@ -58,7 +59,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       medium_spans: z.array(mediumSpanSchema).optional().describe("Where this payload lives on its source medium. Use sector{track,sector,length} for disk, slot{bank,slot,length} for cart."),
       tags: z.array(z.string()).optional(),
     },
-    async (args) => {
+    safeHandler("register_payload", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const addressRange = args.address_start !== undefined && args.address_end !== undefined
@@ -100,7 +101,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         `ASM artifacts: ${(entity.payloadAsmArtifactIds ?? []).length}`,
       ].join("\n"));
     },
-  );
+));
 
   server.tool(
     "link_payload_to_asm",
@@ -110,7 +111,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       payload_id: z.string(),
       asm_artifact_id: z.string(),
     },
-    async (args) => {
+    safeHandler("link_payload_to_asm", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const payload = service.listEntities({ kind: "payload" }).find((e) => e.id === args.payload_id);
@@ -125,7 +126,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       });
       return textContent(`payload ${payload.id} now links ${next.size} asm artifact(s).`);
     },
-  );
+));
 
   server.tool(
     "link_payload_to_runtime",
@@ -136,7 +137,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       trace_artifact_id: z.string(),
       load_address: z.number().int().min(0).max(0xffff).optional().describe("Override / record the payload's runtime load address if not already set."),
     },
-    async (args) => {
+    safeHandler("link_payload_to_runtime", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const payload = service.listEntities({ kind: "payload" }).find((e) => e.id === args.payload_id);
@@ -152,7 +153,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       });
       return textContent(`payload ${payload.id} linked to runtime trace ${args.trace_artifact_id}.`);
     },
-  );
+));
 
   server.tool(
     "list_payloads",
@@ -162,7 +163,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       format: z.enum(PAYLOAD_FORMATS).optional().describe("Filter by format."),
       limit: z.number().int().positive().max(500).optional(),
     },
-    async (args) => {
+    safeHandler("list_payloads", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const all = service.listEntities({ kind: "payload" });
@@ -184,7 +185,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       }
       return textContent(lines.join("\n"));
     },
-  );
+));
 
   server.tool(
     "bulk_create_cart_chunk_payloads",
@@ -193,7 +194,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
     },
-    async (args) => {
+    safeHandler("bulk_create_cart_chunk_payloads", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const cartView = service.buildCartridgeLayoutView().view;
@@ -268,7 +269,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       ];
       return textContent(lines.join("\n"));
     },
-  );
+));
 
   void existsSync; void statSync; void resolve; // tree-shake guard
 }

@@ -6,6 +6,7 @@ import type { HeadlessRunResult, HeadlessSessionRecord } from "../runtime/headle
 import { findHeadlessTraceByAccess, findHeadlessTraceByPc, loadHeadlessSession, sliceHeadlessTraceByIndex } from "../runtime/headless/trace-query.js";
 import { buildHeadlessTraceIndex } from "../runtime/headless/trace-index.js";
 import type { ServerToolContext } from "./types.js";
+import { safeHandler } from "./safe-handler.js";
 
 function parseHexWord(value: string): number {
   const normalized = value.trim().replace(/^\$/, "").replace(/^0x/i, "");
@@ -144,7 +145,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       mapper_type: z.enum(["easyflash", "megabyter", "magicdesk", "ocean", "normal_8k", "normal_16k", "ultimax"]).optional().describe("Optional explicit mapper type for CRT handling."),
       entry_pc: z.string().optional().describe("Optional explicit entry PC in hex, e.g. 080D."),
     },
-    async ({ prg_path, disk_path, crt_path, mapper_type, entry_pc }) => {
+    safeHandler("headless_session_start", async ({ prg_path, disk_path, crt_path, mapper_type, entry_pc }) => {
       try {
         const hintPath = prg_path ?? disk_path ?? crt_path;
         const projectRoot = resolveHeadlessProjectDir(context, hintPath);
@@ -161,7 +162,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_session_status",
@@ -169,7 +170,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     {
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ hint_path }) => {
+    safeHandler("headless_session_status", async ({ hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const record = manager.getStatus();
@@ -181,7 +182,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_session_stop",
@@ -189,7 +190,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     {
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ hint_path }) => {
+    safeHandler("headless_session_stop", async ({ hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const record = manager.stopSession("stopped by user");
@@ -201,7 +202,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_session_step",
@@ -209,7 +210,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     {
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ hint_path }) => {
+    safeHandler("headless_session_step", async ({ hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const result = manager.stepSession();
@@ -222,7 +223,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_session_run",
@@ -232,7 +233,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       stop_pc: z.string().optional().describe("Optional stop PC in hex."),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ max_instructions, stop_pc, hint_path }) => {
+    safeHandler("headless_session_run", async ({ max_instructions, stop_pc, hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const result = manager.runSession({
@@ -248,7 +249,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_breakpoint_add",
@@ -262,7 +263,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       temporary: z.boolean().optional().describe("Whether the breakpoint should auto-remove after it hits once."),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ address, start, end, operation, label, temporary, hint_path }) => {
+    safeHandler("headless_breakpoint_add", async ({ address, start, end, operation, label, temporary, hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const kind = operation ?? "exec";
@@ -285,7 +286,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_breakpoint_clear",
@@ -293,7 +294,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     {
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ hint_path }) => {
+    safeHandler("headless_breakpoint_clear", async ({ hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         manager.clearBreakpoints();
@@ -302,7 +303,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_watch_add",
@@ -314,7 +315,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       include_bytes: z.boolean().optional().describe("Whether to include the watched bytes when the range is touched."),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ name, start, end, include_bytes, hint_path }) => {
+    safeHandler("headless_watch_add", async ({ name, start, end, include_bytes, hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const startAddress = parseHexWord(start);
@@ -330,7 +331,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_watch_clear",
@@ -338,7 +339,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     {
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ hint_path }) => {
+    safeHandler("headless_watch_clear", async ({ hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         manager.clearWatchRanges();
@@ -347,7 +348,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_interrupt_request",
@@ -356,7 +357,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       interrupt: z.enum(["irq", "nmi"]).describe("Interrupt line to request."),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ interrupt, hint_path }) => {
+    safeHandler("headless_interrupt_request", async ({ interrupt, hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         manager.requestInterrupt(interrupt);
@@ -365,7 +366,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_io_interrupt_trigger",
@@ -375,7 +376,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       mask: z.number().int().min(1).max(31).optional().describe("Bit mask to set in the source status register (default: 1)."),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ source, mask, hint_path }) => {
+    safeHandler("headless_io_interrupt_trigger", async ({ source, mask, hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         manager.triggerIoInterrupt(source, mask ?? 0x01);
@@ -388,7 +389,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_interrupt_clear",
@@ -397,7 +398,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       interrupt: z.enum(["irq", "nmi", "both"]).optional().describe("Which pending interrupt to clear; defaults to both."),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ interrupt, hint_path }) => {
+    safeHandler("headless_interrupt_clear", async ({ interrupt, hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         if (!interrupt || interrupt === "both") {
@@ -410,7 +411,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_trace_tail",
@@ -419,7 +420,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       limit: z.number().int().positive().max(64).optional().describe("How many recent events to render (default: 12)."),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ limit, hint_path }) => {
+    safeHandler("headless_trace_tail", async ({ limit, hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const record = manager.getStatus();
@@ -446,7 +447,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_trace_find_pc",
@@ -456,7 +457,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       limit: z.number().int().positive().max(100).optional().describe("Maximum matches to return."),
       session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
     },
-    async ({ pc, limit, session_id }) => {
+    safeHandler("headless_trace_find_pc", async ({ pc, limit, session_id }) => {
       try {
         const parsedPc = parseHexWord(pc);
         const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(context), session_id);
@@ -470,7 +471,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_trace_find_access",
@@ -481,7 +482,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       limit: z.number().int().positive().max(100).optional().describe("Maximum matches to return."),
       session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
     },
-    async ({ address, access, limit, session_id }) => {
+    safeHandler("headless_trace_find_access", async ({ address, access, limit, session_id }) => {
       try {
         const parsedAddress = parseHexWord(address);
         const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(context), session_id);
@@ -495,7 +496,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_trace_slice",
@@ -506,7 +507,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       after: z.number().int().nonnegative().max(400).optional().describe("How many events after the anchor to include."),
       session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
     },
-    async ({ anchor_index, before, after, session_id }) => {
+    safeHandler("headless_trace_slice", async ({ anchor_index, before, after, session_id }) => {
       try {
         const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(context), session_id);
         const slice = await sliceHeadlessTraceByIndex(record, anchor_index, before ?? 20, after ?? 40);
@@ -524,7 +525,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_trace_build_index",
@@ -533,7 +534,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       session_id: z.string().optional().describe("Optional headless session id. Defaults to the latest one for the project."),
       limit: z.number().int().positive().max(256).optional().describe("How many top PCs/accesses to keep in the summary."),
     },
-    async ({ session_id, limit }) => {
+    safeHandler("headless_trace_build_index", async ({ session_id, limit }) => {
       try {
         const record = await loadHeadlessSession(await resolveHeadlessTraceProjectDir(context), session_id);
         const index = await buildHeadlessTraceIndex(record, limit ?? 64);
@@ -558,7 +559,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_monitor_registers",
@@ -566,7 +567,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     {
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ hint_path }) => {
+    safeHandler("headless_monitor_registers", async ({ hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const regs = manager.getRegisters();
@@ -589,7 +590,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "headless_monitor_memory",
@@ -599,7 +600,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       end: z.string().describe("End address as hex, inclusive"),
       hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
     },
-    async ({ start, end, hint_path }) => {
+    safeHandler("headless_monitor_memory", async ({ start, end, hint_path }) => {
       try {
         const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
         const startAddress = parseHexWord(start);
@@ -618,5 +619,5 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 }
