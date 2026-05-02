@@ -24,6 +24,7 @@ import { registerRegistrationTools } from "./server-tools/registration.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
+import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
 import { registerViceTools } from "./server-tools/vice.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
 
@@ -86,6 +87,10 @@ function tryRegisterKnowledgeArtifacts(
 // `[Phase N]` (or `[Phase agnostic]`) prefix sourced from
 // src/agent-orchestrator/phase-tools.ts. Tools without a registered
 // phase keep their original description unchanged.
+//
+// Spec 049: also wrap the handler in phaseGatedHandler. Default
+// behavior unchanged because phaseGatedHandler short-circuits to
+// the inner handler when projectProfile.phaseGateStrict !== true.
 function applyPhaseTagInjector(server: McpServer): void {
   const original = server.tool.bind(server) as (...args: unknown[]) => unknown;
   (server as { tool: (...args: unknown[]) => unknown }).tool = (...args: unknown[]) => {
@@ -97,6 +102,16 @@ function applyPhaseTagInjector(server: McpServer): void {
         const prefix = tag === "agnostic" ? "[Phase agnostic]" : `[Phase ${tag}: ${PHASE_TITLES[tag]}]`;
         if (!description.startsWith("[Phase")) {
           args[1] = `${prefix} ${description}`;
+        }
+      }
+      // Spec 049: phase gate. Wrap the last arg (the handler) only
+      // if the tool is registered in PHASE_TOOLS (non-agnostic).
+      // This keeps agnostic tools unwrapped and avoids polluting the
+      // hot path for tools that never apply.
+      if (tag !== undefined && tag !== "agnostic" && args.length >= 4) {
+        const handler = args[args.length - 1];
+        if (typeof handler === "function") {
+          args[args.length - 1] = phaseGatedHandler(toolName, { projectDir }, handler as (a: unknown, extra?: unknown) => Promise<{ content: unknown[] }>);
         }
       }
     }
