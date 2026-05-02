@@ -399,6 +399,9 @@ export interface SaveFindingInput {
   flowIds?: string[];
   payloadId?: string;
   tags?: string[];
+  // Spec 053 Bug 20.
+  addressRange?: { start: number; end: number; bank?: number; label?: string };
+  archivedBy?: string;
 }
 
 export interface LinkEntitiesInput {
@@ -1443,6 +1446,148 @@ export class ProjectKnowledgeService {
     return out;
   }
 
+  // Spec 053 (Bug 20): walk hypothesis findings whose addressRange
+  // is fully covered by a routine annotation. Mark them archived
+  // with archivedBy pointing at the routine finding. Also walk
+  // heuristic-phase1 questions in the same range and close them.
+  // dryRun=true: returns counts without writing.
+  archivePhase1Noise(opts: { dryRun?: boolean } = {}): { findingsArchived: number; questionsAnswered: number; routinesScanned: number; preview: Array<{ findingId: string; title: string; supersededBy: string }> } {
+    const allFindings = this.listFindings();
+    const routineFindings = allFindings.filter((f) =>
+      (f.kind === "classification" || f.kind === "observation")
+      && f.addressRange !== undefined
+      && (f.tags ?? []).some((t) => t === "routine" || t === "annotation")
+    );
+    // Also accept any "routine"-tagged finding even without a kind match.
+    const routinesWithRange = allFindings.filter((f) =>
+      f.addressRange !== undefined
+      && ((f.tags ?? []).includes("routine") || (f.tags ?? []).includes("annotation"))
+    );
+    const routines = routinesWithRange.length > 0 ? routinesWithRange : routineFindings;
+    const hypothesisCandidates = allFindings.filter((f) =>
+      f.kind === "hypothesis"
+      && f.addressRange !== undefined
+      && f.status !== "archived"
+      && !f.archivedBy
+    );
+    const preview: Array<{ findingId: string; title: string; supersededBy: string }> = [];
+    let archived = 0;
+    for (const candidate of hypothesisCandidates) {
+      const cr = candidate.addressRange;
+      if (!cr) continue;
+      const coverer = routines.find((r) => {
+        const rr = r.addressRange;
+        if (!rr) return false;
+        return rr.start <= cr.start && rr.end >= cr.end;
+      });
+      if (!coverer) continue;
+      preview.push({ findingId: candidate.id, title: candidate.title, supersededBy: coverer.id });
+      if (!opts.dryRun) {
+        this.saveFinding({
+          id: candidate.id,
+          kind: candidate.kind,
+          title: candidate.title,
+          status: "archived",
+          archivedBy: coverer.id,
+        });
+        archived += 1;
+      }
+    }
+    // Now sweep paired heuristic-phase1 questions
+    let questionsAnswered = 0;
+    if (!opts.dryRun) {
+      const questions = this.listOpenQuestions();
+      for (const q of questions) {
+        if (q.source !== "heuristic-phase1") continue;
+        if (q.status !== "open" && q.status !== "researching") continue;
+        const titleAddr = q.title.match(/\$([0-9A-Fa-f]{4})/);
+        if (!titleAddr) continue;
+        const addr = parseInt(titleAddr[1], 16);
+        const coverer = routines.find((r) => {
+          const rr = r.addressRange;
+          if (!rr) return false;
+          return rr.start <= addr && rr.end >= addr;
+        });
+        if (!coverer) continue;
+        this.saveOpenQuestion({
+          id: q.id,
+          kind: q.kind,
+          title: q.title,
+          status: "answered",
+          answeredByFindingId: coverer.id,
+          answerSummary: `Auto-archived: covered by routine annotation ${coverer.id}.`,
+        });
+        questionsAnswered += 1;
+      }
+    }
+    return {
+      findingsArchived: opts.dryRun ? preview.length : archived,
+      questionsAnswered,
+      routinesScanned: routines.length,
+      preview,
+    };
+  }
+
+  // Spec 053 (Bug 20): mark a sprite/charset/bitmap segment as
+  // confirmed by a render evidence. Writes back into the matching
+  // *_analysis.json segment AND creates a confirmation finding.
+  // Auto-match attempts (artifactPath, address, length); if none
+  // unique, returns undefined.
+  markSegmentConfirmed(args: {
+    artifactId: string;
+    address: number;
+    length: number;
+    kind: string;
+    evidenceArtifactId?: string;
+  }): { findingId: string; analysisPath?: string; segmentMatched: boolean } | undefined {
+    const artifact = this.listArtifacts().find((a) => a.id === args.artifactId);
+    if (!artifact) return undefined;
+    let analysisPath: string | undefined;
+    let segmentMatched = false;
+    // Find associated analysis-run artifact and try to mutate segment.
+    const analysisArtifact = this.listArtifacts().find((a) =>
+      a.kind === "analysis-run"
+      && (a.sourceArtifactIds ?? []).includes(args.artifactId)
+    );
+    if (analysisArtifact && existsSync(analysisArtifact.path)) {
+      try {
+        const raw = JSON.parse(readFileSync(analysisArtifact.path, "utf8"));
+        if (raw && typeof raw === "object" && Array.isArray((raw as { segments?: unknown[] }).segments)) {
+          const segments = (raw as { segments: Array<{ start: number; end: number; kind: string; confirmed?: boolean; confirmedBy?: unknown }> }).segments;
+          const match = segments.find((s) =>
+            s.start === args.address
+            && s.end === args.address + args.length - 1
+            && s.kind === args.kind
+          );
+          if (match) {
+            match.confirmed = true;
+            match.confirmedBy = {
+              kind: "render",
+              artifactId: args.evidenceArtifactId,
+              capturedAt: nowIso(),
+            };
+            writeFileSync(analysisArtifact.path, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+            analysisPath = analysisArtifact.path;
+            segmentMatched = true;
+          }
+        }
+      } catch {
+        // best effort; finding still recorded below
+      }
+    }
+    const finding = this.saveFinding({
+      kind: "confirmation",
+      title: `Segment confirmed at $${args.address.toString(16).toUpperCase()}-$${(args.address + args.length - 1).toString(16).toUpperCase()} (${args.kind})`,
+      summary: `Visual / structural confirmation${args.evidenceArtifactId ? ` via ${args.evidenceArtifactId}` : ""}.`,
+      confidence: 0.95,
+      status: "confirmed",
+      artifactIds: [args.artifactId, ...(args.evidenceArtifactId ? [args.evidenceArtifactId] : [])],
+      addressRange: { start: args.address, end: args.address + args.length - 1 },
+      tags: ["segment-confirmation"],
+    });
+    return { findingId: finding.id, analysisPath, segmentMatched };
+  }
+
   // Spec 052: walk open auto-resolvable questions whose entityIds
   // intersect the just-saved finding. High-confidence matches
   // auto-close; low-confidence become resolution-pending.
@@ -2109,6 +2254,8 @@ export class ProjectKnowledgeService {
       relationIds: uniqueStrings(input.relationIds ?? existing?.relationIds),
       flowIds: uniqueStrings(input.flowIds ?? existing?.flowIds),
       payloadId: input.payloadId ?? existing?.payloadId,
+      addressRange: input.addressRange ?? existing?.addressRange,
+      archivedBy: input.archivedBy ?? existing?.archivedBy,
       tags: uniqueStrings(input.tags ?? existing?.tags),
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,

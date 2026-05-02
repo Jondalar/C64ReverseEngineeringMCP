@@ -861,7 +861,7 @@ Any auto-pipeline that walks "all files in `analysis/disk/<image>/`" and calls `
 
 ## Bug 20 — Phase-1 candidate noise persists; Phase-2 / PNG-render confirmations don't propagate back
 
-**Status**: OPEN
+**Status**: FIXED (data layer) — Spec 053 / Sprint 46 commit on agent-workflows. New `archive_phase1_noise` MCP tool walks hypothesis findings whose `addressRange` is fully inside any `routine`/`annotation`-tagged finding's range and archives them with `archivedBy` pointer; paired heuristic-phase1 questions whose title address falls in the same range close with `answeredByFindingId`. New `mark_segment_confirmed` MCP tool writes `confirmed: true` + `confirmedBy` into `*_analysis.json` segments and creates a confirmation finding. UI Graphics-tab refactor (confirmed/unconfirmed/rejected buckets, thumbnail of evidence PNG) deferred to Sprint 43 follow-up. `render_graphics_preview` extension to call `mark_segment_confirmed` automatically when (path, address, length) uniquely matches stays a follow-up — agents can wire it manually for now.
 
 **Severity**: High — the Graphics, Findings, and Questions tabs are flooded with phase-1 heuristic noise that never gets pruned, even after deeper analysis has answered or invalidated each candidate.
 

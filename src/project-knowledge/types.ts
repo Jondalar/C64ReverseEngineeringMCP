@@ -689,6 +689,12 @@ export const FindingRecordSchema = z.object({
   // Optional: payload this finding scopes to (routine inside chunk X,
   // data table inside disk file Y, etc.).
   payloadId: IdSchema.optional(),
+  // Spec 053 Bug 20: optional address range so archive_phase1_noise
+  // can match findings to routine annotations covering them.
+  addressRange: AddressRangeSchema.optional(),
+  // Spec 053: when this finding has been superseded by a later
+  // routine annotation, archivedBy points at that newer finding.
+  archivedBy: IdSchema.optional(),
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,

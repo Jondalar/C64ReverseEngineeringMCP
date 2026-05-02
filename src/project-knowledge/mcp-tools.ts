@@ -629,6 +629,64 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 053 (Bug 20): phase-1 noise archive + segment confirmation.
+  server.tool(
+    "archive_phase1_noise",
+    "Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. Also closes paired heuristic-phase1 questions whose title address matches. dry_run=true previews without writing.",
+    {
+      project_dir: z.string().optional(),
+      dry_run: z.boolean().optional(),
+    },
+    safeHandler("archive_phase1_noise", async ({ project_dir, dry_run }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.archivePhase1Noise({ dryRun: dry_run ?? false });
+      const lines = [
+        `archive_phase1_noise${dry_run ? " (dry run)" : ""}`,
+        `Routines scanned: ${result.routinesScanned}`,
+        `Findings ${dry_run ? "would archive" : "archived"}: ${result.findingsArchived}`,
+        `Questions answered: ${result.questionsAnswered}`,
+      ];
+      if (dry_run && result.preview.length > 0) {
+        lines.push("");
+        lines.push("Preview (first 10):");
+        for (const p of result.preview.slice(0, 10)) {
+          lines.push(`  ${p.findingId} | ${p.title} → superseded by ${p.supersededBy}`);
+        }
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
+  server.tool(
+    "mark_segment_confirmed",
+    "Spec 053 (Bug 20): mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence. Also creates a confirmation finding with status confirmed.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string().describe("Source PRG/raw artifact id whose analysis JSON contains the segment."),
+      address: z.number().int().nonnegative(),
+      length: z.number().int().positive(),
+      kind: z.string().describe("Segment kind to match (sprite, charset, bitmap, etc.)."),
+      evidence_artifact_id: z.string().optional().describe("Optional evidence artifact id (typically the rendered PNG)."),
+    },
+    safeHandler("mark_segment_confirmed", async ({ project_dir, artifact_id, address, length, kind, evidence_artifact_id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.markSegmentConfirmed({ artifactId: artifact_id, address, length, kind, evidenceArtifactId: evidence_artifact_id });
+      if (!result) {
+        const { nextStepError } = await import("../server-tools/error-helpers.js");
+        return nextStepError(
+          "mark_segment_confirmed",
+          `Artifact ${artifact_id} not found.`,
+          `list_artifacts() to discover valid ids.`,
+        );
+      }
+      const lines = [
+        `Segment confirmation finding: ${result.findingId}`,
+        result.segmentMatched ? `Analysis JSON updated: ${result.analysisPath}` : `No matching segment found in analysis JSON; finding still recorded.`,
+      ];
+      return textContent(lines.join("\n"));
+    },
+));
+
   // Spec 052: question auto-resolution.
   server.tool(
     "propose_question_resolutions",
