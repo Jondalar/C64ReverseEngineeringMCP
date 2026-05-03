@@ -19,7 +19,7 @@ import { TrackBuffer, HeadPosition } from "./drive/head-position.js";
 import { G64Parser } from "../../disk/g64-parser.js";
 import { DiskProvider } from "./providers.js";
 import { existsSync, readFileSync } from "node:fs";
-import { installVicMinimalStubs } from "./peripherals/vic-stub.js";
+import { installVicII, type VicII } from "./peripherals/vic-ii.js";
 import { installCia1 } from "./peripherals/cia1.js";
 import { installCia2 } from "./peripherals/cia2.js";
 import type { Cia6526 } from "./cia/cia6526.js";
@@ -65,6 +65,7 @@ export class IntegratedSession {
   public readonly kernalFileIo: KernalFileIoState;
   public readonly cia1: Cia6526;
   public readonly cia2: Cia6526;
+  public readonly vic: VicII;
   public readonly enableKernalFileIoTraps: boolean;
   // NMI edge detection bookkeeping.
   private prevCia2IrqAsserted = false;
@@ -96,7 +97,7 @@ export class IntegratedSession {
     }
     this.cia2 = installCia2(this.c64Bus, this.iecBus);
     this.cia1 = installCia1(this.c64Bus);
-    installVicMinimalStubs(this.c64Bus);
+    this.vic = installVicII(this.c64Bus);
     this.c64Bus.reset();
     this.c64Cpu = new Cpu6510(this.c64Bus);
 
