@@ -714,3 +714,70 @@ Optional follow-up: have `headless_session_start` (or `_stop`) auto-register its
 
 - R28 (headless 1541 drive emulation) — once Murder boot trace runs to completion, the same 3 files will land per run; this FR keeps that flow clean.
 - Bug 9 (historical) — `register_existing_files` glob-handling tightened earlier; this is the followup data-coverage gap.
+
+---
+
+## R30 — VIC stable raster (NMI workaround) for cycle-perfect demo effects
+
+**Priority**: Medium
+
+**Source**: Sprint 85 spec refinement (May 2026). Decision: Sprint 85 implements
+cycle-perfect raster IRQ only. Stable raster deferred.
+
+**Problem**: Cycle-perfect raster IRQ + IRQ servicing has 0-7 cycle jitter
+because IRQ entry depends on which 6510 instruction is currently executing
+(can take 2-7 cycles to finish before IRQ is serviced). For raster bars
+exactly aligned to specific pixels (demo effects, side-border opening at
+exact cycle), the standard "double IRQ" technique is used: first IRQ does
+NOTHING but `LDA $D012` + `CMP $D012` to detect the cycle, then small
+NOP-pad to align. Some demos use NMI on raster compare to bypass IRQ
+priority issues.
+
+**Want**: Optional cycle-perfect IRQ entry (no jitter) selectable per-session
+or auto-detected via "both IRQ taken on instruction with same opcode" pattern.
+Plus: documented behaviour matrix vs VICE for jitter cases.
+
+**Why deferred**: Spiele brauchen das nicht. Demo authors ja. Sprint 85 first,
+this for demo support later.
+
+---
+
+## R31 — Remaining CRT cartridge types (beyond Sprint 87 priority set)
+
+**Priority**: Low (per-demand)
+
+**Source**: Sprint 87 spec refinement. User confirmed priority CRTs (May 2026):
+
+**In Sprint 87 (DONE / planned)**:
+- Stock 8K/16K/Ultimax (type 0)
+- Ocean (type 5)
+- Magic Desk (type 19)
+- Easy Flash (type 32)
+- GMOD2 (type 60), GMOD3 (type 70), GMOD4 (when finalised)
+- Protovision Megabyter
+- C64MegaCart
+
+**Backlog — implement on demand**:
+- Action Replay (type 1) — freeze cart, niche for cracking
+- Final Cartridge III (type 20) — utility cart
+- Super Snapshot V5 — utility cart
+- Stardos — boot speeder
+- KCS Power Cartridge
+- Westermann
+- RetroReplay (type 36) — Action Replay clone
+- Atomic Power (type 39)
+- IDE64 — disk interface
+- GeoRAM (type 55) — RAM expansion
+- REU 1700/1764/1750 — RAM expansion (highest priority of backlog,
+  used by demos + GEOS)
+- RamCart
+- ~30 other rare types
+
+**Implementation pattern**: each type = `src/runtime/headless/cartridges/<type>.ts`
+implementing the `CartRuntime` interface from Spec 087.
+
+**Also missing**:
+- Cart RAM beyond ROM (some carts have onboard RAM).
+- Freeze button input mechanism.
+- Cart-driven NMI ($DE00-write triggered).
+- EEPROM serial protocol timing-accurate (GMOD2 simplified in Sprint 87).

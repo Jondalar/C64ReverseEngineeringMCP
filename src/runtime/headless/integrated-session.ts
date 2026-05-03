@@ -20,6 +20,7 @@ import { G64Parser } from "../../disk/g64-parser.js";
 import { DiskProvider } from "./providers.js";
 import { existsSync, readFileSync } from "node:fs";
 import { installVicII, type VicII } from "./peripherals/vic-ii.js";
+import { installSid, type Sid6581 } from "./peripherals/sid.js";
 import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
 import { rgbaToPng } from "./peripherals/png-writer.js";
 import { writeFileSync } from "node:fs";
@@ -88,6 +89,7 @@ export class IntegratedSession {
   public readonly cia2: Cia6526;
   public readonly keyboard: KeyboardMatrix;
   public readonly vic: VicII;
+  public readonly sid: Sid6581;
   public readonly framebuffer: VicFramebuffer;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
@@ -125,6 +127,7 @@ export class IntegratedSession {
     this.cia1 = cia1Install.cia;
     this.keyboard = cia1Install.keyboard;
     this.vic = installVicII(this.c64Bus);
+    this.sid = installSid(this.c64Bus);
     if (!isPal) this.vic.setNtsc();
     this.c64Bus.reset();
     this.c64Cpu = new Cpu6510(this.c64Bus);
@@ -171,6 +174,7 @@ export class IntegratedSession {
     this.iecBus.reset();
     this.c64Cpu.reset();
     this.drive.reset();
+    this.sid.reset();
     this.driveCycleAccumulator = 0;
     this.c64InstructionCount = 0;
     this.driveInstructionCount = 0;
@@ -221,6 +225,7 @@ export class IntegratedSession {
       this.cia1.tick(trapCycles);
       this.cia2.tick(trapCycles);
       this.vic.tick(trapCycles);
+      this.sid.tick(trapCycles);
       this.keyboard.advance(trapCycles);
       this.driveCycleAccumulator += trapCycles * this.driveCyclesPerC64Cycle;
       while (this.driveCycleAccumulator >= 1) this.runOneDriveStep();
@@ -234,6 +239,7 @@ export class IntegratedSession {
     this.cia1.tick(consumed);
     this.cia2.tick(consumed);
     this.vic.tick(consumed);
+    this.sid.tick(consumed);
     this.keyboard.advance(consumed);
     this.driveCycleAccumulator += consumed * this.driveCyclesPerC64Cycle;
     while (this.driveCycleAccumulator >= 1) {

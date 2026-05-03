@@ -1848,6 +1848,49 @@ Push-through batch covering Spec 064 closeout + Spec 065 phases
   stalls at $46A7 waiting for drive CLK release; protocol timing
   needs cycle-precise tuning. Title screen rendering not yet reached.
   Marked done because all infrastructure pieces in place.
+- **Sprint 81** — Real undocumented 6502 opcodes (full table per
+  VICE 6510core.c). CIA2 PA polarity fix (KERNAL $EE8E proves bit=1
+  pulls line). Drive PB4 ATN_ACK polarity fix (PB4 is AND-gate
+  control input, not line driver — bit=1 = drive ACK'd ATN, release
+  auto-pull). Serial+IO trap gates (default ON for back-compat,
+  default OFF for MM stage-2 raw bit-bang). Result: drive ATN
+  service runs 137× (was 0); MM uniqPCs jumps 1660 → 8898+. DONE.
+
+## Sprint 82-87: Full C64 VM critical items
+
+Goal: headless = complete C64 VM. After this batch, re-evaluate MM
+boot status. Specs 082-087.
+
+- **Sprint 82** (Spec 082) — SID 6581 register-file mock with ADSR
+  envelope counter ticks ($D41C polling) + LFSR for $D41B (osc3 noise
+  proxy). No audio out. Deterministic PRNG seed. Acceptance: MM does
+  not crash on SID polling; smoke writes $0F to $D418, reads back $0F.
+- **Sprint 83** (Spec 083) — Real serial bit-bang cycle-perfect
+  (VICE-style). Default `enableKernalSerialTraps: false`. Cycle-precise
+  CIA timer (T1 underflow timestamp), CIA Timer B "count Timer A
+  underflow" mode, IEC bus per-cycle state, drive ROM real responses.
+  Test bootstrap rework: real `LOAD"*",8,1`+`RUN` via keyboard buffer.
+  Acceptance: MM real-KERNAL boot reaches title screen.
+- **Sprint 84** (Spec 084) — VIC bad-line + sprite-DMA cycle stealing
+  combined. VIC.tick() returns stolen cycles; integrated session
+  charges them to wall clock. Acceptance: timing-sensitive raster IRQ
+  delta within ±2 cycles of VICE.
+- **Sprint 85** (Spec 085) — VIC raster IRQ cycle-perfect. IRQ fires
+  on cycle 0 of compare line. Stable raster (NMI workaround) → backlog.
+  Acceptance: demo with raster bars stable across frames.
+- **Sprint 86** (Spec 086) — VIC per-scanline renderer + open border.
+  Per-line snapshot of all VIC registers; renderer iterates line-by-
+  line. Open top/bot border via RSEL trick supported. Acceptance:
+  multi-color border via mid-frame $D020 writes renders correctly.
+- **Sprint 87** (Spec 087) — PLA truth-table (32-entry from VICE) +
+  CRT runtime mapping. Cart types per user priority (May 2026):
+  Stock 8K/16K/Ultimax, Ocean, Magic Desk, Easy Flash, GMOD2/3/4,
+  Protovision Megabyter, C64MegaCart. Action Replay, Final Cartridge
+  III, REU, GeoRAM, etc. → R31 backlog. Acceptance: load 16K cart,
+  CPU starts at cart reset vector.
+
+After Sprint 87: re-test MM, decide if more emulator work needed
+or if focus shifts to broader game compatibility / demo support.
 
 ## Bug fixes shipped this batch
 
