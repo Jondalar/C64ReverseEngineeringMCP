@@ -1781,6 +1781,45 @@ Start condition: after Sprints 60-64 complete (drive foundation + VSF bridge sta
 
 Cross-ref: Spec 063, Spec 062 architectural seams.
 
+## Sprint 65-67: Integrated C64 + drive session (Spec 062 follow-on)
+
+- **Sprint 65** — IntegratedSession class + bundled C64 KERNAL/BASIC/CHARROM. Cycle-accurate dual-clock C64+drive over shared IEC bus. 4 MCP tools (integrated_session_start/run/status/load_prg). DONE.
+- **Sprint 66** — Iterative debug against maniac_mansion_s1.g64. Fixed 5 bugs: VIA6522 IFR clear-on-IRA-read, OPCODE_TABLE off-by-one ($6C JMP indirect), VIC raster polling deadlock, CIA1 keyboard pollution, ATN edge boot-order race. R28 acceptance #1 (no SP underflow within drive-install) reached.
+- **Sprint 67** — KERNAL file-IO trap suite (LOAD/SAVE/SETLFS/SETNAM at JMP table). Verified: maniac mansion bootstrap loads + MM 38KB game runs into game-CPU code. Trap is workaround until Spec 064 lands real CIA1 timer.
+
+## Sprint 68: Refactor + Specs 064/065 + plan re-plan
+
+- Split integrated-session.ts into peripherals/{vic-stub,cia1-stub} + traps/kernal-fileio for cleaner expansion path.
+- Spec 064 = Full KERNAL via real CIA1/CIA2 timer model. Removes the trap workaround.
+- Spec 065 = VIC Phase A: framebuffer + render PNG + optional WebSocket stream.
+- DONE.
+
+## Sprint 69: Full KERNAL (Spec 064)
+
+CIA1 + CIA2 timer A/B model with IRQ generation. Wire CIA1 IRQ → C64 6510 IRQ line. Remove file-IO traps. KERNAL serial routines run authentic bit-bang to drive ROM via existing IEC bit-mirror. Maniac Mansion bootstrap completes via real KERNAL.
+
+Sub-sprints (per spec):
+- 69a: CIA model + IRQ wiring foundation
+- 69b: Remove traps + Maniac mansion regression
+- 69c: Polish + doc
+
+Status: spec'd, implementation pending.
+
+## Sprint 70-76: VIC Phase A (Spec 065)
+
+7 sub-sprints concretizing Spec 063 Phase A:
+- 70 (65a): VIC registers + screen-RAM/char-ROM plumbing
+- 71 (65b): text mode renderer + framebuffer
+- 72 (65c): raster counter + raster IRQ source
+- 73 (65d): bitmap modes + multicolor + extended-bg
+- 74 (65e): sprites + collision detection
+- 75 (65f): PNG export `headless_render_screen` MCP tool
+- 76 (65g): WebSocket live-preview to workspace UI
+
+Acceptance per phase. Full Phase A: Maniac Mansion title screen renders identifiable in PNG.
+
+Status: spec'd, implementation pending after Sprint 69.
+
 ## Bug fixes shipped this batch
 
 - Bug 22 REFIX (commit `05ef06b`): path-only filter in
