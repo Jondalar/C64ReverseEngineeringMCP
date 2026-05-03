@@ -20,6 +20,9 @@ import { G64Parser } from "../../disk/g64-parser.js";
 import { DiskProvider } from "./providers.js";
 import { existsSync, readFileSync } from "node:fs";
 import { installVicII, type VicII } from "./peripherals/vic-ii.js";
+import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
+import { rgbaToPng } from "./peripherals/png-writer.js";
+import { writeFileSync } from "node:fs";
 import { installCia1 } from "./peripherals/cia1.js";
 import { installCia2 } from "./peripherals/cia2.js";
 import type { Cia6526 } from "./cia/cia6526.js";
@@ -66,6 +69,7 @@ export class IntegratedSession {
   public readonly cia1: Cia6526;
   public readonly cia2: Cia6526;
   public readonly vic: VicII;
+  public readonly framebuffer: VicFramebuffer;
   public readonly enableKernalFileIoTraps: boolean;
   // NMI edge detection bookkeeping.
   private prevCia2IrqAsserted = false;
@@ -111,6 +115,27 @@ export class IntegratedSession {
 
     this.kernalFileIo = makeKernalFileIoState();
     this.enableKernalFileIoTraps = opts.enableKernalFileIoTraps ?? false;
+    this.framebuffer = new VicFramebuffer(isPal);
+  }
+
+  // Render the current VIC state to the framebuffer (text mode only
+  // for Phase 65b — bitmap + sprites in 65d/65e).
+  renderFrame(): void {
+    const cia2Pa = this.cia2.pra & this.cia2.ddra; // output bits only
+    const bankBase = computeVicBankBase(cia2Pa & 0x03);
+    renderTextModeFrame(this.framebuffer, {
+      vic: this.vic,
+      bus: this.c64Bus,
+      vicBankBase: bankBase,
+    });
+  }
+
+  // Render current VIC state then write to a PNG file. Phase 65f.
+  renderToPng(path: string): { width: number; height: number; bytes: number } {
+    this.renderFrame();
+    const png = rgbaToPng(this.framebuffer.width, this.framebuffer.height, this.framebuffer.pixels);
+    writeFileSync(path, png);
+    return { width: this.framebuffer.width, height: this.framebuffer.height, bytes: png.length };
   }
 
   resetCold(): void {

@@ -837,6 +837,33 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
+    "headless_render_screen",
+    "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. Text mode only in Phase 65b; bitmap + sprites in Phase 65d/e. Returns the file path + dimensions + bytes written.",
+    {
+      session_id: z.string(),
+      path: z.string().describe("Output PNG path"),
+    },
+    safeHandler("headless_render_screen", async ({ session_id, path }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const r = session.renderToPng(path);
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `headless_render_screen — session ${session_id}`,
+            `Output: ${path}`,
+            `Dimensions: ${r.width}×${r.height}`,
+            `Bytes: ${r.bytes}`,
+            `VIC state: border=$${session.vic.regs[0x20].toString(16)} bg=$${session.vic.regs[0x21].toString(16)} screen-ram-offset=$${session.vic.screenRamOffset().toString(16)}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  server.tool(
     "headless_drive_session_save_vsf",
     "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
     {
