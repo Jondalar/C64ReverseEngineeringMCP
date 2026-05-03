@@ -1589,19 +1589,17 @@ register_existing_files, extract_disk, extract_crt). Ships
 preview + reference remap across entities / findings / relations
 / flows / tasks / open-questions.
 
-Status: refined, implementation pending.
+Status: DONE.
 
-Decisions:
-- Q1: content-hash arbiter — same path + same hash → reuse;
-  same path + different hash → mint with `derivedFrom`; different
-  path + same hash → reuse moved file's id.
-- Q2: tolerant survivor merge (union sourceArtifactIds, entityIds,
-  tags, evidence, loadContexts; oldest createdAt wins; rebuild
-  hash from disk if missing).
-- Q3: caller hygiene via new `upsertArtifact` helper. Migrate the
-  five re-register tools; saveArtifact stays for explicit-derivedFrom.
+Decisions (implemented):
+- Saver lookup rewritten path-first; `existing.id` wins over synthetic
+  `input.id`. derivedFrom bypasses path/hash dedup.
+- Tolerant survivor merge in migration (union sourceArtifactIds,
+  entityIds, tags, evidence, loadContexts, versions; oldest createdAt
+  wins; rebuild hash from disk if missing).
+- `upsertArtifact()` helper as alias of saveArtifact for caller intent.
 
-Cross-ref: Bug 30 in BUGREPORT, Spec 060 (UX2).
+Cross-ref: Bug 30 in BUGREPORT, Spec 060 (UX2). Smoke at scripts/sprint52-smoke.mjs.
 
 ## Sprint 53: Payload Entity Dedupe (Bug 31)
 
@@ -1615,19 +1613,16 @@ into the base entity's aliases, removes manifest-as-payload
 leaks (Bug 26 family), and remaps entity-id references across
 the same six knowledge stores.
 
-Status: refined, implementation pending.
+Status: DONE.
 
-Decisions:
-- Q1: hybrid hash-first + (source, load) fallback. No name-normalize
-  fallback at runtime (migration-time only).
-- Q2: tolerant merge; survivor = base name (no NN_ prefix) when
-  available; aliases[] gets the prefixed names.
-- Q3: aliases[] on all EntityRecord (generic schema field), but
-  importer logic v1 only fills payload entities. UI shows "also
-  known as" line in inspector header. `list_entities` filter
-  accepts alias matching.
+Decisions (implemented):
+- Schema: `EntityRecord.aliases: string[]` (default []).
+- saveEntity payload-dedup: hash primary, (source, load) fallback,
+  aggregator skip when srcArt.kind === "manifest" (Sprint 55 / Bug 33).
+- dedupe_payload_entities migration with reference remap across
+  entities, findings, relations, flows, tasks, open-questions, artifacts.
 
-Cross-ref: Bug 31, Spec 060.
+Cross-ref: Bug 31, Spec 060. Smoke at scripts/sprint53-smoke.mjs.
 
 ## Sprint 54: Noise Matcher Coverage Cluster (Bug 32)
 
@@ -1654,26 +1649,41 @@ fixes inside `archivePhase1Noise` + `sweepQuestionResolutions`:
     artifactIds → address-only fallback for cross-file shared
     routines. Applied in BOTH project-wide and scoped sweeps.
 
-Status: refined, implementation pending.
+Status: DONE.
 
-Cross-ref: Bug 32. Bugs 28 + 29 are the precursors.
+Cross-ref: Bug 32. Bugs 28 + 29 are the precursors. Smoke at
+scripts/sprint54-smoke.mjs.
 
-## Sprint 55: Murder Migration + Safety-Net Revert
+## Sprint 55: Bug 33 — Manifest Hash + Aggregator Skip + 2 Backfill Tools
 
-Goal: run the canonical-flow migration prompt from Spec 060 on
-the Murder workspace. Verify the post-migration state matches
-expectations:
-- artifacts.json: total == unique paths.
-- entities.json: payload entity count == unique
-  payloadContentHash count.
-- archive_phase1_noise + auto_resolve_questions: open question
-  drop matches expectations from Bug 32 verification.
+Goal: close the Bug 33 hole discovered during Murder migration
+dry-run (manifest-importer never sets payloadContentHash, plus
+(srcArt, loadAddr) fallback collapses unrelated PRGs sharing a load
+address when srcArt is an aggregator).
 
-Once verified, revert the Bug 24 v2 same-path safety net inside
-`latestArtifactsByLineage` (no longer needed once data is clean).
-Update tests to lock the canonical flow as invariant.
+Status: DONE.
 
-Status: pending Sprints 52-54 landing first.
+Decisions (implemented):
+- Fix A: importManifestKnowledge computes payloadContentHash via
+  sha256 of file bytes (relativePath resolved against manifest dir).
+  Plus two backfill tools: backfill_payload_content_hashes
+  (direct-linked) + backfill_manifest_payload_hashes (manifest re-parse).
+- Fix B: aggregator skip — saveEntity payload-dedup AND
+  dedupePayloadEntities migration both refuse the (src, load)
+  fallback when srcArt.kind === "manifest". Hash primary key
+  enforced for manifest-sourced entities.
+
+Murder migration order (post-fix):
+1. dedupe_artifact_registry()
+2. backfill_payload_content_hashes()
+3. backfill_manifest_payload_hashes()
+4. dedupe_payload_entities(dry_run=true) → confirm only same-hash collapses
+5. dedupe_payload_entities()
+
+Original Sprint 55 (migration apply + Bug 24 v2 revert) deferred to
+Sprint 58 — runs against actual Murder workspace.
+
+Cross-ref: Bug 33, Spec 060. Smoke at scripts/sprint55-smoke.mjs.
 
 ## Sprint 56: Questions Bulk Re-Evaluate (Spec 061 / UX3)
 
@@ -1685,12 +1695,14 @@ processes per-question with one of four outcomes (`answered`,
 Dashboard task tile, per-question pending badge, auto-poll every
 30s while a bulk task is active.
 
-Schema add: `TaskRecord.kind: "human" | "automation"`.
+Schema add: `TaskRecord.agentKind: "human" | "automation"` (named
+agentKind to avoid colliding with existing `kind` task-category field).
 
 Endpoints: `POST /api/tasks/bulk-revaluate`,
-`GET /api/tasks/active-bulk`.
+`GET /api/tasks/active-bulk`. c64re_whats_next surfaces UI-triggered
+tasks BEFORE per-artifact next-step.
 
-Status: spec written (Spec 061), implementation pending.
+Status: DONE. Smoke at scripts/sprint56-smoke.mjs.
 
 ## Sprint 57: View-Centric Tabs Big Bang (Spec 059 / UX1)
 
@@ -1705,8 +1717,16 @@ No power-user fallback in the UI — JSON files in
 `knowledge/*.json` + MCP `list_*` tools + LLM-on-demand markdown
 reports cover that need.
 
-Status: spec written (Spec 059), implementation pending. Big-bang
-on feature branch (two-person team, no staged rollout).
+Status: DONE (structural pass). Big-bang on feature branch.
+
+Decisions (implemented):
+- TabId reduced 16 → 11; removed: findings, entities, flows,
+  relations, load, activity.
+- Load Sequence folded into Flow Graph as a Load sub-mode
+  (FlowPanelWithLoadMode wrapper with top toggle).
+- Recent Activity widget folded into Dashboard footer.
+- Inspector / overlays / filter facets per view = follow-up sprint
+  per-view (each view is its own refactor surface).
 
 ## Bug fixes shipped this batch
 

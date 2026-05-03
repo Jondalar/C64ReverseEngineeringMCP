@@ -55,7 +55,11 @@ import type {
   WorkspaceUiSnapshot,
 } from "./types";
 
-type TabId = "dashboard" | "questions" | "findings" | "entities" | "flows" | "relations" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "load" | "flow" | "listing" | "activity";
+// Spec 059 / UX1: view-centric tab structure (16 → 11). Removed:
+// findings/entities/flows/relations (record-list tabs — surface inside
+// inspector instead), load (folded into Flow sub-mode), activity
+// (folded into Dashboard).
+type TabId = "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -127,21 +131,15 @@ type CartChunkSelection = { cartridgeArtifactId: string; chunk: CartridgeLutChun
 const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "questions", label: "Questions" },
-  { id: "findings", label: "Findings" },
-  { id: "entities", label: "Entities" },
-  { id: "flows", label: "Flows" },
-  { id: "relations", label: "Relations" },
   { id: "docs", label: "Docs" },
   { id: "memory", label: "Memory Map" },
   { id: "graphics", label: "Graphics" },
   { id: "scrub", label: "Scrub" },
-  { id: "cartridge", label: "Cartridge" },
   { id: "disk", label: "Disk" },
+  { id: "cartridge", label: "Cartridge" },
   { id: "payloads", label: "Payloads" },
-  { id: "load", label: "Load Sequence" },
   { id: "flow", label: "Flow Graph" },
   { id: "listing", label: "Annotated Listing" },
-  { id: "activity", label: "Recent Activity" },
 ];
 
 // Files we want to open in the (mon) hex viewer. Anything else (.json,
@@ -1646,6 +1644,8 @@ function DashboardPanel({
       <AuditPanel projectDir={snapshot.project.rootPath} onReloadWorkspace={onReloadWorkspace} />
       <PerArtifactStatusPanel projectDir={snapshot.project.rootPath} />
       <WorkflowRunnerPanel snapshot={snapshot} onReloadWorkspace={onReloadWorkspace} />
+      {/* Spec 059 / UX1: Recent Activity tab folded into Dashboard. */}
+      <ActivityPanel snapshot={snapshot} />
     </div>
   );
 }
@@ -3094,7 +3094,7 @@ function tabHasEntity(snapshot: WorkspaceUiSnapshot, entityId: string, tab: TabI
   const entity = snapshot.entities.find((candidate) => candidate.id === entityId);
   if (!entity) return false;
   if (tab === "dashboard") return true;
-  if (tab === "docs" || tab === "activity" || tab === "graphics" || tab === "scrub") return false;
+  if (tab === "docs" || tab === "graphics" || tab === "scrub") return false;
   if (tab === "memory") {
     return Boolean(entity.addressRange)
       || snapshot.views.memoryMap.cells.some((cell) => cell.entityIds.includes(entityId) || cell.dominantEntityId === entityId)
@@ -3102,8 +3102,8 @@ function tabHasEntity(snapshot: WorkspaceUiSnapshot, entityId: string, tab: TabI
       || snapshot.views.memoryMap.highlights.some((highlight) => highlight.entityId === entityId);
   }
   if (tab === "disk") return diskFileSelectionForEntity(snapshot, entityId) !== null;
-  if (tab === "load") return snapshot.views.loadSequence.items.some((item) => item.primaryEntityId === entityId || item.entityIds.includes(entityId));
-  if (tab === "flow") return snapshot.views.flowGraph.nodes.some((node) => node.entityId === entityId)
+  if (tab === "flow") return snapshot.views.loadSequence.items.some((item) => item.primaryEntityId === entityId || item.entityIds.includes(entityId))
+    || snapshot.views.flowGraph.nodes.some((node) => node.entityId === entityId)
     || Object.values(snapshot.views.flowGraph.modes ?? {}).some((mode) => mode.nodes.some((node) => node.entityId === entityId));
   if (tab === "listing") return snapshot.views.annotatedListing.entries.some((entry) => entry.entityId === entityId);
   if (tab === "cartridge") {
@@ -3132,8 +3132,9 @@ function firstEntityForTab(snapshot: WorkspaceUiSnapshot, tab: TabId): string | 
   if (tab === "disk") {
     return snapshot.views.diskLayout.disks.flatMap((disk) => disk.files.map((file) => file.entityId).filter(Boolean))[0] ?? null;
   }
-  if (tab === "load") {
-    return snapshot.views.loadSequence.items.flatMap((item) => item.primaryEntityId ? [item.primaryEntityId] : item.entityIds)[0] ?? null;
+  if (tab === "flow") {
+    const loadFirst = snapshot.views.loadSequence.items.flatMap((item) => item.primaryEntityId ? [item.primaryEntityId] : item.entityIds)[0];
+    if (loadFirst) return loadFirst;
   }
   if (tab === "flow") {
     return snapshot.views.flowGraph.nodes.find((node) => node.entityId)?.entityId
@@ -3259,6 +3260,64 @@ function LoadSequencePanel({
           </div>
         </div>
       </div>
+    </section>
+  );
+}
+
+// Spec 059 / UX1: wraps FlowPanel with a Load sub-mode that delegates
+// to LoadSequencePanel — folds the standalone Load Sequence tab in.
+function FlowPanelWithLoadMode({
+  flowGraph,
+  entities,
+  relations,
+  selectedEntityId,
+  onSelectEntity,
+  loadView,
+  snapshot,
+}: {
+  flowGraph: FlowGraphView;
+  entities: EntityRecord[];
+  relations: RelationRecord[];
+  selectedEntityId?: string | null;
+  onSelectEntity: (entityId: string) => void;
+  loadView: LoadSequenceView;
+  snapshot: WorkspaceUiSnapshot;
+}) {
+  const [topMode, setTopMode] = useState<"graph" | "load">("graph");
+  return (
+    <section className="panel-card">
+      <div className="inspector-chip-row" style={{ marginBottom: "0.5rem" }}>
+        <button
+          type="button"
+          className={topMode === "graph" ? "tab-button active" : "tab-button"}
+          onClick={() => setTopMode("graph")}
+        >
+          Flow Graph
+        </button>
+        <button
+          type="button"
+          className={topMode === "load" ? "tab-button active" : "tab-button"}
+          onClick={() => setTopMode("load")}
+        >
+          Load Sequence
+        </button>
+      </div>
+      {topMode === "graph" ? (
+        <FlowPanel
+          flowGraph={flowGraph}
+          entities={entities}
+          relations={relations}
+          selectedEntityId={selectedEntityId}
+          onSelectEntity={onSelectEntity}
+        />
+      ) : (
+        <LoadSequencePanel
+          view={loadView}
+          snapshot={snapshot}
+          selectedEntityId={selectedEntityId}
+          onSelectEntity={onSelectEntity}
+        />
+      )}
     </section>
   );
 }
@@ -4123,7 +4182,7 @@ function EntityInspector({
   const jumpTargets = [
     entity.addressRange || memoryRegions.length > 0 ? { id: "memory", label: "Memory Map", tab: "memory" as TabId } : null,
     diskFiles.length > 0 ? { id: "disk", label: "Disk", tab: "disk" as TabId } : null,
-    loadItems.length > 0 ? { id: "load", label: "Load Sequence", tab: "load" as TabId } : null,
+    loadItems.length > 0 ? { id: "flow-load", label: "Load Sequence", tab: "flow" as TabId } : null,
     flowNodes.length > 0 ? { id: "flow", label: "Flow Graph", tab: "flow" as TabId } : null,
     listingEntries.length > 0 ? { id: "listing", label: "Annotated List", tab: "listing" as TabId } : null,
     docArtifacts.length > 0 ? { id: "docs", label: "Docs", tab: "docs" as TabId } : null,
@@ -4149,7 +4208,8 @@ function EntityInspector({
       return;
     }
     if (artifact.kind.includes("trace")) {
-      onOpenTab("activity");
+      // Activity tab folded into Dashboard (Spec 059).
+      onOpenTab("dashboard");
       return;
       }
     if (artifact.kind.includes("analysis")) {
@@ -4301,7 +4361,7 @@ function EntityInspector({
             </button>
           ))}
           {loadItems.map((item) => (
-            <button key={item.id} type="button" className="record-card" onClick={() => onOpenTab("load")}>
+            <button key={item.id} type="button" className="record-card" onClick={() => onOpenTab("flow")}>
               <div className="record-topline">
                 <span>{item.title}</span>
                 <span className="record-status">{item.role}</span>
@@ -4902,7 +4962,7 @@ function DiskFileInspector({
       onClick: () => {
         const target = linkedLoadItems[0]!;
         if (target.primaryEntityId) onSelectEntity(target.primaryEntityId);
-        onOpenTab("load");
+        onOpenTab("flow");
       },
     });
   }
@@ -5635,20 +5695,17 @@ export function App() {
     ? allTabs.filter((tab) => {
         if (tab.id === "dashboard") return true;
         if (tab.id === "questions") return snapshot.openQuestions.length > 0;
-        if (tab.id === "findings") return snapshot.findings.length > 0;
-        if (tab.id === "entities") return snapshot.entities.length > 0;
-        if (tab.id === "flows") return snapshot.flows.length > 0;
-        if (tab.id === "relations") return snapshot.relations.length > 0;
         if (tab.id === "docs") return docs.length > 0;
         if (tab.id === "memory") return snapshot.views.memoryMap.cells.length > 0;
         if (tab.id === "graphics") return graphicsItems.length > 0;
         if (tab.id === "scrub") return snapshot.artifacts.some((artifact) => artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw");
         if (tab.id === "cartridge") return snapshot.views.cartridgeLayout.cartridges.length > 0;
         if (tab.id === "disk") return snapshot.views.diskLayout.disks.length > 0;
-        if (tab.id === "load") return snapshot.views.loadSequence.items.length > 0;
-        if (tab.id === "flow") return snapshot.views.flowGraph.nodes.length > 0;
+        // Spec 059 / UX1: Flow Graph tab covers both flow-graph nodes
+        // and the folded-in load sequence items.
+        if (tab.id === "flow") return snapshot.views.flowGraph.nodes.length > 0
+          || snapshot.views.loadSequence.items.length > 0;
         if (tab.id === "listing") return snapshot.views.annotatedListing.entries.length > 0;
-        if (tab.id === "activity") return snapshot.recentTimeline.length > 0;
         return true;
       })
     : allTabs;
@@ -5830,33 +5887,11 @@ export function App() {
               />
             ) : null}
 
-            {activeTab === "findings" ? (
-              <FindingsPanel
-                snapshot={snapshot}
-                onSelectEntity={(entityId) => handleSelectEntity(entityId, "findings")}
-              />
-            ) : null}
-
-            {activeTab === "entities" ? (
-              <EntitiesPanel
-                snapshot={snapshot}
-                onSelectEntity={(entityId) => handleSelectEntity(entityId, "entities")}
-              />
-            ) : null}
-
-            {activeTab === "flows" ? (
-              <FlowsPanel
-                snapshot={snapshot}
-                onSelectEntity={(entityId) => handleSelectEntity(entityId, "flows")}
-              />
-            ) : null}
-
-            {activeTab === "relations" ? (
-              <RelationsPanel
-                snapshot={snapshot}
-                onSelectEntity={(entityId) => handleSelectEntity(entityId, "relations")}
-              />
-            ) : null}
+            {/* Spec 059 / UX1: findings/entities/flows/relations panels
+                removed from tab strip. Knowledge surfaces now live
+                inside the Inspector pane on every view. Raw access:
+                list_findings/list_entities/list_relations/list_flows
+                MCP tools or knowledge/*.json on disk. */}
 
             {activeTab === "docs" ? (
               <DocsPanel
@@ -5931,21 +5966,17 @@ export function App() {
                 onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
               />
             ) : null}
-            {activeTab === "load" ? (
-              <LoadSequencePanel
-                view={snapshot.views.loadSequence}
-                snapshot={snapshot}
-                selectedEntityId={selectedEntityId}
-                onSelectEntity={(entityId) => handleSelectEntity(entityId, "load")}
-              />
-            ) : null}
+            {/* Spec 059 / UX1: standalone Load Sequence tab folded
+                into Flow Graph as the "Load" sub-mode below. */}
             {activeTab === "flow" ? (
-              <FlowPanel
+              <FlowPanelWithLoadMode
                 flowGraph={snapshot.views.flowGraph}
                 entities={snapshot.entities}
                 relations={snapshot.relations}
                 selectedEntityId={selectedEntityId}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "flow")}
+                loadView={snapshot.views.loadSequence}
+                snapshot={snapshot}
               />
             ) : null}
             {activeTab === "listing" ? (
@@ -5960,7 +5991,8 @@ export function App() {
                 <AnnotationDraftPanel projectDir={snapshot.project.rootPath} />
               </>
             ) : null}
-            {activeTab === "activity" ? <ActivityPanel snapshot={snapshot} /> : null}
+            {/* Spec 059 / UX1: standalone Activity tab removed; the
+                widget folds into the Dashboard. */}
           </section>
 
           {activeTab !== "docs" ? (
