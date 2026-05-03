@@ -554,3 +554,35 @@ Same closed loop for the Graphics tab (Bug 23 family): after `mark_segment_confi
 The post-annotation closed loop (R26) automatically scopes to the artifact whose annotations were just saved.
 
 **Why**: turns the auto-archive into a per-file feedback signal: "you just annotated 02_ab.prg → 18 of its hypotheses are now archived, 23 of its questions answered". Much more actionable than project-wide totals.
+
+---
+
+## UX1 — View-centric tabs (16 → 11)
+
+**Status**: SPEC WRITTEN — Spec 059 (`059-ux1-view-centric-tabs.md`).
+
+**Problem**: workspace UI exposes 16 top-level tabs, with one tab per knowledge record kind (Entities, Flows, Relations) plus the standalone Load Sequence. Real navigation happens via Memory Map / Flow Graph / Listing / Disk; the entity-list-style tabs are noise.
+
+**Want**: organise tabs by VIEW (Memory Map, Flow Graph, Listing, Disk, Cart, Graphics), not by record type. Knowledge (entities / findings / relations) is surfaced INSIDE every view via three layered mechanisms:
+1. Inspector pane with uniform layout per item type (linked entities / findings / relations / artifacts + actions).
+2. Overlays / badges on view items (finding count, status icon, confidence colour).
+3. Filter facets per view (kind, status, confidence) with URL-persisted state.
+
+**Removed tabs**: Entities, Flows, Relations, Load Sequence (folded into Flow Graph as "Load" sub-mode), Recent Activity (collapsed into Dashboard widget).
+
+**Power-user / debug access**: removed from UI. JSON files in `knowledge/*.json` + MCP `list_*` tools + LLM-on-demand markdown reports cover that.
+
+**Migration**: big bang on feature branch (two-person team).
+
+---
+
+## UX2 — Payloads tab dedupe + click-to-inspect
+
+**Status**: SPEC PENDING.
+
+**Problem**: Payloads tab (screenshot 2026-05-03 12.25.00) shows 33 payloads with duplicates: e.g. `01_murder` + `murder` (same load $02DC, same content), `11_riv1` + `riv1` (same $0700). Bug 24 lineage filter doesn't catch these — they are Entity duplicates, not Artifact duplicates. Plus inline `mon (raw)` + `reverse workflow` buttons on every card clutter the list; inconsistent with the click-to-select-inspector pattern used by Disk Files / Cart Chunks.
+
+**Want**:
+1. Dedupe payloads by `(payloadSourceArtifactId, payloadLoadAddress, payloadContentHash)`. On collision, prefer the manually-registered entity, fall back to the auto-import name. Optionally collapse via lineage when the entities are version-related.
+2. Card click selects payload, Inspector pane right shows details + actions (per Spec 059 pattern). Drop inline buttons.
+3. Confirm value: filterable list of "what this project loads" — useful when deduplicated.
