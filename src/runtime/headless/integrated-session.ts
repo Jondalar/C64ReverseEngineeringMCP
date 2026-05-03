@@ -18,7 +18,25 @@ import { attachCia2ToIecBus } from "./iec/cia2-stub.js";
 import { DriveCpu } from "./drive/drive-cpu.js";
 import { TrackBuffer, HeadPosition } from "./drive/head-position.js";
 import { G64Parser } from "../../disk/g64-parser.js";
+import { DiskProvider } from "./providers.js";
 import { existsSync, readFileSync } from "node:fs";
+
+// KERNAL JMP-table addresses we trap. Sprint 67 rationale: CIA1
+// timer A IRQ + raster-IRQ jiffy aren't yet modeled; real KERNAL
+// serial routines depend on CIA1 timer T1 for inter-bit handshake
+// delays. Without that, the C64 + drive ROM end up in mutual-wait
+// during the LOAD bit-bang (verified during Sprint 66 iteration).
+//
+// The valuable trace material — custom-loader drive code installed
+// via M-W and started via M-E — runs on the drive CPU and bit-bangs
+// $DD00 DIRECTLY, bypassing KERNAL. The trap fast-paths bootstrap
+// LOAD via direct G64 read; real-IEC bit-mirror handles everything
+// downstream. Documented for spec 062 follow-up: model CIA1 timer
+// to retire the trap.
+const KERNAL_SETLFS = 0xffba;
+const KERNAL_SETNAM = 0xffbd;
+const KERNAL_LOAD = 0xffd5;
+const KERNAL_SAVE = 0xffd8;
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -52,6 +70,14 @@ export class IntegratedSession {
   public readonly diskPath: string;
   public readonly parser: G64Parser;
   public readonly romSet: LoadedC64RomSet;
+  public readonly diskProvider: DiskProvider;
+  // KERNAL trap state (mirrors HeadlessSession's loaderState shape).
+  public lastTrap?: string;
+  private logicalFile = 0;
+  private device = 0;
+  private secondaryAddress = 1;
+  private fileName = "";
+  public loadEvents: Array<{ name: string; loadAddress: number; endAddress: number; bytesLoaded: number }> = [];
   private readonly driveCyclesPerC64Cycle: number;
   private driveCycleAccumulator = 0;
   private c64InstructionCount = 0;
@@ -63,6 +89,7 @@ export class IntegratedSession {
     this.driveCyclesPerC64Cycle = DRIVE_HZ / (isPal ? C64_HZ_PAL : C64_HZ_NTSC);
     this.diskPath = opts.diskPath;
     this.parser = new G64Parser(readFileSync(opts.diskPath));
+    this.diskProvider = DiskProvider.fromImagePath(opts.diskPath);
     this.trackBuffer = new TrackBuffer(this.parser);
     this.headPosition = new HeadPosition({ startTrack: opts.startTrack ?? 18 });
     this.iecBus = new IecBus();
@@ -123,7 +150,17 @@ export class IntegratedSession {
   }
 
   // Step ONE C64 instruction; the drive runs the proportional cycles.
+  // KERNAL LOAD/SAVE/SETLFS/SETNAM are trapped at the JMP-table entry
+  // (see header rationale). Custom-loader bit-bang traffic via $DD00
+  // bypasses KERNAL and runs through the real iec-bus bit-mirror —
+  // that's what we want to trace.
   stepC64Instruction(): void {
+    if (this.handleKernalTrap()) {
+      this.c64InstructionCount += 1;
+      this.driveCycleAccumulator += 7 * this.driveCyclesPerC64Cycle;
+      while (this.driveCycleAccumulator >= 1) this.runOneDriveStep();
+      return;
+    }
     this.checkC64Interrupts();
     const before = this.c64Cpu.cycles;
     this.c64Cpu.step();
@@ -133,6 +170,95 @@ export class IntegratedSession {
     while (this.driveCycleAccumulator >= 1) {
       this.runOneDriveStep();
     }
+  }
+
+  private handleKernalTrap(): boolean {
+    switch (this.c64Cpu.pc) {
+      case KERNAL_SETLFS: this.trapSetlfs(); return true;
+      case KERNAL_SETNAM: this.trapSetnam(); return true;
+      case KERNAL_LOAD: this.trapLoad(); return true;
+      case KERNAL_SAVE: this.trapSave(); return true;
+      default: return false;
+    }
+  }
+
+  private trapSetlfs(): void {
+    this.logicalFile = this.c64Cpu.a;
+    this.device = this.c64Cpu.x;
+    this.secondaryAddress = this.c64Cpu.y;
+    // Mirror real KERNAL: write to zero-page so direct readers see them.
+    this.c64Bus.ram[0xb8] = this.logicalFile;
+    this.c64Bus.ram[0xba] = this.device;
+    this.c64Bus.ram[0xb9] = this.secondaryAddress;
+    this.c64Cpu.setCarry(false);
+    this.c64Cpu.returnFromSubroutine();
+    this.lastTrap = `SETLFS lfn=${this.logicalFile} device=${this.device} sa=${this.secondaryAddress}`;
+  }
+
+  private trapSetnam(): void {
+    const length = this.c64Cpu.a & 0xff;
+    const ptr = this.c64Cpu.x | (this.c64Cpu.y << 8);
+    const bytes: number[] = [];
+    for (let i = 0; i < length; i++) bytes.push(this.c64Bus.read((ptr + i) & 0xffff));
+    this.fileName = String.fromCharCode(...bytes);
+    // Mirror real KERNAL.
+    this.c64Bus.ram[0xb7] = length;
+    this.c64Bus.ram[0xbb] = ptr & 0xff;
+    this.c64Bus.ram[0xbc] = (ptr >> 8) & 0xff;
+    this.c64Cpu.setCarry(false);
+    this.c64Cpu.returnFromSubroutine();
+    this.lastTrap = `SETNAM "${this.fileName}" @ $${ptr.toString(16)}`;
+  }
+
+  private trapLoad(): void {
+    // Re-read filename from zero-page so direct callers (script
+    // setting $B7/$BB/$BC + skipping SETNAM) work too.
+    const fnLen = this.c64Bus.ram[0xb7]!;
+    const fnPtr = this.c64Bus.ram[0xbb]! | (this.c64Bus.ram[0xbc]! << 8);
+    let nameFromZp = "";
+    for (let i = 0; i < fnLen; i++) {
+      nameFromZp += String.fromCharCode(this.c64Bus.read((fnPtr + i) & 0xffff));
+    }
+    if (nameFromZp) this.fileName = nameFromZp;
+    this.device = this.c64Bus.ram[0xba]!;
+    this.secondaryAddress = this.c64Bus.ram[0xb9]!;
+    const fileName = this.fileName.trim();
+    if (!fileName) {
+      this.c64Cpu.setCarry(true);
+      this.c64Cpu.a = 8;
+      this.c64Cpu.returnFromSubroutine();
+      this.lastTrap = `LOAD ERROR: no filename`;
+      return;
+    }
+    const match = this.diskProvider.findFile(fileName);
+    if (!match) {
+      this.c64Cpu.setCarry(true);
+      this.c64Cpu.a = 4;
+      this.c64Cpu.returnFromSubroutine();
+      this.lastTrap = `LOAD ERROR: "${fileName}" not found`;
+      return;
+    }
+    const bytes = match.bytes;
+    const fileLoadAddress = bytes.length >= 2 ? (bytes[0]! | (bytes[1]! << 8)) : 0;
+    const target = this.secondaryAddress === 0 ? (this.c64Cpu.x | (this.c64Cpu.y << 8)) : fileLoadAddress;
+    const payload = bytes.length >= 2 ? bytes.slice(2) : bytes;
+    for (let i = 0; i < payload.length; i++) {
+      this.c64Bus.ram[(target + i) & 0xffff] = payload[i]!;
+    }
+    const end = (target + payload.length) & 0xffff;
+    this.c64Cpu.a = 0;
+    this.c64Cpu.x = end & 0xff;
+    this.c64Cpu.y = (end >> 8) & 0xff;
+    this.c64Cpu.setCarry(false);
+    this.c64Cpu.returnFromSubroutine();
+    this.lastTrap = `LOAD "${match.entry.name}" -> $${target.toString(16)}-$${(end - 1).toString(16)} (${payload.length} bytes)`;
+    this.loadEvents.push({ name: match.entry.name, loadAddress: target, endAddress: end, bytesLoaded: payload.length });
+  }
+
+  private trapSave(): void {
+    this.c64Cpu.setCarry(false);
+    this.c64Cpu.returnFromSubroutine();
+    this.lastTrap = `SAVE (no-op stub)`;
   }
 
   // Run for up to N C64 instructions or until breakpoint / max-cycle hit.

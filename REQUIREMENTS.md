@@ -679,3 +679,38 @@ VICE source tree is now checked out at `/Users/alex/Development/C64/Tools/vice/v
 - `src/c64/cart/` — cartridge handling reference (informs CRT support already, listed for completeness).
 
 Use VICE as: (a) algorithmic reference for the IEC handshake state machine, (b) ground-truth oracle to diff our headless drive-stub behaviour against during testing, (c) source for drive-ROM stub addresses + their KERNAL-equivalent semantics. Licensing: VICE is GPL — keep clean-room separation if our headless emulator must remain non-GPL; otherwise direct lift of `drivecpu.c`-style code substantially accelerates Level 2.
+
+## R29 — `register_existing_files` default patterns must cover headless-runtime outputs
+
+**Severity:** low (workaround available — user-supplied patterns) but **high friction** (every headless-session run reproduces the warning)
+**Discovered during:** Murder project work, repeatedly. Each `headless_session_start` produces 3 files that the built-in default pattern set does not cover. The UI surfaces "⚠ N files on disk are not registered" after every run.
+
+### Symptom
+
+After each `headless_session_start` + `headless_session_run` cycle, three artefacts land under `analysis/headless-runtime/<timestamp>-<uid>/`:
+
+- `session.json` — session metadata (entry PC, traps, banks, load events)
+- `trace/runtime-trace.jsonl` — per-instruction trace stream
+- `trace/summary.json` — run summary (steps, cycles, last-trap)
+
+`scan_registration_delta` flags all three as unregistered. `register_existing_files` with no patterns leaves them untouched (the default pattern set has no entry for `analysis/headless-runtime/**`). User must hand-supply the three globs every time, or the UI warning persists across the whole session.
+
+### Fix
+
+Add three entries to the built-in default pattern set in `register_existing_files`:
+
+```ts
+{ glob: "analysis/headless-runtime/**/session.json",
+  kind: "report", scope: "session", role: "headless-session" },
+{ glob: "analysis/headless-runtime/**/trace/runtime-trace.jsonl",
+  kind: "trace", scope: "session", role: "runtime-trace" },
+{ glob: "analysis/headless-runtime/**/trace/summary.json",
+  kind: "report", scope: "session", role: "trace-summary" },
+```
+
+Optional follow-up: have `headless_session_start` (or `_stop`) auto-register its own outputs via the artifact saver, so `register_existing_files` is never required for session output. That's the cleaner long-term fix — the file-system delta scan should mostly find legacy bulk imports, not normal tool output.
+
+### Cross-reference
+
+- R28 (headless 1541 drive emulation) — once Murder boot trace runs to completion, the same 3 files will land per run; this FR keeps that flow clean.
+- Bug 9 (historical) — `register_existing_files` glob-handling tightened earlier; this is the followup data-coverage gap.
