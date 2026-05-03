@@ -77,6 +77,10 @@ export class IecBus {
   // KERNAL writes ORA #$38 to $DD00 to assert ATN+CLK+DATA. KERNAL's
   // $EE8E (`ORA #$10` then store) is "pull CLK low" — confirms bit=1=pull.
   setC64Output(cia2Pa: number, ddrMask: number): void {
+    // VICE-style: flush drive cycles BEFORE bus state changes so the
+    // drive sees its previous bus state for full duration before this
+    // new one. Symmetric with read-side flush.
+    if (this.beforeC64Read) this.beforeC64Read();
     const driveAtn = (ddrMask & CIA2_PA_ATN_OUT) !== 0;
     const driveClk = (ddrMask & CIA2_PA_CLK_OUT) !== 0;
     const driveData = (ddrMask & CIA2_PA_DATA_OUT) !== 0;
@@ -130,8 +134,15 @@ export class IecBus {
     return this.c64DataReleased && this.driveDataReleased;
   }
 
+  // Spec 083 / VICE-style: caller can hook to ensure drive CPU has
+  // caught up to the current cycle before C64 reads bus state. Without
+  // this, drive lag causes serial bit timing to fail (drive can't
+  // respond fast enough to CLK/DATA changes).
+  public beforeC64Read?: () => void;
+
   // Read-side helper for CIA2 stub: build the input bits CIA2 sees on PA.
   buildC64InputBits(): number {
+    if (this.beforeC64Read) this.beforeC64Read();
     let bits = 0;
     bits |= CIA2_PA_VIC_BANK_LO | CIA2_PA_VIC_BANK_HI; // input bits float high (we ignore VIC bank)
     if (this.clkLine) bits |= CIA2_PA_CLK_IN;

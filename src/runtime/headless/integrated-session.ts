@@ -122,6 +122,11 @@ export class IntegratedSession {
       this.c64Bus.loadBasicRom(this.romSet.basic.bytes);
       this.c64Bus.loadCharRom(this.romSet.charRom.bytes);
     }
+    // Spec 083 / VICE-style: when C64 reads or writes IEC bus state,
+    // first catch the drive CPU up to the current cycle so drive's
+    // response reflects all elapsed time. Without this, drive lag
+    // breaks serial bit timing.
+    this.iecBus.beforeC64Read = () => this.flushDriveCycles();
     this.cia2 = installCia2(this.c64Bus, this.iecBus);
     const cia1Install = installCia1(this.c64Bus);
     this.cia1 = cia1Install.cia;
@@ -274,6 +279,16 @@ export class IntegratedSession {
       this.stepC64Instruction();
     }
     return { instructionsExecuted: i, lastPc: this.c64Cpu.pc };
+  }
+
+  // Spec 083 / VICE iecbus_cpu_execute_one pattern: drain the drive
+  // cycle accumulator down to ≤ 0 so drive has caught up to the C64's
+  // current time. Called from IecBus.beforeC64Read on every CIA2 PA
+  // read/write. Idempotent — if no cycles owed, no-op.
+  flushDriveCycles(): void {
+    while (this.driveCycleAccumulator >= 1) {
+      this.runOneDriveStep();
+    }
   }
 
   private runOneDriveStep(): number {
