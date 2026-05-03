@@ -14,14 +14,15 @@ import { Cpu6510 } from "./cpu6510.js";
 import { HeadlessMemoryBus } from "./memory-bus.js";
 import { loadAllC64Roms, type LoadedC64RomSet } from "./c64-rom.js";
 import { IecBus } from "./iec/iec-bus.js";
-import { attachCia2ToIecBus } from "./iec/cia2-stub.js";
 import { DriveCpu } from "./drive/drive-cpu.js";
 import { TrackBuffer, HeadPosition } from "./drive/head-position.js";
 import { G64Parser } from "../../disk/g64-parser.js";
 import { DiskProvider } from "./providers.js";
 import { existsSync, readFileSync } from "node:fs";
 import { installVicMinimalStubs } from "./peripherals/vic-stub.js";
-import { installCia1KeyboardStub } from "./peripherals/cia1-stub.js";
+import { installCia1 } from "./peripherals/cia1.js";
+import { installCia2 } from "./peripherals/cia2.js";
+import type { Cia6526 } from "./cia/cia6526.js";
 import {
   handleKernalFileIoTrap,
   makeKernalFileIoState,
@@ -38,6 +39,10 @@ export interface IntegratedSessionOptions {
   deviceId?: number;
   startTrack?: number;
   writeProtected?: boolean;
+  // Spec 064 Sprint 69b: file-IO traps default OFF (KERNAL runs
+  // real serial bit-bang to drive). Set true to fall back to the
+  // Sprint 67 trap path if the real protocol stalls.
+  enableKernalFileIoTraps?: boolean;
 }
 
 export interface PrgLoadResult {
@@ -58,6 +63,11 @@ export class IntegratedSession {
   public readonly romSet: LoadedC64RomSet;
   public readonly diskProvider: DiskProvider;
   public readonly kernalFileIo: KernalFileIoState;
+  public readonly cia1: Cia6526;
+  public readonly cia2: Cia6526;
+  public readonly enableKernalFileIoTraps: boolean;
+  // NMI edge detection bookkeeping.
+  private prevCia2IrqAsserted = false;
   public get lastTrap(): string | undefined { return this.kernalFileIo.lastTrap; }
   public get loadEvents(): KernalFileIoState["loadEvents"] { return this.kernalFileIo.loadEvents; }
   private readonly driveCyclesPerC64Cycle: number;
@@ -84,9 +94,9 @@ export class IntegratedSession {
       this.c64Bus.loadBasicRom(this.romSet.basic.bytes);
       this.c64Bus.loadCharRom(this.romSet.charRom.bytes);
     }
-    attachCia2ToIecBus(this.c64Bus, this.iecBus);
+    this.cia2 = installCia2(this.c64Bus, this.iecBus);
+    this.cia1 = installCia1(this.c64Bus);
     installVicMinimalStubs(this.c64Bus);
-    installCia1KeyboardStub(this.c64Bus);
     this.c64Bus.reset();
     this.c64Cpu = new Cpu6510(this.c64Bus);
 
@@ -99,6 +109,7 @@ export class IntegratedSession {
     this.iecBus.attachDriveRam(this.drive.bus.ram);
 
     this.kernalFileIo = makeKernalFileIoState();
+    this.enableKernalFileIoTraps = opts.enableKernalFileIoTraps ?? false;
   }
 
   resetCold(): void {
@@ -129,12 +140,19 @@ export class IntegratedSession {
   }
 
   stepC64Instruction(): void {
-    if (handleKernalFileIoTrap({
+    // Spec 064 Sprint 69b: KERNAL file-IO traps now opt-in via
+    // enableKernalFileIoTraps. Default is real KERNAL serial via
+    // CIA1 timer + drive ROM bit-bang. Trap path kept as fallback
+    // for cases where the real protocol stalls (still being tuned).
+    if (this.enableKernalFileIoTraps && handleKernalFileIoTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, state: this.kernalFileIo,
     })) {
       this.c64InstructionCount += 1;
-      this.driveCycleAccumulator += 7 * this.driveCyclesPerC64Cycle;
+      const trapCycles = 7;
+      this.cia1.tick(trapCycles);
+      this.cia2.tick(trapCycles);
+      this.driveCycleAccumulator += trapCycles * this.driveCyclesPerC64Cycle;
       while (this.driveCycleAccumulator >= 1) this.runOneDriveStep();
       return;
     }
@@ -143,6 +161,8 @@ export class IntegratedSession {
     this.c64Cpu.step();
     this.c64InstructionCount += 1;
     const consumed = this.c64Cpu.cycles - before;
+    this.cia1.tick(consumed);
+    this.cia2.tick(consumed);
     this.driveCycleAccumulator += consumed * this.driveCyclesPerC64Cycle;
     while (this.driveCycleAccumulator >= 1) {
       this.runOneDriveStep();
@@ -184,7 +204,16 @@ export class IntegratedSession {
   }
 
   private checkC64Interrupts(): void {
-    // Stub. Spec 064 wires CIA1 IRQ here. Spec 065 adds VIC raster IRQ.
+    // CIA2 → C64 NMI (edge-triggered). RESTORE-key NMI deferred.
+    const cia2Irq = this.cia2.irqAsserted();
+    if (cia2Irq && !this.prevCia2IrqAsserted) {
+      this.c64Cpu.serviceInterrupt(0xfffa, false);
+    }
+    this.prevCia2IrqAsserted = cia2Irq;
+    // CIA1 → C64 IRQ (level-triggered, gated by I-flag).
+    if (!this.c64Cpu.interruptsDisabled() && this.cia1.irqAsserted()) {
+      this.c64Cpu.serviceInterrupt(0xfffe, false);
+    }
   }
 
   status(): {
