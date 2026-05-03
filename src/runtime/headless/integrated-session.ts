@@ -43,6 +43,11 @@ import {
   makeKernalIoState,
   type KernalIoState,
 } from "./traps/kernal-io.js";
+import { CycleLockstepSchedulerImpl } from "./scheduler/cycle-lockstep-scheduler.js";
+import {
+  Cpu6510Cycled, CiaCycled, VicCycled, SidCycled,
+  DriveCpuCycled, ViaCycled, KeyboardCycled,
+} from "./scheduler/cycle-wrappers.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -63,6 +68,8 @@ export interface IntegratedSessionOptions {
   // real CIA2 → drive ATN handler runs and releases ATN_ACK.
   enableKernalSerialTraps?: boolean;
   enableKernalIoTraps?: boolean;
+  // Sprint 92: enable cycle-lockstep scheduler. Default false.
+  useCycleLockstep?: boolean;
 }
 
 export interface PrgLoadResult {
@@ -94,6 +101,11 @@ export class IntegratedSession {
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
+  // Sprint 92: cycle-lockstep scheduler. Optional opt-in for now via
+  // useCycleLockstep option. Default false for back-compat.
+  public readonly scheduler?: CycleLockstepSchedulerImpl;
+  public readonly cpuCycled?: Cpu6510Cycled;
+  public readonly useCycleLockstep: boolean;
   // NMI edge detection bookkeeping.
   private prevCia2IrqAsserted = false;
   public get lastTrap(): string | undefined { return this.kernalFileIo.lastTrap; }
@@ -144,8 +156,12 @@ export class IntegratedSession {
     // Spec 090: configure drive's sync ratio + zero baseline.
     this.drive.setSyncRatio(this.driveCyclesPerC64Cycle);
     this.drive.setSyncBaseline(0);
-    // Spec 090: install bus-read hook AFTER drive constructed.
-    this.iecBus.beforeC64Read = () => this.drive.executeToClock(this.c64Cpu.cycles);
+    // Spec 090: bus-read hook for legacy non-lockstep mode. In Sprint 92
+    // lockstep, drive ticks per cycle so hook becomes no-op. We install
+    // it conditionally on construction (after drive built).
+    if (!opts.useCycleLockstep) {
+      this.iecBus.beforeC64Read = () => this.drive.executeToClock(this.c64Cpu.cycles);
+    }
 
     this.kernalFileIo = makeKernalFileIoState();
     this.kernalSerial = makeKernalSerialState();
@@ -156,6 +172,33 @@ export class IntegratedSession {
     this.enableKernalSerialTraps = opts.enableKernalSerialTraps ?? false;
     this.enableKernalIoTraps = opts.enableKernalIoTraps ?? false;
     this.framebuffer = new VicFramebuffer(isPal);
+
+    // Sprint 92: cycle-lockstep scheduler (opt-in).
+    this.useCycleLockstep = opts.useCycleLockstep ?? false;
+    if (this.useCycleLockstep) {
+      const cpuCycled = new Cpu6510Cycled(this.c64Cpu);
+      cpuCycled.preInstructionCheck = () => this.checkC64Interrupts();
+      this.cpuCycled = cpuCycled;
+      const c64Components = [
+        cpuCycled,
+        new CiaCycled(this.cia1),
+        new CiaCycled(this.cia2),
+        new VicCycled(this.vic),
+        new SidCycled(this.sid),
+        new KeyboardCycled(this.keyboard),
+      ];
+      const driveComponents = [
+        new DriveCpuCycled(this.drive),
+        new ViaCycled(this.drive.bus.via1),
+        new ViaCycled(this.drive.bus.via2),
+      ];
+      this.scheduler = new CycleLockstepSchedulerImpl({
+        c64Components, driveComponents,
+        c64IsAtInstructionBoundary: () => cpuCycled.isAtInstructionBoundary(),
+        c64Pc: () => this.c64Cpu.pc,
+        isPal,
+      });
+    }
   }
 
   // Render the current VIC state to the framebuffer (text mode only
@@ -205,7 +248,38 @@ export class IntegratedSession {
     };
   }
 
+  // Sprint 92: extracted helper for trap dispatch — used by both
+  // legacy stepC64Instruction and scheduler-backed path.
+  private checkAndHandleTraps(): boolean {
+    return ((this.enableKernalFileIoTraps && handleKernalFileIoTrap({
+      cpu: this.c64Cpu, bus: this.c64Bus,
+      diskProvider: this.diskProvider, state: this.kernalFileIo,
+    })) || (this.enableKernalSerialTraps && handleKernalSerialTrap({
+      cpu: this.c64Cpu, bus: this.c64Bus,
+      diskProvider: this.diskProvider, drive: this.drive,
+      iecBus: this.iecBus, state: this.kernalSerial,
+    })) || (this.enableKernalIoTraps && handleKernalIoTrap({
+      cpu: this.c64Cpu, bus: this.c64Bus,
+      diskProvider: this.diskProvider, serial: this.kernalSerial,
+      state: this.kernalIo,
+    }))) === true;
+  }
+
   stepC64Instruction(): void {
+    if (this.scheduler) {
+      // Sprint 92: route through cycle-lockstep scheduler. Trap path
+      // still checked at instruction boundary BEFORE delegating to
+      // scheduler — traps short-circuit a real instruction.
+      const trapped = this.checkAndHandleTraps();
+      if (trapped) {
+        // Trap consumed an "instruction" worth of cycles. Run scheduler
+        // for ~7 cycles to advance peripherals + drive.
+        this.scheduler.runCycles(7);
+        return;
+      }
+      this.scheduler.runInstructions(1);
+      return;
+    }
     // Spec 064 Sprint 69b: KERNAL file-IO traps now opt-in via
     // enableKernalFileIoTraps. Default is real KERNAL serial via
     // CIA1 timer + drive ROM bit-bang. Trap path kept as fallback
