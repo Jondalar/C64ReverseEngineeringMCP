@@ -1556,4 +1556,93 @@ auto_resolve_questions
 - Bug 20: parent. After this + Bug 28, phase-1 noise should be dispatched.
 - R26: works, just finds 0 question candidates due to this bug.
 
+---
+
+## Bug 30 — `saveArtifact` dedupe broken: same path registered N times with separate IDs (Bug 10 deep)
+
+**Status**: OPEN
+
+**Severity**: High — corrupts the artifact graph. Drives every UI dedupe + lineage workaround. Root cause for UX2 payloads-tab triplicates and Bug 24 v2 fallback.
+
+### Live evidence (Murder)
+```
+$ jq '[.items[] | .relativePath] | length' knowledge/artifacts.json
+364
+$ jq '[.items[] | .relativePath] | unique | length' knowledge/artifacts.json
+276
+```
+
+→ **88 duplicate registrations**. 16 PRG files are each registered 3x:
+```
+$ jq '.items[] | select(.relativePath == "analysis/disk/motm/01_murder.prg") | {id, role, derivedFrom, lineageRoot, contentHash}' knowledge/artifacts.json
+{ "id": "artifact-01-murder-prg-moocom07", "role": "disasm-target", "derivedFrom": null, "lineageRoot": "artifact-01-murder-prg-moocom07", "versionRank": 0, "contentHash": "4d1908d4..." }
+{ "id": "artifact-01-murder-prg-moocq718", "role": "analysis-target", "derivedFrom": null, "lineageRoot": null, "versionRank": null, "contentHash": null }
+{ "id": "artifact-01-murder-prg-moocqb1y", "role": "disasm-target", "derivedFrom": null, "lineageRoot": null, "versionRank": null, "contentHash": null }
+```
+
+3 IDs, 3 different roles, 2 of 3 have null lineageRoot + contentHash, no derivedFrom links.
+
+### Root cause
+`service.saveArtifact` already has dedupe code:
+```ts
+const existing = input.id
+  ? store.items.find((item) => item.id === input.id)
+  : store.items.find((item) => item.path === absPath);
+```
+
+But callers — `analyze_prg`, `disasm_prg`, `register_existing_files`, `extract_disk` — pass DIFFERENT generated IDs in `input.id` for the same path, so the `input.id` branch always wins and a fresh record is created instead of the path-based dedupe firing.
+
+Plus: the auto-generated id `createId("artifact", input.title)` includes a timestamp suffix, so re-running the same tool produces a new ID each time, bypassing dedupe entirely.
+
+### Expected
+1. **Saver-side**: dedupe should fire by `(absPath, contentHash)` even when `input.id` differs. If existing artifact has the same path AND same content hash (or matching path with no content hash on either side), reuse and update fields instead of creating a new record.
+2. **Caller hygiene**: tools should avoid passing self-generated IDs unless they're stable (e.g., reuse the existing artifact's ID when the file is already known).
+3. **Migration**: `dedupe_artifact_registry()` one-shot tool that collapses same-path artifact rows. Conflict resolution: keep the row with `contentHash` set; merge `sourceArtifactIds`, `entityIds`, `tags`, `loadContexts` from siblings; remap references from removed IDs to the surviving ID across `entities.json`, `findings.json`, `relations.json`, `flows.json`, `tasks.json`, `open-questions.json`.
+
+### Cross-reference
+- Bug 10: parent (general "doppelregistrierung").
+- Bug 24 v2: introduced same-path dedup as Stage 2 of `latestArtifactsByLineage` to mask this in the UI; should become unnecessary once Bug 30 is fixed.
+- UX2: Payloads tab triplication. UI dedupe (Layer C) is interim until this lands.
+
+---
+
+## Bug 31 — Payload entity duplicates: load-order import + disk-extract import emit two entities for the same payload
+
+**Status**: OPEN
+
+**Severity**: Medium — surfaces as 33 payload rows when there are only ~16 unique payloads. Drives UX2 payloads-tab confusion.
+
+### Live evidence (Murder)
+```
+$ jq '[.items[] | select(.payloadLoadAddress != null) | .name]' knowledge/entities.json
+[
+  "murder", "ab", "riv1", "riv2", "riv3", "riv4", "love",
+  "dad", "dad", "baby", "chr1", "chr2", "chr3", "chr4",
+  "romance", "ingrid",
+  "01_murder", "02_ab", "03_dad", "04_baby", "05_chr1",
+  "06_chr2", "07_chr3", "08_chr4", "09_romance", "10_ingrid",
+  "11_riv1", "12_riv2", "13_riv3", "14_riv4", "15_love", "16_dad",
+  "manifest.json"
+]
+```
+
+16 base names + 16 prefixed names + 1 manifest = 33 entities. Each pair (e.g. `murder` + `01_murder`) refers to the same content from different import paths.
+
+### Root cause
+- **Disk-extract import**: emits payload entities with the file's base name (`murder`).
+- **Load-sequence import**: emits payload entities with the load-order-numeric prefix (`01_murder`).
+- No cross-link: neither import looks up the other's existing entity by `payloadContentHash` or `payloadSourceArtifactId` before creating its own.
+- Plus the spurious `manifest.json` entity (Bug 26 family — manifest registered as a payload by mistake).
+
+### Expected
+1. **Importer hygiene**: before creating a payload entity, look up an existing entity with matching `payloadContentHash` (or matching `(payloadSourceArtifactId, payloadLoadAddress)` when hash absent). On match: enrich the existing entity with the new name as an alias, link via `derivedFrom`, or skip creation entirely depending on import context.
+2. **Schema add**: payload entity gains optional `aliases: string[]` so the load-order numeric prefix is preserved without spawning a sibling entity.
+3. **Manifest filter**: importers must not emit a payload entity for `manifest.json` (catch via `internal` flag or path filter).
+4. **Migration**: `dedupe_payload_entities()` one-shot. Group by `payloadContentHash` then `(payloadSourceArtifactId, payloadLoadAddress)`. Keep base-name entity, fold prefixed-name into `aliases[]`, remap entity-id references in findings / relations / flows / questions / tasks.
+
+### Cross-reference
+- Bug 30: payload entities also point at duplicate artifacts because of the artifact-layer dup. Fix Bug 30 first or together; this bug becomes simpler when each payload has exactly one source artifact id.
+- Bug 26: manifest.json being a payload entity is a Bug 26 leak.
+- UX2: payloads tab cleanup.
+
 
