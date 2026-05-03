@@ -166,6 +166,9 @@ export interface ImportedOpenQuestionDraft {
   artifactIds: string[];
   findingIds: string[];
   tags: string[];
+  // Bug 29: copy the parent finding's addressRange so
+  // archive_phase1_noise can match without title-regex acrobatics.
+  addressRange?: { start: number; end: number; bank?: number; label?: string };
 }
 
 export interface ImportedAnalysisKnowledge {
@@ -321,6 +324,9 @@ function maybeCreateOpenQuestion(
     artifactIds: [...finding.artifactIds],
     findingIds: [finding.id],
     tags: ["analysis-import", "derived-question"],
+    // Bug 29: inherit address range from the parent finding so
+    // archive_phase1_noise can match without title-regex tricks.
+    addressRange: finding.addressRange,
   });
 }
 

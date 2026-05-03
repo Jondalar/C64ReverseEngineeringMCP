@@ -672,6 +672,19 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Bug 29: one-shot backfill for open-questions that predate the
+  // producer fix populating addressRange (inherited from parent finding).
+  server.tool(
+    "backfill_question_address_ranges",
+    "Bug 29: walk open-questions.json and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
+    { project_dir: z.string().optional() },
+    safeHandler("backfill_question_address_ranges", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const updated = service.backfillQuestionAddressRanges();
+      return textContent(`Backfilled addressRange on ${updated} open questions.`);
+    },
+));
+
   // Spec 053 (Bug 20): phase-1 noise archive + segment confirmation.
   server.tool(
     "archive_phase1_noise",

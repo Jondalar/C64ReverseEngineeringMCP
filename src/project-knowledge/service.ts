@@ -509,6 +509,9 @@ export interface SaveOpenQuestionInput {
   autoResolveHint?: string;
   answeredByFindingId?: string;
   answerSummary?: string;
+  // Bug 29: optional address range for archive_phase1_noise matching
+  // without depending on a `$xxxx` token in the title.
+  addressRange?: { start: number; end: number; bank?: number; label?: string };
 }
 
 export interface CreateCheckpointInput {
@@ -1826,6 +1829,19 @@ export class ProjectKnowledgeService {
       }
     }
     // Now sweep paired heuristic-phase1 questions
+    // Bug 29: extract question address from (in priority order):
+    //   1. q.addressRange.start (Stage 2 producer fix populates this)
+    //   2. $XXXX hex token in title (legacy "Validate $031A" form)
+    //   3. bare hex after "region|address|at" (auto-emitted form
+    //      "RAM region 031A behaves like ...")
+    function questionAddress(q: { addressRange?: { start: number }; title: string }): number | undefined {
+      if (q.addressRange?.start !== undefined) return q.addressRange.start;
+      const dollar = q.title.match(/\$([0-9A-Fa-f]{4})\b/);
+      if (dollar) return parseInt(dollar[1]!, 16);
+      const labeled = q.title.match(/\b(?:region|address|at)\s+([0-9A-Fa-f]{4})\b/i);
+      if (labeled) return parseInt(labeled[1]!, 16);
+      return undefined;
+    }
     let questionsAnswered = 0;
     if (!opts.dryRun) {
       const questions = this.listOpenQuestions();
@@ -1833,9 +1849,8 @@ export class ProjectKnowledgeService {
         if (q.source !== "heuristic-phase1") continue;
         if (q.status !== "open" && q.status !== "researching") continue;
         if (opts.artifactId && !q.artifactIds.includes(opts.artifactId)) continue;
-        const titleAddr = q.title.match(/\$([0-9A-Fa-f]{4})/);
-        if (!titleAddr) continue;
-        const addr = parseInt(titleAddr[1], 16);
+        const addr = questionAddress(q);
+        if (addr === undefined) continue;
         const coverer = routines.find((r) => {
           const rr = r.addressRange;
           if (!rr) return false;
@@ -2819,6 +2834,35 @@ export class ProjectKnowledgeService {
     return finding;
   }
 
+  // Bug 29: backfill addressRange on existing open questions. Source
+  // priority: linked finding's addressRange first, else evidence[0].
+  // One-shot migration for projects whose questions were emitted
+  // before the producer fix landed. Returns count updated.
+  backfillQuestionAddressRanges(): number {
+    const store = this.storage.loadOpenQuestions();
+    const findings = this.listFindings();
+    const findingsById = new Map(findings.map((f) => [f.id, f]));
+    let updated = 0;
+    const items = store.items.map((q) => {
+      if (q.addressRange) return q;
+      let range: { start: number; end: number; bank?: number; label?: string } | undefined;
+      for (const fid of q.findingIds) {
+        const f = findingsById.get(fid);
+        if (f?.addressRange) { range = f.addressRange; break; }
+      }
+      if (!range) {
+        range = q.evidence?.find((e) => e.addressRange)?.addressRange;
+      }
+      if (!range) return q;
+      updated += 1;
+      return { ...q, addressRange: range, updatedAt: nowIso() };
+    });
+    if (updated > 0) {
+      this.storage.saveOpenQuestions({ ...store, updatedAt: nowIso(), items });
+    }
+    return updated;
+  }
+
   // Bug 28: backfill top-level addressRange on existing findings whose
   // evidence[0] carries one but the top-level slot is empty. One-shot
   // migration for projects whose findings.json was written before the
@@ -3024,6 +3068,7 @@ export class ProjectKnowledgeService {
       source: input.source ?? existing?.source ?? "untagged",
       autoResolvable: input.autoResolvable ?? existing?.autoResolvable,
       autoResolveHint: input.autoResolveHint ?? existing?.autoResolveHint,
+      addressRange: input.addressRange ?? existing?.addressRange,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
       answeredByFindingId: input.answeredByFindingId ?? existing?.answeredByFindingId,

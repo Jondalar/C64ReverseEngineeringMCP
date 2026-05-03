@@ -1495,4 +1495,65 @@ archive_phase1_noise(dry_run=false)
 - R25: works correctly (40 routine-findings emitted). Not at fault.
 - R26: works correctly (auto-sweep called after each `save_finding`). Not at fault — sweep just finds 0 candidates due to this bug.
 
+---
+
+## Bug 29 — `auto_resolve_questions` matches by `/\$([0-9A-Fa-f]{4})/` regex but auto-emitted titles have no `$` prefix
+
+**Status**: FIXED — Stage 1 (matcher accepts `addressRange` / `$xxxx` / bare-hex-after-`region|address|at`) + Stage 2 (producer fix in analysis-import + `backfill_question_address_ranges` migration tool).
+
+**Severity**: High — Bug 28 fix archived 453 hypothesis findings on Murder, but `auto_resolve_questions` still answers 0 because the question matcher requires a `$` prefix in the title that the auto-emitter never wrote.
+
+### Live evidence (Murder, after Bug 28 fix + `backfill_finding_address_ranges`)
+```
+backfill_finding_address_ranges → 1187 findings backfilled
+archive_phase1_noise           → 453 findings archived ✓
+auto_resolve_questions          → 0 answered ✗
+```
+
+Question titles look like:
+```json
+{
+  "title": "Validate: RAM region 031A behaves like mode_flag",
+  "addressRange": null,                      // not populated
+  "source": "heuristic-phase1"
+}
+```
+
+But `service.archivePhase1Noise` does:
+```ts
+const titleAddr = q.title.match(/\$([0-9A-Fa-f]{4})/);   // requires $
+if (!titleAddr) continue;
+```
+
+Auto-emitted titles use bare hex (`031A`) without `$`. Regex never matches → `continue` skips every question.
+
+### Expected
+1. **Matcher fix**: extend regex to accept both forms, OR use `q.addressRange` if populated.
+2. **Producer + backfill fix**: extend `analyze_prg` RAM-fact emitter to populate `q.addressRange`. Add `backfill_question_address_ranges` migration tool.
+
+### Suggested fix (cheap, immediate)
+```ts
+function getQuestionAddress(q: OpenQuestionRecord): number | undefined {
+  if (q.addressRange?.start !== undefined) return q.addressRange.start;
+  const dollar = q.title.match(/\$([0-9A-Fa-f]{4})\b/);
+  if (dollar) return parseInt(dollar[1], 16);
+  const labeled = q.title.match(/\b(?:region|address|at)\s+([0-9A-Fa-f]{4})\b/i);
+  if (labeled) return parseInt(labeled[1], 16);
+  return undefined;
+}
+```
+
+### Verification on Murder (post-fix)
+```
+auto_resolve_questions
+# Expected: hundreds answered because $031A falls inside routine "Routine:
+# $031A-$0324 fastloader control-block".
+# Open-question count drops ~570 → ~80.
+```
+
+### Cross-reference
+- Bug 28 (FIXED): hypothesis-finding side. This is the question-side analog.
+- Bug 20: parent. After this + Bug 28, phase-1 noise should be dispatched.
+- R26: works, just finds 0 question candidates due to this bug.
+
 

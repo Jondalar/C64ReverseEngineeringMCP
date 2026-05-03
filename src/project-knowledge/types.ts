@@ -853,6 +853,10 @@ export const OpenQuestionRecordSchema = z.object({
   // Spec 036 + 052: free-form text accepted (legacy) OR structured
   // hint (new). Service layer normalises strings to {kind: "free-form"}.
   autoResolveHint: z.union([z.string(), QuestionAutoResolveHintSchema]).optional(),
+  // Bug 29: optional address range so archive_phase1_noise can match
+  // questions to routine annotations covering them without depending
+  // on a `$xxxx` token in the title.
+  addressRange: AddressRangeSchema.optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
   answeredByFindingId: IdSchema.optional(),
