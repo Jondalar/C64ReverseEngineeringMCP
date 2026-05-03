@@ -1676,6 +1676,10 @@ Smoke: `scripts/sprint53-smoke.mjs` covers (a) hash dedup folds alias, (b) sourc
 
 ## Bug 32 — `archive_phase1_noise` / `auto_resolve_questions` ignore confirmed/rejected segments + propose_annotations "Unknown N-byte block" questions never auto-close
 
+**Status**: FIXED (Sprint 54).
+
+
+
 **Status**: OPEN
 
 **Severity**: Medium-High — 66 static-analysis open questions on Murder remain after Phase 2/3 + Bug 28+29 fixes, even though the underlying ranges have been resolved by `mark_segment_*` calls or visual confirmation.
@@ -1762,5 +1766,17 @@ const coverer = coverage.find(c =>
 - Bug 28 (FIXED): hypothesis-finding addressRange fallback. Same family, finding-side.
 - Bug 29 (FIXED): question title regex needed `$` prefix. This extends to RANGE-form titles + adds segment-coverage signal.
 - R26 (implemented): closed-loop sweep — more effective once this bug is fixed.
+
+### Fix (Sprint 54)
+
+`archivePhase1Noise` question matcher rewritten with three additions:
+
+1. **Range-form parser**: `questionRange()` returns `{start, end}` (not just `start`). Title patterns: `$XXXX-$YYYY` range form first, then `$XXXX` single-token, then `region|address|at XXXX` legacy form. Top-level `addressRange.end` honoured when present; falls back to `start`.
+2. **Coverage list**: built from BOTH routine-findings AND segment-confirmed/rejected entries read from `*_analysis.json` artifacts. Each coverage entry carries `{artifactId?, range, source, sourceId}`. Segment source IDs are the analysis-json artifact ids; routine source IDs are the finding ids.
+3. **Per-artifact strict intersect**: when both the question and the coverer have an artifact id, they must match. When either side is missing an artifact id, address-only intersect still applies. The `archivePhase1Noise({artifactId})` scope further restricts which analysis JSONs are read so cross-file collisions don't bleed in.
+
+Question source-set extended from `heuristic-phase1` only to `heuristic-phase1` ∪ `static-analysis`, so `propose_annotations` "Unknown N-byte block at $X-$Y" questions close once a routine annotation OR a segment confirmation/rejection covers their range.
+
+Smoke: `scripts/sprint54-smoke.mjs` covers (a) range-form title parsing + addressRange both-ends, (b) segment-confirmed AND segment-rejected coverage, (c) per-artifact strict intersect — A-linked closes, B-linked stays open when only A has coverage; scope arg respected.
 
 

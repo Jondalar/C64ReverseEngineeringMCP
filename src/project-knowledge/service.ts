@@ -2495,33 +2495,95 @@ export class ProjectKnowledgeService {
         archived += 1;
       }
     }
-    // Now sweep paired heuristic-phase1 questions
-    // Bug 29: extract question address from (in priority order):
-    //   1. q.addressRange.start (Stage 2 producer fix populates this)
-    //   2. $XXXX hex token in title (legacy "Validate $031A" form)
-    //   3. bare hex after "region|address|at" (auto-emitted form
-    //      "RAM region 031A behaves like ...")
-    function questionAddress(q: { addressRange?: { start: number }; title: string }): number | undefined {
-      if (q.addressRange?.start !== undefined) return q.addressRange.start;
+    // Now sweep paired questions. Bug 32 extends this beyond
+    // heuristic-phase1: static-analysis "Unknown N-byte block at $X-$Y"
+    // questions emitted by propose_annotations also carry addressRange
+    // and need closing once a routine annotation OR a segment
+    // confirmation/rejection covers their range.
+    //
+    // (a) Range-form parser: questionRange returns {start, end} not
+    //     just start. Range-form titles ("$5000-$58FE") parse both ends.
+    // (b) Segment-confirmation coverage: walk analysis-json artifacts
+    //     for segments[].confirmed===true || rejected===true and treat
+    //     as additional coverage entries.
+    // (c) Per-artifact scope: when the question links to an artifact AND
+    //     the coverer artifactId is known, both must match.
+    function questionRange(q: { addressRange?: { start: number; end?: number }; title: string }): { start: number; end: number } | undefined {
+      if (q.addressRange?.start !== undefined) {
+        return { start: q.addressRange.start, end: q.addressRange.end ?? q.addressRange.start };
+      }
+      const range = q.title.match(/\$([0-9A-Fa-f]{4})\s*[-–]\s*\$([0-9A-Fa-f]{4})/);
+      if (range) {
+        return { start: parseInt(range[1]!, 16), end: parseInt(range[2]!, 16) };
+      }
       const dollar = q.title.match(/\$([0-9A-Fa-f]{4})\b/);
-      if (dollar) return parseInt(dollar[1]!, 16);
+      if (dollar) {
+        const s = parseInt(dollar[1]!, 16);
+        return { start: s, end: s };
+      }
       const labeled = q.title.match(/\b(?:region|address|at)\s+([0-9A-Fa-f]{4})\b/i);
-      if (labeled) return parseInt(labeled[1]!, 16);
+      if (labeled) {
+        const s = parseInt(labeled[1]!, 16);
+        return { start: s, end: s };
+      }
       return undefined;
+    }
+    // Build the coverage list. Entry: { artifactId?, range, source }.
+    // Routines + segment-confirmed/rejected.
+    type CoverageEntry = { artifactId?: string; range: { start: number; end: number }; source: string; sourceId: string };
+    const coverage: CoverageEntry[] = [];
+    for (const r of routines) {
+      const rr = r.addressRange;
+      if (!rr) continue;
+      coverage.push({
+        artifactId: r.artifactIds?.[0],
+        range: { start: rr.start, end: rr.end },
+        source: "routine-finding",
+        sourceId: r.id,
+      });
+    }
+    // Segment-confirmation coverage: read analysis-json artifacts.
+    const analysisJsons = this.listArtifacts().filter((a) =>
+      a.path.endsWith("_analysis.json")
+      && (!opts.artifactId || (a.sourceArtifactIds ?? []).includes(opts.artifactId))
+    );
+    for (const aj of analysisJsons) {
+      if (!existsSync(aj.path)) continue;
+      try {
+        const raw = JSON.parse(readFileSync(aj.path, "utf8")) as { segments?: Array<{ start: number; end: number; confirmed?: boolean; rejected?: boolean }> };
+        const segs = raw.segments;
+        if (!Array.isArray(segs)) continue;
+        for (const s of segs) {
+          if (s.confirmed === true || s.rejected === true) {
+            coverage.push({
+              artifactId: (aj.sourceArtifactIds ?? [])[0],
+              range: { start: s.start, end: s.end },
+              source: s.confirmed ? "segment-confirmed" : "segment-rejected",
+              sourceId: aj.id,
+            });
+          }
+        }
+      } catch {
+        // best effort
+      }
     }
     let questionsAnswered = 0;
     if (!opts.dryRun) {
       const questions = this.listOpenQuestions();
       for (const q of questions) {
-        if (q.source !== "heuristic-phase1") continue;
+        // Bug 32: cover both heuristic-phase1 and static-analysis sources.
+        if (q.source !== "heuristic-phase1" && q.source !== "static-analysis") continue;
         if (q.status !== "open" && q.status !== "researching") continue;
         if (opts.artifactId && !q.artifactIds.includes(opts.artifactId)) continue;
-        const addr = questionAddress(q);
-        if (addr === undefined) continue;
-        const coverer = routines.find((r) => {
-          const rr = r.addressRange;
-          if (!rr) return false;
-          return rr.start <= addr && rr.end >= addr;
+        const qRange = questionRange(q);
+        if (!qRange) continue;
+        const qArtifact = q.artifactIds?.[0];
+        const coverer = coverage.find((c) => {
+          if (!(c.range.start <= qRange.start && c.range.end >= qRange.end)) return false;
+          // Per-artifact strict intersect: when both sides have an
+          // artifact id, they must match.
+          if (qArtifact && c.artifactId && qArtifact !== c.artifactId) return false;
+          return true;
         });
         if (!coverer) continue;
         this.saveOpenQuestion({
@@ -2529,8 +2591,8 @@ export class ProjectKnowledgeService {
           kind: q.kind,
           title: q.title,
           status: "answered",
-          answeredByFindingId: coverer.id,
-          answerSummary: `Auto-archived: covered by routine annotation ${coverer.id}.`,
+          answeredByFindingId: coverer.source === "routine-finding" ? coverer.sourceId : undefined,
+          answerSummary: `Auto-archived: covered by ${coverer.source} ${coverer.sourceId}.`,
         });
         questionsAnswered += 1;
       }
