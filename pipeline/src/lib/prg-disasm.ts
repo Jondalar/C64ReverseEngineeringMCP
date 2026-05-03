@@ -17,6 +17,7 @@ import {
   TableUsageFact,
 } from "../analysis/types";
 import { AnnotationsIndex, buildAnnotationsIndex, loadAnnotations } from "./annotations";
+import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
 import { convertKickAsmToTass } from "./tass-converter";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
 import { getPlatformOverrides, type PlatformTag } from "../platform-knowledge/index";
@@ -750,7 +751,20 @@ function buildAnnotatedSegments(segments: Segment[], annotations?: AnnotationsIn
 }
 
 function applyAnnotationSegmentSplits(context: RenderAnalysisContext): void {
-  const splitSegments = buildAnnotatedSegments(context.segments, context.annotations?.segmentAnnotations);
+  // Spec 055 Phase A: use effective-segments overlay so cross-boundary
+  // annotation reshape is honoured. Annotation $0800-$091F that extends
+  // into adjacent analysis segment $0900-$09FF now correctly trims the
+  // adjacent segment to $0920-$09FF instead of being silently dropped.
+  const overlays: AnnotationSegmentOverlay[] = (context.annotations?.segmentAnnotations ?? []).map(({ start, end, annotation }) => ({
+    start,
+    end,
+    kind: annotation.kind,
+    label: annotation.label,
+    comment: annotation.comment,
+  }));
+  const splitSegments = overlays.length > 0
+    ? buildEffectiveSegments(context.segments, overlays)
+    : buildAnnotatedSegments(context.segments, context.annotations?.segmentAnnotations);
   context.segments = splitSegments;
   context.segmentOwnerByAddress.clear();
   for (const segment of context.segments) {

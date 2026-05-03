@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./analysis-import.js";
 import { importManifestKnowledge } from "./manifest-import.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
@@ -1473,6 +1473,194 @@ export class ProjectKnowledgeService {
     return out;
   }
 
+  // Spec 055 R25: emit one finding per routine in *_annotations.json
+  // and one per segment-reclassification (annotated kind != analysis
+  // kind). Clean-slate per binaryStem before emit so re-running with
+  // edited annotations doesn't accumulate stale ranges. Returns
+  // counts. Idempotent: re-running with same annotations produces the
+  // same findings (same ids).
+  emitAnnotationFindings(args: {
+    sourcePrgArtifactId: string;
+    annotationsPath: string;
+    analysisJsonPath?: string;
+  }): {
+    routinesEmitted: number;
+    segmentReclassesEmitted: number;
+    staleRemoved: number;
+    annotationsArtifactId?: string;
+  } {
+    const sourcePrg = this.listArtifacts().find((a) => a.id === args.sourcePrgArtifactId);
+    if (!sourcePrg) {
+      return { routinesEmitted: 0, segmentReclassesEmitted: 0, staleRemoved: 0 };
+    }
+    if (!existsSync(args.annotationsPath)) {
+      return { routinesEmitted: 0, segmentReclassesEmitted: 0, staleRemoved: 0 };
+    }
+    let annotations: {
+      segments?: Array<{ start?: string | number; end?: string | number; kind?: string; label?: string }>;
+      routines?: Array<{ address?: string | number; name?: string; comment?: string }>;
+    };
+    try {
+      annotations = JSON.parse(readFileSync(args.annotationsPath, "utf8"));
+    } catch {
+      return { routinesEmitted: 0, segmentReclassesEmitted: 0, staleRemoved: 0 };
+    }
+    let analysis: { segments?: Array<{ start: number; end: number; kind: string }> } | undefined;
+    if (args.analysisJsonPath && existsSync(args.analysisJsonPath)) {
+      try { analysis = JSON.parse(readFileSync(args.analysisJsonPath, "utf8")); } catch { /* ok */ }
+    }
+    const binaryStem = sourcePrg.relativePath.replace(/\.[^./]+$/, "").replace(/^.*\//, "");
+    function parseHexOrNum(v: string | number | undefined): number | undefined {
+      if (v === undefined) return undefined;
+      if (typeof v === "number") return v;
+      const s = v.replace(/^\$/, "").replace(/^0x/i, "");
+      const n = Number.parseInt(s, 16);
+      return Number.isFinite(n) ? n : undefined;
+    }
+    // Build effective segments inline (no pipeline dep). Annotation kind
+    // wins on overlap; analysis fills the gaps.
+    type AnnSeg = { start: number; end: number; kind: string; label?: string };
+    const annotationSegs: AnnSeg[] = ((annotations.segments ?? [])
+      .map((s) => {
+        const start = parseHexOrNum(s.start);
+        const end = parseHexOrNum(s.end);
+        if (start === undefined || end === undefined || !s.kind || end < start) return undefined;
+        return { start, end, kind: s.kind, label: s.label } as AnnSeg;
+      })
+      .filter((s): s is AnnSeg => s !== undefined))
+      .sort((a, b) => a.start - b.start);
+    const analysisSegs = (analysis?.segments ?? []).filter((s) => typeof s.start === "number" && typeof s.end === "number" && s.end >= s.start);
+    function effectiveOwnerAt(addr: number): { kind: string; source: "annotation" | "analysis" } | undefined {
+      let annOwner: typeof annotationSegs[number] | undefined;
+      for (const a of annotationSegs) {
+        if (a.start > addr) break;
+        if (addr <= a.end) annOwner = a;
+      }
+      if (annOwner) return { kind: annOwner.kind, source: "annotation" };
+      for (const s of analysisSegs) {
+        if (s.start <= addr && addr <= s.end) return { kind: s.kind, source: "analysis" };
+      }
+      return undefined;
+    }
+    function effectiveSegmentEndAt(addr: number): number | undefined {
+      // Walk forward while owner stays same. Cap at end of address space we know.
+      const start = effectiveOwnerAt(addr);
+      if (!start) return undefined;
+      let last = addr;
+      const upperBound = Math.max(
+        ...annotationSegs.map((s) => s.end),
+        ...analysisSegs.map((s) => s.end),
+        addr,
+      );
+      for (let a = addr + 1; a <= upperBound; a += 1) {
+        const o = effectiveOwnerAt(a);
+        if (!o || o.kind !== start.kind || o.source !== start.source) break;
+        last = a;
+      }
+      return last;
+    }
+    // 1. Clean-slate purge per binaryStem.
+    const idPrefixRoutine = `finding-routine-${binaryStem}-`;
+    const idPrefixSegclass = `finding-segclass-${binaryStem}-`;
+    const allExisting = this.listFindings();
+    const stale = allExisting
+      .filter((f) => f.id.startsWith(idPrefixRoutine) || f.id.startsWith(idPrefixSegclass))
+      .map((f) => f.id);
+    const staleRemoved = this.removeFindingsById(stale);
+
+    // 2. Ensure annotations file is a registered artifact.
+    let annotationsArtifact = this.listArtifacts().find((a) => a.path === args.annotationsPath);
+    if (!annotationsArtifact) {
+      const relativeAnnotations = relative(this.storage.paths.root, args.annotationsPath).replace(/\\/g, "/");
+      annotationsArtifact = this.saveArtifact({
+        kind: "other",
+        scope: "knowledge",
+        title: `${binaryStem} annotations`,
+        path: relativeAnnotations,
+        sourceArtifactIds: [args.sourcePrgArtifactId],
+        role: "annotations",
+      });
+    }
+    const linkedArtifactIds = [args.sourcePrgArtifactId, annotationsArtifact.id];
+
+    // 3. Routine emit. Sort by address, derive end via hybrid.
+    type Routine = { address: number; name: string; comment?: string };
+    const routines: Routine[] = ((annotations.routines ?? [])
+      .map((r) => {
+        const address = parseHexOrNum(r.address);
+        if (address === undefined || !r.name) return undefined;
+        return { address, name: r.name, comment: r.comment } as Routine;
+      })
+      .filter((r): r is Routine => r !== undefined))
+      .sort((a, b) => a.address - b.address);
+    let routinesEmitted = 0;
+    for (let i = 0; i < routines.length; i += 1) {
+      const r = routines[i]!;
+      const segEnd = effectiveSegmentEndAt(r.address);
+      const next = routines[i + 1];
+      let end: number;
+      if (segEnd !== undefined && next !== undefined) {
+        end = Math.min(segEnd, next.address - 1);
+      } else if (segEnd !== undefined) {
+        end = segEnd;
+      } else if (next !== undefined) {
+        end = next.address - 1;
+      } else {
+        end = r.address; // sentinel: single byte
+      }
+      if (end < r.address) end = r.address;
+      const idHexStart = r.address.toString(16).toUpperCase().padStart(4, "0");
+      const idHexEnd = end.toString(16).toUpperCase().padStart(4, "0");
+      const id = `${idPrefixRoutine}${idHexStart}-${idHexEnd}`;
+      this.saveFinding({
+        id,
+        kind: "classification",
+        title: `Routine ${r.name} $${idHexStart}-$${idHexEnd}`,
+        summary: r.comment ?? `Routine ${r.name} from annotations.`,
+        confidence: 0.95,
+        status: "active",
+        artifactIds: linkedArtifactIds,
+        addressRange: { start: r.address, end },
+        tags: ["routine", "annotation"],
+      });
+      routinesEmitted += 1;
+    }
+
+    // 4. Segment-reclass emit. Walk annotation segments; for each, if
+    // any covered address has analysis owner with a different kind,
+    // emit one finding per such (start..end) annotation segment.
+    let segmentReclassesEmitted = 0;
+    for (const annSeg of annotationSegs) {
+      let hasReclass = false;
+      for (const aSeg of analysisSegs) {
+        if (aSeg.end < annSeg.start || aSeg.start > annSeg.end) continue;
+        if (aSeg.kind !== annSeg.kind) { hasReclass = true; break; }
+      }
+      if (!hasReclass) continue;
+      const idHexStart = annSeg.start.toString(16).toUpperCase().padStart(4, "0");
+      const idHexEnd = annSeg.end.toString(16).toUpperCase().padStart(4, "0");
+      const id = `${idPrefixSegclass}${idHexStart}-${idHexEnd}`;
+      this.saveFinding({
+        id,
+        kind: "classification",
+        title: `Segment reclassified to ${annSeg.kind}${annSeg.label ? ` (${annSeg.label})` : ""} $${idHexStart}-$${idHexEnd}`,
+        summary: `Annotation reclassified analysis segment to ${annSeg.kind}.`,
+        confidence: 0.85,
+        status: "active",
+        artifactIds: linkedArtifactIds,
+        addressRange: { start: annSeg.start, end: annSeg.end },
+        tags: ["segment-classification", "annotation"],
+      });
+      segmentReclassesEmitted += 1;
+    }
+    return {
+      routinesEmitted,
+      segmentReclassesEmitted,
+      staleRemoved,
+      annotationsArtifactId: annotationsArtifact.id,
+    };
+  }
+
   // Spec 053 (Bug 20): walk hypothesis findings whose addressRange
   // is fully covered by a routine annotation. Mark them archived
   // with archivedBy pointing at the routine finding. Also walk
@@ -2471,6 +2659,19 @@ export class ProjectKnowledgeService {
       // best effort
     }
     return finding;
+  }
+
+  // Spec 055: bulk delete by id, used by clean-slate emit (purge stale
+  // routine/segclass findings before re-emit). Returns count removed.
+  removeFindingsById(ids: string[]): number {
+    if (ids.length === 0) return 0;
+    const idSet = new Set(ids);
+    const store = this.storage.loadFindings();
+    const before = store.items.length;
+    const items = store.items.filter((f) => !idSet.has(f.id));
+    if (items.length === before) return 0;
+    this.storage.saveFindings({ ...store, updatedAt: nowIso(), items });
+    return before - items.length;
   }
 
   listFindings(filters?: { kind?: string; status?: string; entityId?: string }): FindingRecord[] {

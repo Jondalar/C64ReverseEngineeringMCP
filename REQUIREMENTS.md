@@ -484,3 +484,69 @@ When porting / cracking, only some PRGs matter (loader, custom kernal, save logi
 - skip exhaustive content-file annotation
 - prioritize loader / protection / save / kernal-replacement
 - output target = patched binary or cart layout, not encyclopedic disasm
+
+---
+
+## R25 — Auto-emit routine-findings from `*_annotations.json`
+
+**Status**: DONE — Spec 055 (`055-r25-routine-findings-emit.md`). disasm_prg auto-emits, plus standalone `import_annotations_as_findings` MCP tool. Phase A added effective-segments overlay so cross-boundary annotation reshape is honoured.
+
+**Priority**: High
+
+**Problem**: When agent (or `propose_annotations`) writes routines into an `*_annotations.json` file, those routines never become findings in `findings.json`. So `archive_phase1_noise` (Spec 053) and `auto_resolve_questions` (Spec 052) have nothing to scan, and 1200+ phase-1 hypothesis findings + 570 open questions stay forever.
+
+**Want**: Whenever `disasm_prg` consumes an `*_annotations.json` (Phase 3 final disasm pass), it ALSO walks the file's `routines[]` array and auto-emits one finding per routine via `service.saveFinding(...)` with:
+- `kind`: `"classification"` (or new dedicated `"routine"` kind)
+- `addressRange`: derived from routine entry's address + segment-end (or until next routine address)
+- `tags`: `["routine", "annotation"]`
+- `summary`: routine's `comment` field
+- `artifactIds`: linked to the source PRG + the annotations file
+
+Same for `segments[]` reclassifications above some confidence threshold (also become findings).
+
+Idempotent — re-running disasm_prg with same annotations should not duplicate findings (use deterministic id, e.g. `finding-routine-<binaryStem>-<startHex>-<endHex>`).
+
+**Depends on**: Bug 25 (save_finding tool needs `address_range` param first).
+
+**Cuts noise budget by**: directly proportional to how many routines the agent annotates. On Murder, ~40 documented routines × auto-emit = 40 routine-findings → archive_phase1_noise can finally find a match for the ~600 RAM-region hypothesis findings whose addresses fall inside those routines.
+
+---
+
+## R26 — Closed-loop noise archive after annotation/finding save
+
+**Priority**: Medium-High
+
+**Problem**: Agent has to remember to run `archive_phase1_noise` and `auto_resolve_questions` manually after writing annotations or routine-findings. Easy to forget; even then, "0 archived / 0 answered" for several reasons (Bug 25, Bug 23) leaves the agent unsure if the workflow ran.
+
+**Want**: After ANY of the following ops succeed, the responsible MCP tool calls `service.archivePhase1Noise()` + `service.autoResolveQuestions()` in safe mode and returns counts inline:
+- `disasm_prg` (when annotations file consumed)
+- `save_finding` (when finding has `tags=["routine"]` AND `addressRange`)
+- `propose_annotations` (when draft contains `routines[]`)
+
+Tool response gets a footer like:
+```
+Saved finding: …
+Auto-archive sweep: archived 12 hypothesis findings, answered 17 questions.
+```
+
+Same closed loop for the Graphics tab (Bug 23 family): after `mark_segment_confirmed/rejected`, run `archive_phase1_noise` so that confirmed/rejected segments propagate into auto-archive.
+
+**Depends on**: R25 (need routine-findings to actually exist) + Bug 25 fix.
+
+**Why this matters**: Per the user request that triggered Bug 25 — "after annotation/semantic conclusion, the file's open-questions should be re-evaluated automatically". This is the closed-loop wiring.
+
+---
+
+## R27 — Per-payload noise scope (run auto-resolve only for the just-touched file)
+
+**Priority**: Medium
+
+**Problem**: `archive_phase1_noise` and `auto_resolve_questions` walk the ENTIRE project. On big projects this is slow and produces non-actionable output ("checked 1200 findings, archived 0 in this scope").
+
+**Want**: Both tools accept an optional `artifact_id` or `payload_id` filter. When provided:
+- archive only hypothesis-findings whose `artifactIds` includes that artifact (or whose addressRange falls inside one of the artifact's load contexts)
+- answer only open-questions whose `artifactIds` includes that artifact
+
+The post-annotation closed loop (R26) automatically scopes to the artifact whose annotations were just saved.
+
+**Why**: turns the auto-archive into a per-file feedback signal: "you just annotated 02_ab.prg → 18 of its hypotheses are now archived, 23 of its questions answered". Much more actionable than project-wide totals.
