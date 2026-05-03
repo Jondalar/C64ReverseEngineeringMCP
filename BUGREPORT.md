@@ -1376,4 +1376,27 @@ Manifest.json should never produce segments. It's an internal index file.
 - Bug 24: Show all versions toggle — the new "Show internal files" toggle lives in the same header strip.
 - Bug 23: graphics-view dedupe by path — narrowing the filter to `_analysis.json` suffix here completes the cleanup.
 
+---
+
+## Bug 27 — Sprite analyzer accepts non-64-byte-aligned candidates (e.g. $1601 marked as sprite)
+
+**Status**: OPEN
+
+**Severity**: Low — false-positive sprite candidate. Reported by Mike on a Murder PRG, see screenshot 2026-05-03 11.39.51 ("Needs to be $1600 and not $1601"). Render preview shows the segment as a sprite but it's misaligned by 1 byte.
+
+### Background
+VIC-II sprite pointer at `screen+$3F8 + sprite_index` is an 8-bit value. Resolved sprite block address = `pointer × 64` within the current 16K VIC bank. So sprite blocks ARE always at addresses where `(addr & 0x3F) === 0`. A "sprite" detected at $1601, $1641, or any non-multiple-of-64 is hardware-impossible.
+
+### Expected
+Sprite analyzer rejects candidate whose `start & 0x3F !== 0`. Either drop the candidate entirely, or tighten the segment to the next 64-byte boundary above (`(start + 0x3F) & ~0x3F`) and re-test.
+
+### Suggested fix
+In `pipeline/src/analysis/analyzers/sprite.ts` (or wherever the 64-byte-block heuristic emits candidates):
+- Add a hard filter `if ((candidateStart & 0x3F) !== 0) skip;` at the top of the sprite-candidate emission.
+- Optional: emit a low-confidence "candidate_misaligned" hint at the byte offset for diagnostics.
+
+### Cross-reference
+- Bug 11: sprite analyzer over-eager (kind family — false-positive candidates).
+- Spec 053 / Bug 20: confirmed/rejected segment writeback can clean up the live finding once human marks $1601 rejected.
+
 
