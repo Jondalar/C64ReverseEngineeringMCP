@@ -87,6 +87,80 @@ function uniqueStrings(values: string[] | undefined): string[] {
   return [...new Set((values ?? []).filter(Boolean))].sort();
 }
 
+// Spec 060 / Bug 30: tolerant merge of duplicate artifact registrations
+// into a survivor record. Union list-fields, prefer survivor scalars but
+// fall back to non-empty merged values, keep oldest createdAt + latest
+// updatedAt, restore contentHash from disk when survivor is missing it.
+function mergeArtifactInto<T extends ArtifactRecord>(
+  survivor: T,
+  merged: T[],
+  hashFromDisk: string | undefined,
+): T {
+  const all = [survivor, ...merged];
+  const evidenceKey = (e: { kind?: string; artifactId?: string; address?: number; note?: string }) =>
+    `${e.kind ?? ""}|${e.artifactId ?? ""}|${e.address ?? ""}|${e.note ?? ""}`;
+  const dedupedEvidence: typeof survivor.evidence = [];
+  const seenEv = new Set<string>();
+  for (const a of all) {
+    for (const e of a.evidence ?? []) {
+      const k = evidenceKey(e as { kind?: string; artifactId?: string; address?: number; note?: string });
+      if (!seenEv.has(k)) {
+        seenEv.add(k);
+        dedupedEvidence.push(e);
+      }
+    }
+  }
+  const loadCtxKey = (c: { kind?: string; address?: number; bank?: number | null }) =>
+    `${c.kind ?? ""}|${c.address ?? ""}|${c.bank ?? ""}`;
+  const dedupedCtx: typeof survivor.loadContexts = [];
+  const seenCtx = new Set<string>();
+  for (const a of all) {
+    for (const c of a.loadContexts ?? []) {
+      const k = loadCtxKey(c as { kind?: string; address?: number; bank?: number | null });
+      if (!seenCtx.has(k)) {
+        seenCtx.add(k);
+        dedupedCtx.push(c);
+      }
+    }
+  }
+  const versionKey = (v: { contentHash?: string }) => v.contentHash ?? "";
+  const dedupedVersions: typeof survivor.versions = [];
+  const seenVer = new Set<string>();
+  for (const a of all) {
+    for (const v of a.versions ?? []) {
+      const k = versionKey(v as { contentHash?: string });
+      if (!seenVer.has(k)) {
+        seenVer.add(k);
+        dedupedVersions.push(v);
+      }
+    }
+  }
+  const oldestCreatedAt = all.map((a) => a.createdAt).sort()[0]!;
+  const latestUpdatedAt = all.map((a) => a.updatedAt).sort().slice(-1)[0]!;
+  const pickFirst = <V>(values: (V | undefined)[]): V | undefined => values.find((v) => v !== undefined && v !== null && v !== "" as unknown as V);
+  return {
+    ...survivor,
+    sourceArtifactIds: uniqueStrings(all.flatMap((a) => a.sourceArtifactIds ?? [])),
+    entityIds: uniqueStrings(all.flatMap((a) => a.entityIds ?? [])),
+    tags: uniqueStrings(all.flatMap((a) => a.tags ?? [])),
+    evidence: dedupedEvidence,
+    loadContexts: dedupedCtx,
+    versions: dedupedVersions,
+    contentHash: survivor.contentHash ?? pickFirst(merged.map((m) => m.contentHash)) ?? hashFromDisk,
+    role: survivor.role ?? pickFirst(merged.map((m) => m.role)),
+    description: survivor.description ?? pickFirst(merged.map((m) => m.description)),
+    mimeType: survivor.mimeType ?? pickFirst(merged.map((m) => m.mimeType)),
+    format: survivor.format ?? pickFirst(merged.map((m) => m.format)),
+    producedByTool: survivor.producedByTool ?? pickFirst(merged.map((m) => m.producedByTool)),
+    platform: survivor.platform ?? pickFirst(merged.map((m) => m.platform)),
+    relevance: survivor.relevance ?? pickFirst(merged.map((m) => m.relevance)),
+    phase: survivor.phase ?? pickFirst(merged.map((m) => m.phase)),
+    internal: survivor.internal ?? pickFirst(merged.map((m) => m.internal)),
+    createdAt: oldestCreatedAt,
+    updatedAt: latestUpdatedAt,
+  };
+}
+
 function defaultWorkflowPhases(): WorkflowPhase[] {
   return [
     {
@@ -699,13 +773,28 @@ export class ProjectKnowledgeService {
     const store = this.storage.loadArtifacts();
     const timestamp = nowIso();
     const absPath = resolve(this.storage.paths.root, input.path);
-    // Dedup: if the caller didn't supply an id, look up by absolute path so
-    // two different titles for the same file do not produce two artifacts.
-    // (Bug 10 in BUGREPORT.md.)
-    const existing = input.id
-      ? store.items.find((item) => item.id === input.id)
-      : store.items.find((item) => item.path === absPath);
-    const artifactId = input.id ?? existing?.id ?? createId("artifact", input.title);
+    // Bug 30 / Spec 060: dedup by path even when caller passes a fresh
+    // synthetic input.id. Three matchers in priority order:
+    //   1. explicit id match (caller intentionally targets that record)
+    //   2. same absolute path (Bug 10 family — different ids for same file)
+    //   3. same content hash (file moved between paths)
+    // explicitLineageBump (input.derivedFrom set) bypasses path/hash dedup
+    // so genuine derivative-mints don't collapse into their parent.
+    const explicitLineageBump = !!input.derivedFrom;
+    const newHashEarly = sha256OfFile(absPath);
+    let existing: ArtifactRecord | undefined;
+    if (input.id) {
+      existing = store.items.find((item) => item.id === input.id);
+    }
+    if (!existing && !explicitLineageBump) {
+      existing = store.items.find((item) => item.path === absPath);
+    }
+    if (!existing && !explicitLineageBump && newHashEarly) {
+      existing = store.items.find((item) => item.contentHash === newHashEarly);
+    }
+    // existing wins over input.id when found via path/hash — that's the
+    // whole point of the fix.
+    const artifactId = existing?.id ?? input.id ?? createId("artifact", input.title);
     // Lineage: walk parent chain to compute lineageRoot and versionRank.
     const derivedFrom = input.derivedFrom ?? existing?.derivedFrom;
     let lineageRoot = artifactId;
@@ -728,7 +817,7 @@ export class ProjectKnowledgeService {
     // the prior bytes were lost (caller did not snapshot before overwriting),
     // we record the transition in versions[] without a snapshotPath so the
     // history is still visible, even if the bytes are gone.
-    const newHash = sha256OfFile(absPath);
+    const newHash = newHashEarly;
     let versions: ArtifactRecord["versions"] = existing?.versions ?? [];
     const enableSnapshot = input.enableSnapshot ?? true;
     if (existing && existing.contentHash && newHash && existing.contentHash !== newHash) {
@@ -800,6 +889,264 @@ export class ProjectKnowledgeService {
       },
     });
     return artifact;
+  }
+
+  // Spec 060 / Bug 30: canonical "I want this file as artifact, give me
+  // existing or create new" entry point. Equivalent to saveArtifact but
+  // the name communicates intent for re-discovery callers (analyze_prg,
+  // disasm_prg, register_existing_files, extract_disk, extract_crt).
+  upsertArtifact(input: SaveArtifactInput): ArtifactRecord {
+    return this.saveArtifact(input);
+  }
+
+  // Spec 060 / Bug 30: one-shot migration to collapse legacy duplicate
+  // artifact registrations (same absolute path, different ids) that
+  // pre-date the path-first dedup fix in saveArtifact. Survivor = oldest
+  // createdAt; merges union sourceArtifactIds / entityIds / tags / evidence
+  // / loadContexts / versions; keeps oldest createdAt + latest updatedAt.
+  // References across entities / findings / relations / flows / tasks /
+  // open-questions are remapped from deprecated ids to survivor ids.
+  dedupeArtifactRegistry(opts?: { dryRun?: boolean }): {
+    duplicateGroupCount: number;
+    mergedRowCount: number;
+    survivorCount: number;
+    referenceRemapCounts: Record<string, number>;
+    sample: Array<{ path: string; survivorId: string; mergedIds: string[] }>;
+  } {
+    const dryRun = opts?.dryRun ?? false;
+    const store = this.storage.loadArtifacts();
+    const byPath = new Map<string, ArtifactRecord[]>();
+    for (const item of store.items) {
+      const list = byPath.get(item.path) ?? [];
+      list.push(item);
+      byPath.set(item.path, list);
+    }
+    const idRemap = new Map<string, string>();
+    const survivors: ArtifactRecord[] = [];
+    const sample: Array<{ path: string; survivorId: string; mergedIds: string[] }> = [];
+    let duplicateGroupCount = 0;
+    let mergedRowCount = 0;
+    for (const [path, group] of byPath) {
+      if (group.length === 1) {
+        survivors.push(group[0]!);
+        continue;
+      }
+      duplicateGroupCount += 1;
+      const sorted = [...group].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const survivor = sorted[0]!;
+      const merged = sorted.slice(1);
+      mergedRowCount += merged.length;
+      const survivorMerged = mergeArtifactInto(survivor, merged, sha256OfFile(path));
+      survivors.push(survivorMerged);
+      for (const m of merged) {
+        idRemap.set(m.id, survivor.id);
+      }
+      if (sample.length < 10) {
+        sample.push({ path, survivorId: survivor.id, mergedIds: merged.map((m) => m.id) });
+      }
+    }
+    const referenceRemapCounts = this.remapArtifactReferences(idRemap, { dryRun });
+    if (!dryRun && duplicateGroupCount > 0) {
+      this.storage.saveArtifacts({
+        ...store,
+        updatedAt: nowIso(),
+        items: survivors.sort((a, b) => a.id.localeCompare(b.id)),
+      });
+      this.appendTimelineEvent({
+        kind: "note",
+        title: `Artifact registry deduped`,
+        summary: `merged ${mergedRowCount} duplicates into ${duplicateGroupCount} survivors`,
+        payload: { mergedRowCount, duplicateGroupCount, referenceRemapCounts },
+      });
+    }
+    return {
+      duplicateGroupCount,
+      mergedRowCount,
+      survivorCount: survivors.length,
+      referenceRemapCounts,
+      sample,
+    };
+  }
+
+  // Walks each non-artifact store and rewrites references from deprecated
+  // artifact ids to survivor ids. Used by dedupeArtifactRegistry.
+  private remapArtifactReferences(
+    idRemap: Map<string, string>,
+    opts: { dryRun: boolean },
+  ): Record<string, number> {
+    const counts: Record<string, number> = {
+      entities: 0,
+      findings: 0,
+      relations: 0,
+      flows: 0,
+      tasks: 0,
+      openQuestions: 0,
+      checkpoints: 0,
+    };
+    if (idRemap.size === 0) return counts;
+    const remap = (id?: string): string | undefined => (id && idRemap.has(id) ? idRemap.get(id)! : id);
+    const remapList = (ids?: string[]): string[] => uniqueStrings((ids ?? []).map((id) => idRemap.get(id) ?? id));
+    const ts = nowIso();
+
+    const remapEvidence = (ev?: { artifactId?: string; [k: string]: unknown }[]) =>
+      (ev ?? []).map((e) => (e.artifactId ? { ...e, artifactId: remap(e.artifactId) } : e));
+
+    // entities: artifactIds[], payloadSourceArtifactId,
+    // payloadDepackedArtifactId, payloadAsmArtifactIds[], evidence[].artifactId
+    {
+      const s = this.storage.loadEntities();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const aids = remapList(item.artifactIds);
+        const psrc = remap(item.payloadSourceArtifactId);
+        const pdep = remap(item.payloadDepackedArtifactId);
+        const pasm = remapList(item.payloadAsmArtifactIds);
+        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
+        const changed =
+          JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
+          psrc !== item.payloadSourceArtifactId ||
+          pdep !== item.payloadDepackedArtifactId ||
+          JSON.stringify(pasm) !== JSON.stringify(item.payloadAsmArtifactIds ?? []) ||
+          JSON.stringify(ev) !== JSON.stringify(item.evidence ?? []);
+        if (changed) {
+          touched += 1;
+          return {
+            ...item,
+            artifactIds: aids,
+            payloadSourceArtifactId: psrc,
+            payloadDepackedArtifactId: pdep,
+            payloadAsmArtifactIds: pasm,
+            evidence: ev as typeof item.evidence,
+            updatedAt: ts,
+          };
+        }
+        return item;
+      });
+      counts.entities = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveEntities({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // findings: artifactIds[], evidence[].artifactId
+    {
+      const s = this.storage.loadFindings();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const aids = remapList(item.artifactIds);
+        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
+        if (JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
+            JSON.stringify(ev) !== JSON.stringify(item.evidence ?? [])) {
+          touched += 1;
+          return { ...item, artifactIds: aids, evidence: ev as typeof item.evidence, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.findings = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveFindings({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // relations: artifactIds[], evidence[].artifactId
+    // (sourceEntityId / targetEntityId reference entities, not artifacts.)
+    {
+      const s = this.storage.loadRelations();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const aids = remapList(item.artifactIds);
+        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
+        if (JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
+            JSON.stringify(ev) !== JSON.stringify(item.evidence ?? [])) {
+          touched += 1;
+          return { ...item, artifactIds: aids, evidence: ev as typeof item.evidence, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.relations = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveRelations({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // flows: artifactIds[], nodes[].artifactId, evidence[].artifactId
+    {
+      const s = this.storage.loadFlows();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const aids = remapList(item.artifactIds);
+        const nodes = (item.nodes ?? []).map((n) => (n.artifactId ? { ...n, artifactId: remap(n.artifactId) } : n));
+        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
+        if (JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
+            JSON.stringify(nodes) !== JSON.stringify(item.nodes ?? []) ||
+            JSON.stringify(ev) !== JSON.stringify(item.evidence ?? [])) {
+          touched += 1;
+          return { ...item, artifactIds: aids, nodes, evidence: ev as typeof item.evidence, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.flows = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveFlows({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // tasks: artifactIds[], evidence[].artifactId, autoCloseHint(.artifactId)
+    {
+      const s = this.storage.loadTasks();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const aids = remapList(item.artifactIds);
+        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
+        let hint = item.autoCloseHint;
+        if (hint && hint.kind === "phase-reached") {
+          const r = remap(hint.artifactId);
+          if (r !== hint.artifactId) hint = { ...hint, artifactId: r! };
+        }
+        if (JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
+            JSON.stringify(ev) !== JSON.stringify(item.evidence ?? []) ||
+            hint !== item.autoCloseHint) {
+          touched += 1;
+          return { ...item, artifactIds: aids, evidence: ev as typeof item.evidence, autoCloseHint: hint, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.tasks = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveTasks({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // open-questions: artifactIds[], evidence[].artifactId, autoResolveHint
+    {
+      const s = this.storage.loadOpenQuestions();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const aids = remapList(item.artifactIds);
+        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
+        let hint = item.autoResolveHint;
+        if (hint && typeof hint === "object" && hint.kind === "phase-reached") {
+          const r = remap(hint.artifactId);
+          if (r !== hint.artifactId) hint = { ...hint, artifactId: r! };
+        } else if (hint && typeof hint === "object" && hint.kind === "annotation-applied") {
+          const r = remap(hint.artifactId);
+          if (r !== hint.artifactId) hint = { ...hint, artifactId: r! };
+        }
+        if (JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
+            JSON.stringify(ev) !== JSON.stringify(item.evidence ?? []) ||
+            hint !== item.autoResolveHint) {
+          touched += 1;
+          return { ...item, artifactIds: aids, evidence: ev as typeof item.evidence, autoResolveHint: hint, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.openQuestions = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveOpenQuestions({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    return counts;
   }
 
   // Spec 025: call before overwriting an artifact's on-disk file so the

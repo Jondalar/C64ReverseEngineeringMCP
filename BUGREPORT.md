@@ -1560,7 +1560,7 @@ auto_resolve_questions
 
 ## Bug 30 — `saveArtifact` dedupe broken: same path registered N times with separate IDs (Bug 10 deep)
 
-**Status**: OPEN
+**Status**: FIXED (saver-side, Sprint 52). Migration tool ships; per-project apply pending Sprint 55.
 
 **Severity**: High — corrupts the artifact graph. Drives every UI dedupe + lineage workaround. Root cause for UX2 payloads-tab triplicates and Bug 24 v2 fallback.
 
@@ -1604,6 +1604,21 @@ Plus: the auto-generated id `createId("artifact", input.title)` includes a times
 - Bug 24 v2: introduced same-path dedup as Stage 2 of `latestArtifactsByLineage` to mask this in the UI; should become unnecessary once Bug 30 is fixed.
 - UX2: Payloads tab triplication. UI dedupe (Layer C) is interim until this lands.
 
+### Fix (Sprint 52)
+
+`service.saveArtifact` lookup rewritten to path-first. Three-tier matcher:
+1. explicit `input.id` match
+2. same `absPath` (Bug 10 family fix)
+3. same `contentHash` (file moved between paths)
+
+`existing.id` always wins over `input.id` when found via path/hash. `input.derivedFrom` set bypasses path/hash dedup so genuine derivative-mints stay separate.
+
+New helper `service.upsertArtifact()` is the canonical re-discovery entry — alias of `saveArtifact` for caller intent clarity.
+
+New migration tool `dedupe_artifact_registry({dry_run})` collapses legacy duplicates: survivor = oldest `createdAt`, tolerant merge of `sourceArtifactIds` / `entityIds` / `tags` / `evidence` / `loadContexts` / `versions` (union, dedup by content key); references remapped from deprecated ids to survivor ids across entities, findings, relations, flows, tasks, open-questions, including `evidence[].artifactId`, `entity.payloadSourceArtifactId`, `entity.payloadDepackedArtifactId`, `entity.payloadAsmArtifactIds`, `flow.nodes[].artifactId`, task `autoCloseHint.artifactId`, question `autoResolveHint.artifactId`.
+
+Smoke: `scripts/sprint52-smoke.mjs` covers (a) path-dedup overrides synthetic id, (b) hash-dedup catches moved files, (c) `derivedFrom` bypasses, (d) dry-run does not mutate, (e) apply collapses + remaps finding references.
+
 ---
 
 ## Bug 31 — Payload entity duplicates: load-order import + disk-extract import emit two entities for the same payload
@@ -1644,5 +1659,96 @@ $ jq '[.items[] | select(.payloadLoadAddress != null) | .name]' knowledge/entiti
 - Bug 30: payload entities also point at duplicate artifacts because of the artifact-layer dup. Fix Bug 30 first or together; this bug becomes simpler when each payload has exactly one source artifact id.
 - Bug 26: manifest.json being a payload entity is a Bug 26 leak.
 - UX2: payloads tab cleanup.
+
+---
+
+## Bug 32 — `archive_phase1_noise` / `auto_resolve_questions` ignore confirmed/rejected segments + propose_annotations "Unknown N-byte block" questions never auto-close
+
+**Status**: OPEN
+
+**Severity**: Medium-High — 66 static-analysis open questions on Murder remain after Phase 2/3 + Bug 28+29 fixes, even though the underlying ranges have been resolved by `mark_segment_*` calls or visual confirmation.
+
+### Live evidence (Murder, after Bug 28 + Bug 29 fixes + 59 routine-findings imported)
+```
+Open questions: 304   (down from 570)
+Of which source="static-analysis": 66   (= propose_annotations 'Unknown N-byte block at $XXXX-$YYYY')
+```
+
+Sample remaining questions:
+```
+"Unknown 2303-byte block at $5000-$58FE"     // = whole chr2 sprite-bank range
+"Unknown 1062-byte block at $A40F-$A834"     // = love.prg pre-save data area
+"Unknown 1695-byte block at $34E0-$3B7E"     // = riv1 save buffer + script tables
+"Unknown 1031-byte block at $B59F-$B9A5"     // = riv4 fastloader runtime data
+```
+
+All have:
+- `source: "static-analysis"` (emitted by `propose_annotations`, NOT phase-1)
+- `addressRange: null` (no backfill — never linked to a finding with a range)
+- title format "Unknown N-byte block at $XXXX-$YYYY" (range form, not single addr)
+
+### Three independent gaps causing the remaining 66 to stay open
+
+**(a) Range-form titles not parsed**: Bug 29 matcher `/\$([0-9A-Fa-f]{4})\b/` extracts the START address ($XXXX) but does not capture the END ($YYYY). For a routine to "cover" the question, it must span $XXXX–$YYYY entirely — single-address match isn't enough. Matcher needs to extract BOTH ends and check `routine.start <= startAddr && routine.end >= endAddr`.
+
+**(b) Segment-confirmation coverage ignored**: my earlier `mark_segment_rejected` calls (Bug 22 fix) wrote `rejected: true` into the analysis JSON's `segments[]` for known false-positives (chr4 charset $7000-$78EF, ingrid bitmap, drive_t1s0 jump-table). The auto-archive matcher only looks at routine-findings (kind="routine" tag + addressRange). It does NOT consider `segments[].confirmed === true` or `segments[].rejected === true` as coverage.
+
+Conceptually: if I CONFIRMED a region as sprite at $5000-$58FE, then "Unknown 2303-byte block at $5000-$58FE" should auto-close — that range is now classified.
+
+**(c) Per-artifact scope missing**: a question "Unknown N-byte block at $XXXX-$YYYY" is bound to a specific binary (its analysis-JSON artifact). Routines I emit have `artifactIds`. But matcher does intersect-by-address-only, not intersect-by-artifact-AND-address. Cross-file collision risk when files have overlapping address ranges (PRG load addresses overlap on Murder).
+
+### Expected
+1. **Range-form parser**: `getQuestionAddress` returns `{start, end}` not just `start`. Coverer check uses `r.start <= q.start && r.end >= q.end`.
+2. **Segment-confirmation coverage**: `archivePhase1Noise` and `autoResolveQuestions` walk all `*_analysis.json` `segments[]` entries with `confirmed: true || rejected: true`, treat as additional "coverage" entries.
+3. **Per-artifact scope**: when question links to artifact X, coverer must also link to SAME artifact (not just have overlapping address).
+
+### Suggested fix
+```ts
+// (a) Range parser
+function getQuestionRange(q): {start, end} | undefined {
+  if (q.addressRange) return q.addressRange;
+  const range = q.title.match(/\$([0-9A-Fa-f]{4})-\$([0-9A-Fa-f]{4})/);
+  if (range) return { start: parseInt(range[1], 16), end: parseInt(range[2], 16) };
+  const dollar = q.title.match(/\$([0-9A-Fa-f]{4})\b/);
+  if (dollar) { const s = parseInt(dollar[1], 16); return { start: s, end: s }; }
+  return undefined;
+}
+
+// (b) Segment-confirmation coverage
+function getCoverage(allFindings, allAnalysisJsons) {
+  const fromRoutines = allFindings.filter(routinePred).map(f => ({
+    artifactId: f.artifactIds?.[0],
+    addressRange: f.addressRange ?? evidence0Range(f),
+    source: 'routine-finding',
+  }));
+  const fromSegments = allAnalysisJsons.flatMap(j =>
+    (j.segments ?? [])
+      .filter(s => s.confirmed === true || s.rejected === true)
+      .map(s => ({
+        artifactId: j.sourceArtifactIds?.[0],
+        addressRange: { start: s.start, end: s.end },
+        source: 'segment-' + (s.confirmed ? 'confirmed' : 'rejected'),
+      }))
+  );
+  return [...fromRoutines, ...fromSegments];
+}
+
+// (c) Per-artifact scope
+const coverer = coverage.find(c =>
+  c.addressRange
+  && c.addressRange.start <= qRange.start
+  && c.addressRange.end >= qRange.end
+  && (c.artifactId == null || q.artifactIds?.includes(c.artifactId))
+);
+```
+
+### Verification on Murder (post-fix)
+`auto_resolve_questions` should answer ~50 of the 66 (chr2/chr3/chr4/baby/romance/ingrid blocks covered by sprite/bitmap segment confirmations + segment rejections). Remaining ~16 are genuinely-unknown ranges (riv1 script tables, riv4 fastloader data) needing explicit segment annotations.
+
+### Cross-reference
+- Bug 22 (FIXED): segment confirm/reject writeback — populates the data this matcher needs.
+- Bug 28 (FIXED): hypothesis-finding addressRange fallback. Same family, finding-side.
+- Bug 29 (FIXED): question title regex needed `$` prefix. This extends to RANGE-form titles + adds segment-coverage signal.
+- R26 (implemented): closed-loop sweep — more effective once this bug is fixed.
 
 

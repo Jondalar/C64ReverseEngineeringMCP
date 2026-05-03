@@ -685,6 +685,39 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 060 / Bug 30: one-shot migration to collapse legacy duplicate
+  // artifact registrations (same path, different ids) into one canonical
+  // record per path with reference remap across all knowledge stores.
+  server.tool(
+    "dedupe_artifact_registry",
+    "Spec 060 / Bug 30: collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path. Survivor = oldest createdAt; merges union sourceArtifactIds / entityIds / tags / evidence / loadContexts / versions; references across entities / findings / relations / flows / tasks / open-questions remapped from deprecated ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
+    {
+      project_dir: z.string().optional(),
+      dry_run: z.boolean().optional(),
+    },
+    safeHandler("dedupe_artifact_registry", async ({ project_dir, dry_run }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.dedupeArtifactRegistry({ dryRun: dry_run ?? false });
+      const lines = [
+        `dedupe_artifact_registry${dry_run ? " (dry run)" : ""}`,
+        `Duplicate path-groups: ${result.duplicateGroupCount}`,
+        `Rows ${dry_run ? "would merge" : "merged"}: ${result.mergedRowCount}`,
+        `Survivors after dedupe: ${result.survivorCount}`,
+        `Reference remap counts:`,
+        ...Object.entries(result.referenceRemapCounts).map(([k, v]) => `  ${k}: ${v}`),
+      ];
+      if (result.sample.length > 0) {
+        lines.push(``, `Sample (first ${result.sample.length}):`);
+        for (const s of result.sample) {
+          lines.push(`  ${s.path}`);
+          lines.push(`    survivor=${s.survivorId}`);
+          lines.push(`    merged=${s.mergedIds.join(", ")}`);
+        }
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
   // Spec 053 (Bug 20): phase-1 noise archive + segment confirmation.
   server.tool(
     "archive_phase1_noise",
