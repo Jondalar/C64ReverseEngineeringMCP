@@ -14,6 +14,7 @@ export function lineageRootOf(artifact: ArtifactRecord): string {
 }
 
 export function latestArtifactsByLineage<T extends ArtifactRecord>(artifacts: T[]): T[] {
+  // Stage 1: collapse declared lineage chains by lineageRoot.
   const latest = new Map<string, T>();
   for (const a of artifacts) {
     const root = lineageRootOf(a);
@@ -22,7 +23,30 @@ export function latestArtifactsByLineage<T extends ArtifactRecord>(artifacts: T[
       latest.set(root, a);
     }
   }
-  return [...latest.values()];
+  // Stage 2 (Bug 10 family): collapse same-path entries that escaped
+  // Stage 1 because they were registered as independent artifacts (no
+  // derivedFrom link). Treat identical relativePath as "same artifact"
+  // regardless of lineage tracking — pick the most recently updated, or
+  // the highest versionRank, as the surviving representative.
+  const byPath = new Map<string, T>();
+  for (const a of latest.values()) {
+    const key = a.relativePath || a.path || a.id;
+    const current = byPath.get(key);
+    if (!current) {
+      byPath.set(key, a);
+      continue;
+    }
+    const aRank = a.versionRank ?? 0;
+    const cRank = current.versionRank ?? 0;
+    if (aRank !== cRank) {
+      if (aRank > cRank) byPath.set(key, a);
+      continue;
+    }
+    const aTime = Date.parse(a.updatedAt ?? "") || 0;
+    const cTime = Date.parse(current.updatedAt ?? "") || 0;
+    if (aTime > cTime) byPath.set(key, a);
+  }
+  return [...byPath.values()];
 }
 
 export function lineageChain<T extends ArtifactRecord>(artifact: T, all: T[]): T[] {

@@ -895,7 +895,9 @@ export class ProjectKnowledgeService {
     const subjectsRaw = artifacts.filter((a) => subjectKinds.has(a.kind) || a.role === "source-prg");
     // Bug 24: collapse to latest version per lineage so the per-artifact
     // status table doesn't show V0 / V1 / V2 of the same source PRG as
-    // independent rows.
+    // independent rows. Two-stage: lineageRoot first, then same-path
+    // dedup to catch Bug 10 family (independent artifacts pointing at
+    // the same file with no derivedFrom link).
     const latestByLineage = new Map<string, ArtifactRecord>();
     for (const a of subjectsRaw) {
       const root = a.lineageRoot ?? a.id;
@@ -904,7 +906,19 @@ export class ProjectKnowledgeService {
         latestByLineage.set(root, a);
       }
     }
-    const subjects = [...latestByLineage.values()];
+    const byPath = new Map<string, ArtifactRecord>();
+    for (const a of latestByLineage.values()) {
+      const key = a.relativePath || a.path || a.id;
+      const current = byPath.get(key);
+      if (!current) { byPath.set(key, a); continue; }
+      const aRank = a.versionRank ?? 0;
+      const cRank = current.versionRank ?? 0;
+      if (aRank !== cRank) { if (aRank > cRank) byPath.set(key, a); continue; }
+      const aTime = Date.parse(a.updatedAt ?? "") || 0;
+      const cTime = Date.parse(current.updatedAt ?? "") || 0;
+      if (aTime > cTime) byPath.set(key, a);
+    }
+    const subjects = [...byPath.values()];
     const findingsByArtifact = new Map<string, number>();
     for (const f of findings) {
       for (const aid of f.artifactIds) {
