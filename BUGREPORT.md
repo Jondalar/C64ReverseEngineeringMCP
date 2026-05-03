@@ -1391,7 +1391,7 @@ Manifest.json should never produce segments. It's an internal index file.
 
 ## Bug 27 — Sprite analyzer accepts non-64-byte-aligned candidates (e.g. $1601 marked as sprite)
 
-**Status**: OPEN
+**Status**: FIXED — `pushSpriteCandidate` rejects when `(start & 0x3F) !== 0`. VIC sprite blocks must be at multiples of 64 (sprite pointer × 64 = address).
 
 **Severity**: Low — false-positive sprite candidate. Reported by Mike on a Murder PRG, see screenshot 2026-05-03 11.39.51 ("Needs to be $1600 and not $1601"). Render preview shows the segment as a sprite but it's misaligned by 1 byte.
 

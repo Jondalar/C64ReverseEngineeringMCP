@@ -228,6 +228,13 @@ function pushSpriteCandidate(
   const spriteRegisterTouches = vic.spriteRegisterTouches;
   const start = regionStart + startBlock * 64;
   const end = regionStart + (endBlock + 1) * 64 - 1;
+  // Bug 27: VIC sprite blocks must be 64-byte aligned in the current
+  // VIC bank (sprite pointer × 64 = address). Reject candidates whose
+  // start address is not a multiple of 64 — they are hardware-impossible
+  // sprite locations regardless of bit-pattern plausibility.
+  if ((start & 0x3f) !== 0) {
+    return;
+  }
   const blockCount = endBlock - startBlock + 1;
   const averageScore = scores.reduce((sum, value) => sum + value, 0) / Math.max(1, scores.length);
   const paddingRatio =
