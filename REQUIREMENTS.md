@@ -514,6 +514,8 @@ Idempotent — re-running disasm_prg with same annotations should not duplicate 
 
 ## R26 — Closed-loop noise archive after annotation/finding save
 
+**Status**: DONE — Spec 057 (`057-r26-closed-loop-sweep.md`). disasm_prg + save_finding (when tag=routine + addressRange) auto-run sweep. Footer shows scope-restricted + project totals. propose_annotations + mark_segment_* deferred per refinement.
+
 **Priority**: Medium-High
 
 **Problem**: Agent has to remember to run `archive_phase1_noise` and `auto_resolve_questions` manually after writing annotations or routine-findings. Easy to forget; even then, "0 archived / 0 answered" for several reasons (Bug 25, Bug 23) leaves the agent unsure if the workflow ran.

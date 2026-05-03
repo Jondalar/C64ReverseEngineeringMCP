@@ -1661,6 +1661,55 @@ export class ProjectKnowledgeService {
     };
   }
 
+  // Spec 057 R26: closed-loop sweep helper. Runs archivePhase1Noise +
+  // sweepQuestionResolutions with optional artifact-scope. Returns
+  // both scope-restricted counts and project-wide totals so the caller
+  // can render a "scope=X/Y, project=A/B" footer. Soft semantics:
+  // exceptions are caught and reported via `error`; the parent op
+  // never fails because the closed loop hit a snag.
+  runClosedLoopSweep(opts: { artifactId?: string } = {}): {
+    scope: "project" | "artifact";
+    scopeArtifactId?: string;
+    archivedScoped: number;
+    questionsAnsweredScoped: number;
+    archivedProject: number;
+    questionsAnsweredProject: number;
+    error?: string;
+  } {
+    try {
+      let archivedScoped = 0;
+      let questionsAnsweredScoped = 0;
+      if (opts.artifactId) {
+        const aRes = this.archivePhase1Noise({ artifactId: opts.artifactId });
+        const qRes = this.sweepQuestionResolutions({ artifactId: opts.artifactId });
+        archivedScoped = aRes.findingsArchived;
+        questionsAnsweredScoped = aRes.questionsAnswered + qRes.autoResolved;
+      }
+      const aProj = this.archivePhase1Noise({});
+      const qProj = this.sweepQuestionResolutions({});
+      const archivedProject = aProj.findingsArchived;
+      const questionsAnsweredProject = aProj.questionsAnswered + qProj.autoResolved;
+      return {
+        scope: opts.artifactId ? "artifact" : "project",
+        scopeArtifactId: opts.artifactId,
+        archivedScoped: opts.artifactId ? archivedScoped : archivedProject,
+        questionsAnsweredScoped: opts.artifactId ? questionsAnsweredScoped : questionsAnsweredProject,
+        archivedProject,
+        questionsAnsweredProject,
+      };
+    } catch (error) {
+      return {
+        scope: opts.artifactId ? "artifact" : "project",
+        scopeArtifactId: opts.artifactId,
+        archivedScoped: 0,
+        questionsAnsweredScoped: 0,
+        archivedProject: 0,
+        questionsAnsweredProject: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   // Spec 053 (Bug 20): walk hypothesis findings whose addressRange
   // is fully covered by a routine annotation. Mark them archived
   // with archivedBy pointing at the routine finding. Also walk

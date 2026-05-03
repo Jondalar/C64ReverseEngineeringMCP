@@ -1442,7 +1442,24 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
           capturedAt: item.capturedAt ?? new Date().toISOString(),
         })),
       });
-      return textContent(`Finding saved.\nID: ${finding.id}\nKind: ${finding.kind}\nTitle: ${finding.title}\nStatus: ${finding.status}\nConfidence: ${finding.confidence}`);
+      const lines = [
+        `Finding saved.`,
+        `ID: ${finding.id}`,
+        `Kind: ${finding.kind}`,
+        `Title: ${finding.title}`,
+        `Status: ${finding.status}`,
+        `Confidence: ${finding.confidence}`,
+      ];
+      // Spec 057 R26: closed-loop sweep when this finding is a routine
+      // claim with an address range. Scope to the first artifact link
+      // when present; else project-wide.
+      const hasRoutineTag = (finding.tags ?? []).some((t) => t === "routine" || t === "annotation");
+      if (hasRoutineTag && finding.addressRange) {
+        const { runAndFormatClosedLoopSweep } = await import("../server-tools/closed-loop-sweep.js");
+        const scopeArtifactId = finding.artifactIds[0];
+        lines.push(runAndFormatClosedLoopSweep(service, { artifactId: scopeArtifactId }));
+      }
+      return textContent(lines.join("\n"));
     },
 ));
 

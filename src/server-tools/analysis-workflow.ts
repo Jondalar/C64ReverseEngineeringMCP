@@ -6,6 +6,7 @@ import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
 import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { runAndFormatClosedLoopSweep } from "./closed-loop-sweep.js";
 import { runPayloadReverseWorkflow, runPrgReverseWorkflow, renderPrgReverseWorkflowResult } from "../lib/prg-workflow.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
@@ -363,6 +364,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
                 analysisJsonPath: analysis_json ? resolve(pd, analysis_json) : undefined,
               });
               result.stdout += `\nFindings emitted: ${emit.routinesEmitted} routines, ${emit.segmentReclassesEmitted} reclasses (${emit.staleRemoved} stale removed).`;
+              // Spec 057 R26: closed-loop sweep, scoped to this PRG.
+              result.stdout += `\n${runAndFormatClosedLoopSweep(knowledgeService, { artifactId: sourceArtifact.id })}`;
             }
           } catch (emitError) {
             result.stdout += `\nFindings emit: FAILED — ${emitError instanceof Error ? emitError.message : String(emitError)}`;
