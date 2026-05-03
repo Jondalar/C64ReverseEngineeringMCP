@@ -662,16 +662,18 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 053 (Bug 20): phase-1 noise archive + segment confirmation.
   server.tool(
     "archive_phase1_noise",
-    "Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. Also closes paired heuristic-phase1 questions whose title address matches. dry_run=true previews without writing.",
+    "Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. Also closes paired heuristic-phase1 questions whose title address matches. dry_run=true previews without writing. Spec 056 R27: pass `artifact_id` to scope routines + hypothesis candidates + questions to those linked to a single artifact (per-file feedback signal).",
     {
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
+      artifact_id: z.string().optional().describe("Spec 056 R27: scope the sweep to this artifact only."),
     },
-    safeHandler("archive_phase1_noise", async ({ project_dir, dry_run }) => {
+    safeHandler("archive_phase1_noise", async ({ project_dir, dry_run, artifact_id }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
-      const result = service.archivePhase1Noise({ dryRun: dry_run ?? false });
+      const result = service.archivePhase1Noise({ dryRun: dry_run ?? false, artifactId: artifact_id });
+      const scopeLine = result.scope === "artifact" ? ` [scope=artifact:${result.scopeArtifactId}]` : "";
       const lines = [
-        `archive_phase1_noise${dry_run ? " (dry run)" : ""}`,
+        `archive_phase1_noise${dry_run ? " (dry run)" : ""}${scopeLine}`,
         `Routines scanned: ${result.routinesScanned}`,
         `Findings ${dry_run ? "would archive" : "archived"}: ${result.findingsArchived}`,
         `Questions answered: ${result.questionsAnswered}`,
@@ -766,12 +768,16 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "auto_resolve_questions",
-    "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). Pfad C runs from the annotation-save endpoint. Returns counts.",
-    { project_dir: z.string().optional() },
-    safeHandler("auto_resolve_questions", async ({ project_dir }) => {
+    "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). Pfad C runs from the annotation-save endpoint. Returns counts. Spec 056 R27: pass `artifact_id` to scope the sweep to questions/findings linked to that artifact only — useful as a per-file feedback signal after annotation work.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string().optional().describe("Spec 056 R27: scope the sweep to this artifact (only questions/findings linked to it are considered)."),
+    },
+    safeHandler("auto_resolve_questions", async ({ project_dir, artifact_id }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
-      const result = service.sweepQuestionResolutions();
-      return textContent(`Sweep done: ${result.autoResolved} answered, ${result.pending} resolution-pending, ${result.phaseClosed} closed via phase-reached.`);
+      const result = service.sweepQuestionResolutions({ artifactId: artifact_id });
+      const scopeLine = result.scope === "artifact" ? ` [scope=artifact:${result.scopeArtifactId}]` : "";
+      return textContent(`Sweep done: ${result.autoResolved} answered, ${result.pending} resolution-pending, ${result.phaseClosed} closed via phase-reached.${scopeLine}`);
     },
 ));
 

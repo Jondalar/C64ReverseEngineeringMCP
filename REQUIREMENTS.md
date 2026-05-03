@@ -539,6 +539,8 @@ Same closed loop for the Graphics tab (Bug 23 family): after `mark_segment_confi
 
 ## R27 — Per-payload noise scope (run auto-resolve only for the just-touched file)
 
+**Status**: DONE — Spec 056 (`056-r27-per-payload-scope.md`). archive_phase1_noise + auto_resolve_questions accept optional `artifact_id`. Match strict `artifactIds.includes`. Output footer surfaces scope.
+
 **Priority**: Medium
 
 **Problem**: `archive_phase1_noise` and `auto_resolve_questions` walk the ENTIRE project. On big projects this is slow and produces non-actionable output ("checked 1200 findings, archived 0 in this scope").

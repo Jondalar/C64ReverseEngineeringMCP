@@ -1666,17 +1666,25 @@ export class ProjectKnowledgeService {
   // with archivedBy pointing at the routine finding. Also walk
   // heuristic-phase1 questions in the same range and close them.
   // dryRun=true: returns counts without writing.
-  archivePhase1Noise(opts: { dryRun?: boolean } = {}): { findingsArchived: number; questionsAnswered: number; routinesScanned: number; preview: Array<{ findingId: string; title: string; supersededBy: string }> } {
+  archivePhase1Noise(opts: { dryRun?: boolean; artifactId?: string } = {}): { findingsArchived: number; questionsAnswered: number; routinesScanned: number; preview: Array<{ findingId: string; title: string; supersededBy: string }>; scope: "project" | "artifact"; scopeArtifactId?: string } {
     const allFindings = this.listFindings();
+    // Spec 056 R27: artifact-scope filter. When opts.artifactId is set,
+    // restrict routines + hypothesis candidates + questions to those
+    // explicitly linked via artifactIds. Routines source is also scoped
+    // (per the refinement "scope BOTH").
+    const inScope = (f: { artifactIds: string[] }) =>
+      !opts.artifactId || f.artifactIds.includes(opts.artifactId);
     const routineFindings = allFindings.filter((f) =>
       (f.kind === "classification" || f.kind === "observation")
       && f.addressRange !== undefined
       && (f.tags ?? []).some((t) => t === "routine" || t === "annotation")
+      && inScope(f)
     );
     // Also accept any "routine"-tagged finding even without a kind match.
     const routinesWithRange = allFindings.filter((f) =>
       f.addressRange !== undefined
       && ((f.tags ?? []).includes("routine") || (f.tags ?? []).includes("annotation"))
+      && inScope(f)
     );
     const routines = routinesWithRange.length > 0 ? routinesWithRange : routineFindings;
     const hypothesisCandidates = allFindings.filter((f) =>
@@ -1684,6 +1692,7 @@ export class ProjectKnowledgeService {
       && f.addressRange !== undefined
       && f.status !== "archived"
       && !f.archivedBy
+      && inScope(f)
     );
     const preview: Array<{ findingId: string; title: string; supersededBy: string }> = [];
     let archived = 0;
@@ -1715,6 +1724,7 @@ export class ProjectKnowledgeService {
       for (const q of questions) {
         if (q.source !== "heuristic-phase1") continue;
         if (q.status !== "open" && q.status !== "researching") continue;
+        if (opts.artifactId && !q.artifactIds.includes(opts.artifactId)) continue;
         const titleAddr = q.title.match(/\$([0-9A-Fa-f]{4})/);
         if (!titleAddr) continue;
         const addr = parseInt(titleAddr[1], 16);
@@ -1740,6 +1750,8 @@ export class ProjectKnowledgeService {
       questionsAnswered,
       routinesScanned: routines.length,
       preview,
+      scope: opts.artifactId ? "artifact" : "project",
+      scopeArtifactId: opts.artifactId,
     };
   }
 
@@ -1921,7 +1933,7 @@ export class ProjectKnowledgeService {
   // intersect the just-saved finding. High-confidence matches
   // auto-close; low-confidence become resolution-pending.
   // Returns count summary so callers can surface it.
-  resolveQuestionsForFinding(findingId: string): { autoResolved: number; pending: number } {
+  resolveQuestionsForFinding(findingId: string, opts: { artifactId?: string } = {}): { autoResolved: number; pending: number } {
     const allFindings = this.listFindings();
     const finding = allFindings.find((f) => f.id === findingId);
     if (!finding) return { autoResolved: 0, pending: 0 };
@@ -1935,6 +1947,9 @@ export class ProjectKnowledgeService {
       if (q.status !== "open" && q.status !== "researching" && q.status !== "resolution-pending") continue;
       if (q.autoResolvable !== true) continue;
       if (q.entityIds.length === 0) continue;
+      // Spec 056 R27: artifact-scope. When set, skip questions not
+      // linked to the same artifact.
+      if (opts.artifactId && !q.artifactIds.includes(opts.artifactId)) continue;
       const overlaps = q.entityIds.some((id) => findingEntityIds.has(id));
       if (!overlaps) continue;
       const highConfidence =
@@ -2072,22 +2087,38 @@ export class ProjectKnowledgeService {
 
   // Spec 052: catch-up sweep. Re-runs Pfad A + B + C across all
   // open auto-resolvable questions. Called from agent_onboard.
-  sweepQuestionResolutions(): { autoResolved: number; pending: number; phaseClosed: number } {
-    const findings = this.listFindings();
+  sweepQuestionResolutions(opts: { artifactId?: string } = {}): { autoResolved: number; pending: number; phaseClosed: number; scope: "project" | "artifact"; scopeArtifactId?: string } {
+    // Spec 056 R27: artifact-scope. When opts.artifactId is set, only
+    // walk findings linked to that artifact, and only resolve questions
+    // similarly linked. Routines source is the same finding set, so it
+    // also stays scoped — matches "scope BOTH" decision.
+    const allFindings = this.listFindings();
+    const findings = opts.artifactId
+      ? allFindings.filter((f) => f.artifactIds.includes(opts.artifactId!))
+      : allFindings;
     let autoResolved = 0;
     let pending = 0;
     for (const f of findings) {
-      const r = this.resolveQuestionsForFinding(f.id);
+      const r = this.resolveQuestionsForFinding(f.id, { artifactId: opts.artifactId });
       autoResolved += r.autoResolved;
       pending += r.pending;
     }
     let phaseClosed = 0;
-    for (const a of this.listArtifacts()) {
+    const artifacts = opts.artifactId
+      ? this.listArtifacts().filter((a) => a.id === opts.artifactId)
+      : this.listArtifacts();
+    for (const a of artifacts) {
       if (a.phase !== undefined) {
         phaseClosed += this.resolveQuestionsForPhase(a.id, a.phase);
       }
     }
-    return { autoResolved, pending, phaseClosed };
+    return {
+      autoResolved,
+      pending,
+      phaseClosed,
+      scope: opts.artifactId ? "artifact" : "project",
+      scopeArtifactId: opts.artifactId,
+    };
   }
 
   // Spec 032 follow-up: run a build pipeline end-to-end, executing
