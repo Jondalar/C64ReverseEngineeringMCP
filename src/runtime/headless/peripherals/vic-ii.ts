@@ -148,8 +148,14 @@ export class VicII {
   // Sprint 78: tick raster forward by N CPU cycles. Sets IFR_RASTER
   // when the line counter matches the compare value (D012 low + D011
   // bit 7 = bit 8 of compare).
-  tick(cycles: number): void {
-    if (cycles <= 0) return;
+  //
+  // Sprint 84 (Spec 084): also returns stolen cycles for bad-line +
+  // sprite-DMA. Caller charges these to the wall clock (CIA + drive
+  // tick budgets advance accordingly) but CPU does not execute during
+  // the stolen window — VIC has bus.
+  tick(cycles: number): { stolenCycles: number } {
+    if (cycles <= 0) return { stolenCycles: 0 };
+    let stolen = 0;
     let remaining = cycles;
     while (remaining > 0) {
       const stepThisLine = Math.min(this.cyclesPerLine - this.horizontalCycle, remaining);
@@ -163,8 +169,36 @@ export class VicII {
         if (this.rasterLine === compare) {
           this.irqStatus |= VIC_IRQ_RASTER;
         }
+        // Sprint 84: bad-line + sprite-DMA stealing on this new line.
+        if (this.isBadLine()) stolen += 40;
+        stolen += this.spriteDmaCycles();
       }
     }
+    return { stolenCycles: stolen };
+  }
+
+  // Bad line per VIC chip spec: in display window (raster 0x30..0xF7)
+  // when DEN=1 and (raster & 7) == YSCROLL. VIC fetches char matrix
+  // for 40 cycles, CPU pauses.
+  isBadLine(): boolean {
+    const ctrl1 = this.regs[VIC_R_CTRL1]!;
+    if (!(ctrl1 & 0x10)) return false; // DEN
+    if (this.rasterLine < 0x30 || this.rasterLine > 0xf7) return false;
+    return (this.rasterLine & 7) === (ctrl1 & 7);
+  }
+
+  // Sprite DMA: each enabled sprite at its Y position uses 2 cycles
+  // for s-access. Approximation: charge them all at line start.
+  spriteDmaCycles(): number {
+    const enable = this.regs[VIC_R_SP_ENABLE]!;
+    if (enable === 0) return 0;
+    let stolen = 0;
+    for (let s = 0; s < 8; s++) {
+      if (!(enable & (1 << s))) continue;
+      const yMatch = this.rasterLine === this.regs[VIC_R_SP_Y + s * 2]!;
+      if (yMatch) stolen += 2;
+    }
+    return stolen;
   }
 
   setNtsc(): void {

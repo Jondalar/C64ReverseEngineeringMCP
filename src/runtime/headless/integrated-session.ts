@@ -238,12 +238,18 @@ export class IntegratedSession {
     this.c64Cpu.step();
     this.c64InstructionCount += 1;
     const consumed = this.c64Cpu.cycles - before;
-    this.cia1.tick(consumed);
-    this.cia2.tick(consumed);
-    this.vic.tick(consumed);
-    this.sid.tick(consumed);
-    this.keyboard.advance(consumed);
-    this.driveCycleAccumulator += consumed * this.driveCyclesPerC64Cycle;
+    // Sprint 84: VIC may steal cycles via bad-line + sprite DMA. CPU
+    // pauses; CIA + drive + SID + keyboard still tick during stolen
+    // cycles ("wall clock" advances). CPU.cycles also advanced so
+    // future scheduling is correct.
+    const vicTick = this.vic.tick(consumed);
+    const totalCycles = consumed + vicTick.stolenCycles;
+    if (vicTick.stolenCycles > 0) this.c64Cpu.cycles += vicTick.stolenCycles;
+    this.cia1.tick(totalCycles);
+    this.cia2.tick(totalCycles);
+    this.sid.tick(totalCycles);
+    this.keyboard.advance(totalCycles);
+    this.driveCycleAccumulator += totalCycles * this.driveCyclesPerC64Cycle;
     while (this.driveCycleAccumulator >= 1) {
       this.runOneDriveStep();
     }
