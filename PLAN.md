@@ -1856,10 +1856,10 @@ Push-through batch covering Spec 064 closeout + Spec 065 phases
   default OFF for MM stage-2 raw bit-bang). Result: drive ATN
   service runs 137× (was 0); MM uniqPCs jumps 1660 → 8898+. DONE.
 
-## Sprint 82-87: Full C64 VM critical items
+## Sprint 82-87: Full C64 VM critical items — DONE
 
-Goal: headless = complete C64 VM. After this batch, re-evaluate MM
-boot status. Specs 082-087.
+Goal: headless = complete C64 VM. All six sprints landed. Specs 082-087.
+Re-evaluate MM boot status after this batch.
 
 - **Sprint 82** (Spec 082) — SID 6581 register-file mock with ADSR
   envelope counter ticks ($D41C polling) + LFSR for $D41B (osc3 noise
