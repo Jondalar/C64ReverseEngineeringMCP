@@ -589,3 +589,20 @@ Implementation tracks:
 - Bug 31 — payload entity importer hygiene, `aliases: string[]` schema, `dedupe_payload_entities()` migration.
 
 For legacy projects (Murder, etc.), the spec ships an agent-driven migration prompt that walks the cleanup with dry-run previews + reference remap verification.
+
+---
+
+## UX3 — Questions tab bulk re-evaluation via task queue
+
+**Status**: SPEC WRITTEN — Spec 061 (`061-ux3-questions-bulk-revaluate.md`).
+
+**Problem**: Questions tab on Murder shows 570 open. User filters down to 66 (open + static-analysis), wants to ask the LLM to re-evaluate the selection against the current state of findings + annotations and auto-close the unambiguous ones — as a single bulk action.
+
+**Want**: bulk action "Re-evaluate selection (N) via LLM" that:
+1. Runs the deterministic `archivePhase1Noise` + `sweepQuestionResolutions` sweep scoped to the selection's linked artifacts (Phase 1, immediate).
+2. Saves a single task to the project task queue carrying the remaining question IDs and a structured prompt; the agent picks it up via `c64re_whats_next` polling and processes per question with one of four outcomes (`answered`, `invalidated`, `researching`, `still-open`).
+3. UI surfaces progress: toast on submit + Dashboard task tile + per-question `re-eval pending` badge + auto-poll while any bulk task is active.
+
+Schema add: `TaskRecord.kind: "human" | "automation"` so the UI can distinguish UI-triggered automation tasks from manual human TODOs.
+
+Aligns with the user's broader workflow: "Claude initialisere das Projekt" → "Starte das UI" → "Polle alle 30 Sekunden ob es ein Todo gibt aus dem UI".
