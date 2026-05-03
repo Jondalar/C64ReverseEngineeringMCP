@@ -1913,3 +1913,75 @@ Bug 26 / Spec 058 introduced auto-classification of `internal` on `saveArtifact`
 `backfill_internal_flags({dry_run})` MCP tool walks artifacts + entities, runs the heuristic on records with `internal === undefined`, writes `internal: true` where it matches. Entity classification uses the (just-updated) artifact map so a single dry-run + apply suffices. Idempotent.
 
 Smoke at `scripts/sprint58-smoke.mjs` covers dry-run preservation + apply + idempotency + entity-from-artifact inheritance.
+
+## Bug 35 — `IntegratedSession.status().c64.instructions` always 0 in lockstep mode
+
+**Severity:** low (cosmetic; affects diagnostic JSON `instructionsExecuted` field).
+**Discovered during:** Sprint 93 / Spec 093 implementation, smoke run `npm run headless:mm:g64-debug` 2026-05-03.
+**Status:** open.
+
+### Symptom
+
+When `useCycleLockstep=true` (forced for G64 sessions per Spec 093), the cycle-lockstep scheduler advances peripherals via `runInstructions(1)` but does not increment `IntegratedSession.c64InstructionCount`. `status().c64.instructions` therefore stays 0 forever, which makes `diagnoseMm()`'s `instructionsExecuted` always read 0 in lockstep runs.
+
+### Fix
+
+Either (a) wire `c64InstructionCount += 1` inside the scheduler's per-instruction step, or (b) compute it from `cyclesExecuted / averageCyclesPerInstr` for diagnostic purposes only. Option (a) is cleaner. Touch points: `src/runtime/headless/integrated-session.ts:stepC64Instruction` scheduler branch + `scheduler/cycle-lockstep-scheduler.ts:runInstructions`.
+
+## Bug 36 — Microcoded `Cpu6510Cycled` indy/indx STA used wrong effective address (KERNAL boot broken)
+
+**Severity:** critical (made microcoded CPU mode unusable — KERNAL never finished cold reset).
+**Discovered during:** Sprint 93.1 typing-path debug 2026-05-03.
+**Status:** FIXED (Sprint 93.1, commit pending).
+
+### Symptom
+
+In `useMicrocodedCpu=true` mode, KERNAL cold reset never completed. Observable state:
+- `$01` stuck at `$26` instead of `$37` (BASIC ROM disabled).
+- IRQ vector `$0314/$0315 = $0000` (RESTOR vector copy never ran).
+- IRQ trampoline at `$FF48-$FF55` looped forever via `JMP ($0314) → $0000 → BRK → $FFFE → $FF48`.
+- BASIC banner / `READY.` never appeared on screen RAM.
+- All keyboard typing dead because SCNKEY never executed.
+
+Legacy CPU mode worked fine. Divergence first instruction: `$FD77` during RAMTAS.
+
+### Root cause
+
+Two coupled bugs in `src/runtime/headless/cpu/cpu6510-cycled.ts`:
+
+1. `fetch_zp_lo` micro-op never set `s.indPtr`. For indirect-Y addressing, the pattern is `fetch_opcode → fetch_zp_lo → fetch_ind_lo → fetch_ind_hi → read_ea_pgy` — there is no intervening `dummy_zp` (which is what set `indPtr` for indirect-X). Result: `fetch_ind_lo` always read from `$0000`, returning whatever happened to be there.
+
+2. `executeStore` re-derived the effective address itself, treating `s.operandLo` as the zero-page pointer. By the time the store executed, `operandLo` had been overwritten by the `fetch_ind_lo` micro-op with the indirect-low byte. The recomputed EA was therefore `mem[indirect_low] | (mem[(indirect_low + 1) & 0xff] << 8)` — completely wrong.
+
+Both bugs combined corrupted RAMTAS at `STA ($C1),Y` / `CMP ($C1),Y`: the store landed at the wrong address, the compare fetched the wrong byte, RAMTAS bailed out early, and KERNAL fell through into a degraded init path that never ran RESTOR.
+
+### Fix
+
+`fetch_zp_lo` now sets `s.indPtr = s.operandLo & 0xff`. (For indirect-X, `dummy_zp` later overwrites with `(operandLo + X) & 0xff`.) `executeStore` no longer recomputes — it writes to `s.ea` which is already correctly set by the preceding micro-ops (`dummy_zp` / `dummy_addr` / `fetch_ind_hi`).
+
+Verified by `scripts/sprint93-divergence.mjs`: legacy and microcoded CPUs now agree on PC for at least 50 000 instructions. `scripts/sprint93-1-smoke.mjs` shows microcoded mode now produces a fully booted BASIC banner + `READY.` prompt + scancode-level keyboard detection.
+
+## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
+
+**Severity:** medium (blocks Sprint 93.1 final acceptance — typing path detects keys but BASIC never sees them).
+**Discovered during:** Sprint 93.1 smoke 2026-05-03.
+**Status:** open.
+
+### Symptom
+
+Sprint 93.1 typeText queues press/release events for `LIST<RETURN>`. SCNKEY at IRQ writes the correct scan code into `$CB` for each key in turn (observed transitions `$15 / $0C / $29 / $32 / $08 / $40`). However:
+- `$C5` (last accepted key) stays at `$40` (no key).
+- `$C6` (chars in buffer) stays at 0.
+- Screen at `$0400` shows BASIC banner + `READY.` but no echo of typed input.
+
+In a hold-the-key smoke (`queueKeyEvent("L", 0, 10_000_000)`), `$C5` does change to `$15` — so the matrix path itself works. The buffer write step still does not fire even with sustained press.
+
+### Likely causes (next-session candidates)
+
+1. KERNAL debounce expects more consecutive identical scans than the 80k-cycle press window provides. Plausible: jiffy IRQ rate in headless drifts from real C64; debounce never saturates.
+2. Buffer-size guard `$0289` or repeat counters `$028B/$028C` mis-initialised by KERNAL because earlier init did something odd.
+3. `$CC` (cursor blink) state interfering with SCNKEY's buffer-write entry point.
+
+### Next step
+
+Trace SCNKEY ($EA87) execution under microscope: log writes to `$CB`, `$C5`, `$C6`, `$028A-$028C`, and the path through $EBE2 buffer-store entry. Compare with VICE behavior given identical input timing. May require Sprint 93.1 to land typing infrastructure first and treat the SCNKEY behavior as a separate Sprint 93.1b investigation.

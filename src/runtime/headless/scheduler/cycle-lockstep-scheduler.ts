@@ -37,6 +37,11 @@ export interface CycleLockstepDeps {
   c64Pc: () => number;
   // PAL or NTSC.
   isPal: boolean;
+  // Sprint 93.1 / Spec 093 §6: per-cycle interrupt pin update. Called
+  // BEFORE C64 components tick each cycle, so the CPU samples up-to-
+  // date IRQ/NMI state at instruction boundary. Mirrors the VICE
+  // maincpu_int_status pin model.
+  updateInterruptLines?: () => void;
 }
 
 export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
@@ -50,6 +55,9 @@ export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
   }
 
   executeCycle(): void {
+    // VICE pattern: refresh IRQ/NMI pin state each cycle BEFORE the CPU
+    // ticks. CPU samples line at instruction-boundary fetch.
+    if (this.deps.updateInterruptLines) this.deps.updateInterruptLines();
     // Tick all C64 chips by 1 cycle.
     for (const c of this.deps.c64Components) c.executeCycle();
     this.cycleCount++;

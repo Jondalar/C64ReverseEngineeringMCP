@@ -25,7 +25,7 @@ import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./perip
 import { rgbaToPng } from "./peripherals/png-writer.js";
 import { writeFileSync } from "node:fs";
 import { installCia1 } from "./peripherals/cia1.js";
-import type { KeyboardMatrix } from "./peripherals/keyboard.js";
+import type { KeyboardMatrix, JoystickState } from "./peripherals/keyboard.js";
 import { installCia2 } from "./peripherals/cia2.js";
 import type { Cia6526 } from "./cia/cia6526.js";
 import {
@@ -74,6 +74,12 @@ export interface IntegratedSessionOptions {
   // Sprint 92.7 v2: use new microcoded cpu6510 (sub-instruction bus
   // access). Implies useCycleLockstep=true. Default false.
   useMicrocodedCpu?: boolean;
+  // Spec 093: cycle-stamped IEC edge trace (ring buffer in IecBus).
+  traceIec?: boolean;
+  traceIecCapacity?: number;
+  // Spec 093: drive PC trace ring (per drive instruction).
+  traceDrive?: boolean;
+  traceDriveCapacity?: number;
 }
 
 export interface PrgLoadResult {
@@ -99,6 +105,7 @@ export class IntegratedSession {
   public readonly cia1: Cia6526;
   public readonly cia2: Cia6526;
   public readonly keyboard: KeyboardMatrix;
+  public readonly joystick2: JoystickState;
   public readonly vic: VicII;
   public readonly sid: Sid6581;
   public readonly framebuffer: VicFramebuffer;
@@ -110,6 +117,13 @@ export class IntegratedSession {
   public readonly scheduler?: CycleLockstepSchedulerImpl;
   public readonly cpuCycled?: Cpu6510Cycled;
   public readonly useCycleLockstep: boolean;
+  public readonly useMicrocodedCpu: boolean;
+  // Spec 093: image format string ("g64" | "d64" | "other") + clock ratio.
+  public readonly imageFormat: string;
+  public readonly driveClockRatio: number;
+  // Spec 093: drive PC trace ring (last N drive PCs sampled per step).
+  private drivePcTrace: Array<{ cycle: number; pc: number }> = [];
+  private drivePcTraceCapacity = 0;
   // NMI edge detection bookkeeping.
   private prevCia2IrqAsserted = false;
   public get lastTrap(): string | undefined { return this.kernalFileIo.lastTrap; }
@@ -121,6 +135,9 @@ export class IntegratedSession {
     if (!existsSync(opts.diskPath)) throw new Error(`Disk image not found: ${opts.diskPath}`);
     const isPal = opts.isPal ?? true;
     this.driveCyclesPerC64Cycle = DRIVE_HZ / (isPal ? C64_HZ_PAL : C64_HZ_NTSC);
+    this.driveClockRatio = this.driveCyclesPerC64Cycle;
+    const ext = opts.diskPath.toLowerCase().split(".").pop() ?? "";
+    this.imageFormat = ext === "g64" ? "g64" : ext === "d64" ? "d64" : ext || "other";
     this.diskPath = opts.diskPath;
     this.parser = new G64Parser(readFileSync(opts.diskPath));
     this.diskProvider = DiskProvider.fromImagePath(opts.diskPath);
@@ -144,6 +161,7 @@ export class IntegratedSession {
     const cia1Install = installCia1(this.c64Bus);
     this.cia1 = cia1Install.cia;
     this.keyboard = cia1Install.keyboard;
+    this.joystick2 = cia1Install.joystick2;
     this.vic = installVicII(this.c64Bus);
     this.sid = installSid(this.c64Bus);
     if (!isPal) this.vic.setNtsc();
@@ -179,6 +197,11 @@ export class IntegratedSession {
 
     // Sprint 92: cycle-lockstep scheduler (opt-in).
     this.useCycleLockstep = (opts.useCycleLockstep ?? false) || (opts.useMicrocodedCpu ?? false);
+    this.useMicrocodedCpu = opts.useMicrocodedCpu ?? false;
+    // Spec 093: trace wiring. timeSource bound to c64Cpu cycles via getter.
+    this.iecBus.timeSource = () => this.c64Cpu.cycles;
+    if (opts.traceIec) this.iecBus.enableTrace(opts.traceIecCapacity ?? 1024);
+    this.drivePcTraceCapacity = opts.traceDrive ? (opts.traceDriveCapacity ?? 512) : 0;
     if (this.useCycleLockstep) {
       // Sprint 92.7 v2: optional microcoded cpu (per-cycle bus access).
       let cpuCompoonent: any;
@@ -213,6 +236,10 @@ export class IntegratedSession {
         c64IsAtInstructionBoundary: () => cpuCompoonent.isAtInstructionBoundary?.() ?? true,
         c64Pc: () => this.c64Cpu.pc,
         isPal,
+        // Sprint 93.1: per-cycle IRQ/NMI pin update (VICE pattern).
+        updateInterruptLines: opts.useMicrocodedCpu
+          ? () => this.updateMicrocodedInterruptLines()
+          : undefined,
       });
     }
   }
@@ -240,12 +267,44 @@ export class IntegratedSession {
   resetCold(): void {
     this.c64Bus.reset();
     this.iecBus.reset();
+    if (this.iecBus.isTraceEnabled()) this.iecBus.clearTrace();
     this.c64Cpu.reset();
     this.drive.reset();
     this.drive.setSyncBaseline(this.c64Cpu.cycles);
     this.sid.reset();
     this.c64InstructionCount = 0;
+    this.drivePcTrace = [];
   }
+
+  // Sprint 93.1: queue text typing into keyboard matrix. Hold/gap default
+  // tuned for KERNAL SCNKEY raster IRQ (~16400 cyc per scan): 33000 cyc
+  // hold + 33000 cyc gap means at least 2 scan ticks see press, 2 scan
+  // ticks see release — buffer reliably picks up the key.
+  typeText(text: string, holdCycles = 33000, gapCycles = 33000): void {
+    this.keyboard.typeText(text, holdCycles, gapCycles);
+  }
+
+  // Sprint 93.1: set joystick port 2 directional / fire state.
+  setJoystick2(state: Partial<JoystickState>): void {
+    if (state.up !== undefined) this.joystick2.up = state.up;
+    if (state.down !== undefined) this.joystick2.down = state.down;
+    if (state.left !== undefined) this.joystick2.left = state.left;
+    if (state.right !== undefined) this.joystick2.right = state.right;
+    if (state.fire !== undefined) this.joystick2.fire = state.fire;
+  }
+
+  // Spec 093: drive PC sample (called per C64 instruction step).
+  private sampleDrivePc(): void {
+    if (this.drivePcTraceCapacity <= 0) return;
+    const pc = this.drive.cpu.pc;
+    const last = this.drivePcTrace[this.drivePcTrace.length - 1];
+    if (last && last.pc === pc) return; // dedupe consecutive
+    this.drivePcTrace.push({ cycle: this.c64Cpu.cycles, pc });
+    if (this.drivePcTrace.length > this.drivePcTraceCapacity) this.drivePcTrace.shift();
+  }
+
+  getDrivePcTrace(): Array<{ cycle: number; pc: number }> { return this.drivePcTrace.slice(); }
+  getIecTrace() { return this.iecBus.getTrace(); }
 
   loadPrgIntoRam(prgPath: string, overrideLoadAddress?: number): PrgLoadResult {
     if (!existsSync(prgPath)) throw new Error(`PRG not found: ${prgPath}`);
@@ -291,9 +350,11 @@ export class IntegratedSession {
         // Trap consumed an "instruction" worth of cycles. Run scheduler
         // for ~7 cycles to advance peripherals + drive.
         this.scheduler.runCycles(7);
+        this.sampleDrivePc();
         return;
       }
       this.scheduler.runInstructions(1);
+      this.sampleDrivePc();
       return;
     }
     // Spec 064 Sprint 69b: KERNAL file-IO traps now opt-in via
@@ -328,6 +389,7 @@ export class IntegratedSession {
       this.keyboard.advance(trapCycles);
       // Spec 090: drive lazy executeToClock instead of accumulator drain.
       this.drive.executeToClock(this.c64Cpu.cycles);
+      this.sampleDrivePc();
       return;
     }
     // Spec 090 / VICE pattern: drive catches up to current C64 clock
@@ -353,6 +415,7 @@ export class IntegratedSession {
     this.keyboard.advance(totalCycles);
     // Spec 090: drive catches up to NEW C64 clock after instruction.
     this.drive.executeToClock(this.c64Cpu.cycles);
+    this.sampleDrivePc();
   }
 
   runFor(maxC64Instructions: number, opts?: { breakpoints?: Set<number>; cycleBudget?: number }): {
@@ -383,6 +446,18 @@ export class IntegratedSession {
     this.drive.executeToClock(this.c64Cpu.cycles);
   }
 
+  // Sprint 93.1: per-cycle IRQ/NMI pin refresh for microcoded CPU. Called
+  // by the cycle-lockstep scheduler before each cycle. Mirrors VICE's
+  // maincpu_int_status pattern: peripherals assert/deassert IRQ/NMI pin,
+  // CPU samples it at instruction boundary (handled inside microcoded
+  // cpu's startInstructionCycle).
+  private updateMicrocodedInterruptLines(): void {
+    const cpu = this.c64Cpu as any;
+    if (!("irqLine" in cpu)) return;
+    cpu.irqLine = this.cia1.irqAsserted() || this.vic.irqAsserted();
+    cpu.nmiLine = this.cia2.irqAsserted();
+  }
+
   private checkC64Interrupts(): void {
     // CIA2 → C64 NMI (edge-triggered). RESTORE-key NMI deferred.
     const cia2Irq = this.cia2.irqAsserted();
@@ -401,6 +476,18 @@ export class IntegratedSession {
     drive: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number; instructions: number; track: number };
     iecBus: ReturnType<IecBus["snapshot"]>;
     romSet: { kernal: string; basic: string; charRom: string };
+    runtime: {
+      imageFormat: string;
+      diskPath: string;
+      useCycleLockstep: boolean;
+      useMicrocodedCpu: boolean;
+      driveClockRatio: number;
+      enableKernalFileIoTraps: boolean;
+      enableKernalSerialTraps: boolean;
+      enableKernalIoTraps: boolean;
+      iecTraceEnabled: boolean;
+      drivePcTraceCapacity: number;
+    };
   } {
     return {
       c64: {
@@ -419,6 +506,18 @@ export class IntegratedSession {
         kernal: `${this.romSet.kernal.source}${this.romSet.kernal.path ? ` (${this.romSet.kernal.path})` : ""}`,
         basic: `${this.romSet.basic.source}${this.romSet.basic.path ? ` (${this.romSet.basic.path})` : ""}`,
         charRom: `${this.romSet.charRom.source}${this.romSet.charRom.path ? ` (${this.romSet.charRom.path})` : ""}`,
+      },
+      runtime: {
+        imageFormat: this.imageFormat,
+        diskPath: this.diskPath,
+        useCycleLockstep: this.useCycleLockstep,
+        useMicrocodedCpu: this.useMicrocodedCpu,
+        driveClockRatio: this.driveClockRatio,
+        enableKernalFileIoTraps: this.enableKernalFileIoTraps,
+        enableKernalSerialTraps: this.enableKernalSerialTraps,
+        enableKernalIoTraps: this.enableKernalIoTraps,
+        iecTraceEnabled: this.iecBus.isTraceEnabled(),
+        drivePcTraceCapacity: this.drivePcTraceCapacity,
       },
     };
   }

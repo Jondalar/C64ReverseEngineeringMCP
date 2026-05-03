@@ -161,7 +161,14 @@ export class Cpu6510Cycled implements CycleSteppable {
       case 'fetch_zp_lo':
         s.operandLo = this.busRead(this.pc);
         this.pc = (this.pc + 1) & 0xffff;
-        if (op === 'fetch_zp_lo') s.ea = s.operandLo & 0xff;
+        if (op === 'fetch_zp_lo') {
+          s.ea = s.operandLo & 0xff;
+          // Sprint 93.1 fix: indirect addressing modes need the zp pointer
+          // address in indPtr. dummy_zp would otherwise leave indPtr=0
+          // for indy (no dummy_zp in indy pattern). For indx, dummy_zp
+          // overwrites with (operandLo + X) & 0xff.
+          s.indPtr = s.operandLo & 0xff;
+        }
         break;
       case 'fetch_hi':
         s.operandHi = this.busRead(this.pc);
@@ -413,18 +420,12 @@ export class Cpu6510Cycled implements CycleSteppable {
       case 'sty': v = this.y; break;
       default: return;
     }
-    // For absx/absy/indy stores, EA has been pre-computed. For rel n/a.
-    if (entry.mode === 'zpx') s.ea = (s.operandLo + this.x) & 0xff;
-    else if (entry.mode === 'zpy') s.ea = (s.operandLo + this.y) & 0xff;
-    else if (entry.mode === 'absx') s.ea = ((s.operandLo | (s.operandHi << 8)) + this.x) & 0xffff;
-    else if (entry.mode === 'absy') s.ea = ((s.operandLo | (s.operandHi << 8)) + this.y) & 0xffff;
-    else if (entry.mode === 'indx') {
-      const ptr = (s.operandLo + this.x) & 0xff;
-      s.ea = this.busRead(ptr) | (this.busRead((ptr + 1) & 0xff) << 8);
-    } else if (entry.mode === 'indy') {
-      const base = this.busRead(s.operandLo) | (this.busRead((s.operandLo + 1) & 0xff) << 8);
-      s.ea = (base + this.y) & 0xffff;
-    }
+    // Sprint 93.1 fix: every write addressing-mode pattern (zp / zpx /
+    // zpy / abs / absx / absy / indx / indy) sets `s.ea` to the final
+    // effective address through its preceding micro-ops (dummy_zp /
+    // dummy_addr / fetch_ind_hi). Earlier code re-derived the EA here
+    // and corrupted indy/indx by treating the post-fetch operandLo as
+    // the zp pointer (it is the indirect-low byte at that point).
     this.busWrite(s.ea, v);
   }
 

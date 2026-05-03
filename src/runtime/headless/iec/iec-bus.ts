@@ -36,6 +36,20 @@ export const CIA2_PA_DATA_OUT = 1 << 5;
 export const CIA2_PA_CLK_IN = 1 << 6;
 export const CIA2_PA_DATA_IN = 1 << 7;
 
+export interface IecEdgeRecord {
+  cycle: number;
+  side: "c64" | "drive";
+  atn: 0 | 1;
+  clk: 0 | 1;
+  data: 0 | 1;
+  c64Atn: 0 | 1;
+  c64Clk: 0 | 1;
+  c64Data: 0 | 1;
+  drvClk: 0 | 1;
+  drvData: 0 | 1;
+  drvAtnAck: 0 | 1;
+}
+
 export class IecBus {
   // C64-side drivers. true = released (high), false = pulling low.
   private c64AtnReleased = true;
@@ -48,6 +62,40 @@ export class IecBus {
   // ATN_ACK on drive side: when ATN is asserted (low), the drive must
   // ACK by pulling DATA low. The drive ROM does this in its ATN handler.
   private driveAtnAckReleased = true;
+
+  // Spec 093: optional cycle-stamped edge trace.
+  private traceEnabled = false;
+  private traceCapacity = 256;
+  private trace: IecEdgeRecord[] = [];
+  public timeSource?: () => number;
+
+  enableTrace(capacity = 256): void {
+    this.traceEnabled = true;
+    this.traceCapacity = Math.max(8, capacity);
+    this.trace = [];
+  }
+  disableTrace(): void { this.traceEnabled = false; this.trace = []; }
+  getTrace(): IecEdgeRecord[] { return this.trace.slice(); }
+  clearTrace(): void { this.trace = []; }
+  isTraceEnabled(): boolean { return this.traceEnabled; }
+  private recordEdge(side: "c64" | "drive", prev: { atn: boolean; clk: boolean; data: boolean }): void {
+    if (!this.traceEnabled) return;
+    const atn = this.atnLine, clk = this.clkLine, data = this.dataLine;
+    if (atn === prev.atn && clk === prev.clk && data === prev.data) return;
+    const cycle = this.timeSource ? this.timeSource() : 0;
+    const rec: IecEdgeRecord = {
+      cycle, side,
+      atn: atn ? 1 : 0, clk: clk ? 1 : 0, data: data ? 1 : 0,
+      c64Atn: this.c64AtnReleased ? 1 : 0,
+      c64Clk: this.c64ClkReleased ? 1 : 0,
+      c64Data: this.c64DataReleased ? 1 : 0,
+      drvClk: this.driveClkReleased ? 1 : 0,
+      drvData: this.driveDataReleased ? 1 : 0,
+      drvAtnAck: this.driveAtnAckReleased ? 1 : 0,
+    };
+    this.trace.push(rec);
+    if (this.trace.length > this.traceCapacity) this.trace.shift();
+  }
 
   // Optional drive VIA1 to pulse CA1 on ATN edges.
   private driveVia1?: Via6522;
@@ -81,6 +129,7 @@ export class IecBus {
     // drive sees its previous bus state for full duration before this
     // new one. Symmetric with read-side flush.
     if (this.beforeC64Read) this.beforeC64Read();
+    const prev = { atn: this.atnLine, clk: this.clkLine, data: this.dataLine };
     const driveAtn = (ddrMask & CIA2_PA_ATN_OUT) !== 0;
     const driveClk = (ddrMask & CIA2_PA_CLK_OUT) !== 0;
     const driveData = (ddrMask & CIA2_PA_DATA_OUT) !== 0;
@@ -92,6 +141,7 @@ export class IecBus {
     this.c64ClkReleased = !driveClk || !clkBit;
     this.c64DataReleased = !driveData || !dataBit;
     this.notifyAtnChanged();
+    this.recordEdge("c64", prev);
   }
 
   // Drive → bus: VIA1 PB writes update these.
@@ -101,6 +151,7 @@ export class IecBus {
   // PB bit=0 (with DDR=output) → transistor releases line.
   // Confirmed during Sprint 75 iteration on Maniac Mansion drive code.
   setDriveOutput(via1PbOr: number, ddrMask: number): void {
+    const prev = { atn: this.atnLine, clk: this.clkLine, data: this.dataLine };
     const drvData = (ddrMask & PB_DATA_OUT) !== 0;
     const drvClk = (ddrMask & PB_CLK_OUT) !== 0;
     const drvAtnAck = (ddrMask & PB_ATN_ACK) !== 0;
@@ -114,6 +165,7 @@ export class IecBus {
     // line. bit=1 = drive acknowledged ATN = auto-pull DISABLED (i.e.
     // released). 1541 ATN handler $E876 does ORA #$10 to acknowledge.
     this.driveAtnAckReleased = !drvAtnAck || atnAckBit;
+    this.recordEdge("drive", prev);
   }
 
   // Wired-AND line states. true = released (high), false = pulled (low).

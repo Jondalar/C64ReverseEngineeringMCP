@@ -1917,6 +1917,101 @@ Sprint 92 = clean rewrite. Replaces Sprint 88-91 architecture entirely.
 - **92.7** — Acceptance: MM, Murder, Last Ninja, Impossible Mission II
   all reach title screen / game start via real custom-loader bit-bang.
 
+## Sprint 93: Maniac Mansion G64 lockstep debug path (Spec 093)
+
+Goal: stop guessing at the Maniac Mansion G64 boot failure. First prove
+that the MCP integrated-session path actually runs with cycle-lockstep
+and the microcoded 6510, then capture enough IEC/drive state to identify
+the exact remaining blocker.
+
+Status: implementation landed (Spec 093 §1+§2+§3+§5 done). Followups
+open: §6 fix the first proven timing blocker once Sprint 93.1 typing
+path lets MM reach $46A7.
+
+Done:
+
+- `headless_integrated_session_start` exposes `use_cycle_lockstep`,
+  `use_microcoded_cpu`, `trace_iec`, `trace_drive`, `trace_iec_capacity`,
+  `trace_drive_capacity`, `enable_kernal_*_traps`. G64 defaults
+  lockstep+microcoded ON; explicit-off emits warning.
+- Tool result returns resolved runtime: imageFormat, useCycleLockstep,
+  useMicrocodedCpu, driveClockRatio, KERNAL trap state, IEC trace state.
+- New MCP tool `headless_integrated_session_diagnose_mm` boots G64,
+  runs to title or stall, dumps registered JSON artifact under
+  `analysis/headless/mm-g64-lockstep-debug.json`, returns one-line
+  verdict + IEC blame (which side holds CLK/DATA).
+- New helper `src/runtime/headless/diagnostic-mm.ts` with stall
+  heuristics (warmup-gated to avoid false positives on idle drive ROM).
+- New npm script `npm run headless:mm:g64-debug -- --disk <g64>`.
+- IEC bus has cycle-stamped edge ring (`IecBus.enableTrace`,
+  `getTrace`); session has drive-PC sample ring.
+- Smoke verified on Maniac Mansion G64: 10M-cycle run completes,
+  verdict = `cycle-budget-exhausted` (no false stall), JSON registered.
+
+Open:
+
+- Cannot reach $46A7 yet because no LOAD/RUN typed. Sprint 93.1
+  (keyboard typing) unblocks real MM bootstrap.
+- Cosmetic: `instructionsExecuted` counter not incremented in
+  scheduler path (always 0). Track separately.
+
+Specs:
+
+- `specs/093-maniac-mansion-g64-1541-lockstep-debug.md`
+
+## Sprint 93.1: keyboard typing + joystick port (Spec 093 prereq)
+
+Goal: typing path so headless C64 can enter `LOAD"*",8,1<RETURN>RUN<RETURN>`
+without bypassing KERNAL. Joystick port 2 backend so games with auto-LOAD
++ joystick title-screen progression are reachable.
+
+Done:
+
+- `KeyboardMatrix.typeText` now PETSCII-aware. Auto-SHIFT for `"`, `?`,
+  `(`, `)`, `<`, `>`, etc. CR/LF map to RETURN.
+- `KeyboardMatrix.queueKeyEvent` for explicit single-key press.
+- New `JoystickState` + `joystickActiveLowMask` model in
+  `peripherals/keyboard.ts`. CIA1 PA backend wired to expose port 2 to
+  CPU at `$DC00` (active-low bits 0-4: up/down/left/right/fire).
+- `IntegratedSession.typeText(text, hold?, gap?)` and
+  `IntegratedSession.setJoystick2(state)` convenience APIs.
+- New MCP tools `headless_integrated_session_type` and
+  `headless_integrated_session_joystick`.
+- VICE-pattern per-cycle interrupt-line refresh wired into
+  `CycleLockstepScheduler` (`updateInterruptLines` hook). Microcoded
+  CPU now actually services CIA1 timer-A IRQ → SCNKEY runs.
+- **Critical bug 36 fix**: microcoded `Cpu6510Cycled` indy/indx STA
+  was using corrupted EA (operandLo overwritten by fetch_ind_lo). Fix:
+  `fetch_zp_lo` now seeds `s.indPtr`; `executeStore` no longer
+  re-derives EA. KERNAL cold reset now completes cleanly in
+  microcoded mode (BASIC banner + `READY.` visible on screen RAM).
+- `scripts/sprint93-divergence.mjs` — legacy vs microcoded PC
+  divergence hunter (clean for 50000+ instructions after fix).
+- `scripts/sprint93-1-smoke.mjs` — typing smoke (BASIC visible,
+  SCNKEY scancode detection works).
+
+Open:
+
+- Bug 37: SCNKEY detects each typed key (`$CB` transitions correctly
+  for L/I/S/T/RETURN) but never copies into `$C5` / `$0277` buffer.
+  Likely jiffy-IRQ debounce window mismatch. Blocks final acceptance
+  of Sprint 93.1 (keys land but BASIC doesn't see them).
+
+Done when:
+
+- `headless_integrated_session_type session_id text:"LIST<CR>"` causes
+  BASIC to actually execute LIST and update screen RAM.
+- Joystick port 2 reads on `$DC00` reflect `setJoystick2` state.
+
+Done when:
+
+- the normal MCP path can prove whether it used lockstep + microcoded
+  CPU
+- a stalled MM run reports who is holding `CLK` and what both CPUs are
+  looping on
+- either MM reaches title/character-select, or the next runtime fix is
+  narrowed to one concrete subsystem
+
 ## Sprint 88-91: Pre-lockstep workarounds (superseded by Sprint 92)
 
 User clarified: cycle-perfect is **MVP**, not long-term goal. Headless

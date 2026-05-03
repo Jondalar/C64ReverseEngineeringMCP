@@ -65,16 +65,33 @@ export class KeyboardMatrix {
   }
 
   // Type a string of keys sequentially with default 50000 cycle hold +
-  // 10000 cycle gap between each.
+  // 10000 cycle gap between each. Sprint 93.1: PETSCII-aware mapping
+  // with auto-SHIFT for shifted-only characters (`"`, `?`, `(`, `)` …).
   typeText(text: string, holdCycles: number = 50000, gapCycles: number = 10000): void {
     let off = 0;
     for (const ch of text) {
-      const key = ch === " " ? "SPACE" : (ch === "\n" || ch === "\r") ? "RETURN" : ch.toUpperCase();
+      const m = lookupChar(ch);
+      if (!m) continue;
       const start = this.cycleNow + off;
-      this.events.push({ key, startCycle: start, endCycle: start + holdCycles });
+      const end = start + holdCycles;
+      this.events.push({ key: m.key, startCycle: start, endCycle: end });
+      if (m.shift) {
+        this.events.push({ key: "L_SHIFT", startCycle: start, endCycle: end });
+      }
       off += holdCycles + gapCycles;
     }
   }
+
+  // Sprint 93.1: queue an explicit key event with absolute timing.
+  queueKeyEvent(key: KeyName, startCycleFromNow: number, holdCycles: number): void {
+    const start = this.cycleNow + startCycleFromNow;
+    this.events.push({ key, startCycle: start, endCycle: start + holdCycles });
+  }
+
+  // Sprint 93.1: drop pending events. Used by tests / reset paths.
+  clearEvents(): void { this.events = []; }
+  pendingEventCount(): number { return this.events.length; }
+  currentCycle(): number { return this.cycleNow; }
 
   // Advance current time. Called by integrated session per CPU step.
   advance(cycles: number): void {
@@ -102,4 +119,60 @@ export class KeyboardMatrix {
   resetClock(): void {
     this.cycleNow = 0;
   }
+}
+
+// Sprint 93.1: PETSCII char → matrix entry (with optional SHIFT).
+// Covers everything needed for `LOAD"*",8,1<RETURN>RUN<RETURN>` plus
+// commonly-typed BASIC and game commands.
+const SHIFTED_CHARS: Record<string, string> = {
+  "\"": "2",
+  "(": "8",
+  ")": "9",
+  "?": "/",
+  "<": ",",
+  ">": ".",
+  "[": ":",
+  "]": ";",
+  "!": "1",
+  "#": "3",
+  "$": "4",
+  "%": "5",
+  "&": "6",
+  "'": "7",
+};
+
+function lookupChar(ch: string): { key: string; shift?: boolean } | null {
+  if (ch === " ") return { key: "SPACE" };
+  if (ch === "\n" || ch === "\r") return { key: "RETURN" };
+  if (ch === "\t") return null; // ignore
+  const up = ch.toUpperCase();
+  if (KEY_MATRIX[up]) return { key: up };
+  const shifted = SHIFTED_CHARS[ch] ?? SHIFTED_CHARS[up];
+  if (shifted && KEY_MATRIX[shifted]) return { key: shifted, shift: true };
+  return null;
+}
+
+// Sprint 93.1: joystick port 2 backend. Real C64 wires joystick port 2
+// to CIA1 PA bits 0-4 (active-low). When read, pulled bits indicate
+// pressed direction / fire. We model this as a small state object the
+// session can mutate; the CIA1 PA backend ANDs joystick mask into PA
+// reads to make the CPU see the joystick.
+export interface JoystickState {
+  up: boolean; down: boolean; left: boolean; right: boolean; fire: boolean;
+}
+
+export const JOY_BIT_UP = 1 << 0;
+export const JOY_BIT_DOWN = 1 << 1;
+export const JOY_BIT_LEFT = 1 << 2;
+export const JOY_BIT_RIGHT = 1 << 3;
+export const JOY_BIT_FIRE = 1 << 4;
+
+export function joystickActiveLowMask(s: JoystickState): number {
+  let mask = 0xff;
+  if (s.up)    mask &= ~JOY_BIT_UP;
+  if (s.down)  mask &= ~JOY_BIT_DOWN;
+  if (s.left)  mask &= ~JOY_BIT_LEFT;
+  if (s.right) mask &= ~JOY_BIT_RIGHT;
+  if (s.fire)  mask &= ~JOY_BIT_FIRE;
+  return mask & 0xff;
 }

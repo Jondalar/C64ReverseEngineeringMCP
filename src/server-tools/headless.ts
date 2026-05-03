@@ -710,36 +710,74 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Path to Murder boot trace.
   server.tool(
     "headless_integrated_session_start",
-    "Spec 062 Sprint 65: open an integrated C64+1541 drive session. Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to the IEC bus; drive CPU runs cycle-accurately in lockstep with the C64. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. Returns session id for the other integrated_session tools.",
+    "Spec 062 Sprint 65 / Spec 093: open an integrated C64+1541 drive session. Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to IEC bus; drive CPU runs cycle-accurately in lockstep with the C64. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. For G64 images, cycle-lockstep + microcoded CPU default to ON (Spec 093) — required for custom-loader IEC handshake. Returns session id and resolved runtime config.",
     {
       disk_path: z.string(),
       device_id: z.number().int().min(8).max(11).optional(),
       pal: z.boolean().optional(),
       start_track: z.number().int().min(1).max(40).optional(),
       write_protected: z.boolean().optional(),
+      // Spec 093: explicit runtime knobs (G64 defaults to true on both).
+      use_cycle_lockstep: z.boolean().optional(),
+      use_microcoded_cpu: z.boolean().optional(),
+      // Spec 093: diagnostic ring buffers.
+      trace_iec: z.boolean().optional(),
+      trace_iec_capacity: z.number().int().min(8).max(65536).optional(),
+      trace_drive: z.boolean().optional(),
+      trace_drive_capacity: z.number().int().min(8).max(65536).optional(),
+      // Spec 093: KERNAL trap toggles (default false for real serial).
+      enable_kernal_fileio_traps: z.boolean().optional(),
+      enable_kernal_serial_traps: z.boolean().optional(),
+      enable_kernal_io_traps: z.boolean().optional(),
     },
-    safeHandler("headless_integrated_session_start", async ({ disk_path, device_id, pal, start_track, write_protected }) => {
+    safeHandler("headless_integrated_session_start", async ({
+      disk_path, device_id, pal, start_track, write_protected,
+      use_cycle_lockstep, use_microcoded_cpu,
+      trace_iec, trace_iec_capacity, trace_drive, trace_drive_capacity,
+      enable_kernal_fileio_traps, enable_kernal_serial_traps, enable_kernal_io_traps,
+    }) => {
       const { startIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const ext = disk_path.toLowerCase().split(".").pop() ?? "";
+      const isG64 = ext === "g64";
+      // Spec 093: G64 defaults to lockstep + microcoded ON.
+      const resolvedLockstep = use_cycle_lockstep ?? (isG64 ? true : false);
+      const resolvedMicrocoded = use_microcoded_cpu ?? (isG64 ? true : false);
+      const warnings: string[] = [];
+      if (isG64 && use_cycle_lockstep === false) {
+        warnings.push("WARNING: cycle-lockstep disabled for G64 — custom-loader compatibility reduced.");
+      }
+      if (isG64 && use_microcoded_cpu === false) {
+        warnings.push("WARNING: microcoded CPU disabled for G64 — sub-instruction IEC edges lost; custom-loader handshake may stall.");
+      }
       const { sessionId, session } = startIntegratedSession({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
         startTrack: start_track, writeProtected: write_protected,
+        useCycleLockstep: resolvedLockstep,
+        useMicrocodedCpu: resolvedMicrocoded,
+        traceIec: trace_iec, traceIecCapacity: trace_iec_capacity,
+        traceDrive: trace_drive, traceDriveCapacity: trace_drive_capacity,
+        enableKernalFileIoTraps: enable_kernal_fileio_traps,
+        enableKernalSerialTraps: enable_kernal_serial_traps,
+        enableKernalIoTraps: enable_kernal_io_traps,
       });
       session.resetCold();
       const status = session.status();
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `Integrated session started.`,
-            `Session: ${sessionId}`,
-            `Disk: ${disk_path}`,
-            `C64 ROMs: kernal=${status.romSet.kernal}, basic=${status.romSet.basic}, charrom=${status.romSet.charRom}`,
-            `C64 PC after cold reset: ${formatHexWord(status.c64.pc)}`,
-            `Drive PC after reset: ${formatHexWord(status.drive.pc)}`,
-            `Drive head: track ${status.drive.track}`,
-          ].join("\n"),
-        }],
-      };
+      const lines: string[] = [
+        `Integrated session started.`,
+        `Session: ${sessionId}`,
+        `Disk: ${disk_path}`,
+        `Image format: ${status.runtime.imageFormat}`,
+        `Runtime: useCycleLockstep=${status.runtime.useCycleLockstep} useMicrocodedCpu=${status.runtime.useMicrocodedCpu}`,
+        `Drive clock ratio: ${status.runtime.driveClockRatio.toFixed(6)} (drive cycles per C64 cycle)`,
+        `KERNAL traps: fileio=${status.runtime.enableKernalFileIoTraps} serial=${status.runtime.enableKernalSerialTraps} io=${status.runtime.enableKernalIoTraps}`,
+        `IEC trace: ${status.runtime.iecTraceEnabled ? "ON" : "off"}  Drive PC trace cap: ${status.runtime.drivePcTraceCapacity}`,
+        `C64 ROMs: kernal=${status.romSet.kernal}, basic=${status.romSet.basic}, charrom=${status.romSet.charRom}`,
+        `C64 PC after cold reset: ${formatHexWord(status.c64.pc)}`,
+        `Drive PC after reset: ${formatHexWord(status.drive.pc)}`,
+        `Drive head: track ${status.drive.track}`,
+      ];
+      if (warnings.length > 0) lines.push("", ...warnings);
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
 ));
 
@@ -833,6 +871,148 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           ].join("\n"),
         }],
       };
+    },
+));
+
+  // Sprint 93.1: queue text typing through CIA1 keyboard matrix.
+  server.tool(
+    "headless_integrated_session_type",
+    "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. PETSCII-aware (auto-SHIFT for `\"`, `?`, `(`, `)` etc.). `\\r` / `\\n` map to RETURN. Tuned default hold/gap (33000c each) gives KERNAL SCNKEY ≥ 2 raster IRQ ticks per state for reliable buffer pickup. Use to enter LOAD/RUN commands without bypassing KERNAL.",
+    {
+      session_id: z.string(),
+      text: z.string().describe("Text to type. Use \\r or \\n for RETURN."),
+      hold_cycles: z.number().int().min(1000).max(2_000_000).optional(),
+      gap_cycles: z.number().int().min(0).max(2_000_000).optional(),
+    },
+    safeHandler("headless_integrated_session_type", async ({ session_id, text, hold_cycles, gap_cycles }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const decoded = text.replace(/\\r/g, "\r").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+      session.typeText(decoded, hold_cycles ?? 33000, gap_cycles ?? 33000);
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `Queued ${decoded.length} chars on session ${session_id}.`,
+            `Hold cycles: ${hold_cycles ?? 33000}  Gap cycles: ${gap_cycles ?? 33000}`,
+            `Pending key events: ${session.keyboard.pendingEventCount()}`,
+            `Keyboard now-cycle: ${session.keyboard.currentCycle()}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  // Sprint 93.1: joystick port 2 backend.
+  server.tool(
+    "headless_integrated_session_joystick",
+    "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). Bits stay held until next call updates them. Use to control games that read joystick at $DC00.",
+    {
+      session_id: z.string(),
+      up: z.boolean().optional(),
+      down: z.boolean().optional(),
+      left: z.boolean().optional(),
+      right: z.boolean().optional(),
+      fire: z.boolean().optional(),
+    },
+    safeHandler("headless_integrated_session_joystick", async ({ session_id, up, down, left, right, fire }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      session.setJoystick2({ up, down, left, right, fire });
+      const j = session.joystick2;
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `Joystick port 2 — session ${session_id}`,
+            `up=${j.up} down=${j.down} left=${j.left} right=${j.right} fire=${j.fire}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  // Spec 093: Maniac Mansion G64 lockstep regression diagnostic.
+  server.tool(
+    "headless_integrated_session_diagnose_mm",
+    "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted). Writes a registered JSON artifact under analysis/headless/ and returns a one-line verdict + key blame. Cycle-lockstep + microcoded CPU enforced; tool will refuse misleading success.",
+    {
+      disk_path: z.string().describe("Disk image path (G64 expected)."),
+      project_dir: z.string().optional(),
+      cycle_budget: z.number().int().min(1_000_000).max(2_000_000_000).optional(),
+      stall_pc_repeat: z.number().int().min(1000).max(100_000_000).optional(),
+      watch_pc: z.string().optional().describe("C64 PC to watch (default $46A7)."),
+      device_id: z.number().int().min(8).max(11).optional(),
+      pal: z.boolean().optional(),
+      output_path: z.string().optional().describe("Override JSON output path. Default = <project>/analysis/headless/mm-g64-lockstep-debug.json."),
+    },
+    safeHandler("headless_integrated_session_diagnose_mm", async ({
+      disk_path, project_dir, cycle_budget, stall_pc_repeat, watch_pc, device_id, pal, output_path,
+    }) => {
+      const { startIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { diagnoseMm } = await import("../runtime/headless/diagnostic-mm.js");
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      const { dirname, join } = await import("node:path");
+      const projectRoot = resolveHeadlessProjectDir(context, project_dir);
+      const { sessionId, session } = startIntegratedSession({
+        diskPath: disk_path, deviceId: device_id, isPal: pal,
+        useCycleLockstep: true, useMicrocodedCpu: true,
+        traceIec: true, traceIecCapacity: 4096,
+        traceDrive: true, traceDriveCapacity: 2048,
+      });
+      session.resetCold();
+      const report = diagnoseMm(session, {
+        cycleBudget: cycle_budget,
+        stallPcRepeat: stall_pc_repeat,
+        watchPc: watch_pc ? parseHexWord(watch_pc) : undefined,
+      });
+      const outPath = output_path
+        ? resolve(projectRoot, output_path)
+        : join(projectRoot, "analysis", "headless", "mm-g64-lockstep-debug.json");
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, JSON.stringify(report, null, 2));
+      const reg = context.tryRegisterKnowledgeArtifacts(projectRoot, {
+        toolName: "headless_integrated_session_diagnose_mm",
+        title: `MM G64 lockstep diagnostic — ${report.run.verdict}`,
+        parameters: {
+          disk_path,
+          cycle_budget: report.run.cycleBudget,
+          watch_pc: watch_pc ?? "$46A7",
+        },
+        inputs: [{ path: disk_path, kind: "g64", scope: "input" }],
+        outputs: [{
+          path: outPath, kind: "report", scope: "analysis",
+          format: "application/json", role: "mm-g64-lockstep-debug",
+          producedByTool: "headless_integrated_session_diagnose_mm",
+          tags: ["spec-093", "headless", "iec-debug"],
+        }],
+        notes: [
+          `verdict=${report.run.verdict}`,
+          `c64=${formatHexWord(report.finalState.c64.pc)} drive=${formatHexWord(report.finalState.drive.pc)} cyc=${report.finalState.c64.cycles}`,
+          `IEC line ATN=${report.finalState.iecLine.atn} CLK=${report.finalState.iecLine.clk} DATA=${report.finalState.iecLine.data}`,
+          `blame ATN=${report.run.blame.atnHolder} CLK=${report.run.blame.clkHolder} DATA=${report.run.blame.dataHolder}`,
+        ],
+      });
+      const lines: string[] = [
+        `headless_integrated_session_diagnose_mm — session ${sessionId}`,
+        `Disk: ${disk_path}`,
+        `Format: ${report.imageFormat}  lockstep=${report.config.useCycleLockstep}  microcoded=${report.config.useMicrocodedCpu}  ratio=${report.config.driveClockRatio.toFixed(6)}`,
+        `Verdict: ${report.run.verdict}`,
+        `Summary: ${report.run.summary}`,
+        `Cycles: ${report.run.cyclesExecuted} (budget ${report.run.cycleBudget})  duration=${report.run.durationMs}ms`,
+        `C64 final: PC=${formatHexWord(report.finalState.c64.pc)} A=${formatHexByte(report.finalState.c64.a)} cycles=${report.finalState.c64.cycles}`,
+        `Drive final: PC=${formatHexWord(report.finalState.drive.pc)} cycles=${report.finalState.drive.cycles} track=${report.finalState.drive.track}`,
+        `IEC line: ATN=${report.finalState.iecLine.atn} CLK=${report.finalState.iecLine.clk} DATA=${report.finalState.iecLine.data}`,
+        `Blame: ATN=${report.run.blame.atnHolder} CLK=${report.run.blame.clkHolder} DATA=${report.run.blame.dataHolder}`,
+        `IEC edges captured: ${report.iecTrace.length}  Drive PC samples: ${report.drivePcTrace.length}`,
+        `Report: ${outPath}`,
+      ];
+      if (reg.runPath) lines.push(`Registered: ${reg.runPath}`);
+      if (reg.message) lines.push(reg.message);
+      if (report.exception) lines.push(`Exception: ${report.exception.split("\n")[0]}`);
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
 ));
 
