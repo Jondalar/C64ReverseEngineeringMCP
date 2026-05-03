@@ -705,6 +705,62 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
+    "headless_drive_session_save_vsf",
+    "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
+    {
+      session_id: z.string(),
+      output_path: z.string(),
+    },
+    safeHandler("headless_drive_session_save_vsf", async ({ session_id, output_path }) => {
+      const { getDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const { saveDriveSessionVsf } = await import("../runtime/headless/vsf/drive-vsf.js");
+      const record = getDriveSession(session_id);
+      if (!record) throw new Error(`No drive session ${session_id}`);
+      const result = saveDriveSessionVsf(record, output_path);
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `headless_drive_session_save_vsf — ${session_id}`,
+            `Output: ${result.outputPath}`,
+            `Bytes: ${result.bytesWritten}`,
+            `Modules saved: ${result.modules.join(", ")}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  server.tool(
+    "headless_drive_session_load_vsf",
+    "Spec 062 Sprint 64: load a VSF file into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import VICE-saved state.",
+    {
+      session_id: z.string(),
+      input_path: z.string(),
+    },
+    safeHandler("headless_drive_session_load_vsf", async ({ session_id, input_path }) => {
+      const { getDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const { loadDriveSessionVsf } = await import("../runtime/headless/vsf/drive-vsf.js");
+      const record = getDriveSession(session_id);
+      if (!record) throw new Error(`No drive session ${session_id}`);
+      const result = loadDriveSessionVsf(record, input_path);
+      const lines = [
+        `headless_drive_session_load_vsf — ${session_id}`,
+        `Input: ${result.inputPath}`,
+        `Loaded modules (${result.loadedModules.length}): ${result.loadedModules.join(", ")}`,
+      ];
+      if (result.ignoredModules.length > 0) {
+        lines.push(`Ignored modules (${result.ignoredModules.length}, not modeled in headless): ${result.ignoredModules.join(", ")}`);
+      }
+      if (result.errors.length > 0) {
+        lines.push(`Errors:`);
+        for (const e of result.errors) lines.push(`  ${e.module}: ${e.error}`);
+      }
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+));
+
+  server.tool(
     "headless_drive_persist_writes",
     "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
     {
