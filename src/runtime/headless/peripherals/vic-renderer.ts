@@ -113,8 +113,11 @@ export function renderFrame(fb: VicFramebuffer, ctx: VicRenderContext): void {
   const ecmBit = (ctrl1 & 0x40) !== 0;
   const bmmBit = (ctrl1 & 0x20) !== 0;
   const mcmBit = (ctrl2 & 0x10) !== 0;
-  const borderColor = vic.regs[0x20]! & 0x0f;
-  fb.fill(borderColor);
+  // Sprint 86: per-scanline border fill from VIC snapshots so mid-frame
+  // $D020 changes show as bands instead of single-color fill. Falls
+  // back to single-color when snapshots are sparse (e.g. very short
+  // frame budget).
+  fillBorderPerScanline(fb, vic);
   if (!denBit) return;
   if (ecmBit && (bmmBit || mcmBit)) {
     paintVisibleArea(fb, 0);
@@ -134,6 +137,32 @@ export function renderFrame(fb: VicFramebuffer, ctx: VicRenderContext): void {
 
 // Backwards compat alias.
 export const renderTextModeFrame = renderFrame;
+
+// Sprint 86: per-scanline border. Iterate the framebuffer top-down,
+// look up the snapshot whose rasterLine covers this output Y. Output
+// Y maps to PAL raster line via fb origin (line 0 of fb = raster 0).
+function fillBorderPerScanline(fb: VicFramebuffer, vic: { regs: Uint8Array; scanlineSnapshots: { rasterLine: number; d020: number }[] }): void {
+  const fallback = vic.regs[0x20]! & 0x0f;
+  if (vic.scanlineSnapshots.length === 0) {
+    fb.fill(fallback);
+    return;
+  }
+  // Build per-line color map (index = raster line, value = border color).
+  const lineColor = new Uint8Array(fb.height);
+  let cur = fallback;
+  let snapIdx = 0;
+  for (let y = 0; y < fb.height; y++) {
+    while (snapIdx < vic.scanlineSnapshots.length && vic.scanlineSnapshots[snapIdx]!.rasterLine <= y) {
+      cur = vic.scanlineSnapshots[snapIdx]!.d020 & 0x0f;
+      snapIdx++;
+    }
+    lineColor[y] = cur;
+  }
+  for (let y = 0; y < fb.height; y++) {
+    const c = lineColor[y]!;
+    for (let x = 0; x < fb.width; x++) fb.setPixel(x, y, c);
+  }
+}
 
 function paintVisibleArea(fb: VicFramebuffer, colorIdx: number): void {
   for (let y = 0; y < VISIBLE_H; y++) {

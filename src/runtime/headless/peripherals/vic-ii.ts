@@ -52,6 +52,25 @@ export const VIC_IRQ_SP_SP = 0x04;
 export const VIC_IRQ_LIGHTPEN = 0x08;
 export const VIC_IRQ_SUMMARY = 0x80;
 
+// Spec 086: per-scanline VIC register snapshot for renderer.
+export interface ScanlineSnapshot {
+  rasterLine: number;
+  d011: number;
+  d016: number;
+  d018: number;
+  d020: number;
+  d021: number;
+  d022: number;
+  d023: number;
+  d024: number;
+  d025: number;
+  d026: number;
+  spritePos: { x: number; y: number; color: number; xMsb: boolean }[];
+  spriteEnable: number;
+  spritePtrs: number[];
+  spriteFlags: { mc: number; xExpand: number; yExpand: number; priority: number };
+}
+
 export class VicII {
   // Register backing store. Reads-with-side-effects implemented in
   // the read switch; otherwise this array is the source of truth.
@@ -62,6 +81,12 @@ export class VicII {
   // cycle.
   public rasterLine = 0;
   public horizontalCycle = 0; // 0..62 PAL, 0..64 NTSC
+
+  // Sprint 86: per-scanline snapshot of VIC register state. Captured
+  // on entering each new raster line (and on relevant register writes
+  // mid-line via captureCurrentLine). Used by the renderer to honour
+  // mid-frame color/border/mode changes.
+  public scanlineSnapshots: ScanlineSnapshot[] = [];
   public maxRasterLine = 311; // PAL
   public cyclesPerLine = 63;  // PAL
   // IRQ status bits.
@@ -112,12 +137,25 @@ export class VicII {
         // Sprint 85: re-evaluate compare immediately if write changes
         // bit 8 such that we now match current rasterLine.
         this.checkRasterCompareImmediate();
+        // Sprint 86: D011 affects RSEL (open border) — recapture line.
+        this.captureScanline();
         return;
       case VIC_R_RASTER:
         // Write = raster IRQ compare value (low byte). Bit 8 is in
         // $D011 bit 7. We store separately from rasterLine.
         this.regs[VIC_R_RASTER] = v;
         this.checkRasterCompareImmediate();
+        return;
+      case VIC_R_CTRL2:
+      case VIC_R_BORDER_COL:
+      case VIC_R_BG_COL_0:
+      case VIC_R_BG_COL_1:
+      case VIC_R_BG_COL_2:
+      case VIC_R_BG_COL_3:
+      case VIC_R_MEM_PTR:
+        this.regs[r] = v;
+        // Sprint 86: visual change mid-line; recapture.
+        this.captureScanline();
         return;
       case VIC_R_IRQ_STATUS:
         // Write 1-to-clear semantics on bits 0-3.
@@ -151,6 +189,47 @@ export class VicII {
     }
   }
 
+  // Sprint 86: capture current register state for the active raster
+  // line. Called on line entry; can also be called after writes that
+  // change visual state mid-line (border / bg color). Last-write-wins
+  // per line.
+  captureScanline(): void {
+    const last = this.scanlineSnapshots[this.scanlineSnapshots.length - 1];
+    const snap: ScanlineSnapshot = {
+      rasterLine: this.rasterLine,
+      d011: this.regs[VIC_R_CTRL1]!,
+      d016: this.regs[VIC_R_CTRL2]!,
+      d018: this.regs[VIC_R_MEM_PTR]!,
+      d020: this.regs[VIC_R_BORDER_COL]!,
+      d021: this.regs[VIC_R_BG_COL_0]!,
+      d022: this.regs[VIC_R_BG_COL_1]!,
+      d023: this.regs[VIC_R_BG_COL_2]!,
+      d024: this.regs[VIC_R_BG_COL_3]!,
+      d025: this.regs[VIC_R_SP_MC_COL_1]!,
+      d026: this.regs[VIC_R_SP_MC_COL_2]!,
+      spritePos: Array.from({ length: 8 }, (_, s) => ({
+        x: this.regs[s * 2]!,
+        y: this.regs[s * 2 + 1]!,
+        color: this.regs[VIC_R_SP_COL_BASE + s]!,
+        xMsb: (this.regs[VIC_R_SP_X_MSB]! & (1 << s)) !== 0,
+      })),
+      spriteEnable: this.regs[VIC_R_SP_ENABLE]!,
+      spritePtrs: Array.from({ length: 8 }, () => 0), // filled by renderer from VIC bank
+      spriteFlags: {
+        mc: this.regs[VIC_R_SP_MC]!,
+        xExpand: this.regs[VIC_R_SP_X_EXP]!,
+        yExpand: this.regs[VIC_R_SP_Y_EXP]!,
+        priority: this.regs[VIC_R_SP_PRIO]!,
+      },
+    };
+    if (last && last.rasterLine === this.rasterLine) {
+      // Same line: replace (last-write-wins).
+      this.scanlineSnapshots[this.scanlineSnapshots.length - 1] = snap;
+    } else {
+      this.scanlineSnapshots.push(snap);
+    }
+  }
+
   // Memory pointer ($D018) decoded into the on-bank addresses VIC
   // fetches from. VIC sees a 16KB bank selected by CIA2 PA bits 0-1
   // (0=$0000-$3FFF, 1=$4000-$7FFF, 2=$8000-$BFFF, 3=$C000-$FFFF —
@@ -179,6 +258,10 @@ export class VicII {
       if (this.horizontalCycle >= this.cyclesPerLine) {
         this.horizontalCycle = 0;
         this.rasterLine = (this.rasterLine + 1) % (this.maxRasterLine + 1);
+        // On wrap-to-0: new frame, clear snapshot buffer.
+        if (this.rasterLine === 0) this.scanlineSnapshots.length = 0;
+        // Sprint 86: snapshot register state at line start.
+        this.captureScanline();
         // Compare match.
         const compare = this.regs[VIC_R_RASTER]! | ((this.regs[VIC_R_CTRL1]! & 0x80) ? 0x100 : 0);
         if (this.rasterLine === compare) {
@@ -226,6 +309,7 @@ export class VicII {
     this.rasterLine = 0;
     this.horizontalCycle = 0;
     this.irqStatus = 0;
+    this.scanlineSnapshots.length = 0;
   }
 }
 
