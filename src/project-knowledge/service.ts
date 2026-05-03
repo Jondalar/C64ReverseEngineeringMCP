@@ -87,6 +87,19 @@ function uniqueStrings(values: string[] | undefined): string[] {
   return [...new Set((values ?? []).filter(Boolean))].sort();
 }
 
+function dedupEvidence<T extends { kind?: string; artifactId?: string; address?: number; note?: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    const k = `${item.kind ?? ""}|${item.artifactId ?? ""}|${item.address ?? ""}|${item.note ?? ""}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
 // Spec 060 / Bug 30: tolerant merge of duplicate artifact registrations
 // into a survivor record. Union list-fields, prefer survivor scalars but
 // fall back to non-empty merged values, keep oldest createdAt + latest
@@ -495,6 +508,10 @@ export interface SaveEntityInput {
   payloadAsmArtifactIds?: string[];
   payloadContentHash?: string;
   tags?: string[];
+  // Spec 060 / Bug 31: alternate names for the same payload entity.
+  // Folded by saveEntity payload-dedup when an existing entity matches
+  // by hash or (source, load).
+  aliases?: string[];
   // Bug 26 / Spec 058: explicit override for the auto-derived internal
   // flag. Auto-derivation: entity is internal iff its primary linked
   // artifact (payloadSourceArtifactId or first artifactId) is internal.
@@ -1143,6 +1160,309 @@ export class ProjectKnowledgeService {
       counts.openQuestions = touched;
       if (!opts.dryRun && touched > 0) {
         this.storage.saveOpenQuestions({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    return counts;
+  }
+
+  // Spec 060 / Bug 31: collapse legacy duplicate payload entities (same
+  // payloadContentHash, or same (payloadSourceArtifactId,
+  // payloadLoadAddress) when hash absent) into one survivor. Survivor
+  // selection: prefer kind=="payload" over other kinds; among same kind
+  // prefer earliest createdAt. Other entities fold their name into
+  // survivor.aliases[]. Manifest-source entities (payloadSourceArtifactId
+  // points at an internal artifact) are marked internal=true rather than
+  // collapsed away. References to deprecated entity ids remap across
+  // findings, relations, flows, tasks, open-questions, checkpoints.
+  dedupePayloadEntities(opts?: { dryRun?: boolean }): {
+    duplicateGroupCount: number;
+    mergedRowCount: number;
+    survivorCount: number;
+    manifestEntitiesMarkedInternal: number;
+    referenceRemapCounts: Record<string, number>;
+    sample: Array<{ key: string; survivorId: string; survivorName: string; mergedNames: string[] }>;
+  } {
+    const dryRun = opts?.dryRun ?? false;
+    const entityStore = this.storage.loadEntities();
+    const artifacts = this.storage.loadArtifacts();
+    const artifactById = new Map(artifacts.items.map((a) => [a.id, a] as const));
+
+    // Group payload-bearing entities by hash, then by (source, load).
+    // Non-payload entities pass through untouched.
+    const isPayloadBearing = (e: typeof entityStore.items[number]) =>
+      e.kind === "payload" || e.payloadLoadAddress !== undefined;
+    const groups = new Map<string, typeof entityStore.items>();
+    const passThrough: typeof entityStore.items = [];
+    for (const e of entityStore.items) {
+      if (!isPayloadBearing(e)) {
+        passThrough.push(e);
+        continue;
+      }
+      const key = e.payloadContentHash
+        ? `hash:${e.payloadContentHash}`
+        : (e.payloadSourceArtifactId !== undefined && e.payloadLoadAddress !== undefined)
+          ? `src+load:${e.payloadSourceArtifactId}@${e.payloadLoadAddress}`
+          : `solo:${e.id}`;
+      const list = groups.get(key) ?? [];
+      list.push(e);
+      groups.set(key, list);
+    }
+
+    const idRemap = new Map<string, string>();
+    const survivors: typeof entityStore.items = [...passThrough];
+    const sample: Array<{ key: string; survivorId: string; survivorName: string; mergedNames: string[] }> = [];
+    let duplicateGroupCount = 0;
+    let mergedRowCount = 0;
+    let manifestEntitiesMarkedInternal = 0;
+
+    for (const [key, group] of groups) {
+      if (group.length === 1) {
+        // Solo entity: still apply manifest-internal classification.
+        const e = group[0]!;
+        const src = e.payloadSourceArtifactId ? artifactById.get(e.payloadSourceArtifactId) : undefined;
+        if (src?.internal === true && e.internal !== true) {
+          manifestEntitiesMarkedInternal += 1;
+          survivors.push({ ...e, internal: true, updatedAt: nowIso() });
+        } else {
+          survivors.push(e);
+        }
+        continue;
+      }
+      duplicateGroupCount += 1;
+      // Survivor: prefer kind=="payload" first, then earliest createdAt.
+      const sorted = [...group].sort((a, b) => {
+        const aPayload = a.kind === "payload" ? 0 : 1;
+        const bPayload = b.kind === "payload" ? 0 : 1;
+        if (aPayload !== bPayload) return aPayload - bPayload;
+        return a.createdAt.localeCompare(b.createdAt);
+      });
+      const survivor = sorted[0]!;
+      const merged = sorted.slice(1);
+      mergedRowCount += merged.length;
+      const aliasUnion = new Set<string>([
+        ...(survivor.aliases ?? []),
+        ...merged.flatMap((m) => [m.name, ...(m.aliases ?? [])]),
+      ]);
+      aliasUnion.delete(survivor.name);
+      const survivorMerged = {
+        ...survivor,
+        aliases: [...aliasUnion].sort(),
+        artifactIds: uniqueStrings([survivor.artifactIds, ...merged.map((m) => m.artifactIds)].flat()),
+        relatedEntityIds: uniqueStrings([survivor.relatedEntityIds, ...merged.map((m) => m.relatedEntityIds)].flat()),
+        payloadAsmArtifactIds: uniqueStrings([
+          survivor.payloadAsmArtifactIds ?? [],
+          ...merged.map((m) => m.payloadAsmArtifactIds ?? []),
+        ].flat()),
+        evidence: dedupEvidence([survivor.evidence ?? [], ...merged.map((m) => m.evidence ?? [])].flat()),
+        tags: uniqueStrings([survivor.tags, ...merged.map((m) => m.tags)].flat()),
+        payloadContentHash: survivor.payloadContentHash
+          ?? merged.find((m) => m.payloadContentHash)?.payloadContentHash,
+        updatedAt: nowIso(),
+      };
+      // Manifest-internal classification: if the survivor's source
+      // artifact is internal, mark the entity internal.
+      const src = survivorMerged.payloadSourceArtifactId
+        ? artifactById.get(survivorMerged.payloadSourceArtifactId)
+        : undefined;
+      if (src?.internal === true && survivorMerged.internal !== true) {
+        survivorMerged.internal = true;
+        manifestEntitiesMarkedInternal += 1;
+      }
+      survivors.push(survivorMerged);
+      for (const m of merged) {
+        idRemap.set(m.id, survivor.id);
+      }
+      if (sample.length < 10) {
+        sample.push({
+          key,
+          survivorId: survivor.id,
+          survivorName: survivor.name,
+          mergedNames: merged.map((m) => m.name),
+        });
+      }
+    }
+
+    const referenceRemapCounts = this.remapEntityReferences(idRemap, { dryRun });
+
+    if (!dryRun && (duplicateGroupCount > 0 || manifestEntitiesMarkedInternal > 0)) {
+      this.storage.saveEntities({
+        ...entityStore,
+        updatedAt: nowIso(),
+        items: survivors.sort((a, b) => a.id.localeCompare(b.id)),
+      });
+      this.appendTimelineEvent({
+        kind: "note",
+        title: `Payload entity registry deduped`,
+        summary: `merged ${mergedRowCount} duplicates into ${duplicateGroupCount} survivors; marked ${manifestEntitiesMarkedInternal} manifest-source entities internal`,
+        payload: { mergedRowCount, duplicateGroupCount, manifestEntitiesMarkedInternal, referenceRemapCounts },
+      });
+    }
+
+    return {
+      duplicateGroupCount,
+      mergedRowCount,
+      survivorCount: survivors.length,
+      manifestEntitiesMarkedInternal,
+      referenceRemapCounts,
+      sample,
+    };
+  }
+
+  // Walks each non-entity store and rewrites references from deprecated
+  // entity ids to survivor ids. Used by dedupePayloadEntities.
+  private remapEntityReferences(
+    idRemap: Map<string, string>,
+    opts: { dryRun: boolean },
+  ): Record<string, number> {
+    const counts: Record<string, number> = {
+      entities: 0,
+      findings: 0,
+      relations: 0,
+      flows: 0,
+      tasks: 0,
+      openQuestions: 0,
+      checkpoints: 0,
+      artifacts: 0,
+    };
+    if (idRemap.size === 0) return counts;
+    const remap = (id?: string): string | undefined => (id && idRemap.has(id) ? idRemap.get(id)! : id);
+    const remapList = (ids?: string[]): string[] => uniqueStrings((ids ?? []).map((id) => idRemap.get(id) ?? id));
+    const ts = nowIso();
+
+    // entities: relatedEntityIds, payloadId
+    {
+      const s = this.storage.loadEntities();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const rel = remapList(item.relatedEntityIds);
+        const pid = remap(item.payloadId);
+        if (JSON.stringify(rel) !== JSON.stringify(item.relatedEntityIds ?? []) || pid !== item.payloadId) {
+          touched += 1;
+          return { ...item, relatedEntityIds: rel, payloadId: pid, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.entities = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveEntities({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // findings: entityIds, payloadId
+    {
+      const s = this.storage.loadFindings();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const eids = remapList(item.entityIds);
+        const pid = remap(item.payloadId);
+        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? []) || pid !== item.payloadId) {
+          touched += 1;
+          return { ...item, entityIds: eids, payloadId: pid, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.findings = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveFindings({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // relations: sourceEntityId, targetEntityId
+    {
+      const s = this.storage.loadRelations();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const src = remap(item.sourceEntityId);
+        const tgt = remap(item.targetEntityId);
+        if (src !== item.sourceEntityId || tgt !== item.targetEntityId) {
+          touched += 1;
+          return { ...item, sourceEntityId: src!, targetEntityId: tgt!, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.relations = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveRelations({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // flows: entityIds, nodes[].entityId
+    {
+      const s = this.storage.loadFlows();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const eids = remapList(item.entityIds);
+        const nodes = (item.nodes ?? []).map((n) => (n.entityId ? { ...n, entityId: remap(n.entityId) } : n));
+        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? []) ||
+            JSON.stringify(nodes) !== JSON.stringify(item.nodes ?? [])) {
+          touched += 1;
+          return { ...item, entityIds: eids, nodes, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.flows = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveFlows({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // tasks: entityIds
+    {
+      const s = this.storage.loadTasks();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const eids = remapList(item.entityIds);
+        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? [])) {
+          touched += 1;
+          return { ...item, entityIds: eids, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.tasks = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveTasks({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // open-questions: entityIds, autoResolveHint(.entityId)
+    {
+      const s = this.storage.loadOpenQuestions();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const eids = remapList(item.entityIds);
+        let hint = item.autoResolveHint;
+        if (hint && typeof hint === "object" && hint.kind === "finding-with-entity") {
+          const r = remap(hint.entityId);
+          if (r !== hint.entityId) hint = { ...hint, entityId: r! };
+        }
+        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? []) || hint !== item.autoResolveHint) {
+          touched += 1;
+          return { ...item, entityIds: eids, autoResolveHint: hint, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.openQuestions = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveOpenQuestions({ ...s, updatedAt: ts, items: next });
+      }
+    }
+
+    // artifacts: entityIds
+    {
+      const s = this.storage.loadArtifacts();
+      let touched = 0;
+      const next = s.items.map((item) => {
+        const eids = remapList(item.entityIds);
+        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? [])) {
+          touched += 1;
+          return { ...item, entityIds: eids, updatedAt: ts };
+        }
+        return item;
+      });
+      counts.artifacts = touched;
+      if (!opts.dryRun && touched > 0) {
+        this.storage.saveArtifacts({ ...s, updatedAt: ts, items: next });
       }
     }
 
@@ -3070,7 +3390,35 @@ export class ProjectKnowledgeService {
   saveEntity(input: SaveEntityInput) {
     const store = this.storage.loadEntities();
     const timestamp = nowIso();
-    const existing = input.id ? store.items.find((item) => item.id === input.id) : undefined;
+    let existing = input.id ? store.items.find((item) => item.id === input.id) : undefined;
+    // Spec 060 / Bug 31: payload entity dedup. When the caller is
+    // registering a payload-bearing entity (kind=="payload" or
+    // payloadLoadAddress set) and no explicit id matches, look up an
+    // existing entity by payloadContentHash (primary) or by
+    // (payloadSourceArtifactId, payloadLoadAddress) (fallback). On
+    // match: reuse existing.id, fold the new name into aliases[] if
+    // different from the existing name. Prevents disk-extract +
+    // pipeline-cli registering the same payload under two names.
+    if (!existing && (input.kind === "payload" || input.payloadLoadAddress !== undefined)) {
+      if (input.payloadContentHash) {
+        existing = store.items.find((item) => item.payloadContentHash === input.payloadContentHash);
+      }
+      if (!existing && input.payloadSourceArtifactId !== undefined && input.payloadLoadAddress !== undefined) {
+        existing = store.items.find((item) =>
+          item.payloadSourceArtifactId === input.payloadSourceArtifactId
+          && item.payloadLoadAddress === input.payloadLoadAddress);
+      }
+    }
+    // Aliases: union existing.aliases + input.aliases + (new name if
+    // different from existing.name).
+    const aliasUnion = new Set<string>([
+      ...(existing?.aliases ?? []),
+      ...(input.aliases ?? []),
+    ]);
+    if (existing && input.name && input.name !== existing.name) {
+      aliasUnion.add(input.name);
+    }
+    aliasUnion.delete(existing?.name ?? "");
     // Bug 26 / Spec 058: derive internal flag from the primary linked
     // artifact unless the caller overrides explicitly.
     let derivedInternal: boolean | undefined;
@@ -3091,14 +3439,15 @@ export class ProjectKnowledgeService {
     }
     const entity = {
       id: input.id ?? existing?.id ?? createId("entity", input.name),
-      kind: input.kind,
-      name: input.name,
-      summary: input.summary,
+      kind: existing?.kind ?? input.kind,
+      // Survivor name wins; new name folds into aliases[] above.
+      name: existing?.name ?? input.name,
+      summary: input.summary ?? existing?.summary,
       status: input.status ?? existing?.status ?? "active",
       confidence: input.confidence ?? existing?.confidence ?? 0.5,
       evidence: input.evidence ?? existing?.evidence ?? [],
-      artifactIds: uniqueStrings(input.artifactIds ?? existing?.artifactIds),
-      relatedEntityIds: uniqueStrings(input.relatedEntityIds ?? existing?.relatedEntityIds),
+      artifactIds: uniqueStrings([...(input.artifactIds ?? []), ...(existing?.artifactIds ?? [])]),
+      relatedEntityIds: uniqueStrings([...(input.relatedEntityIds ?? []), ...(existing?.relatedEntityIds ?? [])]),
       addressRange: input.addressRange ?? existing?.addressRange,
       mediumSpans: input.mediumSpans ?? existing?.mediumSpans ?? [],
       mediumRole: input.mediumRole ?? existing?.mediumRole,
@@ -3108,9 +3457,10 @@ export class ProjectKnowledgeService {
       payloadPacker: input.payloadPacker ?? existing?.payloadPacker,
       payloadSourceArtifactId: input.payloadSourceArtifactId ?? existing?.payloadSourceArtifactId,
       payloadDepackedArtifactId: input.payloadDepackedArtifactId ?? existing?.payloadDepackedArtifactId,
-      payloadAsmArtifactIds: uniqueStrings(input.payloadAsmArtifactIds ?? existing?.payloadAsmArtifactIds),
+      payloadAsmArtifactIds: uniqueStrings([...(input.payloadAsmArtifactIds ?? []), ...(existing?.payloadAsmArtifactIds ?? [])]),
       payloadContentHash: input.payloadContentHash ?? existing?.payloadContentHash,
-      tags: uniqueStrings(input.tags ?? existing?.tags),
+      tags: uniqueStrings([...(input.tags ?? []), ...(existing?.tags ?? [])]),
+      aliases: [...aliasUnion].sort(),
       internal: derivedInternal === true ? true : undefined,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,

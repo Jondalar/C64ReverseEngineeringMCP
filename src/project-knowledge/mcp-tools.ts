@@ -718,6 +718,41 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Spec 060 / Bug 31: one-shot migration to collapse legacy duplicate
+  // payload entities (same payloadContentHash, or same source+load) into
+  // one survivor, fold prefixed-name siblings into aliases[], and mark
+  // manifest-source entities internal=true.
+  server.tool(
+    "dedupe_payload_entities",
+    "Spec 060 / Bug 31: collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddress). Survivor preference: kind==payload first, then earliest createdAt. Other names fold into survivor.aliases[]. Manifest-source entities (linked artifact internal=true) are marked internal rather than removed. References across entities, findings, relations, flows, tasks, open-questions, artifacts remap from deprecated entity ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
+    {
+      project_dir: z.string().optional(),
+      dry_run: z.boolean().optional(),
+    },
+    safeHandler("dedupe_payload_entities", async ({ project_dir, dry_run }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.dedupePayloadEntities({ dryRun: dry_run ?? false });
+      const lines = [
+        `dedupe_payload_entities${dry_run ? " (dry run)" : ""}`,
+        `Duplicate groups: ${result.duplicateGroupCount}`,
+        `Rows ${dry_run ? "would merge" : "merged"}: ${result.mergedRowCount}`,
+        `Survivors after dedupe: ${result.survivorCount}`,
+        `Manifest-source entities marked internal: ${result.manifestEntitiesMarkedInternal}`,
+        `Reference remap counts:`,
+        ...Object.entries(result.referenceRemapCounts).map(([k, v]) => `  ${k}: ${v}`),
+      ];
+      if (result.sample.length > 0) {
+        lines.push(``, `Sample (first ${result.sample.length}):`);
+        for (const s of result.sample) {
+          lines.push(`  ${s.key}`);
+          lines.push(`    survivor=${s.survivorId} (${s.survivorName})`);
+          lines.push(`    merged=${s.mergedNames.join(", ")}`);
+        }
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
   // Spec 053 (Bug 20): phase-1 noise archive + segment confirmation.
   server.tool(
     "archive_phase1_noise",

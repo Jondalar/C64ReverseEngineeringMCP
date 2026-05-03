@@ -1623,7 +1623,7 @@ Smoke: `scripts/sprint52-smoke.mjs` covers (a) path-dedup overrides synthetic id
 
 ## Bug 31 — Payload entity duplicates: load-order import + disk-extract import emit two entities for the same payload
 
-**Status**: OPEN
+**Status**: FIXED (saver-side, Sprint 53). Migration tool ships; per-project apply pending Sprint 55.
 
 **Severity**: Medium — surfaces as 33 payload rows when there are only ~16 unique payloads. Drives UX2 payloads-tab confusion.
 
@@ -1659,6 +1659,18 @@ $ jq '[.items[] | select(.payloadLoadAddress != null) | .name]' knowledge/entiti
 - Bug 30: payload entities also point at duplicate artifacts because of the artifact-layer dup. Fix Bug 30 first or together; this bug becomes simpler when each payload has exactly one source artifact id.
 - Bug 26: manifest.json being a payload entity is a Bug 26 leak.
 - UX2: payloads tab cleanup.
+
+### Fix (Sprint 53)
+
+Schema: `EntityRecord.aliases: string[]` (default `[]`).
+
+`saveEntity` payload dedup: when registering a payload-bearing entity (kind=="payload" or `payloadLoadAddress` set) without explicit-id match, look up by `payloadContentHash` (primary) or `(payloadSourceArtifactId, payloadLoadAddress)` (fallback). On match: reuse existing id, fold the new name into `aliases[]`. Survivor name + kind preserved; lists union-merged across calls.
+
+Manifest classification: `saveEntity` already auto-derives `internal` from the primary linked artifact (Bug 26 / Spec 058), so a payload pointing at an internal manifest artifact inherits `internal=true` and stays out of user-facing views.
+
+Migration: `dedupe_payload_entities({dry_run})` MCP tool. Groups payload-bearing entities by hash, then by (source, load). Survivor preference: kind=="payload" first, then earliest `createdAt`. Other names fold into `aliases[]`; manifest-source survivors marked internal. References remap from deprecated entity ids to survivor ids across entities (`relatedEntityIds`, `payloadId`), findings (`entityIds`, `payloadId`), relations (`sourceEntityId`, `targetEntityId`), flows (`entityIds`, `nodes[].entityId`), tasks (`entityIds`), open-questions (`entityIds`, `autoResolveHint.entityId`), artifacts (`entityIds`).
+
+Smoke: `scripts/sprint53-smoke.mjs` covers (a) hash dedup folds alias, (b) source+load fallback, (c) dry-run does not mutate, (d) apply collapses + remaps finding references, (e) manifest-internal classification.
 
 ---
 

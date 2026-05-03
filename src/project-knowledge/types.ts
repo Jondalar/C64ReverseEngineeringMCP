@@ -664,6 +664,12 @@ export const EntityRecordSchema = z.object({
     .enum(["dos", "loader", "eapi", "startup", "code", "data", "padding", "unknown"])
     .optional(),
   tags: z.array(z.string()).default([]),
+  // Spec 060 / Bug 31: alternate names for the same payload entity.
+  // Disk-extract registers files by base name ("murder"); load-sequence
+  // / pipeline-cli registers them by load-order-prefixed name
+  // ("01_murder"). Saver-side dedup folds the alternate name into this
+  // list instead of spawning a sibling entity.
+  aliases: z.array(z.string()).default([]),
   // Bug 26 / Spec 058: hide-from-user marker on entities. Entities
   // derived from internal artifacts (annotations files, rebuild-check
   // binaries, manifest indexes) inherit internal=true and stay out of
