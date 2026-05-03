@@ -1892,6 +1892,29 @@ Re-evaluate MM boot status after this batch.
 After Sprint 87: re-test MM, decide if more emulator work needed
 or if focus shifts to broader game compatibility / demo support.
 
+## Sprint 88+: Cycle-perfect MVP (user mandate May 2026)
+
+User clarified: cycle-perfect is **MVP**, not long-term goal. Headless
+must replace VICE for autonomous LLM-driven game analysis. Every game
+must boot. Sprint 88 onwards = scheduler refactor for true cycle-by-
+cycle CPU + drive + CIA + VIC interleave.
+
+- **Sprint 88** (Spec 088 to write) — Cycle-stepped scheduler.
+  Drive runs cycle-by-cycle interleaved with C64. Drive 1MHz / C64
+  985.248kHz means drive runs ~1 cycle per C64 cycle (ratio 1.0149).
+  Scheduler advances "wall clock" 1 cycle at a time; C64 / drive
+  consume cycles per their next-instruction-cycle-budget. CIA + VIC
+  + SID tick per cycle. Acceptance: MM custom fastloader bit-bang
+  completes M-W byte transfer; drive RAM gets MM custom code; game
+  reaches title screen.
+- **Sprint 89** — IEC bus state edges fire mid-instruction. Currently
+  bus state changes batch at end of each STA $DD00. With cycle-
+  stepped C64, bus update fires at the correct sub-instruction cycle.
+  Required for cycle-exact ATN edge detection on drive CA1.
+- **Sprint 90** — VIC sprite + bad-line cycle stealing at exact
+  cycle position within scanline (currently approximated at line
+  start). Demo timing critical for raster bars.
+
 ## Bug fixes shipped this batch
 
 - Bug 22 REFIX (commit `05ef06b`): path-only filter in

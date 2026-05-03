@@ -250,13 +250,20 @@ export class IntegratedSession {
     const vicTick = this.vic.tick(consumed);
     const totalCycles = consumed + vicTick.stolenCycles;
     if (vicTick.stolenCycles > 0) this.c64Cpu.cycles += vicTick.stolenCycles;
-    this.cia1.tick(totalCycles);
-    this.cia2.tick(totalCycles);
-    this.sid.tick(totalCycles);
-    this.keyboard.advance(totalCycles);
-    this.driveCycleAccumulator += totalCycles * this.driveCyclesPerC64Cycle;
-    while (this.driveCycleAccumulator >= 1) {
-      this.runOneDriveStep();
+    // Sprint 88 v1: peripherals + drive interleave per CYCLE within
+    // the consumed batch instead of one batch tick at end. Drive sees
+    // CIA timer + IEC bus state with finer granularity. Bus-state
+    // change still happens at instruction boundary (Sprint 89 will
+    // make it sub-instruction).
+    for (let c = 0; c < totalCycles; c++) {
+      this.cia1.tick(1);
+      this.cia2.tick(1);
+      this.sid.tick(1);
+      this.keyboard.advance(1);
+      this.driveCycleAccumulator += this.driveCyclesPerC64Cycle;
+      while (this.driveCycleAccumulator >= 1) {
+        this.runOneDriveStep();
+      }
     }
   }
 
