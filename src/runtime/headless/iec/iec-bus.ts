@@ -71,25 +71,22 @@ export class IecBus {
     };
   }
 
-  // C64 → bus: CIA2 PA writes update these. Standard CIA2 mapping
-  // is "0 in PA bit = pull line low" (active low; bit inverted).
+  // C64 → bus: CIA2 PA writes update these.
+  // CIA2 has 7406 INVERTERS between PA latch and IEC transistor bases:
+  // PA latch bit=1 (DDR=output) → transistor pulls line LOW (asserted).
+  // KERNAL writes ORA #$38 to $DD00 to assert ATN+CLK+DATA. KERNAL's
+  // $EE8E (`ORA #$10` then store) is "pull CLK low" — confirms bit=1=pull.
   setC64Output(cia2Pa: number, ddrMask: number): void {
-    // Only output bits (ddrMask=1) drive the line; input bits
-    // (ddrMask=0) leave the line floating (= released).
     const driveAtn = (ddrMask & CIA2_PA_ATN_OUT) !== 0;
     const driveClk = (ddrMask & CIA2_PA_CLK_OUT) !== 0;
     const driveData = (ddrMask & CIA2_PA_DATA_OUT) !== 0;
     const atnBit = (cia2Pa & CIA2_PA_ATN_OUT) !== 0;
     const clkBit = (cia2Pa & CIA2_PA_CLK_OUT) !== 0;
     const dataBit = (cia2Pa & CIA2_PA_DATA_OUT) !== 0;
-    // Active-low: bit=0 AND DDR=output → line pulled. bit=1 OR DDR=input → released.
-    const newAtn = !driveAtn || atnBit;
-    this.c64AtnReleased = !driveAtn || atnBit;
-    this.c64ClkReleased = !driveClk || clkBit;
-    this.c64DataReleased = !driveData || dataBit;
-    if (this.driveVia1 && newAtn !== this.atnLineRaw(undefined)) {
-      // ATN line changed — pulse drive VIA1 CA1 with new ATN level.
-    }
+    // Inverted: bit=1 AND DDR=output → line pulled; bit=0 OR DDR=input → released.
+    this.c64AtnReleased = !driveAtn || !atnBit;
+    this.c64ClkReleased = !driveClk || !clkBit;
+    this.c64DataReleased = !driveData || !dataBit;
     this.notifyAtnChanged();
   }
 
@@ -106,10 +103,13 @@ export class IecBus {
     const dataBit = (via1PbOr & PB_DATA_OUT) !== 0;
     const clkBit = (via1PbOr & PB_CLK_OUT) !== 0;
     const atnAckBit = (via1PbOr & PB_ATN_ACK) !== 0;
-    // Inverted: bit=1 AND DDR=output → line pulled; bit=0 OR DDR=input → released.
+    // PB1 (DATA_OUT), PB3 (CLK_OUT): inverted via 7406 → bit=1 = pulled.
     this.driveDataReleased = !drvData || !dataBit;
     this.driveClkReleased = !drvClk || !clkBit;
-    this.driveAtnAckReleased = !drvAtnAck || !atnAckBit;
+    // PB4 (ATN_ACK): NOT a line driver. Feeds AND-gate UE5 with ATN
+    // line. bit=1 = drive acknowledged ATN = auto-pull DISABLED (i.e.
+    // released). 1541 ATN handler $E876 does ORA #$10 to acknowledge.
+    this.driveAtnAckReleased = !drvAtnAck || atnAckBit;
   }
 
   // Wired-AND line states. true = released (high), false = pulled (low).

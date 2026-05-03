@@ -57,6 +57,11 @@ export interface IntegratedSessionOptions {
   // real serial bit-bang to drive). Set true to fall back to the
   // Sprint 67 trap path if the real protocol stalls.
   enableKernalFileIoTraps?: boolean;
+  // Sprint 81: serial + IO traps default ON for back-compat, but
+  // game stage-2 custom bit-bang needs them OFF so KERNAL drives
+  // real CIA2 → drive ATN handler runs and releases ATN_ACK.
+  enableKernalSerialTraps?: boolean;
+  enableKernalIoTraps?: boolean;
 }
 
 export interface PrgLoadResult {
@@ -85,6 +90,8 @@ export class IntegratedSession {
   public readonly vic: VicII;
   public readonly framebuffer: VicFramebuffer;
   public readonly enableKernalFileIoTraps: boolean;
+  public readonly enableKernalSerialTraps: boolean;
+  public readonly enableKernalIoTraps: boolean;
   // NMI edge detection bookkeeping.
   private prevCia2IrqAsserted = false;
   public get lastTrap(): string | undefined { return this.kernalFileIo.lastTrap; }
@@ -134,6 +141,8 @@ export class IntegratedSession {
     this.kernalSerial = makeKernalSerialState();
     this.kernalIo = makeKernalIoState();
     this.enableKernalFileIoTraps = opts.enableKernalFileIoTraps ?? false;
+    this.enableKernalSerialTraps = opts.enableKernalSerialTraps ?? true;
+    this.enableKernalIoTraps = opts.enableKernalIoTraps ?? true;
     this.framebuffer = new VicFramebuffer(isPal);
   }
 
@@ -197,15 +206,15 @@ export class IntegratedSession {
     const trapped = (this.enableKernalFileIoTraps && handleKernalFileIoTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, state: this.kernalFileIo,
-    })) || handleKernalSerialTrap({
+    })) || (this.enableKernalSerialTraps && handleKernalSerialTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, drive: this.drive,
       iecBus: this.iecBus, state: this.kernalSerial,
-    }) || handleKernalIoTrap({
+    })) || (this.enableKernalIoTraps && handleKernalIoTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, serial: this.kernalSerial,
       state: this.kernalIo,
-    });
+    }));
     if (trapped) {
       this.c64InstructionCount += 1;
       const trapCycles = 7;
