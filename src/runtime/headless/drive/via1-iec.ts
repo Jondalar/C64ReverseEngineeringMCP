@@ -1,28 +1,25 @@
-// VIA1 IEC pin assignments (Sprint 60: pin layout only — bus wiring
-// lives in Sprint 61's iec-bus.ts).
+// VIA1 IEC pin assignments + bus-coupled backends.
+//
+// Sprint 60: pin layout + stub backends.
+// Sprint 61: real backends that read/write the IEC bus state.
 //
 // 1541 VIA1 PB pin assignment (per service manual + datasheet):
 //   PB0  DATA_IN     (from IEC bus, active low)
 //   PB1  DATA_OUT    (to IEC bus, open-collector, active low)
 //   PB2  CLK_IN      (from IEC bus, active low)
 //   PB3  CLK_OUT     (to IEC bus, open-collector, active low)
-//   PB4  ATN_ACK     (drive's ATN acknowledge — released after ATN seen)
-//   PB5  DEV_ID 0    (jumper: device 8/9/10/11 — read as input)
+//   PB4  ATN_ACK     (drive ATN acknowledge — when low + ATN-low, the
+//                     1541's hardware gate pulls DATA low)
+//   PB5  DEV_ID 0    (jumper)
 //   PB6  DEV_ID 1    (jumper)
 //   PB7  ATN_IN      (from IEC bus ATN line, active low)
 //
-// PA pins are mostly unused in the standard 1541 wiring (head-step
-// might appear here on later boards; mostly used by the parallel
-// cable mods like SpeedDOS/Dolphin).
-//
-// CA1 = ATN edge detector — wired to the ATN line so a falling edge
-// (ATN going low) triggers an interrupt the drive ROM uses to enter
-// the ATN service routine. Sprint 60 stores the bit but does NOT
-// assert IRQ; Sprint 61 wires CA1 → IFR → IRQ.
-//
-// CA2/CB1/CB2 unused for standard IEC.
+// CA1 = ATN edge detector — wired to ATN line so a level change pulses
+// the VIA's CA1 input. Sprint 61 wires this through pulseCa1 in the
+// VIA so the drive ROM's ATN-edge IRQ handler fires correctly.
 
 import type { ViaPortBackend } from "./via6522.js";
+import type { IecBus } from "../iec/iec-bus.js";
 
 export const PB_DATA_IN = 1 << 0;
 export const PB_DATA_OUT = 1 << 1;
@@ -33,12 +30,10 @@ export const PB_DEV_ID0 = 1 << 5;
 export const PB_DEV_ID1 = 1 << 6;
 export const PB_ATN_IN = 1 << 7;
 
-// Default: all bus lines pulled high (= 1). DEV_ID jumper for device
-// 8 is "00" (no jumpers cut) — both bits high.
 export const DEFAULT_VIA1_PB_INPUT = 0xff;
 
-// Sprint 60 stub: returns "all-high" pin state regardless of bus. The
-// real backend reads from IECBus instance — wired up in Sprint 61.
+// Standalone stubs — kept for Sprint 60 isolated tests where there's
+// no bus.
 export function makeStubVia1Pa(): ViaPortBackend {
   return {
     readPins: () => 0xff,
@@ -47,8 +42,6 @@ export function makeStubVia1Pa(): ViaPortBackend {
 }
 
 export function makeStubVia1Pb(deviceId: number = 8): ViaPortBackend {
-  // Encode device id into PB5/PB6 (jumpers). Device 8 = both bits 1.
-  // 8 → 11, 9 → 10, 10 → 01, 11 → 00.
   let jumperBits = 0;
   switch (deviceId) {
     case 8: jumperBits = PB_DEV_ID0 | PB_DEV_ID1; break;
@@ -59,6 +52,21 @@ export function makeStubVia1Pb(deviceId: number = 8): ViaPortBackend {
   }
   return {
     readPins: () => DEFAULT_VIA1_PB_INPUT & ~(PB_DEV_ID0 | PB_DEV_ID1) | jumperBits,
-    onOutputChanged: () => { /* iec-bus wires this in Sprint 61 */ },
+    onOutputChanged: () => { /* no bus wired */ },
+  };
+}
+
+// Sprint 61: bus-coupled backends.
+export function makeBusVia1Pa(): ViaPortBackend {
+  return {
+    readPins: () => 0xff, // PA unused on standard 1541 IEC wiring
+    onOutputChanged: () => { /* no-op */ },
+  };
+}
+
+export function makeBusVia1Pb(bus: IecBus, deviceId: number = 8): ViaPortBackend {
+  return {
+    readPins: () => bus.buildDrivePbInputBits(deviceId),
+    onOutputChanged: (orValue, ddrMask) => bus.setDriveOutput(orValue, ddrMask),
   };
 }

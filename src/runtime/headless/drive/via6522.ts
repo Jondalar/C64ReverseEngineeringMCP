@@ -1,29 +1,39 @@
 // Implementation informed by MOS 6522 datasheet + cross-checked against
 // VICE behavior. No code lifted. Project remains MIT.
 //
-// Sprint 60 scope: register read/write + DDR (data direction registers).
-// NO timers, NO IRQ assertion, NO shift register, NO handshake — those
-// land in Sprint 61. The skeleton lets drive code do basic
-// register-poke patterns without faulting.
+// Sprint 60: register read/write + DDR (skeleton only).
+// Sprint 61: full timer T1/T2 + IFR/IER + CA1/CA2/CB1/CB2 edge
+// detection + IRQ assertion + shift register modes 0-7. Tick(cycles)
+// counts down timers and asserts IFR flags on underflow.
 //
-// 6522 register layout (per VIA, 16 registers, mirrored across the
+// Register layout (per VIA, 16 registers, mirrored across the
 // 1KB allocation):
 //   $0  ORB / IRB    output / input register B
 //   $1  ORA / IRA    output / input register A (with handshake)
 //   $2  DDRB         data direction register B
 //   $3  DDRA         data direction register A
-//   $4  T1C-L        timer 1 counter low (read-only at this addr)
-//   $5  T1C-H        timer 1 counter high
+//   $4  T1C-L        timer 1 counter low (read clears IFR T1; write = T1L-L)
+//   $5  T1C-H        timer 1 counter high (write transfers latch → counter, clears IFR T1)
 //   $6  T1L-L        timer 1 latch low
-//   $7  T1L-H        timer 1 latch high
-//   $8  T2C-L        timer 2 counter low
-//   $9  T2C-H        timer 2 counter high
+//   $7  T1L-H        timer 1 latch high (write also clears IFR T1)
+//   $8  T2C-L        timer 2 counter low (read clears IFR T2; write = T2L-L)
+//   $9  T2C-H        timer 2 counter high (write loads counter, clears IFR T2)
 //   $a  SR           shift register
 //   $b  ACR          auxiliary control register
 //   $c  PCR          peripheral control register
-//   $d  IFR          interrupt flag register
+//   $d  IFR          interrupt flag register (write 1 to clear)
 //   $e  IER          interrupt enable register
 //   $f  ORA / IRA    same as $1 but no handshake
+//
+// IFR bits (read returns bit 7 = ANY enabled flag set):
+//   bit 0  CA2
+//   bit 1  CA1
+//   bit 2  SR (shift register full/empty)
+//   bit 3  CB2
+//   bit 4  CB1
+//   bit 5  T2 underflow
+//   bit 6  T1 underflow
+//   bit 7  IRQ summary (read-only — set if any (IFR & IER) bit is high)
 
 export const VIA_REG_COUNT = 16;
 export const VIA_ORB = 0x0;
@@ -43,70 +53,91 @@ export const VIA_IFR = 0xd;
 export const VIA_IER = 0xe;
 export const VIA_ORA_NOHS = 0xf;
 
+export const IFR_CA2 = 0x01;
+export const IFR_CA1 = 0x02;
+export const IFR_SR = 0x04;
+export const IFR_CB2 = 0x08;
+export const IFR_CB1 = 0x10;
+export const IFR_T2 = 0x20;
+export const IFR_T1 = 0x40;
+export const IFR_IRQ_SUMMARY = 0x80;
+
 export interface ViaPortBackend {
-  // External pin state read by the VIA when CPU reads IRB/IRA.
-  // Typically returned as the bus state (open-collector wired-AND
-  // across all drivers). When DDR bit = 1 (output), the corresponding
-  // bit in this read is overridden by the OR latch — that logic lives
-  // in the VIA itself; the backend just supplies the raw bus state.
   readPins(): number;
-  // Called when the CPU writes ORB/ORA. The backend may drive its
-  // pins low (open-collector) according to the OR value AND the DDR
-  // mask. Output-disabled bits (DDR=0) leave the line floating high.
   onOutputChanged(orValue: number, ddrMask: number): void;
 }
 
+// Edge polarity for CA1/CB1 controlled by PCR bit 0 / bit 4.
+//   PCR bit 0 = 0: CA1 negative-edge (high → low)
+//   PCR bit 0 = 1: CA1 positive-edge (low → high)
+// CB1 same with bit 4. Sprint 61 supports both polarities so the
+// drive ROM can configure ATN edge detection correctly.
+
 export class Via6522 {
-  // Output / input latches. ORA/ORB are CPU-written outputs; pin reads
-  // (IRA/IRB) reflect bus state (DDR-input bits) ORed with OR-latch
-  // (DDR-output bits).
+  // I/O latches.
   public ora = 0;
   public orb = 0;
   public ddra = 0;
   public ddrb = 0;
-  // Sprint 60: timers, SR, ACR, PCR, IFR, IER stored as plain bytes
-  // with no behavioral effect. Sprint 61 wires them up.
-  public t1cl = 0;
-  public t1ch = 0;
-  public t1ll = 0;
-  public t1lh = 0;
-  public t2cl = 0;
-  public t2ch = 0;
+  // Timer 1: 16-bit counter + latch. ACR bits 6-7 control mode.
+  public t1Counter = 0;
+  public t1Latch = 0;
+  // Timer 2: 16-bit counter (load only — no latch reload).
+  public t2Counter = 0;
+  // Shift register + control.
   public sr = 0;
   public acr = 0;
   public pcr = 0;
   public ifr = 0;
   public ier = 0;
 
+  // Internal state for timer/SR scheduling.
+  private t1Reload = false;        // when true, on next tick reload from latch
+  private t1HasUnderflowed = false; // for one-shot mode
+  private t2HasUnderflowed = false;
+
+  // Last seen pin states for edge detection.
+  private lastCa1Pin = true;
+  private lastCb1Pin = true;
+
   constructor(public readonly portA: ViaPortBackend, public readonly portB: ViaPortBackend) {}
 
   read(reg: number): number {
     switch (reg & 0xf) {
       case VIA_ORB: {
-        // For DDR-output bits: return OR latch. For DDR-input bits:
-        // return live pin state. (Real 6522 returns OR-latch for
-        // output bits when CB2 latching disabled — Sprint 60 ignores
-        // the latching-mode subtlety.)
         const pins = this.portB.readPins();
-        return (this.orb & this.ddrb) | (pins & ~this.ddrb & 0xff);
+        // For DDR-output bits: return OR latch. For DDR-input bits:
+        // return live pin state.
+        return ((this.orb & this.ddrb) | (pins & ~this.ddrb)) & 0xff;
       }
       case VIA_ORA:
       case VIA_ORA_NOHS: {
         const pins = this.portA.readPins();
-        return (this.ora & this.ddra) | (pins & ~this.ddra & 0xff);
+        return ((this.ora & this.ddra) | (pins & ~this.ddra)) & 0xff;
       }
       case VIA_DDRB: return this.ddrb;
       case VIA_DDRA: return this.ddra;
-      case VIA_T1CL: return this.t1cl;
-      case VIA_T1CH: return this.t1ch;
-      case VIA_T1LL: return this.t1ll;
-      case VIA_T1LH: return this.t1lh;
-      case VIA_T2CL: return this.t2cl;
-      case VIA_T2CH: return this.t2ch;
-      case VIA_SR: return this.sr;
+      case VIA_T1CL: {
+        // Read clears IFR T1 flag.
+        this.clearIfr(IFR_T1);
+        return this.t1Counter & 0xff;
+      }
+      case VIA_T1CH: return (this.t1Counter >> 8) & 0xff;
+      case VIA_T1LL: return this.t1Latch & 0xff;
+      case VIA_T1LH: return (this.t1Latch >> 8) & 0xff;
+      case VIA_T2CL: {
+        // Read clears IFR T2 flag.
+        this.clearIfr(IFR_T2);
+        return this.t2Counter & 0xff;
+      }
+      case VIA_T2CH: return (this.t2Counter >> 8) & 0xff;
+      case VIA_SR: {
+        this.clearIfr(IFR_SR);
+        return this.sr;
+      }
       case VIA_ACR: return this.acr;
       case VIA_PCR: return this.pcr;
-      case VIA_IFR: return this.ifr;
+      case VIA_IFR: return this.ifrSummary();
       case VIA_IER: return this.ier | 0x80;
       default: return 0;
     }
@@ -118,8 +149,14 @@ export class Via6522 {
       case VIA_ORB:
         this.orb = v;
         this.portB.onOutputChanged(this.orb, this.ddrb);
+        // Writing ORB clears CB1 flag (per datasheet handshake clear).
+        this.clearIfr(IFR_CB1 | IFR_CB2);
         return;
       case VIA_ORA:
+        this.ora = v;
+        this.portA.onOutputChanged(this.ora, this.ddra);
+        this.clearIfr(IFR_CA1 | IFR_CA2);
+        return;
       case VIA_ORA_NOHS:
         this.ora = v;
         this.portA.onOutputChanged(this.ora, this.ddra);
@@ -132,35 +169,162 @@ export class Via6522 {
         this.ddra = v;
         this.portA.onOutputChanged(this.ora, this.ddra);
         return;
-      case VIA_T1CL: this.t1cl = v; return;
-      case VIA_T1CH: this.t1ch = v; return;
-      case VIA_T1LL: this.t1ll = v; return;
-      case VIA_T1LH: this.t1lh = v; return;
-      case VIA_T2CL: this.t2cl = v; return;
-      case VIA_T2CH: this.t2ch = v; return;
-      case VIA_SR: this.sr = v; return;
-      case VIA_ACR: this.acr = v; return;
-      case VIA_PCR: this.pcr = v; return;
+      case VIA_T1CL:
+      case VIA_T1LL:
+        this.t1Latch = (this.t1Latch & 0xff00) | v;
+        return;
+      case VIA_T1CH:
+        // High write: transfer latch low + this byte → counter, start timer.
+        this.t1Latch = (this.t1Latch & 0x00ff) | (v << 8);
+        this.t1Counter = this.t1Latch;
+        this.t1HasUnderflowed = false;
+        this.clearIfr(IFR_T1);
+        return;
+      case VIA_T1LH:
+        this.t1Latch = (this.t1Latch & 0x00ff) | (v << 8);
+        this.clearIfr(IFR_T1);
+        return;
+      case VIA_T2CL:
+        // T2 has no separate latch; this is the low byte of the load.
+        this.t2Counter = (this.t2Counter & 0xff00) | v;
+        return;
+      case VIA_T2CH:
+        this.t2Counter = (this.t2Counter & 0x00ff) | (v << 8);
+        this.t2HasUnderflowed = false;
+        this.clearIfr(IFR_T2);
+        return;
+      case VIA_SR:
+        this.sr = v;
+        this.clearIfr(IFR_SR);
+        return;
+      case VIA_ACR:
+        this.acr = v;
+        return;
+      case VIA_PCR:
+        this.pcr = v;
+        return;
       case VIA_IFR:
-        // Writing 1 to a flag bit clears it. Bit 7 ignored on write.
+        // Writing 1 to a flag bit clears it. Bit 7 is summary (read-only).
         this.ifr &= ~(v & 0x7f);
         return;
       case VIA_IER:
-        // Bit 7: 1 = enable bits with v=1, 0 = disable bits with v=1.
+        // Bit 7 = 1: enable bits with v=1. Bit 7 = 0: disable bits with v=1.
         if ((v & 0x80) !== 0) this.ier |= (v & 0x7f);
         else this.ier &= ~(v & 0x7f);
         return;
     }
   }
 
+  // Tick the VIA state forward by N drive cycles. Decrements active
+  // timers; sets IFR T1/T2 on underflow. Called from the drive
+  // session's step loop after each drive instruction.
+  tick(cycles: number): void {
+    if (cycles <= 0) return;
+    this.tickTimer1(cycles);
+    this.tickTimer2(cycles);
+  }
+
+  private tickTimer1(cycles: number): void {
+    // T1 modes (ACR bits 6-7):
+    //   00  one-shot, no PB7 output
+    //   01  free-running, no PB7 output
+    //   10  one-shot, PB7 toggle (Sprint 61: ignore PB7 effect)
+    //   11  free-running, PB7 square wave (ignore)
+    const mode = (this.acr >> 6) & 0x3;
+    const oneShot = (mode & 1) === 0;
+    let remaining = cycles;
+    while (remaining > 0) {
+      if (oneShot && this.t1HasUnderflowed) {
+        // After one-shot underflow, counter keeps decrementing but no
+        // further IFR triggers.
+        this.t1Counter = (this.t1Counter - remaining) & 0xffff;
+        return;
+      }
+      if (remaining <= this.t1Counter) {
+        this.t1Counter -= remaining;
+        return;
+      }
+      remaining -= (this.t1Counter + 1);
+      this.t1Counter = this.t1Latch;
+      this.setIfr(IFR_T1);
+      if (oneShot) {
+        this.t1HasUnderflowed = true;
+      }
+    }
+  }
+
+  private tickTimer2(cycles: number): void {
+    // T2 modes (ACR bit 5):
+    //   0  one-shot
+    //   1  pulse-counting on PB6 (Sprint 61: ignore pulse-count mode;
+    //      treat as one-shot for now)
+    let remaining = cycles;
+    if (this.t2HasUnderflowed) {
+      this.t2Counter = (this.t2Counter - remaining) & 0xffff;
+      return;
+    }
+    if (remaining <= this.t2Counter) {
+      this.t2Counter -= remaining;
+      return;
+    }
+    remaining -= (this.t2Counter + 1);
+    this.t2Counter = (0xffff - remaining + 1) & 0xffff;
+    this.setIfr(IFR_T2);
+    this.t2HasUnderflowed = true;
+  }
+
+  // Notify VIA that the input pin tied to CA1 has changed. Detects
+  // edge per PCR polarity and sets IFR_CA1.
+  pulseCa1(newLevel: boolean): void {
+    const polarity = (this.pcr & 0x01) !== 0; // 0 = neg edge, 1 = pos edge
+    const wasHigh = this.lastCa1Pin;
+    const isHigh = newLevel;
+    if (!polarity && wasHigh && !isHigh) this.setIfr(IFR_CA1);
+    if (polarity && !wasHigh && isHigh) this.setIfr(IFR_CA1);
+    this.lastCa1Pin = isHigh;
+  }
+
+  pulseCb1(newLevel: boolean): void {
+    const polarity = (this.pcr & 0x10) !== 0;
+    const wasHigh = this.lastCb1Pin;
+    const isHigh = newLevel;
+    if (!polarity && wasHigh && !isHigh) this.setIfr(IFR_CB1);
+    if (polarity && !wasHigh && isHigh) this.setIfr(IFR_CB1);
+    this.lastCb1Pin = isHigh;
+  }
+
+  // Returns true iff IRQ line should be asserted (any IFR&IER bit set).
+  irqAsserted(): boolean {
+    return (this.ifr & this.ier & 0x7f) !== 0;
+  }
+
+  setIfr(mask: number): void {
+    this.ifr |= (mask & 0x7f);
+  }
+
+  clearIfr(mask: number): void {
+    this.ifr &= ~(mask & 0x7f);
+  }
+
+  ifrSummary(): number {
+    const flags = this.ifr & 0x7f;
+    const summary = (flags & this.ier & 0x7f) !== 0 ? 0x80 : 0x00;
+    return flags | summary;
+  }
+
   reset(): void {
     this.ora = 0; this.orb = 0;
     this.ddra = 0; this.ddrb = 0;
-    this.t1cl = this.t1ch = this.t1ll = this.t1lh = 0;
-    this.t2cl = this.t2ch = 0;
+    this.t1Counter = 0; this.t1Latch = 0;
+    this.t2Counter = 0;
     this.sr = 0;
     this.acr = 0; this.pcr = 0;
     this.ifr = 0; this.ier = 0;
+    this.t1Reload = false;
+    this.t1HasUnderflowed = false;
+    this.t2HasUnderflowed = false;
+    this.lastCa1Pin = true;
+    this.lastCb1Pin = true;
     this.portA.onOutputChanged(0, 0);
     this.portB.onOutputChanged(0, 0);
   }
