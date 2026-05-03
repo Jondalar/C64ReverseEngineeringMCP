@@ -76,6 +76,8 @@ export class IntegratedSession {
       this.c64Bus.loadCharRom(this.romSet.charRom.bytes);
     }
     attachCia2ToIecBus(this.c64Bus, this.iecBus);
+    this.installVicMinimalStubs();
+    this.installCia1KeyboardStub();
     this.c64Bus.reset();
     this.c64Cpu = new Cpu6510(this.c64Bus);
 
@@ -85,6 +87,9 @@ export class IntegratedSession {
       iecBus: this.iecBus,
       gcr: { trackBuffer: this.trackBuffer, headPosition: this.headPosition, writeProtected: opts.writeProtected },
     });
+    // Sprint 66 hack: hand drive RAM to iec-bus for the ATN-pending
+    // flag direct-poke (works around boot-order CA1 IRQ miss).
+    this.iecBus.attachDriveRam(this.drive.bus.ram);
   }
 
   // Reset both CPUs to their ROM cold-start vectors.
@@ -164,6 +169,46 @@ export class IntegratedSession {
     this.driveInstructionCount += 1;
     if (this.driveCycleAccumulator > 0) this.driveCycleAccumulator -= consumed;
     return consumed;
+  }
+
+  // Minimal VIC stubs so KERNAL cold-start doesn't deadlock on
+  // raster polling. Spec 063 Phase A replaces these with the real
+  // VIC video model. For now: $D012 returns 0 always (so KERNAL's
+  // PAL/NTSC detection at $FF5E sees "raster at 0 = top of frame"
+  // immediately); $D011 high bit (raster bit 8) returns 0; $D019
+  // returns 0 (no IRQ source pending) so KERNAL clears the flag and
+  // proceeds.
+  // Minimal CIA1 stubs so KERNAL's keyboard-scan IRQ doesn't pollute
+  // the keyboard buffer with phantom keypresses (every key would
+  // appear pressed because $DC01 reads default 0). Returning $FF (all
+  // keys released) lets injected $0277 / $C6 buffer state persist.
+  private installCia1KeyboardStub(): void {
+    this.c64Bus.registerIoHandler(0xdc01, {
+      read: () => 0xff, // all keys released
+      write: (_addr, value) => { this.c64Bus.io[0xdc01 - 0xd000] = value & 0xff; },
+    });
+  }
+
+  private installVicMinimalStubs(): void {
+    // $D011 — control register 1. Bit 7 = current raster line bit 8.
+    // We always report bit 7 = 0 (raster line < 256) regardless of
+    // what KERNAL latched. Other bits returned from io[] for compat.
+    this.c64Bus.registerIoHandler(0xd011, {
+      read: () => this.c64Bus.io[0xd011 - 0xd000]! & 0x7f,
+      write: (_addr, value) => { this.c64Bus.io[0xd011 - 0xd000] = value & 0xff; },
+    });
+    // $D012 — current raster line low byte. Always 0.
+    this.c64Bus.registerIoHandler(0xd012, {
+      read: () => 0,
+      write: (_addr, value) => { this.c64Bus.io[0xd012 - 0xd000] = value & 0xff; },
+    });
+    // $D019 — VIC IRQ status. Always 0 (no IRQ source has fired).
+    // Without this stub, KERNAL's PAL/NTSC detect reads back the
+    // last test-pattern value and mis-detects.
+    this.c64Bus.registerIoHandler(0xd019, {
+      read: () => 0,
+      write: (_addr, value) => { this.c64Bus.io[0xd019 - 0xd000] = value & 0xff; },
+    });
   }
 
   private checkC64Interrupts(): void {

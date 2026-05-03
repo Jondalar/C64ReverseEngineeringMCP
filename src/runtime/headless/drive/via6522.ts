@@ -107,6 +107,11 @@ export class Via6522 {
   private lastCa1Pin = true;
   private lastCb1Pin = true;
 
+  // Sprint 66: optional callback invoked when CA1 IRQ is newly
+  // enabled in IER (so iec-bus can re-evaluate against current ATN
+  // line state and unstick a boot-order race).
+  public onCa1IerEnabled?: () => void;
+
   constructor(public readonly portA: ViaPortBackend, public readonly portB: ViaPortBackend) {}
 
   read(reg: number): number {
@@ -114,10 +119,20 @@ export class Via6522 {
       case VIA_ORB: {
         const pins = this.portB.readPins();
         // For DDR-output bits: return OR latch. For DDR-input bits:
-        // return live pin state.
+        // return live pin state. Per 6522 datasheet, READ of IRB
+        // clears CB1 + CB2 IFR flags (handshake acknowledge).
+        this.clearIfr(IFR_CB1 | IFR_CB2);
         return ((this.orb & this.ddrb) | (pins & ~this.ddrb)) & 0xff;
       }
-      case VIA_ORA:
+      case VIA_ORA: {
+        const pins = this.portA.readPins();
+        // READ of IRA (with handshake) clears CA1 + CA2 IFR. The
+        // _NOHS variant ($F) below does NOT clear the flag — that's
+        // the no-handshake escape used by code that wants to peek
+        // the port without acknowledging.
+        this.clearIfr(IFR_CA1 | IFR_CA2);
+        return ((this.ora & this.ddra) | (pins & ~this.ddra)) & 0xff;
+      }
       case VIA_ORA_NOHS: {
         const pins = this.portA.readPins();
         return ((this.ora & this.ddra) | (pins & ~this.ddra)) & 0xff;
@@ -216,8 +231,18 @@ export class Via6522 {
         return;
       case VIA_IER:
         // Bit 7 = 1: enable bits with v=1. Bit 7 = 0: disable bits with v=1.
-        if ((v & 0x80) !== 0) this.ier |= (v & 0x7f);
-        else this.ier &= ~(v & 0x7f);
+        if ((v & 0x80) !== 0) {
+          const newlyEnabled = (v & 0x7f) & ~this.ier;
+          this.ier |= (v & 0x7f);
+          // Sprint 66 fix: when CA1 IRQ becomes newly enabled, give
+          // backends a chance to re-evaluate against current pin level
+          // (covers the boot-order edge-miss case for IEC ATN).
+          if (newlyEnabled & IFR_CA1) {
+            this.onCa1IerEnabled?.();
+          }
+        } else {
+          this.ier &= ~(v & 0x7f);
+        }
         return;
     }
   }
@@ -282,13 +307,46 @@ export class Via6522 {
 
   // Notify VIA that the input pin tied to CA1 has changed. Detects
   // edge per PCR polarity and sets IFR_CA1.
+  //
+  // Pragmatic deviation from real-HW edge-only semantics: if the
+  // pin is currently in the "active" state per PCR polarity AND the
+  // edge wasn't observed (because drive ROM hadn't enabled CA1 IRQ
+  // yet when the edge happened), we still set IFR_CA1. This unsticks
+  // the boot-order chicken-egg where the C64 pulls ATN low BEFORE
+  // the drive's init sequence configures CA1 IRQ. Real hardware
+  // depends on the drive booting first; our sim has both CPUs reset
+  // at t=0. The workaround is benign: drive ROM clears IFR by reading
+  // $1801, then waits for a real new edge. False-positive IFR sets
+  // are clamped by this same clear-on-IRA-read.
   pulseCa1(newLevel: boolean): void {
     const polarity = (this.pcr & 0x01) !== 0; // 0 = neg edge, 1 = pos edge
     const wasHigh = this.lastCa1Pin;
     const isHigh = newLevel;
     if (!polarity && wasHigh && !isHigh) this.setIfr(IFR_CA1);
     if (polarity && !wasHigh && isHigh) this.setIfr(IFR_CA1);
+    // Sprint 66 deviation: 1541 ROM idle loop relies on the IRQ
+    // handler setting $7C to signal "ATN pending", but the standard
+    // PCR=$01 (positive-edge for ATN release) means drive misses
+    // ATN-LOW edges that would normally be caught by separate polling
+    // logic. To avoid having to model the drive-ROM's PB7-poll
+    // fallback path, we fire CA1 IFR on EITHER edge (drive ROM
+    // clears + re-checks state via $1800 PB read, so spurious sets
+    // are harmless). Real HW is edge-only per polarity.
+    if (wasHigh !== isHigh) this.setIfr(IFR_CA1);
     this.lastCa1Pin = isHigh;
+  }
+
+  // Spec 062 Sprint 66 hack: re-evaluate CA1 against current pin
+  // level + current PCR polarity, setting IFR_CA1 if the configured
+  // edge "would have just happened" given current state. Called from
+  // iec-bus when the drive enables CA1 IER (so it picks up the
+  // already-asserted ATN line that fired before IER was set).
+  reevaluateCa1Level(currentLevel: boolean): void {
+    const polarity = (this.pcr & 0x01) !== 0;
+    // Negative-edge config: trigger if line is LOW.
+    // Positive-edge config: trigger if line is HIGH.
+    if (!polarity && !currentLevel) this.setIfr(IFR_CA1);
+    if (polarity && currentLevel) this.setIfr(IFR_CA1);
   }
 
   pulseCb1(newLevel: boolean): void {

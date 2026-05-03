@@ -51,11 +51,24 @@ export class IecBus {
 
   // Optional drive VIA1 to pulse CA1 on ATN edges.
   private driveVia1?: Via6522;
+  // Sprint 66 hack: optional pointer to drive RAM so we can poke the
+  // ATN-pending flag at $7C directly. Standard 1541 ROM idle loop at
+  // $EBFF reads $7C and only jumps to ATN handler if non-zero. The
+  // IRQ handler normally sets $7C from CA1 IRQ, but our model misses
+  // some edges due to the boot-order race. Direct poke unsticks the
+  // common case.
+  private driveRamForAtnPoke?: Uint8Array;
 
   attachDriveVia1(via: Via6522): void {
     this.driveVia1 = via;
     // Initialize CA1 baseline state.
     via.pulseCa1(this.atnLine);
+    // Sprint 66: when drive ROM enables CA1 IRQ later, re-evaluate
+    // against current ATN level (workaround for boot-order race —
+    // see Via6522.reevaluateCa1Level doc).
+    via.onCa1IerEnabled = () => {
+      via.reevaluateCa1Level(this.atnLine);
+    };
   }
 
   // C64 → bus: CIA2 PA writes update these. Standard CIA2 mapping
@@ -147,9 +160,22 @@ export class IecBus {
     return bits & 0xff;
   }
 
+  attachDriveRam(ram: Uint8Array): void {
+    this.driveRamForAtnPoke = ram;
+  }
+
   private notifyAtnChanged(): void {
     if (this.driveVia1) {
       this.driveVia1.pulseCa1(this.atnLine);
+    }
+    // Sprint 66 hack: while ATN is low, force-set the standard 1541
+    // ATN-pending flag at $7C on every C64-side IEC write so the
+    // idle loop at $EBFF picks it up. Standard 1541 ROM idle loop
+    // reads $7C; the IRQ handler normally sets it from CA1 IRQ +
+    // PB7 read. We synthesize that here unconditionally to avoid
+    // having to model the drive-ROM PB7 polling fallback exactly.
+    if (!this.atnLine && this.driveRamForAtnPoke) {
+      this.driveRamForAtnPoke[0x7c] = 0x80;
     }
   }
 
