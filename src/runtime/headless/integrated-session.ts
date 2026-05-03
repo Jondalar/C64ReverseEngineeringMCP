@@ -143,9 +143,11 @@ export class IntegratedSession {
     this.kernalFileIo = makeKernalFileIoState();
     this.kernalSerial = makeKernalSerialState();
     this.kernalIo = makeKernalIoState();
+    // Spec 083: real KERNAL serial bit-bang via cycle-precise CIA timer
+    // is the default. Traps are opt-in fast-mode.
     this.enableKernalFileIoTraps = opts.enableKernalFileIoTraps ?? false;
-    this.enableKernalSerialTraps = opts.enableKernalSerialTraps ?? true;
-    this.enableKernalIoTraps = opts.enableKernalIoTraps ?? true;
+    this.enableKernalSerialTraps = opts.enableKernalSerialTraps ?? false;
+    this.enableKernalIoTraps = opts.enableKernalIoTraps ?? false;
     this.framebuffer = new VicFramebuffer(isPal);
   }
 

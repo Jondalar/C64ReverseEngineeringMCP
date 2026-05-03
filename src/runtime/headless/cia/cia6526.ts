@@ -181,36 +181,48 @@ export class Cia6526 {
   // sets ICR flags + asserts IRQ on underflow per ICR mask.
   tick(cycles: number): void {
     if (cycles <= 0) return;
-    this.tickTimerA(cycles);
-    this.tickTimerB(cycles);
+    const taUnderflows = this.tickTimerA(cycles);
+    this.tickTimerB(cycles, taUnderflows);
   }
 
-  private tickTimerA(cycles: number): void {
+  private tickTimerA(cycles: number): number {
     // Bit 0 = START. Bit 5 = IN-MODE (0=Φ2, 1=CNT). We only model Φ2.
-    if ((this.cra & 0x01) === 0) return;
-    if ((this.cra & 0x20) !== 0) return; // CNT mode not modeled
+    if ((this.cra & 0x01) === 0) return 0;
+    if ((this.cra & 0x20) !== 0) return 0; // CNT mode not modeled
     let remaining = cycles;
+    let underflows = 0;
     const oneShot = (this.cra & 0x08) !== 0;
     while (remaining > 0) {
       if (remaining <= this.taCounter) {
         this.taCounter -= remaining;
-        return;
+        return underflows;
       }
       remaining -= (this.taCounter + 1);
       this.taCounter = this.taLatch;
       this.icrFlags |= ICR_TA;
+      underflows++;
       if (oneShot) {
         this.cra &= ~0x01; // clear START
-        return;
+        return underflows;
       }
     }
+    return underflows;
   }
 
-  private tickTimerB(cycles: number): void {
+  private tickTimerB(cycles: number, taUnderflows: number): void {
     if ((this.crb & 0x01) === 0) return;
-    // Bits 5-6: 00=Φ2, others not modeled (CNT, TA-underflow chain).
-    if ((this.crb & 0x60) !== 0) return;
-    let remaining = cycles;
+    // CRB bits 5-6 select count source:
+    //   00 = Φ2 (system clock)
+    //   01 = CNT pin (not modeled — would need CNT input source)
+    //   10 = Timer A underflow
+    //   11 = Timer A underflow when CNT high (CNT held high → same as 10)
+    const mode = (this.crb >> 5) & 0x03;
+    let ticks: number;
+    if (mode === 0) ticks = cycles;
+    else if (mode === 2 || mode === 3) ticks = taUnderflows;
+    else return; // CNT-only not modeled
+    if (ticks <= 0) return;
+    let remaining = ticks;
     const oneShot = (this.crb & 0x08) !== 0;
     while (remaining > 0) {
       if (remaining <= this.tbCounter) {
