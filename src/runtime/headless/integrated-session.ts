@@ -36,6 +36,11 @@ import {
   makeKernalSerialState,
   type KernalSerialState,
 } from "./traps/kernal-serial.js";
+import {
+  handleKernalIoTrap,
+  makeKernalIoState,
+  type KernalIoState,
+} from "./traps/kernal-io.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -72,6 +77,7 @@ export class IntegratedSession {
   public readonly diskProvider: DiskProvider;
   public readonly kernalFileIo: KernalFileIoState;
   public readonly kernalSerial: KernalSerialState;
+  public readonly kernalIo: KernalIoState;
   public readonly cia1: Cia6526;
   public readonly cia2: Cia6526;
   public readonly vic: VicII;
@@ -121,6 +127,7 @@ export class IntegratedSession {
 
     this.kernalFileIo = makeKernalFileIoState();
     this.kernalSerial = makeKernalSerialState();
+    this.kernalIo = makeKernalIoState();
     this.enableKernalFileIoTraps = opts.enableKernalFileIoTraps ?? false;
     this.framebuffer = new VicFramebuffer(isPal);
   }
@@ -189,6 +196,10 @@ export class IntegratedSession {
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, drive: this.drive,
       iecBus: this.iecBus, state: this.kernalSerial,
+    }) || handleKernalIoTrap({
+      cpu: this.c64Cpu, bus: this.c64Bus,
+      diskProvider: this.diskProvider, serial: this.kernalSerial,
+      state: this.kernalIo,
     });
     if (trapped) {
       this.c64InstructionCount += 1;
