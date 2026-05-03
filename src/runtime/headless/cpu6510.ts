@@ -506,7 +506,9 @@ export class Cpu6510 {
         this.push(this.a);
         return;
       case "php":
-        this.push(this.flags & ~0x10);
+        // 6502 spec: PHP always pushes flags with B=1 (and unused=1).
+        // (BRK also forces B=1; IRQ/NMI push with B=0 — see serviceInterrupt.)
+        this.push(this.flags | 0x10);
         return;
       case "pla":
         this.a = this.pop();

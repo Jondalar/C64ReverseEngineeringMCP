@@ -2012,6 +2012,34 @@ Done when:
 - either MM reaches title/character-select, or the next runtime fix is
   narrowed to one concrete subsystem
 
+## Sprint 94: CPU equivalence harness (microcoded vs legacy)
+
+Goal: prove `Cpu6510Cycled` is functionally equivalent to legacy
+`Cpu6510` at the instruction level, before chasing higher-level
+KERNAL/BASIC/IEC issues. User feedback after Bug 36 indy/indx STA:
+"wenn die CPU schon so grundlegende Fehler hat, dann wundert es
+mich dass IEC Bit-banging mit der 1541 nicht klappt".
+
+Status: COMPLETE. Zero divergences across 1880 cases (all
+documented opcodes + stable illegals × 8 random seeds, BCD on/off).
+
+Done:
+
+- `scripts/cpu-equivalence.mjs` — for each opcode + seed, runs one
+  instruction on both CPUs, diffs A/X/Y/SP/PC + flags + RAM writes.
+- Bug 38 fix: legacy PHP forced B=0 (spec violation); now matches
+  microcoded `flags | 0x10` per spec.
+- Confirmed Bug 37 (BASIC echo missing) is not microcoded-specific:
+  legacy and microcoded both fail identically — issue is higher up
+  the stack (VIC raster IRQ rate / screen editor / BASIC INPUT
+  loop).
+
+Done when:
+
+- Equivalence harness reports zero divergences.
+- All known instruction-level CPU bugs filed + fixed.
+- Higher-level issues clearly tagged as non-CPU.
+
 ## Sprint 88-91: Pre-lockstep workarounds (superseded by Sprint 92)
 
 User clarified: cycle-perfect is **MVP**, not long-term goal. Headless

@@ -1985,3 +1985,50 @@ In a hold-the-key smoke (`queueKeyEvent("L", 0, 10_000_000)`), `$C5` does change
 ### Next step
 
 Trace SCNKEY ($EA87) execution under microscope: log writes to `$CB`, `$C5`, `$C6`, `$028A-$028C`, and the path through $EBE2 buffer-store entry. Compare with VICE behavior given identical input timing. May require Sprint 93.1 to land typing infrastructure first and treat the SCNKEY behavior as a separate Sprint 93.1b investigation.
+
+### Sprint 94 update (2026-05-04)
+
+Single-step trace at `$EAE0-$EB47` (`scripts/sprint93-bug37b.mjs`)
+proves the SCNKEY → buffer path runs end-to-end after the keyboard
+matrix `[col, row]` fix:
+
+```
+PC=$EB28: STY $C5 → $C5=$2A
+PC=$EB30: CPX #$FF → X=$4C (not skipped)
+PC=$EB3C: STA $0277,X → buffer[0]=$4C
+PC=$EB40: STX $C6 → $C6=1
+```
+
+CHRIN at `$E5CD` then drains `$C6` back to 0. So the buffer DOES fill.
+The screen still does not echo `LIST`, confirming the issue is HIGHER
+than scancode handling — likely in BASIC's screen-input loop / KERNAL
+CHROUT path.
+
+Important: cross-validated in **both** legacy `Cpu6510` and microcoded
+`Cpu6510Cycled` modes. Behaviour identical. So Bug 37's "BASIC does
+not echo" symptom is not microcoded-specific. Sprint 94 CPU equivalence
+harness shows zero divergences across 1880 cases (all documented
+opcodes + stable illegals × 8 seeds, BCD on/off). Reframe Bug 37 as a
+non-CPU issue: candidate roots are VIC raster IRQ frequency drift,
+screen-editor `$D0` mode flag, CHROUT vector, or BASIC's input-line
+state machine.
+
+## Bug 38 — Legacy `Cpu6510` PHP did not force B-flag set (spec violation)
+
+**Severity:** low (silent — most code masks B on PLP).
+**Discovered during:** Sprint 94 CPU equivalence harness 2026-05-04.
+**Status:** FIXED (Sprint 94, commit pending).
+
+### Symptom
+
+Legacy `Cpu6510.php` pushed `flags & ~0x10` (B masked OFF). Real 6502
+spec: `PHP` always pushes flags with B=1 (and unused=1) — so the
+microcoded `Cpu6510Cycled` was already correct. The CPU equivalence
+harness flagged this as the only point of divergence between the two
+implementations.
+
+### Fix
+
+`src/runtime/headless/cpu6510.ts:php` now pushes `flags | 0x10`,
+matching the microcoded path and the 6502 spec. Re-run of
+`scripts/cpu-equivalence.mjs`: 1880 cases, 0 fails.
