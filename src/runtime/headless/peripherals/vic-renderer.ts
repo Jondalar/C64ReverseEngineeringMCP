@@ -27,25 +27,25 @@ export const VISIBLE_Y = 51;
 export const VISIBLE_W = 320;
 export const VISIBLE_H = 200;
 
-// Standard Pepto VIC palette — 16 RGB triples.
-// Source: https://www.pepto.de/projects/colorvic/ (CC-BY).
+// Colodore VIC palette — modern reference, brighter than the original
+// Pepto. Source: colodore.com (default settings). 16 RGB triples.
 export const VIC_PALETTE: ReadonlyArray<[number, number, number]> = [
   [0x00, 0x00, 0x00], // 0  black
   [0xff, 0xff, 0xff], // 1  white
-  [0x68, 0x37, 0x2b], // 2  red
-  [0x70, 0xa4, 0xb2], // 3  cyan
-  [0x6f, 0x3d, 0x86], // 4  purple
-  [0x58, 0x8d, 0x43], // 5  green
-  [0x35, 0x28, 0x79], // 6  blue
-  [0xb8, 0xc7, 0x6f], // 7  yellow
-  [0x6f, 0x4f, 0x25], // 8  orange
-  [0x43, 0x39, 0x00], // 9  brown
-  [0x9a, 0x67, 0x59], // 10 light red
-  [0x44, 0x44, 0x44], // 11 dark grey
-  [0x6c, 0x6c, 0x6c], // 12 grey
-  [0x9a, 0xd2, 0x84], // 13 light green
-  [0x6c, 0x5e, 0xb5], // 14 light blue
-  [0x95, 0x95, 0x95], // 15 light grey
+  [0x81, 0x33, 0x38], // 2  red
+  [0x75, 0xce, 0xc8], // 3  cyan
+  [0x8e, 0x3c, 0x97], // 4  purple
+  [0x56, 0xac, 0x4d], // 5  green
+  [0x2e, 0x2c, 0x9b], // 6  blue
+  [0xed, 0xf1, 0x71], // 7  yellow
+  [0x8e, 0x50, 0x29], // 8  orange
+  [0x55, 0x38, 0x00], // 9  brown
+  [0xc4, 0x6c, 0x71], // 10 light red
+  [0x4a, 0x4a, 0x4a], // 11 dark grey
+  [0x7b, 0x7b, 0x7b], // 12 grey
+  [0xa9, 0xff, 0x9f], // 13 light green
+  [0x70, 0x6d, 0xeb], // 14 light blue
+  [0xb2, 0xb2, 0xb2], // 15 light grey
 ];
 
 export class VicFramebuffer {
@@ -102,33 +102,74 @@ function vicRead(ctx: VicRenderContext, vicAddr: number): number {
   return ctx.bus.ram[(bankBase + masked) & 0xffff]!;
 }
 
-// Render one full frame to the framebuffer. Phase 65b: text mode only.
-export function renderTextModeFrame(fb: VicFramebuffer, ctx: VicRenderContext): void {
-  const { vic, bus } = ctx;
+// Render one full frame to the framebuffer. Sprint 73 (Phase 65d):
+// dispatch to mode-specific renderer based on $D011 BMM/ECM and
+// $D016 MCM bits. Sprint 74 (Phase 65e): sprites overlaid after.
+export function renderFrame(fb: VicFramebuffer, ctx: VicRenderContext): void {
+  const { vic } = ctx;
+  const ctrl1 = vic.regs[0x11]!;
+  const ctrl2 = vic.regs[0x16]!;
+  const denBit = (ctrl1 & 0x10) !== 0;
+  const ecmBit = (ctrl1 & 0x40) !== 0;
+  const bmmBit = (ctrl1 & 0x20) !== 0;
+  const mcmBit = (ctrl2 & 0x10) !== 0;
   const borderColor = vic.regs[0x20]! & 0x0f;
-  const bgColor = vic.regs[0x21]! & 0x0f;
-  // Fill entire framebuffer with border color, then overlay visible
-  // area with bg + chars.
   fb.fill(borderColor);
-  // Visible area background.
+  if (!denBit) return;
+  if (ecmBit && (bmmBit || mcmBit)) {
+    paintVisibleArea(fb, 0);
+    return;
+  }
+  // Track which pixels are "foreground" (=non-bg) for sprite-bg
+  // collision detection. 320x200 boolean grid.
+  const fgMask = new Uint8Array(VISIBLE_W * VISIBLE_H);
+  const renderArgs = { fb, ctx, fgMask };
+  if (bmmBit && mcmBit) renderMulticolorBitmap(renderArgs);
+  else if (bmmBit) renderStandardBitmap(renderArgs);
+  else if (ecmBit) renderExtendedBgText(renderArgs);
+  else if (mcmBit) renderMulticolorText(renderArgs);
+  else renderStandardText(renderArgs);
+  renderSprites(fb, ctx, fgMask);
+}
+
+// Backwards compat alias.
+export const renderTextModeFrame = renderFrame;
+
+function paintVisibleArea(fb: VicFramebuffer, colorIdx: number): void {
   for (let y = 0; y < VISIBLE_H; y++) {
     for (let x = 0; x < VISIBLE_W; x++) {
-      fb.setPixel(VISIBLE_X + x, VISIBLE_Y + y, bgColor);
+      fb.setPixel(VISIBLE_X + x, VISIBLE_Y + y, colorIdx);
     }
   }
-  // Screen RAM offset within VIC bank.
+}
+
+interface RenderArgs {
+  fb: VicFramebuffer;
+  ctx: VicRenderContext;
+  fgMask: Uint8Array;
+}
+
+function setFg(args: RenderArgs, x: number, y: number, color: number): void {
+  args.fb.setPixel(x, y, color);
+  const lx = x - VISIBLE_X, ly = y - VISIBLE_Y;
+  if (lx >= 0 && lx < VISIBLE_W && ly >= 0 && ly < VISIBLE_H) {
+    args.fgMask[ly * VISIBLE_W + lx] = 1;
+  }
+}
+
+function renderStandardText(args: RenderArgs): void {
+  const { fb, ctx } = args;
+  const { vic, bus } = ctx;
+  const bgColor = vic.regs[0x21]! & 0x0f;
+  paintVisibleArea(fb, bgColor);
   const screenRamOff = vic.screenRamOffset();
-  // Char ROM (or bitmap) base within VIC bank.
   const charRomOff = vic.charRomOffsetWithinBank();
-  // Color RAM is always at $D800-$DBFF in CPU view.
   const colorRamBase = 0xd800;
-  // Render 40×25 char grid.
   for (let row = 0; row < 25; row++) {
     for (let col = 0; col < 40; col++) {
       const cellIdx = row * 40 + col;
       const charCode = vicRead(ctx, screenRamOff + cellIdx);
       const fgColor = bus.ram[colorRamBase + cellIdx]! & 0x0f;
-      // Each char is 8 bytes (one per row) in char ROM.
       const charBaseAddr = charRomOff + charCode * 8;
       for (let cy = 0; cy < 8; cy++) {
         const byte = vicRead(ctx, charBaseAddr + cy);
@@ -136,11 +177,275 @@ export function renderTextModeFrame(fb: VicFramebuffer, ctx: VicRenderContext): 
           const bit = (byte >> (7 - cx)) & 1;
           const px = VISIBLE_X + col * 8 + cx;
           const py = VISIBLE_Y + row * 8 + cy;
-          if (bit) fb.setPixel(px, py, fgColor);
+          if (bit) setFg(args, px, py, fgColor);
         }
       }
     }
   }
+}
+
+// Multicolor text mode: each char's color RAM bit 3 selects mode.
+// If color RAM bit 3 == 0, char renders as standard (fg = lower 3 bits).
+// If color RAM bit 3 == 1, char is multicolor: each pair of bits
+// renders as a 2-pixel wide block: 00=$D021, 01=$D022, 10=$D023, 11=color RAM lower 3 bits.
+function renderMulticolorText(args: RenderArgs): void {
+  const { fb, ctx } = args;
+  const { vic, bus } = ctx;
+  const bgColor = vic.regs[0x21]! & 0x0f;
+  const mc1 = vic.regs[0x22]! & 0x0f;
+  const mc2 = vic.regs[0x23]! & 0x0f;
+  paintVisibleArea(fb, bgColor);
+  const screenRamOff = vic.screenRamOffset();
+  const charRomOff = vic.charRomOffsetWithinBank();
+  const colorRamBase = 0xd800;
+  for (let row = 0; row < 25; row++) {
+    for (let col = 0; col < 40; col++) {
+      const cellIdx = row * 40 + col;
+      const charCode = vicRead(ctx, screenRamOff + cellIdx);
+      const cramByte = bus.ram[colorRamBase + cellIdx]!;
+      const isMc = (cramByte & 0x08) !== 0;
+      const fgColor = cramByte & 0x07;
+      const charBaseAddr = charRomOff + charCode * 8;
+      for (let cy = 0; cy < 8; cy++) {
+        const byte = vicRead(ctx, charBaseAddr + cy);
+        if (!isMc) {
+          // Standard rendering for this char.
+          for (let cx = 0; cx < 8; cx++) {
+            const bit = (byte >> (7 - cx)) & 1;
+            if (bit) setFg(args, VISIBLE_X + col * 8 + cx, VISIBLE_Y + row * 8 + cy, fgColor);
+          }
+        } else {
+          for (let pair = 0; pair < 4; pair++) {
+            const bits = (byte >> ((3 - pair) * 2)) & 0x03;
+            let color: number;
+            let isFg = false;
+            if (bits === 0) color = bgColor;
+            else if (bits === 1) { color = mc1; }
+            else if (bits === 2) { color = mc2; isFg = true; }
+            else { color = fgColor; isFg = true; }
+            const baseX = VISIBLE_X + col * 8 + pair * 2;
+            const py = VISIBLE_Y + row * 8 + cy;
+            if (isFg) { setFg(args, baseX, py, color); setFg(args, baseX + 1, py, color); }
+            else { fb.setPixel(baseX, py, color); fb.setPixel(baseX + 1, py, color); }
+          }
+        }
+      }
+    }
+  }
+}
+
+// Extended-bg-color text: char code bits 0-5 = char index, bits 6-7
+// select bg color from $D021-$D024.
+function renderExtendedBgText(args: RenderArgs): void {
+  const { fb, ctx } = args;
+  const { vic, bus } = ctx;
+  const bgColors = [
+    vic.regs[0x21]! & 0x0f,
+    vic.regs[0x22]! & 0x0f,
+    vic.regs[0x23]! & 0x0f,
+    vic.regs[0x24]! & 0x0f,
+  ];
+  paintVisibleArea(fb, bgColors[0]!);
+  const screenRamOff = vic.screenRamOffset();
+  const charRomOff = vic.charRomOffsetWithinBank();
+  const colorRamBase = 0xd800;
+  for (let row = 0; row < 25; row++) {
+    for (let col = 0; col < 40; col++) {
+      const cellIdx = row * 40 + col;
+      const screenByte = vicRead(ctx, screenRamOff + cellIdx);
+      const charCode = screenByte & 0x3f;
+      const bgIdx = (screenByte >> 6) & 0x03;
+      const cellBg = bgColors[bgIdx]!;
+      const fgColor = bus.ram[colorRamBase + cellIdx]! & 0x0f;
+      const charBaseAddr = charRomOff + charCode * 8;
+      for (let cy = 0; cy < 8; cy++) {
+        const byte = vicRead(ctx, charBaseAddr + cy);
+        for (let cx = 0; cx < 8; cx++) {
+          const bit = (byte >> (7 - cx)) & 1;
+          const px = VISIBLE_X + col * 8 + cx;
+          const py = VISIBLE_Y + row * 8 + cy;
+          if (bit) setFg(args, px, py, fgColor);
+          else fb.setPixel(px, py, cellBg);
+        }
+      }
+    }
+  }
+}
+
+// Standard bitmap: 8000-byte bitmap from VIC bitmap base. Foreground
+// + background colors come from the screen RAM byte (high nibble = fg,
+// low nibble = bg) for each 8x8 cell. 320x200 visible area.
+function renderStandardBitmap(args: RenderArgs): void {
+  const { fb, ctx } = args;
+  const { vic } = ctx;
+  paintVisibleArea(fb, 0);
+  const screenRamOff = vic.screenRamOffset();
+  const bitmapOff = vic.bitmapBaseWithinBank();
+  for (let row = 0; row < 25; row++) {
+    for (let col = 0; col < 40; col++) {
+      const cellIdx = row * 40 + col;
+      const screenByte = vicRead(ctx, screenRamOff + cellIdx);
+      const fgColor = (screenByte >> 4) & 0x0f;
+      const bgColor = screenByte & 0x0f;
+      const cellBitmapBase = bitmapOff + (row * 40 + col) * 8;
+      for (let cy = 0; cy < 8; cy++) {
+        const byte = vicRead(ctx, cellBitmapBase + cy);
+        for (let cx = 0; cx < 8; cx++) {
+          const bit = (byte >> (7 - cx)) & 1;
+          const px = VISIBLE_X + col * 8 + cx;
+          const py = VISIBLE_Y + row * 8 + cy;
+          if (bit) setFg(args, px, py, fgColor);
+          else fb.setPixel(px, py, bgColor);
+        }
+      }
+    }
+  }
+}
+
+// Multicolor bitmap: 160×200 visible (each pixel painted 2px wide).
+// 4 colors per 8x8 cell:
+//   00 = $D021 bg
+//   01 = screen RAM byte high nibble
+//   10 = screen RAM byte low nibble
+//   11 = color RAM lower nibble
+function renderMulticolorBitmap(args: RenderArgs): void {
+  const { fb, ctx } = args;
+  const { vic, bus } = ctx;
+  const bgColor = vic.regs[0x21]! & 0x0f;
+  paintVisibleArea(fb, bgColor);
+  const screenRamOff = vic.screenRamOffset();
+  const bitmapOff = vic.bitmapBaseWithinBank();
+  const colorRamBase = 0xd800;
+  for (let row = 0; row < 25; row++) {
+    for (let col = 0; col < 40; col++) {
+      const cellIdx = row * 40 + col;
+      const screenByte = vicRead(ctx, screenRamOff + cellIdx);
+      const colorByte = bus.ram[colorRamBase + cellIdx]!;
+      const c01 = (screenByte >> 4) & 0x0f;
+      const c10 = screenByte & 0x0f;
+      const c11 = colorByte & 0x0f;
+      const cellBitmapBase = bitmapOff + (row * 40 + col) * 8;
+      for (let cy = 0; cy < 8; cy++) {
+        const byte = vicRead(ctx, cellBitmapBase + cy);
+        for (let pair = 0; pair < 4; pair++) {
+          const bits = (byte >> ((3 - pair) * 2)) & 0x03;
+          let color: number;
+          let isFg = false;
+          if (bits === 0) color = bgColor;
+          else if (bits === 1) { color = c01; }
+          else if (bits === 2) { color = c10; isFg = true; }
+          else { color = c11; isFg = true; }
+          const baseX = VISIBLE_X + col * 8 + pair * 2;
+          const py = VISIBLE_Y + row * 8 + cy;
+          if (isFg) { setFg(args, baseX, py, color); setFg(args, baseX + 1, py, color); }
+          else { fb.setPixel(baseX, py, color); fb.setPixel(baseX + 1, py, color); }
+        }
+      }
+    }
+  }
+}
+
+// Sprint 74 (Phase 65e): render up to 8 hardware sprites overlay.
+// 24×21 px each, optional X/Y expand (×2), priority (over/under chars
+// via $D01B), multicolor (per-sprite via $D01C). Sprite-bg + sprite-
+// sprite collision flags set in $D01E/$D01F.
+function renderSprites(fb: VicFramebuffer, ctx: VicRenderContext, fgMask: Uint8Array): void {
+  const { vic } = ctx;
+  const enableMask = vic.regs[0x15]!;
+  if (enableMask === 0) return;
+  const xMsb = vic.regs[0x10]!;
+  const xExpand = vic.regs[0x1d]!;
+  const yExpand = vic.regs[0x17]!;
+  const priority = vic.regs[0x1b]!;
+  const mcMask = vic.regs[0x1c]!;
+  const mc1 = vic.regs[0x25]! & 0x0f;
+  const mc2 = vic.regs[0x26]! & 0x0f;
+  // Sprite data pointer table: last 8 bytes of screen RAM.
+  const screenRamOff = vic.screenRamOffset();
+  // Per-sprite occupancy mask for sprite-sprite collision.
+  const spriteMask = new Uint8Array(VISIBLE_W * VISIBLE_H * 8);
+  let collSpSp = 0;
+  let collSpBg = 0;
+  for (let sp = 0; sp < 8; sp++) {
+    if ((enableMask & (1 << sp)) === 0) continue;
+    const xLo = vic.regs[sp * 2]!;
+    const yPos = vic.regs[sp * 2 + 1]!;
+    const x = xLo | (((xMsb >> sp) & 1) ? 0x100 : 0);
+    const y = yPos;
+    const expandX = (xExpand & (1 << sp)) !== 0;
+    const expandY = (yExpand & (1 << sp)) !== 0;
+    const isMc = (mcMask & (1 << sp)) !== 0;
+    const isPriorityBehind = (priority & (1 << sp)) !== 0; // sprite BEHIND chars
+    const color = vic.regs[0x27 + sp]! & 0x0f;
+    // Sprite data pointer: byte at screen RAM offset + 1016 + sp.
+    const ptrByte = vicRead(ctx, screenRamOff + 0x3f8 + sp);
+    const dataBase = ptrByte * 64;
+    // 21 lines × 3 bytes = 63 bytes per sprite.
+    for (let row = 0; row < 21; row++) {
+      const srcRow = expandY ? Math.floor(row / 1) : row; // expand Y handled by drawing twice
+      const linesToDraw = expandY ? 2 : 1;
+      for (let lineRep = 0; lineRep < linesToDraw; lineRep++) {
+        for (let byteIdx = 0; byteIdx < 3; byteIdx++) {
+          const byte = vicRead(ctx, dataBase + srcRow * 3 + byteIdx);
+          if (!isMc) {
+            for (let bit = 0; bit < 8; bit++) {
+              if ((byte >> (7 - bit)) & 1) {
+                const widthRep = expandX ? 2 : 1;
+                for (let wr = 0; wr < widthRep; wr++) {
+                  const px = x + (byteIdx * 8 + bit) * widthRep + wr - 24;
+                  // VIC sprite coords are screen-relative; (24,50)
+                  // is top-left of visible area in sprite coords.
+                  const py = y + row * (expandY ? 2 : 1) + lineRep - 50;
+                  drawSpritePixel(fb, fgMask, spriteMask, px, py, color, sp, isPriorityBehind, () => { collSpSp |= (1 << sp); }, () => { collSpBg |= (1 << sp); });
+                }
+              }
+            }
+          } else {
+            // Multicolor: 4 pairs of 2-bit blocks per byte; each block
+            // = 4 pixels wide (2 if not expanded).
+            for (let pair = 0; pair < 4; pair++) {
+              const bits = (byte >> ((3 - pair) * 2)) & 0x03;
+              if (bits === 0) continue;
+              let pxColor: number;
+              if (bits === 1) pxColor = mc1;
+              else if (bits === 2) pxColor = color;
+              else pxColor = mc2;
+              const blockW = expandX ? 4 : 2;
+              for (let wr = 0; wr < blockW; wr++) {
+                const px = x + (byteIdx * 8 + pair * 2) * (expandX ? 1 : 1) + wr - 24;
+                const py = y + row * (expandY ? 2 : 1) + lineRep - 50;
+                drawSpritePixel(fb, fgMask, spriteMask, px, py, pxColor, sp, isPriorityBehind, () => { collSpSp |= (1 << sp); }, () => { collSpBg |= (1 << sp); });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  // Update collision registers.
+  vic.regs[0x1e] = (vic.regs[0x1e]! | collSpSp) & 0xff;
+  vic.regs[0x1f] = (vic.regs[0x1f]! | collSpBg) & 0xff;
+}
+
+function drawSpritePixel(
+  fb: VicFramebuffer, fgMask: Uint8Array, spriteMask: Uint8Array,
+  px: number, py: number, color: number, spriteIdx: number, behindChars: boolean,
+  onSpSpColl: () => void, onSpBgColl: () => void,
+): void {
+  if (px < 0 || px >= VISIBLE_W || py < 0 || py >= VISIBLE_H) return;
+  // sprite-bg collision: any sprite pixel coincident with a fg pixel.
+  if (fgMask[py * VISIBLE_W + px]) onSpBgColl();
+  // sprite-sprite collision: any prior sprite pixel at same coord.
+  const maskOff = (py * VISIBLE_W + px) * 8;
+  let any = false;
+  for (let s = 0; s < 8; s++) {
+    if (s !== spriteIdx && spriteMask[maskOff + s]) { any = true; break; }
+  }
+  if (any) onSpSpColl();
+  spriteMask[maskOff + spriteIdx] = 1;
+  // If behind chars and this pixel is fg, sprite gets hidden behind.
+  if (behindChars && fgMask[py * VISIBLE_W + px]) return;
+  fb.setPixel(VISIBLE_X + px, VISIBLE_Y + py, color);
 }
 
 // Compute current VIC bank base from CIA2 PA bits 0-1.
