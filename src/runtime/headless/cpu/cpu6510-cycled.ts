@@ -14,6 +14,7 @@
 import type { CpuMemory } from "../cpu6510.js";
 import type { CycleSteppable } from "../scheduler/cycle-steppable.js";
 import { MICROCODE_TABLE, ADDR_MODE_PATTERNS, type MicrocodeEntry } from "./microcode-table.js";
+import { UNDOC_TABLE } from "./undoc-table.js";
 
 const FLAG_N = 0x80;
 const FLAG_V = 0x40;
@@ -106,8 +107,10 @@ export class Cpu6510Cycled implements CycleSteppable {
     this.pc = (this.pc + 1) & 0xffff;
     const entry = MICROCODE_TABLE[opcode];
     if (!entry) {
-      // Unknown opcode (shouldn't happen for documented). Fall back to
-      // 1-cycle no-op.
+      // Sprint 92.7 v2: illegal opcode — execute via legacy stepUndoc
+      // semantics (whole-instruction execution this cycle, then burn
+      // remaining cycles as no-ops to preserve wall-clock).
+      this.executeIllegalOpcode(opcode);
       return;
     }
     const microcode = ADDR_MODE_PATTERNS[entry.pattern];
@@ -501,6 +504,182 @@ export class Cpu6510Cycled implements CycleSteppable {
 
   busWrite(address: number, value: number): void {
     this.memory.write(address & 0xffff, value & 0xff);
+  }
+
+  // Sprint 92.7 v2: illegal opcode dispatch — semantics from VICE
+  // 6510core.c. Whole-instruction execution at fetch cycle, then burn
+  // the remaining cycles as filler to maintain wall-clock parity.
+  // Bus access for these opcodes is at fetch cycle (not sub-cycle
+  // perfect) — illegal ops are rarely cycle-critical.
+  private executeIllegalOpcode(opcode: number): void {
+    const slot = UNDOC_TABLE[opcode];
+    if (!slot) {
+      // True KIL/JAM ($02,$12,...): freeze. Burn 2 cycles, stay at boundary.
+      this.cyclesToBurn = 1; // already past fetch cycle; this counts as +1 more
+      this.atBoundary = false;
+      this.inst = this.makeFreshState({ op: 'kil', mode: 'imp', cycles: 2, pattern: 'imp' }, ['fetch_opcode', 'internal']);
+      return;
+    }
+    const { kind, mode, cycles } = slot;
+    // Execute operand fetches inline (advances PC, computes EA, reads value).
+    const arg = this.resolveIllegalArg(mode);
+    // Execute illegal op semantics.
+    this.executeIllegal(kind, mode, arg);
+    // Burn remaining cycles (cycles - 1 for the fetch already done).
+    this.cyclesToBurn = Math.max(0, cycles - 1);
+    if (this.cyclesToBurn > 0) {
+      this.atBoundary = false;
+      this.inst = this.makeFreshState({ op: kind, mode: mode as any, cycles, pattern: 'imp' }, this.makeBurnPattern(cycles));
+      this.inst.microIdx = 1;
+    }
+  }
+  private cyclesToBurn = 0;
+
+  private makeBurnPattern(cycles: number): string[] {
+    const pat = ['fetch_opcode'];
+    for (let i = 1; i < cycles; i++) pat.push('internal');
+    return pat;
+  }
+
+  private resolveIllegalArg(mode: string): { ea: number; value: number; offset: number } {
+    let ea = 0, value = 0, offset = 0;
+    switch (mode) {
+      case 'imp': case 'acc': break;
+      case 'imm':
+        value = this.busRead(this.pc); this.pc = (this.pc + 1) & 0xffff; break;
+      case 'zp':
+        ea = this.busRead(this.pc); this.pc = (this.pc + 1) & 0xffff; break;
+      case 'zpx':
+        ea = (this.busRead(this.pc) + this.x) & 0xff; this.pc = (this.pc + 1) & 0xffff; break;
+      case 'zpy':
+        ea = (this.busRead(this.pc) + this.y) & 0xff; this.pc = (this.pc + 1) & 0xffff; break;
+      case 'abs': {
+        const lo = this.busRead(this.pc); this.pc = (this.pc + 1) & 0xffff;
+        const hi = this.busRead(this.pc); this.pc = (this.pc + 1) & 0xffff;
+        ea = lo | (hi << 8); break;
+      }
+      case 'absx': {
+        const lo = this.busRead(this.pc); this.pc = (this.pc + 1) & 0xffff;
+        const hi = this.busRead(this.pc); this.pc = (this.pc + 1) & 0xffff;
+        ea = ((lo | (hi << 8)) + this.x) & 0xffff; break;
+      }
+      case 'absy': {
+        const lo = this.busRead(this.pc); this.pc = (this.pc + 1) & 0xffff;
+        const hi = this.busRead(this.pc); this.pc = (this.pc + 1) & 0xffff;
+        ea = ((lo | (hi << 8)) + this.y) & 0xffff; break;
+      }
+      case 'indx': {
+        const zp = (this.busRead(this.pc) + this.x) & 0xff; this.pc = (this.pc + 1) & 0xffff;
+        ea = this.busRead(zp) | (this.busRead((zp + 1) & 0xff) << 8); break;
+      }
+      case 'indy': {
+        const zp = this.busRead(this.pc); this.pc = (this.pc + 1) & 0xffff;
+        const base = this.busRead(zp) | (this.busRead((zp + 1) & 0xff) << 8);
+        ea = (base + this.y) & 0xffff; break;
+      }
+    }
+    return { ea, value, offset };
+  }
+
+  private executeIllegal(kind: string, mode: string, arg: { ea: number; value: number; offset: number }): void {
+    const v = (mode === 'imm') ? arg.value : (mode === 'imp' || mode === 'acc') ? 0 : this.busRead(arg.ea);
+    switch (kind) {
+      case 'nop': return;
+      case 'slo': {
+        this.setCarry((v & 0x80) !== 0);
+        const shifted = (v << 1) & 0xff;
+        this.busWrite(arg.ea, shifted);
+        this.a = (this.a | shifted) & 0xff;
+        this.updateNz(this.a);
+        return;
+      }
+      case 'rla': {
+        const oldC = this.flags & FLAG_C;
+        this.setCarry((v & 0x80) !== 0);
+        const shifted = ((v << 1) | (oldC ? 1 : 0)) & 0xff;
+        this.busWrite(arg.ea, shifted);
+        this.a = (this.a & shifted) & 0xff;
+        this.updateNz(this.a);
+        return;
+      }
+      case 'sre': {
+        this.setCarry((v & 0x01) !== 0);
+        const shifted = (v >>> 1) & 0xff;
+        this.busWrite(arg.ea, shifted);
+        this.a = (this.a ^ shifted) & 0xff;
+        this.updateNz(this.a);
+        return;
+      }
+      case 'rra': {
+        const oldC = this.flags & FLAG_C;
+        this.setCarry((v & 0x01) !== 0);
+        const shifted = ((v >>> 1) | (oldC ? 0x80 : 0)) & 0xff;
+        this.busWrite(arg.ea, shifted);
+        this.adc(shifted);
+        return;
+      }
+      case 'sax': this.busWrite(arg.ea, this.a & this.x & 0xff); return;
+      case 'lax': this.a = v; this.x = v; this.updateNz(v); return;
+      case 'dcp': {
+        const dec = (v - 1) & 0xff;
+        this.busWrite(arg.ea, dec);
+        const result = this.a - dec;
+        this.setCarry((result & 0x100) === 0);
+        this.updateNz(result & 0xff);
+        return;
+      }
+      case 'isb': {
+        const inc = (v + 1) & 0xff;
+        this.busWrite(arg.ea, inc);
+        this.sbc(inc);
+        return;
+      }
+      case 'anc':
+        this.a = (this.a & v) & 0xff;
+        this.updateNz(this.a);
+        this.setCarry((this.a & 0x80) !== 0);
+        return;
+      case 'alr':
+        this.a = (this.a & v) & 0xff;
+        this.setCarry((this.a & 0x01) !== 0);
+        this.a = (this.a >>> 1) & 0xff;
+        this.updateNz(this.a);
+        return;
+      case 'arr': {
+        const tmp = (this.a & v) & 0xff;
+        const oldC = this.flags & FLAG_C;
+        this.a = ((tmp >>> 1) | (oldC ? 0x80 : 0)) & 0xff;
+        this.updateNz(this.a);
+        this.setCarry((this.a & 0x40) !== 0);
+        this.setOverflow(((this.a >> 6) ^ (this.a >> 5)) & 0x01 ? true : false);
+        return;
+      }
+      case 'xaa':
+        this.a = (this.x & v) & 0xff;
+        this.updateNz(this.a);
+        return;
+      case 'axs': {
+        const result = (this.a & this.x) - v;
+        this.setCarry((result & 0x100) === 0);
+        this.x = result & 0xff;
+        this.updateNz(this.x);
+        return;
+      }
+      case 'sbc_imm': this.sbc(v); return;
+      case 'shy': this.busWrite(arg.ea, this.y & (((arg.ea >> 8) + 1) & 0xff)); return;
+      case 'shx': this.busWrite(arg.ea, this.x & (((arg.ea >> 8) + 1) & 0xff)); return;
+      case 'ahx': this.busWrite(arg.ea, this.a & this.x & (((arg.ea >> 8) + 1) & 0xff)); return;
+      case 'tas':
+        this.sp = this.a & this.x & 0xff;
+        this.busWrite(arg.ea, this.sp & (((arg.ea >> 8) + 1) & 0xff));
+        return;
+      case 'las': {
+        const r = v & this.sp;
+        this.a = r; this.x = r; this.sp = r;
+        this.updateNz(r);
+        return;
+      }
+    }
   }
 
   // Compatibility shims for old Cpu6510 API.

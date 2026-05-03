@@ -48,6 +48,7 @@ import {
   Cpu6510Cycled, CiaCycled, VicCycled, SidCycled,
   DriveCpuCycled, ViaCycled, KeyboardCycled,
 } from "./scheduler/cycle-wrappers.js";
+import { Cpu6510Cycled as Cpu6510Microcoded } from "./cpu/cpu6510-cycled.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -70,6 +71,9 @@ export interface IntegratedSessionOptions {
   enableKernalIoTraps?: boolean;
   // Sprint 92: enable cycle-lockstep scheduler. Default false.
   useCycleLockstep?: boolean;
+  // Sprint 92.7 v2: use new microcoded cpu6510 (sub-instruction bus
+  // access). Implies useCycleLockstep=true. Default false.
+  useMicrocodedCpu?: boolean;
 }
 
 export interface PrgLoadResult {
@@ -174,13 +178,25 @@ export class IntegratedSession {
     this.framebuffer = new VicFramebuffer(isPal);
 
     // Sprint 92: cycle-lockstep scheduler (opt-in).
-    this.useCycleLockstep = opts.useCycleLockstep ?? false;
+    this.useCycleLockstep = (opts.useCycleLockstep ?? false) || (opts.useMicrocodedCpu ?? false);
     if (this.useCycleLockstep) {
-      const cpuCycled = new Cpu6510Cycled(this.c64Cpu);
-      cpuCycled.preInstructionCheck = () => this.checkC64Interrupts();
-      this.cpuCycled = cpuCycled;
+      // Sprint 92.7 v2: optional microcoded cpu (per-cycle bus access).
+      let cpuCompoonent: any;
+      if (opts.useMicrocodedCpu) {
+        const microcoded = new Cpu6510Microcoded(this.c64Bus);
+        // Replace c64Cpu with microcoded version. Cast — both share
+        // public register state interface.
+        (this as any).c64Cpu = microcoded;
+        microcoded.reset();
+        cpuCompoonent = microcoded;
+      } else {
+        const cpuCycled = new Cpu6510Cycled(this.c64Cpu);
+        cpuCycled.preInstructionCheck = () => this.checkC64Interrupts();
+        this.cpuCycled = cpuCycled;
+        cpuCompoonent = cpuCycled;
+      }
       const c64Components = [
-        cpuCycled,
+        cpuCompoonent,
         new CiaCycled(this.cia1),
         new CiaCycled(this.cia2),
         new VicCycled(this.vic),
@@ -194,7 +210,7 @@ export class IntegratedSession {
       ];
       this.scheduler = new CycleLockstepSchedulerImpl({
         c64Components, driveComponents,
-        c64IsAtInstructionBoundary: () => cpuCycled.isAtInstructionBoundary(),
+        c64IsAtInstructionBoundary: () => cpuCompoonent.isAtInstructionBoundary?.() ?? true,
         c64Pc: () => this.c64Cpu.pc,
         isPal,
       });
