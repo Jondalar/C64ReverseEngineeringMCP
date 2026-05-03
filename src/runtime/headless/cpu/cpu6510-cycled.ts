@@ -263,8 +263,10 @@ export class Cpu6510Cycled implements CycleSteppable {
         this.pc = s.operandLo | (s.operandHi << 8);
         break;
       case 'fetch_pc_dummy':
+        // Dummy read at current PC (real 6502 does this between
+        // pop_pch and instruction continuation in RTS). PC NOT
+        // incremented here — the +1 happens in 'rts' finalize.
         this.busRead(this.pc);
-        this.pc = (this.pc + 1) & 0xffff;
         break;
       case 'read_brk_vec_lo':
         s.operandLo = this.busRead(0xfffe);
