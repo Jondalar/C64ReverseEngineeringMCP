@@ -14,31 +14,34 @@
 // column → PB active-low row bit pulled if key pressed at that
 // intersection).
 
-// Subset of the standard PETSCII → matrix coordinate map. Extend per
-// game need. Coordinates are (row, col) 0-based.
+// PETSCII → matrix coordinate map. Coordinates are (col, row) 0-based.
+// (Original comment incorrectly said (row, col) — all entries are
+// actually [col, row] which is what `readRowsForPa` consumes.)
+// Real C64 hardware: PA = column drive (active-low), PB = row read
+// (active-low). Scan codes computed by SCNKEY = (col * 8) + row.
 const KEY_MATRIX: Record<string, [number, number]> = {
-  // Row 0
+  // Col 7 (PA bit 7 driven low — KERNAL scan code group 56-63)
   RUN_STOP: [7, 7], "Q": [7, 6], C_EQ: [7, 5], SPACE: [7, 4],
   "2": [7, 3], CTRL: [7, 2], LARROW: [7, 1], "1": [7, 0],
-  // Row 1
+  // Col 6
   "/": [6, 7], UP_ARROW: [6, 6], "=": [6, 5], R_SHIFT: [6, 4],
   HOME: [6, 3], ";": [6, 2], "*": [6, 1], "POUND": [6, 0],
-  // Row 2
+  // Col 5
   ",": [5, 7], "@": [5, 6], ":": [5, 5], ".": [5, 4],
   "-": [5, 3], "L": [5, 2], "P": [5, 1], "+": [5, 0],
-  // Row 3
+  // Col 4
   "N": [4, 7], "O": [4, 6], "K": [4, 5], "M": [4, 4],
   "0": [4, 3], "J": [4, 2], "I": [4, 1], "9": [4, 0],
-  // Row 4
+  // Col 3
   "V": [3, 7], "U": [3, 6], "H": [3, 5], "B": [3, 4],
   "8": [3, 3], "G": [3, 2], "Y": [3, 1], "7": [3, 0],
-  // Row 5
+  // Col 2
   "X": [2, 7], "T": [2, 6], "F": [2, 5], "C": [2, 4],
   "6": [2, 3], "D": [2, 2], "R": [2, 1], "5": [2, 0],
-  // Row 6
+  // Col 1
   L_SHIFT: [1, 7], "E": [1, 6], "S": [1, 5], "Z": [1, 4],
   "4": [1, 3], "A": [1, 2], "W": [1, 1], "3": [1, 0],
-  // Row 7
+  // Col 0
   CRSR_DN: [0, 7], F5: [0, 6], F3: [0, 5], F1: [0, 4],
   F7: [0, 3], CRSR_RT: [0, 2], RETURN: [0, 1], DEL: [0, 0],
 };
@@ -107,7 +110,7 @@ export class KeyboardMatrix {
       if (this.cycleNow < ev.startCycle || this.cycleNow >= ev.endCycle) continue;
       const coord = KEY_MATRIX[ev.key];
       if (!coord) continue;
-      const [row, col] = coord;
+      const [col, row] = coord;
       // Column N is "selected" if PA bit N = 0 (active-low column drive).
       if ((paValue & (1 << col)) === 0) {
         rowMask &= ~(1 << row);

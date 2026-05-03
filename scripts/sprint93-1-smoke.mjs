@@ -55,19 +55,10 @@ for (let i = 0; i < 8; i++) {
 
 // Real typing via typeText (press/release with gaps).
 session.typeText("LIST\r", 80_000, 80_000);
-console.log(`Queued LIST<RETURN> at kbCyc=${session.keyboard.currentCycle()} hold=80k gap=80k`);
-// Sample $CB tighter during typing window.
-let cbHistory = [];
-for (let i = 0; i < 80; i++) {
-  step(15_000);
-  const cb = session.c64Bus.read(0x00cb);
-  if (cbHistory.length === 0 || cbHistory[cbHistory.length - 1].cb !== cb) {
-    cbHistory.push({ kbCyc: session.keyboard.currentCycle(), cb });
-  }
-}
-console.log("$CB transitions during typing window:");
-for (const e of cbHistory) console.log(`  kbCyc=${e.kbCyc} $CB=$${e.cb.toString(16)}`);
-console.log(`Final state: PC=$${session.c64Cpu.pc.toString(16)} $C5=${session.c64Bus.read(0x00c5).toString(16)} $C6=${session.c64Bus.read(0x00c6)}`);
+console.log(`Queued LIST<RETURN> at kbCyc=${session.keyboard.currentCycle()}`);
+// Run LONG enough for KERNAL+BASIC to process all 5 keys + execute.
+session.runFor(2_000_000);
+console.log(`After LIST: PC=$${session.c64Cpu.pc.toString(16)} cyc=${session.c64Cpu.cycles}`);
 
 // Dump first 40 bytes of screen RAM ($0400) — see what landed.
 function petsciiAscii(b) {
