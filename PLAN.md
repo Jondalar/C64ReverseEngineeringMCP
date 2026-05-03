@@ -1578,6 +1578,136 @@ Spec: `specs/058-bug26-internal-files-hidden.md`. Service helper
 `buildAnnotatedListingView`. Backfill via UI heuristic for
 legacy artifacts.
 
+## Sprint 52: Artifact Saver Dedupe (Bug 30)
+
+Goal: end Bug 10 family at the source. `saveArtifact` collapses
+same-path / same-content registrations even when callers pass
+fresh generated `input.id`. Adds canonical `upsertArtifact(...)`
+helper for re-discovery callers (analyze_prg, disasm_prg,
+register_existing_files, extract_disk, extract_crt). Ships
+`dedupe_artifact_registry()` one-shot migration tool with dry-run
+preview + reference remap across entities / findings / relations
+/ flows / tasks / open-questions.
+
+Status: refined, implementation pending.
+
+Decisions:
+- Q1: content-hash arbiter — same path + same hash → reuse;
+  same path + different hash → mint with `derivedFrom`; different
+  path + same hash → reuse moved file's id.
+- Q2: tolerant survivor merge (union sourceArtifactIds, entityIds,
+  tags, evidence, loadContexts; oldest createdAt wins; rebuild
+  hash from disk if missing).
+- Q3: caller hygiene via new `upsertArtifact` helper. Migrate the
+  five re-register tools; saveArtifact stays for explicit-derivedFrom.
+
+Cross-ref: Bug 30 in BUGREPORT, Spec 060 (UX2).
+
+## Sprint 53: Payload Entity Dedupe (Bug 31)
+
+Goal: payload-importer hygiene. Disk-extract + load-sequence
+imports look up existing entity by `payloadContentHash` (then
+`(payloadSourceArtifactId, payloadLoadAddress)` fallback) before
+creating a sibling. Schema add `aliases: string[]` on
+EntityRecord. Ships `dedupe_payload_entities()` one-shot
+migration that folds prefixed-name siblings (e.g. `01_murder`)
+into the base entity's aliases, removes manifest-as-payload
+leaks (Bug 26 family), and remaps entity-id references across
+the same six knowledge stores.
+
+Status: refined, implementation pending.
+
+Decisions:
+- Q1: hybrid hash-first + (source, load) fallback. No name-normalize
+  fallback at runtime (migration-time only).
+- Q2: tolerant merge; survivor = base name (no NN_ prefix) when
+  available; aliases[] gets the prefixed names.
+- Q3: aliases[] on all EntityRecord (generic schema field), but
+  importer logic v1 only fills payload entities. UI shows "also
+  known as" line in inspector header. `list_entities` filter
+  accepts alias matching.
+
+Cross-ref: Bug 31, Spec 060.
+
+## Sprint 54: Noise Matcher Coverage Cluster (Bug 32)
+
+Goal: close the remaining 66 static-analysis questions on Murder
+that stay open even after Bug 28 + Bug 29. Three independent
+fixes inside `archivePhase1Noise` + `sweepQuestionResolutions`:
+
+(a) **Range-form parser**: titles like "Unknown 2303-byte block
+    at $5000-$58FE" parse BOTH ends. Coverer must span the full
+    range, not just the start. `getQuestionRange` returns
+    `{start, end}`; falls back through `q.addressRange` →
+    `$XXXX-$YYYY` → `$XXXX` single → `region/address/at XXXX`.
+
+(b) **Segment-confirmation coverage**: matcher consults
+    confirmation/refutation findings (`tag = "segment-confirmation"
+    | "segment-rejection"`) emitted by `markSegmentConfirmed/
+    Rejected`, treats their addressRange + artifactIds as
+    coverage entries alongside routine-findings. Source = findings
+    store (canonical), no JSON re-read at sweep time.
+
+(c) **Per-artifact strict intersect**: when both coverer and
+    question carry `artifactIds`, they must intersect; mismatch
+    blocks the match regardless of address overlap. Empty
+    artifactIds → address-only fallback for cross-file shared
+    routines. Applied in BOTH project-wide and scoped sweeps.
+
+Status: refined, implementation pending.
+
+Cross-ref: Bug 32. Bugs 28 + 29 are the precursors.
+
+## Sprint 55: Murder Migration + Safety-Net Revert
+
+Goal: run the canonical-flow migration prompt from Spec 060 on
+the Murder workspace. Verify the post-migration state matches
+expectations:
+- artifacts.json: total == unique paths.
+- entities.json: payload entity count == unique
+  payloadContentHash count.
+- archive_phase1_noise + auto_resolve_questions: open question
+  drop matches expectations from Bug 32 verification.
+
+Once verified, revert the Bug 24 v2 same-path safety net inside
+`latestArtifactsByLineage` (no longer needed once data is clean).
+Update tests to lock the canonical flow as invariant.
+
+Status: pending Sprints 52-54 landing first.
+
+## Sprint 56: Questions Bulk Re-Evaluate (Spec 061 / UX3)
+
+Goal: bulk action on the Questions tab that submits a structured
+task to the project task queue. Phase 1: deterministic sweep
+(scoped). Phase 2: agent picks task up via `c64re_whats_next`,
+processes per-question with one of four outcomes (`answered`,
+`invalidated`, `researching`, `still-open`). UI surfacing: toast,
+Dashboard task tile, per-question pending badge, auto-poll every
+30s while a bulk task is active.
+
+Schema add: `TaskRecord.kind: "human" | "automation"`.
+
+Endpoints: `POST /api/tasks/bulk-revaluate`,
+`GET /api/tasks/active-bulk`.
+
+Status: spec written (Spec 061), implementation pending.
+
+## Sprint 57: View-Centric Tabs Big Bang (Spec 059 / UX1)
+
+Goal: 16 → 11 tabs. Remove Entities / Flows / Relations / Load
+Sequence (folded into Flow Graph "Load" sub-mode); collapse
+Recent Activity into a Dashboard widget. Knowledge surfaces
+inside every view via three layered mechanisms: Inspector pane
+with uniform layout per item type, overlays + badges on view
+items, filter facets per view (URL-persisted).
+
+No power-user fallback in the UI — JSON files in
+`knowledge/*.json` + MCP `list_*` tools + LLM-on-demand markdown
+reports cover that need.
+
+Status: spec written (Spec 059), implementation pending. Big-bang
+on feature branch (two-person team, no staged rollout).
+
 ## Bug fixes shipped this batch
 
 - Bug 22 REFIX (commit `05ef06b`): path-only filter in
