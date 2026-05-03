@@ -704,6 +704,138 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
+  // Spec 062 Sprint 65: integrated C64+drive session.
+  // Real KERNAL/BASIC/CHARROM loaded so LISTEN/SECOND/CIOUT/UNLSN
+  // bit-bang $DD00, drive sees it via IEC bus, drive ROM responds.
+  // Path to Murder boot trace.
+  server.tool(
+    "headless_integrated_session_start",
+    "Spec 062 Sprint 65: open an integrated C64+1541 drive session. Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to the IEC bus; drive CPU runs cycle-accurately in lockstep with the C64. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. Returns session id for the other integrated_session tools.",
+    {
+      disk_path: z.string(),
+      device_id: z.number().int().min(8).max(11).optional(),
+      pal: z.boolean().optional(),
+      start_track: z.number().int().min(1).max(40).optional(),
+      write_protected: z.boolean().optional(),
+    },
+    safeHandler("headless_integrated_session_start", async ({ disk_path, device_id, pal, start_track, write_protected }) => {
+      const { startIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { sessionId, session } = startIntegratedSession({
+        diskPath: disk_path, deviceId: device_id, isPal: pal,
+        startTrack: start_track, writeProtected: write_protected,
+      });
+      session.resetCold();
+      const status = session.status();
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `Integrated session started.`,
+            `Session: ${sessionId}`,
+            `Disk: ${disk_path}`,
+            `C64 ROMs: kernal=${status.romSet.kernal}, basic=${status.romSet.basic}, charrom=${status.romSet.charRom}`,
+            `C64 PC after cold reset: ${formatHexWord(status.c64.pc)}`,
+            `Drive PC after reset: ${formatHexWord(status.drive.pc)}`,
+            `Drive head: track ${status.drive.track}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  server.tool(
+    "headless_integrated_session_run",
+    "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. Drive runs proportional cycles per the dual-clock accumulator. Optional breakpoints + cycle budget abort. Returns counts + final PC.",
+    {
+      session_id: z.string(),
+      max_instructions: z.number().int().min(1).max(10_000_000),
+      breakpoints: z.array(z.string()).optional().describe("Hex PC addresses to break on."),
+      cycle_budget: z.number().int().optional(),
+    },
+    safeHandler("headless_integrated_session_run", async ({ session_id, max_instructions, breakpoints, cycle_budget }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const bp = breakpoints && breakpoints.length > 0
+        ? new Set(breakpoints.map((s) => parseHexWord(s)))
+        : undefined;
+      const result = session.runFor(max_instructions, { breakpoints: bp, cycleBudget: cycle_budget });
+      const status = session.status();
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `Integrated run — session ${session_id}`,
+            `Instructions executed: ${result.instructionsExecuted}${result.aborted ? ` (aborted: ${result.aborted})` : ""}`,
+            `C64: PC=${formatHexWord(status.c64.pc)} A=${formatHexByte(status.c64.a)} cycles=${status.c64.cycles}`,
+            `Drive: PC=${formatHexWord(status.drive.pc)} A=${formatHexByte(status.drive.a)} cycles=${status.drive.cycles} track=${status.drive.track}`,
+            `IEC: ATN=${status.iecBus.line.atn ? "1" : "0"} CLK=${status.iecBus.line.clk ? "1" : "0"} DATA=${status.iecBus.line.data ? "1" : "0"}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  server.tool(
+    "headless_integrated_session_status",
+    "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
+    { session_id: z.string() },
+    safeHandler("headless_integrated_session_status", async ({ session_id }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const s = session.status();
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `Integrated session status — ${session_id}`,
+            ``,
+            `C64 CPU: PC=${formatHexWord(s.c64.pc)} A=${formatHexByte(s.c64.a)} X=${formatHexByte(s.c64.x)} Y=${formatHexByte(s.c64.y)} SP=${formatHexByte(s.c64.sp)} P=${formatHexByte(s.c64.flags)}`,
+            `         cycles=${s.c64.cycles} instructions=${s.c64.instructions}`,
+            ``,
+            `Drive CPU: PC=${formatHexWord(s.drive.pc)} A=${formatHexByte(s.drive.a)} X=${formatHexByte(s.drive.x)} Y=${formatHexByte(s.drive.y)} SP=${formatHexByte(s.drive.sp)} P=${formatHexByte(s.drive.flags)}`,
+            `           cycles=${s.drive.cycles} instructions=${s.drive.instructions} track=${s.drive.track}`,
+            ``,
+            `IEC bus: ATN=${s.iecBus.line.atn ? "1" : "0 (LOW)"} CLK=${s.iecBus.line.clk ? "1" : "0 (LOW)"} DATA=${s.iecBus.line.data ? "1" : "0 (LOW)"}`,
+            ``,
+            `ROMs: kernal=${s.romSet.kernal}`,
+            `      basic=${s.romSet.basic}`,
+            `      chargen=${s.romSet.charRom}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  server.tool(
+    "headless_integrated_session_load_prg",
+    "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. Useful for skipping the BASIC READY prompt and jumping straight into a bootloader. Returns load address + bytes loaded.",
+    {
+      session_id: z.string(),
+      prg_path: z.string(),
+      load_address: z.string().optional().describe("Override load address (hex). Default = PRG header."),
+    },
+    safeHandler("headless_integrated_session_load_prg", async ({ session_id, prg_path, load_address }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const result = session.loadPrgIntoRam(prg_path, load_address ? parseHexWord(load_address) : undefined);
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `PRG loaded into RAM.`,
+            `Path: ${prg_path}`,
+            `Load address: ${formatHexWord(result.loadAddress)}`,
+            `End address: ${formatHexWord(result.endAddress)}`,
+            `Bytes: ${result.bytesLoaded}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
   server.tool(
     "headless_drive_session_save_vsf",
     "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
