@@ -892,7 +892,19 @@ export class ProjectKnowledgeService {
     const artifacts = this.listArtifacts();
     const findings = this.listFindings();
     const subjectKinds = new Set(["prg", "raw", "extract", "listing"]);
-    const subjects = artifacts.filter((a) => subjectKinds.has(a.kind) || a.role === "source-prg");
+    const subjectsRaw = artifacts.filter((a) => subjectKinds.has(a.kind) || a.role === "source-prg");
+    // Bug 24: collapse to latest version per lineage so the per-artifact
+    // status table doesn't show V0 / V1 / V2 of the same source PRG as
+    // independent rows.
+    const latestByLineage = new Map<string, ArtifactRecord>();
+    for (const a of subjectsRaw) {
+      const root = a.lineageRoot ?? a.id;
+      const current = latestByLineage.get(root);
+      if (!current || (a.versionRank ?? 0) > (current.versionRank ?? 0)) {
+        latestByLineage.set(root, a);
+      }
+    }
+    const subjects = [...latestByLineage.values()];
     const findingsByArtifact = new Map<string, number>();
     for (const f of findings) {
       for (const aid of f.artifactIds) {

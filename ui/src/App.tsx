@@ -1,7 +1,20 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, startTransition, useContext, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { HexView } from "./components/HexView.js";
 import { AsmView, type AsmViewSource } from "./components/AsmView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
+import { latestArtifactsByLineage, lineageVersionCount, isLatestInLineage } from "./lib/lineage.js";
+
+// Bug 24: nested panels read this to filter artifact lists to latest-only
+// (default) or pass through (when "Show all versions" toggle is on).
+// Identity-safe: when showAllVersions is true, latest() returns its input.
+const LineageVisibilityContext = createContext<{
+  showAllVersions: boolean;
+  latest: <T extends ArtifactRecord>(items: T[]) => T[];
+}>({ showAllVersions: false, latest: (items) => latestArtifactsByLineage(items) });
+
+function useLineageVisibility() {
+  return useContext(LineageVisibilityContext);
+}
 import { FileInspector, type FileInspectorActionButton, type FileInspectorHeadlineExtra, type FileInspectorMetaRow, type FileInspectorSpanRow } from "./components/FileInspector.js";
 import { MediumPanelShell, type MediumOriginPillSpec } from "./components/MediumPanelShell.js";
 import { BootTracePanel } from "./components/BootTracePanel.js";
@@ -775,9 +788,10 @@ function WorkflowRunnerPanel({
   snapshot: WorkspaceUiSnapshot;
   onReloadWorkspace: () => Promise<void>;
 }) {
+  const { latest } = useLineageVisibility();
   const prgArtifacts = useMemo(
-    () => snapshot.artifacts.filter((artifact) => artifact.kind === "prg" || artifact.relativePath.toLowerCase().endsWith(".prg")),
-    [snapshot.artifacts],
+    () => latest(snapshot.artifacts.filter((artifact) => artifact.kind === "prg" || artifact.relativePath.toLowerCase().endsWith(".prg"))),
+    [snapshot.artifacts, latest],
   );
   const [selected, setSelected] = useState<string | null>(prgArtifacts[0]?.id ?? null);
   const [mode, setMode] = useState<"quick" | "full">("full");
@@ -1812,25 +1826,16 @@ function ScrubPanel({
   //  2. Hide rebuild-check artifacts (Bug 14 followup; they pollute
   //     the list with auto-generated *_disasm_rebuild_check.prg
   //     entries that are not real source PRGs).
-  //  3. Lineage filter: only show the highest versionRank per
-  //     lineageRoot. Older same-lineage versions stay reachable
-  //     through Sprint 22's lineage chain UI; the Scrub picker only
-  //     needs the latest entry.
+  //  3. Lineage filter (Bug 24): default = highest versionRank per
+  //     lineageRoot. The "Show all versions" toggle in the header
+  //     bypasses it via the LineageVisibilityContext.
+  const lineageVisibility = useLineageVisibility();
   const scrubArtifactsRaw = artifacts.filter((artifact) =>
     (artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw")
     && artifact.role !== "rebuild-check"
   );
-  const latestPerLineage = new Map<string, ArtifactRecord>();
-  for (const a of scrubArtifactsRaw) {
-    const root = a.lineageRoot ?? a.id;
-    const current = latestPerLineage.get(root);
-    if (!current || (a.versionRank ?? 0) > (current.versionRank ?? 0)) {
-      latestPerLineage.set(root, a);
-    }
-  }
-  const scrubArtifacts = [...latestPerLineage.values()].sort((a, b) =>
-    a.relativePath.localeCompare(b.relativePath)
-  );
+  const scrubArtifacts = lineageVisibility.latest(scrubArtifactsRaw)
+    .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   const [selectedPath, setSelectedPath] = useState<string>(scrubArtifacts[0]?.relativePath ?? "");
   const [offsetText, setOffsetText] = useState<string>("0000");
   const [windowText, setWindowText] = useState<string>("1000");
@@ -3980,15 +3985,20 @@ function EntityInspector({
     );
   }
 
+  const lineageVisibility = useLineageVisibility();
   const artifactsById = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const entitiesById = new Map(snapshot.entities.map((candidate) => [candidate.id, candidate]));
   const linkedFindings = snapshot.findings.filter((finding) => finding.entityIds.includes(entity.id));
   const linkedRelations = snapshot.relations.filter((relation) => relation.sourceEntityId === entity.id || relation.targetEntityId === entity.id);
-  const linkedArtifacts = uniqueById(
+  // Bug 24: filter linked artifacts to latest version per lineage. The
+  // linked-by-id resolution stays against the full artifactsById map so
+  // older-version references still resolve before the lineage filter
+  // collapses them into the latest representative.
+  const linkedArtifacts = lineageVisibility.latest(uniqueById(
     [...entity.artifactIds, ...linkedFindings.flatMap((finding) => finding.artifactIds)]
       .map((artifactId) => artifactsById.get(artifactId))
       .filter((artifact): artifact is ArtifactRecord => artifact !== undefined),
-  );
+  ));
   const relatedEntities = uniqueById(
     [
       ...entity.relatedEntityIds,
@@ -4141,6 +4151,9 @@ function EntityInspector({
         <div className="record-stack compact">
           {linkedArtifacts.map((artifact) => {
             const showMon = isC64BinaryArtifact(artifact.relativePath);
+            // Bug 24: surface lineage size so the user knows older versions
+            // exist even though they are filtered out of the list.
+            const versionCount = lineageVersionCount(artifact, snapshot.artifacts);
             return (
               <div key={artifact.id} className="record-card-row">
                 <button type="button" className="record-card" onClick={() => openArtifact(artifact)}>
@@ -4152,6 +4165,11 @@ function EntityInspector({
                   <div className="record-meta">
                     <span>{artifact.role ?? artifact.scope}</span>
                     <span>{pct(artifact.confidence)}</span>
+                    {versionCount > 1 ? (
+                      <span title={`${versionCount} versions in this lineage. Toggle "Show all versions" in the header to expand.`}>
+                        +{versionCount - 1} older
+                      </span>
+                    ) : null}
                   </div>
                 </button>
                 {showMon ? (
@@ -4401,6 +4419,7 @@ function QuestionInspector({
     }
   }
 
+  const lineageVisibility = useLineageVisibility();
   const entitiesById = new Map(snapshot.entities.map((entity) => [entity.id, entity]));
   const findingsById = new Map(snapshot.findings.map((finding) => [finding.id, finding]));
   const artifactsById = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
@@ -4412,11 +4431,12 @@ function QuestionInspector({
       .map((entityId) => entitiesById.get(entityId))
       .filter((entity): entity is EntityRecord => entity !== undefined),
   );
-  const linkedArtifacts = uniqueById(
+  // Bug 24: linked artifacts in the question inspector — show latest only.
+  const linkedArtifacts = lineageVisibility.latest(uniqueById(
     [...question.artifactIds, ...linkedFindings.flatMap((finding) => finding.artifactIds)]
       .map((artifactId) => artifactsById.get(artifactId))
       .filter((artifact): artifact is ArtifactRecord => artifact !== undefined),
-  );
+  ));
 
   function openArtifact(artifact: ArtifactRecord) {
     if (artifact.relativePath.toLowerCase().endsWith(".md")) {
@@ -4672,15 +4692,19 @@ function DiskFileInspector({
   // Cross-reference discovery — only meaningful for actual files, not
   // memory regions, so we keep this scoped to DiskFileInspector.
   const fileStem = (file.relativePath ?? file.title ?? "").split("/").pop()?.replace(/\.[^.]+$/, "")?.toLowerCase();
+  // Bug 24: pair against latest version per lineage so older revisions of
+  // the same .asm/.prg don't pollute the inspector.
+  const lineageVisibility = useLineageVisibility();
+  const visibleForPairing = lineageVisibility.latest(snapshot.artifacts);
   const asmSources: AsmViewSource[] = fileStem
     ? bestAsmSourcesForArtifacts(
-        snapshot.artifacts
+        visibleForPairing
           .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath))
           .filter((artifact) => artifact.relativePath.toLowerCase().includes(fileStem)),
       )
     : [];
   const payloadBinaryArtifact = fileStem
-    ? [...snapshot.artifacts]
+    ? [...visibleForPairing]
         .filter((artifact) => artifact.kind === "prg" && artifact.relativePath.toLowerCase().includes(fileStem))
         .sort((left, right) => binaryArtifactPriority(right) - binaryArtifactPriority(left))[0]
     : undefined;
@@ -4864,6 +4888,7 @@ function CartChunkInspector({
   onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
 }) {
   const [chunkWorkflowBusy, setChunkWorkflowBusy] = useState(false);
+  const lineageVisibility = useLineageVisibility();
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
   const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
@@ -5002,7 +5027,9 @@ function CartChunkInspector({
       const stem = chip.file.replace(/\.[^.]+$/, "");
       if (stem) chipStems.add(stem);
     }
-    const fallbackAsm = snapshot.artifacts.filter((artifact) => {
+    // Bug 24: filter to latest version per lineage so older revisions of
+    // the same chip ASM don't get bundled into the inspector.
+    const fallbackAsm = lineageVisibility.latest(snapshot.artifacts).filter((artifact) => {
       if (!/\.(asm|tass|s|a65)$/i.test(artifact.relativePath)) return false;
       const stem = artifact.relativePath.split("/").pop()!.replace(/\.[^.]+$/, "");
       return chipStems.has(stem);
@@ -5173,6 +5200,13 @@ export function App() {
   const [todoComposer, setTodoComposer] = useState<TodoComposerState | null>(null);
   const [todoSaving, setTodoSaving] = useState(false);
   const [todoError, setTodoError] = useState<string | null>(null);
+  // Bug 24: default = list latest version per lineage. Toggle exposes
+  // V0..V(n-1) for debugging.
+  const [showAllVersions, setShowAllVersions] = useState<boolean>(false);
+  const visibleArtifacts = useMemo(
+    () => (snapshot ? (showAllVersions ? snapshot.artifacts : latestArtifactsByLineage(snapshot.artifacts)) : []),
+    [snapshot, showAllVersions],
+  );
 
   function openAsmOverlay(title: string, sources: AsmViewSource[]) {
     if (sources.length === 0) return;
@@ -5228,7 +5262,9 @@ export function App() {
       setSelectedEntityId(null);
       setSelectedQuestionId(null);
       setTabSelections({});
-      const nextDocs = buildDocs(nextSnapshot.artifacts, docsResponse.docs);
+      // Bug 24: latest version per lineage in the docs list. The "show
+      // all versions" toggle re-runs this via the useMemo path below.
+      const nextDocs = buildDocs(latestArtifactsByLineage(nextSnapshot.artifacts), docsResponse.docs);
       setSelectedDocPath(nextDocs[0]?.relativePath ?? null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -5491,7 +5527,8 @@ export function App() {
 
   const selectedEntity = snapshot?.entities.find((entity) => entity.id === selectedEntityId);
   const selectedQuestion = snapshot?.openQuestions.find((question) => question.id === selectedQuestionId);
-  const docs = snapshot ? buildDocs(snapshot.artifacts, discoveredDocs) : [];
+  // Bug 24: filter to latest version per lineage (toggle override applied).
+  const docs = snapshot ? buildDocs(showAllVersions ? snapshot.artifacts : latestArtifactsByLineage(snapshot.artifacts), discoveredDocs) : [];
   const visibleTabs = snapshot
     ? allTabs.filter((tab) => {
         if (tab.id === "dashboard") return true;
@@ -5583,7 +5620,17 @@ export function App() {
     setActiveTab(nextTab);
   }
 
+  const lineageVisibilityValue = useMemo(
+    () => ({
+      showAllVersions,
+      latest: <T extends ArtifactRecord>(items: T[]): T[] =>
+        showAllVersions ? items : latestArtifactsByLineage(items),
+    }),
+    [showAllVersions],
+  );
+
   return (
+    <LineageVisibilityContext.Provider value={lineageVisibilityValue}>
     <div className="app-root">
       <header className="hero-shell">
         <div className="hero-copy panel-card">
@@ -5600,6 +5647,16 @@ export function App() {
             <div className="hero-meta-line">
               <span>{snapshot.project.status}</span>
               <span>updated {shortTime(snapshot.generatedAt)}</span>
+              {/* Bug 24: default = latest version per lineage everywhere.
+                  Toggle exposes V0..V(n-1) for debugging. */}
+              <label style={{ display: "inline-flex", alignItems: "center", gap: "4px", cursor: "pointer", opacity: 0.75 }}>
+                <input
+                  type="checkbox"
+                  checked={showAllVersions}
+                  onChange={(event) => setShowAllVersions(event.target.checked)}
+                />
+                Show all versions
+              </label>
             </div>
           ) : null}
         </div>
@@ -5877,5 +5934,6 @@ export function App() {
         />
       ) : null}
     </div>
+    </LineageVisibilityContext.Provider>
   );
 }

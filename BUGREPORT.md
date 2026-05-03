@@ -1206,7 +1206,7 @@ Verify on Murder: restart MCP server, open Graphics tab. Counter should reflect 
 
 ## Bug 24 — UI shows all artifact versions everywhere; should default to latest-only with opt-in history
 
-**Status**: OPEN
+**Status**: FIXED v1 (Spec 054 — latest-per-lineage default everywhere + LineageVisibilityContext + history badge). Followups Sprint 24.5 (history pane) and 24.6 (server-side flow-graph dedup) deferred.
 
 **Severity**: Medium — clutters every panel that lists artifacts. Defeats the purpose of the lineage / versions model (Spec 025: a lineage chain is supposed to roll up to its latest entry by default).
 
@@ -1230,4 +1230,94 @@ Live evidence: MotM64 Flow Graph tab (screenshot 2026-05-03 10.44.09) shows 98 n
 - Spec 025 (artifact lineage and versions) — defines `lineageRoot` / `versionRank` / `versions[]` schema.
 - Sprint 22 lineage chain UI — built the inspector lineage view that the new "View history" button reuses.
 - Bug 23 — duplicate listing in Graphics tab is a related-but-different cause (same path registered twice in `artifacts.json`); Bug 24 is the lineage-version case (different artifact ids, same lineage root).
+
+### FIX v1 (Spec 054)
+
+Per the spec's "default rule": every UI surface that LISTS artifacts shows the highest `versionRank` per `lineageRoot ?? id`. Lookups by id stay against the full list so older-version references still resolve.
+
+Implementation:
+
+1. **`ui/src/lib/lineage.ts`** (new): `latestArtifactsByLineage`, `lineageChain`, `lineageVersionCount`, `isLatestInLineage`, `lineageRootOf`.
+2. **`LineageVisibilityContext`** in `ui/src/App.tsx`: nested panels call `useLineageVisibility().latest(items)` instead of filtering inline. The context exposes `{ showAllVersions, latest }` so the toggle propagates without prop drilling.
+3. **Header toggle** `[ ] Show all versions` in the snapshot header — defaults off; flips the context to pass-through.
+4. **Surfaces patched** (8 client + 1 server):
+   - `WorkflowRunnerPanel.prgArtifacts` (workflow runner picker)
+   - `buildDocs(...)` at both call sites (initial load + re-derive)
+   - `EntityInspector.linkedArtifacts`
+   - `QuestionInspector.linkedArtifacts`
+   - `DiskFileInspector` ASM/PRG pairing (`asmSources`, `payloadBinaryArtifact`)
+   - `CartChunkInspector.fallbackAsm` chip ASM fallback
+   - `ScrubPanel` (refactored to use shared helper, now respects toggle)
+   - `service.getPerArtifactStatus` (collapses to latest per lineage)
+5. **History badge**: inspector "Linked Artifacts" rows render `+(N-1) older` when `lineageVersionCount > 1`. Tooltip points the user at the header toggle.
+6. **Spec doc**: `specs/054-bug24-latest-version-default.md` covers the rule, the helper API, the patched surfaces, and out-of-scope followups.
+
+Verified:
+- `npm run build` + `npm run ui:build` green.
+- `service.getPerArtifactStatus` smoke: register V0 + V1 of same `a.prg`, assert subjects.length === 1.
+
+Followups (in spec):
+- **Sprint 24.5** — clickable `+N older` badge expands a stacked V0..Vn list; each row opens an older version in a sibling inspector with a "read-only — older version" banner.
+- **Sprint 24.6** — server-side `buildFlowGraphView` collapses entity/relation nodes whose underlying artifacts share a lineage root. Bigger surface (touches flow imports), so deferred from v1.
+
+Verify on Murder: open the workspace UI, default Flow Graph + Inspector should now show latest-only counts. Toggle "Show all versions" in the header to expose V0..V(n-1) for debugging.
+
+---
+
+## Bug 25 — `save_finding` MCP tool exposes no `address_range` parameter; agent cannot create routine-coverage findings → `archive_phase1_noise` / `auto_resolve_questions` always return 0
+
+**Status**: OPEN
+
+**Severity**: High — entire phase-1 noise-archive workflow is unreachable from the agent. 570 open questions and 1200+ heuristic findings on Murder stay unanswered even after all 16 PRGs are deeply annotated.
+
+### Live evidence (Murder project after deep narrative annotations)
+```
+mcp__c64-re__archive_phase1_noise(dry_run=true)
+# → Routines scanned: 0   |   Findings would archive: 0   |   Questions answered: 0
+
+mcp__c64-re__propose_question_resolutions()
+# → No proposals — no auto-resolvable questions match.
+```
+
+### Root cause
+`src/project-knowledge/service.ts:archivePhase1Noise` filters routines by:
+```ts
+const routinesWithRange = allFindings.filter((f) =>
+  f.addressRange !== undefined
+  && ((f.tags ?? []).includes("routine") || (f.tags ?? []).includes("annotation"))
+);
+```
+
+It needs FINDINGS with TOP-LEVEL `f.addressRange` populated + `tags` ⊇ "routine"/"annotation". `FindingRecordSchema` defines `addressRange: AddressRangeSchema.optional()` with the comment "Spec 053 Bug 20: optional address range so archive_phase1_noise can match findings to routine annotations covering them".
+
+But `save_finding` MCP tool schema (`src/project-knowledge/mcp-tools.ts:1394`) only accepts `evidence[].addressRange` — NO top-level `address_range` parameter. So even when the agent calls `save_finding(kind=..., title=..., tags=["routine"], evidence=[{addressRange:{...}}])`, the address only goes onto evidence — the matcher ignores it.
+
+### Three broken links in the chain
+1. **Annotation → finding**: routines documented in `*_annotations.json` `routines[]` are NOT auto-emitted as findings. `findings.json` gets 0 routine entries from annotation work.
+2. **Finding → addressRange**: `save_finding` cannot set `f.addressRange` directly. Schema gap.
+3. **archive_phase1_noise → auto-resolve**: with 0 routine-findings carrying top-level addressRange, matcher loops over empty set → 0 questions answered.
+
+### Expected
+1. **`save_finding` tool gains `address_range` param**:
+   ```ts
+   address_range: z.object({ start: z.number(), end: z.number() }).optional()
+   ```
+   Forwarded as `service.saveFinding({ ..., addressRange: address_range })`.
+2. **`disasm_prg` (or new `import_annotations_as_findings`)**: when `*_annotations.json` exists, walk `routines[]` and auto-emit one finding per routine with `kind="classification"`, `addressRange`, `tags=["routine","annotation"]`, `summary` from the routine's `comment`.
+3. **Post-annotation hook**: after `disasm_prg` consumes annotations, automatically run `archive_phase1_noise` + `auto_resolve_questions` (or surface as NEXT-step). Per the user's request: "after annotation, the file's open-questions should be auto-re-evaluated".
+
+### Suggested fix
+- **Stage 1 (minimum viable)**: add `address_range` parameter to `save_finding` MCP tool. Document for routine-coverage findings: set `tags=["routine"]` + `address_range={start,end}`.
+- **Stage 2 (auto-emit)**: extend `disasm_prg` / `propose_annotations` to call `service.saveFinding(...)` per routine in the consumed annotations.
+- **Stage 3 (closed loop)**: after `disasm_prg` (or `save_finding` with routine tag), tool also runs `archivePhase1Noise()` + `autoResolveQuestions()` and returns counts.
+
+### Why this matters
+Missing primitive that makes Bug 20 actually solvable. Without it, deep-narrative work doesn't reduce phase-1 noise — agents do hours of analysis but the dashboard still shows the same noise counts. The user's feature request ("after annotation, re-evaluate open questions") is precisely what Stage 2+3 enable.
+
+### Cross-reference
+- Bug 20: parent. This is the precise data-shape gap preventing propagation.
+- Bug 22: companion fix for segment confirmation (FIXED). This bug is the routine-finding analog.
+- R6 (REQUIREMENTS): question source-tagging — sprint 36 implemented filter, doesn't auto-resolve.
+- R10 (REQUIREMENTS): generated-docs pipeline — same family pattern.
+- Spec 053: phase-1 noise archive infrastructure exists; agent-side data path missing.
 
