@@ -104,7 +104,14 @@ export class Cpu6510 {
     const opcode = this.read(this.pc);
     const info = OPCODE_TABLE[opcode];
     if (!info) {
-      throw new Error(`Unimplemented opcode $${opcode.toString(16).toUpperCase().padStart(2, "0")} @ $${this.pc.toString(16).toUpperCase().padStart(4, "0")}`);
+      // Sprint 80: NOP-fallback on undocumented opcodes so games that
+      // include them in their loaders (Murder uses $47 SRE zp etc.)
+      // don't fault. Not semantically correct — implementing each
+      // undocumented opcode (SRE/SLO/ANC/RLA/...) would be the proper
+      // fix. For now, advance PC by 1 and burn 2 cycles like a NOP.
+      this.pc = (this.pc + 1) & 0xffff;
+      this.cycles += 2;
+      return;
     }
 
     const arg = this.resolveArg(info.mode);
