@@ -76,8 +76,9 @@ import { DriveSession } from "../dist/runtime/headless/drive/drive-session.js";
   // C64 releases: PA bit 4 = 1.
   bus.setC64Output(0xff, 0xff);
   assert.equal(bus.clkLine, true, "C64 released CLK");
-  // Drive pulls CLK low: VIA1 PB bit 3 = 0 with DDR bit 3 output.
-  bus.setDriveOutput(0xff & ~(1 << 3), 0xff);
+  // Drive pulls CLK low: VIA1 PB bit 3 = 1 with DDR bit 3 output
+  // (Sprint 75 polarity fix: 1541 PB output bits are inverted).
+  bus.setDriveOutput((1 << 3), 0xff);
   assert.equal(bus.clkLine, false, "Drive pulled CLK low");
   console.log("  ✓ IEC bus open-collector wired-AND");
 }
@@ -100,18 +101,20 @@ import { DriveSession } from "../dist/runtime/headless/drive/drive-session.js";
 }
 
 // ---- Test 7: Drive reads ATN/CLK/DATA from VIA1 PB ----
+// Sprint 75 polarity fix: 1541 INPUT side inverter means line LOW
+// → drive reads bit = 1; line HIGH (released) → drive reads bit = 0.
 {
   const session = new DriveSession();
-  // Default: bus released → drive PB ATN_IN bit (bit 7) = 1.
-  let pb = session.drive.bus.via1.read(0); // ORB / IRB
-  assert.notEqual(pb & 0x80, 0, "ATN_IN high when bus released");
-  assert.notEqual(pb & 0x04, 0, "CLK_IN high when bus released");
-  assert.notEqual(pb & 0x01, 0, "DATA_IN high when bus released");
-  // Pull ATN low.
+  // Default: bus released → drive reads input bits as 0.
+  let pb = session.drive.bus.via1.read(0);
+  assert.equal(pb & 0x80, 0, "ATN_IN bit 0 when bus released");
+  assert.equal(pb & 0x04, 0, "CLK_IN bit 0 when bus released");
+  assert.equal(pb & 0x01, 0, "DATA_IN bit 0 when bus released");
+  // Pull ATN low (CIA2 PA bit 3 = 0 with output).
   session.iecBus.setC64Output(0xff & ~(1 << 3), 0xff);
   pb = session.drive.bus.via1.read(0);
-  assert.equal(pb & 0x80, 0, "ATN_IN low when bus pulled");
-  console.log("  ✓ Drive reads bus state via VIA1 PB");
+  assert.notEqual(pb & 0x80, 0, "ATN_IN bit 1 when bus pulled");
+  console.log("  ✓ Drive reads bus state via VIA1 PB (inverted polarity)");
 }
 
 // ---- Test 8: Dual-step keeps cycles roughly proportional (PAL) ----

@@ -93,10 +93,12 @@ export class IecBus {
     this.notifyAtnChanged();
   }
 
-  // Drive → bus: VIA1 PB writes update these. VIA1 PB bit polarity
-  // matches the bus (1 = released, 0 = pulled when DDR=output).
-  // ATN_ACK is special: drive code sets PB4 to actively pull DATA low
-  // when ATN is asserted, even if DATA_OUT bit isn't pulling.
+  // Drive → bus: VIA1 PB writes update these.
+  // 1541 hardware INVERTS PB output bits before driving the open-
+  // collector IEC transistors, so the polarity is REVERSED vs CIA2:
+  // PB bit=1 (with DDR=output) → transistor pulls line LOW.
+  // PB bit=0 (with DDR=output) → transistor releases line.
+  // Confirmed during Sprint 75 iteration on Maniac Mansion drive code.
   setDriveOutput(via1PbOr: number, ddrMask: number): void {
     const drvData = (ddrMask & PB_DATA_OUT) !== 0;
     const drvClk = (ddrMask & PB_CLK_OUT) !== 0;
@@ -104,11 +106,10 @@ export class IecBus {
     const dataBit = (via1PbOr & PB_DATA_OUT) !== 0;
     const clkBit = (via1PbOr & PB_CLK_OUT) !== 0;
     const atnAckBit = (via1PbOr & PB_ATN_ACK) !== 0;
-    // bit=0 AND DDR=output → line pulled. bit=1 OR DDR=input → released.
-    this.driveDataReleased = !drvData || dataBit;
-    this.driveClkReleased = !drvClk || clkBit;
-    this.driveAtnAckReleased = !drvAtnAck || atnAckBit;
-    // No ATN edge on drive output side — drive doesn't drive ATN.
+    // Inverted: bit=1 AND DDR=output → line pulled; bit=0 OR DDR=input → released.
+    this.driveDataReleased = !drvData || !dataBit;
+    this.driveClkReleased = !drvClk || !clkBit;
+    this.driveAtnAckReleased = !drvAtnAck || !atnAckBit;
   }
 
   // Wired-AND line states. true = released (high), false = pulled (low).
@@ -139,13 +140,13 @@ export class IecBus {
   }
 
   // Read-side helper for VIA1 PB backend.
+  // 1541 INPUT side also has inverter: line LOW → drive reads bit=1.
+  // Symmetric with the output-side inversion.
   buildDrivePbInputBits(deviceId: number): number {
-    // Always-high default for input bits (PB5/PB6 jumpers, others
-    // floating high then masked by drive activity).
-    let bits = 0xff;
-    if (!this.atnLine) bits &= ~PB_ATN_IN;
-    if (!this.clkLine) bits &= ~PB_CLK_IN;
-    if (!this.dataLine) bits &= ~PB_DATA_IN;
+    let bits = 0;
+    if (!this.atnLine) bits |= PB_ATN_IN;     // line LOW → bit = 1
+    if (!this.clkLine) bits |= PB_CLK_IN;
+    if (!this.dataLine) bits |= PB_DATA_IN;
     // Device ID jumpers (read as input bits PB5/PB6).
     let jumperHi: boolean, jumperLo: boolean;
     switch (deviceId) {

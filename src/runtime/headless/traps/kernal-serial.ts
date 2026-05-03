@@ -56,6 +56,11 @@ export interface KernalSerialState {
   loadEvents: Array<{ name: string; bytes: number }>;
   mwEvents: Array<{ addr: number; bytes: number }>;
   meEvents: Array<{ addr: number }>;
+  // Sprint 75 instrumentation: full trace of every bus transaction.
+  // Each entry summarises one OPEN-CIOUT*-CLOSE / TALK-ACPTR* / etc.
+  sequenceLog: Array<{ ts: number; event: string; detail?: string }>;
+  sequenceLogEnabled: boolean;
+  sequenceCounter: number;
 }
 
 export function makeKernalSerialState(): KernalSerialState {
@@ -66,7 +71,15 @@ export function makeKernalSerialState(): KernalSerialState {
     loadEvents: [],
     mwEvents: [],
     meEvents: [],
+    sequenceLog: [],
+    sequenceLogEnabled: false,
+    sequenceCounter: 0,
   };
+}
+
+function logSeq(state: KernalSerialState, event: string, detail?: string): void {
+  if (!state.sequenceLogEnabled) return;
+  state.sequenceLog.push({ ts: state.sequenceCounter++, event, detail });
 }
 
 export interface KernalSerialDeps {
@@ -100,30 +113,37 @@ function trapListen({ cpu, state }: KernalSerialDeps): void {
   cpu.setCarry(false);
   cpu.returnFromSubroutine();
   state.lastTrap = `LISTEN ${state.listenerDevice}`;
+  logSeq(state, "LISTEN", String(state.listenerDevice));
 }
 
 function trapSecond({ cpu, state }: KernalSerialDeps): void {
-  // A holds the secondary address byte ($60-$6F + $E0-$EF).
   state.listenerSecondary = cpu.a & 0xff;
   cpu.setCarry(false);
   cpu.returnFromSubroutine();
   state.lastTrap = `SECOND $${cpu.a.toString(16)}`;
+  logSeq(state, "SECOND", `$${(cpu.a & 0xff).toString(16)}`);
 }
 
 function trapCiout({ cpu, state }: KernalSerialDeps): void {
   state.listenerBuffer.push(cpu.a & 0xff);
   cpu.setCarry(false);
   cpu.returnFromSubroutine();
-  // Don't update lastTrap on CIOUT — too noisy.
+  // CIOUT individual bytes not logged; UNLSN logs full buffer.
 }
 
 function trapUnlsn(deps: KernalSerialDeps): void {
   const { cpu, state, drive } = deps;
   cpu.setCarry(false);
   cpu.returnFromSubroutine();
-  // Process the accumulated transaction.
   const sa = (state.listenerSecondary ?? 0) & 0x0f;
   const cmdType = (state.listenerSecondary ?? 0) & 0xf0;
+  // Log the full transaction buffer in hex.
+  if (state.listenerBuffer.length > 0) {
+    const hex = state.listenerBuffer.map((b) => b.toString(16).padStart(2, "0")).join(" ");
+    logSeq(state, "UNLSN", `sa=$${(state.listenerSecondary ?? 0).toString(16)} bytes=[${hex}]`);
+  } else {
+    logSeq(state, "UNLSN", `sa=$${(state.listenerSecondary ?? 0).toString(16)}`);
+  }
   if (cmdType === 0xf0 || sa === 0x0f) {
     // Command channel: parse drive command (M-W, M-E, U1/U2/B-R/B-W).
     handleDriveCommand(deps);
@@ -166,6 +186,7 @@ function trapTalk({ cpu, state }: KernalSerialDeps): void {
   cpu.setCarry(false);
   cpu.returnFromSubroutine();
   state.lastTrap = `TALK ${state.talkerDevice}`;
+  logSeq(state, "TALK", String(state.talkerDevice));
 }
 
 function trapTksa({ cpu, state }: KernalSerialDeps): void {
@@ -173,6 +194,7 @@ function trapTksa({ cpu, state }: KernalSerialDeps): void {
   cpu.setCarry(false);
   cpu.returnFromSubroutine();
   state.lastTrap = `TKSA $${cpu.a.toString(16)}`;
+  logSeq(state, "TKSA", `$${(cpu.a & 0xff).toString(16)}`);
 }
 
 function trapAcptr({ cpu, state }: KernalSerialDeps): void {
@@ -204,6 +226,7 @@ function trapUntlk({ cpu, state }: KernalSerialDeps): void {
   cpu.setCarry(false);
   cpu.returnFromSubroutine();
   state.lastTrap = `UNTLK`;
+  logSeq(state, "UNTLK");
 }
 
 // Handle CBM-DOS command channel content (M-W, M-E, U1, B-R, etc.).
@@ -236,6 +259,39 @@ function handleDriveCommand(deps: KernalSerialDeps): void {
     iecBus.releaseDriveClk();
     iecBus.releaseDriveData();
     return;
+  }
+  // U-commands: 'U' followed by digit 1-9 or letter A-J
+  // U1/UA = read sector, U2/UB = write sector,
+  // U3/UC = JMP $0500, U4/UD = JMP $0503, U5/UE = JMP $0506,
+  // U6/UF = JMP $0509, U7/UG = JMP $050C, U8/UH = JMP $050F,
+  // U9/UI = NMI, U:/UJ = power-on reset.
+  if (buf[0] === 0x55 && buf.length >= 2) {
+    const cmd = buf[1]!;
+    let jumpAddr: number | undefined;
+    switch (cmd) {
+      case 0x33: case 0x43: jumpAddr = 0x0500; break;
+      case 0x34: case 0x44: jumpAddr = 0x0503; break;
+      case 0x35: case 0x45: jumpAddr = 0x0506; break;
+      case 0x36: case 0x46: jumpAddr = 0x0509; break;
+      case 0x37: case 0x47: jumpAddr = 0x050c; break;
+      case 0x38: case 0x48: jumpAddr = 0x050f; break;
+    }
+    if (jumpAddr !== undefined) {
+      drive.cpu.pc = jumpAddr;
+      state.meEvents.push({ addr: jumpAddr });
+      state.lastTrap = `U${String.fromCharCode(cmd)} → drive jumps to $${jumpAddr.toString(16)}`;
+      iecBus.releaseDriveClk();
+      iecBus.releaseDriveData();
+      return;
+    }
+    // U1/U2 = sector r/w. Channel-based — parameters via CIOUT
+    // before. For now, log + ack.
+    if (cmd === 0x31 || cmd === 0x41 || cmd === 0x32 || cmd === 0x42) {
+      state.lastTrap = `U${String.fromCharCode(cmd)} (sector r/w not yet implemented)`;
+      iecBus.releaseDriveClk();
+      iecBus.releaseDriveData();
+      return;
+    }
   }
   state.lastTrap = `command channel: ${String.fromCharCode(...buf.slice(0, Math.min(buf.length, 16)))}`;
   // Generic ACK release for any other command.
