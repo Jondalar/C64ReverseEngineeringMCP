@@ -596,6 +596,138 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
+  // Spec 062 Sprint 63: drive-emulation tools.
+  // headless_drive_session_start opens a 1541 drive session backed by
+  // a G64 disk image. headless_drive_status / headless_iec_bus_state
+  // query state. headless_drive_persist_writes flushes modifications
+  // to <image>_session.g64.
+  server.tool(
+    "headless_drive_session_start",
+    "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. Returns a session id usable with the other headless_drive_* tools. Drive emulation runs cycle-accurately with full 6522 VIA + IEC bus modelling. The drive boots via its bundled DOS ROM (resources/roms/dos1541-...bin). For test/runtime tracing of custom loaders and save-game RE.",
+    {
+      disk_path: z.string().describe("Path to the G64 disk image."),
+      start_track: z.number().int().min(1).max(40).optional().describe("Starting track for the head (default 18)."),
+      device_id: z.number().int().min(8).max(11).optional().describe("Drive device id 8-11; default 8."),
+      pal: z.boolean().optional().describe("PAL timing if true (default), NTSC if false."),
+      write_protected: z.boolean().optional().describe("If true, drive treats the image as write-protected."),
+    },
+    safeHandler("headless_drive_session_start", async ({ disk_path, start_track, device_id, pal, write_protected }) => {
+      const { startDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const record = startDriveSession({
+        diskPath: disk_path,
+        startTrack: start_track,
+        deviceId: device_id,
+        isPal: pal,
+        writeProtected: write_protected,
+      });
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `Drive session started.`,
+            `Session: ${record.sessionId}`,
+            `Disk: ${record.diskPath}`,
+            `Started: ${record.startedAt}`,
+            `Head: track ${record.headPosition.currentTrack}`,
+            `Drive ROM: ${record.session.drive.bus.romSource}${record.session.drive.bus.romPath ? ` (${record.session.drive.bus.romPath})` : ""}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  server.tool(
+    "headless_drive_status",
+    "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. Use after running drive code to verify state.",
+    {
+      session_id: z.string(),
+    },
+    safeHandler("headless_drive_status", async ({ session_id }) => {
+      const { getDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const record = getDriveSession(session_id);
+      if (!record) throw new Error(`No drive session ${session_id}`);
+      const drive = record.session.drive;
+      const via1 = drive.bus.via1;
+      const via2 = drive.bus.via2;
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `Drive session: ${session_id}`,
+            `Disk: ${record.diskPath}`,
+            `CPU: PC=${formatHexWord(drive.cpu.pc)} A=${formatHexByte(drive.cpu.a)} X=${formatHexByte(drive.cpu.x)} Y=${formatHexByte(drive.cpu.y)} SP=${formatHexByte(drive.cpu.sp)} P=${formatHexByte(drive.cpu.flags)} cycles=${drive.cpu.cycles}`,
+            `Head: track ${record.headPosition.currentTrack} (half-track ${record.headPosition.currentHalfTrack})`,
+            `VIA1 IFR=${formatHexByte(via1.ifr)} IER=${formatHexByte(via1.ier)} IRQ=${via1.irqAsserted() ? "asserted" : "—"}`,
+            `VIA2 IFR=${formatHexByte(via2.ifr)} IER=${formatHexByte(via2.ier)} IRQ=${via2.irqAsserted() ? "asserted" : "—"}`,
+            `Track buffer: ${record.trackBuffer.isModified() ? `MODIFIED (${record.trackBuffer.modifiedTracks().size} tracks)` : "clean"}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  server.tool(
+    "headless_iec_bus_state",
+    "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
+    {
+      session_id: z.string(),
+    },
+    safeHandler("headless_iec_bus_state", async ({ session_id }) => {
+      const { getDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const record = getDriveSession(session_id);
+      if (!record) throw new Error(`No drive session ${session_id}`);
+      const snap = record.session.iecBus.snapshot();
+      const fmt = (b: boolean) => b ? "released (1)" : "PULLED LOW (0)";
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `IEC bus state — session ${session_id}`,
+            ``,
+            `Line state (wired-AND):`,
+            `  ATN:  ${fmt(snap.line.atn)}`,
+            `  CLK:  ${fmt(snap.line.clk)}`,
+            `  DATA: ${fmt(snap.line.data)}`,
+            ``,
+            `C64 driver:`,
+            `  ATN:  ${fmt(snap.c64.atnReleased)}`,
+            `  CLK:  ${fmt(snap.c64.clkReleased)}`,
+            `  DATA: ${fmt(snap.c64.dataReleased)}`,
+            ``,
+            `Drive driver:`,
+            `  CLK:     ${fmt(snap.drive.clkReleased)}`,
+            `  DATA:    ${fmt(snap.drive.dataReleased)}`,
+            `  ATN_ACK: ${fmt(snap.drive.atnAckReleased)}`,
+          ].join("\n"),
+        }],
+      };
+    },
+));
+
+  server.tool(
+    "headless_drive_persist_writes",
+    "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
+    {
+      session_id: z.string(),
+      output_path: z.string().optional().describe("Optional override for the session-G64 output path."),
+    },
+    safeHandler("headless_drive_persist_writes", async ({ session_id, output_path }) => {
+      const { persistDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const result = persistDriveSession(session_id, output_path);
+      const lines = [
+        `headless_drive_persist_writes — session ${session_id}`,
+        `Output: ${result.outputPath}`,
+      ];
+      if (result.skipped) {
+        lines.push(`Skipped: ${result.skipped}`);
+      } else {
+        lines.push(`Modified tracks: ${result.modifiedTracks.join(", ")}`);
+        lines.push(`Bytes written: ${result.bytesWritten}`);
+      }
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+));
+
   server.tool(
     "headless_monitor_memory",
     "Read a memory range from the active headless runtime session.",

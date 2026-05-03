@@ -19,9 +19,12 @@ const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
 const DRIVE_HZ = 1000000;
 
+import type { Via2GcrCoupling } from "./via2-gcr.js";
+
 export interface DriveSessionOptions {
   isPal?: boolean;     // default true
   deviceId?: number;   // default 8
+  gcr?: Via2GcrCoupling; // wire VIA2 to a TrackBuffer + HeadPosition
 }
 
 export class DriveSession {
@@ -39,7 +42,7 @@ export class DriveSession {
     this.c64Bus = new HeadlessMemoryBus();
     attachCia2ToIecBus(this.c64Bus, this.iecBus);
     this.c64Cpu = new Cpu6510(this.c64Bus);
-    this.drive = new DriveCpu({ deviceId: opts.deviceId, iecBus: this.iecBus });
+    this.drive = new DriveCpu({ deviceId: opts.deviceId, iecBus: this.iecBus, gcr: opts.gcr });
   }
 
   reset(c64Pc?: number, drivePc?: number): void {
