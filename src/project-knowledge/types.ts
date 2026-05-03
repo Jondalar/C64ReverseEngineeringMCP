@@ -168,6 +168,13 @@ export const ArtifactRecordSchema = z.object({
   // alphabetic) and not persisted; it lives on the per-artifact
   // status response.
   relevance: z.enum(["loader", "protection", "save", "kernal", "asset", "other"]).optional(),
+  // Bug 26 / Spec 058: hide-from-user marker. true = infrastructure
+  // file used by the LLM and the UI itself (manifests, analysis JSONs,
+  // annotations files, run-event-logs, rebuild-check binaries, knowledge
+  // store, session state). User-facing UI surfaces filter these out by
+  // default. Auto-classified on save based on path / role / kind; can
+  // be overridden by explicit set.
+  internal: z.boolean().optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });
@@ -657,6 +664,11 @@ export const EntityRecordSchema = z.object({
     .enum(["dos", "loader", "eapi", "startup", "code", "data", "padding", "unknown"])
     .optional(),
   tags: z.array(z.string()).default([]),
+  // Bug 26 / Spec 058: hide-from-user marker on entities. Entities
+  // derived from internal artifacts (annotations files, rebuild-check
+  // binaries, manifest indexes) inherit internal=true and stay out of
+  // user-facing payload/load/flow views by default.
+  internal: z.boolean().optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });

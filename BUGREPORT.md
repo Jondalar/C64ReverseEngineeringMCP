@@ -1325,7 +1325,7 @@ Missing primitive that makes Bug 20 actually solvable. Without it, deep-narrativ
 
 ## Bug 26 — Internal infrastructure files (manifest.json / *_analysis.json / *_annotations.json) leak into user-facing UI views
 
-**Status**: OPEN
+**Status**: FIXED (Spec 058 — schema field `internal` + auto-classification + view-builder filters + UI toggle)
 
 **Severity**: Medium — UI noise. User sees rows like `analysis/disk/motm/raw_sectors/manifest.json` in the Graphics segment list, in artifact pickers, in recent-activity timelines. These files are infrastructure for the LLM and the UI itself, not artifacts the user is supposed to inspect.
 
@@ -1344,6 +1344,12 @@ Manifest.json should never produce segments. It's an internal index file.
 - Docs tab (would show *_analysis.json if it had .md extension; not currently but Bug 4 family risk)
 - Recent Activity timeline
 - PerArtifactStatus table
+- **Load Sequence tab** (screenshot 2026-05-03 11.45.39): each PRG appears 3x as separate payloads:
+  - "Murder" (real payload)
+  - "Murder Annotations" (annotations file registered as own entity → WRONG)
+  - "Murder Disasm Rebuild Check" (rebuild-check registered as own entity → WRONG)
+  - Plus same triple for "Ab" and other PRGs.
+  Lineage filter (Bug 24) does NOT collapse these because they are independent entities, not versions. ScrubPanel excludes `role==="rebuild-check"` artifacts but the entity-creation path doesn't apply that filter — entities are minted per registered artifact regardless of role.
 
 ### Categorization
 **Internal-only files** (hide from user-facing views, keep in artifacts.json for LLM/UI):
@@ -1368,7 +1374,12 @@ Manifest.json should never produce segments. It's an internal index file.
 
 ### Suggested fix
 - **Stage 1 (quick)**: in `graphics-view.ts`, narrow analysis-json filter to `path.endsWith("_analysis.json")` (exclude `manifest.json` even if registered with role="analysis-json").
-- **Stage 2 (systemic)**: schema field `internal` + auto-classification + UI filter at top level.
+- **Stage 2 (systemic)**:
+  - Schema field `internal: boolean` (or `audience: "user"|"llm"|"both"`) on `ArtifactRecord` + on `EntityRecord` for the entity equivalent.
+  - Auto-classification on register: paths matching internal patterns above OR `role` in `{"annotations", "rebuild-check", "manifest", "analysis-json", "run-event-log"}` → mark `internal: true`.
+  - **Don't auto-create entities** for internal artifacts. Annotations / rebuild-check should stay as artifacts only, never become payload entities. (Fixes the Load Sequence triple.)
+  - Default UI views filter `internal: true` artifacts AND entities. Toggle "Show internal files" in header (next to "Show all versions") for debug.
+  - Server view-builders (`buildLoadSequenceView`, `buildFlowGraphView`, etc.) apply the same filter so the underlying data is clean, not just the UI render.
 
 ### Cross-reference
 - Bug 4: doc registration scoping — same family (what's user-facing vs internal).

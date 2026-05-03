@@ -3,6 +3,7 @@ import { HexView } from "./components/HexView.js";
 import { AsmView, type AsmViewSource } from "./components/AsmView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
 import { latestArtifactsByLineage, lineageVersionCount, isLatestInLineage } from "./lib/lineage.js";
+import { isInternalArtifact, isInternalEntity } from "./lib/internal.js";
 
 // Bug 24: nested panels read this to filter artifact lists to latest-only
 // (default) or pass through (when "Show all versions" toggle is on).
@@ -14,6 +15,23 @@ const LineageVisibilityContext = createContext<{
 
 function useLineageVisibility() {
   return useContext(LineageVisibilityContext);
+}
+
+// Bug 26 / Spec 058: nested panels filter artifact + entity lists
+// against this context. Default hides infrastructure files; the
+// "Show internal files" header toggle flips it to pass-through.
+const InternalVisibilityContext = createContext<{
+  showInternal: boolean;
+  visibleArtifacts: <T extends ArtifactRecord>(items: T[]) => T[];
+  visibleEntities: <T extends EntityRecord>(items: T[], artifactsById: Map<string, ArtifactRecord>) => T[];
+}>({
+  showInternal: false,
+  visibleArtifacts: (items) => items.filter((a) => !isInternalArtifact(a)),
+  visibleEntities: (items, byId) => items.filter((e) => !isInternalEntity(e, byId)),
+});
+
+function useInternalVisibility() {
+  return useContext(InternalVisibilityContext);
 }
 import { FileInspector, type FileInspectorActionButton, type FileInspectorHeadlineExtra, type FileInspectorMetaRow, type FileInspectorSpanRow } from "./components/FileInspector.js";
 import { MediumPanelShell, type MediumOriginPillSpec } from "./components/MediumPanelShell.js";
@@ -789,9 +807,10 @@ function WorkflowRunnerPanel({
   onReloadWorkspace: () => Promise<void>;
 }) {
   const { latest } = useLineageVisibility();
+  const { visibleArtifacts: visibleA } = useInternalVisibility();
   const prgArtifacts = useMemo(
-    () => latest(snapshot.artifacts.filter((artifact) => artifact.kind === "prg" || artifact.relativePath.toLowerCase().endsWith(".prg"))),
-    [snapshot.artifacts, latest],
+    () => visibleA(latest(snapshot.artifacts.filter((artifact) => artifact.kind === "prg" || artifact.relativePath.toLowerCase().endsWith(".prg")))),
+    [snapshot.artifacts, latest, visibleA],
   );
   const [selected, setSelected] = useState<string | null>(prgArtifacts[0]?.id ?? null);
   const [mode, setMode] = useState<"quick" | "full">("full");
@@ -1830,11 +1849,12 @@ function ScrubPanel({
   //     lineageRoot. The "Show all versions" toggle in the header
   //     bypasses it via the LineageVisibilityContext.
   const lineageVisibility = useLineageVisibility();
+  const internalVisibility = useInternalVisibility();
   const scrubArtifactsRaw = artifacts.filter((artifact) =>
     (artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw")
     && artifact.role !== "rebuild-check"
   );
-  const scrubArtifacts = lineageVisibility.latest(scrubArtifactsRaw)
+  const scrubArtifacts = internalVisibility.visibleArtifacts(lineageVisibility.latest(scrubArtifactsRaw))
     .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   const [selectedPath, setSelectedPath] = useState<string>(scrubArtifacts[0]?.relativePath ?? "");
   const [offsetText, setOffsetText] = useState<string>("0000");
@@ -3986,19 +4006,20 @@ function EntityInspector({
   }
 
   const lineageVisibility = useLineageVisibility();
+  const internalVisibility = useInternalVisibility();
   const artifactsById = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const entitiesById = new Map(snapshot.entities.map((candidate) => [candidate.id, candidate]));
   const linkedFindings = snapshot.findings.filter((finding) => finding.entityIds.includes(entity.id));
   const linkedRelations = snapshot.relations.filter((relation) => relation.sourceEntityId === entity.id || relation.targetEntityId === entity.id);
-  // Bug 24: filter linked artifacts to latest version per lineage. The
-  // linked-by-id resolution stays against the full artifactsById map so
-  // older-version references still resolve before the lineage filter
-  // collapses them into the latest representative.
-  const linkedArtifacts = lineageVisibility.latest(uniqueById(
+  // Bug 24: filter linked artifacts to latest version per lineage. Bug 26:
+  // also hide infrastructure files. The linked-by-id resolution stays
+  // against the full artifactsById map so older / internal references
+  // still resolve before the filters collapse them out.
+  const linkedArtifacts = internalVisibility.visibleArtifacts(lineageVisibility.latest(uniqueById(
     [...entity.artifactIds, ...linkedFindings.flatMap((finding) => finding.artifactIds)]
       .map((artifactId) => artifactsById.get(artifactId))
       .filter((artifact): artifact is ArtifactRecord => artifact !== undefined),
-  ));
+  )));
   const relatedEntities = uniqueById(
     [
       ...entity.relatedEntityIds,
@@ -4420,6 +4441,7 @@ function QuestionInspector({
   }
 
   const lineageVisibility = useLineageVisibility();
+  const internalVisibility = useInternalVisibility();
   const entitiesById = new Map(snapshot.entities.map((entity) => [entity.id, entity]));
   const findingsById = new Map(snapshot.findings.map((finding) => [finding.id, finding]));
   const artifactsById = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
@@ -4431,12 +4453,13 @@ function QuestionInspector({
       .map((entityId) => entitiesById.get(entityId))
       .filter((entity): entity is EntityRecord => entity !== undefined),
   );
-  // Bug 24: linked artifacts in the question inspector — show latest only.
-  const linkedArtifacts = lineageVisibility.latest(uniqueById(
+  // Bug 24 + Bug 26: linked artifacts in the question inspector —
+  // latest version per lineage AND drop infrastructure files.
+  const linkedArtifacts = internalVisibility.visibleArtifacts(lineageVisibility.latest(uniqueById(
     [...question.artifactIds, ...linkedFindings.flatMap((finding) => finding.artifactIds)]
       .map((artifactId) => artifactsById.get(artifactId))
       .filter((artifact): artifact is ArtifactRecord => artifact !== undefined),
-  ));
+  )));
 
   function openArtifact(artifact: ArtifactRecord) {
     if (artifact.relativePath.toLowerCase().endsWith(".md")) {
@@ -4692,10 +4715,11 @@ function DiskFileInspector({
   // Cross-reference discovery — only meaningful for actual files, not
   // memory regions, so we keep this scoped to DiskFileInspector.
   const fileStem = (file.relativePath ?? file.title ?? "").split("/").pop()?.replace(/\.[^.]+$/, "")?.toLowerCase();
-  // Bug 24: pair against latest version per lineage so older revisions of
-  // the same .asm/.prg don't pollute the inspector.
+  // Bug 24 + Bug 26: pair against latest version per lineage AND drop
+  // infrastructure files so older / internal revisions don't pollute.
   const lineageVisibility = useLineageVisibility();
-  const visibleForPairing = lineageVisibility.latest(snapshot.artifacts);
+  const internalVisibility = useInternalVisibility();
+  const visibleForPairing = internalVisibility.visibleArtifacts(lineageVisibility.latest(snapshot.artifacts));
   const asmSources: AsmViewSource[] = fileStem
     ? bestAsmSourcesForArtifacts(
         visibleForPairing
@@ -4889,6 +4913,7 @@ function CartChunkInspector({
 }) {
   const [chunkWorkflowBusy, setChunkWorkflowBusy] = useState(false);
   const lineageVisibility = useLineageVisibility();
+  const internalVisibility = useInternalVisibility();
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
   const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
@@ -5027,9 +5052,10 @@ function CartChunkInspector({
       const stem = chip.file.replace(/\.[^.]+$/, "");
       if (stem) chipStems.add(stem);
     }
-    // Bug 24: filter to latest version per lineage so older revisions of
-    // the same chip ASM don't get bundled into the inspector.
-    const fallbackAsm = lineageVisibility.latest(snapshot.artifacts).filter((artifact) => {
+    // Bug 24 + Bug 26: filter to latest version per lineage AND drop
+    // infrastructure files so older / internal revisions don't get
+    // bundled into the inspector.
+    const fallbackAsm = internalVisibility.visibleArtifacts(lineageVisibility.latest(snapshot.artifacts)).filter((artifact) => {
       if (!/\.(asm|tass|s|a65)$/i.test(artifact.relativePath)) return false;
       const stem = artifact.relativePath.split("/").pop()!.replace(/\.[^.]+$/, "");
       return chipStems.has(stem);
@@ -5203,6 +5229,8 @@ export function App() {
   // Bug 24: default = list latest version per lineage. Toggle exposes
   // V0..V(n-1) for debugging.
   const [showAllVersions, setShowAllVersions] = useState<boolean>(false);
+  // Bug 26 / Spec 058: default hide infrastructure files. Toggle for debug.
+  const [showInternal, setShowInternal] = useState<boolean>(false);
   const visibleArtifacts = useMemo(
     () => (snapshot ? (showAllVersions ? snapshot.artifacts : latestArtifactsByLineage(snapshot.artifacts)) : []),
     [snapshot, showAllVersions],
@@ -5527,8 +5555,14 @@ export function App() {
 
   const selectedEntity = snapshot?.entities.find((entity) => entity.id === selectedEntityId);
   const selectedQuestion = snapshot?.openQuestions.find((question) => question.id === selectedQuestionId);
-  // Bug 24: filter to latest version per lineage (toggle override applied).
-  const docs = snapshot ? buildDocs(showAllVersions ? snapshot.artifacts : latestArtifactsByLineage(snapshot.artifacts), discoveredDocs) : [];
+  // Bug 24 + Bug 26: filter to latest version per lineage AND drop
+  // infrastructure files (manifests, FACTS reports etc.). Toggles override.
+  const docs = useMemo(() => {
+    if (!snapshot) return [];
+    let list: ArtifactRecord[] = showAllVersions ? snapshot.artifacts : latestArtifactsByLineage(snapshot.artifacts);
+    if (!showInternal) list = list.filter((a) => !isInternalArtifact(a));
+    return buildDocs(list, discoveredDocs);
+  }, [snapshot, discoveredDocs, showAllVersions, showInternal]);
   const visibleTabs = snapshot
     ? allTabs.filter((tab) => {
         if (tab.id === "dashboard") return true;
@@ -5629,7 +5663,19 @@ export function App() {
     [showAllVersions],
   );
 
+  const internalVisibilityValue = useMemo(
+    () => ({
+      showInternal,
+      visibleArtifacts: <T extends ArtifactRecord>(items: T[]): T[] =>
+        showInternal ? items : items.filter((a) => !isInternalArtifact(a)),
+      visibleEntities: <T extends EntityRecord>(items: T[], artifactsById: Map<string, ArtifactRecord>): T[] =>
+        showInternal ? items : items.filter((e) => !isInternalEntity(e, artifactsById)),
+    }),
+    [showInternal],
+  );
+
   return (
+    <InternalVisibilityContext.Provider value={internalVisibilityValue}>
     <LineageVisibilityContext.Provider value={lineageVisibilityValue}>
     <div className="app-root">
       <header className="hero-shell">
@@ -5656,6 +5702,16 @@ export function App() {
                   onChange={(event) => setShowAllVersions(event.target.checked)}
                 />
                 Show all versions
+              </label>
+              {/* Bug 26 / Spec 058: default hide infrastructure files.
+                  Toggle exposes manifests / analysis JSONs / etc. */}
+              <label style={{ display: "inline-flex", alignItems: "center", gap: "4px", cursor: "pointer", opacity: 0.75 }}>
+                <input
+                  type="checkbox"
+                  checked={showInternal}
+                  onChange={(event) => setShowInternal(event.target.checked)}
+                />
+                Show internal files
               </label>
             </div>
           ) : null}
@@ -5935,5 +5991,6 @@ export function App() {
       ) : null}
     </div>
     </LineageVisibilityContext.Provider>
+    </InternalVisibilityContext.Provider>
   );
 }

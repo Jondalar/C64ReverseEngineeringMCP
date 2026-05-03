@@ -353,6 +353,43 @@ export interface SaveArtifactInput {
   enableSnapshot?: boolean;
   // Spec 020: per-artifact platform marker. Default c64 when absent.
   platform?: ArtifactRecord["platform"];
+  // Bug 26 / Spec 058: explicit override for the auto-classified
+  // internal flag. Auto-classification kicks in when this is undefined.
+  internal?: boolean;
+}
+
+// Bug 26 / Spec 058: heuristic that decides whether an artifact is
+// infrastructure (manifest / analysis JSON / annotations / rebuild-check
+// / run-event-log / knowledge or session state) versus a user-facing
+// artifact (source PRG, ASM listing, hand-written doc, render PNG).
+// Order matters: explicit role first, then path patterns, then kind.
+export function classifyArtifactInternal(args: {
+  path: string;
+  role?: string;
+  kind?: string;
+}): boolean {
+  const internalRoles = new Set([
+    "annotations",
+    "annotations-draft",
+    "rebuild-check",
+    "manifest",
+    "analysis-json",
+    "run-event-log",
+  ]);
+  if (args.role && internalRoles.has(args.role)) return true;
+  const lower = args.path.toLowerCase();
+  if (lower.endsWith("manifest.json")) return true;
+  if (lower.endsWith("_analysis.json")) return true;
+  if (lower.endsWith("_annotations.json")) return true;
+  if (lower.endsWith("_annotations.draft.json")) return true;
+  if (/\/analysis\/runs\/[^/]+\.json$/.test(lower)) return true;
+  if (/\/knowledge\/[^/]+\.json$/.test(lower)) return true;
+  if (/\/session\/[^/]+\.json$/.test(lower)) return true;
+  if (lower.endsWith("_ram_state_facts.md")) return true;
+  if (lower.endsWith("_pointer_table_facts.md")) return true;
+  if (lower.endsWith("_disasm_rebuild_check.prg")) return true;
+  if (args.kind === "analysis-run") return true;
+  return false;
 }
 
 export interface SnapshotResult {
@@ -384,6 +421,10 @@ export interface SaveEntityInput {
   payloadAsmArtifactIds?: string[];
   payloadContentHash?: string;
   tags?: string[];
+  // Bug 26 / Spec 058: explicit override for the auto-derived internal
+  // flag. Auto-derivation: entity is internal iff its primary linked
+  // artifact (payloadSourceArtifactId or first artifactId) is internal.
+  internal?: boolean;
 }
 
 export interface SaveFindingInput {
@@ -704,6 +745,14 @@ export class ProjectKnowledgeService {
         ];
       }
     }
+    // Bug 26 / Spec 058: auto-classify internal flag based on
+    // path / role / kind. Explicit input.internal wins; explicit
+    // existing.internal preserved on update when input doesn't override.
+    const internal = input.internal !== undefined
+      ? input.internal
+      : (existing?.internal !== undefined
+        ? existing.internal
+        : classifyArtifactInternal({ path: absPath, role: input.role, kind: input.kind }));
     const artifact = this.storage.buildArtifactRecord({
       id: artifactId,
       kind: input.kind,
@@ -728,6 +777,7 @@ export class ProjectKnowledgeService {
       versionRank,
       versions,
       platform: input.platform ?? existing?.platform,
+      internal: internal ? true : undefined,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     });
@@ -2650,6 +2700,24 @@ export class ProjectKnowledgeService {
     const store = this.storage.loadEntities();
     const timestamp = nowIso();
     const existing = input.id ? store.items.find((item) => item.id === input.id) : undefined;
+    // Bug 26 / Spec 058: derive internal flag from the primary linked
+    // artifact unless the caller overrides explicitly.
+    let derivedInternal: boolean | undefined;
+    if (input.internal !== undefined) {
+      derivedInternal = input.internal;
+    } else if (existing?.internal !== undefined) {
+      derivedInternal = existing.internal;
+    } else {
+      const primaryArtifactId =
+        input.payloadSourceArtifactId
+        ?? existing?.payloadSourceArtifactId
+        ?? input.artifactIds?.[0]
+        ?? existing?.artifactIds?.[0];
+      if (primaryArtifactId) {
+        const primary = this.storage.loadArtifacts().items.find((a) => a.id === primaryArtifactId);
+        if (primary?.internal === true) derivedInternal = true;
+      }
+    }
     const entity = {
       id: input.id ?? existing?.id ?? createId("entity", input.name),
       kind: input.kind,
@@ -2672,6 +2740,7 @@ export class ProjectKnowledgeService {
       payloadAsmArtifactIds: uniqueStrings(input.payloadAsmArtifactIds ?? existing?.payloadAsmArtifactIds),
       payloadContentHash: input.payloadContentHash ?? existing?.payloadContentHash,
       tags: uniqueStrings(input.tags ?? existing?.tags),
+      internal: derivedInternal === true ? true : undefined,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };

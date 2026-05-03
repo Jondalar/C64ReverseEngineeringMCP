@@ -1719,9 +1719,13 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
 }
 
 export function buildLoadSequenceView(context: ViewBuildContext): LoadSequenceView {
+  // Bug 26 / Spec 058: skip internal artifacts so annotations files,
+  // rebuild-check binaries, manifests, run-event-logs etc. don't show
+  // up as separate "payloads" alongside the real ones.
   const groupedArtifacts = new Map<string, { descriptor: NonNullable<ReturnType<typeof deriveStageDescriptor>>; artifacts: ArtifactRecord[] }>();
 
   for (const artifact of context.artifacts) {
+    if (artifact.internal === true) continue;
     const descriptor = deriveStageDescriptor(artifact);
     if (!descriptor) {
       continue;
@@ -1886,7 +1890,11 @@ export function buildFlowGraphView(context: ViewBuildContext): FlowGraphView {
 }
 
 function buildStructureFlowMode(context: ViewBuildContext): FlowGraphMode {
-  const entityById = new Map(context.entities.map((entity) => [entity.id, entity]));
+  // Bug 26 / Spec 058: drop internal entities from the flow graph so
+  // "Murder Annotations" / "Murder Disasm Rebuild Check" don't show up
+  // as nodes alongside the real "Murder" payload.
+  const visibleEntities = context.entities.filter((e) => e.internal !== true);
+  const entityById = new Map(visibleEntities.map((entity) => [entity.id, entity]));
   const nodeMap = new Map<string, FlowGraphView["nodes"][number]>();
   const edgeMap = new Map<string, FlowGraphView["edges"][number]>();
   const relationEdgeIds = new Set<string>();
@@ -2343,9 +2351,13 @@ export function buildAnnotatedListingView(context: ViewBuildContext): AnnotatedL
   }
 
   const entityByAddress = [...context.entities]
-    .filter((entity) => entity.addressRange)
+    .filter((entity) => entity.addressRange && entity.internal !== true)
     .sort((left, right) => left.addressRange!.start - right.addressRange!.start);
 
+  // analysis-json artifacts ARE internal by classification (LLM-only),
+  // but THIS view extracts user-facing listing entries FROM them, so
+  // we still iterate. Other listing surfaces (Load Sequence, Flow
+  // Graph, Scrub picker) enumerate artifacts as files and skip them.
   const entries = context.artifacts
     .filter((artifact) => artifact.role === "analysis-json")
     .flatMap((artifact) => {
