@@ -99,9 +99,7 @@ export class IntegratedSession {
   public get lastTrap(): string | undefined { return this.kernalFileIo.lastTrap; }
   public get loadEvents(): KernalFileIoState["loadEvents"] { return this.kernalFileIo.loadEvents; }
   private readonly driveCyclesPerC64Cycle: number;
-  private driveCycleAccumulator = 0;
   private c64InstructionCount = 0;
-  private driveInstructionCount = 0;
 
   constructor(opts: IntegratedSessionOptions) {
     if (!existsSync(opts.diskPath)) throw new Error(`Disk image not found: ${opts.diskPath}`);
@@ -126,7 +124,6 @@ export class IntegratedSession {
     // first catch the drive CPU up to the current cycle so drive's
     // response reflects all elapsed time. Without this, drive lag
     // breaks serial bit timing.
-    this.iecBus.beforeC64Read = () => this.flushDriveCycles();
     this.cia2 = installCia2(this.c64Bus, this.iecBus);
     const cia1Install = installCia1(this.c64Bus);
     this.cia1 = cia1Install.cia;
@@ -137,13 +134,18 @@ export class IntegratedSession {
     this.c64Bus.reset();
     this.c64Cpu = new Cpu6510(this.c64Bus);
 
-    // Drive side.
+    // Drive side. Spec 090: configure sync ratio + zero baseline.
     this.drive = new DriveCpu({
       deviceId: opts.deviceId ?? 8,
       iecBus: this.iecBus,
       gcr: { trackBuffer: this.trackBuffer, headPosition: this.headPosition, writeProtected: opts.writeProtected },
     });
     this.iecBus.attachDriveRam(this.drive.bus.ram);
+    // Spec 090: configure drive's sync ratio + zero baseline.
+    this.drive.setSyncRatio(this.driveCyclesPerC64Cycle);
+    this.drive.setSyncBaseline(0);
+    // Spec 090: install bus-read hook AFTER drive constructed.
+    this.iecBus.beforeC64Read = () => this.drive.executeToClock(this.c64Cpu.cycles);
 
     this.kernalFileIo = makeKernalFileIoState();
     this.kernalSerial = makeKernalSerialState();
@@ -181,10 +183,9 @@ export class IntegratedSession {
     this.iecBus.reset();
     this.c64Cpu.reset();
     this.drive.reset();
+    this.drive.setSyncBaseline(this.c64Cpu.cycles);
     this.sid.reset();
-    this.driveCycleAccumulator = 0;
     this.c64InstructionCount = 0;
-    this.driveInstructionCount = 0;
   }
 
   loadPrgIntoRam(prgPath: string, overrideLoadAddress?: number): PrgLoadResult {
@@ -229,47 +230,39 @@ export class IntegratedSession {
     if (trapped) {
       this.c64InstructionCount += 1;
       const trapCycles = 7;
+      this.c64Cpu.cycles += trapCycles;
       this.cia1.tick(trapCycles);
       this.cia2.tick(trapCycles);
       this.vic.tick(trapCycles);
       this.sid.tick(trapCycles);
       this.keyboard.advance(trapCycles);
-      this.driveCycleAccumulator += trapCycles * this.driveCyclesPerC64Cycle;
-      while (this.driveCycleAccumulator >= 1) this.runOneDriveStep();
+      // Spec 090: drive lazy executeToClock instead of accumulator drain.
+      this.drive.executeToClock(this.c64Cpu.cycles);
       return;
     }
-    // Sprint 88 v2 / VICE alarm-context pattern: BEFORE C64 executes
-    // its next instruction, drive must be fully caught up to the
-    // current C64 cycle. Otherwise drive's "current view" of the IEC
-    // bus is stale by N cycles when C64's bus access happens.
-    this.flushDriveCycles();
+    // Spec 090 / VICE pattern: drive catches up to current C64 clock
+    // BEFORE the C64 instruction starts (so any bus access during
+    // the instruction sees up-to-date drive state).
+    this.drive.executeToClock(this.c64Cpu.cycles);
     this.checkC64Interrupts();
     const before = this.c64Cpu.cycles;
     this.c64Cpu.step();
     this.c64InstructionCount += 1;
     const consumed = this.c64Cpu.cycles - before;
     // Sprint 84: VIC may steal cycles via bad-line + sprite DMA. CPU
-    // pauses; CIA + drive + SID + keyboard still tick during stolen
-    // cycles ("wall clock" advances). CPU.cycles also advanced so
-    // future scheduling is correct.
+    // pauses; peripherals still tick during stolen cycles ("wall
+    // clock" advances). CPU.cycles also advanced so future scheduling
+    // is correct.
     const vicTick = this.vic.tick(consumed);
     const totalCycles = consumed + vicTick.stolenCycles;
     if (vicTick.stolenCycles > 0) this.c64Cpu.cycles += vicTick.stolenCycles;
-    // Sprint 88 v1: peripherals + drive interleave per CYCLE within
-    // the consumed batch instead of one batch tick at end. Drive sees
-    // CIA timer + IEC bus state with finer granularity. Bus-state
-    // change still happens at instruction boundary (Sprint 89 will
-    // make it sub-instruction).
-    for (let c = 0; c < totalCycles; c++) {
-      this.cia1.tick(1);
-      this.cia2.tick(1);
-      this.sid.tick(1);
-      this.keyboard.advance(1);
-      this.driveCycleAccumulator += this.driveCyclesPerC64Cycle;
-      while (this.driveCycleAccumulator >= 1) {
-        this.runOneDriveStep();
-      }
-    }
+    // Tick CIA / SID / keyboard for the full wall-clock window.
+    this.cia1.tick(totalCycles);
+    this.cia2.tick(totalCycles);
+    this.sid.tick(totalCycles);
+    this.keyboard.advance(totalCycles);
+    // Spec 090: drive catches up to NEW C64 clock after instruction.
+    this.drive.executeToClock(this.c64Cpu.cycles);
   }
 
   runFor(maxC64Instructions: number, opts?: { breakpoints?: Set<number>; cycleBudget?: number }): {
@@ -293,27 +286,11 @@ export class IntegratedSession {
     return { instructionsExecuted: i, lastPc: this.c64Cpu.pc };
   }
 
-  // Spec 083 / VICE iecbus_cpu_execute_one pattern: drain the drive
-  // cycle accumulator down to ≤ 0 so drive has caught up to the C64's
-  // current time. Called from IecBus.beforeC64Read on every CIA2 PA
-  // read/write. Idempotent — if no cycles owed, no-op.
+  // Spec 090: legacy flushDriveCycles kept as no-op shim for any
+  // remaining callers. Drive lazy-executes via drive.executeToClock
+  // now. Wrapper just forwards to executeToClock with current C64 clk.
   flushDriveCycles(): void {
-    while (this.driveCycleAccumulator >= 1) {
-      this.runOneDriveStep();
-    }
-  }
-
-  private runOneDriveStep(): number {
-    if (!this.drive.cpu.interruptsDisabled()) {
-      const irq = this.drive.bus.via1.irqAsserted() || this.drive.bus.via2.irqAsserted();
-      if (irq) this.drive.cpu.serviceInterrupt(0xfffe, false);
-    }
-    const consumed = this.drive.step();
-    this.drive.bus.via1.tick(consumed);
-    this.drive.bus.via2.tick(consumed);
-    this.driveInstructionCount += 1;
-    if (this.driveCycleAccumulator > 0) this.driveCycleAccumulator -= consumed;
-    return consumed;
+    this.drive.executeToClock(this.c64Cpu.cycles);
   }
 
   private checkC64Interrupts(): void {
@@ -344,7 +321,7 @@ export class IntegratedSession {
       drive: {
         pc: this.drive.cpu.pc, a: this.drive.cpu.a, x: this.drive.cpu.x, y: this.drive.cpu.y,
         sp: this.drive.cpu.sp, flags: this.drive.cpu.flags,
-        cycles: this.drive.cpu.cycles, instructions: this.driveInstructionCount,
+        cycles: this.drive.cpu.cycles, instructions: 0,
         track: this.headPosition.currentTrack,
       },
       iecBus: this.iecBus.snapshot(),

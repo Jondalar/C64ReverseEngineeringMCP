@@ -95,25 +95,90 @@ export class DriveBus implements CpuMemory {
   }
 }
 
-// DriveCpu = Cpu6510 wired to a DriveBus. Sprint 60 keeps step()
-// passthrough; the dual-clock accumulator wiring lands in
-// session-manager.ts later in this sprint.
+// DriveCpu = Cpu6510 wired to a DriveBus.
+//
+// Sprint 90 (Spec 090): VICE-style executeToClock(c64Clk) lazy lockstep.
+// Drive only runs when caller (IntegratedSession) requests catch-up.
+// Sync points: every $DD00 access (via IecBus.beforeC64Read hook) +
+// after each C64 instruction. Drive's clock advances independently
+// using fixed-point sync_factor (drive 1MHz / C64 985.248kHz ratio).
 export class DriveCpu {
   public readonly cpu: Cpu6510;
   public readonly bus: DriveBus;
+
+  // Spec 090: 16.16 fixed-point sync_factor. drive_cycles_per_c64_cycle.
+  // PAL: 1.01477 → 0x103C5 (= 1.0149 in 16.16). NTSC: 0x10000 (1.0).
+  private syncFactor16dot16 = 0;
+  // Drive's last sync clock (in C64 cycles) — i.e. up to which C64
+  // cycle we have already caught up.
+  private lastSyncC64Clk = 0;
+  // Fixed-point accumulator — fractional drive cycles owed.
+  private cycleAccumulator16dot16 = 0;
+  // Sleep mode: drive is in known busy-wait loop, skip ahead to next
+  // bus state change. Cleared on bus state change.
+  private sleeping = false;
+  // Idle-wakeup callback installed by IntegratedSession via IecBus.
+  // When iec bus state changes, we wake the drive.
+  public wakeUp(): void { this.sleeping = false; }
 
   constructor(opts: DriveCpuOptions = {}) {
     this.bus = new DriveBus(opts);
     this.cpu = new Cpu6510(this.bus);
   }
 
+  // Spec 090: configure sync ratio. PAL = 1.01477 (1MHz drive / 985.248kHz C64).
+  setSyncRatio(driveCyclesPerC64Cycle: number): void {
+    this.syncFactor16dot16 = Math.round(driveCyclesPerC64Cycle * 0x10000);
+  }
+
   reset(pc?: number): void {
     this.bus.reset();
     this.cpu.reset(pc);
+    this.lastSyncC64Clk = 0;
+    this.cycleAccumulator16dot16 = 0;
+    this.sleeping = false;
   }
 
-  // Step one instruction. Returns cycles consumed (for the dual-clock
-  // accumulator in session-manager).
+  // Sync drive clock baseline (called when c64Clk wraps or on cold reset).
+  setSyncBaseline(c64Clk: number): void {
+    this.lastSyncC64Clk = c64Clk;
+  }
+
+  // Spec 090: execute drive cycles up to the given C64 clock value.
+  // Idempotent if c64Clk hasn't advanced. Drive may run a few cycles
+  // ahead at end of each call (instruction overrun) — next call sees
+  // fewer cycles owed because lastSyncC64Clk is updated only by what
+  // we actually consumed. cycleAccumulator16dot16 carries fractional
+  // C64 cycles between calls.
+  executeToClock(c64Clk: number): void {
+    if (c64Clk <= this.lastSyncC64Clk) return;
+    const c64Delta = c64Clk - this.lastSyncC64Clk;
+    this.lastSyncC64Clk = c64Clk;
+    if (this.sleeping) {
+      // Drive in known busy-wait; defer cycles until wakeUp().
+      // Accumulate the C64 delta for later replay.
+      this.cycleAccumulator16dot16 += this.syncFactor16dot16 * c64Delta;
+      return;
+    }
+    // Accumulate fractional drive cycles owed.
+    this.cycleAccumulator16dot16 += this.syncFactor16dot16 * c64Delta;
+    while (this.cycleAccumulator16dot16 >= 0x10000) {
+      // IRQ check before each instruction.
+      if (!this.cpu.interruptsDisabled()) {
+        const irq = this.bus.via1.irqAsserted() || this.bus.via2.irqAsserted();
+        if (irq) this.cpu.serviceInterrupt(0xfffe, false);
+      }
+      const before = this.cpu.cycles;
+      this.cpu.step();
+      const consumed = this.cpu.cycles - before;
+      this.bus.via1.tick(consumed);
+      this.bus.via2.tick(consumed);
+      this.cycleAccumulator16dot16 -= consumed * 0x10000;
+    }
+  }
+
+  // Legacy step API kept for back-compat (will be removed once
+  // IntegratedSession fully on executeToClock).
   step(): number {
     const before = this.cpu.cycles;
     this.cpu.step();
