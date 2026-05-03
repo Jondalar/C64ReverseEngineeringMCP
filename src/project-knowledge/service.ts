@@ -1786,9 +1786,15 @@ export class ProjectKnowledgeService {
       && inScope(f)
     );
     const routines = routinesWithRange.length > 0 ? routinesWithRange : routineFindings;
+    // Bug 28: hypothesis findings auto-emitted by analyze_prg only set
+    // addressRange on evidence[0], not top-level. Treat evidence[0]
+    // addressRange as the effective range fallback so the matcher
+    // doesn't reject every auto-emitted candidate.
+    const effectiveRangeOf = (f: typeof allFindings[number]) =>
+      f.addressRange ?? f.evidence?.find((e) => e.addressRange)?.addressRange;
     const hypothesisCandidates = allFindings.filter((f) =>
       f.kind === "hypothesis"
-      && f.addressRange !== undefined
+      && effectiveRangeOf(f) !== undefined
       && f.status !== "archived"
       && !f.archivedBy
       && inScope(f)
@@ -1796,7 +1802,10 @@ export class ProjectKnowledgeService {
     const preview: Array<{ findingId: string; title: string; supersededBy: string }> = [];
     let archived = 0;
     for (const candidate of hypothesisCandidates) {
-      const cr = candidate.addressRange;
+      // Bug 28: use effective range (top-level OR evidence[0]) so
+      // auto-emitted hypothesis findings without top-level addressRange
+      // still match against routine coverage.
+      const cr = effectiveRangeOf(candidate);
       if (!cr) continue;
       const coverer = routines.find((r) => {
         const rr = r.addressRange;
@@ -2808,6 +2817,26 @@ export class ProjectKnowledgeService {
       // best effort
     }
     return finding;
+  }
+
+  // Bug 28: backfill top-level addressRange on existing findings whose
+  // evidence[0] carries one but the top-level slot is empty. One-shot
+  // migration for projects whose findings.json was written before the
+  // analysis-import producer fix landed. Returns count updated.
+  backfillFindingAddressRanges(): number {
+    const store = this.storage.loadFindings();
+    let updated = 0;
+    const items = store.items.map((f) => {
+      if (f.addressRange) return f;
+      const fromEvidence = f.evidence?.find((e) => e.addressRange)?.addressRange;
+      if (!fromEvidence) return f;
+      updated += 1;
+      return { ...f, addressRange: fromEvidence, updatedAt: nowIso() };
+    });
+    if (updated > 0) {
+      this.storage.saveFindings({ ...store, updatedAt: nowIso(), items });
+    }
+    return updated;
   }
 
   // Spec 055: bulk delete by id, used by clean-slate emit (purge stale

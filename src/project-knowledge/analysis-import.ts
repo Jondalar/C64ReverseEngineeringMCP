@@ -119,6 +119,10 @@ export interface ImportedFindingDraft {
   artifactIds: string[];
   payloadId?: string;
   tags: string[];
+  // Bug 28: top-level address range so archive_phase1_noise can match
+  // hypothesis findings against routine annotations covering them. The
+  // emitter copies it from the evidence range when applicable.
+  addressRange?: { start: number; end: number; bank?: number; label?: string };
 }
 
 export interface ImportedRelationDraft {
@@ -425,6 +429,10 @@ export function importAnalysisKnowledge(artifact: ArtifactRecord, options?: { pa
       entityIds: [entityId],
       artifactIds: [artifact.id],
       tags: ["analysis-import", "ram-hypothesis"],
+      // Bug 28: top-level addressRange so archive_phase1_noise matcher
+      // sees the candidate. Producer-side fix complements the matcher
+      // fallback — both hold; new findings come out clean.
+      addressRange: { start: hypothesis.start, end: hypothesis.end },
     };
     findings.push(finding);
     maybeCreateOpenQuestion(artifact, finding, openQuestions);

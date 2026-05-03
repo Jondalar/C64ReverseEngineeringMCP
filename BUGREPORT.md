@@ -1410,4 +1410,89 @@ In `pipeline/src/analysis/analyzers/sprite.ts` (or wherever the 64-byte-block he
 - Bug 11: sprite analyzer over-eager (kind family — false-positive candidates).
 - Spec 053 / Bug 20: confirmed/rejected segment writeback can clean up the live finding once human marks $1601 rejected.
 
+---
+
+## Bug 28 — Auto-generated hypothesis findings populate `addressRange` only on `evidence[0]`, not top-level → `archive_phase1_noise` matcher fails
+
+**Status**: FIXED — Stage 1 (matcher fallback) + Stage 2 (producer fix in analysis-import + `backfill_finding_address_ranges` migration tool).
+
+**Severity**: High — blocks Bug 25 / R25 / R26 from actually archiving any noise. All upstream fixes work, but matcher rejects every hypothesis candidate because they only have evidence-level addressRange, not top-level.
+
+### Live evidence (Murder project after Bug 25 + R25 + R26 landed)
+```
+import_annotations_as_findings(artifact_id=…02_ab) → Routines: 25
+save_finding(kind="classification", title="Routine: $031A-$0324 fastloader control-block",
+             address_range={start:794, end:804}, tags=["routine","annotation"])
+# → Auto-archive: archived 0 findings, answered 0 questions [scope=project]
+
+archive_phase1_noise(dry_run=false)
+# → Routines scanned: 40   |   Findings archived: 0   |   Questions answered: 0
+```
+
+40 routine-findings exist with valid top-level `addressRange`. Routine side is fine.
+
+But hypothesis findings from `analyze_prg` look like:
+```json
+{
+  "id": "finding-artifact-02-ab-analysis-json-moocv7hh-ram-031a-031a",
+  "kind": "hypothesis",
+  "title": "RAM region 031A behaves like mode_flag",
+  // <-- NO top-level addressRange
+  "evidence": [
+    { "kind": "artifact", "addressRange": { "start": 794, "end": 794 } }   // only here
+  ]
+}
+```
+
+### Root cause
+`service.archivePhase1Noise` matcher requires top-level `f.addressRange`:
+```ts
+const hypothesisCandidates = allFindings.filter((f) =>
+  f.kind === "hypothesis"
+  && f.addressRange !== undefined          // <-- rejects all auto-emitted
+  && f.status !== "archived"
+  && !f.archivedBy
+);
+```
+
+Top-level filter rejects every auto-generated hypothesis (only evidence-level addr). Candidate set empty → 0 archived.
+
+### Expected
+Either:
+1. **Producer fix**: when `analyze_prg` emits hypothesis findings, populate BOTH `f.addressRange` (top-level) AND `f.evidence[i].addressRange`. Bug 25 enabled `save_finding` to do this — apply same in the auto-emitter.
+2. **Matcher fix**: in `archivePhase1Noise`, fall back to `f.evidence[0]?.addressRange` when `f.addressRange` is undefined.
+
+### Suggested fix
+**Stage 1 (matcher fallback)** — cheap, immediately fixes Murder:
+```ts
+function getEffectiveRange(f: FindingRecord): AddressRange | undefined {
+  if (f.addressRange) return f.addressRange;
+  return f.evidence?.find((e) => e.addressRange)?.addressRange;
+}
+const hypothesisCandidates = allFindings.filter((f) =>
+  f.kind === "hypothesis"
+  && getEffectiveRange(f) !== undefined
+  && f.status !== "archived"
+  && !f.archivedBy
+);
+// use getEffectiveRange(candidate) for overlap check
+```
+
+**Stage 2 (producer cleanup)**: populate `addressRange` on hypothesis findings emitted by `analyze_prg`. Migration helper `backfill_finding_address_ranges` for existing data.
+
+### Verification on Murder
+After fix:
+```
+archive_phase1_noise(dry_run=false)
+# Expected: hundreds of "RAM region 031A behaves like..." hypothesis findings
+# archived because effective range $031A falls inside routine "Routine:
+# $031A-$0324 fastloader control-block" (794-804).
+```
+
+### Cross-reference
+- Bug 25 (FIXED): `save_finding.address_range` agent-side. This is the auto-emitter analog.
+- Bug 20: parent — phase-1 noise persists. LAST data-shape gap preventing archive.
+- R25: works correctly (40 routine-findings emitted). Not at fault.
+- R26: works correctly (auto-sweep called after each `save_finding`). Not at fault — sweep just finds 0 candidates due to this bug.
+
 

@@ -659,6 +659,19 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Bug 28: one-shot backfill for projects whose findings predate the
+  // producer fix that populates top-level addressRange.
+  server.tool(
+    "backfill_finding_address_ranges",
+    "Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
+    { project_dir: z.string().optional() },
+    safeHandler("backfill_finding_address_ranges", async ({ project_dir }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const updated = service.backfillFindingAddressRanges();
+      return textContent(`Backfilled top-level addressRange on ${updated} findings.`);
+    },
+));
+
   // Spec 053 (Bug 20): phase-1 noise archive + segment confirmation.
   server.tool(
     "archive_phase1_noise",
