@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { z } from "zod";
 import type { ArtifactRecord, EntityRecord, EvidenceRef, FindingRecord, JsonValue, RelationRecord } from "./types.js";
+import { sha256OfFile } from "./service.js";
 
 const diskManifestSchema = z.object({
   format: z.string().optional(),
@@ -65,6 +66,12 @@ export interface ImportedManifestKnowledge {
     artifactIds: string[];
     addressRange?: { start: number; end: number; bank?: number; label?: string };
     tags: string[];
+    // Bug 33: payload-bearing fields propagated to saveEntity so the
+    // dedup primary key (payloadContentHash) gets populated end-to-end.
+    payloadLoadAddress?: number;
+    payloadFormat?: EntityRecord["payloadFormat"];
+    payloadSourceArtifactId?: string;
+    payloadContentHash?: string;
   }>;
   findings: Array<{
     id: string;
@@ -121,29 +128,41 @@ export function importManifestKnowledge(artifact: ArtifactRecord): ImportedManif
     if (!parsed.success) {
       return undefined;
     }
-    const entities = parsed.data.files.map((file, index) => ({
-      id: stableId("entity", artifact.id, `disk-file-${index}-${file.relativePath ?? file.name ?? "file"}`),
-      kind: "disk-file" as const,
-      name: file.name ?? file.relativePath ?? `disk_file_${index + 1}`,
-      summary: [
-        file.type ? `Type ${file.type}` : undefined,
-        file.sizeBytes !== undefined ? `${file.sizeBytes} bytes` : undefined,
-        file.track !== undefined && file.sector !== undefined ? `at ${file.track}/${file.sector}` : undefined,
-      ].filter(Boolean).join(", "),
-      confidence: 1,
-      evidence: [buildArtifactEvidence(artifact, `Disk file ${file.name ?? file.relativePath ?? index}`)],
-      artifactIds: [artifact.id],
-      addressRange: file.loadAddress !== undefined
-        ? { start: file.loadAddress, end: file.loadAddress + Math.max((file.sizeBytes ?? 1) - 1, 0) }
-        : undefined,
-      // Payload metadata: a disk file IS a payload. Populating these
-      // fields lets list_payloads / Payload tab / runtime memory map
-      // treat the entity uniformly with cart chunks and PRG payloads.
-      payloadLoadAddress: file.loadAddress,
-      payloadFormat: file.type === "PRG" ? ("prg" as const) : ("raw" as const),
-      payloadSourceArtifactId: artifact.id,
-      tags: ["manifest-import", "disk-file", "payload", file.type ?? "unknown"],
-    }));
+    // Bug 33: compute payloadContentHash by hashing each file's bytes
+    // on disk. Manifest entry's relativePath is relative to the manifest
+    // file's directory. Without the hash, Bug 31 dedup falls through to
+    // the (srcArt, loadAddr) fallback and false-merges unrelated payloads
+    // sharing a load address (e.g. multiple PRGs at $4000).
+    const manifestDir = dirname(artifact.path);
+    const entities = parsed.data.files.map((file, index) => {
+      const relPath = file.relativePath;
+      const absPath = relPath ? resolve(manifestDir, relPath) : undefined;
+      const contentHash = absPath ? sha256OfFile(absPath) : undefined;
+      return {
+        id: stableId("entity", artifact.id, `disk-file-${index}-${file.relativePath ?? file.name ?? "file"}`),
+        kind: "disk-file" as const,
+        name: file.name ?? file.relativePath ?? `disk_file_${index + 1}`,
+        summary: [
+          file.type ? `Type ${file.type}` : undefined,
+          file.sizeBytes !== undefined ? `${file.sizeBytes} bytes` : undefined,
+          file.track !== undefined && file.sector !== undefined ? `at ${file.track}/${file.sector}` : undefined,
+        ].filter(Boolean).join(", "),
+        confidence: 1,
+        evidence: [buildArtifactEvidence(artifact, `Disk file ${file.name ?? file.relativePath ?? index}`)],
+        artifactIds: [artifact.id],
+        addressRange: file.loadAddress !== undefined
+          ? { start: file.loadAddress, end: file.loadAddress + Math.max((file.sizeBytes ?? 1) - 1, 0) }
+          : undefined,
+        // Payload metadata: a disk file IS a payload. Populating these
+        // fields lets list_payloads / Payload tab / runtime memory map
+        // treat the entity uniformly with cart chunks and PRG payloads.
+        payloadLoadAddress: file.loadAddress,
+        payloadFormat: file.type === "PRG" ? ("prg" as const) : ("raw" as const),
+        payloadSourceArtifactId: artifact.id,
+        payloadContentHash: contentHash,
+        tags: ["manifest-import", "disk-file", "payload", file.type ?? "unknown"],
+      };
+    });
     const findings = [{
       id: stableId("finding", artifact.id, "disk-layout"),
       kind: "disk-layout" as const,

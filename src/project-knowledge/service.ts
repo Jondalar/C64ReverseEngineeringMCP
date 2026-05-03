@@ -56,7 +56,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function sha256OfFile(absPath: string): string | undefined {
+export function sha256OfFile(absPath: string): string | undefined {
   if (!existsSync(absPath)) return undefined;
   try {
     const data = readFileSync(absPath);
@@ -1166,6 +1166,110 @@ export class ProjectKnowledgeService {
     return counts;
   }
 
+  // Bug 33 Fix A: backfill payloadContentHash on payload-bearing
+  // entities whose payloadSourceArtifactId points at a directly-linked
+  // file (NOT a manifest/aggregator). Reads file bytes, hashes,
+  // updates entity in place. Idempotent: entities with non-null
+  // payloadContentHash are skipped. Returns counts + skip reasons.
+  backfillPayloadContentHashes(opts?: { dryRun?: boolean }): {
+    updated: number;
+    skippedAlreadyHashed: number;
+    skippedNoSource: number;
+    skippedAggregatorSource: number;
+    skippedFileMissing: number;
+    sample: Array<{ entityId: string; name: string; hash: string }>;
+  } {
+    const dryRun = opts?.dryRun ?? false;
+    const entityStore = this.storage.loadEntities();
+    const artifacts = this.storage.loadArtifacts();
+    const artifactById = new Map(artifacts.items.map((a) => [a.id, a] as const));
+    const out: {
+      updated: number; skippedAlreadyHashed: number; skippedNoSource: number;
+      skippedAggregatorSource: number; skippedFileMissing: number;
+      sample: Array<{ entityId: string; name: string; hash: string }>;
+    } = {
+      updated: 0, skippedAlreadyHashed: 0, skippedNoSource: 0,
+      skippedAggregatorSource: 0, skippedFileMissing: 0, sample: [],
+    };
+    const ts = nowIso();
+    const updatedItems = entityStore.items.map((e) => {
+      const isPayloadBearing = e.kind === "payload" || e.payloadLoadAddress !== undefined;
+      if (!isPayloadBearing) return e;
+      if (e.payloadContentHash) { out.skippedAlreadyHashed += 1; return e; }
+      const srcId = e.payloadSourceArtifactId;
+      if (!srcId) { out.skippedNoSource += 1; return e; }
+      const srcArt = artifactById.get(srcId);
+      if (!srcArt) { out.skippedNoSource += 1; return e; }
+      if (srcArt.kind === "manifest") { out.skippedAggregatorSource += 1; return e; }
+      if (!existsSync(srcArt.path)) { out.skippedFileMissing += 1; return e; }
+      const hash = sha256OfFile(srcArt.path);
+      if (!hash) { out.skippedFileMissing += 1; return e; }
+      out.updated += 1;
+      if (out.sample.length < 10) {
+        out.sample.push({ entityId: e.id, name: e.name, hash });
+      }
+      return { ...e, payloadContentHash: hash, updatedAt: ts };
+    });
+    if (!dryRun && out.updated > 0) {
+      this.storage.saveEntities({ ...entityStore, updatedAt: ts, items: updatedItems });
+    }
+    return out;
+  }
+
+  // Bug 33 Fix A (manifest path): backfill payloadContentHash on
+  // entities sourced from a manifest (aggregator). Re-parses each
+  // manifest artifact and resolves per-entry file paths to file bytes.
+  // Matching strategy: stableId pattern that manifest-import uses
+  // (entity-<artifactId>-disk-file-<index>-<rel>). Preferred over
+  // name match because manifest-import already used stableId as the
+  // entity id contract.
+  backfillManifestPayloadHashes(opts?: { dryRun?: boolean }): {
+    updated: number;
+    skippedAlreadyHashed: number;
+    manifestsScanned: number;
+    skippedNoMatch: number;
+    skippedFileMissing: number;
+    sample: Array<{ entityId: string; name: string; hash: string }>;
+  } {
+    const dryRun = opts?.dryRun ?? false;
+    const entityStore = this.storage.loadEntities();
+    const artifacts = this.storage.loadArtifacts().items;
+    const entityById = new Map(entityStore.items.map((e) => [e.id, e] as const));
+    const out: {
+      updated: number; skippedAlreadyHashed: number; manifestsScanned: number;
+      skippedNoMatch: number; skippedFileMissing: number;
+      sample: Array<{ entityId: string; name: string; hash: string }>;
+    } = {
+      updated: 0, skippedAlreadyHashed: 0, manifestsScanned: 0,
+      skippedNoMatch: 0, skippedFileMissing: 0, sample: [],
+    };
+    const ts = nowIso();
+    const updatedById = new Map<string, typeof entityStore.items[number]>();
+    for (const art of artifacts) {
+      if (art.kind !== "manifest") continue;
+      out.manifestsScanned += 1;
+      const imported = importManifestKnowledge(art);
+      if (!imported) continue;
+      for (const importedEntity of imported.entities) {
+        const target = entityById.get(importedEntity.id);
+        if (!target) { out.skippedNoMatch += 1; continue; }
+        if (target.payloadContentHash) { out.skippedAlreadyHashed += 1; continue; }
+        const hash = importedEntity.payloadContentHash;
+        if (!hash) { out.skippedFileMissing += 1; continue; }
+        out.updated += 1;
+        if (out.sample.length < 10) {
+          out.sample.push({ entityId: target.id, name: target.name, hash });
+        }
+        updatedById.set(target.id, { ...target, payloadContentHash: hash, updatedAt: ts });
+      }
+    }
+    if (!dryRun && out.updated > 0) {
+      const nextItems = entityStore.items.map((e) => updatedById.get(e.id) ?? e);
+      this.storage.saveEntities({ ...entityStore, updatedAt: ts, items: nextItems });
+    }
+    return out;
+  }
+
   // Spec 060 / Bug 31: collapse legacy duplicate payload entities (same
   // payloadContentHash, or same (payloadSourceArtifactId,
   // payloadLoadAddress) when hash absent) into one survivor. Survivor
@@ -1199,9 +1303,16 @@ export class ProjectKnowledgeService {
         passThrough.push(e);
         continue;
       }
+      // Bug 33 Fix B: aggregator skip in migration too. When srcArt is
+      // a manifest (or any aggregator kind), the (src, load) fallback
+      // would false-merge unrelated payloads sharing a load address.
+      // Force solo-key bucket so they survive untouched unless hash
+      // matches a sibling.
+      const srcArt = e.payloadSourceArtifactId ? artifactById.get(e.payloadSourceArtifactId) : undefined;
+      const srcIsAggregator = srcArt?.kind === "manifest";
       const key = e.payloadContentHash
         ? `hash:${e.payloadContentHash}`
-        : (e.payloadSourceArtifactId !== undefined && e.payloadLoadAddress !== undefined)
+        : (!srcIsAggregator && e.payloadSourceArtifactId !== undefined && e.payloadLoadAddress !== undefined)
           ? `src+load:${e.payloadSourceArtifactId}@${e.payloadLoadAddress}`
           : `solo:${e.id}`;
       const list = groups.get(key) ?? [];
@@ -3465,10 +3576,21 @@ export class ProjectKnowledgeService {
       if (input.payloadContentHash) {
         existing = store.items.find((item) => item.payloadContentHash === input.payloadContentHash);
       }
+      // Bug 33 Fix B: aggregator skip. The (srcArtifact, loadAddress)
+      // fallback assumes srcArtifact is a 1:1 reference to the payload
+      // bytes. But for aggregator-kind sources (manifest, crt, archive),
+      // one srcArt legitimately backs N payloads. Two of them sharing a
+      // load address (e.g. multiple PRGs at $4000 sprite/bitmap base)
+      // would false-merge under the fallback. Skip when srcArt is a
+      // manifest; rely on the hash primary key instead.
       if (!existing && input.payloadSourceArtifactId !== undefined && input.payloadLoadAddress !== undefined) {
-        existing = store.items.find((item) =>
-          item.payloadSourceArtifactId === input.payloadSourceArtifactId
-          && item.payloadLoadAddress === input.payloadLoadAddress);
+        const srcArt = this.storage.loadArtifacts().items.find((a) => a.id === input.payloadSourceArtifactId);
+        const srcIsAggregator = srcArt?.kind === "manifest";
+        if (!srcIsAggregator) {
+          existing = store.items.find((item) =>
+            item.payloadSourceArtifactId === input.payloadSourceArtifactId
+            && item.payloadLoadAddress === input.payloadLoadAddress);
+        }
       }
     }
     // Aliases: union existing.aliases + input.aliases + (new name if

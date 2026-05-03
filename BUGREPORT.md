@@ -1780,3 +1780,109 @@ Question source-set extended from `heuristic-phase1` only to `heuristic-phase1` 
 Smoke: `scripts/sprint54-smoke.mjs` covers (a) range-form title parsing + addressRange both-ends, (b) segment-confirmed AND segment-rejected coverage, (c) per-artifact strict intersect — A-linked closes, B-linked stays open when only A has coverage; scope arg respected.
 
 
+
+## Bug 33 — Manifest importer never sets `payloadContentHash` + Bug 31 fallback merges unrelated payloads sharing `(srcArtifact, loadAddr)`
+
+**Severity:** high (causes false-merge of distinct payload entities → permanent data loss on apply)
+**Discovered during:** Spec 060 migration dry-run on Murder project (2026-05-03)
+**Status:** FIXED (Sprint 55). Migration safe to apply on Murder after backfill tools run.
+
+### Symptom
+
+Spec-060 migration prompt step 6 (`dedupe_payload_entities(dry_run=true)`) on Murder project returned:
+
+```
+Duplicate groups: 1
+Rows would merge: 3
+Sample (first 1):
+  src+load:artifact-manifest-json-moocmvpu@16384
+    survivor=entity-...-disk-file-1-02_ab-prg (ab)
+    merged=baby, chr1, romance
+```
+
+`ab`, `baby`, `chr1`, `romance` are **four distinct PRGs** with **different content**, all happening to load at $4000 (classic sprite/bitmap bank base). They were imported from the same disk-manifest JSON, so they share `payloadSourceArtifactId`. The dedupe fallback `(srcArt, loadAddr)` collapses them.
+
+Merging would erase `baby`/`chr1`/`romance` entities, fold their refs into `ab`, and lose all per-payload knowledge for three files.
+
+Spec-060 prompt step 6 explicitly says: *"If at any point a dry-run shows an unexpected merge (different content being collapsed under one row), STOP and report. Do not apply the migration without explicit user confirmation."* — so this is the exact case the spec anticipated, but Bug 31 alone cannot be applied safely on any project that imported via manifest.
+
+### Two independent root causes
+
+**(a) Manifest importer — primary defect.** `import_manifest_artifact` (and any other entry-point that registers a `disk-file` / payload entity from a multi-payload container like a disk manifest, CRT chip table, archive listing) does NOT compute or set `payloadContentHash` on the entity. Without the primary key, Bug 31 dedupe falls through to the (srcArt, loadAddr) heuristic immediately for every manifest-sourced payload.
+
+**(b) Bug 31 fallback discriminator too loose.** The fallback key `(payloadSourceArtifactId, payloadLoadAddress)` treats the source artifact as a 1:1 reference. For an *aggregator* artifact (manifest, CRT, archive), the same srcArt legitimately backs N payloads. As soon as two of those N share a load address, fallback false-merges them.
+
+### Fix vectors (both should ship)
+
+**Fix A — manifest importer fills `payloadContentHash`** (new bug-fix sprint):
+
+1. In `import_manifest_artifact` (and any sibling importer that mints multiple payload entities from one container), for each payload entry:
+   - Resolve to actual file bytes (path is in the manifest entry).
+   - Compute SHA-256 (or whatever hash convention the project uses for `payloadContentHash` elsewhere).
+   - Set `entity.payloadContentHash` before persisting.
+2. Add `backfill_payload_content_hashes()` MCP tool for legacy projects: walks all payload-bearing entities with `payloadContentHash == null`, resolves `payloadSourceArtifactId` → file path → bytes → hash → write back. Idempotent. Supports `dry_run`.
+3. After backfill on Murder, all 16 disk-file entities have unique content hashes → Bug 31 primary key matches one-to-one (no merges) or matches genuine duplicates (across `01_murder` and `murder` aliases, which is the intended Spec-060 collapse).
+
+**Fix B — Bug 31 fallback tightened** (Bug 31 follow-up):
+
+Change fallback key from `(payloadSourceArtifactId, payloadLoadAddress)` to `(payloadSourceArtifactId, payloadLoadAddress, name)` — i.e., still allow the alias-collapse case (`01_murder` and `murder` share name-stem `murder` once load-order prefix is stripped, OR they pass name-equality via the prefix-strip rule already used elsewhere), but block the cross-payload collision case where the names are genuinely different (`ab` vs `baby` vs `chr1` vs `romance`).
+
+Pseudo-code:
+
+```ts
+function nameStem(name: string): string {
+  // strip leading "NN_" load-order prefix ("01_murder" → "murder")
+  return name.replace(/^\d+_/, '');
+}
+
+const fallbackKey = (e: Entity): string =>
+  `src+load+name:${e.payloadSourceArtifactId}@${e.payloadLoadAddress}#${nameStem(e.name)}`;
+```
+
+OR add an `aggregator: true` flag on artifacts that legitimately back N>1 payloads (manifests, CRTs) and refuse the fallback entirely when srcArt is an aggregator. Discriminator-on-name is simpler and catches all observed cases.
+
+### Verification on Murder (post-fix)
+
+Expected after Fix A + B applied + `backfill_payload_content_hashes` + `dedupe_payload_entities(dry_run=true)`:
+
+- 16 disk-file entities (no-prefix `murder`/`ab`/`riv1`/...) get content hashes.
+- 17 payload entities (prefixed `01_murder`/`02_ab`/...) already have hashes from `analyze_prg`.
+- Pairs like `murder` ↔ `01_murder` collapse via primary-key hash match (both pointing at the same file bytes, just registered twice — exact case Spec 060 wants merged).
+- `ab` ↔ `baby` ↔ `chr1` ↔ `romance` stay separate (different hashes, OR if hashes still null, name-discriminator blocks them).
+
+Final survivor count should drop from 33 to ~16 (one per actual PRG file).
+
+### Cross-reference
+
+- Spec 060 — canonical payload flow: defines `payloadContentHash` as the PRIMARY dedupe key; this bug is the implementation gap that prevents the spec from working end-to-end.
+- Bug 31 — payload entity dedupe (already fixed): provides the dedupe machinery; this bug is the followup tightening.
+- Bug 30 — artifact registry dedupe (already fixed): the artifact side cleaned up correctly on Murder dry-run (54 path-groups, 88 rows merge, 276 survivors); only the payload side blocks.
+
+### Fix (Sprint 55)
+
+**Fix A — manifest importer + backfill tools:**
+
+`importManifestKnowledge` now computes `payloadContentHash` per disk-file entry by hashing the file bytes (`relativePath` resolved against manifest's directory). The hash propagates through `saveEntity` so dedup primary-key matching works end-to-end for new imports. `sha256OfFile` exported from `service.ts` for shared use.
+
+Two backfill tools for legacy projects:
+
+- `backfill_payload_content_hashes` — walks payload-bearing entities with `payloadContentHash == null` whose `payloadSourceArtifactId` points at a directly-linked file (NOT a manifest), reads file bytes, sha256, writes back. Skips manifest-sourced entities (those need the second tool).
+- `backfill_manifest_payload_hashes` — walks artifacts of `kind == "manifest"`, re-parses each via `importManifestKnowledge`, and for every imported entity that already exists (matched by stable id), copies the freshly-computed hash into the legacy entity record.
+
+Both tools support `dry_run`, are idempotent, and report counts + 10-row samples.
+
+**Fix B — aggregator skip in dedup fallback:**
+
+`saveEntity` payload-dedup and `dedupePayloadEntities` migration both check `srcArt.kind === "manifest"` before falling back to `(payloadSourceArtifactId, payloadLoadAddress)` matching. When the source is an aggregator, the fallback is refused — the hash primary key is the only allowed matcher. Prevents false-merge of distinct PRGs that happen to share a load address (e.g. `ab`, `baby`, `chr1`, `romance` all loading at $4000 in Murder's manifest).
+
+The migration `dedupePayloadEntities` puts aggregator-sourced entities without hashes into solo-key buckets so they pass through untouched.
+
+**Murder migration order (post-fix):**
+
+1. `dedupe_artifact_registry()` — artifact layer (already safe).
+2. `backfill_payload_content_hashes()` — direct-linked PRG entities.
+3. `backfill_manifest_payload_hashes()` — manifest-sourced disk-file entities.
+4. `dedupe_payload_entities(dry_run=true)` — should now show only same-hash collapses (`murder` ↔ `01_murder`), no cross-payload false-merges.
+5. `dedupe_payload_entities()` — apply.
+
+Smoke: `scripts/sprint55-smoke.mjs` covers (a) aggregator-skip prevents false-merge, (b) manifest-import populates hash with sha256 of file bytes, (c) `backfill_payload_content_hashes` direct flow + dry-run, (d) `backfill_manifest_payload_hashes` re-parse flow + dry-run.

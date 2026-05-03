@@ -685,6 +685,66 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Bug 33 Fix A: backfill payloadContentHash on payload-bearing
+  // entities whose source artifact is directly-linked (NOT a manifest).
+  server.tool(
+    "backfill_payload_content_hashes",
+    "Bug 33 Fix A: walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId points at a directly-linked file (NOT a manifest/aggregator), read the file bytes and compute sha256, writing back into entity.payloadContentHash. For manifest-sourced entities use backfill_manifest_payload_hashes instead. Skips already-hashed entities. dry_run=true previews without writing. Idempotent.",
+    {
+      project_dir: z.string().optional(),
+      dry_run: z.boolean().optional(),
+    },
+    safeHandler("backfill_payload_content_hashes", async ({ project_dir, dry_run }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.backfillPayloadContentHashes({ dryRun: dry_run ?? false });
+      const lines = [
+        `backfill_payload_content_hashes${dry_run ? " (dry run)" : ""}`,
+        `Updated: ${result.updated}`,
+        `Skipped (already hashed): ${result.skippedAlreadyHashed}`,
+        `Skipped (no source artifact): ${result.skippedNoSource}`,
+        `Skipped (manifest source — use backfill_manifest_payload_hashes): ${result.skippedAggregatorSource}`,
+        `Skipped (file missing on disk): ${result.skippedFileMissing}`,
+      ];
+      if (result.sample.length > 0) {
+        lines.push(``, `Sample:`);
+        for (const s of result.sample) {
+          lines.push(`  ${s.entityId} (${s.name}) -> ${s.hash.slice(0, 16)}...`);
+        }
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
+  // Bug 33 Fix A (manifest path): backfill payloadContentHash on
+  // manifest-sourced entities by re-parsing manifest artifacts.
+  server.tool(
+    "backfill_manifest_payload_hashes",
+    "Bug 33 Fix A (manifest path): walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into the matching manifest-imported entity's payloadContentHash. Matches entities by the stableId pattern that manifest-import uses. Skips already-hashed entities. dry_run=true previews. Idempotent.",
+    {
+      project_dir: z.string().optional(),
+      dry_run: z.boolean().optional(),
+    },
+    safeHandler("backfill_manifest_payload_hashes", async ({ project_dir, dry_run }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.backfillManifestPayloadHashes({ dryRun: dry_run ?? false });
+      const lines = [
+        `backfill_manifest_payload_hashes${dry_run ? " (dry run)" : ""}`,
+        `Manifests scanned: ${result.manifestsScanned}`,
+        `Updated: ${result.updated}`,
+        `Skipped (already hashed): ${result.skippedAlreadyHashed}`,
+        `Skipped (manifest entry has no matching entity): ${result.skippedNoMatch}`,
+        `Skipped (file missing on disk): ${result.skippedFileMissing}`,
+      ];
+      if (result.sample.length > 0) {
+        lines.push(``, `Sample:`);
+        for (const s of result.sample) {
+          lines.push(`  ${s.entityId} (${s.name}) -> ${s.hash.slice(0, 16)}...`);
+        }
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
   // Spec 060 / Bug 30: one-shot migration to collapse legacy duplicate
   // artifact registrations (same path, different ids) into one canonical
   // record per path with reference remap across all knowledge stores.
