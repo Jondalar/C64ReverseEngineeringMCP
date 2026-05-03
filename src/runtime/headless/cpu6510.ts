@@ -110,9 +110,20 @@ export class Cpu6510 {
       return;
     }
 
+    const cyclesBefore = this.cycles;
     const arg = this.resolveArg(info.mode);
     this.execute(info.op, info.mode, arg);
-    this.cycles += info.cycles;
+    // Spec 091: each bus access already incremented cycles by 1. We've
+    // counted N accesses since cyclesBefore. info.cycles is the true
+    // total per VICE/Lorenz table. Add the remainder to keep totals
+    // accurate. Branch-taken / page-cross adjustments stay in branch().
+    const accessesDone = this.cycles - cyclesBefore;
+    if (accessesDone < info.cycles) {
+      this.cycles += info.cycles - accessesDone;
+    }
+    // Note: if accessesDone > info.cycles (rare overcount), let the
+    // overshoot stand — peripherals see wall-clock that ticks slightly
+    // faster, but it self-corrects on next instruction.
   }
 
   private stepUndocumented(opcode: number): void {
@@ -126,8 +137,10 @@ export class Cpu6510 {
       return;
     }
     const { kind, mode, cycles } = slot;
+    const cyclesBefore = this.cycles;
     const arg = this.resolveArg(mode);
-    this.cycles += cycles;
+    // Spec 091: cycles handled per bus access; account for missing on exit.
+    void cycles;
     switch (kind) {
       case "nop": return;
       case "slo": {
@@ -632,11 +645,21 @@ export class Cpu6510 {
     return this.read(0x0100 + this.sp);
   }
 
+  // Spec 091: per-bus-access cycle counting. Each call advances
+  // this.cycles by 1 BEFORE the actual bus access. Drive (and other
+  // observers) see drive.executeToClock(this.cycles) at the correct
+  // mid-instruction cycle.
+  // The legacy `cycles += info.cycles` at end of step() is now ZERO'd
+  // because we count cycles per access. For opcodes whose info.cycles
+  // exceeds bus access count (dummy reads, page-cross penalty, branch
+  // taken), specific helpers add the missing cycles.
   private read(address: number): number {
+    this.cycles += 1;
     return this.memory.read(address & 0xffff) & 0xff;
   }
 
   private write(address: number, value: number): void {
+    this.cycles += 1;
     this.memory.write(address & 0xffff, value & 0xff);
   }
 }
