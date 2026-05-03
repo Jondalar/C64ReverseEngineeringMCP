@@ -186,24 +186,46 @@ export class HeadlessMemoryBus {
     this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
   }
 
-  private basicVisible(): boolean {
+  // Sprint 87 (Spec 087): PLA truth-table approach. Inputs:
+  //   LORAM ($01 bit 0), HIRAM ($01 bit 1), CHAREN ($01 bit 2)
+  //   /EXROM, /GAME from cartridge (1 = released/inactive, 0 = asserted)
+  // No cartridge attached: EXROM=1, GAME=1.
+  private pla(): { bank8: 'ram' | 'cart_lo'; bankA: 'ram' | 'basic' | 'cart_hi'; bankD: 'ram' | 'io' | 'char'; bankE: 'ram' | 'kernal' | 'cart_hi_ultimax' } {
     const port = this.cpuPortValue & 0x07;
-    return (port & 0x03) === 0x03;
+    const loram = (port & 0x01) !== 0;
+    const hiram = (port & 0x02) !== 0;
+    const charen = (port & 0x04) !== 0;
+    const lines = this.cartridge?.getLines();
+    const exrom = lines ? (lines.exrom !== 0) : true;
+    const game = lines ? (lines.game !== 0) : true;
+    // Ultimax mode: GAME=0 AND EXROM=1.
+    const ultimax = !game && exrom;
+
+    let bank8: 'ram' | 'cart_lo' = 'ram';
+    if (ultimax) bank8 = 'cart_lo';
+    else if (loram && hiram && !exrom) bank8 = 'cart_lo';
+
+    let bankA: 'ram' | 'basic' | 'cart_hi' = 'ram';
+    if (ultimax) bankA = 'ram';                 // unmapped in Ultimax
+    else if (loram && hiram && !exrom && !game) bankA = 'cart_hi'; // 16K cart
+    else if (loram && hiram) bankA = 'basic';   // standard
+
+    let bankD: 'ram' | 'io' | 'char' = 'ram';
+    if (ultimax) bankD = 'io';                  // I/O always in Ultimax
+    else if ((loram || hiram) && charen) bankD = 'io';
+    else if ((loram || hiram) && !charen) bankD = 'char';
+
+    let bankE: 'ram' | 'kernal' | 'cart_hi_ultimax' = 'ram';
+    if (ultimax) bankE = 'cart_hi_ultimax';
+    else if (hiram) bankE = 'kernal';
+
+    return { bank8, bankA, bankD, bankE };
   }
 
-  private kernalVisible(): boolean {
-    return (this.cpuPortValue & 0x02) !== 0;
-  }
-
-  private ioVisible(): boolean {
-    const port = this.cpuPortValue & 0x07;
-    return (port & 0x04) !== 0 && (port & 0x03) !== 0;
-  }
-
-  private charVisible(): boolean {
-    const port = this.cpuPortValue & 0x07;
-    return (port & 0x04) === 0 && (port & 0x03) !== 0;
-  }
+  private basicVisible(): boolean { return this.pla().bankA === 'basic'; }
+  private kernalVisible(): boolean { return this.pla().bankE === 'kernal'; }
+  private ioVisible(): boolean { return this.pla().bankD === 'io'; }
+  private charVisible(): boolean { return this.pla().bankD === 'char'; }
 
   private recordAccess(kind: "read" | "write", address: number, value: number, region: string): void {
     if (!this.tracingEnabled) {

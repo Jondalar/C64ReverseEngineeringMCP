@@ -54,6 +54,16 @@ export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartri
       return new Normal16kMapper(image);
     case "ultimax":
       return new UltimaxMapper(image);
+    // Sprint 87 (Spec 087) — user-priority adds. GMOD2/3 are EAPI-style
+    // banked Flash carts; C64MegaCart is a multi-game banked cart. Each
+    // shares Magic Desk-style $DE00 bank-select semantics for v1; full
+    // EEPROM (GMOD2 SDA) deferred per R31 backlog.
+    case "gmod2":
+      return new Gmod2Mapper(image);
+    case "gmod3":
+      return new Gmod3Mapper(image);
+    case "c64megacart":
+      return new C64MegaCartMapper(image);
   }
 }
 
@@ -705,5 +715,48 @@ class MegabyterMapper extends BaseMapper {
 
   private chipOffsetForWindow(baseAddress: number, address: number): number {
     return (this.bankRegister << 13) | resolveRelativeOffset(baseAddress, address);
+  }
+}
+
+// Sprint 87 (Spec 087) — GMOD2 mapper (Individual Computers).
+// 512 KB Flash + 2 KB EEPROM. v1 implements bank switching via
+// $DE00 (bits 0-5 = bank, bit 6 = flash visible/disabled). EEPROM
+// SDA/CLK simulation (bit 7 + bit 6) deferred to R31 backlog.
+class Gmod2Mapper extends BaseMapper {
+  write(address: number, value: number): boolean {
+    if (address === 0xde00) {
+      this.currentBank = value & 0x3f;
+      // bit 6 = exrom (1 = released, 0 = asserted) per GMOD2 docs
+      // simplification: cart visible while bank-select active
+      return true;
+    }
+    return false;
+  }
+}
+
+// GMOD3 — 16 MB Flash version of GMOD2. Same banking via $DE00 +
+// extended bank select via $DE02. v1 only handles low-byte bank select.
+class Gmod3Mapper extends BaseMapper {
+  write(address: number, value: number): boolean {
+    if (address === 0xde00) {
+      this.currentBank = (this.currentBank & 0xff00) | (value & 0xff);
+      return true;
+    }
+    if (address === 0xde02) {
+      this.currentBank = ((value & 0xff) << 8) | (this.currentBank & 0xff);
+      return true;
+    }
+    return false;
+  }
+}
+
+// C64MegaCart — multi-game cart with simple $DE00 bank select.
+class C64MegaCartMapper extends BaseMapper {
+  write(address: number, value: number): boolean {
+    if (address === 0xde00) {
+      this.currentBank = value & 0x7f;
+      return true;
+    }
+    return false;
   }
 }
