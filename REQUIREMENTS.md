@@ -576,13 +576,16 @@ The post-annotation closed loop (R26) automatically scopes to the artifact whose
 
 ---
 
-## UX2 — Payloads tab dedupe + click-to-inspect
+## UX2 — Canonical payload flow (no UI dedupe; fix at the data layer)
 
-**Status**: SPEC PENDING.
+**Status**: SPEC WRITTEN — Spec 060 (`060-ux2-canonical-payload-flow.md`).
 
-**Problem**: Payloads tab (screenshot 2026-05-03 12.25.00) shows 33 payloads with duplicates: e.g. `01_murder` + `murder` (same load $02DC, same content), `11_riv1` + `riv1` (same $0700). Bug 24 lineage filter doesn't catch these — they are Entity duplicates, not Artifact duplicates. Plus inline `mon (raw)` + `reverse workflow` buttons on every card clutter the list; inconsistent with the click-to-select-inspector pattern used by Disk Files / Cart Chunks.
+**Reframed (per user feedback)**: original UX2 framing called for UI-side dedupe in the Payloads tab. Refinement showed the real defect is in the data layer (Bugs 30 + 31): artifact saver doesn't dedupe by path when callers pass different `input.id`, and importers create parallel payload entities for the same content under different names (`murder` vs `01_murder`). UI patches would only mask the corruption.
 
-**Want**:
-1. Dedupe payloads by `(payloadSourceArtifactId, payloadLoadAddress, payloadContentHash)`. On collision, prefer the manually-registered entity, fall back to the auto-import name. Optionally collapse via lineage when the entities are version-related.
-2. Card click selects payload, Inspector pane right shows details + actions (per Spec 059 pattern). Drop inline buttons.
-3. Confirm value: filterable list of "what this project loads" — useful when deduplicated.
+**Rule**: every code-modify / asset-extract / discovery action MUST honour Spec 025 lineage. The UI ALWAYS shows only the latest version. No special-case dedupe in the UI.
+
+Implementation tracks:
+- Bug 30 — artifact saver path-dedupe + `dedupe_artifact_registry()` migration.
+- Bug 31 — payload entity importer hygiene, `aliases: string[]` schema, `dedupe_payload_entities()` migration.
+
+For legacy projects (Murder, etc.), the spec ships an agent-driven migration prompt that walks the cleanup with dry-run previews + reference remap verification.
