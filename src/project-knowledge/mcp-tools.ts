@@ -685,6 +685,35 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // Bug 26 / Spec 058 follow-up: backfill `internal` flag on legacy
+  // artifacts + entities. Re-runs the path/role/kind heuristic.
+  server.tool(
+    "backfill_internal_flags",
+    "Bug 26 / Spec 058 follow-up: walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastructure but the flag was never persisted (legacy data predating the schema field). Idempotent. Entity classification uses the primary linked artifact's flag after the artifact pass. dry_run=true previews without writing.",
+    {
+      project_dir: z.string().optional(),
+      dry_run: z.boolean().optional(),
+    },
+    safeHandler("backfill_internal_flags", async ({ project_dir, dry_run }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const result = service.backfillInternalFlags({ dryRun: dry_run ?? false });
+      const lines = [
+        `backfill_internal_flags${dry_run ? " (dry run)" : ""}`,
+        `Artifacts updated: ${result.artifactsUpdated}`,
+        `Artifacts already flagged: ${result.artifactsAlreadyFlagged}`,
+        `Entities updated: ${result.entitiesUpdated}`,
+        `Entities already flagged: ${result.entitiesAlreadyFlagged}`,
+      ];
+      if (result.sample.length > 0) {
+        lines.push(``, `Sample:`);
+        for (const s of result.sample) {
+          lines.push(`  [${s.kind}] ${s.id} (${s.title})`);
+        }
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
   // Bug 33 Fix A: backfill payloadContentHash on payload-bearing
   // entities whose source artifact is directly-linked (NOT a manifest).
   server.tool(

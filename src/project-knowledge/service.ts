@@ -1169,6 +1169,75 @@ export class ProjectKnowledgeService {
     return counts;
   }
 
+  // Bug 26 / Spec 058 follow-up: backfill `internal` flag on legacy
+  // artifacts + entities whose flag was never set. Re-runs the same
+  // heuristic that saveArtifact / saveEntity apply for new records.
+  // Idempotent: records with flag already set are skipped.
+  backfillInternalFlags(opts?: { dryRun?: boolean }): {
+    artifactsUpdated: number;
+    artifactsAlreadyFlagged: number;
+    entitiesUpdated: number;
+    entitiesAlreadyFlagged: number;
+    sample: Array<{ kind: "artifact" | "entity"; id: string; title: string; internal: boolean }>;
+  } {
+    const dryRun = opts?.dryRun ?? false;
+    const out = {
+      artifactsUpdated: 0, artifactsAlreadyFlagged: 0,
+      entitiesUpdated: 0, entitiesAlreadyFlagged: 0,
+      sample: [] as Array<{ kind: "artifact" | "entity"; id: string; title: string; internal: boolean }>,
+    };
+    const ts = nowIso();
+
+    // Pass 1: artifacts.
+    const artifactStore = this.storage.loadArtifacts();
+    const updatedArtifacts = artifactStore.items.map((a) => {
+      if (a.internal !== undefined) {
+        out.artifactsAlreadyFlagged += 1;
+        return a;
+      }
+      const internal = classifyArtifactInternal({
+        path: a.relativePath || a.path,
+        role: a.role,
+        kind: a.kind,
+      });
+      if (!internal) return a; // leave undefined for non-internal
+      out.artifactsUpdated += 1;
+      if (out.sample.length < 10) {
+        out.sample.push({ kind: "artifact", id: a.id, title: a.title, internal: true });
+      }
+      return { ...a, internal: true, updatedAt: ts };
+    });
+    if (!dryRun && out.artifactsUpdated > 0) {
+      this.storage.saveArtifacts({ ...artifactStore, updatedAt: ts, items: updatedArtifacts });
+    }
+
+    // Pass 2: entities. Always use the just-updated artifact map (even
+    // on dry-run) so entity flag is predicted correctly assuming the
+    // artifact pass would have applied.
+    const artifactsById = new Map(updatedArtifacts.map((a) => [a.id, a] as const));
+    const entityStore = this.storage.loadEntities();
+    const updatedEntities = entityStore.items.map((e) => {
+      if (e.internal !== undefined) {
+        out.entitiesAlreadyFlagged += 1;
+        return e;
+      }
+      const primaryId = e.payloadSourceArtifactId ?? e.artifactIds?.[0];
+      if (!primaryId) return e;
+      const primary = artifactsById.get(primaryId);
+      if (!primary || primary.internal !== true) return e;
+      out.entitiesUpdated += 1;
+      if (out.sample.length < 20) {
+        out.sample.push({ kind: "entity", id: e.id, title: e.name, internal: true });
+      }
+      return { ...e, internal: true, updatedAt: ts };
+    });
+    if (!dryRun && out.entitiesUpdated > 0) {
+      this.storage.saveEntities({ ...entityStore, updatedAt: ts, items: updatedEntities });
+    }
+
+    return out;
+  }
+
   // Bug 33 Fix A: backfill payloadContentHash on payload-bearing
   // entities whose payloadSourceArtifactId points at a directly-linked
   // file (NOT a manifest/aggregator). Reads file bytes, hashes,

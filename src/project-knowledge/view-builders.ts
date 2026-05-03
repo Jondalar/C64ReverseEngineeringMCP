@@ -1,6 +1,40 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, extname, resolve as resolvePath } from "node:path";
 import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFileEntry } from "../disk/index.js";
+import { classifyArtifactInternal } from "./service.js";
+
+// Bug 26 / Spec 058 + this-session fix: legacy artifacts whose
+// `internal` flag was never set (predates the schema field) need
+// heuristic re-classification at view-build time so views like the
+// Load Sequence don't surface annotations / manifests as fake stages.
+// Uses the same path/role/kind heuristic that `saveArtifact` applies
+// for new records.
+function isInternalArtifactWithFallback(artifact: ArtifactRecord): boolean {
+  if (artifact.internal === true) return true;
+  if (artifact.internal === false) return false;
+  return classifyArtifactInternal({
+    path: artifact.relativePath || artifact.path,
+    role: artifact.role,
+    kind: artifact.kind,
+  });
+}
+
+// Entity-side fallback: an entity is internal when its primary linked
+// artifact is internal. Mirrors saveEntity's auto-derivation but
+// applied at view-build time for legacy entities that pre-date the
+// schema field.
+function isInternalEntityWithFallback(
+  entity: EntityRecord,
+  artifactsById: Map<string, ArtifactRecord>,
+): boolean {
+  if (entity.internal === true) return true;
+  if (entity.internal === false) return false;
+  const primaryId = entity.payloadSourceArtifactId ?? entity.artifactIds?.[0];
+  if (!primaryId) return false;
+  const primary = artifactsById.get(primaryId);
+  if (!primary) return false;
+  return isInternalArtifactWithFallback(primary);
+}
 import type {
   AnnotatedListingView,
   ArtifactRecord,
@@ -1725,7 +1759,7 @@ export function buildLoadSequenceView(context: ViewBuildContext): LoadSequenceVi
   const groupedArtifacts = new Map<string, { descriptor: NonNullable<ReturnType<typeof deriveStageDescriptor>>; artifacts: ArtifactRecord[] }>();
 
   for (const artifact of context.artifacts) {
-    if (artifact.internal === true) continue;
+    if (isInternalArtifactWithFallback(artifact)) continue;
     const descriptor = deriveStageDescriptor(artifact);
     if (!descriptor) {
       continue;
@@ -1892,8 +1926,10 @@ export function buildFlowGraphView(context: ViewBuildContext): FlowGraphView {
 function buildStructureFlowMode(context: ViewBuildContext): FlowGraphMode {
   // Bug 26 / Spec 058: drop internal entities from the flow graph so
   // "Murder Annotations" / "Murder Disasm Rebuild Check" don't show up
-  // as nodes alongside the real "Murder" payload.
-  const visibleEntities = context.entities.filter((e) => e.internal !== true);
+  // as nodes alongside the real "Murder" payload. Heuristic fallback
+  // covers legacy entities whose internal flag was never set.
+  const artifactsById = new Map(context.artifacts.map((a) => [a.id, a] as const));
+  const visibleEntities = context.entities.filter((e) => !isInternalEntityWithFallback(e, artifactsById));
   const entityById = new Map(visibleEntities.map((entity) => [entity.id, entity]));
   const nodeMap = new Map<string, FlowGraphView["nodes"][number]>();
   const edgeMap = new Map<string, FlowGraphView["edges"][number]>();
@@ -2350,8 +2386,9 @@ export function buildAnnotatedListingView(context: ViewBuildContext): AnnotatedL
     }
   }
 
+  const annotatedListingArtifactsById = new Map(context.artifacts.map((a) => [a.id, a] as const));
   const entityByAddress = [...context.entities]
-    .filter((entity) => entity.addressRange && entity.internal !== true)
+    .filter((entity) => entity.addressRange && !isInternalEntityWithFallback(entity, annotatedListingArtifactsById))
     .sort((left, right) => left.addressRange!.start - right.addressRange!.start);
 
   // analysis-json artifacts ARE internal by classification (LLM-only),

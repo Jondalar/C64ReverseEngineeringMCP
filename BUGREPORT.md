@@ -1886,3 +1886,30 @@ The migration `dedupePayloadEntities` puts aggregator-sourced entities without h
 5. `dedupe_payload_entities()` — apply.
 
 Smoke: `scripts/sprint55-smoke.mjs` covers (a) aggregator-skip prevents false-merge, (b) manifest-import populates hash with sha256 of file bytes, (c) `backfill_payload_content_hashes` direct flow + dry-run, (d) `backfill_manifest_payload_hashes` re-parse flow + dry-run.
+
+---
+
+## Bug 34 — Legacy artifacts / entities lack `internal` flag → annotations leak into Load Sequence flow graph
+
+**Severity:** medium (UI clutter; misleading load-order arrows like `01 Murder → 01 Murder Annotations → 02 AB`).
+**Discovered during:** Sprint 56 verification on Murder, screenshot 2026-05-03 14.12.56 — Flow Graph tab → Load sub-mode shows annotation JSONs as load stages.
+**Status:** FIXED (Sprint 58).
+
+### Root cause
+
+Bug 26 / Spec 058 introduced auto-classification of `internal` on `saveArtifact` / `saveEntity`. Existing records (created before the schema field landed) keep `internal === undefined`. View-builders only filtered `artifact.internal === true` strict, so legacy records leaked through and annotations showed up alongside real payloads.
+
+### Fix (Sprint 58)
+
+**View-builder side (immediate UI fix):**
+
+`isInternalArtifactWithFallback` + `isInternalEntityWithFallback` helpers in `view-builders.ts` apply the same heuristic that `saveArtifact` uses (`classifyArtifactInternal` from `service.ts`) when `internal` is undefined. Used in:
+- `buildLoadSequenceView` (drove the bug)
+- `buildStructureFlowMode` (entity-side fallback uses primary linked artifact's flag)
+- `buildAnnotatedListingView` (same)
+
+**Migration tool (permanent cleanup):**
+
+`backfill_internal_flags({dry_run})` MCP tool walks artifacts + entities, runs the heuristic on records with `internal === undefined`, writes `internal: true` where it matches. Entity classification uses the (just-updated) artifact map so a single dry-run + apply suffices. Idempotent.
+
+Smoke at `scripts/sprint58-smoke.mjs` covers dry-run preservation + apply + idempotency + entity-from-artifact inheritance.

@@ -606,3 +606,62 @@ For legacy projects (Murder, etc.), the spec ships an agent-driven migration pro
 Schema add: `TaskRecord.kind: "human" | "automation"` so the UI can distinguish UI-triggered automation tasks from manual human TODOs.
 
 Aligns with the user's broader workflow: "Claude initialisere das Projekt" → "Starte das UI" → "Polle alle 30 Sekunden ob es ein Todo gibt aus dem UI".
+
+## R28 — Headless 1541 drive-bus emulation for custom-loader runtime traces
+
+**Severity:** high (blocks runtime tracing of every game with a custom drive loader — virtually all C64 commercial software 1985+)
+**Discovered during:** Murder on the Mississippi headless boot attempt (2026-05-03). Auto-boot trap loaded `murder.prg` ✓, KERNAL-LOAD-trap loaded `ab.prg` ✓, but ab.prg's drive-install sequence (`LISTEN 8 / SECOND $6F / CIOUT M-W bytes / UNLSN`, then M-E to start drive code) had no responder. Calls fall through to bare KERNAL serial routines that spin on `$DD00` IEC handshake forever, SP underflows, RTS pulls garbage → drift to $C000 BRK chain at cycle 12413.
+
+### Symptom
+
+Headless emulator's trap layer covers KERNAL `LOAD` / `SAVE` only. Anything that touches the serial bus directly — drive-RAM writes (M-W), drive-execute (M-E), block-read (U1/B-R), custom $DD00 bit-bang protocols — is unhandled. For Murder this means we can boot exactly two PRGs (the trapped LOAD chain) before the runtime derails. Most non-trivial C64 software fails the same way.
+
+### Why this matters
+
+- **Spec 060+ migration validation:** without runtime traces from headless we can't generate `define_runtime_scenario` / `record_runtime_event_summary` data for the Murder project — the entire `runtime-aggregation` workflow phase is unblockable.
+- **EF-port spec prerequisite:** the EF port plan's Phase 0 needs traced evidence of the original loader behaviour (which addresses fastloader-write to, what cmd-byte → load-address dispatch actually does, where save-disk-write code lives) before we can write port patches. VICE works but doesn't integrate with the C64RE trace pipeline; headless does.
+- **Generality:** any future RE target that uses a custom loader hits this immediately. Murder is just the first to surface it.
+
+### Proposed solution (three escalation levels)
+
+**Level 1 — IEC bus message trap (smallest):**
+Pattern-match the standard KERNAL serial sequences in the trap layer:
+- `LISTEN($FFB1) device=8` → start capturing
+- `SECOND($FF93) sa=$6F` → expect command channel
+- `CIOUT($FFA8)` stream → buffer command bytes ("M-W" + addr-lo + addr-hi + count + payload, "M-E" + addr-lo + addr-hi, "U1" + ch + dev + track + sector, etc.)
+- `UNLSN($FFAE)` → parse buffer, dispatch
+- For M-W: write into a virtual 2KB drive-RAM buffer.
+- For M-E: stub-execute (no-op return — so drive code does nothing, but C64 control-flow doesn't desync).
+- For U1/U2/B-R/B-W: serve / store via the attached G64/D64.
+- For TALK + read-back: replay drive-RAM content / OK status bytes ("00, OK,00,00\r").
+
+Effort: medium. Catches every game that uses KERNAL serial routines for drive comms (vast majority). Does NOT catch games that bypass KERNAL and bit-bang $DD00 directly during the install phase (rare for install — common for runtime fastload). Won't actually run drive code — only stub-acks it.
+
+**Level 2 — drive 6502 sandbox + VIA skeleton (recommended):**
+Add a second 6502 instance to the headless step loop with:
+- Drive RAM $0000-$07FF, drive ROM stubs at $C000-$FFFF (or refuse to fetch from there and stub-return),
+- VIA1 ($1800-$180F) PB modeling IEC ATN/CLK/DATA in/out wired to C64's CIA2 PA ($DD00) via shared bit-state,
+- VIA2 ($1C00-$1C0F) drive control register (LED, motor, head-step) — observable but no platter,
+- Job-loop ZP byte ($00) intercepted: writes trigger "fake job done" with ack code.
+
+Both CPUs tick in lockstep on the same clock. M-W actually writes drive-RAM, M-E sets drive-PC and the drive CPU runs custom code, raw $DD00 bit-bang protocols (Murder's runtime fastloader uses this) work because the drive CPU sees and toggles its own VIA1 pins. No GCR decode, no platter physics — block reads served from the attached image when drive code requests them via standard sector-read pathways.
+
+Effort: large but bounded. Covers ~95% custom-loader use cases. Drive ROM unhandled means games that JSR into drive ROM ($C000-$FFFF) need targeted stubs, but those are well-known KERNAL-equivalents (SCAN, DRDBYT, etc.) and there are <50 hot ones.
+
+**Level 3 — full 1541 (out of scope):**
+Complete drive ROM, GCR encode/decode, head positioning, write-protect, sync-detection. Equivalent to VICE's drive emulation. Multi-sprint effort, mostly redundant since VICE exists. Reject unless someone needs it for protection-cracking work where GCR-level fidelity matters.
+
+### Recommendation
+
+Ship **Level 1 first** (small, unblocks LOAD-only games + games whose drive-install is M-W stubs), then **Level 2** as a follow-up (unblocks Murder + every custom-fastloader title). Level 3 only if a project demands it.
+
+### Acceptance criteria
+
+- After Level 1: Murder boots through ab.prg's KERNAL-serial drive-install sequence without SP underflow. Last-trap shows recognised IEC commands, not "SETLFS lfn=47 device=223". Test: trace runs >50k instructions before any fault.
+- After Level 2: Murder boots through ab.prg's full custom-loader install, dispatches its first runtime cmd-byte ($0F → riv1 load), and the trace shows the loaded payload arriving in RAM at $0700. Test: `record_runtime_event_summary` captures load events for at least riv1+riv2+love.
+
+### Cross-reference
+
+- Spec 060 — migration applied successfully on Murder; this FR unblocks the runtime-aggregation phase that would consume the migrated data.
+- EF port spec (pending) — Phase 0 (Prerequisites) calls for runtime trace evidence; that work depends on this FR landing.
+- VICE integration tools (`vice_session_*`, `vice_trace_*`) — alternative route, but heavier and outside the headless trace pipeline.
