@@ -609,7 +609,7 @@ Aligns with the user's broader workflow: "Claude initialisere das Projekt" → "
 
 ## R28 — Headless 1541 drive-bus emulation for custom-loader runtime traces
 
-**Status:** SPEC'd (Spec 062). Refined Q1-Q10 + E. Implementation = Sprints 60-64. Plus Spec 063 captures full-C64-headless vision (long-term roadmap).
+**Status:** Implementation **DONE** (Sprints 60-64, Spec 062). Drive 6502 + IEC bus + GCR I/O + persist + VSF round-trip all shipped. Murder full-boot acceptance pending session-manager integration (deferred follow-up). Plus Spec 063 captures full-C64-headless vision (long-term roadmap).
 
 
 **Severity:** high (blocks runtime tracing of every game with a custom drive loader — virtually all C64 commercial software 1985+)

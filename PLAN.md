@@ -1746,13 +1746,19 @@ Headless emulator gains a complete cycle-accurate 1541 drive (drive 6502 + IEC b
 
 License posture: research-with-references. Read VICE source + Gideon 1541ultimate for algorithmic understanding; implement fresh in TS so the project stays MIT. Drive ROM bundled (`resources/roms/dos1541-325302-01+901229-05.bin`, 16KB) per Q1.α — same precedent as VICE/Gideon, ENV-VAR override available.
 
-- **Sprint 60** — drive CPU + RAM/ROM + VIA register skeleton (no IRQ/timers). End-to-end: M-E'd no-IEC drive code runs.
-- **Sprint 61** — IEC bus bit-mirror + full 6522 (IRQ + timers + handshake). End-to-end: KERNAL serial sequence completes through to drive's CommodoreDOS handler. Murder past stack-underflow.
-- **Sprint 62** — GCR drive-side I/O ($1C01 read latch, head positioning) + write back + persist `<image>_session.g64`. End-to-end: drive reads/writes sectors, save-game RE possible.
-- **Sprint 63** — trace integration (cpu tag) + drive MCP tools (Q7.C hybrid) + Murder acceptance + scope-boundary detection ($D011/$D012 polling → warning). R28 acceptance criterion #2 met.
-- **Sprint 64** — VSF (VICE Snapshot Format) read + write for the modeled subset. Cross-emulator state transfer (VICE ↔ headless). Forward-compat with Spec 063 phases.
+- **Sprint 60** — drive CPU + RAM/ROM + VIA register skeleton. **DONE.** Smoke at `scripts/sprint60-smoke.mjs`.
+- **Sprint 61** — IEC bus bit-mirror + full 6522 (IRQ + timers + handshake). **DONE.** Smoke at `scripts/sprint61-smoke.mjs`.
+- **Sprint 62** — GCR drive-side I/O ($1C01 read latch, head positioning) + write back + persist `<image>_session.g64`. **DONE.** Smoke at `scripts/sprint62-smoke.mjs`.
+- **Sprint 63** — drive session manager + 4 MCP tools (start/status/iec_bus_state/persist_writes) + sample harness + doc. **DONE** (narrowed scope). Smoke at `scripts/sprint63-smoke.mjs`. Doc at `docs/headless-drive-emulation.md`.
+- **Sprint 64** — VSF (VICE Snapshot Format) read + write for the modeled subset (DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD). 2 MCP tools. **DONE.** Smoke at `scripts/sprint64-smoke.mjs`.
 
-Status: spec'd (Spec 062), implementation pending.
+Status: **L3 implementation DONE.** All 5 sprints landed; 5 smoke harnesses green; samples (Maniac Mansion / Impossible Mission II / Last Ninja Remix) open cleanly.
+
+Deferred follow-ups (not blocking R28):
+- Trace `cpu` tag (Sprint 63 spec'd, not yet implemented — needed when full session-manager integration lands so C64-side traces interleave with drive-side).
+- `cpu` parameter on existing 19 `headless_*` MCP tools (Q7.C hybrid; deferred to avoid touching every tool surface in one PR).
+- `$D011`/`$D012` polling detection → scope-boundary warning (Sprint 63 spec'd, deferred).
+- Murder full-boot acceptance — requires C64 KERNAL ROM loaded into session-manager (currently traps LOAD/SAVE instead of running real KERNAL). Natural follow-up sprint that integrates the standalone DriveSession into the C64 session-manager + ships `headless_session_start` with a `disk_path` argument.
 
 Cross-ref: R28, Spec 062, Spec 063, existing src/disk/gcr.ts (reuse), existing src/runtime/headless/cpu6510.ts (re-instantiated for drive).
 
