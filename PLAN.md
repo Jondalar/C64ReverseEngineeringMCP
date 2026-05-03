@@ -1892,7 +1892,32 @@ Re-evaluate MM boot status after this batch.
 After Sprint 87: re-test MM, decide if more emulator work needed
 or if focus shifts to broader game compatibility / demo support.
 
-## Sprint 88+: Cycle-perfect MVP (user mandate May 2026)
+## Sprint 92: Cycle-lockstep architecture (clean rewrite, Spec 092)
+
+User feedback May 2026: VICE / virtualc64 / Hoxs64 / CCS64 ALL run
+true cycle-lockstep. If they can do it, headless can. Current
+instruction-batch + lazy execute (Sprints 88-91) was workaround,
+not the right architecture.
+
+Reference: virtualc64 (Hoffmann, github.com/dirkwhoffmann/virtualc64) —
+each chip = `executeOneCycle()` method, main loop ticks all chips per
+cycle in lockstep. Bit-accurate by construction.
+
+Sprint 92 = clean rewrite. Replaces Sprint 88-91 architecture entirely.
+
+- **92.1** — `CycleSteppable` interface + `CycleLockstepScheduler` skeleton.
+  Cpu6510 microcoded state machine (microcode table generated from
+  VICE source via `scripts/extract-vice-opcode-cycles.mjs`).
+- **92.2** — CIA cycle-stepped (timer A/B per cycle decrement).
+- **92.3** — VIC cycle-stepped (raster per cycle, sprite/bad-line
+  stealing per cycle).
+- **92.4** — Drive Cpu6502 + VIA1 + VIA2 cycle-stepped.
+- **92.5** — IecBus instant state propagation (no `beforeC64Read` hook).
+- **92.6** — Remove obsolete instruction-batch code paths. Migrate tests.
+- **92.7** — Acceptance: MM, Murder, Last Ninja, Impossible Mission II
+  all reach title screen / game start via real custom-loader bit-bang.
+
+## Sprint 88-91: Pre-lockstep workarounds (superseded by Sprint 92)
 
 User clarified: cycle-perfect is **MVP**, not long-term goal. Headless
 must replace VICE for autonomous LLM-driven game analysis. Every game
