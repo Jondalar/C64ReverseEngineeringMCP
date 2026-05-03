@@ -96,7 +96,40 @@ phases below map roughly to phases 3 / 5 / 7 of the seven-phase model.
 - **SegmentKind** (26 values): `code`, `text`, `sprite`, `charset`, `bitmap`, `pointer_table`, `unknown`, etc.
 - **ReferenceType** (8 values): `entry`, `call`, `jump`, `branch`, `fallthrough`, `pointer`, `read`, `write`
 - **AnalysisReport**: Contains `segments`, `crossReferences`, `entryPoints`, `symbols`, `ramHypotheses`, `hardwareEvidence`
-- **Annotations**: `SegmentAnnotation` (reclassify segments), `LabelAnnotation` (named addresses), `RoutineAnnotation` (documented routines)
+- **Annotations**: `SegmentAnnotation` (reclassify segments — Spec 055 effective-segments overlay supports cross-boundary reshape), `LabelAnnotation` (named addresses), `RoutineAnnotation` (documented routines — auto-emitted as findings via Spec 055 `emitAnnotationFindings`)
+- **ArtifactRecord** carries `internal?: boolean` (Spec 058 — auto-classified, hides infrastructure files from user views), lineage fields (`derivedFrom`, `lineageRoot`, `versionRank`, `versionLabel`, `versions[]` — Spec 025), `phase`/`phaseFrozen` (Spec 034), `platform` (Spec 020), `loadContexts[]` (Spec 023), `relevance` (Spec 041).
+- **EntityRecord** also carries `internal?: boolean` (derived from primary linked artifact when not set).
+- **FindingRecord** carries top-level `addressRange` (Spec 053 / Bug 25) used by `archivePhase1Noise` matcher; matcher falls back to `evidence[0].addressRange` for legacy data (Bug 28).
+
+## Closed-Loop Sweep (Spec 057 / R26)
+
+`disasm_prg` (when annotations consumed) and `save_finding` (when
+`tags=["routine"]` + `addressRange` set) automatically run
+`archivePhase1Noise` + `sweepQuestionResolutions` and append a footer:
+
+```
+Auto-archive: archived 18 findings, answered 23 questions [scope=artifact:<id>, project=A/B]
+```
+
+Soft fail: parent op never breaks because the closed loop hit a snag.
+For per-file feedback, both `archive_phase1_noise` and
+`auto_resolve_questions` accept optional `artifact_id` (Spec 056 / R27).
+
+## UI Visibility Rules
+
+The workspace UI applies two filters to every artifact list site:
+
+- **Latest version per lineage** (Spec 054 / Bug 24): default. Toggle
+  `Show all versions` in the header exposes V0..V(n-1).
+  Two-stage dedup: lineage chain first, then same-path (Bug 10
+  family registrations).
+- **Hide internal files** (Spec 058 / Bug 26): default. Toggle
+  `Show internal files` exposes manifests, analysis JSONs,
+  annotations files, run-event-logs, rebuild-check binaries.
+
+Both filters propagate via React context (`LineageVisibilityContext`,
+`InternalVisibilityContext`) so nested panels honour them without
+prop drilling.
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands

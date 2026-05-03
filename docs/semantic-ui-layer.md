@@ -89,6 +89,21 @@ npm run ui:dev           # live-reload via Vite on http://127.0.0.1:4311
 
 The UI is React + Vite, no global state library. Tabs map 1:1 to views.
 
+Header toggles (Spec 054 + Spec 058):
+- `Show all versions` — default off; exposes V0..V(n-1) artifacts for
+  debug. When off, every list filters to the highest `versionRank` per
+  `lineageRoot`, then dedupes by `relativePath` to catch independent
+  same-path registrations (Bug 10 family).
+- `Show internal files` — default off; exposes manifests, analysis
+  JSONs, annotations files, run-event-logs, rebuild-check binaries.
+  When off, the same filter runs in every list site through
+  `InternalVisibilityContext`.
+
+Both filters are React contexts (`LineageVisibilityContext`,
+`InternalVisibilityContext`) so nested panels honour them without prop
+drilling. Inspector "Linked Artifacts" rows show a `+(N-1) older` badge
+when the lineage has more versions than what's currently visible.
+
 ### Screenshots
 
 Example MotM64 workspace captures from the bundled UI:
@@ -141,6 +156,20 @@ read as half-empty bars.
 | `GET /api/document` | Read a project-relative markdown file (used by the docs tab). |
 | `GET /api/artifact/raw` | Stream raw bytes of any project-relative artifact (max 8 MiB). Backs the hex overlay. |
 | `GET /api/health` | Liveness probe. |
+| `GET /api/graphics` | Sprite/charset/bitmap segments (de-duped by `*_analysis.json` path; `confirmed`/`rejected` flags inlined per item — Bug 23 Stage 2). |
+| `POST /api/segment/confirm` | Mark a sprite/charset/bitmap segment confirmed; writes `confirmed: true` + `confirmedBy` into the analysis JSON; emits a confirmation finding. |
+| `POST /api/segment/reject` | Mark a segment rejected; writes `rejected: true` + `rejectedReason` into the analysis JSON; emits a refutation finding. |
+| `POST /api/segment/clear` | Strip confirmed/rejected flags from a segment (Bug 23 Stage 2 helper; no finding created). |
+| `GET /api/graphics-marks` | Compat shim — derives marks from `/api/graphics` items (no shadow store). |
+| `POST /api/graphics-marks` | Compat shim — routes to `service.markSegment*` / `clearSegmentMark`. |
+| `GET /api/findings` | Findings with optional filters (kind/status/entity). |
+| `GET /api/entities` | Entities with optional filters. |
+| `GET /api/flows` | Flows. |
+| `GET /api/relations` | Relations. |
+| `GET /api/per-artifact-status` | Status table per source artifact (collapsed by lineage + same-path; internal artifacts skipped — Bug 24 + Bug 26). |
+| `GET /api/artifact/lineage` | V0..Vn lineage chain for a given artifact. |
+| `GET /api/containers` | Container sub-entries (Spec 025 R23). |
+| `GET /api/annotations/draft` / `POST /api/annotations/save` | Annotation draft viewer endpoints (Spec 051). |
 
 CORS is open (`Access-Control-Allow-Origin: *`) so the dev server on
 `:4311` can hit the API server on `:4310` during UI iteration.

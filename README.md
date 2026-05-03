@@ -179,8 +179,14 @@ Per-area docs (full tool tables + workflow notes):
 | Loader ABI (Spec 028: `declare_loader_entrypoint`, `record_loader_event`, `register_load_context`) | `specs/023-load-contexts.md`, `specs/028-loader-abi-model.md` |
 | Patches / constraints / scenarios / pipelines (Specs 027/029/030/032: `save_patch_recipe`, `apply_patch_recipe`, `register_resource_region`, `verify_constraints`, `define_runtime_scenario`, `diff_scenario_runs`, `save_build_pipeline`, `run_build_pipeline`) | `specs/027-patch-recipes.md`, `specs/029-constraint-checker.md`, `specs/030-scenario-traces-and-diff.md`, `specs/032-build-pipeline-as-artifact.md` |
 | Annotation helper (Spec 042: `propose_annotations` 2nd-pass classifier + draft viewer in Listing tab) | `specs/042-annotation-helper.md` |
-| Phase-1 noise archive (Spec 053: `archive_phase1_noise`, `mark_segment_confirmed`, `mark_segment_rejected`) | `specs/053-bug20-phase1-noise-archive.md` |
+| Phase-1 noise archive (Spec 053: `archive_phase1_noise`, `mark_segment_confirmed`, `mark_segment_rejected`, `clearSegmentMark`) | `specs/053-bug20-phase1-noise-archive.md` |
 | Question auto-resolution (Spec 052: in-band trigger on save_finding / advance_phase / annotation save) | `specs/052-question-auto-resolution.md` |
+| Latest version per lineage (Spec 054 / Bug 24: every UI list defaults to highest `versionRank`; toggle `Show all versions` in header) | `specs/054-bug24-latest-version-default.md` |
+| Routine + segment-reclass findings emit (Spec 055 / R25: auto in `disasm_prg` + standalone `import_annotations_as_findings`; effective-segments overlay allows cross-boundary annotation reshape) | `specs/055-r25-routine-findings-emit.md` |
+| Per-payload scope filter (Spec 056 / R27: `archive_phase1_noise` + `auto_resolve_questions` accept `artifact_id`) | `specs/056-r27-per-payload-scope.md` |
+| Closed-loop sweep (Spec 057 / R26: `disasm_prg` + `save_finding` auto-trigger `archivePhase1Noise` + `sweepQuestionResolutions`; footer reports scope-restricted + project counts) | `specs/057-r26-closed-loop-sweep.md` |
+| Hide internal files (Spec 058 / Bug 26: `internal: boolean` on artifacts + entities, auto-classified; `Show internal files` toggle in header) | `specs/058-bug26-internal-files-hidden.md` |
+| `backfill_finding_address_ranges` (Bug 28 migration: copy `evidence[0].addressRange` to top-level on legacy hypothesis findings) | — |
 | Artifact access (`read_artifact`, `list_artifacts`, `build_tools`) | [docs/tools/artifacts.md](docs/tools/artifacts.md) |
 
 ## Workflow + semantic UI
@@ -201,12 +207,13 @@ Per-area docs (full tool tables + workflow notes):
   (Spec 034) with allowed-tool sets per phase.
 - [docs/cracker-doctrine.md](docs/cracker-doctrine.md) — cracker-mode
   priority order + required artifacts per patch (Spec 033).
-- [PLAN.md](PLAN.md) — sprint plan (Sprints 1-46 + follow-ups,
+- [PLAN.md](PLAN.md) — sprint plan (Sprints 1-51 + follow-ups,
   spec-driven flow).
-- [BUGREPORT.md](BUGREPORT.md) — bug status (1-21, 19 fixed).
-- [REQUIREMENTS.md](REQUIREMENTS.md) — refinement backlog (R1-R25
+- [BUGREPORT.md](BUGREPORT.md) — bug status (1-28; only Bug 26
+  Stage 1 / non-critical UI followups deferred).
+- [REQUIREMENTS.md](REQUIREMENTS.md) — refinement backlog (R1-R27
   + P1-P3, all done).
-- `specs/` — 53 specs (001-053) covering every shipped feature.
+- `specs/` — 58 specs (001-058) covering every shipped feature.
 
 ## License
 

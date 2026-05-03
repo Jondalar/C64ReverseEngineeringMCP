@@ -4,7 +4,18 @@
 
 This repository now contains a backend-first `project-knowledge` subsystem that turns the MCP server into one client of a project-centric reverse-engineering workspace.
 
-The design keeps semantic interpretation, persistence, derived views, and analysis-run registration in the backend. A future React UI can consume only stable JSON view-models from `project/views/*.json` without needing to re-implement reverse-engineering logic in the browser.
+The design keeps semantic interpretation, persistence, derived views, and analysis-run registration in the backend. The workspace UI consumes the stable JSON view-models from `project/views/*.json` and the `/api/*` endpoints surfaced by the workspace UI server.
+
+Current state (after Sprints 1-51, Specs 001-058): the layer ships
+artifact lineage + same-path versions (Spec 025), seven-phase workflow
+(Spec 034), master/worker pattern (Spec 035), question auto-resolution
+(Spec 052), phase-1 noise archive (Spec 053), latest-version-per-lineage
+default (Spec 054), routine + segment-reclass findings auto-emit
+(Spec 055), per-payload scope filter (Spec 056), closed-loop sweep
+(Spec 057), and hide-internal-files (Spec 058). All knowledge-layer
+record kinds carry `internal?: boolean` for the user-facing-vs-LLM
+distinction and propagate it via `LineageVisibilityContext` /
+`InternalVisibilityContext` in the UI.
 
 ## Layering
 
@@ -22,12 +33,17 @@ The design keeps semantic interpretation, persistence, derived views, and analys
    Exposes high-level project operations:
    `initProject()`
    `getProjectStatus()`
-   `saveArtifact()`
-   `saveEntity()`
+   `saveArtifact()` (auto-classifies `internal` via
+     `classifyArtifactInternal` based on path / role / kind — Spec 058)
+   `saveEntity()` (derives `internal` from the primary linked
+     artifact when not set explicitly — Spec 058)
    `listEntities()`
-   `saveFinding()`
+   `saveFinding()` (accepts top-level `addressRange` — Bug 25)
+   `removeFindingsById()` (Spec 055)
+   `backfillFindingAddressRanges()` (Bug 28)
    `listFindings()`
-   `importAnalysisArtifact()`
+   `importAnalysisArtifact()` (also emits hypothesis findings with
+     top-level `addressRange` — Bug 28 producer fix)
    `linkEntities()`
    `listRelations()`
    `saveFlow()`
@@ -40,13 +56,29 @@ The design keeps semantic interpretation, persistence, derived views, and analys
    `createCheckpoint()`
    `appendTimelineEvent()`
    `registerToolRun()`
-   `buildProjectDashboardView()`
-   `buildMemoryMapView()`
-   `buildDiskLayoutView()`
-   `buildCartridgeLayoutView()`
-   `buildFlowGraphView()`
-   `buildAnnotatedListingView()`
-   `buildAllViews()`
+   Spec 052 question auto-resolution:
+     `resolveQuestionsForFinding({ findingId, artifactId? })`,
+     `resolveQuestionsForPhase()`,
+     `sweepQuestionResolutions({ artifactId? })`,
+     `confirmQuestionResolution()`,
+     `proposeQuestionResolutions()`.
+   Spec 053 phase-1 noise archive:
+     `archivePhase1Noise({ dryRun?, artifactId? })`,
+     `markSegmentConfirmed()`, `markSegmentRejected()`,
+     `clearSegmentMark()` (Bug 23 Stage 2).
+   Spec 055 R25 routine emit:
+     `emitAnnotationFindings({ sourcePrgArtifactId, annotationsPath, analysisJsonPath? })`.
+   Spec 057 R26 closed loop:
+     `runClosedLoopSweep({ artifactId? })`.
+   View-builders:
+     `buildProjectDashboardView()`, `buildMemoryMapView()`,
+     `buildDiskLayoutView()`, `buildCartridgeLayoutView()`,
+     `buildFlowGraphView()`, `buildAnnotatedListingView()`,
+     `buildLoadSequenceView()`, `buildMediumLayoutView()`,
+     `buildAllViews()`.
+     All listing-style builders skip `internal === true` records (Spec 058).
+   Per-artifact status (filters internal + collapses lineage + same-path):
+     `getPerArtifactStatus()`.
 
 4. `src/project-knowledge/view-builders.ts`
    Deterministic view-model builders that transform stored records into JSON payloads meant for direct UI consumption later.
@@ -148,6 +180,24 @@ Every semantic record supports:
 - linked entity or artifact ids where relevant
 - timestamps
 
+Artifacts additionally carry:
+- Lineage (Spec 025): `derivedFrom`, `lineageRoot`, `versionRank`,
+  `versionLabel`, `versions[]` (same-path snapshots).
+- Phase (Spec 034): `phase`, `phaseFrozen`, `phaseFrozenReason`.
+- Platform (Spec 020): `platform`.
+- Load contexts (Spec 023): `loadContexts[]`.
+- Relevance (Spec 041): `relevance`.
+- `internal` (Spec 058): hide-from-user marker, auto-classified.
+
+Entities additionally carry the same `internal` marker (Spec 058) and
+the payload-specific fields (`payloadId`, `payloadLoadAddress`,
+`payloadFormat`, `payloadPacker`, `payloadSourceArtifactId`,
+`payloadDepackedArtifactId`, `payloadAsmArtifactIds`,
+`payloadContentHash`, `payloadDiskHint`).
+
+Findings additionally carry top-level `addressRange` (Spec 053 / Bug 25)
+and `archivedBy` (Spec 053).
+
 ## View Models
 
 The first pass generates stable JSON for:
@@ -179,35 +229,59 @@ The analysis importer also derives:
 
 ## MCP Surface
 
-The server now registers these knowledge-layer MCP tools:
+The server registers these knowledge-layer MCP tools (organised by area):
 
-- `project_init`
-- `project_status`
-- `save_artifact`
-- `list_project_artifacts`
-- `save_finding`
-- `list_findings`
-- `list_entities`
-- `list_relations`
-- `list_open_questions`
-- `list_tasks`
-- `list_flows`
-- `save_open_question`
-- `save_entity`
-- `import_analysis_report`
-- `import_manifest_artifact`
-- `link_entities`
-- `save_flow`
-- `save_task`
-- `update_task_status`
-- `project_checkpoint`
-- `build_project_dashboard`
-- `build_memory_map`
-- `build_cartridge_layout_view`
-- `build_disk_layout_view`
-- `build_flow_graph_view`
-- `build_annotated_listing_view`
-- `build_all_views`
+Core records:
+- `project_init`, `project_status`, `project_checkpoint`,
+  `project_audit`, `project_repair`.
+- `save_artifact`, `list_project_artifacts`, `list_artifacts`,
+  `register_existing_files`, `bulk_create_cart_chunk_payloads`,
+  `import_manifest_artifact`, `register_payload`, `list_payloads`,
+  `register_container_entry`, `list_container_entries`,
+  `snapshot_artifact_before_overwrite`, `rename_artifact_version`,
+  `get_artifact_lineage`, `set_artifact_relevance`.
+- `save_entity`, `list_entities`, `link_entities`, `list_relations`.
+- `save_finding` (with top-level `address_range` — Bug 25),
+  `list_findings`,
+  `backfill_finding_address_ranges` (Bug 28 migration).
+- `save_flow`, `list_flows`.
+- `save_task`, `list_tasks`, `update_task_status`.
+- `save_open_question`, `list_open_questions`.
+- `import_analysis_report`, `bulk_import_analysis_reports`.
+
+Question lifecycle (Spec 052):
+- `auto_resolve_questions` (accepts `artifact_id` for scope —
+  Spec 056), `propose_question_resolutions`,
+  `confirm_question_resolution`.
+
+Phase-1 noise + segment confirm/reject (Spec 053):
+- `archive_phase1_noise` (accepts `artifact_id` for scope — Spec 056),
+  `mark_segment_confirmed`, `mark_segment_rejected`.
+
+Routine + segment-reclass findings emit (Spec 055):
+- `import_annotations_as_findings` (also fires automatically when
+  `disasm_prg` consumes annotations).
+
+Agent orchestration (Spec 034 / 035 / 044):
+- `agent_onboard`, `agent_set_role`, `agent_record_step`,
+  `agent_propose_next`, `agent_advance_phase`,
+  `agent_freeze_artifact`, `start_re_workflow`,
+  prompt `c64re_worker_phase`.
+
+View builders:
+- `build_project_dashboard`, `build_memory_map`,
+  `build_cartridge_layout_view`, `build_disk_layout_view`,
+  `build_flow_graph_view`, `build_annotated_listing_view`,
+  `build_load_sequence_view`, `build_all_views`.
+
+Build pipelines / scenarios / patches / constraints / loaders
+(Specs 027 / 029 / 030 / 032 / 028):
+- `save_patch_recipe`, `apply_patch_recipe`,
+  `register_resource_region`, `verify_constraints`,
+  `define_runtime_scenario`, `diff_scenario_runs`,
+  `save_build_pipeline`, `run_build_pipeline`,
+  `declare_loader_entrypoint`, `record_loader_event`,
+  `register_load_context`.
 
 ## Existing Tool Integration
 

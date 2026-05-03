@@ -1453,7 +1453,7 @@ Goal: side-panel in Listing tab for `*_annotations.draft.json`
 with per-suggestion accept / reject / edit and Save-All commit
 to `*_annotations.json`.
 
-Status: spec written, implementation pending.
+Status: DONE.
 
 Todos:
 
@@ -1472,6 +1472,136 @@ Todos:
       draft.
 
 Spec: `specs/051-ui-annotation-draft-viewer.md`
+
+## Sprint 45: Question Auto-Resolution (Spec 052)
+
+Goal: in-band auto-resolve of open questions when a finding /
+phase advance / annotation supersedes them. Hybrid auto vs
+propose-only mode (per project profile).
+
+Status: DONE.
+
+Spec: `specs/052-question-auto-resolution.md`. Service helpers
+`resolveQuestionsForFinding`, `resolveQuestionsForPhase`,
+`sweepQuestionResolutions`, `confirmQuestionResolution`,
+`proposeQuestionResolutions`. MCP tools `auto_resolve_questions`,
+`propose_question_resolutions`, `confirm_question_resolution`.
+
+## Sprint 46: Phase-1 Noise Archive (Spec 053)
+
+Goal: `archive_phase1_noise` walks hypothesis findings whose
+addressRange is fully covered by a routine annotation, marks them
+archived, and closes paired heuristic-phase1 questions.
+`mark_segment_confirmed` / `mark_segment_rejected` for sprite /
+charset / bitmap segments.
+
+Status: DONE.
+
+Spec: `specs/053-bug20-phase1-noise-archive.md`.
+
+## Sprint 47: Latest Version Per Lineage Default (Spec 054 / Bug 24)
+
+Goal: every UI surface that LISTS artifacts defaults to highest
+`versionRank` per `lineageRoot`. Lookups by id stay against the
+full list. Header toggle exposes V0..V(n-1) for debug.
+
+Status: DONE (v1). Followups Sprint 47.5 (history pane) and 47.6
+(server-side flow-graph dedup) deferred.
+
+Spec: `specs/054-bug24-latest-version-default.md`. UI helper
+`ui/src/lib/lineage.ts` (`latestArtifactsByLineage`,
+`lineageChain`, `lineageVersionCount`, `isLatestInLineage`).
+`LineageVisibilityContext` propagates the toggle. Surfaces patched:
+WorkflowRunnerPanel, buildDocs, EntityInspector + QuestionInspector
+linkedArtifacts, DiskFileInspector ASM/PRG pairing,
+CartChunkInspector fallbackAsm, ScrubPanel,
+service.getPerArtifactStatus. Two-stage dedupe (lineage then
+same-path) covers Bug 10 family registrations too.
+
+## Sprint 48: Routine + Segment-Reclass Findings Emit (Spec 055 / R25)
+
+Goal: when annotations are consumed, auto-emit one finding per
+routine + per segment-reclassification so `archive_phase1_noise`
++ `auto_resolve_questions` actually have something to match.
+Phase A: effective-segments overlay (cross-boundary annotation
+reshape). Phase B: emit + clean-slate per binaryStem.
+
+Status: DONE.
+
+Spec: `specs/055-r25-routine-findings-emit.md`. Pipeline module
+`pipeline/src/lib/effective-segments.ts`. Service
+`emitAnnotationFindings`, `removeFindingsById`. Wired into
+`disasm_prg`. Standalone MCP tool
+`import_annotations_as_findings`.
+
+## Sprint 49: Per-Payload Scope Filter (Spec 056 / R27)
+
+Goal: `archive_phase1_noise` + `auto_resolve_questions` accept
+optional `artifact_id`. Strict `artifactIds.includes` match.
+Routines source also scoped (refinement: scope BOTH).
+
+Status: DONE.
+
+Spec: `specs/056-r27-per-payload-scope.md`. `service.archivePhase1Noise`
++ `service.sweepQuestionResolutions` + `service.resolveQuestionsForFinding`
+gain `artifactId?` opt. Output footer surfaces `[scope=artifact:<id>]`.
+
+## Sprint 50: Closed-Loop Sweep (Spec 057 / R26)
+
+Goal: after `disasm_prg` consumes annotations OR `save_finding`
+saves a routine-tagged finding with addressRange, automatically
+run `archivePhase1Noise` + `sweepQuestionResolutions`. Hybrid
+scope: scope-restricted plus project totals in the footer. Soft
+fail — parent op never breaks because the closed loop hit a snag.
+
+Status: DONE.
+
+Spec: `specs/057-r26-closed-loop-sweep.md`. Service helper
+`runClosedLoopSweep`. Shared formatter
+`src/server-tools/closed-loop-sweep.ts:runAndFormatClosedLoopSweep`.
+Triggers v1: `disasm_prg`, `save_finding`. `propose_annotations`
++ `mark_segment_*` deferred.
+
+## Sprint 51: Hide Internal Files (Spec 058 / Bug 26)
+
+Goal: `internal: boolean` field on `ArtifactRecord` +
+`EntityRecord`. Auto-classified on save based on path / role /
+kind heuristic. Default UI views filter `internal: true` out;
+header toggle "Show internal files" exposes them for debug.
+
+Status: DONE.
+
+Spec: `specs/058-bug26-internal-files-hidden.md`. Service helper
+`classifyArtifactInternal`. UI helper `ui/src/lib/internal.ts`
++ `InternalVisibilityContext`. View-builder filters in
+`buildLoadSequenceView`, `buildStructureFlowMode`,
+`buildAnnotatedListingView`. Backfill via UI heuristic for
+legacy artifacts.
+
+## Bug fixes shipped this batch
+
+- Bug 22 REFIX (commit `05ef06b`): path-only filter in
+  `markSegmentConfirmed/Rejected` (run-event-log artifacts also
+  carry `kind=analysis-run`, so kind-based selection picked the
+  wrong file).
+- Bug 23 (Spec 058 / Stage 2 of segment store unification):
+  single source of truth for segment confirm / reject.
+  `clearSegmentMark` helper. Graphics-view dedupes analysis-json
+  artifacts by absolute path. `/api/graphics-marks` now derives
+  from view items; UI `setGraphicsMark` calls
+  `/api/segment/{confirm,reject,clear}` directly.
+- Bug 24 v2: same-path dedup as Stage 2 of
+  `latestArtifactsByLineage` so Bug 10 family duplicates also
+  collapse to one row.
+- Bug 25: `save_finding.address_range` MCP param. Hint in
+  description for routine-tag matching.
+- Bug 27: sprite analyzer rejects non-64-byte-aligned candidates.
+  VIC sprite pointer × 64 = address; misaligned starts are
+  hardware-impossible.
+- Bug 28: hypothesis findings — matcher fallback (`effectiveRangeOf`
+  uses evidence[0].addressRange when top-level missing) plus
+  producer fix (`analysis-import` populates top-level) plus
+  `backfill_finding_address_ranges` migration tool for legacy data.
 
 ## Backlog
 
