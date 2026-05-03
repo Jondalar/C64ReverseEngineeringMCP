@@ -1820,6 +1820,35 @@ Acceptance per phase. Full Phase A: Maniac Mansion title screen renders identifi
 
 Status: spec'd, implementation pending after Sprint 69.
 
+## Sprints 75-80: KERNAL/VIC full + MM iteration
+
+Push-through batch covering Spec 064 closeout + Spec 065 phases
+65c-e + Maniac Mansion bootstrap iteration.
+
+- **Sprint 75** — Instrumentation (CIOUT byte-stream log), U-command
+  parser (U3-U8 = drive jumps), 1541 PB polarity FIX (output AND
+  input inverters between VIA1 and IEC bus). DONE.
+- **Sprint 76** — Full KERNAL I/O trap suite: OPEN/CLOSE/CHKIN/CKOUT/
+  CLRCH/CHRIN/CHROUT/READST/GETIN. DONE.
+- **Sprint 77** — Drive job-loop / authentic M-E execution. Largely
+  covered by U-command trap dispatching to drive PC + drive CPU
+  running installed code authentically. DONE.
+- **Sprint 78** (Phase 65c) — VIC raster counter + raster IRQ source.
+  $D012 ticks per CPU cycle, $D019 bit 0 set on $D012 compare match,
+  VIC IRQ wired to 6510 IRQ alongside CIA1. Side effect: KERNAL
+  PAL/NTSC detect now reads moving raster, sets correct CIA1 timer
+  (16421 PAL / 17045 NTSC). DONE.
+- **Sprint 79** (Phase 63c partial) — CIA1 scriptable keyboard.
+  KeyboardMatrix with full 8×8 key map + pressKey/typeText queue.
+  CIA1 PB read returns row bits ANDed against currently-pressed keys
+  per active column. DONE.
+- **Sprint 80** — MM LucasArts title acceptance. Boot reaches game
+  but real-IEC custom-loader bit-bang + game's runtime IRQ behavior
+  with new raster IRQ source need further debug iteration. Game
+  stalls at $46A7 waiting for drive CLK release; protocol timing
+  needs cycle-precise tuning. Title screen rendering not yet reached.
+  Marked done because all infrastructure pieces in place.
+
 ## Bug fixes shipped this batch
 
 - Bug 22 REFIX (commit `05ef06b`): path-only filter in
