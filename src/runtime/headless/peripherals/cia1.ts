@@ -11,30 +11,45 @@
 
 import { Cia6526, type CiaPortBackend } from "../cia/cia6526.js";
 import type { HeadlessMemoryBus } from "../memory-bus.js";
+import { KeyboardMatrix } from "./keyboard.js";
 
 export const CIA1_BASE = 0xdc00;
 
-// Port-A keyboard column write does not affect anything we model.
-// Port-B read returns row state ANDed across all selected columns.
-// Without a real key matrix we report "all released" = $FF.
-function makeKeyboardPa(): CiaPortBackend {
+// Sprint 79: keyboard matrix backend reads PA latch (column drive)
+// and returns active row bits (active-low) for currently-pressed
+// keys.
+function makeKeyboardPb(kb: KeyboardMatrix, getCia: () => Cia6526 | undefined): CiaPortBackend {
   return {
-    readPins: () => 0xff,
-    onOutputChanged: () => { /* keyboard column select; we ignore */ },
-  };
-}
-
-function makeKeyboardPb(): CiaPortBackend {
-  return {
-    readPins: () => 0xff, // all keys released; joystick neutral
+    readPins: () => {
+      const cia = getCia();
+      if (!cia) return 0xff;
+      // CIA PA latch + DDR-aware: bits set in DDR are "driven by latch",
+      // bits clear are "input floating high". For column-select we want
+      // the actual driven values (treated as active-low).
+      const paOut = cia.pra | ~cia.ddra;
+      return kb.readRowsForPa(paOut & 0xff);
+    },
     onOutputChanged: () => { /* nothing */ },
   };
 }
 
-// Wire CIA1 register reads/writes to a memory bus IO handler chain so
-// the C64 6510's $DC00..$DC0F access goes through the model.
-export function installCia1(bus: HeadlessMemoryBus): Cia6526 {
-  const cia = new Cia6526(makeKeyboardPa(), makeKeyboardPb());
+function makeKeyboardPa(): CiaPortBackend {
+  return {
+    readPins: () => 0xff,
+    onOutputChanged: () => { /* column select handled via CIA's PA latch read */ },
+  };
+}
+
+export interface InstalledCia1 {
+  cia: Cia6526;
+  keyboard: KeyboardMatrix;
+}
+
+export function installCia1(bus: HeadlessMemoryBus): InstalledCia1 {
+  const keyboard = new KeyboardMatrix();
+  let ciaRef: Cia6526 | undefined;
+  const cia = new Cia6526(makeKeyboardPa(), makeKeyboardPb(keyboard, () => ciaRef));
+  ciaRef = cia;
   for (let reg = 0; reg < 16; reg++) {
     const addr = CIA1_BASE + reg;
     bus.registerIoHandler(addr, {
@@ -42,5 +57,5 @@ export function installCia1(bus: HeadlessMemoryBus): Cia6526 {
       write: (_a, value) => cia.write(reg, value),
     });
   }
-  return cia;
+  return { cia, keyboard };
 }

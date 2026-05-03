@@ -58,11 +58,16 @@ export class VicII {
   public readonly regs = new Uint8Array(VIC_NUM_REGS + 1);
   // Current raster line (0-311 PAL / 0-262 NTSC). Distinct from the
   // $D012 latch register because the latch is also writable as the
-  // raster-IRQ compare value. Phase 65c ticks this from the step loop.
+  // raster-IRQ compare value. Sprint 78 (Phase 65c): ticks per CPU
+  // cycle.
   public rasterLine = 0;
-  // IRQ status bits (separately tracked from the $D019 latch reads
-  // because reads return current pending; writes acknowledge).
+  public horizontalCycle = 0; // 0..62 PAL, 0..64 NTSC
+  public maxRasterLine = 311; // PAL
+  public cyclesPerLine = 63;  // PAL
+  // IRQ status bits.
   public irqStatus = 0;
+  // Pre-computed raster compare value (D012 low + D011 bit 7).
+  // Recomputed lazily on read of irqAsserted / on write of those regs.
 
   // Read returns DDR-aware semantics for the few special registers
   // ($D011 raster bit 8, $D012 raster low, $D019 status with bit 7
@@ -140,9 +145,37 @@ export class VicII {
   charRomOffsetWithinBank(): number { return ((this.regs[VIC_R_MEM_PTR]! >> 1) & 0x07) << 11; }
   bitmapBaseWithinBank(): number { return ((this.regs[VIC_R_MEM_PTR]! & 0x08) !== 0) ? 0x2000 : 0x0000; }
 
+  // Sprint 78: tick raster forward by N CPU cycles. Sets IFR_RASTER
+  // when the line counter matches the compare value (D012 low + D011
+  // bit 7 = bit 8 of compare).
+  tick(cycles: number): void {
+    if (cycles <= 0) return;
+    let remaining = cycles;
+    while (remaining > 0) {
+      const stepThisLine = Math.min(this.cyclesPerLine - this.horizontalCycle, remaining);
+      this.horizontalCycle += stepThisLine;
+      remaining -= stepThisLine;
+      if (this.horizontalCycle >= this.cyclesPerLine) {
+        this.horizontalCycle = 0;
+        this.rasterLine = (this.rasterLine + 1) % (this.maxRasterLine + 1);
+        // Compare match.
+        const compare = this.regs[VIC_R_RASTER]! | ((this.regs[VIC_R_CTRL1]! & 0x80) ? 0x100 : 0);
+        if (this.rasterLine === compare) {
+          this.irqStatus |= VIC_IRQ_RASTER;
+        }
+      }
+    }
+  }
+
+  setNtsc(): void {
+    this.maxRasterLine = 262;
+    this.cyclesPerLine = 65;
+  }
+
   reset(): void {
     this.regs.fill(0);
     this.rasterLine = 0;
+    this.horizontalCycle = 0;
     this.irqStatus = 0;
   }
 }

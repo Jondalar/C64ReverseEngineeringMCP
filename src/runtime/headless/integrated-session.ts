@@ -24,6 +24,7 @@ import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./perip
 import { rgbaToPng } from "./peripherals/png-writer.js";
 import { writeFileSync } from "node:fs";
 import { installCia1 } from "./peripherals/cia1.js";
+import type { KeyboardMatrix } from "./peripherals/keyboard.js";
 import { installCia2 } from "./peripherals/cia2.js";
 import type { Cia6526 } from "./cia/cia6526.js";
 import {
@@ -80,6 +81,7 @@ export class IntegratedSession {
   public readonly kernalIo: KernalIoState;
   public readonly cia1: Cia6526;
   public readonly cia2: Cia6526;
+  public readonly keyboard: KeyboardMatrix;
   public readonly vic: VicII;
   public readonly framebuffer: VicFramebuffer;
   public readonly enableKernalFileIoTraps: boolean;
@@ -112,8 +114,11 @@ export class IntegratedSession {
       this.c64Bus.loadCharRom(this.romSet.charRom.bytes);
     }
     this.cia2 = installCia2(this.c64Bus, this.iecBus);
-    this.cia1 = installCia1(this.c64Bus);
+    const cia1Install = installCia1(this.c64Bus);
+    this.cia1 = cia1Install.cia;
+    this.keyboard = cia1Install.keyboard;
     this.vic = installVicII(this.c64Bus);
+    if (!isPal) this.vic.setNtsc();
     this.c64Bus.reset();
     this.c64Cpu = new Cpu6510(this.c64Bus);
 
@@ -206,6 +211,8 @@ export class IntegratedSession {
       const trapCycles = 7;
       this.cia1.tick(trapCycles);
       this.cia2.tick(trapCycles);
+      this.vic.tick(trapCycles);
+      this.keyboard.advance(trapCycles);
       this.driveCycleAccumulator += trapCycles * this.driveCyclesPerC64Cycle;
       while (this.driveCycleAccumulator >= 1) this.runOneDriveStep();
       return;
@@ -217,6 +224,8 @@ export class IntegratedSession {
     const consumed = this.c64Cpu.cycles - before;
     this.cia1.tick(consumed);
     this.cia2.tick(consumed);
+    this.vic.tick(consumed);
+    this.keyboard.advance(consumed);
     this.driveCycleAccumulator += consumed * this.driveCyclesPerC64Cycle;
     while (this.driveCycleAccumulator >= 1) {
       this.runOneDriveStep();
@@ -264,8 +273,8 @@ export class IntegratedSession {
       this.c64Cpu.serviceInterrupt(0xfffa, false);
     }
     this.prevCia2IrqAsserted = cia2Irq;
-    // CIA1 → C64 IRQ (level-triggered, gated by I-flag).
-    if (!this.c64Cpu.interruptsDisabled() && this.cia1.irqAsserted()) {
+    // CIA1 + VIC → C64 IRQ (level-triggered, gated by I-flag).
+    if (!this.c64Cpu.interruptsDisabled() && (this.cia1.irqAsserted() || this.vic.irqAsserted())) {
       this.c64Cpu.serviceInterrupt(0xfffe, false);
     }
   }

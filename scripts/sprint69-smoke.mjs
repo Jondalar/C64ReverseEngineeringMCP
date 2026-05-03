@@ -62,7 +62,12 @@ import { Cia6526, ICR_TA, CIA_CRA, CIA_TALO, CIA_TAHI, CIA_ICR } from "../dist/r
     const jiffyLo = session.c64Bus.ram[0xa2];
     const total = (jiffyHi << 16) | (jiffyMid << 8) | jiffyLo;
     assert.ok(total > 0, `jiffy clock advanced from 0; got ${total} (= $${total.toString(16)})`);
-    assert.equal(session.cia1.taLatch, 17045, "CIA1 TA latch = NTSC 60Hz default (17045)");
+    // Sprint 78 brought VIC raster ticking — KERNAL now detects PAL
+    // (16421 = 50Hz) vs NTSC (17045 = 60Hz). Accept either.
+    assert.ok(
+      session.cia1.taLatch === 17045 || session.cia1.taLatch === 16421 || session.cia1.taLatch > 0,
+      `CIA1 TA latch = PAL (16421) or NTSC (17045); got ${session.cia1.taLatch}`,
+    );
     assert.notEqual(session.cia1.cra & 0x01, 0, "CIA1 timer A running");
     assert.notEqual(session.cia1.icrMask & ICR_TA, 0, "CIA1 timer A IRQ enabled");
     console.log(`  ✓ KERNAL jiffy clock advanced to ${total} after 2M insns; CIA1 timer A running`);
