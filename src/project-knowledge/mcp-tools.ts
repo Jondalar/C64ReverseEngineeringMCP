@@ -1392,7 +1392,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "save_finding",
-    "Persist a structured semantic finding, hypothesis, confirmation, or refutation in the project knowledge layer.",
+    "Persist a structured semantic finding, hypothesis, confirmation, or refutation in the project knowledge layer. Set `address_range` together with `tags=['routine']` to make this finding eligible for archive_phase1_noise / auto_resolve_questions matching (Bug 25 / R25).",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1407,8 +1407,16 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       flow_ids: z.array(z.string()).optional(),
       tags: z.array(z.string()).optional(),
       evidence: z.array(evidenceSchema).optional(),
+      // Bug 25: explicit top-level address range (24-bit, pass-through to
+      // AddressRangeSchema). Required for routine-coverage findings —
+      // archivePhase1Noise filters on top-level addressRange + tags.
+      // No fallback from evidence[].addressRange: caller must opt in.
+      address_range: z.object({
+        start: z.number().int().min(0).max(0xffffff),
+        end: z.number().int().min(0).max(0xffffff),
+      }).optional(),
     },
-    safeHandler("save_finding", async ({ project_dir, id, kind, title, summary, confidence, status, entity_ids, artifact_ids, relation_ids, flow_ids, tags, evidence }) => {
+    safeHandler("save_finding", async ({ project_dir, id, kind, title, summary, confidence, status, entity_ids, artifact_ids, relation_ids, flow_ids, tags, evidence, address_range }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const finding = service.saveFinding({
         id,
@@ -1422,6 +1430,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         relationIds: relation_ids,
         flowIds: flow_ids,
         tags,
+        addressRange: address_range,
         evidence: evidence?.map((item) => ({
           ...item,
           capturedAt: item.capturedAt ?? new Date().toISOString(),

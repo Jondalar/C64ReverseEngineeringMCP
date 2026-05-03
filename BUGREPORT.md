@@ -1266,7 +1266,7 @@ Verify on Murder: open the workspace UI, default Flow Graph + Inspector should n
 
 ## Bug 25 — `save_finding` MCP tool exposes no `address_range` parameter; agent cannot create routine-coverage findings → `archive_phase1_noise` / `auto_resolve_questions` always return 0
 
-**Status**: OPEN
+**Status**: FIXED Stage 1 (param added). R25/R26/R27 (auto-emit + closed loop + scope) tracked separately as Specs 055/056/057.
 
 **Severity**: High — entire phase-1 noise-archive workflow is unreachable from the agent. 570 open questions and 1200+ heuristic findings on Murder stay unanswered even after all 16 PRGs are deeply annotated.
 
@@ -1320,4 +1320,60 @@ Missing primitive that makes Bug 20 actually solvable. Without it, deep-narrativ
 - R6 (REQUIREMENTS): question source-tagging — sprint 36 implemented filter, doesn't auto-resolve.
 - R10 (REQUIREMENTS): generated-docs pipeline — same family pattern.
 - Spec 053: phase-1 noise archive infrastructure exists; agent-side data path missing.
+
+---
+
+## Bug 26 — Internal infrastructure files (manifest.json / *_analysis.json / *_annotations.json) leak into user-facing UI views
+
+**Status**: OPEN
+
+**Severity**: Medium — UI noise. User sees rows like `analysis/disk/motm/raw_sectors/manifest.json` in the Graphics segment list, in artifact pickers, in recent-activity timelines. These files are infrastructure for the LLM and the UI itself, not artifacts the user is supposed to inspect.
+
+### Live evidence (Murder, screenshot 2026-05-03 11.25.42)
+Graphics tab segment list shows:
+- `sprite_203F` (real graphics segment) — source `analysis/disk/motm/restore-manifest.png`
+- `sprite_203F` again — source `analysis/disk/motm/raw_sectors/manifest.json`
+- `sprite_2232` — source `analysis/disk/motm/raw_sectors/manifest.json`
+
+Manifest.json should never produce segments. It's an internal index file.
+
+### Affected surfaces (suspected)
+- Graphics tab segment listing (graphics-view iterates ALL `analysis-json` artifacts including manifest)
+- Scrub picker
+- Inspector "Linked Artifacts" lists
+- Docs tab (would show *_analysis.json if it had .md extension; not currently but Bug 4 family risk)
+- Recent Activity timeline
+- PerArtifactStatus table
+
+### Categorization
+**Internal-only files** (hide from user-facing views, keep in artifacts.json for LLM/UI):
+- `manifest.json`, `*_manifest.json`
+- `*_analysis.json`, `*_annotations.json`, `*_annotations.draft.json`
+- `analysis/runs/*.json` (run-event-logs)
+- `knowledge/*.json` (project-knowledge stores)
+- `session/*.json` (UI session state)
+- `*_RAM_STATE_FACTS.md`, `*_POINTER_TABLE_FACTS.md` (auto-generated reports — debatable; keep as docs but tag internal)
+
+**User-facing files** (always show):
+- `*.prg`, `*.crt`, `*.d64`, `*.g64`
+- `*.asm`, `*.tass`, `*.s`, `*.a65`
+- `*.png` (graphics renders the user inspects)
+- `doc/**`, `*.md` (handwritten docs)
+
+### Expected
+1. Add `internal: boolean` (or `audience: "user"|"llm"|"both"`) field to ArtifactRecord schema.
+2. Auto-classify on register: paths matching the internal patterns above → `internal: true`.
+3. Default UI views filter out `internal: true` artifacts. Toggle "Show internal files" in header (next to "Show all versions") for debug.
+4. Graphics-view: skip manifest.json / non-`*_analysis.json` files when iterating analysis-json artifacts. Only files matching `*_analysis.json` AND containing `segments[]` produce graphics items (already partial — Bug 22/23 fix narrowed by suffix; manifest.json should be additionally filtered by `role`).
+
+### Suggested fix
+- **Stage 1 (quick)**: in `graphics-view.ts`, narrow analysis-json filter to `path.endsWith("_analysis.json")` (exclude `manifest.json` even if registered with role="analysis-json").
+- **Stage 2 (systemic)**: schema field `internal` + auto-classification + UI filter at top level.
+
+### Cross-reference
+- Bug 4: doc registration scoping — same family (what's user-facing vs internal).
+- Bug 14: `*_disasm_rebuild_check.prg` filter — precedent for hiding auto-generated artifacts from picker.
+- Bug 24: Show all versions toggle — the new "Show internal files" toggle lives in the same header strip.
+- Bug 23: graphics-view dedupe by path — narrowing the filter to `_analysis.json` suffix here completes the cleanup.
+
 
