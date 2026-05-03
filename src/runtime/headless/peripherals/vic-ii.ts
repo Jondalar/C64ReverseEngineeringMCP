@@ -109,11 +109,15 @@ export class VicII {
       case VIC_R_CTRL1:
         // Bit 7 of $D011 also writes the raster-IRQ-compare bit 8.
         this.regs[VIC_R_CTRL1] = v;
+        // Sprint 85: re-evaluate compare immediately if write changes
+        // bit 8 such that we now match current rasterLine.
+        this.checkRasterCompareImmediate();
         return;
       case VIC_R_RASTER:
         // Write = raster IRQ compare value (low byte). Bit 8 is in
         // $D011 bit 7. We store separately from rasterLine.
         this.regs[VIC_R_RASTER] = v;
+        this.checkRasterCompareImmediate();
         return;
       case VIC_R_IRQ_STATUS:
         // Write 1-to-clear semantics on bits 0-3.
@@ -134,6 +138,17 @@ export class VicII {
   // check.
   irqAsserted(): boolean {
     return (this.irqStatus & this.regs[VIC_R_IRQ_MASK]! & 0x0f) !== 0;
+  }
+
+  // Sprint 85: re-evaluate raster compare on $D011/$D012 writes. If
+  // current rasterLine matches new compare value, set IFR_RASTER so
+  // IRQ fires before next CPU instruction. Real chip: latches on cycle
+  // boundary; we approximate by firing immediately on write.
+  private checkRasterCompareImmediate(): void {
+    const compare = this.regs[VIC_R_RASTER]! | ((this.regs[VIC_R_CTRL1]! & 0x80) ? 0x100 : 0);
+    if (this.rasterLine === compare) {
+      this.irqStatus |= VIC_IRQ_RASTER;
+    }
   }
 
   // Memory pointer ($D018) decoded into the on-bank addresses VIC
