@@ -31,6 +31,10 @@ const DEFAULT_PATTERNS: Array<{
   { glob: "analysis/runtime/**/trace/summary.json", kind: "report", scope: "session", role: "trace-summary", format: "json" },
   { glob: "analysis/runtime/**/trace/trace-analysis.json", kind: "report", scope: "session", role: "trace-analysis", format: "json" },
   { glob: "analysis/runtime/**/trace/events.jsonl", kind: "trace", scope: "session", role: "trace-events", format: "jsonl" },
+  // R29: headless-runtime session outputs.
+  { glob: "analysis/headless-runtime/**/session.json", kind: "report", scope: "session", role: "headless-session", format: "json" },
+  { glob: "analysis/headless-runtime/**/trace/runtime-trace.jsonl", kind: "trace", scope: "session", role: "runtime-trace", format: "jsonl" },
+  { glob: "analysis/headless-runtime/**/trace/summary.json", kind: "report", scope: "session", role: "trace-summary", format: "json" },
   { glob: "views/*.json", kind: "view-model", scope: "view", format: "json" },
   { glob: "docs/**/*.md", kind: "other", scope: "knowledge", role: "doc", format: "md" },
 ];
