@@ -580,6 +580,9 @@ export interface SaveTaskInput {
   producedByTool?: string;
   autoSuggested?: boolean;
   autoCloseHint?: TaskRecord["autoCloseHint"];
+  // Spec 061 / UX3: distinguishes UI-/automation-triggered tasks
+  // from human TODOs.
+  agentKind?: "human" | "automation";
 }
 
 export interface SaveOpenQuestionInput {
@@ -3885,6 +3888,7 @@ export class ProjectKnowledgeService {
       producedByTool: input.producedByTool ?? existing?.producedByTool,
       autoSuggested: input.autoSuggested ?? existing?.autoSuggested,
       autoCloseHint: input.autoCloseHint ?? existing?.autoCloseHint,
+      agentKind: input.agentKind ?? existing?.agentKind,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
       completedAt: input.status === "done" ? timestamp : existing?.completedAt,

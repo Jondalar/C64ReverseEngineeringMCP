@@ -815,6 +815,11 @@ export const TaskRecordSchema = z.object({
   producedByTool: z.string().optional(),
   autoSuggested: z.boolean().optional(),
   autoCloseHint: TaskAutoCloseHintSchema.optional(),
+  // Spec 061 / UX3: distinguishes UI-/automation-triggered tasks
+  // (bulk re-evaluate, auto-build, etc.) from human TODOs. Defaults
+  // to "human" for legacy records. Drives Dashboard task-tile filter
+  // + per-question "re-eval pending" badge.
+  agentKind: z.enum(["human", "automation"]).optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
   completedAt: TimestampSchema.optional(),

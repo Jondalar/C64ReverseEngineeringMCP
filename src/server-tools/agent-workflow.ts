@@ -591,6 +591,27 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push("");
       lines.push(`Workflow: **${WORKFLOW_TITLES[workflow]}** | Role: ${state.role} | Audit: ${audit.severity}`);
       lines.push("");
+      // Spec 061 / UX3: surface UI-triggered automation tasks BEFORE
+      // the per-artifact next-required-action so the agent picks them
+      // up first (the human is actively waiting for these).
+      const automationTasks = service.listTasks().filter((t) =>
+        t.agentKind === "automation"
+        && (t.status === "open" || t.status === "in_progress")
+      );
+      if (automationTasks.length > 0) {
+        lines.push(`## UI-triggered tasks (${automationTasks.length})`);
+        lines.push("");
+        for (const t of automationTasks.slice(0, 3)) {
+          lines.push(`- [${t.status}] ${t.title} (id=${t.id}, priority=${t.priority})`);
+          lines.push(`  Read full description via list_tasks(filter to id) and execute it.`);
+        }
+        if (automationTasks.length > 3) {
+          lines.push(`- ... and ${automationTasks.length - 3} more`);
+        }
+        lines.push("");
+        lines.push(`These tasks were queued from the UI. Address them before continuing the per-artifact loop.`);
+        lines.push("");
+      }
       const top = proposals[0];
       if (top) {
         lines.push(`## Next required action`);

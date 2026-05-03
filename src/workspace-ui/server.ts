@@ -605,6 +605,159 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 061 / UX3: Bulk re-evaluate open questions via task queue.
+  // Two-phase: (1) deterministic sweep (archive_phase1_noise +
+  // sweepQuestionResolutions) scoped to selection's artifacts;
+  // (2) creates one automation-kind task that the LLM agent picks up
+  // via c64re_whats_next polling. Returns the task id + post-sweep
+  // remaining-question count.
+  if (requestUrl.pathname === "/api/tasks/bulk-revaluate" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          questionIds: string[];
+          priority?: "low" | "medium" | "high" | "critical";
+          scopeArtifactIds?: string[];
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!Array.isArray(payload.questionIds) || payload.questionIds.length === 0) {
+          send(res, jsonResponse(400, { error: "questionIds must be a non-empty array" }));
+          return;
+        }
+        const service = new ProjectKnowledgeService(projectDir);
+        const allQuestions = service.listOpenQuestions();
+        const targetQuestions = allQuestions.filter((q) => payload.questionIds.includes(q.id));
+        if (targetQuestions.length === 0) {
+          send(res, jsonResponse(404, { error: "no matching open questions for given ids" }));
+          return;
+        }
+        // Phase 1 (deterministic sweep): scope = union of selection's
+        // linked artifacts, OR explicit scopeArtifactIds when given.
+        const scopeArtifacts = (payload.scopeArtifactIds && payload.scopeArtifactIds.length > 0)
+          ? payload.scopeArtifactIds
+          : Array.from(new Set(targetQuestions.flatMap((q) => q.artifactIds)));
+        const sweepCounts: Array<{ artifactId: string; archived: number; answered: number }> = [];
+        let totalArchived = 0;
+        let totalAnswered = 0;
+        for (const aid of scopeArtifacts) {
+          try {
+            const r = service.runClosedLoopSweep({ artifactId: aid });
+            sweepCounts.push({ artifactId: aid, archived: r.archivedScoped, answered: r.questionsAnsweredScoped });
+            totalArchived += r.archivedScoped;
+            totalAnswered += r.questionsAnsweredScoped;
+          } catch {
+            // soft fail per artifact
+          }
+        }
+        // Phase 2: build the LLM task with the per-spec template.
+        const remainingIds = service.listOpenQuestions()
+          .filter((q) => payload.questionIds.includes(q.id) && (q.status === "open" || q.status === "researching"))
+          .map((q) => q.id);
+        const description = [
+          `Bulk re-evaluation of ${payload.questionIds.length} open questions.`,
+          ``,
+          `Phase 1 (already executed by the deterministic sweep):`,
+          `  - archive_phase1_noise(artifact_id=<scoped>) — ${totalArchived} findings archived`,
+          `  - auto_resolve_questions(artifact_id=<scoped>) — ${totalAnswered} questions auto-answered`,
+          `  Sweep ran across ${scopeArtifacts.length} artifact scope(s).`,
+          `  After phase 1, ${remainingIds.length} questions remain open. Continue with phase 2.`,
+          ``,
+          `Phase 2 (your work):`,
+          `  For each of these question IDs:`,
+          `    [${remainingIds.join(", ")}]`,
+          ``,
+          `  1. list_open_questions(filter to id) and read its title +`,
+          `     description + linked findings + linked artifacts.`,
+          `  2. Read the relevant ASM section (read_artifact on the linked`,
+          `     listing) + the linked annotations file (when present).`,
+          `  3. Decide ONE outcome:`,
+          `       - "answered" — covered by a finding / annotation; close it`,
+          `         via save_open_question(status="answered",`,
+          `                                answeredByFindingId=<finding-id>,`,
+          `                                answerSummary="<one sentence>")`,
+          `       - "invalidated" — was bullshit / hallucination;`,
+          `         save_open_question(status="invalidated",`,
+          `                            answerSummary="<why>")`,
+          `       - "researching" — needs deeper analysis; save_open_question`,
+          `         (status="researching") and append a brief next-step note`,
+          `         to its description.`,
+          `       - "still-open" — leave unchanged.`,
+          ``,
+          `  4. After all processed, call agent_record_step with the bilanz:`,
+          `       "Bulk re-eval done: X answered, Y invalidated,`,
+          `        Z researching, W still-open."`,
+          `       Include the original task id in the step description so`,
+          `       the UI can mark the task complete.`,
+          ``,
+          `Constraints:`,
+          `  - Use only the four outcomes above. Do not change priority,`,
+          `    tags, or other fields.`,
+          `  - If a question's linked finding is itself ambiguous, prefer`,
+          `    "researching" over guessing "answered".`,
+          `  - If a question has no addressRange + no linked finding +`,
+          `    no clear context, "invalidated" is appropriate.`,
+        ].join("\n");
+        const task = service.saveTask({
+          kind: "bulk-revaluate",
+          title: `Re-evaluate ${payload.questionIds.length} open questions`,
+          description,
+          status: "open",
+          priority: payload.priority ?? "medium",
+          questionIds: payload.questionIds,
+          artifactIds: scopeArtifacts,
+          producedByTool: "ui-bulk-revaluate",
+          agentKind: "automation",
+        });
+        send(res, jsonResponse(200, {
+          taskId: task.id,
+          questionCount: payload.questionIds.length,
+          phase1: { archived: totalArchived, answered: totalAnswered, sweepCounts },
+          remainingForPhase2: remainingIds.length,
+        }));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  // Spec 061 / UX3: Active bulk-revaluate tasks. Used by the UI to
+  // poll for in-flight automation work + render the per-question
+  // pending badge.
+  if (requestUrl.pathname === "/api/tasks/active-bulk" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const allTasks = service.listTasks();
+      const active = allTasks.filter((t) =>
+        t.kind === "bulk-revaluate"
+        && (t.status === "open" || t.status === "in_progress")
+      );
+      send(res, jsonResponse(200, {
+        tasks: active.map((t) => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          questionIds: t.questionIds,
+          artifactIds: t.artifactIds,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+        })),
+      }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+    }
+    return;
+  }
+
   if (requestUrl.pathname === "/api/run-payload-workflow" && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });

@@ -939,6 +939,34 @@ function QuestionsPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  // Spec 061 / UX3: track active bulk-revaluate tasks so questions can
+  // show a "re-eval pending" badge. Pending = question.id ∈ task.questionIds
+  // AND question.updatedAt < task.createdAt (agent hasn't touched yet).
+  const [activeBulkTasks, setActiveBulkTasks] = useState<Array<{ id: string; questionIds: string[]; createdAt: string }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function poll() {
+      try {
+        const data = await fetch(`/api/tasks/active-bulk?projectDir=${encodeURIComponent(snapshot.project.rootPath)}`).then((r) => r.json()) as { tasks: Array<{ id: string; questionIds: string[]; createdAt: string }> };
+        if (!cancelled) setActiveBulkTasks(data.tasks ?? []);
+      } catch {
+        if (!cancelled) setActiveBulkTasks([]);
+      }
+      if (!cancelled) timer = setTimeout(poll, 30000);
+    }
+    poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [snapshot.project.rootPath]);
+  const pendingByQuestionId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of activeBulkTasks) {
+      for (const qid of t.questionIds) {
+        if (!map.has(qid)) map.set(qid, t.id);
+      }
+    }
+    return map;
+  }, [activeBulkTasks]);
 
   const kinds = useMemo(() => {
     const set = new Set<string>();
@@ -1032,6 +1060,38 @@ function QuestionsPanel({
     await applyBatch({ priority: value as "low" | "medium" | "high" | "critical" });
   }
 
+  // Spec 061 / UX3: bulk re-evaluate. Phase 1 deterministic sweep runs
+  // server-side; phase 2 queues an automation task the LLM picks up via
+  // c64re_whats_next. Returns the task id + post-sweep counts.
+  async function batchRevaluate() {
+    if (selected.size === 0) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const ids = [...selected];
+      const data = await postJson<{
+        taskId: string;
+        questionCount: number;
+        phase1: { archived: number; answered: number; sweepCounts: Array<{ artifactId: string; archived: number; answered: number }> };
+        remainingForPhase2: number;
+      }>("/api/tasks/bulk-revaluate", {
+        projectDir: snapshot.project.rootPath,
+        questionIds: ids,
+        priority: "medium",
+      });
+      setLastResult(
+        `Re-evaluation queued. Phase 1 closed ${data.phase1.answered} of ${data.questionCount} questions automatically; ` +
+        `${data.remainingForPhase2} remain for the LLM agent (task ${data.taskId}).`
+      );
+      setSelected(new Set());
+      await onReloadWorkspace();
+    } catch (revaluateError) {
+      setError(revaluateError instanceof Error ? revaluateError.message : String(revaluateError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="panel-card questions-panel">
       <div className="section-heading">
@@ -1079,6 +1139,9 @@ function QuestionsPanel({
         <button type="button" className="inspector-chip" onClick={clearSelection} disabled={busy || selected.size === 0}>
           Clear selection
         </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={batchRevaluate} title="Phase 1 sweep (deterministic) + Phase 2 LLM task queued via UX3.">
+          {busy ? "..." : `Re-evaluate ${selected.size}`}
+        </button>
         <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={() => applyBatch({ status: "deferred" })}>
           {busy ? "..." : `Defer ${selected.size}`}
         </button>
@@ -1123,6 +1186,11 @@ function QuestionsPanel({
               onClick={() => onSelectQuestion(question.id)}
             >
               {question.title}
+              {pendingByQuestionId.has(question.id) ? (
+                <span className="questions-pending-badge" title={`Re-eval task ${pendingByQuestionId.get(question.id)} pending. Agent picks it up via c64re_whats_next.`}>
+                  re-eval pending
+                </span>
+              ) : null}
             </button>
             <span className="questions-cell-meta">{question.kind}</span>
             <span className="questions-cell-meta">{question.priority}</span>
