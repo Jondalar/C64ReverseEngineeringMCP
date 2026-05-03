@@ -64,6 +64,10 @@ interface GraphicsItem {
   prgLoadAddress: number;
   fileOffset: number;
   analysisArtifactId: string;
+  confirmed?: boolean;
+  rejected?: boolean;
+  rejectedReason?: string;
+  confirmedByArtifactId?: string;
 }
 
 interface GraphicsApiResponse {
@@ -1627,6 +1631,16 @@ function groupGraphics(items: GraphicsItem[]): Array<{ id: string; title: string
   return GRAPHICS_GROUP_ORDER
     .map((group) => ({ id: group.id, title: group.title, items: items.filter((item) => group.matches(item.kind)) }))
     .filter((group) => group.items.length > 0);
+}
+
+// Bug 23 (Stage 2): derive the marks map from items. Single source of truth.
+function deriveGraphicsMarks(items: GraphicsItem[]): Record<string, { status: "rejected" | "confirmed"; note?: string }> {
+  const map: Record<string, { status: "rejected" | "confirmed"; note?: string }> = {};
+  for (const item of items) {
+    if (item.confirmed === true) map[item.id] = { status: "confirmed" };
+    else if (item.rejected === true) map[item.id] = { status: "rejected", note: item.rejectedReason };
+  }
+  return map;
 }
 
 function formatHex16(value: number): string {
@@ -5198,16 +5212,18 @@ export function App() {
     setError(null);
     try {
       const encoded = encodeURIComponent(nextProjectDir);
-      const [nextSnapshot, docsResponse, graphicsResponse, marksResponse] = await Promise.all([
+      const [nextSnapshot, docsResponse, graphicsResponse] = await Promise.all([
         fetchJson<WorkspaceUiSnapshot>(`/api/workspace?projectDir=${encoded}`),
         fetchJson<DocsApiResponse>(`/api/docs?projectDir=${encoded}`).catch(() => ({ projectDir: nextProjectDir, docs: [] as DiscoveredMarkdownDoc[] })),
         fetchJson<GraphicsApiResponse>(`/api/graphics?projectDir=${encoded}`).catch(() => ({ projectDir: nextProjectDir, items: [] as GraphicsItem[], warnings: [] as string[] })),
-        fetchJson<{ marks: Record<string, { status: "rejected" | "confirmed"; note?: string }> }>(`/api/graphics-marks?projectDir=${encoded}`).catch(() => ({ marks: {} })),
       ]);
       setSnapshot(nextSnapshot);
       setDiscoveredDocs(docsResponse.docs);
       setGraphicsItems(graphicsResponse.items);
-      setGraphicsMarks(marksResponse.marks ?? {});
+      // Bug 23 (Stage 2): graphicsMarks is now derived from the items
+      // themselves (which carry confirmed/rejected from the analysis JSON).
+      // Single source of truth — no separate /api/graphics-marks fetch.
+      setGraphicsMarks(deriveGraphicsMarks(graphicsResponse.items));
       setSelectedGraphicsId(graphicsResponse.items[0]?.id ?? null);
       setSelectedEntityId(null);
       setSelectedQuestionId(null);
@@ -5223,36 +5239,52 @@ export function App() {
 
   async function setGraphicsMark(itemId: string, status: "rejected" | "confirmed" | "clear") {
     if (!snapshot) return;
+    const item = graphicsItems.find((g) => g.id === itemId);
+    if (!item) return;
     try {
-      const response = await fetch("/api/graphics-marks", {
+      // Bug 23 (Stage 2): single write path. Both UI clicks and agent
+      // MCP calls land in the same store (the *_analysis.json segment
+      // flags), so the counter and buckets always agree.
+      const endpoint = status === "confirmed"
+        ? "/api/segment/confirm"
+        : status === "rejected"
+          ? "/api/segment/reject"
+          : "/api/segment/clear";
+      const body: Record<string, unknown> = {
+        projectDir: snapshot.project.rootPath,
+        artifactId: item.prgArtifactId,
+        address: item.start,
+        length: item.length,
+        kind: item.kind,
+      };
+      if (status === "rejected") body.reason = "User marked wrong via Graphics tab.";
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectDir: snapshot.project.rootPath, itemId, status }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json() as { marks: Record<string, { status: "rejected" | "confirmed"; note?: string }> };
-      setGraphicsMarks(payload.marks ?? {});
-      // Spec 053 / Bug 21: also write back into *_analysis.json so
-      // the segment's underlying classification reflects the user's
-      // human verdict. Best-effort — graphics-marks is the
-      // ephemeral source of truth; segment writeback is the durable
-      // propagation path.
-      const item = graphicsItems.find((g) => g.id === itemId);
-      if (item && status !== "clear") {
-        const endpoint = status === "confirmed" ? "/api/segment/confirm" : "/api/segment/reject";
-        const body: Record<string, unknown> = {
-          projectDir: snapshot.project.rootPath,
-          artifactId: item.prgArtifactId,
-          address: item.start,
-          length: item.length,
-          kind: item.kind,
-        };
-        if (status === "rejected") body.reason = "User marked wrong via Graphics tab.";
-        await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }).catch((segError) => console.error("segment writeback failed", segError));
+      // Refetch the graphics view so item.confirmed/rejected reflect the
+      // change. Cheap — the endpoint is a single file read per analysis JSON.
+      const encoded = encodeURIComponent(snapshot.project.rootPath);
+      const refreshed = await fetchJson<GraphicsApiResponse>(`/api/graphics?projectDir=${encoded}`).catch(() => null);
+      if (refreshed) {
+        setGraphicsItems(refreshed.items);
+        setGraphicsMarks(deriveGraphicsMarks(refreshed.items));
+      } else {
+        // Fall back to optimistic local update if the refetch failed.
+        setGraphicsItems(graphicsItems.map((g) => g.id !== itemId ? g : ({
+          ...g,
+          confirmed: status === "confirmed" ? true : undefined,
+          rejected: status === "rejected" ? true : undefined,
+          rejectedReason: status === "rejected" ? (body.reason as string) : undefined,
+        })));
+        setGraphicsMarks((prev) => {
+          const next = { ...prev };
+          if (status === "clear") delete next[itemId];
+          else next[itemId] = { status, note: status === "rejected" ? (body.reason as string) : undefined };
+          return next;
+        });
       }
     } catch (markError) {
       console.error("graphics mark failed", markError);

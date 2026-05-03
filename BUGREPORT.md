@@ -1000,7 +1000,7 @@ grep mark_segment_confirmed src/project-knowledge/mcp-tools.ts
 
 ## Bug 22 — `mark_segment_confirmed` / `mark_segment_rejected` cannot find the analysis JSON because of artifact-kind mismatch
 
-**Status**: OPEN
+**Status**: FIXED (commit `05ef06b` — path-only filter, drops the broken kind branch)
 
 **Severity**: Medium — the Bug 20/21 mitigation tools are reachable but every call returns "No matching segment found" because the lookup never reaches the analysis file. Refutation/confirmation findings ARE recorded, but the segment in `*_analysis.json` is NOT updated, so the Graphics-tab counter stays at 0 confirmed / 0 rejected.
 
@@ -1115,5 +1115,119 @@ if (raw && Array.isArray(raw.segments) && raw.segments.length > 0 && typeof raw.
 The first form is simpler and unambiguous. Verified by manual filter walk on the live data — only the second entry (the actual `_analysis.json`) survives.
 
 ### Status
-**REOPEN** — Bug 22's commit `3654140` does not fix the actual issue. Need a follow-up commit with the correct filter (path-only, drop the kind branch).
+**FIXED** — commit `05ef06b` ("fix(bug 22 reopen): path-only filter in markSegmentConfirmed/Rejected"). Filter now uses path-only matching, drops the over-permissive kind branch. Verified live: `mark_segment_rejected(artifact-drive-t1s0-prg-mood3yfu, 768, 64, sprite)` → `Analysis JSON updated: drive_t1s0_analysis.json`. `jq '.segments[] | select(.kind=="sprite")' …/drive_t1s0_analysis.json` confirms `rejected: true` and `rejectedReason` written.
+
+### REFIX (commit `05ef06b`)
+
+Applied the path-only filter to BOTH `markSegmentConfirmed` and `markSegmentRejected` in `src/project-knowledge/service.ts`:
+
+```ts
+const analysisArtifact = this.listArtifacts().find((a) =>
+  a.path.endsWith("_analysis.json")
+  && (a.sourceArtifactIds ?? []).includes(args.artifactId)
+);
+```
+
+Kind branch dropped entirely — `_analysis.json` suffix is the unambiguous signal; the run-event-log artifacts use `*_run.json` / `run-*.json` paths so they no longer collide.
+
+Regression coverage in `scripts/sprint46-smoke.mjs`: registers BOTH a `kind="analysis-run"` run-log artifact AND the actual `kind="other"` segments JSON pointing at the same source PRG, then asserts `markSegmentRejected` writes back to the segments JSON (`segmentMatched === true`, `segments[0].rejected === true`). Smoke green.
+
+Verify on Murder: re-run `mark_segment_rejected` on the t1s0 sprite range — `segmentMatched` should now be `true` and `jq '.segments[] | select(.kind=="sprite") | .rejected'` on `drive_t1s0_analysis.json` should report `true`.
+
+---
+
+## Bug 23 — UI Graphics-tab counter does not reflect MCP `mark_segment_*` writes; two disconnected stores; segment list shows duplicates
+
+**Status**: FIXED (Stage 2 — single source of truth, shadow store removed)
+
+**Severity**: High — the entire Bug 20/21/22 chain is functionally invisible from the UI. Agent ran 59 confirm/reject calls successfully (`Analysis JSON updated: ...` for each), but the Graphics tab still shows "126 segments — 0 confirmed — 0 rejected" because UI reads from a different store.
+
+### Live evidence (Murder project after Bug 22 fix)
+1. Agent calls `mark_segment_rejected` 13× and `mark_segment_confirmed` 46× — every call returns `Analysis JSON updated: …`. Verified via `jq '.segments[].rejected'` on each `*_analysis.json` — flags ARE written.
+2. Open the workspace UI Graphics tab → counter still says `126 segments — 0 confirmed — 0 rejected`. Same drive_t1s0 sprite_0300 still appears as "unmarked" candidate.
+3. Curl the API the UI uses: `curl /api/graphics-marks?projectDir=…/Murder` → `{"projectDir": "…", "marks": {}}` — empty.
+
+### Root cause: two disconnected stores
+- **Path A — MCP tool**: `mark_segment_confirmed` / `mark_segment_rejected` (in `src/project-knowledge/mcp-tools.ts`) → service method `markSegmentConfirmed/Rejected` → writes `confirmed: true` / `rejected: true` directly into `*_analysis.json.segments[i]`. Persistent in the analysis JSON.
+- **Path B — UI HTTP endpoints**: `/api/segment/confirm` and `/api/segment/reject` (POST handlers in `src/workspace-ui/server.ts`) → write to a SEPARATE file (likely `session/graphics-marks.json` or similar), exposed via `/api/graphics-marks` GET.
+- **UI Graphics tab** reads from `/api/graphics-marks` (Path B), NOT from the analysis JSONs (Path A).
+
+So agent-driven flow is invisible to the UI, and human-driven flow (clicking "Confirm graphics" in UI) presumably doesn't update the analysis JSON either. Two pseudo-source-of-truth stores.
+
+### Bonus: duplicate listing — 126 segments instead of ~58
+The UI shows each segment TWICE (e.g. `sprite_0300` from drive_t1s0 appears two consecutive rows; `sprite_0701` from riv1 appears twice; etc.). Counting unique sprite/charset candidates across all `*_analysis.json` shows ~58, but Graphics tab shows 126 ≈ 58 × 2.
+
+This is the Bug 10 family: each `*_analysis.json` artifact appears twice in `artifacts.json` (once auto-registered by `analyze_prg`, once auto-registered by `project_repair register_existing_files`). The UI iterates ALL analysis-json artifacts and reads segments from each, so every segment shows up once per artifact entry.
+
+### Expected
+1. **Single source of truth** for segment confirmation: pick one store (recommend the analysis JSON — already keyed by segment + carries the original heuristic + can hold `confirmedBy` lineage). Both the MCP tool path AND the UI HTTP endpoint path should write to the SAME store, OR the secondary store should mirror the primary on every change.
+2. **UI Graphics tab** reads `confirmed`/`rejected` flags from the `*_analysis.json` segments (Path A) directly, instead of (or in addition to) `/api/graphics-marks` (Path B).
+3. **De-dup segment list** in the UI: when iterating analysis-json artifacts, group by content-hash or by `(absolute path, segment range)` so each unique segment appears once.
+
+### Suggested fix
+Two stages:
+
+**Stage 1 — sync stores**: have `/api/segment/confirm` and `/api/segment/reject` HTTP handlers also call `service.markSegmentConfirmed/Rejected` so the analysis JSON gets updated whenever a human clicks "Confirm graphics" / "Mark wrong". Have `mark_segment_*` MCP tools also append to `session/graphics-marks.json` so the UI counter updates. (Quick fix; both stores stay but stay in sync.)
+
+**Stage 2 — single source**: drop the `graphics-marks.json` shadow store entirely. UI Graphics tab GET endpoint walks all `*_analysis.json` segments + their `confirmed`/`rejected` flags directly. UI POST → service → analysis JSON. (Cleaner; deletes the duplication.)
+
+For the duplicate listing: when the Graphics tab aggregates segments, dedupe on `(analysisJsonPath, start, end, kind)` so a single segment doesn't appear twice even if its analysis JSON is registered twice. Alternatively, fix `register_existing_files` and `project_repair` to NOT register paths that are already known (Bug 10 fix).
+
+### Cross-reference
+- Bug 10: same root path appears twice in artifacts.json. Causes the 2× factor in the segment listing.
+- Bug 20: parent of this whole confirm/reject workflow.
+- Bug 21: tools wired but UI not listening.
+- Bug 22: filter logic (FIXED). Made the MCP path actually write to the JSON. But UI still doesn't see it.
+
+### FIX (Stage 2 — single source of truth)
+
+Approach: kill the `session/graphics-marks.json` shadow store entirely. Analysis JSON is the single source of truth.
+
+1. **`src/workspace-ui/graphics-view.ts`**:
+   - Dedupe analysis-json artifacts by absolute `path` before iterating (fixes 126 → 58 segment listing — Bug 10 family).
+   - `GraphicsItem` gained `confirmed` / `rejected` / `rejectedReason` / `confirmedByArtifactId` fields read directly from each segment.
+2. **`src/project-knowledge/service.ts`**: added `clearSegmentMark({artifactId, address, length, kind})` — strips `confirmed`/`confirmedBy`/`rejected`/`rejectedReason` from the matching segment, no finding created.
+3. **`src/workspace-ui/server.ts`**:
+   - `/api/segment/clear` POST handler routes to `service.clearSegmentMark`.
+   - `/api/graphics-marks` GET now derives the marks map from `buildGraphicsView` items (no file read).
+   - `/api/graphics-marks` POST now routes to `service.markSegmentConfirmed/Rejected/clearSegmentMark` (requires `artifactId`/`address`/`length`/`kind` in payload). Old shadow-store writes gone.
+4. **`ui/src/App.tsx`**:
+   - `setGraphicsMark` calls `/api/segment/{confirm,reject,clear}` directly (single write path, replaces dual write).
+   - `graphicsMarks` derived from `graphicsItems` via new `deriveGraphicsMarks` helper.
+   - `loadWorkspace` no longer fetches `/api/graphics-marks` separately — only `/api/graphics`.
+   - After a mark write, refetches `/api/graphics` so the counter and bucket re-render with the live segment state.
+5. **Regression coverage** (`scripts/sprint46-smoke.mjs`): `clearSegmentMark` happy path; `buildGraphicsView` dedupe — registers same `_analysis.json` twice via different artifact ids, asserts `view.items.filter(...).length === 1` and `confirmed` flag flows through.
+
+Net effect: every confirmed/rejected write — agent MCP call OR human UI click — lands in the analysis JSON. Counter, bucket assignment, agent and UI all read from the same place. Duplicate segment rows gone.
+
+Verify on Murder: restart MCP server, open Graphics tab. Counter should reflect the 59 prior agent calls (`Confirmed: 46 / Rejected: 13`). t1s0 sprite_0300 should appear in the rejected bucket. Segment list should be ~58 items (down from 126).
+
+---
+
+## Bug 24 — UI shows all artifact versions everywhere; should default to latest-only with opt-in history
+
+**Status**: OPEN
+
+**Severity**: Medium — clutters every panel that lists artifacts. Defeats the purpose of the lineage / versions model (Spec 025: a lineage chain is supposed to roll up to its latest entry by default).
+
+### Summary
+Only the Scrub picker (`ui/src/App.tsx:1801-1816`) currently filters artifacts to "highest `versionRank` per `lineageRoot`". Every other surface — PayloadsPanel, DiskPanel, ListingPanel, EntitiesPanel, FlowGraph, RecentActivity, scratchpad pickers, the inspector linked-artifacts list, the `/api/per-artifact-status` table, the cartridge layout view — iterates `snapshot.artifacts` directly and renders all V0..Vn entries side-by-side.
+
+Live evidence: MotM64 Flow Graph tab (screenshot 2026-05-03 10.44.09) shows 98 nodes / 87 edges where multiple nodes are repeated versions of the same lineage root (e.g. `entry_xxxx`, `code_xxxx` appearing as V0 + V1 + V2 in the same graph).
+
+### Expected
+1. **Default everywhere = latest only.** All UI panels and all `/api/*` endpoints that surface an artifact list filter to `latest-per-lineageRoot` by default.
+2. **Inspector "View history" affordance.** When an artifact is opened in any inspector, show a "View history" button that expands the lineage chain (V0 → V1 → ... → latest) inline. Clicking an older version opens it in a read-only view (later iteration: editable / forkable).
+3. **No silent loss.** Older versions stay first-class artifacts in `artifacts.json` and remain reachable from the lineage UI — they just don't pollute every list.
+
+### Suggested fix
+1. **Shared helper**: `latestArtifactsByLineage(artifacts: ArtifactRecord[]): ArtifactRecord[]` in a new `ui/src/lib/lineage.ts` (or move the existing ScrubPanel filter there). Returns the highest-`versionRank` entry per `lineageRoot` (falling back to `id` when `lineageRoot` is missing).
+2. **Apply at every read site**: replace direct `snapshot.artifacts` reads in PayloadsPanel, DiskPanel, ListingPanel, EntitiesPanel, FlowGraph aggregator, RecentActivity, per-artifact-status table, cartridge layout, inspector linked-artifacts. Same shape on the server: `/api/per-artifact-status`, `/api/artifact/lineage` consumers, `/api/findings` / `/api/entities` / `/api/flows` / `/api/relations` filter on the client side OR the server applies a `?include=latest` default.
+3. **Inspector history button**: small "View history (N)" link in the inspector header. Expands a stacked list of `versionLabel` + `versionRank` + `derivedFrom` chain. Each row clickable → opens that version in a sibling inspector pane with a "read-only — older version" banner.
+4. **Opt-out for power users**: top-level toggle `[ ] Show all versions` in the snapshot header for debugging — defaults off.
+
+### Cross-reference
+- Spec 025 (artifact lineage and versions) — defines `lineageRoot` / `versionRank` / `versions[]` schema.
+- Sprint 22 lineage chain UI — built the inspector lineage view that the new "View history" button reuses.
+- Bug 23 — duplicate listing in Graphics tab is a related-but-different cause (same path registered twice in `artifacts.json`); Bug 24 is the lineage-version case (different artifact ids, same lineage root).
 

@@ -503,6 +503,30 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Bug 23 (Stage 2): clear a previously-set confirm/reject mark.
+  if (requestUrl.pathname === "/api/segment/clear" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; artifactId: string; address: number; length: number; kind: string };
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const result = service.clearSegmentMark({
+          artifactId: payload.artifactId,
+          address: payload.address,
+          length: payload.length,
+          kind: payload.kind,
+        });
+        if (!result) { send(res, jsonResponse(404, { error: "artifact not found" })); return; }
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/audit" && req.method === "GET") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
@@ -728,16 +752,28 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Bug 23 (Stage 2): /api/graphics-marks is now a thin compat shim.
+  // The shadow store at session/graphics-marks.json is gone — the analysis
+  // JSONs are the single source of truth. GET derives the marks map from
+  // buildGraphicsView items so any client that still reads /api/graphics-marks
+  // sees the live, agent-and-UI-merged state. POST routes to the same service
+  // methods used by /api/segment/{confirm,reject,clear}.
   if (requestUrl.pathname === "/api/graphics-marks" && req.method === "GET") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
       : options.projectDir;
-    const marksPath = join(projectDir, "session", "graphics-marks.json");
     try {
-      const marks = existsSync(marksPath)
-        ? JSON.parse(readFileSync(marksPath, "utf8")) as { marks?: Record<string, { status: "rejected" | "confirmed"; note?: string; updatedAt: string }> }
-        : { marks: {} };
-      send(res, jsonResponse(200, { projectDir, marks: marks.marks ?? {} }));
+      const service = new ProjectKnowledgeService(projectDir);
+      const view = buildGraphicsView(projectDir, service);
+      const marks: Record<string, { status: "rejected" | "confirmed"; note?: string }> = {};
+      for (const item of view.items) {
+        if (item.confirmed === true) {
+          marks[item.id] = { status: "confirmed" };
+        } else if (item.rejected === true) {
+          marks[item.id] = { status: "rejected", note: item.rejectedReason };
+        }
+      }
+      send(res, jsonResponse(200, { projectDir, marks }));
     } catch (error) {
       send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
     }
@@ -754,6 +790,13 @@ const server = createServer((req, res) => {
           itemId: string;
           status: "rejected" | "confirmed" | "clear";
           note?: string;
+          // Required for the service-routing path: the UI already has the
+          // GraphicsItem locally and can pass these through.
+          artifactId?: string;
+          address?: number;
+          length?: number;
+          kind?: string;
+          reason?: string;
         };
         const projectDir = payload.projectDir?.trim()
           ? resolve(process.cwd(), payload.projectDir)
@@ -762,22 +805,44 @@ const server = createServer((req, res) => {
           send(res, jsonResponse(400, { error: "Missing itemId." }));
           return;
         }
-        const marksPath = join(projectDir, "session", "graphics-marks.json");
-        mkdirSync(dirname(marksPath), { recursive: true });
-        const existing = existsSync(marksPath)
-          ? JSON.parse(readFileSync(marksPath, "utf8")) as { marks?: Record<string, { status: "rejected" | "confirmed"; note?: string; updatedAt: string }> }
-          : { marks: {} };
-        const map: Record<string, { status: "rejected" | "confirmed"; note?: string; updatedAt: string }> = existing.marks ?? {};
-        if (payload.status === "clear") {
-          delete map[payload.itemId];
-        } else {
-          map[payload.itemId] = {
-            status: payload.status,
-            note: payload.note,
-            updatedAt: new Date().toISOString(),
-          };
+        if (!payload.artifactId || typeof payload.address !== "number" || typeof payload.length !== "number" || !payload.kind) {
+          send(res, jsonResponse(400, { error: "Missing artifactId/address/length/kind. /api/graphics-marks now routes to service methods (Bug 23 stage 2) and needs the full segment payload." }));
+          return;
         }
-        writeFileSync(marksPath, JSON.stringify({ updatedAt: new Date().toISOString(), marks: map }, null, 2));
+        const service = new ProjectKnowledgeService(projectDir);
+        if (payload.status === "confirmed") {
+          service.markSegmentConfirmed({
+            artifactId: payload.artifactId,
+            address: payload.address,
+            length: payload.length,
+            kind: payload.kind,
+          });
+        } else if (payload.status === "rejected") {
+          service.markSegmentRejected({
+            artifactId: payload.artifactId,
+            address: payload.address,
+            length: payload.length,
+            kind: payload.kind,
+            reason: payload.reason ?? "User marked wrong via Graphics tab.",
+          });
+        } else {
+          service.clearSegmentMark({
+            artifactId: payload.artifactId,
+            address: payload.address,
+            length: payload.length,
+            kind: payload.kind,
+          });
+        }
+        // Re-derive the full marks map so the response shape matches GET.
+        const view = buildGraphicsView(projectDir, service);
+        const map: Record<string, { status: "rejected" | "confirmed"; note?: string }> = {};
+        for (const item of view.items) {
+          if (item.confirmed === true) {
+            map[item.id] = { status: "confirmed" };
+          } else if (item.rejected === true) {
+            map[item.id] = { status: "rejected", note: item.rejectedReason };
+          }
+        }
         send(res, jsonResponse(200, { projectDir, marks: map }));
       } catch (error) {
         send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));

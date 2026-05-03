@@ -1657,6 +1657,52 @@ export class ProjectKnowledgeService {
     return { findingId: finding.id, analysisPath, segmentMatched };
   }
 
+  // Bug 23 (Stage 2): clear a previously-set confirmed/rejected mark on a
+  // segment. Strips confirmed/confirmedBy/rejected/rejectedReason from the
+  // matching segment in *_analysis.json. No finding is created — clearing is
+  // a UI affordance, not a knowledge claim. Idempotent: returns
+  // segmentMatched=false if no matching segment.
+  clearSegmentMark(args: {
+    artifactId: string;
+    address: number;
+    length: number;
+    kind: string;
+  }): { analysisPath?: string; segmentMatched: boolean } | undefined {
+    const artifact = this.listArtifacts().find((a) => a.id === args.artifactId);
+    if (!artifact) return undefined;
+    let analysisPath: string | undefined;
+    let segmentMatched = false;
+    const analysisArtifact = this.listArtifacts().find((a) =>
+      a.path.endsWith("_analysis.json")
+      && (a.sourceArtifactIds ?? []).includes(args.artifactId)
+    );
+    if (analysisArtifact && existsSync(analysisArtifact.path)) {
+      try {
+        const raw = JSON.parse(readFileSync(analysisArtifact.path, "utf8"));
+        if (raw && typeof raw === "object" && Array.isArray((raw as { segments?: unknown[] }).segments)) {
+          const segments = (raw as { segments: Array<Record<string, unknown> & { start: number; end: number; kind: string }> }).segments;
+          const match = segments.find((s) =>
+            s.start === args.address
+            && s.end === args.address + args.length - 1
+            && s.kind === args.kind
+          );
+          if (match) {
+            delete match.confirmed;
+            delete match.confirmedBy;
+            delete match.rejected;
+            delete match.rejectedReason;
+            writeFileSync(analysisArtifact.path, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+            analysisPath = analysisArtifact.path;
+            segmentMatched = true;
+          }
+        }
+      } catch {
+        // best effort
+      }
+    }
+    return { analysisPath, segmentMatched };
+  }
+
   // Spec 052: walk open auto-resolvable questions whose entityIds
   // intersect the just-saved finding. High-confidence matches
   // auto-close; low-confidence become resolution-pending.

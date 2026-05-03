@@ -107,6 +107,54 @@ try {
   assert.equal(yJson.segments[0].rejected, true);
   assert.equal(yJson.segments[0].rejectedReason, "not a sprite");
 
+  // Bug 23 (Stage 2): clearSegmentMark strips confirmed/rejected flags and
+  // creates no finding. Idempotent — second call still returns matched=true.
+  const cleared = service.clearSegmentMark({
+    artifactId: yArtifact.id,
+    address: 0x1000,
+    length: 0x40,
+    kind: "sprite",
+  });
+  assert.ok(cleared);
+  assert.equal(cleared.segmentMatched, true, "Bug 23: clearSegmentMark matches the segments JSON");
+  const yJsonCleared = JSON.parse(readFileSync(join(root, "y_analysis.json"), "utf8"));
+  assert.equal(yJsonCleared.segments[0].rejected, undefined, "Bug 23: clear strips rejected flag");
+  assert.equal(yJsonCleared.segments[0].rejectedReason, undefined, "Bug 23: clear strips rejectedReason");
+
+  // Bug 23 (Stage 2): graphics-view dedupes analysis JSONs by absolute path
+  // so a doubly-registered analysis JSON yields a single segment, not two.
+  const { buildGraphicsView } = await import("../dist/workspace-ui/graphics-view.js");
+  // Register the SAME *_analysis.json a second time (Bug 10 family) — both
+  // have role="analysis-json", same path, different ids.
+  service.saveArtifact({
+    kind: "other",
+    role: "analysis-json",
+    scope: "analysis",
+    title: "y analysis dup",
+    path: "y_analysis.json",
+    sourceArtifactIds: [yArtifact.id],
+  });
+  // The first registration also needs role="analysis-json" for buildGraphicsView
+  // to pick it up. Re-save with role set.
+  service.saveArtifact({
+    id: "artifact-y-analysis-orig",
+    kind: "other",
+    role: "analysis-json",
+    scope: "analysis",
+    title: "y analysis",
+    path: "y_analysis.json",
+    sourceArtifactIds: [yArtifact.id],
+  });
+  // Confirm a sprite via service — sets confirmed=true on the segment.
+  // First put a fresh segment in the JSON (the previous test cleared it).
+  writeFileSync(join(root, "y_analysis.json"), JSON.stringify({
+    segments: [{ kind: "sprite", start: 0x1000, end: 0x103f, confirmed: true }],
+  }));
+  const view = buildGraphicsView(root, service);
+  const spriteItems = view.items.filter((i) => i.kind === "sprite" && i.start === 0x1000);
+  assert.equal(spriteItems.length, 1, "Bug 23: dedupe by path — one segment, one item, not two");
+  assert.equal(spriteItems[0].confirmed, true, "Bug 23: confirmed flag flows from analysis JSON to GraphicsItem");
+
   console.log("sprint 46 smoke test passed");
   console.log(root);
 } catch (error) {
