@@ -238,6 +238,11 @@ export class IntegratedSession {
       while (this.driveCycleAccumulator >= 1) this.runOneDriveStep();
       return;
     }
+    // Sprint 88 v2 / VICE alarm-context pattern: BEFORE C64 executes
+    // its next instruction, drive must be fully caught up to the
+    // current C64 cycle. Otherwise drive's "current view" of the IEC
+    // bus is stale by N cycles when C64's bus access happens.
+    this.flushDriveCycles();
     this.checkC64Interrupts();
     const before = this.c64Cpu.cycles;
     this.c64Cpu.step();
