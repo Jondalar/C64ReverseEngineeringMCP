@@ -31,6 +31,11 @@ import {
   makeKernalFileIoState,
   type KernalFileIoState,
 } from "./traps/kernal-fileio.js";
+import {
+  handleKernalSerialTrap,
+  makeKernalSerialState,
+  type KernalSerialState,
+} from "./traps/kernal-serial.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -66,6 +71,7 @@ export class IntegratedSession {
   public readonly romSet: LoadedC64RomSet;
   public readonly diskProvider: DiskProvider;
   public readonly kernalFileIo: KernalFileIoState;
+  public readonly kernalSerial: KernalSerialState;
   public readonly cia1: Cia6526;
   public readonly cia2: Cia6526;
   public readonly vic: VicII;
@@ -114,6 +120,7 @@ export class IntegratedSession {
     this.iecBus.attachDriveRam(this.drive.bus.ram);
 
     this.kernalFileIo = makeKernalFileIoState();
+    this.kernalSerial = makeKernalSerialState();
     this.enableKernalFileIoTraps = opts.enableKernalFileIoTraps ?? false;
     this.framebuffer = new VicFramebuffer(isPal);
   }
@@ -170,10 +177,20 @@ export class IntegratedSession {
     // enableKernalFileIoTraps. Default is real KERNAL serial via
     // CIA1 timer + drive ROM bit-bang. Trap path kept as fallback
     // for cases where the real protocol stalls (still being tuned).
-    if (this.enableKernalFileIoTraps && handleKernalFileIoTrap({
+    // Sprint 67 + 72: KERNAL trap suite. Try fileio first then serial.
+    // enableKernalFileIoTraps gates fileio path (default off — Sprint
+    // 69 wants real KERNAL serial). Serial trap suite always on; it's
+    // the workaround for the byte-tx mutual-wait until Sprint 69b
+    // finish lands.
+    const trapped = (this.enableKernalFileIoTraps && handleKernalFileIoTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, state: this.kernalFileIo,
-    })) {
+    })) || handleKernalSerialTrap({
+      cpu: this.c64Cpu, bus: this.c64Bus,
+      diskProvider: this.diskProvider, drive: this.drive,
+      iecBus: this.iecBus, state: this.kernalSerial,
+    });
+    if (trapped) {
       this.c64InstructionCount += 1;
       const trapCycles = 7;
       this.cia1.tick(trapCycles);

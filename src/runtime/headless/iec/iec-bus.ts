@@ -164,6 +164,18 @@ export class IecBus {
     this.driveRamForAtnPoke = ram;
   }
 
+  // Sprint 72: synthesize drive CLK ACK after a trap-handled M-W or
+  // similar drive-command completion. Many games wait for CLK to be
+  // released by the drive after a command — we release it here so
+  // the C64 exits the wait loop immediately.
+  releaseDriveClk(): void {
+    this.driveClkReleased = true;
+  }
+
+  releaseDriveData(): void {
+    this.driveDataReleased = true;
+  }
+
   private notifyAtnChanged(): void {
     if (this.driveVia1) {
       this.driveVia1.pulseCa1(this.atnLine);
