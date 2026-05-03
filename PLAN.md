@@ -1728,6 +1728,53 @@ Decisions (implemented):
 - Inspector / overlays / filter facets per view = follow-up sprint
   per-view (each view is its own refactor surface).
 
+## Sprint 58: Backfill Internal Flags + View-Builder Heuristic Fallback (Bug 34)
+
+Goal: surfaced during Murder Sprint-56 verification — Flow Graph Load mode shows annotations as load stages because legacy artifacts/entities lack the `internal` flag (predates Spec 058).
+
+Status: DONE.
+
+- View-builder side: `isInternalArtifactWithFallback` + `isInternalEntityWithFallback` apply `classifyArtifactInternal` heuristic when the persisted flag is undefined. Used in `buildLoadSequenceView`, `buildStructureFlowMode`, `buildAnnotatedListingView`.
+- Migration: `backfill_internal_flags({dry_run})` MCP tool walks artifacts + entities, two-pass.
+- Smoke at scripts/sprint58-smoke.mjs.
+
+Cross-ref: Bug 34, Spec 058.
+
+## Sprint 60-64: Headless 1541 L3 (Spec 062, R28)
+
+Headless emulator gains a complete cycle-accurate 1541 drive (drive 6502 + IEC bus + GCR I/O + write persist + VSF). Skips L1/L2 escalation directly to L3 per user decision; existing GCR codec makes the incremental cost manageable. Resolves R28's "any custom-loader game derails the trace" problem and unblocks EF-port phase 0 + Spec 060 runtime-aggregation.
+
+License posture: research-with-references. Read VICE source + Gideon 1541ultimate for algorithmic understanding; implement fresh in TS so the project stays MIT. Drive ROM bundled (`resources/roms/dos1541-325302-01+901229-05.bin`, 16KB) per Q1.α — same precedent as VICE/Gideon, ENV-VAR override available.
+
+- **Sprint 60** — drive CPU + RAM/ROM + VIA register skeleton (no IRQ/timers). End-to-end: M-E'd no-IEC drive code runs.
+- **Sprint 61** — IEC bus bit-mirror + full 6522 (IRQ + timers + handshake). End-to-end: KERNAL serial sequence completes through to drive's CommodoreDOS handler. Murder past stack-underflow.
+- **Sprint 62** — GCR drive-side I/O ($1C01 read latch, head positioning) + write back + persist `<image>_session.g64`. End-to-end: drive reads/writes sectors, save-game RE possible.
+- **Sprint 63** — trace integration (cpu tag) + drive MCP tools (Q7.C hybrid) + Murder acceptance + scope-boundary detection ($D011/$D012 polling → warning). R28 acceptance criterion #2 met.
+- **Sprint 64** — VSF (VICE Snapshot Format) read + write for the modeled subset. Cross-emulator state transfer (VICE ↔ headless). Forward-compat with Spec 063 phases.
+
+Status: spec'd (Spec 062), implementation pending.
+
+Cross-ref: R28, Spec 062, Spec 063, existing src/disk/gcr.ts (reuse), existing src/runtime/headless/cpu6510.ts (re-instantiated for drive).
+
+## Headless full-C64 LLM-vision (Spec 063, roadmap)
+
+Long-term: headless = complete cycle-accurate C64 designed for LLM consumption. `headless_render_screen()` returns PNG; cycle-exact mid-frame for raster effects; scripted input; SID register-level capture. Demo coding becomes a viable LLM-driven RE/dev workflow without VICE-GUI dependency.
+
+Phases (each becomes own concrete spec when picked up):
+
+- **Phase A** — VIC video model + screen render to PNG. Largest LLM-leverage. ~4-6 sprints.
+- **Phase B** — CIA1 / CIA2 full timers. Game-loop IRQ + music driver timing. ~1-2 sprints.
+- **Phase C** — CIA1 keyboard / joystick input as scriptable source. ~1 sprint.
+- **Phase D** — SID register-level model (+ optional WAV synth). ~1 sprint baseline; +2-3 if WAV.
+- **Phase E** — Cycle-exact mid-frame raster effects + demo workflow docs. ~1 sprint after A.
+- **Phase F** — VSF coverage expansion (per phase, monotonic).
+
+Phases A-F land as pure additions, not refactors — Spec 062's memory-bus + step-loop + trace-tag + tool-naming patterns are designed to extend. Total ~10-15 sprints to full headless C64. Phase A alone delivers the largest single LLM-leverage gain.
+
+Start condition: after Sprints 60-64 complete (drive foundation + VSF bridge stable).
+
+Cross-ref: Spec 063, Spec 062 architectural seams.
+
 ## Bug fixes shipped this batch
 
 - Bug 22 REFIX (commit `05ef06b`): path-only filter in

@@ -609,6 +609,9 @@ Aligns with the user's broader workflow: "Claude initialisere das Projekt" → "
 
 ## R28 — Headless 1541 drive-bus emulation for custom-loader runtime traces
 
+**Status:** SPEC'd (Spec 062). Refined Q1-Q10 + E. Implementation = Sprints 60-64. Plus Spec 063 captures full-C64-headless vision (long-term roadmap).
+
+
 **Severity:** high (blocks runtime tracing of every game with a custom drive loader — virtually all C64 commercial software 1985+)
 **Discovered during:** Murder on the Mississippi headless boot attempt (2026-05-03). Auto-boot trap loaded `murder.prg` ✓, KERNAL-LOAD-trap loaded `ab.prg` ✓, but ab.prg's drive-install sequence (`LISTEN 8 / SECOND $6F / CIOUT M-W bytes / UNLSN`, then M-E to start drive code) had no responder. Calls fall through to bare KERNAL serial routines that spin on `$DD00` IEC handshake forever, SP underflows, RTS pulls garbage → drift to $C000 BRK chain at cycle 12413.
 
@@ -665,3 +668,14 @@ Ship **Level 1 first** (small, unblocks LOAD-only games + games whose drive-inst
 - Spec 060 — migration applied successfully on Murder; this FR unblocks the runtime-aggregation phase that would consume the migrated data.
 - EF port spec (pending) — Phase 0 (Prerequisites) calls for runtime trace evidence; that work depends on this FR landing.
 - VICE integration tools (`vice_session_*`, `vice_trace_*`) — alternative route, but heavier and outside the headless trace pipeline.
+
+### Reference implementation available
+
+VICE source tree is now checked out at `/Users/alex/Development/C64/Tools/vice/vice/`. Relevant directories for Level 2 / Level 3 work:
+
+- `src/drive/` — drive top-level: `drive.c`, `drivecpu.c` (drive 6502 emulation main loop), `drivecpu65c02.c` (65C02 variants), `driveimage.c`, `drive-snapshot.c`, plus `drive-writeprotect.c`.
+- `src/drive/iec/` and `src/drive/iecbus/` — IEC bus modelling: ATN/CLK/DATA wiring, serial protocol state machine, drive-side VIA handlers (the exact coupling Level 2 needs between C64 CIA2 and drive VIA1).
+- `src/diskimage/`, `src/imagecontents/` — D64/G64 mounting, GCR encode/decode (Level 3).
+- `src/c64/cart/` — cartridge handling reference (informs CRT support already, listed for completeness).
+
+Use VICE as: (a) algorithmic reference for the IEC handshake state machine, (b) ground-truth oracle to diff our headless drive-stub behaviour against during testing, (c) source for drive-ROM stub addresses + their KERNAL-equivalent semantics. Licensing: VICE is GPL — keep clean-room separation if our headless emulator must remain non-GPL; otherwise direct lift of `drivecpu.c`-style code substantially accelerates Level 2.
