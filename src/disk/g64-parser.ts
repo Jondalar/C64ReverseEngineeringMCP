@@ -279,6 +279,40 @@ export class G64Parser implements DiskImage {
     return this.getRawTrackBySlotIndex(this.trackToSlotIndex(trackNum));
   }
 
+  // Spec 062 Sprint 62: public accessor for the drive emulator's
+  // track-buffer needs the raw GCR byte stream. Returns a copy
+  // (callers may mutate without corrupting the parser's internal data).
+  getRawTrackBytes(trackNum: number): Uint8Array | null {
+    const raw = this.getRawTrack(trackNum);
+    return raw ? new Uint8Array(raw) : null;
+  }
+
+  // Spec 062 Sprint 62: returns the original underlying file bytes
+  // (read-only — used by session-persist.ts to clone the image and
+  // splice in modified tracks).
+  getRawImageBytes(): Uint8Array {
+    return this.data;
+  }
+
+  // Spec 062 Sprint 62: writes modified track bytes back into a copy
+  // of the image. Caller passes the modified buffer per track. Returns
+  // the new image bytes (length unchanged; buffer copied + spliced).
+  buildModifiedImage(modifiedTracks: Map<number, Uint8Array>): Uint8Array {
+    const out = new Uint8Array(this.data.length);
+    out.set(this.data);
+    for (const [trackNum, bytes] of modifiedTracks) {
+      const slotIndex = this.trackToSlotIndex(trackNum);
+      const offset = this.trackOffsets[slotIndex]!;
+      if (offset === 0) continue;
+      const actualSize = out[offset]! | (out[offset + 1]! << 8);
+      const writeLen = Math.min(bytes.length, actualSize);
+      out.set(bytes.slice(0, writeLen), offset + 2);
+    }
+    return out;
+  }
+
+  // (track count exposed via existing getTrackCount further down)
+
   private decodeTrack(trackNum: number): DecodedSector[] {
     const trackData = this.getRawTrack(trackNum);
     return trackData ? decodeGCRTrack(trackData) : [];

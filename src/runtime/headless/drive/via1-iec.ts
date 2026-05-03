@@ -56,6 +56,10 @@ export function makeStubVia1Pb(deviceId: number = 8): ViaPortBackend {
   };
 }
 
+// IEC bus VIA1 backends already destructure (orValue, ddrMask) and
+// don't care about cause — the iec-bus state always reflects current
+// or+ddr regardless of which one changed.
+
 // Sprint 61: bus-coupled backends.
 export function makeBusVia1Pa(): ViaPortBackend {
   return {

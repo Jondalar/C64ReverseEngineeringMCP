@@ -18,7 +18,7 @@
 import { Cpu6510, type CpuMemory } from "../cpu6510.js";
 import { Via6522 } from "./via6522.js";
 import { makeStubVia1Pa, makeStubVia1Pb, makeBusVia1Pa, makeBusVia1Pb } from "./via1-iec.js";
-import { makeStubVia2Pa, makeStubVia2Pb } from "./via2-gcr.js";
+import { makeStubVia2Pa, makeStubVia2Pb, makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
 import { loadDriveRom, DRIVE_ROM_BASE, DRIVE_ROM_SIZE, type LoadedDriveRom } from "./drive-rom.js";
 import type { IecBus } from "../iec/iec-bus.js";
 
@@ -33,6 +33,7 @@ export interface DriveCpuOptions {
   rom?: LoadedDriveRom;     // skip ROM load if caller provides one
   romBytes?: Uint8Array;    // raw override (testing)
   iecBus?: IecBus;          // wire VIA1 PB to the bus; otherwise stub
+  gcr?: Via2GcrCoupling;    // wire VIA2 PA/PB to TrackBuffer + HeadPosition
 }
 
 export class DriveBus implements CpuMemory {
@@ -62,7 +63,11 @@ export class DriveBus implements CpuMemory {
     } else {
       this.via1 = new Via6522(makeStubVia1Pa(), makeStubVia1Pb(opts.deviceId ?? 8));
     }
-    this.via2 = new Via6522(makeStubVia2Pa(), makeStubVia2Pb());
+    if (opts.gcr) {
+      this.via2 = new Via6522(makeGcrVia2Pa(opts.gcr), makeGcrVia2Pb(opts.gcr));
+    } else {
+      this.via2 = new Via6522(makeStubVia2Pa(), makeStubVia2Pb());
+    }
   }
 
   read(address: number): number {

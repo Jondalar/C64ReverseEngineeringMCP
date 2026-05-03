@@ -62,9 +62,16 @@ export const IFR_T2 = 0x20;
 export const IFR_T1 = 0x40;
 export const IFR_IRQ_SUMMARY = 0x80;
 
+export type ViaWriteCause = "or" | "ddr" | "reset";
+
 export interface ViaPortBackend {
   readPins(): number;
-  onOutputChanged(orValue: number, ddrMask: number): void;
+  // Called whenever the VIA's OR latch or DDR mask changes. The
+  // `cause` lets the backend distinguish a real OR-write (which on
+  // 1541 VIA2 PA is the GCR head-write trigger) from a DDR mode flip
+  // (which only changes line drive direction without committing a new
+  // GCR byte).
+  onOutputChanged(orValue: number, ddrMask: number, cause: ViaWriteCause): void;
 }
 
 // Edge polarity for CA1/CB1 controlled by PCR bit 0 / bit 4.
@@ -148,26 +155,26 @@ export class Via6522 {
     switch (reg & 0xf) {
       case VIA_ORB:
         this.orb = v;
-        this.portB.onOutputChanged(this.orb, this.ddrb);
+        this.portB.onOutputChanged(this.orb, this.ddrb, "or");
         // Writing ORB clears CB1 flag (per datasheet handshake clear).
         this.clearIfr(IFR_CB1 | IFR_CB2);
         return;
       case VIA_ORA:
         this.ora = v;
-        this.portA.onOutputChanged(this.ora, this.ddra);
+        this.portA.onOutputChanged(this.ora, this.ddra, "or");
         this.clearIfr(IFR_CA1 | IFR_CA2);
         return;
       case VIA_ORA_NOHS:
         this.ora = v;
-        this.portA.onOutputChanged(this.ora, this.ddra);
+        this.portA.onOutputChanged(this.ora, this.ddra, "or");
         return;
       case VIA_DDRB:
         this.ddrb = v;
-        this.portB.onOutputChanged(this.orb, this.ddrb);
+        this.portB.onOutputChanged(this.orb, this.ddrb, "ddr");
         return;
       case VIA_DDRA:
         this.ddra = v;
-        this.portA.onOutputChanged(this.ora, this.ddra);
+        this.portA.onOutputChanged(this.ora, this.ddra, "ddr");
         return;
       case VIA_T1CL:
       case VIA_T1LL:
@@ -325,7 +332,7 @@ export class Via6522 {
     this.t2HasUnderflowed = false;
     this.lastCa1Pin = true;
     this.lastCb1Pin = true;
-    this.portA.onOutputChanged(0, 0);
-    this.portB.onOutputChanged(0, 0);
+    this.portA.onOutputChanged(0, 0, "reset");
+    this.portB.onOutputChanged(0, 0, "reset");
   }
 }
