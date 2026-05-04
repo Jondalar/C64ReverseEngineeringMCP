@@ -55,6 +55,7 @@ const C64_HZ_NTSC = 1022727;
 const DRIVE_HZ = 1000000;
 
 import { type SessionMode, type SessionModeReport, identifyMode, makeModeReport, resolveSessionFlags } from "./session-modes.js";
+import { type ResetProfile, applyRamFillPattern, getResetProfile } from "./reset-profiles.js";
 
 export interface IntegratedSessionOptions {
   diskPath: string;
@@ -329,14 +330,33 @@ export class IntegratedSession {
     return { width: this.framebuffer.width, height: this.framebuffer.height, bytes: png.length };
   }
 
-  resetCold(): void {
+  // Spec 100: deterministic reset profile. Default "pal-default"
+  // matches legacy resetCold() behavior. Pin every cold-reset knob
+  // (RAM fill pattern, VIC raster phase, drive head track, peripheral
+  // neutrals) so two reset+run pairs with the same inputs produce
+  // byte-identical state at every cycle.
+  resetCold(profile: ResetProfile = "pal-default"): void {
+    const spec = getResetProfile(profile);
     this.c64Bus.reset();
+    applyRamFillPattern(this.c64Bus.ram, spec);
     this.iecBus.reset();
     if (this.iecBus.isTraceEnabled()) this.iecBus.clearTrace();
     this.c64Cpu.reset();
     this.drive.reset();
     this.drive.setSyncBaseline(this.c64Cpu.cycles);
     this.sid.reset();
+    // Pin VIC raster phase deterministically.
+    (this.vic as { rasterLine?: number }).rasterLine = spec.vicRasterPhase;
+    // Pin drive head to profile-specified start track.
+    this.headPosition.reset(spec.driveStartTrack);
+    // Wipe keyboard + joystick state.
+    const kb = this.keyboard as unknown as { clear?: () => void };
+    if (typeof kb.clear === "function") kb.clear();
+    this.joystick2.up = false;
+    this.joystick2.down = false;
+    this.joystick2.left = false;
+    this.joystick2.right = false;
+    this.joystick2.fire = false;
     this.c64InstructionCount = 0;
     this.drivePcTrace = [];
   }

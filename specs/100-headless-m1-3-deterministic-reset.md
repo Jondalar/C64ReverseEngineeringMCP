@@ -1,6 +1,6 @@
 # Spec 100 — Headless M1.3: Deterministic Reset Profile
 
-Status: refined, not started
+Status: **DONE 2026-05-04.** ResetProfile type + 3 named profiles ("pal-default" | "ntsc-default" | "custom") shipped in `src/runtime/headless/reset-profiles.ts`. `IntegratedSession.resetCold(profile)` accepts the profile arg and pins RAM init pattern (64-byte $00/$FF blocks), VIC raster phase (0 — deliberate deviation from real HW), drive head start track, keyboard + joystick neutrals, IEC line state. `npm run smoke:reset` cold-resets 5× with same profile, hashes full state at 100k C64 cycles, asserts identical — currently 5/5 green with hash `3125cee6f14e2434b622638e77afc02b`. Profile manifest documented in `docs/reset-profiles.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 1, story M1.3
 Depth: light
 Predecessors: Spec 098 (M1.1 session modes)
