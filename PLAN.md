@@ -21,11 +21,104 @@ The fix is not more documentation alone. The MCP needs workflow tools,
 audit tools, repair tools, and UI affordances that make the expected
 process the path of least resistance.
 
-## Execution Order
+## Active Roadmap — Full Headless C64 + 1541 TrueDrive
+
+Current product direction lives in
+`docs/headless-emulator-roadmap.md`.
+
+The short version:
+
+1. Finish Bug 40 so real KERNAL `LOAD` returns cleanly after EOI.
+2. Build this as a full C64 emulator, not a loader harness. The only
+   explicit exception is sound output.
+3. Build 1541 as full TrueDrive: real drive ROM, drive CPU/VIA timing,
+   IEC, GCR rotation, head movement, read/write behavior, and D64/G64
+   media.
+4. Stabilize the headless API for CLI/MCP/LLM workflows: deterministic
+   sessions, structured snapshots, traces, scenario files, and render
+   artifacts.
+5. Keep VICE as oracle via trace/swimlane comparison while we catch up,
+   not as the intended normal runtime path.
+
+Current emulator state (May 2026):
+
+- C64 cold boot reaches BASIC in microcoded + lockstep mode.
+- Typing works end-to-end.
+- C64 CPU equivalence harness passes against the legacy CPU core.
+- Integrated C64+1541 lockstep exists.
+- Drive CPU can use the microcoded core for sub-instruction bus access.
+- G64 has a free-running bit-level shifter and byte-ready/SO wiring.
+- Real-serial Maniac Mansion `LOAD"MM",8,1` transfers 38658 bytes
+  byte-perfect.
+- Open blocker: Bug 40, KERNAL remains in ACPTR/EOI retry after LOAD
+  instead of returning to BASIC/direct mode.
+
+Immediate story sequence:
+
+- **H0.1** Bug 40 EOF trace: drive PC + C64 PC + IEC + `$90/$A5`
+  through last byte, EOI, retry, and return/idle.
+- **H0.2** VICE EOF comparison: align the same window against a VICE
+  drive trace and identify first behavioral divergence.
+- **H0.3** EOI/TALK/UNTALK fix: repair the proven wrong side.
+- **H0.4** LOAD acceptance smoke: standard D64, G64 boot file, and
+  `LOAD"MM",8,1` all return to a usable C64 state without traps.
+- **H1** Runtime contract: stable session modes, step/run APIs,
+  deterministic reset profile, structured subsystem snapshots.
+- **H2** Full C64 hardware fidelity: CPU/CIA/VIC/PLA/input/SID
+  software-visible behavior, excluding only sound output.
+- **H3** Full 1541 TrueDrive: VIA1 IEC contract, KERNAL serial byte
+  matrix, GCR density/motor/head behavior, write-back, multi-drive API,
+  and drive fidelity backlog.
+- **H4** LLM-facing runtime: render/query screen state, event-indexed
+  traces, scenario files, project-knowledge artifact registration.
+
+Do not use the old sprint history below as the active roadmap. It is
+kept for context and provenance. New implementation planning should cut
+stories from `docs/headless-emulator-roadmap.md` into specs.
+
+## Active Sprint Plan (post-Sprint 97 / Bug 40)
+
+The headless roadmap has been refined into 43 specs covering every
+story from M0.1 through M8.4. Specs are numbered 094-136 and live
+under `specs/`. The plan below groups them into executable sprints in
+dependency order.
+
+| #   | Sprint                                | Specs                                | Priority | Theme                                                                                              |
+|-----|---------------------------------------|--------------------------------------|----------|----------------------------------------------------------------------------------------------------|
+| 98  | Bug 40 close                          | 094, 095, 096, 097 (M0.1-4)          | critical | EOF trace → VICE compare → EOI/TALK fix → LOAD acceptance smoke. MM boot unblocked at end.        |
+| 99  | Headless contract                     | 098, 099, 100, 101, 102 (M1.1-5)     | high     | Session modes, unified stepping, deterministic reset, snapshots, regression harness.              |
+| 100 | Drive TrueDrive — protocol            | 109, 110, 111 (M3.1-3)               | high     | Drive CPU hardening, VIA1 IEC contract, KERNAL serial byte matrix.                                |
+| 101 | Drive TrueDrive — file paths          | 112, 113, 114 (M3.4-6)               | high     | D64 truedrive path, G64 GCR fidelity, write support.                                              |
+| 102 | Drive backlog + nice-to-have          | 115, 116 (M3.7-8)                    | low      | Multi-drive 8+9 (nice-to-have), drive fidelity backlog.                                           |
+| 103 | C64 hardware — CPU + CIA              | 103, 104 (M2.1-2)                    | medium   | CPU cycle/IRQ fidelity, CIA1/CIA2 fidelity.                                                       |
+| 104 | C64 hardware — VIC + bus              | 105, 106 (M2.3-4)                    | medium   | VIC-II per-cycle fidelity, PLA/memory bus.                                                        |
+| 105 | C64 hardware — input + SID            | 107, 108 (M2.5-6)                    | medium   | Input fidelity, SID software-visible behavior.                                                    |
+| 106 | Visual runtime                        | 117, 118, 119, 120, 121 (M4.1-5)     | medium   | Framebuffer API, VIC timing baseline, screen state, input macros, visual acceptance.              |
+| 107 | LLM debug                             | 122, 123, 124, 125, 126 (M5.1-5)     | medium   | Trace channels, event index, VICE swimlane, scenario DSL, knowledge integration.                  |
+| 108 | Cart support                          | 127, 128, 129 (M6.1-3)               | low      | PLA cart truth-table, CRT runtime mappers, cart debug tools.                                      |
+| 109 | SID polish + no-audio gate            | 130, 131, 132 (M7.1-3)               | low      | SID register/readback, SID trace, no-audio boundary doc.                                          |
+| 110 | Performance + ops                     | 133, 134, 135, 136 (M8.1-4)          | low      | Run budgets, snapshot/resume file, fast-forward safe paths, CI profile.                           |
+
+Notes:
+
+- Sprint 98 absorbs the in-flight Sprint 96/97 work. Bug 40 closes
+  inside Sprint 98.
+- Sprints 100-102 finish drive TrueDrive before C64 fidelity, because
+  drive completeness gates the MM acceptance ladder more than
+  hardware-fidelity edge cases do.
+- Sprint 100 + Sprint 103 are independent and can run in parallel if
+  two contributors are available.
+- Sprints 106 (Visual) and 107 (LLM debug) are independent of each
+  other and can also parallelise.
+- M3.7 multi-drive is explicitly nice-to-have, capped at drives 8+9.
+- All specs follow the depth split: deep for M0/M2/M3, light for
+  M1/M4/M5/M6/M7/M8.
+
+## Historical Workflow Execution Order
 
 Sprint sections below are not in execution order — they accumulated
-over time and number-jump as new requirements landed. The active
-execution sequence is:
+over time and number-jump as new requirements landed. The historical
+workflow execution sequence was:
 
 ```
 21 → 22 → 16 → 18 → 17 → 19 → 20 → 23 → 24 → 25 → 27 → 33
@@ -2012,16 +2105,18 @@ Done when:
 - either MM reaches title/character-select, or the next runtime fix is
   narrowed to one concrete subsystem
 
-## Sprint 96: Real-serial bit-bang LOAD (Bug 39, ongoing)
+## Sprint 96: Real-serial bit-bang LOAD (Bug 39)
 
 Goal: headless `LOAD"*",8,1` over the real bit-bang IEC path
 (no KERNAL serial traps) succeeds; MM reaches title screen via
 the same path real C64 + 1541 use.
 
-Status: in progress, three concrete fixes landed today, root
-cause narrowed to drive bus-access sub-cycle timing.
+Status: real-serial LOAD path reached. Bug 39's original
+`?DEVICE NOT PRESENT` failure is resolved by the Sprint 96
+part 5-9 sequence. Follow-up blocker is Bug 40: LOAD completes
+and EOI is detected, but KERNAL remains in ACPTR/EOI retry.
 
-Done today (2026-05-04):
+Done:
 
 - Sprint 96 part 1: scheduler ticks peripherals + drive by CPU
   cycle delta. CPU's `this.cycles += 7` for IRQ service / `+= 1`
@@ -2037,42 +2132,68 @@ Done today (2026-05-04):
   KERNAL bit cycle between c1 and c2 (288 cyc gap vs expected
   ~80 cyc). Drive's c2..c4 actually correspond to KERNAL's
   bits 3,4,5.
-
-Severity reframe: bit-skip is **CATASTROPHIC**, not minor. Every
-disk-loader game stays unbootable until it's fixed.
-
-Open / next session:
-
-- See BUGREPORT Bug 39 "Sprint 96 detailed analysis +
-  next-session handoff" for full recipe.
-- See `docs/bug39-external-review.md` for the external review:
-  first add a direct `$1800` read-site probe before committing to
-  a drive-CPU rewrite.
 - **Sprint 96 part 5 (2026-05-04)** — read-site probe done
   (`scripts/sprint96-via1-readsite.mjs`). Empirical confirmation:
   drive misses bits 4 and 6 of LISTEN $28 (185 / 188-cyc gaps =
   1.85× normal bit period); KERNAL ISOUR then stalls 1100 cyc and
   releases ATN (`?DEVICE NOT PRESENT`). External-review hypothesis
   validated: drive needs cycle-stepped sub-instruction bus access.
-  Next: implement `Cpu6510Cycled` reuse for drive (preferred) or
-  isolated `Drive6510Cycled`. See BUGREPORT Bug 39 part 5 for
-  full table + acceptance.
-- Most promising fix path: legacy `Cpu6510.step()` does all bus
-  accesses at instruction start; real 6502 reads happen at
-  specific sub-cycles. Drive's `LDA $1800` (4 cycles) should
-  read on cycle 3 but our legacy reads on cycle 0 — a 3-cycle
-  shift on every drive bus access during ACPTR. Fix options:
-  (a) convert drive to use the microcoded `Cpu6510Cycled`
-  (requires it to work without $00/$01 port);
-  (b) add sub-cycle bus-access offset to `DriveCpuCycled`
-  wrapper;
-  (c) verify CIA1 timer A wall clock first.
+  See `docs/bug39-external-review.md`.
+- Sprint 96 part 6: drive reuses the microcoded CPU for
+  sub-instruction bus access.
+- Sprint 96 part 7-9: free-running GCR bit shifter, byte-ready/SO
+  wiring, and G64 read timing fixes. Result: Maniac Mansion
+  `LOAD"MM",8,1` transfers 38658 bytes byte-perfect via real serial.
 
-Acceptance: `scripts/sprint96-bit-edge.mjs` shows all 8 bits of
-LISTEN $28 sampled correctly, `$85 = $28`, `$79 = 1`, KERNAL does
-not print `?DEVICE NOT PRESENT`. Then continue to verify SECOND
-byte ($F0) + NAME byte ($2A) so LOAD actually starts serving file
-bytes.
+Acceptance reached:
+
+- LISTEN `$28`, SECOND, filename, and file bytes work without KERNAL
+  serial traps.
+- Original Bug 39 `?DEVICE NOT PRESENT` path is no longer the active
+  blocker.
+
+Remaining:
+
+- Bug 40 owns the post-LOAD return-to-BASIC / EOI retry problem.
+
+## Sprint 97: Post-LOAD EOI / TALK cleanup (Bug 40)
+
+Goal: after real-serial LOAD completes, KERNAL exits ACPTR/EOI retry
+and returns to a usable C64 state. The drive must remain ready for
+UNTALK/next command.
+
+Status: open. Root cause narrowed in BUGREPORT Bug 40; latest evidence
+shows the drive completes via ATN handler rather than a simple abort.
+
+Known facts:
+
+- MM `LOAD"MM",8,1` transfers 38658 bytes byte-perfect to `$0400`.
+- C64 KERNAL `$90` sees EOI (`$40`), then loops in `$EE00` ACPTR/EOI
+  retry.
+- Bus is idle: ATN/CLK/DATA released.
+- Drive is around `$EC2D` idle after EOF.
+- The failure is protocol cleanup / EOI-with-byte / TALK/UNTALK state,
+  not G64 parser or payload corruption.
+
+Next stories:
+
+- **97.1** Drive EOF trace: capture drive PC/channel state for last data
+  byte, EOI signal, return to idle, and next C64 retry.
+- **97.2** VICE EOF trace: capture same window in VICE and align on the
+  last byte / EOI transition.
+- **97.3** Fix EOI/TALK/UNTALK behavior: determine whether drive fails
+  to send the EOI byte frame, C64 retry timing is wrong, or TALK cleanup
+  state is wrong.
+- **97.4** Post-LOAD acceptance: `LOAD"*",8,1`, `LOAD"MM",8,1`, and a
+  synthetic one-block file all return cleanly and leave drive ready.
+
+Acceptance:
+
+- C64 leaves `$EE00` retry after final byte.
+- KERNAL does not print `?DEVICE NOT PRESENT`, `?FILE NOT FOUND`, or
+  `?LOAD ERROR`.
+- Drive accepts the next IEC command after LOAD.
+- `SYS 1024` or equivalent game entry can be typed/executed after LOAD.
 
 ## Sprint 94: CPU equivalence harness (microcoded vs legacy)
 
