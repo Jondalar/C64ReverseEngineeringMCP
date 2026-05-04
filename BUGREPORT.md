@@ -2859,56 +2859,85 @@ byte-identical). It just doesn't close Bug 40 alone.
 ### Refined root cause (Sprint 98 cont., 2026-05-04 EOD)
 
 Fine-trace analysis of c64Cyc 4613440-4613530 window decoded against
-c64ref:
+c64ref. Initial reading suggested C64 was re-entering LOAD from
+scratch in a tight loop. **Stack-trace probe
+(`scripts/probe-load-reentry.mjs`) corrected that:**
 
 ```
-c64Cyc=4613440  $EE0D  JSR $EE85 (inside UNTLK/UNLISTEN routine)
-c64Cyc=4613446  $EE85  CLKHI (release CLK)
-c64Cyc=4613462  $EE10  JMP $EE97 (DATAHI from UNTLK exit)
-c64Cyc=4613465  $EE97  set serial DATA out high (release DATA)
-c64Cyc=4613481  $F657  CLSEI2 (CLOSE serial bus device)
-c64Cyc=4613489  $F4CB  LOAD entry: LDA $BA (get device number)
-c64Cyc=4613492  $F4CD  JSR $ED09 ;ESTABLISH THE CHANNEL (TALK)
-c64Cyc=4613498  $ED09  TALK entry (sets bit 6, sends under ATN)
-c64Cyc=4613504  $ED0E  LISTEN-send wrapper
-c64Cyc=4613510  $F0A4  JSR RSP232 (protect from RS232 NMI)
-c64Cyc=4613530  $ED11  PHA (start of send-byte-under-ATN inner)
+HIT 1 c64Pc=$F4CB c64Cyc=4613489 sp=$f7 prevPc=$F658
+just-popped [sp-3..sp]: 56 f6 ca f4
+popped-target (sp-1,sp → +1): $F4CB
+total $F4CB hits: 1 after 8000000 c64-instr budget
 ```
 
-C64 KERNAL is **re-entering LOAD from scratch** in a tight loop:
-UNTALK → CLOSE serial → LOAD entry → TALK → setup → ACPTR retry
-loop → UNTALK → ... Real KERNAL invokes LOAD once, TALK setup
-once, ACPTR loop until EOI, then UNTALK once.
+**Only ONE $F4CB hit in 8M instructions.** Popped value $F4CA
+came from the JSR at `$F4C8 = JSR $F3D5 ;OPEN THE FILE`. The
+$F4CB hit is the **normal post-OPEN continuation** within KERNAL
+LOAD, not re-entry.
 
-Each re-entry pulls ATN to send the TALK command byte. Drive
-correctly responds to ATN edge by entering its ATN handler →
-parser → status path. Drive never returns to TALK byte-send
-because by the time it would, C64 has UNTALKed and is in
-CLOSE/restart cycle.
+C64 is doing the standard single-pass LOAD flow:
+1. `$F4C8 JSR $F3D5` — OPEN file (sends LISTEN + secondary +
+   filename via CIOUT + UNLISTEN to drive). 2-3 ATN edges.
+2. `$F4CB LDA $BA` — post-OPEN continuation.
+3. `$F4CD JSR $ED09` — TALK setup. 1 ATN edge.
+4. TKSA (secondary after TALK). possibly 1 more ATN edge.
+5. ACPTR loop — but drive never sends bytes, so we time out.
+6. Eventual UNTALK on abort. 1 ATN edge.
 
-**Why C64 re-enters LOAD:** unknown without stack-trace evidence.
-Candidates:
-1. Stack pointer drift — RTS pops a wrong value, lands at $F4CB.
-2. BASIC interpreter loops the LOAD command (would imply BASIC
-   sees error, retries — non-standard).
-3. CIA1 timer or VIC raster IRQ vector mis-points to LOAD area
-   (very unlikely).
-4. KERNAL TALK / ACPTR JSR-RTS chain has a corrupted return
-   address from our microcoded CPU or stack.
+5-6 ATN edges over the trace window = **normal LOAD protocol**,
+not re-entry. The earlier "ATN re-asserted during ACPTR retry"
+hypothesis was wrong.
 
-**Next-session priorities (revised):**
+### Actual root cause (synthetic) — drive lookup hangs
 
-1. Add stack trace to EOF harness — log SP + return-address chain
-   at coarse sample points. Identify what's pushed when C64 is
-   at LOAD entry $F4CB.
-2. Compare stack state at $F4CB to expected (BASIC's call to
-   KERNAL LOAD via $FFD5 vector).
-3. If stack drift — find which routine miscounts pushes/pops
-   (Sprint 94 CPU equivalence harness reported zero divergences,
-   so this would be a system-level bug, not CPU opcode bug).
-4. If BASIC re-issues — find why BASIC sees error and retries.
-5. After root cause identified, fix path → re-run synthetic +
-   MM traces.
+Drive PC distribution shows drive transitioned from TALK band
+to **PARSXQ ($C146) → CMDSET ($C2B3) → PARSE ($C268) → tight
+loop $C2FE-$C312 → file-system area $D7BB / $D816 / $D82D**.
+This is filename-parse + directory-lookup code in 1541 DOS,
+running AFTER drive received the filename via CIOUT.
+
+Drive enters this path at the right moment (after UNLISTEN
+from C64). But drive **never exits** — it stays in the
+parse / lookup loop indefinitely. Drive RAM at stuck moment:
+`$77=$28, $79=$00, $85=$3F` — `$85` may be a job-error code
+($3F = drive job error in some routines).
+
+Conclusion: **headless drive's directory/file lookup or GCR
+read on the synthetic G64 hangs.** VICE successfully reads
+the same fixture (`PEEK(2049) = 66`), so the synthetic G64
+is well-formed. Headless drive emulation is the deviation.
+
+For **MM** (real game disk): drive successfully reads
+directory + file, enters TALK, sends most/all bytes — and
+stops differently (drive transitions to idle band $EBE7-$EC2D
+post-EOF). MM and synthetic share the same symptom (C64 in
+ACPTR retry forever) but **different drive-side causes**:
+
+- **Synthetic**: drive hangs in directory/file lookup
+  ($C2FE/$D7BB area). Never sends a byte.
+- **MM**: drive sends file bytes correctly, then bails to
+  idle without emitting EOI on last byte.
+
+Both expose problems in headless drive's TALK / file-pump
+state machine, but at different stages.
+
+### Next-session priorities (revised again)
+
+1. **Synthetic-side investigation:** add drive-RAM snapshot to
+   the probe (drive zeropage `$00..$FF` at the moment drive
+   enters $C2FE loop). Identify what job/command the drive
+   thinks it's running.
+2. **GCR / VIA2 read path:** trace VIA2 PB reads at the
+   moment drive is reading directory sector. Compare to
+   real 1541 ROM expectation (head sync + sector header
+   detect). Likely culprit area.
+3. **If drive lookup is OK:** check why drive doesn't return
+   to TALK send after parsing. Maybe drive's TALK-mode flag
+   gets cleared by the level-trigger ATN-pending poke fix
+   landing — verify with one more re-run.
+4. **MM-side investigation:** different bug; defer until
+   synthetic LOADs cleanly. Then MM EOI bug becomes the
+   final piece.
 
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
