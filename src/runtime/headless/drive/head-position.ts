@@ -113,6 +113,12 @@ export class TrackBuffer {
   private latchedTrack = -1;
   private shifterAccum = 0;
   private static readonly CYCLES_PER_BYTE = 32;
+  // Sprint 96 part 8: byte-ready signal. Real 1541 hardware pulses
+  // VIA2 CA1 when GCR shifter completes a byte; CA1 is wired to the
+  // 6502 SO (Set Overflow) pin. Drive ROM polls V flag with BVC/BVS
+  // to detect byte-ready (e.g. $F3BE wait loop). Callback fires once
+  // per shifter byte advance.
+  public onByteReady?: () => void;
 
   constructor(public readonly source: G64Parser) {}
 
@@ -147,18 +153,21 @@ export class TrackBuffer {
     if (this.latchedTrack < 1) {
       this.latchedByte = 0xff;
       this.lastReadByteIsSyncContext++;
+      this.onByteReady?.();
       return;
     }
     const data = this.ensureTrack(this.latchedTrack);
     if (!data || data.length === 0) {
       this.latchedByte = 0xff;
       this.lastReadByteIsSyncContext++;
+      this.onByteReady?.();
       return;
     }
     this.byteCursor = (this.byteCursor + 1) % data.length;
     this.latchedByte = data[this.byteCursor]!;
     if (this.latchedByte === 0xff) this.lastReadByteIsSyncContext++;
     else this.lastReadByteIsSyncContext = 0;
+    this.onByteReady?.();
   }
 
   private refreshLatch(): void {

@@ -140,6 +140,13 @@ export class DriveCpu {
       : new Cpu6510(this.bus);
     this.trackBuffer = opts.gcr?.trackBuffer;
     this.headPosition = opts.gcr?.headPosition;
+    // Sprint 96 part 8: wire GCR shifter byte-ready → CPU V flag
+    // (real 6502 SO pin). Drive ROM polls V flag with BVC/BVS to
+    // detect byte arrival from the GCR decoder ($F3BE wait loop).
+    if (this.trackBuffer) {
+      const cpu = this.cpu as { flags: number };
+      this.trackBuffer.onByteReady = () => { cpu.flags |= 0x40; };
+    }
   }
 
   // Spec 090: configure sync ratio. PAL = 1.01477 (1MHz drive / 985.248kHz C64).
