@@ -2,7 +2,33 @@
 
 User schläft, ich V1 fertig. Review morgen vor V2 planning.
 
-## Status — V1 CLOSED 2026-05-04
+## CORRECTION (User feedback after V1 close)
+
+V1 ships **KERNAL-protocol-level** drive emulation only. Standard
+LOAD/SAVE works (regress 5/5, MM character-select rendered). Custom
+fastloaders (MoTM, IM2, Action Replay variants, copy-protection)
+NOT covered. User wants **silicon-equivalent 1541** BEFORE V2 work
+begins.
+
+**Don't repeat overstatement.** V1 = "headless C64 + standard 1541
+KERNAL path". 101% true-drive = future work.
+
+**1541-v2 plan (pre-V2):** ~6 sprints
+
+| Sprint | Theme |
+|--------|-------|
+| 111 | Drive equiv oracle harness (VICE drive-cycle compare, M-W/M-E real-mode log) |
+| 112 | VIA full fidelity (SR modes, PB7 toggle, timer cascade) |
+| 113 | IEC bit-bang sub-cycle timing (cycle-stamp every edge, compare VICE) |
+| 114 | Motor spin-up + write splice |
+| 115 | Drive command-channel parser instrumentation |
+| 116 | Fastloader compatibility ladder (MoTM + IM2 + LNR + AR loaders) |
+
+**Oracle approach**: extend Spec 095 swimlane to cover drive side.
+Compare every drive-cycle PC + VIA register state vs VICE. Any
+divergence = bug to fix. Don't fish blind.
+
+## Status — V1 (KERNAL-level) CLOSED 2026-05-04
 
 Alle Sprints 100-110 DONE.
 
