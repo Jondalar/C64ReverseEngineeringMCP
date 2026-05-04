@@ -101,7 +101,7 @@ dependency order.
 | 106 | Visual runtime ✓ DONE 2026-05-04      | 117 ✓, 118 ✓, 119 ✓, 120 ✓, 121 ✓    | medium   | M4.1 framebuffer descriptor + M4.2 VIC timing baseline doc + M4.3 screen-state JSON + M4.4 joystickScript macro + M4.5 visual-acceptance hash compare (18/18). |
 | 107 | LLM debug ✓ DONE 2026-05-04           | 122 ✓, 123 ✓, 124 ✓, 125 ✓, 126 ✓    | medium   | M5.1 channel registry + M5.2 event index + M5.3 swimlane (existing preserved) + M5.4 scenario DSL JSON + M5.5 knowledge hooks (22/22). |
 | 108 | Cart support ✓ DONE 2026-05-04        | 127 ✓, 128 ✓, 129 ✓                  | low      | M6.1 PLA cart states (8K/16K/Ultimax) + M6.2 $DE00 bank-switch + M6.3 status descriptor (16/16). Mappers preserved from existing cartridge.ts. |
-| 109 | SID polish + no-audio gate            | 130, 131, 132 (M7.1-3)               | low      | SID register/readback, SID trace, no-audio boundary doc.                                          |
+| 109 | SID polish + no-audio gate ✓ DONE 2026-05-04 | 130 ✓, 131 ✓, 132 ✓                | low      | M7.1 register stability + M7.2 writeTrace callback + M7.3 no-audio boundary lint (8/8). |
 | 110 | Performance + ops                     | 133, 134, 135, 136 (M8.1-4)          | low      | Run budgets, snapshot/resume file, fast-forward safe paths, CI profile.                           |
 
 Notes:

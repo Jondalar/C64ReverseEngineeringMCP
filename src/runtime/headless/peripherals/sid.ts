@@ -42,6 +42,11 @@ export class Sid6581 {
   // paddle per port routes through internally — we expose paddle 0
   // → $D419 and paddle 2 → $D41A by default.
   public potReader?: (idx: 0 | 1) => number;
+  // Spec 131 (M7.2) v1: optional write-trace sink. Caller installs a
+  // callback to receive `{ cycle, addr, value }` per write so
+  // analysis tools can extract init/play routine structure without
+  // audio synthesis. Default no-op.
+  public writeTrace?: (addr: number, value: number) => void;
   private osc3Lfsr = 0xACE1;     // deterministic seed
   private envs: VoiceEnv[] = [];
 
@@ -76,6 +81,7 @@ export class Sid6581 {
     const r = reg & 0x1F;
     const prev = this.regs[r]!;
     this.regs[r] = value & 0xFF;
+    this.writeTrace?.(r, value & 0xFF);
     // Voice control register at offsets 4, 11 ($0B), 18 ($12) — GATE bit 0.
     const voiceCtrlOffsets = [0x04, 0x0B, 0x12];
     const voiceIdx = voiceCtrlOffsets.indexOf(r);
