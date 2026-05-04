@@ -2121,6 +2121,40 @@ Two related findings:
    - Likely fix is in CIA1 timer underflow handling or in our
      remaining `this.cycles += N` paths inside Cpu6510Cycled.
 
+### Sprint 96 progress part 4 (2026-05-04 cont.)
+
+6. **Drive misses bits — sample interval too slow**.
+   `scripts/sprint96-bit-edge.mjs` probes drive's `$1800` read
+   at PC `$EA0B` at each bit-count decrement.
+
+   Observed sample timing for LISTEN $28 byte:
+   - bit 0 sampled at c64Cyc 4607093 (DATA=0 → 0 ✓)
+   - bit 1 sampled at c64Cyc 4607195 (Δ=102 cyc, DATA=0 → 0 ✓)
+   - bit 2 enter wait at c64Cyc 4607297 (CLK=0)
+   - bit 2 sampled at c64Cyc 4607483 (Δ=288 cyc from bit 1 sample,
+     DATA=1 → 1 — but KERNAL bit 2 was 0)
+
+   Drive's bit-loop ($EA0B-$EA22, ~11 c64 cycles per iteration)
+   should match KERNAL's per-bit cycle (~80 c64 cyc with the 4
+   NOPs). 102-cyc gap for bits 0→1 is plausible. The 288-cyc gap
+   for bit 1→2 means drive MISSED ONE KERNAL bit cycle.
+   Reconstructing drive's bit sequence (`0,0,1,0,1`) vs KERNAL's
+   first 5 bits of $28 (`0,0,0,1,0`): drive's c2..c4 align with
+   KERNAL's bits 3,4,5 — drive skipped exactly one bit.
+
+   Hypothesis: cycle-stepped drive CPU's actual instruction
+   timing is slightly slower than real 1541 (or our `delta`
+   accounting still has a one-cycle hole somewhere) so drive's
+   $EA0B-$EA22 wait loop occasionally misses a CLK-high window.
+   Each missed window → bit skip → byte interpretation shifted
+   → no listener-target match → drive ignores LOAD.
+
+   Resolution path: instrument drive cycle deltas across $EA0B
+   loop iterations; verify drive instruction cycles match real
+   1541 spec; likely fix is in drive cpu cycle accounting (the
+   drive uses the legacy Cpu6510 path, not microcoded — so any
+   drift there is independent of the microcoded fixes).
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
 **Severity:** N/A — false alarm.
