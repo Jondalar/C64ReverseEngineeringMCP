@@ -48,7 +48,14 @@ export function resolveSessionFlags(
   overrides?: Partial<SessionModeFlags>,
 ): SessionModeFlags {
   const base = presetFlags(mode ?? "fast-trap");
-  return { ...base, ...(overrides ?? {}) };
+  if (!overrides) return base;
+  // Skip undefined keys so callers passing `{ x: undefined }` don't
+  // nuke the preset value with undefined.
+  const out = { ...base };
+  for (const [k, v] of Object.entries(overrides)) {
+    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+  }
+  return out;
 }
 
 function presetFlags(mode: SessionMode): SessionModeFlags {

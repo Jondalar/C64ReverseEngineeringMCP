@@ -1,6 +1,6 @@
 # Spec 098 — Headless M1.1: Session Modes
 
-Status: in progress 2026-05-04 — core enum + resolver + IntegratedSession wiring landed (`src/runtime/headless/session-modes.ts` + integrated-session.ts changes). `session.mode` + `session.modeReport()` available. Boolean overrides still honored — explicit booleans win over the mode preset, identifyMode() back-fills `mode` for legacy callers. Smoke matrix L2 PASS post-wiring (no regression). Outstanding: MCP tool response schema migration (every runtime-state tool should include `mode`) — deferred to follow-up commit.
+Status: **DONE 2026-05-04.** SessionMode enum + resolver shipped (`src/runtime/headless/session-modes.ts`). IntegratedSession accepts `mode` option; `session.mode` + `session.modeReport()` available; `session.status().runtime.mode` + `.modeReport` populated. Headless integrated-session-start tool prints the mode line. Warn-on-use fires when callers pass booleans without an explicit mode (silence with `C64RE_SUPPRESS_CUSTOM_WARN=1`). Smoke matrix L2 PASS post-wiring; load-matrix.ts + eof-trace.ts + probe scripts migrated to `mode: "true-drive"`. Acceptance criteria all met.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 1, story M1.1
 Depth: light
 Predecessors: Milestone 0 specs (094-097)

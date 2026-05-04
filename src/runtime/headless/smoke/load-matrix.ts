@@ -82,8 +82,7 @@ export async function runLoadSmoke(
   try {
     ({ session } = startIntegratedSession({
       diskPath: target.fixturePath,
-      useCycleLockstep: true,
-      useMicrocodedCpu: true,
+      mode: "true-drive",
     }));
     session.resetCold();
     session.runFor(bootInstructions);

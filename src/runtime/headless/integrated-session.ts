@@ -176,6 +176,20 @@ export class IntegratedSession {
       traceDrive: resolvedFlags.traceDrive,
     };
     this.mode = opts.mode ?? identifyMode(resolvedFlags);
+    // Spec 098: warn when booleans don't match any named preset and
+    // caller didn't explicitly opt into "custom". Silenced in test
+    // runs by setting C64RE_SUPPRESS_CUSTOM_WARN=1.
+    if (
+      this.mode === "custom"
+      && opts.mode === undefined
+      && !process.env.C64RE_SUPPRESS_CUSTOM_WARN
+    ) {
+      console.warn(
+        `[IntegratedSession] booleans don't match any named preset → mode="custom". `
+        + `Pass an explicit \`mode\` (fast-trap | real-kernal | true-drive | debug-vice-compare) `
+        + `or set mode: "custom" to silence this warning.`,
+      );
+    }
     const isPal = opts.isPal ?? true;
     this.driveCyclesPerC64Cycle = DRIVE_HZ / (isPal ? C64_HZ_PAL : C64_HZ_NTSC);
     this.driveClockRatio = this.driveCyclesPerC64Cycle;
@@ -530,6 +544,8 @@ export class IntegratedSession {
     runtime: {
       imageFormat: string;
       diskPath: string;
+      mode: SessionMode;
+      modeReport: SessionModeReport;
       useCycleLockstep: boolean;
       useMicrocodedCpu: boolean;
       driveClockRatio: number;
@@ -561,6 +577,8 @@ export class IntegratedSession {
       runtime: {
         imageFormat: this.imageFormat,
         diskPath: this.diskPath,
+        mode: this.mode,
+        modeReport: this.modeReport(),
         useCycleLockstep: this.useCycleLockstep,
         useMicrocodedCpu: this.useMicrocodedCpu,
         driveClockRatio: this.driveClockRatio,

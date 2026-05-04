@@ -39,8 +39,7 @@ try {
 
 const { session } = startIntegratedSession({
   diskPath: disk,
-  useCycleLockstep: true,
-  useMicrocodedCpu: true,
+  mode: "true-drive",
 });
 session.resetCold();
 session.runFor(bootInstructions);

@@ -131,8 +131,7 @@ export async function runEofTrace(opts: EofTraceOptions): Promise<EofTraceResult
 
   const { session } = startIntegratedSession({
     diskPath: opts.diskPath,
-    useCycleLockstep: true,
-    useMicrocodedCpu: true,
+    mode: "true-drive",
   });
   session.resetCold();
   // Boot to BASIC ready.

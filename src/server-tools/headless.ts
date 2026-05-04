@@ -767,6 +767,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         `Session: ${sessionId}`,
         `Disk: ${disk_path}`,
         `Image format: ${status.runtime.imageFormat}`,
+        `Mode: ${status.runtime.mode} (traps=${status.runtime.modeReport.traps} microcoded=${status.runtime.modeReport.microcoded} lockstep=${status.runtime.modeReport.lockstep} channels=${status.runtime.modeReport.channels})`,
         `Runtime: useCycleLockstep=${status.runtime.useCycleLockstep} useMicrocodedCpu=${status.runtime.useMicrocodedCpu}`,
         `Drive clock ratio: ${status.runtime.driveClockRatio.toFixed(6)} (drive cycles per C64 cycle)`,
         `KERNAL traps: fileio=${status.runtime.enableKernalFileIoTraps} serial=${status.runtime.enableKernalSerialTraps} io=${status.runtime.enableKernalIoTraps}`,
