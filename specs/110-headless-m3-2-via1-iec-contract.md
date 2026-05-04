@@ -1,6 +1,6 @@
 # Spec 110 — Headless M3.2: VIA1 IEC Contract
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (M3.2a-e shipped).** New fixture suite `src/runtime/headless/drive/via1-iec-tests.ts` covers polarity (5 checks), ATN edge IRQ (8 checks incl. either-edge Sprint-66 deviation lock-in), device-ID jumper (all four IDs 8-11), PB write propagation (synchronous OR + DDR cases). `npm run smoke:via1-iec` 24/24 pass. Doc: `docs/via1-iec-contract.md`. No production code changed — VIA1 + IecBus already correct from Sprint 96, this spec adds the regression net.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 3, story M3.2
 Depth: deep
 Predecessors: Sprint 96 (IEC bit-bang), Spec 098 (M1.1), Spec 109 (M3.1)
