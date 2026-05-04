@@ -102,7 +102,7 @@ dependency order.
 | 107 | LLM debug ✓ DONE 2026-05-04           | 122 ✓, 123 ✓, 124 ✓, 125 ✓, 126 ✓    | medium   | M5.1 channel registry + M5.2 event index + M5.3 swimlane (existing preserved) + M5.4 scenario DSL JSON + M5.5 knowledge hooks (22/22). |
 | 108 | Cart support ✓ DONE 2026-05-04        | 127 ✓, 128 ✓, 129 ✓                  | low      | M6.1 PLA cart states (8K/16K/Ultimax) + M6.2 $DE00 bank-switch + M6.3 status descriptor (16/16). Mappers preserved from existing cartridge.ts. |
 | 109 | SID polish + no-audio gate ✓ DONE 2026-05-04 | 130 ✓, 131 ✓, 132 ✓                | low      | M7.1 register stability + M7.2 writeTrace callback + M7.3 no-audio boundary lint (8/8). |
-| 110 | Performance + ops                     | 133, 134, 135, 136 (M8.1-4)          | low      | Run budgets, snapshot/resume file, fast-forward safe paths, CI profile.                           |
+| 110 | Performance + ops ✓ DONE 2026-05-04 (V1 CLOSED) | 133 ✓, 134 ✓, 135 ✓, 136 ✓        | low      | M8.1 budget tracker + M8.2 snapshot file + M8.3 safe skips + M8.4 CI profile (23/23). |
 
 Notes:
 

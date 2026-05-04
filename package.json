@@ -45,6 +45,7 @@
     "smoke:llm-debug": "npm run build:mcp && node scripts/smoke-llm-debug.mjs",
     "smoke:cart-fidelity": "npm run build:mcp && node scripts/smoke-cart-fidelity.mjs",
     "smoke:sid-polish": "npm run build:mcp && node scripts/smoke-sid-polish.mjs",
+    "smoke:perf-ops": "npm run build:mcp && node scripts/smoke-perf-ops.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },
