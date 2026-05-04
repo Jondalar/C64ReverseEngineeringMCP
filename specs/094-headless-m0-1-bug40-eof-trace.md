@@ -1,6 +1,6 @@
 # Spec 094 — Headless M0.1: Bug 40 EOF Trace Harness
 
-Status: in progress — harness + CLI + schema doc + legacy move landed (commit pending). Synthetic 1-byte G64 smoke fixture deferred (no G64 builder yet — next sub-story or follow-up).
+Status: in progress — harness + CLI + schema doc + legacy move landed; G64 builder also landed (Spec 097 generator). Headless LOAD against synthetic 1-byte G64 currently stalls (drive idle at $D6BB never receives ATN); cause unclear — could be Bug 40 surfacing on ANY LOAD or a generator-side bug we haven't found yet. CI smoke gating deferred until that's resolved.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 0, story M0.1
 Depth: deep
 Predecessors: Sprint 96 (Bug 39 IEC bit-bang), Sprint 97 (current Bug 40 probe)

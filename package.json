@@ -23,6 +23,7 @@
     "trace:eof": "npm run build:mcp && node scripts/trace-eof.mjs",
     "trace:eof:vice": "npm run build:mcp && node scripts/trace-eof-vice.mjs",
     "trace:eof:diff": "node scripts/swimlane-diff.mjs --mode=eof",
+    "smoke:gen": "npm run build:mcp && node scripts/gen-synthetic-disks.mjs",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
