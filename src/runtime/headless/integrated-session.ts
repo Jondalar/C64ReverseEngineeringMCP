@@ -17,6 +17,7 @@ import { IecBus } from "./iec/iec-bus.js";
 import { DriveCpu } from "./drive/drive-cpu.js";
 import { TrackBuffer, HeadPosition } from "./drive/head-position.js";
 import { G64Parser } from "../../disk/g64-parser.js";
+import { buildG64 } from "../../disk/g64-builder.js";
 import { DiskProvider } from "./providers.js";
 import { existsSync, readFileSync } from "node:fs";
 import { installVicII, type VicII } from "./peripherals/vic-ii.js";
@@ -197,7 +198,18 @@ export class IntegratedSession {
     const ext = opts.diskPath.toLowerCase().split(".").pop() ?? "";
     this.imageFormat = ext === "g64" ? "g64" : ext === "d64" ? "d64" : ext || "other";
     this.diskPath = opts.diskPath;
-    this.parser = new G64Parser(readFileSync(opts.diskPath));
+    // Spec 112 (M3.4a): D64 source media is pre-encoded to a G64 byte
+    // stream in memory and then parsed normally. Real drive ROM, real
+    // GCR pipeline, real IEC — same code path as native G64. This
+    // gives D64 fixtures the true-drive semantics required for the
+    // M3.4 acceptance ladder. "Pre-encode whole disk" is chosen over
+    // per-sector lazy because ~330 KB per disk is well inside the
+    // headless budget and avoids cache complexity.
+    let imageBytes: Uint8Array = readFileSync(opts.diskPath);
+    if (this.imageFormat === "d64") {
+      imageBytes = buildG64({ d64: imageBytes });
+    }
+    this.parser = new G64Parser(imageBytes);
     this.diskProvider = DiskProvider.fromImagePath(opts.diskPath);
     this.trackBuffer = new TrackBuffer(this.parser);
     this.headPosition = new HeadPosition({ startTrack: opts.startTrack ?? 18 });

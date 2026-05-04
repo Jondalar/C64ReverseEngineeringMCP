@@ -1,5 +1,7 @@
 # Spec 065 — VIC Phase A: framebuffer + render PNG + optional WebSocket stream
 
+Status: **SUPERSEDED 2026-05-04.** Substance landed in Sprint 73 (VIC modes — multicolor text + bitmap + ECM), Sprint 74 (sprites + collision), Sprint 78 (raster IRQ); `headless_render_screen` MCP tool live in `src/server-tools/headless.ts`. Remaining open sub-stories (framebuffer API formalization + visual acceptance ladder) reorganized into Sprint 104 / Spec 105 (M2.3 VIC-II per-cycle fidelity) and Sprint 106 / Specs 117-121 (M4.1-5 visual runtime) in current V1.0 roadmap. No further work needed under the 065 umbrella.
+
 ## Problem
 
 Spec 063 set the long-term vision: full headless C64 for LLM-driven workflows. Phase A is the highest-leverage piece — `headless_render_screen()` returns a PNG of the current display. With real KERNAL running (Spec 064), the VIC raster IRQ source plus the framebuffer make demo coding + game-state introspection possible without VICE.

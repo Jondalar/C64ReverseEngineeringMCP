@@ -1,6 +1,6 @@
 # Spec 112 — Headless M3.4: D64 File Path Through TrueDrive
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (M3.4a + M3.4c + M3.4d + M3.4e shipped; M3.4b dedicated dir-walk fixture deferred — implicit in L1 LOAD).** `IntegratedSession` now pre-encodes any `.d64` source to an in-memory G64 byte stream via the existing `buildG64` helper so the drive ROM, IEC, GCR pipeline, and head-position run the same code path as native G64. Encoder reuse confirmed: same `gcr-encode.ts` powers both the `extract_disk` MCP tool and the runtime D64-to-G64 wrap. New `regress.matrix.json` entry **L1** (synthetic 1-byte D64 LOAD in `mode: "true-drive"`) PASSed first try alongside L2/L3/L7/L8 — `npm run regress` 5/5. Doc: `docs/d64-truedrive-path.md`. Mode separation already enforced: L1 fails any silent fallback to trap path because it locks `true-drive`. M3.4b dir-walk byte-for-byte fixture + standard-game D64 (L4) tracked as follow-up.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 3, story M3.4
 Depth: deep
 Predecessors: Spec 097 (M0.4), Spec 098 (M1.1), Spec 109 (M3.1),

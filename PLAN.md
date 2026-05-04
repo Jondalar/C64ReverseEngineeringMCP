@@ -24,7 +24,12 @@ process the path of least resistance.
 ## Active Roadmap — Full Headless C64 + 1541 TrueDrive
 
 Current product direction lives in
-`docs/headless-emulator-roadmap.md`.
+`docs/headless-emulator-roadmap.md`. It is split into:
+
+- **V1.0** — full headless C64 + 1541 emulator, excluding only sound
+  output.
+- **V2.0** — LLM reverse-engineering workbench built on top of the
+  emulator.
 
 The short version:
 
@@ -88,7 +93,7 @@ dependency order.
 | 98  | Bug 40 close ✓ FIXED 2026-05-04       | 094, 095, 096, 097 (M0.1-4)          | critical | EOF trace → VICE compare → stepper-sequence fix in head-position.ts. Synthetic + MM LOAD work. |
 | 99  | Headless contract ✓ DONE 2026-05-04   | 098, 099, 100, 101, 102 (M1.1-5)     | high     | Session modes, unified stepping, deterministic reset, snapshots, regression harness — all green.  |
 | 100 | Drive TrueDrive — protocol ✓ DONE 2026-05-04 | 109 ✓, 110 ✓, 111 ✓ (M3.1-3)         | high     | M3.1 drive CPU hardening + Bug 41 fix. M3.2 VIA1 IEC contract (24/24). M3.3 KERNAL serial byte matrix v1 (22/22, protocol-state level; KERNAL-ROM harness deferred to v2). |
-| 101 | Drive TrueDrive — file paths          | 112, 113, 114 (M3.4-6)               | high     | D64 truedrive path, G64 GCR fidelity, write support.                                              |
+| 101 | Drive TrueDrive — file paths (Spec 112 ✓) | 112 ✓, 113, 114 (M3.4-6)             | high     | M3.4 D64 truedrive path DONE 2026-05-04 (regress L1 5/5). M3.5 G64 GCR fidelity + M3.6 write support open. |
 | 102 | Drive backlog + nice-to-have          | 115, 116 (M3.7-8)                    | low      | Multi-drive 8+9 (nice-to-have), drive fidelity backlog.                                           |
 | 103 | C64 hardware — CPU + CIA              | 103, 104 (M2.1-2)                    | medium   | CPU cycle/IRQ fidelity, CIA1/CIA2 fidelity.                                                       |
 | 104 | C64 hardware — VIC + bus              | 105, 106 (M2.3-4)                    | medium   | VIC-II per-cycle fidelity, PLA/memory bus.                                                        |

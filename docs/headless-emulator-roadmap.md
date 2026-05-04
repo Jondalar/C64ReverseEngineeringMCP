@@ -24,6 +24,42 @@ The only explicit non-goal is audio output. SID register behavior,
 readback, timers/envelopes/oscillator state relevant to software, and SID
 write tracing are still in scope. Generating audible WAV/audio is not.
 
+## Product Versions
+
+### V1.0 — Full Headless C64 + 1541 Emulator
+
+V1.0 is the machine. It delivers a full headless TypeScript C64 emulator
+and a full 1541 TrueDrive implementation. The only excluded surface is
+audible sound output.
+
+Done when:
+
+- C64 hardware behavior is complete enough that real software cannot
+  distinguish it from a normal C64 for supported media paths.
+- 1541 TrueDrive loads D64/G64 through real drive ROM, IEC, GCR, and
+  drive CPU/VIA behavior without KERNAL serial/file traps.
+- PRG, CRT, D64, and G64 boot paths work through the same runtime.
+- visual rendering, scripted input, snapshots, traces, and VICE
+  comparison exist.
+- the compatibility ladder reaches the target commercial games and
+  selected demos.
+
+### V2.0 — LLM Reverse-Engineering Workbench
+
+V2.0 is the RE system built on top of the machine. The emulator becomes
+an oracle agents can ask questions, collect evidence from, and use to
+improve disassembly, extraction, testing, and project knowledge.
+
+Done when:
+
+- agents can ask runtime questions and receive evidence-backed answers
+- follow-a-path tracing works for concrete RE questions
+- visual disassembly links code, data, and runtime evidence
+- hypotheses can be tested automatically
+- rewind/forward snapshots support exploration
+- sandbox and extraction workflows can consume runtime state
+- runtime artifacts are registered into project knowledge
+
 ## Current State
 
 The project has already crossed several important thresholds:
@@ -372,6 +408,115 @@ Use these rules when turning this roadmap into specs and sprints:
 - Keep trap-based helpers as analysis tools, not acceptance paths.
 - Update `BUGREPORT.md` only for bugs; update this roadmap when the
   compatibility ladder changes.
+
+## V2.0 Epics — LLM Reverse-Engineering Workbench
+
+These are intentionally listed after the V1.0 emulator milestones. Do
+not let V2.0 features distract from finishing the full emulator, but keep
+the architecture ready for them.
+
+### V2.1 Runtime Question Answering
+
+Agents ask questions directly against a running or recorded session:
+
+- "Why is this loop not exiting?"
+- "Who writes `$D018=$16`?"
+- "Which routine sets loader_done?"
+- "Which disk file or sector supplied this RAM range?"
+
+The answer must include trace evidence, addresses, cycle/window context,
+and links to generated artifacts.
+
+### V2.2 Follow-a-Path Tracing
+
+Given a concrete question, the runtime sets the right breakpoints,
+watchpoints, and trace filters automatically.
+
+Examples:
+
+- follow a value from table read to VIC register write
+- follow a pointer from zero page to copy destination
+- follow a disk byte from GCR/sector/file to RAM
+- follow a flag from initialization to wait-loop exit
+
+### V2.3 Visual Disassembly Workbench
+
+Disassembly becomes runtime-aware:
+
+- current PC and hot paths highlighted
+- per-instruction execution counts
+- memory reads/writes shown next to instructions
+- data blocks classified from runtime usage
+- screen/sprite/bitmap/charset evidence linked to ASM
+
+### V2.4 Autonomous Runtime Testing
+
+Agents can run tests without VICE GUI or human observation:
+
+- boot smoke
+- disk LOAD smoke
+- game milestone smoke
+- visual smoke
+- trace regression
+- VICE swimlane regression
+- known-bug regression
+
+Tests should assert states, not only PCs.
+
+### V2.5 Rewind / Forward
+
+Snapshots and deterministic replay allow time travel:
+
+- rewind before first write to an address
+- replay a loader/depacker window
+- branch from a snapshot with different input
+- compare two paths from the same state
+
+### V2.6 Sandbox Bridge
+
+Headless captures real runtime state; sandbox runs isolated routines
+quickly.
+
+Workflow:
+
+1. Headless finds routine and live inputs.
+2. Snapshot exports registers/RAM/zero page.
+3. Sandbox executes the routine repeatedly or under varied inputs.
+4. Headless validates the result in context.
+
+### V2.7 Extraction Bridge
+
+Extraction tells what exists. Runtime tells what is used.
+
+Use runtime evidence to:
+
+- validate sprites/charsets/bitmaps/music/data
+- correlate disk/G64 reads to RAM ranges
+- dump depacked payloads after real execution
+- distinguish unused assets from active game data
+
+### V2.8 Runtime Evidence To Knowledge
+
+Runtime traces should produce project knowledge:
+
+- findings with evidence ranges
+- entities for routines/data/files/assets
+- relations between disk files, routines, and RAM ranges
+- answered questions when runtime proves a hypothesis
+- registered artifacts for traces, snapshots, PNGs, and reports
+
+### V2.9 VICE Swimlane Oracle
+
+VICE comparison stays a first-class workflow:
+
+- align traces by PC/cycle/state
+- find first behavioral divergence
+- emit compact divergence artifacts
+- keep VICE as oracle while headless reaches full fidelity
+
+V2.0 acceptance: an agent can ask "why", run the emulator, collect
+evidence, update the disassembly/knowledge layer, and produce a focused
+next action without manually reading raw traces.
 
 ## Compatibility Ladder
 

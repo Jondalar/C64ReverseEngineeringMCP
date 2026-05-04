@@ -66,6 +66,24 @@
         "c64PcAtBasicReady": true
       },
       "mode_required_to_pass": "required"
+    },
+    {
+      "id": "L1",
+      "label": "synthetic 1-byte D64 LOAD (truedrive — Spec 112)",
+      "fixturePath": "samples/synthetic/1byte.d64",
+      "mode": "true-drive",
+      "scenario": [
+        { "kind": "boot", "instructions": 800000 },
+        { "kind": "type", "text": "LOAD\"X\",8,1\r" },
+        { "kind": "wait", "until": "eoi", "budget": 15000000 }
+      ],
+      "expected": {
+        "status90Eoi": true,
+        "loadStart": 2049,
+        "payloadSize": 1,
+        "firstByte": 66
+      },
+      "mode_required_to_pass": "required"
     }
   ]
 }
