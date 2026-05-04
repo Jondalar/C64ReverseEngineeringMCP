@@ -2177,6 +2177,9 @@ Two related findings:
 
 ### Sprint 96 detailed analysis + next-session handoff (2026-05-04 EOD)
 
+External review / second opinion:
+`docs/bug39-external-review.md`.
+
 **Confirmed sequence of facts (all empirically verified tonight):**
 
 1. Microcoded CPU is correct at instruction level (Sprint 94: 1880
@@ -2341,6 +2344,107 @@ actually start serving file bytes and Sprint 96 closes Bug 39.
 - `src/runtime/headless/peripherals/keyboard.ts` matrix
   orientation (Sprint 95 fix — typing produces L/I/S/T/RETURN
   correctly).
+
+### Sprint 96 progress part 5 (2026-05-04 cont.) — read-site probe
+
+Per external review (`docs/bug39-external-review.md`): added
+**direct $1800 read-site probe** at `DriveBus.read()` via
+script-side monkey-patch. `scripts/sprint96-via1-readsite.mjs`
+records every drive `$1800` access during ACPTR with full state
+(c64+drive cycle, drive PC/regs, $77/$79/$85/$98, IEC line state,
+last `$DD00` write + cycle distance).
+
+**New empirical data (corrected polarity from KERNAL ISOUR docs:
+DD00 bit5=0 → DATA released → bit "1" sent):**
+
+Drive latched 6 bits during ACPTR with bit-period c64-cycle
+gaps: 101, 102, **185**, 102, **188**, _stall_:
+
+| Bit | $98 | dd00 | bit5 | C64 sent | drive carry | gap (cyc) |
+|-----|-----|------|------|----------|-------------|-----------|
+| 1   | 8   | $2F  | 1    | "0"      | 0           | —         |
+| 2   | 7   | $2F  | 1    | "0"      | 0           | 101       |
+| 3   | 6   | $2F  | 1    | "0"      | 0           | 102       |
+| 4   | 5   | $2F  | 1    | "0"      | 0           | **185**   |
+| 5   | 4   | $8F  | 0    | "1"      | 1           | 102       |
+| 6   | 3   | $2F  | 1    | "0"      | 0           | **188**   |
+| 7   | 2   | —    | —    | _stall_  | —           | _∞_       |
+
+**Drive received: `0,0,0,0,1,0` (LSB first).
+Expected for $28: `0,0,0,1,0,1,0,0`.**
+
+Two stacked failures:
+
+**(i) Drive misses bits 4 and 6.** The 185 / 188-cyc gaps are
+each ~1.85× normal bit period (~100 cyc). Drive evidently was
+elsewhere (in `JSR $E9C0` debounce-read or `JSR $EA59`) when
+KERNAL released CLK for the missed bits. By the time drive's PC
+returned to `$EA0E`, KERNAL had already moved CLK back low for
+the *next* bit's setup. So drive captured every other bit.
+
+This **confirms the external-review hypothesis**: the legacy
+drive `Cpu6510.step()` does ALL bus accesses at instruction
+start (one chunk per JS call). Real 6502 spreads bus accesses
+across sub-instruction cycles. For `LDA $1800` (4 cyc) the
+read happens on cycle 3 in real silicon, cycle 0 in our model.
+Multiplied across the bit-loop iterations and the JSR/RTS chains
+into `$E9C0`, the cumulative drift is enough to walk past a
+~80-cyc CLK-released window.
+
+**(ii) KERNAL ISOUR stalls after bit 6.** After latching bit 6
+at c64Cyc 4607673, dd00 freezes at `$5F` (CLK pulled, DATA
+released, ATN asserted) for **1100+ cyc** while drive waits
+forever for next CLK release. C64 never sends bits 7 and 8.
+KERNAL eventually times out and releases ATN at c64Cyc 4608813
+(`dd00=$97`) — that is the `?DEVICE NOT PRESENT` path.
+
+The KERNAL stall is a **secondary bug** stacked on (i). Likely
+causes:
+- An IRQ (CIA1 timer or VIC raster) firing mid-ISOUR and
+  blowing the inter-bit timing.
+- KERNAL's frame-handshake check waiting for drive to pull DATA
+  for ack between bits — drive can't ack because it missed
+  earlier bits.
+- CIA timer wall-clock drift triggering KERNAL's listener-frame
+  timeout.
+
+(i) likely causes (ii): once drive misses bits, drive doesn't
+generate the expected DATA-line acks, KERNAL waits indefinitely
+for the listener to respond, then times out.
+
+### Sprint 96 next-session work (UPDATED with read-site evidence)
+
+**Primary fix**: convert drive CPU to cycle-stepped microcoded
+implementation with proper sub-instruction bus access. The
+external-review preferred fix is now empirically backed.
+
+Two implementation paths:
+
+1. **Reuse `Cpu6510Cycled` for drive** (largest leverage,
+   shares 1880/1880-equivalent core). Requires:
+   - Bypass / disable C64 `$00/$01` port behavior in cycled CPU
+     (drive bus doesn't have it).
+   - Rewire reset / IRQ vector through `DriveBus`.
+   - Verify reset / IRQ entry timing on drive.
+   - Re-run CPU equivalence harness from drive's perspective.
+
+2. **Smaller, isolated 6502 cycled CPU for drive only**
+   (`Drive6510Cycled`): copies the microcoded fetch-decode
+   ladder from `Cpu6510Cycled` but no $00/$01, simpler reset.
+   Lower blast radius for the c64 side, but duplicate code.
+
+Path (1) is preferred for code sharing.
+
+**After (i) fix, verify (ii)**: build a paired probe that
+captures C64 PC + dd00 timing during the ISOUR stall window
+(c64Cyc 4607673 → 4608813 in current trace). Decide whether the
+stall vanishes once drive responds correctly, or whether there
+is a separate IRQ-injection / CIA timing bug.
+
+**New script kept**:
+- `scripts/sprint96-via1-readsite.mjs` — direct read-site probe
+  with monkey-patched DriveBus.read + IecBus.setC64Output for
+  exact bit-cadence + dd00 / state correlation.
 
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 

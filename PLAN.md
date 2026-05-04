@@ -2045,6 +2045,18 @@ Open / next session:
 
 - See BUGREPORT Bug 39 "Sprint 96 detailed analysis +
   next-session handoff" for full recipe.
+- See `docs/bug39-external-review.md` for the external review:
+  first add a direct `$1800` read-site probe before committing to
+  a drive-CPU rewrite.
+- **Sprint 96 part 5 (2026-05-04)** — read-site probe done
+  (`scripts/sprint96-via1-readsite.mjs`). Empirical confirmation:
+  drive misses bits 4 and 6 of LISTEN $28 (185 / 188-cyc gaps =
+  1.85× normal bit period); KERNAL ISOUR then stalls 1100 cyc and
+  releases ATN (`?DEVICE NOT PRESENT`). External-review hypothesis
+  validated: drive needs cycle-stepped sub-instruction bus access.
+  Next: implement `Cpu6510Cycled` reuse for drive (preferred) or
+  isolated `Drive6510Cycled`. See BUGREPORT Bug 39 part 5 for
+  full table + acceptance.
 - Most promising fix path: legacy `Cpu6510.step()` does all bus
   accesses at instruction start; real 6502 reads happen at
   specific sub-cycles. Drive's `LDA $1800` (4 cycles) should
