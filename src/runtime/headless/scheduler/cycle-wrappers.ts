@@ -76,6 +76,14 @@ export class DriveCpuCycled implements CycleSteppable {
   private cyclesOwed = 0;
   constructor(public readonly drive: DriveCpu) {}
   executeCycle(): void {
+    // Sprint 96 part 7: free-running GCR shifter tick. Real disk
+    // clocks bytes off the head every ~32 drive cycles; CPU reads
+    // $1C01 see the LATCHED byte. Without this, drive's wait-for-SYNC
+    // loop never advances and READ ERROR results even when GCR data
+    // is valid.
+    if (this.drive.trackBuffer && this.drive.headPosition) {
+      this.drive.trackBuffer.tickShifter(1, this.drive.headPosition.currentTrack);
+    }
     if (this.drive.microcoded) {
       // Microcoded path (Sprint 96 part 6): per-cycle bus access.
       // Refresh IRQ line every cycle (VICE maincpu_int_status pattern);

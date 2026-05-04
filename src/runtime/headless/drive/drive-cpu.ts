@@ -22,6 +22,7 @@ import { makeStubVia1Pa, makeStubVia1Pb, makeBusVia1Pa, makeBusVia1Pb } from "./
 import { makeStubVia2Pa, makeStubVia2Pb, makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
 import { loadDriveRom, DRIVE_ROM_BASE, DRIVE_ROM_SIZE, type LoadedDriveRom } from "./drive-rom.js";
 import type { IecBus } from "../iec/iec-bus.js";
+import type { TrackBuffer, HeadPosition } from "./head-position.js";
 
 export const DRIVE_RAM_SIZE = 0x0800; // $0000-$07FF
 export const VIA1_BASE = 0x1800;
@@ -112,6 +113,9 @@ export class DriveCpu {
   public readonly cpu: Cpu6510 | Cpu6510Microcoded;
   public readonly bus: DriveBus;
   public readonly microcoded: boolean;
+  // Sprint 96 part 7: GCR shifter coupling for free-running tick.
+  public readonly trackBuffer?: TrackBuffer;
+  public readonly headPosition?: HeadPosition;
 
   // Spec 090: 16.16 fixed-point sync_factor. drive_cycles_per_c64_cycle.
   // PAL: 1.01477 → 0x103C5 (= 1.0149 in 16.16). NTSC: 0x10000 (1.0).
@@ -134,6 +138,8 @@ export class DriveCpu {
     this.cpu = this.microcoded
       ? new Cpu6510Microcoded(this.bus)
       : new Cpu6510(this.bus);
+    this.trackBuffer = opts.gcr?.trackBuffer;
+    this.headPosition = opts.gcr?.headPosition;
   }
 
   // Spec 090: configure sync ratio. PAL = 1.01477 (1MHz drive / 985.248kHz C64).

@@ -87,6 +87,20 @@ export class HeadPosition {
 }
 
 // TrackBuffer wraps a G64 image with mutation support.
+//
+// Sprint 96 part 7 (Bug 39 follow-up): free-running GCR shifter.
+// Real 1541 hardware clocks GCR bits/bytes off the spinning disk
+// continuously, regardless of CPU activity. CPU reads $1C01 to
+// receive the LATCHED byte; reads do NOT advance the cursor. SYNC
+// state on VIA2 PB7 reflects current shifter, polled by CPU loop.
+//
+// Without free-run, drive's "wait for SYNC" loop never advances the
+// cursor → SYNC never asserted → drive READ ERROR / FILE NOT FOUND
+// even when the G64 contains valid GCR for the requested track.
+//
+// Density: 1 byte per 32 drive cycles ≈ 31.25 kBps (zone 1 nominal).
+// We use a single rate for all zones for now; per-zone density
+// remains a follow-up.
 export class TrackBuffer {
   // Maps integer track number → raw GCR byte stream for that track.
   // Loaded lazily from the G64 on first access; modified in-place by
@@ -95,20 +109,72 @@ export class TrackBuffer {
   private readonly modified = new Set<number>();
   private byteCursor = 0;
   private lastReadByteIsSyncContext = 0;
+  private latchedByte = 0xff;
+  private latchedTrack = -1;
+  private shifterAccum = 0;
+  private static readonly CYCLES_PER_BYTE = 32;
 
   constructor(public readonly source: G64Parser) {}
 
-  // Returns the byte at the head's current position within its current
-  // track, or 0xFF (idle bus) if the track is empty / unavailable.
-  // Advances the byte cursor by 1 for the next read.
+  // CPU-side latched byte read ($1C01 PA). Returns the most recent
+  // GCR byte clocked into the shifter for the requested track. Does
+  // NOT advance the cursor — that happens in tickShifter().
+  readLatchedByte(track: number): number {
+    if (track !== this.latchedTrack) {
+      // Head moved to new track; resync latch from current cursor.
+      this.latchedTrack = track;
+      this.refreshLatch();
+    }
+    return this.latchedByte;
+  }
+
+  // Free-running shifter advance. Call once per drive cycle from the
+  // scheduler with the current physical track under the head.
+  // Advances byteCursor / SYNC state at GCR rate.
+  tickShifter(driveCycles: number, currentTrack: number): void {
+    if (currentTrack !== this.latchedTrack) {
+      this.latchedTrack = currentTrack;
+      this.refreshLatch();
+    }
+    this.shifterAccum += driveCycles;
+    while (this.shifterAccum >= TrackBuffer.CYCLES_PER_BYTE) {
+      this.shifterAccum -= TrackBuffer.CYCLES_PER_BYTE;
+      this.advanceOneByte();
+    }
+  }
+
+  private advanceOneByte(): void {
+    if (this.latchedTrack < 1) {
+      this.latchedByte = 0xff;
+      this.lastReadByteIsSyncContext++;
+      return;
+    }
+    const data = this.ensureTrack(this.latchedTrack);
+    if (!data || data.length === 0) {
+      this.latchedByte = 0xff;
+      this.lastReadByteIsSyncContext++;
+      return;
+    }
+    this.byteCursor = (this.byteCursor + 1) % data.length;
+    this.latchedByte = data[this.byteCursor]!;
+    if (this.latchedByte === 0xff) this.lastReadByteIsSyncContext++;
+    else this.lastReadByteIsSyncContext = 0;
+  }
+
+  private refreshLatch(): void {
+    const data = this.ensureTrack(this.latchedTrack);
+    if (!data || data.length === 0) { this.latchedByte = 0xff; return; }
+    this.latchedByte = data[this.byteCursor % data.length]!;
+  }
+
+  // Legacy advancing read (kept for tests / callers that pre-date the
+  // free-running shifter). Reads byte at cursor and advances by 1.
   readByte(track: number): number {
     const data = this.ensureTrack(track);
     if (!data || data.length === 0) return 0xff;
     const idx = this.byteCursor % data.length;
     const byte = data[idx]!;
     this.byteCursor = (idx + 1) % data.length;
-    // Track sync context: count consecutive 0xFF bytes for the
-    // SYNC-mark detector that VIA2 PB bit 7 reports.
     if (byte === 0xff) this.lastReadByteIsSyncContext++;
     else this.lastReadByteIsSyncContext = 0;
     return byte;

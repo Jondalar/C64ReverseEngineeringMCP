@@ -62,7 +62,10 @@ export interface Via2GcrCoupling {
 
 export function makeGcrVia2Pa(coupling: Via2GcrCoupling): ViaPortBackend {
   return {
-    readPins: () => coupling.trackBuffer.readByte(coupling.headPosition.currentTrack),
+    // Sprint 96 part 7: read latched byte (no cursor advance). Real
+    // VIA2 PA is wired to the GCR shifter's latched byte register;
+    // shifter clocks bytes off the disk at GCR rate via tickShifter().
+    readPins: () => coupling.trackBuffer.readLatchedByte(coupling.headPosition.currentTrack),
     onOutputChanged: (orValue, ddrMask, cause) => {
       // Only commit a track-buffer write on actual ORA writes — DDR
       // mode flips don't push a new GCR byte. Drive only writes when

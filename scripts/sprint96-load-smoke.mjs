@@ -7,7 +7,7 @@ const { session } = startIntegratedSession({ diskPath: disk, useCycleLockstep: t
 session.resetCold();
 session.runFor(800_000);
 session.typeText("LOAD\"*\",8,1\r", 80_000, 80_000);
-session.runFor(8_000_000);
+session.runFor(40_000_000);
 const ram = session.c64Bus.ram;
 const W = (n) => "$"+(n & 0xff).toString(16).padStart(2,"0");
 const screenBase = 0x0400;
