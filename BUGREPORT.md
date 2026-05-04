@@ -3252,3 +3252,148 @@ bits the renderer needs.)
 - `npm run regress` 5/5
 - Reference screenshot saved at
   `samples/screenshots/mm-character-selection-headless.png`
+
+## Bug 43 — Custom 1541 fastloader stalls after handshake in integrated session (Murder on the Mississippi)
+
+### Severity
+High. Blocks integrated-session boot trace for any title that uses a
+custom drive fastloader once the loader leaves the standard KERNAL
+serial path. Affects most disk-protected commercial games (a large
+class of EF-port targets).
+
+### Repro
+1. `headless_integrated_session_start` with `motm.g64`,
+   `enable_kernal_*_traps=false`, `trace_drive=true`,
+   `trace_iec=true`. Lockstep + microcoded enforced (G64 default).
+2. Cold-boot to READY: `run` until breakpoint $E5CD.
+3. `headless_integrated_session_type` `LOAD"*",8,1\\r`.
+4. Run ~10 M instructions.
+
+Path:
+
+- AB.PRG (the loader installer) loads via standard KERNAL LOAD:
+  drive ROM serves it, head moves to track 18 dir → track of `AB`.
+- ab.prg @ $4000 installs custom drive code via M-W into drive
+  $0500-$07FF (~768 bytes) then M-E.
+- Drive jumps into custom code at $07C1: VIA1 ($1800) IEC bit-bang
+  + VIA2 ($1C00) head/sync logic. Head steps 18 → 15.5 → 16
+  (half-track = protection probe).
+- After the first phase the drive RTSes back to ROM ($F55E / $F561,
+  the FORMAT/sync-search area). C64 enters bit-bang RX loop at
+  $43CD-$43F0 polling $DD00 bit 7 (DATA IN) for the next byte and
+  spins forever.
+
+State at stall (snapshot):
+
+```
+C64 PC=$43CD A=10 X=07 Y=08 SP=F6 P=66 cycles=60.85M
+Drive PC=$F561 A=03 X=2A Y=00 SP=35 P=E5 cycles=69.22M
+Drive head: track 16 (was 15.5)
+IEC: c64Atn=1 c64Clk=1 c64Data=1 / drvClk=1 drvData=0 drvAtnAck=0
+VIA2 ACR=$41 (T1 free-run + SR external clock)
+```
+
+ab.prg RX loop @ $43CD:
+```
+$43CD  AD 00 DD   LDA $DD00
+$43D0  10 6F      BPL $4441   ; branch if DATA IN low (drive signaling)
+$43D2  49 40      EOR #$40
+$43D4  85 9A      STA $9A
+$43D6  09 20      ORA #$20
+$43D8  8D 00 DD   STA $DD00   ; toggle CLK OUT
+$43DB  EA EA      NOP NOP
+$43DD  29 DF      AND #$DF
+$43DF  8D 00 DD   STA $DD00
+$43E2  20 BD 43   JSR $43BD   ; sub
+$43E5  EA EA      NOP NOP
+$43E7  06 9A      ASL $9A
+$43E9  06 9A      ASL $9A
+$43EB  2E 1B 03   ROL $031B
+$43EE  CA         DEX
+$43EF  10 DC      BPL $43CD
+```
+
+Two-bit-per-iteration GCR-style bit-bang RX. Hand-rolls toggling
+CLK out (bit 5 of $DD00) and reads DATA in (bit 7). Drive is the
+TX side using VIA2 SR external clock and VIA1 PB IEC drivers.
+
+### Suspected root cause
+Most likely candidate: **VIA2 shift-register external-clock mode
+not (fully) modelled in the headless 1541 emulator's IEC mux**.
+$ACR=$41 = T1 free-run + SR mode 4 (shift in/out under external
+CLK). Custom loaders use this to push bytes onto IEC at handshake
+edges without per-bit CPU work. If the emulator's VIA2 SR doesn't
+clock bytes out *and assert them on the IEC DATA line as the loader
+expects*, the line never moves and the C64 RX loop never sees the
+DATA edge it polls.
+
+Secondary candidates worth ruling out before fixing:
+
+1. **VIA1 IEC edge-detection in lockstep** — drive ratio
+   1.014973 cycles per C64 cycle. Some bit-bang loaders rely on
+   *exact* IEC line transitions per drive-cycle; a 1-cycle skew
+   per byte adds up over many bytes.
+2. **Drive RTS back to ROM** — drive PC=$F561 (ROM idle/seek)
+   while C64 still polls. Either the custom code legitimately
+   exits to ROM expecting C64-driven re-entry that never comes,
+   or the emulated drive's job interpreter dispatched RTS
+   incorrectly. Disasm of drive RAM $0500-$07FF needed (`disasm_prg
+   --platform c1541`) to confirm intended exit.
+3. **Open-collector wired-AND modelling** — both sides reporting
+   `released` (drvData=false, c64Data=true) but C64 still spinning
+   on bit 7 = 0. Worth checking the IEC bus aggregator returns the
+   correct line state for the CIA2 PA read in this exact pin
+   combination.
+4. **Drive instruction counter** — secondary tooling artifact:
+   `headless_integrated_session_status` reports drive
+   `instructions=0` even though drive PC moves and cycles tick.
+   Probably a counter-update gap in the integrated drive step
+   path; not load-blocking on its own but obscures triage.
+
+### Why $DD00 itself is fine
+The C64-side reads/writes of $DD00 in the snapshot are
+plausible — CIA2 PA bits 3/4/5 are the ATN/CLK/DATA outputs and
+bit 7 is DATA IN. The bug is on the drive→IEC path: drive thinks
+it's transmitting (or already finished and now waits on a master
+that has gone silent), C64 polls forever. The receive code is a
+straightforward two-bit GCR shifter and is not the culprit.
+
+### Captured evidence
+Murder workspace, `analysis/headless-runtime/boot-trace-3/`:
+
+- `c64-ram-snapshot2.bin` — full 64KB C64 RAM at the stall.
+- `drive-ram-snapshot1.bin` (mid-phase) and
+  `drive-ram-snapshot2.bin` (stall) — drive 2KB RAM (custom
+  loader code at $0500-$07FF + zero-page job state).
+- `snapshot-meta.json` — CPU/IEC/VIA/head metadata.
+
+The drive RAM is suitable for `disasm_prg --platform c1541` to
+recover the loader state machine, which would resolve whether the
+RTS to $F561 is intentional or a wrong dispatch.
+
+### Suggested next steps
+1. Disasm drive RAM $0500-$07FF (c1541 platform) and identify the
+   intended C64↔drive sync point after the first read phase.
+2. Compare against VICE running the same disk image to the same
+   snapshot — VICE serves as ground truth: if VICE advances past
+   $43CD with the same loader, the bug is on our side; if VICE
+   also stalls, the loader expects something we're not providing
+   (e.g. a prior C64 register write at exactly the right cycle).
+3. Spot-check VIA2 SR external mode in the headless drive
+   emulator: does an SR-clocked byte assert on IEC PB at the
+   right edges? Add a smoke that exercises SR-shift-out into the
+   bus from drive and observes the shift on the C64 side.
+4. Add a `headless_integrated_session` set_pc / write_memory
+   pair so the bug can be reproduced from the exact stall state
+   without rerunning the full boot. (Tool gap noted in the boot
+   trace #3 step — currently only `load_prg` lets you write RAM,
+   and only at PRG load addresses.)
+
+### Implications for Murder EF port
+Phase-0 evidence already captured is sufficient for the EF port
+spec (custom-loader install verified end-to-end, bit-bang
+protocol disassembled, half-track protection at T15.5
+confirmed). But automated boot trace beyond the install phase is
+blocked until this is fixed — Phase 1+ (per-file load sequence,
+main game entry PC, runtime memory map after first big load) has
+to be either gathered via VICE side or unlocked by fixing this.
