@@ -26,7 +26,10 @@ export interface CycleLockstepScheduler {
 }
 
 export interface CycleLockstepDeps {
-  // C64 components (tick at C64 clock).
+  // C64 components (tick at C64 clock). Index 0 is treated as the CPU —
+  // its `cycles` field is the wall-clock authority. Other components
+  // are ticked by the cycle delta the CPU produced (so multi-cycle
+  // operations like IRQ servicing or branch page-cross don't desync).
   c64Components: CycleSteppable[];
   // Drive components (tick at drive clock — ratio 1.0149× C64 PAL).
   driveComponents: CycleSteppable[];
@@ -42,6 +45,13 @@ export interface CycleLockstepDeps {
   // date IRQ/NMI state at instruction boundary. Mirrors the VICE
   // maincpu_int_status pin model.
   updateInterruptLines?: () => void;
+  // Sprint 96 / Bug 39: read CPU cycle counter (the wall-clock
+  // authority). When set, scheduler ticks peripherals + drive by
+  // (newCycles - prevCycles) per CPU step rather than by 1, so any
+  // instant `this.cycles += N` inside the CPU (IRQ service, branch
+  // taken + page-cross, illegal opcode burn) advances peripherals
+  // and drive by the same N.
+  cpuCycleCounter?: () => number;
 }
 
 export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
@@ -58,16 +68,28 @@ export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
     // VICE pattern: refresh IRQ/NMI pin state each cycle BEFORE the CPU
     // ticks. CPU samples line at instruction-boundary fetch.
     if (this.deps.updateInterruptLines) this.deps.updateInterruptLines();
-    // Tick all C64 chips by 1 cycle.
-    for (const c of this.deps.c64Components) c.executeCycle();
-    this.cycleCount++;
-    // Tick drive chips by their share. Most C64 cycles tick drive 1×;
-    // some tick drive 2× (because drive runs slightly faster).
-    this.driveCycleAccumulator16dot16 += this.driveRatio16dot16;
-    while (this.driveCycleAccumulator16dot16 >= 0x10000) {
-      for (const c of this.deps.driveComponents) c.executeCycle();
-      this.driveCycleCount++;
-      this.driveCycleAccumulator16dot16 -= 0x10000;
+    // Sprint 96: track cpu cycle delta so peripherals/drive stay in
+    // sync when CPU bursts cycles for IRQ service, branch+pgcross, or
+    // illegal-opcode burn.
+    const cpuBefore = this.deps.cpuCycleCounter ? this.deps.cpuCycleCounter() : this.cycleCount;
+    // Tick the CPU first.
+    this.deps.c64Components[0]!.executeCycle();
+    const cpuAfter = this.deps.cpuCycleCounter ? this.deps.cpuCycleCounter() : (cpuBefore + 1);
+    const delta = Math.max(1, cpuAfter - cpuBefore);
+    // Tick remaining C64 chips by `delta` so peripherals advance with
+    // the CPU's actual cycle consumption.
+    for (let k = 0; k < delta; k++) {
+      for (let i = 1; i < this.deps.c64Components.length; i++) {
+        this.deps.c64Components[i]!.executeCycle();
+      }
+      this.cycleCount++;
+      // Tick drive chips by their share for each delta unit.
+      this.driveCycleAccumulator16dot16 += this.driveRatio16dot16;
+      while (this.driveCycleAccumulator16dot16 >= 0x10000) {
+        for (const c of this.deps.driveComponents) c.executeCycle();
+        this.driveCycleCount++;
+        this.driveCycleAccumulator16dot16 -= 0x10000;
+      }
     }
   }
 

@@ -240,6 +240,10 @@ export class IntegratedSession {
         updateInterruptLines: opts.useMicrocodedCpu
           ? () => this.updateMicrocodedInterruptLines()
           : undefined,
+        // Sprint 96: scheduler ticks peripherals + drive by CPU cycle
+        // delta. Required so IRQ service / branch page-cross / illegal
+        // burn don't desync drive timing during IEC bit-bang.
+        cpuCycleCounter: () => (cpuCompoonent as any).cycles,
       });
     }
   }

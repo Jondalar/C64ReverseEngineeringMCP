@@ -2024,6 +2024,49 @@ Sprint 96 candidate: bit-by-bit trace of first byte transfer in
 microcoded mode vs VICE bit-bang trace; fix whichever cycle-edge
 is off.
 
+### Sprint 96 progress (2026-05-04)
+
+Two related findings:
+
+1. **Scheduler cycle drift (root-cause likely)**. The microcoded
+   CPU's `executeCycle` calls bump `this.cycles` by more than 1 on
+   IRQ service (`this.cycles += 7`), branch taken / page-cross
+   (`this.cycles += 1`), and absx/absy/indy page-cross
+   (`this.cycles += 1`). The cycle-lockstep scheduler however
+   ticked peripherals + drive exactly once per `executeCycle`
+   call. Result: when CPU bursts cycles for an IRQ service or a
+   branch page-cross, peripherals + drive do NOT advance with it.
+   Over a few thousand instructions this causes substantial
+   wall-clock drift between CPU and drive — fatal for IEC
+   bit-bang where the drive needs to sample DATA at very specific
+   wall-clock cycles.
+
+   **Fix**: scheduler now reads `cpuCycleCounter()` before and
+   after the CPU step, and ticks the rest of the C64 components +
+   drive by the (cpuAfter - cpuBefore) delta instead of by 1. So a
+   7-cycle IRQ service now advances every other component by 7
+   too. Wired in `IntegratedSession` constructor for the
+   microcoded path. CPU equivalence harness still passes
+   (1880/1880, 0 divergences).
+
+2. **Drive byte interpretation still wrong**. Even after the
+   scheduler fix, the drive's `$77` reads `$2B` while KERNAL is
+   sending `$28` (LISTEN device 8). The bus-level bit-bang trace
+   shows DATA + CLK transitions arriving at the drive in the
+   correct order; drive's ATN handler runs (`drvAtnAck` toggles
+   correctly); but drive's `$79` (listener flag) never sets, so
+   drive ignores the LISTEN byte and goes back to idle. KERNAL
+   times out → `?DEVICE NOT PRESENT`.
+
+   Probably either (a) drive samples DATA on the wrong CLK edge
+   in our model, (b) bit-bang setup-time falls inside our drive's
+   debounce window, or (c) an off-by-one in the IEC trace
+   timestamps that masks the real edge sequence.
+
+   Resolution requires: 1541 ROM walk through ACPTR ($E9C9 area),
+   exact per-bit comparison vs a VICE bit-bang trace, fix to
+   whichever edge is off.
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
 **Severity:** N/A — false alarm.
