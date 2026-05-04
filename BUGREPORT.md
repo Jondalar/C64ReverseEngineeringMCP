@@ -2092,6 +2092,35 @@ Two related findings:
    ACPTR or hits EOI / timeout path. Resolution still needs
    per-bit ACPTR walk vs VICE.
 
+### Sprint 96 progress part 3 (2026-05-04 cont.)
+
+5. **Drive samples wrong bit values during ACPTR**. Per-iteration
+   probe of `ROR $85` at `$EA18` shows drive's `$85` byte being
+   assembled with WRONG carry bits.
+
+   Probe of first 5 ROR hits during LISTEN $28 receive
+   (`scripts/sprint96-byte85.mjs`):
+   - Expected bit values (LSB first for `$28` = `0010_1000`):
+     `0, 0, 0, 1, 0, 1, 0, 0`
+   - Observed `$85` after 5 RORs = `$A0` (`1010_0000`)
+   - Decoded: drive received `0, 0, 1, 0, 1` for the first 5 bits
+   - Bits 2 and 4 are flipped from expected.
+
+   Drive's bit-receive loop at `$EA0B-$EA13` waits for CLK to go
+   high (released by C64), then samples DATA. The fact that
+   *some* bits arrive correctly and others don't means the
+   wall-clock alignment between C64's per-bit DATA setup and the
+   drive's $1800 read is off — almost certainly a CIA1 timer or
+   instruction-cycle delta issue in the headless model that
+   shifts the sampling edge by a few µs relative to spec.
+
+   Resolution path:
+   - Profile actual cycle gap (DATA setup → drive sample) in
+     headless and compare to the spec window (~30 µs setup).
+   - Verify CIA1 timer A cycles match real PAL 985.248 kHz.
+   - Likely fix is in CIA1 timer underflow handling or in our
+     remaining `this.cycles += N` paths inside Cpu6510Cycled.
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
 **Severity:** N/A — false alarm.
