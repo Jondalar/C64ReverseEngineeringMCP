@@ -2505,9 +2505,100 @@ Final state snapshot:
 - **Bus is idle.** No party is holding any line; no electrical
   deadlock.
 
-### Root cause (refined)
+### Root cause (final, c64ref-confirmed)
 
-KERNAL ACPTR enters a **retry loop** after EOI:
+**LOAD's retry loop at \$F4F3-\$F509 retries on TIMEOUT bit before
+ever checking EOI.** Decoded via c64ref MCP tool against KERNAL
+ROM 901227-03:
+
+```
+\$F4F3 LDA #\$FD          ; load mask 1111_1101
+\$F4F5 AND \$90            ; clear bit 1 (TIMEOUT) only
+\$F4F7 STA \$90            ; status preserves bit 6 (EOI)
+\$F4F9 JSR \$FFE1          ; STOP key check
+\$F4FC BNE \$F501          ; STOP not pressed → continue
+\$F4FE JMP \$F633          ; STOP → abort
+\$F501 JSR \$EE13          ; ACPTR (receive byte)
+\$F504 TAX                 ; save byte in X
+\$F505 LDA \$90             ; check status
+\$F507 LSR A                ; bit 0 → carry, discard
+\$F508 LSR A                ; bit 1 → carry (TIMEOUT)
+\$F509 BCS \$F4F3          ; **retry if TIMEOUT bit was set**
+... bytes continue, EOI check at \$F526:
+\$F524 BIT \$90             ; sets V from bit 6
+\$F526 BVC \$F4F3           ; branch if no EOI → next byte
+                            ; fall through → LOAD complete
+```
+
+**The infinite loop mechanism:**
+
+1. LOAD clears bit 1 of \$90 at \$F4F7.
+2. LOAD JSR ACPTR at \$F501.
+3. ACPTR enters EOI ACK after first timer-B underflow (drive
+   not pulling CLK), sets \$90 |= \$40 (EOI), INC \$A5 (= 1),
+   BNE \$EE20 (restart timer).
+4. Second timer-B underflow, \$EE3E LDA \$A5 = 1, BEQ does NOT
+   fire, fall to \$EE42 LDA #\$02 \$EE44 JMP \$EDB2 (CSBERR).
+5. \$EDB2 JSR \$FE1C with A=\$02 → \$90 |= \$02 (TIMEOUT).
+6. \$EDB2 → CLI → CLC → BCC \$EE03 → release ATN/CLK/DATA →
+   RTS chain back to LOAD.
+7. LOAD at \$F505: \$90 = \$42 (EOI + TIMEOUT). LSR LSR → carry
+   = bit 1 = TIMEOUT. BCS \$F4F3 fires → retry.
+8. **EOI check at \$F526 NEVER REACHED.**
+9. Loop forever (until STOP key).
+
+Confirmed via live PC sample probe (scripts/sprint96-acptr-loop.mjs):
+- C64 cycles through \$F4F3 (\$F4F7), \$F4F9 (\$FE1C JSR), \$EE13
+  (ACPTR entry), \$EE03 (release lines), \$EE0A (delay loop).
+- \$A5 oscillates 0 ↔ 1 (each ACPTR resets at \$EE16).
+- \$90 oscillates \$40 ↔ \$42 (LOAD clears bit 1, ACPTR sets it).
+- Stack pointer stable around \$F3-\$F7 (no recursion).
+
+### Real 1541 expected behavior
+
+After drive sends the EOI byte over IEC, the protocol is:
+1. Drive: holds CLK released for >256 µs (EOI timeout signal).
+2. C64: detects timeout, ACKs by pulling DATA briefly.
+3. **Drive: pulls CLK, then bit-bangs the actual EOI byte (8 bits).**
+4. C64: receives bits at \$EE56 bit-recv loop, byte returned.
+5. LOAD: status \$90 = \$40 (EOI only, no TIMEOUT). LSR LSR → no
+   retry. BIT \$90 / BVC at \$F526 → falls through → LOAD complete.
+6. KERNAL: sends UNTALK (\$5F) via ATN. Drive cleans up.
+
+### Our drive behavior (deviation)
+
+Our drive ROM apparently RETURNS TO IDLE after the EOI signal
+without then sending the actual byte. This is the deviation
+from real 1541 behavior.
+
+Hypothesis (needs verification): drive's TALK byte send routine
+sends byte normally, but after EOI flag set on file pump's last
+byte, drive's send loop terminates BEFORE the byte is bit-banged
+to IEC (or drive's send routine doesn't include the EOI-with-byte
+"hold then send" sequence).
+
+### Next-session work (revised, prioritized)
+
+1. **Drive PC trace through end-of-file.** Add per-cycle drive
+   PC sampling for the last 5000 drive cycles before drive enters
+   \$EC2D idle area. Identify the exact ROM routine returning
+   drive to idle. Compare to VICE drive PC trace at the same
+   moment.
+
+2. **Inspect drive ROM TALK byte send routine.** Standard 1541
+   ROM TALK frame routine is around \$E919-\$E96D. Verify our
+   drive runs through the byte-send sequence including the EOI-
+   timing branch. The EOI-timing branch should INSERT a delay
+   (\$200µs CLK release) BEFORE the normal byte-send, NOT
+   replace it.
+
+3. **Verify drive's file pump. After file end, channel-state
+   machine should mark "EOI on next byte" then call FRMBYT once
+   more for the actual byte. Verify our drive does this.
+
+KEEP all the legacy ACPTR retry-loop docs above for reference.
+
+### KERNAL ACPTR retry loop ($EE27 inner mechanism)
 
 ```
 $EE27: STA $DC0F          ; start timer B (one-shot)
