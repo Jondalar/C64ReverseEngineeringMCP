@@ -7,11 +7,20 @@ const { session } = startIntegratedSession({ diskPath: disk, useCycleLockstep: t
 session.resetCold();
 session.runFor(800_000);
 const fname = process.env.LOAD_NAME ?? "*";
+const runAfter = process.env.RUN_AFTER ?? "";  // e.g. "SYS 679"
 const cmd = `LOAD"${fname}",8,1\r`;
 console.log(`Typing: ${cmd.replace("\r","<RET>")}`);
 session.typeText(cmd, 80_000, 80_000);
 const budget = parseInt(process.env.RUN_BUDGET ?? "10000000", 10);
-session.runFor(budget);
+// First wait for LOAD to complete (give boot file time).
+session.runFor(Math.min(budget, 8_000_000));
+if (runAfter) {
+  console.log(`Then typing: ${runAfter}<RET>`);
+  session.typeText(runAfter + "\r", 80_000, 80_000);
+  // Run remainder of budget after typing.
+  const remaining = budget - 8_000_000 - 160_000;
+  if (remaining > 0) session.runFor(remaining);
+}
 const ram = session.c64Bus.ram;
 const W = (n) => "$"+(n & 0xff).toString(16).padStart(2,"0");
 const screenBase = 0x0400;
@@ -32,3 +41,13 @@ for (let i = 0; i < 48; i++) { const c = ram[0x02A7+i]; h+=c.toString(16).padSta
 console.log(`  ${h}`);
 console.log(`load addr $C3/$C4 = $${ram[0xc4].toString(16).padStart(2,"0")}${ram[0xc3].toString(16).padStart(2,"0")}`);
 console.log(`status $90 = ${W(ram[0x90])}`);
+console.log(`\nMM target $0400..$042F:`);
+let h2="";
+for (let i = 0; i < 48; i++) h2 += ram[0x0400+i].toString(16).padStart(2,"0")+" ";
+console.log(`  ${h2}`);
+console.log(`MM target $0800..$081F:`);
+let h3="";
+for (let i = 0; i < 32; i++) h3 += ram[0x0800+i].toString(16).padStart(2,"0")+" ";
+console.log(`  ${h3}`);
+const screenStr = Array.from({length:1000},(_,i)=>{const c=ram[0x0400+i];return (c>=0x20&&c<0x60)?String.fromCharCode(c).toUpperCase():(c>=0x01&&c<0x1b)?String.fromCharCode(0x40+c):".";}).join("");
+console.log(`\n[summary] READY: ${(screenStr.match(/READY\./g)??[]).length}  FNF: ${screenStr.includes("FILE NOT FOUND")}  DNP: ${screenStr.includes("DEVICE NOT PRESENT")}  LOAD ERR: ${screenStr.includes("LOAD ERROR")||screenStr.includes("LOAD  ERROR")}  ?: ${screenStr.includes("?")}`);
