@@ -66,6 +66,30 @@ const interestingPcs = new Set([F4CB, F501, EE13, EDFE]);
 log(`probe: disk=${disk} file=${file} budget=${budget}`);
 log(`boot done, LOAD typed at c64Cyc=${c64.cycles}, sp=$${c64.sp.toString(16)}`);
 
+// Hook head-position to log every step. Records pre/post track + step-bits.
+const headLog = [];
+const headRef = session.drive.headPosition;
+if (headRef && typeof headRef.applyStepBits === "function") {
+  const orig = headRef.applyStepBits.bind(headRef);
+  headRef.applyStepBits = function patched(newBits) {
+    const oldTrack = headRef.currentTrack;
+    const oldBits = headRef.lastStepBits;
+    orig(newBits);
+    const newTrack = headRef.currentTrack;
+    if (oldTrack !== newTrack || (oldBits & 3) !== (newBits & 3)) {
+      headLog.push({
+        c64Cyc: c64.cycles,
+        drvCyc: session.drive.cpu.cycles,
+        oldBits: oldBits & 3,
+        newBits: newBits & 3,
+        oldTrack,
+        newTrack,
+        delta: newTrack - oldTrack,
+      });
+    }
+  };
+}
+
 for (let i = 0; i < budget; i++) {
   prevPc = c64.pc;
   session.runFor(1);
@@ -191,6 +215,13 @@ dump("via1", via1);
 dump("via2", via2);
 log(`  drvCpu flags=$${drvCpu.flags.toString(16).padStart(2, "0")} (I-flag=${(drvCpu.flags & 0x04) ? "set/disabled" : "clear/enabled"})`);
 log(`  drvCpu pc=$${drvCpu.pc.toString(16).padStart(4, "0").toUpperCase()} sp=$${drvCpu.sp.toString(16).padStart(2, "0")}`);
+
+log(`---`);
+log(`step-bit history (${headLog.length} entries):`);
+for (const e of headLog) {
+  const arrow = e.delta > 0 ? "↑INWARD" : e.delta < 0 ? "↓OUTWARD" : "·";
+  log(`  drvCyc=${e.drvCyc} oldBits=${e.oldBits.toString(2).padStart(2, "0")} → newBits=${e.newBits.toString(2).padStart(2, "0")}  oldTrack=${e.oldTrack} → newTrack=${e.newTrack}  ${arrow}`);
+}
 
 if (!existsSync("samples/traces")) mkdirSync("samples/traces", { recursive: true });
 writeFileSync(outPath, lines.join("\n") + "\n");

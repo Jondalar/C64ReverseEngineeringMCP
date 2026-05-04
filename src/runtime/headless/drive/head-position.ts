@@ -49,8 +49,18 @@ export class HeadPosition {
     this.maxHalfTracks = max;
   }
 
-  // Called when VIA2 PB STEP bits change. Decodes the gray-code
-  // direction and advances by 0.5 if the step is valid.
+  // Called when VIA2 PB STEP bits change. Decodes stepper phase
+  // direction and advances by 0.5 (half-track) per phase advance.
+  //
+  // Spec 096 (Bug 40): real 1541 ROM 901229-05 writes a 4-phase
+  // sequence to PB0/PB1: 00 → 11 → 10 → 01 → 00. This is NOT
+  // standard Gray code. Drive head moves one half-track per phase
+  // transition. Sequence direction (clockwise/counter-clockwise on
+  // the cycle) determines inward vs outward.
+  //
+  // Empirically observed in headless probe: drive ROM uses
+  // [00, 11, 10, 01] cycle for OUTWARD stepping (toward lower
+  // tracks). Reverse cycle = INWARD.
   applyStepBits(newBits: number): void {
     const old = this.lastStepBits & 0x3;
     const next = newBits & 0x3;
@@ -58,16 +68,19 @@ export class HeadPosition {
       this.lastStepBits = next;
       return;
     }
-    // Gray-code sequence inward: 00, 01, 11, 10, 00...
-    // Gray-code sequence outward: 00, 10, 11, 01, 00...
-    const inwardSeq = [0, 1, 3, 2];
-    const oldIdx = inwardSeq.indexOf(old);
-    const newIdx = inwardSeq.indexOf(next);
+    // Outward cycle: 00 → 11 → 10 → 01 → 00 (4-phase, drive
+    // ROM 901229-05 writes this sequence to step toward lower
+    // tracks). Pattern indices: 00=0, 11=1, 10=2, 01=3.
+    const outwardSeq = [0, 3, 2, 1];
+    const oldIdx = outwardSeq.indexOf(old);
+    const newIdx = outwardSeq.indexOf(next);
     if (oldIdx >= 0 && newIdx >= 0) {
       const diff = (newIdx - oldIdx + 4) % 4;
-      if (diff === 1) this.stepInward();
-      else if (diff === 3) this.stepOutward();
-      // diff = 2 means jumped 2 positions (invalid step, no movement)
+      if (diff === 1) this.stepOutward();
+      else if (diff === 3) this.stepInward();
+      // diff = 2 means a 2-position jump — treat as invalid (no
+      // movement) since real hardware would briefly reverse and
+      // then resume.
     }
     this.lastStepBits = next;
   }
