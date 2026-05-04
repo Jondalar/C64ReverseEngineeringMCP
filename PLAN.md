@@ -85,7 +85,7 @@ dependency order.
 
 | #   | Sprint                                | Specs                                | Priority | Theme                                                                                              |
 |-----|---------------------------------------|--------------------------------------|----------|----------------------------------------------------------------------------------------------------|
-| 98  | Bug 40 close                          | 094, 095, 096, 097 (M0.1-4)          | critical | EOF trace → VICE compare → EOI/TALK fix → LOAD acceptance smoke. MM boot unblocked at end.        |
+| 98  | Bug 40 close ✓ FIXED 2026-05-04       | 094, 095, 096, 097 (M0.1-4)          | critical | EOF trace → VICE compare → stepper-sequence fix in head-position.ts. Synthetic + MM LOAD work. |
 | 99  | Headless contract                     | 098, 099, 100, 101, 102 (M1.1-5)     | high     | Session modes, unified stepping, deterministic reset, snapshots, regression harness.              |
 | 100 | Drive TrueDrive — protocol            | 109, 110, 111 (M3.1-3)               | high     | Drive CPU hardening, VIA1 IEC contract, KERNAL serial byte matrix.                                |
 | 101 | Drive TrueDrive — file paths          | 112, 113, 114 (M3.4-6)               | high     | D64 truedrive path, G64 GCR fidelity, write support.                                              |

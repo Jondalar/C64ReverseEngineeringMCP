@@ -2450,7 +2450,15 @@ is a separate IRQ-injection / CIA timing bug.
 
 **Severity:** Medium (blocks return to BASIC after successful LOAD).
 **Discovered during:** Sprint 96 final acceptance (2026-05-04).
-**Status:** OPEN — Sprint 96 follow-up.
+**Status:** **FIXED Sprint 98 (2026-05-04, commit 42b08b0).** Single-line
+stepper-sequence fix in `src/runtime/headless/drive/head-position.ts`
+applyStepBits(): replace Gray-code decoder `[00, 01, 11, 10]` with
+the actual 4-phase pattern drive ROM 901229-05 writes: `[00, 11, 10,
+01]`. Verified: synthetic 1-byte G64 LOAD"X",8,1 → `$0801=$42`,
+`$90=$40`, BASIC ready. MM LOAD"MM",8,1 → 38656 bytes loaded to
+`$0400-$9B00`, EOI received, BASIC ready. The level→edge ATN-poke
+fix in iec-bus.ts (commit 39ec2c5) also stays — it's correct
+independently and complements the stepper fix.
 
 ### Summary
 
