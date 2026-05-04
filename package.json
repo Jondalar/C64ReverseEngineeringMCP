@@ -43,6 +43,7 @@
     "smoke:sid-fidelity": "npm run build:mcp && node scripts/smoke-sid-fidelity.mjs",
     "smoke:visual-runtime": "npm run build:mcp && node scripts/smoke-visual-runtime.mjs",
     "smoke:llm-debug": "npm run build:mcp && node scripts/smoke-llm-debug.mjs",
+    "smoke:cart-fidelity": "npm run build:mcp && node scripts/smoke-cart-fidelity.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },
