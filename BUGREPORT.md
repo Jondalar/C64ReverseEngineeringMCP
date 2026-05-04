@@ -2462,59 +2462,148 @@ flag set), C64 KERNAL never returns to BASIC direct mode.
 stays in the $EE00 page (KERNAL ACPTR / EOI ACK loop) for
 100M+ simulated cycles.
 
-### State at hang
+### State at hang (latest probe, 2026-05-04 EOD)
 
-- `c64.pc = $EE27` (`STA $DC0F` — CIA1 timer B start) repeatedly.
-- `drive.pc = $EC16` (idle loop polling $1800 PB).
-- IEC: ATN released, CLK released, **DATA pulled by C64**
-  (c64.dataReleased=0, drive sides released).
-- Drive RAM: $77=$28 (LISTEN target stored), $79=$00 (listener
-  inactive — drive not in talker mode either), $85=$A0 (last
-  byte received over IEC during ATN-low phase).
-- KERNAL status $90 = $40 (EOI received).
-- MM bytes byte-perfect at $0400+.
+C64 PC distribution across 80M sim cycles after `LOAD"MM",8,1`
+completes (top hits, fine-grained sample):
+- `$EE33` AND #$02   : 121
+- `$EEAC` CMP $DD00  : 118
+- `$EE3A` BMI loop   : 116
+- `$EEAF` BNE $EEA9  : 116
+- `$EE35` BNE $EE3E  : 116
+- `$EEB1` ASL A      : 115
+- `$EE30` LDA $DC0D  : 112
+- `$EE37` JSR $EEA9  : 111
+- `$EE0A`            :  77
+- `$EE85` release CLK:  28
 
-### Hypothesis
+ALL hits inside KERNAL ACPTR retry loop $EE27..$EE5B.
 
-After EOI received, KERNAL enters EOI-ACK protocol:
-1. C64 pulls DATA briefly (~60 µs) to ACK EOI.
-2. C64 starts CIA1 timer B (one-shot, ~256 µs) and waits for
-   CLK pulse from drive OR timer-B underflow.
-3. On underflow, KERNAL exits to UNTALK.
+Final state snapshot:
+- `c64.pc = $EE25`   (about to re-execute STA $DC0F; outer-loop iter)
+- `drive.pc = $EC2D` (idle loop polling $1800 PB)
+- KERNAL `$90 = $40` (EOI received, set on last byte)
+- MM bytes byte-perfect at $0400+ (full 38658 B verified)
+- CIA1: cra=$01 crb=$08 icrFlags=$00 icrMask=$01
+        taLatch=$4025 tbLatch=$0100 tbCounter=$0100
+- IEC line: ATN=1 CLK=1 DATA=1 (ALL RELEASED, no party pulling)
+- c64.atnRel/clkRel/dataRel = 1/1/1
+- drive.clkRel/dataRel/atnAck = 1/1/0 (PB4 ATN_ACK still LOW
+  but ATN line HIGH so AND-gate auto-pull inactive)
 
-The wait loop at `$EE2D-$EE3A` reads CIA1 ICR ($DC0D), tests
-bit 1 (timer B underflow), branches when set.
+### Verified non-bugs
 
-Either (a) CIA1 timer B isn't underflowing in our model
-during this wait, or (b) the timer underflows but the ICR bit
-isn't latched/visible to KERNAL, or (c) drive's TALK
-termination doesn't release the bus in the exact sequence
-KERNAL expects.
+- **CIA1 timer B IS underflowing correctly.** crb=$08 = one-shot
+  fired and stopped (bit 0 cleared). KERNAL read ICR_TB and
+  cleared the flag. Timer cycles through start→underflow→read
+  exactly as intended.
+- **CIA2 PA input polarity correct.** Real C64 has no input
+  inverter (only output side). Our model: `if (clkLine) bits |=
+  PA_CLK_IN` matches real silicon: line HIGH → bit=1.
+- **Drive sent ALL 38658 bytes correctly.** Last byte + EOI flag
+  reached C64 KERNAL; status \$40 confirms EOI seen.
+- **Bus is idle.** No party is holding any line; no electrical
+  deadlock.
 
-Drive properly transitions to idle after sending the last
-byte + EOI — but C64 IS stuck. So root cause is on C64 side
-(CIA1 timer B / EOI ACK path) OR a missing drive response
-during EOI ACK.
+### Root cause (refined)
+
+KERNAL ACPTR enters a **retry loop** after EOI:
+
+```
+$EE27: STA $DC0F          ; start timer B (one-shot)
+$EE2A: JSR $EE97          ; release DATA
+$EE2D: LDA $DC0D          ; clear ICR
+$EE30: LDA $DC0D          ; (debounce / second read = 0)
+$EE33: AND #$02
+$EE35: BNE $EE3E          ; never (second read clears flags)
+$EE37: JSR $EEA9          ; read $DD00, ASL → N=CLK_IN
+$EE3A: BMI $EE30          ; loop while CLK pulled
+$EE3C: BPL $EE56          ; CLK released → exit inner loop
+$EE56: NOP-undoc / INC $A5 / BNE $EE27  ; retry up to 256x
+```
+
+Inner loop exits immediately because CLK released ($A5 increments,
+BNE branches back to $EE27). Outer loop runs ~6250 iterations across
+80M sim cycles before our budget exhausts — never reaches the
+"give up + UNTALK" exit at $EE5D+.
+
+Each retry:
+1. Restart timer B.
+2. KERNAL JSR $EE97 = release DATA = signal "ready for next byte".
+3. Wait for drive to PULL CLK = "byte ready signal".
+4. If drive doesn't pull CLK within ~256 µs, retry.
+
+Drive does NOT pull CLK because drive's TALK byte loop completed
+after sending the EOI byte and drive returned to plain idle
+($EC2D area). Drive needs to remain in TALK state and respond
+to C64's "next byte request" by either:
+- Pulling CLK to send another byte (in the EOI repeat case, send
+  the EOI byte AGAIN — real 1541 protocol)
+- OR waiting for UNTALK via ATN
+
+If C64 KERNAL would eventually time out and send UNTALK on its
+own, drive would naturally process UNTALK and clean up. But the
+$A5 retry counter wraps every 256 iterations and the outer-outer
+loop seems to retry indefinitely in our budget window.
+
+### Likely fixes (ranked by probability)
+
+**(1) Drive ROM behavior expectation: stay in TALK send loop.**
+Real 1541 ROM in TALK FRMBYT loop: after sending byte (with or
+without EOI), routine returns to caller. Caller is the channel
+data-pump which checks if more bytes are available. After EOI
+byte sent, channel pump sees "no more data" but should not
+return to top-level idle — should stay in talker channel
+waiting for ATN low (UNTALK).
+
+Need to compare our drive's PC trace through the exact end-of-file
+moment against VICE's drive trace.
+
+**(2) Drive's PB4 (ATN_ACK) still LOW after talker session.**
+drvAtnAck=0 means PB4 = 0 = drive is configured to auto-pull DATA
+when ATN goes low. That's normal idle-listener state. But maybe
+during talker, drive should set PB4 HIGH so AND gate doesn't
+spuriously pull DATA when C64 next pulses ATN for UNTALK.
+
+Less likely — auto-pull only fires when ATN low. Currently ATN
+high so it's inactive.
+
+**(3) C64 KERNAL EOI retry path needs ATN-low signal sooner.**
+Maybe KERNAL should send UNTALK after first $A5 wraparound (256
+retries × 256 µs = 65 ms timeout) and our scheduler is somehow
+not letting it reach that path. Less likely since CIA1 timer B
+verified working.
 
 ### Next-session work
 
-1. Add CIA1 timer B trace: log start/load/underflow events
-   during the EOI-ACK window. Verify timer is ticking.
-2. Compare to VICE: how does VICE's CIA1 implementation
-   handle one-shot timer B during EOI ACK?
-3. Probe drive's response to C64's DATA pull during EOI ACK.
-   Does drive need to pulse CLK in response (per VICE drive
-   behavior)?
-4. Possibly: drive's TALK frame routine should stay in the
-   wait-for-ATN-low loop after sending EOI byte (don't return
-   to plain idle), so drive can respond to C64's UNTALK.
+1. **VICE drive ROM trace.** Use VICE x64sc with -drive8type 1541
+   and run LOAD"BOOT",8,1 over a known-good G64. Trace drive PC
+   for the last 1000 cycles after the last byte is sent. Compare
+   to our drive PC trace at the equivalent moment.
 
-### Workaround
+2. **Drive PC trace through end-of-file.** Add to our diagnostic:
+   capture drive PC for 100 cycles before and 1000 cycles after
+   the last GCR byte read (or last IEC byte sent). Identify
+   exactly which ROM routine returns drive to $EC2D area and
+   whether real 1541 takes the same path.
 
-For testing MM execution (not "title screen via clean LOAD"
-chain), can manually set c64Cpu.pc = $0400 after MM bytes are
-in RAM; bypasses BASIC stuck state. Not for production but
-unblocks graphics-pipeline verification.
+3. **VICE drive ROM source.** /Users/alex/Downloads/trex_cracktro_complete/tools/vice-3.7.1/src/drive/
+   has the references. rotation.c we already used for shifter.
+   Look for drive 1541 file-byte send path — likely in iec1541
+   or DOS source.
+
+4. **If drive ROM behavior is by-design** and the issue is C64
+   KERNAL retry loop never giving up: investigate KERNAL
+   $EE5D-$EE5F (LDA #$08, STA $A5) and the path from there. Could
+   be that KERNAL needs a count-down via $A5 with a different
+   value.
+
+### Workaround for graphics-pipeline testing
+
+Set `session.c64Cpu.pc = 0x0400` directly after `LOAD"MM",8,1`
+completes (status $90 = $40 is the trigger). Bypasses BASIC
+stuck state. Not production-correct but unblocks VIC bitmap +
+sprite + raster IRQ rendering verification of MM title.
 
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
