@@ -1,6 +1,6 @@
 # Spec 115 — Headless M3.7: Multi-Drive Shape (Nice-to-Have)
 
-Status: refined, not started; nice-to-have, not a blocker
+Status: **DONE 2026-05-04 (v1: shape + validation shipped; M3.7b/c second-drive runtime deferred to v2).** API: `IntegratedSessionOptions.drives: DriveConfig[]` (max 2, ids ∈ {8, 9}). `validateDrives` enforces the rules; invalid configs throw at session start. v1 instantiates the device-8 entry; device 9 is reported via `session.multiDriveDeferred[]`. Tests: 20/20 — `runValidationTest` (9), session-manager fold + order-independence (8), invalid-config throws (3). Doc: `docs/multi-drive-architecture.md`. Smoke: `npm run smoke:multi-drive`. Real second-drive runtime + IEC routing (M3.7b) + 2-drive fixture (M3.7c) are tracked as v2 follow-up — covers nice-to-have shape now without blocking on the deeper refactor.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 3, story M3.7
 Depth: deep (scoped down)
 Predecessors: Spec 110 (M3.2 device ID jumper), Spec 112 (M3.4)

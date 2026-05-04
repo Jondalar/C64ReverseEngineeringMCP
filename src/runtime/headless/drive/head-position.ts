@@ -89,8 +89,12 @@ export class HeadPosition {
     if (this.trackHalf < this.maxHalfTracks - 1) this.trackHalf += 1;
   }
 
+  // Spec 116 (M3.8b): track-zero stop. Real 1541 head physically halts
+  // at track 1 (= half-track index 2). Drive ROM bumps the head against
+  // this stop while seeking to determine track 1 baseline. Bound here
+  // so seek-to-zero loops terminate naturally.
   stepOutward(): void {
-    if (this.trackHalf > 0) this.trackHalf -= 1;
+    if (this.trackHalf > 2) this.trackHalf -= 1;
   }
 
   reset(track: number = 18): void {

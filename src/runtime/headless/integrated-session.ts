@@ -58,8 +58,47 @@ const DRIVE_HZ = 1000000;
 import { type SessionMode, type SessionModeReport, identifyMode, makeModeReport, resolveSessionFlags } from "./session-modes.js";
 import { type ResetProfile, applyRamFillPattern, getResetProfile } from "./reset-profiles.js";
 
+// Spec 115 (M3.7) v1 — multi-drive shape. Sessions can declare up to
+// two drives via the `drives` array; current runtime instantiates
+// only the first / device-8 entry, validates the rest, and reports
+// the deferred slots through `multiDriveDeferred`. A second-drive
+// runtime is tracked under M3.7 v2 follow-up.
+export interface DriveConfig {
+  id: number;            // 8 or 9 only (per spec out-of-scope: 10/11)
+  disk: string;          // path to .d64 / .g64 image
+  startTrack?: number;
+  writeProtected?: boolean;
+}
+
+export const MULTI_DRIVE_MAX = 2;
+export const MULTI_DRIVE_VALID_IDS = [8, 9] as const;
+
+export function validateDrives(drives: DriveConfig[]): { ok: true } | { ok: false; error: string } {
+  if (drives.length === 0) return { ok: false, error: "drives: at least one drive required" };
+  if (drives.length > MULTI_DRIVE_MAX) {
+    return { ok: false, error: `drives: max ${MULTI_DRIVE_MAX} drives, got ${drives.length}` };
+  }
+  const seen = new Set<number>();
+  for (const d of drives) {
+    if (!MULTI_DRIVE_VALID_IDS.includes(d.id as 8 | 9)) {
+      return { ok: false, error: `drives: id must be 8 or 9, got ${d.id}` };
+    }
+    if (seen.has(d.id)) return { ok: false, error: `drives: duplicate id ${d.id}` };
+    seen.add(d.id);
+    if (typeof d.disk !== "string" || d.disk.length === 0) {
+      return { ok: false, error: `drives: disk path missing for id ${d.id}` };
+    }
+  }
+  return { ok: true };
+}
+
 export interface IntegratedSessionOptions {
   diskPath: string;
+  // Spec 115 (M3.7) v1: optional multi-drive declaration. When set,
+  // overrides single-drive `diskPath`/`deviceId`. v1 instantiates only
+  // the device-8 slot; device-9 is validated and reported via
+  // session.multiDriveDeferred but not yet wired to the IEC bus.
+  drives?: DriveConfig[];
   isPal?: boolean;
   deviceId?: number;
   startTrack?: number;
@@ -104,6 +143,9 @@ export class IntegratedSession {
   public readonly trackBuffer: TrackBuffer;
   public readonly headPosition: HeadPosition;
   public readonly diskPath: string;
+  // Spec 115 v1: list of drive-9+ slots that were declared but not
+  // yet instantiated. Empty when only device-8 is in use.
+  public readonly multiDriveDeferred: DriveConfig[] = [];
   public readonly parser: G64Parser;
   public readonly romSet: LoadedC64RomSet;
   public readonly diskProvider: DiskProvider;
@@ -155,6 +197,22 @@ export class IntegratedSession {
   private c64InstructionCount = 0;
 
   constructor(opts: IntegratedSessionOptions) {
+    // Spec 115 v1: drives[] takes precedence over diskPath when set.
+    // Validate the array first; fold device-8 entry into the legacy
+    // single-drive code path below.
+    if (opts.drives) {
+      const v = validateDrives(opts.drives);
+      if (!v.ok) throw new Error(v.error);
+      const primary = opts.drives.find((d) => d.id === 8) ?? opts.drives[0]!;
+      const deferred = opts.drives.filter((d) => d !== primary);
+      this.multiDriveDeferred.push(...deferred);
+      // Mutate opts in-place to redirect the rest of the constructor
+      // at the primary drive. This keeps the v1 shape change minimal.
+      (opts as IntegratedSessionOptions).diskPath = primary.disk;
+      if (primary.startTrack !== undefined) (opts as IntegratedSessionOptions).startTrack = primary.startTrack;
+      if (primary.writeProtected !== undefined) (opts as IntegratedSessionOptions).writeProtected = primary.writeProtected;
+      (opts as IntegratedSessionOptions).deviceId = primary.id;
+    }
     if (!existsSync(opts.diskPath)) throw new Error(`Disk image not found: ${opts.diskPath}`);
     // Spec 098: expand named mode preset into boolean overrides; explicit
     // booleans on opts still win over the preset.

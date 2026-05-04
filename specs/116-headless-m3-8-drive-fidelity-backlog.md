@@ -1,6 +1,6 @@
 # Spec 116 — Headless M3.8: Drive Fidelity Backlog
 
-Status: refined, not started
+Status: **DONE 2026-05-04.** Per spec exit criterion each acceptance bullet is either covered by a test fixture or recorded as an explicit gap with rationale. Covered: M3.8b track-zero stop (3 checks — `stepOutward` bound at halfTrack 2, regress 5/5 still green) and M3.8f disk-change WP (3 checks — `coupling.writeProtected` lazy read flips PB_WPS line on next read). Gap-with-rationale: M3.8a motor spin-up delay, M3.8c VIA shift-register modes, M3.8d VIA timer PB7-toggle / TA→TB cascade, M3.8e write splice (gated on Spec 114 v2). Doc: `docs/drive-fidelity-backlog.md`. Smoke: `npm run smoke:fidelity-backlog` 6/6.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 3, story M3.8
 Depth: deep
 Predecessors: Specs 109-115
