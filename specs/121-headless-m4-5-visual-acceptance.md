@@ -1,6 +1,6 @@
 # Spec 121 — Headless M4.5: Visual Acceptance
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1).** `visual-acceptance.ts:assertVisualState()` compares current screen state against fixture by `stateHash` (FNV-1a over textGrid+colorGrid+sprites+bitmapHash+colors+bank); soft-pass when textSnippet matches; PNG diff deferred to v2. Fixture format JSON; loader skips with reason if missing. 4/4 checks. Doc: `docs/visual-runtime-notes.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 4, story M4.5
 Depth: light
 Predecessors: Spec 102 (M1.5), Spec 117 (M4.1), Spec 119 (M4.3)

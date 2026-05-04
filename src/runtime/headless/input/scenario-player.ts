@@ -22,7 +22,9 @@ export type ScenarioStep =
   | { atCycle?: number; atFrame?: number; kind: "joy1"; state: { up?: boolean; down?: boolean; left?: boolean; right?: boolean; fire?: boolean } }
   | { atCycle?: number; atFrame?: number; kind: "joy2"; state: { up?: boolean; down?: boolean; left?: boolean; right?: boolean; fire?: boolean } }
   | { atCycle?: number; atFrame?: number; kind: "paddle"; idx: 0 | 1 | 2 | 3; value: number }
-  | { atCycle?: number; atFrame?: number; kind: "restore" };
+  | { atCycle?: number; atFrame?: number; kind: "restore" }
+  // Spec 120 (M4.4) — composite macros.
+  | { atCycle?: number; atFrame?: number; kind: "joystickScript"; port: 1 | 2; sequence: { state: { up?: boolean; down?: boolean; left?: boolean; right?: boolean; fire?: boolean }; durationFrames: number }[] };
 
 export interface ScenarioPlayerOptions {
   steps: ScenarioStep[];
@@ -84,6 +86,19 @@ export class ScenarioPlayer {
       case "restore":
         session.triggerRestoreNmi();
         break;
+      case "joystickScript": {
+        // Composite: schedule each sequence step inline by running
+        // session.runFor(durationFrames * cyclesPerFrame) per step.
+        // Inline replay (caller still drives session.runFor for the
+        // outer scheduler — composite gets applied immediately so the
+        // whole script ticks within one tick() invocation).
+        const set = step.port === 1 ? session.setJoystick1.bind(session) : session.setJoystick2.bind(session);
+        for (const entry of step.sequence) {
+          set(entry.state);
+          session.runFor(entry.durationFrames * this.cyclesPerFrame);
+        }
+        break;
+      }
     }
   }
 }

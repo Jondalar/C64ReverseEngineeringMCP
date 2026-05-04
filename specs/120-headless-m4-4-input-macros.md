@@ -1,6 +1,6 @@
 # Spec 120 — Headless M4.4: Input Macros
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1).** scenario-player extended with `joystickScript` composite (port + sequence of state+durationFrames entries). 2/2 checks. YAML loader still gated on Spec 124. Doc: `docs/visual-runtime-notes.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 4, story M4.4
 Depth: light
 Predecessors: Spec 107 (M2.5)

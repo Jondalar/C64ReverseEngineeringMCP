@@ -1,6 +1,6 @@
 # Spec 118 — Headless M4.2: VIC Timing Baseline
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1, doc-only).** Guarantees + gaps documented in `docs/visual-runtime-notes.md` "VIC timing baseline" section. Implementation tests live with Spec 105 (`smoke:vic-fidelity` 10/10).
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 4, story M4.2
 Depth: light
 Predecessors: Spec 105 (M2.3)

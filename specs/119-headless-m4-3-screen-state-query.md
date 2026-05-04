@@ -1,6 +1,6 @@
 # Spec 119 — Headless M4.3: Screen-State Query
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1).** `screen-state.ts:captureScreenState()` returns text grid (PETSCII-decoded) + color grid + 8 sprites + bitmap hash + mode + bank + colors + rasterLine. 7/7 checks; ready-screen text snippet match validates BASIC boot. Doc: `docs/visual-runtime-notes.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 4, story M4.3
 Depth: light
 Predecessors: Spec 105 (M2.3), Spec 117 (M4.1)

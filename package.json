@@ -41,6 +41,7 @@
     "smoke:pla-fidelity": "npm run build:mcp && node scripts/smoke-pla-fidelity.mjs",
     "smoke:input-fidelity": "npm run build:mcp && node scripts/smoke-input-fidelity.mjs",
     "smoke:sid-fidelity": "npm run build:mcp && node scripts/smoke-sid-fidelity.mjs",
+    "smoke:visual-runtime": "npm run build:mcp && node scripts/smoke-visual-runtime.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },

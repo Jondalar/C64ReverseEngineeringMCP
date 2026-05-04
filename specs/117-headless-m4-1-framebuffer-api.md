@@ -1,6 +1,6 @@
 # Spec 117 — Headless M4.1: Stable Framebuffer API
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1).** `session.renderDescriptor()` returns `{ width, height, mode, ranges }` with mode ∈ {text, bitmap, multicolor, ecm}. 5/5 checks. Doc: `docs/visual-runtime-notes.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 4, story M4.1
 Depth: light
 Predecessors: Spec 105 (M2.3 VIC fidelity)

@@ -409,6 +409,34 @@ export class IntegratedSession {
     return { width: this.framebuffer.width, height: this.framebuffer.height, bytes: png.length };
   }
 
+  // Spec 117 (M4.1) v1: stable framebuffer-API descriptor for agents.
+  renderDescriptor(): {
+    width: number; height: number;
+    mode: "text" | "bitmap" | "multicolor" | "ecm";
+    ranges: { screen: number; color: number; charset?: number; bitmap?: number; bank: number };
+  } {
+    this.renderFrame();
+    const ctrl1 = this.vic.regs[0x11]!;
+    const ctrl2 = this.vic.regs[0x16]!;
+    const bmm = (ctrl1 & 0x20) !== 0;
+    const ecm = (ctrl1 & 0x40) !== 0;
+    const mcm = (ctrl2 & 0x10) !== 0;
+    const mode: "text" | "bitmap" | "multicolor" | "ecm" =
+      bmm ? "bitmap" : (ecm ? "ecm" : (mcm ? "multicolor" : "text"));
+    const vicBank = this.cia2.pra & 0x03;
+    const bankBase = (3 - vicBank) * 0x4000;
+    const screen = bankBase + this.vic.screenRamOffset();
+    const color  = 0xd800;
+    const charset = !bmm ? bankBase + this.vic.charRomOffsetWithinBank() : undefined;
+    const bitmap  = bmm ? bankBase + this.vic.bitmapBaseWithinBank() : undefined;
+    return {
+      width: this.framebuffer.width,
+      height: this.framebuffer.height,
+      mode,
+      ranges: { screen, color, charset, bitmap, bank: bankBase },
+    };
+  }
+
   // Spec 100: deterministic reset profile. Default "pal-default"
   // matches legacy resetCold() behavior. Pin every cold-reset knob
   // (RAM fill pattern, VIC raster phase, drive head track, peripheral
