@@ -3010,6 +3010,57 @@ the same `samples/synthetic/1byte.g64` cleanly with `PEEK(2049)
   from latch on underflow and re-asserts IFR. Verify our model
   does this.
 
+### Refined finding (2026-05-04 EOD): VIA2 IS configured correctly
+
+1541 ROM `$F271 STA $1C0B` writes `#$41` to VIA2 ACR (T1 free-run +
+PA latching) and `$F28B STA $1C0E` writes `#$C0` to VIA2 IER
+(enable bit + T1). Probe-captured state at stuck moment matches:
+ACR=$41, IER=$40 (T1 IRQ enabled), counter mid-cycle ($1807 of
+latch $3A00), IFR T1 cleared (consistent with recent handler
+read of T1CL).
+
+The probe's IRQ-entries=0 is likely a **probe artifact**: drvPc
+sampled only once per c64 instruction (`runFor(1)`), so brief
+IRQ entries (handler enters $FE67, reads T1CL, runs job loop,
+RTI within 1 c64-instr window) are missed. IRQs probably DO fire.
+
+**Revised hypothesis chain:**
+
+1. IRQs fire periodically (T1 free-run + IER set + counter
+   counting). Probe just doesn't see them.
+2. Drive's job loop runs in IRQ handler, but **READ T17/S0
+   never completes** because head is at **T19, not T17**.
+3. From wrong track, drive can't find SYNC for T17 sector
+   header, write fails, status remains $80 (or job loop never
+   actually picks up job 1 due to logic bug).
+
+**Primary suspect: head-position step decode.**
+
+`src/runtime/headless/drive/head-position.ts` `applyStepBits()`
+decodes Gray-coded STEP_LO/STEP_HI bits (PB0/PB1) into head
+direction. If our decode is off-by-one or wrong-direction, drive
+ends at wrong track despite issuing correct step sequence.
+
+For synthetic test (T17 read after dir at T18): drive should
+step DOWN one track (T18 → T17). If our decoder steps UP, drive
+goes T18 → T19. Matches observation.
+
+For MM (real disk): drive may also step wrongly but enough other
+sectors are nearby that it eventually lands somewhere with valid
+data — explaining why MM mostly works (38658 bytes transferred)
+but synthetic fails entirely.
+
+**Next-session work (revised):**
+
+1. Read `applyStepBits()` in head-position.ts. Compare to real
+   1541 stepper Gray code: PB0/PB1 sequence
+   `00 → 01 → 11 → 10 → 00` advances UP one track (or down,
+   depending on convention).
+2. Add step-bit logging to probe — log every PB0/PB1 transition
+   with current track, see which direction drive is stepping.
+3. Compare to expected: drive should step DOWN from T18 to T17
+   to read the file. If we observe stepping UP, fix decoder.
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
 **Severity:** N/A — false alarm.
