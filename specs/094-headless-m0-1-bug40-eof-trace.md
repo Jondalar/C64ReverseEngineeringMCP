@@ -1,6 +1,6 @@
 # Spec 094 — Headless M0.1: Bug 40 EOF Trace Harness
 
-Status: refined, not started
+Status: in progress — harness + CLI + schema doc + legacy move landed (commit pending). Synthetic 1-byte G64 smoke fixture deferred (no G64 builder yet — next sub-story or follow-up).
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 0, story M0.1
 Depth: deep
 Predecessors: Sprint 96 (Bug 39 IEC bit-bang), Sprint 97 (current Bug 40 probe)
