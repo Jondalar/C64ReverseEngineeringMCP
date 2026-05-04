@@ -210,17 +210,21 @@ export class IecBus {
     if (!this.atnLine) bits |= PB_ATN_IN;     // line LOW → bit = 1
     if (!this.clkLine) bits |= PB_CLK_IN;
     if (!this.dataLine) bits |= PB_DATA_IN;
-    // Device ID jumpers (read as input bits PB5/PB6).
-    let jumperHi: boolean, jumperLo: boolean;
-    switch (deviceId) {
-      case 8:  jumperLo = true;  jumperHi = true;  break;
-      case 9:  jumperLo = false; jumperHi = true;  break;
-      case 10: jumperLo = true;  jumperHi = false; break;
-      case 11: jumperLo = false; jumperHi = false; break;
-      default: throw new Error(`Unsupported device id ${deviceId}`);
-    }
-    if (jumperLo) bits |= PB_DEV_ID0; else bits &= ~PB_DEV_ID0;
-    if (jumperHi) bits |= PB_DEV_ID1; else bits &= ~PB_DEV_ID1;
+    // Sprint 96 / Bug 39 fix: device ID jumpers (read as PB5/PB6).
+    // Real 1541 schematic: J1, J2 are PCB traces; CUTTING a trace
+    // adds 1 (J1) or 2 (J2) to base device address 8. An UNCUT
+    // jumper grounds the corresponding PB pin → bit reads as 0
+    // (active-low pull-down to ground). Default device 8 = both
+    // uncut = both PB bits LOW (== 0). Earlier code had the
+    // polarity inverted, which made the drive compute its
+    // listener-target byte as $20 + 11 ($2B) instead of $20 + 8
+    // ($28). KERNAL's LISTEN $28 then never matched and the
+    // drive ignored every LOAD.
+    const offset = deviceId - 8;            // 0..3
+    const cutHi = (offset & 0x02) !== 0;     // J2 cut → adds 2
+    const cutLo = (offset & 0x01) !== 0;     // J1 cut → adds 1
+    if (cutLo) bits |= PB_DEV_ID0; else bits &= ~PB_DEV_ID0;
+    if (cutHi) bits |= PB_DEV_ID1; else bits &= ~PB_DEV_ID1;
     return bits & 0xff;
   }
 

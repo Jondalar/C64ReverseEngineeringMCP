@@ -2067,6 +2067,31 @@ Two related findings:
    exact per-bit comparison vs a VICE bit-bang trace, fix to
    whichever edge is off.
 
+### Sprint 96 progress part 2 (2026-05-04 cont.)
+
+3. **Drive ID jumper polarity inverted** (root cause #2). Headless
+   `IecBus.buildDrivePbInputBits` set PB5+PB6 HIGH for device 8.
+   Real 1541 schematic: J1, J2 are PCB traces; UNCUT trace
+   grounds the PB pin (bit reads 0). Default device 8 = both
+   uncut = both PB bits LOW. With the inverted polarity, the
+   1541 ROM jumper-decode routine at $EB3A computed
+   `$77 = $20 + 11 = $2B` — drive thought it was device 11.
+   KERNAL's LISTEN $28 then never matched and the drive ignored
+   every LOAD. Fix in `iec-bus.ts:buildDrivePbInputBits`
+   (Sprint 96 commit). After fix, drive RAM `$77 = $28` for
+   device 8 as expected.
+
+4. **Drive enters ACPTR but listener flag $79 still 0**. After
+   the jumper fix, drive PC trace shows: ATN handler entry
+   ($E853 → $E85B), DATA-ACK release ($E876 ORA #$10), wait
+   for CLK release ($E87B-$E882) → exits when C64 releases CLK,
+   ACPTR routine ($E9C9) — bit-by-bit receive loop iterating
+   $E9C0-$EA62 (~250 drive cycles per bit). But after the byte
+   transfer drive's `$79` (listener-active) is still 0 and `$7C`
+   (ATN flag) still `$80`. Drive either reads wrong byte from
+   ACPTR or hits EOI / timeout path. Resolution still needs
+   per-bit ACPTR walk vs VICE.
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
 **Severity:** N/A — false alarm.
