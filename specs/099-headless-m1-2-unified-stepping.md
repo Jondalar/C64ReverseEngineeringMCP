@@ -1,6 +1,6 @@
 # Spec 099 — Headless M1.2: Unified Stepping
 
-Status: refined, not started
+Status: **DONE 2026-05-04.** Stepping primitives shipped in `src/runtime/headless/stepping.ts`: `stepCycles`, `stepInstructions`, `runUntilPc` (with `side`, `count`, `budget` opts), `runUntilRaster`, `runUntilIecEvent` (atn/clk/data fall/rise), `runUntilStableScreen` (frames-stable threshold). All return `{ exitReason, cyclesElapsed, instructionsElapsed, hit? }` per spec acceptance. `headless_integrated_session_run` MCP tool extended with optional `until` parameter accepting kind=pc|raster|iec|stable_screen + per-kind options. Smoke `npm run smoke:stepping` covers 5 primitives → 5/5 PASS.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 1, story M1.2
 Depth: light
 Predecessors: Spec 098 (M1.1 session modes)

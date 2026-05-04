@@ -25,6 +25,7 @@
     "trace:eof:diff": "node scripts/swimlane-diff.mjs --mode=eof",
     "smoke:gen": "npm run build:mcp && node scripts/gen-synthetic-disks.mjs",
     "smoke:load": "npm run build:mcp && node scripts/smoke-load.mjs",
+    "smoke:stepping": "npm run build:mcp && node scripts/smoke-stepping.mjs",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {

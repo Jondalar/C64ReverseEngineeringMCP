@@ -784,28 +784,75 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "headless_integrated_session_run",
-    "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. Drive runs proportional cycles per the dual-clock accumulator. Optional breakpoints + cycle budget abort. Returns counts + final PC.",
+    "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. Drive runs proportional cycles per the dual-clock accumulator. Optional breakpoints + cycle budget abort. Spec 099 (M1.2): optional `until` selects a named stopping condition (overrides max_instructions for the natural exit). Returns counts + final PC.",
     {
       session_id: z.string(),
       max_instructions: z.number().int().min(1).max(10_000_000),
       breakpoints: z.array(z.string()).optional().describe("Hex PC addresses to break on."),
       cycle_budget: z.number().int().optional(),
+      until: z.object({
+        kind: z.enum(["pc", "raster", "iec", "stable_screen"]).describe("Named stop condition: pc | raster | iec | stable_screen."),
+        pc: z.string().optional().describe("Hex PC address (for kind=pc)."),
+        side: z.enum(["c64", "drive"]).optional().describe("Which CPU's PC to watch (for kind=pc). Default c64."),
+        count: z.number().int().min(1).optional().describe("Number of hits to wait for (for kind=pc). Default 1."),
+        line: z.number().int().min(0).max(311).optional().describe("VIC raster line (for kind=raster)."),
+        edge: z.enum(["atn-fall", "atn-rise", "clk-fall", "clk-rise", "data-fall", "data-rise"]).optional().describe("IEC line edge (for kind=iec)."),
+        frames_stable: z.number().int().min(1).optional().describe("Frames-stable threshold (for kind=stable_screen). Default 3."),
+      }).optional().describe("Named stop condition. If set, runs until satisfied (or budget exhausted) instead of max_instructions."),
     },
-    safeHandler("headless_integrated_session_run", async ({ session_id, max_instructions, breakpoints, cycle_budget }) => {
+    safeHandler("headless_integrated_session_run", async ({ session_id, max_instructions, breakpoints, cycle_budget, until }) => {
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
-      const bp = breakpoints && breakpoints.length > 0
-        ? new Set(breakpoints.map((s) => parseHexWord(s)))
-        : undefined;
-      const result = session.runFor(max_instructions, { breakpoints: bp, cycleBudget: cycle_budget });
+
+      let modeText: string;
+      if (until) {
+        const stepping = await import("../runtime/headless/stepping.js");
+        let stepResult: { exitReason: string; cyclesElapsed: number; instructionsElapsed: number; hit?: unknown };
+        switch (until.kind) {
+          case "pc": {
+            if (!until.pc) throw new Error("until.pc required for kind=pc");
+            stepResult = stepping.runUntilPc(session, parseHexWord(until.pc), {
+              side: until.side ?? "c64",
+              count: until.count,
+              budget: max_instructions,
+            });
+            break;
+          }
+          case "raster": {
+            if (until.line === undefined) throw new Error("until.line required for kind=raster");
+            stepResult = stepping.runUntilRaster(session, until.line, max_instructions);
+            break;
+          }
+          case "iec": {
+            if (!until.edge) throw new Error("until.edge required for kind=iec");
+            stepResult = stepping.runUntilIecEvent(session, until.edge, max_instructions);
+            break;
+          }
+          case "stable_screen": {
+            stepResult = stepping.runUntilStableScreen(session, {
+              framesStable: until.frames_stable,
+              budgetCycles: cycle_budget,
+            });
+            break;
+          }
+        }
+        modeText = `Until-${until.kind}: ${stepResult.exitReason} (${stepResult.instructionsElapsed} instructions, ${stepResult.cyclesElapsed} cycles)${stepResult.hit ? ` hit=${JSON.stringify(stepResult.hit)}` : ""}`;
+      } else {
+        const bp = breakpoints && breakpoints.length > 0
+          ? new Set(breakpoints.map((s) => parseHexWord(s)))
+          : undefined;
+        const result = session.runFor(max_instructions, { breakpoints: bp, cycleBudget: cycle_budget });
+        modeText = `Instructions executed: ${result.instructionsExecuted}${result.aborted ? ` (aborted: ${result.aborted})` : ""}`;
+      }
+
       const status = session.status();
       return {
         content: [{
           type: "text" as const,
           text: [
             `Integrated run — session ${session_id}`,
-            `Instructions executed: ${result.instructionsExecuted}${result.aborted ? ` (aborted: ${result.aborted})` : ""}`,
+            modeText,
             `C64: PC=${formatHexWord(status.c64.pc)} A=${formatHexByte(status.c64.a)} cycles=${status.c64.cycles}`,
             `Drive: PC=${formatHexWord(status.drive.pc)} A=${formatHexByte(status.drive.a)} cycles=${status.drive.cycles} track=${status.drive.track}`,
             `IEC: ATN=${status.iecBus.line.atn ? "1" : "0"} CLK=${status.iecBus.line.clk ? "1" : "0"} DATA=${status.iecBus.line.data ? "1" : "0"}`,
