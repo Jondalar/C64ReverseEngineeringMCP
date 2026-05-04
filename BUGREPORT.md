@@ -1994,6 +1994,36 @@ cycle around the first ATN edge (`STA $DD00` with bit 3 cleared in
 PA latch) until first divergence. This is the productive Sprint 93.2
 direction now that typing works.
 
+### Sprint 93.2 trap-vs-bit-bang split (2026-05-04)
+
+`scripts/sprint93-bug39.mjs` instrumented LOAD path. Findings:
+
+- Drive ROM is running (final drive PC bouncing in $EBFF-$EC4D
+  idle loop, exactly where it should sit awaiting next command).
+- ATN exchange completes the handshake outline: C64 pulls
+  ATN+CLK low, bit-bangs LISTEN command byte at cyc≈4_742_639,
+  releases ATN at cyc=4_744_147, drive responds with brief
+  DATA pull at cyc=4_744_594 (drive cycles ATN-handler
+  acknowledged). Drive `drvAtnAck` toggles correctly per the
+  Spec 081 PB4 fix.
+- After ATN release, the byte transfer fails to complete (drive
+  never pulls CLK low to indicate it is ready for next byte;
+  KERNAL times out → `?DEVICE NOT PRESENT`).
+- Same disk + same `typeText("LOAD\"*\",8,1\\r")` with KERNAL
+  traps enabled (`enableKernalSerialTraps + enableKernalIoTraps
+  + enableKernalFileIoTraps`) succeeds: screen clears, BASIC RUN
+  takes off (PC=$B4A0). So the trap-based loader path is intact;
+  only the real-serial bit-bang path is broken.
+
+Likely root cause: ATN/CLK/DATA edge timing not arriving at the
+drive at the cycles where 1541 ROM expects them. Either CIA1 or
+VIA1 timer not matching the bit-bang clock, or the cycle-ratio
+drift between scheduler and drive eats handshake bits.
+
+Sprint 96 candidate: bit-by-bit trace of first byte transfer in
+microcoded mode vs VICE bit-bang trace; fix whichever cycle-edge
+is off.
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
 **Severity:** N/A — false alarm.

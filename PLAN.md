@@ -2087,6 +2087,23 @@ Open / next:
   loader handshake at `$46A7` against VICE's behaviour at the
   same PC, which is the actual MM-boot blocker.
 
+### Update 2026-05-04
+
+- Bug 37 closed as not-a-bug (truncated screen-dump artifact).
+  `typeText("LIST\\r")` and `typeText("LOAD\"*\",8,1\\r")` echo
+  correctly to screen RAM in microcoded + lockstep mode.
+- Path (a) reachable: typing works end-to-end. New blocker is
+  Bug 39: real-serial bit-bang LOAD fails with `?DEVICE NOT
+  PRESENT`. Trap-based path still works (KERNAL serial/IO/fileio
+  traps ON → BASIC RUN takes off, PC=$B4A0).
+- ATN exchange itself looks intact (C64 pulls ATN+CLK, bit-bangs
+  LISTEN, drive sees ATN, runs ATN-handler, ACKs DATA briefly,
+  releases on ATN-release). Failure mode is in subsequent byte
+  transfer where drive never pulls CLK low to signal ready.
+- Sprint 96 candidate (next): bit-by-bit instrumentation of the
+  first byte transfer in microcoded mode and a matching VICE
+  trace; fix whichever IEC edge timing is off.
+
 ## Sprint 88-91: Pre-lockstep workarounds (superseded by Sprint 92)
 
 User clarified: cycle-perfect is **MVP**, not long-term goal. Headless
