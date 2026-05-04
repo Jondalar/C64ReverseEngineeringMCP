@@ -2012,6 +2012,56 @@ Done when:
 - either MM reaches title/character-select, or the next runtime fix is
   narrowed to one concrete subsystem
 
+## Sprint 96: Real-serial bit-bang LOAD (Bug 39, ongoing)
+
+Goal: headless `LOAD"*",8,1` over the real bit-bang IEC path
+(no KERNAL serial traps) succeeds; MM reaches title screen via
+the same path real C64 + 1541 use.
+
+Status: in progress, three concrete fixes landed today, root
+cause narrowed to drive bus-access sub-cycle timing.
+
+Done today (2026-05-04):
+
+- Sprint 96 part 1: scheduler ticks peripherals + drive by CPU
+  cycle delta. CPU's `this.cycles += 7` for IRQ service / `+= 1`
+  for branch+page-cross no longer desync drive timing.
+- Sprint 96 part 2: drive ID jumper polarity inverted in
+  `IecBus.buildDrivePbInputBits`. Real 1541 schematic: J1, J2
+  PCB traces uncut = bits LOW. Drive's `$77` now = `$28`
+  (correct LISTEN target for device 8).
+- Sprint 96 part 3: drive enters ACPTR but reads wrong bits
+  during byte receive — `$85` ends up `$A0` after 5 RORs
+  (`0,0,1,0,1`) vs expected `0,0,0,1,0` for LISTEN $28 LSB-first.
+- Sprint 96 part 4: bit-skip diagnosed — drive misses one full
+  KERNAL bit cycle between c1 and c2 (288 cyc gap vs expected
+  ~80 cyc). Drive's c2..c4 actually correspond to KERNAL's
+  bits 3,4,5.
+
+Severity reframe: bit-skip is **CATASTROPHIC**, not minor. Every
+disk-loader game stays unbootable until it's fixed.
+
+Open / next session:
+
+- See BUGREPORT Bug 39 "Sprint 96 detailed analysis +
+  next-session handoff" for full recipe.
+- Most promising fix path: legacy `Cpu6510.step()` does all bus
+  accesses at instruction start; real 6502 reads happen at
+  specific sub-cycles. Drive's `LDA $1800` (4 cycles) should
+  read on cycle 3 but our legacy reads on cycle 0 — a 3-cycle
+  shift on every drive bus access during ACPTR. Fix options:
+  (a) convert drive to use the microcoded `Cpu6510Cycled`
+  (requires it to work without $00/$01 port);
+  (b) add sub-cycle bus-access offset to `DriveCpuCycled`
+  wrapper;
+  (c) verify CIA1 timer A wall clock first.
+
+Acceptance: `scripts/sprint96-bit-edge.mjs` shows all 8 bits of
+LISTEN $28 sampled correctly, `$85 = $28`, `$79 = 1`, KERNAL does
+not print `?DEVICE NOT PRESENT`. Then continue to verify SECOND
+byte ($F0) + NAME byte ($2A) so LOAD actually starts serving file
+bytes.
+
 ## Sprint 94: CPU equivalence harness (microcoded vs legacy)
 
 Goal: prove `Cpu6510Cycled` is functionally equivalent to legacy

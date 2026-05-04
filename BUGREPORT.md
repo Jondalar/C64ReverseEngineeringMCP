@@ -1961,11 +1961,31 @@ Both bugs combined corrupted RAMTAS at `STA ($C1),Y` / `CMP ($C1),Y`: the store 
 
 Verified by `scripts/sprint93-divergence.mjs`: legacy and microcoded CPUs now agree on PC for at least 50 000 instructions. `scripts/sprint93-1-smoke.mjs` shows microcoded mode now produces a fully booted BASIC banner + `READY.` prompt + scancode-level keyboard detection.
 
-## Bug 39 — Headless `LOAD"*",8,1` returns `?DEVICE NOT PRESENT` despite drive wired up
+## Bug 39 — Headless `LOAD"*",8,1` returns `?DEVICE NOT PRESENT` despite drive wired up — IEC bit-bang catastrophic bit-skip
 
-**Severity:** high (blocks every disk-loader game including MM, Murder, Last Ninja, IM2).
+**Severity:** **CATASTROPHIC** (blocks every disk-loader game including MM, Murder, Last Ninja, IM2 — drive sees random / shifted bytes for ATN, LISTEN, SECOND, NAME, byte transfers, ACK; nothing in IEC protocol works).
 **Discovered during:** Sprint 95 typing-path verification 2026-05-04.
-**Status:** open.
+**Status:** open — Sprint 96 narrowed root cause but not yet fixed.
+
+### Why this matters
+
+Earlier framing called the bit-skip "not catastrophic" — that was wrong.
+Every byte over IEC depends on every bit landing on the right CLK
+edge. Drive misreading even one bit per byte means:
+
+- LISTEN command byte → drive ID mismatch → drive ignores all
+  subsequent bytes for this transfer.
+- SECONDARY (open/load/save channel) byte → drive opens wrong
+  channel or rejects.
+- NAME bytes → drive looks up garbage filename → file-not-found.
+- LOAD payload bytes → bytes loaded into RAM are corrupted →
+  BASIC `?LOAD ERROR` or game crashes immediately.
+- Drive ACK byte to C64 (after each frame) → KERNAL sees wrong
+  status → bails to error path.
+
+So this single bug closes off **all** disk loading, not just
+custom fastloaders. Sprint 96 is gating MM (and every other
+disk-based acceptance test) at this single failure mode.
 
 ### Symptom
 
@@ -2154,6 +2174,173 @@ Two related findings:
    1541 spec; likely fix is in drive cpu cycle accounting (the
    drive uses the legacy Cpu6510 path, not microcoded — so any
    drift there is independent of the microcoded fixes).
+
+### Sprint 96 detailed analysis + next-session handoff (2026-05-04 EOD)
+
+**Confirmed sequence of facts (all empirically verified tonight):**
+
+1. Microcoded CPU is correct at instruction level (Sprint 94: 1880
+   cases, 0 divergences vs legacy Cpu6510 across all documented
+   opcodes + stable illegals × 8 seeds, BCD on/off).
+2. Scheduler `cpuCycleCounter` delta tick (Sprint 96 part 1) keeps
+   c64 peripherals + drive in sync when CPU bursts cycles for IRQ
+   / branch / page-cross. Verified: typing still works, equivalence
+   harness still passes after the fix.
+3. Drive ID jumper polarity (Sprint 96 part 2) was inverted; fixed.
+   Drive's `$77` now reads `$28` (correct LISTEN target for dev 8).
+4. Drive ATN handler runs end-to-end after the jumper fix:
+   `$E853 → $E85B init → $E876 ORA #$10 STA $1800` (DATA-ACK
+   release) → `$E87B-$E882` wait-for-CLK-release loop → `$E9C9`
+   ACPTR byte-receive routine.
+5. Drive's `drvAtnAck` toggles correctly per the Sprint 81 PB4 fix
+   (drive's ATN-handler successfully releases the auto-pull on
+   DATA after seeing ATN).
+6. Drive enters ACPTR bit-loop (`$E9C9` / `$EA0B-$EA22`).
+7. **The byte that lands in `$85` after 5 RORs is `$A0`.** Decoded
+   bits c0..c4 = `0, 0, 1, 0, 1`. Expected for KERNAL's LISTEN
+   `$28` LSB-first: `0, 0, 0, 1, 0, 1, ...`.
+8. Reconstructing the alignment: drive's c0,c1 match KERNAL's
+   bit 0,1; drive's c2 matches KERNAL's bit 3; drive's c3 matches
+   KERNAL's bit 4; drive's c4 matches KERNAL's bit 5. **Drive
+   skipped exactly one KERNAL bit between c1 and c2.**
+9. Cycle gaps observed: bit 0→1 sample = 102 c64 cyc (plausible);
+   bit 1→2 sample = 288 c64 cyc (one full KERNAL bit cycle missed).
+10. Drive's per-bit-loop iteration (`$EA0B → $EA13 BNE $EA0B`) is
+    ~11 c64 cyc (5 instructions). KERNAL's CLK-released window per
+    bit is ~22 c64 cyc (4 NOPs + a few bus accesses). Drive should
+    see the rising edge within 1-2 iterations.
+
+**Why the bit skip happens (current best hypothesis):**
+
+Drive cpu (legacy Cpu6510) is wrapped in `DriveCpuCycled` which
+runs ONE instruction per drive cycle "owed" — see
+`scheduler/cycle-wrappers.ts:75-93`:
+
+```ts
+executeCycle(): void {
+  if (this.cyclesOwed === 0) {
+    // IRQ check before instruction
+    ...
+    const before = this.drive.cpu.cycles;
+    this.drive.cpu.step();
+    const consumed = this.drive.cpu.cycles - before;
+    this.cyclesOwed = Math.max(0, consumed - 1);
+  } else {
+    this.cyclesOwed--;
+  }
+}
+```
+
+Drive's `$EA0B` (LDA $1800) bus access happens at the FIRST
+drive-cycle of the LDA instruction (in the legacy Cpu6510 step()
+all bus accesses happen at instruction start, not sub-cycle). So
+the read returns the IEC state at that ONE drive cycle. The next
+4 cycles drive "burns" idle (cyclesOwed counts down).
+
+So drive samples DATA every ~5 drive cycles (one instruction).
+Iteration loop: LDA(4) + EOR(2) + LSR(2) + AND(2) + BNE(3) = 13
+cycles. Each cycle drive checks DATA but only LDA latches the
+value used for the carry decision.
+
+KERNAL releases CLK for ~22 cyc, then pulls CLK back. If drive's
+LDA $1800 fires DURING that 22-cyc window, drive sees CLK high +
+correct DATA bit. If LDA fires OUTSIDE that window, drive sees
+CLK low → loops one more iteration (13 cyc) → checks again. By
+that time CLK has moved to next bit's setup phase.
+
+A subtle drift between drive's loop iteration period (13 cyc)
+and KERNAL's bit period (~80 cyc) means drive sometimes catches
+the rising edge late or misses it entirely. Once drive misses
+ONE bit, every subsequent bit-decode is shifted → byte garbage →
+no LISTEN match → drive ignores everything.
+
+**Concrete next-session work:**
+
+A. Instrument drive's `$EA0B` reads with EVERY iteration logged
+   (not just per `bitCount` decrement). Capture the precise
+   cycle gap between each $EA0B read and KERNAL's preceding
+   `STA $DD00` write. This shows whether the rising-edge window
+   is genuinely visible or whether drive is reading just before
+   / after.
+
+B. Compare against a real VICE bit-bang trace of the same LISTEN
+   $28 transfer. VICE's drive ACPTR sees the same KERNAL bit-bang
+   correctly — diffing the two will show the exact cycle-edge
+   misalignment in our drive cpu wrapper or IEC bus model.
+
+C. Audit the `Cpu6510.step()` legacy path's bus-access timing.
+   The legacy CPU does ALL bus accesses at instruction start
+   (one chunk per `step()`). Real 6502 reads happen at specific
+   sub-instruction cycles. For drive's `LDA $1800` (4 cycles),
+   real 6502 reads $1800 on cycle 3 (after fetch_opcode + addr
+   decode + dummy). Our legacy CPU reads at cycle 0. **3-cycle
+   timing offset on every drive bus access.** Multiplied across
+   the bit-loop, this could easily produce the observed 1-bit
+   skip.
+
+D. **Most promising fix path**: convert the drive CPU to use
+   `Cpu6510Cycled` (the same microcoded CPU we use for c64) so
+   drive bus accesses also land on the correct sub-instruction
+   cycle. This requires verifying microcoded cpu works in drive
+   environment (no KERNAL ROM, different memory map, no $00/$01
+   port). Lower-effort alternative: keep legacy drive CPU but
+   adjust the wrapper to delay the bus access by N drive cycles
+   to match where it would happen on real 6502.
+
+E. Verify CIA1 timer A on the C64 side ticks at exactly 985.248
+   kHz wall-clock. If KERNAL's bit-bang uses CIA timer for the
+   inter-bit delay (instead of NOPs), CIA timer drift would also
+   produce the symptom. Quick check: read $DC04/$DC05 timer A
+   value at start vs end of a known-duration loop, see if it
+   matches expected count.
+
+F. Side-quest: re-test Bug 36 / executeStore fix specifically for
+   indy on the drive CPU side too (drive ROM uses LDA ($f5),Y
+   heavily during ACPTR). The legacy Cpu6510 should handle indy
+   correctly since equivalence test passes, but worth a sanity
+   check given how confused the bit-receive is.
+
+**Sprint 96 acceptance test for next session:**
+
+`scripts/sprint96-bit-edge.mjs` should show drive sampling all
+8 bits of LISTEN $28 with correct DATA values (`0,0,0,1,0,1,0,0`).
+`$85` after the 8th ROR should equal `$28`. Drive's `$79` should
+become 1 (listener mode active). KERNAL should NOT print
+`?DEVICE NOT PRESENT`.
+
+If we can also see drive accept the SECONDARY byte ($F0 for OPEN
+write-with-name) and the NAME byte ($2A for "*"), then LOAD will
+actually start serving file bytes and Sprint 96 closes Bug 39.
+
+**Files to read/touch next session:**
+
+- `src/runtime/headless/cpu6510.ts` — legacy CPU step() — verify
+  bus access cycle positioning (option C/D).
+- `src/runtime/headless/scheduler/cycle-wrappers.ts:75-93` —
+  `DriveCpuCycled.executeCycle` — possibly insert a sub-cycle
+  delay or rework to use microcoded CPU.
+- `src/runtime/headless/cpu/cpu6510-cycled.ts` — would need a
+  bus-only mode (no $00/$01 CPU port) to be reusable for drive.
+- `src/runtime/headless/drive/drive-cpu.ts` — drive cpu setup;
+  this is where we'd swap the cpu implementation.
+- `scripts/sprint96-bit-edge.mjs` — the smoking-gun probe.
+- 1541 ROM `$E9C9-$EA70` — ACPTR routine (already disassembled
+  above in this section).
+- KERNAL ROM `$ED60-$ED90` — ISOUR bit-send routine (already
+  disassembled above).
+
+**Files NOT to touch (proven correct tonight):**
+
+- `src/runtime/headless/cpu/cpu6510-cycled.ts` instruction
+  semantics (1880/1880 equivalence).
+- `src/runtime/headless/iec/iec-bus.ts` jumper polarity
+  (Sprint 96 part 2 fix verified — `$77 = $28`).
+- `src/runtime/headless/scheduler/cycle-lockstep-scheduler.ts`
+  delta-tick logic (Sprint 96 part 1 fix verified — typing +
+  equivalence still pass).
+- `src/runtime/headless/peripherals/keyboard.ts` matrix
+  orientation (Sprint 95 fix — typing produces L/I/S/T/RETURN
+  correctly).
 
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
