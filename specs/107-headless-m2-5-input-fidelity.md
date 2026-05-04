@@ -1,6 +1,6 @@
 # Spec 107 — Headless M2.5: Input Fidelity
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1: M2.5a-d shipped; YAML loader for scenario player + per-cycle joystick resolution + paddle ramp timing deferred to v2 / Spec 124).** New: joystick port 1 wired through CIA1 PB (ANDed with keyboard rows), session methods `setJoystick1` / `setPaddle` / `triggerRestoreNmi`, `ScenarioPlayer` JSON-shape scheduler. Tests: 21/21 across joystick ports 1+2 independence, paddle 4-slot storage, RESTORE NMI sets CIA2 ICR FLAG bit, scenario player sort + tick. `npm run smoke:input-fidelity` 21/21; `npm run regress` 5/5. Doc: `docs/input-fidelity-notes.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 2, story M2.5
 Depth: deep
 Predecessors: Sprint 79 (scriptable keyboard), Sprint 93.1

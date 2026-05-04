@@ -1,6 +1,6 @@
 # Spec 108 — Headless M2.6: SID Software-Visible Behavior
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1: M2.6 register R/W + M2.6b ADSR + M2.6c POT bridge + M2.6e doc; M2.6a full phase-accumulator waveform readback + M2.6d SID write-trace channel deferred to v2).** SID gained `potReader` callback; IntegratedSession wires it to `paddles[0]` (POT A) and `paddles[2]` (POT B). 14/14 fixture suite covers register R/W round-trip, env3 ADSR climb-on-GATE + release decay, POT readback bridge, osc3 LFSR noise readback. Audio output explicitly NOT shipped (`audioOut: null` per V1 contract). `npm run smoke:sid-fidelity` 14/14; `npm run regress` 5/5. Doc: `docs/sid-software-visible-notes.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 2, story M2.6
 Depth: deep
 Predecessors: Spec 098 (M1.1), Spec 107 (M2.5 paddle bridge)

@@ -39,6 +39,8 @@
     "smoke:cia-fidelity": "npm run build:mcp && node scripts/smoke-cia-fidelity.mjs",
     "smoke:vic-fidelity": "npm run build:mcp && node scripts/smoke-vic-fidelity.mjs",
     "smoke:pla-fidelity": "npm run build:mcp && node scripts/smoke-pla-fidelity.mjs",
+    "smoke:input-fidelity": "npm run build:mcp && node scripts/smoke-input-fidelity.mjs",
+    "smoke:sid-fidelity": "npm run build:mcp && node scripts/smoke-sid-fidelity.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },

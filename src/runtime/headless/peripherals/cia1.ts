@@ -17,17 +17,18 @@ export const CIA1_BASE = 0xdc00;
 
 // Sprint 79: keyboard matrix backend reads PA latch (column drive)
 // and returns active row bits (active-low) for currently-pressed
-// keys.
-function makeKeyboardPb(kb: KeyboardMatrix, getCia: () => Cia6526 | undefined): CiaPortBackend {
+// keys. Spec 107 (M2.5) — joystick port 1 wired to PB inputs ANDed
+// with keyboard rows so a joy1 down-bit pulls the corresponding PB
+// pin low even when no key is pressed.
+function makeKeyboardPb(kb: KeyboardMatrix, joy1: JoystickState, getCia: () => Cia6526 | undefined): CiaPortBackend {
   return {
     readPins: () => {
       const cia = getCia();
-      if (!cia) return 0xff;
-      // CIA PA latch + DDR-aware: bits set in DDR are "driven by latch",
-      // bits clear are "input floating high". For column-select we want
-      // the actual driven values (treated as active-low).
-      const paOut = cia.pra | ~cia.ddra;
-      return kb.readRowsForPa(paOut & 0xff);
+      const paOut = cia ? (cia.pra | ~cia.ddra) & 0xff : 0xff;
+      const kbRows = cia ? kb.readRowsForPa(paOut) : 0xff;
+      const joyMask = joystickActiveLowMask(joy1);
+      // Both keyboard rows + joystick contribute pulls (active-low AND).
+      return kbRows & joyMask;
     },
     onOutputChanged: () => { /* nothing */ },
   };
@@ -47,13 +48,15 @@ export interface InstalledCia1 {
   cia: Cia6526;
   keyboard: KeyboardMatrix;
   joystick2: JoystickState;
+  joystick1: JoystickState;  // Spec 107 v1
 }
 
 export function installCia1(bus: HeadlessMemoryBus): InstalledCia1 {
   const keyboard = new KeyboardMatrix();
   const joystick2: JoystickState = { up: false, down: false, left: false, right: false, fire: false };
+  const joystick1: JoystickState = { up: false, down: false, left: false, right: false, fire: false };
   let ciaRef: Cia6526 | undefined;
-  const cia = new Cia6526(makeKeyboardPa(joystick2), makeKeyboardPb(keyboard, () => ciaRef));
+  const cia = new Cia6526(makeKeyboardPa(joystick2), makeKeyboardPb(keyboard, joystick1, () => ciaRef));
   ciaRef = cia;
   for (let reg = 0; reg < 16; reg++) {
     const addr = CIA1_BASE + reg;
@@ -62,5 +65,5 @@ export function installCia1(bus: HeadlessMemoryBus): InstalledCia1 {
       write: (_a, value) => cia.write(reg, value),
     });
   }
-  return { cia, keyboard, joystick2 };
+  return { cia, keyboard, joystick2, joystick1 };
 }

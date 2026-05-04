@@ -36,6 +36,12 @@ export interface SidSnapshot {
 
 export class Sid6581 {
   public readonly regs = new Uint8Array(NUM_REGS);
+  // Spec 108 (M2.6c) v1: POT readback bridge. Caller (session) sets
+  // a getter that returns paddle values 0..3 (POTAX, POTAY, POTBX,
+  // POTBY). Real HW has $D419 = port A, $D41A = port B; only one
+  // paddle per port routes through internally — we expose paddle 0
+  // → $D419 and paddle 2 → $D41A by default.
+  public potReader?: (idx: 0 | 1) => number;
   private osc3Lfsr = 0xACE1;     // deterministic seed
   private envs: VoiceEnv[] = [];
 
@@ -57,8 +63,8 @@ export class Sid6581 {
   read(reg: number): number {
     const r = reg & 0x1F;
     switch (r) {
-      case 0x19: return 0x00;                    // POT X
-      case 0x1A: return 0x00;                    // POT Y
+      case 0x19: return (this.potReader?.(0) ?? 0) & 0xFF; // POT X (port A)
+      case 0x1A: return (this.potReader?.(1) ?? 0) & 0xFF; // POT Y (port B)
       case 0x1B: return (this.osc3Lfsr >> 8) & 0xFF;  // osc3
       case 0x1C: return this.envs[2]!.value & 0xFF;   // env3
       case 0x1D: case 0x1E: case 0x1F: return 0; // open bus

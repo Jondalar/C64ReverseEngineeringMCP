@@ -156,6 +156,11 @@ export class IntegratedSession {
   public readonly cia2: Cia6526;
   public readonly keyboard: KeyboardMatrix;
   public readonly joystick2: JoystickState;
+  // Spec 107 (M2.5) v1
+  public readonly joystick1: JoystickState;
+  // Spec 107 (M2.5) v1: 4 paddles × 256 values, exposed via setPaddle
+  // and surfaced through SID POT pins by Spec 108 wiring.
+  public readonly paddles: Uint8Array = new Uint8Array(4); // [POTAX, POTAY, POTBX, POTBY]
   public readonly vic: VicII;
   public readonly sid: Sid6581;
   public readonly framebuffer: VicFramebuffer;
@@ -290,8 +295,12 @@ export class IntegratedSession {
     this.cia1 = cia1Install.cia;
     this.keyboard = cia1Install.keyboard;
     this.joystick2 = cia1Install.joystick2;
+    this.joystick1 = cia1Install.joystick1;
     this.vic = installVicII(this.c64Bus);
     this.sid = installSid(this.c64Bus);
+    // Spec 108 (M2.6c) v1: bridge POT readback to paddles[].
+    // Paddle 0 → POT A, paddle 2 → POT B.
+    this.sid.potReader = (idx) => this.paddles[idx === 0 ? 0 : 2] ?? 0;
     if (!isPal) this.vic.setNtsc();
     this.c64Bus.reset();
     this.c64Cpu = new Cpu6510(this.c64Bus);
@@ -446,6 +455,24 @@ export class IntegratedSession {
     if (state.left !== undefined) this.joystick2.left = state.left;
     if (state.right !== undefined) this.joystick2.right = state.right;
     if (state.fire !== undefined) this.joystick2.fire = state.fire;
+  }
+  // Spec 107 (M2.5) v1: joystick port 1 + paddle + RESTORE NMI.
+  setJoystick1(state: Partial<JoystickState>): void {
+    if (state.up !== undefined) this.joystick1.up = state.up;
+    if (state.down !== undefined) this.joystick1.down = state.down;
+    if (state.left !== undefined) this.joystick1.left = state.left;
+    if (state.right !== undefined) this.joystick1.right = state.right;
+    if (state.fire !== undefined) this.joystick1.fire = state.fire;
+  }
+  setPaddle(idx: 0 | 1 | 2 | 3, value: number): void {
+    this.paddles[idx] = value & 0xff;
+  }
+  // RESTORE key triggers NMI via CIA2 PB6 falling edge in real HW.
+  // We model as direct NMI service call (FLAG line latched + IFR set).
+  triggerRestoreNmi(): void {
+    // Set CIA2 ICR FLAG bit (bit 4) and let irqAsserted assert.
+    this.cia2.icrFlags |= 0x10; // ICR_FLAG
+    this.cia2.icrMask  |= 0x10;
   }
 
   // Spec 093: drive PC sample (called per C64 instruction step).
