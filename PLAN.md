@@ -87,7 +87,7 @@ dependency order.
 |-----|---------------------------------------|--------------------------------------|----------|----------------------------------------------------------------------------------------------------|
 | 98  | Bug 40 close ✓ FIXED 2026-05-04       | 094, 095, 096, 097 (M0.1-4)          | critical | EOF trace → VICE compare → stepper-sequence fix in head-position.ts. Synthetic + MM LOAD work. |
 | 99  | Headless contract ✓ DONE 2026-05-04   | 098, 099, 100, 101, 102 (M1.1-5)     | high     | Session modes, unified stepping, deterministic reset, snapshots, regression harness — all green.  |
-| 100 | Drive TrueDrive — protocol            | 109, 110, 111 (M3.1-3)               | high     | Drive CPU hardening, VIA1 IEC contract, KERNAL serial byte matrix.                                |
+| 100 | Drive TrueDrive — protocol (Spec 109 ✓) | 109 ✓, 110, 111 (M3.1-3)             | high     | M3.1 drive CPU hardening DONE 2026-05-04 (BUGREPORT Bug 41 fixed in same sprint). M3.2 + M3.3 still open. |
 | 101 | Drive TrueDrive — file paths          | 112, 113, 114 (M3.4-6)               | high     | D64 truedrive path, G64 GCR fidelity, write support.                                              |
 | 102 | Drive backlog + nice-to-have          | 115, 116 (M3.7-8)                    | low      | Multi-drive 8+9 (nice-to-have), drive fidelity backlog.                                           |
 | 103 | C64 hardware — CPU + CIA              | 103, 104 (M2.1-2)                    | medium   | CPU cycle/IRQ fidelity, CIA1/CIA2 fidelity.                                                       |

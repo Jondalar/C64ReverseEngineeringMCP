@@ -3150,3 +3150,60 @@ implementations.
 `src/runtime/headless/cpu6510.ts:php` now pushes `flags | 0x10`,
 matching the microcoded path and the 6502 spec. Re-run of
 `scripts/cpu-equivalence.mjs`: 1880 cases, 0 fails.
+
+## Bug 41 — Legacy `Cpu6510.step` over-counted every instruction by 1 cycle (FIXED Sprint 100, Spec 109)
+
+### Severity
+Medium. Wrong wall-clock for the legacy CPU path.
+
+### Symptoms
+- Drive equivalence walk on the 1541 ROM (50 000 instructions, ~17
+  unique opcodes visited) showed legacy total 215 476 cycles vs
+  microcoded total 181 842 — a ~33 600-cycle gap, ~0.67 extra cycles
+  per instruction averaged.
+- Per-opcode probe: every documented opcode the walk visited reported
+  `legacy = micro + 1` exactly. Examples: SEI (imp) 3 vs 2, INY (imp)
+  3 vs 2, INC $XX,X 7 vs 6, BNE rel-not-taken 3 vs 2.
+
+### Root cause
+`Cpu6510.step()` captured `cyclesBefore` *after* the opcode-fetch
+`read()` had already incremented `this.cycles` by 1 (each bus access
+ticks +1 — Spec 091 contract). The end-of-step top-up
+`this.cycles += info.cycles - accessesDone` then re-added the full
+table cycle count without crediting the fetch cycle, so every
+instruction landed at `info.cycles + 1` cycles instead of
+`info.cycles`.
+
+The microcoded `Cpu6510Cycled` was already correct: its outer
+`executeCycle()` ticks once per cycle and the per-instruction cycle
+count emerges from the microcode pattern length, not a separate
+top-up.
+
+### Fix
+Move `cyclesBefore = this.cycles` to before the opcode fetch in
+`step()` so `accessesDone` includes the fetch cycle and the top-up
+math closes out at the right total. `stepUndocumented` now takes the
+caller-supplied baseline (currently unused for top-up — undoc still
+relies on per-bus-access counting; documented in-source as a follow-up
+item).
+
+### Validation
+- `npm run smoke:drive-equiv` after fix: legacy total 181 844 vs
+  micro total 181 842 (residual 2-cycle gap from one IRQ-service
+  path at startup; tracked separately).
+- `npm run regress` 4/4 PASS (L2/L3/L7/L8) — the cycle change did
+  not break any LOAD-acceptance scenario including MM 38KB.
+- `npm run smoke:load`, `smoke:stepping`, `smoke:reset`,
+  `smoke:snapshot` all PASS.
+
+### Implications
+The legacy CPU has been reporting 1.5×-correct cycle totals on the
+C64 main core for the entire project (legacy was the default until
+the microcoded path was introduced and is still used for some flows
+when `useMicrocodedCpu` is not enabled). VIA / CIA timer ticks driven
+off `cycles - cyclesBefore` therefore ticked slightly slower than
+real wall-clock would have, but every consumer used the same
+inflated rate so internal lockstep stayed consistent. No user-visible
+regression resulted from the over-count; the fix simply aligns
+legacy with microcoded so the two CPUs are interchangeable on cycle
+totals as well as register state.

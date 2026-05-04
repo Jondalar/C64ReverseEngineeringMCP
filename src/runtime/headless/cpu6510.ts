@@ -101,22 +101,28 @@ export class Cpu6510 {
   }
 
   step(): void {
+    // Spec 109 fix: capture cyclesBefore BEFORE the opcode fetch so the
+    // fetch's own +1 is counted toward accessesDone. Without this, every
+    // instruction over-counted by 1 because info.cycles (which includes
+    // the fetch) was added on top of the fetch's already-charged cycle.
+    const cyclesBefore = this.cycles;
     const opcode = this.read(this.pc);
     const info = OPCODE_TABLE[opcode];
     if (!info) {
       // Sprint 81: real undocumented 6502 opcodes (semantics per VICE
       // src/6510core.c). MM/Murder loaders rely on SLO/SRE/RLA/RRA etc.
-      this.stepUndocumented(opcode);
+      // Pass cyclesBefore so the same accounting fix applies.
+      this.stepUndocumented(opcode, cyclesBefore);
       return;
     }
 
-    const cyclesBefore = this.cycles;
     const arg = this.resolveArg(info.mode);
     this.execute(info.op, info.mode, arg);
     // Spec 091: each bus access already incremented cycles by 1. We've
-    // counted N accesses since cyclesBefore. info.cycles is the true
-    // total per VICE/Lorenz table. Add the remainder to keep totals
-    // accurate. Branch-taken / page-cross adjustments stay in branch().
+    // counted N accesses since cyclesBefore (incl. opcode fetch).
+    // info.cycles is the true total per VICE/Lorenz table. Add the
+    // remainder to keep totals accurate. Branch-taken / page-cross
+    // adjustments stay in branch().
     const accessesDone = this.cycles - cyclesBefore;
     if (accessesDone < info.cycles) {
       this.cycles += info.cycles - accessesDone;
@@ -126,7 +132,7 @@ export class Cpu6510 {
     // faster, but it self-corrects on next instruction.
   }
 
-  private stepUndocumented(opcode: number): void {
+  private stepUndocumented(opcode: number, cyclesBeforeFetch?: number): void {
     // Address-mode + cycles per illegal opcode (Lorenz/VICE table).
     const slot = UNDOC_TABLE[opcode];
     if (!slot) {
@@ -137,9 +143,12 @@ export class Cpu6510 {
       return;
     }
     const { kind, mode, cycles } = slot;
-    const cyclesBefore = this.cycles;
+    // Spec 109: cyclesBeforeFetch is reserved for a future top-up pass
+    // that mirrors the documented-opcode path. For now undoc relies on
+    // per-bus-access counting only; mark the param read to silence
+    // unused-arg lint without changing semantics.
+    void cyclesBeforeFetch;
     const arg = this.resolveArg(mode);
-    // Spec 091: cycles handled per bus access; account for missing on exit.
     void cycles;
     switch (kind) {
       case "nop": return;

@@ -1,6 +1,6 @@
 # Spec 109 — Headless M3.1: Drive CPU Microcoded Hardening
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (all sub-stories M3.1a-f green).** New harness `src/runtime/headless/drive/drive-cpu-equiv-tests.ts` walks the 1541 ROM 50 000 instructions on legacy + microcoded side-by-side: 0 register/flag/PC divergences, 2-cycle residual on IRQ-service entry path. SO pin test asserts V latch → BVS taken (PASS). Bus-trace fixtures shipped for indy page-cross (LDA ($10),Y with Y=$01 across $00FF→$0100), PHA, JSR, RTS — all PASS. Opcode coverage 17 unique opcodes from the idle-loop walk (broader coverage gated on Specs 110+111 driving full LISTEN/TALK paths). Doc: `docs/drive-cpu-fidelity-notes.md`. Equiv harness flagged a 1-cycle-per-instruction over-count in legacy `Cpu6510.step()` — fixed in same sprint, recorded as BUGREPORT.md Bug 41. Smoke battery (`smoke:drive-equiv`, `smoke:load`, `smoke:stepping`, `smoke:reset`, `smoke:snapshot`) + `regress` 4/4 PASS post-fix.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 3, story M3.1
 Depth: deep
 Predecessors: Sprint 96 (microcoded drive CPU), Spec 098 (M1.1),
