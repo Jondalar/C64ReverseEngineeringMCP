@@ -1,6 +1,6 @@
 # Spec 098 — Headless M1.1: Session Modes
 
-Status: refined, not started
+Status: in progress 2026-05-04 — core enum + resolver + IntegratedSession wiring landed (`src/runtime/headless/session-modes.ts` + integrated-session.ts changes). `session.mode` + `session.modeReport()` available. Boolean overrides still honored — explicit booleans win over the mode preset, identifyMode() back-fills `mode` for legacy callers. Smoke matrix L2 PASS post-wiring (no regression). Outstanding: MCP tool response schema migration (every runtime-state tool should include `mode`) — deferred to follow-up commit.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 1, story M1.1
 Depth: light
 Predecessors: Milestone 0 specs (094-097)

@@ -54,12 +54,18 @@ const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
 const DRIVE_HZ = 1000000;
 
+import { type SessionMode, type SessionModeReport, identifyMode, makeModeReport, resolveSessionFlags } from "./session-modes.js";
+
 export interface IntegratedSessionOptions {
   diskPath: string;
   isPal?: boolean;
   deviceId?: number;
   startTrack?: number;
   writeProtected?: boolean;
+  // Spec 098: named session-mode preset. When set, expands to the
+  // boolean flags below (any explicit boolean still wins). Default
+  // none — boolean fields drive resolution as before.
+  mode?: SessionMode;
   // Spec 064 Sprint 69b: file-IO traps default OFF (KERNAL runs
   // real serial bit-bang to drive). Set true to fall back to the
   // Sprint 67 trap path if the real protocol stalls.
@@ -118,6 +124,8 @@ export class IntegratedSession {
   public readonly cpuCycled?: Cpu6510Cycled;
   public readonly useCycleLockstep: boolean;
   public readonly useMicrocodedCpu: boolean;
+  // Spec 098: named session-mode preset (resolved at construction).
+  public readonly mode: SessionMode;
   // Spec 093: image format string ("g64" | "d64" | "other") + clock ratio.
   public readonly imageFormat: string;
   public readonly driveClockRatio: number;
@@ -128,11 +136,46 @@ export class IntegratedSession {
   private prevCia2IrqAsserted = false;
   public get lastTrap(): string | undefined { return this.kernalFileIo.lastTrap; }
   public get loadEvents(): KernalFileIoState["loadEvents"] { return this.kernalFileIo.loadEvents; }
+
+  // Spec 098: machine-readable session mode + flag summary.
+  public modeReport(): SessionModeReport {
+    return makeModeReport(this.mode, {
+      enableKernalFileIoTraps: this.enableKernalFileIoTraps,
+      enableKernalSerialTraps: this.enableKernalSerialTraps,
+      enableKernalIoTraps: this.enableKernalIoTraps,
+      useMicrocodedCpu: this.useMicrocodedCpu,
+      useCycleLockstep: this.useCycleLockstep,
+      traceIec: this.iecBus.isTraceEnabled(),
+      traceDrive: this.drivePcTraceCapacity > 0,
+    });
+  }
   private readonly driveCyclesPerC64Cycle: number;
   private c64InstructionCount = 0;
 
   constructor(opts: IntegratedSessionOptions) {
     if (!existsSync(opts.diskPath)) throw new Error(`Disk image not found: ${opts.diskPath}`);
+    // Spec 098: expand named mode preset into boolean overrides; explicit
+    // booleans on opts still win over the preset.
+    const resolvedFlags = resolveSessionFlags(opts.mode, {
+      enableKernalFileIoTraps: opts.enableKernalFileIoTraps,
+      enableKernalSerialTraps: opts.enableKernalSerialTraps,
+      enableKernalIoTraps: opts.enableKernalIoTraps,
+      useMicrocodedCpu: opts.useMicrocodedCpu,
+      useCycleLockstep: opts.useCycleLockstep,
+      traceIec: opts.traceIec,
+      traceDrive: opts.traceDrive,
+    });
+    opts = {
+      ...opts,
+      enableKernalFileIoTraps: resolvedFlags.enableKernalFileIoTraps,
+      enableKernalSerialTraps: resolvedFlags.enableKernalSerialTraps,
+      enableKernalIoTraps: resolvedFlags.enableKernalIoTraps,
+      useMicrocodedCpu: resolvedFlags.useMicrocodedCpu,
+      useCycleLockstep: resolvedFlags.useCycleLockstep,
+      traceIec: resolvedFlags.traceIec,
+      traceDrive: resolvedFlags.traceDrive,
+    };
+    this.mode = opts.mode ?? identifyMode(resolvedFlags);
     const isPal = opts.isPal ?? true;
     this.driveCyclesPerC64Cycle = DRIVE_HZ / (isPal ? C64_HZ_PAL : C64_HZ_NTSC);
     this.driveClockRatio = this.driveCyclesPerC64Cycle;
