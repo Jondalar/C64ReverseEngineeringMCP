@@ -1,6 +1,6 @@
 # Spec 105 — Headless M2.3: VIC-II Fidelity
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1: per-char-row dispatch + snapshot lookup; M2.3a per-cycle pixel-y / M2.3b Y-crunch / M2.3d open-border / M2.3e raster IRQ jitter / M2.3f extended sprite multiplexer deferred to v2).** `vic-renderer.ts:renderFrame` rewritten: walks 25 char rows, looks up scanline snapshot at row top, dispatches to mode renderer with snap d011/d016/d018/d021/d022/d023. Existing per-mode renderers gained `*Row(args, row)` variants. **Big win: Maniac Mansion character-selection screen now renders** — raster-IRQ split (upper text "MANIAC MANSION" logo + lower MC-text portraits) was garbled before because frame-end-time snapshot only captured last-scanline state. `npm run smoke:vic-fidelity` 10/10. `npm run regress` 5/5 still green. Doc: `docs/vic-fidelity-notes.md` lists v2 follow-ups.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 2, story M2.3
 Depth: deep
 Predecessors: Sprint 70+ (Phase A), Sprint 73 (modes), Sprint 74

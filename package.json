@@ -37,6 +37,7 @@
     "smoke:fidelity-backlog": "npm run build:mcp && node scripts/smoke-fidelity-backlog.mjs",
     "smoke:cpu-fidelity": "npm run build:mcp && node scripts/smoke-cpu-fidelity.mjs",
     "smoke:cia-fidelity": "npm run build:mcp && node scripts/smoke-cia-fidelity.mjs",
+    "smoke:vic-fidelity": "npm run build:mcp && node scripts/smoke-vic-fidelity.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },
