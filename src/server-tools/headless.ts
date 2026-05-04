@@ -863,6 +863,28 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
+    "headless_integrated_session_snapshot",
+    "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. Round-trippable via the matching restore API. Default skips full 64KB RAM; pass include=[\"ram\"] to expand.",
+    {
+      session_id: z.string(),
+      include: z.array(z.enum(["ram", "tracks"])).optional().describe("Optional include sections."),
+    },
+    safeHandler("headless_integrated_session_snapshot", async ({ session_id, include }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { snapshot } = await import("../runtime/headless/snapshot.js");
+      const snap = snapshot(session, { include });
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify(snap),
+        }],
+      };
+    },
+));
+
+  server.tool(
     "headless_integrated_session_status",
     "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
     { session_id: z.string() },

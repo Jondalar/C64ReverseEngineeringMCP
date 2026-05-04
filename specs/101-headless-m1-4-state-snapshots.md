@@ -1,6 +1,6 @@
 # Spec 101 — Headless M1.4: Structured State Snapshots
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1).** `src/runtime/headless/snapshot.ts` ships `snapshot(session, opts)` + `restore(session, snap)` + `snapshotToString` + `SNAPSHOT_SCHEMA_VERSION = 1`. v1 covers C64 CPU + IEC line state + drive CPU + drive RAM + VIA1 + VIA2 regs + drive head track + keyboard matrix + joystick2 + cycle counters + mode. Optional `include: ["ram"]` adds 64KB RAM as base64. New MCP tool `headless_integrated_session_snapshot`. `npm run smoke:snapshot` PASS — snap1 → run → snap2 (different) → restore(snap1) → snap3 (== snap1). Schema documented in `docs/snapshot-schema.md`. VIC pixel pipeline mid-cycle + SID envelope phase + tracks deferred to schema v2.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 1, story M1.4
 Depth: light
 Predecessors: Spec 098 (M1.1 session modes)

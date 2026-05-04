@@ -27,6 +27,7 @@
     "smoke:load": "npm run build:mcp && node scripts/smoke-load.mjs",
     "smoke:stepping": "npm run build:mcp && node scripts/smoke-stepping.mjs",
     "smoke:reset": "npm run build:mcp && node scripts/smoke-reset-determinism.mjs",
+    "smoke:snapshot": "npm run build:mcp && node scripts/smoke-snapshot.mjs",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
