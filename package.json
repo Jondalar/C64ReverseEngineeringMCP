@@ -36,6 +36,7 @@
     "smoke:multi-drive": "npm run build:mcp && node scripts/smoke-multi-drive.mjs",
     "smoke:fidelity-backlog": "npm run build:mcp && node scripts/smoke-fidelity-backlog.mjs",
     "smoke:cpu-fidelity": "npm run build:mcp && node scripts/smoke-cpu-fidelity.mjs",
+    "smoke:cia-fidelity": "npm run build:mcp && node scripts/smoke-cia-fidelity.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },

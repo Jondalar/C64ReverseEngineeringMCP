@@ -85,9 +85,25 @@ export class Cia6526 {
   public icrMask = 0;
   // SDR (stub — not modeled).
   public sdr = 0;
-  // TOD (stub — returns zeros).
-  // Could implement a real TOD counter but no widely-used game depends
-  // on its IRQ; defer.
+  // TOD: 24-hour BCD register file (10ths, sec, min, hr) + alarm
+  // shadow + read-latch. Spec 104 (M2.2b) v1 ships read/write
+  // round-trip + latch-on-hour-read so software that polls TOD gets
+  // a stable read; no actual tick source yet.
+  public tod10th = 0;
+  public todSec = 0;
+  public todMin = 0;
+  public todHr = 0;
+  public todAlarm10th = 0;
+  public todAlarmSec = 0;
+  public todAlarmMin = 0;
+  public todAlarmHr = 0;
+  // Latch for 10/sec/min when HR was last read; reads from those
+  // registers return the latch until the next HR read.
+  private todLatched = false;
+  private todLatch10th = 0;
+  private todLatchSec = 0;
+  private todLatchMin = 0;
+  // CRB bit 7 = TOD-write-target: 0 = clock, 1 = alarm.
 
   constructor(public readonly portA: CiaPortBackend, public readonly portB: CiaPortBackend) {}
 
@@ -107,8 +123,23 @@ export class Cia6526 {
       case CIA_TAHI: return (this.taCounter >> 8) & 0xff;
       case CIA_TBLO: return this.tbCounter & 0xff;
       case CIA_TBHI: return (this.tbCounter >> 8) & 0xff;
-      case CIA_TOD_10TH: case CIA_TOD_SEC:
-      case CIA_TOD_MIN: case CIA_TOD_HR: return 0; // stub
+      // Spec 104 (M2.2b) v1 — TOD read with HR-triggered latch.
+      // Real CIA: reading HR latches all four registers; subsequent
+      // reads of MIN/SEC/10ths return the latch until HR is read
+      // again. Reading 10ths releases the latch (per data sheet).
+      case CIA_TOD_HR:
+        this.todLatched = true;
+        this.todLatch10th = this.tod10th;
+        this.todLatchSec = this.todSec;
+        this.todLatchMin = this.todMin;
+        return this.todHr & 0x9f; // bits 0-4 = hours, bit 7 = AM/PM
+      case CIA_TOD_MIN: return this.todLatched ? this.todLatchMin : this.todMin;
+      case CIA_TOD_SEC: return this.todLatched ? this.todLatchSec : this.todSec;
+      case CIA_TOD_10TH: {
+        const v = this.todLatched ? this.todLatch10th : this.tod10th;
+        this.todLatched = false;
+        return v & 0x0f;
+      }
       case CIA_SDR: return this.sdr;
       case CIA_ICR: {
         // Read returns current flags + IRQ-summary bit. Side effect:
@@ -158,8 +189,24 @@ export class Cia6526 {
         this.tbLatch = (this.tbLatch & 0x00ff) | (v << 8);
         if ((this.crb & 0x01) === 0) this.tbCounter = this.tbLatch;
         return;
-      case CIA_TOD_10TH: case CIA_TOD_SEC:
-      case CIA_TOD_MIN: case CIA_TOD_HR: return; // stub
+      // Spec 104 (M2.2b) v1 — TOD writes go to clock or alarm based
+      // on CRB bit 7. No tick source yet (running TOD is a follow-up).
+      case CIA_TOD_10TH:
+        if ((this.crb & 0x80) !== 0) this.todAlarm10th = v & 0x0f;
+        else this.tod10th = v & 0x0f;
+        return;
+      case CIA_TOD_SEC:
+        if ((this.crb & 0x80) !== 0) this.todAlarmSec = v & 0x7f;
+        else this.todSec = v & 0x7f;
+        return;
+      case CIA_TOD_MIN:
+        if ((this.crb & 0x80) !== 0) this.todAlarmMin = v & 0x7f;
+        else this.todMin = v & 0x7f;
+        return;
+      case CIA_TOD_HR:
+        if ((this.crb & 0x80) !== 0) this.todAlarmHr = v & 0x9f;
+        else this.todHr = v & 0x9f;
+        return;
       case CIA_SDR: this.sdr = v; return;
       case CIA_ICR:
         if ((v & 0x80) !== 0) this.icrMask |= (v & 0x1f);
@@ -252,6 +299,9 @@ export class Cia6526 {
     this.cra = 0; this.crb = 0;
     this.icrFlags = 0; this.icrMask = 0;
     this.sdr = 0;
+    this.tod10th = 0; this.todSec = 0; this.todMin = 0; this.todHr = 0;
+    this.todAlarm10th = 0; this.todAlarmSec = 0; this.todAlarmMin = 0; this.todAlarmHr = 0;
+    this.todLatched = false;
     this.portA.onOutputChanged(0, 0, "reset");
     this.portB.onOutputChanged(0, 0, "reset");
   }

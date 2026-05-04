@@ -1,6 +1,6 @@
 # Spec 104 — Headless M2.2: CIA1/CIA2 Fidelity
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1: M2.2a/b/c/e/f/g shipped; CNT-pin counter modes + ICR 1-cycle latch + TOD ticking + serial shift register documented as gaps).** New `cia-fidelity-tests.ts` 23/23 (7 suites): TA continuous + one-shot, TB cascade on TA underflow, ICR mask write + read-clear + IRQ release, TOD round-trip with HR-triggered latch, alarm-vs-clock target via CRB bit 7. Production code: `cia6526.ts` got TOD register file (clock + alarm shadow + HR-latch); SDR/CRA/CRB unchanged. `npm run smoke:cia-fidelity` 23/23; `npm run regress` 5/5 still green. Doc: `docs/cia-fidelity-notes.md` lists pinned v1 deviations.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 2, story M2.2
 Depth: deep
 Predecessors: Spec 098 (M1.1), Spec 103 (M2.1)
