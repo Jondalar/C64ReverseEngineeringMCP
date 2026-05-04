@@ -2446,6 +2446,76 @@ is a separate IRQ-injection / CIA timing bug.
   with monkey-patched DriveBus.read + IecBus.setC64Output for
   exact bit-cadence + dd00 / state correlation.
 
+## Bug 40 — KERNAL stuck in ACPTR EOI-handshake after real-serial LOAD completes
+
+**Severity:** Medium (blocks return to BASIC after successful LOAD).
+**Discovered during:** Sprint 96 final acceptance (2026-05-04).
+**Status:** OPEN — Sprint 96 follow-up.
+
+### Summary
+
+After the new real-serial LOAD path successfully transfers MM
+(38658 bytes) to C64 RAM at $0400 and the drive correctly
+asserts EOI on the last byte (KERNAL `$90 = $40` confirms EOI
+flag set), C64 KERNAL never returns to BASIC direct mode.
+`SYS 1024` typed afterward never reaches BASIC — `c64Cpu.pc`
+stays in the $EE00 page (KERNAL ACPTR / EOI ACK loop) for
+100M+ simulated cycles.
+
+### State at hang
+
+- `c64.pc = $EE27` (`STA $DC0F` — CIA1 timer B start) repeatedly.
+- `drive.pc = $EC16` (idle loop polling $1800 PB).
+- IEC: ATN released, CLK released, **DATA pulled by C64**
+  (c64.dataReleased=0, drive sides released).
+- Drive RAM: $77=$28 (LISTEN target stored), $79=$00 (listener
+  inactive — drive not in talker mode either), $85=$A0 (last
+  byte received over IEC during ATN-low phase).
+- KERNAL status $90 = $40 (EOI received).
+- MM bytes byte-perfect at $0400+.
+
+### Hypothesis
+
+After EOI received, KERNAL enters EOI-ACK protocol:
+1. C64 pulls DATA briefly (~60 µs) to ACK EOI.
+2. C64 starts CIA1 timer B (one-shot, ~256 µs) and waits for
+   CLK pulse from drive OR timer-B underflow.
+3. On underflow, KERNAL exits to UNTALK.
+
+The wait loop at `$EE2D-$EE3A` reads CIA1 ICR ($DC0D), tests
+bit 1 (timer B underflow), branches when set.
+
+Either (a) CIA1 timer B isn't underflowing in our model
+during this wait, or (b) the timer underflows but the ICR bit
+isn't latched/visible to KERNAL, or (c) drive's TALK
+termination doesn't release the bus in the exact sequence
+KERNAL expects.
+
+Drive properly transitions to idle after sending the last
+byte + EOI — but C64 IS stuck. So root cause is on C64 side
+(CIA1 timer B / EOI ACK path) OR a missing drive response
+during EOI ACK.
+
+### Next-session work
+
+1. Add CIA1 timer B trace: log start/load/underflow events
+   during the EOI-ACK window. Verify timer is ticking.
+2. Compare to VICE: how does VICE's CIA1 implementation
+   handle one-shot timer B during EOI ACK?
+3. Probe drive's response to C64's DATA pull during EOI ACK.
+   Does drive need to pulse CLK in response (per VICE drive
+   behavior)?
+4. Possibly: drive's TALK frame routine should stay in the
+   wait-for-ATN-low loop after sending EOI byte (don't return
+   to plain idle), so drive can respond to C64's UNTALK.
+
+### Workaround
+
+For testing MM execution (not "title screen via clean LOAD"
+chain), can manually set c64Cpu.pc = $0400 after MM bytes are
+in RAM; bypasses BASIC stuck state. Not for production but
+unblocks graphics-pipeline verification.
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
 **Severity:** N/A — false alarm.
