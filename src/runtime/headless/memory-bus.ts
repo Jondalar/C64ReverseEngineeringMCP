@@ -29,6 +29,18 @@ export class HeadlessMemoryBus {
   private cartridge?: HeadlessCartridgeMapper;
 
   reset(): void {
+    // Sprint 93.2: match VICE cold-power RAM init pattern.
+    // VICE `ram_init_with_pattern` defaults (src/ram.c):
+    //   start_value = 0xff, value_invert = 128, value_offset = 0,
+    //   pattern_invert = 0, random_chance = 0.
+    // Effective formula: ram[i] = 0xff ^ (((i / 128) & 1) ? 0xff : 0x00).
+    // I.e. blocks of 128 bytes alternate $FF / $00, starting with $FF.
+    // Required for KERNAL RAMTAS / cart-detect to read the same values
+    // VICE does, otherwise the swimlane diff drifts at the very first
+    // RAM read.
+    for (let i = 0; i < 0x10000; i++) {
+      this.ram[i] = ((i >>> 7) & 1) ? 0x00 : 0xff;
+    }
     this.cpuPortDirection = 0x2f;
     this.cpuPortValue = 0x37;
     this.ram[0x0000] = this.cpuPortDirection;

@@ -2040,6 +2040,53 @@ Done when:
 - All known instruction-level CPU bugs filed + fixed.
 - Higher-level issues clearly tagged as non-CPU.
 
+## Sprint 95: Swimlane drift trace headless vs VICE (Spec 093 §6 prep)
+
+Goal: instruction-by-instruction comparison of headless integrated
+session vs a VICE runtime trace. User suggestion: lay both side by
+side as swimlanes, walk forward, find FIRST instruction where they
+diverge, fix root cause.
+
+Done:
+
+- `scripts/dump-headless-trace.mjs` — emits per-instruction JSONL
+  from headless integrated session in normalized schema
+  `{n, cyc, pc, a, x, y, sp, p, op, bytes, mn}`. Microcoded + lockstep
+  on; can dump millions of instructions in seconds.
+- `scripts/swimlane-diff.mjs` — loads headless + VICE
+  `runtime-trace.jsonl`, aligns at a chosen PC, walks both streams
+  in parallel, reports first PC / opcode / register divergence.
+  Skips initial pre-TXS rows for register comparison (uninit SP).
+- `memory-bus.ts` reset: cold-RAM init pattern now matches VICE
+  defaults — `start_value=0xff`, alternating $FF/$00 every 128
+  bytes. Required for KERNAL RAMTAS / cart-detect to read same
+  bytes VICE does.
+
+Findings:
+
+- After RAM-init fix, KERNAL boot path matches VICE for the first
+  ~1500 instructions verbatim (PC + state + cycle offset stable
+  at +6).
+- First persistent divergence: VICE's RAM at `$8008` differs from
+  the documented init-pattern formula (cart-detect `CMP $8003,X`
+  with X=5 yields C=1 in VICE, C=0 in headless). Suspected cause:
+  VICE autostart-related write (G64 disk + AutostartPrgMode=1) into
+  the cart-window area before the trace samples begin. Not a CPU
+  bug.
+- Real game-code comparison blocked: VICE trace was captured with
+  autostart, headless cannot autostart yet (Bug 37 — typing path
+  reaches scancode but BASIC echo still missing).
+
+Open / next:
+
+- Either (a) fix Bug 37 so headless can type LOAD"*",8,1 and reach
+  identical autostart state, or (b) inject MM stage-1 PRG directly
+  into headless RAM via `loadPrgIntoRam` and align swimlane diff
+  at the game's entry point, sidestepping KERNAL/BASIC boot.
+- Path (b) is faster — lets us compare exactly the IEC custom-
+  loader handshake at `$46A7` against VICE's behaviour at the
+  same PC, which is the actual MM-boot blocker.
+
 ## Sprint 88-91: Pre-lockstep workarounds (superseded by Sprint 92)
 
 User clarified: cycle-perfect is **MVP**, not long-term goal. Headless
