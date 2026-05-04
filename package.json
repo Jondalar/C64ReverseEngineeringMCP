@@ -31,6 +31,7 @@
     "smoke:drive-equiv": "npm run build:mcp && node scripts/smoke-drive-equiv.mjs",
     "smoke:via1-iec": "npm run build:mcp && node scripts/smoke-via1-iec.mjs",
     "smoke:serial-matrix": "npm run build:mcp && node scripts/smoke-serial-matrix.mjs",
+    "smoke:g64-fidelity": "npm run build:mcp && node scripts/smoke-g64-fidelity.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },

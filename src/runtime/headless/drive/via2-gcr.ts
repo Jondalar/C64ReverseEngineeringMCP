@@ -87,9 +87,27 @@ export function makeGcrVia2Pb(coupling: Via2GcrCoupling): ViaPortBackend {
       if (coupling.trackBuffer.syncDetected()) bits &= ~PB_SYNC;
       return bits;
     },
-    onOutputChanged: (orValue, _ddrMask, _cause) => {
+    onOutputChanged: (orValue, ddrMask, _cause) => {
       coupling.headPosition.applyStepBits(orValue & (PB_STEP_LO | PB_STEP_HI));
-      // Motor / LED / DENSITY effects ignored in Sprint 62.
+      // Spec 113 M3.5a: PB2 = MOTOR. Bit 1 = motor on. Real hardware
+      // honors the latch bit when DDR has PB2 as output. Drive ROM
+      // toggles MOTOR around inactivity timeout and during seek.
+      if ((ddrMask & PB_MOTOR) !== 0) {
+        coupling.trackBuffer.setMotorOn((orValue & PB_MOTOR) !== 0);
+      }
+      // Spec 113 M3.5b: PB5/PB6 = DENSITY. Drive can force a zone
+      // independent of head position. Bits encode zone 0..3 directly.
+      // Only honour when both DENSITY pins are configured as outputs
+      // (DDR=1) — keeps reset-state default = track-derived zone so
+      // existing LOAD paths stay green during the boot window before
+      // drive ROM has programmed DDR.
+      if ((ddrMask & (PB_DENSITY_LO | PB_DENSITY_HI)) === (PB_DENSITY_LO | PB_DENSITY_HI)) {
+        const zone = (orValue >> 5) & 0x03;
+        coupling.trackBuffer.setDensityOverride(zone);
+      }
+      // Spec 113 M3.5c: half-track mode tracked here so the shifter
+      // returns garbage when the head sits on a half-track index.
+      coupling.trackBuffer.setHalfTrackMode((coupling.headPosition.currentHalfTrack & 1) !== 0);
     },
   };
 }

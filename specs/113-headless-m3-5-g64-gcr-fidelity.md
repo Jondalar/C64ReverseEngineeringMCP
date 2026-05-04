@@ -1,6 +1,6 @@
 # Spec 113 — Headless M3.5: G64 GCR Shifter Fidelity
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (M3.5a-f all green).** New `g64-fidelity-tests.ts` covers motor gating, density override, half-track read garbage, write-protect line, cross-zone sync — 20/20 checks pass. Production code: `head-position.ts` got `setMotorOn` / `setDensityOverride` / `setHalfTrackMode` + public `cyclesPerByteForZone`; `via2-gcr.ts` propagates motor / density / half-track on every PB write but gates motor + density on DDR=output to keep boot window using track-derived zone. `npm run smoke:g64-fidelity` 20/20; `npm run regress` 5/5 still green. Doc: `docs/g64-gcr-fidelity-notes.md`. Drive-ROM-controlled MOTOR + DENSITY through full LOAD tracked as follow-up.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 3, story M3.5
 Depth: deep
 Predecessors: Sprint 96 (free-running shifter), Spec 109 (M3.1)

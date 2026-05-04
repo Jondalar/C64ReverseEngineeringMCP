@@ -137,14 +137,40 @@ export class TrackBuffer {
   //   zone 1 (tracks 25-30): 3.50 µs/bit → 28 cyc/byte
   //   zone 2 (tracks 18-24): 3.25 µs/bit → 26 cyc/byte
   //   zone 3 (tracks  1-17): 3.00 µs/bit → 24 cyc/byte
-  // We pick by current track. DENSITY-bit override (drive can program
-  // zone independently of head position) is a follow-up.
-  private static cyclesPerByteForTrack(track: number): number {
+  static cyclesPerByteForTrack(track: number): number {
     if (track >= 31) return 32;
     if (track >= 25) return 28;
     if (track >= 18) return 26;
     return 24;
   }
+  static cyclesPerByteForZone(zone: number): number {
+    switch (zone & 0x03) {
+      case 0: return 32;
+      case 1: return 28;
+      case 2: return 26;
+      case 3: return 24;
+      default: return 26;
+    }
+  }
+  // Spec 113 (M3.5a): VIA2 PB2 (MOTOR) gates the shifter. Motor off →
+  // shifter freezes, byte-ready never fires. Default on so existing
+  // LOAD paths keep working until drive ROM toggles MOTOR explicitly.
+  private motorOn = true;
+  setMotorOn(on: boolean): void { this.motorOn = on; }
+  // Spec 113 (M3.5b): VIA2 PB5/PB6 (DENSITY) override. When set, drive
+  // forces a specific zone independent of head position. Encoded as
+  //   undefined: use track-derived zone (default)
+  //   0..3:      forced zone
+  private densityOverride: number | undefined;
+  setDensityOverride(zone: number | undefined): void {
+    this.densityOverride = zone === undefined ? undefined : (zone & 0x03);
+  }
+  // Spec 113 (M3.5c): half-track reads return deterministic garbage
+  // ($55 stream — neither $ff sync nor decodable GCR). Real hardware
+  // delivers off-track flux; we pick a deterministic byte so tests
+  // can pin behavior. Set by `headPosition` via `setHalfTrackMode`.
+  private halfTrackMode = false;
+  setHalfTrackMode(active: boolean): void { this.halfTrackMode = active; }
   // Sprint 96 part 8: byte-ready signal. Real 1541 hardware pulses
   // VIA2 CA1 when GCR shifter completes a byte; CA1 is wired to the
   // 6502 SO (Set Overflow) pin. Drive ROM polls V flag with BVC/BVS
@@ -169,6 +195,9 @@ export class TrackBuffer {
   // Free-running bit-level shifter. Call once per drive cycle from
   // the scheduler with the current physical track under the head.
   tickShifter(driveCycles: number, currentTrack: number): void {
+    // Spec 113 M3.5a: motor gating — shifter advances only when motor
+    // is on. Off ↔ no bit-counter advance, no byte-ready, no SYNC.
+    if (!this.motorOn) return;
     if (currentTrack !== this.latchedTrack) {
       this.latchedTrack = currentTrack;
       this.bitOffset = 0;
@@ -178,7 +207,10 @@ export class TrackBuffer {
       this.bitTimeAccumX8 = 0;
       this.refreshLatch();
     }
-    const cyclesPerByte = TrackBuffer.cyclesPerByteForTrack(currentTrack);
+    // Spec 113 M3.5b: density override beats track-derived zone.
+    const cyclesPerByte = this.densityOverride !== undefined
+      ? TrackBuffer.cyclesPerByteForZone(this.densityOverride)
+      : TrackBuffer.cyclesPerByteForTrack(currentTrack);
     // bitTime = cyclesPerByte / 8 (drive cycles per bit). Use ×8
     // fixed-point so we work with integers.
     this.bitTimeAccumX8 += driveCycles * 8;
@@ -190,13 +222,22 @@ export class TrackBuffer {
 
   private advanceOneBit(): void {
     let bit = 0;
-    const data = this.latchedTrack < 1 ? null : this.ensureTrack(this.latchedTrack);
-    if (data && data.length > 0) {
-      const totalBits = data.length * 8;
-      this.bitOffset = (this.bitOffset + 1) % totalBits;
-      const byteIdx = this.bitOffset >>> 3;
-      const bitIdxInByte = 7 - (this.bitOffset & 7);
-      bit = (data[byteIdx]! >> bitIdxInByte) & 1;
+    if (this.halfTrackMode) {
+      // Spec 113 M3.5c: half-track read returns alternating 0/1
+      // garbage bits. Never reaches 10-in-a-row so SYNC stays low,
+      // and decoded bytes never form valid GCR — drive ROM retries
+      // until head reaches an integer track.
+      this.bitOffset = (this.bitOffset + 1) & 0x7fffffff;
+      bit = this.bitOffset & 1;
+    } else {
+      const data = this.latchedTrack < 1 ? null : this.ensureTrack(this.latchedTrack);
+      if (data && data.length > 0) {
+        const totalBits = data.length * 8;
+        this.bitOffset = (this.bitOffset + 1) % totalBits;
+        const byteIdx = this.bitOffset >>> 3;
+        const bitIdxInByte = 7 - (this.bitOffset & 7);
+        bit = (data[byteIdx]! >> bitIdxInByte) & 1;
+      }
     }
     this.shifter = ((this.shifter << 1) | bit) & 0x3ff;
     if (this.shifter === 0x3ff) {
