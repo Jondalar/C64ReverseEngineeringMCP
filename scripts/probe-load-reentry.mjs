@@ -112,32 +112,85 @@ log(`---`);
 log(`total $F4CB hits: ${hits} after ${budget} c64-instr budget`);
 
 // Continue past LOAD-entry hit to capture drive's stuck-state RAM.
-// Sample drive zeropage when drive is parked in $C2FE / $D6BB / $D7BB
-// (filename-parse / directory-lookup loop).
 const drv = session.drive;
 const drvBus = drv.bus;
+const drvCpu = drv.cpu;
+const headPos = drv.headPosition;
+const trackBuf = drv.trackBuffer;
+
+// Track drive PC histogram across job-loop area + count IRQ entries.
+const jobLoopPcs = new Set();
+const irqEntryPcs = new Set();
+let highestTrackSeen = -1;
+let lowestTrackSeen = 999;
+let irqCount = 0;
+let lastDrvPc = drvCpu.pc;
+let totalDrvSteps = 0;
+const headPositionLog = [];
+
 let drvSampleCount = 0;
 for (let i = 0; i < 1_000_000 && drvSampleCount < 6; i++) {
   session.runFor(1);
-  const drvPc = drv.cpu.pc;
+  totalDrvSteps++;
+  const drvPc = drvCpu.pc;
+  const ct = headPos?.currentTrack ?? -1;
+  if (ct > 0) {
+    if (ct > highestTrackSeen) highestTrackSeen = ct;
+    if (ct < lowestTrackSeen) lowestTrackSeen = ct;
+  }
+  // Log head-position changes.
+  if (headPositionLog.length === 0 || headPositionLog[headPositionLog.length - 1].track !== ct) {
+    headPositionLog.push({ track: ct, drvCyc: drvCpu.cycles, c64Cyc: c64.cycles });
+  }
+  // Count IRQ entries (drive PC in $FE00-$FE7F = IRQ vector / handler).
+  if (drvPc >= 0xFE00 && drvPc <= 0xFE7F && (lastDrvPc < 0xFE00 || lastDrvPc > 0xFE7F)) {
+    irqCount++;
+    irqEntryPcs.add(drvPc);
+  }
+  // Track job-loop PCs (rough: $F2B0-$F50F = job-loop + read sector).
+  if (drvPc >= 0xF2B0 && drvPc <= 0xF50F) {
+    jobLoopPcs.add(drvPc);
+  }
+  lastDrvPc = drvPc;
+
   if (drvPc >= 0xD6B0 && drvPc <= 0xD6C0) {
     drvSampleCount++;
-    if (drvSampleCount % 1 === 0) {
-      const zp = [];
-      for (let a = 0; a < 0x100; a++) zp.push(drvBus.ram[a] ?? 0);
-      const hex = (b) => b.toString(16).padStart(2, "0");
-      log(`---`);
-      log(`DRV-SAMPLE ${drvSampleCount} c64Cyc=${c64.cycles} drvCyc=${drv.cpu.cycles} drvPc=$${drvPc.toString(16).padStart(4,"0").toUpperCase()}`);
-      log(`drvZP $00-$1F: ${zp.slice(0x00, 0x20).map(hex).join(" ")}`);
-      log(`drvZP $20-$3F: ${zp.slice(0x20, 0x40).map(hex).join(" ")}`);
-      log(`drvZP $40-$5F: ${zp.slice(0x40, 0x60).map(hex).join(" ")}`);
-      log(`drvZP $60-$7F: ${zp.slice(0x60, 0x80).map(hex).join(" ")}`);
-      log(`drvZP $80-$9F: ${zp.slice(0x80, 0xA0).map(hex).join(" ")}`);
-    }
-    // Skip ahead some cycles before next sample to spread out.
+    const zp = [];
+    for (let a = 0; a < 0x100; a++) zp.push(drvBus.ram[a] ?? 0);
+    const hex = (b) => b.toString(16).padStart(2, "0");
+    log(`---`);
+    log(`DRV-SAMPLE ${drvSampleCount} c64Cyc=${c64.cycles} drvCyc=${drvCpu.cycles} drvPc=$${drvPc.toString(16).padStart(4,"0").toUpperCase()}`);
+    log(`head: currentTrack=${headPos?.currentTrack ?? "?"} latchedTrack=${headPos?.latchedTrack ?? "?"} bitOffset=${headPos?.bitOffset ?? "?"} latchedByte=$${(headPos?.latchedByte ?? 0).toString(16).padStart(2, "0")} syncActive=${headPos?.syncActive}`);
+    log(`drvZP $00-$1F: ${zp.slice(0x00, 0x20).map(hex).join(" ")}`);
     for (let s = 0; s < 2000 && i < budget; s++) { session.runFor(1); i++; }
   }
 }
+
+log(`---`);
+log(`continuation summary:`);
+log(`  total drv steps: ${totalDrvSteps}`);
+log(`  drive head track range: lowest=${lowestTrackSeen} highest=${highestTrackSeen}`);
+log(`  IRQ entries: ${irqCount} (entry PCs: ${[...irqEntryPcs].map((p) => "$" + p.toString(16).padStart(4, "0").toUpperCase()).join(", ")})`);
+log(`  unique job-loop PCs ($F2B0-$F50F): ${jobLoopPcs.size}`);
+if (jobLoopPcs.size > 0) {
+  log(`  job-loop PCs sample: ${[...jobLoopPcs].slice(0, 20).map((p) => "$" + p.toString(16).padStart(4, "0").toUpperCase()).join(", ")}`);
+}
+log(`  head-position transitions: ${headPositionLog.length}`);
+for (const t of headPositionLog.slice(-10)) {
+  log(`    track=${t.track} drvCyc=${t.drvCyc} c64Cyc=${t.c64Cyc}`);
+}
+log(`---`);
+log(`drive VIA state at probe end:`);
+const via1 = drv.bus?.via1 ?? drv.via1;
+const via2 = drv.bus?.via2 ?? drv.via2;
+const dump = (name, via) => {
+  if (!via) { log(`  ${name}: missing`); return; }
+  log(`  ${name}: t1Latch=${via.t1Latch ?? "?"} t1Counter=${via.t1Counter ?? "?"} t2Counter=${via.t2Counter ?? "?"} acr=$${(via.acr ?? 0).toString(16).padStart(2,"0")} pcr=$${(via.pcr ?? 0).toString(16).padStart(2,"0")} ifr=$${(via.ifr ?? 0).toString(16).padStart(2,"0")} ier=$${(via.ier ?? 0).toString(16).padStart(2,"0")}`);
+};
+dump("via1", via1);
+dump("via2", via2);
+log(`  drvCpu flags=$${drvCpu.flags.toString(16).padStart(2, "0")} (I-flag=${(drvCpu.flags & 0x04) ? "set/disabled" : "clear/enabled"})`);
+log(`  drvCpu pc=$${drvCpu.pc.toString(16).padStart(4, "0").toUpperCase()} sp=$${drvCpu.sp.toString(16).padStart(2, "0")}`);
 
 if (!existsSync("samples/traces")) mkdirSync("samples/traces", { recursive: true });
 writeFileSync(outPath, lines.join("\n") + "\n");

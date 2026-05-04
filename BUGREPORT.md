@@ -2939,6 +2939,77 @@ state machine, but at different stages.
    synthetic LOADs cleanly. Then MM EOI bug becomes the
    final piece.
 
+### Sub-bugs identified at drive level (Sprint 98 EOD #2)
+
+Drive-side probe (`scripts/probe-load-reentry.mjs` extended with
+head-position + IRQ-counter + VIA-state capture) at the stuck
+$D6BB BMI loop reveals:
+
+```
+DRV-SAMPLE 6  drvPc=$D6BA  c64Cyc=33322163  drvCyc=38896928
+head: currentTrack=19  (file is at T17 — head at WRONG track)
+drvZP: $00=$0F $01=$80 $02=$01 $03=$0F $04=$01 ...
+       $08-$09=$11 $00 (job 1: T17 S0 — read job target)
+       $12-$13=$53 $31 (disk ID "S1" ✓)
+
+VIA1: t1Latch=$D000 t1Counter=$A012 acr=$00 pcr=$01 ifr=$20 ier=$02
+VIA2: t1Latch=$3A00 t1Counter=$1807 acr=$41 pcr=$EC ifr=$20 ier=$40
+drvCpu flags=$E1 (I-flag clear/IRQ enabled)
+drvCpu sp=$33  (boot was $F3 — pushed 192 bytes!)
+```
+
+Continuation summary over 1M c64-instr probe:
+- IRQ entries: **0** (IRQ vector area $FE00-$FE7F never visited)
+- Job-loop PCs ($F2B0-$F50F): **0 unique** (job loop never runs)
+- Head transitions: 1 (head sat at T19 entire time)
+
+**Three sub-bugs in headless drive emulation (all contribute to
+the synthetic LOAD stall):**
+
+1. **Drive IRQ chain dead at stuck state.** VIA1 + VIA2 both
+   have `(ifr & ier & 0x7f) = 0` at the stuck moment, so neither
+   asserts the drive's `irqLine`. Real 1541 needs VIA T1
+   continuous-mode IRQs to drive the job loop and sync to the
+   GCR shifter. With no IRQ, no job loop, no sector read,
+   READ T17/S0 stays pending forever (BMI loops on bit 7 of
+   `$01` job slot).
+
+2. **Drive stack near-overflow (sp=$33, was $F3 at boot).**
+   Drive pushed 192 bytes since boot without unwinding. ~64
+   IRQ entries (3 bytes each: PC+P) without RTI. Drive's IRQ
+   handler entered repeatedly but never returned cleanly,
+   stack grew, eventually IRQ chain broke. Likely a bug in
+   our IRQ handler dispatch or VIA IFR clear-on-IRA path.
+
+3. **Drive head at track 19 instead of 17.** File is at T17/S0
+   (job 1 target). Drive stepped past target (or stepped wrong
+   direction). May be a head-position step-bit decode bug or
+   off-by-N in track counting. Possibly a downstream effect of
+   bug 1/2 (steps issued during failed sectors-read retries).
+
+These are headless-emulator bugs, not generator bugs (VICE loads
+the same `samples/synthetic/1byte.g64` cleanly with `PEEK(2049)
+= 66`).
+
+**Fix priority:**
+1. Bug 1 (IRQ chain) is dominant — without IRQs nothing else
+   can recover.
+2. Bug 2 (stack overflow) likely caused by bug 1 — IRQ handler
+   misbehavior. Fix bug 1 first, see if stack stays sane.
+3. Bug 3 (head track) defer — may auto-resolve once IRQ chain
+   restores normal job-loop sequencing.
+
+**Investigation steps for next session:**
+- Read `src/runtime/headless/drive/via6522.ts` `tick()` + `read()`
+  + `irqAsserted()` carefully. Look for clear-on-IFR-read paths
+  that might disable T1 IRQ inadvertently.
+- Compare VIA1/VIA2 ACR + IER values right after drive boot vs.
+  at stuck state. If T1 IER bit gets cleared somewhere, find
+  what writes IER.
+- Watch VIA T1 underflow path: real T1 in continuous mode reloads
+  from latch on underflow and re-asserts IFR. Verify our model
+  does this.
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
 **Severity:** N/A — false alarm.
