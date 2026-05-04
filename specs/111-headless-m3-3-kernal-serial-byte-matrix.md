@@ -1,6 +1,6 @@
 # Spec 111 — Headless M3.3: KERNAL Serial Byte Matrix
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (M3.3a + M3.3b + M3.3d shipped at protocol-state level; M3.3c YAML deferred to follow-up).** New `SyntheticIecDevice` (`src/runtime/headless/test-helpers/synthetic-iec-device.ts`) + matrix runner (`src/runtime/headless/c64/serial-matrix-tests.ts`) cover 8 fixtures / 22 checks across LISTEN ack, LISTEN mismatch, TALK ack, LISTEN+SECOND+CIOUT+UNLSN data byte, device-not-present, UNTALK release, UNLSN-vs-talker deviation lock-in, LSB-first byte order. v1 tests at protocol-state level (no real KERNAL ROM execution) — KERNAL-mode harness deferred to v2 once `IntegratedSession` plumbing supports drive-swap. `npm run smoke:serial-matrix` 22/22 pass. Doc: `docs/kernal-serial-matrix.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 3, story M3.3
 Depth: deep
 Predecessors: Sprint 72 (KERNAL serial trap suite), Sprint 76 (full
