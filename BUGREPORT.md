@@ -3207,3 +3207,48 @@ inflated rate so internal lockstep stayed consistent. No user-visible
 regression resulted from the over-count; the fix simply aligns
 legacy with microcoded so the two CPUs are interchangeable on cycle
 totals as well as register state.
+
+## Bug 42 — VIC renderer read color RAM from `bus.ram` instead of `bus.io` (FIXED Sprint 104, Spec 105 v1)
+
+### Severity
+High. All multicolor text + bitmap rendering broken when game wrote
+color RAM (which is most non-trivial titles).
+
+### Symptoms
+- Maniac Mansion character-selection screen rendered with monochrome
+  / wrong-coloured logo + portraits
+- Renderer always saw color RAM as zero → `cramByte & 0x07 = 0` →
+  `isMc = false` → fell back to standard text mode for every cell
+- Multicolor text effects (4 colors per char from $D021/$D022/$D023
+  + color RAM low nibble) impossible to render correctly
+
+### Root cause
+`HeadlessMemoryBus` stores I/O bank ($D000-$DFFF) in
+`bus.io: Uint8Array(0x1000)` — color RAM at $D800-$DBFF lives at
+`io[0x800..0xbff]`. But every per-mode renderer in
+`vic-renderer.ts` read color RAM via `bus.ram[0xd800 + cellIdx]`
+which is a different array (the main 64K RAM backing store).
+Writes from KERNAL / game code went through `bus.write()` →
+`io[]`, but renderer reads bypassed the bus's I/O storage entirely.
+
+Result: color RAM was effectively zero from the renderer's
+perspective, regardless of what the game wrote.
+
+### Fix
+Change `colorRamBase = 0xd800` to `colorRamBase = 0x0800` in all
+per-mode renderers and switch the access from
+`bus.ram[colorRamBase + cellIdx]` to `bus.io[colorRamBase + cellIdx]`.
+`bus.io` is `public readonly` on `HeadlessMemoryBus` so direct
+access is fine for the renderer's read-only needs. (Going through
+`bus.read()` would also work but adds the I/O-handler dispatch +
+the new $f0 nibble open-bus mask which would corrupt the lower 4
+bits the renderer needs.)
+
+### Validation
+- MM character-selection screen now renders matching VICE reference
+  (yellow MANIAC MANSION logo, START button, 7 portraits with
+  selection box)
+- `npm run smoke:vic-fidelity` 10/10
+- `npm run regress` 5/5
+- Reference screenshot saved at
+  `samples/screenshots/mm-character-selection-headless.png`

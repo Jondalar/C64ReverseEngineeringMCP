@@ -246,11 +246,11 @@ function renderStandardTextRow(args: RenderArgs, row: number): void {
   paintVisibleRow(fb, row, bgColor);
   const screenRamOff = vic.screenRamOffset();
   const charRomOff = vic.charRomOffsetWithinBank();
-  const colorRamBase = 0xd800;
+  const colorRamBase = 0x0800; // index into bus.io[] (I/O bank); $D800-$DBFF
   for (let col = 0; col < 40; col++) {
     const cellIdx = row * 40 + col;
     const charCode = vicRead(ctx, screenRamOff + cellIdx);
-    const fgColor = bus.ram[colorRamBase + cellIdx]! & 0x0f;
+    const fgColor = bus.io[colorRamBase + cellIdx]! & 0x0f;
     const charBaseAddr = charRomOff + charCode * 8;
     for (let cy = 0; cy < 8; cy++) {
       const byte = vicRead(ctx, charBaseAddr + cy);
@@ -281,12 +281,12 @@ function renderMulticolorTextRow(args: RenderArgs, row: number): void {
   paintVisibleRow(fb, row, bgColor);
   const screenRamOff = vic.screenRamOffset();
   const charRomOff = vic.charRomOffsetWithinBank();
-  const colorRamBase = 0xd800;
+  const colorRamBase = 0x0800; // index into bus.io[] (I/O bank); $D800-$DBFF
   {
     for (let col = 0; col < 40; col++) {
       const cellIdx = row * 40 + col;
       const charCode = vicRead(ctx, screenRamOff + cellIdx);
-      const cramByte = bus.ram[colorRamBase + cellIdx]!;
+      const cramByte = bus.io[colorRamBase + cellIdx]!;
       const isMc = (cramByte & 0x08) !== 0;
       const fgColor = cramByte & 0x07;
       const charBaseAddr = charRomOff + charCode * 8;
@@ -336,14 +336,14 @@ function renderExtendedBgTextRow(args: RenderArgs, row: number): void {
   paintVisibleRow(fb, row, bgColors[0]!);
   const screenRamOff = vic.screenRamOffset();
   const charRomOff = vic.charRomOffsetWithinBank();
-  const colorRamBase = 0xd800;
+  const colorRamBase = 0x0800; // index into bus.io[] (I/O bank); $D800-$DBFF
   for (let col = 0; col < 40; col++) {
     const cellIdx = row * 40 + col;
     const screenByte = vicRead(ctx, screenRamOff + cellIdx);
     const charCode = screenByte & 0x3f;
     const bgIdx = (screenByte >> 6) & 0x03;
     const cellBg = bgColors[bgIdx]!;
-    const fgColor = bus.ram[colorRamBase + cellIdx]! & 0x0f;
+    const fgColor = bus.io[colorRamBase + cellIdx]! & 0x0f;
     const charBaseAddr = charRomOff + charCode * 8;
     for (let cy = 0; cy < 8; cy++) {
       const byte = vicRead(ctx, charBaseAddr + cy);
@@ -407,11 +407,11 @@ function renderMulticolorBitmapRow(args: RenderArgs, row: number): void {
   paintVisibleRow(fb, row, bgColor);
   const screenRamOff = vic.screenRamOffset();
   const bitmapOff = vic.bitmapBaseWithinBank();
-  const colorRamBase = 0xd800;
+  const colorRamBase = 0x0800; // index into bus.io[] (I/O bank); $D800-$DBFF
   for (let col = 0; col < 40; col++) {
     const cellIdx = row * 40 + col;
     const screenByte = vicRead(ctx, screenRamOff + cellIdx);
-    const colorByte = bus.ram[colorRamBase + cellIdx]!;
+    const colorByte = bus.io[colorRamBase + cellIdx]!;
     const c01 = (screenByte >> 4) & 0x0f;
     const c10 = screenByte & 0x0f;
     const c11 = colorByte & 0x0f;
