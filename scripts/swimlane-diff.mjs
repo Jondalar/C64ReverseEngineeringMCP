@@ -65,11 +65,18 @@ function normVice(ev) {
 const args = parseArgs(process.argv.slice(2));
 const hPath = args.headless;
 const vPath = args.vice;
+const mode = args.mode ?? "instr";
 const alignPc = args["align-pc"] ? parseHex(args["align-pc"]) : 0xfce2;
 const maxCmp = Number(args.max ?? 200_000);
+const outPath = args.out;
 if (!hPath || !vPath) {
-  console.error("Usage: --headless <path> --vice <path> [--align-pc 0xfce2] [--max N]");
+  console.error("Usage: --headless <path> --vice <path> [--mode=instr|eof] [--align-pc 0xfce2] [--max N] [--out <md>]");
   process.exit(2);
+}
+
+if (mode === "eof") {
+  await runEofMode();
+  process.exit(0);
 }
 
 console.error(`Aligning at PC=$${alignPc.toString(16)} ...`);
@@ -147,3 +154,194 @@ for (let i = firstDiff + 1; i < Math.min(N, firstDiff + 5); i++) {
   console.log(`  V ${fmt(vRows[i])}`);
 }
 process.exit(1);
+
+// ---------------------------------------------------------------------------
+// EOF mode (Spec 095 M0.2e). Aligns headless + VICE EOF JSONL on EOI rising
+// edge, walks per-channel, names the first divergence per channel, writes a
+// markdown report.
+// ---------------------------------------------------------------------------
+async function runEofMode() {
+  const hAll = [];
+  for await (const obj of readJsonl(hPath)) hAll.push(obj);
+  const vAll = [];
+  for await (const obj of readJsonl(vPath)) vAll.push(obj);
+
+  const headlessTrace = parseEofTrace(hAll, "headless");
+  const viceTrace    = parseEofTrace(vAll, "vice");
+
+  if (!headlessTrace.eoiC64Cyc) {
+    console.error("headless trace has no first_eoi moment");
+    process.exit(3);
+  }
+  if (!viceTrace.eoiC64Cyc) {
+    console.error("vice trace has no first_eoi moment");
+    process.exit(3);
+  }
+
+  const channels = ["c64Pc", "drvPc", "iecAtn", "iecClk", "iecData", "z90", "zA5"];
+  const summary = {};
+  for (const ch of channels) summary[ch] = { samples: 0, mismatches: 0, firstDivCyc: -1, firstHV: null };
+
+  // Walk by relative-cycle alignment.
+  let i = 0, j = 0;
+  while (i < headlessTrace.samples.length && j < viceTrace.samples.length) {
+    const h = headlessTrace.samples[i];
+    const v = viceTrace.samples[j];
+    const hRel = h.c64Cyc - headlessTrace.eoiC64Cyc;
+    const vRel = v.c64Cyc - viceTrace.eoiC64Cyc;
+    // Step the side that's behind in relative cycles.
+    if (hRel < vRel - 4) { i++; continue; }
+    if (vRel < hRel - 4) { j++; continue; }
+    for (const ch of channels) {
+      const hv = readChannel(h, ch);
+      const vv = readChannel(v, ch);
+      summary[ch].samples++;
+      if (hv !== vv) {
+        summary[ch].mismatches++;
+        if (summary[ch].firstDivCyc < 0) {
+          summary[ch].firstDivCyc = hRel;
+          summary[ch].firstHV = { headless: hv, vice: vv, hC64Cyc: h.c64Cyc, vC64Cyc: v.c64Cyc };
+        }
+      }
+    }
+    i++; j++;
+  }
+
+  const md = renderEofReport({ hPath, vPath, headlessTrace, viceTrace, summary });
+  if (outPath) {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(outPath, md);
+    console.error(`wrote ${outPath}`);
+  } else {
+    console.log(md);
+  }
+}
+
+function parseEofTrace(rows, expectSource) {
+  const samples = [];
+  let eoiC64Cyc;
+  let header;
+  const moments = [];
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    if (r.kind === "eof-header" || r.type === "header") {
+      header = r;
+      continue;
+    }
+    if (r.type === "summary" || r.kind === "summary") continue;
+    if (r.type === "fine") continue;
+    if (r.kind === "eof-moment" || r.type === "moment") {
+      moments.push(r);
+      if (r.name === "first_eoi") eoiC64Cyc = r.c64Cyc;
+      continue;
+    }
+    if (r.kind === "eof-sample" || r.type === "coarse") {
+      const c64Cyc = r.c64Cyc ?? r.c64Cyc;
+      const drvCyc = r.driveCyc ?? r.drvCyc ?? c64Cyc;
+      // Headless coarse exposes raw fields; VICE eof-sample exposes channels.
+      const c64Pc = r.c64Pc ?? r.channels?.c64Pc ?? 0;
+      const drvPc = r.drvPc ?? r.channels?.drivePc ?? 0;
+      const iec = r.iec ?? r.channels?.iec ?? { atn: 0, clk: 0, data: 0 };
+      const ram = r.ram ?? null;
+      const zp = r.channels?.zp ?? null;
+      const z90 = ram?.z90 ?? zp?.["90"] ?? 0;
+      const zA5 = ram?.zA5 ?? zp?.["a5"] ?? 0;
+      samples.push({ c64Cyc, drvCyc, c64Pc, drvPc, iec, z90, zA5 });
+    }
+  }
+  // Fallback for headless: derive eoiC64Cyc from summary.moments.
+  if (eoiC64Cyc === undefined) {
+    for (const r of rows) {
+      if ((r?.type === "summary" || r?.kind === "summary") && Array.isArray(r.moments)) {
+        const m = r.moments.find((x) => x.name === "first_eoi");
+        if (m) { eoiC64Cyc = m.c64Cyc; break; }
+      }
+    }
+  }
+  void expectSource;
+  return { samples, moments, eoiC64Cyc, header };
+}
+
+function readChannel(s, ch) {
+  switch (ch) {
+    case "c64Pc": return s.c64Pc;
+    case "drvPc": return s.drvPc;
+    case "iecAtn": return s.iec.atn ? 1 : 0;
+    case "iecClk": return s.iec.clk ? 1 : 0;
+    case "iecData": return s.iec.data ? 1 : 0;
+    case "z90": return s.z90;
+    case "zA5": return s.zA5;
+    default: return 0;
+  }
+}
+
+function pickSuspect(summary) {
+  // Order matters: first divergence in this priority list names the
+  // suspect subsystem.
+  const order = [
+    { ch: "drvPc",   subsystem: "drive ROM TALK" },
+    { ch: "iecClk",  subsystem: "IEC edge timing (CLK)" },
+    { ch: "iecData", subsystem: "IEC edge timing (DATA)" },
+    { ch: "iecAtn",  subsystem: "ATN ACK" },
+    { ch: "c64Pc",   subsystem: "C64 KERNAL ACPTR retry" },
+    { ch: "z90",     subsystem: "C64 KERNAL status byte" },
+    { ch: "zA5",     subsystem: "C64 KERNAL EOI counter" },
+  ];
+  let earliest = null;
+  for (const o of order) {
+    const s = summary[o.ch];
+    if (s.mismatches === 0) continue;
+    if (!earliest || s.firstDivCyc < earliest.firstDivCyc) {
+      earliest = { ...o, firstDivCyc: s.firstDivCyc, firstHV: s.firstHV };
+    }
+  }
+  return earliest;
+}
+
+function renderEofReport({ hPath, vPath, headlessTrace, viceTrace, summary }) {
+  const lines = [];
+  lines.push(`# EOF Trace Diff Report`);
+  lines.push("");
+  lines.push(`- headless trace: \`${hPath}\``);
+  lines.push(`- vice trace: \`${vPath}\``);
+  lines.push(`- alignment cycle (EOI rising edge):`);
+  lines.push(`  - headless c64Cyc=\`${headlessTrace.eoiC64Cyc}\``);
+  lines.push(`  - vice c64Cyc=\`${viceTrace.eoiC64Cyc}\``);
+  lines.push("");
+  lines.push(`## Per-channel summary`);
+  lines.push("");
+  lines.push(`| channel | samples | mismatches | first divergence (rel cyc) |`);
+  lines.push(`|---------|--------:|-----------:|---------------------------:|`);
+  for (const ch of Object.keys(summary)) {
+    const s = summary[ch];
+    const div = s.firstDivCyc >= 0 ? String(s.firstDivCyc) : "(none)";
+    lines.push(`| ${ch} | ${s.samples} | ${s.mismatches} | ${div} |`);
+  }
+  lines.push("");
+  lines.push(`## First divergence detail`);
+  lines.push("");
+  for (const ch of Object.keys(summary)) {
+    const s = summary[ch];
+    if (s.firstDivCyc < 0) continue;
+    const hv = s.firstHV;
+    lines.push(`- **${ch}** at relCyc=${s.firstDivCyc}: headless=${formatVal(hv.headless)} vice=${formatVal(hv.vice)} (h.c64Cyc=${hv.hC64Cyc}, v.c64Cyc=${hv.vC64Cyc})`);
+  }
+  lines.push("");
+  const suspect = pickSuspect(summary);
+  if (suspect) {
+    lines.push(`## Suspect subsystem`);
+    lines.push("");
+    lines.push(`**${suspect.subsystem}** — earliest channel divergence is on \`${suspect.ch}\` at relCyc=${suspect.firstDivCyc}.`);
+  } else {
+    lines.push(`## Suspect subsystem`);
+    lines.push("");
+    lines.push(`No divergence within sampled window — both sides agree across all channels.`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+function formatVal(v) {
+  if (typeof v !== "number") return String(v);
+  return `$${v.toString(16)}`;
+}

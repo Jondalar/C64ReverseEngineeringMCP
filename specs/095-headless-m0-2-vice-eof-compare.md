@@ -1,6 +1,6 @@
 # Spec 095 — Headless M0.2: VICE EOF Compare
 
-Status: refined, not started
+Status: in progress — schema extended, VICE harness CLI, diff `--mode=eof` + report renderer, schema doc, package scripts shipped. Manual VICE-side smoke vs MM disk + synthetic 1-byte G64 fixture deferred.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 0, story M0.2
 Depth: deep
 Predecessor: Spec 094 (M0.1 EOF trace harness)
