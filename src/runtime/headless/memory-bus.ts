@@ -148,7 +148,19 @@ export class HeadlessMemoryBus {
         if (value !== undefined) {
           this.io[normalized - 0xd000] = clampByte(value);
         }
-        const ioValue = this.io[normalized - 0xd000]!;
+        let ioValue = this.io[normalized - 0xd000]!;
+        // Spec 106 (M2.4d) — color RAM ($D800-$DBFF) is a 1Kx4 SRAM
+        // on real HW: only the low nibble is stored; reads return
+        // open-bus on the upper nibble. We approximate open-bus as
+        // $f0 (a common observed value when VIC has just fetched a
+        // sprite-pointer / screen byte). Per Spec 106 fallback path:
+        // "Open-bus value coupled too tightly to VIC: return constant
+        //  $FF, document, refine in a follow-up spec." We pick $f0
+        // so the lower-nibble write/read round-trip is visible
+        // without leaking VIC state.
+        if (normalized >= 0xd800 && normalized <= 0xdbff) {
+          ioValue = (ioValue & 0x0f) | 0xf0;
+        }
         this.recordAccess("read", normalized, ioValue, "io");
         return ioValue;
       }

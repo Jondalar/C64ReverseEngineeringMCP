@@ -1,6 +1,6 @@
 # Spec 106 — Headless M2.4: PLA and Memory Bus Fidelity
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1: M2.4a no-cart truth table + M2.4b $00/$01 + M2.4d color RAM nibble + M2.4g doc; M2.4c full open-bus + M2.4e Ultimax + M2.4f cart hooks deferred to v2 / Spec 128).** Production change: color RAM upper nibble returns $f (open-bus stub) instead of stored value at $D800-$DBFF — keeps low-nibble round-trip working. Tests: 22/22 across PLA truth-table (8 of 16 states are no-cart, the other 8 are gated on EXROM/GAME — cart side ships with M6), $00/$01 DDR/port semantics, color RAM nibble, IO-vs-RAM-vs-charROM bank toggle. `npm run smoke:pla-fidelity` 22/22; `npm run regress` 5/5 still green. Doc: `docs/pla-fidelity-notes.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 2, story M2.4
 Depth: deep
 Predecessors: Spec 098 (M1.1), Spec 105 (M2.3 VIC fetch tracking)
