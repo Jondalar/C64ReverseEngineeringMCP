@@ -42,7 +42,7 @@ export interface VsfLoadResult {
 export function saveDriveSessionVsf(record: DriveSessionRecord, outputPath: string): VsfSaveResult {
   const writer = new VsfWriter(VSF_MACHINE_C64);
   const drive = record.session.drive;
-  writer.addModule(VSF_MODULE_DRIVECPU, serializeCpu(drive.cpu));
+  writer.addModule(VSF_MODULE_DRIVECPU, serializeCpu(drive.cpu as any));
   writer.addModule(VSF_MODULE_DRIVERAM, serializeRam(drive.bus.ram));
   writer.addModule(VSF_MODULE_VIA1D1541, serializeVia(drive.bus.via1));
   writer.addModule(VSF_MODULE_VIA2D1541, serializeVia(drive.bus.via2));
@@ -71,7 +71,7 @@ export function loadDriveSessionVsf(record: DriveSessionRecord, inputPath: strin
     }
     try {
       switch (mod.name) {
-        case VSF_MODULE_DRIVECPU: deserializeCpu(drive.cpu, mod.data); break;
+        case VSF_MODULE_DRIVECPU: deserializeCpu(drive.cpu as any, mod.data); break;
         case VSF_MODULE_DRIVERAM: deserializeRam(drive.bus.ram, mod.data); break;
         case VSF_MODULE_VIA1D1541: deserializeVia(drive.bus.via1, mod.data); break;
         case VSF_MODULE_VIA2D1541: deserializeVia(drive.bus.via2, mod.data); break;

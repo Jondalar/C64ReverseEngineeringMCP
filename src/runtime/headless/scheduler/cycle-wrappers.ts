@@ -76,15 +76,25 @@ export class DriveCpuCycled implements CycleSteppable {
   private cyclesOwed = 0;
   constructor(public readonly drive: DriveCpu) {}
   executeCycle(): void {
+    if (this.drive.microcoded) {
+      // Microcoded path (Sprint 96 part 6): per-cycle bus access.
+      // Refresh IRQ line every cycle (VICE maincpu_int_status pattern);
+      // microcoded CPU samples it at instruction boundary.
+      const cpu = this.drive.cpu as any;
+      cpu.irqLine = this.drive.bus.via1.irqAsserted() || this.drive.bus.via2.irqAsserted();
+      cpu.executeCycle();
+      return;
+    }
     if (this.cyclesOwed === 0) {
-      // IRQ check before instruction.
-      if (!this.drive.cpu.interruptsDisabled()) {
+      // Legacy whole-instruction path. IRQ check before instruction.
+      const cpu = this.drive.cpu as any;
+      if (!cpu.interruptsDisabled()) {
         const irq = this.drive.bus.via1.irqAsserted() || this.drive.bus.via2.irqAsserted();
-        if (irq) this.drive.cpu.serviceInterrupt(0xfffe, false);
+        if (irq) cpu.serviceInterrupt(0xfffe, false);
       }
-      const before = this.drive.cpu.cycles;
-      this.drive.cpu.step();
-      const consumed = this.drive.cpu.cycles - before;
+      const before = cpu.cycles;
+      cpu.step();
+      const consumed = cpu.cycles - before;
       this.cyclesOwed = Math.max(0, consumed - 1);
     } else {
       this.cyclesOwed--;

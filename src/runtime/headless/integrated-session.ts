@@ -173,6 +173,10 @@ export class IntegratedSession {
       deviceId: opts.deviceId ?? 8,
       iecBus: this.iecBus,
       gcr: { trackBuffer: this.trackBuffer, headPosition: this.headPosition, writeProtected: opts.writeProtected },
+      // Sprint 96 part 6 (Bug 39): drive uses microcoded CPU when c64
+      // does. Required for sub-instruction bus access timing during
+      // IEC bit-bang.
+      useMicrocodedCpu: opts.useMicrocodedCpu ?? false,
     });
     this.iecBus.attachDriveRam(this.drive.bus.ram);
     // Spec 090: configure drive's sync ratio + zero baseline.

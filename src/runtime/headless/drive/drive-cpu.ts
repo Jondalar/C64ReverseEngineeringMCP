@@ -16,6 +16,7 @@
 // point and seed PC explicitly.
 
 import { Cpu6510, type CpuMemory } from "../cpu6510.js";
+import { Cpu6510Cycled as Cpu6510Microcoded } from "../cpu/cpu6510-cycled.js";
 import { Via6522 } from "./via6522.js";
 import { makeStubVia1Pa, makeStubVia1Pb, makeBusVia1Pa, makeBusVia1Pb } from "./via1-iec.js";
 import { makeStubVia2Pa, makeStubVia2Pb, makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
@@ -34,6 +35,9 @@ export interface DriveCpuOptions {
   romBytes?: Uint8Array;    // raw override (testing)
   iecBus?: IecBus;          // wire VIA1 PB to the bus; otherwise stub
   gcr?: Via2GcrCoupling;    // wire VIA2 PA/PB to TrackBuffer + HeadPosition
+  // Sprint 96 part 6 (Bug 39): use cycle-stepped microcoded CPU with
+  // sub-instruction bus access. Required for IEC bit-bang correctness.
+  useMicrocodedCpu?: boolean;
 }
 
 export class DriveBus implements CpuMemory {
@@ -103,8 +107,11 @@ export class DriveBus implements CpuMemory {
 // after each C64 instruction. Drive's clock advances independently
 // using fixed-point sync_factor (drive 1MHz / C64 985.248kHz ratio).
 export class DriveCpu {
-  public readonly cpu: Cpu6510;
+  // Legacy whole-instruction CPU (default). May be replaced by the
+  // cycled CPU when useMicrocodedCpu=true.
+  public readonly cpu: Cpu6510 | Cpu6510Microcoded;
   public readonly bus: DriveBus;
+  public readonly microcoded: boolean;
 
   // Spec 090: 16.16 fixed-point sync_factor. drive_cycles_per_c64_cycle.
   // PAL: 1.01477 → 0x103C5 (= 1.0149 in 16.16). NTSC: 0x10000 (1.0).
@@ -123,7 +130,10 @@ export class DriveCpu {
 
   constructor(opts: DriveCpuOptions = {}) {
     this.bus = new DriveBus(opts);
-    this.cpu = new Cpu6510(this.bus);
+    this.microcoded = opts.useMicrocodedCpu ?? false;
+    this.cpu = this.microcoded
+      ? new Cpu6510Microcoded(this.bus)
+      : new Cpu6510(this.bus);
   }
 
   // Spec 090: configure sync ratio. PAL = 1.01477 (1MHz drive / 985.248kHz C64).
@@ -163,14 +173,7 @@ export class DriveCpu {
     // Accumulate fractional drive cycles owed.
     this.cycleAccumulator16dot16 += this.syncFactor16dot16 * c64Delta;
     while (this.cycleAccumulator16dot16 >= 0x10000) {
-      // IRQ check before each instruction.
-      if (!this.cpu.interruptsDisabled()) {
-        const irq = this.bus.via1.irqAsserted() || this.bus.via2.irqAsserted();
-        if (irq) this.cpu.serviceInterrupt(0xfffe, false);
-      }
-      const before = this.cpu.cycles;
-      this.cpu.step();
-      const consumed = this.cpu.cycles - before;
+      const consumed = this.runOneInstruction();
       this.bus.via1.tick(consumed);
       this.bus.via2.tick(consumed);
       this.cycleAccumulator16dot16 -= consumed * 0x10000;
@@ -180,8 +183,29 @@ export class DriveCpu {
   // Legacy step API kept for back-compat (will be removed once
   // IntegratedSession fully on executeToClock).
   step(): number {
-    const before = this.cpu.cycles;
-    this.cpu.step();
-    return this.cpu.cycles - before;
+    return this.runOneInstruction();
+  }
+
+  // Run exactly one instruction on whichever CPU is wired. For the
+  // microcoded path, drive-cycle until next instruction boundary.
+  private runOneInstruction(): number {
+    if (this.microcoded) {
+      const cycled = this.cpu as Cpu6510Microcoded;
+      const before = cycled.cycles;
+      // Set IRQ pin from VIAs (level-triggered). NMI not used by 1541.
+      cycled.irqLine = this.bus.via1.irqAsserted() || this.bus.via2.irqAsserted();
+      // Tick at least once, then until back at boundary.
+      cycled.executeCycle();
+      while (!cycled.isAtInstructionBoundary()) cycled.executeCycle();
+      return cycled.cycles - before;
+    }
+    const legacy = this.cpu as Cpu6510;
+    if (!legacy.interruptsDisabled()) {
+      const irq = this.bus.via1.irqAsserted() || this.bus.via2.irqAsserted();
+      if (irq) legacy.serviceInterrupt(0xfffe, false);
+    }
+    const before = legacy.cycles;
+    legacy.step();
+    return legacy.cycles - before;
   }
 }
