@@ -1,6 +1,6 @@
 # Spec 114 — Headless M3.6: Write Support
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1: M3.6b + M3.6c + M3.6f shipped; M3.6a + M3.6d + M3.6e deferred to v2).** v1 locks down `TrackBuffer.writeByte` → `modifiedTracks` → `persistTrackBuffer` round-trip via 13/13 fixture suite (`npm run smoke:write-support`). Side-file `<image>_session.g64` written; original image untouched; explicit `output_path` override works. SAVE through real KERNAL + drive ROM (M3.6a/d) and scratch/rename DOS-command parsing (M3.6e) are gated on the write-side BYTE-READY shifter loop, deferred to v2 — workflows that need SAVE today should use `mode: "fast-trap"`. Doc: `docs/drive-write-support.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 3, story M3.6
 Depth: deep
 Predecessors: Spec 109 (M3.1), Spec 110 (M3.2), Spec 112 (M3.4 GCR

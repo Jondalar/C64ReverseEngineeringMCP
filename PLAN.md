@@ -93,7 +93,7 @@ dependency order.
 | 98  | Bug 40 close ✓ FIXED 2026-05-04       | 094, 095, 096, 097 (M0.1-4)          | critical | EOF trace → VICE compare → stepper-sequence fix in head-position.ts. Synthetic + MM LOAD work. |
 | 99  | Headless contract ✓ DONE 2026-05-04   | 098, 099, 100, 101, 102 (M1.1-5)     | high     | Session modes, unified stepping, deterministic reset, snapshots, regression harness — all green.  |
 | 100 | Drive TrueDrive — protocol ✓ DONE 2026-05-04 | 109 ✓, 110 ✓, 111 ✓ (M3.1-3)         | high     | M3.1 drive CPU hardening + Bug 41 fix. M3.2 VIA1 IEC contract (24/24). M3.3 KERNAL serial byte matrix v1 (22/22, protocol-state level; KERNAL-ROM harness deferred to v2). |
-| 101 | Drive TrueDrive — file paths (Specs 112+113 ✓) | 112 ✓, 113 ✓, 114 (M3.4-6)         | high     | M3.4 D64 truedrive path (L1 added to regress). M3.5 G64 GCR fidelity (20/20 fidelity smoke). M3.6 write support open. |
+| 101 | Drive TrueDrive — file paths ✓ DONE 2026-05-04 | 112 ✓, 113 ✓, 114 ✓ (M3.4-6)       | high     | M3.4 D64 truedrive path (L1 regress). M3.5 G64 GCR fidelity (20/20). M3.6 write support v1 (13/13; SAVE via real drive ROM deferred to v2). |
 | 102 | Drive backlog + nice-to-have          | 115, 116 (M3.7-8)                    | low      | Multi-drive 8+9 (nice-to-have), drive fidelity backlog.                                           |
 | 103 | C64 hardware — CPU + CIA              | 103, 104 (M2.1-2)                    | medium   | CPU cycle/IRQ fidelity, CIA1/CIA2 fidelity.                                                       |
 | 104 | C64 hardware — VIC + bus              | 105, 106 (M2.3-4)                    | medium   | VIC-II per-cycle fidelity, PLA/memory bus.                                                        |
