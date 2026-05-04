@@ -161,6 +161,11 @@ export class IntegratedSession {
   // Spec 107 (M2.5) v1: 4 paddles × 256 values, exposed via setPaddle
   // and surfaced through SID POT pins by Spec 108 wiring.
   public readonly paddles: Uint8Array = new Uint8Array(4); // [POTAX, POTAY, POTBX, POTBY]
+  // Pre-V2 1541-v2: optional IEC byte-level transaction trace.
+  // Set `enableIecByteTrace = true` and inspect `iecByteEvents` post-run.
+  // Hooks $EDDD CIOUT body (C64→drive) and $EE13 ACPTR body (drive→C64).
+  public enableIecByteTrace = false;
+  public readonly iecByteEvents: { cycle: number; pc: number; dir: "send" | "recv"; byte: number; atnLow: boolean }[] = [];
   public readonly vic: VicII;
   public readonly sid: Sid6581;
   public readonly framebuffer: VicFramebuffer;
@@ -607,6 +612,35 @@ export class IntegratedSession {
     // the instruction sees up-to-date drive state).
     this.drive.executeToClock(this.c64Cpu.cycles);
     this.checkC64Interrupts();
+    // Pre-V2 1541-v2: IEC byte trace. $EDDD = CIOUT body entry
+    // (KERNAL byte-send to listener). $EE13 = ACPTR body entry
+    // (KERNAL byte-receive from talker). Hook PC match before step.
+    if (this.enableIecByteTrace) {
+      const pc = this.c64Cpu.pc;
+      if (pc === 0xEDDD) {
+        // CIOUT entry: A holds byte to send.
+        this.iecByteEvents.push({
+          cycle: this.c64Cpu.cycles,
+          pc,
+          dir: "send",
+          byte: this.c64Cpu.a & 0xff,
+          atnLow: !this.iecBus.atnLine,
+        });
+      } else if (pc === 0xEE13) {
+        // ACPTR entry: A holds 0 going in, byte set on return at $EE51.
+        // Capture pre-state; we'll log byte by hooking the return PC
+        // ($EE51 typical exit) below.
+      } else if (pc === 0xEE51) {
+        // ACPTR exit: A holds received byte.
+        this.iecByteEvents.push({
+          cycle: this.c64Cpu.cycles,
+          pc,
+          dir: "recv",
+          byte: this.c64Cpu.a & 0xff,
+          atnLow: !this.iecBus.atnLine,
+        });
+      }
+    }
     const before = this.c64Cpu.cycles;
     this.c64Cpu.step();
     this.c64InstructionCount += 1;

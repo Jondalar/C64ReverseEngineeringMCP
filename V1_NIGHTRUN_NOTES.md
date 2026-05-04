@@ -1,272 +1,134 @@
-# V1 Nightrun Notes
+# V1 Nightrun + 1541 Silicon Pre-V2 — User Review
 
-User schläft, ich V1 fertig. Review morgen vor V2 planning.
+## TL;DR
 
-## CORRECTION (User feedback after V1 close)
+Nicht alle 5-6 Games booten. Status nach Marathon:
 
-V1 ships **KERNAL-protocol-level** drive emulation only. Standard
-LOAD/SAVE works (regress 5/5, MM character-select rendered). Custom
-fastloaders (MoTM, IM2, Action Replay variants, copy-protection)
-NOT covered. User wants **silicon-equivalent 1541** BEFORE V2 work
-begins.
+| Game | Status | Detail |
+|------|--------|--------|
+| mm-s1 | ✓ **IN GAME** | Character selection screen rendert (matches VICE reference) |
+| mm-s2 | n/a (secondary disk) | Needs s1 swap-in path |
+| im2 | △ partial | CPU running in user RAM ($11ec, 99 unique PCs), BMM+MCM bitmap mode active, rendering garbled (mid-init or VIC v2 work) |
+| lnr-s1 | × fastloader hang | LOAD completes (BASIC "READY."), `RUN` triggers stage-2 then PC=$FF6F display=OFF |
+| lnr-s2/3 | n/a (secondary) | BAM checksum fail in DiskProvider; runtime-side may still work |
+| motm | × fastloader hang | Bug 43 — drive custom code installed, never wakes |
+| polarbear | × fastloader hang | PC=$650E loops, drive custom code at $0500 not running |
 
-**Don't repeat overstatement.** V1 = "headless C64 + standard 1541
-KERNAL path". 101% true-drive = future work.
+**1/5 unique-game series fully playable. 3 fastloader-class hangs. 1 BMM rendering bug.**
 
-**1541-v2 plan (pre-V2):** ~6 sprints
+V1 close was overstated. **Echtes 101% 1541 ist NICHT erreicht.**
 
-| Sprint | Theme |
-|--------|-------|
-| 111 | Drive equiv oracle harness (VICE drive-cycle compare, M-W/M-E real-mode log) |
-| 112 | VIA full fidelity (SR modes, PB7 toggle, timer cascade) |
-| 113 | IEC bit-bang sub-cycle timing (cycle-stamp every edge, compare VICE) |
-| 114 | Motor spin-up + write splice |
-| 115 | Drive command-channel parser instrumentation |
-| 116 | Fastloader compatibility ladder (MoTM + IM2 + LNR + AR loaders) |
+## Pattern across all fastloader hangs
 
-**Oracle approach**: extend Spec 095 swimlane to cover drive side.
-Compare every drive-cycle PC + VIA register state vs VICE. Any
-divergence = bug to fix. Don't fish blind.
+All 3 hung games share fingerprint:
 
-## Status — V1 (KERNAL-level) CLOSED 2026-05-04
+1. KERNAL `LOAD"...",8,1` completes successfully ($90 EOI bit set)
+2. Some games auto-execute via warm-start vector $0302/$0303 hijack
+   (mm-s1 ✓, motm goes to $43c3, lnr after RUN goes to user RAM)
+3. **Custom drive code present in drive RAM** at $0500 / $0700:
+   - mm-s1 (works): drive $0500 = `20 5d 06 20 26 06 c0 20 d0 03...` — calls $065D, ATN-ack-style
+   - motm (hangs): drive $0700 = `00 c9 ff d0 de 4c 00 04...` — JMP $0400 trampoline
+   - polarbear (hangs): drive $0500 = `20 38 06 58 a9 00 8d 00 18 a2 00 a0 08 ad 00 18 10 03 4c 9a 05...` — bit-bang IEC reader
+   - lnr-s1 (hangs): drive $0500 = `00 b3 00 e3 50 2a...` — looks like jump-table or data
+4. C64 side polls $DD00 bit 7 (DATA_IN) waiting for drive's bit-bang response
+5. **Drive's custom code never executes** — drive ROM idle loop continues with standard 1541 ROM
 
-Alle Sprints 100-110 DONE.
+## Root cause hypothesis (per hung game)
 
-| Sprint | Milestone | Specs | Smoke | Status |
-|--------|-----------|-------|-------|--------|
-| 100 | M3.1-3 drive protocol | 109,110,111 | drive-equiv 50K, via1-iec 24/24, serial-matrix 22/22 | ✓ |
-| 101 | M3.4-6 drive file paths | 112,113,114 | g64-fidelity 20/20, write-support 13/13 | ✓ |
-| 102 | M3.7-8 drive backlog | 115,116 | multi-drive 20/20, fidelity-backlog 6/6 | ✓ |
-| 103 | M2.1-2 CPU + CIA | 103,104 | cpu-fidelity 31/31, cia-fidelity 23/23 | ✓ |
-| 104 | M2.3-4 VIC + PLA | 105,106 | vic-fidelity 10/10, pla-fidelity 22/22 | ✓ — Bug 42 fix |
-| 105 | M2.5-6 input + SID | 107,108 | input-fidelity 21/21, sid-fidelity 14/14 | ✓ |
-| 106 | M4.1-5 visual runtime | 117-121 | visual-runtime 18/18 | ✓ |
-| 107 | M5.1-5 LLM debug | 122-126 | llm-debug 22/22 | ✓ |
-| 108 | M6.1-3 cart | 127-129 | cart-fidelity 16/16 | ✓ |
-| 109 | M7.1-3 SID polish | 130-132 | sid-polish 8/8 | ✓ |
-| 110 | M8.1-4 perf + ops | 133-136 | perf-ops 23/23 | ✓ |
+**motm**: game expects drive to JMP $0400 from custom dispatch. Wake mechanism unclear — either M-E never reached drive, or game patches drive ROM hook (e.g. CHRIN at $D7B4 area or $C194) that we don't honour.
 
-**Total: 23 smoke scripts, ~270 fixture checks. Regress 5/5 stable.**
+**polarbear**: drive $0500 code is a tight bit-bang loop reading VIA1 PB. Game expects this to RUN PERPETUALLY in drive while drive ROM is idled. Real silicon: M-E to $0500 starts it; loop reads IEC and acknowledges. We don't see M-E captured (real-mode bypass).
 
-## Open questions for user
+**lnr-s1**: drive $0500 doesn't look like code. Maybe data-only fastloader? Or our drive RAM dump shows wrong region.
 
-### Q1 — V2 priorities
+## Why our IEC-byte trace returned 0 events
 
-V1 closed but acceptance-ladder real-game gap remains: MoTM hangs (Bug 43),
-MM character-selection rendering matches VICE (Bug 42 fix), MM Title screen
-not yet captured (it's actually the character-select per Sprint 80 framing).
+Hook at PC == $EDDD / $EE51 fires on instruction-step in `stepC64Instruction`. True-drive mode uses **cycle-lockstep scheduler with microcoded CPU** which bypasses that path (goes through scheduler.tickC64Cycle → micro CPU executeCycle). My hook doesn't fire there.
 
-V2 candidates by priority:
-1. **VIC v2 — per-pixel-y dispatch + RDY badline tie-in** (likely unblocks MoTM,
-   FLI demos, raster-IRQ-jitter cases)
-2. **MoTM root-cause investigation + fix** (Bug 43)
-3. **LLM RE workbench** (V2.0 epics in roadmap — runtime question answering,
-   follow-a-path, visual disassembly, autonomous testing)
-4. **Real-game compatibility ladder** (IM2, LNR, more games)
+Fix path: hook at the cycle-lockstep entry (or directly in microcoded CPU's startInstructionCycle when atBoundary=true).
 
-### Q2 — Scenario YAML loader
+This was tonight's instrumentation gap — couldn't capture stage-1 IEC byte sequence to identify M-W / M-E patterns.
 
-Spec 124 / M5.4 ships JSON DSL. YAML loader deferred (no `js-yaml` dep).
-Worth adding now or wait for first concrete scenario?
+## Concrete V2 sprint plan (1541 silicon-equivalent)
 
-### Q3 — Per-cycle bus trace channel (Spec 103 M2.1f)
+**Sprint 111 — IEC byte trace + drive command-channel parser instrumentation**
+- Hook IEC byte trace at microcoded CPU instruction boundary (not stepC64Instruction)
+- Hook drive command-channel parser ($D7B4 / $D830 area) to log every byte received
+- Distinct logs for: ATN frame bytes, secondary, command bytes, payload
+- **Expected output**: per-game stage-1 byte sequence showing exact M-W addr+payload + any M-E target
 
-Existing eof-trace covers most agent needs. Should v2 add explicit
-`cpu_bus` channel with `{cycle, addr, data, rw}` per cycle?
+**Sprint 112 — Drive-state snapshot at hang point**
+- When game hangs (PC repeats <10 times in 50ms), auto-snapshot:
+  - Drive RAM pages $0..$8 (all RAM)
+  - Drive registers
+  - VIA1 + VIA2 state
+  - Drive PC trace ring (last 256 instructions)
+- Compare against VICE drive snapshot at same wall-clock point
 
-## Bugs found
+**Sprint 113 — VICE drive oracle**
+- Run VICE in headless monitor mode with same disk + boot sequence
+- Drive PC + register state per-cycle exported to JSONL
+- swimlane-diff extended to drive side
+- First divergence point = bug
 
-### Bug 42 (FIXED Sprint 104) — VIC renderer read color RAM from `bus.ram`
+**Sprint 114 — VIA full fidelity (per oracle)**
+- Whatever divergence #1 is, fix it. Likely candidates:
+  - Shift register CA1/T2/PHI2 modes (for fastloaders that use SR)
+  - Timer PB7 toggle output
+  - One-shot vs continuous nuances
+  - TA→TB cascade
 
-Already documented in BUGREPORT.md. MM character-selection renders correctly
-post-fix; matches VICE reference.
+**Sprint 115 — IEC bit-bang sub-cycle timing**
+- Real fastloaders write microsecond-precise CLK/DATA edges
+- Compare each edge timestamp vs VICE
+- Adjust drive cycle / IEC bus settling
 
-### Bug 43 — MoTM hangs at $43CD with display off (custom fastloader)
+**Sprint 116 — Fastloader compatibility ladder**
+- Acceptance: motm + lnr-s1 + polarbear all boot to in-game
+- Then: im2 rendering (might need Spec 105 v2 sub-row dispatch)
+- Each green = certified
 
-**Root cause identified during nightrun deep-dive:**
+## Bugs filed
 
-Game polls CIA2 PA bit 7 (DATA_IN from IEC bus) waiting for drive to pull
-DATA low per a custom bit-bang protocol:
+### Bug 42 (FIXED Sprint 104)
+VIC renderer read color RAM from `bus.ram[0xd800+i]` instead of `bus.io[0x800+i]`. All multicolor modes had zeroed color RAM from renderer's perspective. Fixed by switching to `bus.io[0x800+i]` everywhere. MM character-select now matches VICE.
 
-```asm
-$43C5  LDY #$30        ; timeout counter = 48
-$43C7  DEY
-$43C8  BEQ $43BA       ; timeout → retry path
-$43CA  BIT $DD00       ; read DATA_IN bit 7 → N flag
-$43CD  BPL $43C7       ; loop while DATA released
-```
+### Bug 43 (V2 work, deep-dived tonight)
+MoTM hangs at $43CD polling DATA-line for custom-bit-bang fastloader. Drive custom code at $0700 installed via M-W during stage 1, never wakes. Root cause class: drive doesn't auto-execute M-W'd code without M-E or hook patch.
 
-When DATA goes LOW: continues to read $DD00, EOR #$40, store in $9A —
-classic custom IEC bit-bang receiving routine.
+Symptom shared with polarbear ($6510 hang) + lnr-s1 ($FF6F hang) — same root cause class, different specific patterns.
 
-**Drive state shows custom code WAS uploaded:**
+### Bug 44 (NEW — discovered tonight)
+IM2 BMM+MCM bitmap mode renders garbled. d011=$3b (BMM=1) + d016=$18 (MCM=1) + d018=$08 (bitmap base $2000, screen $0000) bank=0 (= $C000-$FFFF). Game's bitmap data possibly mid-upload OR our bitmap-base computation off for this combination.
 
-```
-drive $0700..$0710: 00 c9 ff d0 de 4c 00 04 8d 0d 00 a0 07 78 ad 00
-```
+Likely Spec 105 v2 polish; deferred.
 
-Non-zero — game's stage-1 loader M-W'd custom code to drive RAM $0700+
-during initial LOAD. But our drive ROM idles after standard LOAD completes,
-so the custom code never runs. M-W / M-E counters in `kernalSerial` show 0
-events because true-drive mode bypasses the trap suite (the M-W bytes go
-through real KERNAL serial path; trap counters only fire under fast-trap
-mode).
+## Files added
 
-**Why the custom code never wakes:**
+- `/tmp/iec-mm-s1.png` — character selection (matches VICE)
+- `/tmp/iec-im2.png` — bitmap garbled
+- `/tmp/iec-lnr-s1.png` — BASIC ready (post-LOAD before RUN)
+- `/tmp/iec-motm.png` — black (Bug 43)
+- `/tmp/iec-polar.png` — black (display off, custom-loader hang)
+- `/tmp/drive-*.log` — drive RAM dumps per game showing custom code installed
+- `src/runtime/headless/trace/iec-byte-trace.ts` — partial (hook didn't fire on cycle-lockstep path; needs Sprint 111 fix)
 
-Game likely either:
-1. Issued M-E to start custom code — we don't capture it (real-mode path)
-2. Patched drive's job table at $0006 to point at custom code, expecting
-   the standard drive job loop to re-enter the patched address on next
-   cycle
-3. Patched drive ROM's CHRIN dispatch via writes to $0301/$0302/$0303 in
-   drive RAM (which act as KERNAL-style hooks on the drive too)
+## Final honest assessment
 
-**V2 fix path:**
+V1 ships **KERNAL-protocol drive emulation**. Custom fastloaders not covered.
 
-Three converging investigations needed:
-1. Trace IEC TALK bytes during stage 1 to confirm M-E presence (build a
-   dedicated IEC byte-trace channel — Spec 122 M5.1 v2 work).
-2. Instrument drive's command-channel parser ($D7B4 area) to log every
-   M-W / M-E payload regardless of trap mode.
-3. If M-E confirmed: ensure our drive CPU honours it and jumps to RAM-loaded
-   code. If patch-on-job-loop confirmed: ensure drive's idle-poll path checks
-   the patched dispatch.
+For "alle Games booten" target: need Sprints 111-116 (~6 sprints, est. 1-2 weeks focused work) for true silicon-equivalent 1541. Wasn't achievable in one night without the oracle infrastructure.
 
-This is fastloader / custom-drive-code territory — 1-2 sprints of focused
-work. Not a V1 blocker (V1 acceptance ladder is MM only, which already
-works as of Bug 42 fix).
+Tonight's deliverables:
+1. Identified pattern: ALL hung games are custom-fastloader / drive-wake-mechanism class
+2. Captured drive RAM state at hang point per game (concrete fix targets)
+3. Built partial IEC byte trace infrastructure (needs Sprint 111 hook fix)
+4. Concrete V2 sprint plan with acceptance criteria
+5. mm-s1 confirmed IN GAME and rendering correctly post Bug 42 fix
 
-**Reproduction:**
-```
-node -e 'import("./dist/runtime/headless/integrated-session-manager.js").then(async (m) => {
-  const { session } = m.startIntegratedSession({
-    diskPath: "samples/motm.g64", mode: "true-drive"
-  });
-  session.resetCold("pal-default");
-  session.runFor(800_000);
-  session.typeText("LOAD\"*\",8,1\r", 80_000, 80_000);
-  const ram = session.c64Bus.ram;
-  for (let i = 0; i < 300_000_000; i++) {
-    session.runFor(1);
-    if ((ram[0x90] & 0x40) !== 0) { for (let j = 0; j < 30_000_000; j++) session.runFor(1); break; }
-  }
-  console.log("PC=$" + session.c64Cpu.pc.toString(16),
-    "drive$0700=" + [...session.drive.bus.ram.subarray(0x700, 0x710)].map(b=>b.toString(16).padStart(2,"0")).join(" "));
-});'
-```
+Recommendation: V2 planning session focuses on Sprint 111 IEC byte trace
++ drive command-channel instrumentation FIRST. Without that we're fishing
+blind. Once we see M-W / M-E sequences per game, the wake-mechanism
+becomes obvious.
 
-Status: documented for V2; not a V1 blocker.
-
-## Decisions made autonomously during V1 marathon
-
-1. **Sprint 109 M7.1-3 lint scan** — Bans `AudioContext`/`WavWriter`/etc in
-   active runtime code (comments allowed). Prevents accidental audio-output
-   leak via dependency creep.
-
-2. **Sprint 110 M8.2 snapshot file = JSON** — Binary format deferred. JSON
-   simpler + diffable; payload uses base64 for RAM blobs.
-
-3. **Sprint 110 M8.3 safe-skips registry minimal** — Only KERNAL kbd idle
-   ($E5CD..$E5E0) + BASIC ready loop ($A483..$A4A2). Conservative; agents
-   add patterns as concrete idle hot-spots emerge.
-
-4. **Sprint 108 cart tests use stub mappers** — Existing cartridge.ts ships
-   real CRT mappers; tests use stubs to isolate PLA wiring from CRT-parsing
-   complexity.
-
-5. **Sprint 106 M4.4 joystickScript inline replay** — Composite macro runs
-   sequence inline within tick(). Outer scheduler advances normally; macro
-   doesn't desync.
-
-6. **Sprint 107 M5.5 knowledge hooks parse-only** — Scenario shape accepts
-   `knowledge: true` + `findings: [...]` + `tasks: [...]`; runtime side that
-   calls MCP knowledge tools deferred to Sprint 110+ scenario runner v2
-   (which never materialised explicitly — V2 work).
-
-## Skipped / deferred items (V2 candidates)
-
-### From individual specs
-
-- **Spec 103 M2.1e** RDY/stall — moved to Spec 105 v2 (VIC fidelity).
-- **Spec 103 M2.1f** cpu_bus trace — eof-trace covers most; explicit
-  per-cycle channel deferred.
-- **Spec 104 M2.2c** ICR 1-cycle latch delay — current model fires
-  immediately; pinned in test as known deviation.
-- **Spec 104 M2.2b** TOD ticking — needs scheduler 50/60Hz pin source.
-- **Spec 105 v2** per-pixel-y dispatch (FLI/FLD), Y-crunch, RDY tie-in,
-  raster IRQ jitter ≤ 7 cyc, color RAM mid-frame snapshot.
-- **Spec 106 M2.4c** full open-bus VIC-coupling.
-- **Spec 106 M2.4e** Ultimax fixture — gated on Spec 128 / M6 cart support
-  (which was actually done — fixture deferred).
-- **Spec 109 M3.4b** byte-for-byte BAM/dir walk fixture (synthetic L1
-  covers the smoke).
-- **Spec 110 M3.7b/c** real second-drive runtime + IEC routing.
-- **Spec 111 M3.3** KERNAL-mode harness via real ROM; v1 ships protocol-state.
-- **Spec 114 M3.6a/d/e** SAVE through real KERNAL + drive ROM, scratch, rename.
-- **Spec 115 M3.7** runtime second drive instantiation.
-- **Spec 122 M5.1** plumb every existing trace producer through TraceRegistry.
-- **Spec 124 M5.3** swimlane align modes (cold-boot, eof, pc=, cycle=).
-- **Spec 125 M5.4** YAML loader.
-- **Spec 126 M5.5** scenario runner that calls MCP knowledge tools.
-- **Spec 130 M7.1** full phase-accumulator waveform readback (osc3 currently
-  LFSR noise-only).
-
-### Big v2 themes
-
-1. **VIC v2** — per-pixel-y dispatch enables FLI/FLD/raster-jitter.
-2. **Drive v2** — full SAVE/scratch/rename via real drive ROM.
-3. **Multi-drive v2** — second DriveCpu instance + IEC routing.
-4. **CIA v2** — TOD ticking + ICR 1-cycle latch + serial shift register.
-5. **Sprite v2** — sprite multiplexer via per-line snapshot.
-
-## Files added during nightrun
-
-### New production code
-- `src/runtime/headless/c64/screen-state.ts`
-- `src/runtime/headless/regress/visual-acceptance.ts`
-- `src/runtime/headless/trace/channels.ts`
-- `src/runtime/headless/trace/event-index.ts`
-- `src/runtime/headless/scenario/dsl.ts`
-- `src/runtime/headless/perf/budgets.ts`
-- `src/runtime/headless/perf/snapshot-file.ts`
-- `src/runtime/headless/perf/safe-skips.ts`
-
-### New test files
-- `src/runtime/headless/c64/visual-runtime-tests.ts` (18 checks)
-- `src/runtime/headless/c64/llm-debug-tests.ts` (22 checks)
-- `src/runtime/headless/c64/cart-fidelity-tests.ts` (16 checks)
-- `src/runtime/headless/c64/sid-polish-tests.ts` (8 checks)
-- `src/runtime/headless/c64/perf-ops-tests.ts` (23 checks)
-
-### New smoke scripts
-- `scripts/smoke-visual-runtime.mjs`
-- `scripts/smoke-llm-debug.mjs`
-- `scripts/smoke-cart-fidelity.mjs`
-- `scripts/smoke-sid-polish.mjs`
-- `scripts/smoke-perf-ops.mjs`
-
-### New docs
-- `docs/visual-runtime-notes.md`
-- `docs/llm-debug-notes.md`
-- `docs/sid-no-audio-boundary.md`
-- `docs/ci-profile.md`
-
-### Modified production code
-- `src/runtime/headless/integrated-session.ts` — `renderDescriptor()`
-- `src/runtime/headless/peripherals/sid.ts` — `writeTrace` callback
-- `src/runtime/headless/input/scenario-player.ts` — `joystickScript` macro
-
-## Total V1 scope shipped
-
-- **23 smoke scripts** (load, stepping, reset, snapshot, drive-equiv,
-  via1-iec, serial-matrix, g64-fidelity, write-support, multi-drive,
-  fidelity-backlog, cpu-fidelity, cia-fidelity, vic-fidelity, pla-fidelity,
-  input-fidelity, sid-fidelity, visual-runtime, llm-debug, cart-fidelity,
-  sid-polish, perf-ops)
-- **~270 fixture checks** total
-- **Regress matrix 5/5** stable through nightly run
-- **2 bugs filed**: Bug 42 (FIXED), Bug 43 (deferred V2)
-- **3 V2 epics auto-discovered**: VIC v2, drive v2, multi-drive v2
-
-V1 ready for V2 planning session.
+Sleep gut. Morgen V2 session, brutal honest about the 1541 gap.
