@@ -88,19 +88,19 @@ export class HeadPosition {
 
 // TrackBuffer wraps a G64 image with mutation support.
 //
-// Sprint 96 part 7 (Bug 39 follow-up): free-running GCR shifter.
-// Real 1541 hardware clocks GCR bits/bytes off the spinning disk
-// continuously, regardless of CPU activity. CPU reads $1C01 to
-// receive the LATCHED byte; reads do NOT advance the cursor. SYNC
-// state on VIA2 PB7 reflects current shifter, polled by CPU loop.
+// Sprint 96 part 7-9 (Bug 39 follow-up): bit-level free-running GCR
+// shifter, mirroring VICE rotation_1541_simple (drive/rotation.c).
 //
-// Without free-run, drive's "wait for SYNC" loop never advances the
-// cursor → SYNC never asserted → drive READ ERROR / FILE NOT FOUND
-// even when the G64 contains valid GCR for the requested track.
+// Real 1541 hardware clocks raw GCR BITS off the spinning disk
+// continuously. A 10-bit sliding shift register detects SYNC (10
+// consecutive 1-bits). Once SYNC ends, bit_counter starts at 0
+// and after 8 non-sync bits the byte is latched + byte-ready
+// pulses (CA1 → 6502 SO → V flag).
 //
-// Density: 1 byte per 32 drive cycles ≈ 31.25 kBps (zone 1 nominal).
-// We use a single rate for all zones for now; per-zone density
-// remains a follow-up.
+// CRITICAL: byte alignment relative to SYNC is determined at the
+// BIT level, not the byte level. Byte-aligned models can't reproduce
+// proper header decode alignment and drive ROM rejects every
+// header it tries to read.
 export class TrackBuffer {
   // Maps integer track number → raw GCR byte stream for that track.
   // Loaded lazily from the G64 on first access; modified in-place by
@@ -111,8 +111,27 @@ export class TrackBuffer {
   private lastReadByteIsSyncContext = 0;
   private latchedByte = 0xff;
   private latchedTrack = -1;
-  private shifterAccum = 0;
-  private static readonly CYCLES_PER_BYTE = 32;
+  // Bit-level shifter state (per VICE rotation.c).
+  private bitOffset = 0;        // current bit position within track GCR stream
+  private shifter = 0;          // 10-bit sliding window of last bits read
+  private bitCounter = 0;       // bits since last byte latch (0..7); reset by sync
+  private syncActive = false;
+  // Fixed-point bit-time accumulator. Unit: drive_cycles × 8.
+  // Increments by driveCycles*8 per tick; advance one bit when ≥ cyclesPerByte.
+  private bitTimeAccumX8 = 0;
+  // Per-zone bit cell × 8 = drive cycles per GCR byte. 1541 speed zones:
+  //   zone 0 (tracks 31-35): 4.00 µs/bit → 32 cyc/byte
+  //   zone 1 (tracks 25-30): 3.50 µs/bit → 28 cyc/byte
+  //   zone 2 (tracks 18-24): 3.25 µs/bit → 26 cyc/byte
+  //   zone 3 (tracks  1-17): 3.00 µs/bit → 24 cyc/byte
+  // We pick by current track. DENSITY-bit override (drive can program
+  // zone independently of head position) is a follow-up.
+  private static cyclesPerByteForTrack(track: number): number {
+    if (track >= 31) return 32;
+    if (track >= 25) return 28;
+    if (track >= 18) return 26;
+    return 24;
+  }
   // Sprint 96 part 8: byte-ready signal. Real 1541 hardware pulses
   // VIA2 CA1 when GCR shifter completes a byte; CA1 is wired to the
   // 6502 SO (Set Overflow) pin. Drive ROM polls V flag with BVC/BVS
@@ -134,46 +153,58 @@ export class TrackBuffer {
     return this.latchedByte;
   }
 
-  // Free-running shifter advance. Call once per drive cycle from the
-  // scheduler with the current physical track under the head.
-  // Advances byteCursor / SYNC state at GCR rate.
+  // Free-running bit-level shifter. Call once per drive cycle from
+  // the scheduler with the current physical track under the head.
   tickShifter(driveCycles: number, currentTrack: number): void {
     if (currentTrack !== this.latchedTrack) {
       this.latchedTrack = currentTrack;
+      this.bitOffset = 0;
+      this.shifter = 0;
+      this.bitCounter = 0;
+      this.syncActive = false;
+      this.bitTimeAccumX8 = 0;
       this.refreshLatch();
     }
-    this.shifterAccum += driveCycles;
-    while (this.shifterAccum >= TrackBuffer.CYCLES_PER_BYTE) {
-      this.shifterAccum -= TrackBuffer.CYCLES_PER_BYTE;
-      this.advanceOneByte();
+    const cyclesPerByte = TrackBuffer.cyclesPerByteForTrack(currentTrack);
+    // bitTime = cyclesPerByte / 8 (drive cycles per bit). Use ×8
+    // fixed-point so we work with integers.
+    this.bitTimeAccumX8 += driveCycles * 8;
+    while (this.bitTimeAccumX8 >= cyclesPerByte) {
+      this.bitTimeAccumX8 -= cyclesPerByte;
+      this.advanceOneBit();
     }
   }
 
-  private advanceOneByte(): void {
-    if (this.latchedTrack < 1) {
-      this.latchedByte = 0xff;
-      this.lastReadByteIsSyncContext++;
-      this.onByteReady?.();
-      return;
+  private advanceOneBit(): void {
+    let bit = 0;
+    const data = this.latchedTrack < 1 ? null : this.ensureTrack(this.latchedTrack);
+    if (data && data.length > 0) {
+      const totalBits = data.length * 8;
+      this.bitOffset = (this.bitOffset + 1) % totalBits;
+      const byteIdx = this.bitOffset >>> 3;
+      const bitIdxInByte = 7 - (this.bitOffset & 7);
+      bit = (data[byteIdx]! >> bitIdxInByte) & 1;
     }
-    const data = this.ensureTrack(this.latchedTrack);
-    if (!data || data.length === 0) {
-      this.latchedByte = 0xff;
-      this.lastReadByteIsSyncContext++;
-      this.onByteReady?.();
-      return;
+    this.shifter = ((this.shifter << 1) | bit) & 0x3ff;
+    if (this.shifter === 0x3ff) {
+      // SYNC: 10 consecutive 1-bits. Hold bit counter, flag sync.
+      this.bitCounter = 0;
+      this.syncActive = true;
+    } else {
+      this.syncActive = false;
+      this.bitCounter++;
+      if (this.bitCounter === 8) {
+        this.bitCounter = 0;
+        this.latchedByte = this.shifter & 0xff;
+        this.onByteReady?.();
+      }
     }
-    this.byteCursor = (this.byteCursor + 1) % data.length;
-    this.latchedByte = data[this.byteCursor]!;
-    if (this.latchedByte === 0xff) this.lastReadByteIsSyncContext++;
-    else this.lastReadByteIsSyncContext = 0;
-    this.onByteReady?.();
   }
 
   private refreshLatch(): void {
     const data = this.ensureTrack(this.latchedTrack);
     if (!data || data.length === 0) { this.latchedByte = 0xff; return; }
-    this.latchedByte = data[this.byteCursor % data.length]!;
+    this.latchedByte = data[(this.bitOffset >>> 3) % data.length]!;
   }
 
   // Legacy advancing read (kept for tests / callers that pre-date the
@@ -198,14 +229,10 @@ export class TrackBuffer {
     this.modified.add(track);
   }
 
-  // Returns true while the head is currently over a SYNC mark
-  // approximation. Real hardware detects 10 consecutive 1-bits at
-  // bit-stream level; we approximate at byte-aligned level: ≥3
-  // consecutive 0xFF bytes counts as sync. False-positives possible
-  // for unusual track patterns; bit-exact detection is a candidate
-  // for a follow-up sprint when drive code surfaces a regression.
+  // SYNC detection mirrors VICE: shift register == $3FF (10 ones).
+  // Maintained per bit advance in advanceOneBit().
   syncDetected(): boolean {
-    return this.lastReadByteIsSyncContext >= 3;
+    return this.syncActive;
   }
 
   resetByteCursor(): void {

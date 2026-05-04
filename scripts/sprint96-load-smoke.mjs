@@ -6,8 +6,12 @@ const { startIntegratedSession } = await import("../dist/runtime/headless/integr
 const { session } = startIntegratedSession({ diskPath: disk, useCycleLockstep: true, useMicrocodedCpu: true });
 session.resetCold();
 session.runFor(800_000);
-session.typeText("LOAD\"*\",8,1\r", 80_000, 80_000);
-session.runFor(40_000_000);
+const fname = process.env.LOAD_NAME ?? "*";
+const cmd = `LOAD"${fname}",8,1\r`;
+console.log(`Typing: ${cmd.replace("\r","<RET>")}`);
+session.typeText(cmd, 80_000, 80_000);
+const budget = parseInt(process.env.RUN_BUDGET ?? "10000000", 10);
+session.runFor(budget);
 const ram = session.c64Bus.ram;
 const W = (n) => "$"+(n & 0xff).toString(16).padStart(2,"0");
 const screenBase = 0x0400;
@@ -22,3 +26,9 @@ for (let row = 0; row < 16; row++) {
 }
 console.log(`\ndrvPC=$${session.drive.cpu.pc.toString(16)} drvA=$${session.drive.cpu.a.toString(16)} c64PC=$${session.c64Cpu.pc.toString(16)}`);
 console.log(`drive RAM $77=${W(session.drive.bus.ram[0x77])} $79=${W(session.drive.bus.ram[0x79])} $85=${W(session.drive.bus.ram[0x85])}`);
+console.log(`\nC64 RAM $02A7..$02D7 (boot load target):`);
+let h="", a="";
+for (let i = 0; i < 48; i++) { const c = ram[0x02A7+i]; h+=c.toString(16).padStart(2,"0")+" "; a+=(c>=0x20&&c<0x7e)?String.fromCharCode(c):"."; }
+console.log(`  ${h}`);
+console.log(`load addr $C3/$C4 = $${ram[0xc4].toString(16).padStart(2,"0")}${ram[0xc3].toString(16).padStart(2,"0")}`);
+console.log(`status $90 = ${W(ram[0x90])}`);
