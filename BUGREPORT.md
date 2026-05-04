@@ -1961,11 +1961,54 @@ Both bugs combined corrupted RAMTAS at `STA ($C1),Y` / `CMP ($C1),Y`: the store 
 
 Verified by `scripts/sprint93-divergence.mjs`: legacy and microcoded CPUs now agree on PC for at least 50 000 instructions. `scripts/sprint93-1-smoke.mjs` shows microcoded mode now produces a fully booted BASIC banner + `READY.` prompt + scancode-level keyboard detection.
 
+## Bug 39 — Headless `LOAD"*",8,1` returns `?DEVICE NOT PRESENT` despite drive wired up
+
+**Severity:** high (blocks every disk-loader game including MM, Murder, Last Ninja, IM2).
+**Discovered during:** Sprint 95 typing-path verification 2026-05-04.
+**Status:** open.
+
+### Symptom
+
+Headless integrated session, microcoded + lockstep, real KERNAL ROM.
+After cold reset + warm + `typeText("LOAD\"*\",8,1\r")`, KERNAL
+prints `SEARCHING FOR .` then `?DEVICE NOT PRESENT  ERROR`. KERNAL's
+ATN-LISTEN exchange to drive 8 timed out: drive ROM did not pull
+DATA low within the spec window.
+
+### Likely causes (next-session candidates)
+
+1. Drive ROM not initialised by the time LOAD starts — drive sits in
+   reset / has not yet entered idle loop at $EBFF.
+2. ATN edge from C64 not detected by drive VIA1 CA1 (was the Sprint
+   66 hack that pokes `$7C = $80`).
+3. Drive PB4 ATN-ACK polarity wrong — drive sees ATN, tries to ACK,
+   but bus does not register.
+4. Cycle ratio off enough that drive's ATN-handler runs too late.
+5. KERNAL serial-trap masking the real path even when traps are off.
+
+### Next step
+
+Use `scripts/dump-headless-trace.mjs` to capture the LOAD path; pull
+the matching VICE trace section (autostart serial); diff cycle-by-
+cycle around the first ATN edge (`STA $DD00` with bit 3 cleared in
+PA latch) until first divergence. This is the productive Sprint 93.2
+direction now that typing works.
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
-**Severity:** medium (blocks Sprint 93.1 final acceptance — typing path detects keys but BASIC never sees them).
+**Severity:** N/A — false alarm.
 **Discovered during:** Sprint 93.1 smoke 2026-05-03.
-**Status:** open.
+**Status:** RESOLVED-NOT-A-BUG (Sprint 95 verification 2026-05-04).
+
+### Resolution
+
+Sprint 95 verification: typing "LIST<RETURN>" causes BASIC to print
+`LIST` on row 6 and a fresh `READY.` on row 8. Typing
+`LOAD"*",8,1<RETURN>` causes KERNAL to print `SEARCHING FOR .` and
+attempt the serial bus exchange. The original Bug 37 symptom was a
+truncated screen-dump in `scripts/sprint93-1-smoke.mjs` that only
+covered `$0400-$04EF` — the typed character actually landed at
+`$04F0` (row 6 col 0), one byte past the end of the dump window.
 
 ### Symptom
 
