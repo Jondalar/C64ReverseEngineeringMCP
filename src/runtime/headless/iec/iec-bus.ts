@@ -105,7 +105,13 @@ export class IecBus {
   // IRQ handler normally sets $7C from CA1 IRQ, but our model misses
   // some edges due to the boot-order race. Direct poke unsticks the
   // common case.
+  // Spec 096 (Bug 40): poke is now edge-triggered only — set on
+  // ATN high→low transition, not while continuously low. The
+  // level-trigger version caused the drive to re-enter the ATN
+  // handler / command parser on every C64 IEC write while ATN was
+  // held low (e.g. during ACPTR retry), abandoning TALK byte-send.
   private driveRamForAtnPoke?: Uint8Array;
+  private prevAtnLow = false;
 
   attachDriveVia1(via: Via6522): void {
     this.driveVia1 = via;
@@ -248,15 +254,20 @@ export class IecBus {
     if (this.driveVia1) {
       this.driveVia1.pulseCa1(this.atnLine);
     }
-    // Sprint 66 hack: while ATN is low, force-set the standard 1541
-    // ATN-pending flag at $7C on every C64-side IEC write so the
-    // idle loop at $EBFF picks it up. Standard 1541 ROM idle loop
-    // reads $7C; the IRQ handler normally sets it from CA1 IRQ +
-    // PB7 read. We synthesize that here unconditionally to avoid
-    // having to model the drive-ROM PB7 polling fallback exactly.
-    if (!this.atnLine && this.driveRamForAtnPoke) {
+    // Sprint 66 hack, Spec 096 fix: edge-triggered poke of drive
+    // ATN-pending flag at $7C. Standard 1541 ROM idle loop reads $7C
+    // and jumps to ATN-handler when non-zero; the IRQ handler
+    // normally sets it from CA1 IRQ. Setting only on ATN high→low
+    // transition matches the real edge-pulse semantics. The earlier
+    // level-trigger version repeatedly re-poked $7C on every C64
+    // IEC write while ATN was held low, which caused drive to
+    // re-enter the command parser during ACPTR retries and
+    // abandon TALK byte-send (Bug 40).
+    const atnLow = !this.atnLine;
+    if (atnLow && !this.prevAtnLow && this.driveRamForAtnPoke) {
       this.driveRamForAtnPoke[0x7c] = 0x80;
     }
+    this.prevAtnLow = atnLow;
   }
 
   // Internal helper used by setC64Output to detect change before update.
@@ -271,6 +282,7 @@ export class IecBus {
     this.driveClkReleased = true;
     this.driveDataReleased = true;
     this.driveAtnAckReleased = true;
+    this.prevAtnLow = false;
   }
 
   // Diagnostic snapshot for tools / tests.

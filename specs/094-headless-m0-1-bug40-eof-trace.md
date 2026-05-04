@@ -1,6 +1,6 @@
 # Spec 094 — Headless M0.1: Bug 40 EOF Trace Harness
 
-Status: in progress — harness + CLI + schema doc + legacy move landed; G64 builder also landed (Spec 097 generator). Headless LOAD against synthetic 1-byte G64 currently stalls (drive idle at $D6BB never receives ATN); cause unclear — could be Bug 40 surfacing on ANY LOAD or a generator-side bug we haven't found yet. CI smoke gating deferred until that's resolved.
+Status: in progress — harness + CLI + schema doc + legacy move landed; G64 builder also landed (Spec 097 generator). VICE confirms synthetic 1-byte G64 LOADs cleanly (PEEK 2049 = 66) → generator validated. Headless reproduces Bug 40 footprint on synthetic: drive enters TALK band ($E855), sends some bytes, then transitions at drvPc=$E706 → $C154 (PARSXQ) → $C2B3 (CMDSET) → status/parse path; never emits EOI. C64 sits in ACPTR retry forever. Smoking gun identified at `src/runtime/headless/iec/iec-bus.ts:257-259` (level-trigger ATN-pending poke on `$7C`); fix candidate documented in BUGREPORT.md Bug 40 → "Sprint 98 / Spec 094-097 finding". CLI gained `--pre-eoi-keep=<drvCycles>` flag for full pre-EOF window capture. CI smoke gating deferred until Spec 096 fix lands.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 0, story M0.1
 Depth: deep
 Predecessors: Sprint 96 (Bug 39 IEC bit-bang), Sprint 97 (current Bug 40 probe)

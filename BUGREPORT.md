@@ -2696,6 +2696,220 @@ completes (status $90 = $40 is the trigger). Bypasses BASIC
 stuck state. Not production-correct but unblocks VIC bitmap +
 sprite + raster IRQ rendering verification of MM title.
 
+### Sprint 98 / Spec 094-097 finding (2026-05-04) — synthetic 1-byte G64 reproduces
+
+Synthetic 1-byte file generator (Spec 097 M0.4b) produces
+`samples/synthetic/1byte.g64`. VICE x64sc loads it cleanly:
+`LOAD"X",8,1` → READY → `PRINT PEEK(2049)` returns 66 ($42).
+Generator validated end-to-end against real 1541 ROM.
+
+Headless against same fixture: stalls identically to MM. EOF trace
+(`samples/traces/synthetic-eof-narrow.jsonl`, schema v1) shows:
+
+- Drive enters TALK band ($E700-$EB00) at drvCyc 5149707 (drvPc=$E855)
+- Drive bounces in/out TALK to ROM helpers ($FE67/$FE75/$FF20/$FF22)
+- Drive last in TALK at drvCyc 5158607, drvPc=$E706
+- Next instruction (drvCyc 5158610): drive jumps to $C154 (PARSXQ region)
+- Walks $C154 → $D7B6 → $C2B3 (CMDSET) → $C2CB → tight loop
+  $C2FE-$C312 (job dispatcher / status path) → $D7BB → $D7F4 →
+  $D816 → $D82D → $C1E6 (PRSCLN) → $C26A (PARSE) → $C2AB → ...
+- Drive never returns to TALK band.
+- Just before transition (drvCyc 5158500-5158600), drive at
+  $E69C-$E6FF area = OKERR / ERRMSG / ERRMSG status routines.
+- C64 stuck in ACPTR retry $EEAF/$EEB1/$EEB6/$EEB7 + $ED5A/$ED5D
+  for entire post-transition window.
+- `eoiSeen=false` — drive **never sends EOI byte** to C64.
+
+Two failure footprints, same root cause:
+- MM 38658B: drive falls to top-level idle band ($EBE7-$EC2D)
+  after partial transfer.
+- Synthetic 1B: drive falls to PARSE / OKERR / status path
+  ($C100-$C312 / $E6XX / $D7XX) without ever sending EOI.
+
+Both = drive abandons TALK byte-send before C64 sees EOI flag.
+
+### Smoking gun (Sprint 98 code review, 2026-05-04)
+
+`src/runtime/headless/iec/iec-bus.ts:257-259` (Sprint 66 hack):
+
+```ts
+if (!this.atnLine && this.driveRamForAtnPoke) {
+  this.driveRamForAtnPoke[0x7c] = 0x80;
+}
+```
+
+Pokes drive RAM `$7C = $80` (ATN-pending flag) on every
+`notifyAtnChanged()` call while ATN line is low. Called from
+every `setC64Output` (every C64 write to `$DD00`).
+
+Standard 1541 ROM idle / dispatch loop reads `$7C` and jumps to
+ATN-handler / command-parser when non-zero. This poke should be
+edge-pulse only (set on ATN high→low transition), but is
+level-trigger: while ATN is low, every C64 IEC write re-pokes
+`$7C=$80`.
+
+During Bug 40 stall, ATN is low (C64 not releasing ATN — see
+"State at hang" coarse samples `iec.atn=false`,
+`c64Released.atn=false`). C64 ACPTR retry loop hammers `$DD00`
+multiple times per iteration. Each write re-pokes `$7C`. When
+drive's TALK send completes and falls through to dispatch, it
+reads `$7C != 0` and jumps to command-parser path, never
+returning to TALK byte-send.
+
+Companion hack `src/runtime/headless/drive/via6522.ts:335`
+fires CA1 IFR on EITHER edge instead of configured-polarity edge.
+Less directly implicated (drive dispatch reads `$7C` not IFR),
+but related.
+
+### Fix candidate (Spec 096)
+
+Convert `iec-bus.ts:257-259` from level-trigger to edge-trigger:
+
+```ts
+private prevAtnLow = false;
+
+private notifyAtnChanged(): void {
+  if (this.driveVia1) this.driveVia1.pulseCa1(this.atnLine);
+  const atnLow = !this.atnLine;
+  if (atnLow && !this.prevAtnLow && this.driveRamForAtnPoke) {
+    this.driveRamForAtnPoke[0x7c] = 0x80;
+  }
+  this.prevAtnLow = atnLow;
+}
+```
+
+Verify: re-run synthetic trace after fix, expect drive to complete
+TALK byte-send + emit EOI + drive to enter idle ($EBE7-$EC2D) +
+C64 LOAD return to BASIC.
+
+If synthetic passes: re-run MM. If MM passes: Bug 40 closed.
+
+Risk: if real ATN edge happens during ACPTR retry (KERNAL
+re-asserting ATN for UNTALK send), drive should still service via
+normal CA1 IRQ + `$1800` PB7 polling fallback. The hack masked a
+real edge-detection issue; converting to edge-only restores
+correct semantics.
+
+### Fix landed but Bug 40 still open (2026-05-04 Sprint 98 cont.)
+
+`iec-bus.ts:257-259` level→edge trigger fix landed. Re-ran synthetic
+trace post-fix; output byte-identical to pre-fix run, all flags +
+PC histograms match. Fix is correct (matches real CA1 edge
+semantics) but **not the dominant cause** of the synthetic stall.
+
+Deeper analysis of the post-fix coarse channel shows ATN line
+goes LOW three times during the stuck state:
+
+```
+ATN transition: prev=true now=false c64Cyc=4605732 c64Pc=$EE97 drvPc=$EC70
+ATN transition: prev=false now=true c64Cyc=4609927 c64Pc=$ED49 drvPc=$E9C7
+ATN transition: prev=true now=false c64Cyc=4611431 c64Pc=$EEB6 drvPc=$FAC0
+ATN transition: prev=false now=true c64Cyc=4613513 c64Pc=$F0A5 drvPc=$EBF7
+ATN transition: prev=true now=false c64Cyc=4613703 c64Pc=$EEB7 drvPc=$E6B6
+```
+
+Each transition is a real C64 write to `$DD00` with `ATN_OUT`
+bit asserted. Per c64ref:
+- `$EEAC CMP $DD00` (read), `$EEA9 LDA $DD00 ;DEBPIA` (read)
+- `$EEB6 / $EEB7 = DEX` in 1ms delay loop (W1MS1)
+- `$EE97 LDA $DD00` (read in serial-DATA-low set path)
+
+The PCs reading `$DD00` aren't writing — but during fine-trace
+of the c64Cyc 4613500-4613703 window, C64 visits:
+`$ED0B → $ED0E → $F0A4-$F0BC → $ED11-$ED14 → $ED20-$ED24 →
+$EE97-$EE9F → $ED27-$ED37 → $EE8E-$EE96 → $EE97-$EE9F → $EEB3-$EEB7`.
+
+`$EE8E` and `$EE97` are serial-bus output routines (set CLK low,
+release DATA). One of them — or a write reachable via this path
+sequence — is asserting `$DD00` ATN_OUT.
+
+Real KERNAL ACPTR retry loop ($EE27..$EE5B) **does not pull ATN**.
+Our headless KERNAL is executing UNTALK-send / serial-protocol
+path inappropriately during what should be plain ACPTR retries.
+That ATN-low edge is the real signal that drives the drive into
+the ATN handler / command parser path, abandoning TALK byte-send.
+
+**Real Bug 40 root cause (revised):**
+
+Something in our CIA2 / KERNAL execution causes C64 to write
+`$DD00` with `ATN_OUT` set during ACPTR retry. Drive correctly
+responds to the ATN edge by entering its ATN handler. Drive
+returns to listener / parser path because the ATN signal looks
+to drive like a new command. C64 keeps retrying, eventually
+re-asserts ATN, drive sees another edge, repeats forever.
+
+**Next-session work:**
+
+1. Identify exact c64 write that pulls ATN. Add a trap on
+   `$DD00` writes with ATN_OUT bit, log PC + value. Likely
+   only one or two PCs are responsible.
+2. Compare that write to real KERNAL ROM at the same PC: does
+   real KERNAL write the same byte (and our drive
+   misinterprets), or do we write a different byte (CIA2
+   model bug)?
+3. If our write is wrong → CIA2 / DDR model bug.
+4. If our write matches real KERNAL → real KERNAL would also
+   pull ATN here, but real drive must handle it differently.
+   Check VICE drive trace at the same protocol step.
+
+The level→edge fix on `$7C` poke is correct and stays — masks a
+real edge-detection issue and doesn't regress anything (trace
+byte-identical). It just doesn't close Bug 40 alone.
+
+### Refined root cause (Sprint 98 cont., 2026-05-04 EOD)
+
+Fine-trace analysis of c64Cyc 4613440-4613530 window decoded against
+c64ref:
+
+```
+c64Cyc=4613440  $EE0D  JSR $EE85 (inside UNTLK/UNLISTEN routine)
+c64Cyc=4613446  $EE85  CLKHI (release CLK)
+c64Cyc=4613462  $EE10  JMP $EE97 (DATAHI from UNTLK exit)
+c64Cyc=4613465  $EE97  set serial DATA out high (release DATA)
+c64Cyc=4613481  $F657  CLSEI2 (CLOSE serial bus device)
+c64Cyc=4613489  $F4CB  LOAD entry: LDA $BA (get device number)
+c64Cyc=4613492  $F4CD  JSR $ED09 ;ESTABLISH THE CHANNEL (TALK)
+c64Cyc=4613498  $ED09  TALK entry (sets bit 6, sends under ATN)
+c64Cyc=4613504  $ED0E  LISTEN-send wrapper
+c64Cyc=4613510  $F0A4  JSR RSP232 (protect from RS232 NMI)
+c64Cyc=4613530  $ED11  PHA (start of send-byte-under-ATN inner)
+```
+
+C64 KERNAL is **re-entering LOAD from scratch** in a tight loop:
+UNTALK → CLOSE serial → LOAD entry → TALK → setup → ACPTR retry
+loop → UNTALK → ... Real KERNAL invokes LOAD once, TALK setup
+once, ACPTR loop until EOI, then UNTALK once.
+
+Each re-entry pulls ATN to send the TALK command byte. Drive
+correctly responds to ATN edge by entering its ATN handler →
+parser → status path. Drive never returns to TALK byte-send
+because by the time it would, C64 has UNTALKed and is in
+CLOSE/restart cycle.
+
+**Why C64 re-enters LOAD:** unknown without stack-trace evidence.
+Candidates:
+1. Stack pointer drift — RTS pops a wrong value, lands at $F4CB.
+2. BASIC interpreter loops the LOAD command (would imply BASIC
+   sees error, retries — non-standard).
+3. CIA1 timer or VIC raster IRQ vector mis-points to LOAD area
+   (very unlikely).
+4. KERNAL TALK / ACPTR JSR-RTS chain has a corrupted return
+   address from our microcoded CPU or stack.
+
+**Next-session priorities (revised):**
+
+1. Add stack trace to EOF harness — log SP + return-address chain
+   at coarse sample points. Identify what's pushed when C64 is
+   at LOAD entry $F4CB.
+2. Compare stack state at $F4CB to expected (BASIC's call to
+   KERNAL LOAD via $FFD5 vector).
+3. If stack drift — find which routine miscounts pushes/pops
+   (Sprint 94 CPU equivalence harness reported zero divergences,
+   so this would be a system-level bug, not CPU opcode bug).
+4. If BASIC re-issues — find why BASIC sees error and retries.
+5. After root cause identified, fix path → re-run synthetic +
+   MM traces.
+
 ## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
 
 **Severity:** N/A — false alarm.

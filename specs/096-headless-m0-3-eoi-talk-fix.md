@@ -1,6 +1,6 @@
 # Spec 096 — Headless M0.3: EOI/TALK Fix
 
-Status: refined, not started; gated on Spec 095 output
+Status: refined, candidate fix identified via Spec 094 synthetic trace + code review (2026-05-04). Smoking gun: `src/runtime/headless/iec/iec-bus.ts:257-259` Sprint 66 hack pokes drive RAM `$7C=$80` on every C64 IEC write while ATN is low (level-trigger, not edge). Drive dispatch reads `$7C` and jumps to ATN-handler / command-parser, abandoning TALK byte-send before EOI emitted. Fix candidate: convert to edge-trigger (only on ATN high→low transition). Documented in BUGREPORT.md Bug 40 "Sprint 98 / Spec 094-097 finding". VICE-side compare (M0.2) skipped for this hypothesis — direct fix + verify via re-run of synthetic + MM traces. Hypothesis matrix below pre-existed; H1 dropped, H_NEW added.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 0, story M0.3
 Depth: deep
 Predecessors: Spec 094 (M0.1 EOF trace harness), Spec 095 (M0.2 VICE

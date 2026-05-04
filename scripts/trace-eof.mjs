@@ -40,6 +40,7 @@ const out = args.out;
 const budget = args.budget ? Number(args.budget) : undefined;
 const coarseEvery = args["coarse-every"] ? Number(args["coarse-every"]) : undefined;
 const postEoiCycles = args["post-eoi-cycles"] ? Number(args["post-eoi-cycles"]) : undefined;
+const preEoiKeepDriveCycles = args["pre-eoi-keep"] ? Number(args["pre-eoi-keep"]) : undefined;
 
 let runEofTrace;
 try {
@@ -58,6 +59,7 @@ try {
     budget,
     coarseEvery,
     postEoiCycles,
+    preEoiKeepDriveCycles,
   });
   console.log(`schemaVersion=${result.schemaVersion}`);
   console.log(`out=${result.outPath} bytes=${result.bytes}`);
