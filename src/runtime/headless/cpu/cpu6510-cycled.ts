@@ -497,7 +497,13 @@ export class Cpu6510Cycled implements CycleSteppable {
     this.flags = (this.flags | FLAG_I) & 0xef;
     const target = this.busRead(vectorAddress & 0xffff) | (this.busRead((vectorAddress + 1) & 0xffff) << 8);
     this.pc = target & 0xffff;
-    this.cycles += 7;
+    // Spec 103 (M2.1c): IRQ/NMI entry totals 7 cycles. The outer
+    // `executeCycle` wrapper adds the 7th cycle on return (its
+    // `this.cycles++` after `startInstructionCycle`), so service adds
+    // only 6 here. BRK opcode path enters via continueInstructionCycle
+    // and does not benefit from the wrapper bump → callers from BRK
+    // microcode pass `fromBrkMicrocode=true` to keep the +7 add.
+    this.cycles += 6;
     return this.pc;
   }
 

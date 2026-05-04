@@ -1,6 +1,6 @@
 # Spec 103 — Headless M2.1: CPU Cycle and Interrupt Fidelity
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1: M2.1a-d + M2.1g shipped; M2.1e RDY moved to Spec 105 / M2.3 per spec fallback; M2.1f cpu_bus trace deferred to follow-up).** 31/31 fixture suite (`smoke:cpu-fidelity`) covers IRQ + NMI 7-cycle entry, NMI > IRQ priority, NMI bypasses I, BRK PC+2 + B-set, RTI no-PC-adjust, JSR PC-1 + RTS popped+1. Microcoded `serviceInterrupt` corrected from +7 to +6 (outer wrapper bumps the 7th); regress 5/5 + drive-equiv green post-fix. Lorenz license-blocked: existing `scripts/cpu-equivalence.mjs` (1880 cases, 0 fails) covers M2.1a/b. Doc: `docs/cpu-fidelity-notes.md`.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 2, story M2.1
 Depth: deep
 Predecessors: Sprint 94 (CPU equivalence harness), Spec 098 (M1.1),
