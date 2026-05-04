@@ -1,6 +1,6 @@
 # Spec 097 — Headless M0.4: LOAD Acceptance Smoke
 
-Status: in progress — synthetic disk generator (M0.4b) landed: gen-synthetic-disks.mjs + d64-builder + g64-builder + gcr-encode. D64 round-trip via D64Parser passes. G64 round-trip via G64Parser shows all 150 spot-check sectors decode `status:ok` with valid headers + data. Headless LOAD smoke against the synthetic still stalls (drive idle, no ATN); investigation pending. Smoke runner (M0.4a/c/d/e/f/g) and L0-L7 matrix not started.
+Status: **MOSTLY DONE 2026-05-04 (post Bug 40 close).** M0.4b synthetic generator + M0.4a smoke runner + M0.4c CLI shipped. Matrix L2 + L3 + L7 PASS green (3/3 in ~36s). L1 (D64 LOAD) deferred — integrated session currently only attaches G64; D64 LOAD acceptance lives behind a follow-up that gives the session a D64 attach path. L0 (cold-boot ready), L4/L5 (standard-D64 directory walk + file LOAD) and L6 (MM BOOT) deferred — no fixtures committed yet (license-clean standard D64 sourcing is M0.4d). M0.4f (CI integration) and M0.4g (failure triage trace artifacts) are follow-ups.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 0, story M0.4
 Depth: deep
 Predecessors: Spec 094 (M0.1), Spec 095 (M0.2), Spec 096 (M0.3)
