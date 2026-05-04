@@ -1,6 +1,6 @@
 # Spec 102 — Headless M1.5: Regression Harness
 
-Status: refined, not started
+Status: **DONE 2026-05-04 (v1).** Regression matrix runner shipped: `regress.matrix.json` (JSON for v1 — YAML migration deferred), `src/runtime/headless/regress/runner.ts` reads the matrix and runs each entry's scenario (boot/type/wait/joystick steps), `scripts/regress.mjs` CLI emits per-entry result + JSONL artifact at `samples/regress/run-<timestamp>.jsonl`. `npm run regress` PASS 4/4 (L2 + L3 + L7 LOAD scenarios + L8 cold-boot ready) in ~36s. HTML report template deferred to follow-up; JSONL is enough to gate CI for now. Matrix expansion (more disks, more scenarios) is open for ongoing additions without code changes.
 Roadmap: `docs/headless-emulator-roadmap.md` Milestone 1, story M1.5
 Depth: light
 Predecessors: Spec 097 (M0.4 LOAD smoke), Spec 098 (M1.1), Spec 101 (M1.4)

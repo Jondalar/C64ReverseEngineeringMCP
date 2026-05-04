@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "comment": "Spec 102 (M1.5) regression matrix. JSON for v1; YAML migration deferred. Each entry runs a scenario against a fixture and asserts the expected artifact (status word + payload size for now).",
+  "entries": [
+    {
+      "id": "L2",
+      "label": "synthetic 1-byte G64 LOAD",
+      "fixturePath": "samples/synthetic/1byte.g64",
+      "mode": "true-drive",
+      "scenario": [
+        { "kind": "boot", "instructions": 800000 },
+        { "kind": "type", "text": "LOAD\"X\",8,1\r" },
+        { "kind": "wait", "until": "eoi", "budget": 15000000 }
+      ],
+      "expected": {
+        "status90Eoi": true,
+        "loadStart": 2049,
+        "payloadSize": 1,
+        "firstByte": 66
+      },
+      "mode_required_to_pass": "required"
+    },
+    {
+      "id": "L3",
+      "label": "synthetic 1-block G64 LOAD",
+      "fixturePath": "samples/synthetic/1block.g64",
+      "mode": "true-drive",
+      "scenario": [
+        { "kind": "boot", "instructions": 800000 },
+        { "kind": "type", "text": "LOAD\"X\",8,1\r" },
+        { "kind": "wait", "until": "eoi", "budget": 30000000 }
+      ],
+      "expected": {
+        "status90Eoi": true,
+        "loadStart": 2049,
+        "payloadSize": 256
+      },
+      "mode_required_to_pass": "required"
+    },
+    {
+      "id": "L7",
+      "label": "MM 38KB G64 LOAD",
+      "fixturePath": "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64",
+      "mode": "true-drive",
+      "scenario": [
+        { "kind": "boot", "instructions": 800000 },
+        { "kind": "type", "text": "LOAD\"MM\",8,1\r" },
+        { "kind": "wait", "until": "eoi", "budget": 100000000 }
+      ],
+      "expected": {
+        "status90Eoi": true,
+        "loadStart": 1024,
+        "payloadSize": 38656
+      },
+      "mode_required_to_pass": "local-only"
+    },
+    {
+      "id": "L8",
+      "label": "synthetic 1-byte G64 cold-boot ready (no LOAD)",
+      "fixturePath": "samples/synthetic/1byte.g64",
+      "mode": "true-drive",
+      "scenario": [
+        { "kind": "boot", "instructions": 1500000 }
+      ],
+      "expected": {
+        "c64PcAtBasicReady": true
+      },
+      "mode_required_to_pass": "required"
+    }
+  ]
+}
