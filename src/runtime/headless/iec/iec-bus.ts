@@ -146,23 +146,10 @@ export class IecBus {
     this.core.c64_store_dd00(inverted, (atnHigh) => {
       const stamp = this.driveClockSource?.();
       this.driveVia1?.pulseCa1(atnHigh, stamp);
-      // Sprint 66 / Spec 144 territory: $7C ATN-pending poke.
-      // KEY FINDING (Spec 140 v3+): RAM diff at $07A1 between
-      // VICE and headless drive shows $7C=$80 (us) vs $00 (VICE).
-      // Removing the poke breaks MM-LOAD (drive misses ATN edge);
-      // keeping it breaks motm (drive permanently in ATN handler
-      // instead of motm receive loop). True fix is Spec 145+
-      // (CIA + VIA timer 1:1 so CA1 IRQ delivers naturally without
-      // race). Until then keep poke + accept motm broken.
-      const atnLow = !atnHigh;
-      if (atnLow && !this.prevAtnLow && this.driveRamForAtnPoke) {
-        // ROM \$E853 sets \$7C=\$01 via CA1 IRQ. Our model: drive
-        // misses some IRQ-entry-to-\$E853 path → poke compensates.
-        // True fix needs Spec 145+147 (CIA + VIA timing) so CA1 IRQ
-        // delivers + drive ROM reaches \$E853 reliably.
-        this.driveRamForAtnPoke[0x7c] = 0x01;
-      }
-      this.prevAtnLow = atnLow;
+      this.prevAtnLow = !atnHigh;
+      // Game-enabling pokes FORBIDDEN per user directive. \$7C
+      // poke removed permanently. CA1 IRQ + drive ROM \$E853
+      // path must work naturally through 1:1 VICE chip ports.
     });
     this.recordEdge("c64", prev);
     this.busAccessProducer?.emitC64Access({ op: "write", addr: this.cia2PaAddr, value: cia2Pa & 0xff });
