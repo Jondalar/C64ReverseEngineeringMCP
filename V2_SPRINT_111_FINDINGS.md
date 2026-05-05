@@ -400,6 +400,43 @@ edge by N cycles, focus on `iecBus.notifyAtnChanged` →
 `via.pulseCa1` → drive interrupt-line update path for missing
 1-cycle propagation step.
 
+## **Update 10 — confirmed: drive lags ATN release by 280 cyc**
+
+Re-traced including handshake portion with 8K-edge ring
+(`/tmp/check-handshake2.mjs`). Drive performs CLK toggle
+handshake correctly (5 toggles during ATN-low). Then:
+
+| event                            | cycle      |
+|----------------------------------|------------|
+| C64 releases ATN (atn 0→1)       | 33510007   |
+| Drive's last CLK toggle          | 33510022   |
+| Drive enters $042F receive       | 33510287   |
+| Drive samples first bit          | 33510310   |
+
+**Gap: 280 cyc between ATN release and drive entering receive**.
+Drive's $0420-$0428 BMI loop is ~12 cyc/iter. 280/12 ≈ 23 extra
+iterations. But drive STOPPED toggling CLK after cyc 33510022 —
+trace records no more drive edges. So drive sees ATN released by
+cyc 33510022 AT THE EDGE LEVEL.
+
+Yet drive PC didn't reach $042F until 280 cyc later. Drive must
+be stuck somewhere between $042A clear-CLK and $042F LDA #$01 —
+that's only 8 cyc of code (AND #$f7 + STA $1800 + LDA #$01).
+
+Possibilities:
+- IRQ fired (despite SEI) in $042A-$042F window
+- Drive's STA $1800 bus-write took unexpected cycles
+- Cycle-scheduler's drive component had a lag
+
+### Resolution depends on per-cycle drive trace
+
+Need per-drive-cycle trace of drive PC + drive instruction count
+in cyc 33510020-33510290 range. Then compare to expected timing.
+
+Build tooling next: `session.drive.cpu.cycleHistory` ring of last
+N drive instructions with cycle stamps. Then run motm,
+extract this window, compute exact path drive took.
+
 
 ## **Update 5 — VICE binmon proof: drive escapes BPL-loop via IRQ only**
 
