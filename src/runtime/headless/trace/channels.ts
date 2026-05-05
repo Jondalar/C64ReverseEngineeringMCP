@@ -15,7 +15,8 @@ import { appendFileSync, openSync, closeSync } from "node:fs";
 
 export type ChannelName =
   | "cpu" | "io" | "iec" | "drive_pc" | "gcr"
-  | "vic" | "cia" | "sid" | "keyboard" | "joystick" | "eof";
+  | "vic" | "cia" | "sid" | "keyboard" | "joystick" | "eof"
+  | "bus_access";  // Spec 142: $DD00 / $1800 access trace
 
 export type ChannelMode = "off" | "ring" | "jsonl";
 

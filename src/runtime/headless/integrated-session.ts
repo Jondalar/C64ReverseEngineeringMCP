@@ -45,6 +45,11 @@ import {
   type KernalIoState,
 } from "./traps/kernal-io.js";
 import { CycleLockstepSchedulerImpl } from "./scheduler/cycle-lockstep-scheduler.js";
+import { TraceRegistry } from "./trace/channels.js";
+import {
+  BusAccessTraceProducerImpl,
+  type BusAccessTraceProducer,
+} from "./trace/bus-access.js";
 import {
   Cpu6510Cycled, CiaCycled, VicCycled, SidCycled,
   DriveCpuCycled, ViaCycled, KeyboardCycled,
@@ -127,6 +132,13 @@ export interface IntegratedSessionOptions {
   // Spec 093: drive PC trace ring (per drive instruction).
   traceDrive?: boolean;
   traceDriveCapacity?: number;
+  // Spec 142: bus-access trace channel for $DD00 / $1800. When set,
+  // hooks IecBus + drive VIA1 to publish events into TraceRegistry's
+  // "bus_access" channel. Caller must configure the channel mode
+  // (ring or jsonl) on `traceRegistry` before scheduler runs.
+  enableBusAccessTrace?: boolean;
+  busAccessPcRangesC64?: Array<[number, number]>;
+  busAccessPcRangesDrive?: Array<[number, number]>;
 }
 
 export interface PrgLoadResult {
@@ -177,6 +189,10 @@ export class IntegratedSession {
   public readonly scheduler?: CycleLockstepSchedulerImpl;
   public readonly cpuCycled?: Cpu6510Cycled;
   public readonly useCycleLockstep: boolean;
+  // Spec 142: shared trace registry. Always present; channels default
+  // to "off" until caller configures.
+  public readonly traceRegistry: TraceRegistry = new TraceRegistry();
+  public readonly busAccessProducer?: BusAccessTraceProducer;
   public readonly useMicrocodedCpu: boolean;
   // Spec 098: named session-mode preset (resolved at construction).
   public readonly mode: SessionMode;
@@ -391,6 +407,33 @@ export class IntegratedSession {
         // burn don't desync drive timing during IEC bit-bang.
         cpuCycleCounter: () => (cpuCompoonent as any).cycles,
       });
+    }
+    // Spec 142: bus-access trace producer wiring. Pass live object
+    // references for c64Cpu / drive.cpu / via1 — producer reads
+    // pc/cycles/ifr at emit time so live property reads = correct
+    // current values. Tracing only emits when (a) producer.enable()
+    // is called AND (b) channel mode != "off".
+    if (opts.enableBusAccessTrace) {
+      const producer = new BusAccessTraceProducerImpl({
+        registry: this.traceRegistry,
+        c64Cpu: this.c64Cpu as unknown as { pc: number; cycles: number; isAtInstructionBoundary?: () => boolean },
+        driveCpu: this.drive.cpu as unknown as { pc: number; cycles: number; isAtInstructionBoundary?: () => boolean },
+        schedule: {
+          c64Cycle: () => this.scheduler ? this.scheduler.c64Cycle() : this.c64Cpu.cycles,
+          driveCycle: () => this.scheduler ? this.scheduler.driveCycle() : ((this.drive.cpu as unknown as { cycles?: number }).cycles ?? 0),
+        },
+        iecBus: this.iecBus,
+        driveVia1: this.drive.bus.via1,
+      });
+      producer.setFilter({
+        pcRangesC64: opts.busAccessPcRangesC64 ?? [],
+        pcRangesDrive: opts.busAccessPcRangesDrive ?? [],
+      });
+      producer.enable();
+      this.iecBus.busAccessProducer = producer;
+      this.drive.bus.via1.busAccessHook = producer;
+      this.drive.bus.via1.baseAddr = 0x1800;
+      (this as { busAccessProducer?: BusAccessTraceProducer }).busAccessProducer = producer;
     }
   }
 

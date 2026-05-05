@@ -80,6 +80,13 @@ export interface ViaPortBackend {
 // CB1 same with bit 4. Sprint 61 supports both polarities so the
 // drive ROM can configure ATN edge detection correctly.
 
+// Spec 142: bus-access trace hook. Optional callback invoked AFTER
+// the read/write completes (so trace sees the value the drive
+// actually got/wrote). null = zero overhead.
+export interface ViaBusAccessHook {
+  emitDriveAccess(p: { op: "read" | "write"; addr: number; value: number }): void;
+}
+
 export class Via6522 {
   // I/O latches.
   public ora = 0;
@@ -112,6 +119,14 @@ export class Via6522 {
   // line state and unstick a boot-order race).
   public onCa1IerEnabled?: () => void;
 
+  // Spec 142: optional bus-access trace hook for $1800 (drive VIA1)
+  // ORB read/write. Set by integrated-session when bus_access tracing
+  // is enabled; null = zero overhead.
+  public busAccessHook?: ViaBusAccessHook;
+  // Base address of this VIA — drive VIA1 = $1800, VIA2 = $1C00.
+  // Used only for trace event addr field.
+  public baseAddr = 0x1800;
+
   constructor(public readonly portA: ViaPortBackend, public readonly portB: ViaPortBackend) {}
 
   read(reg: number): number {
@@ -122,7 +137,11 @@ export class Via6522 {
         // return live pin state. Per 6522 datasheet, READ of IRB
         // clears CB1 + CB2 IFR flags (handshake acknowledge).
         this.clearIfr(IFR_CB1 | IFR_CB2);
-        return ((this.orb & this.ddrb) | (pins & ~this.ddrb)) & 0xff;
+        const result = ((this.orb & this.ddrb) | (pins & ~this.ddrb)) & 0xff;
+        // Spec 142: emit bus-access event for ORB reads. baseAddr+0
+        // = $1800 for drive VIA1.
+        this.busAccessHook?.emitDriveAccess({ op: "read", addr: this.baseAddr, value: result });
+        return result;
       }
       case VIA_ORA: {
         const pins = this.portA.readPins();
@@ -173,6 +192,8 @@ export class Via6522 {
         this.portB.onOutputChanged(this.orb, this.ddrb, "or");
         // Writing ORB clears CB1 flag (per datasheet handshake clear).
         this.clearIfr(IFR_CB1 | IFR_CB2);
+        // Spec 142: emit bus-access event for ORB writes.
+        this.busAccessHook?.emitDriveAccess({ op: "write", addr: this.baseAddr, value: v });
         return;
       case VIA_ORA:
         this.ora = v;

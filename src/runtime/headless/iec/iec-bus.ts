@@ -24,6 +24,7 @@ import {
   PB_DATA_IN, PB_CLK_IN, PB_ATN_IN,
   PB_DEV_ID0, PB_DEV_ID1,
 } from "../drive/via1-iec.js";
+import type { BusAccessTraceProducer } from "../trace/bus-access.js";
 
 // CIA2 PA bit assignments (CIA2 not yet implemented — these constants
 // are for the cia2-stub.ts that wires the bus on $DD00 writes).
@@ -68,6 +69,12 @@ export class IecBus {
   private traceCapacity = 256;
   private trace: IecEdgeRecord[] = [];
   public timeSource?: () => number;
+
+  // Spec 142: optional bus-access trace producer. null = no overhead.
+  public busAccessProducer?: BusAccessTraceProducer;
+  // CIA2 PA address — passed in by integrated session for trace event addr field.
+  // Defaults to $DD00 (standard C64 wiring).
+  public cia2PaAddr = 0xdd00;
 
   enableTrace(capacity = 256): void {
     this.traceEnabled = true;
@@ -148,6 +155,9 @@ export class IecBus {
     this.c64DataReleased = !driveData || !dataBit;
     this.notifyAtnChanged();
     this.recordEdge("c64", prev);
+    // Spec 142: emit bus-access event AFTER bus state mutated, so the
+    // event's iec snapshot reflects the new state.
+    this.busAccessProducer?.emitC64Access({ op: "write", addr: this.cia2PaAddr, value: cia2Pa & 0xff });
   }
 
   // Drive → bus: VIA1 PB writes update these.
@@ -205,7 +215,9 @@ export class IecBus {
     bits |= CIA2_PA_VIC_BANK_LO | CIA2_PA_VIC_BANK_HI; // input bits float high (we ignore VIC bank)
     if (this.clkLine) bits |= CIA2_PA_CLK_IN;
     if (this.dataLine) bits |= CIA2_PA_DATA_IN;
-    return bits & 0xff;
+    const result = bits & 0xff;
+    this.busAccessProducer?.emitC64Access({ op: "read", addr: this.cia2PaAddr, value: result });
+    return result;
   }
 
   // Read-side helper for VIA1 PB backend.
