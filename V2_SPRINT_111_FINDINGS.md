@@ -140,3 +140,34 @@ drive misses it.
 3. **Consider per-cycle drive-step under ATN-active mode**. Switch
    from lazy-lockstep to true cycle-step when ATN is asserted or
    when c64Cpu PC is in a known-fastloader range.
+
+## **Update 2 — actually a hard deadlock, not timing skew**
+
+Captured 500K-cycle IEC trace starting at ts=25M (`/tmp/iec-edges.mjs`):
+**zero edges fired** on either side. Both sides sit in busy-wait:
+- C64 at $43c7-$43cd polling DATA-IN
+- drive at $0415 polling ATN-IN (BPL $0412)
+No IEC line state changes occur, ever. So this is **NOT** a 12-cycle
+bit-timing skew; this is a state-machine state where C64 is in the
+wrong handler.
+
+### Real divergence question
+
+At what earlier cycle does headless C64 first diverge from VICE
+control flow? VICE never enters $43xx — stays in $42xx whole 180s.
+Headless reaches $43c7 at ts=12.87M (first sample post-load), so
+divergence happens during the LOAD command itself, well before
+the visible deadlock.
+
+### Updated Phase B plan
+
+1. Add per-instruction trace ring (256 deep) for both C64 + drive.
+2. Capture from `runFor(800_000) + typeText` through end of LOAD
+   handshake (~ts 12M).
+3. Find first C64 instruction where headless takes a different
+   branch than what VICE would. The wrong byte read by IEC ACPTR
+   or wrong status byte ($90/$98 indicators) is what redirects
+   $42xx code path to $43xx.
+4. From there, work back to find which IEC byte was read wrong
+   and which side (drive sent wrong, or C64 sampled wrong moment).
+
