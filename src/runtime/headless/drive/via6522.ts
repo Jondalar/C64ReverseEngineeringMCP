@@ -324,15 +324,11 @@ export class Via6522 {
     const isHigh = newLevel;
     if (!polarity && wasHigh && !isHigh) this.setIfr(IFR_CA1);
     if (polarity && !wasHigh && isHigh) this.setIfr(IFR_CA1);
-    // Sprint 66 deviation: 1541 ROM idle loop relies on the IRQ
-    // handler setting $7C to signal "ATN pending", but the standard
-    // PCR=$01 (positive-edge for ATN release) means drive misses
-    // ATN-LOW edges that would normally be caught by separate polling
-    // logic. To avoid having to model the drive-ROM's PB7-poll
-    // fallback path, we fire CA1 IFR on EITHER edge (drive ROM
-    // clears + re-checks state via $1800 PB read, so spurious sets
-    // are harmless). Real HW is edge-only per polarity.
-    if (wasHigh !== isHigh) this.setIfr(IFR_CA1);
+    // Sprint 111 fix: removed Sprint 66 hack that fired IFR on EITHER
+    // edge regardless of PCR polarity. The hack caused extra IRQs on
+    // ATN-assert during fastloader stage-2, interrupting bit-bang
+    // receive at wrong moments and corrupting decoded bytes.
+    // Real HW is edge-only per polarity (matches VICE viacore_signal).
     this.lastCa1Pin = isHigh;
   }
 
