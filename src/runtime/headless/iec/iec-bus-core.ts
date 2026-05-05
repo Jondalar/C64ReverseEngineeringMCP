@@ -55,9 +55,11 @@ export class IecBusCore {
   //   cpu_bus bit 4 = ATN (data << 1) & 0x10  (= data bit 3)
   //   cpu_bus bit 6 = CLK (data << 2) & 0x40  (= data bit 4)
   //   cpu_bus bit 7 = DATA (data << 2) & 0x80 (= data bit 5)
-  // DDR-gated: only output bits matter; input bits float as 0.
-  iecUpdateCpuBus(paLatch: number, ddrMask: number): void {
-    const data = paLatch & ddrMask;
+  // VICE does NOT mask by DDR — raw PA latch only. KERNAL programs
+  // DDR=output for IEC bits before writing PA, so the distinction
+  // rarely matters in practice. Per Q user directive "1:1 wie VICE".
+  iecUpdateCpuBus(paLatch: number, _ddrMask: number): void {
+    const data = paLatch;
     this.cpu_bus = (((data << 2) & 0xC0) | ((data << 1) & 0x10)) & 0xff;
   }
 

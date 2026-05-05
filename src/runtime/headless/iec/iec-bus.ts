@@ -252,27 +252,31 @@ export class IecBus {
     return result;
   }
 
-  // Read-side helper for VIA1 PB backend.
-  // 1541 INPUT side also has inverter: line LOW → drive reads bit=1.
-  // Symmetric with the output-side inversion.
+  // Read-side helper for VIA1 PB backend (legacy "live" mode).
+  // Spec 140 v2: kept for trace/test back-compat. Real drive PB read
+  // now goes through `core.driveReadPbByte()` via via1-iec.ts
+  // readPbFull, which applies VICE's `((PRB & 0x1A) | drv_port) ^
+  // 0x85 | (devId<<5)` formula.
+  //
+  // NOTE polarity here is "1 = line LOW/asserted" (legacy
+  // convention). Real 1541 PB inputs are non-inverting so bit = 1
+  // means line HIGH — but our existing trap-fast / KERNAL serial
+  // paths and unit tests have been calibrated against this inverted
+  // convention. Keeping it for back-compat. Production drive read
+  // now bypasses this helper.
   buildDrivePbInputBits(deviceId: number): number {
     let bits = 0;
-    if (!this.atnLine) bits |= PB_ATN_IN;     // line LOW → bit = 1
+    if (!this.atnLine) bits |= PB_ATN_IN;     // line LOW → bit = 1 (LEGACY)
     if (!this.clkLine) bits |= PB_CLK_IN;
     if (!this.dataLine) bits |= PB_DATA_IN;
-    // Sprint 96 / Bug 39 fix: device ID jumpers (read as PB5/PB6).
+    // Sprint 96 / Bug 39: device ID jumpers (read as PB5/PB6).
     // Real 1541 schematic: J1, J2 are PCB traces; CUTTING a trace
-    // adds 1 (J1) or 2 (J2) to base device address 8. An UNCUT
-    // jumper grounds the corresponding PB pin → bit reads as 0
-    // (active-low pull-down to ground). Default device 8 = both
-    // uncut = both PB bits LOW (== 0). Earlier code had the
-    // polarity inverted, which made the drive compute its
-    // listener-target byte as $20 + 11 ($2B) instead of $20 + 8
-    // ($28). KERNAL's LISTEN $28 then never matched and the
-    // drive ignored every LOAD.
+    // adds 1 (J1) or 2 (J2) to base device address 8. UNCUT jumper
+    // grounds the PB pin → reads 0 (active-low to ground). Default
+    // device 8 = both uncut = both bits 0.
     const offset = deviceId - 8;            // 0..3
-    const cutHi = (offset & 0x02) !== 0;     // J2 cut → adds 2
-    const cutLo = (offset & 0x01) !== 0;     // J1 cut → adds 1
+    const cutHi = (offset & 0x02) !== 0;
+    const cutLo = (offset & 0x01) !== 0;
     if (cutLo) bits |= PB_DEV_ID0; else bits &= ~PB_DEV_ID0;
     if (cutHi) bits |= PB_DEV_ID1; else bits &= ~PB_DEV_ID1;
     return bits & 0xff;

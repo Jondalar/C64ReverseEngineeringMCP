@@ -349,7 +349,11 @@ export class IntegratedSession {
       useMicrocodedCpu: opts.useMicrocodedCpu ?? false,
     });
     this.iecBus.attachDriveRam(this.drive.bus.ram);
-    // Spec 140: opt into VICE-cache observable mode.
+    // Spec 140 v2: VICE-cache is the goal but not yet stable end-to-end.
+    // First attempt to default-on broke MM-LOAD; root cause is in
+    // IecBusCore formula (drv_port composition gives unexpected
+    // values in early KERNAL boot transitions). Reverting default to
+    // "live" until v2 fix lands. Caller can opt-in via iecMode option.
     this.iecBus.iecMode = opts.iecMode ?? "live";
     // Spec 090: configure drive's sync ratio + zero baseline.
     this.drive.setSyncRatio(this.driveCyclesPerC64Cycle);
