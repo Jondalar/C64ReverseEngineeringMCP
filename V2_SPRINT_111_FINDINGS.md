@@ -159,6 +159,44 @@ Headless reaches $43c7 at ts=12.87M (first sample post-load), so
 divergence happens during the LOAD command itself, well before
 the visible deadlock.
 
+## **Update 3 — narrowed to ATN-assert pulse-width**
+
+Time-evolving drive state (`/tmp/check-zp01.mjs`) shows full
+stage-1 path runs:
+```
+ts 12.4M  PC=$d5c4 (ROM)   zp01=00 IFR=60 IER=82  ; pre-stage-1
+ts 13.0M  PC=$0373 (RAM)   zp01=80 IFR=60 IER=80  ; stage-1 wait-loop entered
+ts 13-15M PC=$0372-$0374   zp01=80                ; spin
+ts 17.1M  PC=$03b3         zp01=01                ; IRQ fired, bit7 cleared!
+ts 17.4M  PC=$f4d9 (ROM)   zp01=01                ; ROM transition
+ts 17.7M+ PC=$0412-$0416   zp01=01                ; STUCK in BPL $0412
+```
+ATN line stays HIGH the entire run. `IER=80` = only CA1 IRQ enabled.
+`PCR=$01` = CA1 negative-edge sensitive. So CA1 IRQ fires ONLY when
+ATN transitions H→L (negative edge).
+
+**Hypothesis:** the C64 asserts ATN but releases it before our drive
+schedules the next per-cycle drive tick — pulse too narrow to be
+sampled. Or C64 never re-asserts ATN for stage-2 (took different
+code path due to earlier divergence).
+
+C64 RAM disasm at the active loader addresses:
+```
+$4262: STA $dd00      ; ATN assertion happens here (with bit3 set)
+$4240-$4259           ; raster-wait loop (VICE c64 stuck here whole 180s)
+$43c7-$43cd           ; receive loop (headless c64 stuck here)
+```
+
+VICE c64 stays in raster-wait at $4240-$4259. Headless c64 has
+already advanced past ATN-assert at $4262 and into receive at
+$43c7 — that's the divergence: **headless skipped the raster-wait
+and proceeded immediately to next stage**.
+
+The $4240 raster-wait reads `$d012` (VIC raster line) and loops
+until it equals $c8 (200 = bottom of screen). If our VIC raster
+line counter advances differently than VICE's, c64 either skips
+the wait entirely (raster already past $c8) or finishes too fast.
+
 ### Updated Phase B plan
 
 1. Add per-instruction trace ring (256 deep) for both C64 + drive.
