@@ -22,10 +22,11 @@ returns a JSON artifact suitable for the LLM to read end-to-end.
 
 **In scope**:
 
-- VICE binmon adapter (`tools/vice-iec-capture.ts`) — drives
+- VICE binmon adapter (`scripts/vice-iec-capture.mjs`) — drives
   x64sc with `-binarymonitor`, sets watchpoints on $DD00 and
   drive's $1800 (memspace=1 for drive 8), captures matching events
-  into the same `BusAccessEvent` schema as Spec 142.
+  into the same `BusAccessEvent` schema as Spec 142. Scenarios
+  driven by `samples/test-manifest.json` (--id arg).
 - Mapping layer: VICE doesn't expose all schema fields directly
   (e.g. `at_boundary`, `phase`). Document which fields are
   "best-effort" vs "exact". Best-effort fields get a `vice_approx`
@@ -195,9 +196,9 @@ different point in clock window.")
 ## Files
 
 To create:
-- `tools/vice-iec-capture.ts`
-- `tools/vice-headless-diff.ts`
-- `tools/__tests__/diff.smoke.ts`
+- `scripts/vice-iec-capture.mjs`
+- `scripts/vice-iec-diff.mjs`
+- `scripts/test-motm-diff.mjs` (smoke harness)
 
 To modify:
 - `package.json` (npm script `trace:motm-diff`)

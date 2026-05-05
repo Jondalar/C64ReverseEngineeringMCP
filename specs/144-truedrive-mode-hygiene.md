@@ -61,6 +61,10 @@ remain available with explicit opt-in.
 - Acceptance gate: TrueDrive scenarios assert
   `result.invokedHooks` is empty (or only contains explicit
   whitelist).
+- Scenario library: `samples/test-manifest.json`. Pure-mode runs
+  iterate `entries[].family !== "kernel-trap"` and assert
+  `pureRun === true` for status=`works`. Status=`untested`
+  entries report mode/hooks but don't gate.
 
 **Out of scope**:
 
@@ -157,7 +161,7 @@ allowed hooks, expected behavior.
 
 ### Step 6: Tests
 
-- `src/runtime/headless/__tests__/mode-hygiene.spec.ts`:
+- `scripts/test-mode-hygiene.mjs` (npm task `test:mode-hygiene`):
   - TrueDrive-pure motm run → `pureRun === true`.
   - TrueDrive-rescue MM-LOAD → may invoke $7C poke + idle-skip;
     `pureRun === false` is acceptable.
@@ -200,7 +204,7 @@ allowed hooks, expected behavior.
 
 To create:
 - `src/runtime/headless/scheduler/compatibility.ts`
-- `src/runtime/headless/__tests__/mode-hygiene.spec.ts`
+- `scripts/test-mode-hygiene.mjs`
 - `docs/headless-modes.md`
 
 To modify:

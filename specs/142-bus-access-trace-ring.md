@@ -40,6 +40,12 @@ Spec 143 will then diff our trace vs VICE's at the same event level.
   current cycle for correlation.
 - Instruction-phase stamp: for cycled CPU, capture
   `isAtInstructionBoundary()` flag + microcode step name.
+- **Sampling rule (matches VICE)**: emit ONE event per logical
+  bus access (= the cycle that touches the bus, e.g. T3 of
+  `BIT $1800`). Opcode-fetch cycles (T0/T1/T2) do NOT emit.
+  PC on the event = opcode-fetch address of currently executing
+  instruction. `phase` field disambiguates which microcode step
+  (`read_ea`, `write_ea`, `rmw_modify`, etc.).
 - IEC line state at moment of access (`atn`, `clk`, `data` raw +
   per-side: c64 released, drive released, drive AtnAck released).
 - JSONL output via existing `Channel("bus_access").configure({mode:
@@ -50,6 +56,10 @@ Spec 143 will then diff our trace vs VICE's at the same event level.
   artifact path.
 - Smoke scenario: motm receive window. Expected event count after
   trace lands: O(200) for the receive window, NOT O(33M) full session.
+- Scenario library: drive scenarios from
+  `samples/test-manifest.json`. Smoke task `test:bus-trace` accepts
+  `--id <manifest-id>` arg (default `motm`). New samples = manifest
+  entry + drop g64 in `samples/`.
 
 **Out of scope**:
 
@@ -202,7 +212,7 @@ inside an instruction, use opcode-fetch PC (= `pc - 1` for absolute,
 
 ### 6. Smoke test
 
-`src/runtime/headless/__tests__/bus-trace-motm.smoke.ts`:
+`scripts/bus-trace-motm.mjs` (npm task `test:bus-trace`):
 
 1. Start integrated session with motm.g64 attached.
 2. Configure trace registry: `bus_access` jsonl mode → tmp file.
@@ -256,7 +266,7 @@ inside an instruction, use opcode-fetch PC (= `pc - 1` for absolute,
 
 To create:
 - `src/runtime/headless/trace/bus-access.ts` (schema + producer)
-- `src/runtime/headless/__tests__/bus-trace-motm.smoke.ts`
+- `scripts/bus-trace-motm.mjs` (smoke + artifact emit)
 
 To modify:
 - `src/runtime/headless/trace/channels.ts` (add channel name)

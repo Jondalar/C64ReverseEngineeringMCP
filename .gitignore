@@ -4,7 +4,10 @@ build/
 .DS_Store
 analysis/
 monitor.log
-samples/
+samples/*
+!samples/test-manifest.json
+!samples/test-manifest.schema.json
+!samples/README.md
 docs/windows-powershell-setup.md
 resources/c64ref-rom-knowledge.json
 resources/roms/*.bin
