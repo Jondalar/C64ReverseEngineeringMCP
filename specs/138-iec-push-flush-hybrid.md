@@ -56,12 +56,37 @@ baseline initialization.
   the drive is already current.
 - ATN-edge propagation runs *after* the flush (so the drive sees the
   new ATN edge at its next instruction).
+- **Three probe variants** (run all, compare):
+  - **A (push-flush only)**: as above. Lockstep + flush at IEC.
+  - **B (push-flush + tick-order swap)**: A plus reverse scheduler
+    tick — drive ticks BEFORE c64 each cycle. Tests whether
+    same-cycle drive-output is the issue.
+  - **C (push-flush, no lockstep tick)**: A but disable the
+    per-cycle drive tick (drive runs ONLY via `executeToClock`).
+    Tests pure push-model.
 
 **Out of scope**:
 - VICE alarm system (ADR-6, skipped)
 - Cache `cpu_port`/`drv_port` (ADR-2, only if ADR-1 doesn't fix motm)
 - IRQ rclk stamping (ADR-3, deferred)
 - Sprint 66 `$7C` poke removal (ADR-4, separate hygiene spec)
+
+## Probe protocol — exit criteria for Spec 140
+
+Run all three probe variants A/B/C against the motm scenario, and
+compare diff reports (Spec 143) against VICE baseline. Decision tree
+for Spec 140 design:
+
+| Variant A result | Variant B result | Variant C result | Implication for Spec 140 |
+|---|---|---|---|
+| First 3 bytes match VICE | n/a | n/a | Push-flush alone sufficient. Spec 140 implements flush-only without cache. |
+| Mismatch | First 3 match | n/a | Tick-order is part of issue. Spec 140 implements flush + drive-first tick. |
+| Mismatch | Mismatch | First 3 match | Pure push-model needed. Spec 140 disables lockstep tick in TrueDrive. |
+| All three mismatch | | | Cache (ADR-2) is required. Spec 140 = flush + cache + further investigation. |
+
+Probe must not declare "success" without producing a Spec 143 diff
+report for at least Variant A. The decision is made on data, not
+on motm boot success.
 
 ## Implementation plan
 
