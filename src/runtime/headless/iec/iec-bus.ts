@@ -144,10 +144,16 @@ export class IecBus {
     // Single core mutation — handles update_cpu_bus, ATN edge,
     // drv_bus[8/9] recompute, iec_update_ports.
     this.core.c64_store_dd00(inverted, (atnHigh) => {
-      // ATN edge propagation to drive VIA1 CA1.
       const stamp = this.driveClockSource?.();
       this.driveVia1?.pulseCa1(atnHigh, stamp);
-      // Sprint 66 hack: $7C poke (Spec 144 will gate). Edge-only.
+      // Sprint 66 / Spec 144 territory: $7C ATN-pending poke.
+      // KEY FINDING (Spec 140 v3+): RAM diff at $07A1 between
+      // VICE and headless drive shows $7C=$80 (us) vs $00 (VICE).
+      // Removing the poke breaks MM-LOAD (drive misses ATN edge);
+      // keeping it breaks motm (drive permanently in ATN handler
+      // instead of motm receive loop). True fix is Spec 145+
+      // (CIA + VIA timer 1:1 so CA1 IRQ delivers naturally without
+      // race). Until then keep poke + accept motm broken.
       const atnLow = !atnHigh;
       if (atnLow && !this.prevAtnLow && this.driveRamForAtnPoke) {
         this.driveRamForAtnPoke[0x7c] = 0x80;

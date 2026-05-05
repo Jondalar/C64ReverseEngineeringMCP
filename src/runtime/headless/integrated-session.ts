@@ -389,7 +389,12 @@ export class IntegratedSession {
     // Sprint 92: cycle-lockstep scheduler (opt-in).
     this.useCycleLockstep = (opts.useCycleLockstep ?? false) || (opts.useMicrocodedCpu ?? false);
     this.useMicrocodedCpu = opts.useMicrocodedCpu ?? false;
-    this.driveHeadStartCycles = opts.driveHeadStartCycles ?? 200_000;
+    // Q9 head-start disabled by default in v3+: with bus formula
+    // 1:1 VICE + drive RAM mostly correct, head-start no longer
+    // needed for boot-order race. CA1 IRQ + reevaluateCa1Level
+    // handle the race during normal scheduler tick. Caller may
+    // re-enable via option.
+    this.driveHeadStartCycles = opts.driveHeadStartCycles ?? 0;
     // Spec 093: trace wiring. timeSource bound to c64Cpu cycles via getter.
     this.iecBus.timeSource = () => this.c64Cpu.cycles;
     if (opts.traceIec) this.iecBus.enableTrace(opts.traceIecCapacity ?? 1024);
