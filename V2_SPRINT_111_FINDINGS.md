@@ -437,6 +437,48 @@ Build tooling next: `session.drive.cpu.cycleHistory` ring of last
 N drive instructions with cycle stamps. Then run motm,
 extract this window, compute exact path drive took.
 
+## **Update 11 — script bug + 1-cyc PC sampling**
+
+Earlier "first $042F at cyc 33510287" was WRONG — script 2-cyc poll
+missed the brief PC=$042F. Drive actually entered $042F at
+**cyc 33510033** (=26 cyc after ATN release at cyc 33510007).
+That's normal/correct.
+
+Drive's $0431 BEQ-loop (wait DATA LOW) ran for ~28 cyc (cyc
+33510033-33510061) before falling through. But trace shows DATA
+LINE was HIGH the entire window (no DATA edge until cyc 33510300).
+
+So drive's $1800 read at cyc ~33510061 returned bit0=1 (=DATA
+LOW) when bus state shows DATA HIGH. **Bug is in drive's
+$1800 read returning wrong DATA bit during BEQ-loop iterations**.
+
+Direct query at cyc 33510038 via1.read(0)=$00 returned correct
+value. So drive's read function works in isolation. Issue is
+specifically when drive CPU executes BIT $1800 during cycle-lockstep:
+maybe cycle-skew between c64 and drive when drive samples in middle
+of instruction.
+
+### Also: drive PC trace samples PC mid-instruction
+
+Microcoded drive CPU advances PC each cycle within an instruction
+(operand fetch, etc). PC trace at 1-cyc resolution captures
+PC=$0432 (operand of BIT at $0431) which can confuse interpretation
+of "where drive is logically".
+
+Need: track drive PC at INSTRUCTION BOUNDARIES only (post-fetch
+cycle). Or differentiate fetch vs execution phases.
+
+### Stop here — tooling-level work needed
+
+Investigation hits ceiling without:
+1. Drive instruction-boundary trace (not cycle-PC)
+2. Bus-read tracing in drive's CPU read path (capture exact $1800
+   value drive sees per access, with cycle stamp)
+3. Side-by-side VICE comparison at instruction-level via binmon
+   step (no warp)
+
+Estimated 2-3 days more focused work.
+
 
 ## **Update 5 — VICE binmon proof: drive escapes BPL-loop via IRQ only**
 
