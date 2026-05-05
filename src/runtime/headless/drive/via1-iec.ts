@@ -70,30 +70,32 @@ export function makeBusVia1Pa(): ViaPortBackend {
 
 export function makeBusVia1Pb(bus: IecBus, deviceId: number = 8): ViaPortBackend {
   return {
+    // readPins kept as a fallback for non-ORB reads / DDR queries.
+    // Production drive ORB read goes via readPbFull below.
     readPins: () => bus.buildDrivePbInputBits(deviceId),
     onOutputChanged: (orValue, ddrMask) => bus.setDriveOutput(orValue, ddrMask),
-    // Spec 140: VICE-style merged PB read. Active only when bus.iecMode
-    // = "vice-cache". Returns ((PRB & 0x1A) | drv_port) ^ 0x85 | (devId<<5)
-    // bit-exact per VICE via1d1541.c read_prb formula.
+    // Spec 140 v3: 1:1 VICE via1d1541.c read_prb formula.
+    //   byte = ((PRB & 0x1A) | drv_port) ^ 0x85 | (number << 5)
+    // Always active; no mode flag.
     readPbFull: (orb, _ddrb) => {
-      const pins = bus.buildDrivePbInputBits(deviceId);
-      const liveByte = ((orb & _ddrb) | (pins & ~_ddrb)) & 0xff;
-      const viceByte = bus.core.driveReadPbByte(orb, deviceId);
-      // v2 diagnostic: compare both, emit if diverging.
-      if (bus.diagnoseReadDivergence && liveByte !== viceByte) {
-        bus.diagnoseReadDivergence({
-          driveCycle: 0, // caller fills with scheduler ts
-          drivePc: 0,
-          prb: orb,
-          ddrb: _ddrb,
-          deviceId,
-          liveByte,
-          viceByte,
-          drv_port: bus.core.drv_port,
-          cpu_bus: bus.core.cpu_bus,
-        });
+      // Diagnostic: compare against legacy live formula to surface
+      // any latent gap. Off in production via diagnoseReadDivergence
+      // staying undefined.
+      if (bus.diagnoseReadDivergence) {
+        const pins = bus.buildDrivePbInputBits(deviceId);
+        const liveByte = ((orb & _ddrb) | (pins & ~_ddrb)) & 0xff;
+        const viceByte = bus.core.drive_read_pb(orb, deviceId);
+        if (liveByte !== viceByte) {
+          bus.diagnoseReadDivergence({
+            driveCycle: 0, drivePc: 0,
+            prb: orb, ddrb: _ddrb, deviceId,
+            liveByte, viceByte,
+            drv_port: bus.core.drv_port,
+            cpu_bus: bus.core.cpu_bus,
+          });
+        }
       }
-      return bus.iecMode === "vice-cache" ? viceByte : liveByte;
+      return bus.core.drive_read_pb(orb, deviceId);
     },
   };
 }

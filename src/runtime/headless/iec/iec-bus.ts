@@ -1,40 +1,23 @@
-// IEC bus state model for headless C64 + 1541 drive coupling.
+// Spec 140 v3 — IEC bus 1:1 VICE port.
 //
-// Bus is open-collector wired-AND: each driver pulls its line LOW or
-// releases (HIGH default via pull-up resistors). Effective line state
-// = AND across all drivers (LOW wins).
+// Mirrors VICE 3.7.1 behavior with single source of truth =
+// IecBusCore (= the iecbus_t struct). All state derived from core.
+// No parallel "live released" flags. No iecMode flag.
 //
-// Standard IEC has 3 active lines:
-//   ATN  (attention) — driven only by C64 (via CIA2 PA bit 3 inverted)
-//   CLK  (clock)     — driven by C64 (CIA2 PA bit 4) AND drive (VIA1 PB bit 3)
-//   DATA (data)      — driven by C64 (CIA2 PA bit 5) AND drive (VIA1 PB bit 1)
-//                      AND drive's ATN_ACK (VIA1 PB bit 4) when ATN is low
-//
-// C64 reads CLK_IN ($DD00 bit 6) and DATA_IN ($DD00 bit 7).
-// Drive reads ATN_IN ($1800 bit 7), CLK_IN ($1800 bit 2), DATA_IN
-// ($1800 bit 0).
-//
-// Sign convention: bus uses negative-true logic (LOW = asserted = TRUE
-// in the IEC sense). To stay sane in code we model line state as
-// "released" (HIGH = true) by default; "pulled" = false.
+// External API (atnLine/clkLine/dataLine getters, setC64Output,
+// setDriveOutput, buildC64InputBits) preserved for back-compat;
+// implementations now compute from core.cpu_port + core.cpu_bus.
 
 import type { Via6522 } from "../drive/via6522.js";
-import {
-  PB_DATA_OUT, PB_CLK_OUT, PB_ATN_ACK,
-  PB_DATA_IN, PB_CLK_IN, PB_ATN_IN,
-  PB_DEV_ID0, PB_DEV_ID1,
-} from "../drive/via1-iec.js";
+import { PB_DEV_ID0, PB_DEV_ID1 } from "../drive/via1-iec.js";
 import type { BusAccessTraceProducer } from "../trace/bus-access.js";
 import { IecBusCore } from "./iec-bus-core.js";
 
-export type IecMode = "vice-cache" | "live";
-
-// CIA2 PA bit assignments (CIA2 not yet implemented — these constants
-// are for the cia2-stub.ts that wires the bus on $DD00 writes).
+// CIA2 PA bit assignments.
 export const CIA2_PA_VIC_BANK_LO = 1 << 0;
 export const CIA2_PA_VIC_BANK_HI = 1 << 1;
-export const CIA2_PA_RS232 = 1 << 2;       // RS232 TXD; ignored
-export const CIA2_PA_ATN_OUT = 1 << 3;     // active low when bit = 0 → ATN pulled
+export const CIA2_PA_RS232 = 1 << 2;
+export const CIA2_PA_ATN_OUT = 1 << 3;
 export const CIA2_PA_CLK_OUT = 1 << 4;
 export const CIA2_PA_DATA_OUT = 1 << 5;
 export const CIA2_PA_CLK_IN = 1 << 6;
@@ -46,6 +29,7 @@ export interface IecEdgeRecord {
   atn: 0 | 1;
   clk: 0 | 1;
   data: 0 | 1;
+  // Per-side fields populated from the post-mutation core snapshot.
   c64Atn: 0 | 1;
   c64Clk: 0 | 1;
   c64Data: 0 | 1;
@@ -55,39 +39,20 @@ export interface IecEdgeRecord {
 }
 
 export class IecBus {
-  // C64-side drivers. true = released (high), false = pulling low.
-  private c64AtnReleased = true;
-  private c64ClkReleased = true;
-  private c64DataReleased = true;
+  // 1:1 VICE iecbus_t — single source of truth.
+  public readonly core = new IecBusCore();
 
-  // Drive-side drivers.
-  private driveClkReleased = true;
-  private driveDataReleased = true;
-  // ATN_ACK on drive side: when ATN is asserted (low), the drive must
-  // ACK by pulling DATA low. The drive ROM does this in its ATN handler.
-  private driveAtnAckReleased = true;
-
-  // Spec 093: optional cycle-stamped edge trace.
+  // Spec 093 trace.
   private traceEnabled = false;
   private traceCapacity = 256;
   private trace: IecEdgeRecord[] = [];
   public timeSource?: () => number;
 
-  // Spec 142: optional bus-access trace producer. null = no overhead.
+  // Spec 142 bus-access producer.
   public busAccessProducer?: BusAccessTraceProducer;
-  // CIA2 PA address — passed in by integrated session for trace event addr field.
-  // Defaults to $DD00 (standard C64 wiring).
   public cia2PaAddr = 0xdd00;
 
-  // Spec 140: VICE-compatible cached IEC core. When iecMode = "vice-cache",
-  // setC64Output and setDriveOutput update this core; drive PB reads
-  // route through `core.driveReadPbByte()` instead of buildDrivePbInputBits.
-  public readonly core = new IecBusCore();
-  public iecMode: IecMode = "live";
-
-  // Spec 140 v2 diagnostic: compare live vs vice-cache reads on every
-  // drive $1800 access. Emits via callback when they differ. Used to
-  // pinpoint bit-polarity divergence without breaking drive boot.
+  // Spec 142 v2 diagnostic.
   public diagnoseReadDivergence?: (info: {
     driveCycle: number;
     drivePc: number;
@@ -100,6 +65,20 @@ export class IecBus {
     cpu_bus: number;
   }) => void;
 
+  // Spec 141 v2: drive clock source for ATN-edge IRQ stamping.
+  public driveClockSource?: () => number;
+
+  // Drive VIA1 reference for ATN edge propagation.
+  private driveVia1?: Via6522;
+
+  // Sprint 66 / Spec 144 territory: drive RAM $7C poke for legacy
+  // trap-fast mode. Default null = disabled (truedrive-pure).
+  // Kept here for future Spec 144 mode-gating.
+  private driveRamForAtnPoke?: Uint8Array;
+  private prevAtnLow = false;
+
+  // === Trace API ===
+
   enableTrace(capacity = 256): void {
     this.traceEnabled = true;
     this.traceCapacity = Math.max(8, capacity);
@@ -109,146 +88,119 @@ export class IecBus {
   getTrace(): IecEdgeRecord[] { return this.trace.slice(); }
   clearTrace(): void { this.trace = []; }
   isTraceEnabled(): boolean { return this.traceEnabled; }
+
   private recordEdge(side: "c64" | "drive", prev: { atn: boolean; clk: boolean; data: boolean }): void {
     if (!this.traceEnabled) return;
     const atn = this.atnLine, clk = this.clkLine, data = this.dataLine;
     if (atn === prev.atn && clk === prev.clk && data === prev.data) return;
     const cycle = this.timeSource ? this.timeSource() : 0;
+    // Per-side derive from core.cpu_bus + drv_data[8].
+    const cpu_bus = this.core.cpu_bus;
+    const drv_data8 = this.core.drv_data[8] ?? 0xff;
     const rec: IecEdgeRecord = {
       cycle, side,
       atn: atn ? 1 : 0, clk: clk ? 1 : 0, data: data ? 1 : 0,
-      c64Atn: this.c64AtnReleased ? 1 : 0,
-      c64Clk: this.c64ClkReleased ? 1 : 0,
-      c64Data: this.c64DataReleased ? 1 : 0,
-      drvClk: this.driveClkReleased ? 1 : 0,
-      drvData: this.driveDataReleased ? 1 : 0,
-      drvAtnAck: this.driveAtnAckReleased ? 1 : 0,
+      // c64*: cpu_bus bit set = c64 NOT asserting (released).
+      c64Atn: ((cpu_bus & 0x10) ? 1 : 0) as 0 | 1,
+      c64Clk: ((cpu_bus & 0x40) ? 1 : 0) as 0 | 1,
+      c64Data: ((cpu_bus & 0x80) ? 1 : 0) as 0 | 1,
+      // drv*: drv_data bit = !ORB bit. drv_data bit set = drive
+      // NOT asserting (released). PB1 = DATA_OUT, PB3 = CLK_OUT,
+      // PB4 = ATN_ACK.
+      drvClk: ((drv_data8 & 0x08) ? 1 : 0) as 0 | 1,
+      drvData: ((drv_data8 & 0x02) ? 1 : 0) as 0 | 1,
+      drvAtnAck: ((drv_data8 & 0x10) ? 1 : 0) as 0 | 1,
     };
     this.trace.push(rec);
     if (this.trace.length > this.traceCapacity) this.trace.shift();
   }
 
-  // Optional drive VIA1 to pulse CA1 on ATN edges.
-  private driveVia1?: Via6522;
-  // Sprint 66 hack: optional pointer to drive RAM so we can poke the
-  // ATN-pending flag at $7C directly. Standard 1541 ROM idle loop at
-  // $EBFF reads $7C and only jumps to ATN handler if non-zero. The
-  // IRQ handler normally sets $7C from CA1 IRQ, but our model misses
-  // some edges due to the boot-order race. Direct poke unsticks the
-  // common case.
-  // Spec 096 (Bug 40): poke is now edge-triggered only — set on
-  // ATN high→low transition, not while continuously low. The
-  // level-trigger version caused the drive to re-enter the ATN
-  // handler / command parser on every C64 IEC write while ATN was
-  // held low (e.g. during ACPTR retry), abandoning TALK byte-send.
-  private driveRamForAtnPoke?: Uint8Array;
-  private prevAtnLow = false;
+  // === Drive VIA1 attachment ===
 
   attachDriveVia1(via: Via6522): void {
     this.driveVia1 = via;
-    // Initialize CA1 baseline state.
+    // Initialize CA1 baseline state per current ATN.
     via.pulseCa1(this.atnLine);
-    // Sprint 66: when drive ROM enables CA1 IRQ later, re-evaluate
-    // against current ATN level (workaround for boot-order race —
-    // see Via6522.reevaluateCa1Level doc).
+    // Sprint 66 boot-order race re-eval shim. Spec 144 will gate this.
     via.onCa1IerEnabled = () => {
       via.reevaluateCa1Level(this.atnLine);
     };
   }
 
-  // C64 → bus: CIA2 PA writes update these.
-  // CIA2 has 7406 INVERTERS between PA latch and IEC transistor bases:
-  // PA latch bit=1 (DDR=output) → transistor pulls line LOW (asserted).
-  // KERNAL writes ORA #$38 to $DD00 to assert ATN+CLK+DATA. KERNAL's
-  // $EE8E (`ORA #$10` then store) is "pull CLK low" — confirms bit=1=pull.
-  setC64Output(cia2Pa: number, ddrMask: number): void {
-    // VICE-style: flush drive cycles BEFORE bus state changes so the
-    // drive sees its previous bus state for full duration before this
-    // new one. Symmetric with read-side flush.
-    if (this.beforeC64Read) this.beforeC64Read();
+  // === C64 IEC store ($DD00 PA write) ===
+  // VICE flow: c64cia2.c:150 inverts byte → iecbus_callback_write →
+  // iecbus_cpu_write_conf1 (iecbus.c:237):
+  //   1. drive_cpu_execute_one(unit, clock)  — flush drive
+  //   2. iec_update_cpu_bus(data)
+  //   3. ATN edge → viacore_signal(via1d1541, CA1, ...)
+  //   4. recompute drv_bus[8]
+  //   5. iec_update_ports
+  setC64Output(cia2Pa: number, _ddrMask: number): void {
+    // Per c64cia2.c:150 — invert raw PA byte before iecbus.
+    const inverted = (~cia2Pa) & 0xff;
     const prev = { atn: this.atnLine, clk: this.clkLine, data: this.dataLine };
-    const driveAtn = (ddrMask & CIA2_PA_ATN_OUT) !== 0;
-    const driveClk = (ddrMask & CIA2_PA_CLK_OUT) !== 0;
-    const driveData = (ddrMask & CIA2_PA_DATA_OUT) !== 0;
-    const atnBit = (cia2Pa & CIA2_PA_ATN_OUT) !== 0;
-    const clkBit = (cia2Pa & CIA2_PA_CLK_OUT) !== 0;
-    const dataBit = (cia2Pa & CIA2_PA_DATA_OUT) !== 0;
-    // Inverted: bit=1 AND DDR=output → line pulled; bit=0 OR DDR=input → released.
-    this.c64AtnReleased = !driveAtn || !atnBit;
-    this.c64ClkReleased = !driveClk || !clkBit;
-    this.c64DataReleased = !driveData || !dataBit;
-    // Spec 140: maintain VICE-cache state in parallel with live flags.
-    // CRITICAL (Spec 140 v2 fix): VICE c64cia2.c:150 inverts the PA
-    // latch byte (`tmp = ~byte`) BEFORE passing to iec_update_cpu_bus.
-    // Convention: cpu_bus bit set = c64 NOT asserting (line HIGH).
-    // Without this inversion our cpu_bus had inverted polarity vs
-    // VICE → drv_port wrong → drive PB read wrong.
-    this.core.iecUpdateCpuBus((~cia2Pa) & 0xff, ddrMask);
-    this.core.iecUpdatePorts();
-    this.notifyAtnChanged();
+    // Drive flush (Q4 hybrid: still tick lockstep, push-flush at IEC).
+    if (this.beforeC64Read) this.beforeC64Read();
+    // Single core mutation — handles update_cpu_bus, ATN edge,
+    // drv_bus[8/9] recompute, iec_update_ports.
+    this.core.c64_store_dd00(inverted, (atnHigh) => {
+      // ATN edge propagation to drive VIA1 CA1.
+      const stamp = this.driveClockSource?.();
+      this.driveVia1?.pulseCa1(atnHigh, stamp);
+      // Sprint 66 hack: $7C poke (Spec 144 will gate). Edge-only.
+      const atnLow = !atnHigh;
+      if (atnLow && !this.prevAtnLow && this.driveRamForAtnPoke) {
+        this.driveRamForAtnPoke[0x7c] = 0x80;
+      }
+      this.prevAtnLow = atnLow;
+    });
     this.recordEdge("c64", prev);
-    // Spec 142: emit bus-access event AFTER bus state mutated, so the
-    // event's iec snapshot reflects the new state.
     this.busAccessProducer?.emitC64Access({ op: "write", addr: this.cia2PaAddr, value: cia2Pa & 0xff });
   }
 
-  // Drive → bus: VIA1 PB writes update these.
-  // 1541 hardware INVERTS PB output bits before driving the open-
-  // collector IEC transistors, so the polarity is REVERSED vs CIA2:
-  // PB bit=1 (with DDR=output) → transistor pulls line LOW.
-  // PB bit=0 (with DDR=output) → transistor releases line.
-  // Confirmed during Sprint 75 iteration on Maniac Mansion drive code.
-  setDriveOutput(via1PbOr: number, ddrMask: number): void {
+  // === Drive PB store ($1800 ORB write) ===
+  // VICE flow: via1d1541.c store_prb (called from viacore on ORB write):
+  //   1. drive_data[unit] = ~byte
+  //   2. drv_bus[unit] = ATN-AND-gate composition
+  //   3. iec_update_ports
+  setDriveOutput(via1PbOr: number, _ddrMask: number): void {
     const prev = { atn: this.atnLine, clk: this.clkLine, data: this.dataLine };
-    const drvData = (ddrMask & PB_DATA_OUT) !== 0;
-    const drvClk = (ddrMask & PB_CLK_OUT) !== 0;
-    const drvAtnAck = (ddrMask & PB_ATN_ACK) !== 0;
-    const dataBit = (via1PbOr & PB_DATA_OUT) !== 0;
-    const clkBit = (via1PbOr & PB_CLK_OUT) !== 0;
-    const atnAckBit = (via1PbOr & PB_ATN_ACK) !== 0;
-    // PB1 (DATA_OUT), PB3 (CLK_OUT): inverted via 7406 → bit=1 = pulled.
-    this.driveDataReleased = !drvData || !dataBit;
-    this.driveClkReleased = !drvClk || !clkBit;
-    // PB4 (ATN_ACK): NOT a line driver. Feeds AND-gate UE5 with ATN
-    // line. bit=1 = drive acknowledged ATN = auto-pull DISABLED (i.e.
-    // released). 1541 ATN handler $E876 does ORA #$10 to acknowledge.
-    this.driveAtnAckReleased = !drvAtnAck || atnAckBit;
-    // Spec 140: maintain VICE-cache state in parallel.
-    // VICE store_prb passes the RAW OR latch (not DDR-gated) — VICE
-    // drives drv_data = ~byte unconditionally. Per via1d1541.c:228.
-    this.core.driveStorePb(via1PbOr & 0xff, 8);
+    this.core.drive_store_pb(via1PbOr & 0xff, 8);
     this.recordEdge("drive", prev);
   }
 
-  // Wired-AND line states. true = released (high), false = pulled (low).
+  // === Line state getters (derive from core) ===
+  // atnLine: only C64 drives ATN. cpu_bus bit 4 = 1 → released.
   get atnLine(): boolean {
-    return this.c64AtnReleased; // only C64 drives ATN
+    return (this.core.cpu_bus & 0x10) !== 0;
   }
+  // clkLine: cpu_port bit 6 = AND of c64 + drive CLK. 1 = released.
   get clkLine(): boolean {
-    return this.c64ClkReleased && this.driveClkReleased;
+    return (this.core.cpu_port & 0x40) !== 0;
   }
+  // dataLine: cpu_port bit 7 = AND of c64 + drive DATA, post-ATN-AND-gate.
   get dataLine(): boolean {
-    // The 1541 has a hardware AND gate: when ATN is asserted (low) AND
-    // the drive has NOT released ATN_ACK (PB4 still low), the gate
-    // pulls DATA low. The drive's ATN service routine releases ATN_ACK
-    // (sets PB4 high) once it has noticed the ATN edge, removing the
-    // auto-pull and letting normal DATA bit-bang resume.
-    const atnAckAutoPullActive = !this.atnLine && !this.driveAtnAckReleased;
-    if (atnAckAutoPullActive) return false;
-    return this.c64DataReleased && this.driveDataReleased;
+    return (this.core.cpu_port & 0x80) !== 0;
   }
 
-  // Spec 083 / VICE-style: caller can hook to ensure drive CPU has
-  // caught up to the current cycle before C64 reads bus state. Without
-  // this, drive lag causes serial bit timing to fail (drive can't
-  // respond fast enough to CLK/DATA changes).
   public beforeC64Read?: () => void;
 
-  // Read-side helper for CIA2 stub: build the input bits CIA2 sees on PA.
+  // === C64 reads $DD00 PA ($DC00 callback) ===
+  // VICE: iecbus_cpu_read_conf1 returns CACHED iecbus.cpu_port.
   buildC64InputBits(): number {
     if (this.beforeC64Read) this.beforeC64Read();
+    // VICE bit layout in cpu_port:
+    //   bit 4 = ATN  (only c64 drives, but cpu_port has it from cpu_bus)
+    //   bit 6 = CLK
+    //   bit 7 = DATA
+    // C64 reads $DD00:
+    //   bit 6 = CLK_IN, bit 7 = DATA_IN
+    // VICE returns cpu_port directly — caller (CIA2) merges with PA latch.
+    // Our CIA2 stub uses readPins() → returns the bus-derived bits.
+    // Match VICE: return cpu_port bits 6+7 (the input bits) plus
+    // VIC bank bits float high.
     let bits = 0;
-    bits |= CIA2_PA_VIC_BANK_LO | CIA2_PA_VIC_BANK_HI; // input bits float high (we ignore VIC bank)
+    bits |= CIA2_PA_VIC_BANK_LO | CIA2_PA_VIC_BANK_HI;
     if (this.clkLine) bits |= CIA2_PA_CLK_IN;
     if (this.dataLine) bits |= CIA2_PA_DATA_IN;
     const result = bits & 0xff;
@@ -256,103 +208,74 @@ export class IecBus {
     return result;
   }
 
-  // Read-side helper for VIA1 PB backend (legacy "live" mode).
-  // Spec 140 v2: kept for trace/test back-compat. Real drive PB read
-  // now goes through `core.driveReadPbByte()` via via1-iec.ts
-  // readPbFull, which applies VICE's `((PRB & 0x1A) | drv_port) ^
-  // 0x85 | (devId<<5)` formula.
-  //
-  // NOTE polarity here is "1 = line LOW/asserted" (legacy
-  // convention). Real 1541 PB inputs are non-inverting so bit = 1
-  // means line HIGH — but our existing trap-fast / KERNAL serial
-  // paths and unit tests have been calibrated against this inverted
-  // convention. Keeping it for back-compat. Production drive read
-  // now bypasses this helper.
+  // === Drive reads $1800 PB === (legacy fallback for trace etc.)
+  // Production path goes through via1-iec.ts readPbFull → core.drive_read_pb.
+  // This helper kept for back-compat callers (trace iec snapshot,
+  // unit tests).
   buildDrivePbInputBits(deviceId: number): number {
+    // Per VICE read_prb formula but without PRB latch portion (caller
+    // merges). Returns just the input bits (DATA/CLK/ATN) plus jumper.
     let bits = 0;
-    if (!this.atnLine) bits |= PB_ATN_IN;     // line LOW → bit = 1 (LEGACY)
-    if (!this.clkLine) bits |= PB_CLK_IN;
-    if (!this.dataLine) bits |= PB_DATA_IN;
-    // Sprint 96 / Bug 39: device ID jumpers (read as PB5/PB6).
-    // Real 1541 schematic: J1, J2 are PCB traces; CUTTING a trace
-    // adds 1 (J1) or 2 (J2) to base device address 8. UNCUT jumper
-    // grounds the PB pin → reads 0 (active-low to ground). Default
-    // device 8 = both uncut = both bits 0.
-    const offset = deviceId - 8;            // 0..3
+    if (!this.atnLine) bits |= 1 << 7;     // PB7 ATN_IN: 1 = line LOW (per real-HW non-inverting input convention follow-on)
+    if (!this.clkLine) bits |= 1 << 2;     // PB2 CLK_IN
+    if (!this.dataLine) bits |= 1 << 0;    // PB0 DATA_IN
+    const offset = deviceId - 8;
     const cutHi = (offset & 0x02) !== 0;
     const cutLo = (offset & 0x01) !== 0;
-    if (cutLo) bits |= PB_DEV_ID0; else bits &= ~PB_DEV_ID0;
-    if (cutHi) bits |= PB_DEV_ID1; else bits &= ~PB_DEV_ID1;
+    if (cutLo) bits |= PB_DEV_ID0;
+    if (cutHi) bits |= PB_DEV_ID1;
     return bits & 0xff;
   }
 
+  // === Sprint 66 / Spec 144 hooks ===
   attachDriveRam(ram: Uint8Array): void {
     this.driveRamForAtnPoke = ram;
   }
 
-  // Sprint 72: synthesize drive CLK ACK after a trap-handled M-W or
-  // similar drive-command completion. Many games wait for CLK to be
-  // released by the drive after a command — we release it here so
-  // the C64 exits the wait loop immediately.
+  // Sprint 72: synthetic line release for trap-fast mode (Spec 144
+  // gating later). Direct mutation of drv_data; bypasses normal
+  // store_prb flow.
   releaseDriveClk(): void {
-    this.driveClkReleased = true;
+    // Set drive_data[8] bit 3 (CLK_OUT inverted) = 1 (= drive
+    // released). Recompute drv_bus[8] + ports.
+    const dd = this.core.drv_data[8] ?? 0xff;
+    this.core.drv_data[8] = (dd | 0x08) & 0xff;
+    this.core.recompute_drv_bus(8);
+    this.core.iec_update_ports();
   }
-
   releaseDriveData(): void {
-    this.driveDataReleased = true;
-  }
-
-  // Spec 141 v2: caller (IntegratedSession) sets driveClockSource so
-  // ATN edges stamped through pulseCa1 carry the current drive cycle.
-  // null = falls back to via.cumulativeCycles (= older behavior).
-  public driveClockSource?: () => number;
-
-  private notifyAtnChanged(): void {
-    if (this.driveVia1) {
-      const stamp = this.driveClockSource?.();
-      this.driveVia1.pulseCa1(this.atnLine, stamp);
-    }
-    // Sprint 66 hack, Spec 096 fix: edge-triggered poke of drive
-    // ATN-pending flag at $7C. Standard 1541 ROM idle loop reads $7C
-    // and jumps to ATN-handler when non-zero; the IRQ handler
-    // normally sets it from CA1 IRQ. Setting only on ATN high→low
-    // transition matches the real edge-pulse semantics. The earlier
-    // level-trigger version repeatedly re-poked $7C on every C64
-    // IEC write while ATN was held low, which caused drive to
-    // re-enter the command parser during ACPTR retries and
-    // abandon TALK byte-send (Bug 40).
-    const atnLow = !this.atnLine;
-    if (atnLow && !this.prevAtnLow && this.driveRamForAtnPoke) {
-      this.driveRamForAtnPoke[0x7c] = 0x80;
-    }
-    this.prevAtnLow = atnLow;
-  }
-
-  // Internal helper used by setC64Output to detect change before update.
-  private atnLineRaw(_pendingC64Released?: boolean): boolean {
-    return this.c64AtnReleased;
+    const dd = this.core.drv_data[8] ?? 0xff;
+    this.core.drv_data[8] = (dd | 0x02) & 0xff;
+    this.core.recompute_drv_bus(8);
+    this.core.iec_update_ports();
   }
 
   reset(): void {
-    this.c64AtnReleased = true;
-    this.c64ClkReleased = true;
-    this.c64DataReleased = true;
-    this.driveClkReleased = true;
-    this.driveDataReleased = true;
-    this.driveAtnAckReleased = true;
+    this.core.reset();
     this.prevAtnLow = false;
   }
 
-  // Diagnostic snapshot for tools / tests.
   snapshot(): {
     line: { atn: boolean; clk: boolean; data: boolean };
     c64: { atnReleased: boolean; clkReleased: boolean; dataReleased: boolean };
     drive: { clkReleased: boolean; dataReleased: boolean; atnAckReleased: boolean };
   } {
+    const cpu_bus = this.core.cpu_bus;
+    const drv_data8 = this.core.drv_data[8] ?? 0xff;
     return {
       line: { atn: this.atnLine, clk: this.clkLine, data: this.dataLine },
-      c64: { atnReleased: this.c64AtnReleased, clkReleased: this.c64ClkReleased, dataReleased: this.c64DataReleased },
-      drive: { clkReleased: this.driveClkReleased, dataReleased: this.driveDataReleased, atnAckReleased: this.driveAtnAckReleased },
+      // c64*: cpu_bus bit set = "c64 not asserting" = released.
+      c64: {
+        atnReleased: (cpu_bus & 0x10) !== 0,
+        clkReleased: (cpu_bus & 0x40) !== 0,
+        dataReleased: (cpu_bus & 0x80) !== 0,
+      },
+      // drive*: drv_data bit set = "drive not asserting" = released.
+      drive: {
+        clkReleased: (drv_data8 & 0x08) !== 0,
+        dataReleased: (drv_data8 & 0x02) !== 0,
+        atnAckReleased: (drv_data8 & 0x10) !== 0,
+      },
     };
   }
 }

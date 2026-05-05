@@ -357,14 +357,8 @@ export class IntegratedSession {
       useMicrocodedCpu: opts.useMicrocodedCpu ?? false,
     });
     this.iecBus.attachDriveRam(this.drive.bus.ram);
-    // Spec 140 v2: VICE-cache is now THE default. Per user directive
-    // "1:1 wie VICE machen alles". Polarity puzzle resolved by
-    // c64cia2.c:150 `tmp = ~byte` inversion now applied in
-    // setC64Output. Live mode preserved for ablation only.
-    this.iecBus.iecMode = opts.iecMode ?? "vice-cache";
+    // Spec 140 v3: 1:1 VICE port. No mode flag — VICE is THE behavior.
     // Spec 141 v2: drive clock source for ATN edge IRQ stamping.
-    // VICE viacore_signal stamps via update_myviairq with drive's
-    // current clk_ptr. We read drive.cpu.cycles equivalently.
     this.iecBus.driveClockSource = () =>
       (this.drive.cpu as { cycles: number }).cycles;
     // Spec 090: configure drive's sync ratio + zero baseline.
