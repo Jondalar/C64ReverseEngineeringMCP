@@ -37,12 +37,15 @@ async function runGame(g) {
   session.typeText('LOAD"*",8,1\r', 80_000, 80_000);
 
   const samples = [];
+  const driveRamSnaps = []; // [{ ts, bytes(hex of $0370-$0380) }]
   const ram = session.c64Bus.ram;
   const drvRam = session.drive.bus.ram;
   const c64Cpu = session.c64Cpu;
   const drvCpu = session.drive.cpu;
   let firstEoiAt = -1;
   let nextSampleCyc = CYCLES_PER_SAMPLE;
+  const SNAP_EVERY = 1_000_000;
+  let nextSnapCyc = SNAP_EVERY;
   while (c64Cpu.cycles < TARGET_CYCLES) {
     session.runFor(50_000);  // batch run
     if (c64Cpu.cycles >= nextSampleCyc) {
@@ -63,11 +66,25 @@ async function runGame(g) {
       if (firstEoiAt < 0 && (z90 & 0x40) !== 0) firstEoiAt = c64Cpu.cycles;
       nextSampleCyc += CYCLES_PER_SAMPLE;
     }
+    if (c64Cpu.cycles >= nextSnapCyc) {
+      const drvSlice = Array.from(drvRam.subarray(0x0370, 0x0380));
+      const c64Slice = Array.from(ram.subarray(0x4200, 0x4400));
+      driveRamSnaps.push({
+        ts: c64Cpu.cycles,
+        c64Pc: c64Cpu.pc,
+        drvPc: drvCpu.pc,
+        drv_0370: drvSlice.map((b) => b.toString(16).padStart(2, "0")).join(" "),
+        c64_4200_hash: c64Slice.reduce((a, b) => (a * 31 + b) >>> 0, 0).toString(16),
+      });
+      nextSnapCyc += SNAP_EVERY;
+    }
   }
   const dtMs = Date.now() - t0;
 
   writeFileSync(resolvePath(outDir, "headless-trace.jsonl"),
     samples.map((s) => JSON.stringify(s)).join("\n") + "\n");
+  writeFileSync(resolvePath(outDir, "headless-drive-ram-snaps.jsonl"),
+    driveRamSnaps.map((s) => JSON.stringify(s)).join("\n") + "\n");
   writeFileSync(resolvePath(outDir, "headless-drive-ram.bin"), drvRam.subarray(0, 0x800));
   writeFileSync(resolvePath(outDir, "headless-summary.json"), JSON.stringify({
     game: g.id, disk: g.disk, runSecEmulated: RUN_SEC_EMULATED,
