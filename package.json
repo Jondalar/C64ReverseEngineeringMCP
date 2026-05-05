@@ -21,6 +21,8 @@
     "bootstrap:ui-fixture": "npm run build && node scripts/bootstrap-ui-fixture.mjs",
     "headless:mm:g64-debug": "npm run build:mcp && node scripts/headless-mm-g64-debug.mjs",
     "test:bus-trace": "npm run build:mcp && node scripts/bus-trace-motm.mjs",
+    "trace:motm-vice": "npm run build:mcp && node scripts/vice-iec-capture.mjs",
+    "trace:motm-diff": "node scripts/vice-iec-diff.mjs",
     "trace:eof": "npm run build:mcp && node scripts/trace-eof.mjs",
     "trace:eof:vice": "npm run build:mcp && node scripts/trace-eof-vice.mjs",
     "trace:eof:diff": "node scripts/swimlane-diff.mjs --mode=eof",
