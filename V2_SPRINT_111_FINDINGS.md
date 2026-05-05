@@ -293,6 +293,57 @@ Headless reproduces full code path. Bug is in semantics of
 received bits or post-receive dispatch. Need clock-cycle-precise
 side-by-side capture to localize.
 
+## **Update 8 — direct receive-byte compare via VICE binmon**
+
+Built proper await-checkpoint flow (`/tmp/vice-cap-firstrecv.mjs`)
++ corresponding headless polling capture (`/tmp/headless-cap-v2.mjs`).
+Captured first 6 drive $044e events post-receive in BOTH.
+
+**Direct comparison:**
+
+| iter | VICE drvPc | VICE $06 | VICE $07 | VICE $08 (cmd) | Headless drvPc | HL $06 | HL $07 | HL $08 |
+|------|-----------|----------|----------|---------|---------|--------|--------|--------|
+| 0    | $f565     | $01      | $00      | **$23** | (missed)| —      | —      | —      |
+| 1    | $f99c     | $04      | $50      | $06     | $451    | $04    | $50    | $06    |
+| 2    | $07c8     | $11      | $0e      | $01     | $44e    | $10    | $00    | $06    |
+| 3    | $07be     | $11      | $05      | $01     | $44e    | $10    | $fc    | $01    |
+
+**Three clear bugs visible:**
+
+1. **Headless misses VICE iter 0 (cmd $23 init).** Probably first
+   receive in early-boot flow that headless drive isn't running
+   yet because our drive arrives at $042F path 1-2 receives later.
+2. **Headless has extra duplicate cmd $06 receive at iter 2** with
+   different data ($10/$00) than the matching VICE iter 1 ($04/$50).
+   So second cmd $06 in headless = corrupt copy.
+3. **Cmd $01 data bytes diverge** ($10/$fc headless vs $11/$05 VICE).
+   Specifically bit0 of $06 differs ($10 = 0001_0000 vs $11 = 0001_0001).
+   And $07 wildly different.
+
+**Bit encoding hypothesis:**
+- Cmd byte ($08, last 8 bits received) matches 2/4 times — bit
+  decoding partly OK
+- $07 (last 8 received bits) frequently wildly wrong → bit-sampling
+  desync at end of 24-bit window
+- $06 (middle 8 bits) often off by 1 bit → CLK-DATA setup-time skew
+
+### Real localization path
+
+Need per-cycle CLK/DATA edge trace during ONE 24-bit receive
+($042F-$044C window). Compare bit-by-bit between VICE and
+headless. The bit position where they diverge = bug origin.
+
+Tooling needed: instrument drive bus reads at $1800 with cycle
+stamps. Save bit-stream from both sides. Diff at bit-level.
+
+### Investigation summary
+
+8 commits this session, full bug-class identified. Real fix needs
+per-cycle bit-stream tracing tooling — not built tonight.
+Estimated 1-2 days more focused work to localize timing issue
+to specific cycle in our IEC bus model + 1-2 days fix + verify.
+
+
 ## **Update 5 — VICE binmon proof: drive escapes BPL-loop via IRQ only**
 
 (*Note: Update 6 corrected this — drive escapes BPL via natural
