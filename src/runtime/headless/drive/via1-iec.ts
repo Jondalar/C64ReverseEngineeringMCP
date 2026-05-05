@@ -76,12 +76,24 @@ export function makeBusVia1Pb(bus: IecBus, deviceId: number = 8): ViaPortBackend
     // = "vice-cache". Returns ((PRB & 0x1A) | drv_port) ^ 0x85 | (devId<<5)
     // bit-exact per VICE via1d1541.c read_prb formula.
     readPbFull: (orb, _ddrb) => {
-      if (bus.iecMode === "vice-cache") {
-        return bus.core.driveReadPbByte(orb, deviceId);
-      }
-      // Fallback to legacy formula if mode != vice-cache.
       const pins = bus.buildDrivePbInputBits(deviceId);
-      return ((orb & _ddrb) | (pins & ~_ddrb)) & 0xff;
+      const liveByte = ((orb & _ddrb) | (pins & ~_ddrb)) & 0xff;
+      const viceByte = bus.core.driveReadPbByte(orb, deviceId);
+      // v2 diagnostic: compare both, emit if diverging.
+      if (bus.diagnoseReadDivergence && liveByte !== viceByte) {
+        bus.diagnoseReadDivergence({
+          driveCycle: 0, // caller fills with scheduler ts
+          drivePc: 0,
+          prb: orb,
+          ddrb: _ddrb,
+          deviceId,
+          liveByte,
+          viceByte,
+          drv_port: bus.core.drv_port,
+          cpu_bus: bus.core.cpu_bus,
+        });
+      }
+      return bus.iecMode === "vice-cache" ? viceByte : liveByte;
     },
   };
 }

@@ -85,6 +85,21 @@ export class IecBus {
   public readonly core = new IecBusCore();
   public iecMode: IecMode = "live";
 
+  // Spec 140 v2 diagnostic: compare live vs vice-cache reads on every
+  // drive $1800 access. Emits via callback when they differ. Used to
+  // pinpoint bit-polarity divergence without breaking drive boot.
+  public diagnoseReadDivergence?: (info: {
+    driveCycle: number;
+    drivePc: number;
+    prb: number;
+    ddrb: number;
+    deviceId: number;
+    liveByte: number;
+    viceByte: number;
+    drv_port: number;
+    cpu_bus: number;
+  }) => void;
+
   enableTrace(capacity = 256): void {
     this.traceEnabled = true;
     this.traceCapacity = Math.max(8, capacity);
