@@ -343,6 +343,63 @@ per-cycle bit-stream tracing tooling — not built tonight.
 Estimated 1-2 days more focused work to localize timing issue
 to specific cycle in our IEC bus model + 1-2 days fix + verify.
 
+## **Update 9 — bit-stream trace localizes issue: 4-bit offset**
+
+Captured all IEC bus edges during one 24-bit receive in headless
+(`/tmp/check-recv-edges.mjs`). 49 c64-side edges + 1 drive ack.
+Drive samples CLK at each DATA LOW→HIGH transition.
+
+Trace bits 1-8 (computed from edges): `0,1,1,0,0,0,0,0`
+ZP $08 result (decoded by drive): `$06` = bits LSB→MSB = `0,1,1,0,0,0,0,0`
+But arranged in $08 with bit 1 at MSB: bits 1-8 = `0,0,0,0,0,1,1,0`
+
+**Drive samples bits OFFSET BY 4** — trace bit 2 lands in ZP $08
+position bit 6, trace bit 3 in ZP bit 7. Drive missed first 4 bits.
+
+### Cause: drive CLK-pulse-loop exit latency
+
+```
+$0420: LDA $1800
+$0423: EOR #$08          (toggle CLK_OUT)
+$0425: STA $1800
+$0428: BMI $0420         (loop while bit7=ATN_IN set = ATN LOW)
+```
+
+Drive loops here while ATN line is LOW. C64 holds ATN low, sends
+some setup bits with CLK toggling. Loop exits when C64 releases
+ATN. Then drive enters $042F receive.
+
+If our model delays ATN-release propagation by 4 bit-cycles (~240
+c64 cycles), drive stays in CLK-pulse-loop too long, exits late,
+enters receive when C64 already past 4 bits.
+
+### Verifying timing
+
+VICE notifyAtnChanged via `viacore_signal(via1d1541, VIA_SIG_CA1, RISE)`
+which queues edge with cycle delay. Our `notifyAtnChanged` calls
+`via.pulseCa1(level)` immediately. Could be the OPPOSITE problem —
+ours fires CA1 too immediately while VICE delays.
+
+Or: drive's $1800 read of bit7 (ATN_IN) returns stale value 1-2
+cycles after ATN actually released. Drive at $0420 reads $1800,
+then EOR/STA/BMI = 8 cycles, then re-reads $1800. If propagation
+is buffered by N cycles, drive misses release for N cycles.
+
+### Sprint 66 hack removal didn't fix
+
+Removed spurious CA1 IFR on either edge. Regress 5/5 still green
+but motm receive bytes unchanged. So the hack wasn't the cause of
+the 4-bit offset. Real cause likely in drive cycle scheduling
+during cycle-lockstep mode.
+
+### Concrete next attempt
+
+Try: track exact c64 cycle when ATN goes HIGH vs cycle drive PC
+exits $0428. Compare to expected. If drive PC change lags ATN
+edge by N cycles, focus on `iecBus.notifyAtnChanged` →
+`via.pulseCa1` → drive interrupt-line update path for missing
+1-cycle propagation step.
+
 
 ## **Update 5 — VICE binmon proof: drive escapes BPL-loop via IRQ only**
 
