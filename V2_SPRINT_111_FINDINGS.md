@@ -264,9 +264,34 @@ side-by-side compare exact byte sent vs received in 24-bit
 receive at $042F-$044C between VICE and headless. The single
 bit/byte that differs is the bug origin.
 
-Tooling: capture per-cycle drive trace from cyc=33M to cyc=37M
-(window where stage-2 begins). Compare CLK/DATA edge sequence
-to VICE's at same emulated cycle. The mismatched edge is bug.
+### Captured first-receive bytes in headless
+
+After first 24-bit receive completes at cyc=35.0M:
+- Drive ZP $06 = $10
+- Drive ZP $07 = $fc
+- Drive ZP $08 = $01
+- Drive PC = $f562 (returns to ROM idle, NOT to dispatched handler)
+
+**Crucial**: Drive returns to ROM **AFTER** receive completes, not to a $0700+ handler. That suggests:
+1. Command index $08 = $01 → JMP table[1] which may point to ROM idle return path
+2. Or $0470 self-modify didn't pick up correct vector
+3. Or Drive ran 2 receives back to back; second one ZP $06=$10 looks corrupt
+
+VICE-side comparison attempt failed: BP at drive $044e never
+caught the brief execution moment via polling. Need
+proper waitForCheckpoint flow.
+
+### Final concrete next step (next session)
+
+1. Add `awaitCheckpoint` to vice-binmon client wrapper.
+2. Set BP drive $044e in VICE; capture exact ZP $06/$07/$08 + drive
+   PC after each first receive.
+3. Compare to headless captures at same logical event index.
+4. The first divergence tells us bit/byte/timing issue.
+
+Headless reproduces full code path. Bug is in semantics of
+received bits or post-receive dispatch. Need clock-cycle-precise
+side-by-side capture to localize.
 
 ## **Update 5 — VICE binmon proof: drive escapes BPL-loop via IRQ only**
 
