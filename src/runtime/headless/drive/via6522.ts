@@ -133,6 +133,14 @@ export class Via6522 {
   // Used only for trace event addr field.
   public baseAddr = 0x1800;
 
+  // Spec 141: clocked IRQ stamping. Each setIfr that ENABLES an
+  // IRQ-pending state (= ifr & ier & 0x7f goes from 0 to non-zero)
+  // records the current clock. Drive CPU samples irqAsserted with
+  // current clock and only acts when current >= irq_clk + INTERRUPT_DELAY.
+  // INTERRUPT_DELAY = 2 per Q6 (matches VICE drivecpu.c).
+  public lastIrqSetClock: number | null = null;
+  public static readonly INTERRUPT_DELAY = 2;
+
   constructor(public readonly portA: ViaPortBackend, public readonly portB: ViaPortBackend) {}
 
   read(reg: number): number {
@@ -388,16 +396,33 @@ export class Via6522 {
   }
 
   // Returns true iff IRQ line should be asserted (any IFR&IER bit set).
-  irqAsserted(): boolean {
-    return (this.ifr & this.ier & 0x7f) !== 0;
+  // Spec 141: when called with currentClock and lastIrqSetClock is set,
+  // applies INTERRUPT_DELAY = 2 cycles between IFR-set and IRQ visible.
+  // Matches VICE drivecpu.c interrupt_check_irq_delay.
+  irqAsserted(currentClock?: number): boolean {
+    const pending = (this.ifr & this.ier & 0x7f) !== 0;
+    if (!pending) return false;
+    if (currentClock === undefined || this.lastIrqSetClock === null) return true;
+    return currentClock >= this.lastIrqSetClock + Via6522.INTERRUPT_DELAY;
   }
 
-  setIfr(mask: number): void {
+  setIfr(mask: number, clockStamp?: number): void {
+    const before = (this.ifr & this.ier & 0x7f) !== 0;
     this.ifr |= (mask & 0x7f);
+    const after = (this.ifr & this.ier & 0x7f) !== 0;
+    // Spec 141: stamp the clock at IFR-set transition (0→1). Subsequent
+    // IFR sets while already pending don't restamp — first edge wins.
+    if (!before && after && clockStamp !== undefined) {
+      this.lastIrqSetClock = clockStamp;
+    }
   }
 
   clearIfr(mask: number): void {
     this.ifr &= ~(mask & 0x7f);
+    // Once all IFR bits cleared, reset the stamp so next set restamps.
+    if ((this.ifr & this.ier & 0x7f) === 0) {
+      this.lastIrqSetClock = null;
+    }
   }
 
   ifrSummary(): number {
@@ -419,6 +444,7 @@ export class Via6522 {
     this.t2HasUnderflowed = false;
     this.lastCa1Pin = true;
     this.lastCb1Pin = true;
+    this.lastIrqSetClock = null;
     this.portA.onOutputChanged(0, 0, "reset");
     this.portB.onOutputChanged(0, 0, "reset");
   }

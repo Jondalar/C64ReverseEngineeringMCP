@@ -149,8 +149,14 @@ export interface IntegratedSessionOptions {
   // Spec 140: IEC observable mode.
   //   "vice-cache" = VICE-bit-exact cached cpu_port/drv_port + read_prb XOR
   //   "live"       = legacy live-computed line state + standard via.read merge
-  // Default = "live" for back-compat. New scenarios opt into "vice-cache".
+  // Default = "vice-cache" (Spec 140 v2 milestone).
   iecMode?: "vice-cache" | "live";
+  // Spec 141 (Q9): drive head-start before c64 reset deassertion.
+  // Replicates real-HW boot order where 1541 boots ~10 PAL frames
+  // before c64 KERNAL becomes active, eliminating boot-race that
+  // Sprint 66 hacks compensated for. Default 200_000 c64 cycles
+  // (≈ 200ms PAL). Set 0 to disable.
+  driveHeadStartCycles?: number;
 }
 
 export interface PrgLoadResult {
@@ -206,6 +212,8 @@ export class IntegratedSession {
   public readonly traceRegistry: TraceRegistry = new TraceRegistry();
   public readonly busAccessProducer?: BusAccessTraceProducer;
   public readonly useMicrocodedCpu: boolean;
+  // Spec 141 Q9: drive head-start cycles, default 200_000 (≈200ms PAL).
+  public readonly driveHeadStartCycles: number;
   // Spec 098: named session-mode preset (resolved at construction).
   public readonly mode: SessionMode;
   // Spec 093: image format string ("g64" | "d64" | "other") + clock ratio.
@@ -382,6 +390,7 @@ export class IntegratedSession {
     // Sprint 92: cycle-lockstep scheduler (opt-in).
     this.useCycleLockstep = (opts.useCycleLockstep ?? false) || (opts.useMicrocodedCpu ?? false);
     this.useMicrocodedCpu = opts.useMicrocodedCpu ?? false;
+    this.driveHeadStartCycles = opts.driveHeadStartCycles ?? 200_000;
     // Spec 093: trace wiring. timeSource bound to c64Cpu cycles via getter.
     this.iecBus.timeSource = () => this.c64Cpu.cycles;
     if (opts.traceIec) this.iecBus.enableTrace(opts.traceIecCapacity ?? 1024);
@@ -535,6 +544,14 @@ export class IntegratedSession {
     this.c64Cpu.reset();
     this.drive.reset();
     this.drive.setSyncBaseline(this.c64Cpu.cycles);
+    // Spec 141 (Q9): drive head-start. Run drive ROM standalone for N
+    // c64-equivalent cycles BEFORE c64 starts, replicating real-HW
+    // boot order. Eliminates ATN-edge boot-race.
+    const headStart = this.driveHeadStartCycles;
+    if (headStart > 0) {
+      this.drive.executeToClock(headStart);
+      this.drive.setSyncBaseline(this.c64Cpu.cycles); // = 0 still
+    }
     this.sid.reset();
     // Pin VIC raster phase deterministically.
     (this.vic as { rasterLine?: number }).rasterLine = spec.vicRasterPhase;
