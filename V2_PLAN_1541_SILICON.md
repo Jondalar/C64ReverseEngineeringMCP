@@ -181,3 +181,56 @@ mm-s1 stays green (regression net). Adding more fastloader fixtures
 Total: ~2-3 weeks of focused work for true 101% 1541.
 
 NICHT in einer Nacht machbar. ABER der Pfad ist klar.
+
+## Tonight's progress: oracle baseline DONE
+
+Persistent in `samples/traces/v2-baseline/<game>/`:
+- `trace.jsonl` — VICE 180-sec sampling (1199 samples, drive+C64 PC, $90, $DD00, $1800)
+- `headless-trace.jsonl` — same shape from our headless
+- `c64-history.jsonl` / `drive-history.jsonl` — VICE per-checkpoint CPU history (32 instr deep)
+- `drive-ram.bin` / `headless-drive-ram.bin` — drive RAM at end
+- `summary.json` / `headless-summary.json` — metadata
+
+5.4 MB persistent. Worth keeping in repo as oracle baseline.
+
+## Tonight's diff harness output
+
+`scripts/diff-vice-headless.mjs` drive-PC class histogram + first
+divergence point per game:
+
+| Game | VICE drive RAM% | Headless drive RAM% | First class diff @ sample |
+|------|-----------------|----------------------|---------------------------|
+| mm-s1 | 0% (rom only) | 41% (ram-0400) | 502 |
+| im2 | 95% | 89% | 2 |
+| lnr-s1 | 0% (rom only) | 0% (rom only) | none in 886 |
+| **motm** | **65%** (300/400/700) | **31%** | **2** |
+| polarbear | 31% | 82% | 3 |
+
+**motm = clearest oracle-driven fixture**:
+- VICE drive runs custom code at $0300/$0400/$0700 65% of time
+- Headless drive only 31% — falls back to ROM idle 2x more often
+- First divergence: sample 2 (~150K cycles)
+
+Headless drive's idle loop returns to ROM ($EC13 = drive ROM idle)
+when VICE's drive enters/stays in custom code. Wake-up mechanism
+for custom code is what's missing.
+
+**Sprint 111 starting point:**
+1. Pick motm as primary fixture
+2. Use VICE c64-history + drive-history around sample 2
+3. Look at last 32 instructions on each side at divergence point
+4. Identify what VICE drive does that ours doesn't
+5. Likely candidates: VIA timer IRQ entry timing, CA1 ATN edge →
+   drive ROM IRQ → game's patched RAM hook
+
+Re-run after each fix:
+- `node scripts/vice-180s-baseline.mjs <game>` (regenerate VICE trace)
+- `node scripts/headless-180s-baseline.mjs <game>` (regenerate ours)
+- `node scripts/diff-vice-headless.mjs` (compare)
+
+## Files added tonight
+
+- `scripts/vice-180s-baseline.mjs`
+- `scripts/headless-180s-baseline.mjs`
+- `scripts/diff-vice-headless.mjs`
+- `samples/traces/v2-baseline/<5 games>/*` (5.4 MB)
