@@ -226,6 +226,58 @@ RAM instruction to VICE's equivalent path over 10-50M cycles.
 Not achievable autonomously overnight; needs side-by-side
 manual reasoning or a much more powerful diff tool.
 
+## **Update 5 — VICE binmon proof: drive escapes BPL-loop via IRQ only**
+
+Used vice_session_start to attach VICE binmon, then examined VICE
+drive PC histogram from the captured drive-history.jsonl (32 instr
+deep × 59 chunks × 1M cycle granularity):
+
+```
+Drive PC hits:
+  $0412 (BPL-loop body):      0 (we miss; only $0415 stored)
+  $0415 (BPL):              320  ← 17% of all drive cycles
+  $0417 (after BPL):          0  ← NEVER falls through
+  $0420 (CLK-pulse begin):    0
+  $0428 (CLK-pulse end):      0
+  $0700 (stage-2 entry):      0  (but ~352 hits in $0700-$07FF)
+```
+
+**VICE drive never executes $0417-$042F (the natural BPL fall-through
+path)**. Drive only enters $0700+ stage-2 send code via **IRQ
+preemption** from the BPL loop. Match: VICE drive spends ~17% in
+BPL wait, ~18% in $0700+ stage-2, ~rest in ROM idle.
+
+Headless drive: BPL hit count comparable (∼9% of cycles by 200K
+sample), but $0700+ entries minimal. So **headless's IRQ handler
+fires but does NOT dispatch into $0700 stage-2**.
+
+The dispatch happens via drive RAM IRQ-handler patch. Standard
+1541 ROM does indirect JMP through some vector; motm's stage-1
+setup patches that vector to point at $0700 entry. Need to find
+the exact vector address (not standard $0314/$0315 — those at
+active state contained `00 31 ea` which can't be a code addr) —
+likely a different 1541-specific indirection.
+
+### Verified by VICE binmon at active state (10min into session)
+- Drive RAM $0370-$037F = `01 58 a5 01 30 fc 78 c9 01 f0 01 e8 c6 09 10 ed`
+  (byte-identical to headless)
+- Drive ZP $00-$0F = `01 01 01 01 01 00 01 00 01 01 01 02 01 03 01 04`
+  (byte-identical to headless)
+- Drive stack $01F0 = `54 95 35 39 4f 55 95 75 29 4b 54 9d b5 29 4a 52`
+  (byte-identical to headless)
+- Drive VIA1 PB=$00 DDR=$1A PCR=$01 IER=$80 (= NO IRQ enabled?!)
+  IFR=$40 (T1 fired)
+
+VIA1 IER=$80 in VICE active state is interesting: bit7 alone =
+"all sources disabled" in VIA register read semantics. Or VICE
+returned the IER in WRITE mode? Need to clarify in next session.
+
+If VICE drive at the moment of capture had IRQ disabled (in
+critical section), and our headless drive at same logical
+moment had IRQ enabled (waiting), that could be the divergence
+trigger — VICE in the middle of a stage-2 byte send when sampled,
+ours never entered stage-2 send.
+
 ### Recommended approach for next session
 
 1. **Do not try Sprint 111 alone.** Deep RE work needs interactive
