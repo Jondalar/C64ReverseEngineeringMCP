@@ -119,11 +119,12 @@ export class IecBus {
 
   attachDriveVia1(via: Via6522): void {
     this.driveVia1 = via;
-    // Initialize CA1 baseline state per current ATN.
-    via.pulseCa1(this.atnLine);
+    // Initialize CA1 baseline (CA1 pin = inverted ATN line per 1541 schematic).
+    via.pulseCa1(!this.atnLine);
     // Sprint 66 boot-order race re-eval shim. Spec 144 will gate this.
     via.onCa1IerEnabled = () => {
-      via.reevaluateCa1Level(this.atnLine);
+      // CA1 input = inverted ATN.
+      via.reevaluateCa1Level(!this.atnLine);
     };
   }
 
@@ -145,11 +146,15 @@ export class IecBus {
     // drv_bus[8/9] recompute, iec_update_ports.
     this.core.c64_store_dd00(inverted, (atnHigh) => {
       const stamp = this.driveClockSource?.();
-      this.driveVia1?.pulseCa1(atnHigh, stamp);
+      // Per 1541 schematic + VICE iecbus.c logic: CA1 input pin
+      // sees INVERTED ATN line state (7406 inverter in path).
+      // ATN line LOW (asserted) → CA1 input HIGH.
+      // ATN line HIGH (released) → CA1 input LOW.
+      // Drive ROM PCR=\$01 (= positive edge config) then fires on
+      // ATN line HIGH→LOW transition (= assertion = CA1 LOW→HIGH).
+      // Pass !atnHigh so pulseCa1 sees the CA1 input level.
+      this.driveVia1?.pulseCa1(!atnHigh, stamp);
       this.prevAtnLow = !atnHigh;
-      // Game-enabling pokes FORBIDDEN per user directive. \$7C
-      // poke removed permanently. CA1 IRQ + drive ROM \$E853
-      // path must work naturally through 1:1 VICE chip ports.
     });
     this.recordEdge("c64", prev);
     this.busAccessProducer?.emitC64Access({ op: "write", addr: this.cia2PaAddr, value: cia2Pa & 0xff });
@@ -250,6 +255,17 @@ export class IecBus {
   reset(): void {
     this.core.reset();
     this.prevAtnLow = false;
+  }
+
+  // Spec 145 v3+ — re-init drive VIA1 CA1 pin baseline AFTER
+  // drive.reset() (which clears via.lastCa1Pin to true). Real CA1
+  // input = !atnLine; initial ATN released → CA1 LOW → lastCa1Pin
+  // must be false. Otherwise first ATN-assert edge isn't detected.
+  // Call from IntegratedSession.resetCold AFTER drive.reset().
+  syncDriveCa1Baseline(): void {
+    if (this.driveVia1) {
+      this.driveVia1.pulseCa1(!this.atnLine);
+    }
   }
 
   snapshot(): {

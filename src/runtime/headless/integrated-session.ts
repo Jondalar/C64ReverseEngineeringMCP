@@ -548,6 +548,9 @@ export class IntegratedSession {
     this.c64Cpu.reset();
     this.drive.reset();
     this.drive.setSyncBaseline(this.c64Cpu.cycles);
+    // Spec 145 v3+: re-sync drive VIA1 CA1 pin baseline AFTER
+    // drive.reset() resets the VIA's lastCa1Pin to true.
+    this.iecBus.syncDriveCa1Baseline();
     // Spec 141 (Q9): drive head-start. Run drive ROM standalone for N
     // c64-equivalent cycles BEFORE c64 starts, replicating real-HW
     // boot order. Eliminates ATN-edge boot-race.
