@@ -42,8 +42,8 @@ const maxEvents = args["max-events"] ? Number(args["max-events"]) : 2000;
 const projectDir = args["project-dir"] ?? process.env.C64RE_PROJECT_DIR ?? repoRoot;
 // Spec 138 probe variant (A/B/C). Undefined = production mode.
 const probeMode = args["probe-mode"];
-// Spec 140 IEC mode: "vice-cache" or "live" (default).
-const iecMode = args["iec-mode"] === "vice-cache" ? "vice-cache" : "live";
+// Spec 140 IEC mode: "vice-cache" (default) or "live" (ablation).
+const iecMode = args["iec-mode"] === "live" ? "live" : "vice-cache";
 
 // Load manifest
 const manifestPath = join(repoRoot, "samples/test-manifest.json");

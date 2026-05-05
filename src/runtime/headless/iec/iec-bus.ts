@@ -178,8 +178,12 @@ export class IecBus {
     this.c64ClkReleased = !driveClk || !clkBit;
     this.c64DataReleased = !driveData || !dataBit;
     // Spec 140: maintain VICE-cache state in parallel with live flags.
-    // iecMode = "vice-cache" makes drive PB reads route through core.
-    this.core.iecUpdateCpuBus(cia2Pa, ddrMask);
+    // CRITICAL (Spec 140 v2 fix): VICE c64cia2.c:150 inverts the PA
+    // latch byte (`tmp = ~byte`) BEFORE passing to iec_update_cpu_bus.
+    // Convention: cpu_bus bit set = c64 NOT asserting (line HIGH).
+    // Without this inversion our cpu_bus had inverted polarity vs
+    // VICE → drv_port wrong → drive PB read wrong.
+    this.core.iecUpdateCpuBus((~cia2Pa) & 0xff, ddrMask);
     this.core.iecUpdatePorts();
     this.notifyAtnChanged();
     this.recordEdge("c64", prev);
