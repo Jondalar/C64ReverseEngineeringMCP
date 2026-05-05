@@ -156,7 +156,11 @@ export class IecBus {
       // race). Until then keep poke + accept motm broken.
       const atnLow = !atnHigh;
       if (atnLow && !this.prevAtnLow && this.driveRamForAtnPoke) {
-        this.driveRamForAtnPoke[0x7c] = 0x80;
+        // ROM \$E853 sets \$7C=\$01 via CA1 IRQ. Our model: drive
+        // misses some IRQ-entry-to-\$E853 path → poke compensates.
+        // True fix needs Spec 145+147 (CIA + VIA timing) so CA1 IRQ
+        // delivers + drive ROM reaches \$E853 reliably.
+        this.driveRamForAtnPoke[0x7c] = 0x01;
       }
       this.prevAtnLow = atnLow;
     });
