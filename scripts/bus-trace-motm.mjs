@@ -42,6 +42,8 @@ const maxEvents = args["max-events"] ? Number(args["max-events"]) : 2000;
 const projectDir = args["project-dir"] ?? process.env.C64RE_PROJECT_DIR ?? repoRoot;
 // Spec 138 probe variant (A/B/C). Undefined = production mode.
 const probeMode = args["probe-mode"];
+// Spec 140 IEC mode: "vice-cache" or "live" (default).
+const iecMode = args["iec-mode"] === "vice-cache" ? "vice-cache" : "live";
 
 // Load manifest
 const manifestPath = join(repoRoot, "samples/test-manifest.json");
@@ -92,8 +94,11 @@ const { session } = startIntegratedSession({
   busAccessPcRangesC64: [],
   // Spec 138 probe variant.
   probeMode: probeMode === "A" || probeMode === "B" || probeMode === "C" ? probeMode : undefined,
+  // Spec 140 iec-cache mode.
+  iecMode,
 });
 if (probeMode) console.error(`Probe variant: ${probeMode}`);
+if (iecMode === "vice-cache") console.error(`IEC mode: vice-cache`);
 session.traceRegistry.configure("bus_access", { mode: "jsonl", path: outPath });
 
 session.resetCold();

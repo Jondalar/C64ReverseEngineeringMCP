@@ -72,6 +72,12 @@ export interface ViaPortBackend {
   // (which only changes line drive direction without committing a new
   // GCR byte).
   onOutputChanged(orValue: number, ddrMask: number, cause: ViaWriteCause): void;
+  // Spec 140: optional VICE-style merged PB read. When set, the via
+  // bypasses the standard `(orb & ddrb) | (pins & ~ddrb)` formula
+  // and uses this method instead. Drive VIA1 IEC backend in
+  // iecMode = "vice-cache" provides this to apply VICE's
+  // `((PRB & 0x1A) | drv_port) ^ 0x85 | (devId<<5)` formula.
+  readPbFull?(orb: number, ddrb: number): number;
 }
 
 // Edge polarity for CA1/CB1 controlled by PCR bit 0 / bit 4.
@@ -132,14 +138,20 @@ export class Via6522 {
   read(reg: number): number {
     switch (reg & 0xf) {
       case VIA_ORB: {
-        const pins = this.portB.readPins();
-        // For DDR-output bits: return OR latch. For DDR-input bits:
-        // return live pin state. Per 6522 datasheet, READ of IRB
-        // clears CB1 + CB2 IFR flags (handshake acknowledge).
+        // Per 6522 datasheet, READ of IRB clears CB1 + CB2 IFR flags
+        // (handshake acknowledge).
         this.clearIfr(IFR_CB1 | IFR_CB2);
-        const result = ((this.orb & this.ddrb) | (pins & ~this.ddrb)) & 0xff;
-        // Spec 142: emit bus-access event for ORB reads. baseAddr+0
-        // = $1800 for drive VIA1.
+        // Spec 140: VICE-style merged read takes priority when backend
+        // supplies it. Drive VIA1 IEC backend in iecMode = "vice-cache"
+        // returns `((PRB & 0x1A) | drv_port) ^ 0x85 | (devId<<5)`.
+        let result: number;
+        if (this.portB.readPbFull) {
+          result = this.portB.readPbFull(this.orb, this.ddrb) & 0xff;
+        } else {
+          const pins = this.portB.readPins();
+          result = ((this.orb & this.ddrb) | (pins & ~this.ddrb)) & 0xff;
+        }
+        // Spec 142: emit bus-access event for ORB reads.
         this.busAccessHook?.emitDriveAccess({ op: "read", addr: this.baseAddr, value: result });
         return result;
       }

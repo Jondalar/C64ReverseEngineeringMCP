@@ -146,6 +146,11 @@ export interface IntegratedSessionOptions {
   // Default undefined = production hybrid (= "A" semantics, but
   // status quo when bus-access tracing is off).
   probeMode?: "A" | "B" | "C";
+  // Spec 140: IEC observable mode.
+  //   "vice-cache" = VICE-bit-exact cached cpu_port/drv_port + read_prb XOR
+  //   "live"       = legacy live-computed line state + standard via.read merge
+  // Default = "live" for back-compat. New scenarios opt into "vice-cache".
+  iecMode?: "vice-cache" | "live";
 }
 
 export interface PrgLoadResult {
@@ -344,6 +349,8 @@ export class IntegratedSession {
       useMicrocodedCpu: opts.useMicrocodedCpu ?? false,
     });
     this.iecBus.attachDriveRam(this.drive.bus.ram);
+    // Spec 140: opt into VICE-cache observable mode.
+    this.iecBus.iecMode = opts.iecMode ?? "live";
     // Spec 090: configure drive's sync ratio + zero baseline.
     this.drive.setSyncRatio(this.driveCyclesPerC64Cycle);
     this.drive.setSyncBaseline(0);

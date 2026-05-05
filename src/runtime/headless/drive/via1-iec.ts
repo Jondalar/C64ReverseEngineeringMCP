@@ -72,5 +72,16 @@ export function makeBusVia1Pb(bus: IecBus, deviceId: number = 8): ViaPortBackend
   return {
     readPins: () => bus.buildDrivePbInputBits(deviceId),
     onOutputChanged: (orValue, ddrMask) => bus.setDriveOutput(orValue, ddrMask),
+    // Spec 140: VICE-style merged PB read. Active only when bus.iecMode
+    // = "vice-cache". Returns ((PRB & 0x1A) | drv_port) ^ 0x85 | (devId<<5)
+    // bit-exact per VICE via1d1541.c read_prb formula.
+    readPbFull: (orb, _ddrb) => {
+      if (bus.iecMode === "vice-cache") {
+        return bus.core.driveReadPbByte(orb, deviceId);
+      }
+      // Fallback to legacy formula if mode != vice-cache.
+      const pins = bus.buildDrivePbInputBits(deviceId);
+      return ((orb & _ddrb) | (pins & ~_ddrb)) & 0xff;
+    },
   };
 }

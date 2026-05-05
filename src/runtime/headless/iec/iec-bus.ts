@@ -25,6 +25,9 @@ import {
   PB_DEV_ID0, PB_DEV_ID1,
 } from "../drive/via1-iec.js";
 import type { BusAccessTraceProducer } from "../trace/bus-access.js";
+import { IecBusCore } from "./iec-bus-core.js";
+
+export type IecMode = "vice-cache" | "live";
 
 // CIA2 PA bit assignments (CIA2 not yet implemented — these constants
 // are for the cia2-stub.ts that wires the bus on $DD00 writes).
@@ -75,6 +78,12 @@ export class IecBus {
   // CIA2 PA address — passed in by integrated session for trace event addr field.
   // Defaults to $DD00 (standard C64 wiring).
   public cia2PaAddr = 0xdd00;
+
+  // Spec 140: VICE-compatible cached IEC core. When iecMode = "vice-cache",
+  // setC64Output and setDriveOutput update this core; drive PB reads
+  // route through `core.driveReadPbByte()` instead of buildDrivePbInputBits.
+  public readonly core = new IecBusCore();
+  public iecMode: IecMode = "live";
 
   enableTrace(capacity = 256): void {
     this.traceEnabled = true;
@@ -153,6 +162,10 @@ export class IecBus {
     this.c64AtnReleased = !driveAtn || !atnBit;
     this.c64ClkReleased = !driveClk || !clkBit;
     this.c64DataReleased = !driveData || !dataBit;
+    // Spec 140: maintain VICE-cache state in parallel with live flags.
+    // iecMode = "vice-cache" makes drive PB reads route through core.
+    this.core.iecUpdateCpuBus(cia2Pa, ddrMask);
+    this.core.iecUpdatePorts();
     this.notifyAtnChanged();
     this.recordEdge("c64", prev);
     // Spec 142: emit bus-access event AFTER bus state mutated, so the
@@ -181,6 +194,10 @@ export class IecBus {
     // line. bit=1 = drive acknowledged ATN = auto-pull DISABLED (i.e.
     // released). 1541 ATN handler $E876 does ORA #$10 to acknowledge.
     this.driveAtnAckReleased = !drvAtnAck || atnAckBit;
+    // Spec 140: maintain VICE-cache state in parallel.
+    // VICE store_prb passes the RAW OR latch (not DDR-gated) — VICE
+    // drives drv_data = ~byte unconditionally. Per via1d1541.c:228.
+    this.core.driveStorePb(via1PbOr & 0xff, 8);
     this.recordEdge("drive", prev);
   }
 
