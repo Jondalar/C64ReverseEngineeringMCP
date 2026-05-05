@@ -1,0 +1,948 @@
+# VICE IEC + drive-sync arc42 deep-dive
+
+**Status**: draft v1 — produced under Spec 137.
+
+**Architectural status update (post-doc)**: After this doc landed, the
+project moved to a kernel-level reframing in
+`docs/headless-core-synchronization-refactor.md`. That refactor doc
+takes the divergences cataloged here and pulls them under a coherent
+kernel-rewrite plan (Sprint 112 / Specs 139-144). In particular:
+
+- ADR-1 (push-flush) → Spec 140 (cache+flush, default).
+- ADR-2 (cache ports) → Spec 140 (default, not fallback).
+- ADR-3 (IRQ rclk) → Spec 141.
+- ADR-4 (`$7C` poke removal, `reevaluateCa1Level`) → Spec 144.
+
+Spec 138 still exists but is now a **probe / experiment** that runs
+after Spec 142 (trace ring) and Spec 143 (VICE diff), to validate
+whether push-flush alone closes the motm divergence. Probe-result
+informs Spec 140's exact design (cache+flush combined vs flush only).
+This doc remains the catalog of *local* divergences; the refactor doc
+is the *global* architectural answer.
+
+**Scope**: I/O surface only. ATN / CLK / DATA on the IEC bus, the
+C64↔1541 sync model (push-flush vs cycle-lockstep), VIA1 CA1 → drive
+IRQ handler delivery. Out of scope: 1571/1581/CMD-HD specifics, VIC,
+SID, parallel cable, burst mode, JiffyDOS.
+
+**Reference codebases**:
+- VICE 3.7.1 source at `…/vice-3.7.1/src/`
+- Our headless at `src/runtime/headless/`
+
+**Why this doc exists**: Sprint 111 hit a ceiling. Eleven commits of
+speculative patching could not localize the motm-fastloader bug
+(drive's `BIT $1800` returns wrong DATA bit during 24-bit serial
+receive at $042F-$044C). Two reverted fix attempts (Sprint 66 hack
+removal — neutral, `beforeC64Read` inserted into lockstep — broke MM).
+Hypothesis: our drive↔C64 sync model is **not 1:1 with VICE**; without
+a structured comparison every fix attempt is guess-driven.
+
+This doc maps VICE's IEC + drive-sync architecture to ours, with
+sequence diagrams, divergence-table, and an ADR list ranked by
+impact:effort. The top ADR becomes Spec 138.
+
+---
+
+## §1 Introduction
+
+The IEC serial bus is the bridge between the C64 (host) and the 1541
+(intelligent peripheral). It is open-collector wired-AND with three
+active lines (ATN, CLK, DATA) plus a fourth ATN-acknowledge AND-gate
+inside the drive. Both sides drive the bus at arbitrary times; the
+emulator must keep their views of the bus consistent.
+
+The IEC bus is also where most fastloaders live. Standard KERNAL is
+slow (~400 bytes/sec); fastloaders bypass KERNAL with custom bit-bang
+protocols that depend on **cycle-precise** drive↔C64 timing. The
+1541 drive runs its own 6502 at ~1.0149× the C64's clock, so a
+correct emulator must keep two CPUs in sync to within a few cycles.
+
+VICE solved this with an alarm-driven, push-flush model: the drive
+runs lazily and is force-flushed up to the current C64 clock at every
+IEC bus access. We chose a cycle-lockstep model instead: every C64
+cycle, peripherals tick, then the drive ticks. Both models are
+plausible. The question is whether ours faithfully reproduces VICE's
+observable behavior at the bus interface — and the motm bug suggests
+not.
+
+---
+
+## §2 Constraints
+
+- **Real 1541 ROM**: We use the unmodified DOS 1541 ROM
+  (`dos1541-325302-01+901229-05.bin`). Any deviation from VICE that
+  changes ROM-visible state is suspect.
+- **No code lifted from VICE**: Our codebase is MIT. Comparisons
+  paraphrase VICE behavior; no GPL-licensed code is copied.
+- **Cycle-stepped 6502 in the drive**: The microcoded CPU
+  (`Cpu6510Microcoded`) is required for IEC correctness because the
+  drive samples bus state mid-instruction (operand fetch, indexed
+  effective-address read, RMW write).
+- **Headless-first**: Bug fixes must keep MM regression tests green
+  (loads boot through SYS, reaches title screen).
+
+---
+
+## §3 Context
+
+```mermaid
+flowchart LR
+  subgraph C64
+    CPU[6510 CPU]
+    CIA2[CIA2]
+  end
+  subgraph IECBus
+    BUS[IEC bus<br/>ATN / CLK / DATA<br/>wired-AND]
+  end
+  subgraph Drive1541
+    DCPU[Drive 6502]
+    VIA1[VIA1<br/>$1800]
+    ATNGATE[ATN-AND gate]
+    DRAM[Drive RAM<br/>$0000-$07FF]
+    DROM[DOS ROM]
+  end
+
+  CPU<-->CIA2
+  CIA2-->|$DD00 PA bits 3/4/5|BUS
+  BUS-->|bits 6/7|CIA2
+  BUS-->VIA1
+  VIA1-->|PB bits 1/3/4|BUS
+  VIA1-->|CA1 IRQ|DCPU
+  ATNGATE-->BUS
+  VIA1-->|PB4 ATN_ACK|ATNGATE
+  BUS-->|ATN line|ATNGATE
+  DCPU<-->VIA1
+  DCPU<-->DRAM
+  DCPU<-->DROM
+```
+
+The C64 owns ATN absolutely (only it can drive ATN). CLK and DATA are
+shared (both sides can pull). The drive's PB4 (ATN_ACK) feeds an
+external AND gate that auto-pulls DATA whenever ATN is asserted and
+the drive has not yet acknowledged. CA1 fires the drive's IRQ when
+ATN edges from high to low.
+
+---
+
+## §4 Solution Strategy
+
+We compare VICE and ours per component (§5), trace six runtime
+scenarios end-to-end with sequence diagrams (§6), tabulate the
+cross-cutting timing model (§8), and rank divergences as ADRs (§9).
+The top ADR drives Spec 138 (concrete fix).
+
+---
+
+## §5 Building Blocks
+
+### §5.1 iecbus (`src/iecbus/iecbus.c` + `src/c64/c64iec.c`)
+
+**Purpose**: Owns the global `iecbus_t` state. Routes C64 stores/reads
+of `$DD00` (CIA2 PA) into bus-state recomputation and drive flush.
+
+**State** (`iecbus_t`):
+- `cpu_bus` (uint8_t): C64's current pull pattern, derived from PA bits
+  via `iec_update_cpu_bus()`. Bits 4/6/7 carry ATN/CLK/DATA. Updated
+  only on $DD00 store.
+- `cpu_port` (uint8_t): Effective bus state as seen by the C64. Equals
+  `cpu_bus AND-folded with drv_bus[4..NUM_DISK_UNITS]`. CIA2 reads of
+  `$DD00` return this byte.
+- `drv_port` (uint8_t): Effective bus state as seen by the drive. VIA1
+  PRB read folds it in via `((PRB & 0x1A) | drv_port) ^ 0x85`.
+- `drv_bus[16]` (uint8_t[]): Per-unit drive contribution to the bus,
+  precomposed with the ATN-AND-gate logic.
+- `drv_data[16]` (uint8_t[]): Raw drive PB output (inverted), used to
+  recompute `drv_bus` whenever `cpu_bus` changes.
+- `iec_fast_1541` (uint8_t): Burst-mode bits, irrelevant here.
+
+**Interfaces**:
+- `iec_update_cpu_bus(data)` — `cpu_bus = ((data<<2)&0xC0) | ((data<<1)&0x10)`
+- `iec_update_ports()` — recompute `cpu_port` and `drv_port` from
+  `cpu_bus` AND `drv_bus[]`
+- `iecbus_cpu_read_conf1(clock)` — drive_cpu_execute_all(clock); return cpu_port
+- `iecbus_cpu_write_conf1(data, clock)` — drive_cpu_execute_one(unit,
+  clock); update_cpu_bus; viacore_signal(CA1) if ATN edge; recompute
+  drv_bus[8]; update_ports
+
+**Our equivalent**: `src/runtime/headless/iec/iec-bus.ts:IecBus`.
+
+| VICE | Ours |
+|------|------|
+| `cpu_bus` (cached) | `c64{Atn,Clk,Data}Released` flags (live) |
+| `drv_data[8]` | `drive{Clk,Data}Released`, `driveAtnAckReleased` |
+| `drv_bus[8]` | computed inline in `dataLine` getter |
+| `cpu_port` cached | `clkLine`/`dataLine` computed live each read |
+| `drv_port` cached | `buildDrivePbInputBits()` builds live each read |
+| `iec_update_cpu_bus()` | `setC64Output()` |
+| `iec_update_ports()` | implicit (no caching) |
+
+**Divergence flags**:
+- ⚠️ **D1**: VICE caches `cpu_port` and `drv_port`. Ours computes live.
+  Real HW is "live" by definition (continuous wires), so ours is closer
+  to physical reality — but this means VICE's read-side flush
+  semantics (drive_cpu_execute_all before returning cpu_port) is what
+  guarantees the cache is fresh. We need an equivalent guarantee for
+  *drive's* read of `drv_port`.
+- ⚠️ **D2**: VICE only recomputes ports on (a) $DD00 store, (b) drive
+  PB store, (c) explicit calls to `iec_update_ports`. Reads do *not*
+  trigger recompute — they just return the cached byte after flushing
+  the drive. Ours has no such asymmetry.
+
+### §5.2 c64iec (`src/c64/c64iec.c`)
+
+Thin layer with `iec_update_cpu_bus()` and `iec_update_ports()`
+implementations. The interesting bit is the formula:
+
+```c
+iecbus.cpu_port = iecbus.cpu_bus;
+for (unit = 4; unit < 8 + NUM_DISK_UNITS; unit++)
+    iecbus.cpu_port &= iecbus.drv_bus[unit];
+
+iecbus.drv_port = (((iecbus.cpu_port >> 4) & 0x4)
+                  | (iecbus.cpu_port >> 7)
+                  | ((iecbus.cpu_bus << 3) & 0x80));
+```
+
+`drv_port` is composed from the *post-AND* `cpu_port` (so the drive
+sees the consequence of its own pull, plus the C64's pull, plus other
+drives), but the ATN bit (`drv_port` bit 7) comes from `cpu_bus` —
+ATN is C64-only.
+
+The wired-AND happens at byte granularity per bit:
+- `cpu_port >> 7` extracts bit 7 (DATA) → drv_port bit 0 (DATA_IN)
+- `(cpu_port >> 4) & 0x4` extracts bit 6 (CLK) → drv_port bit 2 (CLK_IN)
+- `(cpu_bus << 3) & 0x80` extracts cpu_bus bit 4 (ATN intent) → drv_port bit 7
+
+**Our equivalent**: `iec-bus.ts:dataLine`/`clkLine` getters and
+`buildDrivePbInputBits()`. Bit-wise equivalent to VICE's formulas
+modulo the cache vs live distinction.
+
+### §5.3 CIA2 (`src/c64/c64cia2.c`)
+
+The C64 CIA2 PA latch is the bridge from CPU memory writes to the
+IEC. Our `cia2-stub.ts` registers a callback into IecBus on $DD00
+write/read.
+
+**VICE store flow**:
+- `cia2_store_pra(cia, byte)` → CIA latches PA → `iecbus_callback_write(byte, maincpu_clk)`
+- The callback is `iecbus_cpu_write_conf1` (configured at startup).
+
+**VICE read flow**:
+- `cia2_read_pra(cia)` → reads `iecbus_callback_read(maincpu_clk)`
+- Callback is `iecbus_cpu_read_conf1`, which flushes drive then
+  returns `iecbus.cpu_port`.
+
+The crucial detail: CIA2's PA *write* is unconditional (the CIA does
+not depend on the IEC return value), but CIA2's PA *read* must return
+the live wire state — hence VICE's drive flush on every read.
+
+### §5.4 drivecpu (`src/drive/drivecpu.c`)
+
+**VICE drive CPU execution model**:
+- `drivecpu_execute(drv, clk_value)`:
+  1. `cycles = clk_value - cpu->last_clk` (= main CPU clocks elapsed)
+  2. Convert to drive cycles using fixed-point `sync_factor`:
+     `cpu->cycle_accum += sync_factor * tcycles; cpu->stop_clk += accum >> 16`
+  3. Run drive 6502 inline (via `6510core.c` macro-included) until
+     `*drv->clk_ptr >= cpu->stop_clk`
+  4. `cpu->last_clk = clk_value` (commit)
+- Wrapped by `drive_cpu_execute_all(clock)` and
+  `drive_cpu_execute_one(unit, clock)`.
+
+**Push-flush invariant**: At every C64-side access of `$DD00` or
+`$DC0D` (CIA2 ICR), VICE calls `drive_cpu_execute_all(maincpu_clk)`
+*before* doing anything bus-related. After this call, the drive's
+clock has caught up to the C64. Then VICE updates the bus, optionally
+triggers CA1, and recomputes ports. The drive's NEXT instruction will
+see the updated bus state.
+
+**Our equivalent**: `drive-cpu.ts:DriveCpu.executeToClock(c64Clk)` +
+the cycle-lockstep scheduler (`cycle-lockstep-scheduler.ts`).
+
+| VICE | Ours |
+|------|------|
+| `cpu->last_clk` | `lastSyncC64Clk` |
+| `cpu->stop_clk` | computed inline, drive runs until consumed |
+| `cpu->cycle_accum` | `cycleAccumulator16dot16` |
+| `sync_factor` (16.16) | `syncFactor16dot16` |
+| `drivecpu_execute` | `executeToClock` |
+| Push from c64 IEC access | Pull per-cycle from scheduler |
+
+**Divergence flags**:
+- ⚠️ **D3**: VICE's drive CPU is in **push** mode — the c64 side
+  decides when to flush it. Ours runs in **pull** mode — every C64
+  cycle the scheduler ticks the drive its share (via 16.16
+  accumulator). The schedules are **not equivalent** at sub-instruction
+  granularity. VICE's drive runs in chunks of "everything between two
+  c64 IEC accesses." Ours runs every cycle.
+- ⚠️ **D4**: VICE explicitly defers drive flush to bus-access points.
+  This means within a c64 instruction that does NOT touch IEC, the
+  drive does not advance at all; it catches up at the next IEC access.
+  Ours advances every cycle. For most code this is fine, but for
+  fastloaders that read $DD00 in tight loops, VICE's drive sees each
+  read as a discrete "wake point" where it has just finished an
+  instruction; ours sees the drive in arbitrary mid-instruction states.
+
+### §5.5 via1d1541 (`src/drive/iec/via1d1541.c` + `src/core/viacore.c`)
+
+**VICE store_prb** (drive writes $1800):
+```c
+*drive_data = ~byte;
+*drive_bus = ((drive_data << 3) & 0x40)
+           | ((drive_data << 6) & ((~drive_data ^ cpu_bus) << 3) & 0x80);
+iecbus.cpu_port = cpu_bus & AND(drv_bus[*]);
+iecbus.drv_port = compose_from(cpu_port, cpu_bus);
+```
+
+**VICE read_prb** (drive reads $1800):
+```c
+byte = ((via->PRB & 0x1A) | iecbus.drv_port) ^ 0x85 | orval;
+```
+
+The XOR with `0x85` inverts ATN_IN (bit 7), DATA_OUT (bit 1, but PRB
+bit), and DATA_IN (bit 0) — folding the 1541's input-side inverters
+into one mask. `0x1A` mask preserves PB bits 1, 3, 4 (DATA_OUT,
+CLK_OUT, ATNA) from the OR latch (the bits the drive *drove out* —
+they read back through DDR).
+
+**viacore_signal(via, line, edge)**:
+- `case VIA_SIG_CA1`: if `(edge ? 1 : 0) == (PCR & 0x01)` → set
+  `IFR_CA1`, then `update_myviairq_rclk(via, *clk_ptr)`.
+- The `edge` argument is a *polarity tag*, not a direction: 0 means
+  "I just observed a falling edge", `VIA_SIG_RISE` (=1) means rising.
+  IFR is set only if the observed edge matches PCR config.
+- The IFR set is followed by `update_myviairq_rclk` which calls
+  `set_int(via, num, value, rclk)` — stamps the IRQ event with the
+  current clock for the interrupt-delay model in `interrupt.c`.
+
+**iecbus.c calls viacore_signal**: At ATN-bit transitions only:
+```c
+viacore_signal(via1d1541, VIA_SIG_CA1,
+               iec_old_atn ? 0 : VIA_SIG_RISE);
+```
+- `iec_old_atn` was just updated to the new `cpu_bus & 0x10`.
+- New ATN asserted (cpu_bus bit 4 set, line LOW): pass `0` →
+  signals "falling edge just happened" → IFR_CA1 set if PCR config
+  is negative-edge.
+- New ATN released (cpu_bus bit 4 clear, line HIGH): pass
+  `VIA_SIG_RISE` → IFR_CA1 set only if PCR config is positive-edge.
+
+The DOS 1541 ROM configures CA1 for negative-edge (PCR & 0x01 = 0),
+so IRQ fires on ATN H→L transition.
+
+**Our equivalent**: `via6522.ts:Via6522.pulseCa1(newLevel)`. Edge-only
+on actual transition.
+
+```ts
+if (!polarity && wasHigh && !isHigh) this.setIfr(IFR_CA1);
+if (polarity && !wasHigh && isHigh) this.setIfr(IFR_CA1);
+this.lastCa1Pin = isHigh;
+```
+
+| VICE | Ours |
+|------|------|
+| `viacore_signal(CA1, edge)` | `pulseCa1(newLevel)` |
+| Polarity tag (0/RISE) | Live transition detect |
+| `update_myviairq_rclk(rclk)` | Inline IFR set, irqLine sampled per cycle |
+| `interrupt_check_irq_delay` | Microcoded CPU samples at instr boundary |
+
+**Divergence flags**:
+- ⚠️ **D5**: VICE timestamps IRQ events with `rclk = maincpu_clk`,
+  then `interrupt_check_irq_delay` enforces `cpu_clk >= irq_clk +
+  INTERRUPT_DELAY` (= 2 cycles default). Drive's IRQ entry is delayed
+  by at least 2 drive cycles after the IFR was set on c64-side.
+- ⚠️ **D6**: Ours sets IFR immediately on the c64-side cycle. The
+  microcoded drive CPU samples `irqLine` at instruction boundary; if
+  the drive is mid-instruction when the IFR fires, IRQ entry happens
+  at the next boundary. The latency depends on where in the
+  instruction the drive was at the c64 store — could be 0..6 drive
+  cycles. *VICE's 2-cycle delay is deterministic; ours is not.*
+- ⚠️ **D7**: We have a Sprint 66 leftover (`reevaluateCa1Level`)
+  that sets IFR_CA1 retrospectively if CA1 is enabled in IER while
+  ATN is asserted. VICE has no equivalent — VICE assumes the drive
+  ROM enables CA1 IER before the C64 asserts ATN (which is what the
+  real boot order guarantees). Our reset puts both CPUs at t=0
+  simultaneously; VICE keeps the drive ROM running for ~10 PAL
+  frames before the C64 KERNAL even starts. This is an architectural
+  divergence we should fix at the boot-order layer, not paper over
+  with a CA1 hack.
+
+### §5.6 Alarm system (`src/alarm.c`)
+
+**VICE**: Pending events (T1 zero, T2 zero, alarm callbacks) are
+queued on a per-CPU alarm context, sorted by clock value. Each CPU's
+inner loop pops alarms whose `clk <= current_clk` and runs them.
+Drive CPU has its own alarm context; main CPU has another.
+
+**Our equivalent**: **None**. We tick T1/T2 per cycle in
+`Via6522.tickTimer1`/`tickTimer2`. Bus state is computed live. CA1
+edges are immediate.
+
+| VICE | Ours |
+|------|------|
+| Alarm context per CPU | Per-cycle tick |
+| T1/T2 zero scheduled | T1/T2 counted down each cycle |
+| CA1 IRQ stamped + delayed | CA1 IRQ immediate |
+
+**Divergence flags**:
+- ⚠️ **D8**: VICE's T1 zero alarm fires at a *known* future clock,
+  not necessarily at the cycle when the counter would visually hit
+  zero. The 2-cycle interrupt delay then determines the boundary at
+  which the CPU sees IRQ. Our per-cycle tick reaches T1=0 at the
+  expected cycle, but our IRQ observation is whatever-cycle-the-CPU-
+  gets-to-instruction-boundary, which may differ from VICE.
+
+### §5.7 maincpu_clk and drive clk_ptr
+
+VICE has two distinct global clocks (`maincpu_clk` and per-drive
+`*drv->clk_ptr`). The drive's clk_ptr advances inside
+`drivecpu_execute` until it catches up to the requested c64 clock.
+
+Our equivalents: `c64Cpu.cycles`, `drive.cpu.cycles`,
+`scheduler.c64Cycle()`, `scheduler.driveCycle()`. The scheduler
+keeps these in sync via the 16.16 accumulator on every tick.
+
+**Divergence flags**:
+- ⚠️ **D9**: VICE allows the drive clock to *lag* the C64 clock between
+  bus accesses (intentional — the push-flush model resolves it). Ours
+  enforces lockstep. For most code this is fine; for ATN-edge-driven
+  IRQ entry it matters because the IRQ stamp `rclk = maincpu_clk` is
+  in *C64 cycles*, but the drive's interrupt-delay check uses *drive
+  cycles*. VICE handles the conversion via the cycle ratio when the
+  drive catches up; we don't have that conversion because we don't
+  defer.
+
+---
+
+## §6 Runtime View — Sequence Diagrams
+
+### §6.1 C64 stores $DD00 (writes ATN/CLK/DATA OUT)
+
+```mermaid
+sequenceDiagram
+  participant CPU as C64 CPU
+  participant CIA2 as CIA2
+  participant BUS as IECBus
+  participant DRV as Drive CPU
+  participant VIA as VIA1 (drive)
+
+  Note over CPU: STA $DD00 instruction completes write cycle
+  CPU->>CIA2: writePA(byte, ddr)
+  CIA2->>BUS: setC64Output(byte, ddr)
+  alt VICE flow
+    BUS->>DRV: drive_cpu_execute_one(unit, maincpu_clk)
+    DRV-->>DRV: run drive 6502 until clk >= maincpu_clk*ratio
+    DRV-->>BUS: caught up
+    BUS->>BUS: iec_update_cpu_bus(byte) [recompute cpu_bus]
+    alt ATN bit changed
+      BUS->>VIA: viacore_signal(CA1, edge)
+      VIA->>VIA: if edge matches PCR: ifr |= CA1; set_int(rclk=maincpu_clk)
+    end
+    BUS->>BUS: recompute drv_bus[8] (ATN-AND-gate XOR)
+    BUS->>BUS: iec_update_ports() [recompute cpu_port, drv_port]
+  else Ours (cycle-lockstep)
+    Note right of DRV: drive ticked separately by scheduler<br/>each c64 cycle
+    BUS->>BUS: update c64{Atn,Clk,Data}Released atomically
+    BUS->>VIA: pulseCa1(atnLine)
+    VIA->>VIA: if real edge: ifr |= CA1 (immediate)
+    BUS->>BUS: poke driveRam[$7C] = $80 if ATN H→L (Sprint 66 hack ⚠️)
+    BUS->>BUS: recordEdge("c64", prev) [trace only]
+  end
+```
+
+**Divergence summary**:
+- ⚠️ VICE flushes drive in push mode at every IEC write; we don't.
+- ⚠️ VICE stamps IRQ with `rclk` and applies 2-cycle delay; we set
+  IFR immediately.
+- ⚠️ The `$7C` poke is an architectural workaround — no VICE
+  equivalent. It compensates for the drive missing CA1 IRQ if its
+  ATN-handler register $7C wasn't initialized in time.
+
+### §6.2 C64 reads $DD00 (samples DATA-IN/CLK-IN)
+
+```mermaid
+sequenceDiagram
+  participant CPU as C64 CPU
+  participant CIA2 as CIA2
+  participant BUS as IECBus
+  participant DRV as Drive CPU
+
+  Note over CPU: LDA $DD00 instruction reads
+  CPU->>CIA2: readPA()
+  CIA2->>BUS: read input bits
+  alt VICE flow
+    BUS->>DRV: drive_cpu_execute_all(maincpu_clk)
+    DRV-->>DRV: run drive 6502 until caught up
+    DRV-->>BUS: caught up; drv_bus[*] are current
+    BUS-->>CIA2: return iecbus.cpu_port (CACHED, last set by update_ports)
+  else Ours (cycle-lockstep)
+    Note right of DRV: no flush — drive last ticked by scheduler<br/>on prior c64 cycle
+    BUS-->>BUS: live compute clkLine + dataLine from c64*Released and drive*Released
+    BUS-->>CIA2: return live bits
+  end
+```
+
+**Divergence summary**:
+- ⚠️ VICE returns `cpu_port` that was *cached* at the moment the
+  drive's last PB store updated `iec_update_ports`. Between drive
+  stores, the cache is stale-but-coherent: the drive can have run N
+  more cycles since, but its OUTPUT bits haven't changed (only its
+  INPUT view changed when c64 wrote $DD00, but that already updated
+  cpu_port via iec_update_ports during write). So `cpu_port` is
+  "snapshot at last bus mutation."
+- ⚠️ Ours returns live state. **In cycle-lockstep this should be at
+  least as accurate as VICE's snapshot**, because every c64 cycle the
+  drive ran exactly its share. But the *order* matters: scheduler
+  ticks CPU first, then peripherals, then drive. So when the C64 reads
+  $DD00 mid-cycle, the drive's contribution is from cycle N-1 (the
+  previous tick). For most accesses this 1-cycle lag is invisible;
+  for sub-cycle-precise fastloader bit-bang it could matter.
+
+### §6.3 Drive writes $1800 (PB output → DATA_OUT/CLK_OUT/ATNA)
+
+```mermaid
+sequenceDiagram
+  participant DCPU as Drive CPU
+  participant VIA as VIA1
+  participant BUS as IECBus
+
+  Note over DCPU: STA $1800 instruction
+  DCPU->>VIA: write(VIA_ORB, byte)
+  VIA->>VIA: orb = byte; clearIfr(CB1|CB2)
+  alt VICE flow (store_prb)
+    VIA->>BUS: drv_data[8] = ~byte; recompute drv_bus[8]
+    VIA->>BUS: iec_update_ports() [recompute cpu_port + drv_port]
+  else Ours
+    VIA->>VIA: portB.onOutputChanged(orb, ddr, "or")
+    VIA->>BUS: setDriveOutput(or, ddr)
+    BUS->>BUS: update drive{Clk,Data}Released, driveAtnAckReleased
+  end
+```
+
+**Divergence**: appears equivalent. The bit-wise formula matches
+(verified in §5 mapping). Ours does not eagerly recompute cpu_port
+because we have no cache; that's structurally fine.
+
+### §6.4 Drive reads $1800 (PB input → DATA_IN/CLK_IN/ATN_IN)
+
+```mermaid
+sequenceDiagram
+  participant DCPU as Drive CPU
+  participant VIA as VIA1
+  participant BUS as IECBus
+
+  Note over DCPU: LDA $1800 / BIT $1800 instruction
+  DCPU->>VIA: read(VIA_ORB)
+  alt VICE flow (read_prb)
+    VIA->>BUS: byte = ((PRB & 0x1A) | drv_port) ^ 0x85 | orval
+    Note right of BUS: drv_port was cached at last update_ports.<br/>Caller (drivecpu_execute) is running on drive clock<br/>which is <= maincpu_clk; iec_update_ports was called<br/>most recently by either the c64 store or the drive's<br/>OWN previous PB store.
+  else Ours
+    VIA->>VIA: pins = portB.readPins() = bus.buildDrivePbInputBits(deviceId)
+    VIA->>BUS: live compute atnLine, clkLine, dataLine
+    VIA-->>DCPU: ((orb & ddrb) | (pins & ~ddrb))
+  end
+```
+
+**Divergence summary**:
+- ⚠️ **CRITICAL**: VICE's `drv_port` is a cache. The drive sees the
+  state of the bus *as recorded at the last update_ports call*. In a
+  receive sequence, that's either:
+  - the c64's most recent $DD00 store (which flushed the drive first
+    and then updated cpu_port + drv_port atomically), or
+  - the drive's own most recent $1800 store.
+- ⚠️ Ours computes live each call. In cycle-lockstep, this is the
+  state *as of the previous cycle's tick* (since CPU ticks first).
+- The **physically correct** model is live (real wires don't cache).
+  But the *VICE-equivalent* model is cached. For the motm fastloader,
+  the drive samples DATA in a tight `BIT $1800 / BEQ` loop. If the
+  c64 has just written $DD00 to assert CLK and clear DATA in the
+  *same c64 cycle* the drive samples, VICE's drive sees the new state
+  (because the c64 store flushed the drive first, putting drive at
+  the boundary just before its next instruction, then updated
+  cpu_port atomically). Ours sees a state that depends on tick order:
+  if drive is ahead in the cycle (already ticked), it sees old c64
+  state; if drive is behind, it sees new c64 state. This timing
+  ambiguity is the prime suspect for the motm bug.
+
+### §6.5 ATN edge → CA1 IRQ → drive IRQ-handler entry
+
+```mermaid
+sequenceDiagram
+  participant CPU as C64 CPU
+  participant BUS as IECBus
+  participant VIA as VIA1
+  participant DCPU as Drive CPU
+  participant ROM as DOS ROM
+
+  CPU->>BUS: STA $DD00 with ATN bit set (assert ATN)
+  alt VICE
+    BUS->>VIA: viacore_signal(CA1, 0) [falling-edge tag]
+    VIA->>VIA: ifr |= CA1; set_int(IK_IRQ, ON, rclk=maincpu_clk)
+    Note right of VIA: drive's int_status->irq_clk = rclk
+    DCPU->>DCPU: continue current instruction
+    DCPU->>DCPU: instruction boundary; check_irq_delay(cpu_clk >= irq_clk + 2)
+    DCPU->>ROM: vector to $FE67 IRQ entry
+    ROM->>ROM: JSR $E853 ATN handler; $7C := $01
+  else Ours
+    BUS->>VIA: pulseCa1(false) [actual H→L]
+    VIA->>VIA: ifr |= CA1 (no clock stamp)
+    Note right of DCPU: irqLine sampled at instruction boundary
+    DCPU->>DCPU: finishes current cycle/instruction
+    DCPU->>ROM: vector to $FE67 (some-cycle-later)
+    ROM->>ROM: JSR $E853; $7C := $01
+    Note right of BUS: ALSO: BUS pokes driveRam[$7C]=$80 directly ⚠️
+  end
+```
+
+**Divergence summary**:
+- ⚠️ VICE delay = 2 drive cycles after IFR set (deterministic).
+- ⚠️ Ours delay = N drive cycles where N = whatever's left of the
+  current drive instruction at IFR-set time. Could be 0 (lucky) or 6+
+  (RTI mid-stack-pop). Non-deterministic.
+- ⚠️ The Sprint 66 `$7C` poke duplicates the ROM's job. If the IRQ
+  handler runs (which it does, eventually), the poke is redundant. If
+  the IRQ handler doesn't run, the poke makes idle-loop code at $EBFF
+  jump to ATN-handler — but without the IRQ stack frame, RTI from the
+  handler corrupts the stack. This is a load-bearing hack covering
+  for D6 (non-deterministic IRQ latency).
+
+### §6.6 24-bit serial receive at drive $042F-$044C (motm)
+
+This is the scenario where the bug manifests. The drive runs a tight
+loop receiving 3 command bytes from the c64 via custom bit-bang.
+
+```mermaid
+sequenceDiagram
+  participant C64 as C64 send loop
+  participant BUS as IECBus
+  participant DCPU as Drive recv loop ($042F)
+  participant VIA as VIA1
+
+  Note over C64,DCPU: After ATN handshake, both sides exit ROM<br/>and run custom bit-bang. C64 owns CLK as bit clock.<br/>DATA carries the bit value.
+
+  loop 24 bits per byte * 3 bytes
+    C64->>BUS: STA $DD00 (CLK low, DATA = bit_n)
+    Note right of BUS: VICE: flush drive to maincpu_clk;<br/>recompute drv_bus, cpu_port, drv_port
+    DCPU->>VIA: BIT $1800 (sample PB)
+    VIA->>BUS: read drv_port (VICE) or live pins (ours)
+    VIA-->>DCPU: byte; check bit 0 (DATA_IN)
+    DCPU->>DCPU: ROL bit into shift accumulator
+    DCPU->>DCPU: BEQ $0431 wait for CLK toggle
+    C64->>BUS: STA $DD00 (CLK high)
+    BUS->>VIA: drive sees CLK toggle on next sample
+    DCPU->>DCPU: exit BEQ loop; go fetch next bit
+  end
+```
+
+**Where ours diverges from VICE in this loop**:
+- Our drive runs in cycle-lockstep, so its `BIT $1800` may execute on
+  c64-cycle N where the c64 has just written $DD00 on c64-cycle N
+  (same cycle). In VICE the drive is forced to execute up to that c64
+  cycle *first*, then the bus is updated atomically. The drive's NEXT
+  instruction (after the flush) sees the new bus.
+- In our model, depending on scheduler tick order, the drive's
+  $1800 sample may pick up the *old* bus state (because CPU ticks
+  first, then drive — but the drive read happens in the drive
+  instruction that's running in the *next* tick after the c64 wrote).
+- **Empirical observation**: we confirmed via direct VIA1 query that
+  at drive PC=$0431 entry, bus DATA line is correct, but during the
+  BIT $1800 instruction the drive samples a different bit than VICE
+  saw. This is consistent with the scheduler-order divergence above.
+
+The fix candidates (concrete options for Spec 138):
+1. Insert `drive.executeToClock(c64Cpu.cycles)` before *every* C64
+   read of $DD00 + every ATN-bit change, even in cycle-lockstep mode.
+   This is the VICE push-flush. It was tried (Sprint 111 commit 9)
+   and broke MM regress because `lastSyncC64Clk` was 0 at first call,
+   causing the drive to jump 33M cycles at once. Fix: initialize
+   `lastSyncC64Clk` from the scheduler baseline at integrated-session
+   start.
+2. Reverse scheduler tick order: drive first, then peripherals, then
+   CPU. Means C64 reads see drive output as of *current* cycle, not
+   N-1. Risk: breaks every other emulated component that assumed CPU-
+   first.
+3. Cache `cpu_port`/`drv_port` and recompute *only* on bus mutation.
+   Ours then becomes byte-equivalent to VICE's cache model. The cache
+   is updated at: (a) c64 write of $DD00, (b) drive write of $1800.
+   Reads are pure cache loads. This requires inverting our live-getter
+   model.
+
+---
+
+## §7 Deployment View
+
+Headless: `node` runs the integrated session. Both CPUs and the
+scheduler live in one process. No threading. Everything is
+deterministic given a fixed seed.
+
+VICE: similar — single-process, single-threaded core. Threading model
+identical for our purposes.
+
+(No further deployment relevance for this bug.)
+
+---
+
+## §8 Cross-cutting — Timing Model
+
+| Aspect | VICE | Ours (cycle-lockstep) | Divergence ID |
+|---|---|---|---|
+| Drive scheduling | Push: flush on c64 IEC access | Pull: tick per c64 cycle | D3 |
+| Drive sub-cycle granularity | Whole-instruction batches | Per-cycle | D4 |
+| Bus state caching (`cpu_port`/`drv_port`) | Cached, recomputed on mutation | Live computed each access | D1, D2 |
+| ATN edge propagation to CA1 | `viacore_signal` with rclk | `pulseCa1` immediate | D5 |
+| IRQ delivery latency | Stamped + `INTERRUPT_DELAY` (=2 drive cycles) | Until next drive instr boundary (0..6) | D5, D6 |
+| CA1 retroactive trigger on IER enable | Not present (boot order assures) | `reevaluateCa1Level` (Sprint 66 hack) | D7 |
+| Drive ATN-pending flag $7C | Set by ROM IRQ handler only | Set by ROM IRQ handler + bus poke | D7 |
+| Drive cycle ratio | 16.16 fixed `sync_factor` | 16.16 fixed `syncFactor16dot16` | (matches) |
+| Alarm system | T1/T2/CA1 alarms queued by clk | Per-cycle tick, no alarms | D8 |
+| C64 vs drive clock | Two separate counters, drive lags | Lockstep via accumulator | D9 |
+| Tick order on bus access | Drive flushed first, then c64 acts | c64 acts first, drive ticks after | (motm root cause candidate) |
+
+The bottom row is the prime suspect for motm. VICE's invariant is:
+**at every observable c64 IEC access, the drive has just finished an
+instruction and the bus reflects state at that instant**. Our
+invariant is: **at every c64 cycle, the drive has executed exactly
+its share of cycles, but possibly mid-instruction**. These are
+*both* internally consistent, but only VICE's matches the
+fastloader's implicit assumption (because all fastloaders were
+developed and tested against real HW, where the drive samples a
+*physical* line that's settled — equivalent to VICE's flush-then-act).
+
+---
+
+## §9 Architecture Decisions (ADRs)
+
+Each ADR addresses one divergence. Ranked by *impact* (how likely it
+is to fix motm) × *effort* (how invasive the change is, inverted).
+
+### ADR-1: Adopt VICE push-flush at C64 IEC access points (D3, D4)
+
+**Context**: Our cycle-lockstep ticks the drive every c64 cycle. VICE
+flushes the drive on every $DD00 access. The flushing causes VICE's
+drive to be at an instruction boundary at every observable bus event.
+
+**Options**:
+- (a) **Stay**: keep cycle-lockstep, accept tick-order ambiguity.
+- (b) **Adopt**: insert `drive.executeToClock(c64Cpu.cycles)` at start
+  of every IecBus method that the C64 calls. Make the drive catch up
+  before the bus mutation.
+- (c) **Hybrid**: keep lockstep tick, but additionally call
+  `executeToClock` at IEC access points; the second call is a no-op
+  if the drive is already current. (Costs nothing.)
+
+**Consequences**:
+- (a): bug stays. Status quo.
+- (b): regress risk = high; the prior attempt failed because
+  `lastSyncC64Clk = 0` caused the drive to jump 33M cycles. With a
+  proper baseline init (`setSyncBaseline(c64Cpu.cycles)` at session
+  start, refreshed after every executeToClock call), risk reduces to
+  medium. motm-fix probability: HIGH (this is the closest VICE-equivalent
+  behavior). Effort: 1 day.
+- (c): same as (b) but more defensive. motm-fix probability: same as (b).
+  Effort: 1 day. Recommended.
+
+**Recommendation**: **(c) Hybrid**. Impact:effort = 8/3 = 2.7. **Top
+candidate for Spec 138**.
+
+### ADR-2: Cache `cpu_port`/`drv_port` (D1, D2)
+
+**Context**: VICE caches; we compute live. The cache is updated only
+on bus mutation. Reads are O(1) loads.
+
+**Options**:
+- (a) **Stay**: live compute is closer to physical reality.
+- (b) **Adopt**: cache both ports, invalidate on mutation.
+
+**Consequences**:
+- (a): no change.
+- (b): performance neutral. Behavioral: only matters if our live
+  computation is observably different from VICE's cache. With ADR-1
+  in place, both should be equivalent at every observable event.
+
+**Recommendation**: **stay (a)**, *unless* ADR-1 alone doesn't fix
+motm. Cache is a fallback. Impact:effort = 2/4 = 0.5.
+
+### ADR-3: Stamp IRQ events with rclk (D5, D6)
+
+**Context**: VICE delays IRQ entry by 2 drive cycles after IFR set
+(deterministic). We deliver as soon as drive reaches instruction
+boundary (non-deterministic 0..6).
+
+**Options**:
+- (a) **Stay**: rely on drive instruction boundary for IRQ entry.
+- (b) **Adopt**: track `irq_clk` per VIA, defer IRQ assertion until
+  drive cycles >= irq_clk + 2.
+
+**Consequences**:
+- (a): minor latency variance. Probably benign for most code; for
+  ATN-handshake timing, the ROM is tolerant of 0..6-cycle latency
+  windows because real-HW interrupt latency varies similarly.
+- (b): adds a clock-stamp + delay check to every IFR set.
+  motm-fix probability: LOW (motm doesn't rely on exact ATN-IRQ
+  latency — it does manual timing in the recv loop). Effort: 0.5
+  day.
+
+**Recommendation**: **stay (a)** for now. Revisit if other bugs
+surface. Impact:effort = 1/2 = 0.5.
+
+### ADR-4: Remove Sprint 66 `$7C` poke + `reevaluateCa1Level` (D7)
+
+**Context**: We have two compensating hacks for boot-order race:
+- `reevaluateCa1Level` retroactively sets IFR_CA1 if CA1 IER becomes
+  enabled while ATN is asserted.
+- `iec-bus.notifyAtnChanged` pokes `driveRam[$7C] = $80` directly on
+  ATN H→L edge.
+
+VICE has neither. VICE assumes the drive's reset code finishes
+configuring CA1 IER before the c64 KERNAL ever asserts ATN —
+guaranteed by drive boot taking ~10 PAL frames longer.
+
+**Options**:
+- (a) **Stay**: keep hacks. Cheap insurance.
+- (b) **Adopt**: replicate VICE's boot order — let the drive's reset
+  run in isolation for ~10 frames before starting the c64. Remove
+  both hacks.
+- (c) **Compromise**: keep `reevaluateCa1Level` (it's idempotent and
+  theoretically harmless), remove the `$7C` poke (which duplicates
+  ROM work and risks stack corruption if RTI runs without IRQ frame).
+
+**Consequences**:
+- (a): hacks remain a maintenance burden and a source of subtle
+  bugs (Sprint 111 commit 1 removed the Sprint 66 IFR-on-either-edge
+  hack — that was correct but the $7C poke remains).
+- (b): cleanest. Risks: integrated-session needs a new "boot drive
+  first" mode. motm-fix probability: LOW (motm bug is in the receive
+  loop, not in the ATN handshake).
+- (c): low-risk hygiene. No behavior change for the boot-success
+  case; reduces risk for stack-corruption case.
+
+**Recommendation**: **(c) Compromise**. Impact:effort = 3/2 = 1.5.
+
+### ADR-5: Reverse scheduler tick order (drive-first)
+
+**Context**: Currently CPU → other peripherals → drive each cycle.
+This means C64 reads see drive state from cycle N-1.
+
+**Options**:
+- (a) **Stay**.
+- (b) **Reverse**: drive → peripherals → CPU. C64 reads see
+  drive-as-of-current-cycle. Symmetric problem: drive then sees C64
+  output from cycle N-1.
+
+**Consequences**:
+- (a): status quo.
+- (b): trades one direction of lag for the other. motm-fix
+  probability: probably zero — motm cares about *both* directions
+  (drive samples after c64 sets, c64 samples after drive sets).
+  Effort: 0.5 day to swap, but every regression test probably needs
+  re-baselining.
+
+**Recommendation**: **stay (a)**. Impact:effort = 1/3 = 0.3.
+
+### ADR-6: Implement alarm system (D8)
+
+**Context**: VICE queues T1/T2/CA1 events as alarms. Our per-cycle
+tick computes the same outcomes. Alarms primarily exist for
+performance (skip ahead to next event) — irrelevant in our case
+because we tick anyway.
+
+**Options**:
+- (a) **Stay**: tick everything per cycle.
+- (b) **Adopt**: build a minimal alarm queue.
+
+**Consequences**:
+- (a): no change.
+- (b): large refactor. Not motivated by motm — alarms only matter for
+  *idle* cycles, which we already handle via the lockstep fast-path.
+
+**Recommendation**: **stay (a)**. Impact:effort = 0.5/8 = 0.06. Skip.
+
+### ADR ranking summary
+
+| ADR | Impact | Effort | I/E ratio | Recommend |
+|---|---|---|---|---|
+| ADR-1 (push-flush) | 8 | 3 | **2.7** | **next-fix candidate** ✅ |
+| ADR-4 (remove $7C poke) | 3 | 2 | 1.5 | hygiene; defer |
+| ADR-2 (cache ports) | 2 | 4 | 0.5 | fallback |
+| ADR-3 (IRQ rclk) | 1 | 2 | 0.5 | watch |
+| ADR-5 (tick order) | 1 | 3 | 0.3 | skip |
+| ADR-6 (alarms) | 0.5 | 8 | 0.06 | skip |
+
+**Spec 138 mandate**: implement ADR-1 (Hybrid push-flush at IEC access
+points), with proper `setSyncBaseline` initialization to avoid the
+Sprint 111 commit 9 regression. Verification: motm reaches title
+screen in headless; MM regression suite stays green.
+
+---
+
+## §10 Quality Tree (cross-cutting concerns)
+
+| Quality | Target | Risk | Mitigation |
+|---|---|---|---|
+| Cycle-accuracy on IEC | Match VICE within 2 drive cycles | High (current motm bug) | ADR-1 |
+| Determinism | No tick-order races | Medium | ADR-1 forces drive to instr boundary at every observable c64 event |
+| MM regress | Stays green | High | careful `setSyncBaseline` + step-by-step CI |
+| Headless boot time | Acceptable for tests | Low | Push-flush only adds work *between* cycles, no extra cycles |
+| Code clarity | Future-proof | Medium | Document `executeToClock` invariants in code comments |
+
+---
+
+## §11 Risks and Technical Debts
+
+- **Sprint 66 `$7C` poke** (ADR-4 candidate): if RTI runs without an
+  IRQ stack frame the drive 6502 stack underflows.
+- **No alarm system**: T1/T2 latency exact-match with VICE is not
+  guaranteed in edge cases (T1 reload race). Not biting us today.
+- **Microcoded CPU mid-instruction state**: PC samples during operand
+  fetch confuse the trace tooling. Not a correctness bug, but
+  diagnosis is harder.
+
+---
+
+## §12 Glossary
+
+- **ATN**: Attention line. Driven only by C64. Asserted (low) to
+  signal "command incoming"; drive's CA1 fires IRQ on H→L.
+- **ATN_ACK / ATNA**: PB4 of drive's VIA1. Feeds an external AND-gate
+  with the ATN line; gate auto-pulls DATA whenever ATN is asserted
+  AND the drive hasn't acknowledged. The ATN handler clears this
+  auto-pull by setting PB4 high.
+- **CA1**: Control input pin of VIA. Edge-sensitive per PCR bit 0.
+- **PCR**: Peripheral Control Register of VIA. Bits 0/4 select edge
+  polarity for CA1/CB1.
+- **rclk**: VICE's term for "reference clock at which a register
+  access happens." Used to stamp IRQ events.
+- **push-flush**: VICE's drive-sync model. C64 side flushes drive
+  before any IEC mutation.
+- **cycle-lockstep**: Our drive-sync model. Scheduler ticks both CPUs
+  every cycle.
+- **stage-1 / stage-2**: motm fastloader has a stage-1 uploader at
+  $0300-$037F that loads stage-2 at $0700-$07FF. Stage-2 implements
+  the 24-bit receive at $042F-$044C.
+
+---
+
+## §13 Out of scope (revisit later)
+
+- 1571/1581/CMD-HD specifics
+- VIC frame-sync (separate spec)
+- Burst mode
+- Parallel cable
+- JiffyDOS / CMD HD command sets
+
+---
+
+## §14 References
+
+- VICE 3.7.1 source: `…/vice-3.7.1/src/iecbus/iecbus.c`,
+  `…/c64/c64iec.c`, `…/c64/c64cia2.c`, `…/drive/drivecpu.c`,
+  `…/drive/iec/via1d1541.c`, `…/core/viacore.c`, `…/alarm.c`
+- Our headless: `src/runtime/headless/iec/iec-bus.ts`,
+  `…/drive/via6522.ts`, `…/drive/drive-cpu.ts`,
+  `…/scheduler/cycle-lockstep-scheduler.ts`,
+  `…/integrated-session.ts`
+- Sprint 111 investigation: `V2_SPRINT_111_FINDINGS.md` (Updates 1-11)
+- 1541 ROM IRQ entry: `$FE67` → `JSR $E853` ATN handler →
+  `$7C := $01`
+- DOS 1541 ROM: `dos1541-325302-01+901229-05.bin`
+- Companion: Spec 137 (this spec), Spec 138 (forthcoming code fix)

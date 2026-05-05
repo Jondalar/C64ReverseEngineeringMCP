@@ -103,6 +103,8 @@ dependency order.
 | 108 | Cart support ✓ DONE 2026-05-04        | 127 ✓, 128 ✓, 129 ✓                  | low      | M6.1 PLA cart states (8K/16K/Ultimax) + M6.2 $DE00 bank-switch + M6.3 status descriptor (16/16). Mappers preserved from existing cartridge.ts. |
 | 109 | SID polish + no-audio gate ✓ DONE 2026-05-04 | 130 ✓, 131 ✓, 132 ✓                | low      | M7.1 register stability + M7.2 writeTrace callback + M7.3 no-audio boundary lint (8/8). |
 | 110 | Performance + ops ✓ DONE 2026-05-04 (V1 CLOSED) | 133 ✓, 134 ✓, 135 ✓, 136 ✓        | low      | M8.1 budget tracker + M8.2 snapshot file + M8.3 safe skips + M8.4 CI profile (23/23). |
+| 111 | V2 — 1541 silicon (motm probe)        | 137 ✓ (arc42), 138 (push-flush PROBE)        | medium   | Sprint 111 hit ceiling after 11 commits of speculative patching. Spec 137 produced `docs/vice-iec-arc42.md` (5765 words, 7 mermaid, 6 ADRs). Spec 138 is now an EXPERIMENT gated on Spec 142+143 — it informs Spec 140, not replaces it. |
+| 112 | V2 — core sync refactor               | 139, 140, 141, 142, 143, 144 (all proposed) | critical | New architecture direction per `docs/headless-core-synchronization-refactor.md`. Replaces local fastloader patching with kernel-contract + VICE-compatible IEC + clocked IRQ + bus-event diff tooling. **Execution order: 142 → 143 → 138 (probe) → 139 → 140 → 141 → 144.** Spec 138 stays as probe between 143 and 139 to validate push-flush hypothesis with real diff data. |
 
 Notes:
 
@@ -118,6 +120,11 @@ Notes:
 - M3.7 multi-drive is explicitly nice-to-have, capped at drives 8+9.
 - All specs follow the depth split: deep for M0/M2/M3, light for
   M1/M4/M5/M6/M7/M8.
+- Sprint 112 supersedes the "keep adding local fastloader fixes" path.
+  Spec 138 may still be useful as a probe, but the active hypothesis is
+  that TrueDrive needs a central synchronization contract, VICE-style
+  IEC observable semantics, clocked IRQ timing, and mandatory bus-event
+  diff tooling.
 
 ## Historical Workflow Execution Order
 

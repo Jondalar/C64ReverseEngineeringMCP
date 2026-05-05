@@ -78,6 +78,11 @@ Current blocker:
 
 - Bug 40: after successful LOAD and EOI detection, C64 KERNAL remains in
   ACPTR/EOI retry instead of returning cleanly to BASIC/direct mode.
+- Sprint 111 / motm fastloader: evidence now points beyond a local
+  IEC bit-bang fix. The current hypothesis is that the runtime lacks a
+  single VICE-compatible synchronization invariant between C64, drive,
+  IEC, VIA/CIA, and clocks. The architecture proposal is captured in
+  `docs/headless-core-synchronization-refactor.md`.
 
 Do not touch:
 

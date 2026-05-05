@@ -559,3 +559,81 @@ ours never entered stage-2 send.
 4. From there, work back to find which IEC byte was read wrong
    and which side (drive sent wrong, or C64 sampled wrong moment).
 
+
+---
+
+## Update 12: arc42 deep-dive complete, ADR-1 selected for fix (2026-05-05)
+
+After 11 commits of speculative patching, paused work on direct
+fixes and produced `docs/vice-iec-arc42.md` (Spec 137 deliverable).
+The arc42 doc is a structured comparison of VICE's IEC + drive-sync
+architecture vs ours, with sequence diagrams and ADR ranking.
+
+**Key finding**: Our cycle-lockstep drive sync is not equivalent to
+VICE's push-flush model at sub-instruction granularity. VICE flushes
+the drive up to `maincpu_clk` at every $DD00 access, so the drive is
+always at an instruction boundary when c64 mutates or reads bus.
+Ours ticks per cycle — which puts the drive in arbitrary
+mid-instruction states at observable bus events. This explains why
+the drive samples `BIT $1800` differently from VICE in the motm
+24-bit receive loop.
+
+**Selected fix (ADR-1, written up as Spec 138)**: Hybrid push-flush.
+Keep cycle-lockstep tick, BUT additionally call
+`drive.executeToClock(c64Cpu.cycles)` at every IEC access. The
+extra call is a no-op when the drive is already current; in
+sub-cycle ambiguous cases it forces the drive to instruction
+boundary first, matching VICE's invariant.
+
+**Prior failure root cause**: Sprint 111 commit 9 inserted the
+flush call but `lastSyncC64Clk = 0` made the first call jump 33M
+cycles. Spec 138 explicitly initializes `setSyncBaseline` at
+session start, and the lockstep tick keeps `lastSyncC64Clk`
+current.
+
+**See**:
+- `docs/vice-iec-arc42.md` — full arc42 deep-dive
+- `specs/137-vice-iec-arc42-deepdive.md` — spec for the doc
+- `specs/138-iec-push-flush-hybrid.md` — concrete code-fix spec
+
+Other ADRs (skipped or fallback):
+- ADR-2 (cache cpu_port/drv_port) — fallback if ADR-1 doesn't fix motm
+- ADR-3 (IRQ rclk stamping) — defer
+- ADR-4 (remove $7C poke / reevaluateCa1Level) — separate hygiene spec
+- ADR-5 (reverse tick order) — skip
+- ADR-6 (alarm system) — skip
+
+---
+
+## Update 13: Spec 138 relabeled as PROBE; Sprint 112 supersedes (2026-05-05)
+
+After producing the arc42 doc, user wrote
+`docs/headless-core-synchronization-refactor.md` reframing motm
+as an emulator-kernel synchronization problem (not a local bit-bang
+bug). New Sprint 112 with Specs 139-144 supersedes the
+"keep adding local fastloader fixes" path:
+
+- Spec 139: kernel synchronization architecture
+- Spec 140: VICE-compatible IEC core (cache + flush, default)
+- Spec 141: clocked VIA1 CA1/IRQ timing
+- Spec 142: bus-access trace ring (debugging-first)
+- Spec 143: VICE/headless IEC diff
+- Spec 144: TrueDrive mode hygiene (removes $7C poke etc.)
+
+**Spec 138 status update**: relabeled from "fix" to "probe /
+experiment". Acceptance criterion changed: data-first, not green-
+first. Probe runs AFTER Specs 142 + 143 land, so its output is
+trace+diff evidence about whether push-flush alone closes
+divergence. Result informs Spec 140 design (cache+flush vs flush
+alone).
+
+**Execution order**: 142 → 143 → 138 (probe) → 139 → 140 → 141 →
+144. ~10 days before any motm-fix attempt; then probe gives
+high-quality signal in 1 day; then architecture rewrite proceeds
+with knowledge.
+
+**Out of scope until further notice**:
+- arc42 ADR-2 cache (subsumed by Spec 140, where cache is default)
+- arc42 ADR-3 IRQ rclk (subsumed by Spec 141)
+- arc42 ADR-4 $7C poke removal (subsumed by Spec 144)
+- arc42 ADR-5/6 (skipped)
