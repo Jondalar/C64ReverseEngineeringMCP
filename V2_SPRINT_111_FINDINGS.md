@@ -197,7 +197,47 @@ until it equals $c8 (200 = bottom of screen). If our VIC raster
 line counter advances differently than VICE's, c64 either skips
 the wait entirely (raster already past $c8) or finishes too fast.
 
-### Updated Phase B plan
+## **Update 4 — actual root cause: drive exits stage-2 prematurely**
+
+Closer inspection shows the picture is **dynamic, not static**:
+
+- Stage-1 wait loop runs successfully (zp01 $80→$01 via CA1 IRQ at ts=17M)
+- Drive reaches stage-2 buffer-1 dispatch ($0412-$0416)
+- Drive **DOES** run stage-2 for some time (we see drive PC oscillate
+  in $0412-$0416 range up to ~ts=20-25M)
+- Eventually drive returns to ROM idle ($f55x range) and bounces
+  between ROM and $07c1/$07c8 (buffer 7 RAM, fragments of code)
+- After that point, C64 asserts ATN periodically (cyc=62.37M, 67.6M
+  with 58-cycle wide pulses) but drive is no longer in the state
+  to fully respond — it's in ROM idle with VIA1 PB bit1 still set
+  (DATA pulled low) and receiving short IRQ pulses but not running
+  the full custom stage-2 send code.
+- C64 eventually reaches $43c7-$43cd receive loop, drive can't
+  send bytes properly → deadlock visible.
+
+**Real bug class**: drive's stage-2 RAM code includes a path that
+returns to ROM idle when (in our model) a condition triggers that
+shouldn't trigger. Likely: an unexpected interrupt, an early RTS
+without restoring SP correctly, or a missed re-entry hook into
+custom code after each command.
+
+This is **deep silicon-fidelity work** — comparing every drive
+RAM instruction to VICE's equivalent path over 10-50M cycles.
+Not achievable autonomously overnight; needs side-by-side
+manual reasoning or a much more powerful diff tool.
+
+### Recommended approach for next session
+
+1. **Do not try Sprint 111 alone.** Deep RE work needs interactive
+   collaboration. Set up a side-by-side debug session: pause headless
+   at the moment drive transitions from $0412-$0416 → $f5xx and
+   compare with VICE binmon paused at the equivalent moment.
+2. **VICE x64sc with -binarymonitor**: can suspend at exact cycle.
+   Step both side by side, find first instruction divergence.
+3. Until then, V1 motm support stays "loader hangs" — V1 ships
+   without motm boot.
+
+### Updated Phase B plan (HISTORICAL — superseded by Update 4)
 
 1. Add per-instruction trace ring (256 deep) for both C64 + drive.
 2. Capture from `runFor(800_000) + typeText` through end of LOAD
