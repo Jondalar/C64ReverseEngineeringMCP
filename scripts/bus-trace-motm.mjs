@@ -40,6 +40,8 @@ const id = args.id ?? "motm";
 const cycleBudget = args["cycle-budget"] ? Number(args["cycle-budget"]) : 35_000_000;
 const maxEvents = args["max-events"] ? Number(args["max-events"]) : 2000;
 const projectDir = args["project-dir"] ?? process.env.C64RE_PROJECT_DIR ?? repoRoot;
+// Spec 138 probe variant (A/B/C). Undefined = production mode.
+const probeMode = args["probe-mode"];
 
 // Load manifest
 const manifestPath = join(repoRoot, "samples/test-manifest.json");
@@ -88,7 +90,10 @@ const { session } = startIntegratedSession({
   busAccessPcRangesDrive: drivePcRanges,
   // C64 side: empty = always emit (we want full c64 $DD00 traffic)
   busAccessPcRangesC64: [],
+  // Spec 138 probe variant.
+  probeMode: probeMode === "A" || probeMode === "B" || probeMode === "C" ? probeMode : undefined,
 });
+if (probeMode) console.error(`Probe variant: ${probeMode}`);
 session.traceRegistry.configure("bus_access", { mode: "jsonl", path: outPath });
 
 session.resetCold();

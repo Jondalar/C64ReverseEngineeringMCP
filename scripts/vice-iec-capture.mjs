@@ -116,6 +116,54 @@ async function getClock(memspace) {
   return 0;
 }
 
+// Optional arming: wait for drive PC to enter window before enabling
+// R/W checkpoints. Symmetric with headless PC-window filter so both
+// sides capture the same logical phase.
+const armPcStart = args["arm-pc-start"] !== undefined ? Number(args["arm-pc-start"]) : (id === "motm" ? 0x042F : 0);
+const armPcEnd = args["arm-pc-end"] !== undefined ? Number(args["arm-pc-end"]) : (id === "motm" ? 0x044C : 0);
+
+if (armPcStart > 0) {
+  console.error(`Arming on drive PC range $${armPcStart.toString(16)}-$${armPcEnd.toString(16)} (memspace=1)`);
+  // Set exec checkpoint that pauses VICE when drive PC enters window.
+  await client.setCheckpoint({
+    startAddress: armPcStart, endAddress: armPcEnd,
+    stopWhenHit: true, enabled: true, operation: 0x04, memspace: MEMSPACE_DRIVE,
+  });
+  // Resume VICE, wait for the arm hit.
+  let armSeq = client.currentEventSequence;
+  await client.resume();
+  let armed = false;
+  const armDeadline = Date.now() + 180_000;
+  while (!armed && Date.now() < armDeadline) {
+    let ev;
+    try {
+      ev = await client.waitForCheckpointOrStop(armSeq, 30_000);
+    } catch {
+      console.error(`Arm timeout — exiting`);
+      child.kill("SIGKILL");
+      process.exit(1);
+    }
+    armSeq = ev.sequence;
+    if (ev.kind === "checkpoint") {
+      const dRegs = await client.getRegisters(MEMSPACE_DRIVE);
+      const dpc = (dRegs.find((r) => r.id === REG_PC)?.value ?? 0) & 0xffff;
+      if (dpc >= armPcStart && dpc <= armPcEnd) {
+        console.error(`Armed at drive PC=$${dpc.toString(16)}`);
+        armed = true;
+        break;
+      }
+      await client.resume();
+    } else if (ev.kind === "stopped") {
+      try { await client.resume(); } catch {}
+    }
+  }
+  if (!armed) {
+    console.error(`Arm window never hit — exiting`);
+    child.kill("SIGKILL");
+    process.exit(1);
+  }
+}
+
 // Set 4 checkpoints. operation: 0x01=load(read), 0x02=store(write), 0x04=exec
 // Per VICE binmon protocol — read+write = 0x03.
 const cp_c64 = await client.setCheckpoint({

@@ -139,6 +139,13 @@ export interface IntegratedSessionOptions {
   enableBusAccessTrace?: boolean;
   busAccessPcRangesC64?: Array<[number, number]>;
   busAccessPcRangesDrive?: Array<[number, number]>;
+  // Spec 138 probe variants. Mutually exclusive.
+  //   "A" = push-flush at IEC events (lockstep tick stays + flush hook)
+  //   "B" = A + scheduler ticks drive BEFORE c64 each cycle
+  //   "C" = push-flush only — disable lockstep drive tick entirely
+  // Default undefined = production hybrid (= "A" semantics, but
+  // status quo when bus-access tracing is off).
+  probeMode?: "A" | "B" | "C";
 }
 
 export interface PrgLoadResult {
@@ -343,7 +350,12 @@ export class IntegratedSession {
     // Spec 090: bus-read hook for legacy non-lockstep mode. In Sprint 92
     // lockstep, drive ticks per cycle so hook becomes no-op. We install
     // it conditionally on construction (after drive built).
-    if (!opts.useCycleLockstep) {
+    //
+    // Spec 138 probe (Q4 hybrid): in lockstep mode, ALSO install the
+    // hook when probeMode is set. For variants A/B/C the hook causes
+    // drive.executeToClock to flush at every IEC access (= push-flush
+    // semantics overlaid on the lockstep tick).
+    if (!opts.useCycleLockstep || opts.probeMode) {
       this.iecBus.beforeC64Read = () => this.drive.executeToClock(this.c64Cpu.cycles);
     }
 
@@ -406,6 +418,20 @@ export class IntegratedSession {
         // delta. Required so IRQ service / branch page-cross / illegal
         // burn don't desync drive timing during IEC bit-bang.
         cpuCycleCounter: () => (cpuCompoonent as any).cycles,
+        // Spec 138 probe options.
+        tickDriveFirst: opts.probeMode === "B",
+        disableLockstepDriveTick: opts.probeMode === "C",
+        // In probe variants A/B (lockstep + flush), the lockstep loop
+        // ticks drive each cycle. We MUST update drive.lastSyncC64Clk
+        // here so the IEC-flush hook sees drive-already-current and
+        // becomes a no-op. Without this, flush re-ticks all cycles
+        // since lastSyncC64Clk=0, causing massive over-tick.
+        // For variant C, we DO want flush to do real work, so skip
+        // the sync (drive will accumulate naturally per flush call).
+        afterCycleSync:
+          opts.probeMode === "A" || opts.probeMode === "B"
+            ? (c64Cycle, _driveCycle) => this.drive.setSyncBaseline(c64Cycle)
+            : undefined,
       });
     }
     // Spec 142: bus-access trace producer wiring. Pass live object

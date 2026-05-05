@@ -52,6 +52,20 @@ export interface CycleLockstepDeps {
   // taken + page-cross, illegal opcode burn) advances peripherals
   // and drive by the same N.
   cpuCycleCounter?: () => number;
+  // Spec 138 probe variant B: tick drive BEFORE c64 each cycle.
+  // Default false (= c64 first).
+  tickDriveFirst?: boolean;
+  // Spec 138 probe variant C: disable per-cycle drive tick. Drive
+  // advances ONLY via push-flush (drive.executeToClock at IEC access).
+  // Default false (= lockstep tick on).
+  disableLockstepDriveTick?: boolean;
+  // Spec 138: hook called once per scheduler cycle AFTER lockstep
+  // ticks. Used to inform drive.executeToClock that the drive is
+  // "synced to c64Cycle X" so the push-flush hook becomes a no-op
+  // when drive is already current. Without this hook, push-flush
+  // double-counts cycles in variants A/B (lockstep already ticked
+  // drive, then flush re-ticks from lastSyncC64Clk=0).
+  afterCycleSync?: (c64Cycle: number, driveCycle: number) => void;
 }
 
 export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
@@ -68,6 +82,20 @@ export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
     // VICE pattern: refresh IRQ/NMI pin state each cycle BEFORE the CPU
     // ticks. CPU samples line at instruction-boundary fetch.
     if (this.deps.updateInterruptLines) this.deps.updateInterruptLines();
+
+    const driveFirst = this.deps.tickDriveFirst ?? false;        // probe B
+    const skipDriveTick = this.deps.disableLockstepDriveTick ?? false; // probe C
+
+    // Spec 138 probe B: tick drive ahead of c64 cycle.
+    if (driveFirst && !skipDriveTick) {
+      this.driveCycleAccumulator16dot16 += this.driveRatio16dot16;
+      while (this.driveCycleAccumulator16dot16 >= 0x10000) {
+        for (const c of this.deps.driveComponents) c.executeCycle();
+        this.driveCycleCount++;
+        this.driveCycleAccumulator16dot16 -= 0x10000;
+      }
+    }
+
     // Sprint 96: track cpu cycle delta so peripherals/drive stay in
     // sync when CPU bursts cycles for IRQ service, branch+pgcross, or
     // illegal-opcode burn.
@@ -83,13 +111,28 @@ export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
         this.deps.c64Components[i]!.executeCycle();
       }
       this.cycleCount++;
-      // Tick drive chips by their share for each delta unit.
-      this.driveCycleAccumulator16dot16 += this.driveRatio16dot16;
-      while (this.driveCycleAccumulator16dot16 >= 0x10000) {
-        for (const c of this.deps.driveComponents) c.executeCycle();
-        this.driveCycleCount++;
-        this.driveCycleAccumulator16dot16 -= 0x10000;
+      // Variant default: tick drive AFTER c64 each cycle.
+      if (!driveFirst && !skipDriveTick) {
+        this.driveCycleAccumulator16dot16 += this.driveRatio16dot16;
+        while (this.driveCycleAccumulator16dot16 >= 0x10000) {
+          for (const c of this.deps.driveComponents) c.executeCycle();
+          this.driveCycleCount++;
+          this.driveCycleAccumulator16dot16 -= 0x10000;
+        }
+      } else if (skipDriveTick) {
+        // Probe C: still advance the drive cycle counter for clock
+        // accounting (so cycle_drive in trace events keeps incrementing),
+        // but DO NOT tick driveComponents. Drive only advances when
+        // explicitly flushed via drive.executeToClock from IEC hook.
+        this.driveCycleAccumulator16dot16 += this.driveRatio16dot16;
+        while (this.driveCycleAccumulator16dot16 >= 0x10000) {
+          this.driveCycleCount++;
+          this.driveCycleAccumulator16dot16 -= 0x10000;
+        }
       }
+      // Spec 138: notify integrated-session per-cycle so it can sync
+      // drive.lastSyncC64Clk in lockstep-with-flush variants.
+      this.deps.afterCycleSync?.(this.cycleCount, this.driveCycleCount);
     }
   }
 
