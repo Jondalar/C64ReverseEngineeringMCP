@@ -77,26 +77,43 @@ export interface ViceIecCaptureOpts {
   outputJsonl: string;
 }
 
-// Internals:
-// 1. Spawn x64sc with -warp -autostart-warp -binarymonitor.
+// Internals (Q10 decision = A: binmon checkpoints, non-warp):
+// 1. Spawn x64sc with -binarymonitor (NO -warp). Time is
+//    uncritical; correctness > speed.
 // 2. Connect via existing ViceMonitorClient.
-// 3. Set checkpoints (= watchpoints):
+// 3. Set checkpoints:
 //    - C64 mem $DD00..$DD00 read+write
-//    - Drive 8 mem $1800..$1800 read+write
-//    - Optional PC checkpoints from windows.
-// 4. resume() loop: wait for hit. On hit, getRegisters + getMemory
-//    to fill BusAccessEvent. Append to JSONL. Continue.
-// 5. Stop after cycleBudget exceeded.
+//    - Drive 8 mem $1800..$1800 read+write (memspace=1)
+//    - Optional PC checkpoints from windows
+// 4. resume() loop: wait for hit. On hit:
+//    a. getRegisters(memspace) for cpu side
+//    b. getMemory($1800, 1, memspace=1) for the byte value
+//    c. getMemory($DD00, 1, memspace=0) for c64 side
+//    d. fill BusAccessEvent + append to JSONL
+//    e. continue
+// 5. Optionally also call getCpuHistory for context dumps at
+//    diagnostic checkpoints (PC enter motm receive window etc.).
+//    CPU history is rich (PC trajectory, opcode bytes, register
+//    snapshots) but does NOT contain memory-access values — that's
+//    why we still need checkpoints for the actual byte data.
+// 6. Stop after cycleBudget exceeded.
 ```
 
 VICE binmon limitations to document:
 - VICE doesn't expose `at_boundary` directly. We approximate via
   `instruction_pc == checkpoint_pc` heuristic.
-- VICE's drive-side cycle counter is `clk_value` of unit 8 — exposed
-  via memspace=1 register read. Map to `cycle_drive`.
-- C64 cycle = main reg memspace=0 R7 (CLK reg). Map to `cycle_c64`.
+- VICE's drive-side cycle counter via `getRegisters(memspace=1)`,
+  CLK register id (typically 7). Map to `cycle_drive`.
+- C64 cycle via `getRegisters(memspace=0)`, CLK register. Map to
+  `cycle_c64`.
 - VICE phase info is not available. Set `phase = undefined` and
   `vice_approx.at_boundary = true`.
+
+**ViceMonitorClient API check (Q11)**: existing API
+(`src/runtime/vice/monitor-client.ts`) already exposes everything
+needed: `setCheckpoint` with memspace, `waitForCheckpointOrStop`,
+`getRegisters(memspace)`, `readMemory(start, end, bank, memspace)`,
+`getCpuHistory(N, memspace)`. **No extension required.**
 
 ## Diff algorithm
 

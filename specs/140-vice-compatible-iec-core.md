@@ -30,6 +30,11 @@ together are needed. Spec 140 is the **production** implementation.
     cpu_bus: number;          // = (((data << 2) & 0xC0) | ((data << 1) & 0x10))
     cpu_port: number;         // cpu_bus AND-folded with drv_bus[*]
     drv_bus: Uint8Array;      // [16] precomposed contribution per unit
+                              //   slots 0-3 unused (always 0xff)
+                              //   slots 4-7 IEC device / printer (always 0xff in V2)
+                              //   slot 8   primary drive (modelled)
+                              //   slot 9   secondary drive (shape preserved, runtime later)
+                              //   slots 10-15 unused (always 0xff)
     drv_data: Uint8Array;     // [16] raw drive PB output (inverted)
     drv_port: number;         // composed view drive sees
   }
@@ -85,15 +90,19 @@ private iecUpdatePorts(): void {
 }
 ```
 
-### Step 3: Wire kernel flush
+### Step 3: Wire kernel flush (HYBRID — per Q4 decision)
+
+Default mode is **hybrid**: lockstep per-cycle tick STAYS, push-flush
+at IEC access points is layered on top.
 
 `MachineKernel.onC64BusWrite($DD00 PA)` and
 `MachineKernel.onC64BusRead($DD00 PA)` call
 `kernel.flushDriveTo(c64Clock)` first, then route to IecBus methods.
 
-`flushDriveTo(c64Clock)` in turn calls
-`drive.executeToClock(c64Clock)`. This works in BOTH lockstep mode
-(no-op, drive already current) and push-flush mode.
+`flushDriveTo(c64Clock)` calls `drive.executeToClock(c64Clock)`. In
+hybrid mode the call is a no-op when the drive is already current
+(lockstep already ticked it this cycle); in push-flush-only mode
+(diagnostic ablation) it does the real catch-up.
 
 ### Step 4: Update read/write flows
 
@@ -199,8 +208,11 @@ Session output JSON includes `iecMode` field.
   (Sprint 75 Maniac Mansion experience). Mitigation: cross-check
   with VICE binmon dump at known states.
 - **R3**: Multi-drive shape — `drv_bus[]` indexed 4-15 (VICE) but we
-  only model drive 8/9. Mitigation: pre-fill unused slots with
-  `0xff` (= released, no drive present).
+  only model drive 8/9. **Q5 decision**: full `drv_bus[16]` array,
+  unused slots (4-7, 10-15) prefilled `0xff` (= released,
+  transparent in wired-AND). Bit-exact VICE formula preserved; 16
+  bytes memory irrelevant; future-ready for IEC printer (1525) /
+  device slot if ever added.
 - **R4**: `cpu_port` formula uses 4..NUM_DISK_UNITS+8 range from
   VICE; we may have different unit layout. Mitigation: document
   exactly what each slot means in our model.

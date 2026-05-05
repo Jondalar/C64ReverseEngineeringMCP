@@ -71,10 +71,15 @@ baseline initialization.
 - IRQ rclk stamping (ADR-3, deferred)
 - Sprint 66 `$7C` poke removal (ADR-4, separate hygiene spec)
 
-## Probe protocol — exit criteria for Spec 140
+## Probe protocol — exit criteria for Spec 140 (Q8 = sequential A+B+C)
 
-Run all three probe variants A/B/C against the motm scenario, and
-compare diff reports (Spec 143) against VICE baseline. Decision tree
+**Run all three probe variants A/B/C** sequentially regardless of
+intermediate result. ~3d total (1d implementation+capture+diff per
+variant). Full data set informs Spec 140 even if A already passes,
+because B/C diff reveals secondary architectural insights (does
+tick-order matter? is lockstep tick redundant?).
+
+Compare diff reports (Spec 143) against VICE baseline. Decision tree
 for Spec 140 design:
 
 | Variant A result | Variant B result | Variant C result | Implication for Spec 140 |

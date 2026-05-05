@@ -30,6 +30,9 @@ Current product direction lives in
   output.
 - **V2.0** — LLM reverse-engineering workbench built on top of the
   emulator.
+- **V3.0** — human C64RE UI built on the same emulator/workbench:
+  live C64 screen, keyboard/joystick, media selection, monitor,
+  optional SID playback, and screenshot/video/sound export.
 
 The short version:
 
@@ -44,6 +47,9 @@ The short version:
    artifacts.
 5. Keep VICE as oracle via trace/swimlane comparison while we catch up,
    not as the intended normal runtime path.
+6. After the LLM workbench, build a human UI on top of the same runtime:
+   live screen, input emulation, media mounting, monitor, SID playback,
+   and export workflows.
 
 Current emulator state (May 2026):
 
@@ -76,6 +82,9 @@ Immediate story sequence:
   and drive fidelity backlog.
 - **H4** LLM-facing runtime: render/query screen state, event-indexed
   traces, scenario files, project-knowledge artifact registration.
+- **H5** Human C64RE UI: C64 screen, keyboard/joystick emulation,
+  media selection, monitor, SID playback, and screenshot/video/audio
+  export.
 
 Do not use the old sprint history below as the active roadmap. It is
 kept for context and provenance. New implementation planning should cut
@@ -104,7 +113,7 @@ dependency order.
 | 109 | SID polish + no-audio gate ✓ DONE 2026-05-04 | 130 ✓, 131 ✓, 132 ✓                | low      | M7.1 register stability + M7.2 writeTrace callback + M7.3 no-audio boundary lint (8/8). |
 | 110 | Performance + ops ✓ DONE 2026-05-04 (V1 CLOSED) | 133 ✓, 134 ✓, 135 ✓, 136 ✓        | low      | M8.1 budget tracker + M8.2 snapshot file + M8.3 safe skips + M8.4 CI profile (23/23). |
 | 111 | V2 — 1541 silicon (motm probe)        | 137 ✓ (arc42), 138 (push-flush PROBE)        | medium   | Sprint 111 hit ceiling after 11 commits of speculative patching. Spec 137 produced `docs/vice-iec-arc42.md` (5765 words, 7 mermaid, 6 ADRs). Spec 138 is now an EXPERIMENT gated on Spec 142+143 — it informs Spec 140, not replaces it. |
-| 112 | V2 — core sync refactor               | 139, 140, 141, 142, 143, 144 (all proposed) | critical | New architecture direction per `docs/headless-core-synchronization-refactor.md`. Replaces local fastloader patching with kernel-contract + VICE-compatible IEC + clocked IRQ + bus-event diff tooling. **Execution order: 142 → 143 → 138 (probe) → 139 → 140 → 141 → 144.** Spec 138 stays as probe between 143 and 139 to validate push-flush hypothesis with real diff data. |
+| 112 | V2 — core sync refactor               | 142, 143, 138 (probe), 139, 140, 141, 144 | critical | New architecture direction per `docs/headless-core-synchronization-refactor.md`. **Strict sequential execution (Q12): 142 (5d) → 143 (5d) → 138 (3d, all 3 variants per Q8) → 139 (3d) → 140 (7d) → 141 (4d) → 144 (3d) = ~30d total.** Locked decisions Q1-Q12: PC sample at bus-touch only (Q1) / smoke-scripts in scripts/*.mjs (Q2) / samples/test-manifest.json with required mode field (Q3+Q7) / hybrid kernel mode default (Q4) / drv_bus[16] prefill 0xff (Q5) / INTERRUPT_DELAY=2 (Q6) / sequential A+B+C probe (Q8) / drive-head-start ~200K cycles (Q9) / binmon checkpoints non-warp (Q10) / existing ViceMonitorClient API sufficient (Q11) / strict serial single-maintainer (Q12). |
 
 Notes:
 

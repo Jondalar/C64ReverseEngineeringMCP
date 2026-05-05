@@ -60,6 +60,24 @@ Done when:
 - sandbox and extraction workflows can consume runtime state
 - runtime artifacts are registered into project knowledge
 
+### V3.0 — Human C64RE UI
+
+V3.0 is the human-facing interface built on top of the same emulator and
+RE workbench. It makes C64RE usable as an interactive C64 analysis
+environment, not only as an MCP/headless runtime.
+
+Done when:
+
+- the workspace UI can show a live C64 screen
+- keyboard and joystick input can be driven from the browser
+- users can mount/change PRG, CRT, D64, and G64 media
+- an integrated monitor exposes CPU, memory, breakpoints, disassembly,
+  trace, and watchpoints
+- SID output is available for human playback without making audio output
+  a V1 headless acceptance requirement
+- users can export screenshots, video captures, and audio captures from
+  a session
+
 ## Current State
 
 The project has already crossed several important thresholds:
@@ -522,6 +540,98 @@ VICE comparison stays a first-class workflow:
 V2.0 acceptance: an agent can ask "why", run the emulator, collect
 evidence, update the disassembly/knowledge layer, and produce a focused
 next action without manually reading raw traces.
+
+## V3.0 Epics — Human C64RE UI
+
+V3.0 turns the headless runtime and LLM workbench into an interactive UI
+for people. It should reuse the same emulator core and artifact model;
+it must not fork a second emulator path.
+
+### V3.1 Live C64 Screen
+
+The UI shows the running machine:
+
+- live framebuffer from VIC state
+- selectable scale, aspect, PAL/NTSC timing indicators
+- pause, resume, step frame, step cycle/instruction shortcuts
+- visual overlays for raster line, sprites, badlines, screen memory,
+  charset, bitmap, and color RAM when useful
+
+### V3.2 Keyboard and Joystick Emulation
+
+Humans can interact with software directly:
+
+- browser keyboard mapped to C64 keyboard matrix
+- on-screen keyboard for special keys and layouts
+- joystick port 1/2 mapping
+- configurable keysets
+- recorded input scripts exportable as scenario files
+
+### V3.3 Media Selection
+
+The UI can mount and switch media:
+
+- PRG, CRT, D64, and G64 selection from project artifacts
+- drag/drop or file picker for ad-hoc media
+- drive reset / C64 reset / cold boot / warm reset controls
+- visible media state: disk name, track, motor, head, write-protect,
+  current file/channel where available
+
+### V3.4 Monitor
+
+The UI gets a human monitor comparable to the CLI/MCP tools:
+
+- registers, flags, stack, zero page, memory viewer
+- disassembly around PC and selected addresses
+- breakpoints, watchpoints, tracepoints
+- step into/over/out where meaningful
+- IEC, CIA, VIA, VIC, SID, GCR state panels
+- trace search and bookmarks
+
+### V3.5 SID Playback
+
+Audio output belongs here, not in V1 headless acceptance. The SID
+strategy should be decided by a spike:
+
+- first preference: browser-friendly JS/WASM SID engine, ideally
+  libsidplayfp/resid-style via WebAssembly or a proven JS SID player
+- second option: synthesize audio from our own SID register/envelope
+  model through WebAudio once software-visible SID behavior is stable
+- optional/native option: wrap a local/native SID implementation for
+  desktop use, but keep it out of the browser-critical path
+
+HardSID-style hardware integration should be treated as optional
+specialist support, not the default. It is useful for enthusiasts but
+too narrow and hardware-dependent for the core UI.
+
+Acceptance:
+
+- music/SFX playback works for common SID register-player routines
+- UI can mute, pause, and capture audio
+- headless no-audio tests remain unaffected
+
+### V3.6 Export Screenshots / Video / Sound
+
+Sessions can produce human-shareable artifacts:
+
+- PNG screenshots from exact frames
+- animated/video capture from frame ranges
+- WAV/FLAC/OGG audio capture if SID playback is enabled
+- synchronized video+audio export as a later target
+- all exports registered as project artifacts
+
+### V3.7 Human/LLM Bridge
+
+The UI and LLM workbench should reinforce each other:
+
+- user-selected monitor ranges become trace queries
+- clicked screen regions link to memory/VIC evidence
+- breakpoints and bookmarks become project knowledge
+- LLM-generated findings can point to UI monitor locations
+
+V3.0 acceptance: a human can load media, run it, interact with it,
+inspect the machine, hear SID playback, and export evidence without
+leaving the C64RE UI.
 
 ## Compatibility Ladder
 

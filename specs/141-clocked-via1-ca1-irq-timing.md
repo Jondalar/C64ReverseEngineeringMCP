@@ -44,9 +44,13 @@ the compensating hack.
   trap/debug mode).
 - Removal of `Via6522.reevaluateCa1Level` Sprint 66 hack in
   TrueDrive mode (same gating).
-- Boot order shim (optional): kernel can run drive ROM for N cycles
-  before c64 reset — replicates real-HW behavior where drive boots
-  faster than c64 KERNAL.
+- **Boot-order shim (REQUIRED in truedrive-pure, Q9 decision = A)**:
+  kernel runs drive ROM for ~200K c64-equivalent cycles before c64
+  reset deassertion. Replicates real-HW behavior where drive boots
+  faster than c64 KERNAL (~10 PAL frames head start). Drive ROM
+  configures CA1 IER + cleans up RAM before any c64 ATN edge can
+  arrive. Eliminates boot-race that the Sprint 66 `$7C` poke +
+  `reevaluateCa1Level` hacks were compensating for.
 
 **Out of scope**:
 
@@ -82,7 +86,8 @@ setIfr(mask: number, source?: IrqSource, currentClock?: number): void {
 - `(ifr & ier & 0x7f) !== 0`
 - AND `currentDriveClock >= lastIrqStamp.setClock + INTERRUPT_DELAY`
 
-`INTERRUPT_DELAY = 2` (matches VICE).
+`INTERRUPT_DELAY = 2` (matches VICE; locked per Q6).
+NOT configurable in V2 — constant in code, no env override.
 
 ### Step 3: Drive CPU IRQ entry
 
@@ -156,17 +161,24 @@ Mode flag: `kernel.config.compatibilityHacks = "vice-pure" | "rescue-on"`.
 
 ## Risks
 
-- **R1**: Real 1541 6502 IRQ delay may not be exactly 2 cycles. VICE
-  uses `INTERRUPT_DELAY = 2` as a default that matches MOS 6510
-  behavior. Drive uses MOS 6502 (slightly different IRQ latency
-  model). Mitigation: make constant configurable; validate via
-  diff with VICE.
+- **R1**: Real 1541 6502 IRQ delay vs `INTERRUPT_DELAY = 2`. **Q6
+  decision**: lock constant at `2`. VICE's value models internal
+  pipeline latency between IFR-set rclk and CPU sampling at
+  instruction boundary; the real-HW vector-fetch/push/jump 7-cycle
+  sequence comes free as a normal subsequent instruction step.
+  VICE has been kalibriert against real HW for ~30 years; matching
+  VICE = matching real HW. Spec 143 diff tolerance = 0 cycles for
+  IRQ entry events.
 - **R2**: Removing `$7C` poke may break MM boot if KERNAL LOAD
   relies on it inadvertently. Mitigation: regression run in
   `vice-pure` mode; if breaks, document missed-edge cause and fix
   via boot-order shim or kernel ATN-edge scheduling refinement.
-- **R3**: Boot-order shim could mask real bugs. Mitigation: only
-  enabled when explicitly requested; default = simultaneous reset.
+- **R3**: Boot-order shim — Q9 decision = REQUIRED in truedrive-
+  pure. Default ON. Tunable: `kernel.config({ driveHeadStartCycles:
+  200_000 })`. Could mask race conditions that real HW also
+  exhibits at warm start. Mitigation: explicit reset profile in
+  Spec 099 (`reset-profiles.ts`) for warm/cold/race scenarios;
+  default cold = full head start, warm = configurable subset.
 
 ## Files
 

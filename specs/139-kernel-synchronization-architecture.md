@@ -95,7 +95,11 @@ export interface MachineKernel {
   onDriveBusWrite(addr: number, value: number, ctx: BusAccessContext): void;
 
   // Diagnostics
-  getKernelMode(): "lockstep" | "push-flush" | "hybrid";
+  // Mode locked to "hybrid" (per Sprint 112 Q4 decision):
+  // lockstep tick stays + push-flush at IEC access points layered
+  // on top. Pure-lockstep and pure-push-flush kept as compile-time
+  // options for ablation/regress, not as user-facing mode selector.
+  getKernelMode(): "hybrid" | "lockstep-only" | "push-flush-only";
   getActiveCompatibilityHooks(): string[];   // for Spec 144
 
   // Trace
@@ -155,8 +159,11 @@ Field-by-field migration of:
 3. Compatibility hooks are explicit, mode-guarded, and reported.
 4. Kernel can be queried for "what just happened on the bus"
    (Spec 142 hook).
-5. Kernel mode (lockstep vs push-flush vs hybrid) is selectable
-   per session and reported in session output (Spec 144).
+5. Kernel mode default = `"hybrid"` (Sprint 112 Q4 decision):
+   per-cycle lockstep tick + push-flush at every $DD00 access. The
+   alternate modes (`lockstep-only`, `push-flush-only`) remain as
+   ablation toggles for diagnosis only, never as production
+   acceptance gates. Mode reported in session output (Spec 144).
 
 ## Acceptance
 

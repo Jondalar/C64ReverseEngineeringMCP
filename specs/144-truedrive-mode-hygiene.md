@@ -131,13 +131,21 @@ if (atnLow && !this.prevAtnLow && this.driveRamForAtnPoke
 }
 ```
 
-### Step 3: Mode default
+### Step 3: Mode REQUIRED — no default (Q7 decision = B)
 
 `IntegratedSession.start({ mode })`:
-- If `mode === undefined`, default = `"truedrive-pure"` for any
-  session that loaded a real ROM + real disk image.
-- Trap-fast scenarios (legacy MM-LOAD harness) explicitly request
-  `"trap-fast"`.
+- `mode` is a **required argument**. Omitting it throws
+  `Error("IntegratedSession requires explicit compatibility mode")`.
+- No silent default. Every scenario explicitly chooses
+  `"truedrive-pure"`, `"truedrive-rescue"`, or `"trap-fast"`.
+- Existing scenarios re-tagged in one PR (per `samples/test-
+  manifest.json` entries). New scenarios must declare mode at
+  manifest entry time.
+
+Rationale: avoid silent drift where a test passes by accident
+because of a rescue hook that nobody knew was active. Forced re-
+tagging makes every existing test's expectations explicit and
+reviewable in git history.
 
 ### Step 4: Session reporting
 
