@@ -302,9 +302,15 @@ export class IecBus {
     this.driveDataReleased = true;
   }
 
+  // Spec 141 v2: caller (IntegratedSession) sets driveClockSource so
+  // ATN edges stamped through pulseCa1 carry the current drive cycle.
+  // null = falls back to via.cumulativeCycles (= older behavior).
+  public driveClockSource?: () => number;
+
   private notifyAtnChanged(): void {
     if (this.driveVia1) {
-      this.driveVia1.pulseCa1(this.atnLine);
+      const stamp = this.driveClockSource?.();
+      this.driveVia1.pulseCa1(this.atnLine, stamp);
     }
     // Sprint 66 hack, Spec 096 fix: edge-triggered poke of drive
     // ATN-pending flag at $7C. Standard 1541 ROM idle loop reads $7C

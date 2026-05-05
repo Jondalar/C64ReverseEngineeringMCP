@@ -362,6 +362,11 @@ export class IntegratedSession {
     // c64cia2.c:150 `tmp = ~byte` inversion now applied in
     // setC64Output. Live mode preserved for ablation only.
     this.iecBus.iecMode = opts.iecMode ?? "vice-cache";
+    // Spec 141 v2: drive clock source for ATN edge IRQ stamping.
+    // VICE viacore_signal stamps via update_myviairq with drive's
+    // current clk_ptr. We read drive.cpu.cycles equivalently.
+    this.iecBus.driveClockSource = () =>
+      (this.drive.cpu as { cycles: number }).cycles;
     // Spec 090: configure drive's sync ratio + zero baseline.
     this.drive.setSyncRatio(this.driveCyclesPerC64Cycle);
     this.drive.setSyncBaseline(0);

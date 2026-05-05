@@ -205,8 +205,12 @@ export class DriveCpu {
     if (this.microcoded) {
       const cycled = this.cpu as Cpu6510Microcoded;
       const before = cycled.cycles;
-      // Set IRQ pin from VIAs (level-triggered). NMI not used by 1541.
-      cycled.irqLine = this.bus.via1.irqAsserted() || this.bus.via2.irqAsserted();
+      // Spec 141 v2: pass current drive clock so VIA's clocked
+      // irqAsserted enforces INTERRUPT_DELAY=2 between IFR-set and
+      // CPU IRQ entry. Matches VICE drivecpu interrupt_check_irq_delay.
+      cycled.irqLine =
+        this.bus.via1.irqAsserted(cycled.cycles) ||
+        this.bus.via2.irqAsserted(cycled.cycles);
       // Tick at least once, then until back at boundary.
       cycled.executeCycle();
       while (!cycled.isAtInstructionBoundary()) cycled.executeCycle();
@@ -214,7 +218,9 @@ export class DriveCpu {
     }
     const legacy = this.cpu as Cpu6510;
     if (!legacy.interruptsDisabled()) {
-      const irq = this.bus.via1.irqAsserted() || this.bus.via2.irqAsserted();
+      const irq =
+        this.bus.via1.irqAsserted(legacy.cycles) ||
+        this.bus.via2.irqAsserted(legacy.cycles);
       if (irq) legacy.serviceInterrupt(0xfffe, false);
     }
     const before = legacy.cycles;

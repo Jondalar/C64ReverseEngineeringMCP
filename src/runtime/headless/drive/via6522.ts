@@ -137,9 +137,20 @@ export class Via6522 {
   // IRQ-pending state (= ifr & ier & 0x7f goes from 0 to non-zero)
   // records the current clock. Drive CPU samples irqAsserted with
   // current clock and only acts when current >= irq_clk + INTERRUPT_DELAY.
-  // INTERRUPT_DELAY = 2 per Q6 (matches VICE drivecpu.c).
+  // INTERRUPT_DELAY = 2 per Q6 (matches VICE drivecpu.c + interrupt.h:39).
+  //
+  // VICE pattern: every IFR-setting site in viacore.c calls
+  // update_myviairq_rclk(rclk) → set_int(value, rclk) which stamps
+  // cs->irq_clk = rclk. Then 6510core.c DO_INTERRUPT calls
+  // interrupt_check_irq_delay(cs, CLK) which gates on CLK >=
+  // irq_clk + INTERRUPT_DELAY.
   public lastIrqSetClock: number | null = null;
   public static readonly INTERRUPT_DELAY = 2;
+  // Spec 141 v2: cumulative cycle counter incremented by tick().
+  // Used as clock stamp for setIfr from internal events (T1/T2
+  // underflow). External callers (pulseCa1 from IecBus) can pass
+  // their own clockStamp.
+  public cumulativeCycles = 0;
 
   constructor(public readonly portA: ViaPortBackend, public readonly portB: ViaPortBackend) {}
 
@@ -293,6 +304,7 @@ export class Via6522 {
   // session's step loop after each drive instruction.
   tick(cycles: number): void {
     if (cycles <= 0) return;
+    this.cumulativeCycles += cycles;
     this.tickTimer1(cycles);
     this.tickTimer2(cycles);
   }
@@ -319,7 +331,11 @@ export class Via6522 {
       }
       remaining -= (this.t1Counter + 1);
       this.t1Counter = this.t1Latch;
-      this.setIfr(IFR_T1);
+      // Spec 141 v2: stamp IFR with the cycle at which T1 hit zero.
+      // remaining is the number of cycles ELAPSED since tick start;
+      // cumulativeCycles already advanced by full delta in tick().
+      // So the moment of underflow = cumulativeCycles - remaining.
+      this.setIfr(IFR_T1, this.cumulativeCycles - remaining);
       if (oneShot) {
         this.t1HasUnderflowed = true;
       }
@@ -342,7 +358,8 @@ export class Via6522 {
     }
     remaining -= (this.t2Counter + 1);
     this.t2Counter = (0xffff - remaining + 1) & 0xffff;
-    this.setIfr(IFR_T2);
+    // Spec 141 v2: stamp IFR with cycle of T2 underflow.
+    this.setIfr(IFR_T2, this.cumulativeCycles - remaining);
     this.t2HasUnderflowed = true;
   }
 
@@ -359,12 +376,16 @@ export class Via6522 {
   // at t=0. The workaround is benign: drive ROM clears IFR by reading
   // $1801, then waits for a real new edge. False-positive IFR sets
   // are clamped by this same clear-on-IRA-read.
-  pulseCa1(newLevel: boolean): void {
+  pulseCa1(newLevel: boolean, clockStamp?: number): void {
     const polarity = (this.pcr & 0x01) !== 0; // 0 = neg edge, 1 = pos edge
     const wasHigh = this.lastCa1Pin;
     const isHigh = newLevel;
-    if (!polarity && wasHigh && !isHigh) this.setIfr(IFR_CA1);
-    if (polarity && !wasHigh && isHigh) this.setIfr(IFR_CA1);
+    // Spec 141 v2: stamp IFR with caller's drive clock at edge time
+    // (matches VICE viacore_signal → update_myviairq → set_int(rclk)
+    // chain). If caller doesn't supply, fall back to cumulativeCycles.
+    const stamp = clockStamp ?? this.cumulativeCycles;
+    if (!polarity && wasHigh && !isHigh) this.setIfr(IFR_CA1, stamp);
+    if (polarity && !wasHigh && isHigh) this.setIfr(IFR_CA1, stamp);
     // Sprint 111 fix: removed Sprint 66 hack that fired IFR on EITHER
     // edge regardless of PCR polarity. The hack caused extra IRQs on
     // ATN-assert during fastloader stage-2, interrupting bit-bang
