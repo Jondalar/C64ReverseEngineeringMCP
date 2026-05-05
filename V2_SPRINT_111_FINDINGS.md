@@ -226,7 +226,53 @@ RAM instruction to VICE's equivalent path over 10-50M cycles.
 Not achievable autonomously overnight; needs side-by-side
 manual reasoning or a much more powerful diff tool.
 
+## **Update 6 (correction) — headless drive DOES reach $0700+**
+
+Earlier conclusion was wrong. Used 200K-cycle sample interval which
+missed brief drive visits to $0700. With 1000-cycle interval
+(`/tmp/check-headless3.mjs`), headless drive at cyc=35M visited
+50+ unique PCs in $0700-$07FF range:
+
+```
+$70b-$714 (send-byte main)
+$716-$71f (bit assembly)
+$720-$72f (handshake)
+$732-$737 (DATA-out)
+$747-$76a (command dispatch via $0760: $0333,Y table)
+$7be-$7c9 (wait-for-job loop)
+```
+
+Plus PCs in receive code: $043a, $043e (24-bit receive at $042F-$044C).
+
+So drive runs FULL stage-2 protocol in headless. The earlier "drive
+doesn't reach $0700" conclusion was a coarse-sampling artifact.
+
+Real bug must be more subtle:
+1. Specific received byte differs from VICE → wrong command index
+   → JMP via $0470 self-modify lands at wrong handler
+2. CLK/DATA bit timing has 1-cycle skew → 1 of 24 received bits
+   wrong → command byte off-by-one
+3. Game's resident driver in $42xx-$43xx eventually advances state
+   (we saw c64Pc at $43c7 receive loop) while VICE stays in raster
+   delay → headless faster than VICE in c64-side, drive then
+   doesn't keep up with new commands
+
+### Updated approach
+
+Drop the "drive never reaches $0700" hypothesis. Real test:
+side-by-side compare exact byte sent vs received in 24-bit
+receive at $042F-$044C between VICE and headless. The single
+bit/byte that differs is the bug origin.
+
+Tooling: capture per-cycle drive trace from cyc=33M to cyc=37M
+(window where stage-2 begins). Compare CLK/DATA edge sequence
+to VICE's at same emulated cycle. The mismatched edge is bug.
+
 ## **Update 5 — VICE binmon proof: drive escapes BPL-loop via IRQ only**
+
+(*Note: Update 6 corrected this — drive escapes BPL via natural
+fall-through, not just IRQ. The "$0417 hits 0" finding was
+sampling-artifact too.*)
 
 Used vice_session_start to attach VICE binmon, then examined VICE
 drive PC histogram from the captured drive-history.jsonl (32 instr
