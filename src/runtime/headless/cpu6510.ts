@@ -95,6 +95,13 @@ export class Cpu6510 {
    */
   onInterruptServiced?: (vectorAddress: number, clk: number) => void;
 
+  /**
+   * Spec 205-A c4: kernel-installed callback fired AFTER each
+   * instruction commits. PC = address of next instruction; clk =
+   * post-instruction CPU cycles.
+   */
+  onInstructionComplete?: (pc: number, clk: number) => void;
+
   serviceInterrupt(vectorAddress: number, breakFlag = false): number {
     // Spec 203-c4: stamp before the 7-cycle entry so servicedClock
     // tracks the entry-start cycle, matching Cpu65xxVice.
@@ -123,6 +130,8 @@ export class Cpu6510 {
       // src/6510core.c). MM/Murder loaders rely on SLO/SRE/RLA/RRA etc.
       // Pass cyclesBefore so the same accounting fix applies.
       this.stepUndocumented(opcode, cyclesBefore);
+      // Spec 205-A c4: instruction-complete edge for "cpu" trace channel.
+      this.onInstructionComplete?.(this.pc & 0xffff, this.cycles);
       return;
     }
 
@@ -140,6 +149,8 @@ export class Cpu6510 {
     // Note: if accessesDone > info.cycles (rare overcount), let the
     // overshoot stand — peripherals see wall-clock that ticks slightly
     // faster, but it self-corrects on next instruction.
+    // Spec 205-A c4: instruction-complete edge for "cpu" trace channel.
+    this.onInstructionComplete?.(this.pc & 0xffff, this.cycles);
   }
 
   private stepUndocumented(opcode: number, cyclesBeforeFetch?: number): void {

@@ -431,6 +431,8 @@ export class DriveCpu {
       // Tick at least once, then until back at boundary.
       cycled.executeCycle();
       while (!cycled.isAtInstructionBoundary()) cycled.executeCycle();
+      // Spec 205-A c4: instruction-complete edge for cpu trace channel.
+      this.onInstructionComplete?.(cycled.pc & 0xffff, cycled.cycles);
       return cycled.cycles - before;
     }
     const legacy = this.cpu as Cpu6510;
@@ -442,6 +444,14 @@ export class DriveCpu {
     }
     const before = legacy.cycles;
     legacy.step();
+    this.onInstructionComplete?.(legacy.pc & 0xffff, legacy.cycles);
     return legacy.cycles - before;
   }
+
+  /**
+   * Spec 205-A c4: kernel-installed instruction-complete callback.
+   * Set externally (e.g. by HeadlessMachineKernel) so the drive CPU
+   * doesn't depend on the kernel module directly.
+   */
+  onInstructionComplete?: (pc: number, clk: number) => void;
 }

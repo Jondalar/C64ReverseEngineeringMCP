@@ -510,6 +510,8 @@ export class Cpu65xxVice implements CycleSteppable {
       this.executeFinalOp(inst.entry, inst);
       this.atBoundary = true;
       this.inst = null;
+      // Spec 205-A c4: instruction-complete edge for "cpu" trace channel.
+      this.onInstructionComplete?.(this.reg_pc & 0xffff, this.clk);
     }
   }
 
@@ -883,6 +885,14 @@ export class Cpu65xxVice implements CycleSteppable {
    * can backfill `servicedClock` on the matching IRQ-ring event.
    */
   onInterruptServiced?: (vectorAddress: number, clk: number) => void;
+
+  /**
+   * Spec 205-A c4: kernel-installed callback fired AFTER each
+   * instruction commits (final micro-op of the microcode dispatch).
+   * PC = address of the next instruction's first opcode byte; clk =
+   * post-instruction CPU cycles.
+   */
+  onInstructionComplete?: (pc: number, clk: number) => void;
 
   serviceInterrupt(vectorAddress: WORD, breakFlag = false): WORD {
     const va = u16(vectorAddress);

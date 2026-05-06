@@ -442,6 +442,31 @@ export class HeadlessMachineKernel implements MachineKernel {
       this.markIrqServiced("drive-cpu", "irq", clk);
     };
     (this.drive.cpu as { onInterruptServiced?: typeof driveHook }).onInterruptServiced = driveHook;
+
+    // Spec 205-A c4: instruction-complete edges → "cpu" trace channel.
+    // Both Cpu6510 (legacy) and Cpu65xxVice (microcoded) expose the
+    // same `onInstructionComplete` shape; install per side.
+    const c64InstrHook = (pc: number, clk: number) => {
+      this.publishCpuInstruction("c64", pc, clk);
+    };
+    (this.c64Cpu as { onInstructionComplete?: typeof c64InstrHook }).onInstructionComplete = c64InstrHook;
+    const driveInstrHook = (pc: number, clk: number) => {
+      this.publishCpuInstruction("drive", pc, clk);
+    };
+    (this.drive.cpu as { onInstructionComplete?: typeof driveInstrHook }).onInstructionComplete = driveInstrHook;
+  }
+
+  /**
+   * Spec 205-A c4: publish a CPU instruction-complete event to the
+   * "cpu" trace channel. No-op when channel mode = "off".
+   */
+  publishCpuInstruction(side: "c64" | "drive", pc: number, clk: number): void {
+    if (!this.traceRegistry.isEnabled("cpu")) return;
+    this.traceCtrl.publish("cpu", clk, {
+      side,
+      pc: pc & 0xffff,
+      clk,
+    });
   }
 
   /**

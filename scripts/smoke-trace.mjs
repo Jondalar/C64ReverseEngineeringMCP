@@ -121,6 +121,30 @@ check("getBusAccessProducer returns the registered producer", () => {
   }
 });
 
+check("cpu channel captures c64 + drive instruction edges (Spec 205-A c4)", () => {
+  // Fresh session keeps the test self-contained — the previous JSONL
+  // run produced a lot of bus_access events that would fight for ring
+  // capacity here.
+  const { session: s2 } = startIntegratedSession({
+    diskPath: fixturePath,
+    mode: "true-drive",
+  });
+  const k = s2.kernel;
+  k.trace().configureChannel("cpu", { mode: "ring", capacity: 4096 });
+  s2.resetCold();
+  s2.runFor(20_000);
+  const ring = k.trace().getRing("cpu");
+  if (ring.length === 0) throw new Error("no cpu events captured");
+  const sides = new Set(ring.map((e) => e.data.side));
+  if (!sides.has("c64")) throw new Error(`no c64 events. sides: ${[...sides].join(",")}`);
+  if (!sides.has("drive")) throw new Error(`no drive events. sides: ${[...sides].join(",")}`);
+  for (const e of ring.slice(0, 5)) {
+    if (typeof e.data.pc !== "number") throw new Error("pc not number");
+    if (typeof e.data.clk !== "number") throw new Error("clk not number");
+  }
+  s2.shutdown?.();
+});
+
 check("irq channel captures emitIrqEvent edges (Spec 205-A c3)", () => {
   // Re-configure irq channel as ring; emit probe edge + serviced;
   // walk the ring.

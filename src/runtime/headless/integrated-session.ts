@@ -723,6 +723,9 @@ export class IntegratedSession {
         // for ~7 cycles to advance peripherals + drive.
         this.scheduler.runCycles(7);
         this.sampleDrivePc();
+        // Spec 205-A c4: traps are not real instructions; they don't
+        // emit a "cpu" trace edge (CPU's onInstructionComplete fires
+        // for real instructions only).
         return;
       }
       this.scheduler.runInstructions(1);
@@ -792,6 +795,8 @@ export class IntegratedSession {
     const before = this.c64Cpu.cycles;
     this.c64Cpu.step(); // audit-ok: legacy non-lockstep stepping; replaced by SyncStrategy in Spec 202
     this.c64InstructionCount += 1;
+    // Spec 205-A c4: cpu trace fires inside Cpu6510.step / Cpu65xxVice
+    // — no need to publish here.
     const consumed = this.c64Cpu.cycles - before;
     // Sprint 84: VIC may steal cycles via bad-line + sprite DMA. CPU
     // pauses; peripherals still tick during stolen cycles ("wall
