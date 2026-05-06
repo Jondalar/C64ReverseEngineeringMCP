@@ -54,7 +54,11 @@ import {
   Cpu6510Cycled, CiaCycled, VicCycled, SidCycled,
   DriveCpuCycled, ViaCycled, KeyboardCycled,
 } from "./scheduler/cycle-wrappers.js";
-import { Cpu6510Cycled as Cpu6510Microcoded } from "./cpu/cpu6510-cycled.js";
+import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
+import {
+  alarmContextNew,
+  type AlarmContext,
+} from "./alarm/alarm-context.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -207,6 +211,13 @@ export class IntegratedSession {
   public readonly scheduler?: CycleLockstepSchedulerImpl;
   public readonly cpuCycled?: Cpu6510Cycled;
   public readonly useCycleLockstep: boolean;
+  // Sprint 113 Phase 2 (Spec 146 caller migration): VICE-style alarm
+  // contexts. Used by Cpu65xxVice instances when useMicrocodedCpu=true.
+  // Created unconditionally so chip ports (CIA / VIA / VIC / SID) can
+  // begin registering alarms in their own phase-2 migrations even
+  // before the corresponding CPU dispatch path is enabled.
+  public readonly maincpuAlarmContext: AlarmContext;
+  public readonly drivecpuAlarmContext: AlarmContext;
   // Spec 142: shared trace registry. Always present; channels default
   // to "off" until caller configures.
   public readonly traceRegistry: TraceRegistry = new TraceRegistry();
@@ -346,6 +357,15 @@ export class IntegratedSession {
     this.c64Bus.reset();
     this.c64Cpu = new Cpu6510(this.c64Bus);
 
+    // Sprint 113 Phase 2: alarm contexts created up-front. Mirrors VICE
+    // src/c64/c64.c machine_specific_init pattern (`maincpu_alarm_context
+    // = alarm_context_new("MainCPU");`) and src/drive/drivecpu.c
+    // (`drv->cpu->alarm_context = alarm_context_new(...)`). Chip ports
+    // (CIA / VIA / VIC) wire their alarms into these contexts during
+    // their own phase 2 migrations.
+    this.maincpuAlarmContext = alarmContextNew("maincpu");
+    this.drivecpuAlarmContext = alarmContextNew("drivecpu");
+
     // Drive side. Spec 090: configure sync ratio + zero baseline.
     this.drive = new DriveCpu({
       deviceId: opts.deviceId ?? 8,
@@ -355,6 +375,7 @@ export class IntegratedSession {
       // does. Required for sub-instruction bus access timing during
       // IEC bit-bang.
       useMicrocodedCpu: opts.useMicrocodedCpu ?? false,
+      alarmContext: this.drivecpuAlarmContext,
     });
     this.iecBus.attachDriveRam(this.drive.bus.ram);
     // Spec 140 v3: 1:1 VICE port. No mode flag — VICE is THE behavior.
@@ -401,9 +422,15 @@ export class IntegratedSession {
     this.drivePcTraceCapacity = opts.traceDrive ? (opts.traceDriveCapacity ?? 512) : 0;
     if (this.useCycleLockstep) {
       // Sprint 92.7 v2: optional microcoded cpu (per-cycle bus access).
+      // Sprint 113 Phase 2: now backed by Cpu65xxVice (1:1 VICE 6510core)
+      // with alarm-context dispatch wired into the instruction-fetch
+      // boundary. Mirrors VICE PROCESS_ALARMS macro.
       let cpuCompoonent: any;
       if (opts.useMicrocodedCpu) {
-        const microcoded = new Cpu6510Microcoded(this.c64Bus);
+        const microcoded = new Cpu65xxVice({
+          memBus: this.c64Bus,
+          alarmContext: this.maincpuAlarmContext,
+        });
         // Replace c64Cpu with microcoded version. Cast — both share
         // public register state interface.
         (this as any).c64Cpu = microcoded;

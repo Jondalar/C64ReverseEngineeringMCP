@@ -40,6 +40,11 @@ import { UNDOC_TABLE } from "./undoc-table.js";
 import type { IoPort6510Hook } from "./io-port-6510.js";
 import type { BYTE, WORD, CLOCK } from "../util/uint.js";
 import { u8, u16, u32, clkAdd, clkDelta } from "../util/uint.js";
+import {
+  alarmContextDispatch,
+  alarmContextNextPendingClk,
+  type AlarmContext,
+} from "../alarm/alarm-context.js";
 
 // VICE flag bits — names match src/6510core.c P_* enumeration.
 const P_SIGN      = 0x80;
@@ -91,6 +96,19 @@ export interface Cpu65xxOptions {
   memBus: CpuMemory;
   /** When provided, this CPU is the C64 6510 (handles $00/$01). */
   ioPortHook?: IoPort6510Hook;
+  /**
+   * VICE-style alarm context. When provided, the CPU dispatches all
+   * pending alarms whose clk <= current cpu_clk at every instruction-
+   * fetch boundary. Mirrors VICE 6510core.c PROCESS_ALARMS macro:
+   *
+   *   while (CLK >= alarm_context_next_pending_clk(ALARM_CONTEXT)) {
+   *       alarm_context_dispatch(ALARM_CONTEXT, CLK);
+   *   }
+   *
+   * A safety cap protects the inner loop against pathological alarms
+   * that re-arm themselves at clk <= now and would otherwise spin.
+   */
+  alarmContext?: AlarmContext;
 }
 
 /**
@@ -165,6 +183,15 @@ export class Cpu65xxVice implements CycleSteppable {
    *  OPINFO_DELAYS_INTERRUPT — set on BCC/BCS/BNE/BEQ/BPL/BMI/BVC/BVS
    *  taken w/o page cross). */
   public lastBranchTakeCycle: CLOCK = 0;
+  /** VICE OPINFO_DELAYS_INTERRUPT bit on `last_opcode_info`
+   *  (maincpu.c:470/491). True when the most-recently-completed opcode
+   *  was a taken branch with no page-cross — delays IRQ/NMI by +1.
+   *  Cleared at every new opcode fetch (mirrors VICE last_opcode_info
+   *  overwrite at fetch). Sticky across the BRANCH-then-IRQ-check
+   *  boundary; expressed as a flag (not a cycle stamp) so a brand-new
+   *  CPU at clk=0 with irqLine=true dispatches IRQ on the very first
+   *  instruction-fetch boundary (VICE behavior). */
+  private lastOpcodeDelaysInterrupt = false;
   /** Cycle of last I-flag-clear (CLI / PLP-clearing-I / RTI-clearing-I).
    *  Per VICE: IRQ delayed by exactly one extra opcode after I=0 latch. */
   public lastIFlagClearCycle: CLOCK = 0;
@@ -200,10 +227,13 @@ export class Cpu65xxVice implements CycleSteppable {
 
   public readonly memory: CpuMemory;
   public readonly ioPortHook?: IoPort6510Hook;
+  /** Optional VICE-style alarm context. See Cpu65xxOptions.alarmContext. */
+  public readonly alarmContext?: AlarmContext;
 
   constructor(opts: Cpu65xxOptions) {
     this.memory = opts.memBus;
     this.ioPortHook = opts.ioPortHook;
+    this.alarmContext = opts.alarmContext;
   }
 
   // -------- Bus access primitives --------
@@ -281,6 +311,7 @@ export class Cpu65xxVice implements CycleSteppable {
     this.irqLine = false; this.nmiLine = false;
     this.nmiPending = false; this.prevNmi = false;
     this.lastBranchTakeCycle = 0;
+    this.lastOpcodeDelaysInterrupt = false;
     this.lastIFlagClearCycle = 0;
     this.lastIFlagClearInstrLen = 0;
     this.last_opcode_info = 0;
@@ -305,16 +336,28 @@ export class Cpu65xxVice implements CycleSteppable {
    * Cycle-stepped entry: advance ONE cycle of the CPU.
    * Mirrors Cpu6510Cycled.executeCycle so the integrated session
    * scheduler can swap instances.
+   *
+   * Note on interrupt entry: VICE DO_INTERRUPT accounts for all 7 of
+   * its cycles via internal CLK_ADD calls (no outer wrapper bump). When
+   * `startInstructionCycle` services NMI/IRQ via `serviceInterrupt`,
+   * it sets `interruptDispatchedThisCycle` so we skip the trailing +1
+   * to keep total at exactly IRQ_CYCLES = 7. Same applies to JAM
+   * (handled at top — already accounted for).
    */
+  private interruptDispatchedThisCycle = false;
+
   executeCycle(): void {
     if (this.jammed) {
       // VICE: JAM keeps cycling the clock without advancing PC.
       this.clk = clkAdd(this.clk, 1);
       return;
     }
+    this.interruptDispatchedThisCycle = false;
     if (this.atBoundary) this.startInstructionCycle();
     else this.continueInstructionCycle();
-    this.clk = clkAdd(this.clk, 1);
+    if (!this.interruptDispatchedThisCycle) {
+      this.clk = clkAdd(this.clk, 1);
+    }
   }
 
   // -------- VICE-faithful interrupt-delay checks --------
@@ -330,10 +373,10 @@ export class Cpu65xxVice implements CycleSteppable {
   private irqShouldDispatch(): boolean {
     if (!this.irqLine) return false;
     if ((this.reg_p & P_INTERRUPT) !== 0) return false;
-    // Branch-delay: if last opcode was a taken-branch w/o page-cross,
-    // delay IRQ by 1 cycle.
-    const branchDelta = clkDelta(this.clk, this.lastBranchTakeCycle);
-    if (branchDelta < INTERRUPT_DELAY) return false;
+    // Branch-delay: VICE OPINFO_DELAYS_INTERRUPT (maincpu.c:491).
+    // When last opcode was a taken branch w/o page-cross, delay IRQ
+    // by +1 instruction-fetch boundary.
+    if (this.lastOpcodeDelaysInterrupt) return false;
     // I-flag-clear delay: dispatch only after the instruction
     // *following* the CLI/PLP/RTI has fully run.
     if (this.lastIFlagClearInstrLen > 0) {
@@ -346,13 +389,30 @@ export class Cpu65xxVice implements CycleSteppable {
   /** VICE interrupt_check_nmi_delay analogue. */
   private nmiShouldDispatch(): boolean {
     if (!this.nmiPending) return false;
-    const branchDelta = clkDelta(this.clk, this.lastBranchTakeCycle);
-    if (branchDelta < INTERRUPT_DELAY) return false;
+    if (this.lastOpcodeDelaysInterrupt) return false;
     return true;
   }
 
   // -------- Core instruction loop --------
   private startInstructionCycle(): void {
+    // VICE PROCESS_ALARMS macro (6510core.c:139-143). Dispatch all
+    // alarms whose pending clk has been reached or passed by cpu_clk
+    // BEFORE interrupt-pending check + opcode fetch (matches
+    // 6510core.c:2308 ordering). Safety cap matches the spirit of
+    // VICE's expectation that callbacks reschedule into the future.
+    if (this.alarmContext) {
+      const ctx = this.alarmContext;
+      let guard = 0;
+      while (this.clk >= alarmContextNextPendingClk(ctx)) {
+        alarmContextDispatch(ctx, this.clk);
+        if (++guard > 0x1000) {
+          throw new Error(
+            `Cpu65xxVice: alarm-dispatch guard tripped at clk=${this.clk} (ctx=${ctx.name})`,
+          );
+        }
+      }
+    }
+
     // NMI edge detection.
     if (this.nmiLine && !this.prevNmi) this.nmiPending = true;
     this.prevNmi = this.nmiLine;
@@ -361,10 +421,12 @@ export class Cpu65xxVice implements CycleSteppable {
     if (this.nmiShouldDispatch()) {
       this.nmiPending = false;
       this.serviceInterrupt(0xfffa, false);
+      this.interruptDispatchedThisCycle = true;
       return;
     }
     if (this.irqShouldDispatch()) {
       this.serviceInterrupt(0xfffe, false);
+      this.interruptDispatchedThisCycle = true;
       return;
     }
 
@@ -373,6 +435,9 @@ export class Cpu65xxVice implements CycleSteppable {
     const pcFetch = this.reg_pc;
     const opcode = this.loadFetch(pcFetch);
     this.reg_pc = u16(this.reg_pc + 1);
+    // VICE: last_opcode_info gets overwritten at fetch — clear the
+    // OPINFO_DELAYS_INTERRUPT bit before this instruction may set it.
+    this.lastOpcodeDelaysInterrupt = false;
 
     // VICE LAST_OPCODE_INFO reset — clear delays_interrupt /
     // enables_irq flags from previous opcode.
@@ -698,9 +763,10 @@ export class Cpu65xxVice implements CycleSteppable {
     if ((oldPc & 0xff00) !== (this.reg_pc & 0xff00)) {
       this.clk = clkAdd(this.clk, 1); // page cross = +1
     } else {
-      // VICE OPCODE_DELAYS_INTERRUPT — taken branch w/o page-cross
-      // delays IRQ by one cycle.
+      // VICE OPINFO_DELAYS_INTERRUPT — taken branch w/o page-cross
+      // delays IRQ by one cycle. Cleared at next opcode fetch.
       this.lastBranchTakeCycle = this.clk;
+      this.lastOpcodeDelaysInterrupt = true;
     }
   }
 

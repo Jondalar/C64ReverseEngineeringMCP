@@ -8,9 +8,17 @@
 // covered in PC-roundtrip mode).
 
 import { Cpu6510 } from "../dist/runtime/headless/cpu6510.js";
-import { Cpu6510Cycled } from "../dist/runtime/headless/cpu/cpu6510-cycled.js";
+import { Cpu65xxVice } from "../dist/runtime/headless/cpu/cpu65xx-vice.js";
 import { OPCODE_TABLE } from "../dist/exomizer-ts/generated-opcodes.js";
 import { UNDOC_TABLE } from "../dist/runtime/headless/cpu/undoc-table.js";
+
+// Sprint 113 Phase 2 (Spec 146): Cpu6510Cycled (legacy microcoded) was
+// removed; Cpu65xxVice replaces it. Constructor signature changed from
+// `new Cpu6510Cycled(mem)` to `new Cpu65xxVice({ memBus: mem })`. This
+// shim preserves the script's `new CpuClass(mem)` call shape.
+class Cpu6510Cycled extends Cpu65xxVice {
+  constructor(mem) { super({ memBus: mem }); }
+}
 
 class Mem64K {
   constructor() { this.bytes = new Uint8Array(65536); this.writes = []; }

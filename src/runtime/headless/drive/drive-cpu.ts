@@ -16,7 +16,8 @@
 // point and seed PC explicitly.
 
 import { Cpu6510, type CpuMemory } from "../cpu6510.js";
-import { Cpu6510Cycled as Cpu6510Microcoded } from "../cpu/cpu6510-cycled.js";
+import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
+import type { AlarmContext } from "../alarm/alarm-context.js";
 import { Via6522 } from "./via6522.js";
 import { makeStubVia1Pa, makeStubVia1Pb, makeBusVia1Pa, makeBusVia1Pb } from "./via1-iec.js";
 import { makeStubVia2Pa, makeStubVia2Pb, makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
@@ -39,6 +40,11 @@ export interface DriveCpuOptions {
   // Sprint 96 part 6 (Bug 39): use cycle-stepped microcoded CPU with
   // sub-instruction bus access. Required for IEC bit-bang correctness.
   useMicrocodedCpu?: boolean;
+  // Sprint 113 Phase 2: VICE-style alarm context for the drive CPU.
+  // When provided AND useMicrocodedCpu=true, the drive CPU dispatches
+  // pending alarms at every instruction-fetch boundary. Mirrors VICE
+  // drivecpu alarm-context wiring.
+  alarmContext?: AlarmContext;
 }
 
 export class DriveBus implements CpuMemory {
@@ -110,7 +116,7 @@ export class DriveBus implements CpuMemory {
 export class DriveCpu {
   // Legacy whole-instruction CPU (default). May be replaced by the
   // cycled CPU when useMicrocodedCpu=true.
-  public readonly cpu: Cpu6510 | Cpu6510Microcoded;
+  public readonly cpu: Cpu6510 | Cpu65xxVice;
   public readonly bus: DriveBus;
   public readonly microcoded: boolean;
   // Sprint 96 part 7: GCR shifter coupling for free-running tick.
@@ -136,7 +142,7 @@ export class DriveCpu {
     this.bus = new DriveBus(opts);
     this.microcoded = opts.useMicrocodedCpu ?? false;
     this.cpu = this.microcoded
-      ? new Cpu6510Microcoded(this.bus)
+      ? new Cpu65xxVice({ memBus: this.bus, alarmContext: opts.alarmContext })
       : new Cpu6510(this.bus);
     this.trackBuffer = opts.gcr?.trackBuffer;
     this.headPosition = opts.gcr?.headPosition;
@@ -203,7 +209,7 @@ export class DriveCpu {
   // microcoded path, drive-cycle until next instruction boundary.
   private runOneInstruction(): number {
     if (this.microcoded) {
-      const cycled = this.cpu as Cpu6510Microcoded;
+      const cycled = this.cpu as Cpu65xxVice;
       const before = cycled.cycles;
       // Spec 141 v2: pass current drive clock so VIA's clocked
       // irqAsserted enforces INTERRUPT_DELAY=2 between IFR-set and

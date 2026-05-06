@@ -12,7 +12,7 @@
 //   Lorenz suite — license-blocked; existing 1880-case opcode harness
 //                  + this file's IRQ/stack fixtures form the substitute.
 
-import { Cpu6510Cycled } from "../cpu/cpu6510-cycled.js";
+import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
 
 export interface CheckResult { label: string; pass: boolean; detail?: string }
 function check(label: string, cond: boolean, detail?: string): CheckResult {
@@ -46,7 +46,7 @@ function makeRam(): TracingMemory {
   };
 }
 
-function runUntilBoundary(cpu: Cpu6510Cycled, maxCycles = 50): number {
+function runUntilBoundary(cpu: Cpu65xxVice, maxCycles = 50): number {
   let cycles = 0;
   do {
     cpu.executeCycle();
@@ -68,7 +68,7 @@ export function runIrqEntryCycleTest(): CheckResult[] {
   mem.ram[0x0200] = 0xea;
   // Handler at $0400: RTI.
   mem.ram[0x0400] = 0x40;
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   cpu.flags = 0x20; // I clear, allow IRQ
   cpu.sp = 0xff;
@@ -103,7 +103,7 @@ export function runNmiEntryCycleTest(): CheckResult[] {
   mem.ram[0xfffb] = 0x05;
   mem.ram[0x0200] = 0xea;
   mem.ram[0x0500] = 0x40; // RTI
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   cpu.flags = 0x24; // I set: should NOT block NMI
   cpu.sp = 0xff;
@@ -137,7 +137,7 @@ export function runBrkStackOrderingTest(): CheckResult[] {
   mem.ram[0x0200] = 0x00; // BRK
   mem.ram[0x0201] = 0xea; // pad
   mem.ram[0x0600] = 0x40; // RTI
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   cpu.flags = 0x20;
   cpu.sp = 0xff;
@@ -176,7 +176,7 @@ export function runRtiStackPullTest(): CheckResult[] {
   mem.ram[0x0200] = 0x40;
   // NOP at $0322 (return target).
   mem.ram[0x0322] = 0xea;
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   cpu.sp = 0xfc; // about to pop three
 
@@ -205,7 +205,7 @@ export function runJsrRtsRoundTripTest(): CheckResult[] {
   mem.ram[0x0202] = 0x05;
   mem.ram[0x0203] = 0xea; // NOP target after RTS
   mem.ram[0x0500] = 0x60; // RTS
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   cpu.sp = 0xff;
 
@@ -239,7 +239,7 @@ export function runNmiOverIrqPriorityTest(): CheckResult[] {
   mem.ram[0x0200] = 0xea;
   mem.ram[0x0400] = 0x40; // RTI
   mem.ram[0x0500] = 0x40; // RTI
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   cpu.flags = 0x20; // I clear
   cpu.sp = 0xff;

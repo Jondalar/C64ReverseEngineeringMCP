@@ -1,7 +1,7 @@
 // Spec 109 (M3.1) — drive CPU equivalence harness.
 //
 // Walks the 1541 DOS ROM from reset on both legacy Cpu6510 and
-// microcoded Cpu6510Cycled side-by-side, asserting state equality at
+// microcoded Cpu65xxVice side-by-side, asserting state equality at
 // each instruction boundary.
 //
 // Sub-stories:
@@ -17,7 +17,7 @@
 //   M3.1e — collectOpcodeCoverage: opcodes visited during equiv walk.
 
 import { Cpu6510 } from "../cpu6510.js";
-import { Cpu6510Cycled } from "../cpu/cpu6510-cycled.js";
+import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
 import { DriveBus } from "./drive-cpu.js";
 import { OPCODE_TABLE } from "../../../exomizer-ts/generated-opcodes.js";
 import { UNDOC_TABLE } from "../cpu/undoc-table.js";
@@ -40,7 +40,7 @@ export interface EquivWalkResult {
   cycleDeltaByOpcode: Map<number, number>;
 }
 
-function snap(cpu: Cpu6510 | Cpu6510Cycled): EquivDivergence["legacy"] {
+function snap(cpu: Cpu6510 | Cpu65xxVice): EquivDivergence["legacy"] {
   return { pc: cpu.pc, a: cpu.a, x: cpu.x, y: cpu.y, sp: cpu.sp, flags: cpu.flags, cycles: cpu.cycles };
 }
 
@@ -72,7 +72,7 @@ function runOneInstrLegacy(cpu: Cpu6510, bus: DriveBus): number {
   return consumed;
 }
 
-function runOneInstrMicro(cpu: Cpu6510Cycled, bus: DriveBus): number {
+function runOneInstrMicro(cpu: Cpu65xxVice, bus: DriveBus): number {
   const before = cpu.cycles;
   cpu.irqLine = bus.via1.irqAsserted() || bus.via2.irqAsserted();
   cpu.executeCycle();
@@ -95,7 +95,7 @@ export function runDriveRomEquivWalk(opts: EquivWalkOpts = {}): EquivWalkResult 
   const busL = new DriveBus({ romBytes: opts.romBytes });
   const busM = new DriveBus({ romBytes: opts.romBytes });
   const cpuL = new Cpu6510(busL);
-  const cpuM = new Cpu6510Cycled(busM);
+  const cpuM = new Cpu65xxVice({ memBus: busM });
   cpuL.reset();
   cpuM.reset();
 
@@ -182,7 +182,7 @@ export function runSoPinTest(): SoPinResult {
     bus.ram[0x0200 + i] = program[i]!;
   }
   // Run microcoded path (the one with SO wiring).
-  const cpu = new Cpu6510Cycled(bus);
+  const cpu = new Cpu65xxVice({ memBus: bus });
   cpu.reset(0x0200);
   cpu.flags = 0x20; // V clear
 
@@ -247,13 +247,13 @@ function runBusTrace(
   cyclesToTrace: number,
   expected: string[],
   label: string,
-  prepCpu?: (cpu: Cpu6510Cycled) => void,
+  prepCpu?: (cpu: Cpu65xxVice) => void,
 ): BusTraceResult {
   const mem = makeTracingRam();
   const ram = (mem as unknown as { ram: Uint8Array }).ram;
   for (let i = 0; i < programAt0200.length; i++) ram[0x0200 + i] = programAt0200[i]!;
   prepRam(ram);
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   prepCpu?.(cpu);
   for (let i = 0; i < cyclesToTrace; i++) cpu.executeCycle();
@@ -263,18 +263,19 @@ function runBusTrace(
 }
 
 // LDA ($10),Y with ptr at $10/$11 = $00FF, Y = $01 → ea = $0100 (page cross).
-// Microcoded `indy_read` pattern: fetch_opcode, fetch_zp_lo, fetch_ind_lo,
-// fetch_ind_hi, read_ea_pgy. 5 micro-ops; on page cross `read_ea_pgy`
-// adds +1 cycle internally so total cycle count is 6 (matches real
-// 6502). Bus accesses are 5 — the implementation skips the unfixed
-// dummy read that real silicon performs (acceptable: drive ROM never
-// observes that bus cycle).
+// Cpu65xxVice `indy_read` pattern: fetch_opcode, fetch_zp_lo,
+// fetch_ind_lo, fetch_ind_hi, read_ea_pgy. On page cross, read_ea_pgy
+// emits VICE's "unfixed" dummy read at (base.hi | ea.lo) = $0000 BEFORE
+// the final read at $0100 — matches VICE 1:1 (Sprint 113 Phase 2). The
+// previous Cpu6510Cycled omitted this dummy read; the trace expectation
+// now pins the VICE-faithful behavior.
 export function runIndyCrossPageBusTrace(): BusTraceResult {
   const expected = [
     "r@$0200=$b1",
     "r@$0201=$10",
     "r@$0010=$ff",
     "r@$0011=$00",
+    "r@$0000=$00", // VICE unfixed dummy read on page cross
     "r@$0100=$42",
   ];
   return runBusTrace(
@@ -283,7 +284,7 @@ export function runIndyCrossPageBusTrace(): BusTraceResult {
       ram[0x10] = 0xff; ram[0x11] = 0x00;
       ram[0x0100] = 0x42;
     },
-    5,
+    6,
     expected,
     "LDA (\$10),Y page-cross",
     (cpu) => { cpu.y = 0x01; },
@@ -305,7 +306,7 @@ export function runPhaBusTrace(): BusTraceResult {
   const ram = (mem as unknown as { ram: Uint8Array }).ram;
   ram[0x0200] = 0x48; // PHA
   ram[0x0201] = 0xea; // NOP follow-up
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   cpu.a = 0x77;
   cpu.sp = 0xff;
@@ -335,7 +336,7 @@ export function runJsrBusTrace(): BusTraceResult {
   const ram = (mem as unknown as { ram: Uint8Array }).ram;
   ram[0x0200] = 0x20; ram[0x0201] = 0x34; ram[0x0202] = 0x12;
   ram[0x1234] = 0xea; // NOP at target
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   cpu.sp = 0xff;
   for (let i = 0; i < 6; i++) cpu.executeCycle();
@@ -370,7 +371,7 @@ export function runRtsBusTrace(): BusTraceResult {
   ram[0x0200] = 0x60; // RTS
   ram[0x01fe] = 0x33; // pcl-1
   ram[0x01ff] = 0x12; // pch
-  const cpu = new Cpu6510Cycled(mem);
+  const cpu = new Cpu65xxVice({ memBus: mem });
   cpu.reset(0x0200);
   cpu.sp = 0xfd; // about to pop two
   for (let i = 0; i < 6; i++) cpu.executeCycle();

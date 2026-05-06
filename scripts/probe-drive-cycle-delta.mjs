@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { Cpu6510 } from "../dist/runtime/headless/cpu6510.js";
-import { Cpu6510Cycled } from "../dist/runtime/headless/cpu/cpu6510-cycled.js";
+import { Cpu65xxVice } from "../dist/runtime/headless/cpu/cpu65xx-vice.js";
 import { DriveBus } from "../dist/runtime/headless/drive/drive-cpu.js";
 
+// Sprint 113 Phase 2: Cpu65xxVice replaces removed Cpu6510Cycled.
 const busL = new DriveBus({});
 const busM = new DriveBus({});
 const cpuL = new Cpu6510(busL);
-const cpuM = new Cpu6510Cycled(busM);
+const cpuM = new Cpu65xxVice({ memBus: busM });
 cpuL.reset();
 cpuM.reset();
 
