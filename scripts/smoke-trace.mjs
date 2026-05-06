@@ -121,6 +121,39 @@ check("getBusAccessProducer returns the registered producer", () => {
   }
 });
 
+check("gcr channel captures head step + motor + density (Spec 205-A c9)", () => {
+  const { session: sh } = startIntegratedSession({
+    diskPath: fixturePath,
+    mode: "true-drive",
+  });
+  const k = sh.kernel;
+  k.trace().configureChannel("gcr", { mode: "ring", capacity: 1024 });
+  // Toggle motor + density + step manually. resetCold puts head at 18.
+  sh.resetCold();
+  k.gcrShifter.setMotor(false);
+  k.gcrShifter.setMotor(true);
+  k.gcrShifter.setDensity(2);
+  k.gcrShifter.setDensity(3);
+  k.headPosition.stepInward();
+  k.headPosition.stepOutward();
+  const ring = k.trace().getRing("gcr");
+  const kinds = new Set(ring.map((e) => e.data.kind));
+  for (const want of ["motor", "density", "head_step"]) {
+    if (!kinds.has(want)) {
+      throw new Error(`missing kind ${want}. kinds: ${[...kinds].join(",")}`);
+    }
+  }
+  const motorEv = ring.find((e) => e.data.kind === "motor");
+  if (typeof motorEv.data.on !== "boolean") throw new Error("motor.on not bool");
+  const densityEv = ring.find((e) => e.data.kind === "density");
+  if (densityEv.data.zone === undefined) throw new Error("density.zone undefined (expected number or null)");
+  const stepEv = ring.find((e) => e.data.kind === "head_step");
+  if (stepEv.data.direction !== "inward" && stepEv.data.direction !== "outward") {
+    throw new Error(`step direction = ${stepEv.data.direction}`);
+  }
+  sh.shutdown?.();
+});
+
 check("cia channel captures IRQ flag set events (Spec 205-A c8)", () => {
   const { session: sc } = startIntegratedSession({
     diskPath: fixturePath,

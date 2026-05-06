@@ -86,7 +86,10 @@ export class HeadPosition {
   }
 
   stepInward(): void {
-    if (this.trackHalf < this.maxHalfTracks - 1) this.trackHalf += 1;
+    if (this.trackHalf < this.maxHalfTracks - 1) {
+      this.trackHalf += 1;
+      this.onStep?.("inward", this.trackHalf);
+    }
   }
 
   // Spec 116 (M3.8b): track-zero stop. Real 1541 head physically halts
@@ -94,8 +97,19 @@ export class HeadPosition {
   // this stop while seeking to determine track 1 baseline. Bound here
   // so seek-to-zero loops terminate naturally.
   stepOutward(): void {
-    if (this.trackHalf > 2) this.trackHalf -= 1;
+    if (this.trackHalf > 2) {
+      this.trackHalf -= 1;
+      this.onStep?.("outward", this.trackHalf);
+    }
   }
+
+  /**
+   * Spec 205-A c9: kernel-installed callback fired on every successful
+   * head step. `direction` = "inward" (toward higher track) or
+   * "outward" (toward lower track). `halfTrack` = post-step
+   * half-track index (track*2; ignores the "stuck at edge" case).
+   */
+  public onStep?: (direction: "inward" | "outward", halfTrack: number) => void;
 
   reset(track: number = 18): void {
     this.trackHalf = Math.round(track * 2);

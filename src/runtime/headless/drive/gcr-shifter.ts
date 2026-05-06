@@ -222,18 +222,45 @@ export class GcrShifter {
 
   /** VIA2 PB5/PB6 density bits → speed zone. */
   setDensity(zone: 0 | 1 | 2 | 3): void {
-    this.densityOverride = (zone & 0x03) as 0 | 1 | 2 | 3;
+    const z = (zone & 0x03) as 0 | 1 | 2 | 3;
+    if (this.densityOverride !== z) {
+      this.densityOverride = z;
+      this.onDensity?.(z);
+    } else {
+      this.densityOverride = z;
+    }
   }
 
   /** Clear density override → derive zone from current track. */
   clearDensityOverride(): void {
-    this.densityOverride = undefined;
+    if (this.densityOverride !== undefined) {
+      this.densityOverride = undefined;
+      this.onDensity?.(undefined);
+    }
   }
 
   /** VIA2 PB2 motor gate. Off → rotation freezes. */
   setMotor(on: boolean): void {
-    this.motorOn = on;
+    if (this.motorOn !== on) {
+      this.motorOn = on;
+      this.onMotor?.(on);
+    } else {
+      this.motorOn = on;
+    }
   }
+
+  /**
+   * Spec 205-A c9: kernel-installed motor toggle callback. Fires only
+   * on actual on→off / off→on transitions, not on every setMotor call.
+   */
+  public onMotor?: (on: boolean) => void;
+
+  /**
+   * Spec 205-A c9: density zone change callback. Fires only on actual
+   * zone transitions. `zone` undefined when override cleared (zone
+   * derived from track).
+   */
+  public onDensity?: (zone: 0 | 1 | 2 | 3 | undefined) => void;
 
   // -------------------------------------------------------------------------
   // Tick — advance N drive cycles

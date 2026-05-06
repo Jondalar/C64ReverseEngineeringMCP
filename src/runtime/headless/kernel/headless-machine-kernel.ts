@@ -451,6 +451,34 @@ export class HeadlessMachineKernel implements MachineKernel {
       });
     };
 
+    // Spec 205-A c9: head step + motor + density transitions.
+    this.headPosition.onStep = (direction, halfTrack) => {
+      if (!this.traceRegistry.isEnabled("gcr")) return;
+      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      this.traceCtrl.publish("gcr", driveClk, {
+        kind: "head_step",
+        direction,
+        halfTrack,
+        track: halfTrack / 2,
+      });
+    };
+    this.gcrShifter.onMotor = (on) => {
+      if (!this.traceRegistry.isEnabled("gcr")) return;
+      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      this.traceCtrl.publish("gcr", driveClk, {
+        kind: "motor",
+        on,
+      });
+    };
+    this.gcrShifter.onDensity = (zone) => {
+      if (!this.traceRegistry.isEnabled("gcr")) return;
+      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      this.traceCtrl.publish("gcr", driveClk, {
+        kind: "density",
+        zone: zone === undefined ? null : zone,
+      });
+    };
+
     // Spec 205-A c7: bridge VIC raster line + frame transitions into
     // the "vic" trace channel.
     this.vic.onRasterLine = (raster_y, clk) => {
