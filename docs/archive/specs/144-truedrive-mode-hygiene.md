@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-05-06 by Spec 204** (`specs/204-truedrive-hook-hygiene.md`).
+
 # Spec 144 — TrueDrive Mode Hygiene
 
 **Sprint**: 112 (core sync refactor)

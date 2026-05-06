@@ -1,3 +1,7 @@
+> **SUPERSEDED 2026-05-06 by Spec 210** (`specs/210-cia-1to1-vice-port.md`).
+> Sprint 113 aborted; partial work folds into 210 under kernel
+> alarm/IRQ surface (Spec 203).
+
 # Spec 145 — CIA full 1:1 VICE port
 
 **Sprint**: 113 (chip-level 1:1 VICE)

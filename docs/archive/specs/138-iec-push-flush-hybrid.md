@@ -1,3 +1,8 @@
+> **DROPPED 2026-05-06** — push-flush probe is incompatible with ADR
+> §3 Decision B (production sync = VICE-style event/catch-up).
+> See `EPIC_ROADMAP.md` and `docs/adr-headless-machine-kernel.md`.
+> Spec retained for history; do not implement.
+
 # Spec 138 — IEC push-flush PROBE (ADR-1 from arc42 deep-dive)
 
 **Sprint**: 111 (1541 silicon)

@@ -1,3 +1,7 @@
+> **SUPERSEDED 2026-05-06 by Spec 200** (`specs/200-kernel-facade-and-status.md`).
+> ADR Accepted; new kernel architecture lives in
+> `docs/adr-headless-machine-kernel.md` + `EPIC_ROADMAP.md`.
+
 # Spec 139 — Kernel Synchronization Architecture
 
 **Sprint**: 112 (core sync refactor)

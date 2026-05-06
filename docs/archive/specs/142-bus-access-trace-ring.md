@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-05-06 by Spec 205-A** (`specs/205-trace-contract.md`).
+
 # Spec 142 — Bus-Access Trace Ring
 
 **Sprint**: 112 (core sync refactor)

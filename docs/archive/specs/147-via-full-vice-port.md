@@ -1,3 +1,6 @@
+> **SUPERSEDED 2026-05-06 by Spec 211** (`specs/211-via-1to1-vice-port.md`).
+> Sprint 113 aborted.
+
 # Spec 147 — VIA full 1:1 VICE port
 
 **Sprint**: 113 (chip-level 1:1 VICE)

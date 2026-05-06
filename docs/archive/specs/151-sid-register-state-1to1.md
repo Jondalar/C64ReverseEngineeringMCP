@@ -1,3 +1,6 @@
+> **SUPERSEDED 2026-05-06 by Spec 216** (`specs/216-sid-1to1-register-state.md`).
+> Sprint 113 aborted.
+
 # Spec 151 — SID register state 1:1 VICE (B-level, no audio)
 
 **Sprint**: 113 (chip-level 1:1 VICE)

@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-05-06 by Spec 205-C** (`specs/205-trace-contract.md`).
+
 # Spec 152 — Swimlane VICE-vs-Headless Full Compare
 
 **Status**: proposed

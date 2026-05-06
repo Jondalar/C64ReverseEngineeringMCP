@@ -1,3 +1,7 @@
+> **SUPERSEDED 2026-05-06 by Spec 213** (`specs/213-drive-gcr-motor-head-full.md`).
+> Sprint 114 commits (f38461f, a8c98bd, ebdf2d7, 3977302, 42f67c2)
+> stay; rotation timing now owned by kernel per ADR §4.5.
+
 # Spec 153 — Drive GCR/motor/head full 1:1 VICE
 
 **Sprint**: 114 (drive data-layer truedrive)

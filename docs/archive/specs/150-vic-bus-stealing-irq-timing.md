@@ -1,3 +1,6 @@
+> **SUPERSEDED 2026-05-06 by Spec 214** (`specs/214-vic-bus-stealing-irq-timing.md`).
+> Sprint 113 aborted.
+
 # Spec 150 — VIC bus stealing + IRQ timing 1:1 VICE (B-level)
 
 **Sprint**: 113 (chip-level 1:1 VICE)

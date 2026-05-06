@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-05-06 by Spec 203** (`specs/203-alarms-irq-timestamps.md`).
+
 # Spec 141 — Clocked VIA1 CA1 / IRQ Timing
 
 **Sprint**: 112 (core sync refactor)

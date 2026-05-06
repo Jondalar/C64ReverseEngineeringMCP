@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-05-06 by Spec 205-B** (`specs/205-trace-contract.md`).
+
 # Spec 143 — VICE / Headless IEC Diff
 
 **Sprint**: 112 (core sync refactor)

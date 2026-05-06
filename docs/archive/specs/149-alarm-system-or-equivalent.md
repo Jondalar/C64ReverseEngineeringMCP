@@ -1,3 +1,6 @@
+> **SUPERSEDED 2026-05-06 by Spec 203** (`specs/203-alarms-irq-timestamps.md`).
+> Sprint 113 aborted.
+
 # Spec 149 — Alarm system 1:1 VICE port (FOUNDATION)
 
 **Sprint**: 113 (chip-level 1:1 VICE)

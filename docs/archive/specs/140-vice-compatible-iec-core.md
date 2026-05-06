@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-05-06 by Spec 201** (`specs/201-iec-behind-kernel-bus.md`).
+
 # Spec 140 — VICE-Compatible IEC Core
 
 **Sprint**: 112 (core sync refactor)

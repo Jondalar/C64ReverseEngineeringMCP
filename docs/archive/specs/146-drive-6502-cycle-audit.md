@@ -1,3 +1,6 @@
+> **SUPERSEDED 2026-05-06 by Spec 212** (`specs/212-drive-6502-cycle-audit.md`).
+> Sprint 113 aborted.
+
 # Spec 146 — 65xx CPU cycle-accuracy audit (1:1 VICE)
 
 **Sprint**: 113 (chip-level 1:1 VICE)

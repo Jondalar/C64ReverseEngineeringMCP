@@ -1,3 +1,6 @@
+> **SUPERSEDED 2026-05-06 by Spec 215** (`specs/215-reset-byte-exact.md`).
+> Sprint 113 aborted.
+
 # Spec 148 — Reset state byte-exact 1:1 VICE
 
 **Sprint**: 113 (chip-level 1:1 VICE)
