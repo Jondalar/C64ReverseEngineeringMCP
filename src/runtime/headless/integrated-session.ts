@@ -458,7 +458,16 @@ export class IntegratedSession {
     // hook when probeMode is set. For variants A/B/C the hook causes
     // drive.executeToClock to flush at every IEC access (= push-flush
     // semantics overlaid on the lockstep tick).
-    if (!opts.useCycleLockstep || opts.probeMode) {
+    //
+    // Sprint 113 Phase 2 (Spec 150) fix: in lockstep mode the scheduler
+    // is authoritative for drive timing. With VIC stealCpuCycles
+    // bumping c64Cpu.cycles directly, beforeC64Read's lazy
+    // executeToClock would double-count steal cycles into drive
+    // (drive already ticked by scheduler per cycle; flush adds steal
+    // cycles on top). Skip the hook in lockstep mode entirely. Probe
+    // variants A/B retain afterCycleSync wiring that updates
+    // lastSyncC64Clk so any explicit executeToClock call is no-op.
+    if (!opts.useCycleLockstep) {
       this.iecBus.beforeC64Read = () => this.drive.executeToClock(this.c64Cpu.cycles);
     }
 
@@ -859,11 +868,15 @@ export class IntegratedSession {
     const consumed = this.c64Cpu.cycles - before;
     // Sprint 84: VIC may steal cycles via bad-line + sprite DMA. CPU
     // pauses; peripherals still tick during stolen cycles ("wall
-    // clock" advances). CPU.cycles also advanced so future scheduling
-    // is correct.
+    // clock" advances).
+    // Sprint 113 Phase 2 (Spec 150): VicIIVice's tick() internally
+    // calls VicBackend.stealCpuCycles(count, clk) which advances
+    // c64Cpu.cycles directly. Do NOT bump again here — that was the
+    // old per-tick contract before the new core moved the bump to
+    // the backend hook (caused uint32 wrap during long runs, motm
+    // probe at clk≈0xFFFFD192).
     const vicTick = this.vic.tick(consumed);
     const totalCycles = consumed + vicTick.stolenCycles;
-    if (vicTick.stolenCycles > 0) this.c64Cpu.cycles += vicTick.stolenCycles;
     // Tick CIA / SID / keyboard for the full wall-clock window.
     this.cia1.tick(totalCycles);
     this.cia2.tick(totalCycles);
