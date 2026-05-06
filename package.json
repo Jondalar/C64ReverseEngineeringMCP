@@ -38,6 +38,7 @@
     "smoke:gen": "npm run build:mcp && node scripts/gen-synthetic-disks.mjs",
     "smoke:load": "npm run build:mcp && node scripts/smoke-load.mjs",
     "audit:no-peer-tick": "node scripts/audit-no-peer-tick.mjs",
+    "smoke:kernel-facade": "npm run build:mcp && node scripts/smoke-kernel-facade.mjs",
     "smoke:stepping": "npm run build:mcp && node scripts/smoke-stepping.mjs",
     "smoke:reset": "npm run build:mcp && node scripts/smoke-reset-determinism.mjs",
     "smoke:snapshot": "npm run build:mcp && node scripts/smoke-snapshot.mjs",
