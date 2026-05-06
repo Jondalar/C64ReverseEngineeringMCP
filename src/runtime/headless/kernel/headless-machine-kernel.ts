@@ -429,6 +429,28 @@ export class HeadlessMachineKernel implements MachineKernel {
       });
     });
 
+    // Spec 205-A c6: bridge GCR shifter byte-ready + SYNC# edges into
+    // the "gcr" trace channel. Uses the dedicated trace observer pair
+    // so DriveCpu's onByteReady (V-flag + VIA2 CA1) is untouched.
+    this.gcrShifter.traceByteReady = (byte) => {
+      if (!this.traceRegistry.isEnabled("gcr")) return;
+      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      this.traceCtrl.publish("gcr", driveClk, {
+        kind: "byte_ready",
+        byte: byte & 0xff,
+        track: this.headPosition.currentTrack,
+      });
+    };
+    this.gcrShifter.traceSyncDetected = (active) => {
+      if (!this.traceRegistry.isEnabled("gcr")) return;
+      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      this.traceCtrl.publish("gcr", driveClk, {
+        kind: "sync",
+        active,
+        track: this.headPosition.currentTrack,
+      });
+    };
+
     // Spec 203-c4: install onInterruptServiced on c64 + drive CPUs so
     // every vector fetch backfills `servicedClock` on the matching
     // ring entry. Kernel installs once on the current Cpu6510 here;

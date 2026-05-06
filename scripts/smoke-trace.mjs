@@ -121,6 +121,35 @@ check("getBusAccessProducer returns the registered producer", () => {
   }
 });
 
+check("gcr channel captures byte-ready + sync edges (Spec 205-A c6)", () => {
+  const { session: sg } = startIntegratedSession({
+    diskPath: fixturePath,
+    mode: "true-drive",
+  });
+  const k = sg.kernel;
+  k.trace().configureChannel("gcr", { mode: "ring", capacity: 4096 });
+  // GcrShifter only ticks when env flag is set (Spec 153 rollout).
+  // Without it, byte_ready fires via legacy TrackBuffer path which
+  // doesn't go through gcrShifter. Force a manual tick to exercise
+  // the wiring.
+  sg.resetCold();
+  // Activate motor + spin track 18 (directory) to get GCR data flowing.
+  sg.kernel.gcrShifter.setMotor(true);
+  for (let i = 0; i < 80_000; i++) sg.kernel.gcrShifter.tick(1);
+  const ring = k.trace().getRing("gcr");
+  if (ring.length === 0) throw new Error("no gcr events captured");
+  const kinds = new Set(ring.map((e) => e.data.kind));
+  if (!kinds.has("byte_ready")) {
+    throw new Error(`no byte_ready events. kinds: ${[...kinds].join(",")}`);
+  }
+  for (const e of ring.filter((x) => x.data.kind === "byte_ready").slice(0, 3)) {
+    if (typeof e.data.byte !== "number") throw new Error("byte not number");
+    if (e.data.byte < 0 || e.data.byte > 0xff) throw new Error("byte out of range");
+    if (typeof e.data.track !== "number") throw new Error("track not number");
+  }
+  sg.shutdown?.();
+});
+
 check("iec channel captures line edges (Spec 205-A c5)", () => {
   const { session: s3 } = startIntegratedSession({
     diskPath: fixturePath,

@@ -128,6 +128,16 @@ export class GcrShifter {
   /** SYNC#-edge callback. Mutable for the same reason. */
   public onSyncDetected?: (active: boolean) => void;
 
+  /**
+   * Spec 205-A c6: kernel trace observer. Independent of onByteReady
+   * (which is owned by DriveCpu for V-flag set + VIA2 CA1) so the
+   * trace path doesn't conflict with the timing-critical wiring.
+   * Kernel installs this; called AFTER onByteReady fires.
+   */
+  public traceByteReady?: (byte: BYTE) => void;
+  /** Spec 205-A c6: kernel trace SYNC# observer. */
+  public traceSyncDetected?: (active: boolean) => void;
+
   // Track buffer cache: track-number → raw GCR bytes (or null for
   // unformatted/half-track positions). Lazy-loaded on first reach.
   private readonly trackCache = new Map<number, Uint8Array | null>();
@@ -303,6 +313,7 @@ export class GcrShifter {
     if (this.syncActive) {
       this.syncActive = false;
       this.onSyncDetected?.(false);
+      this.traceSyncDetected?.(false);
     }
     this.dataByteLatch = 0xff;
     this.latchedTrack = -1;
@@ -377,6 +388,7 @@ export class GcrShifter {
       if (!this.syncActive) {
         this.syncActive = true;
         this.onSyncDetected?.(true);
+        this.traceSyncDetected?.(true);
       }
       return;
     }
@@ -385,6 +397,7 @@ export class GcrShifter {
     if (this.syncActive) {
       this.syncActive = false;
       this.onSyncDetected?.(false);
+      this.traceSyncDetected?.(false);
     }
 
     // Non-sync bit: count toward next byte.
@@ -394,6 +407,7 @@ export class GcrShifter {
       const byte = u8(this.last_read_data);
       this.dataByteLatch = byte;
       this.onByteReady?.(byte);
+      this.traceByteReady?.(byte);
     }
   }
 }
