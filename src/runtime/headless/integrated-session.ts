@@ -673,19 +673,35 @@ export class IntegratedSession {
 
   // Sprint 92: extracted helper for trap dispatch — used by both
   // legacy stepC64Instruction and scheduler-backed path.
+  // Spec 204: each trap that fires records a kernel hook fire.
+  // Mode-gating happens inside `kernel.recordHookFire`; in
+  // `true-drive` mode any fire throws HookForbiddenError and the
+  // session crashes loud — that is the audit signal.
   private checkAndHandleTraps(): boolean {
-    return ((this.enableKernalFileIoTraps && handleKernalFileIoTrap({
+    if (this.enableKernalFileIoTraps && handleKernalFileIoTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, state: this.kernalFileIo,
-    })) || (this.enableKernalSerialTraps && handleKernalSerialTrap({
+    })) {
+      this.kernel.recordHookFire("kernal-fileio-trap", `pc=$${this.c64Cpu.pc.toString(16)}`);
+      return true;
+    }
+    if (this.enableKernalSerialTraps && handleKernalSerialTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, drive: this.drive,
       iecBus: this.iecBus, state: this.kernalSerial,
-    })) || (this.enableKernalIoTraps && handleKernalIoTrap({
+    })) {
+      this.kernel.recordHookFire("kernal-serial-trap", `pc=$${this.c64Cpu.pc.toString(16)}`);
+      return true;
+    }
+    if (this.enableKernalIoTraps && handleKernalIoTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, serial: this.kernalSerial,
       state: this.kernalIo,
-    }))) === true;
+    })) {
+      this.kernel.recordHookFire("kernal-io-trap", `pc=$${this.c64Cpu.pc.toString(16)}`);
+      return true;
+    }
+    return false;
   }
 
   stepC64Instruction(): void {
@@ -714,18 +730,9 @@ export class IntegratedSession {
     // 69 wants real KERNAL serial). Serial trap suite always on; it's
     // the workaround for the byte-tx mutual-wait until Sprint 69b
     // finish lands.
-    const trapped = (this.enableKernalFileIoTraps && handleKernalFileIoTrap({
-      cpu: this.c64Cpu, bus: this.c64Bus,
-      diskProvider: this.diskProvider, state: this.kernalFileIo,
-    })) || (this.enableKernalSerialTraps && handleKernalSerialTrap({
-      cpu: this.c64Cpu, bus: this.c64Bus,
-      diskProvider: this.diskProvider, drive: this.drive,
-      iecBus: this.iecBus, state: this.kernalSerial,
-    })) || (this.enableKernalIoTraps && handleKernalIoTrap({
-      cpu: this.c64Cpu, bus: this.c64Bus,
-      diskProvider: this.diskProvider, serial: this.kernalSerial,
-      state: this.kernalIo,
-    }));
+    // Spec 204: route legacy step path through the same recorder
+    // as the scheduler path so hook fires are accounted in both.
+    const trapped = this.checkAndHandleTraps();
     if (trapped) {
       this.c64InstructionCount += 1;
       const trapCycles = 7;
