@@ -57,9 +57,9 @@ import {
 } from "./scheduler/cycle-wrappers.js";
 import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
 import {
-  alarmContextNew,
   type AlarmContext,
 } from "./alarm/alarm-context.js";
+import { HeadlessMachineKernel } from "./kernel/headless-machine-kernel.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -223,11 +223,16 @@ export class IntegratedSession {
   public readonly scheduler?: CycleLockstepSchedulerImpl;
   public readonly cpuCycled?: Cpu6510Cycled;
   public readonly useCycleLockstep: boolean;
-  // Sprint 113 Phase 2 (Spec 146 caller migration): VICE-style alarm
-  // contexts. Used by Cpu65xxVice instances when useMicrocodedCpu=true.
-  // Created unconditionally so chip ports (CIA / VIA / VIC / SID) can
-  // begin registering alarms in their own phase-2 migrations even
-  // before the corresponding CPU dispatch path is enabled.
+  // Spec 200-c1: per-session monolithic emulator kernel. Owns clocks,
+  // alarms, trace, status. Construction happens early in the session
+  // constructor so subsequent chip wiring reads from kernel-owned
+  // resources (alarms today; chips in 200-c3/c4).
+  public readonly kernel: HeadlessMachineKernel;
+  // Spec 200-c2: alarm contexts moved into kernel. Session fields are
+  // forwarders for backward-compat callers; underlying instances are
+  // owned by `this.kernel.alarms`. Used by Cpu65xxVice instances when
+  // useMicrocodedCpu=true; chip ports (CIA / VIA / VIC / SID) register
+  // alarms against these references.
   public readonly maincpuAlarmContext: AlarmContext;
   public readonly drivecpuAlarmContext: AlarmContext;
   // Spec 142: shared trace registry. Always present; channels default
@@ -358,10 +363,16 @@ export class IntegratedSession {
       this.c64Bus.loadBasicRom(this.romSet.basic.bytes);
       this.c64Bus.loadCharRom(this.romSet.charRom.bytes);
     }
-    // Sprint 113 Phase 2: alarm contexts created up-front (BEFORE chip
-    // installs that wire alarms). Mirrors VICE machine_specific_init.
-    this.maincpuAlarmContext = alarmContextNew("maincpu");
-    this.drivecpuAlarmContext = alarmContextNew("drivecpu");
+    // Spec 200-c2: kernel created up-front (BEFORE chip installs that
+    // wire alarms). Kernel owns the alarm contexts; session forwards
+    // them for backward-compat field access. Mirrors VICE
+    // machine_specific_init creating maincpu/drivecpu alarm contexts.
+    this.kernel = new HeadlessMachineKernel({
+      session: this,
+      video: isPal ? "PAL" : "NTSC",
+    });
+    this.maincpuAlarmContext = this.kernel.alarms.maincpu;
+    this.drivecpuAlarmContext = this.kernel.alarms.drivecpu;
 
     // CPU built BEFORE CIA install — Cia6526Vice's Ciat sub-modules
     // capture the CPU clock at construction time via clkPtr(), so the

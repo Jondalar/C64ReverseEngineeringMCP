@@ -18,10 +18,17 @@ import type { MachineKernel, MachineSnapshot, MountedMedia } from "./machine-ker
 import type { KernelStatus, KernelMode } from "./kernel-status.js";
 import type { KernelTraceController } from "./kernel-trace.js";
 import { KernelTraceStub } from "./kernel-trace.js";
+import type { AlarmContext } from "../alarm/alarm-context.js";
+import { alarmContextNew } from "../alarm/alarm-context.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
   video: VideoSystem;
+}
+
+export interface KernelAlarmContexts {
+  readonly maincpu: AlarmContext;
+  readonly drivecpu: AlarmContext;
 }
 
 export class HeadlessMachineKernel implements MachineKernel {
@@ -29,9 +36,19 @@ export class HeadlessMachineKernel implements MachineKernel {
   private readonly traceStub: KernelTraceController = new KernelTraceStub();
   readonly video: VideoSystem;
 
+  // Spec 200-c2: kernel owns alarm contexts. Session reads them from
+  // here for backward-compat field access. Mirrors VICE
+  // machine_specific_init creating maincpu_alarm_context +
+  // drivecpu_alarm_context up-front, before chip installs.
+  readonly alarms: KernelAlarmContexts;
+
   constructor(deps: HeadlessMachineKernelDeps) {
     this.session = deps.session;
     this.video = deps.video;
+    this.alarms = {
+      maincpu: alarmContextNew("maincpu"),
+      drivecpu: alarmContextNew("drivecpu"),
+    };
   }
 
   c64Clock(): number {
