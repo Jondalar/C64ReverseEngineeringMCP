@@ -68,7 +68,13 @@ check("kernel.status() valid shape", () => {
   if (typeof s.mode !== "string") throw new Error(`mode not string: ${typeof s.mode}`);
   if (s.mode !== "debug-lockstep") throw new Error(`mode != debug-lockstep, got ${s.mode}`);
   if (!Array.isArray(s.hooks)) throw new Error("hooks not array");
-  if (s.hooks.length !== 0) throw new Error(`hooks not empty: ${JSON.stringify(s.hooks)}`);
+  // Spec 204: hooks now registered at kernel construction. Default
+  // mode = debug-lockstep, all fireCounts must start at 0.
+  if (s.hooks.length === 0) throw new Error("hooks should list every registered legacy hook (Spec 204)");
+  for (const h of s.hooks) {
+    if (typeof h.name !== "string") throw new Error(`hook missing name: ${JSON.stringify(h)}`);
+    if (h.fireCount !== 0) throw new Error(`hook ${h.name} fireCount != 0 at construction: ${h.fireCount}`);
+  }
   if (s.video !== "PAL") throw new Error(`video != PAL by default, got ${s.video}`);
   if (typeof s.c64Clock !== "number") throw new Error("c64Clock not number");
   if (!s.driveClocks || typeof s.driveClocks[8] !== "number") throw new Error("driveClocks[8] not number");
