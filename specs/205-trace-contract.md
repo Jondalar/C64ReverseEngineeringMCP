@@ -38,9 +38,23 @@
 - **c10** "session" / "keyboard" / "joystick" — resetCold +
   mountMedia + typeText + setJoystick* publish.
 
+## 205-B status (2026-05-06)
+
+- **c1** scripts/lib/trace-diff.mjs — JSONL reader, format
+  auto-detection (snapshot tuple vs kernel-channel), per-record
+  alignment with tolerance window.
+- **c2** scripts/diff-trace.mjs — CLI taking --vice + --ours +
+  optional --format / --channel / --tolerance / --fields. Verified
+  on samples/traces/v2-baseline/motm/{trace,headless-trace}.jsonl
+  — reports first divergence at ts=2900000 (vice c64 PC=$424F in
+  loader stage-2, ours PC=$E5D4 still in KERNAL boot — Sprint 111
+  finding).
+- **c3** scripts/smoke-diff-trace.mjs (npm run smoke:diff-trace) —
+  8/8 passing covering snapshot + channel formats, identical /
+  mutated / length-mismatch / tolerance windows.
+
 ## 205-A still open
 
-- 205-B VICE diff CLI (consumes the JSONL artifacts).
 - 205-C swimlane consumer (UI client of the same registry).
 - io / sid / drive_pc channels — already exist in the registry
   but no producer wired through the kernel yet.

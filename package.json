@@ -41,6 +41,8 @@
     "smoke:kernel-facade": "npm run build:mcp && node scripts/smoke-kernel-facade.mjs",
     "smoke:hook-hygiene": "npm run build:mcp && node scripts/smoke-hook-hygiene.mjs",
     "smoke:trace": "npm run build:mcp && node scripts/smoke-trace.mjs",
+    "smoke:diff-trace": "node scripts/smoke-diff-trace.mjs",
+    "diff-trace": "node scripts/diff-trace.mjs",
     "smoke:stepping": "npm run build:mcp && node scripts/smoke-stepping.mjs",
     "smoke:reset": "npm run build:mcp && node scripts/smoke-reset-determinism.mjs",
     "smoke:snapshot": "npm run build:mcp && node scripts/smoke-snapshot.mjs",
