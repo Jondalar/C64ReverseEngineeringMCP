@@ -26,6 +26,7 @@
     "trace:motm-vice-swimlane": "npm run build:mcp && node scripts/vice-iec-capture.mjs --swimlane",
     "trace:motm-headless-swimlane": "npm run build:mcp && node scripts/headless-swimlane-capture.mjs",
     "trace:motm-headless-full": "npm run build:mcp && node scripts/headless-full-trace.mjs",
+    "trace:motm-headless-runtime": "npm run build:mcp && node scripts/headless-runtime-trace.mjs",
     "trace:motm-full-diff": "node scripts/swimlane-full-diff.mjs",
     "trace:motm-diff": "node scripts/vice-iec-diff.mjs",
     "trace:motm-swimlane-diff": "node scripts/swimlane-diff-v2.mjs",
