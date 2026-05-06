@@ -6,7 +6,7 @@
 // Audio synthesis explicitly out of scope.
 
 import { startIntegratedSession } from "../integrated-session-manager.js";
-import { Sid6581 } from "../peripherals/sid.js";
+import { Sid6581 } from "../sid/sid.js";
 
 const FIXTURE = "samples/synthetic/1byte.g64";
 
@@ -88,18 +88,31 @@ export function runPotReadbackTest(): CheckResult[] {
 }
 
 // --- M2.6 — osc3 readback (LFSR-driven noise) ---
+//
+// Spec 151 / Sprint 113 — VICE-faithful behavior: LFSR only advances
+// when voice-3 phase wraps (phase >> 28 transitions). Caller must
+// configure freq + select noise wave on voice 3 before LFSR advances.
+// The pre-Sprint-113 mock auto-advanced LFSR per cycle without any
+// configuration; that was non-VICE behavior. Test updated to set
+// up voice 3 properly.
 
 export function runOsc3ReadbackTest(): CheckResult[] {
   const out: CheckResult[] = [];
   const sid = new Sid6581();
+  // Voice 3 freq = 0xFFFF (max) → 24-bit phase wraps every ~256
+  // cycles; LFSR advances on each wrap.
+  sid.write(0x0E, 0xFF);  // V2 freq lo
+  sid.write(0x0F, 0xFF);  // V2 freq hi
+  // Voice 3 control bit 7 = noise wave select.
+  sid.write(0x12, 0x80);
   const v0 = sid.read(0x1B);
   sid.tick(1000);
   const v1 = sid.read(0x1B);
   sid.tick(1000);
   const v2 = sid.read(0x1B);
   // Reads should change as LFSR shifts (with high probability over
-  // 1000 cycles).
-  out.push(check("osc3 readback changes over time",
+  // 1000 cycles given freq=0xFFFF).
+  out.push(check("osc3 readback changes over time (noise enabled)",
     !(v0 === v1 && v1 === v2),
     `v0=${v0} v1=${v1} v2=${v2}`));
   return out;

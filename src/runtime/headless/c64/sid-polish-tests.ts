@@ -1,7 +1,7 @@
 // Sprint 109 (Specs 130-132) v1 — SID polish tests.
 
 import { existsSync, readFileSync } from "node:fs";
-import { Sid6581 } from "../peripherals/sid.js";
+import { Sid6581 } from "../sid/sid.js";
 
 export interface CheckResult { label: string; pass: boolean; detail?: string }
 function check(label: string, cond: boolean, detail?: string): CheckResult {
@@ -64,7 +64,7 @@ export function runNoAudioBoundaryScanTest(): CheckResult[] {
     return { existsSync, readFileSync };
   })();
   const sources = [
-    "src/runtime/headless/peripherals/sid.ts",
+    "src/runtime/headless/sid/sid.ts",
     "src/runtime/headless/integrated-session.ts",
     "src/runtime/headless/integrated-session-manager.ts",
   ];

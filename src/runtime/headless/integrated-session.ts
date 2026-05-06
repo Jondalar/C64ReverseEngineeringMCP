@@ -21,7 +21,7 @@ import { buildG64 } from "../../disk/g64-builder.js";
 import { DiskProvider } from "./providers.js";
 import { existsSync, readFileSync } from "node:fs";
 import { installVicII, type VicII } from "./peripherals/vic-ii.js";
-import { installSid, type Sid6581 } from "./peripherals/sid.js";
+import { installSid, type Sid6581 } from "./sid/sid.js";
 import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
 import { rgbaToPng } from "./peripherals/png-writer.js";
 import { writeFileSync } from "node:fs";

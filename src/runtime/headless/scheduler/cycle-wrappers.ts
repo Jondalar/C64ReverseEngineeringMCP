@@ -18,7 +18,7 @@ import type { CycleSteppable } from "./cycle-steppable.js";
 import type { Cpu6510 } from "../cpu6510.js";
 import type { Cia6526 } from "../cia/cia6526.js";
 import type { VicII } from "../peripherals/vic-ii.js";
-import type { Sid6581 } from "../peripherals/sid.js";
+import type { Sid6581 } from "../sid/sid.js";
 import type { DriveCpu } from "../drive/drive-cpu.js";
 import type { Via6522 } from "../drive/via6522.js";
 
