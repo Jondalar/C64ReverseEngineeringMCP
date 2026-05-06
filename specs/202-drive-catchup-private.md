@@ -1,10 +1,30 @@
 # Spec 202 — Drive catch-up private to kernel
 
 **Sprint:** 117
-**Status:** PROPOSED
+**Status:** IN PROGRESS — c1/c2 done 2026-05-06; c3 (default flip) deferred
 **ADR:** Decision A, Decision D, §8 Step 3
 **Depends on:** 201
 **Blocks:** 203, 212, 213
+
+## Commit chain
+
+- **c1 ✓ 2026-05-06** — `SyncStrategy` interface gains
+  `catchUpDrive(device, targetClock)`. `LockstepStrategy` (no-op)
+  and `EventCatchupStrategy` (calls `drive.executeToClock`) ship as
+  classes. `kernel.catchUpDrive` is the public-on-kernel entry point.
+- **c2 ✓ 2026-05-06** — All five `drive.executeToClock` callsites in
+  IntegratedSession replaced with `kernel.catchUpDrive(8, ...)`,
+  plus the kernel-internal `beforeC64Read` hook. ADR §10 criterion 4
+  structurally satisfied: every external drive-clock advance goes
+  through the kernel.
+- **c3 (deferred)** — Flip the production default mode from
+  `debug-lockstep` to `true-drive`. Requires a real
+  EventCatchupStrategy run-loop that schedules cross-domain bus
+  events instead of ticking drive every C64 cycle. Currently
+  EventCatchupStrategy delegates run/runInstructions to the
+  lockstep scheduler; the flip lands once the run-loop owns its
+  own scheduling. This is also when production smokes start
+  reporting `mode: 'true-drive'`.
 
 ## Goal
 
