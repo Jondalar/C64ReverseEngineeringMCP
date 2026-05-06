@@ -333,7 +333,15 @@ export class IntegratedSession {
     this.parser = new G64Parser(imageBytes);
     this.diskProvider = DiskProvider.fromImagePath(opts.diskPath);
     this.trackBuffer = new TrackBuffer(this.parser);
-    this.headPosition = new HeadPosition({ startTrack: opts.startTrack ?? 18 });
+    // Pass G64 parser's actual half-track count so drive head can step
+    // beyond standard 35-track cap. motm.g64 has 37 tracks (data up to
+    // track 36) used by copy protection; without this bump head capped
+    // at track 35 and reads garbage for track 36 → motm wrong-path.
+    const halfTrackCount = this.parser.getHalfTrackCount();
+    this.headPosition = new HeadPosition({
+      startTrack: opts.startTrack ?? 18,
+      defaultTrackCount: halfTrackCount > 0 ? Math.ceil(halfTrackCount / 2) : 35,
+    });
     this.iecBus = new IecBus();
 
     // C64 side.
