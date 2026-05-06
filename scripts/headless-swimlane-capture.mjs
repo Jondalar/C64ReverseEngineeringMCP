@@ -105,6 +105,10 @@ const id = args.id ?? "motm";
 const maxEvents = Number(args["max-events"] ?? 200);
 const cycleBudget = Number(args["cycle-budget"] ?? 50_000_000);
 const probeMode = args["probe-mode"];
+// Phase-aware capture: skip rows until ts >= startCycle. Used to align
+// captures with VICE side which begins its window post-autoboot. Set
+// to 0 to capture from cold-boot.
+const startCycle = Number(args["start-cycle"] ?? 0);
 const projectDir = args["project-dir"] ?? process.env.C64RE_PROJECT_DIR ?? repoRoot;
 
 // Load manifest to find the disk image.
@@ -292,6 +296,8 @@ function emitRow(src, addr, value) {
 
   const rowTs   = ts();
   const rowTdrv = tdrv();
+  // Phase-aware: skip rows before startCycle threshold.
+  if (rowTs < startCycle) return;
 
   // C64 CPU state.
   const c64 = {
