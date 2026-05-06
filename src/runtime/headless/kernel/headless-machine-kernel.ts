@@ -11,6 +11,7 @@
 // The kernel constructor builds C64 chips up-front. IntegratedSession
 // reads kernel.<chip> as forwarder for backward-compat field access.
 
+import { readFileSync } from "node:fs";
 import type { IntegratedSession } from "../integrated-session.js";
 import type { VideoSystem } from "./clock-domains.js";
 import type { MachineKernel, MachineSnapshot, MountedMedia } from "./machine-kernel.js";
@@ -30,10 +31,24 @@ import { installCia1 } from "../peripherals/cia1.js";
 import type { KeyboardMatrix, JoystickState } from "../peripherals/keyboard.js";
 import { installCia2 } from "../peripherals/cia2.js";
 import type { Cia6526Vice } from "../cia/cia6526-vice.js";
+import { DriveCpu } from "../drive/drive-cpu.js";
+import { TrackBuffer, HeadPosition } from "../drive/head-position.js";
+import { GcrShifter } from "../drive/gcr-shifter.js";
+import { G64Parser } from "../../../disk/g64-parser.js";
+import { buildG64 } from "../../../disk/g64-builder.js";
+import { DiskProvider } from "../providers.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
   video: VideoSystem;
+  diskPath: string;
+  imageFormat: string;
+  deviceId: number;
+  startTrack: number;
+  writeProtected?: boolean;
+  useMicrocodedCpu: boolean;
+  useCycleLockstep: boolean;
+  driveCyclesPerC64Cycle: number;
 }
 
 export interface KernelAlarmContexts {
@@ -72,6 +87,17 @@ export class HeadlessMachineKernel implements MachineKernel {
   readonly sid: Sid6581;
   readonly framebuffer: VicFramebuffer;
 
+  // Spec 200-c4: drive + disk side. Kernel owns parser, head, GCR
+  // shifter and drive CPU; IEC drive-side wiring happens here too.
+  readonly diskPath: string;
+  readonly imageFormat: string;
+  readonly parser: G64Parser;
+  readonly diskProvider: DiskProvider;
+  readonly trackBuffer: TrackBuffer;
+  readonly headPosition: HeadPosition;
+  readonly gcrShifter: GcrShifter;
+  readonly drive: DriveCpu;
+
   constructor(deps: HeadlessMachineKernelDeps) {
     this.session = deps.session;
     this.video = deps.video;
@@ -81,8 +107,29 @@ export class HeadlessMachineKernel implements MachineKernel {
       drivecpu: alarmContextNew("drivecpu"),
     };
 
-    // Spec 200-c3: shared IEC bus first. Drive side wires into it via
-    // Spec 200-c4.
+    // Spec 200-c4: disk image + parser. D64 sources are pre-encoded to
+    // a G64 byte stream in memory and then parsed normally. Real drive
+    // ROM, real GCR pipeline, real IEC — same code path as native G64.
+    this.diskPath = deps.diskPath;
+    this.imageFormat = deps.imageFormat;
+    let imageBytes: Uint8Array = readFileSync(this.diskPath);
+    if (this.imageFormat === "d64") {
+      imageBytes = buildG64({ d64: imageBytes });
+    }
+    this.parser = new G64Parser(imageBytes);
+    this.diskProvider = DiskProvider.fromImagePath(this.diskPath);
+    this.trackBuffer = new TrackBuffer(this.parser);
+    // Pass G64 parser's actual half-track count so drive head can step
+    // beyond standard 35-track cap. motm.g64 has 37 tracks (data up to
+    // track 36) used by copy protection.
+    const halfTrackCount = this.parser.getHalfTrackCount();
+    this.headPosition = new HeadPosition({
+      startTrack: deps.startTrack,
+      defaultTrackCount: halfTrackCount > 0 ? Math.ceil(halfTrackCount / 2) : 35,
+    });
+
+    // Spec 200-c3: shared IEC bus. Drive-side wiring happens after
+    // drive build below.
     this.iecBus = new IecBus();
 
     // Spec 200-c3: C64 memory bus + ROMs.
@@ -163,6 +210,58 @@ export class HeadlessMachineKernel implements MachineKernel {
     this.c64Bus.reset();
 
     this.framebuffer = new VicFramebuffer(isPal);
+
+    // Spec 200-c4: 1:1 VICE GCR shifter. Constructed before DriveCpu
+    // so it can be supplied (DriveCpu wires byte-ready → VIA2 CA1
+    // + CPU SO line and ticks the shifter per drive cycle in lockstep).
+    // Same parser + headPosition as TrackBuffer — they share the disk
+    // image but the shifter is the source-of-truth for VIA2 PA reads
+    // when wired (TrackBuffer remains the write-buffer for V3).
+    this.gcrShifter = new GcrShifter({
+      parser: this.parser,
+      headPosition: this.headPosition,
+    });
+
+    // Spec 153 Step 2 — Phase 1 rollout: opt-in via env flag while
+    // we bring the new path online without disturbing the KERNAL
+    // serial smoke. Default OFF = legacy TrackBuffer-inline shifter
+    // path (back-compat). Set C64RE_USE_GCR_SHIFTER=1 to activate the
+    // 1:1 VICE shifter coupling.
+    const useGcrShifter = process.env.C64RE_USE_GCR_SHIFTER === "1";
+
+    // Drive build. Spec 090: configure sync ratio + zero baseline.
+    this.drive = new DriveCpu({
+      deviceId: deps.deviceId,
+      iecBus: this.iecBus,
+      gcr: {
+        trackBuffer: this.trackBuffer,
+        headPosition: this.headPosition,
+        writeProtected: deps.writeProtected,
+      },
+      gcrShifter: useGcrShifter ? this.gcrShifter : undefined,
+      // Sprint 96 part 6 (Bug 39): drive uses microcoded CPU when c64
+      // does. Required for sub-instruction bus access timing during
+      // IEC bit-bang.
+      useMicrocodedCpu: deps.useMicrocodedCpu,
+      alarmContext: this.alarms.drivecpu,
+    });
+    this.iecBus.attachDriveRam(this.drive.bus.ram);
+    // Spec 140 v3: 1:1 VICE port. No mode flag — VICE is THE behavior.
+    // Spec 141 v2: drive clock source for ATN edge IRQ stamping.
+    this.iecBus.driveClockSource = () =>
+      (this.drive.cpu as { cycles: number }).cycles;
+    // Spec 090: configure drive's sync ratio + zero baseline.
+    this.drive.setSyncRatio(deps.driveCyclesPerC64Cycle);
+    this.drive.setSyncBaseline(0);
+
+    // Spec 090: bus-read hook for legacy non-lockstep mode. In lockstep
+    // mode the scheduler drives the drive per cycle, so the hook is a
+    // no-op; skip installing it to avoid double-counting steal cycles
+    // (Sprint 113 Phase 2 / Spec 150 fix).
+    if (!deps.useCycleLockstep) {
+      this.iecBus.beforeC64Read = () =>
+        this.drive.executeToClock(this.c64Cpu.cycles);
+    }
   }
 
   c64Clock(): number {

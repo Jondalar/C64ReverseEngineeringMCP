@@ -330,37 +330,29 @@ export class IntegratedSession {
     const ext = opts.diskPath.toLowerCase().split(".").pop() ?? "";
     this.imageFormat = ext === "g64" ? "g64" : ext === "d64" ? "d64" : ext || "other";
     this.diskPath = opts.diskPath;
-    // Spec 112 (M3.4a): D64 source media is pre-encoded to a G64 byte
-    // stream in memory and then parsed normally. Real drive ROM, real
-    // GCR pipeline, real IEC — same code path as native G64. This
-    // gives D64 fixtures the true-drive semantics required for the
-    // M3.4 acceptance ladder. "Pre-encode whole disk" is chosen over
-    // per-sector lazy because ~330 KB per disk is well inside the
-    // headless budget and avoids cache complexity.
-    let imageBytes: Uint8Array = readFileSync(opts.diskPath);
-    if (this.imageFormat === "d64") {
-      imageBytes = buildG64({ d64: imageBytes });
-    }
-    this.parser = new G64Parser(imageBytes);
-    this.diskProvider = DiskProvider.fromImagePath(opts.diskPath);
-    this.trackBuffer = new TrackBuffer(this.parser);
-    // Pass G64 parser's actual half-track count so drive head can step
-    // beyond standard 35-track cap. motm.g64 has 37 tracks (data up to
-    // track 36) used by copy protection; without this bump head capped
-    // at track 35 and reads garbage for track 36 → motm wrong-path.
-    const halfTrackCount = this.parser.getHalfTrackCount();
-    this.headPosition = new HeadPosition({
-      startTrack: opts.startTrack ?? 18,
-      defaultTrackCount: halfTrackCount > 0 ? Math.ceil(halfTrackCount / 2) : 35,
-    });
-    // Spec 200-c2 + c3: kernel created up-front. Kernel constructor
-    // owns alarm contexts AND C64-side chips: iecBus, c64Bus, romSet,
-    // c64Cpu, cia1, cia2, vic, sid, framebuffer. Session reads these
-    // as backward-compat field aliases. Mirrors VICE
-    // machine_specific_init build order.
+
+    // Spec 200-c5 prep: lockstep flag computed BEFORE kernel build so
+    // kernel can decide on legacy beforeC64Read hook installation.
+    this.useCycleLockstep = (opts.useCycleLockstep ?? false) || (opts.useMicrocodedCpu ?? false);
+    this.useMicrocodedCpu = opts.useMicrocodedCpu ?? false;
+
+    // Spec 200-c2 + c3 + c4: kernel created up-front. Kernel constructor
+    // owns alarm contexts, C64-side chips (iecBus, c64Bus, romSet,
+    // c64Cpu, cia1, cia2, vic, sid, framebuffer), AND drive-side state
+    // (parser, trackBuffer, headPosition, gcrShifter, drive) plus IEC
+    // drive-side wiring. Session reads these as backward-compat field
+    // aliases. Mirrors VICE machine_specific_init build order.
     this.kernel = new HeadlessMachineKernel({
       session: this,
       video: isPal ? "PAL" : "NTSC",
+      diskPath: this.diskPath,
+      imageFormat: this.imageFormat,
+      deviceId: opts.deviceId ?? 8,
+      startTrack: opts.startTrack ?? 18,
+      writeProtected: opts.writeProtected,
+      useMicrocodedCpu: this.useMicrocodedCpu,
+      useCycleLockstep: this.useCycleLockstep,
+      driveCyclesPerC64Cycle: this.driveCyclesPerC64Cycle,
     });
     this.maincpuAlarmContext = this.kernel.alarms.maincpu;
     this.drivecpuAlarmContext = this.kernel.alarms.drivecpu;
@@ -379,71 +371,12 @@ export class IntegratedSession {
     this.vic = this.kernel.vic;
     this.sid = this.kernel.sid;
     this.framebuffer = this.kernel.framebuffer;
-
-    // Spec 153 / Sprint 114: 1:1 VICE GCR shifter. Constructed here so
-    // it can be supplied to DriveCpu (which wires byte-ready → VIA2 CA1
-    // + CPU SO line, and ticks the shifter per drive cycle in lockstep).
-    // Same parser + headPosition as TrackBuffer — they share the disk
-    // image but the shifter is the source-of-truth for VIA2 PA reads
-    // when wired (TrackBuffer remains the write-buffer for V3).
-    this.gcrShifter = new GcrShifter({
-      parser: this.parser,
-      headPosition: this.headPosition,
-    });
-
-    // Spec 153 Step 2 — Phase 1 rollout: opt-in via env flag while
-    // we bring the new path online without disturbing the KERNAL
-    // serial smoke. Default OFF = legacy TrackBuffer-inline shifter
-    // path (back-compat). Set C64RE_USE_GCR_SHIFTER=1 to activate the
-    // 1:1 VICE shifter coupling. The motm probe runs with this flag
-    // ON to validate drive-PC progression past the $07c1 stuck loop;
-    // smoke:load and other regression suites run with it off until
-    // the cross-coupling regression at boot is rooted out (V3 task).
-    const useGcrShifter = process.env.C64RE_USE_GCR_SHIFTER === "1";
-
-    // Drive side. Spec 090: configure sync ratio + zero baseline.
-    this.drive = new DriveCpu({
-      deviceId: opts.deviceId ?? 8,
-      iecBus: this.iecBus,
-      gcr: { trackBuffer: this.trackBuffer, headPosition: this.headPosition, writeProtected: opts.writeProtected },
-      // Spec 153 / Sprint 114: pass the standalone shifter — DriveBus
-      // selects its coupling over the legacy TrackBuffer-inline-shifter
-      // when both are present. Phase 1 rollout: gated by env flag.
-      gcrShifter: useGcrShifter ? this.gcrShifter : undefined,
-      // Sprint 96 part 6 (Bug 39): drive uses microcoded CPU when c64
-      // does. Required for sub-instruction bus access timing during
-      // IEC bit-bang.
-      useMicrocodedCpu: opts.useMicrocodedCpu ?? false,
-      alarmContext: this.drivecpuAlarmContext,
-    });
-    this.iecBus.attachDriveRam(this.drive.bus.ram);
-    // Spec 140 v3: 1:1 VICE port. No mode flag — VICE is THE behavior.
-    // Spec 141 v2: drive clock source for ATN edge IRQ stamping.
-    this.iecBus.driveClockSource = () =>
-      (this.drive.cpu as { cycles: number }).cycles;
-    // Spec 090: configure drive's sync ratio + zero baseline.
-    this.drive.setSyncRatio(this.driveCyclesPerC64Cycle);
-    this.drive.setSyncBaseline(0);
-    // Spec 090: bus-read hook for legacy non-lockstep mode. In Sprint 92
-    // lockstep, drive ticks per cycle so hook becomes no-op. We install
-    // it conditionally on construction (after drive built).
-    //
-    // Spec 138 probe (Q4 hybrid): in lockstep mode, ALSO install the
-    // hook when probeMode is set. For variants A/B/C the hook causes
-    // drive.executeToClock to flush at every IEC access (= push-flush
-    // semantics overlaid on the lockstep tick).
-    //
-    // Sprint 113 Phase 2 (Spec 150) fix: in lockstep mode the scheduler
-    // is authoritative for drive timing. With VIC stealCpuCycles
-    // bumping c64Cpu.cycles directly, beforeC64Read's lazy
-    // executeToClock would double-count steal cycles into drive
-    // (drive already ticked by scheduler per cycle; flush adds steal
-    // cycles on top). Skip the hook in lockstep mode entirely. Probe
-    // variants A/B retain afterCycleSync wiring that updates
-    // lastSyncC64Clk so any explicit executeToClock call is no-op.
-    if (!opts.useCycleLockstep) {
-      this.iecBus.beforeC64Read = () => this.drive.executeToClock(this.c64Cpu.cycles);
-    }
+    this.parser = this.kernel.parser;
+    this.diskProvider = this.kernel.diskProvider;
+    this.trackBuffer = this.kernel.trackBuffer;
+    this.headPosition = this.kernel.headPosition;
+    this.gcrShifter = this.kernel.gcrShifter;
+    this.drive = this.kernel.drive;
 
     this.kernalFileIo = makeKernalFileIoState();
     this.kernalSerial = makeKernalSerialState();
@@ -455,10 +388,9 @@ export class IntegratedSession {
     this.enableKernalIoTraps = opts.enableKernalIoTraps ?? false;
     // Spec 200-c3: framebuffer constructed inside kernel; assigned via
     // alias above. No additional construction here.
-
-    // Sprint 92: cycle-lockstep scheduler (opt-in).
-    this.useCycleLockstep = (opts.useCycleLockstep ?? false) || (opts.useMicrocodedCpu ?? false);
-    this.useMicrocodedCpu = opts.useMicrocodedCpu ?? false;
+    // Spec 200-c4: useCycleLockstep / useMicrocodedCpu set above before
+    // kernel construction (kernel needs them for drive build). No
+    // duplicate assignment here.
     // Q9 head-start disabled by default in v3+: with bus formula
     // 1:1 VICE + drive RAM mostly correct, head-start no longer
     // needed for boot-order race. CA1 IRQ + reevaluateCa1Level
