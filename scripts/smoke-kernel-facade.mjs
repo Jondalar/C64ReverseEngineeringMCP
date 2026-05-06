@@ -245,6 +245,30 @@ check("kernel.catchUpDrive exists and is no-op safe (Spec 202-c1)", () => {
   kernel.catchUpDrive(8, kernel.driveClock(8));
 });
 
+check("kernel.trace controller — registry + ring round-trip (Spec 205-A c1)", () => {
+  const tc = kernel.trace();
+  if (typeof tc.configureChannel !== "function") throw new Error("configureChannel missing");
+  if (typeof tc.publish !== "function") throw new Error("publish missing");
+  if (typeof tc.getRing !== "function") throw new Error("getRing missing");
+  if (typeof tc.isEnabled !== "function") throw new Error("isEnabled missing");
+
+  // Configure bus_access channel as ring; publish a probe; read back.
+  tc.configureChannel("bus_access", { mode: "ring", capacity: 16 });
+  if (!tc.isEnabled("bus_access")) throw new Error("bus_access not enabled after configure");
+  tc.publish("bus_access", 1234, { probe: "spec-205a-c1", value: 0x42 });
+  const ring = tc.getRing("bus_access");
+  if (ring.length !== 1) throw new Error(`ring length = ${ring.length}, want 1`);
+  const ev = ring[0];
+  if (ev.ts !== 1234) throw new Error(`ts = ${ev.ts}, want 1234`);
+  if (ev.channel !== "bus_access") throw new Error(`channel = ${ev.channel}`);
+  if (ev.data?.probe !== "spec-205a-c1") throw new Error("data.probe roundtrip failed");
+
+  // Disable and verify silenced.
+  tc.configureChannel("bus_access", { mode: "off" });
+  tc.publish("bus_access", 9999, { probe: "ignored" });
+  if (tc.getRing("bus_access").length !== 0) throw new Error("ring not cleared on off");
+});
+
 check("CIA2 \$DD00 + VIA1 \$1800 routing wired (Spec 201-c2/c3 — static)", () => {
   // Static check: the kernel constructor wires CIA2 install with an
   // iecWrite callback that closes over kernel.bus, and DriveCpu with

@@ -237,8 +237,11 @@ export class IntegratedSession {
   public readonly drivecpuAlarmContext: AlarmContext;
   // Spec 142: shared trace registry. Always present; channels default
   // to "off" until caller configures.
-  public readonly traceRegistry: TraceRegistry = new TraceRegistry();
-  public readonly busAccessProducer?: BusAccessTraceProducer;
+  // Spec 205-A c1: trace registry now lives on the kernel. Session
+  // exposes it via getter so existing callers (smoke scripts, MCP
+  // tools) keep working without churn.
+  public get traceRegistry(): TraceRegistry { return this.kernel.traceRegistry; }
+  public busAccessProducer?: BusAccessTraceProducer;
   public readonly useMicrocodedCpu: boolean;
   // Spec 141 Q9: drive head-start cycles, default 200_000 (≈200ms PAL).
   public readonly driveHeadStartCycles: number;
@@ -505,7 +508,10 @@ export class IntegratedSession {
       this.iecBus.busAccessProducer = producer;
       this.drive.bus.via1.busAccessHook = producer;
       this.drive.bus.via1.baseAddr = 0x1800;
-      (this as { busAccessProducer?: BusAccessTraceProducer }).busAccessProducer = producer;
+      this.busAccessProducer = producer;
+      // Spec 205-A c1: register producer with kernel trace controller
+      // so external consumers can reach it via kernel.trace().
+      this.kernel.trace().setBusAccessProducer(producer);
     }
   }
 

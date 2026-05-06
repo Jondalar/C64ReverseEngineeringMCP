@@ -17,7 +17,8 @@ import type { VideoSystem } from "./clock-domains.js";
 import type { MachineKernel, MachineSnapshot, MountedMedia } from "./machine-kernel.js";
 import type { KernelStatus, KernelMode } from "./kernel-status.js";
 import type { KernelTraceController } from "./kernel-trace.js";
-import { KernelTraceStub } from "./kernel-trace.js";
+import { KernelTraceControllerImpl } from "./kernel-trace.js";
+import { TraceRegistry } from "../trace/channels.js";
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import { alarmContextNew } from "../alarm/alarm-context.js";
 import { Cpu6510 } from "../cpu6510.js";
@@ -61,7 +62,11 @@ export interface KernelAlarmContexts {
 
 export class HeadlessMachineKernel implements MachineKernel {
   private readonly session: IntegratedSession;
-  private readonly traceStub: KernelTraceController = new KernelTraceStub();
+  // Spec 205-A c1: kernel owns the trace registry. Channels off by
+  // default; IntegratedSession (or external clients) configure them
+  // via `kernel.trace().configureChannel`.
+  readonly traceRegistry: TraceRegistry = new TraceRegistry();
+  private readonly traceCtrl: KernelTraceControllerImpl = new KernelTraceControllerImpl(this.traceRegistry);
   readonly video: VideoSystem;
 
   // Spec 200-c2: alarm contexts.
@@ -558,7 +563,7 @@ export class HeadlessMachineKernel implements MachineKernel {
   }
 
   trace(): KernelTraceController {
-    return this.traceStub;
+    return this.traceCtrl;
   }
 
   status(): KernelStatus {
