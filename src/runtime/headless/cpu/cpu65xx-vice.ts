@@ -179,6 +179,38 @@ export class Cpu65xxVice implements CycleSteppable {
   private nmiPending = false;
   private prevNmi = false;
 
+  // ============================================================
+  // SO (Set Overflow) input pin — Spec 153 / Sprint 114.
+  //
+  // Mirrors VICE drivecpu.c drivecpu_set_overflow() + the
+  // 6510core.c DRIVE_CPU byte_ready_edge check pattern.
+  //
+  // Real hardware: SO high→low transition sets the V flag in P.
+  // Line is active-low; default (inactive) state is high (1).
+  //
+  // VICE reference:
+  //   src/drive/drivecpu.c:219-223  drivecpu_set_overflow()
+  //   src/6510core.c:153-162        LOCAL_SET_OVERFLOW / drivecpu_rotate()
+  //   src/6510core.c:2528-2530      PHP byte_ready_edge check
+  //   src/6510core.c:2816-2818      BVC byte_ready_edge check
+  //   src/6510core.c:2935-2937      BVS byte_ready_edge check
+  // ============================================================
+  /** Current SO pin level. 1 = high (inactive), 0 = low (asserted). */
+  public soLine: 0 | 1 = 1;
+  /** Previous SO pin level — used for edge detection in executeCycle(). */
+  private prevSoLine: 0 | 1 = 1;
+
+  /**
+   * Drive the SO pin to a new level.
+   *
+   * The high→low edge is detected on the next executeCycle() call,
+   * matching VICE's per-cycle sample ordering: the caller sets the
+   * level and the CPU samples it at the next cycle boundary.
+   */
+  public setSoLine(level: 0 | 1): void {
+    this.soLine = level;
+  }
+
   /** Cycle of last taken branch w/o page-cross (VICE
    *  OPINFO_DELAYS_INTERRUPT — set on BCC/BCS/BNE/BEQ/BPL/BMI/BVC/BVS
    *  taken w/o page cross). */
@@ -310,6 +342,7 @@ export class Cpu65xxVice implements CycleSteppable {
     this.atBoundary = true; this.inst = null;
     this.irqLine = false; this.nmiLine = false;
     this.nmiPending = false; this.prevNmi = false;
+    this.soLine = 1; this.prevSoLine = 1;
     this.lastBranchTakeCycle = 0;
     this.lastOpcodeDelaysInterrupt = false;
     this.lastIFlagClearCycle = 0;
@@ -347,6 +380,15 @@ export class Cpu65xxVice implements CycleSteppable {
   private interruptDispatchedThisCycle = false;
 
   executeCycle(): void {
+    // SO pin edge detection — Spec 153 / Sprint 114.
+    // VICE: drivecpu_set_overflow() sets P_OVERFLOW directly on byte-ready
+    // edge; we mirror that with a high→low (1→0) edge check per cycle.
+    // V flag set only once per edge (not held while line stays low).
+    if (this.prevSoLine === 1 && this.soLine === 0) {
+      this.reg_p = u8(this.reg_p | P_OVERFLOW);
+    }
+    this.prevSoLine = this.soLine;
+
     if (this.jammed) {
       // VICE: JAM keeps cycling the clock without advancing PC.
       this.clk = clkAdd(this.clk, 1);
