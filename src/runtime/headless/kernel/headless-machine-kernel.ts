@@ -38,6 +38,7 @@ import { G64Parser } from "../../../disk/g64-parser.js";
 import { buildG64 } from "../../../disk/g64-builder.js";
 import { DiskProvider } from "../providers.js";
 import { HeadlessKernelBus } from "./headless-kernel-bus.js";
+import { KernelIrqRing, type KernelIrqEvent } from "./kernel-irq.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
@@ -64,6 +65,12 @@ export class HeadlessMachineKernel implements MachineKernel {
 
   // Spec 200-c2: alarm contexts.
   readonly alarms: KernelAlarmContexts;
+
+  // Spec 203-c1: IRQ / NMI / SO / CA1 / CB1 event ring. Chip backends
+  // emit timestamped edges via `emitIrqEvent`; consumers read via
+  // `irqEvents()`. Used by CPU interrupt-delay accounting and by the
+  // first-divergence diff tooling in Spec 205.
+  private readonly irqRing = new KernelIrqRing(4096);
 
   // Spec 200-c3: shared IEC bus. Created here because both C64 (CIA2)
   // and drive sides reference it; ownership belongs to the kernel.
@@ -321,6 +328,20 @@ export class HeadlessMachineKernel implements MachineKernel {
       );
     }
     return this.drive.cpu.cycles;
+  }
+
+  /**
+   * Spec 203-c1: emit a timestamped IRQ / NMI / SO / CA1 / CB1 event.
+   * Chip backends call this on every line edge. The kernel ring
+   * preserves up to 4096 most-recent events for diff tooling.
+   */
+  emitIrqEvent(event: Omit<KernelIrqEvent, "seq">): KernelIrqEvent {
+    return this.irqRing.emit(event);
+  }
+
+  /** Spec 203-c1: read the IRQ event ring. */
+  irqEvents(): readonly KernelIrqEvent[] {
+    return this.irqRing.read();
   }
 
   /**
