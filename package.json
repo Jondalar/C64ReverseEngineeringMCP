@@ -23,6 +23,7 @@
     "test:bus-trace": "npm run build:mcp && node scripts/bus-trace-motm.mjs",
     "trace:motm-vice": "npm run build:mcp && node scripts/vice-iec-capture.mjs",
     "trace:motm-vice-swimlane": "npm run build:mcp && node scripts/vice-iec-capture.mjs --swimlane",
+    "trace:motm-headless-swimlane": "npm run build:mcp && node scripts/headless-swimlane-capture.mjs",
     "trace:motm-diff": "node scripts/vice-iec-diff.mjs",
     "probe:motm": "npm run build:mcp && node scripts/probe-motm.mjs",
     "trace:eof": "npm run build:mcp && node scripts/trace-eof.mjs",
