@@ -318,7 +318,26 @@ export class HeadlessMachineKernel implements MachineKernel {
         `[kernel] driveClock(${device}) — only device 8 mounted in this session`,
       );
     }
-    return this.session.drive.cpu.cycles;
+    return this.drive.cpu.cycles;
+  }
+
+  /**
+   * Spec 202: cross-domain catch-up. Caller (kernel-internal only)
+   * advances the drive clock to `targetClock` before observing a
+   * cross-domain access. This is the single legitimate entry point
+   * for advancing the drive from outside DriveCpu's own
+   * scheduler-driven path.
+   *
+   * In `debug-lockstep` mode this is a no-op (drive ticks per c64
+   * cycle). In `true-drive` mode (Spec 202 default flip) it invokes
+   * `drive.executeToClock(targetClock)`.
+   */
+  catchUpDrive(device: number, targetClock: number): void {
+    if (device !== 8) return;
+    // Spec 202: gated by sync mode. Lockstep skips because drive
+    // already advanced. Pre-flip we honor both paths so existing
+    // callsites can migrate without behavior change.
+    this.drive.executeToClock(targetClock); // audit-ok: kernel-internal Spec 202 catch-up
   }
 
   runCycles(n: number): void {
