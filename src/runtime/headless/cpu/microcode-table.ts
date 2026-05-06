@@ -275,1018 +275,397 @@ export interface MicrocodeEntry {
   mode: string;
   cycles: number;
   pattern: AddressModePattern;
+  /**
+   * VICE OPINFO_DELAYS_INTERRUPT — true for branch instructions when taken
+   * without a page cross (BPL/BMI/BVC/BVS/BCC/BCS/BNE/BEQ).
+   * Source: 6510core.c BRANCH macro, OPCODE_DELAYS_INTERRUPT() call (line ~991).
+   * Note: CLI/PLP/RTI use OPCODE_ENABLES_IRQ (separate bit, not this flag).
+   */
+  delaysInterrupt?: boolean;
+  /**
+   * TRUE for addressing modes that conditionally add 1 cycle on page boundary
+   * crossing: absx_read, absy_read, indy_read.
+   * Source: 6510core.c LOAD_ABS_X / LOAD_ABS_Y / LOAD_IND_Y macros (~line 549-609).
+   * Write and RMW variants always pay the extra cycle — not conditional.
+   */
+  pageCrossExtra?: boolean;
+  /**
+   * TRUE for RMW instructions that perform a dummy write of the OLD value
+   * followed by a real write of the NEW value (patterns: zp_rmw, zpx_rmw,
+   * abs_rmw, absx_rmw, indx_rmw, indy_rmw).
+   * Source: 6510core.c DUMMY_STORE_ABS_RMW / DUMMY_STORE_ABS_X_RMW macros
+   * (~line 721-742); applies to ASL/LSR/ROL/ROR/INC/DEC and illegal RMW ops.
+   */
+  rmwDoubleWrite?: boolean;
 }
 
 export const MICROCODE_TABLE: Array<MicrocodeEntry | null> = [
-  {
-    "op": "brk",
-    "mode": "imp",
-    "cycles": 7,
-    "pattern": "brk"
-  },
-  {
-    "op": "ora",
-    "mode": "indx",
-    "cycles": 6,
-    "pattern": "indx_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "ora",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "asl",
-    "mode": "zp",
-    "cycles": 5,
-    "pattern": "zp_rmw"
-  },
-  null,
-  {
-    "op": "php",
-    "mode": "imp",
-    "cycles": 3,
-    "pattern": "push"
-  },
-  {
-    "op": "ora",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "asl",
-    "mode": "acc",
-    "cycles": 2,
-    "pattern": "acc"
-  },
-  null,
-  null,
-  {
-    "op": "ora",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "asl",
-    "mode": "abs",
-    "cycles": 6,
-    "pattern": "abs_rmw"
-  },
-  null,
-  {
-    "op": "bpl",
-    "mode": "rel",
-    "cycles": 2,
-    "pattern": "rel"
-  },
-  {
-    "op": "ora",
-    "mode": "indy",
-    "cycles": 5,
-    "pattern": "indy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "ora",
-    "mode": "zpx",
-    "cycles": 4,
-    "pattern": "zpx_read"
-  },
-  {
-    "op": "asl",
-    "mode": "zpx",
-    "cycles": 6,
-    "pattern": "zpx_rmw"
-  },
-  null,
-  {
-    "op": "clc",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "ora",
-    "mode": "absy",
-    "cycles": 4,
-    "pattern": "absy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "ora",
-    "mode": "absx",
-    "cycles": 4,
-    "pattern": "absx_read"
-  },
-  {
-    "op": "asl",
-    "mode": "absx",
-    "cycles": 7,
-    "pattern": "absx_rmw"
-  },
-  null,
-  {
-    "op": "jsr",
-    "mode": "abs",
-    "cycles": 6,
-    "pattern": "jsr"
-  },
-  {
-    "op": "and",
-    "mode": "indx",
-    "cycles": 6,
-    "pattern": "indx_read"
-  },
-  null,
-  null,
-  {
-    "op": "bit",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "and",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "rol",
-    "mode": "zp",
-    "cycles": 5,
-    "pattern": "zp_rmw"
-  },
-  null,
-  {
-    "op": "plp",
-    "mode": "imp",
-    "cycles": 4,
-    "pattern": "pop"
-  },
-  {
-    "op": "and",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "rol",
-    "mode": "acc",
-    "cycles": 2,
-    "pattern": "acc"
-  },
-  null,
-  {
-    "op": "bit",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "and",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "rol",
-    "mode": "abs",
-    "cycles": 6,
-    "pattern": "abs_rmw"
-  },
-  null,
-  {
-    "op": "bmi",
-    "mode": "rel",
-    "cycles": 2,
-    "pattern": "rel"
-  },
-  {
-    "op": "and",
-    "mode": "indy",
-    "cycles": 5,
-    "pattern": "indy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "and",
-    "mode": "zpx",
-    "cycles": 4,
-    "pattern": "zpx_read"
-  },
-  {
-    "op": "rol",
-    "mode": "zpx",
-    "cycles": 6,
-    "pattern": "zpx_rmw"
-  },
-  null,
-  {
-    "op": "sec",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "and",
-    "mode": "absy",
-    "cycles": 4,
-    "pattern": "absy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "and",
-    "mode": "absx",
-    "cycles": 4,
-    "pattern": "absx_read"
-  },
-  {
-    "op": "rol",
-    "mode": "absx",
-    "cycles": 7,
-    "pattern": "absx_rmw"
-  },
-  null,
-  {
-    "op": "rti",
-    "mode": "imp",
-    "cycles": 6,
-    "pattern": "rti"
-  },
-  {
-    "op": "eor",
-    "mode": "indx",
-    "cycles": 6,
-    "pattern": "indx_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "eor",
-    "mode": "zp",
-    "cycles": 4,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "lsr",
-    "mode": "zp",
-    "cycles": 5,
-    "pattern": "zp_rmw"
-  },
-  null,
-  {
-    "op": "pha",
-    "mode": "imp",
-    "cycles": 3,
-    "pattern": "push"
-  },
-  {
-    "op": "eor",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "lsr",
-    "mode": "acc",
-    "cycles": 2,
-    "pattern": "acc"
-  },
-  null,
-  {
-    "op": "jmp",
-    "mode": "abs",
-    "cycles": 3,
-    "pattern": "jmp_abs"
-  },
-  {
-    "op": "eor",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "lsr",
-    "mode": "abs",
-    "cycles": 6,
-    "pattern": "abs_rmw"
-  },
-  null,
-  {
-    "op": "bvc",
-    "mode": "rel",
-    "cycles": 2,
-    "pattern": "rel"
-  },
-  {
-    "op": "eor",
-    "mode": "indy",
-    "cycles": 5,
-    "pattern": "indy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "eor",
-    "mode": "zpx",
-    "cycles": 3,
-    "pattern": "zpx_read"
-  },
-  {
-    "op": "lsr",
-    "mode": "zpx",
-    "cycles": 6,
-    "pattern": "zpx_rmw"
-  },
-  null,
-  {
-    "op": "cli",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "eor",
-    "mode": "absy",
-    "cycles": 4,
-    "pattern": "absy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "eor",
-    "mode": "absx",
-    "cycles": 4,
-    "pattern": "absx_read"
-  },
-  {
-    "op": "lsr",
-    "mode": "absx",
-    "cycles": 7,
-    "pattern": "absx_rmw"
-  },
-  null,
-  {
-    "op": "rts",
-    "mode": "imp",
-    "cycles": 6,
-    "pattern": "rts"
-  },
-  {
-    "op": "adc",
-    "mode": "indx",
-    "cycles": 6,
-    "pattern": "indx_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "adc",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "ror",
-    "mode": "zp",
-    "cycles": 5,
-    "pattern": "zp_rmw"
-  },
-  null,
-  {
-    "op": "pla",
-    "mode": "imp",
-    "cycles": 4,
-    "pattern": "pop"
-  },
-  {
-    "op": "adc",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "ror",
-    "mode": "acc",
-    "cycles": 2,
-    "pattern": "acc"
-  },
-  null,
-  {
-    "op": "jmp",
-    "mode": "ind",
-    "cycles": 5,
-    "pattern": "ind_jmp"
-  },
-  {
-    "op": "adc",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "ror",
-    "mode": "abs",
-    "cycles": 6,
-    "pattern": "abs_rmw"
-  },
-  null,
-  {
-    "op": "bvs",
-    "mode": "rel",
-    "cycles": 2,
-    "pattern": "rel"
-  },
-  {
-    "op": "adc",
-    "mode": "indy",
-    "cycles": 5,
-    "pattern": "indy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "adc",
-    "mode": "zpx",
-    "cycles": 4,
-    "pattern": "zpx_read"
-  },
-  {
-    "op": "ror",
-    "mode": "zpx",
-    "cycles": 6,
-    "pattern": "zpx_rmw"
-  },
-  null,
-  {
-    "op": "sei",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "adc",
-    "mode": "absy",
-    "cycles": 4,
-    "pattern": "absy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "adc",
-    "mode": "absx",
-    "cycles": 4,
-    "pattern": "absx_read"
-  },
-  {
-    "op": "ror",
-    "mode": "absx",
-    "cycles": 7,
-    "pattern": "absx_rmw"
-  },
-  null,
-  null,
-  {
-    "op": "sta",
-    "mode": "indx",
-    "cycles": 6,
-    "pattern": "indx_write"
-  },
-  null,
-  null,
-  {
-    "op": "sty",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_write"
-  },
-  {
-    "op": "sta",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_write"
-  },
-  {
-    "op": "stx",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_write"
-  },
-  null,
-  {
-    "op": "dey",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  null,
-  {
-    "op": "txa",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  null,
-  {
-    "op": "sty",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_write"
-  },
-  {
-    "op": "sta",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_write"
-  },
-  {
-    "op": "stx",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_write"
-  },
-  null,
-  {
-    "op": "bcc",
-    "mode": "rel",
-    "cycles": 2,
-    "pattern": "rel"
-  },
-  {
-    "op": "sta",
-    "mode": "indy",
-    "cycles": 6,
-    "pattern": "indy_write"
-  },
-  null,
-  null,
-  {
-    "op": "sty",
-    "mode": "zpx",
-    "cycles": 4,
-    "pattern": "zpx_write"
-  },
-  {
-    "op": "sta",
-    "mode": "zpx",
-    "cycles": 4,
-    "pattern": "zpx_write"
-  },
-  {
-    "op": "stx",
-    "mode": "zpy",
-    "cycles": 4,
-    "pattern": "zpy_write"
-  },
-  null,
-  {
-    "op": "tya",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "sta",
-    "mode": "absy",
-    "cycles": 5,
-    "pattern": "absy_write"
-  },
-  {
-    "op": "txs",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  null,
-  null,
-  {
-    "op": "sta",
-    "mode": "absx",
-    "cycles": 5,
-    "pattern": "absx_write"
-  },
-  null,
-  null,
-  {
-    "op": "ldy",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "lda",
-    "mode": "indx",
-    "cycles": 6,
-    "pattern": "indx_read"
-  },
-  {
-    "op": "ldx",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  null,
-  {
-    "op": "ldy",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "lda",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "ldx",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  null,
-  {
-    "op": "tay",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "lda",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "tax",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  null,
-  {
-    "op": "ldy",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "lda",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "ldx",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  null,
-  {
-    "op": "bcs",
-    "mode": "rel",
-    "cycles": 2,
-    "pattern": "rel"
-  },
-  {
-    "op": "lda",
-    "mode": "indy",
-    "cycles": 5,
-    "pattern": "indy_read"
-  },
-  null,
-  null,
-  {
-    "op": "ldy",
-    "mode": "zpx",
-    "cycles": 4,
-    "pattern": "zpx_read"
-  },
-  {
-    "op": "lda",
-    "mode": "zpx",
-    "cycles": 4,
-    "pattern": "zpx_read"
-  },
-  {
-    "op": "ldx",
-    "mode": "zpy",
-    "cycles": 4,
-    "pattern": "zpy_read"
-  },
-  null,
-  {
-    "op": "clv",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "lda",
-    "mode": "absy",
-    "cycles": 4,
-    "pattern": "absy_read"
-  },
-  {
-    "op": "tsx",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  null,
-  {
-    "op": "ldy",
-    "mode": "absx",
-    "cycles": 4,
-    "pattern": "absx_read"
-  },
-  {
-    "op": "lda",
-    "mode": "absx",
-    "cycles": 4,
-    "pattern": "absx_read"
-  },
-  {
-    "op": "ldx",
-    "mode": "absy",
-    "cycles": 4,
-    "pattern": "absy_read"
-  },
-  null,
-  {
-    "op": "cpy",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "cmp",
-    "mode": "indx",
-    "cycles": 6,
-    "pattern": "indx_read"
-  },
-  null,
-  null,
-  {
-    "op": "cpy",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "cmp",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "dec",
-    "mode": "zp",
-    "cycles": 5,
-    "pattern": "zp_rmw"
-  },
-  null,
-  {
-    "op": "iny",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "cmp",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "dex",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  null,
-  {
-    "op": "cpy",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "cmp",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "dec",
-    "mode": "abs",
-    "cycles": 6,
-    "pattern": "abs_rmw"
-  },
-  null,
-  {
-    "op": "bne",
-    "mode": "rel",
-    "cycles": 2,
-    "pattern": "rel"
-  },
-  {
-    "op": "cmp",
-    "mode": "indy",
-    "cycles": 5,
-    "pattern": "indy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "cmp",
-    "mode": "zpx",
-    "cycles": 4,
-    "pattern": "zpx_read"
-  },
-  {
-    "op": "dec",
-    "mode": "zpx",
-    "cycles": 6,
-    "pattern": "zpx_rmw"
-  },
-  null,
-  {
-    "op": "cld",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "cmp",
-    "mode": "absy",
-    "cycles": 4,
-    "pattern": "absy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "cmp",
-    "mode": "absx",
-    "cycles": 4,
-    "pattern": "absx_read"
-  },
-  {
-    "op": "dec",
-    "mode": "absx",
-    "cycles": 7,
-    "pattern": "absx_rmw"
-  },
-  null,
-  {
-    "op": "cpx",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "sbc",
-    "mode": "indx",
-    "cycles": 6,
-    "pattern": "indx_read"
-  },
-  null,
-  null,
-  {
-    "op": "cpx",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "sbc",
-    "mode": "zp",
-    "cycles": 3,
-    "pattern": "zp_read"
-  },
-  {
-    "op": "inc",
-    "mode": "zp",
-    "cycles": 5,
-    "pattern": "zp_rmw"
-  },
-  null,
-  {
-    "op": "inx",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "sbc",
-    "mode": "imm",
-    "cycles": 2,
-    "pattern": "imm"
-  },
-  {
-    "op": "nop",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  null,
-  {
-    "op": "cpx",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "sbc",
-    "mode": "abs",
-    "cycles": 4,
-    "pattern": "abs_read"
-  },
-  {
-    "op": "inc",
-    "mode": "abs",
-    "cycles": 6,
-    "pattern": "abs_rmw"
-  },
-  null,
-  {
-    "op": "beq",
-    "mode": "rel",
-    "cycles": 2,
-    "pattern": "rel"
-  },
-  {
-    "op": "sbc",
-    "mode": "indy",
-    "cycles": 5,
-    "pattern": "indy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "sbc",
-    "mode": "zpx",
-    "cycles": 4,
-    "pattern": "zpx_read"
-  },
-  {
-    "op": "inc",
-    "mode": "zpx",
-    "cycles": 6,
-    "pattern": "zpx_rmw"
-  },
-  null,
-  {
-    "op": "sed",
-    "mode": "imp",
-    "cycles": 2,
-    "pattern": "imp"
-  },
-  {
-    "op": "sbc",
-    "mode": "absy",
-    "cycles": 4,
-    "pattern": "absy_read"
-  },
-  null,
-  null,
-  null,
-  {
-    "op": "sbc",
-    "mode": "absx",
-    "cycles": 4,
-    "pattern": "absx_read"
-  },
-  {
-    "op": "inc",
-    "mode": "absx",
-    "cycles": 7,
-    "pattern": "absx_rmw"
-  },
+  // $00 BRK
+  { "op": "brk", "mode": "imp", "cycles": 7, "pattern": "brk" },
+  // $01 ORA (zp,X)
+  { "op": "ora", "mode": "indx", "cycles": 6, "pattern": "indx_read" },
+  null, null, null,
+  // $05 ORA zp
+  { "op": "ora", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $06 ASL zp
+  { "op": "asl", "mode": "zp", "cycles": 5, "pattern": "zp_rmw", "rmwDoubleWrite": true },
+  null,
+  // $08 PHP
+  { "op": "php", "mode": "imp", "cycles": 3, "pattern": "push" },
+  // $09 ORA #
+  { "op": "ora", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $0A ASL acc
+  { "op": "asl", "mode": "acc", "cycles": 2, "pattern": "acc" },
+  null, null,
+  // $0D ORA abs
+  { "op": "ora", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $0E ASL abs
+  { "op": "asl", "mode": "abs", "cycles": 6, "pattern": "abs_rmw", "rmwDoubleWrite": true },
+  null,
+  // $10 BPL rel — VICE OPCODE_DELAYS_INTERRUPT (taken, no page-cross)
+  { "op": "bpl", "mode": "rel", "cycles": 2, "pattern": "rel", "delaysInterrupt": true },
+  // $11 ORA (zp),Y
+  { "op": "ora", "mode": "indy", "cycles": 5, "pattern": "indy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $15 ORA zp,X
+  { "op": "ora", "mode": "zpx", "cycles": 4, "pattern": "zpx_read" },
+  // $16 ASL zp,X
+  { "op": "asl", "mode": "zpx", "cycles": 6, "pattern": "zpx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $18 CLC
+  { "op": "clc", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $19 ORA abs,Y
+  { "op": "ora", "mode": "absy", "cycles": 4, "pattern": "absy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $1D ORA abs,X
+  { "op": "ora", "mode": "absx", "cycles": 4, "pattern": "absx_read", "pageCrossExtra": true },
+  // $1E ASL abs,X
+  { "op": "asl", "mode": "absx", "cycles": 7, "pattern": "absx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $20 JSR abs
+  { "op": "jsr", "mode": "abs", "cycles": 6, "pattern": "jsr" },
+  // $21 AND (zp,X)
+  { "op": "and", "mode": "indx", "cycles": 6, "pattern": "indx_read" },
+  null, null,
+  // $24 BIT zp
+  { "op": "bit", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $25 AND zp
+  { "op": "and", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $26 ROL zp
+  { "op": "rol", "mode": "zp", "cycles": 5, "pattern": "zp_rmw", "rmwDoubleWrite": true },
+  null,
+  // $28 PLP
+  { "op": "plp", "mode": "imp", "cycles": 4, "pattern": "pop" },
+  // $29 AND #
+  { "op": "and", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $2A ROL acc
+  { "op": "rol", "mode": "acc", "cycles": 2, "pattern": "acc" },
+  null,
+  // $2C BIT abs
+  { "op": "bit", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $2D AND abs
+  { "op": "and", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $2E ROL abs
+  { "op": "rol", "mode": "abs", "cycles": 6, "pattern": "abs_rmw", "rmwDoubleWrite": true },
+  null,
+  // $30 BMI rel — VICE OPCODE_DELAYS_INTERRUPT (taken, no page-cross)
+  { "op": "bmi", "mode": "rel", "cycles": 2, "pattern": "rel", "delaysInterrupt": true },
+  // $31 AND (zp),Y
+  { "op": "and", "mode": "indy", "cycles": 5, "pattern": "indy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $35 AND zp,X
+  { "op": "and", "mode": "zpx", "cycles": 4, "pattern": "zpx_read" },
+  // $36 ROL zp,X
+  { "op": "rol", "mode": "zpx", "cycles": 6, "pattern": "zpx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $38 SEC
+  { "op": "sec", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $39 AND abs,Y
+  { "op": "and", "mode": "absy", "cycles": 4, "pattern": "absy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $3D AND abs,X
+  { "op": "and", "mode": "absx", "cycles": 4, "pattern": "absx_read", "pageCrossExtra": true },
+  // $3E ROL abs,X
+  { "op": "rol", "mode": "absx", "cycles": 7, "pattern": "absx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $40 RTI — note: RTI does NOT use OPCODE_DELAYS_INTERRUPT per VICE 6510core.c:1652
+  { "op": "rti", "mode": "imp", "cycles": 6, "pattern": "rti" },
+  // $41 EOR (zp,X)
+  { "op": "eor", "mode": "indx", "cycles": 6, "pattern": "indx_read" },
+  null, null, null,
+  // $45 EOR zp
+  { "op": "eor", "mode": "zp", "cycles": 4, "pattern": "zp_read" },
+  // $46 LSR zp
+  { "op": "lsr", "mode": "zp", "cycles": 5, "pattern": "zp_rmw", "rmwDoubleWrite": true },
+  null,
+  // $48 PHA
+  { "op": "pha", "mode": "imp", "cycles": 3, "pattern": "push" },
+  // $49 EOR #
+  { "op": "eor", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $4A LSR acc
+  { "op": "lsr", "mode": "acc", "cycles": 2, "pattern": "acc" },
+  null,
+  // $4C JMP abs
+  { "op": "jmp", "mode": "abs", "cycles": 3, "pattern": "jmp_abs" },
+  // $4D EOR abs
+  { "op": "eor", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $4E LSR abs
+  { "op": "lsr", "mode": "abs", "cycles": 6, "pattern": "abs_rmw", "rmwDoubleWrite": true },
+  null,
+  // $50 BVC rel — VICE OPCODE_DELAYS_INTERRUPT (taken, no page-cross)
+  { "op": "bvc", "mode": "rel", "cycles": 2, "pattern": "rel", "delaysInterrupt": true },
+  // $51 EOR (zp),Y
+  { "op": "eor", "mode": "indy", "cycles": 5, "pattern": "indy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $55 EOR zp,X
+  { "op": "eor", "mode": "zpx", "cycles": 3, "pattern": "zpx_read" },
+  // $56 LSR zp,X
+  { "op": "lsr", "mode": "zpx", "cycles": 6, "pattern": "zpx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $58 CLI — OPCODE_ENABLES_IRQ in VICE (separate from delaysInterrupt)
+  { "op": "cli", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $59 EOR abs,Y
+  { "op": "eor", "mode": "absy", "cycles": 4, "pattern": "absy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $5D EOR abs,X
+  { "op": "eor", "mode": "absx", "cycles": 4, "pattern": "absx_read", "pageCrossExtra": true },
+  // $5E LSR abs,X
+  { "op": "lsr", "mode": "absx", "cycles": 7, "pattern": "absx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $60 RTS
+  { "op": "rts", "mode": "imp", "cycles": 6, "pattern": "rts" },
+  // $61 ADC (zp,X)
+  { "op": "adc", "mode": "indx", "cycles": 6, "pattern": "indx_read" },
+  null, null, null,
+  // $65 ADC zp
+  { "op": "adc", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $66 ROR zp
+  { "op": "ror", "mode": "zp", "cycles": 5, "pattern": "zp_rmw", "rmwDoubleWrite": true },
+  null,
+  // $68 PLA
+  { "op": "pla", "mode": "imp", "cycles": 4, "pattern": "pop" },
+  // $69 ADC #
+  { "op": "adc", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $6A ROR acc
+  { "op": "ror", "mode": "acc", "cycles": 2, "pattern": "acc" },
+  null,
+  // $6C JMP (ind)
+  { "op": "jmp", "mode": "ind", "cycles": 5, "pattern": "ind_jmp" },
+  // $6D ADC abs
+  { "op": "adc", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $6E ROR abs
+  { "op": "ror", "mode": "abs", "cycles": 6, "pattern": "abs_rmw", "rmwDoubleWrite": true },
+  null,
+  // $70 BVS rel — VICE OPCODE_DELAYS_INTERRUPT (taken, no page-cross)
+  { "op": "bvs", "mode": "rel", "cycles": 2, "pattern": "rel", "delaysInterrupt": true },
+  // $71 ADC (zp),Y
+  { "op": "adc", "mode": "indy", "cycles": 5, "pattern": "indy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $75 ADC zp,X
+  { "op": "adc", "mode": "zpx", "cycles": 4, "pattern": "zpx_read" },
+  // $76 ROR zp,X
+  { "op": "ror", "mode": "zpx", "cycles": 6, "pattern": "zpx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $78 SEI
+  { "op": "sei", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $79 ADC abs,Y
+  { "op": "adc", "mode": "absy", "cycles": 4, "pattern": "absy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $7D ADC abs,X
+  { "op": "adc", "mode": "absx", "cycles": 4, "pattern": "absx_read", "pageCrossExtra": true },
+  // $7E ROR abs,X
+  { "op": "ror", "mode": "absx", "cycles": 7, "pattern": "absx_rmw", "rmwDoubleWrite": true },
+  null,
+  null,
+  // $81 STA (zp,X)
+  { "op": "sta", "mode": "indx", "cycles": 6, "pattern": "indx_write" },
+  null, null,
+  // $84 STY zp
+  { "op": "sty", "mode": "zp", "cycles": 3, "pattern": "zp_write" },
+  // $85 STA zp
+  { "op": "sta", "mode": "zp", "cycles": 3, "pattern": "zp_write" },
+  // $86 STX zp
+  { "op": "stx", "mode": "zp", "cycles": 3, "pattern": "zp_write" },
+  null,
+  // $88 DEY
+  { "op": "dey", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  null,
+  // $8A TXA
+  { "op": "txa", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  null,
+  // $8C STY abs
+  { "op": "sty", "mode": "abs", "cycles": 4, "pattern": "abs_write" },
+  // $8D STA abs
+  { "op": "sta", "mode": "abs", "cycles": 4, "pattern": "abs_write" },
+  // $8E STX abs
+  { "op": "stx", "mode": "abs", "cycles": 4, "pattern": "abs_write" },
+  null,
+  // $90 BCC rel — VICE OPCODE_DELAYS_INTERRUPT (taken, no page-cross)
+  { "op": "bcc", "mode": "rel", "cycles": 2, "pattern": "rel", "delaysInterrupt": true },
+  // $91 STA (zp),Y — always 6 cycles (write, no conditional page-cross)
+  { "op": "sta", "mode": "indy", "cycles": 6, "pattern": "indy_write" },
+  null, null,
+  // $94 STY zp,X
+  { "op": "sty", "mode": "zpx", "cycles": 4, "pattern": "zpx_write" },
+  // $95 STA zp,X
+  { "op": "sta", "mode": "zpx", "cycles": 4, "pattern": "zpx_write" },
+  // $96 STX zp,Y
+  { "op": "stx", "mode": "zpy", "cycles": 4, "pattern": "zpy_write" },
+  null,
+  // $98 TYA
+  { "op": "tya", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $99 STA abs,Y — always 5 cycles (write)
+  { "op": "sta", "mode": "absy", "cycles": 5, "pattern": "absy_write" },
+  // $9A TXS
+  { "op": "txs", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  null, null,
+  // $9D STA abs,X — always 5 cycles (write)
+  { "op": "sta", "mode": "absx", "cycles": 5, "pattern": "absx_write" },
+  null, null,
+  // $A0 LDY #
+  { "op": "ldy", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $A1 LDA (zp,X)
+  { "op": "lda", "mode": "indx", "cycles": 6, "pattern": "indx_read" },
+  // $A2 LDX #
+  { "op": "ldx", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  null,
+  // $A4 LDY zp
+  { "op": "ldy", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $A5 LDA zp
+  { "op": "lda", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $A6 LDX zp
+  { "op": "ldx", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  null,
+  // $A8 TAY
+  { "op": "tay", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $A9 LDA #
+  { "op": "lda", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $AA TAX
+  { "op": "tax", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  null,
+  // $AC LDY abs
+  { "op": "ldy", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $AD LDA abs
+  { "op": "lda", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $AE LDX abs
+  { "op": "ldx", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  null,
+  // $B0 BCS rel — VICE OPCODE_DELAYS_INTERRUPT (taken, no page-cross)
+  { "op": "bcs", "mode": "rel", "cycles": 2, "pattern": "rel", "delaysInterrupt": true },
+  // $B1 LDA (zp),Y
+  { "op": "lda", "mode": "indy", "cycles": 5, "pattern": "indy_read", "pageCrossExtra": true },
+  null, null,
+  // $B4 LDY zp,X
+  { "op": "ldy", "mode": "zpx", "cycles": 4, "pattern": "zpx_read" },
+  // $B5 LDA zp,X
+  { "op": "lda", "mode": "zpx", "cycles": 4, "pattern": "zpx_read" },
+  // $B6 LDX zp,Y
+  { "op": "ldx", "mode": "zpy", "cycles": 4, "pattern": "zpy_read" },
+  null,
+  // $B8 CLV
+  { "op": "clv", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $B9 LDA abs,Y
+  { "op": "lda", "mode": "absy", "cycles": 4, "pattern": "absy_read", "pageCrossExtra": true },
+  // $BA TSX
+  { "op": "tsx", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  null,
+  // $BC LDY abs,X
+  { "op": "ldy", "mode": "absx", "cycles": 4, "pattern": "absx_read", "pageCrossExtra": true },
+  // $BD LDA abs,X
+  { "op": "lda", "mode": "absx", "cycles": 4, "pattern": "absx_read", "pageCrossExtra": true },
+  // $BE LDX abs,Y
+  { "op": "ldx", "mode": "absy", "cycles": 4, "pattern": "absy_read", "pageCrossExtra": true },
+  null,
+  // $C0 CPY #
+  { "op": "cpy", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $C1 CMP (zp,X)
+  { "op": "cmp", "mode": "indx", "cycles": 6, "pattern": "indx_read" },
+  null, null,
+  // $C4 CPY zp
+  { "op": "cpy", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $C5 CMP zp
+  { "op": "cmp", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $C6 DEC zp
+  { "op": "dec", "mode": "zp", "cycles": 5, "pattern": "zp_rmw", "rmwDoubleWrite": true },
+  null,
+  // $C8 INY
+  { "op": "iny", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $C9 CMP #
+  { "op": "cmp", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $CA DEX
+  { "op": "dex", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  null,
+  // $CC CPY abs
+  { "op": "cpy", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $CD CMP abs
+  { "op": "cmp", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $CE DEC abs
+  { "op": "dec", "mode": "abs", "cycles": 6, "pattern": "abs_rmw", "rmwDoubleWrite": true },
+  null,
+  // $D0 BNE rel — VICE OPCODE_DELAYS_INTERRUPT (taken, no page-cross)
+  { "op": "bne", "mode": "rel", "cycles": 2, "pattern": "rel", "delaysInterrupt": true },
+  // $D1 CMP (zp),Y
+  { "op": "cmp", "mode": "indy", "cycles": 5, "pattern": "indy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $D5 CMP zp,X
+  { "op": "cmp", "mode": "zpx", "cycles": 4, "pattern": "zpx_read" },
+  // $D6 DEC zp,X
+  { "op": "dec", "mode": "zpx", "cycles": 6, "pattern": "zpx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $D8 CLD
+  { "op": "cld", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $D9 CMP abs,Y
+  { "op": "cmp", "mode": "absy", "cycles": 4, "pattern": "absy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $DD CMP abs,X
+  { "op": "cmp", "mode": "absx", "cycles": 4, "pattern": "absx_read", "pageCrossExtra": true },
+  // $DE DEC abs,X
+  { "op": "dec", "mode": "absx", "cycles": 7, "pattern": "absx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $E0 CPX #
+  { "op": "cpx", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $E1 SBC (zp,X)
+  { "op": "sbc", "mode": "indx", "cycles": 6, "pattern": "indx_read" },
+  null, null,
+  // $E4 CPX zp
+  { "op": "cpx", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $E5 SBC zp
+  { "op": "sbc", "mode": "zp", "cycles": 3, "pattern": "zp_read" },
+  // $E6 INC zp
+  { "op": "inc", "mode": "zp", "cycles": 5, "pattern": "zp_rmw", "rmwDoubleWrite": true },
+  null,
+  // $E8 INX
+  { "op": "inx", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $E9 SBC #
+  { "op": "sbc", "mode": "imm", "cycles": 2, "pattern": "imm" },
+  // $EA NOP
+  { "op": "nop", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  null,
+  // $EC CPX abs
+  { "op": "cpx", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $ED SBC abs
+  { "op": "sbc", "mode": "abs", "cycles": 4, "pattern": "abs_read" },
+  // $EE INC abs
+  { "op": "inc", "mode": "abs", "cycles": 6, "pattern": "abs_rmw", "rmwDoubleWrite": true },
+  null,
+  // $F0 BEQ rel — VICE OPCODE_DELAYS_INTERRUPT (taken, no page-cross)
+  { "op": "beq", "mode": "rel", "cycles": 2, "pattern": "rel", "delaysInterrupt": true },
+  // $F1 SBC (zp),Y
+  { "op": "sbc", "mode": "indy", "cycles": 5, "pattern": "indy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $F5 SBC zp,X
+  { "op": "sbc", "mode": "zpx", "cycles": 4, "pattern": "zpx_read" },
+  // $F6 INC zp,X
+  { "op": "inc", "mode": "zpx", "cycles": 6, "pattern": "zpx_rmw", "rmwDoubleWrite": true },
+  null,
+  // $F8 SED
+  { "op": "sed", "mode": "imp", "cycles": 2, "pattern": "imp" },
+  // $F9 SBC abs,Y
+  { "op": "sbc", "mode": "absy", "cycles": 4, "pattern": "absy_read", "pageCrossExtra": true },
+  null, null, null,
+  // $FD SBC abs,X
+  { "op": "sbc", "mode": "absx", "cycles": 4, "pattern": "absx_read", "pageCrossExtra": true },
+  // $FE INC abs,X
+  { "op": "inc", "mode": "absx", "cycles": 7, "pattern": "absx_rmw", "rmwDoubleWrite": true },
   null
 ];
