@@ -157,6 +157,31 @@ check("kernel.bus.driveRead(8, $1800) returns drive bus byte", () => {
   if (typeof v !== "number") throw new Error(`driveRead returned ${typeof v}`);
 });
 
+check("CIA2 \$DD00 + VIA1 \$1800 calls reach KernelBus during run (Spec 201-c2/c3)", () => {
+  // Wrap kernel.bus methods to count calls; reset session and run.
+  let c64dd00Writes = 0;
+  let drv1800Writes = 0;
+  const realC64Write = kernel.bus.c64Write.bind(kernel.bus);
+  const realDriveWrite = kernel.bus.driveWrite.bind(kernel.bus);
+  kernel.bus.c64Write = (addr, value, ctx) => {
+    if (addr === 0xdd00) c64dd00Writes++;
+    return realC64Write(addr, value, ctx);
+  };
+  kernel.bus.driveWrite = (device, addr, value, ctx) => {
+    if (addr === 0x1800) drv1800Writes++;
+    return realDriveWrite(device, addr, value, ctx);
+  };
+  try {
+    session.resetCold();
+    session.runFor(5000);
+  } finally {
+    kernel.bus.c64Write = realC64Write;
+    kernel.bus.driveWrite = realDriveWrite;
+  }
+  if (c64dd00Writes === 0) throw new Error("no \$DD00 writes routed through bus during run");
+  if (drv1800Writes === 0) throw new Error("no \$1800 writes routed through bus during run");
+});
+
 console.log(`---`);
 console.log(`summary: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
