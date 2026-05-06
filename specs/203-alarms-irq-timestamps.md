@@ -1,12 +1,30 @@
 # Spec 203 — Alarms + IRQ timestamps in kernel
 
 **Sprint:** 118
-**Status:** PROPOSED
+**Status:** IN PROGRESS — c1/c2 done 2026-05-06; VIA/VIC + servicedClock deferred
 **ADR:** §4.2, §4.3, §8 Step 4
 **Maps from:** legacy 141 (clocked-via1-ca1-irq-timing), 149
 (alarm-system-or-equivalent) — superseded
 **Depends on:** 202
 **Blocks:** 210, 214
+
+## Commit chain
+
+- **c1 ✓ 2026-05-06** — `KernelIrqRing` + `KernelIrqEvent` shape +
+  `kernel.emitIrqEvent / irqEvents`. ADR §4.3 event fields:
+  `line`, `asserted`, `source`, `target`, `edgeClock`,
+  `visibleClock`, `servicedClock?`, `seq`. Capacity 4096, oldest
+  evicted.
+- **c2 ✓ 2026-05-06** — CIA1 IRQ + CIA2 NMI level-edge detection
+  emit kernel events. CIA install opts gain optional `onIrqEdge` /
+  `onNmiEdge` callbacks; kernel passes wrappers that build the
+  full event and call `emitIrqEvent`. Smoke confirms live capture.
+- **c3 (deferred)** — VIA1/VIA2 setIrq edges + VIC raster IRQ +
+  drive-CPU SO. Same pattern as CIA1/CIA2.
+- **c4 (deferred)** — `servicedClock` back-fill: when the C64 or
+  drive CPU vectors into IRQ/NMI/RTI, kernel matches the most
+  recent matching event and fills `servicedClock`. Foundation for
+  CPU interrupt-delay measurement (ADR §4.3 last paragraph).
 
 ## Goal
 
