@@ -36,42 +36,52 @@ motm cannot work without this:
 User-direction since multiple sessions: "100% identisches
 Verhalten zu VICE". This spec closes the gap for the data layer.
 
-## Refinement decisions
+## Refinement decisions (locked 2026-05-06)
 
-(To be locked after user review.)
+### Decision 1: Implementation depth — A (bit-stream)
+Full bit-stream rotation 1:1 VICE rotation.c. Cycle-accurate
+GCR shifter, density zones, sync detection. No byte-level
+approximation. User-doctrine "100% identisch zu VICE".
 
-### Decision 1: Implementation depth
+### Decision 2: Replacement strategy — C (modular, mirrors VICE)
+NEW files:
+- `src/runtime/headless/drive/gcr-shifter.ts` ≈ VICE rotation.c
+- `src/runtime/headless/drive/sync-detector.ts` ≈ VICE gcr.c
+  (sync portion)
 
-**A. Full bit-stream rotation 1:1 VICE** — emulate the GCR
-shifter cycle-by-cycle as drive head rotates over track. Match
-VICE rotation.c bit-stream timing. Most accurate, biggest port
-work.
+MODIFIED:
+- `src/runtime/headless/via/via2d1541.ts` — backend thin wiring
+  to shifter (idle-stub backend → real GcrBackend). Small diff.
+- `src/runtime/headless/cpu/cpu65xx-vice.ts` — add SO-pin input
+  line (decision 4).
 
-**B. Byte-stream sim** — emulate at byte level (not bit level).
-Trigger SO pin / byte-ready every N drive cycles per byte.
-Approximate; works for KERNAL-style + many custom fastloaders
-that don't depend on bit-precise sync detection. Smaller port.
+VICE uses identical separation: rotation.c separate from
+via2d.c. Best test isolation, best modular layering.
 
-**C. Hybrid** — bit-stream around sync marks, byte-stream in
-data sectors. Compromise.
+### Decision 3: Density zones — A (full 4-zone 1:1)
+4-zone bit-period 1:1 VICE rotation.c:
+- Z3 (tracks 1-17): 26 drive cycles/bit
+- Z2 (18-24): 28 cycles/bit
+- Z1 (25-30): 30 cycles/bit
+- Z0 (31-35+): 32 cycles/bit (slowest)
 
-For motm + true 1:1: **A** (bit-stream). User-doctrine.
+VIA2 PB bits 5-6 select zone via gcr-shifter.setDensity().
 
-### Decision 2: Track-buffer source
+### Decision 4: SO-pin → CPU V flag — B (CPU input line)
+Cpu65xxVice gets new `soLine: 0|1` field + edge-detect.
+GCR shifter on byte-ready signals VIA2 CA1 (already wired)
+AND directly transitions cpu.soLine high→low to set V flag.
+Mirrors VICE 6510core.c `BYTE so` line + transition logic.
 
-Existing `TrackBuffer` + `G64Parser` already provide track GCR
-bit-stream data. New sim consumes from there.
+### Decision 5: Rotation timing — A (per-drive-cycle tick)
+gcr-shifter.tick(cycles) called from drive-cpu.ts after each
+drive instruction (same pattern as VIA1/VIA2 timers tick).
+Continuous rotation, mirrors VICE rotation.c per-drive-cycle
+advance. NOT alarm-driven (rotation is dense not sparse).
 
-### Decision 3: Half-track + density zones
-
-Half-track index already supported (Spec 113 M3.5c). Density
-zones (4 zones at different bit rates per VICE rotation.c) need
-implementation. VIA2 PB bits 5-6 select density.
-
-### Decision 4: Write-back
-
-V2-scope: read-only (motm protection is read-only). Write-back
-(format/write commands from drive) → V3 backlog.
+### Decision 6: Write-back — V3 backlog
+V2-scope: read-only (motm copy-protection is read-only).
+Write-back (format/write commands from drive) deferred to V3.
 
 ## Scope (in)
 
