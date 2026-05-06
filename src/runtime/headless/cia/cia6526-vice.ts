@@ -676,6 +676,119 @@ export class Cia6526Vice {
   }
 
   // -------------------------------------------------------------------------
+  // Legacy compatibility surface — Spec 146 (Sprint 113 Phase 2).
+  //
+  // Sprint 69-era callers (integrated-session.ts, cia-fidelity-tests.ts,
+  // peripherals/cia1.ts, peripherals/cia2.ts) were written against the
+  // old `Cia6526` field shape (`pra`, `prb`, `cra`, `crb`, `icrFlags`,
+  // `icrMask`, `tick(N)`, `irqAsserted()`). We expose the same names as
+  // thin views over the VICE struct so the caller migration is purely
+  // mechanical (swap import + constructor) without rewriting every
+  // assertion.
+  //
+  // These accessors are READ-ONLY where the legacy code only read; the
+  // few setters we expose (e.g. `icrFlags` for the RESTORE-NMI path)
+  // mirror the old write semantics directly. In the long run the call
+  // sites should switch to the proper APIs (`setFlag()`, `write(CIA_ICR,
+  // …)`) but doing so is out of scope for the migration.
+  // -------------------------------------------------------------------------
+
+  /** Legacy: PRA latch. Maps to c_cia[CIA_PRA]. */
+  public get pra(): number { return this.c_cia[CIA_PRA]!; }
+  public set pra(v: number) { this.c_cia[CIA_PRA] = u8(v); }
+  /** Legacy: PRB latch. */
+  public get prb(): number { return this.c_cia[CIA_PRB]!; }
+  public set prb(v: number) { this.c_cia[CIA_PRB] = u8(v); }
+  /** Legacy: DDRA. */
+  public get ddra(): number { return this.c_cia[CIA_DDRA]!; }
+  public set ddra(v: number) { this.c_cia[CIA_DDRA] = u8(v); }
+  /** Legacy: DDRB. */
+  public get ddrb(): number { return this.c_cia[CIA_DDRB]!; }
+  public set ddrb(v: number) { this.c_cia[CIA_DDRB] = u8(v); }
+  /** Legacy: CRA. */
+  public get cra(): number { return this.c_cia[CIA_CRA]!; }
+  public set cra(v: number) { this.c_cia[CIA_CRA] = u8(v); }
+  /** Legacy: CRB. */
+  public get crb(): number { return this.c_cia[CIA_CRB]!; }
+  public set crb(v: number) { this.c_cia[CIA_CRB] = u8(v); }
+  /** Legacy: ICR flag register (= VICE irqflags low 5 bits). */
+  public get icrFlags(): number { return this.irqflags & 0x1f; }
+  public set icrFlags(v: number) {
+    this.irqflags = (this.irqflags & ~0x1f) | (v & 0x1f);
+  }
+  /** Legacy: ICR mask (= c_cia[CIA_ICR] low 5 bits). */
+  public get icrMask(): number { return this.c_cia[CIA_ICR]! & 0x1f; }
+  public set icrMask(v: number) {
+    this.c_cia[CIA_ICR] = (this.c_cia[CIA_ICR]! & ~0x1f) | (v & 0x1f);
+  }
+  /** Legacy: timer A 16-bit latch. */
+  public get taLatch(): number { return this.ta.latch & 0xffff; }
+  public set taLatch(v: number) { this.ta.latch = v & 0xffff; }
+  /** Legacy: timer A 16-bit counter. */
+  public get taCounter(): number { return this.ta.cnt & 0xffff; }
+  public set taCounter(v: number) { this.ta.cnt = v & 0xffff; }
+  /** Legacy: timer B 16-bit latch. */
+  public get tbLatch(): number { return this.tb.latch & 0xffff; }
+  public set tbLatch(v: number) { this.tb.latch = v & 0xffff; }
+  /** Legacy: timer B 16-bit counter. */
+  public get tbCounter(): number { return this.tb.cnt & 0xffff; }
+  public set tbCounter(v: number) { this.tb.cnt = v & 0xffff; }
+  /** Legacy: TOD HR (clock register). */
+  public get todHr(): number { return this.c_cia[CIA_TOD_HR]!; }
+  public set todHr(v: number) { this.c_cia[CIA_TOD_HR] = u8(v); }
+  /** Legacy: TOD MIN. */
+  public get todMin(): number { return this.c_cia[CIA_TOD_MIN]!; }
+  public set todMin(v: number) { this.c_cia[CIA_TOD_MIN] = u8(v); }
+  /** Legacy: TOD SEC. */
+  public get todSec(): number { return this.c_cia[CIA_TOD_SEC]!; }
+  public set todSec(v: number) { this.c_cia[CIA_TOD_SEC] = u8(v); }
+  /** Legacy: TOD 10ths. */
+  public get tod10th(): number { return this.c_cia[CIA_TOD_TEN]!; }
+  public set tod10th(v: number) { this.c_cia[CIA_TOD_TEN] = u8(v); }
+  /** Legacy: TOD alarm HR shadow. */
+  public get todAlarmHr(): number { return this.tod.todalarm[CIA_TOD_HR - CIA_TOD_TEN]!; }
+  public set todAlarmHr(v: number) { this.tod.todalarm[CIA_TOD_HR - CIA_TOD_TEN] = u8(v); }
+  /** Legacy: TOD alarm MIN shadow. */
+  public get todAlarmMin(): number { return this.tod.todalarm[CIA_TOD_MIN - CIA_TOD_TEN]!; }
+  public set todAlarmMin(v: number) { this.tod.todalarm[CIA_TOD_MIN - CIA_TOD_TEN] = u8(v); }
+  /** Legacy: TOD alarm SEC shadow. */
+  public get todAlarmSec(): number { return this.tod.todalarm[CIA_TOD_SEC - CIA_TOD_TEN]!; }
+  public set todAlarmSec(v: number) { this.tod.todalarm[CIA_TOD_SEC - CIA_TOD_TEN] = u8(v); }
+  /** Legacy: TOD alarm 10ths shadow. */
+  public get todAlarm10th(): number { return this.tod.todalarm[CIA_TOD_TEN - CIA_TOD_TEN]!; }
+  public set todAlarm10th(v: number) { this.tod.todalarm[CIA_TOD_TEN - CIA_TOD_TEN] = u8(v); }
+
+  /**
+   * Legacy: tick the CIA forward by N cycles. The VICE-faithful core is
+   * alarm-driven, so the actual time source is `clkPtr()`. This method
+   * dispatches any pending alarms whose deadline has been reached by
+   * the current clk — preserving the semantics callers expect (timers
+   * advance + IFR pipeline rolls forward) without per-cycle book-keeping.
+   * The `_cycles` argument is ignored (informational only).
+   */
+  tick(_cycles: number): void {
+    const clk = this.clkPtr();
+    let guard = 0;
+    while (clk >= alarmContextNextPendingClk(this.alarmContext)) {
+      alarmContextDispatch(this.alarmContext, clk);
+      if (++guard > 0x1000) {
+        throw new Error(
+          `Cia6526Vice.tick: alarm-dispatch guard tripped at clk=${clk} (ctx=${this.alarmContext.name})`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Legacy: returns true iff an enabled IRQ source has its flag set. In
+   * VICE the IRQ line is pin-driven via mySetInt; we expose the gate
+   * function directly so legacy `irqAsserted()` users keep working.
+   */
+  irqAsserted(): boolean {
+    return (this.irqflags & this.c_cia[CIA_ICR]! & 0x1f) !== 0;
+  }
+
+  // -------------------------------------------------------------------------
   // Snapshot v2 (NOT yet wired into snapshot.ts — phase 2).
   // -------------------------------------------------------------------------
 
@@ -781,9 +894,24 @@ export class Cia6526Vice {
     this.irq_enabled = value;
   }
 
-  /** VICE: run_pending_alarms (ciacore.c lines 224-229). */
+  /**
+   * VICE: run_pending_alarms (ciacore.c lines 224-229).
+   *
+   * Sprint 113 Phase 2 (Spec 146) note: VICE relies on the CPU clock
+   * being well past `write_offset` before any CIA register access,
+   * so `clk - write_offset` never wraps below zero. Our integrated-
+   * session can issue CIA accesses during early boot at cpu.cycles
+   * close to zero — `u32(0 - 1)` wraps to 0xFFFFFFFF and would loop
+   * forever firing every pending alarm. Guard with the realClk peek:
+   * if the *real* (un-offset) clk hasn't reached the next pending
+   * alarm yet, do nothing. The alarm will fire at its proper clk.
+   */
   private runPendingAlarms(clk: CLOCK, offset: number): void {
-    while (clk > alarmContextNextPendingClk(this.alarmContext)) {
+    const realClk = this.clkPtr();
+    while (
+      clk > alarmContextNextPendingClk(this.alarmContext) &&
+      realClk >= alarmContextNextPendingClk(this.alarmContext)
+    ) {
       alarmContextDispatch(this.alarmContext, u32(clk + offset));
     }
   }
@@ -1362,3 +1490,20 @@ export class Cia6526Vice {
 
 // Re-exports for convenience.
 export { CIA_TOD_TEN, CIA_TOD_SEC, CIA_TOD_MIN, CIA_TOD_HR } from "./cia-tod.js";
+
+// Legacy aliases — Sprint 113 Phase 2 caller migration. The old
+// `cia6526.ts` exported `CIA_TALO/TAHI/TBLO/TBHI`, ICR flag bits, and
+// the legacy ICR_TA / ICR_TB / ICR_IRQ_SUMMARY constants. The fidelity
+// suite + integrated-session reference these names directly. Re-export
+// them here so callers can drop the old import path entirely.
+export const CIA_TALO = CIA_TAL;
+export const CIA_TAHI = CIA_TAH;
+export const CIA_TBLO = CIA_TBL;
+export const CIA_TBHI = CIA_TBH;
+export const CIA_TOD_10TH = CIA_TOD_TEN;
+export const ICR_TA = CIA_IM_TA;
+export const ICR_TB = CIA_IM_TB;
+export const ICR_TOD_ALARM = CIA_IM_TOD;
+export const ICR_SP = CIA_IM_SDR;
+export const ICR_FLAG = CIA_IM_FLG;
+export const ICR_IRQ_SUMMARY = CIA_IM_SET;

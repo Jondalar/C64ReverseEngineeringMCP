@@ -14,12 +14,34 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { Cia6526, ICR_TA, CIA_CRA, CIA_TALO, CIA_TAHI, CIA_ICR } from "../dist/runtime/headless/cia/cia6526.js";
+import { Cia6526Vice, ICR_TA, CIA_CRA, CIA_TALO, CIA_TAHI, CIA_ICR } from "../dist/runtime/headless/cia/cia6526-vice.js";
+import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+
+// Sprint 113 Phase 2 (Spec 146): Cia6526Vice is alarm-driven. Smoke
+// helper owns the simulated CPU clock and bumps it before tick(N) so
+// the underlying alarm dispatch sees the deadline.
+function makeSmokeCia() {
+  const clk = { v: 1000 };
+  const stub = {
+    storePa: () => {}, storePb: () => {},
+    readPa: () => 0xff, readPb: () => 0xff,
+    pulsePc: () => {}, setIntClk: () => {},
+  };
+  const cia = new Cia6526Vice({
+    backend: stub,
+    alarmContext: alarmContextNew("smoke_maincpu"),
+    clkPtr: () => clk.v,
+    name: "SMOKE_CIA",
+  });
+  cia.reset();
+  const realTick = cia.tick.bind(cia);
+  cia.tick = (n) => { clk.v += Math.max(0, n | 0); realTick(n); };
+  return cia;
+}
 
 // ---- Test 1: timer A underflow sets ICR_TA + irqAsserted (when masked) ----
 {
-  const dummy = { readPins: () => 0xff, onOutputChanged: () => {} };
-  const cia = new Cia6526(dummy, dummy);
+  const cia = makeSmokeCia();
   cia.write(CIA_TALO, 9);              // latch low
   cia.write(CIA_TAHI, 0);               // latch high (timer stopped → loads counter)
   cia.write(CIA_CRA, 0x01);             // START + continuous
@@ -28,13 +50,12 @@ import { Cia6526, ICR_TA, CIA_CRA, CIA_TALO, CIA_TAHI, CIA_ICR } from "../dist/r
   assert.equal(cia.irqAsserted(), false, "IRQ not asserted while ICR mask=0");
   cia.write(CIA_ICR, 0x80 | ICR_TA);    // enable mask bit 0
   assert.equal(cia.irqAsserted(), true, "IRQ asserted after enable");
-  console.log("  ✓ Cia6526 timer A underflow + IRQ assert");
+  console.log("  ✓ Cia6526Vice timer A underflow + IRQ assert");
 }
 
 // ---- Test 2: Read of ICR clears flags + drops IRQ ----
 {
-  const dummy = { readPins: () => 0xff, onOutputChanged: () => {} };
-  const cia = new Cia6526(dummy, dummy);
+  const cia = makeSmokeCia();
   cia.icrFlags = ICR_TA;
   cia.icrMask = ICR_TA;
   assert.equal(cia.irqAsserted(), true);

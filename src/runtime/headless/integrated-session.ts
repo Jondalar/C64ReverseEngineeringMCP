@@ -28,7 +28,7 @@ import { writeFileSync } from "node:fs";
 import { installCia1 } from "./peripherals/cia1.js";
 import type { KeyboardMatrix, JoystickState } from "./peripherals/keyboard.js";
 import { installCia2 } from "./peripherals/cia2.js";
-import type { Cia6526 } from "./cia/cia6526.js";
+import type { Cia6526Vice } from "./cia/cia6526-vice.js";
 import {
   handleKernalFileIoTrap,
   makeKernalFileIoState,
@@ -51,7 +51,7 @@ import {
   type BusAccessTraceProducer,
 } from "./trace/bus-access.js";
 import {
-  Cpu6510Cycled, CiaCycled, VicCycled, SidCycled,
+  Cpu6510Cycled, AlarmContextCycled, VicCycled, SidCycled,
   DriveCpuCycled, ViaCycled, KeyboardCycled,
 } from "./scheduler/cycle-wrappers.js";
 import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
@@ -186,8 +186,14 @@ export class IntegratedSession {
   public readonly kernalFileIo: KernalFileIoState;
   public readonly kernalSerial: KernalSerialState;
   public readonly kernalIo: KernalIoState;
-  public readonly cia1: Cia6526;
-  public readonly cia2: Cia6526;
+  public readonly cia1: Cia6526Vice;
+  public readonly cia2: Cia6526Vice;
+  // Sprint 113 Phase 2: VICE-style IRQ/NMI pin levels. Latched by the
+  // CIA backends' setIntClk callbacks and sampled by checkC64Interrupts
+  // / updateMicrocodedInterruptLines. Mirrors VICE's int_status pin
+  // model (maincpu_set_irq / maincpu_set_nmi).
+  private readonly cia1IrqLine: () => boolean;
+  private readonly cia2NmiLine: () => boolean;
   public readonly keyboard: KeyboardMatrix;
   public readonly joystick2: JoystickState;
   // Spec 107 (M2.5) v1
@@ -338,13 +344,34 @@ export class IntegratedSession {
       this.c64Bus.loadBasicRom(this.romSet.basic.bytes);
       this.c64Bus.loadCharRom(this.romSet.charRom.bytes);
     }
+    // Sprint 113 Phase 2: alarm contexts created up-front (BEFORE chip
+    // installs that wire alarms). Mirrors VICE machine_specific_init.
+    this.maincpuAlarmContext = alarmContextNew("maincpu");
+    this.drivecpuAlarmContext = alarmContextNew("drivecpu");
+
+    // CPU built BEFORE CIA install — Cia6526Vice's Ciat sub-modules
+    // capture the CPU clock at construction time via clkPtr(), so the
+    // CPU object must already exist. (Cpu65xxVice may replace this
+    // later under useMicrocodedCpu.)
+    this.c64Cpu = new Cpu6510(this.c64Bus);
+
     // Spec 083 / VICE-style: when C64 reads or writes IEC bus state,
     // first catch the drive CPU up to the current cycle so drive's
     // response reflects all elapsed time. Without this, drive lag
     // breaks serial bit timing.
-    this.cia2 = installCia2(this.c64Bus, this.iecBus);
-    const cia1Install = installCia1(this.c64Bus);
+    const ciaClkPtr = () => this.c64Cpu.cycles;
+    const cia2Install = installCia2(this.c64Bus, this.iecBus, {
+      alarmContext: this.maincpuAlarmContext,
+      clkPtr: ciaClkPtr,
+    });
+    this.cia2 = cia2Install.cia;
+    this.cia2NmiLine = cia2Install.nmiLine;
+    const cia1Install = installCia1(this.c64Bus, {
+      alarmContext: this.maincpuAlarmContext,
+      clkPtr: ciaClkPtr,
+    });
     this.cia1 = cia1Install.cia;
+    this.cia1IrqLine = cia1Install.irqLine;
     this.keyboard = cia1Install.keyboard;
     this.joystick2 = cia1Install.joystick2;
     this.joystick1 = cia1Install.joystick1;
@@ -355,16 +382,6 @@ export class IntegratedSession {
     this.sid.potReader = (idx) => this.paddles[idx === 0 ? 0 : 2] ?? 0;
     if (!isPal) this.vic.setNtsc();
     this.c64Bus.reset();
-    this.c64Cpu = new Cpu6510(this.c64Bus);
-
-    // Sprint 113 Phase 2: alarm contexts created up-front. Mirrors VICE
-    // src/c64/c64.c machine_specific_init pattern (`maincpu_alarm_context
-    // = alarm_context_new("MainCPU");`) and src/drive/drivecpu.c
-    // (`drv->cpu->alarm_context = alarm_context_new(...)`). Chip ports
-    // (CIA / VIA / VIC) wire their alarms into these contexts during
-    // their own phase 2 migrations.
-    this.maincpuAlarmContext = alarmContextNew("maincpu");
-    this.drivecpuAlarmContext = alarmContextNew("drivecpu");
 
     // Drive side. Spec 090: configure sync ratio + zero baseline.
     this.drive = new DriveCpu({
@@ -444,8 +461,13 @@ export class IntegratedSession {
       }
       const c64Components = [
         cpuCompoonent,
-        new CiaCycled(this.cia1),
-        new CiaCycled(this.cia2),
+        // Sprint 113 Phase 2 (Spec 146): alarm-driven CIAs no longer
+        // need per-cycle ticks. Instead a single AlarmContextCycled
+        // dispatches all maincpu alarms (CIA1 + CIA2 timers, TOD, SDR)
+        // up to the current C64 clock each cycle. Mirrors the VICE
+        // CPU loop's PROCESS_ALARMS macro behaviour for the lockstep
+        // path where the CPU itself isn't responsible for dispatch.
+        new AlarmContextCycled(this.maincpuAlarmContext, () => this.c64Cpu.cycles),
         new VicCycled(this.vic),
         new SidCycled(this.sid),
         new KeyboardCycled(this.keyboard),
@@ -631,11 +653,20 @@ export class IntegratedSession {
     this.paddles[idx] = value & 0xff;
   }
   // RESTORE key triggers NMI via CIA2 PB6 falling edge in real HW.
-  // We model as direct NMI service call (FLAG line latched + IFR set).
+  // VICE: c64keyboard.c:172 calls cia2_set_flag() which is a thin
+  // wrapper over ciacore_set_flag(); the CIA's IFR FLAG bit raises
+  // and (if enabled in the mask) the NMI line goes active.
+  //
+  // Sprint 113 Phase 2 (Spec 146): drive the legacy compat fields
+  // directly so test harnesses can call this BEFORE any C64 cycle has
+  // elapsed (cycles=0 → cia.write() would underflow rclk into uint32
+  // wrap and stall the alarm dispatcher). The semantic outcome —
+  // FLAG flag latched in IFR + mask enabled + irqAsserted() returns
+  // true — matches the real CIA2 path; the integrated NMI line
+  // refresh sees this on the next updateInterruptLines tick.
   triggerRestoreNmi(): void {
-    // Set CIA2 ICR FLAG bit (bit 4) and let irqAsserted assert.
-    this.cia2.icrFlags |= 0x10; // ICR_FLAG
-    this.cia2.icrMask  |= 0x10;
+    this.cia2.icrMask |= 0x10;
+    this.cia2.icrFlags |= 0x10;
   }
 
   // Spec 093: drive PC sample (called per C64 instruction step).
@@ -828,19 +859,24 @@ export class IntegratedSession {
   private updateMicrocodedInterruptLines(): void {
     const cpu = this.c64Cpu as any;
     if (!("irqLine" in cpu)) return;
-    cpu.irqLine = this.cia1.irqAsserted() || this.vic.irqAsserted();
-    cpu.nmiLine = this.cia2.irqAsserted();
+    // Sprint 113 Phase 2: CIA1/CIA2 expose a latched IRQ-pin level via
+    // their setIntClk callback; sample that directly instead of the old
+    // irqAsserted() helper. Falls back to irqAsserted for tests that
+    // poke icrFlags directly without going through the CIA write API.
+    cpu.irqLine = (this.cia1IrqLine() || this.cia1.irqAsserted()) || this.vic.irqAsserted();
+    cpu.nmiLine = this.cia2NmiLine() || this.cia2.irqAsserted();
   }
 
   private checkC64Interrupts(): void {
     // CIA2 → C64 NMI (edge-triggered). RESTORE-key NMI deferred.
-    const cia2Irq = this.cia2.irqAsserted();
+    const cia2Irq = this.cia2NmiLine() || this.cia2.irqAsserted();
     if (cia2Irq && !this.prevCia2IrqAsserted) {
       this.c64Cpu.serviceInterrupt(0xfffa, false);
     }
     this.prevCia2IrqAsserted = cia2Irq;
     // CIA1 + VIC → C64 IRQ (level-triggered, gated by I-flag).
-    if (!this.c64Cpu.interruptsDisabled() && (this.cia1.irqAsserted() || this.vic.irqAsserted())) {
+    const cia1Irq = this.cia1IrqLine() || this.cia1.irqAsserted();
+    if (!this.c64Cpu.interruptsDisabled() && (cia1Irq || this.vic.irqAsserted())) {
       this.c64Cpu.serviceInterrupt(0xfffe, false);
     }
   }
