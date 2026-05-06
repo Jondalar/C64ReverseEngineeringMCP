@@ -57,6 +57,13 @@ export interface DriveCpuOptions {
   // Sprint 113 Phase 2: live drive CPU clock pointer for VIA construction.
   // If not provided, DriveCpu supplies one automatically.
   clkRef?: () => number;
+  /**
+   * Spec 201-c3: optional kernel-aware override for VIA1 $1800 PB
+   * store. When provided, threads down to Via1d1541 and replaces the
+   * default direct-IecBusCore call so cross-domain access is observed
+   * by KernelBus.
+   */
+  iecStorePb?: (byte: number, deviceId: number) => void;
 }
 
 export class DriveBus implements CpuMemory {
@@ -99,6 +106,7 @@ export class DriveBus implements CpuMemory {
         deviceId,
         clkRef: resolvedClkRef,
         setIrq: () => { /* IRQ sampled via irqAsserted() in runOneInstruction */ },
+        iecStorePb: opts.iecStorePb,
       });
       opts.iecBus.attachDriveVia1(this.via1);
     } else {

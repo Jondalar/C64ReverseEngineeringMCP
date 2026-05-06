@@ -276,6 +276,18 @@ export class HeadlessMachineKernel implements MachineKernel {
       // IEC bit-bang.
       useMicrocodedCpu: deps.useMicrocodedCpu,
       alarmContext: this.alarms.drivecpu,
+      // Spec 201-c3: $1800 PB store threads through KernelBus.
+      iecStorePb: (byte, device) =>
+        this.bus.driveWrite(device, 0x1800, byte, {
+          side: "drive",
+          device,
+          clock: this.drive.cpu.cycles,
+          pc: this.drive.cpu.pc | 0,
+          opcode: 0,
+          phase: "phi2",
+          addr: 0x1800,
+          access: "write",
+        }),
     });
     this.iecBus.attachDriveRam(this.drive.bus.ram);
     // Spec 140 v3: 1:1 VICE port. No mode flag — VICE is THE behavior.

@@ -48,6 +48,14 @@ export interface Via1d1541Options {
   clkRef: () => CLOCK;
   /** IRQ propagation: called with (value, clk) when (ifr & ier & 0x7f) changes. */
   setIrq: (value: number, clk: CLOCK) => void;
+  /**
+   * Spec 201-c3: optional override for $1800 PB store. When provided,
+   * replaces the default `iec.drive_store_pb(byte, deviceId)` call so
+   * the kernel can route the cross-domain access through KernelBus.
+   * If undefined, falls back to the IecBusCore direct call (used by
+   * standalone test fixtures that have no kernel).
+   */
+  iecStorePb?: (byte: number, deviceId: number) => void;
   /** Optional my-name override. Default `1541Drive${deviceId-8}Via1`. */
   myname?: string;
   /** Optional rmw flag plumbing (defaults: never RMW). */
@@ -88,9 +96,13 @@ export class Via1d1541 {
 
       // VICE store_prb (lines 212-249). drive_data[unit] = ~byte;
       // recompute drv_bus[unit]; iec_update_ports.
-      storePb: (_clk: CLOCK, byte: BYTE) => {
-        this.iec.drive_store_pb(byte, this.deviceId);
-      },
+      // Spec 201-c3: route through KernelBus when caller supplies a
+      // kernel-aware override; else fall back to direct IecBusCore.
+      storePb: opts.iecStorePb
+        ? (_clk: CLOCK, byte: BYTE) => opts.iecStorePb!(byte, this.deviceId)
+        : (_clk: CLOCK, byte: BYTE) => {
+          this.iec.drive_store_pb(byte, this.deviceId);
+        },
 
       // VICE read_pra (lines 290-322). Stock 1541 (no parallel cable):
       // returns latched PA + open bus on undriven bits.
