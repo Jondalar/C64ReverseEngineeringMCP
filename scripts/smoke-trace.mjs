@@ -121,6 +121,43 @@ check("getBusAccessProducer returns the registered producer", () => {
   }
 });
 
+check("session + keyboard + joystick channels capture media + reset + input (Spec 205-A c10)", () => {
+  const { session: ss } = startIntegratedSession({
+    diskPath: fixturePath,
+    mode: "true-drive",
+  });
+  const k = ss.kernel;
+  k.trace().configureChannel("session", { mode: "ring", capacity: 64 });
+  k.trace().configureChannel("keyboard", { mode: "ring", capacity: 64 });
+  k.trace().configureChannel("joystick", { mode: "ring", capacity: 64 });
+
+  ss.resetCold();
+  ss.typeText("X");
+  ss.setJoystick2({ fire: true });
+
+  const sess = k.trace().getRing("session");
+  const kbd = k.trace().getRing("keyboard");
+  const joy = k.trace().getRing("joystick");
+
+  const sessKinds = new Set(sess.map((e) => e.data.kind));
+  if (!sessKinds.has("reset_cold")) {
+    throw new Error(`no reset_cold event. kinds: ${[...sessKinds].join(",")}`);
+  }
+  if (kbd.length === 0) throw new Error("no keyboard events captured");
+  if (joy.length === 0) throw new Error("no joystick events captured");
+  const j = joy[0];
+  if (j.data.port !== 2) throw new Error(`joystick port = ${j.data.port}`);
+  if (typeof j.data.state !== "object") throw new Error("joystick state missing");
+
+  // Direct mountMedia call also publishes when channel enabled.
+  k.mountMedia(8, { imagePath: "/tmp/synthetic", bytes: new Uint8Array([1, 2, 3]) });
+  const sess2 = k.trace().getRing("session");
+  if (!sess2.some((e) => e.data.kind === "media_mount")) {
+    throw new Error("no media_mount event after explicit mountMedia");
+  }
+  ss.shutdown?.();
+});
+
 check("gcr channel captures head step + motor + density (Spec 205-A c9)", () => {
   const { session: sh } = startIntegratedSession({
     diskPath: fixturePath,

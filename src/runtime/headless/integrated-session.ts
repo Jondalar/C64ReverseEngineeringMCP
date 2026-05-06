@@ -603,6 +603,8 @@ export class IntegratedSession {
     this.joystick2.fire = false;
     this.c64InstructionCount = 0;
     this.drivePcTrace = [];
+    // Spec 205-A c10: publish reset event to session trace channel.
+    this.kernel.notifyReset(profile);
   }
 
   // Sprint 93.1: queue text typing into keyboard matrix. Hold/gap default
@@ -611,6 +613,8 @@ export class IntegratedSession {
   // ticks see release — buffer reliably picks up the key.
   typeText(text: string, holdCycles = 33000, gapCycles = 33000): void {
     this.keyboard.typeText(text, holdCycles, gapCycles);
+    // Spec 205-A c10: publish keyboard input event (text-level).
+    this.kernel.notifyInputChange("keyboard", { kind: "type_text", length: text.length });
   }
 
   // Sprint 93.1: set joystick port 2 directional / fire state.
@@ -620,6 +624,7 @@ export class IntegratedSession {
     if (state.left !== undefined) this.joystick2.left = state.left;
     if (state.right !== undefined) this.joystick2.right = state.right;
     if (state.fire !== undefined) this.joystick2.fire = state.fire;
+    this.kernel.notifyInputChange("joystick", { port: 2, state: { ...this.joystick2 } });
   }
   // Spec 107 (M2.5) v1: joystick port 1 + paddle + RESTORE NMI.
   setJoystick1(state: Partial<JoystickState>): void {
@@ -628,6 +633,7 @@ export class IntegratedSession {
     if (state.left !== undefined) this.joystick1.left = state.left;
     if (state.right !== undefined) this.joystick1.right = state.right;
     if (state.fire !== undefined) this.joystick1.fire = state.fire;
+    this.kernel.notifyInputChange("joystick", { port: 1, state: { ...this.joystick1 } });
   }
   setPaddle(idx: 0 | 1 | 2 | 3, value: number): void {
     this.paddles[idx] = value & 0xff;

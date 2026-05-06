@@ -1,7 +1,7 @@
 # Spec 205 — Kernel trace contract
 
 **Sprint:** 120
-**Status:** 205-A foundation (c1+c2+c3) DONE 2026-05-06 — kernel trace controller wraps TraceRegistry, JSONL artifact path validated, irq channel auto-publishes from emitIrqEvent + markIrqServiced. 205-B (VICE diff CLI) + 205-C (swimlane) + remaining ADR §5 event families still PROPOSED.
+**Status:** 205-A FULL ADR §5 EVENT-FAMILY COVERAGE DONE 2026-05-06 — kernel trace controller + 8 wired channels (bus_access, irq, cpu, iec, gcr, vic, cia, session/keyboard/joystick). 14/14 smoke. 205-B (VICE diff CLI) + 205-C (swimlane) still PROPOSED.
 
 ## 205-A status (2026-05-06)
 
@@ -21,12 +21,29 @@
   carry kind="serviced"+servicedClock. First-divergence tooling now
   sees IRQs and bus accesses on the same timeline.
 
+## 205-A status (full ADR §5 coverage)
+
+- **c4** "cpu" — Cpu6510 + Cpu65xxVice instruction-complete edges
+  (both c64 + drive). { side, pc, clk }.
+- **c5** "iec" — IecBus line transitions (atn/clk/data + per-side
+  derived bits). Independent of legacy IecBus traceEnabled.
+- **c6** "gcr" — GcrShifter byte-ready + SYNC# edges via dedicated
+  trace observer (doesn't conflict with DriveCpu V-flag wiring).
+- **c7** "vic" — raster line + frame transitions from VicIIVice
+  line-wrap branch. { kind: "raster", raster_y } + { kind: "frame" }.
+- **c8** "cia" — Cia6526Vice ciaSetIrqFlag → chip-side flag set
+  events (CIA_IM_TA / TB / ALARM / SDR / FLAG bits) per chip.
+- **c9** "gcr" head_step + motor + density edge events. Edge-only
+  — no events when value unchanged.
+- **c10** "session" / "keyboard" / "joystick" — resetCold +
+  mountMedia + typeText + setJoystick* publish.
+
 ## 205-A still open
 
-- All other event families per ADR §5 (CPU instruction boundary,
-  alarms, GCR bit/byte-ready, VIC raster/frame, motor/density, media
-  mount/reset). Each is one small commit using the same
-  trace.publish pattern.
+- 205-B VICE diff CLI (consumes the JSONL artifacts).
+- 205-C swimlane consumer (UI client of the same registry).
+- io / sid / drive_pc channels — already exist in the registry
+  but no producer wired through the kernel yet.
 **ADR:** §5
 **Maps from:** legacy 142 (bus-access-trace-ring), 143
 (vice-headless-iec-diff), 152 (swimlane-full-compare) — superseded

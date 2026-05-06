@@ -17,7 +17,8 @@ export type ChannelName =
   | "cpu" | "io" | "iec" | "drive_pc" | "gcr"
   | "vic" | "cia" | "sid" | "keyboard" | "joystick" | "eof"
   | "bus_access"  // Spec 142: $DD00 / $1800 access trace
-  | "irq";        // Spec 205-A c3: KernelIrqEvent emit + serviced backfill
+  | "irq"         // Spec 205-A c3: KernelIrqEvent emit + serviced backfill
+  | "session";    // Spec 205-A c10: media mount, reset, input events
 
 export type ChannelMode = "off" | "ring" | "jsonl";
 

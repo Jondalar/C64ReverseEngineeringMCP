@@ -699,12 +699,42 @@ export class HeadlessMachineKernel implements MachineKernel {
     // Placeholder; real adapter lands in commit 200-c5.
   }
 
-  mountMedia(device: number, _media: MountedMedia): void {
+  mountMedia(device: number, media: MountedMedia): void {
     if (device !== 8) {
       throw new Error(
         `[kernel] mountMedia(${device}) — only device 8 supported in Spec 200`,
       );
     }
+    // Spec 205-A c10: publish to session channel.
+    if (this.traceRegistry.isEnabled("session")) {
+      this.traceCtrl.publish("session", this.c64Cpu.cycles, {
+        kind: "media_mount",
+        device,
+        imagePath: media.imagePath,
+        bytes: media.bytes.length,
+      });
+    }
+  }
+
+  /**
+   * Spec 205-A c10: explicit notify entry for IntegratedSession to call
+   * after every cold reset. The kernel itself can't observe the
+   * reset — IntegratedSession owns resetCold and must publish.
+   */
+  notifyReset(profile: string): void {
+    if (this.traceRegistry.isEnabled("session")) {
+      this.traceCtrl.publish("session", this.c64Cpu.cycles, {
+        kind: "reset_cold",
+        profile,
+      });
+    }
+  }
+
+  /** Spec 205-A c10: keyboard / joystick input change publish. */
+  notifyInputChange(kind: "keyboard" | "joystick", detail: Record<string, unknown>): void {
+    const channel = kind;
+    if (!this.traceRegistry.isEnabled(channel)) return;
+    this.traceCtrl.publish(channel, this.c64Cpu.cycles, detail);
   }
 
   trace(): KernelTraceController {
