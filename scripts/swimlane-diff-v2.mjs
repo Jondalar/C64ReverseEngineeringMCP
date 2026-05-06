@@ -72,29 +72,36 @@ const headlessPath  = args.headless;
 const maxRows       = Number(args["max-rows"] ?? 200);
 
 // Mutually exclusive anchor modes
-const anchorSrc          = args.anchor ?? (args["anchor-drive-pc-range"] ? null : "c64-w-DD00");
 const anchorDrivePcRange = args["anchor-drive-pc-range"] ?? null;
+const anchorC64PcRange   = args["anchor-c64-pc-range"] ?? null;
+const anchorSrc          = args.anchor ?? (anchorDrivePcRange || anchorC64PcRange ? null : "c64-w-DD00");
 
-if (anchorSrc && anchorDrivePcRange) {
-  console.error("ERROR: --anchor and --anchor-drive-pc-range are mutually exclusive.");
+const anchorModesSet = [anchorSrc, anchorDrivePcRange, anchorC64PcRange].filter(Boolean).length;
+if (anchorModesSet > 1) {
+  console.error("ERROR: --anchor / --anchor-drive-pc-range / --anchor-c64-pc-range are mutually exclusive.");
   process.exit(2);
 }
 
-// Parse --anchor-drive-pc-range  (e.g. "E853-E9FF" or "0xE853-0xE9FF")
-let drvPcLow = null, drvPcHigh = null;
-if (anchorDrivePcRange) {
-  const m = anchorDrivePcRange.replace(/0x/gi, "").match(/^([0-9A-Fa-f]+)-([0-9A-Fa-f]+)$/);
+function parseHexRange(label, str) {
+  const m = str.replace(/0x/gi, "").match(/^([0-9A-Fa-f]+)-([0-9A-Fa-f]+)$/);
   if (!m) {
-    console.error(`ERROR: --anchor-drive-pc-range must be HEX-HEX (e.g. E853-E9FF). Got: ${anchorDrivePcRange}`);
+    console.error(`ERROR: ${label} must be HEX-HEX (e.g. 4000-40FF). Got: ${str}`);
     process.exit(2);
   }
-  drvPcLow  = parseInt(m[1], 16);
-  drvPcHigh = parseInt(m[2], 16);
-  if (drvPcLow > drvPcHigh) {
-    console.error(`ERROR: --anchor-drive-pc-range low ($${m[1]}) must be <= high ($${m[2]}).`);
+  const lo = parseInt(m[1], 16);
+  const hi = parseInt(m[2], 16);
+  if (lo > hi) {
+    console.error(`ERROR: ${label} low ($${m[1]}) must be <= high ($${m[2]}).`);
     process.exit(2);
   }
+  return { lo, hi };
 }
+
+let drvPcLow = null, drvPcHigh = null;
+if (anchorDrivePcRange) ({ lo: drvPcLow, hi: drvPcHigh } = parseHexRange("--anchor-drive-pc-range", anchorDrivePcRange));
+
+let c64PcLow = null, c64PcHigh = null;
+if (anchorC64PcRange) ({ lo: c64PcLow, hi: c64PcHigh } = parseHexRange("--anchor-c64-pc-range", anchorC64PcRange));
 
 // Output directory
 const tsTag = new Date().toISOString().replace(/[:.]/g, "-");
@@ -139,6 +146,8 @@ const headlessRows  = loadJsonl(headlessPath).slice(0, maxRows);
 console.error(`Loaded: vice=${viceRows.length} rows  headless=${headlessRows.length} rows`);
 if (anchorDrivePcRange) {
   console.error(`Anchor mode: drive PC range $${drvPcLow.toString(16).toUpperCase()}-$${drvPcHigh.toString(16).toUpperCase()}`);
+} else if (anchorC64PcRange) {
+  console.error(`Anchor mode: c64 PC range $${c64PcLow.toString(16).toUpperCase()}-$${c64PcHigh.toString(16).toUpperCase()}`);
 } else {
   console.error(`Anchor src: ${anchorSrc}`);
 }
@@ -178,6 +187,25 @@ function findAnchorByDrvPcRange(rows, lo, hi) {
   });
 }
 
+function findAnchorByC64PcRange(rows, lo, hi) {
+  return rows.findIndex(r => {
+    const pc = r.c64?.pc;
+    return pc != null && pc >= lo && pc <= hi;
+  });
+}
+
+function c64PcDistribution(rows) {
+  const pages = {};
+  for (const r of rows) {
+    const pc = r.c64?.pc;
+    if (pc == null) continue;
+    const page = (pc >> 8) & 0xFF;
+    const key = `$${page.toString(16).toUpperCase().padStart(2,"0")}xx`;
+    pages[key] = (pages[key] ?? 0) + 1;
+  }
+  return Object.entries(pages).sort().map(([k,v]) => `${k}(${v})`).join(", ");
+}
+
 let viceAnchorIdx, headlessAnchorIdx;
 let anchorDescription;
 
@@ -196,6 +224,21 @@ if (anchorDrivePcRange) {
     console.error(`ERROR: No row found in headless file with drv.pc in [${anchorDrivePcRange}].`);
     console.error(`  Drive PC distribution in headless: ${drvPcDistribution(headlessRows) || "(no drv.pc data)"}`);
     console.error(`  Try a different --anchor-drive-pc-range. Cannot align.`);
+    process.exit(3);
+  }
+} else if (anchorC64PcRange) {
+  viceAnchorIdx     = findAnchorByC64PcRange(viceRows, c64PcLow, c64PcHigh);
+  headlessAnchorIdx = findAnchorByC64PcRange(headlessRows, c64PcLow, c64PcHigh);
+  anchorDescription = `c64 PC range $${c64PcLow.toString(16).toUpperCase()}-$${c64PcHigh.toString(16).toUpperCase()}`;
+
+  if (viceAnchorIdx < 0) {
+    console.error(`ERROR: No row found in VICE file with c64.pc in [${anchorC64PcRange}].`);
+    console.error(`  C64 PC distribution in VICE: ${c64PcDistribution(viceRows) || "(no c64.pc data)"}`);
+    process.exit(3);
+  }
+  if (headlessAnchorIdx < 0) {
+    console.error(`ERROR: No row found in headless file with c64.pc in [${anchorC64PcRange}].`);
+    console.error(`  C64 PC distribution in headless: ${c64PcDistribution(headlessRows) || "(no c64.pc data)"}`);
     process.exit(3);
   }
 } else {
