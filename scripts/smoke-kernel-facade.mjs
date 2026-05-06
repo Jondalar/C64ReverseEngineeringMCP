@@ -120,6 +120,43 @@ check("kernel.driveClock(10) throws for unmounted device", () => {
   if (!threw) throw new Error("driveClock(10) did not throw");
 });
 
+check("kernel.bus exposes KernelBus surface (Spec 201-c1)", () => {
+  if (!kernel.bus) throw new Error("kernel.bus missing");
+  for (const m of ["c64Read", "c64Write", "driveRead", "driveWrite"]) {
+    if (typeof kernel.bus[m] !== "function") throw new Error(`kernel.bus.${m} not function`);
+  }
+});
+
+check("kernel.bus.c64Read($DD00) returns IEC PA bits", () => {
+  const ctx = {
+    side: "c64",
+    clock: kernel.c64Clock(),
+    pc: 0,
+    opcode: 0,
+    phase: "phi2",
+    addr: 0xdd00,
+    access: "read",
+  };
+  const v = kernel.bus.c64Read(0xdd00, ctx);
+  if (typeof v !== "number") throw new Error(`c64Read returned ${typeof v}`);
+  if (v < 0 || v > 0xff) throw new Error(`c64Read returned ${v} out of byte range`);
+});
+
+check("kernel.bus.driveRead(8, $1800) returns drive bus byte", () => {
+  const ctx = {
+    side: "drive",
+    device: 8,
+    clock: kernel.driveClock(8),
+    pc: 0,
+    opcode: 0,
+    phase: "phi2",
+    addr: 0x1800,
+    access: "read",
+  };
+  const v = kernel.bus.driveRead(8, 0x1800, ctx);
+  if (typeof v !== "number") throw new Error(`driveRead returned ${typeof v}`);
+});
+
 console.log(`---`);
 console.log(`summary: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

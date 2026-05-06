@@ -37,6 +37,7 @@ import { GcrShifter } from "../drive/gcr-shifter.js";
 import { G64Parser } from "../../../disk/g64-parser.js";
 import { buildG64 } from "../../../disk/g64-builder.js";
 import { DiskProvider } from "../providers.js";
+import { HeadlessKernelBus } from "./headless-kernel-bus.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
@@ -86,6 +87,11 @@ export class HeadlessMachineKernel implements MachineKernel {
   readonly vic: VicIIVice;
   readonly sid: Sid6581;
   readonly framebuffer: VicFramebuffer;
+
+  // Spec 201-c1: KernelBus instance. Concrete implementation owned by
+  // kernel; cross-domain accesses ($DD00, $1800) get routed through
+  // here in 201-c2 / 201-c3.
+  readonly bus: HeadlessKernelBus;
 
   // Spec 200-c4: drive + disk side. Kernel owns parser, head, GCR
   // shifter and drive CPU; IEC drive-side wiring happens here too.
@@ -260,8 +266,12 @@ export class HeadlessMachineKernel implements MachineKernel {
     // (Sprint 113 Phase 2 / Spec 150 fix).
     if (!deps.useCycleLockstep) {
       this.iecBus.beforeC64Read = () =>
-        this.drive.executeToClock(this.c64Cpu.cycles);
+        this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: kernel-internal legacy beforeC64Read; replaced by Spec 202 catch-up
     }
+
+    // Spec 201-c1: KernelBus wired last so it can reference all
+    // kernel-owned chip + bus state via `this`.
+    this.bus = new HeadlessKernelBus(this);
   }
 
   c64Clock(): number {
