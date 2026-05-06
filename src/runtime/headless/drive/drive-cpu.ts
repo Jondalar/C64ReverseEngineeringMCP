@@ -17,11 +17,12 @@
 
 import { Cpu6510, type CpuMemory } from "../cpu6510.js";
 import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
-import type { AlarmContext } from "../alarm/alarm-context.js";
-import { Via6522 } from "./via6522.js";
-import { makeStubVia1Pa, makeStubVia1Pb, makeBusVia1Pa, makeBusVia1Pb } from "./via1-iec.js";
-import { makeStubVia2Pa, makeStubVia2Pb, makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
+import { alarmContextNew, alarmContextDispatch, type AlarmContext } from "../alarm/alarm-context.js";
+import { Via1d1541 } from "../via/via1d1541.js";
+import { Via2d1541, type Via2GcrPortCoupling } from "../via/via2d1541.js";
+import { makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
 import { loadDriveRom, DRIVE_ROM_BASE, DRIVE_ROM_SIZE, type LoadedDriveRom } from "./drive-rom.js";
+import { IecBusCore } from "../iec/iec-bus-core.js";
 import type { IecBus } from "../iec/iec-bus.js";
 import type { TrackBuffer, HeadPosition } from "./head-position.js";
 
@@ -41,21 +42,30 @@ export interface DriveCpuOptions {
   // sub-instruction bus access. Required for IEC bit-bang correctness.
   useMicrocodedCpu?: boolean;
   // Sprint 113 Phase 2: VICE-style alarm context for the drive CPU.
-  // When provided AND useMicrocodedCpu=true, the drive CPU dispatches
-  // pending alarms at every instruction-fetch boundary. Mirrors VICE
-  // drivecpu alarm-context wiring.
+  // VIA1 + VIA2 register their T1/T2/SR alarms here. When provided,
+  // DriveCpu drains pending alarms after each instruction in the
+  // executeToClock path. In lockstep, AlarmContextCycled handles drain.
   alarmContext?: AlarmContext;
+  // Sprint 113 Phase 2: live drive CPU clock pointer for VIA construction.
+  // If not provided, DriveCpu supplies one automatically.
+  clkRef?: () => number;
 }
 
 export class DriveBus implements CpuMemory {
   public readonly ram = new Uint8Array(DRIVE_RAM_SIZE);
   public readonly rom: Uint8Array;
-  public readonly via1: Via6522;
-  public readonly via2: Via6522;
+  public readonly via1: Via1d1541;
+  public readonly via2: Via2d1541;
   public readonly romSource: LoadedDriveRom["source"];
   public readonly romPath?: string;
+  /** Alarm context used by VIA1 + VIA2. May be caller-supplied or local. */
+  public readonly alarmContext: AlarmContext;
 
-  constructor(opts: DriveCpuOptions = {}) {
+  constructor(opts: DriveCpuOptions = {}, clkRef?: () => number) {
+    // Alarm context: caller-supplied (IntegratedSession passes its
+    // drivecpuAlarmContext) or local (standalone test / drive-session.ts).
+    this.alarmContext = opts.alarmContext ?? alarmContextNew("drivecpu-local");
+
     if (opts.romBytes) {
       if (opts.romBytes.length !== DRIVE_ROM_SIZE) {
         throw new Error(`romBytes must be ${DRIVE_ROM_SIZE} bytes`);
@@ -68,17 +78,57 @@ export class DriveBus implements CpuMemory {
       this.romSource = loaded.source;
       this.romPath = loaded.path;
     }
+
+    // clkRef is set by DriveCpu after constructing the CPU; for standalone
+    // DriveBus construction (equiv tests) we use a local zero clock.
+    const resolvedClkRef = opts.clkRef ?? clkRef ?? (() => 0);
+    const deviceId = opts.deviceId ?? 8;
+
     if (opts.iecBus) {
-      this.via1 = new Via6522(makeBusVia1Pa(), makeBusVia1Pb(opts.iecBus, opts.deviceId ?? 8));
+      this.via1 = new Via1d1541({
+        alarmContext: this.alarmContext,
+        iec: opts.iecBus.core,
+        deviceId,
+        clkRef: resolvedClkRef,
+        setIrq: () => { /* IRQ sampled via irqAsserted() in runOneInstruction */ },
+      });
       opts.iecBus.attachDriveVia1(this.via1);
     } else {
-      this.via1 = new Via6522(makeStubVia1Pa(), makeStubVia1Pb(opts.deviceId ?? 8));
+      // Stub: no IEC bus — Via1d1541 still needs an IecBusCore.
+      // Create a disconnected core (all pins released).
+      this.via1 = new Via1d1541({
+        alarmContext: this.alarmContext,
+        iec: new IecBusCore(),
+        deviceId,
+        clkRef: resolvedClkRef,
+        setIrq: () => { /* sampled */ },
+      });
     }
+
+    // VIA2: alarm-driven VICE-faithful chip core (Via2d1541).
+    // When GCR coupling is provided, wire real PA (GCR byte read) and PB
+    // (head step / motor / density / sync) backends via Via2GcrPortCoupling.
+    // Without GCR, idle stub: PA=0xff, PB=WPS-only. Spec 152 V2 will swap
+    // the GCR simulation for a full bit-stream engine; the chip core stays.
+    let gcrCoupling: Via2GcrPortCoupling | undefined;
     if (opts.gcr) {
-      this.via2 = new Via6522(makeGcrVia2Pa(opts.gcr), makeGcrVia2Pb(opts.gcr));
-    } else {
-      this.via2 = new Via6522(makeStubVia2Pa(), makeStubVia2Pb());
+      const paBackend = makeGcrVia2Pa(opts.gcr);
+      const pbBackend = makeGcrVia2Pb(opts.gcr);
+      gcrCoupling = {
+        readPa: () => paBackend.readPins(),
+        onPaOutputChanged: (orValue, ddrMask, cause) =>
+          paBackend.onOutputChanged(orValue, ddrMask, cause),
+        readPb: () => pbBackend.readPins(),
+        onPbOutputChanged: (orValue, ddrMask) =>
+          pbBackend.onOutputChanged(orValue, ddrMask, "or"),
+      };
     }
+    this.via2 = new Via2d1541({
+      alarmContext: this.alarmContext,
+      clkRef: resolvedClkRef,
+      setIrq: () => { /* sampled */ },
+      gcr: gcrCoupling,
+    });
   }
 
   read(address: number): number {
@@ -139,11 +189,18 @@ export class DriveCpu {
   public wakeUp(): void { this.sleeping = false; }
 
   constructor(opts: DriveCpuOptions = {}) {
-    this.bus = new DriveBus(opts);
+    // Sprint 113 Phase 2: DriveBus needs the CPU clock pointer for VIA1/VIA2
+    // construction. CPU hasn't been built yet, so we pass a live closure that
+    // reads cpu.cycles once the cpu field is assigned below.
+    let cpuRef: { cycles: number } = { cycles: 0 };
+    const clkRef = () => cpuRef.cycles;
+    this.bus = new DriveBus(opts, clkRef);
     this.microcoded = opts.useMicrocodedCpu ?? false;
     this.cpu = this.microcoded
-      ? new Cpu65xxVice({ memBus: this.bus, alarmContext: opts.alarmContext })
+      ? new Cpu65xxVice({ memBus: this.bus, alarmContext: opts.alarmContext ?? this.bus.alarmContext })
       : new Cpu6510(this.bus);
+    // Wire the closure to the actual CPU object now that it's created.
+    cpuRef = this.cpu as { cycles: number };
     this.trackBuffer = opts.gcr?.trackBuffer;
     this.headPosition = opts.gcr?.headPosition;
     // Sprint 96 part 8: wire GCR shifter byte-ready → CPU V flag
@@ -193,8 +250,21 @@ export class DriveCpu {
     this.cycleAccumulator16dot16 += this.syncFactor16dot16 * c64Delta;
     while (this.cycleAccumulator16dot16 >= 0x10000) {
       const consumed = this.runOneInstruction();
-      this.bus.via1.tick(consumed);
-      this.bus.via2.tick(consumed);
+      // Sprint 113 Phase 2: VIA1 + VIA2 are alarm-driven (Via1d1541 /
+      // Via2d1541). No tick() needed — alarm context is drained by the
+      // microcoded CPU inline (Cpu65xxVice) or via the legacy CPU path
+      // here. For the legacy-CPU executeToClock path we drain pending
+      // drive alarms after each instruction to keep T1/T2 timers current.
+      // (In lockstep, AlarmContextCycled handles drain per cycle.)
+      if (!this.microcoded) {
+        const ctx = this.bus.alarmContext;
+        const cpuClk = (this.cpu as Cpu6510).cycles;
+        let guard = 0;
+        while (cpuClk >= ctx.next_pending_alarm_clk) {
+          alarmContextDispatch(ctx, cpuClk);
+          if (++guard > 0x1000) break;
+        }
+      }
       this.cycleAccumulator16dot16 -= consumed * 0x10000;
     }
   }

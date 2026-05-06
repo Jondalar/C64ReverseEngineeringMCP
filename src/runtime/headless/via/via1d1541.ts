@@ -36,6 +36,7 @@ import {
   VIA_PRA,
   type ViaBackend,
   type Via6522ViceOptions,
+  type ViaBusAccessHook,
 } from "./via6522-vice.js";
 
 export interface Via1d1541Options {
@@ -150,14 +151,142 @@ export class Via1d1541 {
   }
 
   read(addr: number): number {
-    return this.via.read(addr);
+    const result = this.via.read(addr);
+    // Spec 142: emit bus-access event for ORB reads (addr 0 = VIA_PRB).
+    if ((addr & 0xf) === 0) {
+      this.busAccessHook?.emitDriveAccess({ op: "read", addr: this.baseAddr, value: result });
+    }
+    return result;
   }
 
   write(addr: number, value: number): void {
+    // Spec 142: emit bus-access event for ORB writes.
+    if ((addr & 0xf) === 0) {
+      this.busAccessHook?.emitDriveAccess({ op: "write", addr: this.baseAddr, value: value & 0xff });
+    }
     this.via.store(addr, value);
   }
 
   peek(addr: number): number {
     return this.via.peek(addr);
   }
+
+  // ---- Legacy compatibility surface — Sprint 113 Phase 2 ----------------
+  //
+  // Drive callers (iec-bus.ts, integrated-session.ts, snapshot.ts,
+  // headless.ts) were written against `Via6522`. These thin delegates
+  // bridge the gap without requiring rewrites of every call site.
+  // -----------------------------------------------------------------------
+
+  /** Spec 142: optional bus-access trace hook for ORB R/W. */
+  public busAccessHook?: ViaBusAccessHook;
+  /** Spec 142: base address of this VIA (drive VIA1 = $1800). */
+  public baseAddr = 0x1800;
+
+  /** IFR (interrupt flag register) — proxied from inner Via6522Vice. */
+  public get ifr(): number { return this.via.ifr; }
+  public set ifr(v: number) { this.via.ifr = v & 0x7f; }
+  /** IER (interrupt enable register) — proxied from inner Via6522Vice. */
+  public get ier(): number { return this.via.ier; }
+  public set ier(v: number) { this.via.ier = v & 0x7f; }
+  /** PCR (peripheral control register) — proxied from inner Via6522Vice. */
+  public get pcr(): number { return this.via.pcr; }
+  public set pcr(v: number) { this.via.pcr = v & 0xff; }
+
+  // ---- Snapshot field accessors (for snapshot.ts duck-typed ViaSnapshot) --
+  /** ORA latch — delegates to Via6522Vice.ora. */
+  public get ora(): number { return this.via.ora; }
+  public set ora(v: number) { this.via.ora = v; }
+  /** ORB latch — delegates to Via6522Vice.orb. */
+  public get orb(): number { return this.via.orb; }
+  public set orb(v: number) { this.via.orb = v; }
+  /** DDRA — delegates to Via6522Vice.ddra. */
+  public get ddra(): number { return this.via.ddra; }
+  public set ddra(v: number) { this.via.ddra = v; }
+  /** DDRB — delegates to Via6522Vice.ddrb. */
+  public get ddrb(): number { return this.via.ddrb; }
+  public set ddrb(v: number) { this.via.ddrb = v; }
+  /** T1 counter (read) — delegates to Via6522Vice.t1Counter. */
+  public get t1Counter(): number { return this.via.t1Counter; }
+  /** T1 counter (write) — stores into latch registers only. */
+  public set t1Counter(v: number) {
+    this.via.via[4] = v & 0xff;          // VIA_T1CL
+    this.via.via[5] = (v >> 8) & 0xff;   // VIA_T1CH
+  }
+  /** T1 latch — delegates to Via6522Vice.t1Latch. */
+  public get t1Latch(): number { return this.via.t1Latch; }
+  /** T1 latch (write) — stores into T1LL/T1LH. */
+  public set t1Latch(v: number) {
+    this.via.via[6] = v & 0xff;          // VIA_T1LL
+    this.via.via[7] = (v >> 8) & 0xff;   // VIA_T1LH
+    this.via.tal = v & 0xffff;
+  }
+  /** T2 counter (read) — delegates to Via6522Vice.t2Counter. */
+  public get t2Counter(): number { return this.via.t2Counter; }
+  /** T2 counter (write) — stores t2cl/t2ch fields. */
+  public set t2Counter(v: number) {
+    this.via.t2cl = v & 0xff;
+    this.via.t2ch = (v >> 8) & 0xff;
+    this.via.via[8] = v & 0xff;          // VIA_T2CL
+    this.via.via[9] = (v >> 8) & 0xff;   // VIA_T2CH
+  }
+  /** ACR — delegates to Via6522Vice.acr. */
+  public get acr(): number { return this.via.acr; }
+  public set acr(v: number) { this.via.acr = v; }
+  /** SR — delegates to Via6522Vice.sr. */
+  public get sr(): number { return this.via.sr; }
+  public set sr(v: number) { this.via.sr = v; }
+
+  /**
+   * Legacy: returns true iff an enabled IRQ source has its flag set.
+   * Optional `_currentClock` ignored (alarm-driven core has no delay check).
+   */
+  irqAsserted(_currentClock?: number): boolean {
+    return this.via.irqAsserted();
+  }
+
+  /**
+   * Legacy: pulseCa1 shim — translates old `pulseCa1(newLevel, stamp?)` API
+   * to the VICE `signal(ca1, rise|fall)` call used by iec-bus.ts ATN edge.
+   *
+   * VICE CA1 polarity on VIA1: PCR=0x01 → positive edge, PCR=0x00 →
+   * negative edge. The drive ROM writes PCR=$01 so CA1 fires on ATN
+   * assertion (CA1 input goes HIGH when ATN goes LOW — inverter in path).
+   *
+   * The legacy pulseCa1(newLevel) convention: `true` = pin HIGH.
+   * VICE viacore_signal convention: `rise` = pin transitions high.
+   * We detect the edge by comparing with the last seen pin state.
+   */
+  private _lastCa1 = true; // starts high (ATN released)
+  pulseCa1(newLevel: boolean, _clockStamp?: number): void {
+    const wasHigh = this._lastCa1;
+    const isHigh = newLevel;
+    this._lastCa1 = isHigh;
+    if (!wasHigh && isHigh) {
+      this.via.signal("ca1", "rise");
+    } else if (wasHigh && !isHigh) {
+      this.via.signal("ca1", "fall");
+    }
+    // No edge (no change) = no signal. VICE is edge-only, no level re-eval.
+  }
+
+  /**
+   * Legacy: reevaluateCa1Level — Sprint 66 shim for boot-order race.
+   * In the VICE-faithful core the signal() is edge-only; the re-eval
+   * hack is only needed for the legacy core. Keep as a no-op stub so
+   * iec-bus.ts `onCa1IerEnabled` wiring compiles and doesn't crash.
+   */
+  reevaluateCa1Level(_currentLevel: boolean): void {
+    // VICE-faithful: edge-only. No-op; the CA1 IFR is set only on
+    // a real edge (signal call), not on level re-eval.
+  }
+
+  /**
+   * Legacy: onCa1IerEnabled callback — set by iec-bus.ts when CA1 IER
+   * is newly enabled so stale ATN state can be re-evaluated. Kept as a
+   * settable property so iec-bus.ts `attachDriveVia1` wiring still works.
+   * The VICE core fires the interrupt only on a real signal edge, so the
+   * callback itself is a no-op call (reevaluateCa1Level is a no-op above).
+   */
+  public onCa1IerEnabled?: () => void;
 }

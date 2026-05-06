@@ -10,8 +10,17 @@
 // integration lands. Spec 063 phases extend per-subsystem.
 
 import type { Cpu6510 } from "../cpu6510.js";
-import type { Via6522 } from "../drive/via6522.js";
 import type { IecBus } from "../iec/iec-bus.js";
+
+/**
+ * Duck-typed VIA register surface required by serializeVia/deserializeVia.
+ * Both `Via6522` (legacy) and `Via1d1541` / `Via2d1541` satisfy this.
+ */
+export interface ViaLike {
+  ora: number; orb: number; ddra: number; ddrb: number;
+  t1Counter: number; t1Latch: number; t2Counter: number;
+  sr: number; acr: number; pcr: number; ifr: number; ier: number;
+}
 import type { TrackBuffer, HeadPosition } from "../drive/head-position.js";
 
 // Module names are intended to be VICE-compatible so future tooling
@@ -53,7 +62,7 @@ export function deserializeCpu(cpu: Cpu6510, data: Uint8Array): void {
 // ---- VIA module ----
 // Layout: ORA ORB DDRA DDRB T1L T1H T1LL T1LH T2L T2H SR ACR PCR IFR IER
 //         lastCa1Pin lastCb1Pin (booleans as bytes) = 17 bytes
-export function serializeVia(via: Via6522): Uint8Array {
+export function serializeVia(via: ViaLike): Uint8Array {
   const buf = new Uint8Array(17);
   buf[0] = via.ora; buf[1] = via.orb;
   buf[2] = via.ddra; buf[3] = via.ddrb;
@@ -71,7 +80,7 @@ export function serializeVia(via: Via6522): Uint8Array {
   return buf;
 }
 
-export function deserializeVia(via: Via6522, data: Uint8Array): void {
+export function deserializeVia(via: ViaLike, data: Uint8Array): void {
   if (data.length < 17) throw new Error(`VIA module data too short: ${data.length} (expected 17)`);
   via.ora = data[0]!; via.orb = data[1]!;
   via.ddra = data[2]!; via.ddrb = data[3]!;

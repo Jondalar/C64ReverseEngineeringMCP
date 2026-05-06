@@ -14,6 +14,7 @@ import { HeadlessMemoryBus } from "../memory-bus.js";
 import { DriveCpu } from "./drive-cpu.js";
 import { IecBus } from "../iec/iec-bus.js";
 import { attachCia2ToIecBus } from "../iec/cia2-stub.js";
+import { alarmContextDispatch } from "../alarm/alarm-context.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -76,8 +77,17 @@ export class DriveSession {
     // Pre-instruction interrupt check.
     this.checkDriveInterrupts();
     const consumed = this.drive.step();
-    this.drive.bus.via1.tick(consumed);
-    this.drive.bus.via2.tick(consumed);
+    // Sprint 113 Phase 2: VIA1 + VIA2 are alarm-driven (Via1d1541 /
+    // Via2d1541). No tick() call needed — the alarm context is drained
+    // inside DriveCpu.executeToClock / DriveCpuCycled. For DriveSession
+    // (standalone test harness), drain the local alarm context here.
+    const ctx = this.drive.bus.alarmContext;
+    const cpuClk = this.drive.cpu.cycles;
+    let guard = 0;
+    while (cpuClk >= ctx.next_pending_alarm_clk) {
+      alarmContextDispatch(ctx, cpuClk);
+      if (++guard > 0x1000) break;
+    }
     if (this.driveCycleAccumulator > 0) {
       this.driveCycleAccumulator -= consumed;
     }

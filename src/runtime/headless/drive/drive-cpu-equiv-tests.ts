@@ -19,6 +19,7 @@
 import { Cpu6510 } from "../cpu6510.js";
 import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
 import { DriveBus } from "./drive-cpu.js";
+import { alarmContextDispatch } from "../alarm/alarm-context.js";
 import { OPCODE_TABLE } from "../../../exomizer-ts/generated-opcodes.js";
 import { UNDOC_TABLE } from "../cpu/undoc-table.js";
 
@@ -58,6 +59,18 @@ function diffStates(a: EquivDivergence["legacy"], b: EquivDivergence["legacy"]):
   return out;
 }
 
+function drainAlarms(bus: DriveBus, cpuClk: number): void {
+  // Sprint 113 Phase 2: VIA1 + VIA2 are alarm-driven. Drain any
+  // pending alarms on the local DriveBus alarm context after each
+  // instruction so T1/T2 timer state advances correctly.
+  const ctx = bus.alarmContext;
+  let guard = 0;
+  while (cpuClk >= ctx.next_pending_alarm_clk) {
+    alarmContextDispatch(ctx, cpuClk);
+    if (++guard > 0x1000) break;
+  }
+}
+
 function runOneInstrLegacy(cpu: Cpu6510, bus: DriveBus): number {
   const before = cpu.cycles;
   if (!cpu.interruptsDisabled()) {
@@ -67,8 +80,7 @@ function runOneInstrLegacy(cpu: Cpu6510, bus: DriveBus): number {
   }
   cpu.step();
   const consumed = cpu.cycles - before;
-  bus.via1.tick(consumed);
-  bus.via2.tick(consumed);
+  drainAlarms(bus, cpu.cycles);
   return consumed;
 }
 
@@ -78,8 +90,7 @@ function runOneInstrMicro(cpu: Cpu65xxVice, bus: DriveBus): number {
   cpu.executeCycle();
   while (!cpu.isAtInstructionBoundary()) cpu.executeCycle();
   const consumed = cpu.cycles - before;
-  bus.via1.tick(consumed);
-  bus.via2.tick(consumed);
+  drainAlarms(bus, cpu.cycles);
   return consumed;
 }
 

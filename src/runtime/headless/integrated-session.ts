@@ -52,7 +52,7 @@ import {
 } from "./trace/bus-access.js";
 import {
   Cpu6510Cycled, AlarmContextCycled, VicCycled, SidCycled,
-  DriveCpuCycled, ViaCycled, KeyboardCycled,
+  DriveCpuCycled, KeyboardCycled,
 } from "./scheduler/cycle-wrappers.js";
 import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
 import {
@@ -474,8 +474,11 @@ export class IntegratedSession {
       ];
       const driveComponents = [
         new DriveCpuCycled(this.drive),
-        new ViaCycled(this.drive.bus.via1),
-        new ViaCycled(this.drive.bus.via2),
+        // Sprint 113 Phase 2 (Spec 147): VIA1 + VIA2 are alarm-driven
+        // (Via1d1541 / Via2d1541). Per-cycle tick() replaced by a single
+        // AlarmContextCycled that drains the drivecpu alarm context each
+        // cycle — mirrors the same pattern as CIA (Spec 146 migration).
+        new AlarmContextCycled(this.drivecpuAlarmContext, () => this.drive.cpu.cycles),
       ];
       this.scheduler = new CycleLockstepSchedulerImpl({
         c64Components, driveComponents,

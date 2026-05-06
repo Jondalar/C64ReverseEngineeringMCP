@@ -8,10 +8,24 @@
 // setDriveOutput, buildC64InputBits) preserved for back-compat;
 // implementations now compute from core.cpu_port + core.cpu_bus.
 
-import type { Via6522 } from "../drive/via6522.js";
-import { PB_DEV_ID0, PB_DEV_ID1 } from "../drive/via1-iec.js";
 import type { BusAccessTraceProducer } from "../trace/bus-access.js";
 import { IecBusCore } from "./iec-bus-core.js";
+
+// PB bit positions for device-ID jumpers on 1541 VIA1 PB5/PB6.
+// Moved here from drive/via1-iec.ts (Sprint 113 Phase 2).
+const PB_DEV_ID0 = 1 << 5;
+const PB_DEV_ID1 = 1 << 6;
+
+/**
+ * Minimal interface for a drive VIA1 object. Accepts both the legacy
+ * `Via6522` (drive/via6522.ts) and the new `Via1d1541` (via/via1d1541.ts)
+ * so iec-bus.ts doesn't hard-depend on either concrete class.
+ */
+export interface DriveVia1Like {
+  pulseCa1(newLevel: boolean, clockStamp?: number): void;
+  reevaluateCa1Level(currentLevel: boolean): void;
+  onCa1IerEnabled?: () => void;
+}
 
 // CIA2 PA bit assignments.
 export const CIA2_PA_VIC_BANK_LO = 1 << 0;
@@ -69,7 +83,7 @@ export class IecBus {
   public driveClockSource?: () => number;
 
   // Drive VIA1 reference for ATN edge propagation.
-  private driveVia1?: Via6522;
+  private driveVia1?: DriveVia1Like;
 
   // Sprint 66 / Spec 144 territory: drive RAM $7C poke for legacy
   // trap-fast mode. Default null = disabled (truedrive-pure).
@@ -117,7 +131,7 @@ export class IecBus {
 
   // === Drive VIA1 attachment ===
 
-  attachDriveVia1(via: Via6522): void {
+  attachDriveVia1(via: DriveVia1Like): void {
     this.driveVia1 = via;
     // Initialize CA1 baseline (CA1 pin = inverted ATN line per 1541 schematic).
     via.pulseCa1(!this.atnLine);

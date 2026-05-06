@@ -25,8 +25,15 @@
 // We model byte-aligned sync detection: SYNC = 0 when the last GCR
 // byte read was 0xFF and the run-length is ≥10 bytes.
 
-import type { ViaPortBackend } from "./via6522.js";
 import type { HeadPosition, TrackBuffer } from "./head-position.js";
+
+// Sprint 113 Phase 2: ViaPortBackend previously imported from via6522.ts
+// (now deleted). Redefined here locally since via2-gcr.ts is the only
+// consumer. The shape is preserved 1:1 for backward compatibility.
+export interface ViaPortBackend {
+  readPins(): number;
+  onOutputChanged(orValue: number, ddrMask: number, cause: "or" | "ddr" | "reset"): void;
+}
 
 export const PB_STEP_LO = 1 << 0;
 export const PB_STEP_HI = 1 << 1;

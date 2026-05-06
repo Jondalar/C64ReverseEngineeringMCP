@@ -1188,6 +1188,59 @@ export class Via6522Vice {
     }
   }
 
+  // ---- Legacy compatibility surface — Spec 147 Phase 2 (Sprint 113) ----
+  //
+  // Drive callers (drive-cpu.ts, drive-session.ts, drive-cpu-equiv-tests.ts,
+  // snapshot.ts, headless.ts) were written against the old `Via6522` field
+  // shape. These getters + `irqAsserted()` bridge the gap so caller
+  // migration is purely mechanical (swap import + constructor).
+  //
+  // Register file aliases (via[0..15] — VICE names, VIA_PRB=0 etc.).
+  // ---------------------------------------------------------------------------
+
+  /** Legacy: ORA latch. Maps to via[VIA_PRA] = via[1]. */
+  public get ora(): number { return this.via[VIA_PRA]!; }
+  public set ora(v: number) { this.via[VIA_PRA] = v & 0xff; }
+  /** Legacy: ORB latch. Maps to via[VIA_PRB] = via[0]. */
+  public get orb(): number { return this.via[VIA_PRB]!; }
+  public set orb(v: number) { this.via[VIA_PRB] = v & 0xff; }
+  /** Legacy: DDRA. Maps to via[VIA_DDRA] = via[3]. */
+  public get ddra(): number { return this.via[VIA_DDRA]!; }
+  public set ddra(v: number) { this.via[VIA_DDRA] = v & 0xff; }
+  /** Legacy: DDRB. Maps to via[VIA_DDRB] = via[2]. */
+  public get ddrb(): number { return this.via[VIA_DDRB]!; }
+  public set ddrb(v: number) { this.via[VIA_DDRB] = v & 0xff; }
+  /** Legacy: ACR. Maps to via[VIA_ACR] = via[11]. */
+  public get acr(): number { return this.via[VIA_ACR]!; }
+  public set acr(v: number) { this.via[VIA_ACR] = v & 0xff; }
+  /** Legacy: PCR. Maps to via[VIA_PCR] = via[12]. */
+  public get pcr(): number { return this.via[VIA_PCR]!; }
+  public set pcr(v: number) { this.via[VIA_PCR] = v & 0xff; }
+  /** Legacy: SR. Maps to via[VIA_SR] = via[10]. */
+  public get sr(): number { return this.via[VIA_SR]!; }
+  public set sr(v: number) { this.via[VIA_SR] = v & 0xff; }
+  /** Legacy: T1 counter (16-bit). Computed from VICE alarm math. */
+  public get t1Counter(): number { return this.viacoreT1(this.clkRef()) & 0xffff; }
+  /** Legacy: T1 latch (16-bit). Maps to via[T1LL]|via[T1LH]. */
+  public get t1Latch(): number {
+    return (this.via[VIA_T1LL]! | (this.via[VIA_T1LH]! << 8)) & 0xffff;
+  }
+  /** Legacy: T2 counter (16-bit). Computed from VICE alarm math. */
+  public get t2Counter(): number { return this.viacoreT2(this.clkRef()) & 0xffff; }
+
+  /**
+   * Legacy: returns true iff an enabled IRQ source has its flag set.
+   * In the VICE-faithful core the IRQ line is pin-driven via backend.setInt;
+   * we expose the gate function directly so existing `irqAsserted()` users
+   * keep working without change.
+   *
+   * @param _currentClock ignored — VICE alarm-driven core has no per-call
+   *   clock-delay check (delay is baked into alarm scheduling).
+   */
+  irqAsserted(_currentClock?: number): boolean {
+    return (this.ifr & this.ier & 0x7f) !== 0;
+  }
+
   // ---- Snapshot (Phase 1: minimal — internal register-state only) ------
   snapshotState(): {
     via: number[];
@@ -1223,3 +1276,50 @@ export class Via6522Vice {
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Legacy constant aliases — Sprint 113 Phase 2 caller migration.
+// The old `drive/via6522.ts` exported IFR_CA1 etc.; we re-export them
+// here under the same names so consumers can switch imports without
+// touching every constant reference.
+// ---------------------------------------------------------------------------
+
+/** Legacy alias: IFR_CA2 = VIA_IM_CA2. */
+export const IFR_CA2 = VIA_IM_CA2;
+/** Legacy alias: IFR_CA1 = VIA_IM_CA1. */
+export const IFR_CA1 = VIA_IM_CA1;
+/** Legacy alias: IFR_SR = VIA_IM_SR. */
+export const IFR_SR = VIA_IM_SR;
+/** Legacy alias: IFR_CB2 = VIA_IM_CB2. */
+export const IFR_CB2 = VIA_IM_CB2;
+/** Legacy alias: IFR_CB1 = VIA_IM_CB1. */
+export const IFR_CB1 = VIA_IM_CB1;
+/** Legacy alias: IFR_T2 = VIA_IM_T2. */
+export const IFR_T2 = VIA_IM_T2;
+/** Legacy alias: IFR_T1 = VIA_IM_T1. */
+export const IFR_T1 = VIA_IM_T1;
+/** Legacy alias: IFR_IRQ_SUMMARY = VIA_IM_IRQ. */
+export const IFR_IRQ_SUMMARY = VIA_IM_IRQ;
+
+// Legacy register offset aliases matching drive/via6522.ts.
+// (VIA_PRB, VIA_PRA, VIA_DDRB, VIA_DDRA, VIA_T1CL, VIA_T1CH,
+//  VIA_T1LL, VIA_T1LH, VIA_T2CL, VIA_T2CH, VIA_SR, VIA_ACR,
+//  VIA_PCR, VIA_IFR, VIA_IER, VIA_PRA_NHS already exported above
+//  — re-export under the old names too.)
+/**
+ * Bus-access trace hook for VIA register reads/writes.
+ * Spec 142: optional callback invoked AFTER the read/write completes.
+ * Originally defined in drive/via6522.ts; moved here for Sprint 113 Phase 2.
+ */
+export interface ViaBusAccessHook {
+  emitDriveAccess(p: { op: "read" | "write"; addr: number; value: number }): void;
+}
+
+/** Legacy: VIA_ORB = VIA_PRB (0). */
+export const VIA_ORB = VIA_PRB;
+/** Legacy: VIA_ORA = VIA_PRA (1). */
+export const VIA_ORA = VIA_PRA;
+/** Legacy: VIA_ORA_NOHS = VIA_PRA_NHS (15). */
+export const VIA_ORA_NOHS = VIA_PRA_NHS;
+/** Legacy: VIA_REG_COUNT = 16. */
+export const VIA_REG_COUNT = 16;

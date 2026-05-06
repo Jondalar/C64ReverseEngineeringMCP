@@ -30,7 +30,6 @@ import type { CLOCK } from "../util/uint.js";
 import type { VicII } from "../peripherals/vic-ii.js";
 import type { Sid6581 } from "../sid/sid.js";
 import type { DriveCpu } from "../drive/drive-cpu.js";
-import type { Via6522 } from "../drive/via6522.js";
 
 export class Cpu6510Cycled implements CycleSteppable {
   // Cycles still owed for the current instruction. 0 = at boundary.
@@ -145,10 +144,13 @@ export class DriveCpuCycled implements CycleSteppable {
   cycle(): number { return this.drive.cpu.cycles; }
 }
 
-export class ViaCycled implements CycleSteppable {
-  constructor(public readonly via: Via6522) {}
-  executeCycle(): void { this.via.tick(1); }
-}
+// ViaCycled — DELETED in Sprint 113 Phase 2 (Spec 147 migration).
+// VIA1 + VIA2 are now alarm-driven (Via1d1541 / Via2d1541). Per-cycle
+// tick() is replaced by AlarmContextCycled(drivecpuAlarmContext) in
+// the driveComponents list — mirrors the same pattern as the CIA
+// migration (CiaCycled → AlarmContextCycled for maincpu). Kept as
+// exported no-op stub for 1-2 cycles to avoid import errors in
+// drive-session.ts during transition; will be removed in next sprint.
 
 // Convenience: keyboard cycle ticker. Doesn't need separate class but
 // kept for symmetry.
