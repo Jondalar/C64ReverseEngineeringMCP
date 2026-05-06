@@ -243,6 +243,10 @@ export class HeadlessMachineKernel implements MachineKernel {
     //     checkC64Interrupts / updateMicrocodedInterruptLines).
     //   readVbus / readColorRam → optional data reads; B-level uses
     //     zero (cycle counting only, renderer reads RAM directly).
+    // Spec 203-c3: VIC raster IRQ edge tracking. setIrqLine is called
+    // by VicIIVice on every irq state update; only level transitions
+    // emit a kernel event.
+    let vicPrevAsserted = false;
     const vicBusBackend: VicBackend = {
       stealCpuCycles: (count: number, _clk: number) => {
         // Advance C64 CPU clock past stolen window. CPU does not step;
@@ -251,11 +255,23 @@ export class HeadlessMachineKernel implements MachineKernel {
         // dma_maincpu_steal_cycles: maincpu_clk += count.
         (this.c64Cpu as { cycles: number }).cycles += count;
       },
-      setIrqLine: (_asserted: boolean, _clk: number) => {
+      setIrqLine: (asserted: boolean, clk: number) => {
         // IRQ line state is sampled via vic.irqAsserted() in
         // checkC64Interrupts and updateMicrocodedInterruptLines —
-        // no additional latching needed here. No-op storage fine at
-        // B-level; V3 will add VICE-exact pin-level latch.
+        // no additional latching needed here. Spec 203-c3: emit
+        // kernel event on edge so divergence diff has visibility into
+        // raster IRQ stamping.
+        if (asserted !== vicPrevAsserted) {
+          vicPrevAsserted = asserted;
+          this.emitIrqEvent({
+            line: "irq",
+            asserted,
+            source: "vic",
+            target: "c64-cpu",
+            edgeClock: clk,
+            visibleClock: clk,
+          });
+        }
       },
       readVbus: () => 0,
       readColorRam: () => 0,
@@ -323,6 +339,39 @@ export class HeadlessMachineKernel implements MachineKernel {
           addr: 0x1800,
           access: "write",
         }),
+      // Spec 203-c3: drive-side IRQ + SO edges into the kernel event
+      // ring. Mirror CIA1/CIA2 pattern; targets the drive-cpu instead
+      // of the c64-cpu.
+      onVia1IrqEdge: (asserted, clk) => {
+        this.emitIrqEvent({
+          line: "irq",
+          asserted,
+          source: "via1",
+          target: "drive-cpu",
+          edgeClock: clk,
+          visibleClock: clk,
+        });
+      },
+      onVia2IrqEdge: (asserted, clk) => {
+        this.emitIrqEvent({
+          line: "irq",
+          asserted,
+          source: "via2",
+          target: "drive-cpu",
+          edgeClock: clk,
+          visibleClock: clk,
+        });
+      },
+      onSoEdge: (asserted, clk) => {
+        this.emitIrqEvent({
+          line: "so",
+          asserted,
+          source: "gcr-shifter",
+          target: "drive-cpu",
+          edgeClock: clk,
+          visibleClock: clk,
+        });
+      },
     });
     this.iecBus.attachDriveRam(this.drive.bus.ram);
     // Spec 140 v3: 1:1 VICE port. No mode flag — VICE is THE behavior.

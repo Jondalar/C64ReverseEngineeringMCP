@@ -19,6 +19,7 @@ export type KernelIrqSource =
   | "via2"
   | "vic"
   | "drive-cpu"
+  | "gcr-shifter"
   | "kernel";
 export type KernelIrqTarget = "c64-cpu" | "drive-cpu" | "drive-via1" | "drive-via2";
 

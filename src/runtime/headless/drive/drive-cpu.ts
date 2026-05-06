@@ -64,6 +64,18 @@ export interface DriveCpuOptions {
    * by KernelBus.
    */
   iecStorePb?: (byte: number, deviceId: number) => void;
+  /**
+   * Spec 203-c3: VIA1 IRQ line edge (drive-cpu target). Called only on
+   * level transitions, not on every via.setIrq. `clk` is drive-cpu cycles.
+   */
+  onVia1IrqEdge?: (asserted: boolean, clk: number) => void;
+  /** Spec 203-c3: VIA2 IRQ line edge (drive-cpu target). */
+  onVia2IrqEdge?: (asserted: boolean, clk: number) => void;
+  /**
+   * Spec 203-c3: drive SO line (byte-ready) edge. Fired right before
+   * the V flag is set on the drive CPU. `clk` is drive-cpu cycles.
+   */
+  onSoEdge?: (asserted: boolean, clk: number) => void;
 }
 
 export class DriveBus implements CpuMemory {
@@ -99,13 +111,32 @@ export class DriveBus implements CpuMemory {
     const resolvedClkRef = opts.clkRef ?? clkRef ?? (() => 0);
     const deviceId = opts.deviceId ?? 8;
 
+    // Spec 203-c3: edge tracking closures so onVia*IrqEdge fires only
+    // on actual level transitions, not on every VICE update_myviairq.
+    let via1PrevAsserted = false;
+    const via1SetIrq = (value: number, clk: number) => {
+      const asserted = value !== 0;
+      if (asserted !== via1PrevAsserted) {
+        via1PrevAsserted = asserted;
+        opts.onVia1IrqEdge?.(asserted, clk);
+      }
+    };
+    let via2PrevAsserted = false;
+    const via2SetIrq = (value: number, clk: number) => {
+      const asserted = value !== 0;
+      if (asserted !== via2PrevAsserted) {
+        via2PrevAsserted = asserted;
+        opts.onVia2IrqEdge?.(asserted, clk);
+      }
+    };
+
     if (opts.iecBus) {
       this.via1 = new Via1d1541({
         alarmContext: this.alarmContext,
         iec: opts.iecBus.core,
         deviceId,
         clkRef: resolvedClkRef,
-        setIrq: () => { /* IRQ sampled via irqAsserted() in runOneInstruction */ },
+        setIrq: via1SetIrq,
         iecStorePb: opts.iecStorePb,
       });
       opts.iecBus.attachDriveVia1(this.via1);
@@ -117,7 +148,7 @@ export class DriveBus implements CpuMemory {
         iec: new IecBusCore(),
         deviceId,
         clkRef: resolvedClkRef,
-        setIrq: () => { /* sampled */ },
+        setIrq: via1SetIrq,
       });
     }
 
@@ -156,7 +187,7 @@ export class DriveBus implements CpuMemory {
     this.via2 = new Via2d1541({
       alarmContext: this.alarmContext,
       clkRef: resolvedClkRef,
-      setIrq: () => { /* sampled */ },
+      setIrq: via2SetIrq,
       gcr: gcrCoupling,
     });
   }
@@ -266,6 +297,8 @@ export class DriveCpu {
         ? (this.cpu as Cpu65xxVice)
         : null;
       const cpuLegacy = this.microcoded ? null : (this.cpu as Cpu6510);
+      const onSoEdge = opts.onSoEdge;
+      const cpuClk = () => (this.cpu as { cycles: number }).cycles;
       this.gcrShifter.onByteReady = (_byte: number) => {
         // VICE 1:1 — byte-ready is GATED by VIA2 PCR bit 1 (BRA_BYTE_READY).
         // Drive ROM enables/disables this via PCR write; when disabled
@@ -294,6 +327,12 @@ export class DriveCpu {
         } else if (cpuLegacy) {
           cpuLegacy.flags |= 0x40;
         }
+        // Spec 203-c3: SO line edge — fire after V flag set so consumers
+        // see the post-edge state. Pulse-shaped as asserted=true here;
+        // VICE-style same-cycle release means the level visible to the
+        // CPU is one-cycle. For event-ring purposes the asserted edge
+        // is what matters.
+        onSoEdge?.(true, cpuClk());
       };
     } else if (this.trackBuffer) {
       // Sprint 96 part 8 (legacy path): wire TrackBuffer byte-ready →
