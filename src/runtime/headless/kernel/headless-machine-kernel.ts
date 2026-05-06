@@ -39,6 +39,7 @@ import { buildG64 } from "../../../disk/g64-builder.js";
 import { DiskProvider } from "../providers.js";
 import { HeadlessKernelBus } from "./headless-kernel-bus.js";
 import { KernelIrqRing, type KernelIrqEvent } from "./kernel-irq.js";
+import { HookRegistry, type HookName } from "./kernel-hooks.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
@@ -71,6 +72,13 @@ export class HeadlessMachineKernel implements MachineKernel {
   // `irqEvents()`. Used by CPU interrupt-delay accounting and by the
   // first-divergence diff tooling in Spec 205.
   private readonly irqRing = new KernelIrqRing(4096);
+
+  // Spec 204: TrueDrive hook hygiene. Mode is widened by Spec 207; for
+  // now `mode` is a private mutable field starting at "debug-lockstep".
+  // `hooks` registers every legacy rescue hook; `recordHookFire` is the
+  // single entry point hook callsites use to record + audit fires.
+  private mode: KernelMode = "debug-lockstep";
+  readonly hooks: HookRegistry = new HookRegistry(() => this.mode);
 
   // Spec 200-c3: shared IEC bus. Created here because both C64 (CIA2)
   // and drive sides reference it; ownership belongs to the kernel.
@@ -335,6 +343,47 @@ export class HeadlessMachineKernel implements MachineKernel {
       this.iecBus.beforeC64Read = () =>
         this.catchUpDrive(8, this.c64Cpu.cycles);
     }
+
+    // Spec 204: register every legacy rescue hook. `allowedModes`
+    // = modes in which the hook may fire without raising
+    // HookForbiddenError. None of these are allowed in `true-drive`.
+    const debugOnly: readonly KernelMode[] = ["debug-lockstep"];
+    this.hooks.register("atn-poke-7c", debugOnly);
+    this.hooks.register("iec-release-clk", debugOnly);
+    this.hooks.register("iec-release-data", debugOnly);
+    this.hooks.register("kernal-serial-trap", debugOnly);
+    this.hooks.register("kernal-fileio-trap", debugOnly);
+    this.hooks.register("kernal-io-trap", debugOnly);
+    this.hooks.register("fake-disk-byte", debugOnly);
+    this.hooks.register("forced-pc-jump", debugOnly);
+
+    // Spec 204: install hook recorder on IEC bus so synthetic line
+    // releases route through the kernel registry.
+    this.iecBus.setHookRecorder((name, description) =>
+      this.recordHookFire(name, description),
+    );
+  }
+
+  /**
+   * Spec 204: hook fire entry point. Mode-gated; throws
+   * HookForbiddenError if mode (currently always `debug-lockstep`
+   * until Spec 207 widens) is not in the hook's allowed modes.
+   */
+  recordHookFire(name: HookName, description?: string): void {
+    this.hooks.recordFire(name, this.c64Cpu.cycles, description);
+  }
+
+  /**
+   * Spec 207 widens this. Until then only `debug-lockstep` and
+   * `true-drive` are valid; switching to `true-drive` enables the
+   * hook-hygiene audit (every hook fire throws).
+   */
+  setMode(mode: KernelMode): void {
+    this.mode = mode;
+  }
+
+  getMode(): KernelMode {
+    return this.mode;
   }
 
   c64Clock(): number {
@@ -423,12 +472,11 @@ export class HeadlessMachineKernel implements MachineKernel {
   }
 
   status(): KernelStatus {
-    const mode: KernelMode = "debug-lockstep"; // Spec 207 widens.
     return {
-      mode,
+      mode: this.mode,
       c64Clock: this.c64Clock(),
       driveClocks: { 8: this.driveClock(8) },
-      hooks: [], // populated by Spec 204
+      hooks: this.hooks.list(),
       mediaSlots: [
         { device: 8, mounted: true, imagePath: this.session.diskPath },
       ],

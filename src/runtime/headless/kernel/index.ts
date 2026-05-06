@@ -10,3 +10,4 @@ export * from "./headless-machine-kernel.js";
 export * from "./lockstep-strategy.js";
 export * from "./event-catchup-strategy.js";
 export * from "./kernel-irq.js";
+export * from "./kernel-hooks.js";
