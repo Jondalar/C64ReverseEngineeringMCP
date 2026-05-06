@@ -277,6 +277,14 @@ export class VicIIVice {
   // per-cycle hook is O(1) and we don't need maincpu_clk here.
   /** VICE: VICII_RASTER_Y(clk) — current scanline. */
   public raster_y = 0;
+
+  /**
+   * Spec 205-A c7: kernel-installed callback fired on every raster
+   * line transition (after raster_y advances). `clk` is c64 clock.
+   */
+  public onRasterLine?: (raster_y: number, clk: number) => void;
+  /** Spec 205-A c7: fired when raster_y wraps back to 0 (frame end → start). */
+  public onFrame?: (clk: number) => void;
   /** VICE: VICII_RASTER_CYCLE(clk) — current cycle within line. */
   public raster_cycle = 0;
 
@@ -412,7 +420,11 @@ export class VicIIVice {
         this.raster_y = (this.raster_y + 1) % this.screen_height;
         if (this.raster_y === 0) {
           this.scanlineSnapshots.length = 0;
+          // Spec 205-A c7: frame boundary — wrap to line 0.
+          this.onFrame?.(this.clkPtr());
         }
+        // Spec 205-A c7: raster line transition.
+        this.onRasterLine?.(this.raster_y, this.clkPtr());
         this.captureScanline();
 
         // Bus stealing for this line — VICE handle_fetch_matrix +

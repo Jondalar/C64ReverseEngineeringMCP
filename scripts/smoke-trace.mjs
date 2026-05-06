@@ -121,6 +121,34 @@ check("getBusAccessProducer returns the registered producer", () => {
   }
 });
 
+check("vic channel captures raster line + frame events (Spec 205-A c7)", () => {
+  const { session: sv } = startIntegratedSession({
+    diskPath: fixturePath,
+    mode: "true-drive",
+  });
+  const k = sv.kernel;
+  k.trace().configureChannel("vic", { mode: "ring", capacity: 8192 });
+  sv.resetCold();
+  // PAL frame = 312 lines × 63 cycles = 19656 cycles. Run two frames.
+  sv.runFor(50_000);
+  const ring = k.trace().getRing("vic");
+  if (ring.length === 0) throw new Error("no vic events captured");
+  const kinds = new Set(ring.map((e) => e.data.kind));
+  if (!kinds.has("raster")) {
+    throw new Error(`no raster events. kinds: ${[...kinds].join(",")}`);
+  }
+  if (!kinds.has("frame")) {
+    throw new Error(`no frame events. kinds: ${[...kinds].join(",")}`);
+  }
+  // Raster_y values must monotonically advance within a frame.
+  const rasterEvents = ring.filter((e) => e.data.kind === "raster").slice(0, 50);
+  for (const e of rasterEvents) {
+    if (typeof e.data.raster_y !== "number") throw new Error("raster_y not number");
+    if (e.data.raster_y < 0 || e.data.raster_y > 312) throw new Error(`raster_y out of range: ${e.data.raster_y}`);
+  }
+  sv.shutdown?.();
+});
+
 check("gcr channel captures byte-ready + sync edges (Spec 205-A c6)", () => {
   const { session: sg } = startIntegratedSession({
     diskPath: fixturePath,

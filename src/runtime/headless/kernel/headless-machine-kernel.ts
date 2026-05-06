@@ -451,6 +451,22 @@ export class HeadlessMachineKernel implements MachineKernel {
       });
     };
 
+    // Spec 205-A c7: bridge VIC raster line + frame transitions into
+    // the "vic" trace channel.
+    this.vic.onRasterLine = (raster_y, clk) => {
+      if (!this.traceRegistry.isEnabled("vic")) return;
+      this.traceCtrl.publish("vic", clk, {
+        kind: "raster",
+        raster_y,
+      });
+    };
+    this.vic.onFrame = (clk) => {
+      if (!this.traceRegistry.isEnabled("vic")) return;
+      this.traceCtrl.publish("vic", clk, {
+        kind: "frame",
+      });
+    };
+
     // Spec 203-c4: install onInterruptServiced on c64 + drive CPUs so
     // every vector fetch backfills `servicedClock` on the matching
     // ring entry. Kernel installs once on the current Cpu6510 here;
