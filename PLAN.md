@@ -33,6 +33,28 @@ Current product direction lives in
 - **V3.0** — human C64RE UI built on the same emulator/workbench:
   live C64 screen, keyboard/joystick, media selection, monitor,
   optional SID playback, and screenshot/video/sound export.
+  - **V3 backlog — VIC pixel-perfect port** (Spec 150 follow-up):
+    Sprint 113 ships VIC at "B-level" (cycle-accurate bus
+    stealing + raster IRQ + register R/W; no pixel rendering,
+    no sprite collisions, no lightpen, no per-revision quirks).
+    For V3 the human UI needs pixel-perfect VIC: full vicii*.c
+    1:1 port (~12-15k LOC), all VIC revisions
+    (6569/8565/6567/8562), sprite-sprite + sprite-bg collisions,
+    lightpen, true interlace + hires modes. New spec needed in
+    V3 sprint. Defer until V2 LLM workbench is stable.
+  - **V3 backlog — SID full audio + bit-exact** (Spec 151
+    follow-up): Sprint 113 ships SID at "B-level" (register R/W
+    correct + osc3/env3 simple counter advance + ADSR state
+    machine correct + filter no-op; no audio output). For V3
+    two upgrade paths:
+    - **resid 1:1** (Option A from Spec 151 refinement): full
+      ~3000 LOC C++ resid port to TS, bit-exact oscillator +
+      envelope + filter + audio output.
+    - **fastsid 1:1** (Option C): VICE fastsid port, less
+      accurate than resid but much closer than B-level counter,
+      audio output usable.
+    Decide between A vs C when V3 sprint starts based on UI
+    audio fidelity goals.
 
 The short version:
 
