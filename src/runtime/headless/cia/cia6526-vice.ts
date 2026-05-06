@@ -1006,12 +1006,23 @@ export class Cia6526Vice {
     }
   }
 
+  /**
+   * Spec 205-A c8: kernel-installed callback fired on every chip-side
+   * IRQ flag set (timer underflow, TOD alarm, SDR shift, /FLAG pin).
+   * `bits` is the OR of CIA_IM_* bits being raised this call (TA=0x01,
+   * TB=0x02, ALARM=0x04, SDR=0x08, FLAG=0x10). `clk` is the rclk at
+   * which the flag set occurred. Independent of mySetInt (the IRQ
+   * pin edge already routes through onIrqEdge per Spec 203-c2).
+   */
+  public onIrqFlagSet?: (bits: number, clk: CLOCK) => void;
+
   /** VICE: cia_set_irq_flag (ciacore.c lines 592-600). */
   private ciaSetIrqFlag(rclk: CLOCK, bits: number): void {
     this.ciaIfrCatchup(rclk);
     this.irqflags |= bits;
     this.new_irqflags |= bits;
     this.ack_irqflags &= ~bits;
+    this.onIrqFlagSet?.(bits & 0xff, rclk);
   }
 
   // ---- timer update wrappers ------------------------------------------

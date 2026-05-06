@@ -121,6 +121,30 @@ check("getBusAccessProducer returns the registered producer", () => {
   }
 });
 
+check("cia channel captures IRQ flag set events (Spec 205-A c8)", () => {
+  const { session: sc } = startIntegratedSession({
+    diskPath: fixturePath,
+    mode: "true-drive",
+  });
+  const k = sc.kernel;
+  k.trace().configureChannel("cia", { mode: "ring", capacity: 4096 });
+  sc.resetCold();
+  // KERNAL programs CIA1 timer A for 60Hz keyboard scan (16667 cycles
+  // per underflow). Run at least 1 underflow window.
+  sc.runFor(50_000);
+  const ring = k.trace().getRing("cia");
+  if (ring.length === 0) throw new Error("no cia events captured");
+  const chips = new Set(ring.map((e) => e.data.chip));
+  if (!chips.has("cia1")) {
+    throw new Error(`no cia1 events. chips: ${[...chips].join(",")}`);
+  }
+  for (const e of ring.slice(0, 5)) {
+    if (typeof e.data.bits !== "number") throw new Error("bits not number");
+    if ((e.data.bits & ~0x1f) !== 0) throw new Error(`bits out of CIA_IM_* range: ${e.data.bits}`);
+  }
+  sc.shutdown?.();
+});
+
 check("vic channel captures raster line + frame events (Spec 205-A c7)", () => {
   const { session: sv } = startIntegratedSession({
     diskPath: fixturePath,

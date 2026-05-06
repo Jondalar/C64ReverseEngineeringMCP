@@ -467,6 +467,18 @@ export class HeadlessMachineKernel implements MachineKernel {
       });
     };
 
+    // Spec 205-A c8: bridge CIA1 + CIA2 chip-side IRQ flag sets into
+    // the "cia" trace channel. bits encode CIA_IM_* (TA=0x01, TB=0x02,
+    // ALARM=0x04, SDR=0x08, FLAG=0x10).
+    this.cia1.onIrqFlagSet = (bits, clk) => {
+      if (!this.traceRegistry.isEnabled("cia")) return;
+      this.traceCtrl.publish("cia", clk, { chip: "cia1", bits });
+    };
+    this.cia2.onIrqFlagSet = (bits, clk) => {
+      if (!this.traceRegistry.isEnabled("cia")) return;
+      this.traceCtrl.publish("cia", clk, { chip: "cia2", bits });
+    };
+
     // Spec 203-c4: install onInterruptServiced on c64 + drive CPUs so
     // every vector fetch backfills `servicedClock` on the matching
     // ring entry. Kernel installs once on the current Cpu6510 here;
