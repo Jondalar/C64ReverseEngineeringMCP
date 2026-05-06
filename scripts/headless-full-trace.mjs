@@ -91,6 +91,9 @@ const args = parseArgs(process.argv.slice(2));
 const id = args.id ?? "motm";
 const maxRows = Number(args["max-rows"] ?? 1_000_000);
 const endCycle = Number(args["end-cycle"] ?? 10_000_000);
+// Skip rows before startCycle. Used to align with VICE capture window
+// (e.g. VICE binmon step-loop kicks in late ~9.6M cycles after spawn).
+const startCycle = Number(args["start-cycle"] ?? 0);
 const stopAtC64Pc = args["stop-at-c64-pc"] !== undefined
   ? parseInt(args["stop-at-c64-pc"], 16)
   : 0x4000;
@@ -351,6 +354,11 @@ function emitRow(side, cpu, busAccum) {
   if (stopped) return;
 
   const rowTs   = ts();
+  // Phase-aware skip: drop rows before startCycle (e.g. VICE-capture-window alignment).
+  if (rowTs < startCycle) {
+    busAccum.length = 0;  // discard accumulated bus accesses
+    return;
+  }
   const rowTdrv = tdrv();
   const pc = cpu.pc & 0xffff;
   const { op, operand } = readOpcodeAndOperands(side, pc);
@@ -504,14 +512,28 @@ if (rowCount === 0) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Summary statistics
+// Summary statistics — stream-based to avoid OOM on multi-GB outputs
 // ─────────────────────────────────────────────────────────────────────────────
-const lines = readFileSync(outPath, "utf-8").split("\n").filter(Boolean);
-const rows = lines.map((l) => JSON.parse(l));
+const { createReadStream } = await import("node:fs");
+const readline = await import("node:readline");
 const sideDist = {};
-for (const r of rows) sideDist[r.side] = (sideDist[r.side] ?? 0) + 1;
-const first = rows[0];
-const last  = rows[rows.length - 1];
+let first = null, last = null, lineCount = 0;
+{
+  const rl = readline.createInterface({ input: createReadStream(outPath) });
+  for await (const line of rl) {
+    if (!line) continue;
+    if (lineCount === 0) {
+      try { first = JSON.parse(line); } catch {}
+    }
+    last = line;
+    lineCount++;
+    // Side dist: cheap regex-extract instead of full parse
+    const m = line.match(/"side":"(c64|drive)"/);
+    if (m) sideDist[m[1]] = (sideDist[m[1]] ?? 0) + 1;
+  }
+  if (last) try { last = JSON.parse(last); } catch { last = null; }
+}
+const rows = first ? [first] : [];
 
 console.error(`\nSide distribution:`);
 for (const [side, count] of Object.entries(sideDist).sort()) {

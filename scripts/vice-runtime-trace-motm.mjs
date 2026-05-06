@@ -62,6 +62,9 @@ if (!existsSync(diskPath)) {
 const intervalMs       = Number(args["interval-ms"] ?? 1000);
 const cpuHistoryCount  = Number(args["cpu-history"] ?? 200);
 const monitorChisLines = Number(args["monitor-chis-lines"] ?? 200);
+// Default ON: capture drive cpuhistory (memspace 1 = drive 8) too.
+// motm divergence localization needs drive-side trace alongside c64.
+const captureDriveHistory = args["no-drive-history"] !== true;
 const projectDir       = args["project-dir"] ?? process.env.C64RE_PROJECT_DIR ?? repoRoot;
 
 console.error(`[vice-runtime-trace] Spec 152 (revised) — cpuhistory chunked sampling`);
@@ -90,6 +93,7 @@ const record = await manager.startSession({
     intervalMs,
     cpuHistoryCount,
     monitorChisLines,
+    captureDriveHistory,
   },
 });
 
