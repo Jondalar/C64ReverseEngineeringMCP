@@ -27,7 +27,7 @@ import {
   type AlarmContext,
 } from "../alarm/alarm-context.js";
 import type { CLOCK } from "../util/uint.js";
-import type { VicII } from "../peripherals/vic-ii.js";
+import type { VicIIVice } from "../vic/vic-ii-vice.js";
 import type { Sid6581 } from "../sid/sid.js";
 import type { DriveCpu } from "../drive/drive-cpu.js";
 
@@ -94,8 +94,8 @@ export class AlarmContextCycled implements CycleSteppable {
 }
 
 export class VicCycled implements CycleSteppable {
-  constructor(public readonly vic: VicII) {}
-  // VicII.tick returns { stolenCycles } — we ignore stolen for now;
+  constructor(public readonly vic: VicIIVice) {}
+  // VicIIVice.tick returns { stolenCycles } — we ignore stolen for now;
   // bad-line stealing handled via CPU pause logic in the wrapper later.
   executeCycle(): void { this.vic.tick(1); }
 }

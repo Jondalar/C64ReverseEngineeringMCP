@@ -20,7 +20,7 @@ import { G64Parser } from "../../disk/g64-parser.js";
 import { buildG64 } from "../../disk/g64-builder.js";
 import { DiskProvider } from "./providers.js";
 import { existsSync, readFileSync } from "node:fs";
-import { installVicII, type VicII } from "./peripherals/vic-ii.js";
+import { VicIIVice, installVicIIVice, type VicBackend } from "./vic/vic-ii-vice.js";
 import { installSid, type Sid6581 } from "./sid/sid.js";
 import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
 import { rgbaToPng } from "./peripherals/png-writer.js";
@@ -206,7 +206,7 @@ export class IntegratedSession {
   // Hooks $EDDD CIOUT body (C64→drive) and $EE13 ACPTR body (drive→C64).
   public enableIecByteTrace = false;
   public readonly iecByteEvents: { cycle: number; pc: number; dir: "send" | "recv"; byte: number; atnLow: boolean }[] = [];
-  public readonly vic: VicII;
+  public readonly vic: VicIIVice;
   public readonly sid: Sid6581;
   public readonly framebuffer: VicFramebuffer;
   public readonly enableKernalFileIoTraps: boolean;
@@ -375,12 +375,60 @@ export class IntegratedSession {
     this.keyboard = cia1Install.keyboard;
     this.joystick2 = cia1Install.joystick2;
     this.joystick1 = cia1Install.joystick1;
-    this.vic = installVicII(this.c64Bus);
+    // Sprint 113 Phase 2 (Spec 150): VicIIVice — alarm-driven B-level core.
+    // Backend wiring:
+    //   stealCpuCycles → advance maincpu_clk (CPU does not execute
+    //     during stolen window; driven via cycles property bump).
+    //   setIrqLine → OR'd into CIA1 IRQ path (sampled by
+    //     checkC64Interrupts / updateMicrocodedInterruptLines).
+    //   readVbus / readColorRam → optional data reads; B-level uses
+    //     zero (cycle counting only, renderer reads RAM directly).
+    const vicBusBackend: VicBackend = {
+      stealCpuCycles: (count: number, _clk: number) => {
+        // Advance C64 CPU clock past stolen window. CPU does not step;
+        // scheduler drain (AlarmContextCycled) still fires for CIA timers
+        // so wall-clock peripherals advance. Mirrors VICE
+        // dma_maincpu_steal_cycles: maincpu_clk += count.
+        (this.c64Cpu as { cycles: number }).cycles += count;
+      },
+      setIrqLine: (_asserted: boolean, _clk: number) => {
+        // IRQ line state is sampled via vic.irqAsserted() in
+        // checkC64Interrupts and updateMicrocodedInterruptLines —
+        // no additional latching needed here. No-op storage fine at
+        // B-level; V3 will add VICE-exact pin-level latch.
+      },
+      readVbus: () => 0,
+      readColorRam: () => 0,
+    };
+    const vic = new VicIIVice({
+      backend: vicBusBackend,
+      alarmContext: this.maincpuAlarmContext,
+      clkPtr: ciaClkPtr,
+      name: "VIC",
+    });
+    vic.powerup();
+    if (!isPal) vic.setNtsc();
+    // Wire CIA2 vbank update: CIA2 PA bits 0..1 select VIC bank.
+    // VICE: cia2_set_pa_bits → vicii_set_vbank. Mirror that wiring here.
+    // The CIA2 backend already calls iecBus.setC64Output for IEC lines;
+    // we add vbank update on any CIA2 PA write by overriding the cia2
+    // backend's store callback. This is a post-install hook so we access
+    // cia2Install.cia directly after construction.
+    // NOTE: We use a post-hoc setter approach: the CIA2's existing backend
+    // already reads PA via the normal cia2 backend. We wire vbank by
+    // checking PA after each CIA2 PA read in checkC64Interrupts is not
+    // needed — instead install via CIA2's bus write hook. Simplest VICE-
+    // faithful approach: sample CIA2 PA on every frame render (existing
+    // renderFrame() reads cia2.pra & cia2.ddra and calls computeVicBankBase).
+    // For realtime vbank tracking, a CIA2 PA change callback is V3 work
+    // (Spec 150 §"Out of scope"). Sprint 113 Phase 2 retains the
+    // per-render approach unchanged.
+    installVicIIVice(this.c64Bus, vic);
+    this.vic = vic;
     this.sid = installSid(this.c64Bus);
     // Spec 108 (M2.6c) v1: bridge POT readback to paddles[].
     // Paddle 0 → POT A, paddle 2 → POT B.
     this.sid.potReader = (idx) => this.paddles[idx === 0 ? 0 : 2] ?? 0;
-    if (!isPal) this.vic.setNtsc();
     this.c64Bus.reset();
 
     // Drive side. Spec 090: configure sync ratio + zero baseline.

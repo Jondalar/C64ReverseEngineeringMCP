@@ -1031,6 +1031,50 @@ export class VicIIVice {
   irqAsserted(): boolean {
     return (this.irq_status & this.regs[VICII_R_IRQ_MASK]! & 0x0f) !== 0;
   }
+
+  // -------------------------------------------------------------------------
+  // Legacy compatibility surface — mirrors peripherals/vic-ii.ts public API
+  // so that integrated-session.ts, vic-renderer.ts and vic-fidelity-tests.ts
+  // can migrate without touching their own call-sites. Mirrors the pattern
+  // established by Cia6526Vice and Via1d1541 Phase 2 compat shims.
+  // -------------------------------------------------------------------------
+
+  /** Legacy alias: raster_y exposed as rasterLine (matching old VicII). */
+  get rasterLine(): number { return this.raster_y; }
+  set rasterLine(v: number) { this.raster_y = v; }
+
+  /** Legacy alias: screen_height - 1 exposed as maxRasterLine. */
+  get maxRasterLine(): number { return this.screen_height - 1; }
+
+  /** Legacy alias: cycles_per_line. */
+  get cyclesPerLine(): number { return this.cycles_per_line; }
+
+  /** Legacy alias: raster_cycle exposed as horizontalCycle. */
+  get horizontalCycle(): number { return this.raster_cycle; }
+
+  /**
+   * Legacy: screenRamOffset() — decoded from $D018 bits 7..4.
+   * Equivalent to peripherals/vic-ii.ts VicII.screenRamOffset().
+   */
+  screenRamOffset(): number {
+    return this.screen_ptr;
+  }
+
+  /**
+   * Legacy: charRomOffsetWithinBank() — decoded from $D018 bits 3..1.
+   * Equivalent to peripherals/vic-ii.ts VicII.charRomOffsetWithinBank().
+   */
+  charRomOffsetWithinBank(): number {
+    return this.chargen_ptr;
+  }
+
+  /**
+   * Legacy: bitmapBaseWithinBank() — decoded from $D018 bit 3.
+   * Equivalent to peripherals/vic-ii.ts VicII.bitmapBaseWithinBank().
+   */
+  bitmapBaseWithinBank(): number {
+    return this.bitmap_ptr;
+  }
 }
 
 // ---------------------------------------------------------------------------

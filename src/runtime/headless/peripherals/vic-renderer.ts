@@ -14,7 +14,19 @@
 // Phase 65c adds: cycle-exact raster counter + raster IRQ.
 
 import type { HeadlessMemoryBus } from "../memory-bus.js";
-import type { VicII } from "./vic-ii.js";
+
+/**
+ * Structural VIC interface shared by both peripherals/vic-ii.ts (legacy)
+ * and vic/vic-ii-vice.ts (new). Renderer only touches the fields listed
+ * here — neither core is imported directly so both satisfy this type.
+ */
+export interface VicLike {
+  regs: Uint8Array;
+  scanlineSnapshots: { rasterLine: number; d020: number; d011?: number; d016?: number; d018?: number; d021?: number; d022?: number; d023?: number }[];
+  screenRamOffset(): number;
+  charRomOffsetWithinBank(): number;
+  bitmapBaseWithinBank(): number;
+}
 
 export const FB_WIDTH_PAL = 504;
 export const FB_HEIGHT_PAL = 312;
@@ -81,7 +93,7 @@ export class VicFramebuffer {
 }
 
 export interface VicRenderContext {
-  vic: VicII;
+  vic: VicLike;
   bus: HeadlessMemoryBus;
   // VIC sees memory through a 16KB bank selected by CIA2 PA bits 0-1
   // (inverted: 0→bank3, 1→bank2, 2→bank1, 3→bank0). The bank base is
@@ -190,7 +202,7 @@ export const renderTextModeFrame = renderFrame;
 // Sprint 86: per-scanline border. Iterate the framebuffer top-down,
 // look up the snapshot whose rasterLine covers this output Y. Output
 // Y maps to PAL raster line via fb origin (line 0 of fb = raster 0).
-function fillBorderPerScanline(fb: VicFramebuffer, vic: { regs: Uint8Array; scanlineSnapshots: { rasterLine: number; d020: number }[] }): void {
+function fillBorderPerScanline(fb: VicFramebuffer, vic: VicLike): void {
   const fallback = vic.regs[0x20]! & 0x0f;
   if (vic.scanlineSnapshots.length === 0) {
     fb.fill(fallback);
