@@ -36,6 +36,11 @@ const ALLOWLIST_PREFIXES = [
   "src/runtime/headless/drive/drive-cpu.ts",
   "src/runtime/headless/drive/drive-session.ts",
   "src/runtime/headless/session-manager.ts",
+  // Spec 201-c5: chip implementations are kernel-internal. They expose
+  // backends/callbacks that the kernel wires; standalone fixtures
+  // (without a kernel) fall back to direct IecBusCore calls.
+  "src/runtime/headless/via/",
+  "src/runtime/headless/cia/",
 ];
 
 const CHIP_NAMES = [
@@ -53,6 +58,19 @@ const CHIP_NAMES = [
 ];
 
 const FORBIDDEN_METHODS = ["step", "tick", "executeToClock", "runCycles"];
+
+// Spec 201-c5: forbidden direct cross-domain IEC mutations. These
+// must go through `kernel.bus.c64Write/.driveWrite` so the access is
+// observable and traceable. Reads of cached state remain allowed.
+const FORBIDDEN_IECBUS_PATTERNS = [
+  /\.iecBus\.setC64Output\s*\(/,
+  /\.iecBus\.setDriveOutput\s*\(/,
+  /\.iecBus\.drive_store_pb\s*\(/,
+  /\.iec\.drive_store_pb\s*\(/,
+  /\.iecBus\.beforeC64Read\s*=/,
+  /\.iecBus\.releaseDriveClk\s*\(/,
+  /\.iecBus\.releaseDriveData\s*\(/,
+];
 
 function listSourceFiles() {
   const out = execSync(`find ${SCAN_DIR} -name "*.ts" -not -path "*/node_modules/*"`, {
@@ -90,6 +108,18 @@ function scan() {
               method,
             });
           }
+        }
+      }
+
+      for (const pattern of FORBIDDEN_IECBUS_PATTERNS) {
+        if (pattern.test(line)) {
+          violations.push({
+            file: rel,
+            line: i + 1,
+            text: line.trim(),
+            chip: "iecBus",
+            method: pattern.source.replace(/[\\.*\\\\\\(\\\\s\\\\\\)\\=\\?\\+\\^\\$\\{\\}\\|\\[\\]]/g, "").slice(0, 40),
+          });
         }
       }
     }

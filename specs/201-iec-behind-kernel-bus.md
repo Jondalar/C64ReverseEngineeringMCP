@@ -1,7 +1,7 @@
 # Spec 201 — IEC behind KernelBus
 
 **Sprint:** 116
-**Status:** IN PROGRESS — c1/c2/c3 done 2026-05-06; c4/c5 deferred
+**Status:** DONE 2026-05-06 (c1-c5)
 **ADR:** Decision E, §4.4, §8 Step 2
 **Maps from:** legacy 140 (vice-compatible-iec-core) — superseded
 **Depends on:** 200
@@ -20,13 +20,18 @@
   `kernel.bus.driveWrite(8, 0x1800, …)`. `Via1d1541Options` /
   `DriveCpuOptions` thread an optional `iecStorePb` callback; kernel
   supplies the bus-routed version, fixtures keep the direct path.
-- **c4** — Verify IecBus uses only `IecBusCore` cached state in
-  production (`cpu_bus`, `cpu_port`, `drv_bus[unit]`,
-  `drv_data[unit]`, `drv_port`, `iec_old_atn`). Inspection shows the
-  cache is already present and used; remaining work is removing the
-  `beforeC64Read` legacy hook from production paths once Spec 202
-  catch-up is in place.
-- **c5** — Smoke + audit; final acceptance.
+- **c4 ✓ 2026-05-06** — Live bus-routing smoke. Hit-counter wraps
+  `kernel.bus.c64Write` / `.driveWrite`, runs a normal boot, asserts
+  both 0xDD00 and 0x1800 writes are observed. 12/12 PASS.
+- **c5 ✓ 2026-05-06** — `audit:no-peer-tick` extended to flag direct
+  IecBus mutation calls (`setC64Output`, `setDriveOutput`,
+  `drive_store_pb`, `beforeC64Read=`, `releaseDriveClk/Data`) outside
+  the allowlist. Chip-internal modules (`via/`, `cia/`) added to
+  allowlist alongside kernel/, scheduler/, and drive internals.
+  Production paths now report 0 violations. The legacy
+  `beforeC64Read` hook stays installed only inside the kernel's
+  non-lockstep branch with an `audit-ok` annotation; Spec 202
+  catch-up will remove it when EventCatchupStrategy lands.
 
 ## Live routing verification (smoke:kernel-facade)
 
