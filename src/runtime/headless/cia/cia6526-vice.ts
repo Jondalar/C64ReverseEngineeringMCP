@@ -1090,35 +1090,30 @@ export class Cia6526Vice {
   // ---- timer alarm scheduling -----------------------------------------
 
   /**
-   * VICE: ciat_set_alarm (ciatimer.h lines 155-228). Predict next
-   * underflow clk and arm the alarm. Our Ciat doesn't expose the
-   * predict path directly; we drive it inline here using the same
-   * algorithm. For Phase 1 we approximate with a "schedule at clk +
-   * cnt + 1" heuristic when the timer is running with phi2 input;
-   * this is sufficient for unit tests of register R/W, and the IFR
-   * pipeline + ciaUpdateTa/Tb keep firing alarms via the dispatch
-   * loop. Phase 2 will replace this with a verbatim port of
-   * ciat_set_alarm if profiling shows it matters for chip-state-diff.
+   * VICE: ciat_set_alarm (ciatimer.h lines 155-228). Verbatim port via
+   * Ciat.setAlarm() — the predict-walk lives in the Ciat class next to
+   * the timer state machine where it belongs (Spec 145 Phase 2).
    *
-   * NOTE: this is the ONE place in this port that's NOT 1:1 with VICE.
-   * It is documented so phase-2 can audit + replace.
+   * Ciat.setAlarm() returns the exact underflow clock (or 0xffffffff when
+   * the timer is stopped / will never fire). We store that in ta_alarmclk /
+   * tb_alarmclk and drive alarm_set / alarm_unset identically to VICE lines
+   * 220-225.
    */
-  private ciatSetAlarm(t: Ciat, _rclk: CLOCK): void {
-    if (t.isRunning()) {
-      const next = u32(t.clk + t.cnt + 1);
-      if (t === this.ta) {
-        this.ta_alarmclk = next;
-        alarmSet(this.ta_alarm, next);
+  private ciatSetAlarm(t: Ciat, rclk: CLOCK): void {
+    const CLOCK_MAX = 0xffffffff >>> 0;
+    const tmp = t.setAlarm(rclk);
+    if (t === this.ta) {
+      this.ta_alarmclk = tmp;
+      if (tmp !== CLOCK_MAX) {
+        alarmSet(this.ta_alarm, tmp);
       } else {
-        this.tb_alarmclk = next;
-        alarmSet(this.tb_alarm, next);
+        alarmUnset(this.ta_alarm);
       }
     } else {
-      if (t === this.ta) {
-        this.ta_alarmclk = 0xffffffff >>> 0;
-        alarmUnset(this.ta_alarm);
+      this.tb_alarmclk = tmp;
+      if (tmp !== CLOCK_MAX) {
+        alarmSet(this.tb_alarm, tmp);
       } else {
-        this.tb_alarmclk = 0xffffffff >>> 0;
         alarmUnset(this.tb_alarm);
       }
     }

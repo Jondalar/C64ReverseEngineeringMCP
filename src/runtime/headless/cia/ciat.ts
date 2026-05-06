@@ -245,4 +245,87 @@ export class Ciat {
     // No-op: we don't use VICE's alarm system. Underflow detected
     // via update() return value.
   }
+
+  // ciatimer.h:155-228 ciat_set_alarm — verbatim port of VICE predict-walk.
+  //
+  // Predicts the exact clock of the next timer underflow without mutating
+  // timer state. Returns the predicted alarm clock, or 0xffffffff (CLOCK_MAX)
+  // if the timer is stopped or won't fire.
+  //
+  // Algorithm: walks local copies of (aclk, cnt, t) one cycle at a time
+  // until one of three terminal conditions is reached:
+  //   1. Warp-counting: both start+phi2+count pipeline bits are settled and
+  //      no transient load/oneshot bits are pending → tmp = aclk + cnt.
+  //   2. Warp-stopped: no counting or load bits pending → tmp = CLOCK_MAX.
+  //   3. Underflow: cnt reaches 0 while COUNT3 is set → tmp = aclk.
+  //
+  // The walk uses the same transition table as update() so it is
+  // cycle-exact. This replaces the "clk + cnt + 1" heuristic that was
+  // wrong by ~1 cycle at load/reload boundaries.
+  setAlarm(_cclk: number): number {
+    const CLOCK_MAX = 0xffffffff >>> 0;
+    const tab = ciat_table();
+
+    let tmp: number = 0;
+    let aclk: number = this.clk;
+    let cnt: number  = this.cnt;
+    let t: number    = this.state;
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      // ---- Warp counting (ciatimer.h:168-179) ----------------------------
+      if (
+        (t & (CIAT_CR_START | CIAT_CR_FLOAD | CIAT_LOAD1 |
+              CIAT_PHI2IN | CIAT_COUNT2 | CIAT_COUNT3 |
+              CIAT_COUNT | CIAT_LOAD)) ===
+          (CIAT_CR_START | CIAT_PHI2IN | CIAT_COUNT2 |
+           CIAT_COUNT3 | CIAT_COUNT) &&
+        (((t & CIAT_CR_ONESHOT) && (t & CIAT_ONESHOT0) &&
+          (t & CIAT_ONESHOT)) ||
+         (!(t & CIAT_CR_ONESHOT) && !(t & CIAT_ONESHOT0) &&
+          !(t & CIAT_ONESHOT)))
+      ) {
+        tmp = (aclk + cnt) >>> 0;
+        break;
+      }
+      // ---- Warp stopped (ciatimer.h:181-188) -----------------------------
+      else if (
+        !(t & (CIAT_COUNT2 | CIAT_COUNT3 | CIAT_COUNT)) &&
+        (!(t & CIAT_CR_START) || !(t & (CIAT_PHI2IN | CIAT_STEP))) &&
+        (((t & CIAT_CR_ONESHOT) && (t & CIAT_ONESHOT0) &&
+          (t & CIAT_ONESHOT)) ||
+         (!(t & CIAT_CR_ONESHOT) && !(t & CIAT_ONESHOT0) &&
+          !(t & CIAT_ONESHOT)))
+      ) {
+        tmp = CLOCK_MAX;
+        break;
+      }
+      // ---- Step one cycle (ciatimer.h:191-198) ---------------------------
+      else {
+        if (cnt && (t & CIAT_COUNT3)) {
+          cnt = (cnt - 1) & 0xffff;
+        }
+        t = tab[t]! & 0xffff;
+        aclk = (aclk + 1) >>> 0;
+      }
+
+      // ---- Underflow (ciatimer.h:200-203) --------------------------------
+      if ((cnt === 0) && (t & CIAT_COUNT3)) {
+        t = (t | CIAT_LOAD | CIAT_OUT) & 0xffff;
+        tmp = aclk;
+        break;
+      }
+      // ---- Reload (ciatimer.h:205-207) -----------------------------------
+      if (t & CIAT_LOAD) {
+        cnt = this.latch & 0xffff;
+        t = (t & ~CIAT_COUNT3) & 0xffff;
+      }
+      // ---- Oneshot stop (ciatimer.h:209-212) -----------------------------
+      if ((t & CIAT_OUT) && (t & (CIAT_ONESHOT | CIAT_ONESHOT0))) {
+        t = (t & ~(CIAT_CR_START | CIAT_COUNT2)) & 0xffff;
+      }
+    }
+
+    return tmp >>> 0;
+  }
 }
