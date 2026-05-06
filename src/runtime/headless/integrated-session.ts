@@ -577,7 +577,7 @@ export class IntegratedSession {
     // boot order. Eliminates ATN-edge boot-race.
     const headStart = this.driveHeadStartCycles;
     if (headStart > 0) {
-      this.drive.executeToClock(headStart); // audit-ok: legacy resetCold drive head-start; subsumed by Spec 202 catch-up
+      this.kernel.catchUpDrive(8, headStart);
       this.drive.setSyncBaseline(this.c64Cpu.cycles); // = 0 still
     }
     this.sid.reset();
@@ -736,14 +736,14 @@ export class IntegratedSession {
       this.sid.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
       this.keyboard.advance(trapCycles);
       // Spec 090: drive lazy executeToClock instead of accumulator drain.
-      this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: legacy trap drive catch-up; replaced by Spec 202
+      this.kernel.catchUpDrive(8, this.c64Cpu.cycles);
       this.sampleDrivePc();
       return;
     }
     // Spec 090 / VICE pattern: drive catches up to current C64 clock
     // BEFORE the C64 instruction starts (so any bus access during
     // the instruction sees up-to-date drive state).
-    this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: legacy non-lockstep step pre-instruction catch-up; replaced by Spec 202
+    this.kernel.catchUpDrive(8, this.c64Cpu.cycles);
     this.checkC64Interrupts();
     // Pre-V2 1541-v2: IEC byte trace. $EDDD = CIOUT body entry
     // (KERNAL byte-send to listener). $EE13 = ACPTR body entry
@@ -795,7 +795,7 @@ export class IntegratedSession {
     this.sid.tick(totalCycles); // audit-ok: legacy SID wall-clock tick; replaced by Spec 216
     this.keyboard.advance(totalCycles);
     // Spec 090: drive catches up to NEW C64 clock after instruction.
-    this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: legacy post-instruction drive catch-up; replaced by Spec 202
+    this.kernel.catchUpDrive(8, this.c64Cpu.cycles);
     this.sampleDrivePc();
   }
 
@@ -824,7 +824,7 @@ export class IntegratedSession {
   // remaining callers. Drive lazy-executes via drive.executeToClock
   // now. Wrapper just forwards to executeToClock with current C64 clk.
   flushDriveCycles(): void {
-    this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: legacy flushDriveCycles shim; replaced by Spec 202 catch-up
+    this.kernel.catchUpDrive(8, this.c64Cpu.cycles);
   }
 
   // Sprint 93.1: per-cycle IRQ/NMI pin refresh for microcoded CPU. Called

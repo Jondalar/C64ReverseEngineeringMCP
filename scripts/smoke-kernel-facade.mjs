@@ -157,6 +157,16 @@ check("kernel.bus.driveRead(8, $1800) returns drive bus byte", () => {
   if (typeof v !== "number") throw new Error(`driveRead returned ${typeof v}`);
 });
 
+check("kernel.catchUpDrive exists and is no-op safe (Spec 202-c1)", () => {
+  if (typeof kernel.catchUpDrive !== "function") {
+    throw new Error("kernel.catchUpDrive missing");
+  }
+  // Calling for non-mounted device must be a silent no-op.
+  kernel.catchUpDrive(10, 0);
+  // Calling for device 8 at current clock must not throw.
+  kernel.catchUpDrive(8, kernel.driveClock(8));
+});
+
 check("CIA2 \$DD00 + VIA1 \$1800 calls reach KernelBus during run (Spec 201-c2/c3)", () => {
   // Wrap kernel.bus methods to count calls; reset session and run.
   let c64dd00Writes = 0;

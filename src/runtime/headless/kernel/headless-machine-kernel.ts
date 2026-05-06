@@ -303,8 +303,10 @@ export class HeadlessMachineKernel implements MachineKernel {
     // no-op; skip installing it to avoid double-counting steal cycles
     // (Sprint 113 Phase 2 / Spec 150 fix).
     if (!deps.useCycleLockstep) {
+      // Spec 202: legacy non-lockstep IEC pre-read catch-up routed
+      // through the kernel's single catchUpDrive entry point.
       this.iecBus.beforeC64Read = () =>
-        this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: kernel-internal legacy beforeC64Read; replaced by Spec 202 catch-up
+        this.catchUpDrive(8, this.c64Cpu.cycles);
     }
   }
 
