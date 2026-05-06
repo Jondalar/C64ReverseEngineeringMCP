@@ -16,7 +16,8 @@ import { appendFileSync, openSync, closeSync } from "node:fs";
 export type ChannelName =
   | "cpu" | "io" | "iec" | "drive_pc" | "gcr"
   | "vic" | "cia" | "sid" | "keyboard" | "joystick" | "eof"
-  | "bus_access";  // Spec 142: $DD00 / $1800 access trace
+  | "bus_access"  // Spec 142: $DD00 / $1800 access trace
+  | "irq";        // Spec 205-A c3: KernelIrqEvent emit + serviced backfill
 
 export type ChannelMode = "off" | "ring" | "jsonl";
 

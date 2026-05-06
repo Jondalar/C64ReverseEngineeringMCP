@@ -121,6 +121,32 @@ check("getBusAccessProducer returns the registered producer", () => {
   }
 });
 
+check("irq channel captures emitIrqEvent edges (Spec 205-A c3)", () => {
+  // Re-configure irq channel as ring; emit probe edge + serviced;
+  // walk the ring.
+  kernel.trace().configureChannel("irq", { mode: "ring", capacity: 32 });
+  const probe = kernel.emitIrqEvent({
+    line: "irq",
+    asserted: true,
+    source: "cia1",
+    target: "c64-cpu",
+    edgeClock: 5555,
+    visibleClock: 5555,
+  });
+  kernel.markIrqServiced("c64-cpu", "irq", 5562);
+  const ring = kernel.trace().getRing("irq");
+  if (ring.length < 2) throw new Error(`expected >= 2 events, got ${ring.length}`);
+  const edge = ring.find((e) => e.data.seq === probe.seq && !e.data.kind);
+  if (!edge) throw new Error("edge event missing in irq channel");
+  if (edge.data.source !== "cia1") throw new Error(`source = ${edge.data.source}`);
+  const serviced = ring.find((e) => e.data.kind === "serviced" && e.data.seq === probe.seq);
+  if (!serviced) throw new Error("serviced event missing in irq channel");
+  if (serviced.data.servicedClock !== 5562) {
+    throw new Error(`servicedClock = ${serviced.data.servicedClock}`);
+  }
+  kernel.trace().configureChannel("irq", { mode: "off" });
+});
+
 session.shutdown?.();
 rmSync(tmpDir, { recursive: true, force: true });
 

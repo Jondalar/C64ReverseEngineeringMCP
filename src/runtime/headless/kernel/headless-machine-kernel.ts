@@ -483,9 +483,25 @@ export class HeadlessMachineKernel implements MachineKernel {
    * Spec 203-c1: emit a timestamped IRQ / NMI / SO / CA1 / CB1 event.
    * Chip backends call this on every line edge. The kernel ring
    * preserves up to 4096 most-recent events for diff tooling.
+   *
+   * Spec 205-A c3: also publishes the event to the "irq" trace
+   * channel so first-divergence tooling sees IRQs and bus accesses
+   * on one timeline. No-op when channel mode = "off".
    */
   emitIrqEvent(event: Omit<KernelIrqEvent, "seq">): KernelIrqEvent {
-    return this.irqRing.emit(event);
+    const stamped = this.irqRing.emit(event);
+    if (this.traceRegistry.isEnabled("irq")) {
+      this.traceCtrl.publish("irq", stamped.edgeClock, {
+        line: stamped.line,
+        asserted: stamped.asserted,
+        source: stamped.source,
+        target: stamped.target,
+        edgeClock: stamped.edgeClock,
+        visibleClock: stamped.visibleClock,
+        seq: stamped.seq,
+      });
+    }
+    return stamped;
   }
 
   /** Spec 203-c1: read the IRQ event ring. */
@@ -505,7 +521,21 @@ export class HeadlessMachineKernel implements MachineKernel {
     line: import("./kernel-irq.js").KernelIrqLine,
     clock: number,
   ): void {
-    this.irqRing.markServiced(target, line, clock);
+    const stamped = this.irqRing.markServiced(target, line, clock);
+    if (stamped && this.traceRegistry.isEnabled("irq")) {
+      // Spec 205-A c3: emit a "serviced" follow-up so consumers can
+      // pair the original edge with its vector-fetch cycle without
+      // walking the full ring themselves.
+      this.traceCtrl.publish("irq", clock, {
+        kind: "serviced",
+        line: stamped.line,
+        target: stamped.target,
+        source: stamped.source,
+        edgeClock: stamped.edgeClock,
+        servicedClock: clock,
+        seq: stamped.seq,
+      });
+    }
   }
 
   /**
