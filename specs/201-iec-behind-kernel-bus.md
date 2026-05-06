@@ -1,11 +1,31 @@
 # Spec 201 — IEC behind KernelBus
 
 **Sprint:** 116
-**Status:** PROPOSED
+**Status:** IN PROGRESS — c1 done 2026-05-06
 **ADR:** Decision E, §4.4, §8 Step 2
 **Maps from:** legacy 140 (vice-compatible-iec-core) — superseded
 **Depends on:** 200
 **Blocks:** 202, 211 (VIA port)
+
+## Commit chain
+
+- **c1 ✓ 2026-05-06** — `HeadlessKernelBus` class lands as
+  `kernel.bus`. `c64Read/c64Write` route $DD00 to
+  `iecBus.buildC64InputBits` / `setC64Output`; `driveRead/driveWrite`
+  route $1800 to `setDriveOutput`; other addresses fall through to
+  the local memory bus. CIA2 and VIA1 still call iecBus directly —
+  bus exists as a target, not yet the path.
+- **c2** — CIA2 backend `storePa` and `readPa` call
+  `kernel.bus.c64Write/Read` instead of `iec.setC64Output` /
+  `iec.buildC64InputBits`.
+- **c3** — Drive VIA1 `$1800` write/read goes through
+  `kernel.bus.driveWrite/Read`.
+- **c4** — Replace IecBus released-flag model with VICE-style cached
+  state (`cpu_bus`, `cpu_port`, `drv_bus[unit]`, `drv_data[unit]`,
+  `drv_port`, `iec_old_atn`) — already present via
+  `IecBusCore`; verify production code never bypasses it.
+- **c5** — Smoke + audit; remove `IecBus.beforeC64Read` from the
+  production path (keep only kernel-internal usage).
 
 ## Goal
 
