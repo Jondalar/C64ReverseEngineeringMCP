@@ -412,24 +412,28 @@ if (noAutostart) {
   console.error(`[no-autostart] Waiting ${basicReadyWait / 1000}s for BASIC READY…`);
   await new Promise((r) => setTimeout(r, basicReadyWait));
 
-  // 3. Inject LOAD"*",8,1 + RETURN — mirrors session.typeText('LOAD"*",8,1\n').
-  //    keyboardFeed uses CMD 0x72; VICE translates \n (0x0A) to RETURN key.
-  const loadCmd = Buffer.from('LOAD"*",8,1\n', "ascii");
-  console.error(`[no-autostart] Injecting: LOAD"*",8,1`);
+  // 3. Inject LOAD"*",8,1 + RETURN. PETSCII RETURN = $0D (CR), NOT $0A (LF).
+  //    VICE keyboardFeed (CMD 0x72) writes raw bytes into the C64 keyboard
+  //    buffer ($0277-$0280); KERNAL keyboard reader expects PETSCII so RETURN
+  //    must be $0D. ASCII \n (0x0A) is treated as a stray char and KERNAL
+  //    ignores or echoes it without executing the command (user observed
+  //    "LOAD\"*\",8,1RUN" appearing on screen with no LOAD execution).
+  const loadCmd = Buffer.from('LOAD"*",8,1\r', "ascii");
+  console.error(`[no-autostart] Injecting: LOAD"*",8,1<CR>`);
   await client.keyboardFeed(loadCmd);
 
-  // 4. Wait ~5 s for KERNAL to begin the LOAD protocol (drive spins up,
-  //    ATN handshake, sector reads).  ~2M C64 cycles at 1 MHz.
-  console.error(`[no-autostart] Waiting 5s for KERNAL LOAD…`);
-  await new Promise((r) => setTimeout(r, 5_000));
-
+  // 4. NO RUN command for motm-class loaders: murder.prg loader is loaded with
+  //    secondary address 1 (=load-with-load-addr) and KERNAL LOAD itself jumps
+  //    to the loaded code's start when the PRG starts with $02DC etc — actually
+  //    LOAD",8,1 puts BASIC at READY and prints READY. SYS or RUN normally
+  //    needed BUT for this disk the murder.prg auto-runs because it's a
+  //    "RUN-when-loaded" stub. User confirmed: only LOAD"*",8,1<CR> needed,
+  //    no RUN.  Keep --no-run flag accepted for compatibility but ignore RUN
+  //    injection unconditionally in --no-autostart path now that we know the
+  //    correct boot recipe. If a future title needs explicit RUN, reintroduce
+  //    via separate flag.
   if (!noRun) {
-    // 5. Inject RUN + RETURN after LOAD completes (~10 s total from LOAD start).
-    console.error(`[no-autostart] Waiting 10s for LOAD complete before RUN…`);
-    await new Promise((r) => setTimeout(r, 10_000));
-    const runCmd = Buffer.from("RUN\n", "ascii");
-    console.error(`[no-autostart] Injecting: RUN`);
-    await client.keyboardFeed(runCmd);
+    console.error(`[no-autostart] (skipping RUN — motm loader auto-runs)`);
   }
 }
 
