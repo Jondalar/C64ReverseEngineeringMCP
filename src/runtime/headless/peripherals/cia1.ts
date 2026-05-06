@@ -36,6 +36,12 @@ export interface InstallCia1Options {
   alarmContext: AlarmContext;
   /** CPU clock provider — usually `() => session.c64Cpu.cycles`. */
   clkPtr: () => CLOCK;
+  /**
+   * Spec 203-c2: optional IRQ edge callback. Called when CIA1's
+   * IRQ pin level changes. Implementer routes to
+   * `kernel.emitIrqEvent` with edgeClock / source / target.
+   */
+  onIrqEdge?: (asserted: boolean, edgeClock: CLOCK) => void;
 }
 
 export function installCia1(bus: HeadlessMemoryBus, opts: InstallCia1Options): InstalledCia1 {
@@ -83,7 +89,14 @@ export function installCia1(bus: HeadlessMemoryBus, opts: InstallCia1Options): I
       return kbRows & joyMask;
     },
     pulsePc: () => { /* unused on CIA1 */ },
-    setIntClk: (val) => { irqLevel = val; },
+    setIntClk: (val) => {
+      const prev = irqLevel;
+      irqLevel = val;
+      // Spec 203-c2: emit timestamped edge on level change.
+      if ((prev !== 0) !== (val !== 0)) {
+        opts.onIrqEdge?.(val !== 0, opts.clkPtr());
+      }
+    },
   };
 
   cia = new Cia6526Vice({

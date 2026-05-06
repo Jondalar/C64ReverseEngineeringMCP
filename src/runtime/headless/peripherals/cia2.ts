@@ -33,6 +33,12 @@ export interface InstallCia2Options {
   /** CPU clock provider — usually `() => session.c64Cpu.cycles`. */
   clkPtr: () => CLOCK;
   /**
+   * Spec 203-c2: optional NMI edge callback. Called when CIA2's
+   * IRQ pin level changes (asserts → CPU NMI). Implementer routes
+   * to `kernel.emitIrqEvent` with edgeClock / source / target.
+   */
+  onNmiEdge?: (asserted: boolean, edgeClock: CLOCK) => void;
+  /**
    * Spec 201-c2: PA-out write callback. Called when CIA2 PA latch /
    * DDR is updated. Implementer routes the (or, ddr) pair to the IEC
    * bus, typically via `kernel.bus.c64Write(0xDD00, ...)` which then
@@ -78,7 +84,14 @@ export function installCia2(
     },
     readPb: () => 0xff,
     pulsePc: () => { /* RS232 handshake — unused */ },
-    setIntClk: (val) => { nmiLevel = val; },
+    setIntClk: (val) => {
+      const prev = nmiLevel;
+      nmiLevel = val;
+      // Spec 203-c2: emit timestamped edge on level change.
+      if ((prev !== 0) !== (val !== 0)) {
+        opts.onNmiEdge?.(val !== 0, opts.clkPtr());
+      }
+    },
   };
 
   cia = new Cia6526Vice({

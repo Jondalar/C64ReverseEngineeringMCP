@@ -187,6 +187,16 @@ export class HeadlessMachineKernel implements MachineKernel {
     const cia2Install = installCia2(this.c64Bus, {
       alarmContext: this.alarms.maincpu,
       clkPtr: ciaClkPtr,
+      onNmiEdge: (asserted, edgeClock) => {
+        this.emitIrqEvent({
+          line: "nmi",
+          asserted,
+          source: "cia2",
+          target: "c64-cpu",
+          edgeClock,
+          visibleClock: edgeClock,
+        });
+      },
       iecWrite: (or, ddr) => {
         // Spec 201-c2: $DD00 write goes through KernelBus. The DDR
         // mask travels via BusAccessContext.ddrMask; bus dispatches
@@ -200,6 +210,16 @@ export class HeadlessMachineKernel implements MachineKernel {
     const cia1Install = installCia1(this.c64Bus, {
       alarmContext: this.alarms.maincpu,
       clkPtr: ciaClkPtr,
+      onIrqEdge: (asserted, edgeClock) => {
+        this.emitIrqEvent({
+          line: "irq",
+          asserted,
+          source: "cia1",
+          target: "c64-cpu",
+          edgeClock,
+          visibleClock: edgeClock,
+        });
+      },
     });
     this.cia1 = cia1Install.cia;
     this.cia1IrqLine = cia1Install.irqLine;
