@@ -261,26 +261,29 @@ export class DriveCpu {
       this.gcrShifter.onByteReady = (_byte: number) => {
         // VICE 1:1 — byte-ready is GATED by VIA2 PCR bit 1 (BRA_BYTE_READY).
         // Drive ROM enables/disables this via PCR write; when disabled
-        // (e.g. during IEC bit-bang serial transfer) the GCR shifter
-        // keeps spinning but byte-ready edges are suppressed — neither
-        // CA1 nor SO fire. See:
+        // (e.g. during IEC bit-bang serial transfer, or before drive ROM
+        // initializes PCR) the GCR shifter keeps spinning but byte-ready
+        // edges are suppressed — neither CA1 nor V flag fire. See:
         //   vice/src/drive/iecieee/via2d.c L170-178 (via2d_update_pcr)
         //   vice/src/drive/drive.h          L283   BRA_BYTE_READY 0x02
-        //   vice/src/drive/rotation.c       L466   gate before so_delay
-        // Without this gate, every 26-32 drive cycles spams V flag +
-        // VIA2 CA1 IRQ → KERNAL serial path corrupts immediately.
+        //   vice/src/drive/rotation.c       L1060  gate before edge=1
         const pcr = via2.via.pcr & 0xff;
         if ((pcr & 0x02) === 0) return;
 
         // VIA2 CA1 falling edge — chip core handles PA latch + IFR set
         // per VICE viacore_signal (PCR polarity-gated).
         via2.via.signal("ca1", "fall");
-        // Drop SO line; DriveCpuCycled.executeCycle() raises it back
-        // high on the next tick to form the one-cycle pulse VICE expects.
+
+        // V-flag direct set — VICE drivecpu_set_overflow (drivecpu.c:219-223)
+        // directly does `cpu_regs.p |= P_OVERFLOW`. There's no SO-pin pulse
+        // shaping in VICE for the drive 6502; byte-ready latches V immediately
+        // and CLV (or BVC consume) clears it. We previously routed through
+        // setSoLine(0)+pulse-back-to-1 but the same-cycle re-raise meant the
+        // CPU's edge detector never saw a 1→0 transition and V was never set
+        // (root cause of $F3BE BVC deadlock). Match VICE: set V directly.
         if (cpuMicro) {
-          cpuMicro.setSoLine(0);
+          cpuMicro.reg_p = (cpuMicro.reg_p | 0x40) & 0xff;
         } else if (cpuLegacy) {
-          // Legacy CPU has no SO pin — direct V-flag set (one-shot).
           cpuLegacy.flags |= 0x40;
         }
       };
@@ -337,11 +340,9 @@ export class DriveCpu {
       // here by raising soLine back high after the tick (microcoded
       // path only — legacy CPU uses direct V-flag set).
       if (this.gcrShifter) {
+        // Byte-ready callback in DriveCpu sets V directly on reg_p
+        // (mirrors VICE drivecpu_set_overflow). No SO-pin pulse needed.
         this.gcrShifter.tick(consumed);
-        if (this.microcoded) {
-          const cpu = this.cpu as { setSoLine?: (l: 0 | 1) => void };
-          cpu.setSoLine?.(1);
-        }
       }
       // Sprint 113 Phase 2: VIA1 + VIA2 are alarm-driven (Via1d1541 /
       // Via2d1541). No tick() needed — alarm context is drained by the
