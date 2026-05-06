@@ -306,7 +306,7 @@ function emitRow(src, addr, value) {
     x:  c64Cpu.x  & 0xff,
     y:  c64Cpu.y  & 0xff,
     sp: c64Cpu.sp & 0xff,
-    p:  c64Cpu.p  & 0xff,
+    p:  (c64Cpu.flags ?? c64Cpu.p ?? 0) & 0xff,
   };
 
   // Drive CPU state.
@@ -316,7 +316,7 @@ function emitRow(src, addr, value) {
     x:  driveCpu.x  & 0xff,
     y:  driveCpu.y  & 0xff,
     sp: driveCpu.sp & 0xff,
-    p:  driveCpu.p  & 0xff,
+    p:  (driveCpu.flags ?? driveCpu.p ?? 0) & 0xff,
   };
 
   const vicSnap  = snapVic();
