@@ -32,7 +32,10 @@ may exercise T1/T2/SR/CA2 modes we don't model.
    - VIA1: full backend (IEC bus + ATN line) — production for
      kernel IEC.
    - VIA2: full chip core, but BACKEND is idle-stub (decision 5
-     below). GCR/head/motor domain → separate Spec 152, V2.
+     below). GCR/head/motor domain → **Spec 153** (NOT 152;
+     152 became swimlane diff infrastructure). Spec 153 promoted
+     from V2 backlog to Sprint 114 active after motm root-cause
+     analysis showed GCR-stub IS the motm-blocker.
 3. **Backend interface = VICE pattern** (verbatim from
    `viacore.h`):
    ```ts

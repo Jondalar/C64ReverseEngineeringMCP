@@ -28,6 +28,13 @@ Current product direction lives in
 
 - **V1.0** — full headless C64 + 1541 emulator, excluding only sound
   output.
+  - **Sprint 114 — Spec 153 Drive GCR/motor/head full 1:1 VICE**
+    (active, post-Sprint-113). motm root-cause analysis revealed
+    VIA2 GCR backend is idle stub → drive can't read disk data →
+    motm + any custom-fastloader game hangs in wrong-path loop.
+    Spec 153 implements bit-stream rotation + sync detector +
+    SO-pin/byte-ready signaling 1:1 VICE rotation.c+gcr.c. This
+    is the LAST major V1 truedrive gap.
 - **V2.0** — LLM reverse-engineering workbench built on top of the
   emulator.
 - **V3.0** — human C64RE UI built on the same emulator/workbench:
