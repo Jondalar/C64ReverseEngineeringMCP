@@ -310,12 +310,16 @@ export class HeadlessMachineKernel implements MachineKernel {
       headPosition: this.headPosition,
     });
 
-    // Spec 153 Step 2 — Phase 1 rollout: opt-in via env flag while
-    // we bring the new path online without disturbing the KERNAL
-    // serial smoke. Default OFF = legacy TrackBuffer-inline shifter
-    // path (back-compat). Set C64RE_USE_GCR_SHIFTER=1 to activate the
-    // 1:1 VICE shifter coupling.
-    const useGcrShifter = process.env.C64RE_USE_GCR_SHIFTER === "1";
+    // Spec 153 Step 2 — DEFAULT ON 2026-05-06: 1:1 VICE rotation.c
+    // GcrShifter is the silicon-faithful GCR pipeline. Legacy
+    // TrackBuffer.tickShifter remained the default through Sprint 113
+    // because of "kernal-serial-smoke" risk; that worry is moot now
+    // that smoke:load (L2/L3/L7 incl. MM 38KB byte-perfect) passes
+    // with GcrShifter wired. Set C64RE_USE_LEGACY_GCR=1 to fall back
+    // to the simplified shifter while we surface any remaining gaps
+    // through diff-trace (Spec 205-B). Fastloader / GCR-protection
+    // games that depend on real per-cycle bit advance need this.
+    const useGcrShifter = process.env.C64RE_USE_LEGACY_GCR !== "1";
 
     // Drive build. Spec 090: configure sync ratio + zero baseline.
     this.drive = new DriveCpu({
