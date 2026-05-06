@@ -116,11 +116,17 @@ const id              = args.id ?? "motm";
 const port            = Number(args.port ?? 6502);
 const vicePath        = args.vice ?? "/Applications/vice-arm64-gtk3-3.10/bin/x64sc";
 const basicReadyWait  = Number(args["basic-ready-wait"] ?? 8) * 1000; // ms
-const maxRows         = Number(args["max-rows"] ?? 1_000_000);
-const endCycle        = Number(args["end-cycle"] ?? 100_000);          // default 100K cycles ≈ smoke test
+// Defaults sized for full boot-to-title baseline. User reports 2-3 min
+// real-time for full motm boot. 100M c64 cycles ≈ 100s @ 1MHz, covers
+// cold-boot → BASIC banner → LOAD → AB.prg → multi-file fastloader →
+// game start → title screen. 10M-row max generous for ~3 cycles/instr.
+const maxRows         = Number(args["max-rows"] ?? 10_000_000);
+const endCycle        = Number(args["end-cycle"] ?? 100_000_000);
+// 0 = disabled. Default 0 for full baseline; pass --stop-at-c64-pc 4000
+// to stop at AB.prg entry for faster boot-only capture.
 const stopAtC64Pc     = args["stop-at-c64-pc"] !== undefined
   ? Number("0x" + args["stop-at-c64-pc"])
-  : 0x4000;
+  : 0;
 const projectDir      = args["project-dir"] ?? process.env.C64RE_PROJECT_DIR ?? repoRoot;
 
 // ─── Manifest + disk lookup ──────────────────────────────────────────────────
