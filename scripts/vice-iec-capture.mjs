@@ -450,6 +450,50 @@ const armPcStart = args["arm-pc-start"] !== undefined
   : (noAutostart ? 0 : (id === "motm" ? 0x042F : 0));
 const armPcEnd = args["arm-pc-end"] !== undefined ? Number(args["arm-pc-end"]) : (id === "motm" ? 0x044C : 0);
 
+// Optional C64-side arm (e.g. JMP $4000 = AB.prg entry for motm boot).
+const armC64PcStart = args["arm-c64-pc-start"] !== undefined ? Number(args["arm-c64-pc-start"]) : 0;
+const armC64PcEnd   = args["arm-c64-pc-end"]   !== undefined ? Number(args["arm-c64-pc-end"])   : armC64PcStart;
+
+if (armC64PcStart > 0) {
+  console.error(`Arming on C64 PC range $${armC64PcStart.toString(16)}-$${armC64PcEnd.toString(16)} (memspace=0)`);
+  await client.setCheckpoint({
+    startAddress: armC64PcStart, endAddress: armC64PcEnd,
+    stopWhenHit: true, enabled: true, operation: 0x04, memspace: MAIN_MEMSPACE,
+  });
+  let armSeq = client.currentEventSequence;
+  try { await client.resume(); } catch {}
+  let armed = false;
+  const armDeadline = Date.now() + 180_000;
+  while (!armed && Date.now() < armDeadline) {
+    let ev;
+    try {
+      ev = await client.waitForCheckpointOrStop(armSeq, 30_000);
+    } catch {
+      console.error(`C64 arm timeout — exiting`);
+      child.kill("SIGKILL");
+      process.exit(1);
+    }
+    armSeq = ev.sequence;
+    if (ev.kind === "checkpoint") {
+      const cRegs = await client.getRegisters(MAIN_MEMSPACE);
+      const cpc = (cRegs.find((r) => r.id === REG_PC)?.value ?? 0) & 0xffff;
+      if (cpc >= armC64PcStart && cpc <= armC64PcEnd) {
+        console.error(`C64-armed at PC=$${cpc.toString(16)}`);
+        armed = true;
+        break;
+      }
+      await client.resume();
+    } else if (ev.kind === "stopped") {
+      try { await client.resume(); } catch {}
+    }
+  }
+  if (!armed) {
+    console.error(`C64 arm window never hit — exiting (LOAD likely never completed)`);
+    child.kill("SIGKILL");
+    process.exit(1);
+  }
+}
+
 if (armPcStart > 0) {
   console.error(`Arming on drive PC range $${armPcStart.toString(16)}-$${armPcEnd.toString(16)} (memspace=1)`);
   // Set exec checkpoint that pauses VICE when drive PC enters window.
