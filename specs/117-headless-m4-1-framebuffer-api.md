@@ -5,6 +5,14 @@ Roadmap: `docs/headless-emulator-roadmap.md` Milestone 4, story M4.1
 Depth: light
 Predecessors: Spec 105 (M2.3 VIC fidelity)
 
+## Render geometry oracle (added 2026-05-06)
+
+Output proportions MUST match VICE PAL render pixel-exact. Visual
+oracle + binding requirements: [`refs/vic-render-proportions.md`](./refs/vic-render-proportions.md).
+A PR that ships a render whose border/background ratios disagree
+with the reference image fails this spec irrespective of which
+inner-area pixels are correct.
+
 ## Motivation
 
 Render output exists in several places. Agents need one stable

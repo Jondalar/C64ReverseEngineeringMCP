@@ -1,5 +1,13 @@
 # Spec 086 — VIC per-scanline renderer + open border
 
+## Render geometry oracle (added 2026-05-06)
+
+Per-scanline rendering MUST produce a frame whose outer border /
+background proportions match VICE PAL pixel-exact. Visual oracle +
+binding requirements: [`refs/vic-render-proportions.md`](./refs/vic-render-proportions.md).
+This spec covers mid-frame *content* — the geometric envelope it
+draws into is fixed by the oracle.
+
 ## Problem
 
 Current `vic-renderer.ts` renders the full frame from the FINAL VIC register state. Mid-frame changes (border color flicker, $D011/$D016 mid-line tricks, raster bars, open border) are LOST — only the last value seen at end of frame is rendered.
