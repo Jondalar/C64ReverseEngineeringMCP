@@ -88,7 +88,17 @@ export class Cpu6510 {
     this.pc = ((this.pop() | (this.pop() << 8)) + 1) & 0xffff;
   }
 
+  /**
+   * Spec 203-c4: kernel-installed callback fired on every vector entry.
+   * Same shape as Cpu65xxVice.onInterruptServiced so kernel can install
+   * one closure that handles both CPU classes interchangeably.
+   */
+  onInterruptServiced?: (vectorAddress: number, clk: number) => void;
+
   serviceInterrupt(vectorAddress: number, breakFlag = false): number {
+    // Spec 203-c4: stamp before the 7-cycle entry so servicedClock
+    // tracks the entry-start cycle, matching Cpu65xxVice.
+    this.onInterruptServiced?.(vectorAddress & 0xffff, this.cycles);
     const nextPc = this.pc & 0xffff;
     this.push((nextPc >> 8) & 0xff);
     this.push(nextPc & 0xff);

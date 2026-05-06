@@ -92,4 +92,27 @@ export class KernelIrqRing {
   get count(): number {
     return this.size;
   }
+
+  /**
+   * Spec 203-c4: walk the ring backwards and stamp `servicedClock` on
+   * the latest matching event. "Matching" = same target, same line,
+   * `asserted=true`, `servicedClock` not yet set. Returns the stamped
+   * event or undefined when no match exists (e.g. ring already wrapped
+   * past it, or the CPU is taking a spurious interrupt).
+   */
+  markServiced(target: KernelIrqTarget, line: KernelIrqLine, clock: number): KernelIrqEvent | undefined {
+    if (this.size === 0) return undefined;
+    for (let i = 0; i < this.size; i++) {
+      const idx = (this.head - 1 - i + this.capacity) % this.capacity;
+      const ev = this.buf[idx];
+      if (!ev) continue;
+      if (ev.target !== target) continue;
+      if (ev.line !== line) continue;
+      if (!ev.asserted) continue;
+      if (ev.servicedClock !== undefined) continue;
+      ev.servicedClock = clock;
+      return ev;
+    }
+    return undefined;
+  }
 }

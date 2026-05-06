@@ -1,7 +1,7 @@
 # Spec 203 — Alarms + IRQ timestamps in kernel
 
 **Sprint:** 118
-**Status:** IN PROGRESS — c1/c2 done 2026-05-06; VIA/VIC + servicedClock deferred
+**Status:** c1+c2+c3+c4 DONE 2026-05-06 — full IRQ/NMI/SO event ring + servicedClock backfill. Smoke 16/16. Drive-cpu IRQ servicing wired alongside c64-cpu (microcoded + legacy).
 **ADR:** §4.2, §4.3, §8 Step 4
 **Maps from:** legacy 141 (clocked-via1-ca1-irq-timing), 149
 (alarm-system-or-equivalent) — superseded
@@ -19,12 +19,21 @@
   emit kernel events. CIA install opts gain optional `onIrqEdge` /
   `onNmiEdge` callbacks; kernel passes wrappers that build the
   full event and call `emitIrqEvent`. Smoke confirms live capture.
-- **c3 (deferred)** — VIA1/VIA2 setIrq edges + VIC raster IRQ +
-  drive-CPU SO. Same pattern as CIA1/CIA2.
-- **c4 (deferred)** — `servicedClock` back-fill: when the C64 or
-  drive CPU vectors into IRQ/NMI/RTI, kernel matches the most
-  recent matching event and fills `servicedClock`. Foundation for
-  CPU interrupt-delay measurement (ADR §4.3 last paragraph).
+- **c3 ✓ 2026-05-06** — VIA1/VIA2 setIrq edges + VIC raster IRQ +
+  drive-CPU SO. DriveCpuOptions gains `onVia1IrqEdge` / `onVia2IrqEdge`
+  / `onSoEdge`. DriveBus wraps both VIA setIrq closures with edge-only
+  delivery; gcrShifter.onByteReady fires onSoEdge after V flag set.
+  Kernel wires VIA edges → `target: "drive-cpu"`, VIC raster →
+  `target: "c64-cpu"`, SO → `line: "so"`. KernelIrqSource union
+  extended with `gcr-shifter`.
+- **c4 ✓ 2026-05-06** — `servicedClock` back-fill. `KernelIrqRing`
+  gains `markServiced(target, line, clock)` walking the ring backwards
+  for the latest unfilled asserted event. Both `Cpu6510` and
+  `Cpu65xxVice` gain `onInterruptServiced?: (vectorAddress, clk)`
+  fired at the entry-start cycle. Kernel installs hooks via
+  `installCpuInterruptHooks` (called at construction + after
+  microcoded swap in IntegratedSession). $FFFA → NMI, $FFFE → IRQ;
+  drive-cpu always maps to IRQ (no NMI line on 1541).
 
 ## Goal
 

@@ -178,6 +178,37 @@ check("kernel.emitIrqEvent + irqEvents capture CIA edges (Spec 203-c1/c2)", () =
   }
 });
 
+check("markIrqServiced backfills servicedClock (Spec 203-c4)", () => {
+  // Probe the API in isolation: emit a fake CIA1 event, then call
+  // markIrqServiced — the latest matching unfilled event should pick
+  // up the clock. Using emit + markIrqServiced directly avoids
+  // depending on real IRQ activity timing.
+  const probe = kernel.emitIrqEvent({
+    line: "irq",
+    asserted: true,
+    source: "cia1",
+    target: "c64-cpu",
+    edgeClock: 4242,
+    visibleClock: 4242,
+  });
+  if (probe.servicedClock !== undefined) throw new Error("probe pre-marked");
+  kernel.markIrqServiced("c64-cpu", "irq", 4250);
+  const events = kernel.irqEvents();
+  const found = events.find((e) => e.seq === probe.seq);
+  if (!found) throw new Error("probe event not in ring");
+  if (found.servicedClock !== 4250) {
+    throw new Error(`servicedClock = ${found.servicedClock}, want 4250`);
+  }
+  // Second mark must NOT re-stamp the already-serviced event; ring
+  // walks back past it. Without another asserted event in flight
+  // it's a no-op.
+  kernel.markIrqServiced("c64-cpu", "irq", 9999);
+  const reread = kernel.irqEvents().find((e) => e.seq === probe.seq);
+  if (reread.servicedClock !== 4250) {
+    throw new Error("servicedClock re-stamped on second markIrqServiced");
+  }
+});
+
 check("VIA/VIC/SO wiring registered on kernel (Spec 203-c3 — static)", () => {
   // Static-wiring check: the kernel constructor passes onVia1IrqEdge,
   // onVia2IrqEdge, onSoEdge to DriveCpu and a VIC setIrqLine callback

@@ -876,8 +876,19 @@ export class Cpu65xxVice implements CycleSteppable {
    *   2 vector reads
    * Public so legacy callers (drive-session.ts) can drive it.
    */
+  /**
+   * Spec 203-c4: kernel-installed callback fired on every IRQ/NMI/BRK
+   * vector entry. Receives the vector address ($FFFA NMI / $FFFE IRQ
+   * or BRK) and the cycle at which the entry started so the kernel
+   * can backfill `servicedClock` on the matching IRQ-ring event.
+   */
+  onInterruptServiced?: (vectorAddress: number, clk: number) => void;
+
   serviceInterrupt(vectorAddress: WORD, breakFlag = false): WORD {
     const va = u16(vectorAddress);
+    // Spec 203-c4: stamp servicedClock at the entry-start cycle so it
+    // correlates 1:1 with VICE's DO_INTERRUPT macro start.
+    this.onInterruptServiced?.(va, this.clk);
     // 2 dummy reads at current PC and PC+1 (VICE FETCH_PARAM_DUMMY).
     this.loadDummy(this.reg_pc);
     this.clk = clkAdd(this.clk, 1);

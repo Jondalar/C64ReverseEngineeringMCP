@@ -411,6 +411,32 @@ export class HeadlessMachineKernel implements MachineKernel {
     this.iecBus.setHookRecorder((name, description) =>
       this.recordHookFire(name, description),
     );
+
+    // Spec 203-c4: install onInterruptServiced on c64 + drive CPUs so
+    // every vector fetch backfills `servicedClock` on the matching
+    // ring entry. Kernel installs once on the current Cpu6510 here;
+    // when IntegratedSession swaps c64Cpu to Cpu65xxVice for
+    // microcoded mode, the swap path re-installs through
+    // `installCpuInterruptHooks`.
+    this.installCpuInterruptHooks();
+  }
+
+  /**
+   * Spec 203-c4: (re)install onInterruptServiced on the current c64
+   * + drive CPU instances. IntegratedSession calls this after swapping
+   * c64Cpu to Cpu65xxVice in microcoded mode.
+   */
+  installCpuInterruptHooks(): void {
+    const c64Hook = (vectorAddress: number, clk: number) => {
+      const line: import("./kernel-irq.js").KernelIrqLine =
+        vectorAddress === 0xfffa ? "nmi" : "irq";
+      this.markIrqServiced("c64-cpu", line, clk);
+    };
+    (this.c64Cpu as { onInterruptServiced?: typeof c64Hook }).onInterruptServiced = c64Hook;
+    const driveHook = (_vectorAddress: number, clk: number) => {
+      this.markIrqServiced("drive-cpu", "irq", clk);
+    };
+    (this.drive.cpu as { onInterruptServiced?: typeof driveHook }).onInterruptServiced = driveHook;
   }
 
   /**
@@ -460,6 +486,21 @@ export class HeadlessMachineKernel implements MachineKernel {
   /** Spec 203-c1: read the IRQ event ring. */
   irqEvents(): readonly KernelIrqEvent[] {
     return this.irqRing.read();
+  }
+
+  /**
+   * Spec 203-c4: stamp `servicedClock` on the latest unfilled
+   * asserted event matching {target, line}. Called from the CPU IRQ
+   * / NMI vector-fetch entry on both Cpu6510 (via session
+   * `checkC64Interrupts`) and Cpu65xxVice (via `onInterruptServiced`
+   * callback installed by the kernel).
+   */
+  markIrqServiced(
+    target: import("./kernel-irq.js").KernelIrqTarget,
+    line: import("./kernel-irq.js").KernelIrqLine,
+    clock: number,
+  ): void {
+    this.irqRing.markServiced(target, line, clock);
   }
 
   /**

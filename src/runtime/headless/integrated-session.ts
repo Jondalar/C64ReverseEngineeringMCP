@@ -420,6 +420,8 @@ export class IntegratedSession {
         // CIAs would read the stale Cpu6510's cycles (= 0 forever)
         // and alarm dispatch would storm.
         (this.kernel as unknown as { c64Cpu: unknown }).c64Cpu = microcoded;
+        // Spec 203-c4: re-attach onInterruptServiced to the new CPU.
+        this.kernel.installCpuInterruptHooks();
         microcoded.reset();
         cpuCompoonent = microcoded;
       } else {
