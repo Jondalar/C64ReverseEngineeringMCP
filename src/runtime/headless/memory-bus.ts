@@ -122,12 +122,21 @@ export class HeadlessMemoryBus {
     const normalized = clampWord(address);
     let value: number;
     if (normalized === 0x0000) {
+      // VICE c64mem.c:269 / c64pla.c:98 — $00 returns pport.dir_read = pport.dir.
       value = this.cpuPortDirection;
       this.recordAccess("read", normalized, value, "cpu_port_direction");
       return value;
     }
     if (normalized === 0x0001) {
-      value = this.cpuPortValue;
+      // VICE c64mem.c:271 / c64pla.c:53-55 — $01 returns
+      //   data_read = (data | ~dir) & (data_out | pullup)
+      // where data_out = (data_out & ~dir) | (data & dir) and pullup = 0x17
+      // on stock C64 (charen/hiram/loram + tape sense). For pins that are
+      // outputs the formula collapses to the latched data bit; for input
+      // pins the pullup forces bit-1, matching real HW behavior.
+      // Capacitor-decay of bits 6,7 (and 3,4,5 on SX-64) is documented in
+      // pla-fidelity-notes.md and deferred — almost no software depends on it.
+      value = this.computeCpuPortDataRead();
       this.recordAccess("read", normalized, value, "cpu_port_value");
       return value;
     }
@@ -210,12 +219,18 @@ export class HeadlessMemoryBus {
     this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
   }
 
-  // Sprint 87 (Spec 087): PLA truth-table approach. Inputs:
+  // Sprint 87 (Spec 087) / Sprint 113 audit: PLA truth-table approach. Inputs:
   //   LORAM ($01 bit 0), HIRAM ($01 bit 1), CHAREN ($01 bit 2)
   //   /EXROM, /GAME from cartridge (1 = released/inactive, 0 = asserted)
   // No cartridge attached: EXROM=1, GAME=1.
+  //
+  // Mode bits per VICE c64mem.c:216:
+  //   mem_config bits 0..2 = (~pport.dir | pport.data) & 7
+  // i.e. for OUTPUT pins (dir bit=1) the bit equals the latched data bit;
+  // for INPUT pins (dir bit=0) the bit is forced HIGH (pulled up). This
+  // matches the LORAM/HIRAM/CHAREN pullups on real HW.
   private pla(): { bank8: 'ram' | 'cart_lo'; bankA: 'ram' | 'basic' | 'cart_hi'; bankD: 'ram' | 'io' | 'char'; bankE: 'ram' | 'kernal' | 'cart_hi_ultimax' } {
-    const port = this.cpuPortValue & 0x07;
+    const port = (~this.cpuPortDirection | this.cpuPortValue) & 0x07;
     const loram = (port & 0x01) !== 0;
     const hiram = (port & 0x02) !== 0;
     const charen = (port & 0x04) !== 0;
@@ -250,6 +265,26 @@ export class HeadlessMemoryBus {
   private kernalVisible(): boolean { return this.pla().bankE === 'kernal'; }
   private ioVisible(): boolean { return this.pla().bankD === 'io'; }
   private charVisible(): boolean { return this.pla().bankD === 'char'; }
+
+  /**
+   * Compute VICE-equivalent `pport.data_read` for $01.
+   * c64pla.c:53-55: data_out = (data_out & ~dir) | (data & dir);
+   *                 data_read = (data | ~dir) & (data_out | pullup).
+   * On stock C64 pullup = 0x17 (bits 0,1,2,4 — charen/hiram/loram + tape sense).
+   * Bit 6 (caps-sense, optional) and bits 3,4,5 (SX-64 disconnected) decays
+   * are not modeled here.
+   *
+   * Simplification: we don't keep `data_out` separately, so reconstruct it
+   * from `data & dir` (output pins drive their data bits; input pins float
+   * to pullup level). For motm-equivalent banking this is sufficient.
+   */
+  private computeCpuPortDataRead(): number {
+    const dir = this.cpuPortDirection & 0xff;
+    const data = this.cpuPortValue & 0xff;
+    const pullup = 0x17;
+    const dataOut = data & dir; // input pins not driven; only output pins contribute
+    return ((data | (~dir & 0xff)) & (dataOut | pullup)) & 0xff;
+  }
 
   private recordAccess(kind: "read" | "write", address: number, value: number, region: string): void {
     if (!this.tracingEnabled) {
