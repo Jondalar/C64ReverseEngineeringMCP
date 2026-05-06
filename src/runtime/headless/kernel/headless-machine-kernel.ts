@@ -417,6 +417,18 @@ export class HeadlessMachineKernel implements MachineKernel {
       this.recordHookFire(name, description),
     );
 
+    // Spec 205-A c5: bridge IEC line edges into the "iec" trace
+    // channel. No-op when the channel is "off".
+    this.iecBus.setEdgeListener((rec) => {
+      if (!this.traceRegistry.isEnabled("iec")) return;
+      this.traceCtrl.publish("iec", rec.cycle, {
+        side: rec.side,
+        atn: rec.atn, clk: rec.clk, data: rec.data,
+        c64Atn: rec.c64Atn, c64Clk: rec.c64Clk, c64Data: rec.c64Data,
+        drvClk: rec.drvClk, drvData: rec.drvData, drvAtnAck: rec.drvAtnAck,
+      });
+    });
+
     // Spec 203-c4: install onInterruptServiced on c64 + drive CPUs so
     // every vector fetch backfills `servicedClock` on the matching
     // ring entry. Kernel installs once on the current Cpu6510 here;

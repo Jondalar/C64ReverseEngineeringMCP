@@ -121,6 +121,31 @@ check("getBusAccessProducer returns the registered producer", () => {
   }
 });
 
+check("iec channel captures line edges (Spec 205-A c5)", () => {
+  const { session: s3 } = startIntegratedSession({
+    diskPath: fixturePath,
+    mode: "true-drive",
+  });
+  const k = s3.kernel;
+  k.trace().configureChannel("iec", { mode: "ring", capacity: 4096 });
+  s3.resetCold();
+  s3.runFor(50_000);
+  const ring = k.trace().getRing("iec");
+  if (ring.length === 0) throw new Error("no iec edge events captured");
+  const sides = new Set(ring.map((e) => e.data.side));
+  if (!sides.has("c64") && !sides.has("drive")) {
+    throw new Error(`no c64/drive sides. sides: ${[...sides].join(",")}`);
+  }
+  for (const e of ring.slice(0, 5)) {
+    for (const f of ["atn", "clk", "data", "c64Atn", "c64Clk", "c64Data", "drvClk", "drvData"]) {
+      if (e.data[f] !== 0 && e.data[f] !== 1) {
+        throw new Error(`iec.${f} not 0/1: ${e.data[f]}`);
+      }
+    }
+  }
+  s3.shutdown?.();
+});
+
 check("cpu channel captures c64 + drive instruction edges (Spec 205-A c4)", () => {
   // Fresh session keeps the test self-contained — the previous JSONL
   // run produced a lot of bus_access events that would fight for ring

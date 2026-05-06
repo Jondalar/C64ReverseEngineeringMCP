@@ -99,6 +99,12 @@ export class IecBus {
   // (no kernel) still work.
   private hookRecorder?: (name: "iec-release-clk" | "iec-release-data", description?: string) => void;
 
+  // Spec 205-A c5: kernel-injected edge listener. Fires on every actual
+  // line transition independent of the local `traceEnabled` flag — the
+  // kernel decides whether to publish based on the "iec" trace channel
+  // mode. Set via `setEdgeListener`.
+  private edgeListener?: (rec: IecEdgeRecord) => void;
+
   // === Trace API ===
 
   enableTrace(capacity = 256): void {
@@ -111,10 +117,17 @@ export class IecBus {
   clearTrace(): void { this.trace = []; }
   isTraceEnabled(): boolean { return this.traceEnabled; }
 
+  // Spec 205-A c5: install kernel edge listener. Always fired on real
+  // line transitions; the listener decides whether to publish to the
+  // "iec" trace channel.
+  setEdgeListener(fn: (rec: IecEdgeRecord) => void): void {
+    this.edgeListener = fn;
+  }
+
   private recordEdge(side: "c64" | "drive", prev: { atn: boolean; clk: boolean; data: boolean }): void {
-    if (!this.traceEnabled) return;
     const atn = this.atnLine, clk = this.clkLine, data = this.dataLine;
     if (atn === prev.atn && clk === prev.clk && data === prev.data) return;
+    if (!this.traceEnabled && !this.edgeListener) return;
     const cycle = this.timeSource ? this.timeSource() : 0;
     // Per-side derive from core.cpu_bus + drv_data[8].
     const cpu_bus = this.core.cpu_bus;
@@ -133,8 +146,11 @@ export class IecBus {
       drvData: ((drv_data8 & 0x02) ? 1 : 0) as 0 | 1,
       drvAtnAck: ((drv_data8 & 0x10) ? 1 : 0) as 0 | 1,
     };
-    this.trace.push(rec);
-    if (this.trace.length > this.traceCapacity) this.trace.shift();
+    if (this.traceEnabled) {
+      this.trace.push(rec);
+      if (this.trace.length > this.traceCapacity) this.trace.shift();
+    }
+    this.edgeListener?.(rec);
   }
 
   // === Drive VIA1 attachment ===
