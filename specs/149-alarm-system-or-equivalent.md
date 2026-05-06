@@ -1,12 +1,30 @@
-# Spec 149 — Alarm system 1:1 VICE port
+# Spec 149 — Alarm system 1:1 VICE port (FOUNDATION)
 
 **Sprint**: 113 (chip-level 1:1 VICE)
-**Status**: proposed
-**Source**: VICE 3.7.1 src/alarm.c + src/alarm.h
-**Depends on**:
-- Spec 145 (CIA timer underflow predict — schedules alarms)
-- Spec 147 (VIA timer underflow predict — schedules alarms)
-**Refinement**: locked 2026-05-06
+**Status**: PROMOTED to foundation — blocks Spec 145 + 147
+**Source**: VICE 3.7.1 src/alarm.c (212 LOC) + src/alarm.h (187 LOC)
+**Blocks**: Spec 145 (CIA), Spec 147 (VIA), Spec 150 (VIC)
+**Refinement**: locked 2026-05-06, **revised 2026-05-06**
+
+## Architecture-correction (revised after CIA agent halt-report)
+
+Original assumption was **WRONG**: we believed chips would expose
+predict-functions and 149 would wrap them as alarms later.
+**Actual VICE structure**: chip register-write paths CALL
+`alarm_set()` directly. There is no separable predict-function.
+
+Examples from ciacore.c:
+- `cia_run_ifr_cycle` (4-stage IFR delay-line) advances ONLY in
+  alarm callbacks (`ciacore_intta`, `ciacore_inttb`,
+  `ciacore_intsdr`, `ciacore_inttod`).
+- `sdr_delay` (SP/SDR mercury-delay-line) advances exclusively
+  via `sdr_alarm`.
+- `write_offset` 1-cycle store delay is implemented as
+  `rclk = clk + write_offset; run_pending_alarms(rclk, ...)`.
+- TOD = `alarm_set(tod_alarm, todclk)`.
+
+Therefore: **149 must land BEFORE 145 + 147**. CIA + VIA cannot
+be ported 1:1 VICE without alarm primitives in place.
 
 ## Why
 
@@ -39,12 +57,21 @@ primitive. Port required for chip-level fidelity.
    - Cross-CPU signaling (ATN edge, IEC line changes) stays as
      direct `signal()` calls — NOT routed through alarm. Match
      VICE pattern (`viacore_signal()`, `iec_callback`).
-3. **Migration**: big-bang. Single PR introduces:
-   - `runtime/headless/alarm/alarm-context.ts`
-   - Scheduler rewrite to use alarm dispatch + per-cycle hooks
-     for VIC bus-stealing only.
-   - All chips migrate to alarm-driven scheduling at once.
-   - No production users; no flag dance; no parallel cycle-tick.
+3. **Migration (revised post-CIA-halt)**: foundation-first, NOT big-bang.
+   - **Step A (this spec, NOW)**: land alarm primitives + unit
+     tests. Foundation file `runtime/headless/alarm/alarm-context.ts`.
+     No chip changes yet. Standalone alarm-context unit tests
+     verify behavior without chip dependency.
+   - **Step B**: relaunch Spec 145 (CIA) + Spec 147 (VIA) agents
+     with alarm-driven 1:1 VICE port from the start. They use
+     alarm primitives for IFR delay-line, SDR, TOD, T1/T2,
+     write_offset.
+   - **Step C**: CPU phase 2 — wire alarm dispatch into
+     `Cpu65xxVice` instruction loop (`while clk >=
+     alarm_context_next_pending_clk(ctx) dispatch_one`).
+   - **Step D**: Spec 150 (VIC) — raster line alarms.
+   - **SID kept per-cycle**: B-level SID has no alarm-driven
+     semantics worth porting. Stays as-is.
 4. **Event kind classification**:
    - **Alarm events** (predicted clk, queued in priority queue):
      - CIA1/CIA2 timer A/B underflow
