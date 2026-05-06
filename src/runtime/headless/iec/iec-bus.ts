@@ -91,6 +91,14 @@ export class IecBus {
   private driveRamForAtnPoke?: Uint8Array;
   private prevAtnLow = false;
 
+  // Spec 204: kernel-injected hook recorder. Set by HeadlessMachineKernel
+  // via `setHookRecorder`. When present, `releaseDriveClk` /
+  // `releaseDriveData` call the recorder before mutating bus state —
+  // the recorder throws HookForbiddenError if the current kernel
+  // mode forbids the hook. Optional so legacy direct-construction tests
+  // (no kernel) still work.
+  private hookRecorder?: (name: "iec-release-clk" | "iec-release-data", description?: string) => void;
+
   // === Trace API ===
 
   enableTrace(capacity = 256): void {
@@ -248,10 +256,21 @@ export class IecBus {
     this.driveRamForAtnPoke = ram;
   }
 
-  // Sprint 72: synthetic line release for trap-fast mode (Spec 144
-  // gating later). Direct mutation of drv_data; bypasses normal
+  // Spec 204: install kernel hook recorder. Called by
+  // HeadlessMachineKernel after `kernel.hooks` is built. When set, the
+  // synthetic release methods record + audit the fire before mutating
+  // bus state.
+  setHookRecorder(
+    fn: (name: "iec-release-clk" | "iec-release-data", description?: string) => void,
+  ): void {
+    this.hookRecorder = fn;
+  }
+
+  // Sprint 72: synthetic line release for trap-fast mode (Spec 204
+  // gates this). Direct mutation of drv_data; bypasses normal
   // store_prb flow.
-  releaseDriveClk(): void {
+  releaseDriveClk(description?: string): void {
+    this.hookRecorder?.("iec-release-clk", description);
     // Set drive_data[8] bit 3 (CLK_OUT inverted) = 1 (= drive
     // released). Recompute drv_bus[8] + ports.
     const dd = this.core.drv_data[8] ?? 0xff;
@@ -259,7 +278,8 @@ export class IecBus {
     this.core.recompute_drv_bus(8);
     this.core.iec_update_ports();
   }
-  releaseDriveData(): void {
+  releaseDriveData(description?: string): void {
+    this.hookRecorder?.("iec-release-data", description);
     const dd = this.core.drv_data[8] ?? 0xff;
     this.core.drv_data[8] = (dd | 0x02) & 0xff;
     this.core.recompute_drv_bus(8);
