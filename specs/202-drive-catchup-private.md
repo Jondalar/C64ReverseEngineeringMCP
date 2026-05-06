@@ -12,6 +12,11 @@
 ticked from session, bus classes, or chip backends. Only the kernel's
 catch-up entry point advances the drive.
 
+This spec also **flips the production sync default** from
+`debug-lockstep` (Spec 200 default) to `true-drive` (event/catch-up).
+`LockstepStrategy` stays in the codebase as an opt-in diagnostic
+strategy per ADR §3 Decision C and ADR §7.
+
 ## Scope
 
 - `DriveCpu.executeToClock` visibility lowered (TS `internal` /
@@ -20,8 +25,11 @@ catch-up entry point advances the drive.
   `KernelBus` cross-domain access points.
 - Search audit: zero production callers of `executeToClock` outside
   kernel.
-- Cycle-lockstep scheduler is mode-tagged `debug-lockstep`; the
-  production `true-drive` mode uses event/catch-up only.
+- New `EventCatchupStrategy implements SyncStrategy`, becomes default.
+- `LockstepStrategy` (from Spec 200) stays selectable as
+  `debug-lockstep` mode for ablation.
+- `KernelMode` union widens to include `'true-drive'` as default
+  production mode.
 
 ## Acceptance
 
@@ -29,9 +37,12 @@ catch-up entry point advances the drive.
   `drive.executeToClock` except kernel.
 - Cycle-lockstep can still be selected as `debug-lockstep` mode for
   ablation.
-- C64 KERNAL `LOAD` smokes green.
+- New default `kernel.status().mode === 'true-drive'`.
+- C64 KERNAL `LOAD` smokes green under `true-drive`.
 - motm/MM custom-loader trace shows one authoritative drive-clock
   source per access window.
+- Smoke test verifies `mode: 'debug-lockstep'` opt-in still works
+  byte-identical to pre-202 behavior.
 
 ## Out of scope
 

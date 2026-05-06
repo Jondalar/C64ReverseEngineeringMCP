@@ -14,6 +14,9 @@ hooks + media + result counts.
 
 ## Modes (ADR §7)
 
+`KernelMode` union widens to all eight values and replaces the Spec 200
++ Spec 202 partial unions.
+
 Production:
 
 - `fast-trap` — RE convenience, traps allowed and reported.
@@ -23,9 +26,14 @@ Production:
 
 Diagnostic (not acceptance):
 
-- `debug-lockstep`
-- `debug-push-only`
-- `debug-hybrid`
+- `debug-lockstep` — opt-in `LockstepStrategy` (Spec 200 default,
+  demoted by Spec 202).
+- `debug-push-only` — push-only sync probe (no replacement of
+  event/catch-up).
+- `debug-hybrid` — hybrid sync probe.
+
+Each diagnostic mode plugs in via `SyncStrategy`; production modes
+use `EventCatchupStrategy` (Spec 202).
 
 ## Test profiles (ADR §11.4)
 
