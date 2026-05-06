@@ -9,6 +9,14 @@
 //   npm run trace:motm-vice -- [--id motm] [--port 6502] [--budget-ms 300000]
 //                              [--max-events 2000]
 //                              [--vice /Applications/vice-arm64-gtk3-3.10/bin/x64sc]
+//                              [--no-autostart] [--basic-ready-wait <s>] [--no-run]
+//
+// --no-autostart mode:
+//   Replaces -autostart with -8 (attach disk without auto-boot). After VICE
+//   starts, waits --basic-ready-wait seconds (default 4) for BASIC READY prompt,
+//   then injects LOAD"*",8,1\n via VICE binmon keyboardFeed (CMD 0x72). Waits 5 s
+//   for KERNAL LOAD to begin. Then injects RUN\n after 10 s (unless --no-run).
+//   This mirrors the headless boot sequence exactly (headless-swimlane-capture.mjs).
 //
 // Output: traces/<id>_vice_<ts>.jsonl
 //
@@ -134,6 +142,10 @@ if (!existsSync(diskPath)) {
   process.exit(2);
 }
 
+const noAutostart = Boolean(args["no-autostart"]);
+const basicReadyWait = Number(args["basic-ready-wait"] ?? 4) * 1000;  // ms
+const noRun = Boolean(args["no-run"]);
+
 const tsTag = new Date().toISOString().replace(/[:.]/g, "-");
 
 let outPath;
@@ -156,6 +168,7 @@ console.error(`VICE: ${vicePath}`);
 console.error(`Output: ${outPath}`);
 console.error(`Budget: ${budgetMs} ms  Max events: ${maxEvents}`);
 if (swimlane) console.error(`Mode: SWIMLANE (full chip-state per sync-point)`);
+if (noAutostart) console.error(`Boot: --no-autostart (attach-only + manual LOAD/RUN via keyboardFeed; BASIC wait=${basicReadyWait/1000}s${noRun ? " --no-run" : ""})`);
 
 // Clean any prior x64sc on this port
 try {
@@ -168,7 +181,12 @@ try {
 const viceArgs = [
   "-default",
   "-binarymonitor", "-binarymonitoraddress", `ip4://127.0.0.1:${port}`,
-  "-autostart", diskPath,
+  ...(noAutostart
+    // Attach disk without auto-boot; BASIC will reach READY prompt on its own.
+    ? ["-8", diskPath]
+    // Default: autostart loads and runs the first file automatically.
+    : ["-autostart", diskPath]
+  ),
 ];
 console.error(`Spawning: ${vicePath} ${viceArgs.join(" ")}`);
 const child = spawn(vicePath, viceArgs, { stdio: ["ignore", "ignore", "ignore"] });
@@ -369,10 +387,63 @@ async function captureSwimlaneFull(src, hitAddr, hitMemspace) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// --no-autostart boot: manual LOAD + optional RUN via VICE binmon keyboardFeed
+// (CMD 0x72). Mirrors headless-swimlane-capture.mjs Phase A exactly:
+//   2.5M-cycle idle → LOAD"*",8,1\n → 2M-cycle KERNAL LOAD → RUN\n
+//
+// We use wall-clock waits (not cycle counts) because VICE runs real-time.
+// Timings calibrated to match headless 2.5 M-cycle pre-LOAD gap at ~1 MHz:
+//   basicReadyWait (default 4 s) ≈ 2.5M cycles  → BASIC READY prompt
+//   5 s  ≈ KERNAL LOAD in flight (give drive time to respond)
+//   10 s ≈ LOAD complete, safe to RUN
+//
+// VICE binmon keyboardFeed: binary monitor command 0x72 (CMD_KEYBOARD_FEED).
+// Text is C64-charset PETSCII. LOAD and RUN are plain ASCII so Buffer.from()
+// is sufficient; newline (\n = 0x0D in PETSCII, but VICE keyboardFeed treats
+// 0x0A / '\n' as RETURN because it converts via host keyboard).
+// ─────────────────────────────────────────────────────────────────────────────
+if (noAutostart) {
+  // 1. Ensure VICE is running (-8 attach starts VICE running, but if binmon
+  //    connected while VICE is in a stopped state, kick it loose.
+  //    Wrapped in try/catch so it is safe if VICE is already running.
+  try { await client.resume(); } catch { /* already running — fine */ }
+
+  // 2. Wait for BASIC to reach READY prompt (calibrated to ~2.5M cycles).
+  console.error(`[no-autostart] Waiting ${basicReadyWait / 1000}s for BASIC READY…`);
+  await new Promise((r) => setTimeout(r, basicReadyWait));
+
+  // 3. Inject LOAD"*",8,1 + RETURN — mirrors session.typeText('LOAD"*",8,1\n').
+  //    keyboardFeed uses CMD 0x72; VICE translates \n (0x0A) to RETURN key.
+  const loadCmd = Buffer.from('LOAD"*",8,1\n', "ascii");
+  console.error(`[no-autostart] Injecting: LOAD"*",8,1`);
+  await client.keyboardFeed(loadCmd);
+
+  // 4. Wait ~5 s for KERNAL to begin the LOAD protocol (drive spins up,
+  //    ATN handshake, sector reads).  ~2M C64 cycles at 1 MHz.
+  console.error(`[no-autostart] Waiting 5s for KERNAL LOAD…`);
+  await new Promise((r) => setTimeout(r, 5_000));
+
+  if (!noRun) {
+    // 5. Inject RUN + RETURN after LOAD completes (~10 s total from LOAD start).
+    console.error(`[no-autostart] Waiting 10s for LOAD complete before RUN…`);
+    await new Promise((r) => setTimeout(r, 10_000));
+    const runCmd = Buffer.from("RUN\n", "ascii");
+    console.error(`[no-autostart] Injecting: RUN`);
+    await client.keyboardFeed(runCmd);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Optional arming: wait for drive PC to enter window before enabling
 // R/W checkpoints. Symmetric with headless PC-window filter so both
 // sides capture the same logical phase.
-const armPcStart = args["arm-pc-start"] !== undefined ? Number(args["arm-pc-start"]) : (id === "motm" ? 0x042F : 0);
+// In --no-autostart mode the capture starts from KERNAL LOAD phase (boot),
+// not from a custom-loader entrypoint, so the motm arm window ($042F-$044C)
+// would cause a 3-minute timeout. Disable arm by default when --no-autostart
+// is set unless --arm-pc-start is explicitly provided.
+const armPcStart = args["arm-pc-start"] !== undefined
+  ? Number(args["arm-pc-start"])
+  : (noAutostart ? 0 : (id === "motm" ? 0x042F : 0));
 const armPcEnd = args["arm-pc-end"] !== undefined ? Number(args["arm-pc-end"]) : (id === "motm" ? 0x044C : 0);
 
 if (armPcStart > 0) {
@@ -383,8 +454,9 @@ if (armPcStart > 0) {
     stopWhenHit: true, enabled: true, operation: 0x04, memspace: MEMSPACE_DRIVE,
   });
   // Resume VICE, wait for the arm hit.
+  // Wrapped in try/catch: in --no-autostart mode VICE may already be running.
   let armSeq = client.currentEventSequence;
-  await client.resume();
+  try { await client.resume(); } catch { /* already running — fine */ }
   let armed = false;
   const armDeadline = Date.now() + 180_000;
   while (!armed && Date.now() < armDeadline) {
