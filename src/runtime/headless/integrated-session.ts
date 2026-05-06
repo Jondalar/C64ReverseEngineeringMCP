@@ -577,7 +577,7 @@ export class IntegratedSession {
     // boot order. Eliminates ATN-edge boot-race.
     const headStart = this.driveHeadStartCycles;
     if (headStart > 0) {
-      this.drive.executeToClock(headStart);
+      this.drive.executeToClock(headStart); // audit-ok: legacy resetCold drive head-start; subsumed by Spec 202 catch-up
       this.drive.setSyncBaseline(this.c64Cpu.cycles); // = 0 still
     }
     this.sid.reset();
@@ -730,20 +730,20 @@ export class IntegratedSession {
       this.c64InstructionCount += 1;
       const trapCycles = 7;
       this.c64Cpu.cycles += trapCycles;
-      this.cia1.tick(trapCycles);
-      this.cia2.tick(trapCycles);
-      this.vic.tick(trapCycles);
-      this.sid.tick(trapCycles);
+      this.cia1.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
+      this.cia2.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
+      this.vic.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
+      this.sid.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
       this.keyboard.advance(trapCycles);
       // Spec 090: drive lazy executeToClock instead of accumulator drain.
-      this.drive.executeToClock(this.c64Cpu.cycles);
+      this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: legacy trap drive catch-up; replaced by Spec 202
       this.sampleDrivePc();
       return;
     }
     // Spec 090 / VICE pattern: drive catches up to current C64 clock
     // BEFORE the C64 instruction starts (so any bus access during
     // the instruction sees up-to-date drive state).
-    this.drive.executeToClock(this.c64Cpu.cycles);
+    this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: legacy non-lockstep step pre-instruction catch-up; replaced by Spec 202
     this.checkC64Interrupts();
     // Pre-V2 1541-v2: IEC byte trace. $EDDD = CIOUT body entry
     // (KERNAL byte-send to listener). $EE13 = ACPTR body entry
@@ -775,7 +775,7 @@ export class IntegratedSession {
       }
     }
     const before = this.c64Cpu.cycles;
-    this.c64Cpu.step();
+    this.c64Cpu.step(); // audit-ok: legacy non-lockstep stepping; replaced by SyncStrategy in Spec 202
     this.c64InstructionCount += 1;
     const consumed = this.c64Cpu.cycles - before;
     // Sprint 84: VIC may steal cycles via bad-line + sprite DMA. CPU
@@ -787,15 +787,15 @@ export class IntegratedSession {
     // old per-tick contract before the new core moved the bump to
     // the backend hook (caused uint32 wrap during long runs, motm
     // probe at clk≈0xFFFFD192).
-    const vicTick = this.vic.tick(consumed);
+    const vicTick = this.vic.tick(consumed); // audit-ok: legacy per-instruction VIC tick; replaced by Spec 203
     const totalCycles = consumed + vicTick.stolenCycles;
     // Tick CIA / SID / keyboard for the full wall-clock window.
-    this.cia1.tick(totalCycles);
-    this.cia2.tick(totalCycles);
-    this.sid.tick(totalCycles);
+    this.cia1.tick(totalCycles); // audit-ok: legacy CIA wall-clock tick; replaced by Spec 203
+    this.cia2.tick(totalCycles); // audit-ok: legacy CIA wall-clock tick; replaced by Spec 203
+    this.sid.tick(totalCycles); // audit-ok: legacy SID wall-clock tick; replaced by Spec 216
     this.keyboard.advance(totalCycles);
     // Spec 090: drive catches up to NEW C64 clock after instruction.
-    this.drive.executeToClock(this.c64Cpu.cycles);
+    this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: legacy post-instruction drive catch-up; replaced by Spec 202
     this.sampleDrivePc();
   }
 
@@ -824,7 +824,7 @@ export class IntegratedSession {
   // remaining callers. Drive lazy-executes via drive.executeToClock
   // now. Wrapper just forwards to executeToClock with current C64 clk.
   flushDriveCycles(): void {
-    this.drive.executeToClock(this.c64Cpu.cycles);
+    this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: legacy flushDriveCycles shim; replaced by Spec 202 catch-up
   }
 
   // Sprint 93.1: per-cycle IRQ/NMI pin refresh for microcoded CPU. Called
