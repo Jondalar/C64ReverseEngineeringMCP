@@ -21,6 +21,8 @@ import { alarmContextNew, alarmContextDispatch, type AlarmContext } from "../ala
 import { Via1d1541 } from "../via/via1d1541.js";
 import { Via2d1541, type Via2GcrPortCoupling } from "../via/via2d1541.js";
 import { makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
+import { makeGcrShifterCoupling } from "./via2-gcr-shifter-coupling.js";
+import type { GcrShifter } from "./gcr-shifter.js";
 import { loadDriveRom, DRIVE_ROM_BASE, DRIVE_ROM_SIZE, type LoadedDriveRom } from "./drive-rom.js";
 import { IecBusCore } from "../iec/iec-bus-core.js";
 import type { IecBus } from "../iec/iec-bus.js";
@@ -38,6 +40,12 @@ export interface DriveCpuOptions {
   romBytes?: Uint8Array;    // raw override (testing)
   iecBus?: IecBus;          // wire VIA1 PB to the bus; otherwise stub
   gcr?: Via2GcrCoupling;    // wire VIA2 PA/PB to TrackBuffer + HeadPosition
+  // Spec 153 / Sprint 114: optional 1:1 VICE GcrShifter. When provided
+  // it REPLACES the `gcr` (TrackBuffer) PA/PB coupling — VIA2 PA reads
+  // the shifter's latched byte and PB7 reflects shifter SYNC#. The
+  // legacy `gcr.trackBuffer.tickShifter()` is bypassed in DriveCpuCycled
+  // when this is set; GcrShifter is ticked instead.
+  gcrShifter?: GcrShifter;
   // Sprint 96 part 6 (Bug 39): use cycle-stepped microcoded CPU with
   // sub-instruction bus access. Required for IEC bit-bang correctness.
   useMicrocodedCpu?: boolean;
@@ -108,10 +116,24 @@ export class DriveBus implements CpuMemory {
     // VIA2: alarm-driven VICE-faithful chip core (Via2d1541).
     // When GCR coupling is provided, wire real PA (GCR byte read) and PB
     // (head step / motor / density / sync) backends via Via2GcrPortCoupling.
-    // Without GCR, idle stub: PA=0xff, PB=WPS-only. Spec 152 V2 will swap
-    // the GCR simulation for a full bit-stream engine; the chip core stays.
+    //
+    // Backend selection priority:
+    //   1) Spec 153 GcrShifter (1:1 VICE rotation.c bit-stream)
+    //      — gcrShifter takes precedence when supplied.
+    //   2) Legacy TrackBuffer-inline-shifter (Sprint 96 path) when only
+    //      `gcr` (Via2GcrCoupling) is supplied.
+    //   3) Idle stub (PA=0xff, PB=WPS-only) when neither is supplied.
     let gcrCoupling: Via2GcrPortCoupling | undefined;
-    if (opts.gcr) {
+    if (opts.gcrShifter && opts.gcr?.headPosition) {
+      // Spec 153 GcrShifter coupling. Step phase / motor / density
+      // writes propagate via the shifter; PB7 reflects shifter syncBit
+      // live. Read-only V2 (storePa = no-op).
+      gcrCoupling = makeGcrShifterCoupling({
+        shifter: opts.gcrShifter,
+        headPosition: opts.gcr.headPosition,
+        writeProtected: opts.gcr.writeProtected,
+      });
+    } else if (opts.gcr) {
       const paBackend = makeGcrVia2Pa(opts.gcr);
       const pbBackend = makeGcrVia2Pb(opts.gcr);
       gcrCoupling = {
@@ -172,6 +194,11 @@ export class DriveCpu {
   // Sprint 96 part 7: GCR shifter coupling for free-running tick.
   public readonly trackBuffer?: TrackBuffer;
   public readonly headPosition?: HeadPosition;
+  // Spec 153 / Sprint 114: 1:1 VICE GcrShifter (when supplied). When
+  // present this REPLACES the TrackBuffer-inline shifter — DriveCpuCycled
+  // ticks `gcrShifter` per drive cycle and bypasses
+  // `trackBuffer.tickShifter`.
+  public readonly gcrShifter?: GcrShifter;
 
   // Spec 090: 16.16 fixed-point sync_factor. drive_cycles_per_c64_cycle.
   // PAL: 1.01477 → 0x103C5 (= 1.0149 in 16.16). NTSC: 0x10000 (1.0).
@@ -203,10 +230,64 @@ export class DriveCpu {
     cpuRef = this.cpu as { cycles: number };
     this.trackBuffer = opts.gcr?.trackBuffer;
     this.headPosition = opts.gcr?.headPosition;
-    // Sprint 96 part 8: wire GCR shifter byte-ready → CPU V flag
-    // (real 6502 SO pin). Drive ROM polls V flag with BVC/BVS to
-    // detect byte arrival from the GCR decoder ($F3BE wait loop).
-    if (this.trackBuffer) {
+    this.gcrShifter = opts.gcrShifter;
+
+    // Spec 153 / Sprint 114: 1:1 VICE byte-ready path.
+    //
+    // When the standalone GcrShifter is supplied, route byte-ready edges
+    // BOTH to VIA2 CA1 (chip-core IRQ + PA latch) and to the drive CPU's
+    // SO input pin (V-flag set on high→low edge — matches VICE
+    // drivecpu_set_overflow). The shifter's tick() emits a one-cycle SO
+    // pulse via DriveCpuCycled (see scheduler/cycle-wrappers.ts) — here
+    // we wire the *event*; the per-cycle pulse shaping is the scheduler's
+    // job (drop SO low at byte-ready, raise it on the next tick).
+    //
+    // Approach 1 from Spec 153 Step 2 (one-cycle pulse):
+    //   - on byte-ready: pulse soLine low; DriveCpuCycled raises it back
+    //     high on the next tick.
+    //   - VIA2 CA1 fires `signal('ca1','fall')` to set IFR + latch PA.
+    //
+    // Microcoded CPU only: setSoLine is exclusive to Cpu65xxVice. For
+    // the legacy whole-instruction Cpu6510, fall back to direct V-flag
+    // set (the legacy path doesn't get cycle-perfect SO timing — but
+    // that path is incompatible with the chip-level Sprint 113 doctrine
+    // anyway; motm runs on microcoded CPU).
+    if (this.gcrShifter) {
+      const via2 = this.bus.via2;
+      const cpuMicro = this.microcoded
+        ? (this.cpu as Cpu65xxVice)
+        : null;
+      const cpuLegacy = this.microcoded ? null : (this.cpu as Cpu6510);
+      this.gcrShifter.onByteReady = (_byte: number) => {
+        // VICE 1:1 — byte-ready is GATED by VIA2 PCR bit 1 (BRA_BYTE_READY).
+        // Drive ROM enables/disables this via PCR write; when disabled
+        // (e.g. during IEC bit-bang serial transfer) the GCR shifter
+        // keeps spinning but byte-ready edges are suppressed — neither
+        // CA1 nor SO fire. See:
+        //   vice/src/drive/iecieee/via2d.c L170-178 (via2d_update_pcr)
+        //   vice/src/drive/drive.h          L283   BRA_BYTE_READY 0x02
+        //   vice/src/drive/rotation.c       L466   gate before so_delay
+        // Without this gate, every 26-32 drive cycles spams V flag +
+        // VIA2 CA1 IRQ → KERNAL serial path corrupts immediately.
+        const pcr = via2.via.pcr & 0xff;
+        if ((pcr & 0x02) === 0) return;
+
+        // VIA2 CA1 falling edge — chip core handles PA latch + IFR set
+        // per VICE viacore_signal (PCR polarity-gated).
+        via2.via.signal("ca1", "fall");
+        // Drop SO line; DriveCpuCycled.executeCycle() raises it back
+        // high on the next tick to form the one-cycle pulse VICE expects.
+        if (cpuMicro) {
+          cpuMicro.setSoLine(0);
+        } else if (cpuLegacy) {
+          // Legacy CPU has no SO pin — direct V-flag set (one-shot).
+          cpuLegacy.flags |= 0x40;
+        }
+      };
+    } else if (this.trackBuffer) {
+      // Sprint 96 part 8 (legacy path): wire TrackBuffer byte-ready →
+      // CPU V flag directly. Used when no GcrShifter is supplied — V2
+      // back-compat for non-microcoded callers and pre-Spec-153 tests.
       const cpu = this.cpu as { flags: number };
       this.trackBuffer.onByteReady = () => { cpu.flags |= 0x40; };
     }
@@ -250,6 +331,18 @@ export class DriveCpu {
     this.cycleAccumulator16dot16 += this.syncFactor16dot16 * c64Delta;
     while (this.cycleAccumulator16dot16 >= 0x10000) {
       const consumed = this.runOneInstruction();
+      // Spec 153 / Sprint 114: tick GcrShifter for the cycles consumed.
+      // Non-lockstep callers drive the shifter through this path; the
+      // SO-pin pulse-shape behaviour of DriveCpuCycled is approximated
+      // here by raising soLine back high after the tick (microcoded
+      // path only — legacy CPU uses direct V-flag set).
+      if (this.gcrShifter) {
+        this.gcrShifter.tick(consumed);
+        if (this.microcoded) {
+          const cpu = this.cpu as { setSoLine?: (l: 0 | 1) => void };
+          cpu.setSoLine?.(1);
+        }
+      }
       // Sprint 113 Phase 2: VIA1 + VIA2 are alarm-driven (Via1d1541 /
       // Via2d1541). No tick() needed — alarm context is drained by the
       // microcoded CPU inline (Cpu65xxVice) or via the legacy CPU path

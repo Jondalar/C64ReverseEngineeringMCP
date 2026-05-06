@@ -118,8 +118,15 @@ export interface GcrShifterSnapshot {
 export class GcrShifter {
   private readonly parser: G64Parser;
   private readonly head: HeadPosition;
-  private readonly emitByteReady?: (byte: BYTE) => void;
-  private readonly emitSync?: (active: boolean) => void;
+  /**
+   * Byte-ready callback. Mutable so callers can rewire after construction
+   * (e.g. DriveCpu post-CPU-construct wiring of CA1 + SO pin pulse — the
+   * shifter is built before the drive CPU and VIA2 in IntegratedSession).
+   * Spec 153 / Sprint 114 contract.
+   */
+  public onByteReady?: (byte: BYTE) => void;
+  /** SYNC#-edge callback. Mutable for the same reason. */
+  public onSyncDetected?: (active: boolean) => void;
 
   // Track buffer cache: track-number → raw GCR bytes (or null for
   // unformatted/half-track positions). Lazy-loaded on first reach.
@@ -161,8 +168,8 @@ export class GcrShifter {
   constructor(opts: GcrShifterOptions) {
     this.parser = opts.parser;
     this.head = opts.headPosition;
-    this.emitByteReady = opts.onByteReady;
-    this.emitSync = opts.onSyncDetected;
+    this.onByteReady = opts.onByteReady;
+    this.onSyncDetected = opts.onSyncDetected;
   }
 
   // -------------------------------------------------------------------------
@@ -295,7 +302,7 @@ export class GcrShifter {
     this.accumX8 = 0;
     if (this.syncActive) {
       this.syncActive = false;
-      this.emitSync?.(false);
+      this.onSyncDetected?.(false);
     }
     this.dataByteLatch = 0xff;
     this.latchedTrack = -1;
@@ -369,7 +376,7 @@ export class GcrShifter {
       this.bit_counter = 0;
       if (!this.syncActive) {
         this.syncActive = true;
-        this.emitSync?.(true);
+        this.onSyncDetected?.(true);
       }
       return;
     }
@@ -377,7 +384,7 @@ export class GcrShifter {
     // SYNC just dropped — emit edge.
     if (this.syncActive) {
       this.syncActive = false;
-      this.emitSync?.(false);
+      this.onSyncDetected?.(false);
     }
 
     // Non-sync bit: count toward next byte.
@@ -386,7 +393,7 @@ export class GcrShifter {
       this.bit_counter = 0;
       const byte = u8(this.last_read_data);
       this.dataByteLatch = byte;
-      this.emitByteReady?.(byte);
+      this.onByteReady?.(byte);
     }
   }
 }

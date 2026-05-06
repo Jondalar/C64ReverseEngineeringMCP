@@ -109,12 +109,26 @@ export class DriveCpuCycled implements CycleSteppable {
   private cyclesOwed = 0;
   constructor(public readonly drive: DriveCpu) {}
   executeCycle(): void {
-    // Sprint 96 part 7: free-running GCR shifter tick. Real disk
-    // clocks bytes off the head every ~32 drive cycles; CPU reads
-    // $1C01 see the LATCHED byte. Without this, drive's wait-for-SYNC
-    // loop never advances and READ ERROR results even when GCR data
-    // is valid.
-    if (this.drive.trackBuffer && this.drive.headPosition) {
+    // Spec 153 / Sprint 114: 1:1 VICE GcrShifter tick path.
+    //
+    // When the standalone GcrShifter is wired, tick it BEFORE running
+    // the drive CPU cycle so any byte-ready edge (CA1 + SO pulse) is
+    // visible to the very next CPU instruction-fetch boundary. After
+    // ticking, raise SO back high to form the one-cycle pulse expected
+    // by VICE's drivecpu_set_overflow contract — the shifter callback
+    // dropped it low; we release it here. CPU edge-detect (high→low)
+    // already latched V on its previous executeCycle.
+    if (this.drive.gcrShifter) {
+      this.drive.gcrShifter.tick(1);
+      // Release SO line. Microcoded CPU only — legacy CPU sets V flag
+      // directly in the byte-ready callback (see DriveCpu constructor).
+      if (this.drive.microcoded) {
+        const cpu = this.drive.cpu as { setSoLine?: (l: 0 | 1) => void };
+        cpu.setSoLine?.(1);
+      }
+    } else if (this.drive.trackBuffer && this.drive.headPosition) {
+      // Sprint 96 part 7 legacy path: TrackBuffer-inline shifter.
+      // Used when no GcrShifter is wired (back-compat).
       this.drive.trackBuffer.tickShifter(1, this.drive.headPosition.currentTrack);
     }
     if (this.drive.microcoded) {

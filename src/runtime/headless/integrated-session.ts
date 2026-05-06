@@ -16,6 +16,7 @@ import { loadAllC64Roms, type LoadedC64RomSet } from "./c64-rom.js";
 import { IecBus } from "./iec/iec-bus.js";
 import { DriveCpu } from "./drive/drive-cpu.js";
 import { TrackBuffer, HeadPosition } from "./drive/head-position.js";
+import { GcrShifter } from "./drive/gcr-shifter.js";
 import { G64Parser } from "../../disk/g64-parser.js";
 import { buildG64 } from "../../disk/g64-builder.js";
 import { DiskProvider } from "./providers.js";
@@ -176,6 +177,11 @@ export class IntegratedSession {
   public readonly iecBus: IecBus;
   public readonly trackBuffer: TrackBuffer;
   public readonly headPosition: HeadPosition;
+  // Spec 153 / Sprint 114: 1:1 VICE GCR bit-stream shifter. Replaces
+  // the inline TrackBuffer shifter for VIA2 PA / SYNC#. Always
+  // constructed; passed into DriveCpu so the VIA2 backend reads its
+  // dataByte / syncBit and DriveCpuCycled ticks it per drive cycle.
+  public readonly gcrShifter: GcrShifter;
   public readonly diskPath: string;
   // Spec 115 v1: list of drive-9+ slots that were declared but not
   // yet instantiated. Empty when only device-8 is in use.
@@ -439,11 +445,36 @@ export class IntegratedSession {
     this.sid.potReader = (idx) => this.paddles[idx === 0 ? 0 : 2] ?? 0;
     this.c64Bus.reset();
 
+    // Spec 153 / Sprint 114: 1:1 VICE GCR shifter. Constructed here so
+    // it can be supplied to DriveCpu (which wires byte-ready → VIA2 CA1
+    // + CPU SO line, and ticks the shifter per drive cycle in lockstep).
+    // Same parser + headPosition as TrackBuffer — they share the disk
+    // image but the shifter is the source-of-truth for VIA2 PA reads
+    // when wired (TrackBuffer remains the write-buffer for V3).
+    this.gcrShifter = new GcrShifter({
+      parser: this.parser,
+      headPosition: this.headPosition,
+    });
+
+    // Spec 153 Step 2 — Phase 1 rollout: opt-in via env flag while
+    // we bring the new path online without disturbing the KERNAL
+    // serial smoke. Default OFF = legacy TrackBuffer-inline shifter
+    // path (back-compat). Set C64RE_USE_GCR_SHIFTER=1 to activate the
+    // 1:1 VICE shifter coupling. The motm probe runs with this flag
+    // ON to validate drive-PC progression past the $07c1 stuck loop;
+    // smoke:load and other regression suites run with it off until
+    // the cross-coupling regression at boot is rooted out (V3 task).
+    const useGcrShifter = process.env.C64RE_USE_GCR_SHIFTER === "1";
+
     // Drive side. Spec 090: configure sync ratio + zero baseline.
     this.drive = new DriveCpu({
       deviceId: opts.deviceId ?? 8,
       iecBus: this.iecBus,
       gcr: { trackBuffer: this.trackBuffer, headPosition: this.headPosition, writeProtected: opts.writeProtected },
+      // Spec 153 / Sprint 114: pass the standalone shifter — DriveBus
+      // selects its coupling over the legacy TrackBuffer-inline-shifter
+      // when both are present. Phase 1 rollout: gated by env flag.
+      gcrShifter: useGcrShifter ? this.gcrShifter : undefined,
       // Sprint 96 part 6 (Bug 39): drive uses microcoded CPU when c64
       // does. Required for sub-instruction bus access timing during
       // IEC bit-bang.
