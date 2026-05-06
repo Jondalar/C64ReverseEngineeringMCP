@@ -9,7 +9,13 @@
 //   node scripts/swimlane-diff-v2.mjs \
 //     --vice   traces/swimlane_motm_2026-05-06T10-27-38-861Z/vice.jsonl \
 //     --headless traces/swimlane_motm_2026-05-06T10-35-32-151Z/headless.jsonl \
-//     [--anchor c64-w-DD00] [--max-rows 200] [--out traces/swimlane_diff_<ts>]
+//     [--anchor c64-w-DD00] [--anchor-drive-pc-range E853-E9FF] \
+//     [--max-rows 200] [--out traces/swimlane_diff_<ts>]
+//
+// --anchor and --anchor-drive-pc-range are mutually exclusive.
+// --anchor-drive-pc-range accepts hex values with or without 0x prefix, e.g.:
+//   --anchor-drive-pc-range E853-E9FF
+//   --anchor-drive-pc-range 0xE853-0xE9FF
 //
 // NPM script: trace:motm-swimlane-diff
 //
@@ -63,8 +69,32 @@ const args = parseArgs(process.argv.slice(2));
 
 const vicePath      = args.vice;
 const headlessPath  = args.headless;
-const anchorSrc     = args.anchor ?? "c64-w-DD00";
 const maxRows       = Number(args["max-rows"] ?? 200);
+
+// Mutually exclusive anchor modes
+const anchorSrc          = args.anchor ?? (args["anchor-drive-pc-range"] ? null : "c64-w-DD00");
+const anchorDrivePcRange = args["anchor-drive-pc-range"] ?? null;
+
+if (anchorSrc && anchorDrivePcRange) {
+  console.error("ERROR: --anchor and --anchor-drive-pc-range are mutually exclusive.");
+  process.exit(2);
+}
+
+// Parse --anchor-drive-pc-range  (e.g. "E853-E9FF" or "0xE853-0xE9FF")
+let drvPcLow = null, drvPcHigh = null;
+if (anchorDrivePcRange) {
+  const m = anchorDrivePcRange.replace(/0x/gi, "").match(/^([0-9A-Fa-f]+)-([0-9A-Fa-f]+)$/);
+  if (!m) {
+    console.error(`ERROR: --anchor-drive-pc-range must be HEX-HEX (e.g. E853-E9FF). Got: ${anchorDrivePcRange}`);
+    process.exit(2);
+  }
+  drvPcLow  = parseInt(m[1], 16);
+  drvPcHigh = parseInt(m[2], 16);
+  if (drvPcLow > drvPcHigh) {
+    console.error(`ERROR: --anchor-drive-pc-range low ($${m[1]}) must be <= high ($${m[2]}).`);
+    process.exit(2);
+  }
+}
 
 // Output directory
 const tsTag = new Date().toISOString().replace(/[:.]/g, "-");
@@ -76,7 +106,8 @@ if (!vicePath || !headlessPath) {
   console.error(
     "Usage: node scripts/swimlane-diff-v2.mjs\n" +
     "  --vice <vice.jsonl> --headless <headless.jsonl>\n" +
-    "  [--anchor c64-w-DD00] [--max-rows 200] [--out <dir>]"
+    "  [--anchor c64-w-DD00 | --anchor-drive-pc-range E853-E9FF]\n" +
+    "  [--max-rows 200] [--out <dir>]"
   );
   process.exit(2);
 }
@@ -106,32 +137,82 @@ const viceRows      = loadJsonl(vicePath).slice(0, maxRows);
 const headlessRows  = loadJsonl(headlessPath).slice(0, maxRows);
 
 console.error(`Loaded: vice=${viceRows.length} rows  headless=${headlessRows.length} rows`);
-console.error(`Anchor src: ${anchorSrc}`);
+if (anchorDrivePcRange) {
+  console.error(`Anchor mode: drive PC range $${drvPcLow.toString(16).toUpperCase()}-$${drvPcHigh.toString(16).toUpperCase()}`);
+} else {
+  console.error(`Anchor src: ${anchorSrc}`);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Anchor alignment
 //
-// Find first row in each file where src === anchorSrc.
+// Two modes:
+//   src-match:    find first row where src === anchorSrc  (original behaviour)
+//   drive-pc-range: find first row where drv.pc in [drvPcLow, drvPcHigh]
+//
 // Re-base ts: all subsequent ts values subtract anchor.ts so both start at 0.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function findAnchor(rows, src) {
-  const idx = rows.findIndex(r => r.src === src);
-  return idx;
+/** Describe drive-PC distribution for error messages. */
+function drvPcDistribution(rows) {
+  // Bucket into 256-page chunks, report non-empty pages
+  const pages = {};
+  for (const r of rows) {
+    const pc = r.drv?.pc;
+    if (pc == null) continue;
+    const page = (pc >> 8) & 0xFF;
+    const key = `$${page.toString(16).toUpperCase().padStart(2,"0")}xx`;
+    pages[key] = (pages[key] ?? 0) + 1;
+  }
+  return Object.entries(pages).sort().map(([k,v]) => `${k}(${v})`).join(", ");
 }
 
-const viceAnchorIdx     = findAnchor(viceRows, anchorSrc);
-const headlessAnchorIdx = findAnchor(headlessRows, anchorSrc);
-
-if (viceAnchorIdx < 0) {
-  console.error(`ERROR: No "${anchorSrc}" event found in VICE file. Available src values: ${[...new Set(viceRows.map(r => r.src))].join(", ")}`);
-  console.error(`Try a different --anchor. Cannot align.`);
-  process.exit(3);
+function findAnchorBySrc(rows, src) {
+  return rows.findIndex(r => r.src === src);
 }
-if (headlessAnchorIdx < 0) {
-  console.error(`ERROR: No "${anchorSrc}" event found in headless file. Available src values: ${[...new Set(headlessRows.map(r => r.src))].join(", ")}`);
-  console.error(`Try a different --anchor. Cannot align.`);
-  process.exit(3);
+
+function findAnchorByDrvPcRange(rows, lo, hi) {
+  return rows.findIndex(r => {
+    const pc = r.drv?.pc;
+    return pc != null && pc >= lo && pc <= hi;
+  });
+}
+
+let viceAnchorIdx, headlessAnchorIdx;
+let anchorDescription;
+
+if (anchorDrivePcRange) {
+  viceAnchorIdx     = findAnchorByDrvPcRange(viceRows, drvPcLow, drvPcHigh);
+  headlessAnchorIdx = findAnchorByDrvPcRange(headlessRows, drvPcLow, drvPcHigh);
+  anchorDescription = `drive PC range $${drvPcLow.toString(16).toUpperCase()}-$${drvPcHigh.toString(16).toUpperCase()}`;
+
+  if (viceAnchorIdx < 0) {
+    console.error(`ERROR: No row found in VICE file with drv.pc in [${anchorDrivePcRange}].`);
+    console.error(`  Drive PC distribution in VICE: ${drvPcDistribution(viceRows) || "(no drv.pc data)"}`);
+    console.error(`  Try a different --anchor-drive-pc-range. Cannot align.`);
+    process.exit(3);
+  }
+  if (headlessAnchorIdx < 0) {
+    console.error(`ERROR: No row found in headless file with drv.pc in [${anchorDrivePcRange}].`);
+    console.error(`  Drive PC distribution in headless: ${drvPcDistribution(headlessRows) || "(no drv.pc data)"}`);
+    console.error(`  Try a different --anchor-drive-pc-range. Cannot align.`);
+    process.exit(3);
+  }
+} else {
+  viceAnchorIdx     = findAnchorBySrc(viceRows, anchorSrc);
+  headlessAnchorIdx = findAnchorBySrc(headlessRows, anchorSrc);
+  anchorDescription = `src="${anchorSrc}"`;
+
+  if (viceAnchorIdx < 0) {
+    console.error(`ERROR: No "${anchorSrc}" event found in VICE file. Available src values: ${[...new Set(viceRows.map(r => r.src))].join(", ")}`);
+    console.error(`Try a different --anchor. Cannot align.`);
+    process.exit(3);
+  }
+  if (headlessAnchorIdx < 0) {
+    console.error(`ERROR: No "${anchorSrc}" event found in headless file. Available src values: ${[...new Set(headlessRows.map(r => r.src))].join(", ")}`);
+    console.error(`Try a different --anchor. Cannot align.`);
+    process.exit(3);
+  }
 }
 
 // Slice to anchor point onward
@@ -149,7 +230,9 @@ function rebase(rows, anchorTs) {
 const viceRebased     = rebase(viceAligned, viceAnchorTs);
 const headlessRebased = rebase(headlessAligned, headlessAnchorTs);
 
-console.error(`Anchor: vice row ${viceAnchorIdx} (ts=${viceAnchorTs})  headless row ${headlessAnchorIdx} (ts=${headlessAnchorTs})`);
+console.error(`Anchor (${anchorDescription}):`);
+console.error(`  VICE     row ${viceAnchorIdx}     (ts=${viceAnchorTs}, drv.pc=$${(viceRows[viceAnchorIdx]?.drv?.pc ?? 0).toString(16).toUpperCase()})`);
+console.error(`  headless row ${headlessAnchorIdx} (ts=${headlessAnchorTs}, drv.pc=$${(headlessRows[headlessAnchorIdx]?.drv?.pc ?? 0).toString(16).toUpperCase()})`);
 console.error(`Post-anchor: vice=${viceRebased.length} rows  headless=${headlessRebased.length} rows`);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -299,11 +382,16 @@ function buildJsonReport() {
       headlessTsRange: headlessRows.length ? [headlessRows[0].ts, headlessRows[headlessRows.length-1].ts] : null,
     },
     anchor: {
-      src: anchorSrc,
+      mode: anchorDrivePcRange ? "drive-pc-range" : "src",
+      ...(anchorDrivePcRange
+        ? { drivePcRange: anchorDrivePcRange, drvPcLow, drvPcHigh }
+        : { src: anchorSrc }),
       viceRowIndex: viceAnchorIdx,
       headlessRowIndex: headlessAnchorIdx,
       viceAbsoluteTs: viceAnchorTs,
       headlessAbsoluteTs: headlessAnchorTs,
+      viceAnchorDrvPc: viceRows[viceAnchorIdx]?.drv?.pc ?? null,
+      headlessAnchorDrvPc: headlessRows[headlessAnchorIdx]?.drv?.pc ?? null,
     },
     postAnchor: {
       viceRows: viceRebased.length,
@@ -355,12 +443,21 @@ function buildMarkdownReport() {
   // ── Anchor ────────────────────────────────────────────────────────────────
   lines.push(`## Anchor Point`);
   lines.push(``);
-  lines.push(`Anchor src: \`${anchorSrc}\``);
+  if (anchorDrivePcRange) {
+    lines.push(`Anchor mode: **drive PC range** \`$${drvPcLow.toString(16).toUpperCase()}-$${drvPcHigh.toString(16).toUpperCase()}\``);
+  } else {
+    lines.push(`Anchor mode: **src match** \`${anchorSrc}\``);
+  }
   lines.push(``);
   lines.push(`| | VICE | Headless |`);
   lines.push(`|---|---|---|`);
   lines.push(`| File row index | ${viceAnchorIdx} | ${headlessAnchorIdx} |`);
   lines.push(`| Absolute ts | ${viceAnchorTs} c64 cycles | ${headlessAnchorTs} c64 cycles |`);
+  if (anchorDrivePcRange) {
+    const vPc = viceRows[viceAnchorIdx]?.drv?.pc;
+    const hPc = headlessRows[headlessAnchorIdx]?.drv?.pc;
+    lines.push(`| Anchor drv.pc | $${vPc != null ? vPc.toString(16).toUpperCase() : "?"} | $${hPc != null ? hPc.toString(16).toUpperCase() : "?"} |`);
+  }
   lines.push(`| Post-anchor rows | ${viceRebased.length} | ${headlessRebased.length} |`);
   lines.push(`| Pairs compared | ${N} | |`);
   lines.push(``);
