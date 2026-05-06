@@ -5,15 +5,19 @@
 // DDR-aware read; the IEC backend forwards bus-state changes.
 // Port B (user port + RS232) is stubbed.
 //
-// Sprint 113 Phase 2 (Spec 146): backed by Cia6526Vice. Backend wraps
-// IEC bus I/O (matches VICE c64cia2.c store_ciapa / read_ciapa) and
-// the IRQ-line callback (`setIntClk`) latches the CPU NMI pin level.
+// Sprint 113 Phase 2 (Spec 146): backed by Cia6526Vice.
+//
+// Spec 201-c2 (2026-05-06): CIA2 no longer talks to IecBus directly.
+// PA writes go through `iecWrite(or, ddr)` and PA reads through
+// `iecReadPins()`, both supplied by the caller (kernel) which routes
+// them through KernelBus → cross-domain bus contract. Backwards-compat
+// for callers that still pass an IecBus reference is preserved by the
+// kernel constructor adapting between the two.
 
 import { Cia6526Vice, type CiaBackend } from "../cia/cia6526-vice.js";
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import type { CLOCK } from "../util/uint.js";
 import type { HeadlessMemoryBus } from "../memory-bus.js";
-import type { IecBus } from "../iec/iec-bus.js";
 
 export const CIA2_BASE = 0xdd00;
 
@@ -28,11 +32,23 @@ export interface InstallCia2Options {
   alarmContext: AlarmContext;
   /** CPU clock provider — usually `() => session.c64Cpu.cycles`. */
   clkPtr: () => CLOCK;
+  /**
+   * Spec 201-c2: PA-out write callback. Called when CIA2 PA latch /
+   * DDR is updated. Implementer routes the (or, ddr) pair to the IEC
+   * bus, typically via `kernel.bus.c64Write(0xDD00, ...)` which then
+   * delegates to `iecBus.setC64Output`.
+   */
+  iecWrite: (or: number, ddr: number) => void;
+  /**
+   * Spec 201-c2: PA-in read callback. Returns the IEC line state as
+   * an 8-bit byte (raw `cpu_port`-equivalent input bits). Implementer
+   * routes through `kernel.bus.c64Read(0xDD00, ...)`.
+   */
+  iecReadPins: () => number;
 }
 
 export function installCia2(
   bus: HeadlessMemoryBus,
-  iec: IecBus,
   opts: InstallCia2Options,
 ): InstalledCia2 {
   let cia: Cia6526Vice | undefined;
@@ -43,20 +59,18 @@ export function installCia2(
   const backend: CiaBackend = {
     // Per VICE c64cia2.c:148-160 — when CIA2 PA-out changes, the
     // composed PA byte (latch | ~ddr) is forwarded to iecbus / VIC
-    // bank logic. iec.setC64Output expects (or, ddrMask).
+    // bank logic via the kernel-supplied iecWrite callback.
     storePa: () => {
       if (!cia) return;
       const or = cia.c_cia[0] /* CIA_PRA */ ?? 0;
       const ddr = cia.c_cia[2] /* CIA_DDRA */ ?? 0;
-      iec.setC64Output(or, ddr);
+      opts.iecWrite(or, ddr);
     },
     storePb: () => { /* user port not modeled */ },
     // VICE c64cia2.c read_ciapa returns DDR-composed: output bits
-    // come from the latch, input bits from the IEC bus. The new
-    // core's read() pipes this straight back as last_read, so the
-    // CIA register read sees real silicon semantics.
+    // come from the latch, input bits from the IEC bus.
     readPa: () => {
-      const pins = iec.buildC64InputBits();
+      const pins = opts.iecReadPins();
       if (!cia) return pins;
       const pra = cia.c_cia[0] /* CIA_PRA */ ?? 0;
       const ddr = cia.c_cia[2] /* CIA_DDRA */ ?? 0;
@@ -85,7 +99,7 @@ export function installCia2(
   }
   // Initial PA state: output bits all-high so IEC bus starts released.
   // KERNAL IOINIT will program proper DDR/PRA later.
-  iec.setC64Output(0xff, 0x3f);
+  opts.iecWrite(0xff, 0x3f);
   return {
     cia,
     nmiLine: () => nmiLevel !== 0,

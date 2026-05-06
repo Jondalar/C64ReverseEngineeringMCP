@@ -23,6 +23,13 @@ export interface BusAccessContext {
   phase: CpuPhase;
   addr: number;
   access: BusAccessKind;
+  /**
+   * Spec 201-c2: optional DDR mask alongside `value` for ports that
+   * carry both an output latch and a direction register (CIA PA/PB,
+   * VIA PA/PB). For non-port writes this stays undefined and bus
+   * implementations treat the byte as fully driven.
+   */
+  ddrMask?: number;
 }
 
 export interface KernelBus {

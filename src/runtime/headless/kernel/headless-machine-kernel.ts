@@ -138,6 +138,12 @@ export class HeadlessMachineKernel implements MachineKernel {
     // drive build below.
     this.iecBus = new IecBus();
 
+    // Spec 201-c1: KernelBus constructed early so CIA2 / VIA1 install
+    // callbacks can route $DD00 / $1800 access through it. Bus methods
+    // that touch drive-side state are only valid after drive exists at
+    // the end of this constructor.
+    this.bus = new HeadlessKernelBus(this);
+
     // Spec 200-c3: C64 memory bus + ROMs.
     this.c64Bus = new HeadlessMemoryBus();
     this.romSet = loadAllC64Roms();
@@ -158,9 +164,29 @@ export class HeadlessMachineKernel implements MachineKernel {
     // response reflects all elapsed time. Without this, drive lag
     // breaks serial bit timing.
     const ciaClkPtr = () => this.c64Cpu.cycles;
-    const cia2Install = installCia2(this.c64Bus, this.iecBus, {
+    // Spec 201-c2: CIA2 PA writes/reads route through KernelBus. We
+    // pass deferred-resolution callbacks because `this.bus` is wired
+    // at end of constructor; the closures resolve at runtime when CIA2
+    // actually accesses PA, by which time `this.bus` exists.
+    const buildC64BusCtx = (access: "read" | "write") => ({
+      side: "c64" as const,
+      clock: this.c64Cpu.cycles,
+      pc: this.c64Cpu.pc | 0,
+      opcode: 0,
+      phase: "phi2" as const,
+      addr: 0xdd00,
+      access,
+    });
+    const cia2Install = installCia2(this.c64Bus, {
       alarmContext: this.alarms.maincpu,
       clkPtr: ciaClkPtr,
+      iecWrite: (or, ddr) => {
+        // Spec 201-c2: $DD00 write goes through KernelBus. The DDR
+        // mask travels via BusAccessContext.ddrMask; bus dispatches
+        // to IecBus.setC64Output with the full (or, ddr) tuple.
+        this.bus.c64Write(0xdd00, or, { ...buildC64BusCtx("write"), ddrMask: ddr });
+      },
+      iecReadPins: () => this.bus.c64Read(0xdd00, buildC64BusCtx("read")),
     });
     this.cia2 = cia2Install.cia;
     this.cia2NmiLine = cia2Install.nmiLine;
@@ -268,10 +294,6 @@ export class HeadlessMachineKernel implements MachineKernel {
       this.iecBus.beforeC64Read = () =>
         this.drive.executeToClock(this.c64Cpu.cycles); // audit-ok: kernel-internal legacy beforeC64Read; replaced by Spec 202 catch-up
     }
-
-    // Spec 201-c1: KernelBus wired last so it can reference all
-    // kernel-owned chip + bus state via `this`.
-    this.bus = new HeadlessKernelBus(this);
   }
 
   c64Clock(): number {

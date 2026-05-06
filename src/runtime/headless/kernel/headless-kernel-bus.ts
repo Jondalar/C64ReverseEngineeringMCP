@@ -30,9 +30,10 @@ export class HeadlessKernelBus implements KernelBus {
     return this.kernel.c64Bus.read(addr);
   }
 
-  c64Write(addr: number, value: number, _ctx: BusAccessContext): void {
+  c64Write(addr: number, value: number, ctx: BusAccessContext): void {
     if (addr === C64_IEC_PA_ADDR) {
-      this.kernel.iecBus.setC64Output(value & 0xff, 0xff);
+      const ddr = ctx.ddrMask ?? 0xff;
+      this.kernel.iecBus.setC64Output(value & 0xff, ddr);
       return;
     }
     this.kernel.c64Bus.write(addr, value);
@@ -51,7 +52,7 @@ export class HeadlessKernelBus implements KernelBus {
     device: number,
     addr: number,
     value: number,
-    _ctx: BusAccessContext,
+    ctx: BusAccessContext,
   ): void {
     if (device !== 8) {
       throw new Error(
@@ -59,7 +60,8 @@ export class HeadlessKernelBus implements KernelBus {
       );
     }
     if (addr === DRIVE_IEC_PB_ADDR) {
-      this.kernel.iecBus.setDriveOutput(value & 0xff, 0xff);
+      const ddr = ctx.ddrMask ?? 0xff;
+      this.kernel.iecBus.setDriveOutput(value & 0xff, ddr);
       return;
     }
     this.kernel.drive.bus.write(addr, value);
