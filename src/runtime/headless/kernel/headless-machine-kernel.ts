@@ -1,16 +1,15 @@
-// Spec 200 — HeadlessMachineKernel skeleton.
+// Spec 200 — HeadlessMachineKernel.
 //
-// Commit 200-c1 lands the type surface only. Subsequent commits move
-// real ownership in:
-//   200-c2 — alarm contexts
-//   200-c3 — C64 chips (CPU, CIA1/2, VIC, SID, memory bus, ROMs)
-//   200-c4 — drive + IEC chips
-//   200-c5 — session shrinks to wrapper, ESLint enforced
-//   200-c6 — smoke and acceptance
+// Commit chain progress:
+//   200-c1 ✓ type surface
+//   200-c2 ✓ alarm contexts
+//   200-c3 ◀ C64 chips (CPU, CIA1/2, VIC, SID, memory bus, ROMs, IEC bus, framebuffer)
+//   200-c4   drive chips
+//   200-c5   session wrapper + ESLint
+//   200-c6   smoke + acceptance
 //
-// Until those commits land this class is a thin facade backed by an
-// IntegratedSession reference, which is acceptable per ADR §8 Step 1
-// "no behavior change yet".
+// The kernel constructor builds C64 chips up-front. IntegratedSession
+// reads kernel.<chip> as forwarder for backward-compat field access.
 
 import type { IntegratedSession } from "../integrated-session.js";
 import type { VideoSystem } from "./clock-domains.js";
@@ -20,6 +19,17 @@ import type { KernelTraceController } from "./kernel-trace.js";
 import { KernelTraceStub } from "./kernel-trace.js";
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import { alarmContextNew } from "../alarm/alarm-context.js";
+import { Cpu6510 } from "../cpu6510.js";
+import { HeadlessMemoryBus } from "../memory-bus.js";
+import { loadAllC64Roms, type LoadedC64RomSet } from "../c64-rom.js";
+import { IecBus } from "../iec/iec-bus.js";
+import { VicIIVice, installVicIIVice, type VicBackend } from "../vic/vic-ii-vice.js";
+import { installSid, type Sid6581 } from "../sid/sid.js";
+import { VicFramebuffer } from "../peripherals/vic-renderer.js";
+import { installCia1 } from "../peripherals/cia1.js";
+import type { KeyboardMatrix, JoystickState } from "../peripherals/keyboard.js";
+import { installCia2 } from "../peripherals/cia2.js";
+import type { Cia6526Vice } from "../cia/cia6526-vice.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
@@ -36,23 +46,127 @@ export class HeadlessMachineKernel implements MachineKernel {
   private readonly traceStub: KernelTraceController = new KernelTraceStub();
   readonly video: VideoSystem;
 
-  // Spec 200-c2: kernel owns alarm contexts. Session reads them from
-  // here for backward-compat field access. Mirrors VICE
-  // machine_specific_init creating maincpu_alarm_context +
-  // drivecpu_alarm_context up-front, before chip installs.
+  // Spec 200-c2: alarm contexts.
   readonly alarms: KernelAlarmContexts;
+
+  // Spec 200-c3: shared IEC bus. Created here because both C64 (CIA2)
+  // and drive sides reference it; ownership belongs to the kernel.
+  readonly iecBus: IecBus;
+
+  // Spec 200-c3: C64 side chips. Constructed by the kernel; session
+  // reads them for backward-compat field access.
+  readonly c64Bus: HeadlessMemoryBus;
+  readonly romSet: LoadedC64RomSet;
+  // Mutable: Cpu65xxVice may replace Cpu6510 during scheduler init in
+  // commit 200-c5 when useMicrocodedCpu is set.
+  c64Cpu: Cpu6510;
+  readonly cia1: Cia6526Vice;
+  readonly cia2: Cia6526Vice;
+  readonly cia1IrqLine: () => boolean;
+  readonly cia2NmiLine: () => boolean;
+  readonly keyboard: KeyboardMatrix;
+  readonly joystick1: JoystickState;
+  readonly joystick2: JoystickState;
+  readonly paddles: Uint8Array = new Uint8Array(4); // [POTAX, POTAY, POTBX, POTBY]
+  readonly vic: VicIIVice;
+  readonly sid: Sid6581;
+  readonly framebuffer: VicFramebuffer;
 
   constructor(deps: HeadlessMachineKernelDeps) {
     this.session = deps.session;
     this.video = deps.video;
+    const isPal = this.video === "PAL";
     this.alarms = {
       maincpu: alarmContextNew("maincpu"),
       drivecpu: alarmContextNew("drivecpu"),
     };
+
+    // Spec 200-c3: shared IEC bus first. Drive side wires into it via
+    // Spec 200-c4.
+    this.iecBus = new IecBus();
+
+    // Spec 200-c3: C64 memory bus + ROMs.
+    this.c64Bus = new HeadlessMemoryBus();
+    this.romSet = loadAllC64Roms();
+    if (this.romSet.allRomsAvailable) {
+      this.c64Bus.loadKernalRom(this.romSet.kernal.bytes);
+      this.c64Bus.loadBasicRom(this.romSet.basic.bytes);
+      this.c64Bus.loadCharRom(this.romSet.charRom.bytes);
+    }
+
+    // CPU built BEFORE CIA install — Cia6526Vice's Ciat sub-modules
+    // capture the CPU clock at construction time via clkPtr(), so the
+    // CPU object must already exist. (Cpu65xxVice may replace this
+    // later under useMicrocodedCpu via commit 200-c5.)
+    this.c64Cpu = new Cpu6510(this.c64Bus);
+
+    // Spec 083 / VICE-style: when C64 reads or writes IEC bus state,
+    // first catch the drive CPU up to the current cycle so drive's
+    // response reflects all elapsed time. Without this, drive lag
+    // breaks serial bit timing.
+    const ciaClkPtr = () => this.c64Cpu.cycles;
+    const cia2Install = installCia2(this.c64Bus, this.iecBus, {
+      alarmContext: this.alarms.maincpu,
+      clkPtr: ciaClkPtr,
+    });
+    this.cia2 = cia2Install.cia;
+    this.cia2NmiLine = cia2Install.nmiLine;
+    const cia1Install = installCia1(this.c64Bus, {
+      alarmContext: this.alarms.maincpu,
+      clkPtr: ciaClkPtr,
+    });
+    this.cia1 = cia1Install.cia;
+    this.cia1IrqLine = cia1Install.irqLine;
+    this.keyboard = cia1Install.keyboard;
+    this.joystick2 = cia1Install.joystick2;
+    this.joystick1 = cia1Install.joystick1;
+
+    // Sprint 113 Phase 2 (Spec 150): VicIIVice — alarm-driven B-level core.
+    // Backend wiring:
+    //   stealCpuCycles → advance maincpu_clk (CPU does not execute
+    //     during stolen window; driven via cycles property bump).
+    //   setIrqLine → OR'd into CIA1 IRQ path (sampled by
+    //     checkC64Interrupts / updateMicrocodedInterruptLines).
+    //   readVbus / readColorRam → optional data reads; B-level uses
+    //     zero (cycle counting only, renderer reads RAM directly).
+    const vicBusBackend: VicBackend = {
+      stealCpuCycles: (count: number, _clk: number) => {
+        // Advance C64 CPU clock past stolen window. CPU does not step;
+        // scheduler drain (AlarmContextCycled) still fires for CIA timers
+        // so wall-clock peripherals advance. Mirrors VICE
+        // dma_maincpu_steal_cycles: maincpu_clk += count.
+        (this.c64Cpu as { cycles: number }).cycles += count;
+      },
+      setIrqLine: (_asserted: boolean, _clk: number) => {
+        // IRQ line state is sampled via vic.irqAsserted() in
+        // checkC64Interrupts and updateMicrocodedInterruptLines —
+        // no additional latching needed here. No-op storage fine at
+        // B-level; V3 will add VICE-exact pin-level latch.
+      },
+      readVbus: () => 0,
+      readColorRam: () => 0,
+    };
+    const vic = new VicIIVice({
+      backend: vicBusBackend,
+      alarmContext: this.alarms.maincpu,
+      clkPtr: ciaClkPtr,
+      name: "VIC",
+    });
+    vic.powerup();
+    if (!isPal) vic.setNtsc();
+    installVicIIVice(this.c64Bus, vic);
+    this.vic = vic;
+    this.sid = installSid(this.c64Bus);
+    // Spec 108 (M2.6c) v1: bridge POT readback to paddles[].
+    // Paddle 0 → POT A, paddle 2 → POT B.
+    this.sid.potReader = (idx) => this.paddles[idx === 0 ? 0 : 2] ?? 0;
+    this.c64Bus.reset();
+
+    this.framebuffer = new VicFramebuffer(isPal);
   }
 
   c64Clock(): number {
-    return this.session.c64Cpu.cycles;
+    return this.c64Cpu.cycles;
   }
 
   driveClock(device: number): number {
@@ -65,7 +179,7 @@ export class HeadlessMachineKernel implements MachineKernel {
   }
 
   runCycles(n: number): void {
-    // Commit 200-c2/c3 will route this through SyncStrategy. For now
+    // Commit 200-c5 will route this through SyncStrategy. For now
     // delegate to the existing scheduler if present, else fall through
     // to instruction-based stepping.
     const sched = this.session.scheduler;
@@ -73,10 +187,8 @@ export class HeadlessMachineKernel implements MachineKernel {
       sched.runCycles(n);
       return;
     }
-    // Coarse fallback for non-lockstep sessions: advance one C64
-    // instruction at a time until we have consumed at least n cycles.
-    const target = this.session.c64Cpu.cycles + n;
-    while (this.session.c64Cpu.cycles < target) {
+    const target = this.c64Cpu.cycles + n;
+    while (this.c64Cpu.cycles < target) {
       this.session.stepC64Instruction();
     }
   }
@@ -86,8 +198,6 @@ export class HeadlessMachineKernel implements MachineKernel {
   }
 
   snapshot(): MachineSnapshot {
-    // Real adapter lands in commit 200-c5. Return a placeholder shape
-    // that is round-trippable at the kernel level via restore().
     return { schemaVersion: 0, payload: null };
   }
 
@@ -101,7 +211,6 @@ export class HeadlessMachineKernel implements MachineKernel {
         `[kernel] mountMedia(${device}) — only device 8 supported in Spec 200`,
       );
     }
-    // Wiring lands in commit 200-c4 once disk parser ownership moves.
   }
 
   trace(): KernelTraceController {
@@ -109,9 +218,7 @@ export class HeadlessMachineKernel implements MachineKernel {
   }
 
   status(): KernelStatus {
-    const mode: KernelMode = this.session.useCycleLockstep
-      ? "debug-lockstep"
-      : "debug-lockstep"; // Spec 200 always reports debug-lockstep; 202 widens.
+    const mode: KernelMode = "debug-lockstep"; // Spec 207 widens.
     return {
       mode,
       c64Clock: this.c64Clock(),

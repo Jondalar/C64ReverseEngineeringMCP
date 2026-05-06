@@ -353,108 +353,32 @@ export class IntegratedSession {
       startTrack: opts.startTrack ?? 18,
       defaultTrackCount: halfTrackCount > 0 ? Math.ceil(halfTrackCount / 2) : 35,
     });
-    this.iecBus = new IecBus();
-
-    // C64 side.
-    this.c64Bus = new HeadlessMemoryBus();
-    this.romSet = loadAllC64Roms();
-    if (this.romSet.allRomsAvailable) {
-      this.c64Bus.loadKernalRom(this.romSet.kernal.bytes);
-      this.c64Bus.loadBasicRom(this.romSet.basic.bytes);
-      this.c64Bus.loadCharRom(this.romSet.charRom.bytes);
-    }
-    // Spec 200-c2: kernel created up-front (BEFORE chip installs that
-    // wire alarms). Kernel owns the alarm contexts; session forwards
-    // them for backward-compat field access. Mirrors VICE
-    // machine_specific_init creating maincpu/drivecpu alarm contexts.
+    // Spec 200-c2 + c3: kernel created up-front. Kernel constructor
+    // owns alarm contexts AND C64-side chips: iecBus, c64Bus, romSet,
+    // c64Cpu, cia1, cia2, vic, sid, framebuffer. Session reads these
+    // as backward-compat field aliases. Mirrors VICE
+    // machine_specific_init build order.
     this.kernel = new HeadlessMachineKernel({
       session: this,
       video: isPal ? "PAL" : "NTSC",
     });
     this.maincpuAlarmContext = this.kernel.alarms.maincpu;
     this.drivecpuAlarmContext = this.kernel.alarms.drivecpu;
-
-    // CPU built BEFORE CIA install — Cia6526Vice's Ciat sub-modules
-    // capture the CPU clock at construction time via clkPtr(), so the
-    // CPU object must already exist. (Cpu65xxVice may replace this
-    // later under useMicrocodedCpu.)
-    this.c64Cpu = new Cpu6510(this.c64Bus);
-
-    // Spec 083 / VICE-style: when C64 reads or writes IEC bus state,
-    // first catch the drive CPU up to the current cycle so drive's
-    // response reflects all elapsed time. Without this, drive lag
-    // breaks serial bit timing.
-    const ciaClkPtr = () => this.c64Cpu.cycles;
-    const cia2Install = installCia2(this.c64Bus, this.iecBus, {
-      alarmContext: this.maincpuAlarmContext,
-      clkPtr: ciaClkPtr,
-    });
-    this.cia2 = cia2Install.cia;
-    this.cia2NmiLine = cia2Install.nmiLine;
-    const cia1Install = installCia1(this.c64Bus, {
-      alarmContext: this.maincpuAlarmContext,
-      clkPtr: ciaClkPtr,
-    });
-    this.cia1 = cia1Install.cia;
-    this.cia1IrqLine = cia1Install.irqLine;
-    this.keyboard = cia1Install.keyboard;
-    this.joystick2 = cia1Install.joystick2;
-    this.joystick1 = cia1Install.joystick1;
-    // Sprint 113 Phase 2 (Spec 150): VicIIVice — alarm-driven B-level core.
-    // Backend wiring:
-    //   stealCpuCycles → advance maincpu_clk (CPU does not execute
-    //     during stolen window; driven via cycles property bump).
-    //   setIrqLine → OR'd into CIA1 IRQ path (sampled by
-    //     checkC64Interrupts / updateMicrocodedInterruptLines).
-    //   readVbus / readColorRam → optional data reads; B-level uses
-    //     zero (cycle counting only, renderer reads RAM directly).
-    const vicBusBackend: VicBackend = {
-      stealCpuCycles: (count: number, _clk: number) => {
-        // Advance C64 CPU clock past stolen window. CPU does not step;
-        // scheduler drain (AlarmContextCycled) still fires for CIA timers
-        // so wall-clock peripherals advance. Mirrors VICE
-        // dma_maincpu_steal_cycles: maincpu_clk += count.
-        (this.c64Cpu as { cycles: number }).cycles += count;
-      },
-      setIrqLine: (_asserted: boolean, _clk: number) => {
-        // IRQ line state is sampled via vic.irqAsserted() in
-        // checkC64Interrupts and updateMicrocodedInterruptLines —
-        // no additional latching needed here. No-op storage fine at
-        // B-level; V3 will add VICE-exact pin-level latch.
-      },
-      readVbus: () => 0,
-      readColorRam: () => 0,
-    };
-    const vic = new VicIIVice({
-      backend: vicBusBackend,
-      alarmContext: this.maincpuAlarmContext,
-      clkPtr: ciaClkPtr,
-      name: "VIC",
-    });
-    vic.powerup();
-    if (!isPal) vic.setNtsc();
-    // Wire CIA2 vbank update: CIA2 PA bits 0..1 select VIC bank.
-    // VICE: cia2_set_pa_bits → vicii_set_vbank. Mirror that wiring here.
-    // The CIA2 backend already calls iecBus.setC64Output for IEC lines;
-    // we add vbank update on any CIA2 PA write by overriding the cia2
-    // backend's store callback. This is a post-install hook so we access
-    // cia2Install.cia directly after construction.
-    // NOTE: We use a post-hoc setter approach: the CIA2's existing backend
-    // already reads PA via the normal cia2 backend. We wire vbank by
-    // checking PA after each CIA2 PA read in checkC64Interrupts is not
-    // needed — instead install via CIA2's bus write hook. Simplest VICE-
-    // faithful approach: sample CIA2 PA on every frame render (existing
-    // renderFrame() reads cia2.pra & cia2.ddra and calls computeVicBankBase).
-    // For realtime vbank tracking, a CIA2 PA change callback is V3 work
-    // (Spec 150 §"Out of scope"). Sprint 113 Phase 2 retains the
-    // per-render approach unchanged.
-    installVicIIVice(this.c64Bus, vic);
-    this.vic = vic;
-    this.sid = installSid(this.c64Bus);
-    // Spec 108 (M2.6c) v1: bridge POT readback to paddles[].
-    // Paddle 0 → POT A, paddle 2 → POT B.
-    this.sid.potReader = (idx) => this.paddles[idx === 0 ? 0 : 2] ?? 0;
-    this.c64Bus.reset();
+    this.iecBus = this.kernel.iecBus;
+    this.c64Bus = this.kernel.c64Bus;
+    this.romSet = this.kernel.romSet;
+    this.c64Cpu = this.kernel.c64Cpu;
+    this.cia1 = this.kernel.cia1;
+    this.cia1IrqLine = this.kernel.cia1IrqLine;
+    this.cia2 = this.kernel.cia2;
+    this.cia2NmiLine = this.kernel.cia2NmiLine;
+    this.keyboard = this.kernel.keyboard;
+    this.joystick1 = this.kernel.joystick1;
+    this.joystick2 = this.kernel.joystick2;
+    this.paddles = this.kernel.paddles;
+    this.vic = this.kernel.vic;
+    this.sid = this.kernel.sid;
+    this.framebuffer = this.kernel.framebuffer;
 
     // Spec 153 / Sprint 114: 1:1 VICE GCR shifter. Constructed here so
     // it can be supplied to DriveCpu (which wires byte-ready → VIA2 CA1
@@ -529,7 +453,8 @@ export class IntegratedSession {
     this.enableKernalFileIoTraps = opts.enableKernalFileIoTraps ?? false;
     this.enableKernalSerialTraps = opts.enableKernalSerialTraps ?? false;
     this.enableKernalIoTraps = opts.enableKernalIoTraps ?? false;
-    this.framebuffer = new VicFramebuffer(isPal);
+    // Spec 200-c3: framebuffer constructed inside kernel; assigned via
+    // alias above. No additional construction here.
 
     // Sprint 92: cycle-lockstep scheduler (opt-in).
     this.useCycleLockstep = (opts.useCycleLockstep ?? false) || (opts.useMicrocodedCpu ?? false);
@@ -558,6 +483,11 @@ export class IntegratedSession {
         // Replace c64Cpu with microcoded version. Cast — both share
         // public register state interface.
         (this as any).c64Cpu = microcoded;
+        // Spec 200-c3: keep kernel's c64Cpu in sync. CIA clkPtr
+        // captured a closure on kernel.c64Cpu; without this update
+        // CIAs would read the stale Cpu6510's cycles (= 0 forever)
+        // and alarm dispatch would storm.
+        (this.kernel as unknown as { c64Cpu: unknown }).c64Cpu = microcoded;
         microcoded.reset();
         cpuCompoonent = microcoded;
       } else {
