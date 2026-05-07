@@ -47,6 +47,11 @@ const windowPre = BigInt(args["window-pre"] ?? 20000);
 const windowPost = BigInt(args["window-post"] ?? 5000);
 const startAnchor = typeof args["start-anchor"] === "string" ? args["start-anchor"] : null;
 const streamLimit = Number(args["stream-limit"] ?? 4000);
+const cpuArg = (typeof args.cpu === "string" ? args.cpu : "drive8");
+if (cpuArg !== "drive8" && cpuArg !== "c64") {
+  console.error(`--cpu must be 'drive8' or 'c64' (got '${cpuArg}')`);
+  process.exit(2);
+}
 const outPath = args.out
   ? resolvePath(args.out)
   : (() => {
@@ -119,7 +124,7 @@ async function opcodeDurations(catalog, from, to) {
         master_clock,
         LEAD(master_clock) OVER (ORDER BY seq) AS next_mc
       FROM ${catalog}.instructions
-      WHERE cpu='drive8' AND master_clock BETWEEN ${from} AND ${to}
+      WHERE cpu='${cpuArg}' AND master_clock BETWEEN ${from} AND ${to}
     )
     SELECT
       opcode,
@@ -169,7 +174,7 @@ async function driveStream(catalog, fromMc, limit) {
   const sql = `
     SELECT seq, master_clock, pc, opcode, b1, b2, a, x, y, sp, p
     FROM ${catalog}.instructions
-    WHERE cpu='drive8' AND master_clock >= ${fromMc}
+    WHERE cpu='${cpuArg}' AND master_clock >= ${fromMc}
     ORDER BY seq ASC
     LIMIT ${limit}
   `;

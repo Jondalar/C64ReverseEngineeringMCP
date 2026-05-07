@@ -87,6 +87,55 @@ Tracked by `specs/218-motm-tx3-tx4-bit-level-divergence.md`.
   H4 (newly identified — C64-side IEC output timing) primary;
   H1 rejected.
 
+**C64 step-by-step walk from ab_entry (2026-05-07, post drive walk):**
+- `trace-store-drive-cycle-diff.mjs --cpu c64 --start-anchor ab_entry`
+  walks both stores' c64 instruction streams in lock-step from $4000.
+- Indexes 0..1974: c64 PCs **byte-identical**, drift bounded to +0..+4
+  master_clock cycles.
+- **First c64 PC divergence at index 1975** (~6144 master_clock after
+  ab_entry, deep inside KERNAL serial bus byte-receive `$EEA9-$EEB1`):
+
+```
+        VICE                          HL
+  $EEA9 LDA $DD00     mc 25569498   $EEA9 LDA $DD00     mc 9963725
+  $EEAC CMP $DD00     mc 25569502   $EEAC CMP $DD00     mc 9963729
+  $EEAF BNE $EEA9     mc 25569506   $EEAF BNE $EEA9     mc 9963731  (NOT taken)
+  $EEA9 LDA $DD00     mc 25569509   $EEB1 ASL A         mc 9963733
+  $EEAC CMP $DD00     mc 25569513   $EEB2 RTS           mc 9963739
+  $EEAF BNE $EEA9     mc 25569517
+  $EEB1 ASL A         mc 25569519
+  $EEB2 RTS           mc 25569521
+```
+
+- VICE iterates the `LDA $DD00 / CMP $DD00 / BNE` debounce loop **twice**;
+  HL iterates **once**. Same code, different drive-response timing.
+- Cumulative drift at first divergence: **-1 cycle** (HL slightly ahead).
+- Mechanism: KERNAL reads $DD00 twice in succession; if a line was
+  transitioning during the first read the second read returns a
+  different value → BNE taken → retry. In HL, drive had already
+  finished its line transition by the time c64 reached $EEA9, so both
+  reads returned the same value on first try. In VICE the drive was
+  still mid-transition, mismatch occurred, retry needed.
+- **Snowball origin**: every subsequent IEC byte transfer accumulates
+  the 1-cycle offset because the debounce-loop iteration count differs
+  by 1 per byte. Over the full LOAD this drifts to thousands of cycles
+  by TX#3.
+
+**Final root-cause class**: drive's IEC line transition completes ~1
+cycle earlier in headless than in VICE for the same drive-side code
+path. Drive cpu cycle accounting matches VICE within ±2 cycles per
+instruction (H1 confirmed clean), so the off-by-one is not in opcode
+cycle math. It must be in either: (a) drive VIA1 PRB output-bit timing
+(when does a write to $1800 actually appear on the drive's IEC port),
+(b) IEC line-resolution (open-collector AND of c64 + drive line states),
+or (c) the c64-side $DD00 read-side latency between drive write and
+c64 visible value.
+
+**Next probe**: walk drive instructions backwards from the moment of
+the first divergent $1800 line transition to find which drive opcode
+caused the line to flip 1 cycle earlier than VICE. Compare VIA1
+clock-bit toggle timing on a single drive-cycle granularity.
+
 ## Symptom
 
 motm `LOAD"*",8,1` hangs forever after KERNAL hand-off into custom
