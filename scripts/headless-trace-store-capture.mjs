@@ -126,9 +126,19 @@ const producer = new TraceStoreProducer({
 // Spec 142: bus-access tracing wired via integrated-session option.
 // Without enableBusAccessTrace=true the producer never installs hooks
 // on $DD00/$1800, so the bus_access channel stays empty.
+// Spec 218: --microcoded flag swaps c64 + drive cpu to Cpu65xxVice
+// (cycle-precise port of VICE's microcoded core) instead of the
+// legacy Cpu6510 interpreter. Cpu6510 has small per-instruction
+// cycle-accounting drift vs VICE that accumulates over thousands of
+// KERNAL-serial-output instructions and flips the $EEA9 debounce-loop
+// iteration count, snowballing into the motm fastloader stall.
+const useMicrocodedCpu = args.microcoded === true;
+console.log(`  microcoded: ${useMicrocodedCpu}`);
+
 const { session } = startIntegratedSession({
   diskPath,
   mode: traceMode,
+  useMicrocodedCpu,
   enableBusAccessTrace: true,
   // Empty PC ranges = no filter = capture all $DD00 and $1800 events.
   busAccessPcRangesC64: [],

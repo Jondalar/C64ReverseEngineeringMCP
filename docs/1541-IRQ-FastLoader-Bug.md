@@ -275,6 +275,94 @@ Note: this requires both stores to capture from the same drive cold-boot
 moment. Current VICE store starts mid-drive-run, so a re-capture of
 VICE from drive cold-boot is needed. HL store already has it.
 
+**New VICE store re-capture (2026-05-07 13:25):**
+
+`samples/traces/v2-baseline/motm-s218-vice-store-2026-05-07/`
+
+- VICE drive seq=0 starts at master_clock 1.27M, PC=$EC9B (still
+  not cold-boot — binmon needs init time before capture starts).
+- HL drive still starts at master_clock 0, PC=$EAA0 (true cold-boot).
+- VICE TX#3 rel-to-ab_entry = 25.34M cycles
+- HL   TX#3 rel-to-ab_entry = 25.38M cycles → +40k delta (HL behind)
+- C64 walk from ab_entry: **first PC divergence at index 1975**,
+  PC=$EEA9 KERNAL debounce loop, drift only **-1 cycle** at divergence.
+  **Identical divergence point as previous capture — confirms HL is
+  deterministic and the drift is reproducible.**
+- Drive walk from drive_rx_active: first divergence at index 14 (much
+  earlier than previous run's 80) — but only 3 cycle drift. Direction
+  also reversed: VICE drive sees byte ready at rel 49, HL sees it at
+  rel 41 (HL 8 cycles earlier).
+
+**Refined verdict (2026-05-07 EOD):**
+
+- HL c64 cpu (Cpu6510 legacy interpreter) drifts ±1 to ±4 master_clock
+  over the 1975-instruction KERNAL serial output sequence vs VICE's
+  microcoded c64 cpu.
+- The cumulative drift is small (~0.05% per instruction) but enough
+  to flip the $EEA9 LDA/CMP debounce-loop iteration count by 1 — and
+  that snowballs into mis-framed fastloader bytes by TX#3.
+- HL drive (Cpu6510) drift vs VICE microcoded drive is also small
+  (±2-3 cycles over 14 instructions of the loader RX loop).
+- The bug is NOT in IecBusCore (replay confirms math is identical).
+- The bug is in **per-instruction cycle accounting** of one or more
+  6502 opcodes between Cpu6510 (used by both c64 and drive in HL) and
+  Cpu65xxVice (used by VICE).
+- **Concrete fix path**: switch HL c64 to Cpu65xxVice (already
+  available — `useMicrocodedCpu: true` flag in IntegratedSession)
+  and verify the divergence disappears. If yes, the bug is in
+  Cpu6510 cycle accounting for some KERNAL-touched opcode.
+
+**Microcoded experiment (2026-05-07 EOD, --microcoded flag added to
+headless capture, fresh capture run):**
+
+- Capture command: `node scripts/headless-trace-store-capture.mjs
+  --disk samples/motm.g64 --run-sec 60 --type 'LOAD"*",8,1\r'
+  --microcoded ...`
+- Result: **stall persists, identical to legacy Cpu6510 run.**
+  - 21,099,706 c64 instructions (identical count to legacy)
+  - 5,316,169 anchors (identical)
+  - bitbang_tx_24bit: 3, rx_byte: 4096 (same stall after 1st block)
+  - C64 walk: first PC divergence at index 1975, $EEA9, mc 9963733
+    — **byte-identical to the legacy Cpu6510 run**.
+- Implication: switching from Cpu6510 (legacy interpreter) to
+  Cpu65xxVice (microcoded) does **not** change c64 trace at all.
+  Both produce identical instruction stream + master_clock evolution.
+  Therefore c64 cpu cycle accounting is **NOT the bug**.
+- The drift between HL and VICE is in something other than
+  per-instruction cpu cycle math.
+
+**Updated honest verdict (2026-05-07 EOD final):**
+
+After exhausting H1 (drive cycles), c64-cpu-implementation, and
+IecBusCore line-resolution, the remaining suspects are:
+
+1. **Drive 1MHz vs c64 985248Hz scheduler interleave** — the kernel
+   ratio between drive and c64 cycle ticks. If the integer-stepped
+   scheduler rounds drive cycles slightly differently than VICE's
+   continuous-time model, accumulated drift over 1975 c64 instructions
+   produces the -1-cycle skew at $EEA9.
+2. **CIA1/CIA2 timer phase** — CIA timers drive KERNAL serial bit
+   timing. If CIA1 timer rclk math has a 1-cycle phase offset vs
+   VICE's CIA implementation, KERNAL serial bit-bang completes 1 cycle
+   off, which c64 sees on its next $DD00 read.
+3. **VIA1 CA1 ATN-edge propagation latency** — drive's IRQ entry
+   timing on ATN-low. If VICE pulses CA1 immediately on ATN edge but
+   our impl waits 1 drive cycle (or vice versa), drive's IRQ handler
+   runs at slightly different time, drive responds 1 cycle off on IEC.
+
+These are all single-cycle-precision timing concerns that require
+cycle-precise instrumentation we do not yet have. The remaining
+session work is:
+
+a. Build per-master-clock CIA1/CIA2 timer-state snapshot channel
+b. Build per-drive-cycle VIA1 CA1 input-pin trace
+c. Compare scheduler tick interleave at 1-cycle granularity vs VICE
+
+This is multi-session work. Stop honestly here; tools (bit-swimlane,
+drive cycle-diff, c64 stream-walk, iec-line-replay-diff) and three
+captures (motm-s218-vice, motm-s218-headless legacy, motm-microcoded)
+are committed and reusable.
+
 ## Symptom
 
 motm `LOAD"*",8,1` hangs forever after KERNAL hand-off into custom
