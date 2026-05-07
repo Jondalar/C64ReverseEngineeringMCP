@@ -80,7 +80,7 @@ export class TraceStoreProducer {
     b1?: number,
     b2?: number,
   ): void {
-    const clkN = typeof clk === "bigint" ? clk : BigInt(clk >>> 0);
+    const clkN = typeof clk === "bigint" ? clk : BigInt(clk);
     const mc = this.opts.masterClockMapper?.(side, Number(clkN));
     const chunk = this.ensureCpuChunk(side);
     appendInstruction(chunk, {
@@ -102,7 +102,7 @@ export class TraceStoreProducer {
     clk: number | bigint,
     extras: { pc?: number; addr?: number; value?: number; oldValue?: number; lineAtn?: boolean; lineClk?: boolean; lineData?: boolean } = {},
   ): void {
-    const clkN = typeof clk === "bigint" ? clk : BigInt(clk >>> 0);
+    const clkN = typeof clk === "bigint" ? clk : BigInt(clk);
     const chunk = this.ensureBusChunk(side);
     appendBusEvent(chunk, {
       seq: this.busSeq[side]++,
@@ -127,7 +127,7 @@ export class TraceStoreProducer {
     clk: number | bigint,
     extras: { pc?: number; unit?: number; value?: number; oldValue?: number } = {},
   ): void {
-    const clkN = typeof clk === "bigint" ? clk : BigInt(clk >>> 0);
+    const clkN = typeof clk === "bigint" ? clk : BigInt(clk);
     const chunk = this.ensureChipChunk(side);
     appendChipEvent(chunk, {
       seq: this.chipSeq[side]++,
@@ -178,7 +178,7 @@ export class TraceStoreProducer {
     const p = (ev.data.p as number) ?? 0;
     appendInstruction(chunk, {
       seq: this.cpuSeq[side]++,
-      clock: BigInt(clk >>> 0),
+      clock: BigInt(clk),
       masterClock: mc,
       pc: pc & 0xffff,
       opcode: opcode & 0xff,
@@ -197,7 +197,7 @@ export class TraceStoreProducer {
     const chunk = this.ensureBusChunk(side);
     appendBusEvent(chunk, {
       seq: this.busSeq[side]++,
-      clock: BigInt(ev.ts >>> 0),
+      clock: BigInt(ev.ts),
       masterClock: this.opts.masterClockMapper?.(side, ev.ts),
       pc: ev.data.pc as number | undefined,
       kind: (isWrite ? "write" : "read") as BusEventKind,
@@ -218,7 +218,7 @@ export class TraceStoreProducer {
     const lineData = ev.data.data as boolean | undefined;
     appendBusEvent(chunk, {
       seq: this.busSeq[side]++,
-      clock: BigInt(ev.ts >>> 0),
+      clock: BigInt(ev.ts),
       masterClock: this.opts.masterClockMapper?.(side, ev.ts),
       kind: "line_change",
       lineAtn, lineClk, lineData,
@@ -237,7 +237,7 @@ export class TraceStoreProducer {
     const chunk = this.ensureChipChunk(side);
     appendChipEvent(chunk, {
       seq: this.chipSeq[side]++,
-      clock: BigInt(ev.ts >>> 0),
+      clock: BigInt(ev.ts),
       masterClock: this.opts.masterClockMapper?.(side, ev.ts),
       chip,
       kind,
@@ -263,7 +263,7 @@ export class TraceStoreProducer {
     const chunk = this.ensureChipChunk(side);
     appendChipEvent(chunk, {
       seq: this.chipSeq[side]++,
-      clock: BigInt(ev.ts >>> 0),
+      clock: BigInt(ev.ts),
       masterClock: this.opts.masterClockMapper?.(side, ev.ts),
       chip,
       kind: "ifr_set",
@@ -279,7 +279,7 @@ export class TraceStoreProducer {
     const isFrame = ev.data.kind === "frame";
     appendChipEvent(chunk, {
       seq: this.chipSeq[side]++,
-      clock: BigInt(ev.ts >>> 0),
+      clock: BigInt(ev.ts),
       masterClock: this.opts.masterClockMapper?.(side, ev.ts),
       chip: "vic",
       kind: isFrame ? "frame_start" : "raster_line",
@@ -306,7 +306,7 @@ export class TraceStoreProducer {
     const chunk = this.ensureChipChunk(side);
     appendChipEvent(chunk, {
       seq: this.chipSeq[side]++,
-      clock: BigInt(ev.ts >>> 0),
+      clock: BigInt(ev.ts),
       masterClock: this.opts.masterClockMapper?.(side, ev.ts),
       chip: "gcr",
       kind,

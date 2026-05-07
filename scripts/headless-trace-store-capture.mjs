@@ -106,7 +106,9 @@ const store = await openStore({ path: dbPath, meta });
 const sink = new DuckDbTraceSink({ store });
 
 const masterClockMapper = (cpu, sourceClock) => {
-  const sc = BigInt(sourceClock >>> 0);
+  // Spec 218: preserve full clock width. `sourceClock` is either a JS
+  // number (safe integer) or a bigint; never coerce through u32.
+  const sc = typeof sourceClock === "bigint" ? sourceClock : BigInt(sourceClock);
   if (cpu === "drive8") {
     // master_clock = round((drive_clock - 0) × 985248 / 1000000) + 0
     return (sc * 985248n) / 1000000n;
