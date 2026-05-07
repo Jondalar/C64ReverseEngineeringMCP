@@ -73,8 +73,15 @@ class Channel {
   }
 }
 
+// Spec 217 — observer callback (option B). A registered observer
+// receives every published event (across all channels) regardless of
+// per-channel mode. This lets a TraceStoreProducer attach without
+// changing channel modes or per-channel publish sites.
+export type TraceObserver = (event: TraceEvent) => void;
+
 export class TraceRegistry {
   private channels = new Map<ChannelName, Channel>();
+  private observers: TraceObserver[] = [];
 
   configure(name: ChannelName, cfg: ChannelConfig): void {
     let ch = this.channels.get(name);
@@ -88,8 +95,21 @@ export class TraceRegistry {
 
   publish(name: ChannelName, ts: number, data: Record<string, unknown>): void {
     const ch = this.channels.get(name);
+    const event: TraceEvent = { ts, channel: name, data };
+    if (this.observers.length > 0) {
+      for (const obs of this.observers) obs(event);
+    }
     if (!ch || ch.mode === "off") return;
-    ch.publish({ ts, channel: name, data });
+    ch.publish(event);
+  }
+
+  // Spec 217: register/unregister parallel observers.
+  registerObserver(observer: TraceObserver): () => void {
+    this.observers.push(observer);
+    return () => {
+      const i = this.observers.indexOf(observer);
+      if (i >= 0) this.observers.splice(i, 1);
+    };
   }
 
   getRing(name: ChannelName): TraceEvent[] {
@@ -98,5 +118,6 @@ export class TraceRegistry {
 
   closeAll(): void {
     for (const ch of this.channels.values()) ch.close();
+    this.observers = [];
   }
 }
