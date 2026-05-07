@@ -136,6 +136,62 @@ the first divergent $1800 line transition to find which drive opcode
 caused the line to flip 1 cycle earlier than VICE. Compare VIA1
 clock-bit toggle timing on a single drive-cycle granularity.
 
+**Bus-event analysis at first c64 divergence (2026-05-07):**
+
+Around master_clock = ab_entry + 6133 (just before c64 reads $EEA9):
+
+| side | actor | rel | event | value |
+|---|---|---|---|---|
+| both | c64 last $DD00 write | ~6304-6313 | write $DD00 | $07 (lines released) |
+| VICE | drive | 6029 | write $1800 | $06 |
+| VICE | drive | 6285 | read $1800 | $00 |
+| VICE | drive | 6304 | read $1800 | $03  ← TRANSITIONING |
+| VICE | drive | 6308 | read $1800 | $00 |
+| VICE | drive | 6330 | read $1800 | $00 |
+| HL   | drive | 6094 | write $1800 | $06 |
+| HL   | drive | 6037-6089 | read $1800 | $04 (all reads stable) |
+| HL   | (no drive activity 6094-6350) |   |   |   |
+
+C64 read at $EEA9 in VICE returned $97 (bit 7 = DATA released).
+C64 read at $EEA9 in HL returned $03 (bits 0,1 only — VIC bank;
+bit 7 = DATA pulled = drive holding DATA low).
+
+**Both c64s execute byte-identical instructions** for the first 1975
+opcodes after ab_entry, **and both write the same value $07 to $DD00**
+in the bit-bang serial output preceding this read. Yet the drive in
+HL sees stable $04 on $1800 (CLK_IN high, DATA_IN released by c64)
+while VICE drive sees the line transitioning ($03 → $00 → $03 → $00).
+
+The off-by-one is therefore **not** in c64 instructions and **not** in
+drive instructions per-se: it is in the **IEC bus state-resolution
+layer** itself — the open-collector AND of c64-side and drive-side
+line outputs — where one side commits its line transition 1 master
+clock earlier than VICE for the same effective input state.
+
+Three concrete suspects to instrument next, by order of likelihood:
+
+1. **CIA2 PA read latency**: `buildC64InputBits` returns
+   `clkLine | dataLine`, both reads of getter-derived state. If the
+   getter is computed at write time (cached) vs read time (live),
+   one cycle of skew appears between when c64 writes $DD00 and when
+   the line state takes effect on next read.
+
+2. **VIA1 PRB ↔ IEC line propagation**: drive write to $1800 PRB
+   commits to via1.prb register synchronously, but the iec-bus
+   `recordEdge` fires on the next access — could be one cycle late
+   relative to VICE which evaluates lines per cycle.
+
+3. **CIA2 PRA latch**: VICE caches `iecbus.cpu_port` and reads merge
+   with PA latch on the next CPU read. If our caching strategy is
+   eager-evaluation while VICE is lazy (or vice versa), reads see
+   the new state one cycle earlier or later.
+
+Concrete next instrumentation: per-master-clock `iec_line_edge`
+trace channel that records (atn, clk, data) state transitions with
+the actor (c64/drive) and the cycle at which the c64-visible vs
+drive-visible state first reflects the change. Diff that across
+VICE vs HL within the divergence window.
+
 ## Symptom
 
 motm `LOAD"*",8,1` hangs forever after KERNAL hand-off into custom
