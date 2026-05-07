@@ -1,8 +1,42 @@
 # 1541 IRQ / FastLoader Bug — motm `LOAD"*",8,1`
 
-Status: open, 2026-05-07. **Updated 2026-05-07 with Spec 217 trace-store
-diff evidence** — see new "Diff evidence" section below for the
-hard ceiling of 4096 bytes received in headless before stall.
+**Status:** open — root-cause area narrowed.
+**Last updated:** 2026-05-07 (probes 1-4).
+
+**Headline:**
+- motm headless stalls after exactly **4096 bytes** received
+- VICE same disk runs to game_handoff at master_clock 150.6M (~153s)
+- Drive RAM is byte-identical between VICE and headless
+- Bug is **drive cpu cycle-timing skew during bit-bang RX**:
+  headless drive iterates ~36% more T1CH writes per
+  equivalent drive_clock window (952 vs VICE 700 through 36M).
+- Per-bit timing skew → drive samples wrong IEC bit values →
+  TX cmd 4 misread → drive branches to wrong handler (`$042x`
+  instead of `$0728`) → stall.
+
+**Confirmed NOT the cause** (ruled out via probes):
+- Deadlock (drive runs RAM + ROM excursions normally)
+- Bit-7 IFR master-flag mask
+- VIA T1 alarm code itself (one-shot mode, re-arm correct)
+- ACR write divergence (drive never writes ACR — both stay `$00`)
+
+**Suspected source** — narrowed to one of:
+1. Drive cpu cycle accounting (opcode cycles off by 1-2 vs VICE)
+2. VIA T1 `t1zero = rclk + 1 + tal` arithmetic off-by-one
+3. IEC bus propagation delay vs drive poll-loop
+
+**Tools delivered (Spec 217):**
+- trace store (DuckDB+Parquet) for both VICE and headless captures
+- `trace-store-diff.mjs` cross-store anchor + cadence diff
+- `derive-bus-events.mjs` post-hoc bus event reconstruction
+- 6 MCP tools (`trace_store_*`) for agent queries
+- Localization: "fastloader broken" → "drive cpu/VIA1 T1 timing
+  skew during bit-bang RX" in one session vs multi-day previously
+
+**Fix not yet applied** — final root-cause needs cycle-by-cycle
+bit-diff of VICE vs headless during a single TX-3 round.
+Candidate: new spec for cycle-by-cycle drive instruction +
+`$1800` read differ ("Spec 218" placeholder).
 
 ## Symptom
 
