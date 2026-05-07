@@ -1,6 +1,8 @@
 # 1541 IRQ / FastLoader Bug — motm `LOAD"*",8,1`
 
-Status: open, 2026-05-07.
+Status: open, 2026-05-07. **Updated 2026-05-07 with Spec 217 trace-store
+diff evidence** — see new "Diff evidence" section below for the
+hard ceiling of 4096 bytes received in headless before stall.
 
 ## Symptom
 
@@ -139,6 +141,66 @@ drive without c64 polling the bus.
 
 If H1 holds, the fix is in the drive-side IEC edge → VIA1 IRQ
 delivery, not in `KernelBus` catch-up.
+
+## Diff evidence — VICE vs headless trace-store (2026-05-07)
+
+Captured both sides into Spec 217 trace store, ran
+`scripts/trace-store-diff.mjs` with tolerance ±1024 master-clocks.
+Headless ran 60s emulated; VICE ran to game_handoff (~153s).
+
+| anchor | VICE | headless | delta |
+|---|---:|---:|---:|
+| `ab_entry` ($4000) | 1 | 1 | 0 |
+| `bitbang_tx_24bit` ($425C) | 250 | 3 | **-98.8%** |
+| `bitbang_tx_inner` ($4294) | 6000 | 72 | -98.8% |
+| `drive_rom_idle` ($F55D/$F560) | 2.08M | 619K | -70% |
+| `drive_rx_active` ($0714) | 531K | **4096** | **-99.2%** |
+| `drive_rx_wait` ($07BE) | 1.31M | 1.68M | **+28.4%** |
+| **`rx_byte`** ($43CF) | **523K** | **4096** | **-99.2%** |
+| `rx_wait` ($43C7) | 3.97M | 2.39M | -39.9% |
+| `wait_loader_completion` ($4370) | 5 | 1 | -80% |
+| **`game_handoff`** ($F500) | **1** | **0** | **-100%** |
+
+### Cadence: rx_byte ($43CF) per 1M master-clocks
+
+VICE: sustained across Mc-windows 50–107 (~57s of fastloader streaming
+to game_handoff at Mc 150.6M).
+
+Headless: only Mc 34–35 (~1s burst, ~4096 bytes), then complete stall.
+After Mc 35 c64 keeps spinning `$43C7` wait-loop (rx_wait still
+accumulates 2.39M total) but rx_byte ($43CF, the byte-receive entry)
+gets reached 0 more times.
+
+### Refined diagnosis
+
+The 2026-05-06 hypothesis space narrows:
+
+- **H1 (deadlock) — REJECTED.** Headless drive does run RAM custom
+  code + ROM excursions. drvPb does cycle. drv_rom_idle accumulates
+  619K hits (vs VICE 2.08M); drive_rx_wait actually exceeds VICE
+  count (+28%), so drive is busy waiting for c64-side handshake.
+- **H1' (bit-throughput) — CONFIRMED as primary.** Headless rx_byte
+  caps at exactly **4096 bytes** then stalls. VICE keeps going to
+  523K. So the failure is bounded — something hits a 4096-byte
+  ceiling.
+- **H2' (bit-values wrong) — possible but not proven.** A wrong-bit
+  could cause drive's RX state machine to mis-interpret a chunk
+  boundary; symptom would be exactly this kind of N-byte cap.
+
+### Strong lead — the 4096 ceiling
+
+`drive_rx_active` and `rx_byte` both = 4096. That's `2^12`. Specific
+counter / sector-buffer / packet size? Possible candidates:
+
+- `$031C` is decremented by `$43BE` and gates the wait-loop entry
+  (initial value `$30` = 48). 48 × ~85 byte chunks = ~4080 bytes.
+- A 4-block sector counter overflowing wrong-side.
+- Drive-side RAM `$98/$99` destination pointer wrapping at a
+  boundary that VICE handles but we don't.
+
+Next probe: pull instruction-level trace from headless trace-store
+for the last ~20K instructions of master_clock window 34-36 and
+follow what the c64 + drive do at the stall point.
 
 ## Trace + reproduction
 
