@@ -491,14 +491,15 @@ export class Cpu65xxVice implements CycleSteppable {
     if (!entry) {
       this.executeIllegalOpcode(opcode, pcFetch);
       // Spec 217: instruction-complete for illegal opcodes too.
-      this.onInstructionComplete?.(pcFetch, opcode & 0xff, this.reg_a, this.reg_x, this.reg_y, this.reg_sp, this.reg_p, this.clk);
+      this.onInstructionComplete?.(pcFetch, opcode & 0xff, 0, 0, this.reg_a, this.reg_x, this.reg_y, this.reg_sp, this.reg_p, this.clk);
       return;
     }
     const microcode = ADDR_MODE_PATTERNS[entry.pattern];
     if (microcode.length <= 1) {
-      this.executeFinalOp(entry, this.makeFreshState(entry, microcode, pcFetch, opcode));
+      const fs = this.makeFreshState(entry, microcode, pcFetch, opcode);
+      this.executeFinalOp(entry, fs);
       // Spec 217: single-cycle dispatched instruction also fires hook.
-      this.onInstructionComplete?.(pcFetch, opcode & 0xff, this.reg_a, this.reg_x, this.reg_y, this.reg_sp, this.reg_p, this.clk);
+      this.onInstructionComplete?.(pcFetch, opcode & 0xff, fs.operandLo & 0xff, fs.operandHi & 0xff, this.reg_a, this.reg_x, this.reg_y, this.reg_sp, this.reg_p, this.clk);
       return;
     }
     this.inst = this.makeFreshState(entry, microcode, pcFetch, opcode);
@@ -515,11 +516,13 @@ export class Cpu65xxVice implements CycleSteppable {
     if (isFinal) {
       const prevPc = inst.opcodePc & 0xffff;
       const opcodeByte = inst.opcodeByte & 0xff;
+      const b1 = inst.operandLo & 0xff;
+      const b2 = inst.operandHi & 0xff;
       this.executeFinalOp(inst.entry, inst);
       this.atBoundary = true;
       this.inst = null;
       // Spec 205-A c4 + Spec 217: instruction-complete edge with full state.
-      this.onInstructionComplete?.(prevPc, opcodeByte, this.reg_a, this.reg_x, this.reg_y, this.reg_sp, this.reg_p, this.clk);
+      this.onInstructionComplete?.(prevPc, opcodeByte, b1, b2, this.reg_a, this.reg_x, this.reg_y, this.reg_sp, this.reg_p, this.clk);
     }
   }
 
@@ -903,12 +906,16 @@ export class Cpu65xxVice implements CycleSteppable {
    * Args:
    *   prevPc — PC of the instruction that just executed (= opcode address)
    *   opcode — first byte (opcode) of that instruction
+   *   b1, b2 — operand bytes (from microcode operandLo/operandHi); 0
+   *            for instructions with fewer operand bytes
    *   a, x, y, sp, p — register state AFTER the instruction
    *   clk    — post-instruction CPU cycles
    */
   onInstructionComplete?: (
     prevPc: number,
     opcode: number,
+    b1: number,
+    b2: number,
     a: number,
     x: number,
     y: number,

@@ -167,8 +167,10 @@ export class TraceStoreProducer {
     const clk = ev.ts;
     const mc = this.opts.masterClockMapper?.(side, clk);
     const chunk = this.ensureCpuChunk(side);
-    // Spec 217: full register state from publishCpuInstruction.
+    // Spec 217: full register state + operand bytes from publishCpuInstruction.
     const opcode = (ev.data.opcode as number) ?? 0;
+    const b1 = ev.data.b1 as number | undefined;
+    const b2 = ev.data.b2 as number | undefined;
     const a = (ev.data.a as number) ?? 0;
     const x = (ev.data.x as number) ?? 0;
     const y = (ev.data.y as number) ?? 0;
@@ -180,6 +182,8 @@ export class TraceStoreProducer {
       masterClock: mc,
       pc: pc & 0xffff,
       opcode: opcode & 0xff,
+      b1: b1 !== undefined ? b1 & 0xff : undefined,
+      b2: b2 !== undefined ? b2 & 0xff : undefined,
       a: a & 0xff, x: x & 0xff, y: y & 0xff, sp: sp & 0xff, p: p & 0xff,
     });
     if (chunkIsFull(chunk)) this.flushInstruction(side);

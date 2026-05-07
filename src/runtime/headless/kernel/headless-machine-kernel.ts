@@ -541,6 +541,8 @@ export class HeadlessMachineKernel implements MachineKernel {
     type InstrHook = (
       prevPc: number,
       opcode: number,
+      b1: number,
+      b2: number,
       a: number,
       x: number,
       y: number,
@@ -548,12 +550,12 @@ export class HeadlessMachineKernel implements MachineKernel {
       p: number,
       clk: number,
     ) => void;
-    const c64InstrHook: InstrHook = (prevPc, opcode, a, x, y, sp, p, clk) => {
-      this.publishCpuInstruction("c64", prevPc, opcode, a, x, y, sp, p, clk);
+    const c64InstrHook: InstrHook = (prevPc, opcode, b1, b2, a, x, y, sp, p, clk) => {
+      this.publishCpuInstruction("c64", prevPc, opcode, b1, b2, a, x, y, sp, p, clk);
     };
     (this.c64Cpu as { onInstructionComplete?: InstrHook }).onInstructionComplete = c64InstrHook;
-    const driveInstrHook: InstrHook = (prevPc, opcode, a, x, y, sp, p, clk) => {
-      this.publishCpuInstruction("drive", prevPc, opcode, a, x, y, sp, p, clk);
+    const driveInstrHook: InstrHook = (prevPc, opcode, b1, b2, a, x, y, sp, p, clk) => {
+      this.publishCpuInstruction("drive", prevPc, opcode, b1, b2, a, x, y, sp, p, clk);
     };
     (this.drive.cpu as { onInstructionComplete?: InstrHook }).onInstructionComplete = driveInstrHook;
   }
@@ -569,6 +571,8 @@ export class HeadlessMachineKernel implements MachineKernel {
     side: "c64" | "drive",
     prevPc: number,
     opcode: number,
+    b1: number,
+    b2: number,
     a: number,
     x: number,
     y: number,
@@ -577,13 +581,13 @@ export class HeadlessMachineKernel implements MachineKernel {
     clk: number,
   ): void {
     // Fast path: skip when neither channel nor observer wants it.
-    // (TraceRegistry.publish itself checks observers; the channel-level
-    // isEnabled check is what we elide here when both are off.)
     if (!this.traceRegistry.isEnabled("cpu") && !this.traceRegistry.hasObservers()) return;
     this.traceCtrl.publish("cpu", clk, {
       side,
       pc: prevPc & 0xffff,
       opcode: opcode & 0xff,
+      b1: b1 & 0xff,
+      b2: b2 & 0xff,
       a: a & 0xff,
       x: x & 0xff,
       y: y & 0xff,

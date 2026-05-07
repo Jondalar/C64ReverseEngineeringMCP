@@ -102,12 +102,17 @@ export class Cpu6510 {
    * Args:
    *   prevPc — PC of the instruction that just executed (= opcode address)
    *   opcode — first byte (opcode) of that instruction
+   *   b1, b2 — operand bytes (Cpu6510 doesn't track these in legacy
+   *            path; passes 0/0 — for full operand capture use the
+   *            microcoded Cpu65xxVice)
    *   a, x, y, sp, p — register state AFTER the instruction
    *   clk    — post-instruction CPU cycles
    */
   onInstructionComplete?: (
     prevPc: number,
     opcode: number,
+    b1: number,
+    b2: number,
     a: number,
     x: number,
     y: number,
@@ -146,7 +151,7 @@ export class Cpu6510 {
       // Pass cyclesBefore so the same accounting fix applies.
       this.stepUndocumented(opcode, cyclesBefore);
       // Spec 205-A c4 + Spec 217: instruction-complete edge with full state.
-      this.onInstructionComplete?.(startPc, opcode, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
+      this.onInstructionComplete?.(startPc, opcode, 0, 0, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
       return;
     }
 
@@ -165,7 +170,7 @@ export class Cpu6510 {
     // overshoot stand — peripherals see wall-clock that ticks slightly
     // faster, but it self-corrects on next instruction.
     // Spec 205-A c4 + Spec 217: instruction-complete edge with full state.
-    this.onInstructionComplete?.(startPc, opcode, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
+    this.onInstructionComplete?.(startPc, opcode, 0, 0, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
   }
 
   private stepUndocumented(opcode: number, cyclesBeforeFetch?: number): void {

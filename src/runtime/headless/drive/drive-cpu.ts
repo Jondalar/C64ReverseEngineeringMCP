@@ -437,7 +437,7 @@ export class DriveCpu {
       // backward-compat; pass post-state minimally so signature
       // matches the inner-cpu shape.
       this.onInstructionComplete?.(
-        cycled.pc & 0xffff, 0,
+        cycled.pc & 0xffff, 0, 0, 0,
         cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
         cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
         cycled.cycles,
@@ -454,7 +454,7 @@ export class DriveCpu {
     const before = legacy.cycles;
     legacy.step();
     this.onInstructionComplete?.(
-      legacy.pc & 0xffff, 0,
+      legacy.pc & 0xffff, 0, 0, 0,
       legacy.a, legacy.x, legacy.y, legacy.sp, legacy.flags,
       legacy.cycles,
     );
@@ -472,6 +472,8 @@ export class DriveCpu {
   onInstructionComplete?: (
     prevPc: number,
     opcode: number,
+    b1: number,
+    b2: number,
     a: number,
     x: number,
     y: number,
