@@ -1,7 +1,7 @@
 # 1541 IRQ / FastLoader Bug — motm `LOAD"*",8,1`
 
-**Status:** open — root-cause area narrowed.
-**Last updated:** 2026-05-07 (probes 1-4).
+**Status:** open — root-cause area narrowed; first divergent bit identified.
+**Last updated:** 2026-05-07 (probes 1-4 + Spec 218 prework + bit-swimlane v0).
 
 **Headline:**
 - motm headless stalls after exactly **4096 bytes** received
@@ -34,9 +34,36 @@
   skew during bit-bang RX" in one session vs multi-day previously
 
 **Fix not yet applied** — final root-cause needs cycle-by-cycle
-bit-diff of VICE vs headless during a single TX-3 round.
-Candidate: new spec for cycle-by-cycle drive instruction +
-`$1800` read differ ("Spec 218" placeholder).
+bit-diff of VICE vs headless during the post-4096-byte TX round.
+Tracked by `specs/218-motm-tx3-tx4-bit-level-divergence.md`.
+
+**Spec 218 prework + bit-swimlane v0 (2026-05-07):**
+- `trace-store-diff.mjs --align-anchor ab_entry`: aligned diff; ab_entry
+  Δ = 0 on both sides; rx_byte first-occurrence within tolerance.
+- `anchors.master_clock` column added; LEFT JOIN fallback for legacy stores.
+- All `>>> 0` clock truncation removed (producer + capture scripts).
+- `cpu6510` now captures `b1`/`b2` operand bytes via cycle-neutral
+  memory.read (no perturbation of cycle accounting; verified against
+  Lorenz table).
+- `producer.onBusAccess` field name fixed (`op` not `access`); $DD00
+  + $1800 writes now classified correctly in headless captures.
+- `trace-store-bit-swimlane.mjs`: motm TX#3 bit-swimlane diff.
+  - First **value** divergence at $DD00 write idx 2: VICE writes $C3,
+    headless writes $E3 (12 cycles later).
+  - Bytes 0+1 ($0B, $43) match exactly between VICE and HL.
+  - C64 inner-loop branch differs: VICE hits $429a/$42BC,
+    HL hits $42B2/$42B4 → C64 software chooses different bit-out
+    code path inside bitbang_tx_inner.
+  - Drive PC distribution differs by exactly 24-26 hits at
+    $0716/$0718/$071a/$071c — one-per-bit timing skew on drive side.
+  - $07BE drive_rx_wait: HL +1755 hits over VICE in window — drive
+    spinning ~1.7× longer per byte ack.
+  - Causal chain (proposed): drive cycle skew per bit → drive ACK on
+    IEC arrives at slightly different master_clock → C64 polling read
+    of $DD00 sees different drive-line state → C64 software branches
+    differently in bitbang_tx_inner → emits different bit pattern.
+  - Bucket: **H1 (drive 6502 cycle accounting) primary candidate**;
+    H3 (IEC propagation / poll-loop ordering) secondary.
 
 ## Symptom
 
@@ -478,9 +505,9 @@ Bug is in **drive cycle-accurate timing relative to VIA1 T1**:
   introduces an off-by-one read.
 
 This is a cycle-perfect-emulation hunt requiring bit-by-bit diff
-of VICE vs headless during a single TX-3 round. First divergent
-sample identifies the timing source. Out of scope for this
-session.
+of VICE vs headless during the TX3/TX4 handoff around the 4096-byte
+stall. First divergent sample identifies the timing source. See
+`specs/218-motm-tx3-tx4-bit-level-divergence.md`.
 
 ### Session conclusion
 
@@ -532,12 +559,13 @@ requiring more captures. Deferred.
 
 ## Next step (when resuming)
 
-Phase 1 — read-only diff against VICE (no code):
+Implement `specs/218-motm-tx3-tx4-bit-level-divergence.md`:
 
-1. Find a VICE c64-history chunk where c64 transitions OUT of `$43C7`
-   loop into `$43CF` (escape).
-2. Read the surrounding 10-20 instructions (c64 + drive at same clock).
-3. Identify the exact register / IRQ event that triggered escape.
+1. Add aligned trace diffing via `--align-anchor ab_entry`.
+2. Generate the MoTM TX3/TX4 bit-swimlane report around the
+   post-4096-byte command.
+3. Classify the first divergent bit as drive CPU cycle accounting,
+   VIA1 T1 arithmetic, or IEC propagation/poll-loop timing.
 4. Verify that event does not occur in our stuck-trace.
 
 Phase 2 — only if Phase 1 inconclusive: enable Spec 205-A `cpu`
