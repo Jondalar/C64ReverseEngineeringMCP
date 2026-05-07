@@ -313,6 +313,63 @@ value drive observed must differ**. Either:
 Tools needed: nothing new. All queryable via existing
 `trace_store_query` against the two duckdb stores.
 
+### Probe 2026-05-07 (cont. 2) — drive VIA1 IFR collapse to 0
+
+Queried drive `$180D` (VIA1 IFR) read trajectory in headless capture.
+Drive ROM polls `$180D` at PC `$FE6C` (= IRQ handler dispatch), so
+the value seen at each read is the IFR state at that moment.
+
+Headless:
+```
+33.85M-35.34M: value=$40 (T1 only) repeating every ~14000 cyc
+35.34M:        value=$42 (T1 + CA1, ATN edge fired)
+35.37M+:       value=$00 forever  ← collapse
+```
+
+VICE same window:
+```
+50.91M-50.95M: value=$09 (CA2 + CB2)
+51.07M-51.21M: value=$FF (all bits set, IRQ master)
+```
+
+VIA T1 is in free-run mode (ACR bit 6=1) so it should underflow
+indefinitely. **Headless T1 stops underflowing at ~master_clock
+35.37M.** Drive ROM IRQ handler stops being called → drive returns
+to wait → never wakes → c64 stuck in $43C7.
+
+Two issues confirmed in our VIA core:
+
+1. **`via6522-vice.ts:1019` — IFR read masks bit 7:**
+   ```ts
+   case VIA_IFR:
+     return u8(this.ifr & 0x7f);   // wrong — strips IRQ-master flag
+   ```
+   VICE keeps bit 7 set when `(ifr & ier) != 0`. Cosmetic but
+   visible in diff (our max IFR value $7F vs VICE $FF).
+
+2. **VIA T1 alarm not re-arming after some condition:** the timer
+   stops fully at master_clock 35.37M. Most plausible causes:
+   - Free-run reload path drops the alarm under a specific PB7
+     output state.
+   - `viacoreT1` state machine missed a free-run vs one-shot
+     transition.
+   - Alarm context lost the T1 entry during a sleep/wake/reset
+     cycle in `executeToClock`.
+
+Bit pattern divergence is an additional clue: VICE shows CA2/CB2
+bits ($01, $08), headless does not. Our `via1d1541.ts:122-124`
+hardcodes `setCa2`/`setCb2` to no-op — VICE may have internal
+CA2/CB2 transitions during VIA boundary cycles that we elide.
+
+### Concrete root-cause hunt
+
+Now reduced to: read `viacoreT1` / `viacore_t1_zero_alarm` in
+`via6522-vice.ts` and find the condition under which T1 alarm
+re-schedule fails. The diff trajectory pinpoints the moment
+(35.37M) — by sampling drive `$1804/$1805` (T1 counter regs)
+and `$180B` (ACR) writes immediately before that moment we get
+the exact register state at the failure.
+
 ## Trace + reproduction
 
 - Repro script: `scripts/diag-motm-stuck.mjs`
