@@ -192,6 +192,32 @@ the actor (c64/drive) and the cycle at which the c64-visible vs
 drive-visible state first reflects the change. Diff that across
 VICE vs HL within the divergence window.
 
+**Stop-point — fix NOT applied (2026-05-07 EOD):**
+
+Current trace store provides per-bus-access events, but the bug lives
+between those events — in the IEC line-resolution layer (open-collector
+AND of c64+drive line outputs). To pinpoint the off-by-one we need
+either:
+
+1. A per-master-clock IEC line state snapshot channel (atn/clk/data
+   plus actor), so we can diff cycle-by-cycle which side commits its
+   transition first.
+2. A per-drive-cycle opcode timing snapshot, so we can confirm whether
+   accumulated drift over thousands of ROM-idle iterations changes the
+   observed "drive transitioning" vs "drive stable" perception.
+
+Neither exists yet. Analysis of `iec-bus.ts` + `iec-bus-core.ts` shows
+the VICE port is 1:1 (Spec 140 v3) with no obvious off-by-one. The
+bug therefore lives in either:
+
+- the order in which the kernel scheduler interleaves drive_store_pb
+  and c64_store_dd00 calls within a single master_clock tick, or
+- a 1-cycle difference in when `iec_update_ports()` runs relative to
+  c64 read of cpu_port (`buildC64InputBits`).
+
+Fix attempts without the targeted instrumentation would be speculation.
+Pause here; resume with new spec for the IEC-line-edge channel.
+
 ## Symptom
 
 motm `LOAD"*",8,1` hangs forever after KERNAL hand-off into custom
