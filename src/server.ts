@@ -23,6 +23,7 @@ import { registerPayloadTools } from "./server-tools/payloads.js";
 import { registerRegistrationTools } from "./server-tools/registration.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
+import { registerTraceStoreTools } from "./server-tools/trace-store.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
 import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
 import { registerViceTools } from "./server-tools/vice.js";
@@ -149,6 +150,7 @@ function createServer(): McpServer {
   registerInspectRangeTools(server, toolContext);
   registerDiskG64Tools(server, toolContext);
   registerHeadlessTools(server, toolContext);
+  registerTraceStoreTools(server, toolContext);
   registerReferenceTools(server, toolContext, repoDir());
   registerPromptTools(server, { readTextFile, repoRoot: repoDir() });
   registerPayloadTools(server, toolContext);
