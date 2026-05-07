@@ -431,8 +431,17 @@ export class DriveCpu {
       // Tick at least once, then until back at boundary.
       cycled.executeCycle();
       while (!cycled.isAtInstructionBoundary()) cycled.executeCycle();
-      // Spec 205-A c4: instruction-complete edge for cpu trace channel.
-      this.onInstructionComplete?.(cycled.pc & 0xffff, cycled.cycles);
+      // Spec 205-A c4 / Spec 217: inner cpu's onInstructionComplete
+      // (installed by kernel directly on this.cpu) fires inside the
+      // microcode dispatch above. The wrapper hook below is kept for
+      // backward-compat; pass post-state minimally so signature
+      // matches the inner-cpu shape.
+      this.onInstructionComplete?.(
+        cycled.pc & 0xffff, 0,
+        cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
+        cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
+        cycled.cycles,
+      );
       return cycled.cycles - before;
     }
     const legacy = this.cpu as Cpu6510;
@@ -444,14 +453,30 @@ export class DriveCpu {
     }
     const before = legacy.cycles;
     legacy.step();
-    this.onInstructionComplete?.(legacy.pc & 0xffff, legacy.cycles);
+    this.onInstructionComplete?.(
+      legacy.pc & 0xffff, 0,
+      legacy.a, legacy.x, legacy.y, legacy.sp, legacy.flags,
+      legacy.cycles,
+    );
     return legacy.cycles - before;
   }
 
   /**
-   * Spec 205-A c4: kernel-installed instruction-complete callback.
-   * Set externally (e.g. by HeadlessMachineKernel) so the drive CPU
-   * doesn't depend on the kernel module directly.
+   * Spec 205-A c4 / Spec 217: kernel-installed instruction-complete
+   * callback. Set externally (e.g. by HeadlessMachineKernel) so the
+   * drive CPU doesn't depend on the kernel module directly. Mirrors
+   * the inner cpu signature; in practice the kernel installs the hook
+   * on `this.cpu` directly and the wrapper-level dispatch below is
+   * unused (kept for backward-compat).
    */
-  onInstructionComplete?: (pc: number, clk: number) => void;
+  onInstructionComplete?: (
+    prevPc: number,
+    opcode: number,
+    a: number,
+    x: number,
+    y: number,
+    sp: number,
+    p: number,
+    clk: number,
+  ) => void;
 }

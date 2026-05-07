@@ -96,11 +96,25 @@ export class Cpu6510 {
   onInterruptServiced?: (vectorAddress: number, clk: number) => void;
 
   /**
-   * Spec 205-A c4: kernel-installed callback fired AFTER each
-   * instruction commits. PC = address of next instruction; clk =
-   * post-instruction CPU cycles.
+   * Spec 205-A c4 + Spec 217 ext: kernel-installed callback fired
+   * AFTER each instruction commits.
+   *
+   * Args:
+   *   prevPc — PC of the instruction that just executed (= opcode address)
+   *   opcode — first byte (opcode) of that instruction
+   *   a, x, y, sp, p — register state AFTER the instruction
+   *   clk    — post-instruction CPU cycles
    */
-  onInstructionComplete?: (pc: number, clk: number) => void;
+  onInstructionComplete?: (
+    prevPc: number,
+    opcode: number,
+    a: number,
+    x: number,
+    y: number,
+    sp: number,
+    p: number,
+    clk: number,
+  ) => void;
 
   serviceInterrupt(vectorAddress: number, breakFlag = false): number {
     // Spec 203-c4: stamp before the 7-cycle entry so servicedClock
@@ -123,6 +137,7 @@ export class Cpu6510 {
     // instruction over-counted by 1 because info.cycles (which includes
     // the fetch) was added on top of the fetch's already-charged cycle.
     const cyclesBefore = this.cycles;
+    const startPc = this.pc & 0xffff;
     const opcode = this.read(this.pc);
     const info = OPCODE_TABLE[opcode];
     if (!info) {
@@ -130,8 +145,8 @@ export class Cpu6510 {
       // src/6510core.c). MM/Murder loaders rely on SLO/SRE/RLA/RRA etc.
       // Pass cyclesBefore so the same accounting fix applies.
       this.stepUndocumented(opcode, cyclesBefore);
-      // Spec 205-A c4: instruction-complete edge for "cpu" trace channel.
-      this.onInstructionComplete?.(this.pc & 0xffff, this.cycles);
+      // Spec 205-A c4 + Spec 217: instruction-complete edge with full state.
+      this.onInstructionComplete?.(startPc, opcode, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
       return;
     }
 
@@ -149,8 +164,8 @@ export class Cpu6510 {
     // Note: if accessesDone > info.cycles (rare overcount), let the
     // overshoot stand — peripherals see wall-clock that ticks slightly
     // faster, but it self-corrects on next instruction.
-    // Spec 205-A c4: instruction-complete edge for "cpu" trace channel.
-    this.onInstructionComplete?.(this.pc & 0xffff, this.cycles);
+    // Spec 205-A c4 + Spec 217: instruction-complete edge with full state.
+    this.onInstructionComplete?.(startPc, opcode, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
   }
 
   private stepUndocumented(opcode: number, cyclesBeforeFetch?: number): void {

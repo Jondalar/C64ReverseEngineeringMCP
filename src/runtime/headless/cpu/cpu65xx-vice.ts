@@ -90,6 +90,8 @@ interface InstructionState {
   branchOffset: number;
   /** PC at fetch_opcode — used for cycle-stamp tracking. */
   opcodePc: WORD;
+  /** Spec 217: raw opcode byte; needed at instruction-complete hook. */
+  opcodeByte: BYTE;
 }
 
 export interface Cpu65xxOptions {
@@ -488,14 +490,18 @@ export class Cpu65xxVice implements CycleSteppable {
     const entry = MICROCODE_TABLE[opcode];
     if (!entry) {
       this.executeIllegalOpcode(opcode, pcFetch);
+      // Spec 217: instruction-complete for illegal opcodes too.
+      this.onInstructionComplete?.(pcFetch, opcode & 0xff, this.reg_a, this.reg_x, this.reg_y, this.reg_sp, this.reg_p, this.clk);
       return;
     }
     const microcode = ADDR_MODE_PATTERNS[entry.pattern];
     if (microcode.length <= 1) {
-      this.executeFinalOp(entry, this.makeFreshState(entry, microcode, pcFetch));
+      this.executeFinalOp(entry, this.makeFreshState(entry, microcode, pcFetch, opcode));
+      // Spec 217: single-cycle dispatched instruction also fires hook.
+      this.onInstructionComplete?.(pcFetch, opcode & 0xff, this.reg_a, this.reg_x, this.reg_y, this.reg_sp, this.reg_p, this.clk);
       return;
     }
-    this.inst = this.makeFreshState(entry, microcode, pcFetch);
+    this.inst = this.makeFreshState(entry, microcode, pcFetch, opcode);
     this.inst.microIdx = 1;
     this.atBoundary = false;
   }
@@ -507,20 +513,23 @@ export class Cpu65xxVice implements CycleSteppable {
     const isFinal = inst.microIdx >= inst.microcode.length;
     this.executeMicroOp(op, inst);
     if (isFinal) {
+      const prevPc = inst.opcodePc & 0xffff;
+      const opcodeByte = inst.opcodeByte & 0xff;
       this.executeFinalOp(inst.entry, inst);
       this.atBoundary = true;
       this.inst = null;
-      // Spec 205-A c4: instruction-complete edge for "cpu" trace channel.
-      this.onInstructionComplete?.(this.reg_pc & 0xffff, this.clk);
+      // Spec 205-A c4 + Spec 217: instruction-complete edge with full state.
+      this.onInstructionComplete?.(prevPc, opcodeByte, this.reg_a, this.reg_x, this.reg_y, this.reg_sp, this.reg_p, this.clk);
     }
   }
 
-  private makeFreshState(entry: MicrocodeEntry, microcode: string[], pcFetch: WORD): InstructionState {
+  private makeFreshState(entry: MicrocodeEntry, microcode: string[], pcFetch: WORD, opcodeByte: BYTE): InstructionState {
     return {
       entry, microIdx: 0, microcode,
       operandLo: 0, operandHi: 0, ea: 0, indPtr: 0,
       fetchedValue: 0, branchOffset: 0,
       opcodePc: pcFetch,
+      opcodeByte,
     };
   }
 
@@ -887,12 +896,26 @@ export class Cpu65xxVice implements CycleSteppable {
   onInterruptServiced?: (vectorAddress: number, clk: number) => void;
 
   /**
-   * Spec 205-A c4: kernel-installed callback fired AFTER each
-   * instruction commits (final micro-op of the microcode dispatch).
-   * PC = address of the next instruction's first opcode byte; clk =
-   * post-instruction CPU cycles.
+   * Spec 205-A c4 + Spec 217 ext: kernel-installed callback fired
+   * AFTER each instruction commits (final micro-op of the microcode
+   * dispatch).
+   *
+   * Args:
+   *   prevPc — PC of the instruction that just executed (= opcode address)
+   *   opcode — first byte (opcode) of that instruction
+   *   a, x, y, sp, p — register state AFTER the instruction
+   *   clk    — post-instruction CPU cycles
    */
-  onInstructionComplete?: (pc: number, clk: number) => void;
+  onInstructionComplete?: (
+    prevPc: number,
+    opcode: number,
+    a: number,
+    x: number,
+    y: number,
+    sp: number,
+    p: number,
+    clk: number,
+  ) => void;
 
   serviceInterrupt(vectorAddress: WORD, breakFlag = false): WORD {
     const va = u16(vectorAddress);
@@ -952,6 +975,7 @@ export class Cpu65xxVice implements CycleSteppable {
         { op: kind, mode: mode as any, cycles, pattern: 'imp' },
         this.makeBurnPattern(cycles),
         opcodePc,
+        opcode,
       );
       this.inst.microIdx = 1;
     }

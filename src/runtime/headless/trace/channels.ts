@@ -112,6 +112,10 @@ export class TraceRegistry {
     };
   }
 
+  hasObservers(): boolean {
+    return this.observers.length > 0;
+  }
+
   getRing(name: ChannelName): TraceEvent[] {
     return this.channels.get(name)?.getRing() ?? [];
   }

@@ -121,10 +121,22 @@ const producer = new TraceStoreProducer({
   capacity: 65536,
 });
 
-const { session } = startIntegratedSession({ diskPath, mode: traceMode });
+// Spec 142: bus-access tracing wired via integrated-session option.
+// Without enableBusAccessTrace=true the producer never installs hooks
+// on $DD00/$1800, so the bus_access channel stays empty.
+const { session } = startIntegratedSession({
+  diskPath,
+  mode: traceMode,
+  enableBusAccessTrace: true,
+  // Empty PC ranges = no filter = capture all $DD00 and $1800 events.
+  busAccessPcRangesC64: [],
+  busAccessPcRangesDrive: [],
+});
 session.resetCold("pal-default");
 
-// Enable channels in ring mode (cheap, observer fires regardless).
+// Enable channels in ring mode (cheap, observer fires regardless via
+// Spec 217 option B). bus_access producer also requires the channel
+// to be enabled to actually publish.
 const reg = session.traceRegistry;
 for (const name of ["cpu", "iec", "irq", "cia", "vic", "gcr", "bus_access"]) {
   reg.configure(name, { mode: "ring", capacity: 16 });

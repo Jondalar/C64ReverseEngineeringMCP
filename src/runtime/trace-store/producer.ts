@@ -90,13 +90,20 @@ export class TraceStoreProducer {
     const clk = ev.ts;
     const mc = this.opts.masterClockMapper?.(side, clk);
     const chunk = this.ensureCpuChunk(side);
+    // Spec 217: full register state from publishCpuInstruction.
+    const opcode = (ev.data.opcode as number) ?? 0;
+    const a = (ev.data.a as number) ?? 0;
+    const x = (ev.data.x as number) ?? 0;
+    const y = (ev.data.y as number) ?? 0;
+    const sp = (ev.data.sp as number) ?? 0;
+    const p = (ev.data.p as number) ?? 0;
     appendInstruction(chunk, {
       seq: this.cpuSeq[side]++,
       clock: BigInt(clk >>> 0),
       masterClock: mc,
       pc: pc & 0xffff,
-      opcode: 0,         // not yet captured at channel emit (Spec 205-A c4)
-      a: 0, x: 0, y: 0, sp: 0, p: 0,
+      opcode: opcode & 0xff,
+      a: a & 0xff, x: x & 0xff, y: y & 0xff, sp: sp & 0xff, p: p & 0xff,
     });
     if (chunkIsFull(chunk)) this.flushInstruction(side);
   }

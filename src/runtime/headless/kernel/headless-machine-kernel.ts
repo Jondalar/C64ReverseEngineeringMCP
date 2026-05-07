@@ -535,28 +535,60 @@ export class HeadlessMachineKernel implements MachineKernel {
     };
     (this.drive.cpu as { onInterruptServiced?: typeof driveHook }).onInterruptServiced = driveHook;
 
-    // Spec 205-A c4: instruction-complete edges → "cpu" trace channel.
-    // Both Cpu6510 (legacy) and Cpu65xxVice (microcoded) expose the
-    // same `onInstructionComplete` shape; install per side.
-    const c64InstrHook = (pc: number, clk: number) => {
-      this.publishCpuInstruction("c64", pc, clk);
+    // Spec 205-A c4 + Spec 217: instruction-complete edges → "cpu"
+    // trace channel. Hook receives full register state at boundary so
+    // the trace store can record A/X/Y/SP/P + opcode alongside PC.
+    type InstrHook = (
+      prevPc: number,
+      opcode: number,
+      a: number,
+      x: number,
+      y: number,
+      sp: number,
+      p: number,
+      clk: number,
+    ) => void;
+    const c64InstrHook: InstrHook = (prevPc, opcode, a, x, y, sp, p, clk) => {
+      this.publishCpuInstruction("c64", prevPc, opcode, a, x, y, sp, p, clk);
     };
-    (this.c64Cpu as { onInstructionComplete?: typeof c64InstrHook }).onInstructionComplete = c64InstrHook;
-    const driveInstrHook = (pc: number, clk: number) => {
-      this.publishCpuInstruction("drive", pc, clk);
+    (this.c64Cpu as { onInstructionComplete?: InstrHook }).onInstructionComplete = c64InstrHook;
+    const driveInstrHook: InstrHook = (prevPc, opcode, a, x, y, sp, p, clk) => {
+      this.publishCpuInstruction("drive", prevPc, opcode, a, x, y, sp, p, clk);
     };
-    (this.drive.cpu as { onInstructionComplete?: typeof driveInstrHook }).onInstructionComplete = driveInstrHook;
+    (this.drive.cpu as { onInstructionComplete?: InstrHook }).onInstructionComplete = driveInstrHook;
   }
 
   /**
-   * Spec 205-A c4: publish a CPU instruction-complete event to the
-   * "cpu" trace channel. No-op when channel mode = "off".
+   * Spec 205-A c4 + Spec 217: publish a CPU instruction-complete
+   * event to the "cpu" trace channel with full post-instruction
+   * register state. No-op when channel mode = "off" AND no observer
+   * is attached (TraceRegistry.publish short-circuits before per-channel
+   * dispatch but observers fire regardless — see Spec 217 option B).
    */
-  publishCpuInstruction(side: "c64" | "drive", pc: number, clk: number): void {
-    if (!this.traceRegistry.isEnabled("cpu")) return;
+  publishCpuInstruction(
+    side: "c64" | "drive",
+    prevPc: number,
+    opcode: number,
+    a: number,
+    x: number,
+    y: number,
+    sp: number,
+    p: number,
+    clk: number,
+  ): void {
+    // Fast path: skip when neither channel nor observer wants it.
+    // (TraceRegistry.publish itself checks observers; the channel-level
+    // isEnabled check is what we elide here when both are off.)
+    if (!this.traceRegistry.isEnabled("cpu") && !this.traceRegistry.hasObservers()) return;
     this.traceCtrl.publish("cpu", clk, {
       side,
-      pc: pc & 0xffff,
+      pc: prevPc & 0xffff,
+      opcode: opcode & 0xff,
+      a: a & 0xff,
+      x: x & 0xff,
+      y: y & 0xff,
+      sp: sp & 0xff,
+      p: p & 0xff,
       clk,
     });
   }
