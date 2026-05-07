@@ -68,6 +68,7 @@
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
+    "@duckdb/node-api": "^1.5.2-r.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
