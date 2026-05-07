@@ -370,6 +370,49 @@ re-schedule fails. The diff trajectory pinpoints the moment
 and `$180B` (ACR) writes immediately before that moment we get
 the exact register state at the failure.
 
+### Probe 2026-05-07 (cont. 3) — bit 7 fix tried, not the bug
+
+Verified the read-path IFR (`via6522-vice.ts:963`) already had
+the bit-7 master flag computed correctly. The peek-path
+(line 1018) was missing it; fixed for consistency with VICE
+but it doesn't affect production reads.
+
+Re-captured motm 60s after the fix: **identical anchor counts**
+(rx_byte = 4096, drive_rx_active = 4096, game_handoff = 0).
+Bit 7 was not the cause.
+
+New evidence: drive ROM enters `$FE6C` (IRQ handler) **1388
+times in 24M cyc post-stall window** vs 1077 pre-stall. So
+IRQs continue firing — the VIA1 IRQ pin still asserts
+periodically. But drive's `$180D` read returns 0.
+
+That means the IFR bit being asserted at IRQ-pin-trigger time
+gets cleared between trigger and the read. Possible:
+- Drive's IRQ handler reads a register that auto-clears the
+  bit (T1CL clears T1, PRA clears CA1, PRB clears CB1, etc.)
+  before reading `$180D`. The IFR read then shows the
+  remaining bits, which happen to be zero.
+- IFR write `$180D = 0xff` clears all bits, but our trace
+  shows zero IFR writes in the window.
+
+Open: need to instrument the alarm callback `onT1ZeroAlarm`
+with a counter to confirm whether T1 alarm fires after
+master_clock 35.37M. If yes, IFR clear-on-read elsewhere is
+removing the bit before it can be observed. If no, alarm
+re-arm is broken.
+
+Other anchor-count delta still standing as primary:
+- VICE `bitbang_tx_24bit` 250 vs headless 3
+- VICE `drive_rx_active` 531K vs headless 4096
+
+The "drive jumps to wrong handler after TX 3" finding stands.
+The deeper "why does T1/CA1 IFR collapse" finding remains open.
+
+Tools state: trace store queries provide the divergence pinpoint;
+adding instrumented logging in `via6522-vice.ts` (or a per-event
+emit on the kernel trace registry) would close the gap without
+requiring more captures. Deferred.
+
 ## Trace + reproduction
 
 - Repro script: `scripts/diag-motm-stuck.mjs`
