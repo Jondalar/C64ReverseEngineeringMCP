@@ -66,7 +66,7 @@ check("kernel attached to session", () => {
 check("kernel.status() valid shape", () => {
   const s = kernel.status();
   if (typeof s.mode !== "string") throw new Error(`mode not string: ${typeof s.mode}`);
-  if (s.mode !== "debug-lockstep") throw new Error(`mode != debug-lockstep, got ${s.mode}`);
+  if (s.mode !== "true-drive") throw new Error(`mode != true-drive, got ${s.mode}`);
   if (!Array.isArray(s.hooks)) throw new Error("hooks not array");
   // Spec 204: hooks now registered at kernel construction. Default
   // mode = debug-lockstep, all fireCounts must start at 0.
@@ -79,6 +79,19 @@ check("kernel.status() valid shape", () => {
   if (typeof s.c64Clock !== "number") throw new Error("c64Clock not number");
   if (!s.driveClocks || typeof s.driveClocks[8] !== "number") throw new Error("driveClocks[8] not number");
   if (!Array.isArray(s.mediaSlots) || s.mediaSlots.length === 0) throw new Error("mediaSlots empty");
+});
+
+check("true-drive runs event/catch-up, not lockstep", () => {
+  const status = session.status();
+  if (status.runtime.mode !== "true-drive") {
+    throw new Error(`session mode != true-drive, got ${status.runtime.mode}`);
+  }
+  if (status.runtime.useCycleLockstep) {
+    throw new Error("true-drive must not enable useCycleLockstep");
+  }
+  if (!status.runtime.useMicrocodedCpu) {
+    throw new Error("true-drive must keep useMicrocodedCpu enabled");
+  }
 });
 
 check("kernel owns alarm contexts (Spec 200-c2)", () => {

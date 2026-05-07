@@ -1,8 +1,9 @@
 # ADR / Spec: Headless Machine Kernel
 
-**Status:** Accepted (2026-05-06). Binding for all V1/V2/V3 emulator-core
-work. Supersedes `docs/headless-core-synchronization-refactor.md` and the
-legacy Sprint 112/113 spec slate (specs 137-153). Spec cut lives in
+**Status:** Accepted (2026-05-06). Amended 2026-05-06 with Pi1541
+architecture lessons. Binding for all V1/V2/V3 emulator-core work.
+Supersedes `docs/headless-core-synchronization-refactor.md` and the legacy
+Sprint 112/113 spec slate (specs 137-153). Spec cut lives in
 `EPIC_ROADMAP.md`.
 
 **Date:** 2026-05-06
@@ -80,6 +81,41 @@ The core issue is not TypeScript. A synchronous Node process can behave
 like one native emulator binary. The issue is that the runtime does not
 yet have one authoritative machine-kernel contract.
 
+### 2.1 External Reference: Pi1541
+
+Pi1541 is a useful behavioral and architectural reference:
+
+- upstream: <https://github.com/pi1541/Pi1541>
+- role: cycle-sensitive 1541 emulator attached to a real C64 over GPIO
+- license: GPLv3, therefore reference only; do not copy source into this
+  MIT project
+
+Pi1541 is not the same product as C64RE. It does not emulate the C64
+side. It emulates a 1541 device that must satisfy a real C64's IEC
+timing. That makes it especially useful for V1 TrueDrive work.
+
+Relevant lessons:
+
+1. A working 1541 emulator is one tight synchronous loop, not several
+   loosely connected services. The loop samples IEC, advances the drive
+   CPU, updates VIA/disk/mechanics, and applies real-time pacing in a
+   fixed order.
+2. The disk side is hardware behavior, not "return next GCR byte". Motor,
+   density, head movement, write-protect, byte-ready, SYNC, SO/V flag,
+   and shift-register phase are coupled.
+3. IEC is not three plain booleans. Direction bits, line drivers,
+   ATNA/ATN gating, drive VIA1 port readback, and CA1 edge signaling are
+   one hardware boundary.
+4. Reset order is observable. VIA input defaults, drive state, IEC state,
+   and CPU reset must be initialized by one owner.
+5. CPU and VIA timing are per-cycle concerns. Whole-instruction execution
+   plus approximate cycle accounting is not enough for 1541 firmware and
+   custom loaders.
+
+These lessons do not replace VICE as the compatibility oracle. They
+support the same conclusion: C64RE needs a central machine kernel with
+explicit clock domains and bus events.
+
 ## 3. Architecture Decision
 
 ### Decision A: One Machine Kernel Owns Time
@@ -126,6 +162,9 @@ Production TrueDrive mode must use VICE-compatible observable semantics:
 
 The production target is not "physical wires in abstract". The target
 is VICE-compatible behavior first, because VICE is the working oracle.
+Pi1541 is a secondary reference that validates the same shape from the
+real-device side: tight ordering, explicit line direction, per-cycle VIA
+behavior, and hardware-like GCR side effects.
 
 ### Decision C: Lockstep Is Diagnostic, Not Production Acceptance
 
@@ -194,6 +233,25 @@ interface KernelBus {
 Local RAM/ROM can stay local for performance. I/O and all cross-domain
 surfaces must enter the kernel.
 
+### Decision F: Event Order Is Part Of The Emulator Contract
+
+The kernel must document and own the observable order of events. Ordering
+must not be an accidental side effect of callback nesting.
+
+At minimum, the true-drive loop defines deterministic points for:
+
+1. clock-domain catch-up
+2. CPU/VIA/CIA/VIC/GCR alarm dispatch
+3. CPU micro-cycle or instruction phase
+4. bus read/write mutation
+5. IEC port recomputation/cache update
+6. CA1/CB1/IRQ/NMI/SO edge delivery
+7. trace emission
+
+The exact implementation can be optimized, but the observable ordering
+must be testable and traceable. A fix that depends on a hidden callback
+order is not accepted.
+
 ## 4. Required Kernel Subsystems
 
 ### 4.1 Clock Domains
@@ -252,6 +310,21 @@ IEC is a kernel-owned bus core with VICE-compatible cached state:
 C64 `$DD00` read/write and drive `$1800` read/write must use this core.
 There must be no parallel "released flag" bus model in production.
 
+IEC must model the 1541 hardware boundary explicitly:
+
+- C64 CIA2 port A output value and DDR
+- drive VIA1 port B output value and DDR
+- ATN input to drive VIA1
+- ATNA / ATN-acknowledge gate behavior
+- DATA and CLK drivers as active pull-down participants
+- port readback as the drive ROM sees it
+- CA1 edge signal timing from ATN transitions
+
+This is the area where Pi1541 is most instructive: the IEC bus is
+implemented as line drivers plus port-direction semantics, not as
+independent flags. C64RE may cache state VICE-style, but that cache must
+represent the same hardware boundary.
+
 ### 4.5 GCR / Disk Rotation
 
 The kernel owns disk rotation timing:
@@ -266,6 +339,21 @@ The kernel owns disk rotation timing:
 
 Drive VIA2 exposes this state. VIA2 does not independently tick disk
 rotation.
+
+The GCR/disk subsystem must be validated as a hardware timing path:
+
+- VIA2 PB motor/head/density outputs drive the disk model
+- density changes affect bit timing
+- byte-ready/SO events are generated by disk-side phase, not by a file
+  reader callback
+- SYNC detection is based on bitstream history
+- read and write paths share the same rotation/head state
+- G64 parser correctness is not assumed broken without parser-specific
+  evidence
+
+Pi1541's drive code shows the right level of abstraction: emulate the
+observable counters, shift registers, phase, and side effects. C64RE does
+not need identical code, but it needs equivalent observable behavior.
 
 ### 4.6 VIC / Render
 
@@ -303,6 +391,23 @@ For V3:
 - SID playback becomes a UI/export client of kernel SID state
 - JS/WASM SID or resid/fastsid-style implementation can be plugged in
 - audio must not fork emulator timing
+
+### 4.8 Reset / Power-On Contract
+
+Reset and power-on are kernel responsibilities.
+
+Required:
+
+- one reset entry point for C64 plus attached drives
+- documented order for CPU, CIA, VIA, VIC, SID, IEC, media, and drive
+  mechanics
+- byte-level defaults for software-visible registers and input pins
+- trace event for reset/power-on with selected mode and mounted media
+- no component may silently reinitialize peer state after reset
+
+Pi1541 reinforces that reset ordering matters: VIA input defaults and
+IEC line state must be established before drive firmware starts relying
+on them.
 
 ## 5. Mandatory Trace Contract
 
@@ -734,6 +839,14 @@ and headless bugs diverge.
 Rejected as a code strategy because of license and maintainability.
 Accepted as a behavioral oracle: reproduce observable behavior and use
 VICE traces as acceptance evidence.
+
+#### Copy Pi1541 source directly
+
+Rejected as a code strategy because Pi1541 is GPLv3 and targets a
+different product shape: a 1541 device attached to a real C64. Accepted
+as an architectural reference for 1541 timing, IEC line direction,
+ATNA/CA1 behavior, VIA execution, disk motor/head/density coupling, and
+reset ordering.
 
 ## 14. Next Specs
 

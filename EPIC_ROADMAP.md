@@ -65,6 +65,13 @@ V3 must not fork a second emulator path. UI is a kernel client.
   cross-domain pokes, no hidden traps.
 - **E** — Cross-domain bus access goes through `KernelBus` with a
   `BusAccessContext`.
+- **F** — Event order is part of the emulator contract. Ordering must
+  be documented, traceable, and owned by the kernel.
+
+The ADR also records Pi1541 as a GPLv3 reference-only source for 1541
+timing, IEC line direction, ATNA/CA1 behavior, VIA execution,
+GCR/motor/head coupling, and reset ordering. VICE remains the
+compatibility oracle.
 
 Production modes (ADR §7): `fast-trap`, `real-kernal`, `true-drive`,
 `debug-vice-compare`. Diagnostic: `debug-lockstep`, `debug-push-only`,

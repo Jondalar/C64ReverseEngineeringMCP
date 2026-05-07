@@ -1,7 +1,7 @@
 # Spec 202 — Drive catch-up private to kernel
 
 **Sprint:** 117
-**Status:** IN PROGRESS — c1/c2 done 2026-05-06; c3 (default flip) deferred
+**Status:** DONE 2026-05-06 — c1-c5 complete
 **ADR:** Decision A, Decision D, §8 Step 3
 **Depends on:** 201
 **Blocks:** 203, 212, 213
@@ -14,17 +14,26 @@
   classes. `kernel.catchUpDrive` is the public-on-kernel entry point.
 - **c2 ✓ 2026-05-06** — All five `drive.executeToClock` callsites in
   IntegratedSession replaced with `kernel.catchUpDrive(8, ...)`,
-  plus the kernel-internal `beforeC64Read` hook. ADR §10 criterion 4
-  structurally satisfied: every external drive-clock advance goes
-  through the kernel.
-- **c3 (deferred)** — Flip the production default mode from
-  `debug-lockstep` to `true-drive`. Requires a real
-  EventCatchupStrategy run-loop that schedules cross-domain bus
-  events instead of ticking drive every C64 cycle. Currently
-  EventCatchupStrategy delegates run/runInstructions to the
-  lockstep scheduler; the flip lands once the run-loop owns its
-  own scheduling. This is also when production smokes start
-  reporting `mode: 'true-drive'`.
+  then the legacy `IecBus.beforeC64Read` hook was removed from the
+  production path. `$DD00` read/write now performs catch-up at the
+  `KernelBus` boundary. ADR §10 criterion 4 structurally satisfied:
+  every external drive-clock advance goes through the kernel.
+- **c3 ✓ 2026-05-06** — `true-drive` and `debug-vice-compare`
+  presets now run microcoded CPU with `useCycleLockstep=false`.
+  Microcoded C64 stepping was decoupled from the lockstep scheduler
+  and runs through an event/catch-up instruction loop; `$DD00`
+  accesses still push-flush the drive through the kernel-owned
+  catch-up path. Production smokes now report `mode: 'true-drive'`
+  and `useCycleLockstep=false`.
+- **c4 ✓ 2026-05-06** — `EventCatchupStrategy` owns the true-drive
+  `runCycles` / `runInstructions` loop. `HeadlessMachineKernel`
+  routes through `SyncStrategy`: `EventCatchupStrategy` for
+  true-drive, `LockstepStrategy` only when a diagnostic lockstep
+  scheduler is explicitly present.
+- **c5 ✓ 2026-05-06** — `audit:no-peer-tick` now fails on any
+  production `.executeToClock(...)` invocation outside kernel strategy
+  code and `DriveCpu` internals. This enforces the public contract even
+  though TypeScript visibility remains public for the kernel strategy.
 
 ## Goal
 
@@ -40,16 +49,18 @@ strategy per ADR §3 Decision C and ADR §7.
 ## Scope
 
 - `DriveCpu.executeToClock` visibility lowered (TS `internal` /
-  module-private).
-- Kernel adds `kernel.catchUpDrive(targetClock, device)` used only by
-  `KernelBus` cross-domain access points.
+  module-private). **Enforced by audit in c5; TS visibility remains
+  public for strategy access.**
+- Kernel adds `kernel.catchUpDrive(targetClock, device)` used by
+  cross-domain access points. **Done.**
 - Search audit: zero production callers of `executeToClock` outside
-  kernel.
+  kernel. **Done.**
 - New `EventCatchupStrategy implements SyncStrategy`, becomes default.
+  **Done.**
 - `LockstepStrategy` (from Spec 200) stays selectable as
-  `debug-lockstep` mode for ablation.
-- `KernelMode` union widens to include `'true-drive'` as default
-  production mode.
+  `debug-lockstep` mode for ablation. **Done.**
+- `KernelMode` union includes `'true-drive'` as production mode.
+  **Done.**
 
 ## Acceptance
 

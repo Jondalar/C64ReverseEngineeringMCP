@@ -28,10 +28,9 @@
   `drive_store_pb`, `beforeC64Read=`, `releaseDriveClk/Data`) outside
   the allowlist. Chip-internal modules (`via/`, `cia/`) added to
   allowlist alongside kernel/, scheduler/, and drive internals.
-  Production paths now report 0 violations. The legacy
-  `beforeC64Read` hook stays installed only inside the kernel's
-  non-lockstep branch with an `audit-ok` annotation; Spec 202
-  catch-up will remove it when EventCatchupStrategy lands.
+  Production paths now report 0 violations. Spec 202 later removed the
+  legacy `beforeC64Read` hook entirely; `$DD00` catch-up now happens at
+  the `KernelBus` boundary.
 
 ## Live routing verification (smoke:kernel-facade)
 
@@ -57,8 +56,7 @@ drive-side) behind `KernelBus` entry points. Remove
 - IEC core uses VICE-style cached state: `cpu_bus`, `cpu_port`,
   `drv_bus[unit]`, `drv_data[unit]`, `drv_port`, `iec_old_atn`.
 - Removed from production: parallel "released flag" bus model.
-- `IecBus.beforeC64Read` becomes private to kernel; external callers
-  fail compile.
+- `IecBus.beforeC64Read` removed from production runtime.
 
 ## Acceptance
 

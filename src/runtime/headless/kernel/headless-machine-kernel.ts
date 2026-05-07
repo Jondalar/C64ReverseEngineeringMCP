@@ -41,6 +41,9 @@ import { DiskProvider } from "../providers.js";
 import { HeadlessKernelBus } from "./headless-kernel-bus.js";
 import { KernelIrqRing, type KernelIrqEvent } from "./kernel-irq.js";
 import { HookRegistry, type HookName } from "./kernel-hooks.js";
+import { EventCatchupStrategy } from "./event-catchup-strategy.js";
+import { LockstepStrategy } from "./lockstep-strategy.js";
+import type { SyncStrategy } from "./sync-strategy.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
@@ -112,6 +115,7 @@ export class HeadlessMachineKernel implements MachineKernel {
   // kernel; cross-domain accesses ($DD00, $1800) get routed through
   // here in 201-c2 / 201-c3.
   readonly bus: HeadlessKernelBus;
+  private readonly eventCatchup: EventCatchupStrategy;
 
   // Spec 200-c4: drive + disk side. Kernel owns parser, head, GCR
   // shifter and drive CPU; IEC drive-side wiring happens here too.
@@ -390,17 +394,11 @@ export class HeadlessMachineKernel implements MachineKernel {
     // Spec 090: configure drive's sync ratio + zero baseline.
     this.drive.setSyncRatio(deps.driveCyclesPerC64Cycle);
     this.drive.setSyncBaseline(0);
-
-    // Spec 090: bus-read hook for legacy non-lockstep mode. In lockstep
-    // mode the scheduler drives the drive per cycle, so the hook is a
-    // no-op; skip installing it to avoid double-counting steal cycles
-    // (Sprint 113 Phase 2 / Spec 150 fix).
-    if (!deps.useCycleLockstep) {
-      // Spec 202: legacy non-lockstep IEC pre-read catch-up routed
-      // through the kernel's single catchUpDrive entry point.
-      this.iecBus.beforeC64Read = () =>
-        this.catchUpDrive(8, this.c64Cpu.cycles);
-    }
+    this.eventCatchup = new EventCatchupStrategy({
+      drive: this.drive,
+      c64Clock: () => this.c64Cpu.cycles,
+      stepC64Instruction: () => this.session.stepC64Instruction(),
+    });
 
     // Spec 204: register every legacy rescue hook. `allowedModes`
     // = modes in which the hook may fire without raising
@@ -669,30 +667,25 @@ export class HeadlessMachineKernel implements MachineKernel {
    * `drive.executeToClock(targetClock)`.
    */
   catchUpDrive(device: number, targetClock: number): void {
-    if (device !== 8) return;
-    // Spec 202: gated by sync mode. Lockstep skips because drive
-    // already advanced. Pre-flip we honor both paths so existing
-    // callsites can migrate without behavior change.
-    this.drive.executeToClock(targetClock); // audit-ok: kernel-internal Spec 202 catch-up
+    this.syncStrategy().catchUpDrive(device, targetClock);
   }
 
   runCycles(n: number): void {
-    // Commit 200-c5 will route this through SyncStrategy. For now
-    // delegate to the existing scheduler if present, else fall through
-    // to instruction-based stepping.
-    const sched = this.session.scheduler;
-    if (sched) {
-      sched.runCycles(n);
-      return;
-    }
-    const target = this.c64Cpu.cycles + n;
-    while (this.c64Cpu.cycles < target) {
-      this.session.stepC64Instruction();
-    }
+    this.syncStrategy().runCycles(n);
   }
 
   runInstructions(n: number): void {
-    for (let i = 0; i < n; i++) this.session.stepC64Instruction();
+    this.syncStrategy().runInstructions(n);
+  }
+
+  private syncStrategy(): SyncStrategy {
+    if (this.session.useCycleLockstep && this.session.scheduler) {
+      return new LockstepStrategy(
+        this.session.scheduler,
+        () => this.c64Cpu.cycles,
+      );
+    }
+    return this.eventCatchup;
   }
 
   snapshot(): MachineSnapshot {

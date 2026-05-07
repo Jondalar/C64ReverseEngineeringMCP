@@ -679,8 +679,8 @@ export class Cpu6510 {
 
   // Spec 091: per-bus-access cycle counting. Each call advances
   // this.cycles by 1 BEFORE the actual bus access. Drive (and other
-  // observers) see drive.executeToClock(this.cycles) at the correct
-  // mid-instruction cycle.
+  // observers) see the current CPU cycle at the correct
+  // mid-instruction bus-access point.
   // The legacy `cycles += info.cycles` at end of step() is now ZERO'd
   // because we count cycles per access. For opcodes whose info.cycles
   // exceeds bus access count (dummy reads, page-cross penalty, branch

@@ -72,6 +72,21 @@ const FORBIDDEN_IECBUS_PATTERNS = [
   /\.iecBus\.releaseDriveData\s*\(/,
 ];
 
+// Spec 202-c5: drive catch-up is kernel-owned. The concrete
+// DriveCpu.executeToClock implementation may exist in drive-cpu.ts,
+// and EventCatchupStrategy may call it. No other production file may
+// invoke any `.executeToClock(...)` method.
+const FORBIDDEN_GLOBAL_PATTERNS = [
+  {
+    pattern: /\.executeToClock\s*\(/,
+    allowedPrefixes: [
+      "src/runtime/headless/kernel/",
+      "src/runtime/headless/drive/drive-cpu.ts",
+    ],
+    label: "executeToClock",
+  },
+];
+
 function listSourceFiles() {
   const out = execSync(`find ${SCAN_DIR} -name "*.ts" -not -path "*/node_modules/*"`, {
     encoding: "utf8",
@@ -119,6 +134,21 @@ function scan() {
             text: line.trim(),
             chip: "iecBus",
             method: pattern.source.replace(/[\\.*\\\\\\(\\\\s\\\\\\)\\=\\?\\+\\^\\$\\{\\}\\|\\[\\]]/g, "").slice(0, 40),
+          });
+        }
+      }
+
+      for (const rule of FORBIDDEN_GLOBAL_PATTERNS) {
+        if (
+          rule.pattern.test(line)
+          && !rule.allowedPrefixes.some((p) => rel.startsWith(p))
+        ) {
+          violations.push({
+            file: rel,
+            line: i + 1,
+            text: line.trim(),
+            chip: "*",
+            method: rule.label,
           });
         }
       }

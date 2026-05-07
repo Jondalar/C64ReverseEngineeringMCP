@@ -178,8 +178,6 @@ export class IecBus {
     // Per c64cia2.c:150 — invert raw PA byte before iecbus.
     const inverted = (~cia2Pa) & 0xff;
     const prev = { atn: this.atnLine, clk: this.clkLine, data: this.dataLine };
-    // Drive flush (Q4 hybrid: still tick lockstep, push-flush at IEC).
-    if (this.beforeC64Read) this.beforeC64Read();
     // Single core mutation — handles update_cpu_bus, ATN edge,
     // drv_bus[8/9] recompute, iec_update_ports.
     this.core.c64_store_dd00(inverted, (atnHigh) => {
@@ -223,12 +221,9 @@ export class IecBus {
     return (this.core.cpu_port & 0x80) !== 0;
   }
 
-  public beforeC64Read?: () => void;
-
   // === C64 reads $DD00 PA ($DC00 callback) ===
   // VICE: iecbus_cpu_read_conf1 returns CACHED iecbus.cpu_port.
   buildC64InputBits(): number {
-    if (this.beforeC64Read) this.beforeC64Read();
     // VICE bit layout in cpu_port:
     //   bit 4 = ATN  (only c64 drives, but cpu_port has it from cpu_bus)
     //   bit 6 = CLK

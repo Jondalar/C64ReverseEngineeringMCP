@@ -2,8 +2,7 @@
 //
 // Concrete strategies:
 //   - LockstepStrategy   : Spec 200, wraps the existing
-//                          CycleLockstepSchedulerImpl. Production
-//                          default until Spec 202 flips it.
+//                          CycleLockstepSchedulerImpl. Diagnostic.
 //   - EventCatchupStrategy : Spec 202, becomes the production default.
 //
 // Strategies are kernel-internal. They are never callable from outside

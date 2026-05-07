@@ -23,6 +23,7 @@ export class HeadlessKernelBus implements KernelBus {
 
   c64Read(addr: number, _ctx: BusAccessContext): number {
     if (addr === C64_IEC_PA_ADDR) {
+      this.catchUpDriveIfReady(_ctx);
       // VICE iecbus_cpu_read_conf1: cached cpu_port composed from
       // c64 output + AND-gated drv_bus[unit] + ATN gate.
       return this.kernel.iecBus.buildC64InputBits();
@@ -32,6 +33,7 @@ export class HeadlessKernelBus implements KernelBus {
 
   c64Write(addr: number, value: number, ctx: BusAccessContext): void {
     if (addr === C64_IEC_PA_ADDR) {
+      this.catchUpDriveIfReady(ctx);
       const ddr = ctx.ddrMask ?? 0xff;
       this.kernel.iecBus.setC64Output(value & 0xff, ddr);
       return;
@@ -65,5 +67,13 @@ export class HeadlessKernelBus implements KernelBus {
       return;
     }
     this.kernel.drive.bus.write(addr, value);
+  }
+
+  private catchUpDriveIfReady(ctx: BusAccessContext): void {
+    // CIA2 is installed before the drive object is constructed; its
+    // initial PA write must not try to catch up an unbuilt drive.
+    const maybeDrive = (this.kernel as unknown as { drive?: unknown }).drive;
+    if (!maybeDrive) return;
+    this.kernel.catchUpDrive(8, ctx.clock);
   }
 }

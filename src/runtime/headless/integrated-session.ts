@@ -129,7 +129,8 @@ export interface IntegratedSessionOptions {
   // Sprint 92: enable cycle-lockstep scheduler. Default false.
   useCycleLockstep?: boolean;
   // Sprint 92.7 v2: use new microcoded cpu6510 (sub-instruction bus
-  // access). Implies useCycleLockstep=true. Default false.
+  // access). Independent from lockstep; true-drive uses microcoded
+  // CPU with event/catch-up, debug-lockstep uses both.
   useMicrocodedCpu?: boolean;
   // Spec 093: cycle-stamped IEC edge trace (ring buffer in IecBus).
   traceIec?: boolean;
@@ -323,7 +324,7 @@ export class IntegratedSession {
     ) {
       console.warn(
         `[IntegratedSession] booleans don't match any named preset → mode="custom". `
-        + `Pass an explicit \`mode\` (fast-trap | real-kernal | true-drive | debug-vice-compare) `
+        + `Pass an explicit \`mode\` (fast-trap | real-kernal | true-drive | debug-vice-compare | debug-lockstep) `
         + `or set mode: "custom" to silence this warning.`,
       );
     }
@@ -334,9 +335,9 @@ export class IntegratedSession {
     this.imageFormat = ext === "g64" ? "g64" : ext === "d64" ? "d64" : ext || "other";
     this.diskPath = opts.diskPath;
 
-    // Spec 200-c5 prep: lockstep flag computed BEFORE kernel build so
-    // kernel can decide on legacy beforeC64Read hook installation.
-    this.useCycleLockstep = (opts.useCycleLockstep ?? false) || (opts.useMicrocodedCpu ?? false);
+    // Spec 202: lockstep is diagnostic only. Microcoded CPU no longer
+    // implies lockstep; true-drive is microcoded + event/catch-up.
+    this.useCycleLockstep = opts.useCycleLockstep ?? false;
     this.useMicrocodedCpu = opts.useMicrocodedCpu ?? false;
 
     // Spec 200-c2 + c3 + c4: kernel created up-front. Kernel constructor
@@ -380,6 +381,9 @@ export class IntegratedSession {
     this.headPosition = this.kernel.headPosition;
     this.gcrShifter = this.kernel.gcrShifter;
     this.drive = this.kernel.drive;
+    if (this.mode === "true-drive" || this.mode === "debug-vice-compare") {
+      this.kernel.setMode("true-drive");
+    }
 
     this.kernalFileIo = makeKernalFileIoState();
     this.kernalSerial = makeKernalSerialState();
@@ -404,37 +408,37 @@ export class IntegratedSession {
     this.iecBus.timeSource = () => this.c64Cpu.cycles;
     if (opts.traceIec) this.iecBus.enableTrace(opts.traceIecCapacity ?? 1024);
     this.drivePcTraceCapacity = opts.traceDrive ? (opts.traceDriveCapacity ?? 512) : 0;
+    // Sprint 113 Phase 2: Cpu65xxVice is the required C64 CPU core for
+    // IEC bit-bang correctness. Install it independently from the
+    // scheduler so true-drive can run event/catch-up without lockstep.
+    let cpuComponent: any;
+    if (this.useMicrocodedCpu) {
+      const microcoded = new Cpu65xxVice({
+        memBus: this.c64Bus,
+        alarmContext: this.maincpuAlarmContext,
+      });
+      // Replace c64Cpu with microcoded version. Cast — both share
+      // public register state interface.
+      (this as any).c64Cpu = microcoded;
+      // Spec 200-c3: keep kernel's c64Cpu in sync. CIA clkPtr captured
+      // a closure on kernel.c64Cpu; without this update CIAs would read
+      // the stale Cpu6510's cycles (= 0 forever).
+      (this.kernel as unknown as { c64Cpu: unknown }).c64Cpu = microcoded;
+      // Spec 203-c4: re-attach onInterruptServiced to the new CPU.
+      this.kernel.installCpuInterruptHooks();
+      microcoded.reset();
+      cpuComponent = microcoded;
+    }
+
     if (this.useCycleLockstep) {
-      // Sprint 92.7 v2: optional microcoded cpu (per-cycle bus access).
-      // Sprint 113 Phase 2: now backed by Cpu65xxVice (1:1 VICE 6510core)
-      // with alarm-context dispatch wired into the instruction-fetch
-      // boundary. Mirrors VICE PROCESS_ALARMS macro.
-      let cpuCompoonent: any;
-      if (opts.useMicrocodedCpu) {
-        const microcoded = new Cpu65xxVice({
-          memBus: this.c64Bus,
-          alarmContext: this.maincpuAlarmContext,
-        });
-        // Replace c64Cpu with microcoded version. Cast — both share
-        // public register state interface.
-        (this as any).c64Cpu = microcoded;
-        // Spec 200-c3: keep kernel's c64Cpu in sync. CIA clkPtr
-        // captured a closure on kernel.c64Cpu; without this update
-        // CIAs would read the stale Cpu6510's cycles (= 0 forever)
-        // and alarm dispatch would storm.
-        (this.kernel as unknown as { c64Cpu: unknown }).c64Cpu = microcoded;
-        // Spec 203-c4: re-attach onInterruptServiced to the new CPU.
-        this.kernel.installCpuInterruptHooks();
-        microcoded.reset();
-        cpuCompoonent = microcoded;
-      } else {
+      if (!cpuComponent) {
         const cpuCycled = new Cpu6510Cycled(this.c64Cpu);
         cpuCycled.preInstructionCheck = () => this.checkC64Interrupts();
         this.cpuCycled = cpuCycled;
-        cpuCompoonent = cpuCycled;
+        cpuComponent = cpuCycled;
       }
       const c64Components = [
-        cpuCompoonent,
+        cpuComponent,
         // Sprint 113 Phase 2 (Spec 146): alarm-driven CIAs no longer
         // need per-cycle ticks. Instead a single AlarmContextCycled
         // dispatches all maincpu alarms (CIA1 + CIA2 timers, TOD, SDR)
@@ -456,7 +460,7 @@ export class IntegratedSession {
       ];
       this.scheduler = new CycleLockstepSchedulerImpl({
         c64Components, driveComponents,
-        c64IsAtInstructionBoundary: () => cpuCompoonent.isAtInstructionBoundary?.() ?? true,
+        c64IsAtInstructionBoundary: () => cpuComponent.isAtInstructionBoundary?.() ?? true,
         c64Pc: () => this.c64Cpu.pc,
         isPal,
         // Sprint 93.1: per-cycle IRQ/NMI pin update (VICE pattern).
@@ -466,7 +470,7 @@ export class IntegratedSession {
         // Sprint 96: scheduler ticks peripherals + drive by CPU cycle
         // delta. Required so IRQ service / branch page-cross / illegal
         // burn don't desync drive timing during IEC bit-bang.
-        cpuCycleCounter: () => (cpuCompoonent as any).cycles,
+        cpuCycleCounter: () => (cpuComponent as any).cycles,
         // Spec 138 probe options.
         tickDriveFirst: opts.probeMode === "B",
         disableLockstepDriveTick: opts.probeMode === "C",
@@ -765,10 +769,14 @@ export class IntegratedSession {
       return;
     }
     // Spec 090 / VICE pattern: drive catches up to current C64 clock
-    // BEFORE the C64 instruction starts (so any bus access during
-    // the instruction sees up-to-date drive state).
+    // BEFORE the C64 instruction starts. In true-drive, individual
+    // $DD00 reads/writes push-flush through KernelBus.
     this.kernel.catchUpDrive(8, this.c64Cpu.cycles);
-    this.checkC64Interrupts();
+    if (this.useMicrocodedCpu) {
+      this.updateMicrocodedInterruptLines();
+    } else {
+      this.checkC64Interrupts();
+    }
     // Pre-V2 1541-v2: IEC byte trace. $EDDD = CIOUT body entry
     // (KERNAL byte-send to listener). $EE13 = ACPTR body entry
     // (KERNAL byte-receive from talker). Hook PC match before step.
@@ -799,7 +807,11 @@ export class IntegratedSession {
       }
     }
     const before = this.c64Cpu.cycles;
-    this.c64Cpu.step(); // audit-ok: legacy non-lockstep stepping; replaced by SyncStrategy in Spec 202
+    if (this.useMicrocodedCpu) {
+      this.stepMicrocodedC64Instruction();
+    } else {
+      this.c64Cpu.step(); // audit-ok: legacy non-lockstep stepping; replaced by SyncStrategy in Spec 202
+    }
     this.c64InstructionCount += 1;
     // Spec 205-A c4: cpu trace fires inside Cpu6510.step / Cpu65xxVice
     // — no need to publish here.
@@ -858,6 +870,10 @@ export class IntegratedSession {
   // maincpu_int_status pattern: peripherals assert/deassert IRQ/NMI pin,
   // CPU samples it at instruction boundary (handled inside microcoded
   // cpu's startInstructionCycle).
+  //
+  // Spec 202: true-drive also uses this path without lockstep; the
+  // event/catch-up instruction loop below calls it before each CPU
+  // micro-cycle.
   private updateMicrocodedInterruptLines(): void {
     const cpu = this.c64Cpu as any;
     if (!("irqLine" in cpu)) return;
@@ -867,6 +883,28 @@ export class IntegratedSession {
     // poke icrFlags directly without going through the CIA write API.
     cpu.irqLine = (this.cia1IrqLine() || this.cia1.irqAsserted()) || this.vic.irqAsserted();
     cpu.nmiLine = this.cia2NmiLine() || this.cia2.irqAsserted();
+  }
+
+  private stepMicrocodedC64Instruction(): void {
+    const cpu = this.c64Cpu as unknown as {
+      executeCycle?: () => void;
+      isAtInstructionBoundary?: () => boolean;
+      pc: number;
+    };
+    if (typeof cpu.executeCycle !== "function" || typeof cpu.isAtInstructionBoundary !== "function") {
+      throw new Error("useMicrocodedCpu=true but c64Cpu does not expose executeCycle/isAtInstructionBoundary");
+    }
+
+    let guard = 0;
+    do {
+      this.updateMicrocodedInterruptLines();
+      cpu.executeCycle();
+      if (++guard > 256) {
+        throw new Error(
+          `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
+        );
+      }
+    } while (!cpu.isAtInstructionBoundary());
   }
 
   private checkC64Interrupts(): void {

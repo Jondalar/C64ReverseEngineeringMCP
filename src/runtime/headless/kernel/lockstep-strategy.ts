@@ -1,8 +1,8 @@
 // Spec 200/202 — LockstepStrategy.
 //
 // Wraps the existing CycleLockstepSchedulerImpl behind the
-// SyncStrategy interface. Production default until Spec 202 lands
-// EventCatchupStrategy and flips `mode` accordingly.
+// SyncStrategy interface. Diagnostic only; true-drive uses
+// EventCatchupStrategy.
 //
 // catchUpDrive is a no-op: in lockstep the drive ticks per cycle
 // alongside the c64, so there is no lag to catch up on.

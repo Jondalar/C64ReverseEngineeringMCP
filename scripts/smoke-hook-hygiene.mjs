@@ -50,7 +50,7 @@ console.log("hook-hygiene smoke — Spec 204 acceptance");
 
 const { session } = startIntegratedSession({
   diskPath: fixturePath,
-  mode: "true-drive",
+  mode: "debug-lockstep",
 });
 const kernel = session.kernel;
 

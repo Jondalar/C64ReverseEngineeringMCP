@@ -221,7 +221,7 @@ export class DriveBus implements CpuMemory {
 //
 // Sprint 90 (Spec 090): VICE-style executeToClock(c64Clk) lazy lockstep.
 // Drive only runs when caller (IntegratedSession) requests catch-up.
-// Sync points: every $DD00 access (via IecBus.beforeC64Read hook) +
+// Sync points: every $DD00 access (via KernelBus catch-up) +
 // after each C64 instruction. Drive's clock advances independently
 // using fixed-point sync_factor (drive 1MHz / C64 985.248kHz ratio).
 export class DriveCpu {
