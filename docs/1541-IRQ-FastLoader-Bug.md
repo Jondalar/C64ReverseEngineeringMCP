@@ -401,6 +401,70 @@ master_clock 35.37M. If yes, IFR clear-on-read elsewhere is
 removing the bit before it can be observed. If no, alarm
 re-arm is broken.
 
+### Probe 2026-05-07 (cont. 4) — T1 alarm one-shot mode
+
+Instrumented `onT1ZeroAlarm` with a fire counter + per-fire
+trail (t1zero, tal, ACR). Re-captured motm.
+
+Findings:
+
+- VIA1 ACR = `$00` throughout (drive ROM 1541 901229-05 doesn't
+  write ACR; stays at post-VIA-reset default).
+- ACR `$00` → T1 free-run bit clear → **T1 in one-shot mode**.
+- One-shot path (line 1029-1044) calls `alarmUnset` after fire.
+  T1 fires only per explicit T1CH write.
+- Total T1 fires in 60s motm: **60**. Last fire at
+  drive_clock = 35_728_528.
+- Drive STA-abs writes to `$1805` (T1CH): **1314** total. With
+  tal=53503 and drive writing T1CH every ~32K cyc, most writes
+  cancel the previous alarm before it fires — 60 fires from
+  1314 writes is consistent.
+
+So T1 itself is NOT broken; drive uses it as a manual one-shot
+delay, not a free-run periodic source.
+
+Real divergence — through drive_clock 36M:
+- VICE: 700 T1CH writes
+- Headless: 952 T1CH writes (~36% more)
+
+Headless drive iterates the bit-bang loop **more times per byte**
+than VICE. Per-bit timing skew: headless drive samples the wrong
+IEC bit value and waits/retries; eventually after 4096 bytes the
+bit-pattern of TX cmd 4 is misread, branch goes to `$042x`
+handler, fastloader stalls.
+
+### Refined root-cause area
+
+Bug is in **drive cycle-accurate timing relative to VIA1 T1**:
+- drive cpu runs slightly slow vs VICE (cycles consumed per
+  instruction off by 1-2 in some opcodes), OR
+- VIA T1 alarm fires at slightly off cycle (off-by-one in
+  `t1zero = rclk + 1 + tal` math), OR
+- IEC bus state propagation delay relative to drive's poll-loop
+  introduces an off-by-one read.
+
+This is a cycle-perfect-emulation hunt requiring bit-by-bit diff
+of VICE vs headless during a single TX-3 round. First divergent
+sample identifies the timing source. Out of scope for this
+session.
+
+### Session conclusion
+
+Spec 217 + diff CLI delivered:
+- localized bug from "fastloader broken" → "drive cpu/VIA1 T1
+  cycle-timing skew during bit-bang RX"
+- isolated to first divergence at `bitbang_tx_24bit` round 4
+- confirmed not deadlock, not bit-7-IFR-mask, not T1 alarm code
+  itself
+- tools (trace_store_query, trace-store-diff, derive-bus-events)
+  proved canonical for this class of bug in milliseconds vs
+  multi-day previously
+
+Bug not yet fixed; root cause area narrowed to ~3 candidate
+locations (drive cpu cycle math / VIA T1 t1zero math / IEC
+propagation delay). Final fix needs cycle-by-cycle diff which
+is a separate focused work session.
+
 Other anchor-count delta still standing as primary:
 - VICE `bitbang_tx_24bit` 250 vs headless 3
 - VICE `drive_rx_active` 531K vs headless 4096
