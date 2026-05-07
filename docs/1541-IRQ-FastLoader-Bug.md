@@ -65,6 +65,28 @@ Tracked by `specs/218-motm-tx3-tx4-bit-level-divergence.md`.
   - Bucket: **H1 (drive 6502 cycle accounting) primary candidate**;
     H3 (IEC propagation / poll-loop ordering) secondary.
 
+**Drive cycle-diff probe (2026-05-07, post-bit-swimlane):**
+- `trace-store-drive-cycle-diff.mjs --start-anchor drive_rx_active`
+  walks both stores' drive instruction streams in lock-step from drive
+  fastloader entry forward.
+- Indexes 0-79: drive PCs **byte-identical** between VICE and HL;
+  Δrel timing skew bounded to ±2 master_clock cycles.
+- **First PC divergence at index 80** of the drive byte-receive loop:
+  VICE re-enters $0723 (BIT $1800; loop again), HL exits to $072a
+  (loop done). Cumulative drift at divergence: only **1 cycle**.
+- Drive `$1800` reads at the divergence moment:
+  - VICE: $00 (idle) → $01 (byte-ready, single bit)
+  - HL:   $00 / $01 / **$0c / $0d** (CLOCK lines toggling mid-transition)
+  - HL sees first byte ~17 cycles earlier than VICE.
+- Implication: H1 (drive cycle accounting) is **rejected** for this
+  failure path — drive cycles align to ±2 cycles. The IEC line state
+  itself differs at the same effective master_clock. Root cause is
+  upstream of the drive: either C64-side $DD00 produces different bits,
+  or IEC line-resolution / propagation diverges between stores.
+- **Updated bucket**: H3 (IEC propagation / line-state resolution) or
+  H4 (newly identified — C64-side IEC output timing) primary;
+  H1 rejected.
+
 ## Symptom
 
 motm `LOAD"*",8,1` hangs forever after KERNAL hand-off into custom
