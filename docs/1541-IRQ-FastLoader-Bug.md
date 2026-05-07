@@ -218,6 +218,63 @@ bug therefore lives in either:
 Fix attempts without the targeted instrumentation would be speculation.
 Pause here; resume with new spec for the IEC-line-edge channel.
 
+**IEC line-state replay diff (2026-05-07):**
+
+`scripts/trace-store-iec-line-diff.mjs`: pulls all c64 $DD00 writes
++ drive $1800 writes from each store, replays them through a fresh
+`IecBusCore` instance (Spec 140 v3 — VICE 1:1 port), captures every
+(cpu_port, drv_bus[8], cpu_bus) change. Result:
+
+- VICE: 1.42M line-state changes (full 153s capture)
+- HL  : 50K line-state changes (60s capture, post-bus-access fix)
+
+Walked side-by-side post-ab_entry: **first state divergence at index 0**
+(rel 156 in VICE, rel 28 in HL — entirely different actors/values).
+
+Conclusion: replay through SAME line-resolution code produces DIFFERENT
+results because the WRITE SEQUENCES THEMSELVES differ between stores.
+The bug is therefore NOT in `IecBusCore`. The bug is upstream — in
+which actor writes WHAT VALUE WHEN.
+
+**Drive boot-phase walk (2026-05-07):**
+
+Walking drives by `seq` (instruction index from store start) shows:
+
+- HL drive seq=0: PC=$EAA0 op=$78 master_clock=0
+  (1541 RESET handler — capture starts at drive boot)
+- VICE drive seq=0: PC=$EC14 master_clock=1435148
+  (already deep in idle loop — capture started ~1.5s into drive run)
+
+Capture timelines are not aligned. VICE store starts mid-flight; HL
+store starts at drive cold-boot. Comparing absolute master_clock between
+stores is therefore meaningless. Comparison only valid via shared
+anchors (ab_entry, drive_rx_active).
+
+**Refined root-cause analysis:**
+
+By ab_entry (c64 fastloader entry), drive in HL is at $E8DB (still in
+last bytes of byte-receive from KERNAL LOAD"*",8,1 sequence) while
+VICE drive is at $EC07 (long-since back to idle loop). Drive state
+divergence is therefore NOT post-ab_entry but **pre-ab_entry**, during
+the KERNAL LOAD"*",8,1 handshake where c64 + drive interleave bytes
+via IEC bit-bang.
+
+The drift accumulates during boot's c64 ↔ drive serial protocol
+exchange. By ab_entry, drives are at materially different points in
+the 1541 ROM. The KERNAL $EEA9 debounce-loop mismatch at index 1975
+is thus a **late symptom** of accumulated boot-phase drift, not the
+root.
+
+**True next probe**: walk both stores' c64 + drive instructions
+side-by-side in lock-step from drive cold-boot through the LOAD"*",8,1
+sequence (master_clock 0 → ab_entry). Find the FIRST point where
+either side's PC diverges. That earliest divergence is the real
+root.
+
+Note: this requires both stores to capture from the same drive cold-boot
+moment. Current VICE store starts mid-drive-run, so a re-capture of
+VICE from drive cold-boot is needed. HL store already has it.
+
 ## Symptom
 
 motm `LOAD"*",8,1` hangs forever after KERNAL hand-off into custom
