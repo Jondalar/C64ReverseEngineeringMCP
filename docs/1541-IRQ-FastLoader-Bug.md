@@ -198,9 +198,70 @@ counter / sector-buffer / packet size? Possible candidates:
 - Drive-side RAM `$98/$99` destination pointer wrapping at a
   boundary that VICE handles but we don't.
 
-Next probe: pull instruction-level trace from headless trace-store
-for the last ~20K instructions of master_clock window 34-36 and
-follow what the c64 + drive do at the stall point.
+### Stall mechanism — post-RX TX-ACK lost (probe 2026-05-07)
+
+Decoded the headless trace-store at the stall point
+(`master_clock = 35_341_618`, the last `rx_byte` ($43CF) occurrence):
+
+```
+$4493 bne ...
+$4495 lda $031F        ; A = $11 (post)
+$4498 beq $44A7        ; (not taken)
+$449A lda #$01         ; A = $01
+$449C sta $031E        ; store loader-state = 1
+$449F jsr $425C        ; bitbang_tx_24bit — 24-bit TX command to drive
+$425C ...              ; TX packet shifted out via $DD00 toggling
+$4275 ...              ; inner-loop dey/beq/bit
+$427B rts              ; return after TX
+```
+
+Drive at the same master_clock: stays in ROM idle `$F55D-$F565`.
+**c64 sends the 24-bit TX-ACK; drive never wakes up to receive it.**
+
+Anchor counts confirm:
+
+| anchor | VICE | headless |
+|---|---:|---:|
+| `bitbang_tx_24bit` ($425C) | 250 | **3** |
+
+c64 does call `$425C` post-byte, but only 3 of those rounds reach
+drive in headless (drive responds with new RX); after that, drive
+doesn't react to further TX-ACKs.
+
+After the lost TX-ACK, c64 reverts to `wait_loader_completion`
+($4370) which polls `$031A` indefinitely. `$031A` would only
+flip to non-zero if drive sent a status byte back — which can't
+happen because drive is asleep in ROM idle waiting for a command
+that arrived but wasn't observed.
+
+### H5 (new) — drive does not observe c64's bit-bang TX
+
+The bug is on the **c64→drive TX path** during fast bit-bang, not
+on drive→c64 RX (which works for at least 4096 bytes).
+
+When c64 toggles `$DD00` (CIA2 PA) bits 4-5 (CLK_OUT, DATA_OUT) at
+2-cycle intervals to shift bits to drive, the drive's VIA1 PB inputs
+(CLK_IN, DATA_IN) need to sample those edges. Possible failure modes:
+
+- IEC line propagation latency exceeds the ~2-cycle bit interval —
+  drive misses an edge.
+- VIA1 input latching only updates on $1800 read, but drive's polling
+  loop reads $1800 once per outer iteration; high-frequency edges
+  collapse into a single state change.
+- VIA2 (or VIA1) timer latch governs drive RAM-loop sampling rate;
+  if our timer cadence drifts, drive's internal "ready to RX" window
+  closes before c64's TX completes.
+
+Most likely H5 over the older H4' since the failure is bounded
+(works for the first 3 TX rounds then breaks consistently). Smells
+like a per-instance state that accumulates: a residual bit not
+cleared between TX rounds, or a saturation in IFR / timer that
+masks subsequent CB1/CA1 edges.
+
+Next probe: dump `$1800-$180F` (drive VIA1 register block) at
+master_clock just before the lost TX (around 35.3M cyc) and
+compare to VICE same window. The diff will localize the chip-side
+register state divergence within ~one VIA cycle.
 
 ## Trace + reproduction
 
