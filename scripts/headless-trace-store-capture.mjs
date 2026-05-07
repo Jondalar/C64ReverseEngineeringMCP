@@ -218,9 +218,10 @@ const summaryJson = {
   rollupsWritten: rollupRes.rollupsWritten,
   parquetSizes: parquetSummary,
   notes: [
-    "Spec 217 Spike B PoC: instructions table omits register state",
-    "(only PC + clock from kernel cpu channel). Future: extend",
-    "publishCpuInstruction with full register snapshot at boundary.",
+    "Spec 218 Step 3: instructions table includes full register state",
+    "(pc, opcode, b1, b2, a, x, y, sp, p, clock, master_clock). b1/b2",
+    "for the c64-side cpu6510 are peeked from memory at startPc+1/+2",
+    "without bumping the cycle counter, so they don't perturb timing.",
   ],
 };
 writeFileSync(join(outRoot, "summary.json"), JSON.stringify(summaryJson, null, 2));

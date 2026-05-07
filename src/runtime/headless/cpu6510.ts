@@ -150,8 +150,16 @@ export class Cpu6510 {
       // src/6510core.c). MM/Murder loaders rely on SLO/SRE/RLA/RRA etc.
       // Pass cyclesBefore so the same accounting fix applies.
       this.stepUndocumented(opcode, cyclesBefore);
-      // Spec 205-A c4 + Spec 217: instruction-complete edge with full state.
-      this.onInstructionComplete?.(startPc, opcode, 0, 0, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
+      // Spec 205-A c4 + Spec 217 + Spec 218: instruction-complete edge
+      // with full state. b1/b2 are best-effort peeks from memory at
+      // startPc+1/+2; UNDOC_TABLE knows the addressing mode so length
+      // resolves correctly. memory.read bypasses this.cycles to avoid
+      // perturbing cycle accounting.
+      const undoc = UNDOC_TABLE[opcode];
+      const undocLen = undoc ? instructionLength(undoc.mode) : 1;
+      const ub1 = undocLen >= 2 ? this.memory.read((startPc + 1) & 0xffff) & 0xff : 0;
+      const ub2 = undocLen >= 3 ? this.memory.read((startPc + 2) & 0xffff) & 0xff : 0;
+      this.onInstructionComplete?.(startPc, opcode, ub1, ub2, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
       return;
     }
 
@@ -169,8 +177,13 @@ export class Cpu6510 {
     // Note: if accessesDone > info.cycles (rare overcount), let the
     // overshoot stand — peripherals see wall-clock that ticks slightly
     // faster, but it self-corrects on next instruction.
-    // Spec 205-A c4 + Spec 217: instruction-complete edge with full state.
-    this.onInstructionComplete?.(startPc, opcode, 0, 0, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
+    // Spec 205-A c4 + Spec 217 + Spec 218: instruction-complete edge
+    // with full state. b1/b2 are peeked via memory.read directly so
+    // they bypass this.cycles bookkeeping (no spurious cycle bump).
+    const docLen = instructionLength(info.mode);
+    const b1 = docLen >= 2 ? this.memory.read((startPc + 1) & 0xffff) & 0xff : 0;
+    const b2 = docLen >= 3 ? this.memory.read((startPc + 2) & 0xffff) & 0xff : 0;
+    this.onInstructionComplete?.(startPc, opcode, b1, b2, this.a, this.x, this.y, this.sp, this.flags, this.cycles);
   }
 
   private stepUndocumented(opcode: number, cyclesBeforeFetch?: number): void {
