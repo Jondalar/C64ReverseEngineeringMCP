@@ -204,7 +204,9 @@ async function appendRuntimeTrace(
       clockFirst = item.clock;
     }
     clockLast = item.clock;
-    state.lastClock = clock;
+    if (memspace === "c64") {
+      state.lastClock = clock;
+    }
     appended += 1;
   }
 
