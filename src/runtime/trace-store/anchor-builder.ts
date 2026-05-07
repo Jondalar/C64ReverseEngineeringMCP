@@ -37,7 +37,7 @@ export async function buildAnchors(
   for (const def of defs) {
     // Use a window function so each occurrence gets a sequential N.
     const sql = `
-      INSERT INTO anchors (run_id, source, cpu, name, pc, occurrence, clock, seq)
+      INSERT INTO anchors (run_id, source, cpu, name, pc, occurrence, clock, master_clock, seq)
       SELECT
         run_id,
         source,
@@ -46,6 +46,7 @@ export async function buildAnchors(
         pc,
         ROW_NUMBER() OVER (ORDER BY clock, seq) AS occurrence,
         clock,
+        master_clock,
         seq
       FROM instructions
       WHERE run_id = '${store.meta.runId}'

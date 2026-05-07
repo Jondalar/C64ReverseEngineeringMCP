@@ -11,7 +11,15 @@
 //     --headless <path/to/headless/trace.duckdb> \
 //     [--anchor rx_wait,rx_byte,...] \
 //     [--tolerance 256] \
+//     [--align-anchor ab_entry] \
 //     [--out report.md]
+//
+// --align-anchor: normalize all reported clocks to
+//   relative_master_clock = anchor.master_clock - first(<name>.master_clock)
+// per side. Lets you compare stores whose absolute master_clock origins
+// differ (e.g. boot-time variance of ~15M cycles). Falls back to a
+// (run_id, cpu, seq) join on the instructions table for legacy stores
+// whose anchors row does not yet have a master_clock column.
 
 import { resolve as resolvePath, basename, dirname, join } from "node:path";
 import { existsSync, writeFileSync } from "node:fs";
@@ -38,6 +46,7 @@ if (!viceDb || !existsSync(viceDb) || !hlDb || !existsSync(hlDb)) {
 }
 const tolerance = BigInt(args.tolerance ?? 256);
 const anchorFilter = args.anchor ? args.anchor.split(",").map((s) => s.trim()) : null;
+const alignAnchor = typeof args["align-anchor"] === "string" ? args["align-anchor"] : null;
 const outPath = args.out
   ? resolvePath(args.out)
   : join(dirname(hlDb), `diff-${basename(viceDb, ".duckdb")}-vs-${basename(hlDb, ".duckdb")}.md`);
@@ -47,6 +56,7 @@ console.log(`  vice      : ${viceDb}`);
 console.log(`  headless  : ${hlDb}`);
 console.log(`  tolerance : ±${tolerance} master_clocks`);
 console.log(`  anchor    : ${anchorFilter ? anchorFilter.join(",") : "all"}`);
+console.log(`  align     : ${alignAnchor ?? "(absolute)"}`);
 console.log(`  out       : ${outPath}`);
 
 const duck = await import("@duckdb/node-api");
@@ -79,6 +89,41 @@ const diffId = `${viceRunId}_vs_${hlRunId}`;
 // Wipe previous diff for this diffId.
 await conn.run(`DELETE FROM hl.diff_annotations WHERE diff_id='${diffId}'`);
 
+// ----- Alignment offsets (master_clock domain) -----
+// We project master_clock onto anchors via LEFT JOIN to instructions on
+// (run_id, cpu, seq). This works whether or not the anchors table has
+// its own master_clock column (legacy stores do not).
+async function firstAnchorMasterClock(catalog, anchorName) {
+  const sql = `
+    SELECT MIN(i.master_clock)
+    FROM ${catalog}.anchors a
+    JOIN ${catalog}.instructions i
+      ON i.run_id = a.run_id AND i.cpu = a.cpu AND i.seq = a.seq
+    WHERE a.name = '${anchorName}'
+  `;
+  const r = (await conn.runAndReadAll(sql)).getRows();
+  const v = r[0]?.[0];
+  if (v === null || v === undefined) return null;
+  return typeof v === "bigint" ? v : BigInt(v);
+}
+
+let viceOffset = 0n;
+let hlOffset = 0n;
+let alignNote = "absolute master_clock";
+if (alignAnchor) {
+  const v = await firstAnchorMasterClock("vice", alignAnchor);
+  const h = await firstAnchorMasterClock("hl", alignAnchor);
+  if (v === null || h === null) {
+    console.error(`align-anchor '${alignAnchor}' not found in both stores (vice=${v}, hl=${h})`);
+    process.exit(2);
+  }
+  viceOffset = v;
+  hlOffset = h;
+  alignNote = `aligned to first(${alignAnchor}.master_clock)  vice_offset=${v}  hl_offset=${h}`;
+  console.log(`  vice off  : ${v}`);
+  console.log(`  hl off    : ${h}`);
+}
+
 // Anchor list — common anchors only.
 const anchorRows = (await conn.runAndReadAll(`
   SELECT v.name, v.cpu, v.pc,
@@ -98,6 +143,7 @@ lines.push(``);
 lines.push(`- VICE run:     \`${viceRunId}\``);
 lines.push(`- Headless run: \`${hlRunId}\``);
 lines.push(`- Tolerance:    ±${tolerance} master_clocks`);
+lines.push(`- Alignment:    ${alignNote}`);
 lines.push(``);
 
 // ----- Section 1: anchor occurrence summary -----
@@ -135,7 +181,33 @@ for (const a of eligible) {
   lines.push(`VICE: ${a.viceN} occurrences. Headless: ${a.hlN} occurrences. Comparing first ${Math.min(occLimit, a.viceN, a.hlN)}.`);
   lines.push(``);
   // Pull first occLimit occurrences from each side aligned by occurrence number.
-  const sql = `
+  // When --align-anchor is set, project master_clock from instructions and
+  // subtract the per-side offset, producing relative master clocks that
+  // can be compared across stores whose absolute origins differ.
+  const sql = alignAnchor ? `
+    WITH v AS (
+      SELECT a.occurrence,
+             (CAST(i.master_clock AS BIGINT) - ${viceOffset}) AS vice_clock
+      FROM vice.anchors a
+      JOIN vice.instructions i
+        ON i.run_id = a.run_id AND i.cpu = a.cpu AND i.seq = a.seq
+      WHERE a.name='${a.name}' AND a.occurrence <= ${occLimit}
+        AND i.master_clock >= ${viceOffset}
+    ),
+    h AS (
+      SELECT a.occurrence,
+             (CAST(i.master_clock AS BIGINT) - ${hlOffset}) AS hl_clock
+      FROM hl.anchors a
+      JOIN hl.instructions i
+        ON i.run_id = a.run_id AND i.cpu = a.cpu AND i.seq = a.seq
+      WHERE a.name='${a.name}' AND a.occurrence <= ${occLimit}
+        AND i.master_clock >= ${hlOffset}
+    )
+    SELECT v.occurrence, v.vice_clock, h.hl_clock,
+           (h.hl_clock - v.vice_clock) AS delta_clock
+    FROM v JOIN h ON v.occurrence = h.occurrence
+    ORDER BY v.occurrence
+  ` : `
     WITH v AS (
       SELECT occurrence, clock AS vice_clock
       FROM vice.anchors

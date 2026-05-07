@@ -145,14 +145,15 @@ async function applySchema(conn: any): Promise<void> {
        value       TEXT
      )`,
     `CREATE TABLE IF NOT EXISTS anchors (
-       run_id      TEXT,
-       source      TEXT,
-       cpu         TEXT,
-       name        TEXT,
-       pc          USMALLINT,
-       occurrence  UBIGINT,
-       clock       UBIGINT,
-       seq         UBIGINT
+       run_id        TEXT,
+       source        TEXT,
+       cpu           TEXT,
+       name          TEXT,
+       pc            USMALLINT,
+       occurrence    UBIGINT,
+       clock         UBIGINT,
+       master_clock  UBIGINT,
+       seq           UBIGINT
      )`,
     `CREATE TABLE IF NOT EXISTS rollups (
        run_id          TEXT,
