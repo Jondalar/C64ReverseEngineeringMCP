@@ -258,10 +258,60 @@ like a per-instance state that accumulates: a residual bit not
 cleared between TX rounds, or a saturation in IFR / timer that
 masks subsequent CB1/CA1 edges.
 
-Next probe: dump `$1800-$180F` (drive VIA1 register block) at
-master_clock just before the lost TX (around 35.3M cyc) and
-compare to VICE same window. The diff will localize the chip-side
-register state divergence within ~one VIA cycle.
+### Probe 2026-05-07 (cont.) — TX 3 reception lands in wrong handler
+
+Queried drive instruction trace and `$1800` bus_events around
+each TX call (3 in headless, 250 in VICE). Drive RAM is byte-
+identical between the two emulators (verified by drive-ram diff).
+
+Drive PC histogram in the window between TX 3 and "TX 4" (which
+never happens in headless):
+
+| window | VICE drive top PCs | Headless drive top PCs |
+|---|---|---|
+| ~300K master-cyc post-TX-3 | **`$0723-$072A`** (7562 hits each — active byte-shift) | `$042F-$044C` (~3000 hits over ~3K cyc, then exits to `$07BE` wait) |
+
+Both code regions are bit-bang receive loops, but **distinct
+handlers**. The `$07xx` handler streams bytes back to c64; the
+`$042x` handler does something shorter (likely a status / no-op
+acknowledge path). After $042x exits, drive waits at `$07BE`
+forever.
+
+Implication: drive's branch decision after receiving the 24-bit
+TX command ended up at `$042x` in headless, vs `$0728` in VICE.
+Since the drive-side code is identical, **the 24-bit command
+value drive observed must differ**. Either:
+
+1. One or more bits were misread in headless (`$DD00` → IEC →
+   `$1800` propagation timing off — primary suspect).
+2. Drive's VIA1 IFR was masked when c64 toggled `$DD00` so an
+   edge was missed entirely (drops the bit-stream count).
+3. Drive's CB1/CA1 latching cleared early and re-armed on the
+   wrong edge polarity.
+
+### Concrete next-probe steps (when resumed)
+
+1. Decode drive's RAM at `$07BE`-`$07C8` to identify the
+   exact bit-test pattern that selects between `$0728` and
+   `$042x` branches. From the disassembly we already have
+   (drive-ram from VICE baseline), this is one or two BIT
+   $1800 / BMI / BPL pairs. The selecting bit identifies
+   which IEC line carries the discriminating bit.
+2. Compare the 24-bit value drive received in TX 3 in VICE
+   vs headless. We can derive this from drive's bit-shift
+   accumulator register (likely `$0049` or similar zp) by
+   sampling drive instruction stream over the bit-receive
+   window of TX 3. Diff reveals which bit position got the
+   wrong value.
+3. Once the bit position is known, look at c64's `$DD00`
+   write at the corresponding cycle and compare to drive's
+   `$1800` read of the same cycle (master_clock-aligned).
+   The chip-side propagation gap is on one of the
+   intermediate steps: CIA2 PRA edge → IEC line → drive
+   VIA1 PB latch.
+
+Tools needed: nothing new. All queryable via existing
+`trace_store_query` against the two duckdb stores.
 
 ## Trace + reproduction
 
