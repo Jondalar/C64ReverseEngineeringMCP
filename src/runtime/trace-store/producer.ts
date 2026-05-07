@@ -66,6 +66,83 @@ export class TraceStoreProducer {
     return registerObserver(handler);
   }
 
+  // -------------------------------------------------------------------------
+  // Direct publish API — used by non-channel producers (e.g. VICE binmon
+  // poll loop). Channel handlers (onCpu/onIec/...) route through these.
+  // -------------------------------------------------------------------------
+
+  publishInstruction(
+    side: TraceCpu,
+    pc: number,
+    opcode: number,
+    a: number, x: number, y: number, sp: number, p: number,
+    clk: number | bigint,
+    b1?: number,
+    b2?: number,
+  ): void {
+    const clkN = typeof clk === "bigint" ? clk : BigInt(clk >>> 0);
+    const mc = this.opts.masterClockMapper?.(side, Number(clkN));
+    const chunk = this.ensureCpuChunk(side);
+    appendInstruction(chunk, {
+      seq: this.cpuSeq[side]++,
+      clock: clkN,
+      masterClock: mc,
+      pc: pc & 0xffff,
+      opcode: opcode & 0xff,
+      b1: b1 !== undefined ? b1 & 0xff : undefined,
+      b2: b2 !== undefined ? b2 & 0xff : undefined,
+      a: a & 0xff, x: x & 0xff, y: y & 0xff, sp: sp & 0xff, p: p & 0xff,
+    });
+    if (chunkIsFull(chunk)) this.flushInstruction(side);
+  }
+
+  publishBusEvent(
+    side: TraceCpu,
+    kind: BusEventKind,
+    clk: number | bigint,
+    extras: { pc?: number; addr?: number; value?: number; oldValue?: number; lineAtn?: boolean; lineClk?: boolean; lineData?: boolean } = {},
+  ): void {
+    const clkN = typeof clk === "bigint" ? clk : BigInt(clk >>> 0);
+    const chunk = this.ensureBusChunk(side);
+    appendBusEvent(chunk, {
+      seq: this.busSeq[side]++,
+      clock: clkN,
+      masterClock: this.opts.masterClockMapper?.(side, Number(clkN)),
+      pc: extras.pc,
+      kind,
+      addr: extras.addr,
+      value: extras.value,
+      oldValue: extras.oldValue,
+      lineAtn: extras.lineAtn,
+      lineClk: extras.lineClk,
+      lineData: extras.lineData,
+    });
+    if (chunkIsFull(chunk)) this.flushBus(side);
+  }
+
+  publishChipEvent(
+    side: TraceCpu,
+    chip: ChipEventChip,
+    kind: ChipEventKind,
+    clk: number | bigint,
+    extras: { pc?: number; unit?: number; value?: number; oldValue?: number } = {},
+  ): void {
+    const clkN = typeof clk === "bigint" ? clk : BigInt(clk >>> 0);
+    const chunk = this.ensureChipChunk(side);
+    appendChipEvent(chunk, {
+      seq: this.chipSeq[side]++,
+      clock: clkN,
+      masterClock: this.opts.masterClockMapper?.(side, Number(clkN)),
+      pc: extras.pc,
+      chip,
+      kind,
+      unit: extras.unit ?? 0,
+      value: extras.value,
+      oldValue: extras.oldValue,
+    });
+    if (chunkIsFull(chunk)) this.flushChip(side);
+  }
+
   private dispatch(ev: PublishedEvent): void {
     switch (ev.channel) {
       case "cpu":         return this.onCpu(ev);
