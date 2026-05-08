@@ -1,7 +1,7 @@
 # Spec 210 — CIA 1:1 VICE port
 
 **Sprint:** 118
-**Status:** PROPOSED (parallel-eligible)
+**Status:** DONE 2026-05-08 — Cia6526Vice (1518 LOC, 1:1 VICE port) + helpers ciat.ts + cia-tod.ts + cia-sdr.ts. Existing tests: cia-icr-irq 11/11, cia-register-rw 16/16, cia-sdr 14/14, cia-tod 15/15, cia-write-offset 4/4, cia2-iec-write 3/3 = **63/63 PASS** (well beyond original 23/23 acceptance). Covers Timer A/B, TOD with alarm latch, ICR R/W-clears, SR + CNT pin, Port A/B + DDR. Plugs into kernel alarm/IRQ surface (Spec 203 DONE). No-peer-tick eslint rule enforces architectural boundary.
 **Maps from:** legacy 145 (cia-full-vice-port) — superseded
 **Depends on:** 203 (alarm + IRQ timestamp surface)
 **Write scope:** `src/runtime/headless/cia/*` only (chip-internal)

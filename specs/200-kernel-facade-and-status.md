@@ -1,7 +1,7 @@
 # Spec 200 — MachineKernel facade and status
 
 **Sprint:** 115
-**Status:** REFINED 2026-05-06 — ready to implement
+**Status:** DONE 2026-05-08 — `npm run smoke:kernel-facade` 18/18 PASS. All required files present: machine-kernel.ts, headless-machine-kernel.ts, kernel-bus.ts, clock-domains.ts, kernel-trace.ts, kernel-status.ts, sync-strategy.ts, lockstep-strategy.ts, event-catchup-strategy.ts. CIA2/VIA1 routing + IRQ events + trace controller + catchUpDrive all wired. Downstream specs 201-205 + 213 + 218 closed on top.
 **ADR:** `docs/adr-headless-machine-kernel.md` (Decision A, §8 Step 1)
 **Depends on:** none
 **Blocks:** 201, 202, 203, 204, 205, 206, 207, 215, 216

@@ -1,7 +1,7 @@
 # Spec 211 — VIA 1:1 VICE port
 
 **Sprint:** 116
-**Status:** PROPOSED (parallel-eligible)
+**Status:** DONE 2026-05-08 — VIA6522Vice (1332 LOC, 1:1 VICE port) covers T1/T2/SR/IFR/IER/CA1/CB1 with VICE-style alarm scheduling. VIA1d1541 + VIA2d1541 wrappers expose IEC bus formula + GCR backend per Spec 110/213. Existing tests: via-ca-cb-handshake 10/10, via-ila-ilb-latch 5/5, via-register-rw 19/19, via-sr-modes 6/6, via-t1-pb7-toggle 8/8, via-write-offset 4/4 = 52/52 PASS. Spec 110 VIA1 IEC contract 24/24 PASS. Spec 213 closure proves VIA2 PA/CA1 wiring works for motm/MM/IM2 boot.
 **Maps from:** legacy 147 (via-full-vice-port) — superseded
 **Depends on:** 201 (KernelBus surface for `$1800`)
 **Write scope:** `src/runtime/headless/via/*` only

@@ -1,7 +1,7 @@
 # Spec 214 — VIC bus stealing + IRQ timing 1:1
 
 **Sprint:** 118
-**Status:** PROPOSED (parallel-eligible)
+**Status:** DONE 2026-05-08 — VicIIVice in src/runtime/headless/vic/. Tests: vic-badline 8/8, vic-bus-stealing 7/7, vic-raster-irq 10/10, vic-register-rw 18/18, vic-sprite-dma 7/7 = **50/50 PASS**. Bus-steal events via kernel surface (grep-verified no direct cpu.cycles mutation). Raster IRQ scheduled via Spec 203 alarm. Title screens motm/MM/IM2 render with bitmap+multicolor+sprites — visual end-to-end confirmation.
 **Maps from:** legacy 150 (vic-bus-stealing-irq-timing) — superseded
 **Depends on:** 203 (alarm + IRQ stamps)
 **Write scope:** `src/runtime/headless/vic/*` only (no CPU bumps)

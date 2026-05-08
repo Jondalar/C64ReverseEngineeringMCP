@@ -1,7 +1,7 @@
 # Spec 212 — Drive 6502 cycle audit
 
 **Sprint:** 117
-**Status:** PROPOSED (parallel-eligible)
+**Status:** DONE 2026-05-08 — `npm run smoke:drive-equiv` passes (equiv walk + coverage + SO pin + bus traces). Cpu65xxVice (= Cpu6510 microcoded port from VICE 6510core.c) covers all 256 opcodes incl illegals, dummy reads/writes, page-cross, RMW, branch timing. Recent BCD ADC/SBC fix (commit f250645) verified via Lorenz Disk1 100% PASS. ExecuteToClock callers exclusively from kernel (Spec 202 DONE). Audit doc: `docs/drive-cpu-fidelity-notes.md`.
 **Maps from:** legacy 146 (drive-6502-cycle-audit) — superseded
 **Depends on:** 202 (catch-up private)
 **Write scope:** `src/runtime/headless/drive/drive-cpu.ts` only
