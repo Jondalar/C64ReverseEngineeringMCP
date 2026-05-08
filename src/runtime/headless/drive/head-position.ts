@@ -86,7 +86,13 @@ export class HeadPosition {
   }
 
   stepInward(): void {
-    if (this.trackHalf < this.maxHalfTracks - 1) {
+    // Real 1541 has mechanical stop at track 35 (= halfTrack 70). G64
+    // images may have data on tracks 36-42 for copy protection but the
+    // physical drive can't reach those without modification. Cap step
+    // at min(maxHalfTracks-1, 70) so HL behaves like real hardware
+    // even with extended-track G64 images.
+    const cap = Math.min(this.maxHalfTracks - 1, 70);
+    if (this.trackHalf < cap) {
       this.trackHalf += 1;
       this.onStep?.("inward", this.trackHalf);
     }
