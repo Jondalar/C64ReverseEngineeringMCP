@@ -1,7 +1,31 @@
 # Spec 219 — CPU illegal opcode coverage (Lorenz Disk2/3/4)
 
 **Sprint:** 121 (after 207 modes/test profiles)
-**Status:** PROPOSED
+**Status:** IN PROGRESS 2026-05-08 — c1-c3 DONE, c4 (CPUPORT) deferred.
+
+c1: ARR BCD (commit 9195452) — Lorenz Disk2 ARRB now PASS. Both Cpu6510 + Cpu65xxVice impl per VICE 6510core.c arr_bcd.
+
+c2: XAA magic constant $EE (commit 9195452) — Lorenz Disk2 XAA-related tests PASS.
+
+c3: AXS/SHA/SHS/SHX/SHY (already implemented) — verified Lorenz Disk2:
+- sbxb (AXS), shaay/shaiy (SHA), shxay (SHX), shyax (SHY), shsay (TAS)
+all PASS without modification.
+
+c4: CPU port $00/$01 capacitor-decay model — DEFERRED. Static pullup
+mask $17 vs $DF tradeoff: $17 passes TRAP1-17 but fails CPUPORT;
+$DF passes CPUPORT direction but breaks TRAP16. Need VICE-style
+pport.data_falloff_bit{6,7} dynamic decay (= timer-based bit-flip
+toward default after capacitive hold). Significant work; not
+gating any game boot.
+
+Disk2 status (with c1-c3 fixes):
+- BEQR..BVCR: PASS
+- RLA/SRE/RRA/INS/LAX/AXS/ALR/ARR all variants: PASS
+- SBX, SHA/SHX/SHY/TAS, ANC, LAS, SBC#: PASS
+- TRAP1-17, BRANCHWRAP, MMUFETCH, MMU: PASS
+- **CPUPORT: FAIL** (c4 deferred)
+
+Disk3+4 not yet tested with c1-c3 fixes.
 **Depends on:** 200 (kernel), 212 (drive 6502 cycle audit DONE)
 **Write scope:** `src/runtime/headless/cpu/cpu65xx-vice.ts`,
 `src/runtime/headless/cpu6510.ts`
