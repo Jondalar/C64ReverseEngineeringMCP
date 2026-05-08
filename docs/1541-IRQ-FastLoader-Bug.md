@@ -3,6 +3,20 @@
 **Status:** ROOT CAUSE PROVEN — HL stage-1 bit-bang IEC handshake.
 **Last updated:** 2026-05-08 late evening, post `$0763=$00` patch test.
 
+## Test infrastructure (2026-05-08 night)
+
+Vendored Wolfgang Lorenz C64 Emulator Test Suite (public domain) under
+`samples/vice-testprogs/lorenz-2.15/`. ~144 tests on Disk1 covering all
+6502 opcodes + addressing modes + flags + interrupts + CIA/VIC timing.
+
+Run via:
+```
+npm run test:lorenz:disk1
+```
+
+This catches the EXACT class of bug that took 3 days of manual debug
+on motm. Should be wired into CI before next kernel-bus refactor.
+
 ## VICE COMPARISON CONFIRMS DIVERGENCE (2026-05-08 night)
 
 Live VICE x64sc session running motm.g64 + monitor inspection:
