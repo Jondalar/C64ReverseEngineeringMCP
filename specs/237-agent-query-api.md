@@ -1,7 +1,13 @@
 # Spec 237 — Agent query API (KernelClient extension)
 
-**Sprint:** 128
-**Status:** PROPOSED 2026-05-08
+**Sprint:** 132
+**Status:** DONE 2026-05-09 — `AgentQueryApi` class shipped in
+src/runtime/headless/v2/agent-api.ts. Aggregates all V2.x modules
+into single stable surface (~30 methods across trace/follow-path/
+swimlane/taint/profile/disasm-link/vice-diff/replay/snapshot-diff/
+fingerprint/breakpoints/bookmarks/monitor/rewind/regression/VSF +
+status). Smoke `scripts/smoke-agent-api.mjs` exercises 12 ops
+end-to-end — **12/12 PASS**. E2E ladder unchanged.
 **Depends on:** 231-236, 206 (KernelClient)
 **Master:** 230
 
