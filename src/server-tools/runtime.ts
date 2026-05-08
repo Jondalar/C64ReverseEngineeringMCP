@@ -749,4 +749,65 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
   );
+
+  // ---- Spec 271 — Parallel batch scenario runner ----
+
+  server.tool(
+    "runtime_run_scenarios_parallel",
+    "Spec 271 — run multiple scenarios in parallel via worker_threads. Returns batchId for polling.",
+    {
+      scenario_ids: z.array(z.string()).min(1),
+      worker_count: z.number().int().min(1).optional(),
+    },
+    safeHandler("runtime_run_scenarios_parallel", async ({ scenario_ids, worker_count }) => {
+      const { WorkerPool, resolveWorkerCount } = await import("../runtime/headless/parallel/scenario-pool.js");
+      const { createBatch, updateProgress, completeBatch, failBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+
+      const n = resolveWorkerCount(scenario_ids.length, worker_count);
+      const entry = createBatch(scenario_ids, n);
+
+      const pool = new WorkerPool({
+        workerCount: n,
+        projectDir: process.env.C64RE_PROJECT_DIR,
+        onProgress: (completed, _total) => updateProgress(entry.batchId, completed),
+      });
+
+      // Fire-and-forget; results accumulate in store.
+      pool.runBatch(scenario_ids).then(results => {
+        completeBatch(entry.batchId, results);
+      }).catch((e: Error) => {
+        failBatch(entry.batchId, e.message ?? String(e));
+      });
+
+      return { content: [{ type: "text", text: JSON.stringify(serialiseBatch(entry), null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_batch_status",
+    "Spec 271 — poll progress of a parallel batch. Returns completed / total and status.",
+    { batch_id: z.string() },
+    safeHandler("runtime_batch_status", async ({ batch_id }) => {
+      const { getBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+      const entry = getBatch(batch_id);
+      if (!entry) throw new Error(`batch '${batch_id}' not found`);
+      return { content: [{ type: "text", text: JSON.stringify(serialiseBatch(entry), null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_batch_results",
+    "Spec 271 — collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
+    { batch_id: z.string() },
+    safeHandler("runtime_batch_results", async ({ batch_id }) => {
+      const { getBatch, serialiseBatch, serialiseResults } = await import("../runtime/headless/parallel/batch-store.js");
+      const entry = getBatch(batch_id);
+      if (!entry) throw new Error(`batch '${batch_id}' not found`);
+      if (entry.status === "running") throw new Error(`batch '${batch_id}' still running (${entry.completed}/${entry.total})`);
+      return { content: [{ type: "text", text: JSON.stringify({
+        batch: serialiseBatch(entry),
+        results: serialiseResults(entry),
+      }, null, 2) }] };
+    }),
+  );
 }

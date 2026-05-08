@@ -363,6 +363,69 @@ export class V3WsServer {
       };
       return runScenario(scenario);
     });
+
+    // ---- Spec 271 — Parallel batch runner WS handlers ----
+
+    this.on("batch/start", async ({ scenarioIds, workerCount }) => {
+      if (!Array.isArray(scenarioIds) || scenarioIds.length === 0) {
+        throw new Error("scenarioIds must be a non-empty array");
+      }
+      const { WorkerPool, resolveWorkerCount } = await import("../runtime/headless/parallel/scenario-pool.js");
+      const { createBatch, updateProgress, completeBatch, failBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+
+      const n = resolveWorkerCount(scenarioIds.length, workerCount);
+      const entry = createBatch(scenarioIds as string[], n);
+
+      const pool = new WorkerPool({
+        workerCount: n,
+        projectDir: process.env.C64RE_PROJECT_DIR,
+        onProgress: (completed, total, currentId) => {
+          updateProgress(entry.batchId, completed);
+          // Push progress notification to all connected clients.
+          this.broadcast("batch/progress", {
+            batchId: entry.batchId,
+            completed,
+            total,
+            currentId,
+          });
+        },
+      });
+
+      pool.runBatch(scenarioIds as string[]).then(results => {
+        completeBatch(entry.batchId, results);
+        this.broadcast("batch/progress", {
+          batchId: entry.batchId,
+          completed: entry.total,
+          total: entry.total,
+          status: "done",
+        });
+      }).catch((e: Error) => {
+        failBatch(entry.batchId, e.message ?? String(e));
+        this.broadcast("batch/progress", {
+          batchId: entry.batchId,
+          status: "error",
+          error: e.message,
+        });
+      });
+
+      return serialiseBatch(entry);
+    });
+
+    this.on("batch/status", async ({ batchId }) => {
+      if (typeof batchId !== "string") throw new Error("batchId required");
+      const { getBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+      const entry = getBatch(batchId);
+      if (!entry) throw new Error(`batch '${batchId}' not found`);
+      return serialiseBatch(entry);
+    });
+
+    this.on("batch/results", async ({ batchId }) => {
+      if (typeof batchId !== "string") throw new Error("batchId required");
+      const { getBatch, serialiseBatch, serialiseResults } = await import("../runtime/headless/parallel/batch-store.js");
+      const entry = getBatch(batchId);
+      if (!entry) throw new Error(`batch '${batchId}' not found`);
+      return { batch: serialiseBatch(entry), results: serialiseResults(entry) };
+    });
   }
 }
 
