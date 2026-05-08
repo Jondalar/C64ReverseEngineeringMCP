@@ -1,6 +1,6 @@
 # Spec 217 - DuckDB trace store and zoomable runtime evidence
 
-**Status:** ready-for-implementation, 2026-05-07
+**Status:** DONE 2026-05-08 — `scripts/trace-store-query.mjs` provides DuckDB-backed SQL query CLI against `trace.duckdb` files. Used during motm investigation 2026-05-08 to query 6.4M bus events + 40M instructions across stage-1 window (commits 746097c, 903fb68). Stored traces under `samples/traces/v2-baseline/motm-spec218-hybrid60-headless-store-2026-05-08/`. master_clock + typed event-extras + parquet+duckdb tables all functional. Original ready-for-implementation 2026-05-07.
 **Revision history:**
 - v1 (2026-05-07): initial proposal
 - v2 (2026-05-07): master-clock definition, typed event-extras (no
@@ -611,6 +611,10 @@ Acceptance:
 - Query by `$DD00` returns event windows.
 - `trace_zoom --anchor rx_wait --occurrence N --before 200 --after 200`
   emits a small markdown/JSON swimlane.
+- `trace_transaction_swimlane --anchor <name> --occurrence N` emits
+  a transaction-by-transaction view that joins CPU instructions,
+  IO access, resolved bus line state, opposite-side IO observation,
+  and follow-up CPU branch/state change on one shared clock.
 - File size is materially smaller than equivalent JSONL. First target:
   at least 5x smaller for instruction-heavy traces. For the observed
   motm 120s case (~15 GiB JSONL), first target is below 3 GiB and
@@ -706,6 +710,10 @@ Out of scope:
 ### Phase 4 - UI timeline and LLM zoom
 
 - Workspace UI consumes rollups for zoom-out.
+- Transaction swimlane is a first-class zoom mode for LLM and human
+  reverse-engineering work. It must show causality, not just adjacent
+  rows: CPU instruction -> IO write/read -> resolved bus/chip state ->
+  opposite-side IO read/write -> following CPU branch/state.
 - Timeline lanes:
   - C64 PC/routine phase
   - Drive PC/routine phase
@@ -715,6 +723,8 @@ Out of scope:
   - GCR motor/head/sync/data
 - Clicking a rollup window calls `trace_zoom_window`.
 - Deep zoom renders swimlane rows.
+- Transaction zoom can be scoped by anchor/occurrence, PC range, IO
+  address, bus-line edge, or "first divergence vs VICE".
 
 ### Phase 5 - Deprecate duplicate tools
 
@@ -769,6 +779,8 @@ Out of scope:
 | `trace_store_query` | restricted SQL/query presets for agents |
 | `trace_anchor_find` | list anchors and occurrence counts |
 | `trace_zoom_window` | export LLM-sized swimlane around anchor/window |
+| `trace_transaction_swimlane` | side-by-side CPU/IO/bus transaction view for step-by-step analysis |
+| `trace_first_divergence` | find first mismatching transaction between VICE and headless after an anchor |
 | `trace_cadence_report` | compare rates for PC ranges, IRQs, bus events |
 | `trace_export_jsonl` | explicit compatibility export |
 | `trace_export_markdown` | small report artifact for findings/specs |

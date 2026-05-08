@@ -1,7 +1,10 @@
 # Spec 205 — Kernel trace contract
 
 **Sprint:** 120
-**Status:** 205-A FULL ADR §5 EVENT-FAMILY COVERAGE DONE 2026-05-06 — kernel trace controller + 8 wired channels (bus_access, irq, cpu, iec, gcr, vic, cia, session/keyboard/joystick). 14/14 smoke. 205-B (VICE diff CLI) + 205-C (swimlane) still PROPOSED.
+**Status:** ALL DONE 2026-05-08.
+- 205-A: kernel trace controller + 8 wired channels (bus_access, irq, cpu, iec, gcr, vic, cia, session/keyboard/joystick). 14/14 smoke. (DONE 2026-05-06)
+- 205-B VICE diff CLI: `scripts/diff-vice-headless.mjs` (first-divergence per game) + `scripts/trace-store-query.mjs` (DuckDB SQL queries against trace.duckdb) — used in motm investigation to identify ROM $F96B as ZP[$01] writer (commit 746097c).
+- 205-C swimlane: `scripts/swimlane-diff-v2.mjs`, `scripts/headless-swimlane-capture.mjs`, `scripts/build-ab-swimlane.mjs` — used during Sprint 113 motm AB-fastloader transaction analysis.
 
 ## 205-A status (2026-05-06)
 
