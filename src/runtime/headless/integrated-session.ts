@@ -532,11 +532,31 @@ export class IntegratedSession {
   }
 
   // Render current VIC state then write to a PNG file. Phase 65f.
+  // Crops 504×312 internal framebuffer to standard VICII PAL visible
+  // 384×272 centered on active 320×200 region (VISIBLE_X/Y=24/51 →
+  // active center at (184, 151) → crop origin (-8, 15) clamped to (0,15)).
+  // Match VICE x64sc visible dimensions; eliminates over-wide right
+  // border in raw 504-pixel output.
   renderToPng(path: string): { width: number; height: number; bytes: number } {
     this.renderFrame();
-    const png = rgbaToPng(this.framebuffer.width, this.framebuffer.height, this.framebuffer.pixels);
+    const fb = this.framebuffer;
+    // Active region center in internal 504×312 buf: (24+160, 51+100) = (184, 151).
+    // For 384×272 output centered on active: origin = (184-192, 151-136) = (-8, 15).
+    // Clamp origin to (0, 15). Width in source = 392 (= 384 + 8 left clip).
+    // Just crop [0..391, 15..286] = 392×272. VICII has wider right HBLANK we drop.
+    const cropX = 0;
+    const cropY = 15;
+    const cropW = 392;
+    const cropH = 272;
+    const cropped = new Uint8Array(cropW * cropH * 4);
+    for (let y = 0; y < cropH; y++) {
+      const srcRow = ((cropY + y) * fb.width + cropX) * 4;
+      const dstRow = y * cropW * 4;
+      cropped.set(fb.pixels.subarray(srcRow, srcRow + cropW * 4), dstRow);
+    }
+    const png = rgbaToPng(cropW, cropH, cropped);
     writeFileSync(path, png);
-    return { width: this.framebuffer.width, height: this.framebuffer.height, bytes: png.length };
+    return { width: cropW, height: cropH, bytes: png.length };
   }
 
   // Spec 117 (M4.1) v1: stable framebuffer-API descriptor for agents.
