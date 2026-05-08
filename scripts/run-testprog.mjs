@@ -52,18 +52,25 @@ if (fullPath.endsWith(".d64") || fullPath.endsWith(".g64")) {
   session.runFor(800_000);
   session.typeText('LOAD"*",8,1\rRUN\r', 80_000, 80_000);
 } else {
-  // kernal-load mode: load PRG directly + JMP to start.
+  // PRG load: inject into c64 RAM + set BASIC pointers + RUN/SYS.
   const data = readFileSync(fullPath);
   const loadAddr = data[0] | (data[1] << 8);
   const program = data.subarray(2);
+  const progEnd = loadAddr + program.length;
   console.log(`Load addr: $${loadAddr.toString(16)} | size: ${program.length}`);
-  // Write to RAM
   for (let i = 0; i < program.length; i++) {
     session.c64Bus.ram[loadAddr + i] = program[i];
   }
-  // Run BASIC startup. For PRGs at $0801: RUN executes BASIC stub which
-  // typically SYS-jumps into ML. For PRGs at other addrs: SYS to load addr.
-  session.runFor(800_000);
+  // Boot BASIC, then patch pointers.
+  session.runFor(2_000_000);
+  // Set BASIC pointers: VARTAB ($2D/$2E), ARYTAB ($2F/$30), STREND ($31/$32).
+  // Without these, BASIC RUN treats program as empty.
+  session.c64Bus.ram[0x002d] = progEnd & 0xff;
+  session.c64Bus.ram[0x002e] = (progEnd >> 8) & 0xff;
+  session.c64Bus.ram[0x002f] = progEnd & 0xff;
+  session.c64Bus.ram[0x0030] = (progEnd >> 8) & 0xff;
+  session.c64Bus.ram[0x0031] = progEnd & 0xff;
+  session.c64Bus.ram[0x0032] = (progEnd >> 8) & 0xff;
   if (loadAddr === 0x0801) {
     session.typeText(`RUN\r`, 80_000, 80_000);
   } else {
