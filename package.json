@@ -93,6 +93,7 @@
     "smoke:swimlane": "npm run build:mcp && node scripts/smoke-swimlane.mjs",
     "smoke:taint": "npm run build:mcp && node scripts/smoke-taint.mjs",
     "smoke:loader-profile": "npm run build:mcp && node scripts/smoke-loader-profile.mjs",
+    "smoke:vice-diff": "npm run build:mcp && node scripts/smoke-vice-diff.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },
