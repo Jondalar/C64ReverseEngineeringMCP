@@ -3,6 +3,31 @@
 **Status:** ROOT CAUSE PROVEN — HL stage-1 bit-bang IEC handshake.
 **Last updated:** 2026-05-08 late evening, post `$0763=$00` patch test.
 
+## VICE COMPARISON CONFIRMS DIVERGENCE (2026-05-08 night)
+
+Live VICE x64sc session running motm.g64 + monitor inspection:
+
+```
+VICE drive $0762-$0764 = B9 00 03    (= LDA $0300,Y, CORRECT)
+HL   drive $0762-$0764 = B9 11 03    (= LDA $0311,Y, BROKEN)
+```
+
+Both VICE and HL install IDENTICAL motm runtime fastloader code at
+drive $0700-$07FF (verified byte-by-byte). The ONLY difference is the
+self-modified $0763 byte at end of stage-1.
+
+VICE drive ZP after stage-1 exit:
+```
+$00=$01 $01=$01 $02=$80 $03=$80 $04=$80 $05=$00
+$06=$01 $07=$00 $08=$01 $09=$01 $0A=$01 $0B=$02
+$0C=$01 $0D=$03 $0E=$01 $0F=$04
+```
+
+VICE proves real hardware produces X count = $00, drive's runtime
+fastloader operand = $0300 (correct). HL stage-1 INX-loop produces
+17 spurious INX events → X = $11 → operand = $0311 → wrong sector
+byte read.
+
 ## ROOT CAUSE (proven by smoking-gun patch test 2026-05-08 late evening)
 
 **Bug**: HL stage-1 bit-bang IEC handshake produces X register = $11
