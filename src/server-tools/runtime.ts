@@ -635,4 +635,118 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       return { content: [{ type: "text", text: `Saved to ${config_path ?? "~/.config/c64re/joystick.json"}` }] };
     }),
   );
+
+  // ---- Spec 268 — Scenario registry ----
+
+  server.tool(
+    "runtime_scenario_list",
+    "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
+    {},
+    safeHandler("runtime_scenario_list", async () => {
+      const { listScenarios } = await import("../runtime/headless/v2/scenario-registry.js");
+      const scenarios = listScenarios();
+      return { content: [{ type: "text", text: JSON.stringify(scenarios, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_scenario_save",
+    "Spec 268 — save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
+    {
+      id: z.string(),
+      diskPath: z.string(),
+      mode: z.enum(["fast-trap", "real-kernal", "true-drive"]),
+      cycleBudget: z.number(),
+      inputs: z.array(z.object({
+        atCycle: z.number(),
+        kind: z.enum(["keyboard", "joystick1", "joystick2"]),
+        payload: z.unknown(),
+      })).default([]),
+      startSnapshot: z.string().optional().describe("VSF file path or omit for empty (scenario is a plan only)."),
+    },
+    safeHandler("runtime_scenario_save", async ({ id, diskPath, mode, cycleBudget, inputs, startSnapshot }) => {
+      const { saveScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const scenario: any = { id, diskPath, mode, cycleBudget, inputs, startSnapshot: startSnapshot ?? "" };
+      const { filePath } = saveScenario(scenario);
+      return { content: [{ type: "text", text: `saved to ${filePath}` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_scenario_load",
+    "Spec 268 — load a single scenario by id. Checks project dir first, then samples.",
+    { id: z.string() },
+    safeHandler("runtime_scenario_load", async ({ id }) => {
+      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const s = loadScenario(id);
+      if (!s) throw new Error(`scenario '${id}' not found`);
+      return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_scenario_delete",
+    "Spec 268 — delete a scenario JSON by id. Returns true if found and removed.",
+    { id: z.string() },
+    safeHandler("runtime_scenario_delete", async ({ id }) => {
+      const { deleteScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const ok = deleteScenario(id);
+      return { content: [{ type: "text", text: ok ? `deleted ${id}` : `${id} not found` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_snapshot_tree",
+    "Spec 268 — return the full branch tree for a rewind session. Requires session with active RewindManager.",
+    { session_id: z.string() },
+    safeHandler("runtime_snapshot_tree", async ({ session_id }) => {
+      const api = await getApi(session_id);
+      const rm = api.beginRewindSession();
+      const handle = rm.handle();
+      // Convert Map to plain object for serialisation.
+      const branches: Record<string, any> = {};
+      for (const [k, v] of handle.branches) {
+        branches[k] = v;
+      }
+      return { content: [{ type: "text", text: JSON.stringify({
+        scenarioId: handle.scenarioId,
+        rootBranchId: handle.rootBranchId,
+        rootSnapshotId: handle.rootSnapshotId,
+        ringSize: handle.ringSize,
+        branches,
+      }, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_promote_branch",
+    "Spec 268 — promote a transient rewind branch to a persistent Scenario record.",
+    { session_id: z.string(), branch_id: z.string() },
+    safeHandler("runtime_promote_branch", async ({ session_id, branch_id }) => {
+      const api = await getApi(session_id);
+      const rm = api.beginRewindSession();
+      const { scenarioId, scenario, patches } = rm.promoteBranch(branch_id);
+      return { content: [{ type: "text", text: JSON.stringify({ scenarioId, scenario, patches }, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_run_scenario",
+    "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
+    { id: z.string() },
+    safeHandler("runtime_run_scenario", async ({ id }) => {
+      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { runScenario } = await import("../runtime/headless/v2/scenario.js");
+      const s = loadScenario(id);
+      if (!s) throw new Error(`scenario '${id}' not found`);
+      const scenario: any = {
+        ...s,
+        startSnapshot: typeof s.startSnapshot === "string" && s.startSnapshot
+          ? s.startSnapshot
+          : Buffer.from(s.startSnapshot as string ?? "", "base64"),
+      };
+      const result = runScenario(scenario);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
 }

@@ -295,6 +295,74 @@ export class V3WsServer {
       const { getRecent } = await import("../runtime/headless/media/recent-files.js");
       return getRecent();
     });
+
+    // ---- Spec 268 — Snapshot tree + scenario registry WS handlers ----
+
+    this.on("runtime/snapshot_tree", async ({ session_id }) => {
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: "", mode: "fast-trap" });
+      const rm = api.beginRewindSession();
+      const handle = rm.handle();
+      const branches: Record<string, any> = {};
+      for (const [k, v] of handle.branches) branches[k] = v;
+      return {
+        scenarioId: handle.scenarioId,
+        rootBranchId: handle.rootBranchId,
+        rootSnapshotId: handle.rootSnapshotId,
+        ringSize: handle.ringSize,
+        branches,
+      };
+    });
+
+    this.on("runtime/promote_branch", async ({ session_id, branch_id }) => {
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: "", mode: "fast-trap" });
+      const rm = api.beginRewindSession();
+      return rm.promoteBranch(branch_id);
+    });
+
+    this.on("runtime/scenario_list", async () => {
+      const { listScenarios } = await import("../runtime/headless/v2/scenario-registry.js");
+      return listScenarios();
+    });
+
+    this.on("runtime/scenario_save", async ({ scenario }) => {
+      if (!scenario || typeof scenario !== "object") throw new Error("scenario object required");
+      const { saveScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      return saveScenario(scenario);
+    });
+
+    this.on("runtime/scenario_delete", async ({ id }) => {
+      if (typeof id !== "string") throw new Error("id required");
+      const { deleteScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const ok = deleteScenario(id);
+      return { deleted: ok };
+    });
+
+    this.on("runtime/scenario_load", async ({ id }) => {
+      if (typeof id !== "string") throw new Error("id required");
+      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const s = loadScenario(id);
+      if (!s) throw new Error(`scenario '${id}' not found`);
+      return s;
+    });
+
+    this.on("runtime/scenario_run", async ({ id }) => {
+      if (typeof id !== "string") throw new Error("id required");
+      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { runScenario } = await import("../runtime/headless/v2/scenario.js");
+      const s = loadScenario(id);
+      if (!s) throw new Error(`scenario '${id}' not found`);
+      const scenario: any = {
+        ...s,
+        startSnapshot: typeof s.startSnapshot === "string" && s.startSnapshot
+          ? s.startSnapshot
+          : Buffer.from(String(s.startSnapshot ?? ""), "base64"),
+      };
+      return runScenario(scenario);
+    });
   }
 }
 
