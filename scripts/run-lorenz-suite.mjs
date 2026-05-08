@@ -32,6 +32,10 @@ const diskNum = parseInt(arg("disk", "1"), 10);
 const maxSec = parseInt(arg("max-sec", "600"), 10);
 const verbose = flag("verbose");
 
+// Lorenz disk entry points (each disk continues the chain).
+const ENTRY_PER_DISK = { 1: "START", 2: "BEQR", 3: "TRAP1", 4: "TRAP10" };
+const entryName = arg("entry", ENTRY_PER_DISK[diskNum] ?? "START");
+
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const diskPath = resolvePath(repoRoot, `samples/vice-testprogs/lorenz-2.15/Disk${diskNum}.d64`);
 if (!existsSync(diskPath)) {
@@ -53,7 +57,7 @@ const { session } = startIntegratedSession({
 });
 session.resetCold("pal-default");
 session.runFor(800_000);
-session.typeText('LOAD"START",8\r', 80_000, 80_000);
+session.typeText(`LOAD"${entryName}",8\r`, 80_000, 80_000);
 // Wait for LOAD to complete (~2-3 sec wallclock)
 const PAL_HZ_BOOT = 985248;
 const loadEnd = session.c64Cpu.cycles + 5 * PAL_HZ_BOOT;
