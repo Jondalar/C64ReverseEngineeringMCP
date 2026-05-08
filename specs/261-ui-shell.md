@@ -1,7 +1,16 @@
 # Spec 261 — UI shell
 
 **Sprint:** 135
-**Status:** PROPOSED 2026-05-09
+**Status:** DONE 2026-05-09 — React/Vite shell shipped under
+ui/src/v3/ + ui/v3-vite.config.ts. Dev server on
+localhost:4313 (separate from V1 ui at 4311). WebSocket client
+in ui/src/v3/ws-client.ts: JSON-RPC calls + binary frame
+consumer + auto-reconnect + state listeners. App.tsx with 7
+tabs (Live/Monitor/Trace/Snapshots/Scenarios/Media/Export) +
+header (connection status + cycle counter) + footer. Dark theme
+with C64-blue accent (style.css). Tab stubs created; content
+arrives in later sprints. Build: `npm run ui:v3:build` produces
+~196KB JS (62KB gzipped). Dev: `npm run ui:v3:dev`.
 **Master:** 260
 
 ## Goal

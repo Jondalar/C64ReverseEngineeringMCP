@@ -1,0 +1,114 @@
+/* Spec 261 — V3 UI styles. Dark mode default, C64-blue accent. */
+
+:root {
+  --c64-bg-1: #0a0a18;
+  --c64-bg-2: #1a1a2e;
+  --c64-fg: #d0d0e8;
+  --c64-fg-muted: #6868a0;
+  --c64-blue: #6c5ce7;
+  --c64-blue-bright: #7c6cee;
+  --c64-green: #4caf50;
+  --c64-yellow: #ffd54f;
+  --c64-red: #ef5350;
+  --c64-border: #2a2a44;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--c64-bg-1);
+  color: var(--c64-fg);
+  font-size: 13px;
+  line-height: 1.4;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#root, .v3-app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.v3-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--c64-bg-2);
+  border-bottom: 1px solid var(--c64-border);
+  font-size: 12px;
+}
+
+.v3-title {
+  font-weight: bold;
+  color: var(--c64-blue-bright);
+  font-size: 14px;
+}
+
+.v3-conn {
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--c64-bg-1);
+  color: var(--c64-fg-muted);
+}
+.v3-conn-open    { color: var(--c64-green); }
+.v3-conn-closed  { color: var(--c64-red); }
+.v3-conn-error   { color: var(--c64-red); }
+.v3-conn-connecting { color: var(--c64-yellow); }
+
+.v3-session, .v3-cycle {
+  color: var(--c64-fg-muted);
+}
+
+.v3-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--c64-bg-2);
+  border-bottom: 1px solid var(--c64-border);
+}
+
+.v3-tab {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  color: var(--c64-fg-muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+.v3-tab:hover { color: var(--c64-fg); }
+.v3-tab.active {
+  color: var(--c64-blue-bright);
+  border-bottom-color: var(--c64-blue);
+}
+
+.v3-main {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem;
+  background: var(--c64-bg-1);
+}
+
+.v3-footer {
+  padding: 0.25rem 1rem;
+  background: var(--c64-bg-2);
+  border-top: 1px solid var(--c64-border);
+  color: var(--c64-fg-muted);
+  font-size: 11px;
+}
+
+.v3-tab-stub {
+  text-align: center;
+  margin-top: 4rem;
+  color: var(--c64-fg-muted);
+}
+.v3-tab-stub h2 {
+  font-size: 18px;
+  color: var(--c64-blue-bright);
+  margin-bottom: 0.5rem;
+}
