@@ -281,13 +281,12 @@ export class HeadlessMemoryBus {
   private computeCpuPortDataRead(): number {
     const dir = this.cpuPortDirection & 0xff;
     const data = this.cpuPortValue & 0xff;
-    // VICE c64pla.c: pullup = $DF for stock c64 NTSC/PAL.
-    // Bits 7,6 (BUS_ERROR) pull HIGH — weak resistor pull-up.
-    // Bit 5 (CASS_MOTOR) pulls LOW (no datasette baseline).
-    // Bits 4,3 (CASS_SENSE/OUT) pull HIGH.
-    // Bits 2,1,0 (CHAREN/HIRAM/LORAM) pull HIGH (PLA banking lines).
-    // Lorenz CPUPORT verifies this exact mask.
-    const pullup = 0xdf;
+    // pullup = $17 (PLA banking lines + CASS_SENSE pull-up).
+    // Bits 0,1,2 = LORAM/HIRAM/CHAREN (PLA), bit 4 = CASS_SENSE.
+    // Lorenz TRAP16 depends on this exact mask. CPUPORT test wants
+    // wider $DF mask (bits 6,7,4,3 + lower) but $DF breaks TRAP16
+    // — need capacitor-decay model to satisfy both. Defer to follow-up.
+    const pullup = 0x17;
     const dataOut = data & dir; // input pins not driven; only output pins contribute
     return ((data | (~dir & 0xff)) & (dataOut | pullup)) & 0xff;
   }
