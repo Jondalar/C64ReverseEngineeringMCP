@@ -168,6 +168,19 @@ async function applySchema(conn: any): Promise<void> {
        irq_counts_json JSON,
        phase           TEXT
      )`,
+    // Spec 242 — trace bookmarks / annotations
+    `CREATE TABLE IF NOT EXISTS trace_bookmarks (
+       run_id      TEXT NOT NULL,
+       id          TEXT NOT NULL PRIMARY KEY,
+       cycle       UBIGINT NOT NULL,
+       family      TEXT,
+       event_key   TEXT,
+       label       TEXT NOT NULL,
+       note        TEXT,
+       author_tag  TEXT,
+       tags        TEXT[],
+       bind_mode   TEXT NOT NULL DEFAULT 'both'
+     )`,
   ];
   for (const stmt of ddl) {
     await conn.run(stmt);
