@@ -1,7 +1,14 @@
 # Spec 272 — WebSocket protocol (JSON-RPC + binary frames)
 
 **Sprint:** 134 (foundation)
-**Status:** PROPOSED 2026-05-09
+**Status:** DONE 2026-05-09 — `V3WsServer` shipped in
+src/workspace-ui/v3-ws-server.ts. Hybrid JSON-RPC text + binary
+frame protocol on ws://127.0.0.1:4312. Binary types: VIC frame,
+audio buffer, trace chunk, ack. Built-in handlers: ping,
+session/state, runtime/call (= AgentQueryApi facade dispatch).
+Smoke `scripts/smoke-v3-ws.mjs` exercises connect, ping, state,
+runtime call, error path, binary round-trip, broadcast notify —
+**7/7 PASS**. Build clean.
 **Master:** 260
 
 ## Goal

@@ -94,6 +94,7 @@
     "smoke:taint": "npm run build:mcp && node scripts/smoke-taint.mjs",
     "smoke:loader-profile": "npm run build:mcp && node scripts/smoke-loader-profile.mjs",
     "smoke:vice-diff": "npm run build:mcp && node scripts/smoke-vice-diff.mjs",
+    "smoke:v3-ws": "npm run build:mcp && node scripts/smoke-v3-ws.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "regress:capture": "npm run build:mcp && node scripts/regress-cli.mjs capture",
     "regress:compare": "npm run build:mcp && node scripts/regress-cli.mjs compare",
@@ -106,8 +107,10 @@
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@types/ws": "^8.18.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "ws": "^8.20.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
