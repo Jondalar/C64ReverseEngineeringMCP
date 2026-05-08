@@ -33,6 +33,9 @@ Emulator queryable by agents:
 - Structured snapshots.
 - Event-indexed traces with canonical event families.
 - Follow-a-path tracing.
+- Transaction-by-transaction trace analysis: C64 CPU, IO write/read,
+  resolved bus state, drive IO read/write, and drive CPU side by side
+  on a shared clock.
 - Runtime evidence linked to disassembly and project knowledge.
 - First-divergence comparison against VICE while VICE remains oracle.
 
@@ -135,20 +138,90 @@ port), SID full audio (resid or fastsid), human UI surfaces.
 - **137** `docs/vice-iec-arc42.md` — reference for IEC observable
   semantics, no implementation work.
 
+### Diagnostic support specs
+
+These specs support V1/V2 evidence work and may run alongside the core
+sequence when they do not edit emulator timing paths. Transaction
+swimlanes are a canonical workbench tool, not a one-off MoTM debug
+artifact: every hard timing/reverse-engineering question should be
+answerable as a small side-by-side trace window instead of another
+large raw trace.
+
+| Spec | Title | Depends |
+|------|-------|---------|
+| 217  | DuckDB trace store and zoomable runtime evidence | 205 |
+| 218  | MoTM TX3/TX4 bit-level divergence | 205,217 |
+| 219  | CPU illegal opcode coverage (Lorenz disk2-4) | 200, 212 |
+| 220  | CI pipeline (GH Actions, 3 tiers) | 207, 219 |
+
+V1 status (2026-05-08): all 200-220 DONE except 218 (debug-only).
+true-drive 1541 silikon-equivalent. Lorenz disk1 100%. Disk2 all
+TRAP1-17 + illegal opcodes pass. CIA testprogs 59/59. Drive 4/4.
+E2E ladder 6/6.
+
+### V2.0 — LLM workbench (refined, ready for impl)
+
+| Spec | Title | Depends |
+|------|-------|---------|
+| 230  | V2 master spec (8 sub-specs index) | 200-220 |
+| 231  | Deterministic replay & rerun | 134, 205, 215 |
+| 232  | Event-indexed trace store (24 families) | 205, 217 |
+| 233  | Follow-a-path tracing (causal chain) | 232 |
+| 234  | Transaction-level swimlane | 232, 205-B |
+| 235  | Runtime ↔ disasm link | 232, pipeline |
+| 236  | VICE first-divergence diff (debug-tier, low prio) | 232, 205-B |
+| 237  | Agent query API (KernelClient ext, ~22 methods) | 231-236, 240+ |
+| 238  | V2 MCP tool layer (V1 hard-cut atomic) | 237 |
+
+### V2.x extensions (refined)
+
+| Spec | Title | Depends |
+|------|-------|---------|
+| 240  | V2.x extensions index | 230 |
+| 241  | Conditional breakpoints + watchpoints (VICE parity + JS callback) | 206 |
+| 242  | Trace bookmarks / annotations | 232 |
+| 243  | Rewind + patch/poke + scenario tree iter | 231, 251, 241 |
+| 244  | Taint analysis / dataflow tracking | 232, 233 |
+| 245  | Loader / protection profiling | 232, 233 |
+| 246  | Save-state semantic diff (debug-tier) | 251, 134 |
+| 247  | Routine fingerprinting (TREX-configurable libs) | 232, pipeline |
+| 248  | VICE monitor parity + indirect tracking (V3 drops VICE) | 206, 232 |
+| 249  | Disasm annotation suggestions + table discovery + .asm sync | 232, 247 |
+| 250  | Regression vs known-good (DuckDB baselines, LLM-explicit) | 231, 232, 236 |
+| 251  | C64-main VSF completion (drops VICE-runtime dep) | drive-VSF |
+
+V2 sequencing rationale: 251 first (= unblocks rewind 243), then
+foundational primitives (232 trace store, 241 breakpoints,
+242 bookmarks, 246 diff), then time-travel (243), then RE-leverage
+(247 fingerprint, 248 monitor, 249 disasm-sync), then heavier
+analytics (244 taint, 245 profile), then comparison/regression
+(233/234/235/236/250), then API + tools close-out (237/238).
+
 ---
 
-## Sprint Plan
+## Sprint Plan (V1 + V2)
 
-| Sprint | Specs          | Mode               |
-|--------|----------------|--------------------|
-| 115    | 200            | sequential         |
-| 116    | 201, 211       | seq + parallel     |
-| 117    | 202, 212, 213  | seq + parallel x2  |
-| 118    | 203, 210, 214  | seq + parallel x2  |
-| 119    | 204            | sequential         |
-| 120    | 205, 215, 216  | parallel           |
-| 121    | 207            | sequential         |
-| 122    | 206            | sequential         |
+| Sprint | Specs              | Mode                |
+|--------|--------------------|---------------------|
+| 115    | 200                | sequential          |
+| 116    | 201, 211           | seq + parallel      |
+| 117    | 202, 212, 213      | seq + parallel x2   |
+| 118    | 203, 210, 214      | seq + parallel x2   |
+| 119    | 204                | sequential          |
+| 120    | 205, 215, 216      | parallel            |
+| 121    | 207, 219           | sequential          |
+| 122    | 206, 220           | sequential          |
+| 123    | (V1 close + archive)| —                  |
+| 124    | 251                | sequential (VSF)    |
+| 125    | 232                | sequential          |
+| 126    | 231, 241, 242, 246 | parallel            |
+| 127    | 243                | sequential          |
+| 128    | 247, 248, 249      | parallel            |
+| 129    | 244, 245           | parallel            |
+| 130    | 233, 234, 235      | parallel            |
+| 131    | 236, 250           | parallel            |
+| 132    | 237                | sequential          |
+| 133    | 238 (+ V1 hard-cut)| sequential          |
 
 Acceptance gate per sprint: ADR §10 criteria, plus E2E ladder
 (MM/motm/LN/IM2) for sprints 117 and later.
