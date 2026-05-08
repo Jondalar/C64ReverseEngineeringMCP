@@ -1,4 +1,357 @@
-# 1541 IRQ / FastLoader Bug — motm `LOAD"*",8,1`
+# 1541 IRQ / FastLoader Bug - Current Decision State
+
+**Status:** ROOT CAUSE PROVEN — HL stage-1 bit-bang IEC handshake.
+**Last updated:** 2026-05-08 late evening, post `$0763=$00` patch test.
+
+## ROOT CAUSE (proven by smoking-gun patch test 2026-05-08 late evening)
+
+**Bug**: HL stage-1 bit-bang IEC handshake produces X register = $11
+(= 17 INX events) instead of correct X = $00 (= 0 INX events).
+
+**Effect chain**:
+1. Stage-1 ($0340-$03E0 in drive RAM, loaded by `B-E,2,0,01,00`)
+   counts INX events over 48-bit IEC handshake.
+2. End of stage-1: `pla / sta $0763 / jmp $0400` stores X to $0763.
+3. $0763 is the **operand low byte** of motm runtime fastloader's
+   `LDA $0XXX,Y` at PC=$0762 (= drive RAM, opcode $B9).
+4. With $0763=$00: runtime reads `LDA $0300,Y`. Y=1 → `$0301` =
+   sector byte 1 = next-S link (correct).
+5. With $0763=$11: runtime reads `LDA $0311,Y`. Y=1 → `$0312` =
+   sector byte 18 (WRONG; happens to coincide for some sectors).
+6. c64-side captures TX stream byte 1 → c64 RAM $0320 (per
+   `$445F sta $0320` when chunk byte counter $0321=1). Sends $0320
+   in next ack-packet's third slot.
+7. Drive RX'es ack: 24-bit ROL chain puts ack's third byte into
+   drive ZP[$07] = next sector for ROM read job.
+8. With wrong byte (e.g., $2A from T17/S14 byte 18), ROM tries to
+   read sector 42 (invalid for any track) → no SYNC found → ROM
+   stuck → drive deadlock → c64 deadlock.
+
+**Smoking-gun test** (`scripts/probe-motm-patch-0763.mjs`):
+
+Detect stage-1 writing $11 to $0763, force-overwrite to $00,
+continue running.
+
+| Field | Unpatched | Patched ($0763=$00) |
+|-------|-----------|---------------------|
+| c64 PC after 60s | $43C8 (retry-spin) | $43C8 (actively RXing) |
+| drive PC | $07BE spin (idle) | $F7EA (ROM, active) |
+| drive ZP[$06] | $11 (T17 stuck) | $0D (T13, riv2 area) |
+| drive ZP[$07] | $2A (sector 42 invalid) | $0E (sector 14 valid) |
+| c64 dest $4500-$6FFF | all zeros | **7473 non-zero bytes** |
+
+With patch: dad fully loaded ✓ + 16dad loaded ✓ + riv2 in progress.
+motm advances through file chain instead of stuck after 512 bytes.
+
+## WHERE TO FIX
+
+The X-count is computed by stage-1 code at $0340-$03E0 (drive RAM).
+Per-bit logic ($036D-$0381):
+```
+$036D lda #$80 / sta $01 / cli      ; arm flag
+$0372 lda $01 / bmi $0372            ; spin on flag
+$0376 sei / cmp #$01 / beq skip-INX / inx
+$037C dec $09 / bpl $036D            ; 16 bits per round, 3 rounds
+```
+
+Drive's ZP[$01] is modified by **standard 1541 DOS IRQ handler**
+(VIA1 CA1 = ATN edge). Per c64 ATN-toggle, drive ROM IRQ handler
+runs and writes $01 from received bit state.
+
+For X=$00 (correct): every ATN edge results in `$01 == $01` after
+IRQ → BEQ skips INX.
+
+For X=$11 (HL bug): 17 of 48 bits produce `$01 != $01`. So either:
+
+a. **HL VIA1 CA1 edge detection generates extra IRQs** (spurious
+   edges in HL not present in real hardware).
+b. **HL ROM IRQ handler writes wrong byte to $01** (PB state read
+   incorrectly during IRQ).
+c. **c64-side stage-1 TX timing produces different ATN-edge cadence
+   in HL** vs real hardware.
+
+Likely (a) or (b). Investigation should:
+1. Hook HL drive ZP[$01] writer. Log every write during stage-1
+   (clock 0..23.5M).
+2. Cross-check ROM IRQ handler entry count vs c64 ATN toggle count.
+3. Read 1541 ROM IRQ handler at $FE67 (or wherever `$01` gets
+   written) to identify exact decode logic. Compare HL emulation.
+
+Note: this bug has likely affected MANY fastloaders, not just motm.
+Anything using stage-1 IEC handshake to communicate count/state
+through INX-pattern is broken.
+**Authoritative section:** this block supersedes contradictory
+hypotheses in the historical log below.
+
+## 2026-05-08 evening — forensic trace decoded
+
+Source: `samples/traces/v2-baseline/motm-spec218-hybrid60-headless-store-2026-05-08/trace.duckdb`
+(60s, 40M instructions, 6.4M bus events, captured with hybrid drive-sync patch
+commit `3d10fee` which fixes BIT $4278 polarity bug).
+
+motm protocol decoded fully (proven from disasm + trace):
+
+- 24-bit packet from c64 = `mode | cmd | $0320`. MSB-first.
+  c64 TX via `W425C`. Drive RX via $0410-$044B (24× ROL through
+  ZP[$07]/$06/$08).
+- After RX: `ZP[$08]=mode`, `ZP[$06]=cmd`, `ZP[$07]=junk`.
+- Drive dispatches via $0470 self-mod JMP using table at $0475/$0480
+  indexed by `ZP[$08]` (mode value).
+  - mode=$06 → $0633 handler (dir lookup, file address setup)
+  - mode=$01 → $06C1 handler (ack, TX next 256-byte chunk)
+  - mode=$02 → $06D5 (multi-sector TX loop)
+- Drive TX-loop $075A-$0774: `INC $09 / LDY / LDA $0311,Y / JMP $070B`.
+  Wraps at 256 bytes via `INC $09 → BEQ $0755 RTS`.
+- c64 RX via `W43BE` bitbang_rx_byte (16 reads + 16 writes of $DD00 per
+  byte). c64 sends ACK (mode=$01) via $4493 path: each chunk-end (=256
+  bytes) → `INC $0321` wraps → `INC $0322` → ack-send if
+  `$0323==0 && $031F!=0`.
+
+Working flow up to deadlock:
+
+1. c64 sends mode=$06 cmd packet (cmd_load_dad cmd=$04). Drive RX OK.
+2. Drive runs mode-6 handler $0633: dir lookup, JSR $07A1 (ROM read
+   T17/S4), 1st RTS at drive clock 35.11M.
+3. Drive TX 1st chunk (256 bytes from $0300 buffer).
+4. c64 RX OK, sends ACK 1 (mode=$01) at master 35.04M.
+5. Drive 2nd JSR $07A1 (ROM read next sector via $0300/$0301 link),
+   2nd RTS at 35.43M.
+6. Drive TX 2nd chunk (256 bytes). **Total 512 TX bytes.**
+7. c64 sends ACK 2 at master 35.32M.
+8. Drive 3rd JSR $07A1 / 3rd RTS at 35.73M.
+9. **Drive 4th JSR $07A1 NEVER RTSs.**
+
+Stuck state evidence:
+
+- Drive ZP[$00]=$80 (job pending, motm spinning $07BE).
+- Drive ZP[$06]=$11 / ZP[$07]=$2A → track 17, **sector 42 (INVALID,
+  max sector for track 17 = 21).**
+- ROM at $F353 (WPSW = wait sync) loops 17k+ iterations post-stuck,
+  never finds GCR sync byte for invalid sector.
+- ROM at $F3BE/$F3C8 (read sector logic) ran 28k+37k iterations, also
+  spinning.
+- c64 stuck in $43BE retry-loop ~46k iterations.
+
+**Root cause hypothesis**: HL GCR-decode produced wrong bytes at
+$0300/$0301 of dad's sector chain. motm $0650-$0656 reads next-T/S
+from buffer → ZP[$07]=$2A (garbage). ROM tries to read sector 42
+(doesn't exist on track 17) → SYNC never found → drive deadlock →
+c64 deadlock.
+
+The "stalls after exactly 4096 bytes" symptom from earlier is
+4096 rx_byte chip events = 4096 bits = **512 bytes** = exactly 2
+chunks. Identical observation, now decoded.
+
+## What 2026-05-08 ruled out (don't redo)
+
+- **CIA2-NMI / FLAG path**: motm protocol fully POLLED (c64 reads
+  $DD00 directly in $43BE). NO NMI/FLAG involved.
+- **VIA2 byte_ready IRQ-TX**: drive uses POLLED bitbang_tx_8bit
+  ($070D-$0735), no IRQ-driven TX.
+- **bitbang TX/RX timing**: 512 bytes successfully transferred
+  end-to-end. Cycle-step + polarity correct for this range.
+- **BIT $4278 polarity (Codex spec 218)**: real bug, fixed by hybrid
+  patch (commit 3d10fee). NOT the deadlock cause; necessary not
+  sufficient.
+- **c64 chunk-handling logic ($4400-$44B4)**: works correctly for
+  first 2 chunks. Not the bug.
+- **drive mode-6 handler logic**: handler ran correctly, found dir
+  entry, set up file address, dispatched to $06C1 → TX path. Fine.
+- **drive bitbang_tx_8bit timing ($070B-$0735)**: TX'd 512 bytes
+  successfully. Edge timing OK.
+
+## Concrete next steps (2026-05-08)
+
+1. **Compare HL vs VICE $0300 buffer content per ROM-read.** Need
+   byte-by-byte diff after each $07A1 RTS. Better: instrument both
+   to dump $0300 after each sector read.
+2. **Run HL GCR-decode standalone on motm.g64.** Read raw track 17
+   from G64, run HL's GCR-byte decoder, compare bytes to VICE/D64
+   extraction. Find first divergent decode.
+3. **Trace dad sector chain from disk.** Manifest says dad starts
+   T17/S4 (5121 bytes ≈ 21 sectors). Walk T/S links. If chain valid
+   in disk image but HL decodes wrong link byte, that pinpoints
+   decode bug to specific sector.
+
+## 2026-05-08 evening continuation — GCR decode RULED OUT, mode-1 protocol mismatch found
+
+Step 2/3 above executed via `scripts/probe-motm-dad-chain.mjs`.
+
+**Static HL G64 decoder produces VALID dad chain** (21 sectors, all
+T/S links valid, total 5122 bytes ≈ manifest dad size 5121):
+```
+T17/S4 → T17/S14 → T17/S5 → T17/S15 → T17/S6 → T17/S16 → T17/S7
+       → T17/S17 → T17/S8 → T17/S18 → T17/S9 → T17/S19 → T17/S10
+       → T17/S20 → T17/S13 → T16/S1 → T16/S11 → T16/S0 → T16/S10
+       → T16/S20 → T16/S8 → next T0/S42 (LAST, 42 bytes used)
+```
+
+Drive RAM $0300 stuck-dump = T17/S14 sector content **byte-identical**
+to static decode:
+```
+$0300: 11 05 15 03 ff 15 1b 00 2a 7f 75 54 00 0d 0b 08 a8 ff
+```
+$0301 = $05 = correct next-S (T17/S5). HL runtime GCR-decode of
+T17/S14 is correct. **GCR decode is NOT the root cause.**
+
+### Mode-1 ack handler doesn't advance T/S
+
+Trace (only STA writes, opcodes $85/$86/$84/$8D/$8E/$8C):
+
+ZP[$07] writes total: 3, all in mode-6 handler.
+- clock 34360610, PC=$0645: A=$01 (mode-6 init)
+- clock 35110821, PC=$0659: A=$04 (`LDA $0301` from dir buffer)
+- clock 35110937, PC=$069C: A=$04 (`LDA $0015` final)
+
+After mode-6 dispatch, ZP[$06]/$07 = $11/$04 (= T17/S4 dad start).
+**Never written again** in trace.
+
+Mode-1 ack handler at $06C1 has **no T/S advance code**. Each ack
+triggers re-read of same sector T17/S4.
+
+$07A1 entries (PC=1953, 4 total):
+- entry 1 @ 34360624 → RTS 35110805 (mode-6 dir read T18/S1)
+- entry 2 @ 35110954 → RTS 35428357 (T17/S4 = chunk 1)
+- entry 3 @ 35593604 → RTS 35726534 (T17/S4 = chunk 2, **same sector**)
+- entry 4 @ 35890764 → **NO RTS** (T17/S4 again, stuck)
+
+ROM reads T17/S4 successfully **twice** then stuck on **3rd identical
+read**. Post-stuck chip_events: GCR still ticking (1M+ byte_ready,
+11k sync_edge). Disk rotating, syncs detected. ROM fails 4th read.
+
+### Mode-2 handler $06D5 has T/S advance — never called
+
+Dispatch table:
+- mode=$01 → $06C1 (no advance)
+- mode=$02 → $06D5 (HAS T/S advance via `JSR $0777` interleave calc)
+- mode=$06 → $0633 (mode-6 setup)
+
+c64's `$4493: lda #$01 / sta $031E / jsr $425C` always sends mode=$01.
+
+### Open questions
+
+1. Why does ROM read T17/S4 successfully twice then fail third time?
+   GCR ticking, syncs found. ROM internal state diverges somehow.
+2. Is HL drive head-position stable across reads? 2nd read might
+   have stepped head leaving 3rd attempt off-track.
+3. Is motm protocol fundamentally expecting mode-2 not mode-1 for
+   chunk acks? Real hardware test needed. Or VICE trace decode of
+   same window.
+4. Do 2 successful reads of T17/S4 produce IDENTICAL drive buffer
+   content? If different, GCR-shifter phase / head jitter
+   non-determinism. If identical, c64 RX'd duplicated bytes anyway —
+   file load broken regardless.
+
+### New concrete next steps
+
+a. **Probe HL drive head-position state at each $07A1 RTS.** Compare
+   against VICE.
+b. **Compare drive $0300 content across the 2 successful T17/S4
+   reads.** Identical or divergent?
+c. **Decode VICE drive trace for master 34M-36M window.** Confirm
+   VICE drive ZP $06/$07 advances between chunks AND/OR c64 sends
+   different mode for next chunk. Establishes protocol expectation.
+
+## 2026-05-08 evening continuation 2 — ROOT CAUSE: stage-1 X count wrong
+
+Followed the $0320-byte trail. c64 captures TX stream byte 1 into
+`$0320` (via `$445F sta $0320` when `$0321=$01`), then sends `$0320`
+in next ack-packet's third slot. Drive RX puts it into ZP[$07] = next
+sector for ROM job.
+
+For protocol to work: TX stream byte 1 must equal sector byte 1 (=
+next-S link byte at `$0301`).
+
+Drive TX-loop reads `LDA $0311,Y` at PC=$0762 (b1=$11, b2=$03). With
+Y=1 reads `$0312` = sector byte 18, **NOT** sector byte 1.
+
+For T17/S4: byte 18 = $0E (coincidence — also matches sector 14 =
+correct next). Chunk 1 worked.
+For T17/S14: byte 18 = $2A (does NOT match correct next-S = $05).
+Ack 2 sent `$0320=$2A` → drive ZP[$07]=$2A → ROM tries T17/S42 → no
+sync → drive deadlock.
+
+`$0763` (= operand low byte of `LDA $03XX,Y`) is **self-modified at
+end of stage-1**. drive_t1s0 disasm:
+```
+$03BC sei / pla / sta $0763 / jmp $0400
+```
+The popped value came from `txa / pha` at $0395 — X register holds
+count of INX events from 48-bit stage-1 handshake.
+
+**HL trace: STA $0763 with A=$11**. So drive's runtime LDA operand
+becomes $0311 → reads sector byte 18.
+
+**Real hardware likely produces X=$00**, so LDA reads from $0300 →
+TX stream byte 1 = $0301 = correct next-S link.
+
+**Root cause**: HL stage-1 bit-bang IEC handshake produces wrong INX
+count = $11 instead of $00.
+
+Stage-1 bit decode loop ($036D-$0381):
+```
+$036D lda #$80 / sta $01 / cli      ; arm flag
+$0372 lda $01 / bmi $0372            ; spin on flag
+$0376 sei / cmp #$01 / beq skip-INX / inx
+$037C dec $09 / bpl $036D            ; 16 bits per round, 3 rounds
+```
+
+`$01` byte is modified by 1541 ROM IRQ handler (= drive's standard
+IEC bit-decode IRQ). Each received DATA-line transition writes $01.
+
+Per bit: drive arms `$01=$80`, CLI, waits for IRQ. IRQ stores
+received bit pattern. drive checks `cmp #$01`. If exactly $01, skip
+INX. Else INX.
+
+For X=$00: every bit must produce `$01==$01` after IRQ. Means each
+received bit's IRQ writes exactly $01 to ZP[$01].
+
+For X=$11: 17 of 48 bits produced `$01 != $01`.
+
+**Bug location**: HL's IEC bus / drive ROM IRQ handler / 1541 PRB
+handling produces wrong $01 byte values during stage-1 handshake.
+
+### Concrete next steps (most narrow)
+
+α. **Run probe-motm-drive-ram-stuck.mjs and dump $0763 right after
+   stage-1 completes** (before B-E result). Confirm HL=$11.
+β. **Capture VICE motm with monitor: read drive $0763 after stage-1
+   handshake**. Confirm VICE value (probably $00).
+γ. **Decode 48-bit stage-1 input**: log every IRQ that writes drive
+   $01 during clock < 23.5M (before $0400 entry). Compare ZP[$01]
+   value sequence HL vs VICE.
+δ. **Read 1541 ROM IRQ handler** to understand bit-decode logic.
+   Find which PRB/PRA bit gets stored to $01 and under what
+   condition.
+
+## Reference data
+
+- HL trace: `samples/traces/v2-baseline/motm-spec218-hybrid60-headless-store-2026-05-08/trace.duckdb`. Query via `node scripts/trace-store-query.mjs --db <path> sql '<SELECT>'`.
+- VICE baseline: `samples/traces/v2-baseline/motm/{c64,drive}-history.jsonl`, `drive-ram.bin`.
+- Stuck-state drive RAM: `samples/traces/v2-baseline/motm-hybrid-stuck-drive-ram.bin` (2KB).
+- Repro script: `scripts/probe-motm-drive-ram-stuck.mjs`.
+- AB c64 disasm: `/Users/alex/Development/C64/Cracking/Murder/analysis/disk/motm/02_ab_disasm.asm` (1249 bytes).
+- Drive stage-1 disasm: `/Users/alex/Development/C64/Cracking/Murder/analysis/disk/motm/raw_sectors/drive_t1s0_disasm.asm` (258 bytes, $0300-$0401).
+- Drive runtime fastloader at $0400-$07FF: NOT separately disasmed. Hand-decoded from stuck-dump bytes during 2026-05-08 session. Install mechanism unclear (no M-W bytes in AB, no separate sector found).
+
+## TypeScript / LLM Reality Check
+
+TypeScript is not the blocker by itself. A cycle-sensitive emulator in
+TypeScript is feasible if time is integer, event ordering is explicit,
+and all IO visibility rules are centralized and testable.
+
+The LLM risk is different: without a transaction-level oracle, agents
+generate plausible timing hypotheses forever. For this bug class, LLMs
+must be constrained to produce side-by-side evidence first and only then
+propose a fix.
+
+## Historical Investigation Log
+
+The following log is retained for evidence and chronology. It contains
+superseded hypotheses and should not be used as next-step authority
+unless a statement is also present in the Current Decision State above.
+
+# 1541 IRQ / FastLoader Bug - Historical Log - motm `LOAD"*",8,1`
 
 **Status:** open — root-cause area narrowed; first divergent bit identified.
 **Last updated:** 2026-05-07 (probes 1-4 + Spec 218 prework + bit-swimlane v0).
@@ -869,3 +1222,239 @@ Implement `specs/218-motm-tx3-tx4-bit-level-divergence.md`:
 Phase 2 — only if Phase 1 inconclusive: enable Spec 205-A `cpu`
 channel JSONL on our side, capture same window per-instruction,
 side-by-side diff via Spec 205-B CLI.
+
+## Probe 5b — drive boot ordering vs first ATN (2026-05-07 PM evening)
+
+Continued Probe 5 with drive instruction trace + drive ROM walk.
+Established the relative-order question and where the next probe must
+go. Did NOT reach a single-cycle proof yet.
+
+### Concrete facts (data + ROM)
+
+- HL drive `$EBED STA $1800` writes value `$04` exactly once
+  (master_clock=1001316, pc=60397). After this point HL drive does
+  NOT re-execute any STA `$1800` until the c64 first ATN-assert at
+  master_clock=4644010. Last latched PRB before first ATN-assert =
+  `$04`. ATNA bit (PRB bit 4) = 0.
+- VICE drive instruction trace starts at master_clock=1277897 (binmon
+  init delay). VICE drive does NOT re-execute STA `$1800` between
+  binmon-start and c64 first ATN-assert (master_clock=8123217). The
+  pre-binmon PRB write history is invisible.
+- Drive ROM has 11 distinct STA `$1800` sites. Only `$E878` (`STA
+  $1800` after `ORA #$10`) sets ATNA. `$E878` is reachable only via
+  the ATN handler chain `$E853` → `$7C=1` → main loop → `JMP $E85B` →
+  `$E878`. `$E853` only runs if drive's IRQ handler at `$FE67` finds
+  IFR bit 1 (CA1) set after `LDA $180D / AND #$02 / BNE`.
+- HL drive's `$FE67` IRQ handler runs **248 times** pre-ATN. None of
+  those IRQ runs took the `JSR $E853` branch (no `$E853` visits in
+  HL trace pre-ATN). Conclusion: HL drive's IFR bit 1 (CA1) is never
+  observed set when HL drive services an IRQ pre-ATN.
+- VICE drive trace shows `$FE6F` (= `AND #$02`) at master_clock=
+  8123211, then `$FE73` (= `JSR $E853`) taken at master_clock=8123215,
+  then `$E853` at master_clock=8123220. This is at rel mc -6..+3
+  around the c64 first ATN-assert (master_clock=8123217). The
+  `BNE/BEQ` at `$FE71` not-taken implies VICE drive saw IFR bit 1
+  (CA1) set.
+
+### What is NOT proven
+
+- We do not have a captured pre-binmon trace of VICE drive's PRB
+  history. Whether VICE drive set ATNA at any point before c64's
+  first ATN-assert is **inferred**, not directly observed.
+- We do not have a single-cycle trace of `(cpu_bus, drv_data,
+  drv_bus[8], cpu_port, IFR.CA1)` at the relevant moments on either
+  side. The hand-trace for the formula is consistent with HL's
+  `bus_events` but reaches a contradiction when applied to the VICE
+  drive `$1800` read = `$80` at master_clock=8123406. That
+  contradiction means at least one of (a) VICE drive's PRB at that
+  moment is something different from what hand-trace assumed, (b)
+  the formula port has a subtle off-by-one, or (c) the trace store
+  derivation script `derive-bus-events.mjs` mis-attributes a value
+  for that read on the VICE side.
+
+### Pinned divergence (still pre-`ab_entry`, not yet root cause)
+
+```text
+HL  drive at first c64 ATN-assert:  IRQ handler not in flight,
+                                    `$FE67` entry latency ~20 mc,
+                                    PRB latch = $04 (ATNA = 0).
+VICE drive at first c64 ATN-assert: already inside IRQ handler at
+                                    `$FE6F`, `$E853` entered ~3 mc
+                                    after the assert.
+```
+
+The drive-side IRQ-state difference matters because the KERNAL
+serial transaction at the c64-side branches on what `LDA $DD00`
+returns within the first ~12 mc after assert. The next-write
+divergence in c64's `STA $DD00` sequence (HL skips 4 `$1F` writes
+present in VICE) is a downstream effect of that branch decision.
+
+### Superseded next-session work
+
+This 2026-05-07 pre-ATN plan is retained as historical context only.
+It is superseded by the 2026-05-08 decision state at the top of this
+file. Do not use it to choose the next task.
+
+1. Add a focused single-cycle trace channel that records, on every
+   `recompute_drv_bus(unit)` call, the tuple `(cpu_bus, drv_data,
+   drv_bus[unit], cpu_port, IFR.CA1, drive_pc)`. Capture it on both
+   HL and VICE.
+2. Capture a fresh VICE store with the smallest possible pre-trace
+   delay so drive's pre-`$EBED` PRB writes are visible. If binmon
+   cannot capture earlier, accept that VICE-side proof requires
+   adding a VICE-side probe outside binmon.
+3. Replay both traces around the first c64 ATN-assert. The first row
+   where the tuple diverges identifies the actual mechanism (line
+   resolution math error, IRQ scheduling phase, CA1 edge ordering,
+   or boot-time ATN edge propagation).
+
+Do NOT attempt a fix in `iec-bus-core.ts`, `via1d1541.ts`,
+`cycle-lockstep-scheduler.ts`, or `cia2.ts` until the tuple capture
+exists for both sides.
+
+## Probe 5 — pre-`ab_entry` transaction swimlane (2026-05-07 PM)
+
+Step 0 of the AM handover required: build pre-`ab_entry` shared anchor
++ walk first mismatching transaction. Done.
+
+### Pre-`ab_entry` shared anchor
+
+First c64 `STA $DD00 = $9F` at PC=$ED33 (KERNAL LISTEN ATN-assert).
+Both stores fire it exactly once:
+
+- VICE: master_clock=8123217 (ab_entry-rel = -5493583)
+- HL:   master_clock=4644010 (ab_entry-rel = -5313580)
+
+Pre-`ab_entry` distance differs by ~180k mc. Divergence accumulates
+between first ATN-assert and `ab_entry`, NOT only after `ab_entry` as
+Probe 4 had pinned.
+
+### Transaction swimlane — first 1300 mc after first ATN-assert
+
+C64 `STA $DD00` writes:
+
+| rel mc | VICE val | VICE pc | HL val | HL pc |
+|---:|---|---|---|---|
+| 0 | $9F | $ED33 | $9F | $ED36 |
+| 18 | $1F | $EE93 | — | — |
+| 40 | $1F | $EE9C | — | — |
+| 1087 | $1F | $EE9C | — | — |
+| 1135 | $0F | $EE8A | $0F | $EE8D |
+| 1270 | $DF | $EE93 | $DF | $EE96 |
+
+(VICE PCs start-of-instruction; HL PCs post-instruction; same
+instructions in both.) VICE issues 4 extra `$1F` writes at
+$EE93/$EE9C that HL skips. KERNAL took different control-flow paths
+in `$EE85-$EE9C` post-ATN-assert LISTEN code.
+
+Per `feedback_read_vice_first.md`: control flow there branches on
+`LDA $DD00` reads. Inputs differ.
+
+### First decisive observation — c64 read at rel=12
+
+| store | bus_events.value at rel=12 | semantics |
+|---|---|---|
+| VICE | $9F | bit 7 = 1 (DATA_IN released), bit 6 = 0 (CLK_IN asserted by c64) |
+| HL   | $03 | bit 7 = 0 (DATA_IN asserted), bit 6 = 0 (CLK_IN asserted by c64) |
+
+VICE value is the A-register-after-LDA from cpuhistory (= actual
+register read). HL value is the IEC pin contribution emitted by
+`buildC64InputBits` (= IEC bus pins only, pre-CIA-merge). Direct
+comparison still proves DATA differs: VICE bit 7=1 in CIA result
+requires `cpu_port` bit 7 = 1 (DATA released); HL `buildC64InputBits`
+returns $03 with bit 7=0 → HL `cpu_port` bit 7 = 0 (DATA asserted).
+
+In HL the drive is pulling DATA at this moment; in VICE the drive is
+not.
+
+### Why DATA contribution differs — `drv_data` state
+
+Bit-7 of `iecbus.c:421-424` 1541 default formula:
+
+```c
+((drv_data << 6) & ((~drv_data ^ cpu_bus) << 3)) & 0x80
+```
+
+Hand-trace for `cpu_bus=$80` (post first ATN-assert):
+
+- `drv_data = $FB` (drive PRB-latch = $04, ATNA = 0):
+  `drv_bus[8] = $40`. `cpu_port = $00` → DATA asserted (drive
+  auto-pulls because ATNA mismatches asserted ATN).
+- `drv_data = $EB` (drive PRB-latch = $14, ATNA = 1):
+  `drv_bus[8] = $C0`. `cpu_port = $80` → DATA released (drive's
+  auto-pull suppressed because ATNA matches).
+
+So **the divergence is whether drive has ATNA (PRB bit 4) set when
+c64 first asserts ATN**. HL trace proves drive's last PRB write
+before c64 ATN-assert is `$04` (ATNA cleared). VICE drive must have
+ATNA set.
+
+### Why HL drive ends with PRB=$04
+
+Walked the 1541 ROM
+`resources/roms/dos1541-325302-01+901229-05.bin` byte-by-byte:
+
+- Reset → $FF15 `STA $1800` writes PRB = $02 (HL trace mc=17).
+- $EBDC `STA $1800` writes PRB = $00 (HL trace mc=1001286).
+- $EBE1 `STA $1802` writes DDRB = $1A.
+- $EBE8 `LDA $1800` reads PRB.
+- $EBEB `AND #$E5` masks bits 1, 3, 4 OFF (DATA_OUT, CLK_OUT, ATNA).
+- $EBED `STA $1800` writes back the masked value.
+
+The masked value depends on what `LDA $1800` returned, which depends
+on `drv_port` at that moment, which depends on `cpu_bus` at that
+moment. `cpu_bus` is driven by c64's $DD00 writes (KERNAL IOINIT).
+
+By the time HL drive reaches $EBE8 (mc ≈ 1001310), HL c64 has
+already written `$DD00 = $07` (mc=109) and `$DD00 = $57` (mc=172).
+Hand-trace: `cpu_bus = $90`, `drv_port = $81`, drive read = $04.
+Then `$04 & $E5 = $04`, STA $1800 writes $04. Drive idles forever
+with PRB=$04. The hand-trace matches HL trace exactly.
+
+For drive to end with ATNA = 1 (as VICE evidently does), drive's
+`LDA $1800` at $EBE8 must return a value with bit 4 set. That
+requires `cpu_bus` in a different state at that moment.
+
+### Probe 5 conclusion — root-cause hypothesis (NEW)
+
+**Drive boot timing relative to c64 IOINIT differs between HL and
+VICE.** HL c64 reaches `STA $DD00 = $57` (PC=$EE96) before HL drive
+reaches `LDA $1800` at $EBE8. The relative order of these two
+operations across 1M+ master_clocks must match VICE's order. If
+VICE drive reaches $EBE8 before c64 hits $EE96, drive sees a
+different `cpu_bus` and writes a different PRB latch.
+
+This is a **scheduler interleave / phase divergence between drive
+and c64 at boot**, NOT a CIA-timer or VIA-CA1 issue. Suspect #1 from
+the AM handover ("scheduler interleave rounding") is the strongest
+candidate.
+
+### Probe 5 — bug NOT fixed
+
+Causal chain proven from observation:
+
+`drv_data ≠ VICE` → `drv_bus[8] ≠ VICE` → `cpu_port DATA differs` →
+`KERNAL branches differently at $EE85-$EE9C` → off-by-one snowball
+through `ab_entry` to TX#3 mis-frame.
+
+To verify which side is wrong (HL drive too late vs VICE drive too
+early), need either:
+
+1. VICE capture from cold boot (binmon currently misses the drive
+   boot writes → cannot directly read VICE's `drv_data` state at the
+   critical moment).
+2. A focused single-cycle trace channel that captures
+   `(drv_data, cpu_bus, cpu_port)` snapshots at every `drv_bus`
+   recompute event, on both sides.
+
+Option 2 cheaper. Build that first next session.
+
+### Probe 5 — rejected detour
+
+Considered: "storePa in `cia2.ts` reads `c_cia[0]` (PRA latch) instead
+of using the `(out, oldVal)` argument from `Cia6526Vice.write`, where
+`out = PRA | ~DDRA`". Hand-trace shows `iec_update_cpu_bus` extracts
+only bits 3, 4, 5 of the inverted byte = bits 0-5 of the original
+byte after `~`. Bits 0-5 of PRA and `out` are identical (since
+`~DDRA = $C0` only sets bits 6, 7). So passing `c_cia[0]` vs `out`
+produces the **same** `cpu_bus`. NOT the bug. Left alone.
