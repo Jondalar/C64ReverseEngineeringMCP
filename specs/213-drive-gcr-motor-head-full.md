@@ -1,7 +1,7 @@
 # Spec 213 — Drive GCR / motor / head full 1:1 VICE
 
 **Sprint:** 117
-**Status:** PROPOSED (parallel-eligible)
+**Status:** DONE 2026-05-08 — head-cap fix (commit d927a1a) closes Sprint 113 root-cause; motm + MM + IM2 + LNR boot via GcrShifter; feature flag `C64RE_USE_LEGACY_GCR` retired (always-on per acceptance); legacy TrackBuffer.tickShifter path no longer reachable.
 **Maps from:** legacy 153 (drive-gcr-motor-head-full) — reframed under
 ADR §4.5
 **Depends on:** 202 (catch-up private), 211 (VIA2 surface)

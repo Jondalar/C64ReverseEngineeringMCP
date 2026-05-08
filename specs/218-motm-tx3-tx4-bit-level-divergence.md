@@ -1,7 +1,23 @@
 # Spec 218 - MoTM TX3/TX4 bit-level divergence
 
-**Status:** ready-for-implementation, 2026-05-07
-**Sprint:** diagnostic support for V1 TrueDrive acceptance
+**Status:** CLOSED 2026-05-08 — root cause fixed in commit `d927a1a`.
+**Resolution:** HL drive `stepInward` had off-by-one allowing head to step past track 35 mechanical stop on G64 images with extended tracks (motm.g64 has 42). Drive ROM JOB-1 with target T35 stepped past T35 → GCR shifter bound to track 36+ → 17/48 reads = "no SYNC" → stage-1 INX-counter $11 instead of $00 → motm runtime LDA operand wrong → sector chain broken → drive deadlock.
+
+Fix: cap stepInward at `Math.min(maxHalfTracks-1, 70)` = real 1541 mechanical stop at track 35. G64 buffer addressing unchanged for write-side support.
+
+Verification:
+- motm boots: ALL 7 files load (dad+16dad+riv3+riv2+kernal+riv4+riv1)
+- motm title screen renders ("Murder on the Mississippi")
+- maniac mansion s1: title + character selection menu
+- impossible mission ii: title + in-game
+- last ninja remix s1: KERNAL load OK
+- Lorenz Disk1 100% PASS (no CPU regression)
+- gcr-shifter + sync-detector unit tests PASS
+- Screenshots: `samples/screenshots/proof/`
+
+Diagnostic trace tooling (Spec 217 DuckDB store + Spec 205 trace contract) supported the investigation but Spec 218's specific TX3/TX4 swimlane diff was not built — the head-cap root cause was found via per-second head-position probe instead.
+
+**Original Sprint:** diagnostic support for V1 TrueDrive acceptance
 **Depends on:** 205 trace contract, 217 DuckDB trace store
 **References:**
 - `docs/1541-IRQ-FastLoader-Bug.md`
@@ -24,22 +40,39 @@ fault:
 - VICE reaches `game_handoff`; headless does not
 
 The remaining question is not whether headless diverges. It does. The
-question is the first bit-level cause: drive CPU cycle math, VIA1 T1
-timer math, or IEC line propagation/poll timing.
+question is the first AB-fastloader transaction where VICE and headless
+stop matching.
 
 ## Goal
 
-Produce a small, LLM-readable bit-level divergence report for the MoTM
-fastloader TX round where headless stops after the first 4096-byte
-block.
+Produce a small, LLM-readable transaction-level divergence report for
+the MoTM AB custom-fastloader path.
+
+**Current scope reset (2026-05-07):** start at AB entry `$4000`, not
+drive cold-boot and not KERNAL `LOAD "AB"` internals. The next report
+must walk the first AB-side fastloader activation path:
+
+```text
+$4000 -> W40B4 -> W42F2/W4314 -> W425C -> W4294
+```
+
+and include matching drive `$1800` reads/writes and branches in the
+same aligned window.
+
+This spec is the first concrete specialization of the generic
+transaction-swimlane tool defined in Spec 217. The MoTM report may have
+game-specific anchors and labels, but the underlying capability must
+remain reusable for later reverse-engineering questions.
 
 The report must answer:
 
-1. Which 24-bit command does the C64 send at the post-4096-byte TX?
-2. Which bits does the drive sample in VICE?
-3. Which bits does the drive sample in headless?
-4. At which bit index and master-clock delta do they first differ?
-5. Which timing source explains that first difference?
+1. Do VICE and headless execute the same C64 instructions from `$4000`
+   through the first `W425C` return/failure?
+2. Do they perform the same `$DD00` reads/writes in that window?
+3. Does the drive observe the same `$1800` values and take the same
+   branch path?
+4. What is the first transaction row where they differ?
+5. Only after that: which timing source explains that first difference?
 
 The result should be precise enough that the next code change can be a
 targeted emulator fix, not another broad probe.
@@ -53,6 +86,11 @@ targeted emulator fix, not another broad probe.
 - Do not fix emulator timing inside this spec unless the first
   divergent bit already identifies a one-line defect with clear VICE
   evidence.
+- Do not investigate drive cold-boot ordering, KERNAL IOINIT,
+  pre-`ab_entry` ATN/LISTEN, `$EBE8/$EBED`, ATNA/PRB boot state, CIA
+  timers, VIA1 CA1/T1/IFR, scheduler ratio, CPU implementation swaps,
+  G64 parser, or GCR extraction unless the AB-scoped transaction stream
+  explicitly points back to them.
 
 ## Required Pre-Work
 
@@ -215,9 +253,12 @@ Rules:
 - Stop summarizing after the first divergent bit, then include a
   20-instruction zoom around that bit for both VICE and headless.
 
-## Hypothesis Tests
+## Historical Hypothesis Tests - Out Of Scope Until AB Mismatch
 
-The first divergent bit must be classified into one of these buckets.
+The following buckets came from the earlier broad TX3/TX4 investigation.
+Do **not** run them as next-session work. They become valid only if the
+AB-scoped `$4000 -> W425C` transaction stream identifies a first
+mismatch that points directly at the bucket.
 
 ### H1 - Drive 6502 cycle accounting
 
