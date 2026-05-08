@@ -88,6 +88,7 @@
     "smoke:disasm-sync": "npm run build:pipeline && node scripts/smoke-disasm-sync.mjs",
     "build:fingerprints": "npm run build:mcp && node scripts/build-fingerprint-library.mjs",
     "smoke:fingerprint": "npm run build:mcp && node scripts/smoke-fingerprint.mjs",
+    "smoke:follow-path": "npm run build:mcp && node scripts/smoke-follow-path.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },
