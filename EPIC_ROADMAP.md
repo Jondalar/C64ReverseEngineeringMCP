@@ -221,7 +221,40 @@ analytics (244 taint, 245 profile), then comparison/regression
 | 130    | 233, 234, 235      | parallel            |
 | 131    | 236, 250           | parallel            |
 | 132    | 237                | sequential          |
-| 133    | 238 (+ V1 hard-cut)| sequential          |
+| 133    | 238 (+ V2.1 hard-cut)| sequential        |
+
+### V3.0 — Human UI (refined 2026-05-09)
+
+| Spec | Title | Depends |
+|------|-------|---------|
+| 260  | V3 master (browser, single-user, WebSocket, indexed-palette) | 200-251 |
+| 261  | UI shell (React/Vite) | 272 |
+| 262  | VIC pixel-perfect (1:1 VICE, FLI/NUFLI, multiplexer) | per-cycle reg-write log |
+| 263  | SID audio (resid + fastsid trace) | 251 |
+| 264  | Keyboard + joystick (vicerc bootstrap) | 261 |
+| 265  | Media selector (multi-disk, cartridge) | 261 |
+| 266  | Monitor + debugger (auto-branch on edit) | 248, 243 |
+| 267  | Trace viewer (swimlane + bookmarks) | 234, 242 |
+| 268  | Snapshot tree + scenario editor | 243, 231 |
+| 269  | Export (PNG, MP4 ffmpeg, WAV) | 263 |
+| 271  | Distributed scenarios (worker_threads) | 231 |
+| 272  | WebSocket protocol (JSON-RPC + binary) | — |
+
+V3 NOT included: ~~270 VICE drop~~ — VICE stays second-class
+(2026-05-09). Headless-over-VICE framing remains binding.
+
+V3 Sprint Plan:
+
+| Sprint | Specs | Mode |
+|--------|-------|------|
+| 134    | 260, 272 | sequential (foundation) |
+| 135    | 261 | sequential (UI shell) |
+| 136    | 262 | sequential (VIC pixel-perfect) |
+| 137    | 263 | sequential (resid audio) |
+| 138    | 264, 265 | parallel |
+| 139    | 266, 267 | parallel |
+| 140    | 268 | sequential |
+| 141    | 269, 271 | parallel |
 
 Acceptance gate per sprint: ADR §10 criteria, plus E2E ladder
 (MM/motm/LN/IM2) for sprints 117 and later.
