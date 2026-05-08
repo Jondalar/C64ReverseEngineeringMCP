@@ -80,6 +80,7 @@
     "smoke:llm-debug": "npm run build:mcp && node scripts/smoke-llm-debug.mjs",
     "smoke:cart-fidelity": "npm run build:mcp && node scripts/smoke-cart-fidelity.mjs",
     "smoke:bookmarks": "npm run build:mcp && node scripts/smoke-bookmarks.mjs",
+    "smoke:breakpoints": "npm run build:mcp && node scripts/smoke-breakpoints.mjs",
     "smoke:sid-polish": "npm run build:mcp && node scripts/smoke-sid-polish.mjs",
     "smoke:perf-ops": "npm run build:mcp && node scripts/smoke-perf-ops.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
