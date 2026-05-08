@@ -100,6 +100,7 @@
     "regress:report": "npm run build:mcp && node scripts/regress-cli.mjs report",
     "smoke:regression": "npm run build:mcp && node scripts/smoke-regression.mjs",
     "smoke:agent-api": "npm run build:mcp && node scripts/smoke-agent-api.mjs",
+    "smoke:runtime-mcp": "npm run build:mcp && node scripts/smoke-runtime-mcp.mjs",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {

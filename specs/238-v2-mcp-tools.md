@@ -1,7 +1,25 @@
 # Spec 238 — V2 MCP tool layer
 
-**Sprint:** 129
-**Status:** PROPOSED 2026-05-08
+**Sprint:** 133
+**Status:** PHASE-A DONE 2026-05-09 — 14 V2 `runtime_*` MCP tools
+shipped in src/server-tools/runtime.ts, registered via
+`registerRuntimeTools` in src/server.ts (additive, side-by-side
+with V1 `headless_*`). Wraps Spec 237 AgentQueryApi facade.
+Headless-over-VICE framing in every tool description. Smoke
+`scripts/smoke-runtime-mcp.mjs` — **19/19 PASS** (registration
+checks + 4 handler invocations on real session).
+
+**V1 hard-cut deferred to V2.1 cleanup sprint (Phase B).**
+Reasoning: removing `headless_*` requires migrating
+agent-orchestrator phase-tools + all probe scripts + internal
+callers. Decoupled from this sprint to keep V2 ship scope.
+
+V2 tool catalog (Phase A):
+runtime_monitor_registers / memory / disasm; runtime_step_into /
+step_over / until; runtime_breakpoint_add / list / remove;
+runtime_save_vsf / load_vsf; runtime_resolve_pc; runtime_status;
+runtime_diff_snapshots.
+
 **Depends on:** 237 (agent query API)
 **Master:** 230
 

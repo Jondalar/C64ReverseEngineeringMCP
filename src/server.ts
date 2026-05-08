@@ -17,6 +17,7 @@ import { registerGraphicsRenderTools } from "./server-tools/graphics-render.js";
 import { registerInspectRangeTools } from "./server-tools/inspect-range.js";
 import { registerDiskG64Tools } from "./server-tools/disk-g64.js";
 import { registerHeadlessTools } from "./server-tools/headless.js";
+import { registerRuntimeTools } from "./server-tools/runtime.js";
 import { registerReferenceTools } from "./server-tools/reference.js";
 import { registerPromptTools } from "./server-tools/prompts.js";
 import { registerPayloadTools } from "./server-tools/payloads.js";
@@ -150,6 +151,7 @@ function createServer(): McpServer {
   registerInspectRangeTools(server, toolContext);
   registerDiskG64Tools(server, toolContext);
   registerHeadlessTools(server, toolContext);
+  registerRuntimeTools(server, toolContext);
   registerTraceStoreTools(server, toolContext);
   registerReferenceTools(server, toolContext, repoDir());
   registerPromptTools(server, { readTextFile, repoRoot: repoDir() });
