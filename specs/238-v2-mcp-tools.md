@@ -41,17 +41,24 @@ Tools that produce notable observations auto-stage findings:
 - `runtime_evidence_for_segment` output supports
   `mark_segment_confirmed` if executionCount > threshold.
 
-## Deprecation list (V1 tools to retire)
+## V1 tool removal (HARD CUT, E3 RESOLVED 2026-05-08)
 
-After Spec 240+ migration:
+V2 tools land + V1 tools removed in the same sprint. No grace
+period, no `@deprecated` markers. No productive external users
+exist. Migration of internal callers (scripts, smoke tests, agent
+flows) is atomic part of the V2 implementation.
 
-- `headless_session_*` — replaced by `runtime_run_scenario` +
-  `runtime_replay_until`.
-- `headless_integrated_session_*` — replaced by V2 surface.
-- `headless_trace_*` — replaced by `runtime_query_events`.
-- `headless_monitor_memory` / `headless_monitor_registers` — kept
-  (pure read-only, no V2 equivalent needed).
-- `headless_breakpoint_*` / `headless_watch_*` — kept (debug aids).
+Removed:
+
+- `headless_session_*` → `runtime_run_scenario` + `runtime_replay_until`
+- `headless_integrated_session_*` → V2 surface
+- `headless_trace_*` → `runtime_query_events`
+- `headless_breakpoint_*` / `headless_watch_*` → `runtime_breakpoint_*`
+- `headless_monitor_memory` / `headless_monitor_registers` →
+  `runtime_monitor_memory` / `runtime_monitor_registers`
+  (kept-but-renamed under V2 namespace).
+
+Acceptance includes "all V1 tool call-sites in repo migrated" check.
 
 ## Acceptance
 

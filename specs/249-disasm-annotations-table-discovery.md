@@ -60,15 +60,42 @@ interface DiscoveredTable {
 
 ## Open questions
 
-- **OQ1:** Confidence threshold for promoting suggestion to
-  draft annotation (vs flagging as open-question)?
+- **OQ1 [RESOLVED 2026-05-08]:** 2-tier:
+  - **≥0.9** → auto-write to draft annotation file (proposed
+    section in `<artifact>_annotations.json`).
+  - **0.5-0.9** → emit as `OpenQuestion` for review.
+  - **<0.5** → log only.
+  Per-trigger thresholds allowed (e.g. fingerprint-match strict
+  ≥0.95, table-discovery softer ≥0.7).
 - **OQ2:** Runtime evidence required: full scenario trace, or single
   scenario-window slice sufficient?
 - **OQ3:** Cross-scenario table-discovery: aggregate evidence across
   multiple runs (= jump-table hit by different code paths)?
 - **OQ4:** Table-stride detection — fixed 1/2/3, or arbitrary?
-- **OQ5:** Suggested labels — auto-name (`_table_$XXXX`) or leave
-  unnamed for human review?
+- **OQ5 [RESOLVED 2026-05-08]:** Auto-name with `_auto_` prefix.
+  Patterns: `_auto_table_XXXX`, `_auto_routine_XXXX`, `_auto_label_XXXX`.
+  Prefix marks pipeline-generated. Human/agent review renames →
+  drops `_auto_` → label becomes "official". Disasm output renders
+  auto-labels with `(auto)` suffix.
+
+  **Plus: bidirectional disasm sync.**
+
+  - **Ingest:** Pipeline parses existing `<artifact>_disasm.asm` /
+    `_disasm.tass` (when present) for human-authored labels +
+    comments. Existing labels are ground-truth: not re-suggested,
+    not overridden by auto-suggestions.
+
+  - **Emit:** New findings (= confirmed annotation, table discovery)
+    write back into the .asm file as:
+    - Label declarations at correct addresses (sorted in section).
+    - Inline comments at the cited PC.
+    - Routine description block above entry-PC.
+
+    Incremental edit (= preserves human-authored spacing/comments
+    elsewhere in the file). No full regenerate. Diff-friendly.
+
+  Tooling: `pipeline/src/disasm/asm-sync.ts` (new) handles read +
+  patch. Backed by AST-style parse, not regex.
 
 ## Acceptance (draft)
 

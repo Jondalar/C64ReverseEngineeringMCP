@@ -67,10 +67,18 @@ Emitted as new event family `mem_indirect_resolve` (extends Spec 232).
 - **OQ2:** Drive-side indirect tracking — same channel or separate?
 - **OQ3:** Page-cross bug emulation: indirect JMP at $XXFF reads
   $XX00 instead of $(XX+1)00. Trace this anomaly explicitly?
-- **OQ4:** Monitor surface — keep as MCP tool only, or also expose
-  as direct REPL command via CLI?
-- **OQ5:** `step_over` semantics with self-modifying code — how to
-  recover if return address modified?
+- **OQ4 [RESOLVED 2026-05-08]:** V2 = MCP-tool only, agent-shaped
+  JSON I/O. Tools accept VICE-syntax strings as alternative input
+  (= 1:1 command-name parity) so headless can fully replace VICE
+  workflows over time. **V3+ goal: drop VICE dependency entirely**;
+  REPL CLI tracked as follow-up at that point.
+- **OQ5 [RESOLVED 2026-05-08]:** Defensive step_over: arm
+  (a) one-shot breakpoint at PC+instruction-length,
+  (b) stack-watchpoint on current frame SP range,
+  (c) cycle budget (default 100k).
+  First-fire halts and reports which mechanism triggered. Budget
+  exhaustion → "step_over diverged, sub-routine modified flow"
+  result. Agent reads the report and decides next move.
 
 ## Acceptance (draft)
 

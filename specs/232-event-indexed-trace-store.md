@@ -15,14 +15,24 @@ range $0700-$07FF in cycles [10000, 20000]" without re-running.
 
 ```
 cpu_step             { cycle, pc, opcode, a, x, y, sp, flags }
+cpu_jam              { cycle, pc, opcode }    // illegal opcode hangs cpu
 mem_read             { cycle, pc, addr, value, region }
 mem_write            { cycle, pc, addr, value, region }
+mem_indirect_resolve { cycle, pc, opcode, mode, operandAddr, resolvedAddr } // Spec 248
 irq_assert           { cycle, source }    // cia1, cia2, vic
 irq_ack              { cycle, source }
 nmi_assert           { cycle, source }
+reset_assert         { cycle, kind }      // cold, warm
 vic_badline          { cycle, raster_y }
 vic_raster_irq       { cycle, raster_y }
+vic_sprite_collision { cycle, kind, mask } // kind = sprite-bg | sprite-sprite
+vic_dma_steal        { cycle, raster_y, cycles_stolen }
 cia_timer_underflow  { cycle, chip, timer }   // chip = "cia1" | "cia2", timer = "ta" | "tb"
+cia_register_read    { cycle, chip, reg, value }
+cia_register_write   { cycle, chip, reg, value }
+via_timer_underflow  { cycle, chip, timer }   // chip = "via1" | "via2" (drive)
+via_register_read    { cycle, chip, reg, value }
+via_register_write   { cycle, chip, reg, value }
 sid_register_write   { cycle, reg, value }
 drive_atn_change     { cycle, level }
 drive_data_change    { cycle, dir, level }
@@ -33,6 +43,11 @@ keyboard_release     { cycle, scancode }
 trap_fire            { cycle, hook_name }     // for fast-trap modes only
 hook_audit           { cycle, hook_name, mode }
 ```
+
+**Open ext (deferred polish):** session-start `traceConfig` declares
+which families to capture. Disabled families incur zero producer
+overhead. Default = all 24 enabled. New families can be added
+without breaking schema (additive enum).
 
 Each row also carries a `run_id` (UUID per session start) and
 `scenario_id?` (optional link).

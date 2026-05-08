@@ -56,15 +56,20 @@ Uses Spec 251 c64-main VSF as snapshot serialization.
 
 ## Open questions
 
-- **OQ1:** Snapshot ring size — fixed 32, or auto-tune by scenario
-  cycle budget?
-- **OQ2:** Branch chains: tree (one root, many children, recursive)
-  or just linear (parent → child only)?
-- **OQ3:** Does patch persistence into "saved scenario" use case
-  matter (save as new Scenario record), or are branches transient?
-- **OQ4:** PC patch — does it bypass next instruction fetch or
-  redirect at next fetch? (= cycle-accurate semantics)
-- **OQ5:** Apply patch mid-instruction or only between instructions?
+- **OQ1 [RESOLVED 2026-05-08]:** fixed 32 default + per-session
+  `ringSize` override on `beginRewindSession`. ~5MB RAM footprint.
+  Auto-tune deferred.
+- **OQ2 [RESOLVED 2026-05-08]:** Tree. Multiple hypothesis branches
+  at same rewind point allowed; each branch can spawn sub-branches.
+  Snapshot cache bounded by ring size, not branch count.
+- **OQ3 [RESOLVED 2026-05-08]:** Transient by default. Opt-in
+  `promoteBranch(branchId) → newScenarioId` creates persistent
+  Scenario record (start-snapshot + patches embedded). Throwaway
+  experiments don't pollute project history.
+- **OQ4+5 [RESOLVED 2026-05-08]:** Strict between-instructions only.
+  Patches apply before next instruction fetch. PC-patch redirects
+  at next fetch. Mid-cycle patching deferred to V3+ (one-percent
+  use-case, cycle-accurate complexity not justified yet).
 - **OQ6:** UI/MCP surface for "rewind to last bookmark" shortcut?
 
 ## Acceptance (draft)

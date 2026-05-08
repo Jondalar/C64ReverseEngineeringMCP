@@ -65,6 +65,13 @@ export function followPath(q: PathQuery): PathChain;
 - Query completes in ≤1s for 1M-event run.
 - Includes `reason` text suitable for direct LLM prompt.
 
+## Resolved decisions
+
+- **B2 (2026-05-08):** Cross-domain causality with toggle. Default
+  `crossDomain: true` → recursion follows c64↔drive across IEC
+  events. `crossDomain: false` stops at drive_*_change boundary
+  marker.
+
 ## Out-of-scope
 
 - Cross-run chains.

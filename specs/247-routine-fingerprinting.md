@@ -64,14 +64,39 @@ Run automatically as part of `analyze_prg` pipeline.
 
 ## Open questions
 
-- **OQ1:** Library bootstrap — manual curation, or auto-extract from
-  reference disasms (KERNAL ROM, known cracks)?
+- **OQ1 [RESOLVED 2026-05-08]:** Hybrid auto-extract + manual curate.
+  Phases:
+  1. KERNAL ROM (byte-exact disasm) → auto-extract structural hash
+     for every JSR-target routine.
+  2. BASIC ROM same.
+  3. Vendored fastloader corpus (Krill, ByteBoozer runtime, Action
+     Replay) → auto-extract + manual label pass.
+  4. Scenario-driven harvest (= run cracked games, label matched
+     routines manually).
+  Tooling: `scripts/build-fingerprint-library.mjs` writes
+  `samples/routine-fingerprints/`.
 - **OQ2:** Confidence threshold for auto-emit `save_finding` —
   ≥0.9 / ≥0.95 / configurable?
 - **OQ3:** Per-game vs per-platform fingerprint scope?
   (= some fastloaders are game-specific)
-- **OQ4:** Distribution of library — bundled in repo, or external
-  resource fetched via init script (license concerns for cracks)?
+- **OQ4 [RESOLVED 2026-05-08]:** Mixed by license + configurable
+  multi-library lookup chain:
+
+  - **Bundled** in repo: KERNAL/BASIC public-domain fingerprints,
+    generic fastloader-pattern templates.
+  - **External fetch** via init script: corpus-bound fingerprints
+    (concrete game cracks). Stored in private gist/repo.
+  - **Private libraries** (e.g. "TREX") configurable per
+    organization/project to be more efficient than open competitors.
+
+  Config via `C64RE_FINGERPRINT_LIBS` env or project profile:
+  ```
+  resources/fingerprints/bundled/
+  resources/fingerprints/trex/        # private library, ignored by git
+  resources/fingerprints/local/       # user's own additions
+  ```
+  Lookup order = chain order. Default first-match-wins;
+  `reportAll: true` shows every library that matched.
 - **OQ5:** Hash collision policy — multiple matches per region:
   return all + rank by confidence, or return best only?
 

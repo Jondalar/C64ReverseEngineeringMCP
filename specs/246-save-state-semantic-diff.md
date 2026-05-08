@@ -61,11 +61,13 @@ diffSnapshots(snapshotA: unknown, snapshotB: unknown): SnapshotDiff;
   (256-byte chunks)?
 - **OQ2:** Sample cap (100) — configurable, or always full diff
   if user requests?
-- **OQ3:** Should diff include "cycle range" of when each RAM byte
-  last changed (= mini-trace integration)?
+- **OQ3 [RESOLVED 2026-05-08]:** Pure state-diff default. Optional
+  `enrich: true` flag triggers `lastChangedCycle` lookup from trace
+  store for changed ranges of <100 bytes. Default keeps diff <100ms.
 - **OQ4:** Drive present iff scenario has true-drive mode?
-- **OQ5:** Output format — JSON only, or also human-readable
-  text-table for inline LLM consumption?
+- **OQ5 [RESOLVED 2026-05-08]:** Both. JSON primary (machine API).
+  `formatDiff(diff)` helper renders text-table for inline-prompt
+  consumption. Markdown-table is a sub-format of text-renderer.
 
 ## Acceptance (draft)
 

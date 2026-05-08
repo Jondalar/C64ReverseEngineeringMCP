@@ -63,13 +63,18 @@ headless_session_load_vsf <path>
 
 ## Open questions
 
-- **OQ1:** VICE 3.7 only or also pre-3.7 VSF compatibility?
+- **OQ1 [RESOLVED 2026-05-08]:** VICE 3.7+ only. No legacy overhead.
+  Save always emits 3.7 format. Load version-checks; older versions
+  rejected with clear error.
 - **OQ2:** Optional modules (CRT, REU, SFX expander) — out-of-scope
   for V1, return empty chunks?
 - **OQ3:** Microcode state for cpu65xx-vice — VICE serializes
   current micro-step; do we?
-- **OQ4:** SID — fastsid simple to map; resid full state needs
-  resid-internal field exposure. Pick one or both?
+- **OQ4 [RESOLVED 2026-05-08]:** fastsid only for V2.x. Maps register
+  state + envelope (~50 bytes). resid full state deferred to V3
+  (audio playback territory). VICE-saved-with-resid chunks: import
+  mode accepts chunk, recovers register state, ignores resid-internal
+  envelope state.
 - **OQ5:** Snapshot magic / header — exact VICE bytes or HL marker
   in optional metadata chunk?
 

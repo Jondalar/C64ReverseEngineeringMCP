@@ -27,6 +27,9 @@ cycle | c64_pc | c64_op  | c64_io_rw | c64_io_addr=val | bus_atn | bus_clk | bus
 Compact mode = only rows where any column changed since previous
 row.
 
+**Default:** compact (B3 RESOLVED 2026-05-08). Full-row only on
+explicit request, intended for tight cycle windows around divergence.
+
 ## Surface
 
 ```ts
@@ -65,9 +68,12 @@ export function swimlaneSlice(q: SwimlaneQuery): SwimlaneSlice;
 ## Renderer
 
 `scripts/render-swimlane.mjs` consumes a `SwimlaneSlice` and emits:
-- Markdown table for in-tool LLM consumption (≤200 rows)
-- JSONL for programmatic diff (any size)
-- Optional ANSI-colored terminal view (red diffs, green matches)
+
+- **Markdown** table for inline LLM consumption (≤200 rows). Primary.
+- **JSONL** for programmatic diff / storage / any size. Primary.
+- ANSI / HTML deferred (V3 UI consumer territory).
+
+LLM/API first per B4 RESOLVED 2026-05-08.
 
 ## Acceptance
 

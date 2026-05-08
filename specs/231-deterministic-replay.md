@@ -75,8 +75,9 @@ PRNG (xorshift seeded from snapshot's `prng_seed` field).
 - Replay round-trip across snapshot → run → snapshot byte-equal.
 - E2E ladder still 6/6 PASS.
 
-## Open questions
+## Resolved decisions
 
-- Wall-clock budget in test profiles (`walltimeMs`) is determinism-
-  hostile. Resolution: it's an upper bound, not part of scenario
-  state; agent should not snapshot mid-walltime-budget runs.
+- **A1 (2026-05-08):** `walltimeMs` is scheduler upper-bound only.
+  Not part of `Scenario` record. Replay uses cycles/instructions
+  for deterministic budget. Agent must not snapshot mid-walltime-
+  budget runs.

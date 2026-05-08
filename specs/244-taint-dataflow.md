@@ -62,12 +62,15 @@ traceTaint(q: TaintQuery): TaintGraph;
 
 ## Open questions
 
-- **OQ1:** Does taint follow IRQ boundaries? I.e. if the target was
-  set by IRQ handler, do we follow into the IRQ-source events
-  (cia_timer_underflow → ICR read)?
-- **OQ2:** Cross-domain taint: c64 RAM byte sourced from drive RAM
-  via IEC handshake — recurse into drive trace or terminate at
-  IEC_byte event?
+- **OQ1 [RESOLVED 2026-05-08]:** Follow IRQ boundaries. Default
+  `followIrq: true`. Recursion crosses irq_assert → cia/via timer
+  config → register writes. `followIrq: false` stops at irq_assert
+  marker.
+- **OQ2 [RESOLVED 2026-05-08]:** Cross-domain recurse default.
+  `crossDomain: true` matches Spec 233 follow-path. IEC events
+  bridged: c64 io_register_read on $DD0D → drive_data_change →
+  drive-side writes → original disk bytes. Toggle off = boundary
+  marker only.
 - **OQ3:** Symbolic naming: report taint as raw addrs or
   resolve via Spec 235 to label/segment?
 - **OQ4:** Aggregation — show full graph or collapse identical

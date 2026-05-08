@@ -40,9 +40,11 @@ renderer prepends ▶ row at bookmarked cycles.
 
 ## Open questions
 
-- **OQ1:** Do bookmarks bind to (runId, cycle) only, or rebind to
-  semantically-equivalent cycle on replay? (= follow event-key
-  across runs)
+- **OQ1 [RESOLVED 2026-05-08]:** Both modes, default re-bindable.
+  `bindMode: "cycle" | "event-key" | "both"`. Default `both` →
+  primary key-match, fallback to cycle. Replay byte-equality (231)
+  means cycle stays valid; branches (243) need event-key
+  re-resolution.
 - **OQ2:** Should bookmarks survive `dedupe_artifact_registry` /
   trace eviction?
 - **OQ3:** Does each bookmark generate a `save_finding` automatically

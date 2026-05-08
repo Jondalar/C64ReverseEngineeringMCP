@@ -68,14 +68,17 @@ profileLoader(scenarioId: string, range: [number, number]): LoaderProfile;
 
 ## Open questions
 
-- **OQ1:** Detection scope — only c64 RAM PC, or also drive PC
-  (= 1541 fastloader uploaded code)?
+- **OQ1 [RESOLVED 2026-05-08]:** Both c64 + drive PC. Profile
+  emits `c64Cycles`, `driveCycles`, `iecCycles` columns. Drive-PC
+  trace channel already populated; aggregator joins both sides.
 - **OQ2:** Protection candidates — auto-emit `save_finding` or
   agent decides?
 - **OQ3:** GCR byte counter: track-half granularity sufficient or
   per-sector breakdown?
-- **OQ4:** False-positive tolerance — how strict? (= prefer
-  high-recall, agent filters)
+- **OQ4 [RESOLVED 2026-05-08]:** High-recall with `confidence` score
+  (0..1). Default output = all candidates. Agent filters via
+  `minConfidence` global or per-pattern threshold (e.g.
+  `key_compare ≥0.7`, `self_modify ≥0.95`).
 - **OQ5:** Profiling vs trace ring — does profile run at end-of-
   scenario only, or live during execution?
 

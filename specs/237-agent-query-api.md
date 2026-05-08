@@ -44,6 +44,7 @@ export interface ReplayUntilResult {
 }
 
 export interface AgentQueryApi {
+  // Core (231-238)
   inspectRoutine(artifactId: string, entryPc: number): RoutineRecord;
   evidenceForSegment(artifactId: string, range: [number, number]): SegmentEvidence;
   replayUntil(predicate: EventPredicate, timeoutCycles: number): ReplayUntilResult;
@@ -52,6 +53,60 @@ export interface AgentQueryApi {
   followPath(query: PathQuery): PathChain;
   swimlaneSlice(query: SwimlaneQuery): SwimlaneSlice;
   resolvePc(artifactId: string, pc: number): ResolvedPc;
+
+  // V2.x extensions (240-251)
+  // Breakpoints (241)
+  addBreakpoint(spec: BreakpointSpec): string;       // returns id
+  listBreakpoints(): BreakpointSpec[];
+  removeBreakpoint(id: string): void;
+  enableBreakpoint(id: string, enabled: boolean): void;
+
+  // Bookmarks (242)
+  addBookmark(b: TraceBookmark): string;
+  listBookmarks(runId: string, range?: [number, number]): TraceBookmark[];
+  removeBookmark(id: string): void;
+
+  // Rewind tree (243)
+  beginRewindSession(scenarioId: string, opts?: { ringSize?: number }): RewindHandle;
+  rewindTo(handle: RewindHandle, cycle: number): SnapshotId;
+  applyPatch(snapshotId: SnapshotId, patches: PokePatch[]): SnapshotId;
+  runForward(snapshotId: SnapshotId, budgetCycles: number): { endSnapshot: SnapshotId; trace: EventRow[] };
+  diffBranches(a: SnapshotId, b: SnapshotId): SnapshotDiff;
+  promoteBranch(branchId: string): string;            // returns new scenarioId
+
+  // Taint (244)
+  traceTaint(query: TaintQuery): TaintGraph;
+
+  // Profiling (245)
+  profileLoader(scenarioId: string, range: [number, number]): LoaderProfile;
+
+  // Diff (246)
+  diffSnapshots(a: SnapshotId, b: SnapshotId, opts?: { enrich?: boolean }): SnapshotDiff;
+  formatDiff(diff: SnapshotDiff): string;
+
+  // Fingerprinting (247)
+  scanFingerprints(artifactId: string): FingerprintMatch[];
+
+  // Monitor (248)
+  monitorRegisters(memspace?: "main" | "drive8"): MonitorRegisters;
+  monitorMemory(query: MonitorMemoryQuery): Uint8Array;
+  monitorDisasm(addr: number, count: number): string[];
+  stepInto(): void;
+  stepOver(opts?: { cycleBudget?: number }): { reason: "return" | "stack" | "budget" };
+  stepOut(): void;
+  goto(addr: number): void;
+  until(addr: number): void;
+
+  // Tables (249)
+  scanRuntimeTables(artifactId: string): DiscoveredTable[];
+
+  // Regression (250)
+  regressionCompare(scenarioId: string): RegressionResult;
+  regressionCaptureBaseline(scenarioId: string): { path: string; hashes: Hashes };
+
+  // VSF (251)
+  saveVsf(): Uint8Array;
+  loadVsf(bytes: Uint8Array): void;
 }
 ```
 

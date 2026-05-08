@@ -5,6 +5,10 @@
 **Depends on:** 232 (trace store), 205-B (existing diff CLI)
 **Master:** 230
 **Parallel-eligible with:** 235
+**Priority:** LOW — debug-only feature for emulator regression
+work. Not on critical path of RE workflows. V3+ goal is to drop
+VICE dependency entirely (Spec 248 OQ4); this spec is value during
+the transition period only.
 
 ## Goal
 
@@ -55,7 +59,11 @@ Two paths:
   immutable per memory `reference_vice_baseline_traces.md`.
 
 Default: replay path. Live capture only when scenario isn't in
-baseline corpus.
+baseline corpus or explicit `forceLive: true`.
+
+**E1 RESOLVED 2026-05-08:** Spec confirmed as debug-tier, low
+priority. Vendored-baseline replay is cheap (ms); live capture is
+expensive (process spawn + binary monitor) and rarely needed.
 
 ## Diff algorithm
 
