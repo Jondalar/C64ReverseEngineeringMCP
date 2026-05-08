@@ -1,7 +1,17 @@
 # Spec 206 — V2/V3 client API
 
 **Sprint:** 122
-**Status:** PROPOSED
+**Status:** DONE 2026-05-08 — `KernelClient` interface defined in
+src/runtime/headless/kernel/kernel-client.ts. Surface: lifecycle
+(resetCold/stop), run/pause/step/stepFrame, snapshot/restore, trace,
+status/mode/clocks, mountMedia/unmountMedia, queueInput/typeText,
+readMemory/readRegisters, renderToPng/exportTraceBundle.
+IntegratedSession is the production implementation; no second
+emulator loop. Smoke `scripts/smoke-kernel-client.mjs` exercises 11
+client-API operations end-to-end via `npm run smoke:kernel-client`
+— **11/11 PASS**. MCP tools (headless_*) and CLI scripts already
+consume IntegratedSession; migration to KernelClient interface is
+incremental (existing surface stays compatible).
 **ADR:** §1 (V2/V3 goals), §8 Step 6
 **Depends on:** 204, 205, 207
 

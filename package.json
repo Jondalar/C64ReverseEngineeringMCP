@@ -47,6 +47,7 @@
     "smoke:load": "npm run build:mcp && node scripts/smoke-load.mjs",
     "audit:no-peer-tick": "node scripts/audit-no-peer-tick.mjs",
     "smoke:kernel-facade": "npm run build:mcp && node scripts/smoke-kernel-facade.mjs",
+    "smoke:kernel-client": "npm run build:mcp && node scripts/smoke-kernel-client.mjs",
     "smoke:hook-hygiene": "npm run build:mcp && node scripts/smoke-hook-hygiene.mjs",
     "smoke:trace": "npm run build:mcp && node scripts/smoke-trace.mjs",
     "smoke:diff-trace": "node scripts/smoke-diff-trace.mjs",
