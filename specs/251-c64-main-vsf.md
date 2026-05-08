@@ -1,7 +1,14 @@
 # Spec 251 — C64-main VSF completion (full snapshot interop with VICE)
 
-**Sprint:** 124+ (precedes 243 rewind)
-**Status:** PROPOSED 2026-05-08
+**Sprint:** 124
+**Status:** DONE 2026-05-08 — c64-main modules shipped:
+MAINCPU, C64MEM (incl capacitor decay state), CIA1, CIA2, VIC-II
+(regs + raster_y + irq_status + raster_irq_clk + bank ptrs), SID
+(fastsid registers), KEYBOARD (events + cycleNow). Plus existing
+drive-VSF modules. Smoke `scripts/smoke-session-vsf.mjs` exercises
+HL→VSF→HL round-trip on c64-ready + motm-dir-load scenarios + version
+reject — **3/3 PASS**. VICE 3.7+ only enforced (older rejected).
+HL→VICE interop deferred (= test on real VICE binary, follow-up).
 **Depends on:** existing src/runtime/headless/vsf/* drive-VSF
 **Master:** 230 / 240
 
