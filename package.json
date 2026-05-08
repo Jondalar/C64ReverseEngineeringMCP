@@ -84,6 +84,10 @@
     "smoke:rewind": "npm run build:mcp && node scripts/smoke-rewind.mjs",
     "smoke:sid-polish": "npm run build:mcp && node scripts/smoke-sid-polish.mjs",
     "smoke:perf-ops": "npm run build:mcp && node scripts/smoke-perf-ops.mjs",
+    "smoke:monitor": "npm run build:mcp && node scripts/smoke-monitor.mjs",
+    "smoke:disasm-sync": "npm run build:pipeline && node scripts/smoke-disasm-sync.mjs",
+    "build:fingerprints": "npm run build:mcp && node scripts/build-fingerprint-library.mjs",
+    "smoke:fingerprint": "npm run build:mcp && node scripts/smoke-fingerprint.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "start": "tsx src/cli.ts"
   },
