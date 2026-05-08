@@ -1,0 +1,52 @@
+<gpz> (remove this file when refactoring is done, update readme accordingly)
+
+i am in the process of refactoring all the included programs, so common code
+will be included from the files in src/common, which will make the whole test-
+suite portable and easier to maintain.
+
+look at template.s, finish.s, start.s for examples
+
+at top:
+
+copy header, adjust current/next testname
+remove basicline and printing of name
+add "main" 
+
+at bottom:
+
+remove from "print ok" to "jmp $e16f" by 
+        rts ; SUCCESS
+
+                    jsr print
+                    .text " - ok"
+                    .byte 13,0
+
+                    lda #0         ; success
+                    sta $d7ff
+
+            load     jsr print
+            name     .text "adcix"
+            namelen  = *-name
+                    .byte 0
+                    lda #0
+                    sta $0a
+                    sta $b9
+                    lda #namelen
+                    sta $b7
+                    lda #<name
+                    sta $bb
+                    lda #>name
+                    sta $bc
+                    pla
+                    pla
+                    jmp $e16f
+
+
+replace $d7ff stores by
+        #SET_EXIT_CODE_FAILURE
+
+remove showregs
+remove print
+
+CAUTION: there is a .bend in the middle of the showregs function in some files,
+the opening .block is above at the beginning of "check"

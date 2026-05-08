@@ -8,6 +8,8 @@ samples/*
 !samples/test-manifest.json
 !samples/test-manifest.schema.json
 !samples/README.md
+!samples/vice-testprogs/
+!samples/vice-testprogs/**
 docs/windows-powershell-setup.md
 resources/c64ref-rom-knowledge.json
 resources/roms/*.bin
