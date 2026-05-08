@@ -827,9 +827,34 @@ export class Cpu65xxVice implements CycleSteppable {
   }
 
   // -------- ALU helpers --------
+  // ADC / SBC — VICE 6510core.c-equivalent. Honors D flag for BCD mode
+  // on c64 NMOS 6502 (drive 6502 same — 1541 6502 also has BCD).
+  // BCD math per VICE rotation: NMOS 6502 quirks — N/V/Z computed on
+  // intermediate binary result, not BCD result.
   private adc(value: number): void {
     const v = u8(value);
-    const result = this.reg_a + v + (this.reg_p & P_CARRY);
+    const c = this.reg_p & P_CARRY;
+    if (this.reg_p & P_DECIMAL) {
+      // BCD ADC. NMOS 6502: N/V/Z based on binary intermediate.
+      let lo = (this.reg_a & 0x0f) + (v & 0x0f) + c;
+      let hi = (this.reg_a & 0xf0) + (v & 0xf0);
+      // Z: based on full binary sum (NMOS quirk).
+      const binResult = (this.reg_a + v + c) & 0xff;
+      this.flag_z = binResult === 0 ? 0 : 1;
+      if (lo > 9) {
+        hi += 0x10;
+        lo += 6;
+      }
+      // N: bit 7 of (hi & 0xff) before high-nybble correction.
+      this.flag_n = u8(hi & 0x80);
+      // V: signed overflow on binary intermediate (before BCD correct).
+      this.setOverflow((((this.reg_a ^ hi) & 0x80) !== 0) && (((this.reg_a ^ v) & 0x80) === 0));
+      if (hi > 0x90) hi += 0x60;
+      this.setCarry((hi & 0xff00) !== 0);
+      this.reg_a = u8((hi & 0xf0) | (lo & 0x0f));
+      return;
+    }
+    const result = this.reg_a + v + c;
     this.setCarry((result & 0x100) !== 0);
     this.setOverflow((((this.reg_a & 0x80) === (v & 0x80)) && ((this.reg_a & 0x80) !== (result & 0x80))));
     this.reg_a = u8(result);
@@ -838,10 +863,26 @@ export class Cpu65xxVice implements CycleSteppable {
 
   private sbc(value: number): void {
     const v = u8(value);
-    const result = this.reg_a - v - (1 - (this.reg_p & P_CARRY));
-    this.setCarry((result & 0x100) === 0);
-    this.setOverflow((((this.reg_a & 0x80) !== (v & 0x80)) && ((this.reg_a & 0x80) !== (result & 0x80))));
-    this.reg_a = u8(result);
+    const c = this.reg_p & P_CARRY;
+    const binResult = this.reg_a - v - (1 - c);
+    if (this.reg_p & P_DECIMAL) {
+      // BCD SBC. NMOS 6502: N/V/Z/C from binary intermediate.
+      let lo = (this.reg_a & 0x0f) - (v & 0x0f) - (1 - c);
+      let hi = (this.reg_a & 0xf0) - (v & 0xf0);
+      if (lo & 0x10) {
+        lo -= 6;
+        hi -= 0x10;
+      }
+      if (hi & 0x100) hi -= 0x60;
+      this.setCarry((binResult & 0x100) === 0);
+      this.setOverflow((((this.reg_a ^ binResult) & 0x80) !== 0) && (((this.reg_a ^ v) & 0x80) !== 0));
+      this.reg_a = u8((hi & 0xf0) | (lo & 0x0f));
+      this.updateNz(u8(binResult));
+      return;
+    }
+    this.setCarry((binResult & 0x100) === 0);
+    this.setOverflow((((this.reg_a & 0x80) !== (v & 0x80)) && ((this.reg_a & 0x80) !== (binResult & 0x80))));
+    this.reg_a = u8(binResult);
     this.updateNz(this.reg_a);
   }
 

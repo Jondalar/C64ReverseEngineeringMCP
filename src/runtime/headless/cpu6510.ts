@@ -422,7 +422,26 @@ export class Cpu6510 {
     switch (op) {
       case "adc": {
         const value = this.readArg(mode, arg);
-        const result = this.a + value + (this.flags & FLAG_C);
+        const c = this.flags & FLAG_C;
+        if (this.flags & FLAG_D) {
+          // BCD ADC. NMOS 6502: N/V/Z based on binary intermediate.
+          let lo = (this.a & 0x0f) + (value & 0x0f) + c;
+          let hi = (this.a & 0xf0) + (value & 0xf0);
+          const binResult = (this.a + value + c) & 0xff;
+          if (lo > 9) {
+            hi += 0x10;
+            lo += 6;
+          }
+          this.flags &= ~(FLAG_N | FLAG_V | FLAG_Z | FLAG_C);
+          if ((hi & 0x80) !== 0) this.flags |= FLAG_N;
+          if (binResult === 0) this.flags |= FLAG_Z;
+          if ((((this.a ^ hi) & 0x80) !== 0) && (((this.a ^ value) & 0x80) === 0)) this.flags |= FLAG_V;
+          if (hi > 0x90) hi += 0x60;
+          if ((hi & 0xff00) !== 0) this.flags |= FLAG_C;
+          this.a = ((hi & 0xf0) | (lo & 0x0f)) & 0xff;
+          return;
+        }
+        const result = this.a + value + c;
         this.updateCarry((result & 0x100) !== 0);
         this.updateOverflow((((this.a & 0x80) === (value & 0x80)) && ((this.a & 0x80) !== (result & 0x80))));
         this.a = result & 0xff;
@@ -607,7 +626,24 @@ export class Cpu6510 {
         return;
       case "sbc": {
         const value = this.readArg(mode, arg);
-        const result = this.subtract(this.flags & FLAG_C, this.a, value);
+        const c = this.flags & FLAG_C;
+        const binResult = this.a - value - (1 - c);
+        if (this.flags & FLAG_D) {
+          // BCD SBC. NMOS 6502: N/V/Z/C from binary intermediate.
+          let lo = (this.a & 0x0f) - (value & 0x0f) - (1 - c);
+          let hi = (this.a & 0xf0) - (value & 0xf0);
+          if (lo & 0x10) {
+            lo -= 6;
+            hi -= 0x10;
+          }
+          if (hi & 0x100) hi -= 0x60;
+          this.updateCarry((binResult & 0x100) === 0);
+          this.updateOverflow((((this.a ^ binResult) & 0x80) !== 0) && (((this.a ^ value) & 0x80) !== 0));
+          this.a = ((hi & 0xf0) | (lo & 0x0f)) & 0xff;
+          this.updateFlagsNz(binResult & 0xff);
+          return;
+        }
+        const result = this.subtract(c, this.a, value);
         this.updateOverflow((((this.a & 0x80) !== (value & 0x80)) && ((this.a & 0x80) !== (result & 0x80))));
         this.a = result & 0xff;
         this.updateFlagsNz(this.a);
