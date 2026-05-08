@@ -44,11 +44,11 @@ export class EventCatchupStrategy implements SyncStrategy {
     return { c64CyclesAdvanced: this.deps.c64Clock() - before };
   }
 
-  catchUpDrive(device: number, targetClock: CLOCK): void {
+  catchUpDrive(device: number, targetClock: CLOCK, cycleStepped: boolean = false): void {
     if (device !== 8) return;
     // Spec 202: kernel-internal drive catch-up. drive.executeToClock
     // is private to the kernel — only this strategy calls it.
     // audit-ok: kernel-internal sync-strategy drive catch-up
-    this.deps.drive.executeToClock(targetClock);
+    this.deps.drive.executeToClock(targetClock, cycleStepped);
   }
 }

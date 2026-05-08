@@ -367,7 +367,7 @@ export class DriveCpu {
   // fewer cycles owed because lastSyncC64Clk is updated only by what
   // we actually consumed. cycleAccumulator16dot16 carries fractional
   // C64 cycles between calls.
-  executeToClock(c64Clk: number): void {
+  executeToClock(c64Clk: number, cycleStepped: boolean = false): void {
     if (c64Clk <= this.lastSyncC64Clk) return;
     const c64Delta = c64Clk - this.lastSyncC64Clk;
     this.lastSyncC64Clk = c64Clk;
@@ -379,6 +379,32 @@ export class DriveCpu {
     }
     // Accumulate fractional drive cycles owed.
     this.cycleAccumulator16dot16 += this.syncFactor16dot16 * c64Delta;
+    // Spec 218 hybrid: cycle-stepped path (microcoded only) when caller
+    // requests sub-cycle precision (e.g. motm AB-fastloader $4278 BIT
+    // sample). Whole-instruction path retained as default to keep
+    // KERNAL-serial loader timing it relies on.
+    if (cycleStepped && this.microcoded) {
+      const cycled = this.cpu as Cpu65xxVice;
+      while (this.cycleAccumulator16dot16 >= 0x10000) {
+        if (cycled.isAtInstructionBoundary()) {
+          cycled.irqLine =
+            this.bus.via1.irqAsserted(cycled.cycles) ||
+            this.bus.via2.irqAsserted(cycled.cycles);
+        }
+        cycled.executeCycle();
+        if (this.gcrShifter) this.gcrShifter.tick(1);
+        if (cycled.isAtInstructionBoundary()) {
+          this.onInstructionComplete?.(
+            cycled.pc & 0xffff, 0, 0, 0,
+            cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
+            cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
+            cycled.cycles,
+          );
+        }
+        this.cycleAccumulator16dot16 -= 0x10000;
+      }
+      return;
+    }
     while (this.cycleAccumulator16dot16 >= 0x10000) {
       const consumed = this.runOneInstruction();
       // Spec 153 / Sprint 114: tick GcrShifter for the cycles consumed.

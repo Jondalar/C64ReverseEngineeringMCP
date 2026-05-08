@@ -192,9 +192,12 @@ export class HeadlessMachineKernel implements MachineKernel {
     // pass deferred-resolution callbacks because `this.bus` is wired
     // at end of constructor; the closures resolve at runtime when CIA2
     // actually accesses PA, by which time `this.bus` exists.
-    const buildC64BusCtx = (access: "read" | "write") => ({
+    // VICE x64sc/C64SC sets CIA write_offset=0 for CIA1/2. For CIA2
+    // PA writes, c64cia2.c forwards IEC writes at maincpu_clk + 1.
+    const c64CiaWriteOffset = 0;
+    const buildC64BusCtx = (access: "read" | "write", clock = this.c64Cpu.cycles) => ({
       side: "c64" as const,
-      clock: this.c64Cpu.cycles,
+      clock,
       pc: this.c64Cpu.pc | 0,
       opcode: 0,
       phase: "phi2" as const,
@@ -204,6 +207,7 @@ export class HeadlessMachineKernel implements MachineKernel {
     const cia2Install = installCia2(this.c64Bus, {
       alarmContext: this.alarms.maincpu,
       clkPtr: ciaClkPtr,
+      writeOffset: c64CiaWriteOffset,
       onNmiEdge: (asserted, edgeClock) => {
         this.emitIrqEvent({
           line: "nmi",
@@ -214,11 +218,11 @@ export class HeadlessMachineKernel implements MachineKernel {
           visibleClock: edgeClock,
         });
       },
-      iecWrite: (or, ddr) => {
+      iecWrite: (or, ddr, effectiveClock) => {
         // Spec 201-c2: $DD00 write goes through KernelBus. The DDR
         // mask travels via BusAccessContext.ddrMask; bus dispatches
         // to IecBus.setC64Output with the full (or, ddr) tuple.
-        this.bus.c64Write(0xdd00, or, { ...buildC64BusCtx("write"), ddrMask: ddr });
+        this.bus.c64Write(0xdd00, or, { ...buildC64BusCtx("write", effectiveClock), ddrMask: ddr });
       },
       iecReadPins: () => this.bus.c64Read(0xdd00, buildC64BusCtx("read")),
     });
@@ -227,6 +231,7 @@ export class HeadlessMachineKernel implements MachineKernel {
     const cia1Install = installCia1(this.c64Bus, {
       alarmContext: this.alarms.maincpu,
       clkPtr: ciaClkPtr,
+      writeOffset: c64CiaWriteOffset,
       onIrqEdge: (asserted, edgeClock) => {
         this.emitIrqEvent({
           line: "irq",
@@ -702,8 +707,8 @@ export class HeadlessMachineKernel implements MachineKernel {
    * cycle). In `true-drive` mode (Spec 202 default flip) it invokes
    * `drive.executeToClock(targetClock)`.
    */
-  catchUpDrive(device: number, targetClock: number): void {
-    this.syncStrategy().catchUpDrive(device, targetClock);
+  catchUpDrive(device: number, targetClock: number, cycleStepped: boolean = false): void {
+    this.syncStrategy().catchUpDrive(device, targetClock, cycleStepped);
   }
 
   runCycles(n: number): void {

@@ -34,7 +34,7 @@ export class LockstepStrategy implements SyncStrategy {
     return { c64CyclesAdvanced: this.clkPtr() - before };
   }
 
-  catchUpDrive(_device: number, _targetClock: CLOCK): void {
+  catchUpDrive(_device: number, _targetClock: CLOCK, _cycleStepped: boolean = false): void {
     // No-op: lockstep mode advances drive every C64 cycle.
   }
 }

@@ -133,12 +133,15 @@ const producer = new TraceStoreProducer({
 // KERNAL-serial-output instructions and flips the $EEA9 debounce-loop
 // iteration count, snowballing into the motm fastloader stall.
 const useMicrocodedCpu = args.microcoded === true;
+const useCycleLockstep = args.lockstep === true;
 console.log(`  microcoded: ${useMicrocodedCpu}`);
+console.log(`  lockstep  : ${useCycleLockstep}`);
 
 const { session } = startIntegratedSession({
   diskPath,
   mode: traceMode,
   useMicrocodedCpu,
+  useCycleLockstep,
   enableBusAccessTrace: true,
   // Empty PC ranges = no filter = capture all $DD00 and $1800 events.
   busAccessPcRangesC64: [],

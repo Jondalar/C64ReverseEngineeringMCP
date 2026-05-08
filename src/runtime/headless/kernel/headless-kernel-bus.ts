@@ -74,6 +74,14 @@ export class HeadlessKernelBus implements KernelBus {
     // initial PA write must not try to catch up an unbuilt drive.
     const maybeDrive = (this.kernel as unknown as { drive?: unknown }).drive;
     if (!maybeDrive) return;
-    this.kernel.catchUpDrive(8, ctx.clock);
+    // Spec 218 hybrid hack: KERNAL ROM ($E000-$FFFF) accesses get
+    // legacy whole-instruction drive sync (KERNAL serial timing
+    // depends on it). Userland accesses (e.g. motm AB-fastloader at
+    // $4278 BIT $DD00) get cycle-stepped sub-cycle sync so drive
+    // doesn't overshoot past the C64 PHI2 sample point. PC threshold
+    // is the C64 KERNAL/BASIC ROM region split.
+    const pc = ctx.pc ?? 0;
+    const cycleStepped = pc < 0xa000;
+    this.kernel.catchUpDrive(8, ctx.clock, cycleStepped);
   }
 }

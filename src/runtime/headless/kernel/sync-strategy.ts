@@ -25,5 +25,5 @@ export interface SyncStrategy {
    * no-op (drive ticks per-cycle in lockstep). Event-catch-up
    * strategy invokes `drive.executeToClock(targetClock)`.
    */
-  catchUpDrive(device: number, targetClock: CLOCK): void;
+  catchUpDrive(device: number, targetClock: CLOCK, cycleStepped?: boolean): void;
 }
