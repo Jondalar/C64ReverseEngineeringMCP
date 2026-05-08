@@ -290,18 +290,36 @@ export class Cpu6510 {
         return;
       }
       case "arr": {
-        const v = (this.a & arg.value!) & 0xff;
+        // VICE 6510core.c ARR — NMOS quirk: BCD mode dedicated path.
+        const tmp = (this.a & arg.value!) & 0xff;
         const oldC = this.flags & FLAG_C;
-        this.a = ((v >>> 1) | (oldC ? 0x80 : 0)) & 0xff;
-        this.updateFlagsNz(this.a);
-        // VICE: C = bit 6 of result; V = bit 6 XOR bit 5
-        this.updateCarry((this.a & 0x40) !== 0);
-        this.updateOverflow(((this.a >> 6) ^ (this.a >> 5)) & 0x01 ? true : false);
+        if (this.flags & FLAG_D) {
+          // BCD mode (NMOS quirk).
+          this.a = ((tmp >>> 1) | (oldC ? 0x80 : 0)) & 0xff;
+          this.updateFlagsNz(this.a);
+          this.updateOverflow(((this.a ^ tmp) & 0x40) !== 0);
+          if (((tmp & 0x0f) + (tmp & 0x01)) > 0x05) {
+            this.a = ((this.a & 0xf0) | ((this.a + 0x06) & 0x0f)) & 0xff;
+          }
+          if (((tmp & 0xf0) + (tmp & 0x10)) > 0x50) {
+            this.a = (this.a + 0x60) & 0xff;
+            this.updateCarry(true);
+          } else {
+            this.updateCarry(false);
+          }
+        } else {
+          // Binary mode.
+          this.a = ((tmp >>> 1) | (oldC ? 0x80 : 0)) & 0xff;
+          this.updateFlagsNz(this.a);
+          this.updateCarry((this.a & 0x40) !== 0);
+          this.updateOverflow(((this.a & 0x40) ^ ((this.a & 0x20) << 1)) !== 0);
+        }
         return;
       }
       case "xaa": {
-        // unstable; common emulation: A = X & imm
-        this.a = (this.x & arg.value!) & 0xff;
+        // VICE 6510core.c XAA — NMOS unstable. Magic constant $EE.
+        // A = (A | $EE) & X & imm.
+        this.a = ((this.a | 0xee) & this.x & arg.value!) & 0xff;
         this.updateFlagsNz(this.a);
         return;
       }

@@ -1142,16 +1142,36 @@ export class Cpu65xxVice implements CycleSteppable {
         this.updateNz(this.reg_a);
         return;
       case 'arr': {
+        // VICE 6510core.c ARR — NMOS quirk: BCD mode has dedicated path.
         const tmp = u8(this.reg_a & v);
         const oldC = this.reg_p & P_CARRY;
-        this.reg_a = u8((tmp >>> 1) | (oldC ? 0x80 : 0));
-        this.updateNz(this.reg_a);
-        this.setCarry((this.reg_a & 0x40) !== 0);
-        this.setOverflow(((this.reg_a >> 6) ^ (this.reg_a >> 5)) & 0x01 ? true : false);
+        if (this.reg_p & P_DECIMAL) {
+          // BCD mode (NMOS quirk).
+          this.reg_a = u8((tmp >>> 1) | (oldC ? 0x80 : 0));
+          this.updateNz(this.reg_a);
+          this.setOverflow(((this.reg_a ^ tmp) & 0x40) !== 0);
+          if (((tmp & 0x0f) + (tmp & 0x01)) > 0x05) {
+            this.reg_a = u8((this.reg_a & 0xf0) | ((this.reg_a + 0x06) & 0x0f));
+          }
+          if (((tmp & 0xf0) + (tmp & 0x10)) > 0x50) {
+            this.reg_a = u8(this.reg_a + 0x60);
+            this.setCarry(true);
+          } else {
+            this.setCarry(false);
+          }
+        } else {
+          // Binary mode.
+          this.reg_a = u8((tmp >>> 1) | (oldC ? 0x80 : 0));
+          this.updateNz(this.reg_a);
+          this.setCarry((this.reg_a & 0x40) !== 0);
+          this.setOverflow(((this.reg_a & 0x40) ^ ((this.reg_a & 0x20) << 1)) !== 0);
+        }
         return;
       }
       case 'xaa':
-        this.reg_a = u8(this.reg_x & v);
+        // VICE 6510core.c XAA — NMOS unstable. Magic constant $EE
+        // (most common NMOS chip). A = (A | $EE) & X & imm.
+        this.reg_a = u8((this.reg_a | 0xee) & this.reg_x & v);
         this.updateNz(this.reg_a);
         return;
       case 'axs': {
