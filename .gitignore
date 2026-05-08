@@ -13,6 +13,8 @@ samples/*
 docs/windows-powershell-setup.md
 resources/c64ref-rom-knowledge.json
 resources/roms/*.bin
+resources/fingerprints/trex/
+resources/fingerprints/local/
 traces/
 !samples/screenshots/
 samples/screenshots/*

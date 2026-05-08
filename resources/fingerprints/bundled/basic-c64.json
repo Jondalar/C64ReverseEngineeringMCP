@@ -1,0 +1,2151 @@
+[
+  {
+    "name": "basic-COLD",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 40960,
+    "length": 236,
+    "hash_kind": "structural",
+    "hash_value": "sha256:d7357dbed7740034c6765cb143937a3ea72ed918e87e7e621a387dce13da9a0e",
+    "byte_pattern": "94 E3 7B E3 43 42 4D 42 41 53 49 43 ... <224 more>",
+    "register_use": {
+      "reads": [],
+      "writes": [
+        "a",
+        "x",
+        "y",
+        "flags"
+      ]
+    },
+    "entry_signature": "BASIC cold start entry point",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a408",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 41992,
+    "length": 45,
+    "hash_kind": "structural",
+    "hash_value": "sha256:29114b4c40696491600c88a22fd6b75e4555b1c269377ac149e95a8bc8257c72",
+    "byte_pattern": "C4 34 90 28 D0 04 C5 33 90 22 48 A2 ... <33 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A408",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b526",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46374,
+    "length": 87,
+    "hash_kind": "structural",
+    "hash_value": "sha256:32b74e91f05e84ec8f52236befc0a275975c3fc1354a17f696d76125984d6f16",
+    "byte_pattern": "A6 37 A5 38 86 33 85 34 A0 00 84 4F ... <75 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B526",
+    "links": []
+  },
+  {
+    "name": "basic-entry-aad7",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43735,
+    "length": 17,
+    "hash_kind": "structural",
+    "hash_value": "sha256:f4f006cdc7c3d60372e88f64f29315eaa8056cc8967c30524c35c37ea7da12db",
+    "byte_pattern": "A9 0D 20 47 AB 24 13 10 05 A9 0A 20 ... <5 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AAD7",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ab45",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43845,
+    "length": 8,
+    "hash_kind": "structural",
+    "hash_value": "sha256:3db0658495c52844e19dc073136b3f0e438fd55733df54b8369fa46c2a872641",
+    "byte_pattern": "A9 3F 20 0C E1 29 FF 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AB45",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ab47",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43847,
+    "length": 6,
+    "hash_kind": "structural",
+    "hash_value": "sha256:23cf32a621061fe922404a28a0cfa0feaf3d7bc0d478af1bfc96f41ca3fcb3a2",
+    "byte_pattern": "20 0C E1 29 FF 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AB47",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a67a",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 42618,
+    "length": 20,
+    "hash_kind": "structural",
+    "hash_value": "sha256:db89c2fd6408d5084be1dcbb69c907799f34299f1509a7e441958675b108536d",
+    "byte_pattern": "A2 19 86 16 68 A8 68 A2 FA 9A 48 98 ... <8 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A67A",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ab1e",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43806,
+    "length": 29,
+    "hash_kind": "structural",
+    "hash_value": "sha256:89c71109669b0f45244aced9c69f5621194d710ebba022b7cd9a7cf127d8fb04",
+    "byte_pattern": "20 87 B4 20 A6 B6 AA A0 00 E8 CA F0 ... <17 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AB1E",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bdc2",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48578,
+    "length": 27,
+    "hash_kind": "structural",
+    "hash_value": "sha256:e236a67045fc887d7dee1545d7cd2cceee405460f822381a9ccd84798916d082",
+    "byte_pattern": "A9 71 A0 A3 20 DA BD A5 3A A6 39 85 ... <15 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BDC2",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a560",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 42336,
+    "length": 22,
+    "hash_kind": "structural",
+    "hash_value": "sha256:89a796b9f0c3a2b0165793198136c25e506dabe4a3e1a42a7a808dad238bbe81",
+    "byte_pattern": "A2 00 20 12 E1 C9 0D F0 0D 9D 00 02 ... <10 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A560",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a96b",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43371,
+    "length": 58,
+    "hash_kind": "structural",
+    "hash_value": "sha256:55ddce1bd08af6121851e34eb861ab284fae084e8e5c3abe9012f33a1ab57854",
+    "byte_pattern": "A2 00 86 14 86 15 B0 F7 E9 2F 85 07 ... <46 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A96B",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a613",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 42515,
+    "length": 47,
+    "hash_kind": "structural",
+    "hash_value": "sha256:754837cbe4abac53c792068c659b32e474ffa3b3331f023ad8a66ace13e48b68",
+    "byte_pattern": "A5 2B A6 2C A0 01 85 5F 86 60 B1 5F ... <35 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A613",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a659",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 42585,
+    "length": 53,
+    "hash_kind": "structural",
+    "hash_value": "sha256:089b6cd235a805b26eeb906adeeca692e5e884e9637a17205af53e82d81c0906",
+    "byte_pattern": "20 8E A6 A9 00 D0 2D 20 E7 FF A5 37 ... <41 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A659",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a533",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 42291,
+    "length": 45,
+    "hash_kind": "structural",
+    "hash_value": "sha256:c2bff659f0582967c3154ea146bf9eea2731ff70475925c2fc7596e9511dee4a",
+    "byte_pattern": "A5 2B A4 2C 85 22 84 23 18 A0 01 B1 ... <33 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A533",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a3b8",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 41912,
+    "length": 67,
+    "hash_kind": "structural",
+    "hash_value": "sha256:c851afa19fa6da26d62d8f93e5bfd6c50b7c5c16ee975dfcc281df5b7184ca49",
+    "byte_pattern": "20 08 A4 85 31 84 32 38 A5 5A E5 5F ... <55 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A3B8",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a68e",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 42638,
+    "length": 14,
+    "hash_kind": "structural",
+    "hash_value": "sha256:9bc590d28bbddbb0271a84c3813f448c751bb260bde12a6f069577f9e7305995",
+    "byte_pattern": "18 A5 2B 69 FF 85 7A A5 2C 69 FF 85 ... <2 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A68E",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a81d",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43037,
+    "length": 15,
+    "hash_kind": "structural",
+    "hash_value": "sha256:630760ef8651095c5b276a03c72d59ea1293d3031b4c5939dbc984b5a77f9632",
+    "byte_pattern": "38 A5 2B E9 01 A4 2C B0 01 88 85 41 ... <3 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A81D",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a82c",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43052,
+    "length": 40,
+    "hash_kind": "structural",
+    "hash_value": "sha256:343a36175a695f34d0f96c1aa3c0b846e61cf3ded2d92768cda85e0e33d321c0",
+    "byte_pattern": "20 E1 FF B0 01 18 D0 3C A5 7A A4 7B ... <28 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A82C",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bdcd",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48589,
+    "length": 16,
+    "hash_kind": "structural",
+    "hash_value": "sha256:7520365e551402656d060ca65fa9f8cfd8932e9643c05841f3ad003bbf1a1c9b",
+    "byte_pattern": "85 62 86 63 A2 90 38 20 49 BC 20 DF ... <4 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BDCD",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a9a5",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43429,
+    "length": 49,
+    "hash_kind": "structural",
+    "hash_value": "sha256:0133430449363ac50bb582640ea9f49c3768ba0c4f6784a183243536118a9add",
+    "byte_pattern": "20 8B B0 85 49 84 4A A9 B2 20 FF AE ... <37 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A9A5",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a38a",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 41866,
+    "length": 46,
+    "hash_kind": "structural",
+    "hash_value": "sha256:2426dbe4ae59b978b4986d7eb9be622c6df06c70dd2ec2676e6214d049bf2caa",
+    "byte_pattern": "BA E8 E8 E8 E8 BD 01 01 C9 81 D0 21 ... <34 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A38A",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a3fb",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 41979,
+    "length": 13,
+    "hash_kind": "structural",
+    "hash_value": "sha256:2676822c83a999b146ca52d88473085b36c4019f37399368f0617f5509ce3061",
+    "byte_pattern": "0A 69 3E B0 35 85 22 BA E4 22 90 2E ... <1 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A3FB",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a906",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43270,
+    "length": 66,
+    "hash_kind": "structural",
+    "hash_value": "sha256:574b26ab167518f423d726aa9c6c0b7c861b93b0acde13b66c6b5221ffb89f2b",
+    "byte_pattern": "A2 3A 2C A2 00 86 07 A0 00 84 08 A5 ... <54 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A906",
+    "links": []
+  },
+  {
+    "name": "basic-entry-aeff",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44799,
+    "length": 9,
+    "hash_kind": "structural",
+    "hash_value": "sha256:f8455d61e10fe14b9212f65394a351c2ca1eaa13ec37245c00b627e13304c692",
+    "byte_pattern": "A0 00 D1 7A D0 03 4C 73 00",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AEFF",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ad8d",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44429,
+    "length": 10,
+    "hash_kind": "structural",
+    "hash_value": "sha256:b05f6c5f9ea3876524566f5ca1eea76f43f731f108ffb89fa88b3aed7e29b8fd",
+    "byte_pattern": "18 24 38 24 0D 30 03 B0 03 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AD8D",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ad8a",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44426,
+    "length": 13,
+    "hash_kind": "structural",
+    "hash_value": "sha256:d0a2effab3e5a3657622c7c2513d5cf9b724e253afdb4681802393fb7086eee6",
+    "byte_pattern": "20 9E AD 18 24 38 24 0D 30 03 B0 03 ... <1 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AD8A",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bba2",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48034,
+    "length": 37,
+    "hash_kind": "structural",
+    "hash_value": "sha256:69fd2c765f71881de747743a3f9ecfb8a00ca56b783c165194f989ac062eacf6",
+    "byte_pattern": "85 22 84 23 A0 04 B1 22 85 65 88 B1 ... <25 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BBA2",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bc2b",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48171,
+    "length": 14,
+    "hash_kind": "structural",
+    "hash_value": "sha256:bdac92f50625628f5dece4a90b28cd0e9851db5f0676b0ad63616356d61512e6",
+    "byte_pattern": "A5 61 F0 09 A5 66 2A A9 FF B0 02 A9 ... <2 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BC2B",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ae38",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44600,
+    "length": 32,
+    "hash_kind": "structural",
+    "hash_value": "sha256:c384c1b244a33e5018691b06448182e0351827e3a67649c91b73264b2b4b1d47",
+    "byte_pattern": "A8 68 85 22 E6 22 68 85 23 98 48 20 ... <20 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AE38",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a7ed",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 42989,
+    "length": 23,
+    "hash_kind": "structural",
+    "hash_value": "sha256:acee25e6d8f17d169ba919c02043dd6638821acbbf682dae13f632ae324fb6a4",
+    "byte_pattern": "F0 3C E9 80 90 11 C9 23 B0 17 0A A8 ... <11 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A7ED",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a660",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 42592,
+    "length": 46,
+    "hash_kind": "structural",
+    "hash_value": "sha256:9e0044f7f5e8e2f8dddab67acee49baa22c3cd0175b66f43ac2cf6dd21e185ab",
+    "byte_pattern": "20 E7 FF A5 37 A4 38 85 33 84 34 A5 ... <34 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A660",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a8a0",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43168,
+    "length": 50,
+    "hash_kind": "structural",
+    "hash_value": "sha256:f3d92fd58c69c86b00b78a07ec930f17b2c56dff1c42db118e911427374a4116",
+    "byte_pattern": "20 6B A9 20 09 A9 38 A5 39 E5 14 A5 ... <38 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A8A0",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a909",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43273,
+    "length": 63,
+    "hash_kind": "structural",
+    "hash_value": "sha256:911478a35f1ed1501f4fa785add6ec6ffb6c0a712f6ba5881326a4ffab2025b0",
+    "byte_pattern": "A2 00 86 07 A0 00 84 08 A5 08 A6 07 ... <51 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A909",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a617",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 42519,
+    "length": 43,
+    "hash_kind": "structural",
+    "hash_value": "sha256:8c11f366ec557837d76b3253f106059a1bcbe4fb2ae5972f5ffb5c31fef9c4ad",
+    "byte_pattern": "A0 01 85 5F 86 60 B1 5F F0 1F C8 C8 ... <31 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A617",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ad9e",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44446,
+    "length": 57,
+    "hash_kind": "structural",
+    "hash_value": "sha256:e71ab7622aca3b5a5873a5cc6422f3bef8674bb27c553916017487d403efa0bc",
+    "byte_pattern": "A6 7A D0 02 C6 7B C6 7A A2 00 24 48 ... <45 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AD9E",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b79e",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47006,
+    "length": 15,
+    "hash_kind": "structural",
+    "hash_value": "sha256:bfd70b347d6f81bfe6b82fc392d00fc323425cd1aa573f89627c0b405207509b",
+    "byte_pattern": "20 8A AD 20 B8 B1 A6 64 D0 F0 A6 65 ... <3 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B79E",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b08b",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45195,
+    "length": 20,
+    "hash_kind": "structural",
+    "hash_value": "sha256:4adcdc2cd112ff8dbbfe724166fbb18903bbe67fe2670c16b927e85a20d3f184",
+    "byte_pattern": "A2 00 20 79 00 86 0C 85 45 20 79 00 ... <8 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B08B",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ad90",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44432,
+    "length": 7,
+    "hash_kind": "structural",
+    "hash_value": "sha256:a6f24bd32a70a22334d5aafc8036b7770ff821c79f03e17d8c0c40f30e97d202",
+    "byte_pattern": "24 0D 30 03 B0 03 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AD90",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bc1b",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48155,
+    "length": 16,
+    "hash_kind": "structural",
+    "hash_value": "sha256:a213ad5f8ef5d24c0646a8110b40586092be248e055b9dbdd606f085465152b2",
+    "byte_pattern": "A5 61 F0 FB 06 70 90 F7 20 6F B9 D0 ... <4 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BC1B",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b1bf",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45503,
+    "length": 18,
+    "hash_kind": "structural",
+    "hash_value": "sha256:f68bcbe32e1dbeaeb838b14fe0db5bc6b0f26f509543fc17d1f332275c6ed96a",
+    "byte_pattern": "A5 61 C9 90 90 09 A9 A5 A0 B1 20 5B ... <6 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B1BF",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b6a6",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46758,
+    "length": 53,
+    "hash_kind": "structural",
+    "hash_value": "sha256:83e502450b528dfe7deb1a6d55fe70b7258e12594180b0309a4090abe2bf24f6",
+    "byte_pattern": "A5 64 A4 65 85 22 84 23 20 DB B6 08 ... <41 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B6A6",
+    "links": []
+  },
+  {
+    "name": "basic-entry-aa1d",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43549,
+    "length": 10,
+    "hash_kind": "structural",
+    "hash_value": "sha256:5faa1fe7e447f6c956be587cbcf1674913f0bac3a2b42e90f1778a42143ed15e",
+    "byte_pattern": "B1 22 20 80 00 90 03 4C 48 B2",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AA1D",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bae2",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47842,
+    "length": 23,
+    "hash_kind": "structural",
+    "hash_value": "sha256:3b3a57321e79e049765ff6cf7feff29e050ca90a9441ecf4213f7e85e395400a",
+    "byte_pattern": "20 0C BC AA F0 10 18 69 02 B0 F2 A2 ... <11 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BAE2",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bc0c",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48140,
+    "length": 15,
+    "hash_kind": "structural",
+    "hash_value": "sha256:58296ba8cfc40c3ff505521ed912612d60695efefcbc43d819dd70c8e40fbe6e",
+    "byte_pattern": "20 1B BC A2 06 B5 60 95 68 CA D0 F9 ... <3 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BC0C",
+    "links": []
+  },
+  {
+    "name": "basic-entry-baed",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47853,
+    "length": 12,
+    "hash_kind": "structural",
+    "hash_value": "sha256:f259b9b1dd3a38884b159fbb9dcd769c52da890a46c123f0341e93961f3ebeac",
+    "byte_pattern": "A2 00 86 6F 20 77 B8 E6 61 F0 E7 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BAED",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bc9b",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48283,
+    "length": 32,
+    "hash_kind": "structural",
+    "hash_value": "sha256:fe1e9b2ae8450f593d834b569f7d2cffea381185a31f5715f1038f6202f11082",
+    "byte_pattern": "A5 61 F0 4A 38 E9 A0 24 66 10 09 AA ... <20 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BC9B",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b475",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46197,
+    "length": 18,
+    "hash_kind": "structural",
+    "hash_value": "sha256:ddba8e8ddd6a5648aa4286647d6076b3985be0df57b852a82fded58f9344285e",
+    "byte_pattern": "A6 64 A4 65 86 50 84 51 20 F4 B4 86 ... <6 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B475",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b67a",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46714,
+    "length": 41,
+    "hash_kind": "structural",
+    "hash_value": "sha256:6de6b682b3f469112530ffbd15235be591e2627ccd1e0d9c47b4c39e0957415d",
+    "byte_pattern": "A0 00 B1 6F 48 C8 B1 6F AA C8 B1 6F ... <29 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B67A",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b6db",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46811,
+    "length": 17,
+    "hash_kind": "structural",
+    "hash_value": "sha256:4390e5153f94b9769ac5b65e426935a6173c48b8dc8ccbc39c21c76eebbacd1c",
+    "byte_pattern": "C4 18 D0 0C C5 17 D0 08 85 16 E9 03 ... <5 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B6DB",
+    "links": []
+  },
+  {
+    "name": "basic-entry-aa86",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43654,
+    "length": 20,
+    "hash_kind": "structural",
+    "hash_value": "sha256:fc87a4cbfbb1a224db49c434aa58324eb29476c5655840df29ce4bbe1d2813af",
+    "byte_pattern": "20 9E B7 F0 05 A9 2C 20 FF AE 08 86 ... <8 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AA86",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ab21",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43809,
+    "length": 26,
+    "hash_kind": "structural",
+    "hash_value": "sha256:3553125b7c75b287ea9ef8622a3f54bd4cef8e2ef89ad4efe01cf9e199e85cd2",
+    "byte_pattern": "20 A6 B6 AA A0 00 E8 CA F0 BC B1 22 ... <14 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AB21",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bddd",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48605,
+    "length": 27,
+    "hash_kind": "structural",
+    "hash_value": "sha256:87d63cfd413dc73c46a118a6ed3d39906401c512f5629b2a785b5377455752bd",
+    "byte_pattern": "A0 01 A9 20 24 66 10 02 A9 2D 99 FF ... <15 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BDDD",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b487",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46215,
+    "length": 78,
+    "hash_kind": "structural",
+    "hash_value": "sha256:e47cc06b23d39f0ff6d5afd16dc12562e7d34af948731c23e498a8dff44cd1bd",
+    "byte_pattern": "A2 22 86 07 86 08 85 6F 84 70 85 62 ... <66 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B487",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ab3b",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43835,
+    "length": 18,
+    "hash_kind": "structural",
+    "hash_value": "sha256:078a1a17137aa240bb9715eee885d7887c1bcc4e82f604d0c7e9b98c291c49f2",
+    "byte_pattern": "A5 13 F0 03 A9 20 2C A9 1D 2C A9 3F ... <6 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AB3B",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b79b",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47003,
+    "length": 18,
+    "hash_kind": "structural",
+    "hash_value": "sha256:8dfd1089bee361009fdedb02465f255ff8b0e0730f7d89d692323e99a6246592",
+    "byte_pattern": "20 73 00 20 8A AD 20 B8 B1 A6 64 D0 ... <6 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B79B",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b3a6",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45990,
+    "length": 13,
+    "hash_kind": "structural",
+    "hash_value": "sha256:f367a8305d5777cf4469054d206c680705a4b6bdb30cbb1258741b711215db6c",
+    "byte_pattern": "A6 3A E8 D0 A0 A2 15 2C A2 1B 4C 37 ... <1 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B3A6",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ac0f",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44047,
+    "length": 122,
+    "hash_kind": "structural",
+    "hash_value": "sha256:5af519c2d3ee3a1a029aa6c1e0cecaa96edc6c3d4ba0aca38a7c9e2e4efe2cbb",
+    "byte_pattern": "85 11 86 43 84 44 20 8B B0 85 49 84 ... <110 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AC0F",
+    "links": []
+  },
+  {
+    "name": "basic-entry-abce",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43982,
+    "length": 28,
+    "hash_kind": "structural",
+    "hash_value": "sha256:79a7475af7e166c80cb173d9537711d95a9247fce5fcadeeade2a7e20deea44b",
+    "byte_pattern": "20 A6 B3 A9 2C 8D FF 01 20 F9 AB A5 ... <16 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $ABCE",
+    "links": []
+  },
+  {
+    "name": "basic-entry-aebd",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44733,
+    "length": 15,
+    "hash_kind": "structural",
+    "hash_value": "sha256:9483e14a2315f47ee9c93e3c0cac28abb5b6d7bad47d7bc68e549c85a4fbda82",
+    "byte_pattern": "A5 7A A4 7B 69 00 90 01 C8 20 87 B4 ... <3 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AEBD",
+    "links": []
+  },
+  {
+    "name": "basic-entry-abf9",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44025,
+    "length": 13,
+    "hash_kind": "structural",
+    "hash_value": "sha256:a0a1fdaabb4887c28894534b59687188bb28785cee5a9d13aa6bf550d045eca9",
+    "byte_pattern": "A5 13 D0 06 20 45 AB 20 3B AB 4C 60 ... <1 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $ABF9",
+    "links": []
+  },
+  {
+    "name": "basic-entry-abb5",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43957,
+    "length": 10,
+    "hash_kind": "structural",
+    "hash_value": "sha256:19542708f5f2039c4b190301377071ce4af36bbbcf90ce99a9407ebb65131242",
+    "byte_pattern": "A5 13 20 CC FF A2 00 86 13 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $ABB5",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b48d",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46221,
+    "length": 72,
+    "hash_kind": "structural",
+    "hash_value": "sha256:a80e234b218cbda89f77ac3babee4e9030bfcc950f01bffffbf7d6be0315b76f",
+    "byte_pattern": "85 6F 84 70 85 62 84 63 A0 FF C8 B1 ... <60 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B48D",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b7e2",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47074,
+    "length": 9,
+    "hash_kind": "structural",
+    "hash_value": "sha256:0239f12c3fd7197450c4c029af53023a27a0fdb8958f71a67197d2281b4c1260",
+    "byte_pattern": "A6 71 A4 72 86 7A 84 7B 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B7E2",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a9da",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43482,
+    "length": 67,
+    "hash_kind": "structural",
+    "hash_value": "sha256:46030e38c9369a3b37e69585cedffbb4a4b6323dd3dca0fc6125048af57a7842",
+    "byte_pattern": "A4 4A C0 BF D0 4C 20 A6 B6 C9 06 D0 ... <55 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A9DA",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bcf3",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48371,
+    "length": 78,
+    "hash_kind": "structural",
+    "hash_value": "sha256:fbd74628ca4609145b5a61cb39e1803f0b4880c2a63d88e4670bdc3bc0d0c8e1",
+    "byte_pattern": "A0 00 A2 0A 94 5D CA 10 FB 90 0F C9 ... <66 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BCF3",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a9c2",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43458,
+    "length": 20,
+    "hash_kind": "structural",
+    "hash_value": "sha256:6b8d02a410b7ed5d8c6b1f4f3f9641b603f38a50aea18e2c542adcf9209c8aab",
+    "byte_pattern": "10 12 20 1B BC 20 BF B1 A0 00 A5 64 ... <8 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A9C2",
+    "links": []
+  },
+  {
+    "name": "basic-entry-aefd",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44797,
+    "length": 11,
+    "hash_kind": "structural",
+    "hash_value": "sha256:73d9de97fd20406745616aded0fe73814939f4b6f265d3e915097a105709ab76",
+    "byte_pattern": "A9 2C A0 00 D1 7A D0 03 4C 73 00",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AEFD",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a8fb",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43259,
+    "length": 11,
+    "hash_kind": "structural",
+    "hash_value": "sha256:372b28f9bbd8f0c47ecc4d1a9c872c2914198a351337cd55c413b07e7ab703d4",
+    "byte_pattern": "98 18 65 7A 85 7A 90 02 E6 7B 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A8FB",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b867",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47207,
+    "length": 8,
+    "hash_kind": "structural",
+    "hash_value": "sha256:fdefd44809392ef84cc770a24f1e20fbea69742ec8b98557451fe4c53a6e26a8",
+    "byte_pattern": "20 8C BA D0 03 4C FC BB",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B867",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bbd0",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48080,
+    "length": 44,
+    "hash_kind": "structural",
+    "hash_value": "sha256:9bc663a61281638745ffb648c2e7d0e1b72047d6b1692f65338f1d163dbe1d51",
+    "byte_pattern": "A6 49 A4 4A 20 1B BC 86 22 84 23 A0 ... <32 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BBD0",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bc5d",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48221,
+    "length": 62,
+    "hash_kind": "structural",
+    "hash_value": "sha256:2685f3ba53ad55574e6a60e3fdfaee92e69db6c3783b2f03b9f1e6bedb3989ac",
+    "byte_pattern": "84 25 A0 00 B1 24 C8 AA F0 C4 B1 24 ... <50 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BC5D",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ad24",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44324,
+    "length": 17,
+    "hash_kind": "structural",
+    "hash_value": "sha256:66bbeb386de9e07a03ad2ff960c5043b336024389ace406104511b3fe488f79b",
+    "byte_pattern": "20 8B B0 85 49 84 4A 20 8A A3 F0 05 ... <5 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AD24",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ae20",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44576,
+    "length": 16,
+    "hash_kind": "structural",
+    "hash_value": "sha256:1726f0294cfcf1dd59c064e2bb6e167d2e927fe847f1361659990d4bb908236e",
+    "byte_pattern": "B9 82 A0 48 B9 81 A0 48 20 33 AE A5 ... <4 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AE20",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ae33",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44595,
+    "length": 37,
+    "hash_kind": "structural",
+    "hash_value": "sha256:93f1935a9afd82d4e5da1199007b479001e5be0ccfca43528d0520ea4e7e2860",
+    "byte_pattern": "A5 66 BE 80 A0 A8 68 85 22 E6 22 68 ... <25 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AE33",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b113",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45331,
+    "length": 10,
+    "hash_kind": "structural",
+    "hash_value": "sha256:d8ff64881e6fe72c0d8a834ef19abcbfccfd16e5c2b565112a21f61056b83e63",
+    "byte_pattern": "C9 41 90 05 E9 5B 38 E9 A5 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B113",
+    "links": []
+  },
+  {
+    "name": "basic-entry-aefa",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44794,
+    "length": 14,
+    "hash_kind": "structural",
+    "hash_value": "sha256:5130ee60178e567d635290eb7cb57b71bab64ce3d760954b3ad3d08192839d39",
+    "byte_pattern": "A9 28 2C A9 2C A0 00 D1 7A D0 03 4C ... <2 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AEFA",
+    "links": []
+  },
+  {
+    "name": "basic-entry-af14",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44820,
+    "length": 20,
+    "hash_kind": "structural",
+    "hash_value": "sha256:c69ba69544a67341448d3478d87fc227d28efd93c763e26519cdaf07adfbc9a7",
+    "byte_pattern": "38 A5 64 E9 00 A5 65 E9 A0 90 08 A9 ... <8 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AF14",
+    "links": []
+  },
+  {
+    "name": "basic-entry-af84",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44932,
+    "length": 14,
+    "hash_kind": "structural",
+    "hash_value": "sha256:6541a017d226512f07a07ceef9a197f15037574d81f3a9c1c3f6d45a60c918d0",
+    "byte_pattern": "20 DE FF 86 64 84 63 85 65 A0 00 84 ... <2 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AF84",
+    "links": []
+  },
+  {
+    "name": "basic-entry-be68",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48744,
+    "length": 169,
+    "hash_kind": "structural",
+    "hash_value": "sha256:fcd6b5833598ad37fedf1e17d52de968edd26647bafbe1bfcdb26369b03dfa39",
+    "byte_pattern": "A2 80 A5 65 18 79 19 BF 85 65 A5 64 ... <157 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BE68",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ad8f",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44431,
+    "length": 8,
+    "hash_kind": "structural",
+    "hash_value": "sha256:dcc569dfb52a51b509b43c8a696d8bbfacd4ebc39a8e8ec5b8719503590ecc25",
+    "byte_pattern": "38 24 0D 30 03 B0 03 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AD8F",
+    "links": []
+  },
+  {
+    "name": "basic-entry-aef1",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44785,
+    "length": 23,
+    "hash_kind": "structural",
+    "hash_value": "sha256:cc9c79b6af2815bae63b4903303e005498dafdcf62b7f0c3dc735aec3518348a",
+    "byte_pattern": "20 FA AE 20 9E AD A9 29 2C A9 28 2C ... <11 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AEF1",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bbfc",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48124,
+    "length": 16,
+    "hash_kind": "structural",
+    "hash_value": "sha256:4107015fc109b003f3487cb8a246308609293ffb715400cd849f3d5cc59ec599",
+    "byte_pattern": "A5 6E 85 66 A2 05 B5 68 95 60 CA D0 ... <4 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BBFC",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bc5b",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48219,
+    "length": 64,
+    "hash_kind": "structural",
+    "hash_value": "sha256:06856861e9f21d1594a6e4e7622c5e3ecf24b6c167f28df2b93bd14d299512c7",
+    "byte_pattern": "85 24 84 25 A0 00 B1 24 C8 AA F0 C4 ... <52 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BC5B",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b6aa",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46762,
+    "length": 49,
+    "hash_kind": "structural",
+    "hash_value": "sha256:d29540bc6117bdc3c360f701365c28de22a0892cdc8fb496e543c64c42bc641b",
+    "byte_pattern": "85 22 84 23 20 DB B6 08 A0 00 B1 22 ... <37 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B6AA",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b090",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45200,
+    "length": 15,
+    "hash_kind": "structural",
+    "hash_value": "sha256:e7f4e229cbc51e31c0a760551c6cdf0cad9ebcbe14e1d1fef5de066f9a917a2d",
+    "byte_pattern": "86 0C 85 45 20 79 00 20 13 B1 B0 03 ... <3 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B090",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b1b2",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45490,
+    "length": 31,
+    "hash_kind": "structural",
+    "hash_value": "sha256:8cfd0756b6c034b577d00de0249e4f47466c70a5ee2cbbde6580c626322647a3",
+    "byte_pattern": "20 73 00 20 9E AD 20 8D AD A5 66 30 ... <19 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B1B2",
+    "links": []
+  },
+  {
+    "name": "basic-entry-aef7",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 44791,
+    "length": 17,
+    "hash_kind": "structural",
+    "hash_value": "sha256:ab2b0c762a4bc3044acf879b5065ba99228df1e7f52473352312fd41e4695270",
+    "byte_pattern": "A9 29 2C A9 28 2C A9 2C A0 00 D1 7A ... <5 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $AEF7",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b194",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45460,
+    "length": 17,
+    "hash_kind": "structural",
+    "hash_value": "sha256:538dcb87418846e30049a51a7e67025590fdfdf0e6543d9c5f80a3fe78e935ab",
+    "byte_pattern": "A5 0B 0A 69 05 65 5F A4 60 90 01 C8 ... <5 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B194",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b34c",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45900,
+    "length": 49,
+    "hash_kind": "structural",
+    "hash_value": "sha256:7cba267b41483342787076acb134a25cb60ca748e6fc6f5f934d7e683b0bc798",
+    "byte_pattern": "84 22 B1 5F 85 28 88 B1 5F 85 29 A9 ... <37 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B34C",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b355",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45909,
+    "length": 40,
+    "hash_kind": "structural",
+    "hash_value": "sha256:299611e91d8f26d8715ced9b642f6d41b9d84eb91a9ef45d5a1a61f78db7f429",
+    "byte_pattern": "85 29 A9 10 85 5D A2 00 A0 00 8A 0A ... <28 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B355",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b3e1",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46049,
+    "length": 19,
+    "hash_kind": "structural",
+    "hash_value": "sha256:85128c2177398eb111095fb706c6da792bc900327e95e4d9d4e187abfeb861f7",
+    "byte_pattern": "A9 A5 20 FF AE 09 80 85 10 20 92 B0 ... <7 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B3E1",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a8f8",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 43256,
+    "length": 14,
+    "hash_kind": "structural",
+    "hash_value": "sha256:a5dd7976153a3018ac99a32f8b20704213773e31f9aebfa50d8124f499f43e5b",
+    "byte_pattern": "20 06 A9 98 18 65 7A 85 7A 90 02 E6 ... <2 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A8F8",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b092",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45202,
+    "length": 13,
+    "hash_kind": "structural",
+    "hash_value": "sha256:3c8acf8bb3b5b65d35c4b8604a81749f2067e1ccb73291a5c57fbe9068187819",
+    "byte_pattern": "85 45 20 79 00 20 13 B1 B0 03 4C 08 ... <1 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B092",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bbd4",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48084,
+    "length": 40,
+    "hash_kind": "structural",
+    "hash_value": "sha256:37a85ed0d134811b8269c5fec2528311f0356cf659f7459b528d13720db0285d",
+    "byte_pattern": "20 1B BC 86 22 84 23 A0 04 A5 65 91 ... <28 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BBD4",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bddf",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48607,
+    "length": 25,
+    "hash_kind": "structural",
+    "hash_value": "sha256:129b6a3e64e4aef70b31e4c02456431bb1489491d1a03392aed3c51bb3484fe3",
+    "byte_pattern": "A9 20 24 66 10 02 A9 2D 99 FF 00 85 ... <13 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BDDF",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b4f4",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46324,
+    "length": 34,
+    "hash_kind": "structural",
+    "hash_value": "sha256:f4b9ffe4e4a69e289948f26b12286e8e11675f3fa4a45ee51712e628565641a8",
+    "byte_pattern": "46 0F 48 49 FF 38 65 33 A4 34 B0 01 ... <22 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B4F4",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b688",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46728,
+    "length": 27,
+    "hash_kind": "structural",
+    "hash_value": "sha256:ee97c03c458ab6901cc4cc91e6f4f29d43b0811ed8b4cdf692c84b5e56487152",
+    "byte_pattern": "86 22 84 23 A8 F0 0A 48 88 B1 22 91 ... <15 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B688",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b5c7",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46535,
+    "length": 63,
+    "hash_kind": "structural",
+    "hash_value": "sha256:908b3cd8ea518de41137f70d4014746309719a33aa810a090ac49da8da14a703",
+    "byte_pattern": "B1 22 F0 2B C8 B1 22 AA C8 B1 22 C5 ... <51 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B5C7",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b5bd",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46525,
+    "length": 73,
+    "hash_kind": "structural",
+    "hash_value": "sha256:30a04b4e329ff773cd5146dbfe503ed09f789dade8fdca6eb390a0464760866f",
+    "byte_pattern": "B1 22 30 35 C8 B1 22 10 30 C8 B1 22 ... <61 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B5BD",
+    "links": []
+  },
+  {
+    "name": "basic-entry-a3bf",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 41919,
+    "length": 60,
+    "hash_kind": "structural",
+    "hash_value": "sha256:00454b000736441e52511f2d98b1b79459385aa75c0171d3774f4b941f332c35",
+    "byte_pattern": "38 A5 5A E5 5F 85 22 A8 A5 5B E5 60 ... <48 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $A3BF",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b68c",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46732,
+    "length": 23,
+    "hash_kind": "structural",
+    "hash_value": "sha256:31d38976ba93c23f2095fa0665604f6f54d31da7dfdbd8e2e24375b5fe5616bd",
+    "byte_pattern": "A8 F0 0A 48 88 B1 22 91 35 98 D0 F8 ... <11 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B68C",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b4ca",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46282,
+    "length": 11,
+    "hash_kind": "structural",
+    "hash_value": "sha256:33e1407ddb45f76be2e54c1691c38f77e12ed5a3cfcdf1a0df2e25c5e1cd2afc",
+    "byte_pattern": "A6 16 E0 22 D0 05 A2 19 4C 37 A4",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B4CA",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b7a1",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47009,
+    "length": 12,
+    "hash_kind": "structural",
+    "hash_value": "sha256:ce7698016ddb2e4cd8f4efa5752f2b0c276e6c90aab73c14af5ff42de19e058e",
+    "byte_pattern": "20 B8 B1 A6 64 D0 F0 A6 65 4C 79 00",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B7A1",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b47d",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46205,
+    "length": 10,
+    "hash_kind": "structural",
+    "hash_value": "sha256:d5e3716384c8d1cabda29b8087175559f964589ffd02909702fdffc60154ce07",
+    "byte_pattern": "20 F4 B4 86 62 84 63 85 61 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B47D",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b761",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46945,
+    "length": 27,
+    "hash_kind": "structural",
+    "hash_value": "sha256:c2b80f9a52d29803fe58041f400ab4778c3d5bf5e840215736e60e02a88d7211",
+    "byte_pattern": "20 F7 AE 68 A8 68 85 55 68 68 68 AA ... <15 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B761",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b782",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46978,
+    "length": 9,
+    "hash_kind": "structural",
+    "hash_value": "sha256:22094401c93387d508e8a59596d97ab7f0813912abddf94d04bff4cae723ee07",
+    "byte_pattern": "20 A3 B6 A2 00 86 0D A8 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B782",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b6a3",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 46755,
+    "length": 56,
+    "hash_kind": "structural",
+    "hash_value": "sha256:8c626068a802d781dcf0753e9b37d2ab4ad3b73e8967e03f76a2d3afa34d9bb8",
+    "byte_pattern": "20 8F AD A5 64 A4 65 85 22 84 23 20 ... <44 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B6A3",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b1b8",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 45496,
+    "length": 25,
+    "hash_kind": "structural",
+    "hash_value": "sha256:df30bdac239c2dedd61c512722088cefa6468136da0d5c886636169965f220c8",
+    "byte_pattern": "20 8D AD A5 66 30 0D A5 61 C9 90 90 ... <13 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B1B8",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b7f7",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47095,
+    "length": 22,
+    "hash_kind": "structural",
+    "hash_value": "sha256:87f3f27ba4a3b92f6dbd7425f5de352d45068d014f026165fd5155ba301df97c",
+    "byte_pattern": "A5 66 30 9D A5 61 C9 91 B0 97 20 9B ... <10 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B7F7",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b7eb",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47083,
+    "length": 12,
+    "hash_kind": "structural",
+    "hash_value": "sha256:7b87b742853e695407057542c28d69270a09f395125c7763cf6e8dc2b88e095b",
+    "byte_pattern": "20 8A AD 20 F7 B7 20 FD AE 4C 9E B7",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B7EB",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b7f1",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47089,
+    "length": 6,
+    "hash_kind": "structural",
+    "hash_value": "sha256:c9c89dbf0cead4cb3e0566d780fa85af40a58ccf92959778621f651b7c788a79",
+    "byte_pattern": "20 FD AE 4C 9E B7",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B7F1",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ba8c",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47756,
+    "length": 43,
+    "hash_kind": "structural",
+    "hash_value": "sha256:172b8be45afad985dd252ca57ed95fdec104eef4e16454756cf01e3830f0d978",
+    "byte_pattern": "85 22 84 23 A0 04 B1 22 85 6D 88 B1 ... <31 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BA8C",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b999",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47513,
+    "length": 35,
+    "hash_kind": "structural",
+    "hash_value": "sha256:a9ddeafe8071740079ddc9c1967d3f9fa9cdac6e8f575e520ddaf3fac676f367",
+    "byte_pattern": "69 08 30 E8 F0 E6 E9 08 A8 A5 70 B0 ... <23 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B999",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b9b0",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47536,
+    "length": 12,
+    "hash_kind": "structural",
+    "hash_value": "sha256:85bccf73eebf343bc6f41685da29c3795b11e0e00a835c28a36b4d6bea4049d8",
+    "byte_pattern": "76 02 76 03 76 04 6A C8 D0 EC 18 60",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B9B0",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b947",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47431,
+    "length": 55,
+    "hash_kind": "structural",
+    "hash_value": "sha256:49ded538eda5157949ae219b5651f60d1f3c7c502dbf0d523fcff30cbb47ddad",
+    "byte_pattern": "A5 66 49 FF 85 66 A5 62 49 FF 85 62 ... <43 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B947",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bb0f",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47887,
+    "length": 107,
+    "hash_kind": "structural",
+    "hash_value": "sha256:b948917482119ae921c40c9e3faf6523806bc9d73457d9ab9bd2e12523d4b585",
+    "byte_pattern": "20 8C BA F0 76 20 1B BC A9 00 38 E5 ... <95 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BB0F",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b850",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47184,
+    "length": 18,
+    "hash_kind": "structural",
+    "hash_value": "sha256:9b11353085e8153520fa8d753429a01503e55823fa9ee326771302e73fdfd66f",
+    "byte_pattern": "20 8C BA A5 66 49 FF 85 66 45 6E 85 ... <6 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B850",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bd7e",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48510,
+    "length": 19,
+    "hash_kind": "structural",
+    "hash_value": "sha256:6b9ffd8dfe687ee3001e480bee28963ddc79768f1fcd30ed2148d0d6b651729a",
+    "byte_pattern": "48 20 0C BC 68 20 3C BC A5 6E 45 66 ... <7 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BD7E",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bab7",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47799,
+    "length": 24,
+    "hash_kind": "structural",
+    "hash_value": "sha256:b7486f566240ca656e1dd9addcfb9d7b8049e51b0d6e97e43cf77d708e1cdcbd",
+    "byte_pattern": "A5 69 F0 1F 18 65 61 90 04 30 1D 18 ... <12 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BAB7",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ba59",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47705,
+    "length": 5,
+    "hash_kind": "structural",
+    "hash_value": "sha256:0ac889a4a3e6e5c8b7328d902a93570b8d67fae31f2340db3eb5adeaa7c5fa55",
+    "byte_pattern": "D0 03 4C 83 B9",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BA59",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ba5e",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47710,
+    "length": 46,
+    "hash_kind": "structural",
+    "hash_value": "sha256:8d4f4a4e89696e2c8670808bd9af8784d3993cf1b9ccaf2e780f784c2faf50e0",
+    "byte_pattern": "4A 09 80 A8 90 19 18 A5 29 65 6D 85 ... <34 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BA5E",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b877",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47223,
+    "length": 135,
+    "hash_kind": "structural",
+    "hash_value": "sha256:c262bfb9247f9b975b1890ee0e86959b08bdefba99dd4691708bc77051bc353b",
+    "byte_pattern": "A8 F0 CE 38 E5 61 F0 24 90 12 84 61 ... <123 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B877",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b96f",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47471,
+    "length": 15,
+    "hash_kind": "structural",
+    "hash_value": "sha256:a695c47f609b31fe3a45f6c22c733f6d10f2cf73e1d9925971768bc7e4907d5b",
+    "byte_pattern": "E6 65 D0 0A E6 64 D0 06 E6 63 D0 02 ... <3 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B96F",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b94d",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47437,
+    "length": 49,
+    "hash_kind": "structural",
+    "hash_value": "sha256:39beb5449c4ed537dfa8edee619b9e403d5a3b42a139d2240ef88f60bc666270",
+    "byte_pattern": "A5 62 49 FF 85 62 A5 63 49 FF 85 63 ... <37 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B94D",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bafe",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47870,
+    "length": 17,
+    "hash_kind": "structural",
+    "hash_value": "sha256:4250eab88c9da7131c53f5884519581d397619e0ae78d2b28594c4a6b301c57c",
+    "byte_pattern": "20 0C BC A9 F9 A0 BA A2 00 86 6F 20 ... <5 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BAFE",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bc3c",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48188,
+    "length": 28,
+    "hash_kind": "structural",
+    "hash_value": "sha256:3305ea2563547c3408ecf0df129ccce7faf0ba4779002d7a9217b0d7e110547a",
+    "byte_pattern": "85 62 A9 00 85 63 A2 88 A5 62 49 FF ... <16 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BC3C",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bc49",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48201,
+    "length": 15,
+    "hash_kind": "structural",
+    "hash_value": "sha256:bc1f9a251f3e20e629baa03a23c951c06244b1505b51f00dbf24051d58836989",
+    "byte_pattern": "A9 00 85 65 85 64 86 61 85 70 85 66 ... <3 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BC49",
+    "links": []
+  },
+  {
+    "name": "basic-entry-ba28",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47656,
+    "length": 8,
+    "hash_kind": "structural",
+    "hash_value": "sha256:fdefd44809392ef84cc770a24f1e20fbea69742ec8b98557451fe4c53a6e26a8",
+    "byte_pattern": "20 8C BA D0 03 4C 8B BA",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BA28",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b849",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47177,
+    "length": 7,
+    "hash_kind": "structural",
+    "hash_value": "sha256:4eb581f0f731372b42e32815948b67857cbaf51ea6e9570d7e4d370245e4ac40",
+    "byte_pattern": "A9 11 A0 BF 4C 67 B8",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B849",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bccc",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48332,
+    "length": 29,
+    "hash_kind": "structural",
+    "hash_value": "sha256:28b5fe06600219b3989cd26663e6169204d2ab80c91dd6a326bbd76aba7a15fe",
+    "byte_pattern": "A5 61 C9 A0 B0 20 20 9B BC 84 70 A5 ... <17 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BCCC",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bbfe",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48126,
+    "length": 14,
+    "hash_kind": "structural",
+    "hash_value": "sha256:1187065d3a340aef832b1086692856c45eca26f5c67554307c95717ecc88839a",
+    "byte_pattern": "85 66 A2 05 B5 68 95 60 CA D0 F9 86 ... <2 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BBFE",
+    "links": []
+  },
+  {
+    "name": "basic-entry-b9ea",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 47594,
+    "length": 10,
+    "hash_kind": "structural",
+    "hash_value": "sha256:e6d1303a33d8df8044019fcf1e3a7f3c8db6574b4742cb928a342657f54d8844",
+    "byte_pattern": "20 2B BC F0 02 10 03 4C 48 B2",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $B9EA",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bfed",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 49133,
+    "length": 19,
+    "hash_kind": "structural",
+    "hash_value": "sha256:e59393176bb2c59ac1f403d572c8a8cd1dcae525d3e3cda4aecabd630ccb4695",
+    "byte_pattern": "A9 BF A0 BF 20 28 BA A5 70 69 50 90 ... <7 more>",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BFED",
+    "links": []
+  },
+  {
+    "name": "basic-entry-bc23",
+    "version": "C64 BASIC 901226-01",
+    "category": "basic",
+    "entry": 48163,
+    "length": 8,
+    "hash_kind": "structural",
+    "hash_value": "sha256:fdefd44809392ef84cc770a24f1e20fbea69742ec8b98557451fe4c53a6e26a8",
+    "byte_pattern": "20 6F B9 D0 F2 4C 38 B9",
+    "register_use": {
+      "reads": [],
+      "writes": []
+    },
+    "entry_signature": "basic routine at $BC23",
+    "links": []
+  }
+]
