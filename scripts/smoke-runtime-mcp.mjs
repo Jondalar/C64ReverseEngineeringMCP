@@ -40,6 +40,11 @@ const expected = [
   "runtime_save_vsf", "runtime_load_vsf",
   "runtime_resolve_pc", "runtime_status",
   "runtime_diff_snapshots",
+  "runtime_query_events", "runtime_follow_path", "runtime_swimlane_slice",
+  "runtime_trace_taint", "runtime_profile_loader",
+  "runtime_scan_fingerprints",
+  "runtime_bookmark_add", "runtime_bookmark_list",
+  "runtime_regression_capture_baseline", "runtime_regression_compare",
 ];
 
 for (const name of expected) {
