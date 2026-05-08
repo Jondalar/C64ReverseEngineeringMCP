@@ -5,7 +5,9 @@
 in src/runtime/headless/kernel/kernel-status.ts. Session-modes mapping
 for debug-push-only + debug-hybrid added in session-modes.ts. E2E
 ladder script: scripts/e2e-game-ladder.mjs. npm run test:e2e:{quick,
-integration,local} wired in package.json. **e2e-local 6/6 PASS**:
+integration,local} wired in package.json. **audit-timing-fork lint shipped (scripts/audit-timing-fork.mjs,
+`npm run audit:timing-fork`, 0 violations).
+e2e-local 6/6 PASS**:
 c64-ready (true-drive), motm-dir-load (fast-trap), motm-full-boot
 (true-drive 7474 bytes), mm-s1-boot (35619 bytes), im2-boot (33628
 bytes), lnr-s1-boot (38728 bytes). Each test prints kernel mode +

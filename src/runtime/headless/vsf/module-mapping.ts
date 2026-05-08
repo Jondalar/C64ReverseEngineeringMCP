@@ -56,7 +56,7 @@ export function deserializeCpu(cpu: Cpu6510, data: Uint8Array): void {
   cpu.y = data[4]!;
   cpu.sp = data[5]!;
   cpu.flags = data[6]!;
-  cpu.cycles = (data[7]! | (data[8]! << 8) | (data[9]! << 16) | (data[10]! << 24)) >>> 0;
+  cpu.cycles = (data[7]! | (data[8]! << 8) | (data[9]! << 16) | (data[10]! << 24)) >>> 0; // audit-ok: VSF restore
 }
 
 // ---- VIA module ----

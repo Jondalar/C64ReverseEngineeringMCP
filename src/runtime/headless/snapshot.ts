@@ -146,7 +146,7 @@ function restoreVia(via: {
 
 function restoreCpu(cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number }, snap: CpuSnapshot): void {
   cpu.pc = snap.pc; cpu.a = snap.a; cpu.x = snap.x; cpu.y = snap.y;
-  cpu.sp = snap.sp; cpu.flags = snap.flags; cpu.cycles = snap.cycles;
+  cpu.sp = snap.sp; cpu.flags = snap.flags; cpu.cycles = snap.cycles; // audit-ok: snapshot restore
 }
 
 export function restore(session: IntegratedSession, snap: SessionSnapshot): void {

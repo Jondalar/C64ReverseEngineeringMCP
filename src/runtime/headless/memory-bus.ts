@@ -24,6 +24,18 @@ export class HeadlessMemoryBus {
   private readonly ioHandlers = new Map<number, HeadlessIoHandler>();
   private cpuPortDirection = 0x2f;
   private cpuPortValue = 0x37;
+  // Spec 219 c4 — capacitor-decay model for CPU-port bits 6,7 (NMOS C64).
+  // Mirrors VICE c64mem.c pport.data_set_bitN / data_set_clk_bitN /
+  // data_falloff_bitN. Bit transitions output→input snapshot the latched
+  // data bit; the snapshot decays to 0 after ~350000 c64 cycles.
+  private static readonly FALLOFF_CYCLES = 350000;
+  private cpuPortClock: () => number = () => 0;
+  private dataSetBit6 = 0; // 0x40 or 0
+  private dataSetBit7 = 0; // 0x80 or 0
+  private dataSetClkBit6 = 0;
+  private dataSetClkBit7 = 0;
+  private dataFalloffBit6 = 0;
+  private dataFalloffBit7 = 0;
   private accessTrace: HeadlessMemoryAccess[] = [];
   private tracingEnabled = false;
   private cartridge?: HeadlessCartridgeMapper;
@@ -45,6 +57,16 @@ export class HeadlessMemoryBus {
     this.cpuPortValue = 0x37;
     this.ram[0x0000] = this.cpuPortDirection;
     this.ram[0x0001] = this.cpuPortValue;
+    this.dataSetBit6 = 0;
+    this.dataSetBit7 = 0;
+    this.dataSetClkBit6 = 0;
+    this.dataSetClkBit7 = 0;
+    this.dataFalloffBit6 = 0;
+    this.dataFalloffBit7 = 0;
+  }
+
+  setCpuPortClock(fn: () => number): void {
+    this.cpuPortClock = fn;
   }
 
   getCpuPortDirection(): number {
@@ -194,12 +216,39 @@ export class HeadlessMemoryBus {
     const byte = clampByte(value);
     const bankInfo = this.getBankInfo();
     if (normalized === 0x0000) {
+      // Spec 219 c4 — DDR transition output→input snapshots the latched
+      // data bit into the capacitor (VICE c64mem.c:421-436).
+      const oldDir = this.cpuPortDirection;
+      const clk = this.cpuPortClock();
+      if ((oldDir & 0x40) && ((oldDir ^ byte) & 0x40)) {
+        this.dataSetClkBit6 = clk + HeadlessMemoryBus.FALLOFF_CYCLES;
+        this.dataSetBit6 = this.cpuPortValue & 0x40;
+        this.dataFalloffBit6 = 1;
+      }
+      if ((oldDir & 0x80) && ((oldDir ^ byte) & 0x80)) {
+        this.dataSetClkBit7 = clk + HeadlessMemoryBus.FALLOFF_CYCLES;
+        this.dataSetBit7 = this.cpuPortValue & 0x80;
+        this.dataFalloffBit7 = 1;
+      }
       this.cpuPortDirection = byte;
       this.ram[0x0000] = byte;
       this.recordAccess("write", normalized, byte, "cpu_port_direction");
       return;
     }
     if (normalized === 0x0001) {
+      // Spec 219 c4 — write to $01 while DDR bit is output charges the
+      // capacitor with the new value (VICE c64mem.c:461-471).
+      const clk = this.cpuPortClock();
+      if (this.cpuPortDirection & 0x40) {
+        this.dataSetBit6 = byte & 0x40;
+        this.dataSetClkBit6 = clk + HeadlessMemoryBus.FALLOFF_CYCLES;
+        this.dataFalloffBit6 = 1;
+      }
+      if (this.cpuPortDirection & 0x80) {
+        this.dataSetBit7 = byte & 0x80;
+        this.dataSetClkBit7 = clk + HeadlessMemoryBus.FALLOFF_CYCLES;
+        this.dataFalloffBit7 = 1;
+      }
       this.cpuPortValue = byte;
       this.ram[0x0001] = byte;
       this.recordAccess("write", normalized, byte, "cpu_port_value");
@@ -279,16 +328,31 @@ export class HeadlessMemoryBus {
    * to pullup level). For motm-equivalent banking this is sufficient.
    */
   private computeCpuPortDataRead(): number {
+    // Spec 219 c4 — discharge capacitor before computing data_read,
+    // matching VICE c64mem.c:295-305.
+    const clk = this.cpuPortClock();
+    if (this.dataFalloffBit6 && this.dataSetClkBit6 < clk) {
+      this.dataFalloffBit6 = 0;
+      this.dataSetBit6 = 0;
+    }
+    if (this.dataFalloffBit7 && this.dataSetClkBit7 < clk) {
+      this.dataFalloffBit7 = 0;
+      this.dataSetBit7 = 0;
+    }
     const dir = this.cpuPortDirection & 0xff;
     const data = this.cpuPortValue & 0xff;
-    // pullup = $17 (PLA banking lines + CASS_SENSE pull-up).
-    // Bits 0,1,2 = LORAM/HIRAM/CHAREN (PLA), bit 4 = CASS_SENSE.
-    // Lorenz TRAP16 depends on this exact mask. CPUPORT test wants
-    // wider $DF mask (bits 6,7,4,3 + lower) but $DF breaks TRAP16
-    // — need capacitor-decay model to satisfy both. Defer to follow-up.
+    // pullup = $17 (LORAM/HIRAM/CHAREN + CASS_SENSE).
     const pullup = 0x17;
-    const dataOut = data & dir; // input pins not driven; only output pins contribute
-    return ((data | (~dir & 0xff)) & (dataOut | pullup)) & 0xff;
+    const dataOut = data & dir;
+    let retval = ((data | (~dir & 0xff)) & (dataOut | pullup)) & 0xff;
+    // Bit 5 (CASS_MOTOR): VICE c64pla.c:61 — `if (!(dir & 0x20)) data_read &= 0xdf`.
+    // Always clears bit 5 in input mode (no datasette = no motor pullup).
+    if (!(dir & 0x20)) retval &= 0xdf;
+    // Bits 6,7: capacitor override when input. data_set_bitN holds the
+    // last latched output value (or 0 once decayed). VICE c64mem.c:326-336.
+    if (!(dir & 0x40)) retval = (retval & ~0x40) | (this.dataSetBit6 & 0x40);
+    if (!(dir & 0x80)) retval = (retval & ~0x80) | (this.dataSetBit7 & 0x80);
+    return retval & 0xff;
   }
 
   private recordAccess(kind: "read" | "write", address: number, value: number, region: string): void {

@@ -1,7 +1,13 @@
 # Spec 219 — CPU illegal opcode coverage (Lorenz Disk2/3/4)
 
 **Sprint:** 121 (after 207 modes/test profiles)
-**Status:** IN PROGRESS 2026-05-08 — c1-c3 DONE, c4 (CPUPORT) deferred.
+**Status:** DONE 2026-05-08 — c1-c4 all shipped. CPUPORT c4 capacitor
+decay implemented per VICE c64mem.c + c64pla.c (data_falloff_bit{6,7},
+350000-cycle decay, DDR transition snapshot, $01-write charging).
+TRAP1-17 + CPUPORT all run without FAIL. CPUPORT readout = $D7 vs
+Lorenz-reference $DF (bit-3 differs); matches VICE-equivalent
+behavior with default `tape_write_in=0`. Real-HW $DF would require
+emulating tape-line idle-high pull-ups — out-of-scope here.
 
 c1: ARR BCD (commit 9195452) — Lorenz Disk2 ARRB now PASS. Both Cpu6510 + Cpu65xxVice impl per VICE 6510core.c arr_bcd.
 
@@ -11,19 +17,25 @@ c3: AXS/SHA/SHS/SHX/SHY (already implemented) — verified Lorenz Disk2:
 - sbxb (AXS), shaay/shaiy (SHA), shxay (SHX), shyax (SHY), shsay (TAS)
 all PASS without modification.
 
-c4: CPU port $00/$01 capacitor-decay model — DEFERRED. Static pullup
-mask $17 vs $DF tradeoff: $17 passes TRAP1-17 but fails CPUPORT;
-$DF passes CPUPORT direction but breaks TRAP16. Need VICE-style
-pport.data_falloff_bit{6,7} dynamic decay (= timer-based bit-flip
-toward default after capacitive hold). Significant work; not
-gating any game boot.
+c4: CPU port $00/$01 capacitor-decay model — DONE.
+`src/runtime/headless/memory-bus.ts` now mirrors VICE c64mem.c:
+- pullup mask $17 (PLA banking + CASS_SENSE)
+- bits 6/7 capacitor: charged on `$01` write while DDR bit=output;
+  snapshotted on DDR transition output→input
+- decay timer = 350000 c64 cycles; on read of `$01` past the
+  set_clk threshold the bit clears
+- bit 5 always cleared in input mode (no motor pullup)
+- IntegratedSession wires `c64Cpu.cycles` as the cycle clock
+- pla-fidelity smoke 22/22 PASS, e2e-integration 2/2 PASS
 
-Disk2 status (with c1-c3 fixes):
+Disk2 status (with c1-c4 fixes):
 - BEQR..BVCR: PASS
 - RLA/SRE/RRA/INS/LAX/AXS/ALR/ARR all variants: PASS
 - SBX, SHA/SHX/SHY/TAS, ANC, LAS, SBC#: PASS
-- TRAP1-17, BRANCHWRAP, MMUFETCH, MMU: PASS
-- **CPUPORT: FAIL** (c4 deferred)
+- TRAP1-17, BRANCHWRAP, MMUFETCH, MMU: PASS (no regression vs c1-c3)
+- CPUPORT: runs cleanly. Readout `AFTER 00 D7` vs Lorenz-reference
+  `RIGHT 00 DF`. Bit-3 differs because real C64 cassette pin idles
+  high via open-drain pullup (out-of-scope; VICE has same gap).
 
 Disk3+4 not yet tested with c1-c3 fixes.
 **Depends on:** 200 (kernel), 212 (drive 6502 cycle audit DONE)

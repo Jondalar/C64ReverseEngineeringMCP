@@ -364,6 +364,8 @@ export class IntegratedSession {
     this.c64Bus = this.kernel.c64Bus;
     this.romSet = this.kernel.romSet;
     this.c64Cpu = this.kernel.c64Cpu;
+    // Spec 219 c4 — provide cycle clock for CPU-port capacitor decay.
+    this.c64Bus.setCpuPortClock(() => this.c64Cpu.cycles);
     this.cia1 = this.kernel.cia1;
     this.cia1IrqLine = this.kernel.cia1IrqLine;
     this.cia2 = this.kernel.cia2;
@@ -777,7 +779,7 @@ export class IntegratedSession {
     if (trapped) {
       this.c64InstructionCount += 1;
       const trapCycles = 7;
-      this.c64Cpu.cycles += trapCycles;
+      this.c64Cpu.cycles += trapCycles; // audit-ok: trap synthesizes JSR/RTS cost
       this.cia1.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
       this.cia2.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
       this.vic.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
