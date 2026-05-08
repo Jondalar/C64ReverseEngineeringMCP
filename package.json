@@ -26,6 +26,8 @@
     "test:lorenz:disk2": "npm run build:mcp && node scripts/run-lorenz-suite.mjs --disk 2 --max-sec 600 --verbose",
     "test:lorenz:disk3": "npm run build:mcp && node scripts/run-lorenz-suite.mjs --disk 3 --max-sec 600 --verbose",
     "test:lorenz:disk4": "npm run build:mcp && node scripts/run-lorenz-suite.mjs --disk 4 --max-sec 600 --verbose",
+    "test:cia-suite": "npm run build:mcp && node scripts/run-cia-suite.mjs --group cia --max-sec 20",
+    "test:drive-suite": "npm run build:mcp && node scripts/run-cia-suite.mjs --group drive --max-sec 20",
     "test:e2e:quick": "npm run build:mcp && node scripts/e2e-game-ladder.mjs --profile quick",
     "test:e2e:integration": "npm run build:mcp && node scripts/e2e-game-ladder.mjs --profile integration",
     "test:e2e:local": "npm run build:mcp && node scripts/e2e-game-ladder.mjs --profile e2e-local",
