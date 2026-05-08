@@ -18,6 +18,24 @@ Spec-driven flow stays: PLAN → spec under `specs/NNN-*.md` → sprint todos �
 
 **Seven-phase workflow + Master/Worker pattern (Specs 034 + 035).** Project work moves through 7 phases (extraction → loader → heuristic disasm → segment analysis → semantic V1 → meta connections → semantic V2). Phases are tracked per artifact (`phase` field). Tools are tagged with their phase via `src/agent-orchestrator/phase-tools.ts`. The master agent reads `agent_propose_next`, spawns a Task subagent with the `c64re_worker_phase(phase, artifact_id, role)` prompt for each phase-bound action, then calls `agent_record_step` and loops. See `docs/re-phases.md`.
 
+## Headless over VICE (Mandatory framing 2026-05-09)
+
+**Default to headless for every workflow, tool, skill, and agent
+action.** VICE is fallback / oracle only.
+
+- Tool selection: prefer `runtime_*` / `headless_*` MCP tools over
+  `vice_*`. Use `vice_*` only when scenario absent from baseline
+  corpus AND debugging emulator-internal divergence (Spec 236
+  debug-tier).
+- Workflow framing: state the answer from headless first; consult
+  VICE only if headless cannot answer or the output looks wrong.
+- V1 silikon-equivalent shipped: Lorenz disk1 100%, motm/MM/IM2/LNR
+  boot, CIA testprogs 59/59, drive 4/4. V2 LLM workbench (Specs
+  230-251) built on headless. V3 goal = drop VICE entirely
+  (Spec 248 OQ4).
+- Don't propose `vice_session_start` or VICE-side capture as the
+  default investigative step.
+
 ## Agent Doctrine (Mandatory)
 
 When operating inside an actual C64 RE *project* (i.e. a `C64RE_PROJECT_DIR` workspace, not this MCP repo itself):

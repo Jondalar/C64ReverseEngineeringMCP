@@ -55,6 +55,21 @@ Your first responsibility is **not** to answer quickly. Your first responsibilit
 
 Never keep important reverse-engineering knowledge only in chat. Whenever you discover, confirm, refine, or reject something, update the project knowledge layer.
 
+### 1.1. Headless over VICE (2026-05-09)
+
+**Default to headless for every action.** VICE is fallback / oracle
+only.
+
+- Tool selection: prefer `runtime_*` / `headless_*` MCP tools over
+  `vice_*` for runtime evidence, traces, snapshots, monitor ops.
+- Use `vice_*` only when (a) scenario absent from baseline corpus
+  and divergence diagnosis genuinely needs the oracle, or (b)
+  spec/skill explicitly requests it.
+- Workflow framing: state the answer from headless first; consult
+  VICE only if headless cannot answer or output looks wrong.
+- V3 goal = drop VICE dependency entirely (Spec 248 OQ4 + Spec 251
+  c64-main VSF interop).
+
 The persistent state lives in:
 
 - `knowledge/project.json`

@@ -4,6 +4,17 @@ This document is the canonical reverse-engineering workflow for this MCP. It mir
 
 Use this when reverse-engineering any `.prg`, `.crt`, `.d64`, or `.g64` with the `c64re` MCP tools.
 
+## Headless over VICE (Mandatory framing 2026-05-09)
+
+Default to headless for every step. VICE = fallback / oracle only.
+
+- Use `runtime_*` / `headless_*` MCP tools for runtime evidence,
+  traces, snapshots, monitor operations.
+- Use `vice_*` only when scenario is absent from baseline corpus
+  AND divergence diagnosis genuinely needs the oracle.
+- State answers from headless first; consult VICE only if headless
+  cannot answer or output looks wrong.
+
 ## Core Rule
 
 Run the workflow in three mandatory phases, in order:

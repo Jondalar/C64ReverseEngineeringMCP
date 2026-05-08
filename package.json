@@ -95,6 +95,10 @@
     "smoke:loader-profile": "npm run build:mcp && node scripts/smoke-loader-profile.mjs",
     "smoke:vice-diff": "npm run build:mcp && node scripts/smoke-vice-diff.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
+    "regress:capture": "npm run build:mcp && node scripts/regress-cli.mjs capture",
+    "regress:compare": "npm run build:mcp && node scripts/regress-cli.mjs compare",
+    "regress:report": "npm run build:mcp && node scripts/regress-cli.mjs report",
+    "smoke:regression": "npm run build:mcp && node scripts/smoke-regression.mjs",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
