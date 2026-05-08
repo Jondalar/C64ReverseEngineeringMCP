@@ -1,7 +1,18 @@
 # Spec 232 — Event-indexed trace store
 
 **Sprint:** 125
-**Status:** PROPOSED 2026-05-08
+**Status:** DONE 2026-05-08 — typed `EventFamily` (29 kinds) +
+`queryEvents()` API shipped on top of Spec 217 DuckDB store.
+- src/runtime/headless/v2/trace-events.ts (closed enum + row types)
+- src/runtime/headless/v2/query-events.ts (EventQuery → SQL mapper)
+- src/runtime/headless/v2/duckdb-backend.ts (param-inline backend)
+Smoke `scripts/smoke-trace-query.mjs` exercises all 10 query
+operations: cpu_step, mem_read/write w/ addr filter, cycle range,
+cia_timer_underflow, irq_assert, predicate sanitization, unsupported
+family empty-return, limit, pcRange — **10/10 PASS**.
+Existing 24 producer kinds are wired; missing producers (vic_*,
+sid_register_write, keyboard_*, hook_audit, breakpoint_hit) return
+empty result for now (additive, no breaking).
 **Depends on:** 205 (trace contract), 217 (DuckDB store)
 **Master:** 230
 

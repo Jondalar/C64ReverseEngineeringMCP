@@ -52,6 +52,7 @@
     "smoke:kernel-facade": "npm run build:mcp && node scripts/smoke-kernel-facade.mjs",
     "smoke:kernel-client": "npm run build:mcp && node scripts/smoke-kernel-client.mjs",
     "smoke:session-vsf": "npm run build:mcp && node scripts/smoke-session-vsf.mjs",
+    "smoke:trace-query": "npm run build:mcp && node scripts/smoke-trace-query.mjs",
     "smoke:hook-hygiene": "npm run build:mcp && node scripts/smoke-hook-hygiene.mjs",
     "smoke:trace": "npm run build:mcp && node scripts/smoke-trace.mjs",
     "smoke:diff-trace": "node scripts/smoke-diff-trace.mjs",
