@@ -54,32 +54,66 @@ $0376 sei / cmp #$01 / beq skip-INX / inx
 $037C dec $09 / bpl $036D            ; 16 bits per round, 3 rounds
 ```
 
-Drive's ZP[$01] is modified by **standard 1541 DOS IRQ handler**
-(VIA1 CA1 = ATN edge). Per c64 ATN-toggle, drive ROM IRQ handler
-runs and writes $01 from received bit state.
+### Mechanism investigated 2026-05-08 late evening
 
-For X=$00 (correct): every ATN edge results in `$01 == $01` after
-IRQ → BEQ skips INX.
+Drive's ZP[$01] modifications during stage-1 window (probe-motm-zp01-writes.mjs):
+- **PC=$F96B (1541 ROM `STA $0000,Y` with Y=$01)**: 56 writes total
+  - Value $01: 40 (= "job complete OK")
+  - Value $03: 17 (= "no SYNC / no header" error)
+  - Value $00: 3
+- **PC=$0371 (motm RAM `STA $01`)**: 51 writes, all $80 (arm flag)
+- Other ROM paths (D582 / D2AB / EAAF / EAC2): few writes
 
-For X=$11 (HL bug): 17 of 48 bits produce `$01 != $01`. So either:
+`$F96B` is in the standard 1541 ROM `JOB result handler` — it stores
+job completion status to `ZP[$3F]+$0000` where ZP[$3F] = current job
+slot index. With Y=$01 → writes ZP[$01].
 
-a. **HL VIA1 CA1 edge detection generates extra IRQs** (spurious
-   edges in HL not present in real hardware).
-b. **HL ROM IRQ handler writes wrong byte to $01** (PB state read
-   incorrectly during IRQ).
-c. **c64-side stage-1 TX timing produces different ATN-edge cadence
-   in HL** vs real hardware.
+motm's "host signal flag" at ZP[$01] **collides with 1541 ROM's job
+slot 1 status byte**.
 
-Likely (a) or (b). Investigation should:
-1. Hook HL drive ZP[$01] writer. Log every write during stage-1
-   (clock 0..23.5M).
-2. Cross-check ROM IRQ handler entry count vs c64 ATN toggle count.
-3. Read 1541 ROM IRQ handler at $FE67 (or wherever `$01` gets
-   written) to identify exact decode logic. Compare HL emulation.
+When motm writes `$01=$80` (arm), ROM interprets as "queue READ job for
+buffer 1". ROM JOB loop (triggered by VIA2 T1 timer IRQ ~every 41ms)
+picks up the job, tries to read from track/sector at ZP[$08]/[$09]
+(buffer 1's T/S slot, **uninit/garbage**), fails or succeeds:
+- Success → ROM stores $01 → motm reads $01 → BEQ skip-INX (X stays 0)
+- "no header" error → ROM stores $03 → motm reads $03 → INX
 
-Note: this bug has likely affected MANY fastloaders, not just motm.
-Anything using stage-1 IEC handshake to communicate count/state
-through INX-pattern is broken.
+Real hardware: motor off + sane ROM init means JOB-1 always returns
+$01 success (or never gets processed). HL produces 17 of 48 = $03
+errors.
+
+### Real root candidates
+
+1. **HL drive ZP $08/$09 init state**: if real hw boots with $08/$09
+   pointing to a valid sector (e.g., T18/S0 BAM), ROM JOB-1 always
+   succeeds. HL might init differently → invalid sector → error.
+2. **HL motor-on default**: GCR shifter `motorOn = true` by default
+   (`gcr-shifter.ts:166`). Real 1541 boots with motor off. With
+   motor on at boot, GCR ticks immediately, sync events fire,
+   VIA2 IRQ + ROM JOB loop run aggressively.
+3. **HL VIA2 T1 timer rate**: if T1 latch differs from real, JOB
+   loop runs at different rate → different INX count.
+
+### Investigation tools
+
+- `scripts/probe-motm-stage1-x.mjs`: dumps drive $0763 after stage-1
+- `scripts/probe-motm-patch-0763.mjs`: smoking-gun patch test
+- `scripts/probe-motm-zp01-writes.mjs`: hooks bus.write to log every
+  drive ZP[$01] modification with PC + reg state
+
+### Next steps
+
+a. Probe ZP $08/$09 init state HL vs VICE. If different, fix init.
+b. Try patching `gcr-shifter.ts:166` `motorOn = false` default. Run
+   probe-motm-patch-0763.mjs without the patch — see if motor-fix
+   alone clears the issue.
+c. If neither fixes, consider runtime workaround: detect motm
+   stage-1 signature and force $0763=$00 in drive RAM after stage-1
+   completes. Brittle but unblocks loading.
+
+Note: this bug has likely affected MANY fastloaders that reuse ZP $00
+or $01. Anything using stage-1 IEC handshake to communicate
+count/state through INX-pattern collides with ROM job slot status.
 **Authoritative section:** this block supersedes contradictory
 hypotheses in the historical log below.
 
