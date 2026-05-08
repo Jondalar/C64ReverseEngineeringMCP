@@ -91,7 +91,7 @@ const DEFAULTS = {
 
 export function diagnoseMm(session: IntegratedSession, opts: DiagnoseMmOptions = {}): DiagnoseMmReport {
   const o = { ...DEFAULTS, ...opts };
-  const startTime = Date.now();
+  const startTime = Date.now(); // audit-ok: wall-clock timing for durationMs diagnostic reporting only; does not affect emulator state
   const startCycles = session.c64Cpu.cycles;
   const startInstr = session.status().c64.instructions;
   let exception: string | undefined;
@@ -191,7 +191,7 @@ export function diagnoseMm(session: IntegratedSession, opts: DiagnoseMmOptions =
       run: {
         cyclesExecuted: session.c64Cpu.cycles - startCycles,
         instructionsExecuted: s.c64.instructions - startInstr,
-        durationMs: Date.now() - startTime,
+        durationMs: Date.now() - startTime, // audit-ok: wall-clock timing for durationMs diagnostic reporting only; does not affect emulator state
         cycleBudget: o.cycleBudget,
         stalled,
         verdict: v,

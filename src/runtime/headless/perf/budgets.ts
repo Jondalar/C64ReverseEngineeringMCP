@@ -24,7 +24,7 @@ export function makeBudgetTracker(budget: RunBudget, startCycles: number, startI
     budget,
     startedAtCycles: startCycles,
     startedAtInstructions: startInstructions,
-    startedAtWallMs: Date.now(),
+    startedAtWallMs: Date.now(), // audit-ok: wall-clock budget tracker; does not affect emulator state
     cyclesPerFrame,
   };
 }
@@ -41,7 +41,7 @@ export function checkBudget(t: BudgetTracker, currentCycles: number, currentInst
     case "cycles":       elapsed = currentCycles - t.startedAtCycles; break;
     case "instructions": elapsed = currentInstructions - t.startedAtInstructions; break;
     case "frames":       elapsed = (currentCycles - t.startedAtCycles) / t.cyclesPerFrame; break;
-    case "wallSeconds":  elapsed = (Date.now() - t.startedAtWallMs) / 1000; break;
+    case "wallSeconds":  elapsed = (Date.now() - t.startedAtWallMs) / 1000; break; // audit-ok: wall-clock budget check; does not affect emulator state
   }
   return {
     exhausted: elapsed >= t.budget.amount,

@@ -49,6 +49,8 @@
     "smoke:load": "npm run build:mcp && node scripts/smoke-load.mjs",
     "audit:no-peer-tick": "node scripts/audit-no-peer-tick.mjs",
     "audit:timing-fork": "node scripts/audit-timing-fork.mjs",
+    "audit:replay-determinism": "node scripts/audit-replay-determinism.mjs",
+    "smoke:replay": "npm run build:mcp && node scripts/smoke-replay.mjs",
     "smoke:kernel-facade": "npm run build:mcp && node scripts/smoke-kernel-facade.mjs",
     "smoke:kernel-client": "npm run build:mcp && node scripts/smoke-kernel-client.mjs",
     "smoke:session-vsf": "npm run build:mcp && node scripts/smoke-session-vsf.mjs",

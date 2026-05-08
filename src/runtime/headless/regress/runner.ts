@@ -51,19 +51,19 @@ export function loadMatrix(path: string): RegressMatrix {
 }
 
 export async function runEntry(entry: RegressEntry): Promise<RegressResult> {
-  const start = Date.now();
+  const start = Date.now(); // audit-ok: wall-clock timing for durationMs reporting only; does not affect emulator state
   if (!existsSync(entry.fixturePath)) {
     if (entry.mode_required_to_pass === "local-only") {
       return {
         id: entry.id, label: entry.label, status: "skip",
         reason: `local-only fixture missing: ${entry.fixturePath}`,
-        details: {}, durationMs: Date.now() - start,
+        details: {}, durationMs: Date.now() - start, // audit-ok: wall-clock timing for durationMs reporting only; does not affect emulator state
       };
     }
     return {
       id: entry.id, label: entry.label, status: "fail",
       reason: `required fixture missing: ${entry.fixturePath}`,
-      details: {}, durationMs: Date.now() - start,
+      details: {}, durationMs: Date.now() - start, // audit-ok: wall-clock timing for durationMs reporting only; does not affect emulator state
     };
   }
 
@@ -78,7 +78,7 @@ export async function runEntry(entry: RegressEntry): Promise<RegressResult> {
     return {
       id: entry.id, label: entry.label, status: "fail",
       reason: `session init failed: ${(e as Error)?.message ?? String(e)}`,
-      details: {}, durationMs: Date.now() - start,
+      details: {}, durationMs: Date.now() - start, // audit-ok: wall-clock timing for durationMs reporting only; does not affect emulator state
     };
   }
 
@@ -148,12 +148,12 @@ export async function runEntry(entry: RegressEntry): Promise<RegressResult> {
     return {
       id: entry.id, label: entry.label, status: "fail",
       reason: fails.join("; "),
-      details, durationMs: Date.now() - start,
+      details, durationMs: Date.now() - start, // audit-ok: wall-clock timing for durationMs reporting only; does not affect emulator state
     };
   }
   return {
     id: entry.id, label: entry.label, status: "pass",
-    details, durationMs: Date.now() - start,
+    details, durationMs: Date.now() - start, // audit-ok: wall-clock timing for durationMs reporting only; does not affect emulator state
   };
 }
 
