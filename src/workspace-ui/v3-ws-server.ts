@@ -9,6 +9,9 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/agent-api.js";
 import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
+import { SidAudioRecorder, AudioExportSession } from "../runtime/headless/audio/sid-audio-recorder.js";
+import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
+import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 
 export const V3_WS_PORT = 4312;
 export const V3_WS_HOST = "127.0.0.1";
@@ -51,6 +54,14 @@ export class V3WsServer {
   private wss: WebSocketServer;
   private handlers = new Map<string, RpcHandler>();
   private clients = new Set<WebSocket>();
+  // Spec 263 — per-session audio streamers. Pumped on a fixed cadence
+  // and flushed via session_state ticks. Keyed by session_id.
+  private audioStreams = new Map<string, {
+    recorder: SidAudioRecorder;
+    cursorId: string;
+    timer: ReturnType<typeof setInterval>;
+    seq: number;
+  }>();
 
   constructor(opts: { port?: number; host?: string } = {}) {
     const port = opts.port ?? V3_WS_PORT;
@@ -87,6 +98,12 @@ export class V3WsServer {
 
   close(): Promise<void> {
     return new Promise((resolve) => {
+      for (const [, s] of this.audioStreams) {
+        clearInterval(s.timer);
+        try { s.recorder.buffer.detach(s.cursorId); } catch {}
+        try { s.recorder.detach(); } catch {}
+      }
+      this.audioStreams.clear();
       for (const ws of this.clients) ws.close();
       this.wss.close(() => resolve());
     });
@@ -174,6 +191,54 @@ export class V3WsServer {
       };
     });
 
+    // Spec 263 — audio streaming.
+    this.on("audio/start", ({ session_id, sample_rate, chunk_samples }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      if (this.audioStreams.has(session_id)) {
+        return { already_streaming: true };
+      }
+      const recorder = new SidAudioRecorder(s as any, {
+        sampleRate: sample_rate ?? 44100,
+        bufferSamples: 65536,
+      });
+      const cursorId = `ws_${session_id}_${Date.now()}`;
+      recorder.buffer.attach(cursorId);
+      const chunk = chunk_samples ?? 1024;
+      let seq = 0;
+      const timer = setInterval(() => {
+        recorder.flush();
+        while (recorder.buffer.available(cursorId) >= chunk) {
+          const { samples } = recorder.buffer.read(cursorId, chunk);
+          const stereo = monoToStereoLR(samples);
+          this.broadcastBinary(BIN_TYPE_AUDIO_BUFFER, seq++, int16ToLeBytes(stereo));
+        }
+      }, 23); // ~1024 samples @ 44.1kHz
+      this.audioStreams.set(session_id, { recorder, cursorId, timer, seq });
+      return { streaming: true, sample_rate: recorder.resid.sampleRate };
+    });
+
+    this.on("audio/stop", ({ session_id }) => {
+      const stream = this.audioStreams.get(session_id);
+      if (!stream) return { stopped: false };
+      clearInterval(stream.timer);
+      try { stream.recorder.buffer.detach(stream.cursorId); } catch {}
+      try { stream.recorder.detach(); } catch {}
+      this.audioStreams.delete(session_id);
+      return { stopped: true };
+    });
+
+    this.on("audio/export", async ({ session_id, out_path, duration_sec }) => {
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const sec = Number(duration_sec);
+      if (!Number.isFinite(sec) || sec <= 0) throw new Error(`bad duration_sec: ${duration_sec}`);
+      const exp = new AudioExportSession(session as any, { sampleRate: 44100 });
+      const { exportSessionAudio } = await import("../runtime/headless/audio/export.js");
+      const result = exportSessionAudio(session as any, exp, out_path, sec);
+      return result;
+    });
+
     // AgentQueryApi facade — single dispatch for V2/V3 runtime ops.
     // Method name: "runtime/<op>" → calls api.<op>(params).
     this.on("runtime/call", async ({ session_id, op, args }) => {
@@ -183,6 +248,52 @@ export class V3WsServer {
       const fn = (api as any)[op];
       if (typeof fn !== "function") throw new Error(`unknown runtime op: ${op}`);
       return await fn.call(api, ...(args ?? []));
+    });
+
+    // Spec 265 — media browser + mount/unmount/swap handlers.
+    this.on("media/list_paths", async () => {
+      const { listFsRoots } = await import("../runtime/headless/media/fs-browser.js");
+      return listFsRoots();
+    });
+
+    this.on("media/browse", async ({ path }) => {
+      if (typeof path !== "string") throw new Error("media/browse: path required");
+      const { browseDir } = await import("../runtime/headless/media/fs-browser.js");
+      return browseDir(path);
+    });
+
+    this.on("media/mount", async ({ session_id, slot, path }) => {
+      if (typeof path !== "string") throw new Error("media/mount: path required");
+      const s = slot !== undefined ? Number(slot) : 8;
+      if (s !== 8 && s !== 9) throw new Error(`media/mount: slot must be 8 or 9, got ${s}`);
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const { mountMedia } = await import("../runtime/headless/media/mount.js");
+      return mountMedia(session, s as 8 | 9, path);
+    });
+
+    this.on("media/unmount", async ({ session_id, slot }) => {
+      const s = slot !== undefined ? Number(slot) : 8;
+      if (s !== 8 && s !== 9) throw new Error(`media/unmount: slot must be 8 or 9, got ${s}`);
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const { unmountMedia } = await import("../runtime/headless/media/mount.js");
+      return unmountMedia(session, s as 8 | 9);
+    });
+
+    this.on("media/swap", async ({ session_id, slot, path }) => {
+      if (typeof path !== "string") throw new Error("media/swap: path required");
+      const s = slot !== undefined ? Number(slot) : 8;
+      if (s !== 8 && s !== 9) throw new Error(`media/swap: slot must be 8 or 9, got ${s}`);
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const { swapDisk } = await import("../runtime/headless/media/mount.js");
+      return swapDisk(session, s as 8 | 9, path);
+    });
+
+    this.on("media/recent", async () => {
+      const { getRecent } = await import("../runtime/headless/media/recent-files.js");
+      return getRecent();
     });
   }
 }

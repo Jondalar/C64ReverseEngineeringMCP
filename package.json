@@ -99,6 +99,8 @@
     "smoke:loader-profile": "npm run build:mcp && node scripts/smoke-loader-profile.mjs",
     "smoke:vice-diff": "npm run build:mcp && node scripts/smoke-vice-diff.mjs",
     "smoke:v3-ws": "npm run build:mcp && node scripts/smoke-v3-ws.mjs",
+    "smoke:sid-resid": "npm run build:mcp && node scripts/smoke-sid-resid.mjs",
+    "runtime_audio_export": "npm run build:mcp && node scripts/cli-audio-export.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
     "regress:capture": "npm run build:mcp && node scripts/regress-cli.mjs capture",
     "regress:compare": "npm run build:mcp && node scripts/regress-cli.mjs compare",
@@ -106,6 +108,7 @@
     "smoke:regression": "npm run build:mcp && node scripts/smoke-regression.mjs",
     "smoke:agent-api": "npm run build:mcp && node scripts/smoke-agent-api.mjs",
     "smoke:runtime-mcp": "npm run build:mcp && node scripts/smoke-runtime-mcp.mjs",
+    "smoke:media": "npm run build:mcp && node scripts/smoke-media.mjs",
     "start": "tsx src/cli.ts"
   },
   "dependencies": {

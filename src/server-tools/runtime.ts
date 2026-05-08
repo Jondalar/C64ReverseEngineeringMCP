@@ -480,4 +480,106 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       return { content: [{ type: "text", text: `runtime_regression_compare: scenarioRegistry not yet wired in MCP server. Use scripts/regress-cli.mjs compare ${scenario_id} directly.` }] };
     }),
   );
+
+  // ---- Spec 263 — SID audio export ----
+  server.tool(
+    "runtime_audio_export",
+    "Spec 263 — render `duration_sec` PAL seconds of SID audio (resid synth) to a stereo s16le 44.1kHz WAV file. Headless-first: passive recorder mirrors the live session SID write stream.",
+    {
+      session_id: z.string(),
+      out_path: z.string(),
+      duration_sec: z.number(),
+    },
+    safeHandler("runtime_audio_export", async ({ session_id, out_path, duration_sec }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { AudioExportSession } = await import("../runtime/headless/audio/sid-audio-recorder.js");
+      const { exportSessionAudio } = await import("../runtime/headless/audio/export.js");
+      const exp = new AudioExportSession(session as any, { sampleRate: 44100 });
+      const r = exportSessionAudio(session as any, exp, out_path, duration_sec);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  // ---- Media browser + mount (Spec 265) ----
+  server.tool(
+    "runtime_media_list_paths",
+    "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
+    {},
+    safeHandler("runtime_media_list_paths", async () => {
+      const { listFsRoots } = await import("../runtime/headless/media/fs-browser.js");
+      const roots = listFsRoots();
+      return { content: [{ type: "text", text: JSON.stringify(roots, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_media_browse",
+    "Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed).",
+    {
+      path: z.string().describe("Absolute or relative directory path to browse"),
+    },
+    safeHandler("runtime_media_browse", async ({ path }) => {
+      const { browseDir } = await import("../runtime/headless/media/fs-browser.js");
+      const result = browseDir(path);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_media_mount",
+    "Spec 265 — mount media file (.d64/.g64/.crt/.prg/.vsf) to a drive slot (8 or 9) on the active session.",
+    {
+      session_id: z.string(),
+      slot: z.number().int().default(8).describe("Drive slot: 8 (primary) or 9"),
+      path: z.string().describe("Absolute path to the media file"),
+    },
+    safeHandler("runtime_media_mount", async ({ session_id, slot, path }) => {
+      if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { mountMedia } = await import("../runtime/headless/media/mount.js");
+      const result = await mountMedia(session, slot as 8 | 9, path);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_media_unmount",
+    "Spec 265 — eject media from drive slot.",
+    {
+      session_id: z.string(),
+      slot: z.number().int().default(8),
+    },
+    safeHandler("runtime_media_unmount", async ({ session_id, slot }) => {
+      if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { unmountMedia } = await import("../runtime/headless/media/mount.js");
+      const result = unmountMedia(session, slot as 8 | 9);
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_media_swap",
+    "Spec 265 — swap disk in slot (eject + mount new path, no reset). Multi-disk convenience for Side B etc.",
+    {
+      session_id: z.string(),
+      slot: z.number().int().default(8),
+      path: z.string().describe("Absolute path to the new disk image"),
+    },
+    safeHandler("runtime_media_swap", async ({ session_id, slot, path }) => {
+      if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { swapDisk } = await import("../runtime/headless/media/mount.js");
+      const result = await swapDisk(session, slot as 8 | 9, path);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
 }
