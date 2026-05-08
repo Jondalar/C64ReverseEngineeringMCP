@@ -36,14 +36,20 @@ export interface IoPort6510Hook {
 export class IoPort6510 implements IoPort6510Hook {
   /** $00 — data direction register. Bit set = output. */
   public dir: BYTE = 0x2f;
-  /** $01 — data register. Latches written value; reads expose
-   *  output bits + last-driven input bits. */
+  /** $01 — data register. Latches written value; reads return
+   *  (DATA & DIR) | (INPUT_PULLS & ~DIR). */
   public data: BYTE = 0x37;
+
+  /** Input-bit pull mask per VICE c64pla.c. Bits 7,6,4,3,2,1,0 pull
+   *  HIGH; bit 5 (cassette motor) pulls LOW (no datasette baseline). */
+  private static readonly INPUT_PULLS: BYTE = 0xdf;
 
   reset(): void { this.dir = 0x2f; this.data = 0x37; }
 
   read(addr: 0 | 1): BYTE {
-    return addr === 0 ? this.dir : this.data;
+    if (addr === 0) return this.dir;
+    // $01 read: output bits from latch, input bits from pull mask.
+    return u8((this.data & this.dir) | (IoPort6510.INPUT_PULLS & ~this.dir));
   }
 
   write(addr: 0 | 1, value: BYTE): void {
