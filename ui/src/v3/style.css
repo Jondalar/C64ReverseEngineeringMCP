@@ -107,8 +107,482 @@ body {
   margin-top: 4rem;
   color: var(--c64-fg-muted);
 }
+
+/* ============================================================
+   Spec 266 — Monitor panel
+   ============================================================ */
+
+.mon-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  height: 100%;
+}
+
+/* Toolbar */
+.mon-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--c64-border);
+}
+
+.mon-btn {
+  padding: 0.25rem 0.7rem;
+  background: var(--c64-bg-2);
+  color: var(--c64-fg);
+  border: 1px solid var(--c64-border);
+  border-radius: 3px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.mon-btn:hover:not(:disabled) { background: var(--c64-blue); color: #fff; }
+.mon-btn:disabled { opacity: 0.4; cursor: default; }
+.mon-btn-reset { color: var(--c64-red); }
+.mon-btn-reset:hover:not(:disabled) { background: var(--c64-red); color: #fff; }
+
+.mon-branch-badge {
+  background: var(--c64-blue);
+  color: #fff;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  font-size: 11px;
+  margin-left: 0.5rem;
+}
+
+.mon-error-badge {
+  background: var(--c64-red);
+  color: #fff;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: help;
+}
+
+/* Registers strip */
+.mon-regs-row {
+  border-bottom: 1px solid var(--c64-border);
+  padding: 0.3rem 0;
+}
+.mon-regs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  font-size: 12px;
+}
+.mon-regs-empty { color: var(--c64-fg-muted); font-size: 12px; }
+.mon-reg { display: inline-flex; align-items: center; gap: 0.15rem; }
+.mon-reg b { color: var(--c64-yellow); }
+.mon-flags b, .mon-cycles b { color: var(--c64-green); }
+.mon-running { color: var(--c64-green); font-style: italic; }
+
+/* Disasm + Memory panes */
+.mon-body {
+  display: flex;
+  gap: 0.5rem;
+  min-height: 10rem;
+  overflow: hidden;
+}
+.mon-pane {
+  flex: 1;
+  overflow: auto;
+  background: var(--c64-bg-2);
+  border: 1px solid var(--c64-border);
+  border-radius: 3px;
+}
+.mon-pane-disasm { flex: 0 0 48%; }
+.mon-pane-mem    { flex: 1; }
+.mon-pane-title {
+  padding: 0.2rem 0.5rem;
+  font-size: 11px;
+  color: var(--c64-fg-muted);
+  border-bottom: 1px solid var(--c64-border);
+  background: var(--c64-bg-1);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.mon-mem-range-hint { color: var(--c64-blue-bright); }
+
+/* Disasm listing */
+.mon-disasm {
+  padding: 0.25rem 0;
+  font-size: 12px;
+}
+.mon-disasm-empty { color: var(--c64-fg-muted); padding: 0.5rem; font-size: 12px; }
+.mon-disasm-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.05rem 0.5rem;
+}
+.mon-disasm-line:hover { background: var(--c64-bg-1); }
+.mon-disasm-current { background: rgba(108, 92, 231, 0.15); }
+.mon-disasm-arrow { color: var(--c64-blue-bright); width: 1ch; }
+.mon-disasm-addr  { color: var(--c64-fg-muted); min-width: 6ch; }
+.mon-disasm-bytes { color: var(--c64-fg-muted); min-width: 9ch; font-size: 11px; }
+.mon-disasm-mne   { color: var(--c64-yellow); min-width: 4ch; }
+.mon-disasm-operand { color: var(--c64-green); }
+
+/* Memory hex dump */
+.mon-mem { padding: 0.25rem 0; font-size: 12px; }
+.mon-mem-empty { color: var(--c64-fg-muted); padding: 0.5rem; font-size: 12px; }
+.mon-mem-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.05rem 0.5rem;
+  align-items: center;
+}
+.mon-mem-row:hover { background: var(--c64-bg-1); }
+.mon-mem-addr  { color: var(--c64-fg-muted); min-width: 6ch; }
+.mon-mem-bytes { display: flex; gap: 0.25rem; flex-wrap: nowrap; }
+.mon-mem-byte  {
+  min-width: 2ch;
+  cursor: pointer;
+  color: var(--c64-fg);
+  transition: color 0.1s;
+}
+.mon-mem-byte:hover { color: var(--c64-blue-bright); }
+.mon-mem-edit  {
+  background: var(--c64-bg-1);
+  color: var(--c64-yellow);
+  border: 1px solid var(--c64-blue);
+  font: inherit;
+  font-size: 12px;
+  padding: 0;
+}
+.mon-mem-ascii {
+  color: var(--c64-fg-muted);
+  font-size: 11px;
+  letter-spacing: 0;
+  white-space: pre;
+  margin-left: 0.5rem;
+}
+
+/* Sections */
+.mon-section {
+  border: 1px solid var(--c64-border);
+  border-radius: 3px;
+  background: var(--c64-bg-2);
+}
+.mon-section-title {
+  padding: 0.2rem 0.5rem;
+  font-size: 11px;
+  color: var(--c64-fg-muted);
+  border-bottom: 1px solid var(--c64-border);
+  background: var(--c64-bg-1);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.mon-section-cmd { flex-shrink: 0; }
+
+/* Breakpoints */
+.mon-bplist { padding: 0.25rem 0.5rem; font-size: 12px; }
+.mon-bplist-empty { color: var(--c64-fg-muted); padding: 0.25rem 0.5rem; font-size: 12px; }
+.mon-bp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.1rem 0;
+}
+.mon-bp-row:hover { background: var(--c64-bg-1); border-radius: 2px; }
+.mon-bp-disabled { opacity: 0.5; }
+.mon-bp-id     { color: var(--c64-blue-bright); min-width: 5ch; }
+.mon-bp-pred   { color: var(--c64-yellow); flex: 1; }
+.mon-bp-action { color: var(--c64-fg-muted); font-size: 11px; }
+.mon-bp-hits   { color: var(--c64-green); font-size: 11px; }
+.mon-bp-label  { color: var(--c64-fg-muted); font-style: italic; }
+.mon-bp-remove {
+  background: transparent;
+  border: none;
+  color: var(--c64-red);
+  cursor: pointer;
+  font: inherit;
+  padding: 0 0.25rem;
+  opacity: 0.7;
+}
+.mon-bp-remove:hover { opacity: 1; }
+
+/* Command line */
+.mon-cmdline-wrap { padding: 0.3rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.mon-cmdlog {
+  max-height: 8rem;
+  overflow-y: auto;
+  font-size: 12px;
+  background: var(--c64-bg-1);
+  border: 1px solid var(--c64-border);
+  border-radius: 2px;
+  padding: 0.25rem;
+}
+.mon-cmdlog-entry { margin-bottom: 0.2rem; }
+.mon-cmdlog-cmd { color: var(--c64-blue-bright); }
+.mon-cmdlog-out { color: var(--c64-fg); white-space: pre-wrap; font-size: 11px; margin-left: 1rem; }
+.mon-cmdlog-error .mon-cmdlog-cmd { color: var(--c64-red); }
+.mon-cmdlog-error .mon-cmdlog-out { color: var(--c64-red); }
+.mon-cmdline-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.mon-cmdline-prompt { color: var(--c64-blue-bright); }
+.mon-cmdline-input {
+  flex: 1;
+  background: var(--c64-bg-1);
+  color: var(--c64-fg);
+  border: 1px solid var(--c64-border);
+  border-radius: 2px;
+  padding: 0.2rem 0.4rem;
+  font: inherit;
+  font-size: 12px;
+}
+.mon-cmdline-input:focus { outline: none; border-color: var(--c64-blue); }
+.mon-cmdline-submit {
+  padding: 0.2rem 0.7rem;
+  background: var(--c64-blue);
+  color: #fff;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.mon-cmdline-submit:disabled { opacity: 0.4; cursor: default; }
+.mon-cmdline-hint { font-size: 11px; color: var(--c64-fg-muted); padding-left: 1rem; }
+.mon-cmdline-hint-kind { color: var(--c64-green); }
+.mon-cmdline-hint-err { color: var(--c64-red); }
+
+/* No session banner */
+.mon-no-session {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 24, 0.7);
+  color: var(--c64-yellow);
+  font-size: 14px;
+  pointer-events: none;
+}
 .v3-tab-stub h2 {
   font-size: 18px;
   color: var(--c64-blue-bright);
   margin-bottom: 0.5rem;
 }
+
+/* ============================================================
+   Spec 267 — Trace viewer tab
+   ============================================================ */
+
+.trace-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  height: 100%;
+}
+
+.trace-section {
+  border: 1px solid var(--c64-border);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  background: var(--c64-bg-2);
+}
+
+.trace-table-section {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Filters */
+.trace-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.trace-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.trace-filter-label {
+  color: var(--c64-fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  min-width: 5rem;
+}
+.trace-filter-label-ml { margin-left: 1rem; }
+.trace-filter-sep { color: var(--c64-fg-muted); }
+.trace-filter-field {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 11px;
+  color: var(--c64-fg-muted);
+}
+.trace-hex-input {
+  width: 6rem;
+  font: inherit;
+  background: var(--c64-bg-1);
+  color: var(--c64-fg);
+  border: 1px solid var(--c64-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 12px;
+}
+.trace-slider { width: 120px; }
+.trace-cycle-val {
+  font-size: 11px;
+  color: var(--c64-fg);
+  min-width: 7rem;
+}
+.trace-cycle-pct { font-size: 10px; color: var(--c64-fg-muted); }
+.trace-search-input {
+  flex: 1;
+  min-width: 14rem;
+  font: inherit;
+  background: var(--c64-bg-1);
+  color: var(--c64-fg);
+  border: 1px solid var(--c64-border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.trace-btn {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 10px;
+  background: var(--c64-blue);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.trace-btn:hover { background: var(--c64-blue-bright); }
+.trace-btn:disabled { background: var(--c64-fg-muted); cursor: default; }
+
+/* Family checkboxes */
+.trace-families-row { align-items: flex-start; }
+.trace-family-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+.trace-family-cb {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--c64-fg);
+}
+.trace-family-cb input { cursor: pointer; }
+
+/* Bookmark overlay */
+.bookmark-overlay {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.bookmark-marker {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.bookmark-icon {
+  color: var(--c64-yellow);
+  cursor: pointer;
+  font-size: 12px;
+}
+.bookmark-icon:hover { color: var(--c64-blue-bright); }
+.bookmark-label {
+  font-size: 11px;
+  color: var(--c64-fg-muted);
+}
+
+/* Search results */
+.trace-search-status { font-size: 11px; color: var(--c64-fg-muted); }
+.trace-search-results {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.trace-search-count { font-size: 11px; color: var(--c64-fg-muted); }
+.trace-search-hit {
+  font: inherit;
+  font-size: 11px;
+  background: none;
+  border: 1px solid var(--c64-border);
+  border-radius: 3px;
+  color: var(--c64-blue-bright);
+  cursor: pointer;
+  padding: 1px 6px;
+}
+.trace-search-hit:hover { background: var(--c64-bg-1); }
+.trace-search-more { font-size: 10px; color: var(--c64-fg-muted); }
+
+/* Swimlane table */
+.swimlane-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.swimlane-truncation-banner {
+  font-size: 11px;
+  color: var(--c64-yellow);
+  padding: 2px 0 4px;
+}
+.swimlane-empty {
+  color: var(--c64-fg-muted);
+  font-size: 12px;
+  padding: 1rem 0;
+}
+.swimlane-scroll { flex: 1; overflow: auto; }
+.swimlane-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+.swimlane-table th {
+  position: sticky;
+  top: 0;
+  background: var(--c64-bg-2);
+  color: var(--c64-fg-muted);
+  font-weight: normal;
+  text-align: left;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--c64-border);
+  white-space: nowrap;
+}
+.swimlane-table td {
+  padding: 2px 8px;
+  border-bottom: 1px solid rgba(42,42,68,0.4);
+  white-space: nowrap;
+  color: var(--c64-fg);
+}
+.swimlane-row { cursor: pointer; }
+.swimlane-row:hover td { background: rgba(108,92,231,0.12); }
+.swimlane-row.selected td { background: rgba(108,92,231,0.25); color: #fff; }
+.cycle-col { color: var(--c64-fg-muted); min-width: 6rem; }
+.pc-col    { color: var(--c64-blue-bright); }
+.op-col    { color: var(--c64-fg); }
+.io-col    { color: var(--c64-green); font-size: 10px; }
+.bus-col   { color: var(--c64-yellow); font-size: 10px; }
+
+/* Trace actions footer */
+.trace-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.trace-selected-info {
+  font-size: 11px;
+  color: var(--c64-fg-muted);
+  margin-left: auto;
+}
+.trace-loading { color: var(--c64-fg-muted); font-size: 12px; padding: 0.5rem; }
+.trace-error   { color: var(--c64-red);      font-size: 12px; padding: 0.5rem; }
