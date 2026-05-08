@@ -1,7 +1,14 @@
 # Spec 243 — Rewind + interactive patch/poke + scenario iteration
 
-**Sprint:** 124+
-**Status:** PROPOSED 2026-05-08
+**Sprint:** 127
+**Status:** DONE 2026-05-08 — RewindManager shipped in
+src/runtime/headless/v2/rewind.ts. Surface: beginRewindSession,
+rewindTo, applyPatch, runForward, diffBranches, promoteBranch.
+Tree branches with leaf-only pinning so chain depth doesn't blow
+up ring (ringSize=32 default + override). Snapshots stored as VSF
+bytes via Spec 251 saveSessionVsf/loadSessionVsf. Patches applied
+strict between-instructions (A5). Smoke `scripts/smoke-rewind.mjs`
+exercises 10 scenarios — **10/10 PASS**. E2E ladder unchanged.
 **Depends on:** 231 deterministic replay, 251 c64-main VSF, 241 breakpoints
 **Master:** 230 / 240
 
