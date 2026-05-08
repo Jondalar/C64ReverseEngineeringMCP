@@ -187,6 +187,27 @@ export interface VicBackend {
 }
 
 // ---------------------------------------------------------------------------
+// Spec 262a: per-cycle reg-write log entry. Captures every $D000-$D02E
+// write within a scanline, plus CIA2 PA-bank changes (reg=0x80, Spec
+// 262b). `cycleInLine` is `raster_cycle` (0..62 PAL / 0..64 NTSC) at
+// the time of the write — same as VICE VICII_RASTER_CYCLE(clk).
+// ---------------------------------------------------------------------------
+
+/** Special "reg" code for CIA2 PA-bank changes in the per-cycle log. */
+export const VICII_LOG_CIA2_PA = 0x80;
+
+export interface RegLogEntry {
+  cycleInLine: number;
+  reg: number;
+  value: number;
+}
+
+export interface ScanlineRegLog {
+  rasterLine: number;
+  writes: RegLogEntry[];
+}
+
+// ---------------------------------------------------------------------------
 // Per-scanline snapshot — preserved field shape + extras for renderer
 // compatibility. Kept compatible-superset of the legacy
 // `peripherals/vic-ii.ts` ScanlineSnapshot so vic-renderer.ts can
@@ -294,6 +315,17 @@ export class VicIIVice {
   // Per-scanline snapshot buffer (consumed by renderer).
   public scanlineSnapshots: ScanlineState[] = [];
 
+  // -----------------------------------------------------------------------
+  // Spec 262a: per-cycle reg-write log. `currentLineLog` accumulates
+  // writes for the line currently being executed; on raster line wrap
+  // it's flushed into `frameLineLogs`. The whole frame buffer is cleared
+  // when raster_y wraps back to 0 (= new frame start). The renderer
+  // (Spec 262d, future) consumes this; per-line snapshots stay populated
+  // as a fallback for the existing per-char-row renderer.
+  // -----------------------------------------------------------------------
+  public currentLineLog: ScanlineRegLog = { rasterLine: 0, writes: [] };
+  public frameLineLogs: ScanlineRegLog[] = [];
+
   // ---- alarms (Spec 149 foundation) -----------------------------------
   /** VICE: vicii.raster_irq_alarm — fires at vicii_irq_set_raster_line
    *  computed clk. Callback = vicii_irq_alarm_handler. */
@@ -350,6 +382,9 @@ export class VicIIVice {
     this.bitmap_ptr = 0;
     this.scanlineSnapshots.length = 0;
     this.linesStolen = 0;
+    // Spec 262a: drop log buffers on powerup.
+    this.currentLineLog = { rasterLine: 0, writes: [] };
+    this.frameLineLogs = [];
     this.reset();
   }
 
@@ -366,6 +401,9 @@ export class VicIIVice {
     this.bad_line = 0;
     this.sprite_fetch_msk = 0;
     this.scanlineSnapshots.length = 0;
+    // Spec 262a: per-cycle log resets too.
+    this.currentLineLog = { rasterLine: this.raster_y, writes: [] };
+    this.frameLineLogs.length = 0;
 
     // VICE line 480: alarm_set(raster_irq_alarm, 1).
     alarmSet(this.raster_irq_alarm, 1);
@@ -417,12 +455,20 @@ export class VicIIVice {
         // alarm context still get IRQ flag set — needed for the
         // existing rendering pipeline + tests).
         this.raster_cycle = 0;
+        // Spec 262a: flush completed line's reg-write log. Push even
+        // if empty so frameLineLogs is rasterLine-indexed.
+        this.frameLineLogs.push(this.currentLineLog);
         this.raster_y = (this.raster_y + 1) % this.screen_height;
         if (this.raster_y === 0) {
           this.scanlineSnapshots.length = 0;
+          // Spec 262a: new frame — clear frame-wide log buffer.
+          this.frameLineLogs.length = 0;
           // Spec 205-A c7: frame boundary — wrap to line 0.
           this.onFrame?.(this.clkPtr());
         }
+        // Spec 262a: start fresh log for the new line. (Done after the
+        // raster_y advance so rasterLine matches the now-current line.)
+        this.currentLineLog = { rasterLine: this.raster_y, writes: [] };
         // Spec 205-A c7: raster line transition.
         this.onRasterLine?.(this.raster_y, this.clkPtr());
         this.captureScanline();
@@ -628,6 +674,26 @@ export class VicIIVice {
   write(addr: WORD, value: BYTE): void {
     const a = addr & 0x3f; // VICE line 1295.
     const v = u8(value);
+
+    // Spec 262a: append reg write to per-cycle log. Only registers in
+    // the documented $D000-$D02E range carry pixel-relevant state for
+    // the V3 pixel-perfect renderer; collisions ($D01E/$D01F) and
+    // open registers above $D02E are excluded — they're either RO or
+    // don't affect rendering. Lightpen ($D013/$D014) writes are
+    // ignored by VICE so we skip them too.
+    if (
+      a <= VICII_R_SP_COL_BASE + 7
+      && a !== VICII_R_LP_X
+      && a !== VICII_R_LP_Y
+      && a !== VICII_R_SP_SP_COLL
+      && a !== VICII_R_SP_BG_COLL
+    ) {
+      this.currentLineLog.writes.push({
+        cycleInLine: this.raster_cycle,
+        reg: a,
+        value: v,
+      });
+    }
 
     switch (a) {
       case 0x00: case 0x02: case 0x04: case 0x06:
@@ -1009,6 +1075,30 @@ export class VicIIVice {
     } else {
       this.scanlineSnapshots.push(snap);
     }
+  }
+
+  /**
+   * Spec 262b: record a CIA2 PA-bank change in the per-cycle log.
+   * Wired by the kernel's CIA2 storePa hook so the future Spec 262d
+   * pixel-perfect renderer can reconstruct VIC bank changes that
+   * occur mid-frame (= MM split-screen, FLI bank-swap, FLD).
+   *
+   * The log carries the full PA byte; bits 0..1 select the VIC bank
+   * (inverted, per VICE c64cia2.c:151 `vbank = (~tmp) & 3`). The
+   * renderer is responsible for the inversion — we keep raw bytes
+   * to match how VICE captures CIA2 PRA history.
+   */
+  recordCia2PaChange(value: BYTE): void {
+    this.currentLineLog.writes.push({
+      cycleInLine: this.raster_cycle,
+      reg: VICII_LOG_CIA2_PA,
+      value: u8(value),
+    });
+  }
+
+  /** Spec 262a: renderer access — completed lines for the current frame. */
+  getFrameLineLogs(): readonly ScanlineRegLog[] {
+    return this.frameLineLogs;
   }
 
   /** Renderer access. */

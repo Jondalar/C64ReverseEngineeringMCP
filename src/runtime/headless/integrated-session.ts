@@ -521,6 +521,35 @@ export class IntegratedSession {
     }
   }
 
+  // Spec 262c: run the c64 forward until the VIC raster reaches the
+  // bottom of the visible region (= raster line 251 PAL = first_dma_line
+  // 48 + 200 lines + 3 cycle slack ≈ end of active display). Forces a
+  // raster wrap to 0 first so scanlineSnapshots / frameLineLogs cover
+  // exactly one fresh visible region. Bounded by ~3 frames of CPU
+  // cycles to avoid wedging if the c64 is halted (= JAM / WAI loop).
+  private runUntilFrameReady(): void {
+    const targetVisibleEnd = (this.vic.first_dma_line | 0) + 200; // PAL: 48+200=248
+    const maxCycles = this.vic.cycles_per_line * this.vic.screen_height * 3; // ~3 frames
+    const startCycles = this.c64Cpu.cycles;
+    // Step 1 — force raster wrap to line 0 if we aren't already there.
+    // Run small instruction batches and inspect raster_y after each.
+    let waitedForWrap = this.vic.raster_y === 0;
+    while (!waitedForWrap) {
+      if (this.c64Cpu.cycles - startCycles >= maxCycles) return;
+      const before = this.vic.raster_y;
+      this.runFor(64, { cycleBudget: 256 });
+      if (this.vic.raster_y < before) waitedForWrap = true; // wrapped past max
+      if (this.vic.raster_y === 0) waitedForWrap = true;
+    }
+    // Step 2 — run until raster_y >= targetVisibleEnd (within same
+    // frame). If raster_y wraps again we still stop on the first
+    // iteration where it's >= target.
+    while (this.vic.raster_y < targetVisibleEnd) {
+      if (this.c64Cpu.cycles - startCycles >= maxCycles) return;
+      this.runFor(64, { cycleBudget: 256 });
+    }
+  }
+
   // Render the current VIC state to the framebuffer (text mode only
   // for Phase 65b — bitmap + sprites in 65d/65e).
   renderFrame(): void {
@@ -539,7 +568,20 @@ export class IntegratedSession {
   // active center at (184, 151) → crop origin (-8, 15) clamped to (0,15)).
   // Match VICE x64sc visible dimensions; eliminates over-wide right
   // border in raw 504-pixel output.
-  renderToPng(path: string): { width: number; height: number; bytes: number } {
+  renderToPng(
+    path: string,
+    opts?: { frameAligned?: boolean },
+  ): { width: number; height: number; bytes: number } {
+    // Spec 262c: optional frame-boundary sync. Default true — running
+    // until the visible raster region is fully populated guarantees the
+    // per-line scanlineSnapshots cover every visible line, eliminating
+    // the "empty rows at top/bottom" race when callers snap a frame
+    // mid-trace. Pass `frameAligned: false` to preserve V1 behavior
+    // (= render whatever scanline state is currently latched).
+    const frameAligned = opts?.frameAligned !== false;
+    if (frameAligned) {
+      this.runUntilFrameReady();
+    }
     this.renderFrame();
     const fb = this.framebuffer;
     // Active region center in internal 504×312 buf: (24+160, 51+100) = (184, 151).

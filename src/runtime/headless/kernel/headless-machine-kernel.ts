@@ -223,6 +223,12 @@ export class HeadlessMachineKernel implements MachineKernel {
         // mask travels via BusAccessContext.ddrMask; bus dispatches
         // to IecBus.setC64Output with the full (or, ddr) tuple.
         this.bus.c64Write(0xdd00, or, { ...buildC64BusCtx("write", effectiveClock), ddrMask: ddr });
+        // Spec 262b: mirror the composed PA byte into the VIC per-cycle
+        // log (reg=0x80) so the future pixel-perfect renderer can
+        // reconstruct mid-frame VIC bank changes (FLI / FLD / split).
+        // Guard with optional chain — VIC is constructed AFTER CIA2
+        // and CIA2's installer fires an initial iecWrite before that.
+        this.vic?.recordCia2PaChange(or & 0xff);
       },
       iecReadPins: () => this.bus.c64Read(0xdd00, buildC64BusCtx("read")),
     });
