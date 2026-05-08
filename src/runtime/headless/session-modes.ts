@@ -21,6 +21,8 @@ export type SessionMode =
   | "true-drive"
   | "debug-vice-compare"
   | "debug-lockstep"
+  | "debug-push-only"
+  | "debug-hybrid"
   | "custom";
 
 export interface SessionModeFlags {
@@ -112,6 +114,31 @@ function presetFlags(mode: SessionMode): SessionModeFlags {
         traceIec: false,
         traceDrive: false,
       };
+    case "debug-push-only":
+      // Spec 207: push-only sync probe (event-catchup w/o catch-up
+      // on bus access). Used for IEC pulse-edge timing audits.
+      return {
+        enableKernalFileIoTraps: false,
+        enableKernalSerialTraps: false,
+        enableKernalIoTraps: false,
+        useMicrocodedCpu: true,
+        useCycleLockstep: false,
+        traceIec: true,
+        traceDrive: false,
+      };
+    case "debug-hybrid":
+      // Spec 207 / Spec 218: hybrid drive-sync (cycle-step on $DD00
+      // in userland PC range; legacy whole-instruction elsewhere).
+      // Originally landed for motm BIT $4278 polarity (commit 3d10fee).
+      return {
+        enableKernalFileIoTraps: false,
+        enableKernalSerialTraps: false,
+        enableKernalIoTraps: false,
+        useMicrocodedCpu: true,
+        useCycleLockstep: false,
+        traceIec: true,
+        traceDrive: true,
+      };
     case "custom":
     default:
       return {
@@ -130,7 +157,7 @@ function presetFlags(mode: SessionMode): SessionModeFlags {
 // constructed via the legacy boolean path so `session.mode` always
 // has a stable answer.
 export function identifyMode(flags: SessionModeFlags): SessionMode {
-  for (const candidate of ["fast-trap", "real-kernal", "true-drive", "debug-vice-compare", "debug-lockstep"] as SessionMode[]) {
+  for (const candidate of ["fast-trap", "real-kernal", "true-drive", "debug-vice-compare", "debug-lockstep", "debug-push-only", "debug-hybrid"] as SessionMode[]) {
     const preset = presetFlags(candidate);
     if (flagsEqual(preset, flags)) return candidate;
   }
