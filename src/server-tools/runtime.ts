@@ -582,4 +582,57 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
   );
+
+  // ---- Spec 264 — Input (keyboard + joystick) tools ----
+
+  server.tool(
+    "runtime_input_load_vicerc",
+    "Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2). Bootstrap config from VICE settings.",
+    { vicerc_path: z.string().optional() },
+    safeHandler("runtime_input_load_vicerc", async ({ vicerc_path }) => {
+      const { loadVicerc } = await import("../runtime/headless/input/vicerc-loader.js");
+      const cfg = loadVicerc(vicerc_path);
+      return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_input_load_config",
+    "Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
+    {
+      config_path: z.string().optional(),
+      vicerc_path: z.string().optional(),
+    },
+    safeHandler("runtime_input_load_config", async ({ config_path, vicerc_path }) => {
+      const { loadInputConfig } = await import("../runtime/headless/input/input-config.js");
+      const cfg = loadInputConfig({ configPath: config_path, vicercPath: vicerc_path });
+      return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_input_save_config",
+    "Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json. Never touches vicerc.",
+    {
+      config: z.object({
+        version: z.literal(1),
+        keyboardMode: z.enum(["qwerty", "positional"]),
+        joystickPort: z.union([z.literal(1), z.literal(2)]),
+        keyset: z.object({
+          north: z.string(), east: z.string(), south: z.string(),
+          west: z.string(), fire: z.string(),
+        }),
+        gamepad: z.object({
+          axisH: z.number(), axisV: z.number(),
+          deadzone: z.number(), fireButton: z.number(),
+        }),
+      }),
+      config_path: z.string().optional(),
+    },
+    safeHandler("runtime_input_save_config", async ({ config, config_path }) => {
+      const { saveInputConfig } = await import("../runtime/headless/input/input-config.js");
+      saveInputConfig(config as any, config_path);
+      return { content: [{ type: "text", text: `Saved to ${config_path ?? "~/.config/c64re/joystick.json"}` }] };
+    }),
+  );
 }
