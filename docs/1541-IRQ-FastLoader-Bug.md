@@ -14,8 +14,28 @@ Run via:
 npm run test:lorenz:disk1
 ```
 
-This catches the EXACT class of bug that took 3 days of manual debug
-on motm. Should be wired into CI before next kernel-bus refactor.
+**Lorenz Disk1: 100% PASS** after BCD ADC/SBC fix (commit f250645).
+
+Lorenz Disk2 partial: BEQR..ALRB pass, fails at ARRB (NMOS BCD quirk
+in illegal $6B opcode — task #46).
+
+Also vendored 50+ CIA testprogs + 13 drive testprogs from VICE under
+`samples/vice-testprogs/cia/` and `samples/vice-testprogs/drive/`.
+Runner: `scripts/run-testprog.mjs`. Per-test pass detection still
+needs configuration per VICE testprog convention.
+
+## Observation 2026-05-08 night — drive motor always on in HL
+
+During motm stage-1 (drive clock 13M-23M = 10s drive time), HL drive
+$1C00 PB writes ALL have bit 2 (motor) SET. 337k GCR byte_ready
+events fire during this window. Real hw likely toggles motor off
+between reads → fewer byte_ready events → ROM JOB loop runs less
+aggressively → ZP[$01] not overwritten with stale $03 errors.
+
+Hypothesis for next session: HL drive ROM emulation keeps motor on
+when real hw turns it off after JOB completion. Need VICE x64sc
+session monitoring drive $1C00 over time to compare motor toggle
+pattern.
 
 ## VICE COMPARISON CONFIRMS DIVERGENCE (2026-05-08 night)
 
