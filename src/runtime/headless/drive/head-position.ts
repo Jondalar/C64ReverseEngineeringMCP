@@ -204,6 +204,15 @@ export class TrackBuffer {
 
   constructor(public readonly source: G64Parser) {}
 
+  /**
+   * Disk-insert event: caller swapped to new media. Drop track cache
+   * so subsequent reads fetch from the new disk via source.
+   */
+  notifyMediaChange(newSource: G64Parser): void {
+    (this as unknown as { source: G64Parser }).source = newSource;
+    this.tracks.clear();
+  }
+
   // CPU-side latched byte read ($1C01 PA). Returns the most recent
   // GCR byte clocked into the shifter for the requested track. Does
   // NOT advance the cursor — that happens in tickShifter().

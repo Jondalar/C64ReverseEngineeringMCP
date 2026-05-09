@@ -144,43 +144,21 @@ export async function mountMedia(
     }
     const newParser = new G64Parser(rawData);
 
-    // Hot-swap the G64 parser inside BOTH TrackBuffers:
-    //   - session.trackBuffer (= kernel.trackBuffer): KERNAL trap path
-    //   - session.drive.trackBuffer: drive ROM real-protocol path
-    // These are SEPARATE instances. Pre-fix: we only swapped the
-    // session/kernel side, so drive ROM kept reading the old disk =
-    // user picker showed picked disk metadata but content stayed at
-    // placeholder. TrackBuffer.source declared `readonly` (compile-
-    // time only) so cast through unknown.
-    const tb = session.trackBuffer as unknown as {
-      source: unknown;
-      tracks: Map<number, unknown>;
-    };
-    tb.source = newParser;
-    tb.tracks.clear();
-    const driveTb = session.drive.trackBuffer as unknown as {
-      source: unknown;
-      tracks: Map<number, unknown>;
-    } | undefined;
-    if (driveTb) {
-      driveTb.source = newParser;
-      driveTb.tracks.clear();
+    // Disk-insert event. Real-HW: door switch closed + media inserted
+    // → drive's read amplifier sees fresh GCR stream → all in-flight
+    // bit-stream state and any drive-side caches drop. Drive head does
+    // NOT move (= 1541 is peripheral, drive position preserved).
+    //
+    // Each component owning a parser-ref or track-cache exposes a
+    // notifyMediaChange(newParser) hook that handles its own state
+    // reset. Keeps the data-path hookups encapsulated and makes
+    // multi-disk-title swaps clean.
+    session.trackBuffer.notifyMediaChange(newParser);
+    if (session.drive.trackBuffer
+        && session.drive.trackBuffer !== session.trackBuffer) {
+      session.drive.trackBuffer.notifyMediaChange(newParser);
     }
-    // GcrShifter holds its OWN private parser ref + lazy trackCache
-    // captured/populated at boot. Drive ROM reads bytes through
-    // gcrShifter — does NOT go via TrackBuffer. Swap parser AND
-    // clear trackCache so subsequent reads pull from new disk.
-    // Without trackCache.clear() the drive keeps serving cached
-    // bytes from the prior disk even after parser swap (= the real
-    // bug behind "ONEBYTE shown after mounting POLARBEAR").
-    const shifter = session.gcrShifter as unknown as {
-      parser: unknown;
-      trackCache: Map<number, unknown>;
-    } | undefined;
-    if (shifter) {
-      shifter.parser = newParser;
-      shifter.trackCache.clear();
-    }
+    session.gcrShifter?.notifyMediaChange(newParser);
 
     // Update the kernel's diskProvider so KERNAL file traps see new files.
     (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
