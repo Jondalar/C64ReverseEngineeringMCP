@@ -5,7 +5,7 @@
 // the session is unavailable.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { TabProps } from "./Live.js";
+import type { TabProps } from "./Live.types.js";
 import { getClient } from "../ws-client.js";
 import {
   TraceFilters,

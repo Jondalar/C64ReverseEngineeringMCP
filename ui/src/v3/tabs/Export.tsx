@@ -1,7 +1,7 @@
 // Spec 269 — Export tab: PNG / MP4 / WAV export for a scenario.
 
 import React, { useState, useEffect, useCallback } from "react";
-import type { TabProps } from "./Live.js";
+import type { TabProps } from "./Live.types.js";
 import { getClient } from "../ws-client.js";
 
 interface ScenarioSummary {

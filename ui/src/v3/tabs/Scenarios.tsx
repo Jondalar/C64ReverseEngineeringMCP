@@ -5,7 +5,7 @@
 // Top-right: "Batch run" button → modal.
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import type { TabProps } from "./Live.js";
+import type { TabProps } from "./Live.types.js";
 import { getClient } from "../ws-client.js";
 import { ScenarioList, type ScenarioSummary } from "../components/ScenarioList.js";
 import { ScenarioInputTimeline, type ScenarioInputEvent } from "../components/ScenarioInputTimeline.js";

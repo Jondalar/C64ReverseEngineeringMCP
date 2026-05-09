@@ -1,45 +1,54 @@
-import React, { useEffect, useState, useRef } from "react";
+// Spec 351 — Emulator Live machine UX cockpit.
+// Layout:
+//   Machine controls bar
+//   ┌─────────────────────────┬──────────────┐
+//   │ C64 SCREEN              │ Inspector    │
+//   ├─────────────────────────┴──────────────┤
+//   │ Monitor (with [max])                    │
+//   ├─────────────────────────────────────────┤
+//   │ Media strip (Drive 8/9 + drop zone)     │
+//   └─────────────────────────────────────────┘
+//
+// Per Spec 350: NO LOAD"*" / RUN buttons. Spec 353: explicit mount,
+// no auto-LOAD. Spec 354: pause → Explore overlay.
+
+import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
 import type { TabProps } from "./Live.types.js";
+import { MonitorPanel } from "../components/MonitorPanel.js";
+import { InspectorPanel } from "../components/InspectorPanel.js";
+import { MediaStrip } from "../components/MediaStrip.js";
+import { MachineControls } from "../components/MachineControls.js";
+import { ExploreOverlay } from "../components/ExploreOverlay.js";
 
 interface DriveStatus {
-  device: number;
-  ledOn: boolean;
-  motorOn: boolean;
-  halfTrack: number;
-  track: number;
-  drivePc: number;
+  device: number; ledOn: boolean; motorOn: boolean;
+  halfTrack: number; track: number; drivePc: number;
 }
 
-interface MediaEntry {
-  path: string;
-  name: string;
-  type: string;
-}
-
-// Browser keyboard event → C64 PETSCII char(s) for typeText.
 function keyEventToC64(e: KeyboardEvent): string | null {
   if (e.key === "Enter") return "\r";
-  if (e.key === "Backspace") return "";  // INST/DEL — TODO map
-  if (e.key === "Escape") return "";     // RUN/STOP — TODO map
+  if (e.key === "Backspace") return "";
+  if (e.key === "Escape") return "";
   if (e.key === "Tab") return "";
   if (e.key.length === 1) return e.key;
   return null;
 }
 
-export function LiveTab({ sessionId, setSessionId }: TabProps): JSX.Element {
+export function LiveTab({ sessionId, setSessionId, runState = "running", setRunState }: TabProps): JSX.Element {
   const [imgUrl, setImgUrl] = useState<string>("");
-  // Auto-start running so cursor blinks + frame poll fires from
-  // first page load. User can pause via ⏸ button.
-  const [running, setRunning] = useState(true);
   const [fps, setFps] = useState(0);
   const [drive, setDrive] = useState<DriveStatus | null>(null);
-  const [media, setMedia] = useState<MediaEntry[]>([]);
+  const [drive9, setDrive9] = useState<DriveStatus | null>(null);
   const [activeMedia, setActiveMedia] = useState<string>("");
+  const [activeMedia9, setActiveMedia9] = useState<string>("");
   const [screenFocused, setScreenFocused] = useState(false);
+  const [monitorMax, setMonitorMax] = useState(false);
+  const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
+  const screenRef = useRef<HTMLImageElement>(null);
 
-  // Auto-pick first session.
+  // Auto-pick first session
   useEffect(() => {
     if (sessionId) return;
     const client = getClient();
@@ -49,28 +58,9 @@ export function LiveTab({ sessionId, setSessionId }: TabProps): JSX.Element {
     }).catch(() => {});
   }, [sessionId, setSessionId]);
 
-  // Recent media list.
+  // Frame poll loop — only when running
   useEffect(() => {
-    const client = getClient();
-    let alive = true;
-    const fetchMedia = () => {
-      client.call("media/recent").then((list: any) => {
-        if (alive && Array.isArray(list)) setMedia(list);
-      }).catch(() => {});
-    };
-    if (client.getState() === "open") {
-      fetchMedia();
-    }
-    // Retry on every state change to "open" (= reconnect or initial open).
-    const off = client.onState((s) => {
-      if (s === "open") fetchMedia();
-    });
-    return () => { alive = false; off(); };
-  }, []);
-
-  // Frame poll loop.
-  useEffect(() => {
-    if (!sessionId || !running) return;
+    if (!sessionId || runState !== "running") return;
     const client = getClient();
     let alive = true;
     const tick = async () => {
@@ -83,18 +73,16 @@ export function LiveTab({ sessionId, setSessionId }: TabProps): JSX.Element {
           const c = fpsCounterRef.current;
           c.frames++;
           const now = Date.now();
-          if (now - c.lastT >= 1000) {
-            setFps(c.frames); c.frames = 0; c.lastT = now;
-          }
+          if (now - c.lastT >= 1000) { setFps(c.frames); c.frames = 0; c.lastT = now; }
         }
       } catch (e) { console.error("frame loop:", e); }
       if (alive) setTimeout(tick, 20);
     };
     tick();
     return () => { alive = false; };
-  }, [sessionId, running]);
+  }, [sessionId, runState]);
 
-  // Drive status poll.
+  // Drive status poll
   useEffect(() => {
     if (!sessionId) return;
     const client = getClient();
@@ -111,9 +99,9 @@ export function LiveTab({ sessionId, setSessionId }: TabProps): JSX.Element {
     return () => { alive = false; };
   }, [sessionId]);
 
-  // Live keyboard capture.
+  // Live keyboard capture (running + screen focused only)
   useEffect(() => {
-    if (!screenFocused || !sessionId) return;
+    if (!screenFocused || !sessionId || runState !== "running") return;
     const client = getClient();
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -121,12 +109,13 @@ export function LiveTab({ sessionId, setSessionId }: TabProps): JSX.Element {
       if (c === null) return;
       e.preventDefault();
       if (c === "") return;
-      client.call("session/type", { session_id: sessionId, text: c, hold_cycles: 30_000, gap_cycles: 5_000 }).catch(() => {});
+      client.call("session/type", { session_id: sessionId, text: c }).catch(() => {});
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [screenFocused, sessionId]);
+  }, [screenFocused, sessionId, runState]);
 
+  // Snapshot single frame (= force re-render even when paused)
   const snapshot = async () => {
     if (!sessionId) return;
     try {
@@ -135,110 +124,62 @@ export function LiveTab({ sessionId, setSessionId }: TabProps): JSX.Element {
     } catch (e) { console.error(e); }
   };
 
-  const reset = async () => {
-    if (!sessionId) return;
-    try {
-      await getClient().call("session/reset", { session_id: sessionId, video: "pal-default" });
-      // Auto-advance ~3 frames so cursor settles.
-      await getClient().call("session/run", { session_id: sessionId, cycles: 60_000 });
-      await snapshot();
-      setRunning(true);
-    } catch (e) { console.error(e); }
-  };
-
-  const sendKeys = async (text: string) => {
-    if (!sessionId) return;
-    try {
-      await getClient().call("session/type", { session_id: sessionId, text });
-      await getClient().call("session/run", { session_id: sessionId, cycles: 200_000 });
-      await snapshot();
-    } catch (e) { console.error(e); }
-  };
-
-  const mountMedia = async (path: string) => {
-    if (!sessionId) return;
-    try {
-      const client = getClient();
-      // Mount + cold reset = fresh 1541 init + clean BASIC READY.
-      // User drives boot via LOAD"*",8,1 button + RUN button themselves.
-      // No auto-chain (= no UI blocking, no mystery 30s wait).
-      await client.call("media/mount", { session_id: sessionId, slot: 8, path });
-      setActiveMedia(path);
-      await client.call("session/reset", { session_id: sessionId, video: "pal-default" });
-      // server's reset handler already advances 5M cycles to BASIC READY.
-      setRunning(true);  // keep frame poll alive
-    } catch (e) { console.error("mount:", e); }
-  };
-
-  if (!sessionId) {
-    return (
-      <div className="v3-tab-stub">
-        <h2>Live</h2>
-        <p>No session active.</p>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ textAlign: "center" }}>
-      <div style={{ marginBottom: "0.5rem", display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap", alignItems: "center" }}>
-        <button onClick={() => setRunning(!running)}>{running ? "⏸ Pause" : "▶ Run"}</button>
-        <button onClick={snapshot}>📷 Snap</button>
-        <button onClick={reset}>⟲ Reset</button>
-        <button onClick={() => sendKeys('LOAD"*",8,1\r')}>↵ LOAD"*",8,1</button>
-        <button onClick={() => sendKeys("RUN\r")}>↵ RUN</button>
-        <select
-          value={activeMedia}
-          onChange={(e) => { if (e.target.value) mountMedia(e.target.value); }}
-          style={{ background: "var(--c64-bg-2)", color: "var(--c64-fg)", border: "1px solid var(--c64-border)", padding: "0.25rem", fontFamily: "inherit" }}
-        >
-          <option value="">— mount disk —</option>
-          {media.map((m) => (
-            <option key={m.path} value={m.path}>{m.name}</option>
-          ))}
-        </select>
-        {drive && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--c64-fg-muted)", fontSize: 12 }}>
-            <span
-              title={drive.ledOn ? "Drive LED ON" : "Drive LED off"}
-              style={{
-                display: "inline-block", width: 10, height: 10, borderRadius: "50%",
-                background: drive.ledOn ? "#ef5350" : "#333",
-                boxShadow: drive.ledOn ? "0 0 6px #ef5350" : "none",
-              }}
+    <div className="wb-live">
+      <MachineControls
+        sessionId={sessionId}
+        runState={runState}
+        setRunState={setRunState}
+        fps={fps}
+        onSnapshotTaken={snapshot}
+      />
+      <div className="wb-live-grid">
+        <div className="wb-screen-wrap">
+          {imgUrl ? (
+            <img
+              ref={screenRef}
+              src={imgUrl}
+              alt="C64 screen"
+              tabIndex={runState === "running" ? 0 : -1}
+              onFocus={() => setScreenFocused(true)}
+              onBlur={() => setScreenFocused(false)}
+              onClick={(e) => runState === "running" && e.currentTarget.focus()}
+              className={`wb-screen ${runState === "paused" ? "paused" : ""} ${screenFocused ? "focused" : ""}`}
             />
-            <span>D{drive.device}</span>
-            <span>T{drive.track}{drive.halfTrack % 2 === 1 ? ".5" : ""}</span>
-            <span>{drive.motorOn ? "▶" : "■"}</span>
-          </span>
-        )}
-        {running && <span style={{ color: "var(--c64-fg-muted)", fontSize: 12 }}>{fps} fps</span>}
+          ) : (
+            <div className="wb-screen-empty">
+              <p>No frame yet — emulator booting…</p>
+            </div>
+          )}
+          {runState === "paused" && screenRef.current && (
+            <ExploreOverlay
+              sessionId={sessionId}
+              screenEl={screenRef.current}
+              selection={exploreSelection}
+              onSelection={setExploreSelection}
+            />
+          )}
+          {screenFocused && runState === "running" && (
+            <p className="wb-screen-hint">⌨ Keyboard captured — click outside to disable</p>
+          )}
+        </div>
+        <InspectorPanel sessionId={sessionId} drive={drive} drive9={drive9} />
       </div>
-
-      {imgUrl ? (
-        <img
-          src={imgUrl}
-          alt="C64 screen"
-          tabIndex={0}
-          onFocus={() => setScreenFocused(true)}
-          onBlur={() => setScreenFocused(false)}
-          onClick={(e) => e.currentTarget.focus()}
-          style={{
-            imageRendering: "pixelated",
-            width: 736, height: 544, // 2× of 368×272 — matches new server crop
-            border: screenFocused ? "2px solid #6c5ce7" : "2px solid var(--c64-border)",
-            outline: "none",
-            cursor: "text",
-          }}
-        />
-      ) : (
-        <p style={{ color: "var(--c64-fg-muted)" }}>Click Snap or Run.</p>
-      )}
-      {screenFocused && (
-        <p style={{ color: "#7c6cee", fontSize: 11, margin: "0.25rem 0" }}>
-          ⌨ Keyboard capture active — click outside to disable
-        </p>
-      )}
+      <MonitorPanel
+        sessionId={sessionId}
+        maximized={monitorMax}
+        onToggleMax={() => setMonitorMax(!monitorMax)}
+      />
+      <MediaStrip
+        sessionId={sessionId}
+        drive={drive}
+        drive9={drive9}
+        activeMedia={activeMedia}
+        activeMedia9={activeMedia9}
+        onMounted={(slot, path) => {
+          if (slot === 8) setActiveMedia(path); else setActiveMedia9(path);
+        }}
+      />
     </div>
   );
 }

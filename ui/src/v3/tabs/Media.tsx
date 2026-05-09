@@ -8,7 +8,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { getClient } from "../ws-client.js";
-import type { TabProps } from "./Live.js";
+import type { TabProps } from "./Live.types.js";
 
 // ---- types mirroring server-side ----
 

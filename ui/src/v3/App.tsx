@@ -1,14 +1,13 @@
+// Spec 350 — Emulator Workbench master.
+// 2 top-level tabs: Live + Trace. Other surfaces (scenarios, export,
+// snapshots, media, monitor) folded into Live or removed entirely.
+
 import React, { useEffect, useState } from "react";
 import { getClient, type ConnectionState } from "./ws-client.js";
 import { LiveTab } from "./tabs/Live.js";
-import { MonitorTab } from "./tabs/Monitor.js";
 import { TraceTab } from "./tabs/Trace.js";
-import { SnapshotsTab } from "./tabs/Snapshots.js";
-import { ScenariosTab } from "./tabs/Scenarios.js";
-import { MediaTab } from "./tabs/Media.js";
-import { ExportTab } from "./tabs/Export.js";
 
-const TABS = ["live", "monitor", "trace", "snapshots", "scenarios", "media", "export"] as const;
+const TABS = ["live", "trace"] as const;
 type Tab = typeof TABS[number];
 
 export function App(): JSX.Element {
@@ -16,31 +15,27 @@ export function App(): JSX.Element {
   const [conn, setConn] = useState<ConnectionState>("closed");
   const [sessionId, setSessionId] = useState<string>("");
   const [cycle, setCycle] = useState<number>(0);
+  const [runState, setRunState] = useState<"running" | "paused">("running");
 
   useEffect(() => {
-    const client = getClient();
-    const offState = client.onState(setConn);
-    return offState;
+    const off = getClient().onState(setConn);
+    return off;
   }, []);
 
-  // Auto-pick first session when WS opens (no session set yet).
   useEffect(() => {
     if (sessionId || conn !== "open") return;
-    const client = getClient();
-    client.call("session/list").then((sessions: any[]) => {
+    getClient().call("session/list").then((sessions: any[]) => {
       if (sessions.length > 0) setSessionId(sessions[0].sessionId);
     }).catch(() => {});
   }, [conn, sessionId]);
 
-  // Poll session state every 500ms when connected.
   useEffect(() => {
     if (conn !== "open" || !sessionId) return;
-    const client = getClient();
     let alive = true;
     const tick = async () => {
       if (!alive) return;
       try {
-        const s = await client.call("session/state", { session_id: sessionId });
+        const s = await getClient().call("session/state", { session_id: sessionId });
         setCycle(s.c64Cycles ?? 0);
       } catch { /* ignore poll errors */ }
       if (alive) setTimeout(tick, 500);
@@ -49,40 +44,32 @@ export function App(): JSX.Element {
     return () => { alive = false; };
   }, [conn, sessionId]);
 
-  const renderTab = () => {
-    const props = { sessionId, setSessionId };
-    switch (tab) {
-      case "live":      return <LiveTab {...props} />;
-      case "monitor":   return <MonitorTab {...props} />;
-      case "trace":     return <TraceTab {...props} />;
-      case "snapshots": return <SnapshotsTab {...props} />;
-      case "scenarios": return <ScenariosTab {...props} />;
-      case "media":     return <MediaTab {...props} />;
-      case "export":    return <ExportTab {...props} />;
-    }
-  };
+  const project = "Murder";  // TODO: derive from route/session
 
   return (
-    <div className="v3-app">
-      <header className="v3-header">
-        <span className="v3-title">C64RE V3</span>
-        <span className={`v3-conn v3-conn-${conn}`}>{conn}</span>
-        <span className="v3-session">session: {sessionId || "(none)"}</span>
-        <span className="v3-cycle">cycle: {cycle.toLocaleString()}</span>
+    <div className="wb-app">
+      <header className="wb-header">
+        <span className="wb-title">C64 Emulator</span>
+        <span className="wb-meta">project: <strong>{project}</strong></span>
+        <span className="wb-meta">session: {sessionId || "(none)"}</span>
+        <span className={`wb-conn wb-conn-${conn}`}>{conn}</span>
+        <span className="wb-meta">{runState}</span>
+        <span className="wb-meta">cycle: {cycle.toLocaleString()}</span>
       </header>
-      <nav className="v3-tabs">
+      <nav className="wb-tabs">
         {TABS.map((t) => (
           <button
             key={t}
-            className={`v3-tab ${tab === t ? "active" : ""}`}
+            className={`wb-tab ${tab === t ? "active" : ""}`}
             onClick={() => setTab(t)}
           >{t}</button>
         ))}
       </nav>
-      <main className="v3-main">{renderTab()}</main>
-      <footer className="v3-footer">
-        <span>localhost:4313 / ws:4312 — single user, no auth</span>
-      </footer>
+      <main className="wb-main">
+        {tab === "live"
+          ? <LiveTab sessionId={sessionId} setSessionId={setSessionId} runState={runState} setRunState={setRunState} />
+          : <TraceTab sessionId={sessionId} setSessionId={setSessionId} />}
+      </main>
     </div>
   );
 }

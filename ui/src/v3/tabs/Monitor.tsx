@@ -12,7 +12,7 @@
 //   └─────────────────────────────────────────┘
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import type { TabProps } from "./Live.js";
+import type { TabProps } from "./Live.types.js";
 import { getClient } from "../ws-client.js";
 import { parseMonitorCmd } from "../monitor-cmd-parser.js";
 import { MonitorRegisters, type RegisterState } from "../components/MonitorRegisters.js";

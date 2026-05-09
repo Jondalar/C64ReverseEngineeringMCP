@@ -4,7 +4,7 @@
 // Right ~70%: selected node detail.
 
 import React, { useState, useEffect, useCallback } from "react";
-import type { TabProps } from "./Live.js";
+import type { TabProps } from "./Live.types.js";
 import { getClient } from "../ws-client.js";
 import { SnapshotTreeView, type SnapshotBranch } from "../components/SnapshotTreeView.js";
 import { SnapshotDetail } from "../components/SnapshotDetail.js";
