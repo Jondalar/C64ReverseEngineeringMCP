@@ -275,7 +275,12 @@ function emitGfxRun(
     case 2: drawStdBitmapSeg(fb, bus, state, line, a0, a1, fgMask); break;
     case 3: drawMcBitmapSeg(fb, bus, state, line, a0, a1, fgMask); break;
     case 4: drawExtTextSeg(fb, bus, state, line, a0, a1, fgMask); break;
-    default: drawIdleSeg(fb, line, a0, a1, state.background_color); break;
+    // Spec 284: illegal modes 5/6/7 — visible pixels = palette[0]
+    // (= absolute black, NOT $D021), fgMask still populated from
+    // chargen/bitmap so sprite-bg collision works (1:1 VICE).
+    case 5: drawIllegalTextSeg(fb, bus, state, line, a0, a1, fgMask); break;
+    case 6: drawIllegalBitmapMode1Seg(fb, bus, state, line, a0, a1, fgMask); break;
+    case 7: drawIllegalBitmapMode2Seg(fb, bus, state, line, a0, a1, fgMask); break;
   }
 }
 
@@ -473,6 +478,104 @@ function drawIdleSeg(
   fb: VicFramebuffer, line: number, x0: number, x1: number, bg: number,
 ): void {
   fillSpan(fb, line, x0, x1, bg);
+}
+
+// ---------- Spec 284: illegal modes 5/6/7 ----------
+// All three: visible pixels = palette[0] (= absolute black, NOT
+// $D021), fgMask still populated from chargen/bitmap so sprite-bg
+// collision works against the implied "shape". 1:1 VICE.
+
+import { mcMask } from "../vic/mc-mask-table.js";
+
+// Mode 5: ECM+MCM. Mask = chargen[(vbuf[col] & 0x3f)*8 + ycounter],
+// optionally mc-masked when color RAM bit 3 set.
+function drawIllegalTextSeg(
+  fb: VicFramebuffer, bus: HeadlessMemoryBus, state: RasterState,
+  line: number, x0: number, x1: number, fgMask: Uint8Array,
+): void {
+  const yIn = line - VISIBLE_Y;
+  if (yIn < 0 || yIn >= VISIBLE_H) return;
+  // Bulk fill: all visible pixels in segment = palette[0] (= black).
+  fillSpan(fb, line, x0, x1, 0);
+  const charRow = (yIn >> 3) | 0;
+  const charY = yIn & 7;
+  const colorRamBase = 0x0800;
+  // Iterate char cells covering the segment, populate mask only.
+  let col = Math.max(0, ((x0 - VISIBLE_X) >> 3));
+  const lastCol = Math.min(39, ((x1 - VISIBLE_X) >> 3));
+  for (; col <= lastCol; col++) {
+    const cellIdx = charRow * 40 + col;
+    const charCode = vicRead(bus, state.vic_bank_base,
+      state.screen_base_ptr + cellIdx) & 0x3f;
+    const fgColor = bus.io[colorRamBase + cellIdx]! & 0x0f;
+    const charByte = vicRead(bus, state.vic_bank_base,
+      state.chargen_base_ptr + charCode * 8 + charY);
+    const maskByte = (fgColor & 0x8) ? mcMask(charByte) : charByte;
+    // Spread 8-bit mask byte into fgMask cells for this char column.
+    const baseX = col * 8;
+    for (let bit = 0; bit < 8; bit++) {
+      const xIn = baseX + bit;
+      if (xIn >= VISIBLE_W) break;
+      if ((maskByte >> (7 - bit)) & 1) fgMask[yIn * VISIBLE_W + xIn] = 1;
+    }
+  }
+}
+
+// Mode 6: ECM+BMM. Mask = bitmap byte at (memptr+col)<<3 + ycounter,
+// with j & 0x1000 hi/lo switch (VICE _draw_illegal_bitmap_mode1).
+function drawIllegalBitmapMode1Seg(
+  fb: VicFramebuffer, bus: HeadlessMemoryBus, state: RasterState,
+  line: number, x0: number, x1: number, fgMask: Uint8Array,
+): void {
+  const yIn = line - VISIBLE_Y;
+  if (yIn < 0 || yIn >= VISIBLE_H) return;
+  fillSpan(fb, line, x0, x1, 0);
+  const charY = yIn & 7;
+  // memptr = (charRow * 40) effective; bitmap offset model.
+  const memptr = ((yIn >> 3) | 0) * 40;
+  let col = Math.max(0, ((x0 - VISIBLE_X) >> 3));
+  const lastCol = Math.min(39, ((x1 - VISIBLE_X) >> 3));
+  for (; col <= lastCol; col++) {
+    const j = ((memptr + col) << 3) + charY;
+    // VICE: j & 0x1000 splits low/high bitmap pointers. We collapse
+    // both into a single read against state.bitmap_base_ptr +
+    // (j & 0x1fff). The mask byte from VIC bank read.
+    const addr = state.bitmap_base_ptr + (j & 0x1fff);
+    const bmval = vicRead(bus, state.vic_bank_base, addr);
+    const baseX = col * 8;
+    for (let bit = 0; bit < 8; bit++) {
+      const xIn = baseX + bit;
+      if (xIn >= VISIBLE_W) break;
+      if ((bmval >> (7 - bit)) & 1) fgMask[yIn * VISIBLE_W + xIn] = 1;
+    }
+  }
+}
+
+// Mode 7: ECM+BMM+MCM. Same as mode 6 but mask byte goes through
+// mcMask (= 2-bit pixel pairs).
+function drawIllegalBitmapMode2Seg(
+  fb: VicFramebuffer, bus: HeadlessMemoryBus, state: RasterState,
+  line: number, x0: number, x1: number, fgMask: Uint8Array,
+): void {
+  const yIn = line - VISIBLE_Y;
+  if (yIn < 0 || yIn >= VISIBLE_H) return;
+  fillSpan(fb, line, x0, x1, 0);
+  const charY = yIn & 7;
+  const memptr = ((yIn >> 3) | 0) * 40;
+  let col = Math.max(0, ((x0 - VISIBLE_X) >> 3));
+  const lastCol = Math.min(39, ((x1 - VISIBLE_X) >> 3));
+  for (; col <= lastCol; col++) {
+    const j = ((memptr + col) << 3) + charY;
+    const addr = state.bitmap_base_ptr + (j & 0x1fff);
+    const bmval = vicRead(bus, state.vic_bank_base, addr);
+    const maskByte = mcMask(bmval);
+    const baseX = col * 8;
+    for (let bit = 0; bit < 8; bit++) {
+      const xIn = baseX + bit;
+      if (xIn >= VISIBLE_W) break;
+      if ((maskByte >> (7 - bit)) & 1) fgMask[yIn * VISIBLE_W + xIn] = 1;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
