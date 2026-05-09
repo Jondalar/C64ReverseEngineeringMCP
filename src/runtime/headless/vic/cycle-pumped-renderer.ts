@@ -97,27 +97,103 @@ function screenBaseFromD018(d018: number): number {
   return ((d018 >> 4) & 0x0f) * 0x400;
 }
 
-/**
- * Emit one pixel for standard text mode (mode 0) via the display pipe.
- *
- *   bit = MSB of gbuf.reg
- *   pixel = bit ? cbuf.reg & 0x0f : background_color
- *
- * Writes directly into the framebuffer at (x, y).
- */
-function emitPixelMode0(
-  fb: VicFramebuffer, x: number, y: number,
-  pipe: DisplayPipeState, bgColor: number,
-): void {
+function bitmapBaseFromD018(d018: number): number {
+  return (d018 & 0x08) ? 0x2000 : 0x0000;
+}
+
+/** Compute combined video mode index (0..7) per VICE convention. */
+export function computeVideoMode(d011: number, d016: number): number {
+  const ecm = (d011 & 0x40) ? 1 : 0;
+  const bmm = (d011 & 0x20) ? 1 : 0;
+  const mcm = (d016 & 0x10) ? 1 : 0;
+  return (ecm << 2) | (bmm << 1) | mcm;
+}
+
+/** Write one pixel by color index. */
+function putPixel(fb: VicFramebuffer, x: number, y: number, colorIdx: number): void {
   if (x < 0 || x >= fb.width || y < 0 || y >= fb.height) return;
-  const bit = (pipe.gbuf.reg >> 7) & 1;
-  const colorIdx = bit ? (pipe.cbuf.reg & 0x0f) : (bgColor & 0x0f);
-  const [r, g, b] = fb.palette[colorIdx]!;
+  const [r, g, b] = fb.palette[colorIdx & 0x0f]!;
   const off = (y * fb.width + x) * 4;
   fb.pixels[off] = r;
   fb.pixels[off + 1] = g;
   fb.pixels[off + 2] = b;
   fb.pixels[off + 3] = 0xff;
+}
+
+/**
+ * Emit ONE pixel for the active video mode using current display pipe.
+ * Mirrors viciisc/vicii-draw-cycle.c:227-295 inner loop (= mode-dispatch
+ * with mc_flop awareness).
+ *
+ * Mode 0: std text — bit = MSB gbuf; pixel = bit ? cbuf : d021
+ * Mode 1: mc text — cbuf bit 3 selects mc-vs-hires per cell
+ *   - hires: like mode 0 with cbuf low 3 bits as fg
+ *   - mc: 2-bit pairs from gbuf, lookup d021/d022/d023/cbuf-low3
+ * Mode 2: std bmp — bit = MSB gbuf; pixel = bit ? vbuf>>4 : vbuf & 0xf
+ * Mode 3: mc bmp — 2-bit pairs from gbuf, lookup d021/vbuf>>4/vbuf&0xf/cbuf
+ * Mode 4: ECM text — bit = MSB gbuf; bg = ext-bg-color[(vbuf>>6) & 3]
+ *                    fg = cbuf & 0xf; chargen addr ANDed with 0x39ff
+ * Modes 5-7: illegal — pixel = palette[0] (= absolute black, per Spec 284)
+ */
+export function emitPixel(
+  fb: VicFramebuffer, x: number, y: number,
+  pipe: DisplayPipeState, mode: number,
+  d021: number, d022: number, d023: number, d024: number,
+): void {
+  if (x < 0 || x >= fb.width || y < 0 || y >= fb.height) return;
+  const bit = (pipe.gbuf.reg >> 7) & 1;
+
+  switch (mode) {
+    case 0: { // std text
+      putPixel(fb, x, y, bit ? (pipe.cbuf.reg & 0x0f) : (d021 & 0x0f));
+      return;
+    }
+    case 1: { // mc text
+      const isMc = (pipe.cbuf.reg & 0x08) !== 0;
+      if (!isMc) {
+        putPixel(fb, x, y, bit ? (pipe.cbuf.reg & 0x07) : (d021 & 0x0f));
+      } else {
+        // 2-bit pair: gbuf top 2 bits selected per mc_flop boundary
+        const pair = (pipe.gbuf.reg >> 6) & 0x03;
+        let c;
+        switch (pair) {
+          case 0: c = d021; break;
+          case 1: c = d022; break;
+          case 2: c = d023; break;
+          default: c = pipe.cbuf.reg & 0x07; break;
+        }
+        putPixel(fb, x, y, c & 0x0f);
+      }
+      return;
+    }
+    case 2: { // std bmp — vbuf high nibble = fg, low nibble = bg
+      const fg = (pipe.vbuf.reg >> 4) & 0x0f;
+      const bg = pipe.vbuf.reg & 0x0f;
+      putPixel(fb, x, y, bit ? fg : bg);
+      return;
+    }
+    case 3: { // mc bmp
+      const pair = (pipe.gbuf.reg >> 6) & 0x03;
+      let c;
+      switch (pair) {
+        case 0: c = d021; break;
+        case 1: c = (pipe.vbuf.reg >> 4) & 0x0f; break;
+        case 2: c = pipe.vbuf.reg & 0x0f; break;
+        default: c = pipe.cbuf.reg & 0x0f; break;
+      }
+      putPixel(fb, x, y, c & 0x0f);
+      return;
+    }
+    case 4: { // ECM text
+      const extBg = [d021, d022, d023, d024];
+      const bg = extBg[(pipe.vbuf.reg >> 6) & 0x03]!;
+      putPixel(fb, x, y, bit ? (pipe.cbuf.reg & 0x0f) : (bg & 0x0f));
+      return;
+    }
+    case 5: case 6: case 7: // illegal modes — palette[0] (absolute black)
+      putPixel(fb, x, y, 0);
+      return;
+  }
 }
 
 /**
@@ -146,16 +222,33 @@ export function installCyclePumpedRenderer(session: SessionLike): { uninstall: (
     const d018 = session.vic.regs[0x18]!;
     const d020 = session.vic.regs[0x20]! & 0x0f;
     const d021 = session.vic.regs[0x21]! & 0x0f;
+    const d022 = session.vic.regs[0x22]! & 0x0f;
+    const d023 = session.vic.regs[0x23]! & 0x0f;
+    const d024 = session.vic.regs[0x24]! & 0x0f;
     const ecmActive = (d011 & 0x40) !== 0;
+    const bmm = (d011 & 0x20) !== 0;
+    const mode = computeVideoMode(d011, d016);
     const fetchCtx = buildFetchCtx(session, ecmActive);
 
     // -------- Φ1 fetch --------
     let newGbuf: number | null = null;
     if (phi1.phi1 === PHI1_FETCH_G) {
-      const chargenBase = chargenBaseFromD018(d018);
-      const charCode = state.vbuf[state.vmli] ?? 0;
-      const charY = state.rc & 7;
-      const fetchAddr = chargenBase + charCode * 8 + charY;
+      let fetchAddr: number;
+      if (bmm) {
+        // Bitmap fetch: bitmap_base + (vc * 8) + rc
+        // (vicii-fetch.c:178 — g_fetch_addr bitmap branch)
+        const bitmapBase = bitmapBaseFromD018(d018);
+        fetchAddr = bitmapBase + state.vc * 8 + (state.rc & 7);
+      } else {
+        // Char-mode fetch: chargen_base + char*8 + rc
+        const chargenBase = chargenBaseFromD018(d018);
+        const charCode = state.vbuf[state.vmli] ?? 0;
+        const charY = state.rc & 7;
+        fetchAddr = chargenBase + charCode * 8 + charY;
+      }
+      // ECM masks bits 9, 10 of the graphics fetch addr per VICE
+      // vicii-fetch.c:178 (`a &= 0x39ff`).
+      if (ecmActive) fetchAddr = fetchAddr & 0x39ff;
       newGbuf = fetchPhi1(fetchCtx, fetchAddr);
     } else if (phi1.phi1 === PHI1_IDLE) {
       newGbuf = fetchIdleGfx(fetchCtx);
@@ -198,7 +291,8 @@ export function installCyclePumpedRenderer(session: SessionLike): { uninstall: (
           if (i === state.pipe.xscroll_pipe) latchPipeRegs(state.pipe);
           if (i === 4) sampleVmode16(state.pipe, d016);
           if (i === 7) holdVmode16Pipe2(state.pipe);
-          emitPixelMode0(session.framebuffer, xLine + i, yPix, state.pipe, d021);
+          emitPixel(session.framebuffer, xLine + i, yPix, state.pipe, mode,
+                    d021, d022, d023, d024);
           shiftGbufOnePixel(state.pipe);
         }
       }
