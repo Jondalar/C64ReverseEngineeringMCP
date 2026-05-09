@@ -80,6 +80,7 @@
     "smoke:vic-cycle-log": "npm run build:mcp && node scripts/smoke-vic-cycle-log.mjs",
     "smoke:vic-pixel-perfect": "npm run build:mcp && node scripts/smoke-vic-pixel-perfect.mjs",
     "smoke:raster-changes": "npm run build:mcp && node scripts/smoke-raster-changes.mjs",
+    "smoke:vic-rasterized": "npm run build:mcp && node scripts/smoke-vic-rasterized.mjs",
     "smoke:badline-fetch": "npm run build:mcp && node scripts/smoke-badline-fetch.mjs",
     "smoke:bus-stealing": "npm run build:mcp && node scripts/smoke-bus-stealing.mjs",
     "smoke:pla-fidelity": "npm run build:mcp && node scripts/smoke-pla-fidelity.mjs",

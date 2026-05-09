@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { VicIIVice, installVicIIVice, type VicBackend } from "./vic/vic-ii-vice.js";
 import { installSid, type Sid6581 } from "./sid/sid.js";
 import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
+import { renderFrameRasterized } from "./peripherals/vic-renderer-rasterized.js";
 import { renderFramePixelPerfect } from "./peripherals/vic-renderer-pixel.js";
 import { rgbaToPng } from "./peripherals/png-writer.js";
 import { writeFileSync } from "node:fs";
@@ -168,7 +169,7 @@ export interface IntegratedSessionOptions {
   // "per-char-row" (= existing renderer, no regression risk).
   // "per-pixel" enables Spec 262d-i pixel-perfect path using
   // VicIIVice.frameLineLogs. renderToPng() default uses this.
-  vicRenderer?: "per-char-row" | "per-pixel";
+  vicRenderer?: "per-char-row" | "per-pixel" | "vice-rasterized";
   // Spec 280g: opt-in per-cycle VIC bus stealing. When true, the
   // cycle-lockstep scheduler queries vic.getBusStallForCycle() before
   // each CPU step and stalls the CPU one cycle at a time when VIC
@@ -262,7 +263,7 @@ export class IntegratedSession {
   // Spec 098: named session-mode preset (resolved at construction).
   public readonly mode: SessionMode;
   // Spec 262 Phase B-E: default renderer for renderFrame() / renderToPng().
-  public readonly vicRenderer: "per-char-row" | "per-pixel";
+  public readonly vicRenderer: "per-char-row" | "per-pixel" | "vice-rasterized";
   // Spec 093: image format string ("g64" | "d64" | "other") + clock ratio.
   public readonly imageFormat: string;
   public readonly driveClockRatio: number;
@@ -586,8 +587,18 @@ export class IntegratedSession {
   // Spec 262 Phase B-E: dispatch on session.vicRenderer (or per-call
   // override). Default per-char-row remains the canonical path so this
   // method stays a no-regression alias for the legacy renderer.
-  renderFrame(opts?: { renderer?: "per-char-row" | "per-pixel" }): void {
+  renderFrame(opts?: { renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" }): void {
     const renderer = opts?.renderer ?? this.vicRenderer;
+    if (renderer === "vice-rasterized") {
+      // Spec 280c — VICE-faithful per-line raster_changes renderer.
+      const cia2Pa = this.cia2.pra & this.cia2.ddra;
+      renderFrameRasterized(this.framebuffer, {
+        vic: this.vic,
+        bus: this.c64Bus,
+        initialCia2PaByte: cia2Pa,
+      });
+      return;
+    }
     if (renderer === "per-pixel") {
       // Build initial CIA2 PA byte from the current PRA & DDRA mask.
       // The pixel-perfect renderer replays the per-cycle log onto the
@@ -618,7 +629,7 @@ export class IntegratedSession {
   // border in raw 504-pixel output.
   renderToPng(
     path: string,
-    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" },
+    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" },
   ): { width: number; height: number; bytes: number } {
     // Spec 262c: optional frame-boundary sync. Default true — running
     // until the visible raster region is fully populated guarantees the

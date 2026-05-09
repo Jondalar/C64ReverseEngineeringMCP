@@ -1,0 +1,274 @@
+// Spec 280c — RasterState: effective per-pixel chip state mutated by
+// raster_changes lane actions during the per-line render walk.
+//
+// Mirrors the subset of vice/src/raster/raster.h `raster_t` fields that
+// the per-line renderer touches between change applies. Each
+// `applyAction` corresponds to a `raster_changes_apply` call in
+// vice/src/raster/raster-changes.c.
+//
+// Initial state is built from the live VIC reg file + CIA2 PA at the
+// moment of frame entry; per-line walk then mutates the state via the
+// queued lane actions.
+
+import type { RasterChangeAction, RasterChangeField } from "./raster-changes.js";
+import { computeVicBankBase } from "../peripherals/vic-renderer.js";
+
+/** Effective per-pixel rendering state. */
+export interface RasterState {
+  // ---- Mode / control ----
+  /** Combined video mode index (0..7): bit2=ECM bit1=BMM bit0=MCM. */
+  video_mode: number;
+  /** $D016 low 3 bits — horizontal smooth scroll. */
+  xsmooth: number;
+  /** $D011 low 3 bits — vertical smooth scroll. */
+  ysmooth: number;
+  /** $D011 bit 4 — display enable. */
+  den: boolean;
+  /** $D011 bit 3 — 24/25-row select. */
+  rsel: boolean;
+  /** $D016 bit 3 — 38/40-col select. */
+  csel: boolean;
+
+  // ---- Memory pointers (within VIC bank) ----
+  /** Screen RAM offset in VIC bank ($D018 high nibble × $400). */
+  screen_base_ptr: number;
+  /** Chargen offset in VIC bank ($D018 mid bits × $800). */
+  chargen_base_ptr: number;
+  /** Bitmap offset in VIC bank ($D018 bit 3 × $2000). */
+  bitmap_base_ptr: number;
+  /** VIC bank base in main 64K ($0000/$4000/$8000/$C000). */
+  vic_bank_base: number;
+
+  // ---- Colors ----
+  border_color: number;          // $D020
+  background_color: number;      // $D021
+  background_color_1: number;    // $D022
+  background_color_2: number;    // $D023
+  background_color_3: number;    // $D024 (ECM only)
+  sprite_mc_color_1: number;     // $D025
+  sprite_mc_color_2: number;     // $D026
+
+  // ---- Sprite state ----
+  sprite_color: Uint8Array;      // 8 entries — $D027..$D02E
+  sprite_x: Uint16Array;         // 8 entries — $D000/2/4/.../E + MSB
+  sprite_y: Uint8Array;          // 8 entries — $D001/3/.../F
+  sprite_x_msb: number;          // $D010
+  sprite_enable: number;         // $D015
+  sprite_priority: number;       // $D01B
+  sprite_multicolor: number;     // $D01C
+  sprite_x_expand: number;       // $D01D
+  sprite_y_expand: number;       // $D017
+}
+
+export function createEmptyRasterState(): RasterState {
+  return {
+    video_mode: 0,
+    xsmooth: 0,
+    ysmooth: 0,
+    den: false,
+    rsel: false,
+    csel: false,
+    screen_base_ptr: 0,
+    chargen_base_ptr: 0,
+    bitmap_base_ptr: 0,
+    vic_bank_base: 0,
+    border_color: 0,
+    background_color: 0,
+    background_color_1: 0,
+    background_color_2: 0,
+    background_color_3: 0,
+    sprite_mc_color_1: 0,
+    sprite_mc_color_2: 0,
+    sprite_color: new Uint8Array(8),
+    sprite_x: new Uint16Array(8),
+    sprite_y: new Uint8Array(8),
+    sprite_x_msb: 0,
+    sprite_enable: 0,
+    sprite_priority: 0,
+    sprite_multicolor: 0,
+    sprite_x_expand: 0,
+    sprite_y_expand: 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Mode-derivation helpers (mirror vicii.c update_video_mode).
+// video_mode index encoding: bit2=ECM bit1=BMM bit0=MCM (0..7).
+// ---------------------------------------------------------------------------
+
+export function deriveVideoMode(d011: number, d016: number): number {
+  const ecm = (d011 & 0x40) !== 0;
+  const bmm = (d011 & 0x20) !== 0;
+  const mcm = (d016 & 0x10) !== 0;
+  return (ecm ? 4 : 0) | (bmm ? 2 : 0) | (mcm ? 1 : 0);
+}
+
+/** Decode $D018 to screen / chargen / bitmap base offsets within bank. */
+export function decodeMemPtr(d018: number): {
+  screen: number; chargen: number; bitmap: number;
+} {
+  const screen = ((d018 >> 4) & 0x0f) * 0x0400;
+  const chargen = ((d018 >> 1) & 0x07) * 0x0800;
+  const bitmap = ((d018 >> 3) & 0x01) * 0x2000;
+  return { screen, chargen, bitmap };
+}
+
+// ---------------------------------------------------------------------------
+// applyAction — single-step mutation from a queue entry.
+// Mirrors vice/src/raster/raster-changes.c raster_changes_apply().
+// ---------------------------------------------------------------------------
+
+export function applyAction(state: RasterState, action: RasterChangeAction): void {
+  const v = action.value & 0xff;
+  switch (action.field) {
+    case "video_mode": {
+      // Action carries either D011 or D016 raw byte (set by builder).
+      // Builder packages two flavors:
+      //   value=raw d011 → field still "video_mode" but spriteIndex=undefined,
+      //   value=raw d016 → field "video_mode" with synthetic high bit.
+      // We use a simple convention: action stores the full reg byte and
+      // a one-bit hint via spriteIndex (0 for d011, 1 for d016).
+      const isD016 = action.spriteIndex === 1;
+      if (isD016) {
+        state.xsmooth = v & 0x07;
+        state.csel = (v & 0x08) !== 0;
+        // Reconstruct video_mode: keep ECM/BMM bits, reapply MCM from v
+        const ecm = (state.video_mode & 4) !== 0;
+        const bmm = (state.video_mode & 2) !== 0;
+        const mcm = (v & 0x10) !== 0;
+        state.video_mode = (ecm ? 4 : 0) | (bmm ? 2 : 0) | (mcm ? 1 : 0);
+      } else {
+        state.ysmooth = v & 0x07;
+        state.rsel = (v & 0x08) !== 0;
+        state.den = (v & 0x10) !== 0;
+        const ecm = (v & 0x40) !== 0;
+        const bmm = (v & 0x20) !== 0;
+        const mcm = (state.video_mode & 1) !== 0;
+        state.video_mode = (ecm ? 4 : 0) | (bmm ? 2 : 0) | (mcm ? 1 : 0);
+      }
+      return;
+    }
+    case "screen_base_ptr": {
+      // Action value carries raw $D018 byte; decode all three pointers.
+      const d018 = v;
+      const dec = decodeMemPtr(d018);
+      state.screen_base_ptr = dec.screen;
+      state.chargen_base_ptr = dec.chargen;
+      state.bitmap_base_ptr = dec.bitmap;
+      return;
+    }
+    case "xsmooth": state.xsmooth = v & 0x07; return;
+    case "ysmooth": state.ysmooth = v & 0x07; return;
+    case "den":     state.den = !!v; return;
+    case "rsel":    state.rsel = !!v; return;
+    case "csel":    state.csel = !!v; return;
+    case "border_color":         state.border_color = v & 0x0f; return;
+    case "background_color":     state.background_color = v & 0x0f; return;
+    case "background_color_1":   state.background_color_1 = v & 0x0f; return;
+    case "background_color_2":   state.background_color_2 = v & 0x0f; return;
+    case "background_color_3":   state.background_color_3 = v & 0x0f; return;
+    case "sprite_mc_color_1":    state.sprite_mc_color_1 = v & 0x0f; return;
+    case "sprite_mc_color_2":    state.sprite_mc_color_2 = v & 0x0f; return;
+    case "sprite_color_n":
+      if (action.spriteIndex !== undefined)
+        state.sprite_color[action.spriteIndex] = v & 0x0f;
+      return;
+    case "sprite_x_n":
+      if (action.spriteIndex !== undefined) {
+        const msb = (state.sprite_x_msb >> action.spriteIndex) & 1;
+        state.sprite_x[action.spriteIndex] = v | (msb ? 0x100 : 0);
+      }
+      return;
+    case "sprite_y_n":
+      if (action.spriteIndex !== undefined)
+        state.sprite_y[action.spriteIndex] = v;
+      return;
+    case "sprite_x_msb":
+      state.sprite_x_msb = v;
+      // Recompute sprite_x with new MSB bits.
+      for (let i = 0; i < 8; i++) {
+        const lo = state.sprite_x[i] & 0xff;
+        state.sprite_x[i] = lo | (((v >> i) & 1) ? 0x100 : 0);
+      }
+      return;
+    case "sprite_enable":     state.sprite_enable = v; return;
+    case "sprite_priority":   state.sprite_priority = v; return;
+    case "sprite_multicolor": state.sprite_multicolor = v; return;
+    case "sprite_x_expand":   state.sprite_x_expand = v; return;
+    case "sprite_y_expand":   state.sprite_y_expand = v; return;
+    case "vic_bank":
+      state.vic_bank_base = computeVicBankBase(v & 0x03);
+      return;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Build initial RasterState from a live VIC reg file + CIA2 PA byte.
+// Used at frame entry before walking line 0.
+// ---------------------------------------------------------------------------
+
+export interface VicLikeForState {
+  regs: Uint8Array;
+}
+
+export function initStateFromVic(
+  vic: VicLikeForState,
+  initialCia2PaByte: number,
+): RasterState {
+  const r = vic.regs;
+  const d011 = r[0x11] ?? 0;
+  const d016 = r[0x16] ?? 0;
+  const d018 = r[0x18] ?? 0;
+  const dec = decodeMemPtr(d018);
+  const state = createEmptyRasterState();
+
+  state.video_mode = deriveVideoMode(d011, d016);
+  state.xsmooth = d016 & 0x07;
+  state.ysmooth = d011 & 0x07;
+  state.den = (d011 & 0x10) !== 0;
+  state.rsel = (d011 & 0x08) !== 0;
+  state.csel = (d016 & 0x08) !== 0;
+
+  state.screen_base_ptr = dec.screen;
+  state.chargen_base_ptr = dec.chargen;
+  state.bitmap_base_ptr = dec.bitmap;
+  state.vic_bank_base = computeVicBankBase(initialCia2PaByte & 0x03);
+
+  state.border_color = (r[0x20] ?? 0) & 0x0f;
+  state.background_color = (r[0x21] ?? 0) & 0x0f;
+  state.background_color_1 = (r[0x22] ?? 0) & 0x0f;
+  state.background_color_2 = (r[0x23] ?? 0) & 0x0f;
+  state.background_color_3 = (r[0x24] ?? 0) & 0x0f;
+  state.sprite_mc_color_1 = (r[0x25] ?? 0) & 0x0f;
+  state.sprite_mc_color_2 = (r[0x26] ?? 0) & 0x0f;
+
+  state.sprite_x_msb = r[0x10] ?? 0;
+  state.sprite_enable = r[0x15] ?? 0;
+  state.sprite_priority = r[0x1b] ?? 0;
+  state.sprite_multicolor = r[0x1c] ?? 0;
+  state.sprite_x_expand = r[0x1d] ?? 0;
+  state.sprite_y_expand = r[0x17] ?? 0;
+  for (let i = 0; i < 8; i++) {
+    state.sprite_x[i] = (r[i * 2] ?? 0) | (((state.sprite_x_msb >> i) & 1) ? 0x100 : 0);
+    state.sprite_y[i] = r[i * 2 + 1] ?? 0;
+    state.sprite_color[i] = (r[0x27 + i] ?? 0) & 0x0f;
+  }
+  return state;
+}
+
+/**
+ * Field type guard — keeps the action match exhaustive for downstream
+ * exhaustive-switch checks.
+ */
+export function isKnownField(field: string): field is RasterChangeField {
+  return [
+    "video_mode", "xsmooth", "ysmooth", "den", "rsel", "csel",
+    "screen_base_ptr",
+    "border_color", "background_color", "background_color_1",
+    "background_color_2", "background_color_3",
+    "sprite_mc_color_1", "sprite_mc_color_2",
+    "sprite_color_n", "sprite_x_n", "sprite_y_n", "sprite_x_msb",
+    "sprite_enable", "sprite_priority", "sprite_multicolor",
+    "sprite_x_expand", "sprite_y_expand", "vic_bank",
+  ].includes(field);
+}
