@@ -180,6 +180,16 @@ check("kernel.emitIrqEvent + irqEvents capture CIA edges (Spec 203-c1/c2)", () =
   if (typeof kernel.emitIrqEvent !== "function") throw new Error("emitIrqEvent missing");
   if (typeof kernel.irqEvents !== "function") throw new Error("irqEvents missing");
   session.resetCold();
+  // Spec 297: resetCold now actually resets CIA1 (= no stale state),
+  // so KERNAL must program timer A before any IRQ fires. KERNAL boot
+  // to that point takes ~3.5M cycles. Short-cut: program CIA1 timer
+  // A directly to fire at ~5000 cycles, well within runFor(20000).
+  // Mirrors what KERNAL does at $FCE2 area.
+  // CIA1 base = $DC00. Timer A latch = $DC04/05. Control = $DC0E.
+  session.c64Bus.write(0xdc04, 0x88);  // latch lo (~5000 = $1388)
+  session.c64Bus.write(0xdc05, 0x13);  // latch hi
+  session.c64Bus.write(0xdc0d, 0x81);  // ICR: enable timer A IRQ
+  session.c64Bus.write(0xdc0e, 0x11);  // CRA: load latch + start in continuous mode
   session.runFor(20000);
   const events = kernel.irqEvents();
   if (events.length === 0) throw new Error("no IRQ events captured during runFor(20000)");
