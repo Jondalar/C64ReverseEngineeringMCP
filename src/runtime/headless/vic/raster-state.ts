@@ -83,7 +83,16 @@ export interface RasterState {
   // text, mc1 in MC modes, idle-fill in idle/illegal). Updated on
   // mode change.
   xsmooth_color: number;
+
+  // Spec 289: raster mode state machine — explicit enum of what the
+  // VIC is doing this cycle. Mirrors VICE raster-modes.h enum.
+  // - "border": drawing border (vertical_ff || horizontal_ff)
+  // - "display": drawing graphics in display window (DEN=1, FFs off)
+  // - "idle": DEN off but in display lines (= idle-fill state)
+  raster_mode: "border" | "display" | "idle";
 }
+
+export type RasterMode = "border" | "display" | "idle";
 
 export function createEmptyRasterState(): RasterState {
   return {
@@ -129,7 +138,18 @@ export function createEmptyRasterState(): RasterState {
     vertical_ff: true,    // start enabled at frame top until display_ystart hit
     horizontal_ff: true,  // start enabled until cycle 17 of first display line
     xsmooth_color: 0,
+    raster_mode: "border",
   };
+}
+
+/**
+ * Spec 289: derive raster_mode from current FF + DEN state. Called
+ * after FF transitions in renderer.
+ */
+export function deriveRasterMode(state: RasterState): RasterMode {
+  if (state.vertical_ff || state.horizontal_ff) return "border";
+  if (!state.den) return "idle";
+  return "display";
 }
 
 /**
@@ -416,6 +436,8 @@ export function updateVerticalFFAtLineStart(
     if (state.den) state.vertical_ff = false;
     else state.vertical_ff = true;
   }
+  // Spec 289: re-derive raster_mode after FF transition.
+  state.raster_mode = deriveRasterMode(state);
 }
 
 /**
