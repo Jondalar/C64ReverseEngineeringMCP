@@ -286,6 +286,15 @@ export class VicIIVice {
   public vbank_phi1 = 0;
   public vbank_phi2 = 0;
 
+  /** Spec 287: VICE vaddr_chargen_mask_phi1/2 + vaddr_chargen_value_phi1/2.
+   *  Used to detect char ROM shadow window per Φ phase. C64 uses
+   *  same mask + value for both phases (= 0x7000 / 0x1000) =
+   *  $1000-$1FFF in banks 0/2. C128 differs by phase. */
+  public vaddr_chargen_mask_phi1 = 0x7000;
+  public vaddr_chargen_value_phi1 = 0x1000;
+  public vaddr_chargen_mask_phi2 = 0x7000;
+  public vaddr_chargen_value_phi2 = 0x1000;
+
   /** VICE: uint8_t last_read — for RMW + $D019 latch. */
   public last_read: BYTE = 0;
 
@@ -1141,12 +1150,26 @@ export class VicIIVice {
     this.bitmap_ptr = (r18 & 0x08) ? 0x2000 : 0x0000;
   }
 
-  /** Set VIC bank — called from CIA2 PA bits 0..1. */
+  /** Set VIC bank — called from CIA2 PA bits 0..1. Spec 287:
+   *  vbank_phi1 + vbank_phi2 still mirror each other on C64; the
+   *  fields are separate so per-phase tracking is wired even if the
+   *  values are identical (C128 differs by phase). */
   setVbank(num: number): void {
     const tmp = (num & 0x03) << 14;
     this.vbank_phi1 = tmp;
     this.vbank_phi2 = tmp;
     this.viciiUpdateMemoryPtrs();
+  }
+
+  /** Spec 287: detect char ROM shadow for an absolute VIC address
+   *  in the given phase. Mirrors VICE's
+   *  ((vbank_phiN + addr) & vaddr_chargen_mask_phiN) == vaddr_chargen_value_phiN
+   *  used in vicii-fetch.c:429 / 453. */
+  isCharRomFetch(addr: number, phase: "phi1" | "phi2"): boolean {
+    const bank = phase === "phi1" ? this.vbank_phi1 : this.vbank_phi2;
+    const mask = phase === "phi1" ? this.vaddr_chargen_mask_phi1 : this.vaddr_chargen_mask_phi2;
+    const value = phase === "phi1" ? this.vaddr_chargen_value_phi1 : this.vaddr_chargen_value_phi2;
+    return ((bank + (addr & 0x3fff)) & mask) === value;
   }
 
   // -------------------------------------------------------------------------

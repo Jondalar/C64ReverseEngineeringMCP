@@ -45,7 +45,12 @@ export interface BusAccessEvent {
   // CPU context
   pc: number;
   at_boundary: boolean;
+  /** Free-form phase label (legacy). */
   phase?: string;
+  /** Spec 287: address-bus Φ phase tag. "phi1" = VIC drives bus
+   *  (matrix/bitmap/sprite fetch); "phi2" = CPU drives bus (normal
+   *  read/write). Optional — undefined when not modeled (= back-compat). */
+  phi?: "phi1" | "phi2";
 
   // IEC bus state at access time
   iec: BusAccessIecSnapshot;
