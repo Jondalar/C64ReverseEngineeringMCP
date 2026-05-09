@@ -77,6 +77,12 @@ export interface RasterState {
   // Border flip-flops (raster_t.blank_enabled + horizontal FF).
   vertical_ff: boolean;          // true = top/bottom border ON
   horizontal_ff: boolean;        // true = L or R border ON
+
+  // Spec 285: xsmooth color band — fill color for the xsmooth
+  // pixels at the L-edge of gfx window. Per-mode (= bg in std/ext
+  // text, mc1 in MC modes, idle-fill in idle/illegal). Updated on
+  // mode change.
+  xsmooth_color: number;
 }
 
 export function createEmptyRasterState(): RasterState {
@@ -122,7 +128,25 @@ export function createEmptyRasterState(): RasterState {
     row_25_stop_line: 251,
     vertical_ff: true,    // start enabled at frame top until display_ystart hit
     horizontal_ff: true,  // start enabled until cycle 17 of first display line
+    xsmooth_color: 0,
   };
+}
+
+/**
+ * Spec 285: derive xsmooth_color from current video mode + colors.
+ * Mirrors VICE vicii-mem.c which sets raster.xsmooth_color whenever
+ * mode / bg / mc1 changes. Std/ext text → bg; MC modes → mc1; idle
+ * + illegal modes → palette[0] (= black, also matches Spec 284).
+ */
+export function deriveXsmoothColor(state: RasterState): number {
+  const mode = state.video_mode;
+  switch (mode) {
+    case 0: case 4: return state.background_color;        // std text + ext-bg text
+    case 1: case 3: return state.background_color_1;      // mc text + mc bitmap
+    case 2: return state.background_color;                // std bitmap
+    case 5: case 6: case 7: return 0;                     // illegal modes = black
+    default: return state.background_color;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +178,13 @@ export function decodeMemPtr(d018: number): {
 
 export function applyAction(state: RasterState, action: RasterChangeAction): void {
   const v = action.value & 0xff;
+  // Spec 285: re-derive xsmooth_color after any change that affects it
+  // (mode / bg / mc1).
+  const updateXsmoothColor = (
+    action.field === "video_mode"
+    || action.field === "background_color"
+    || action.field === "background_color_1"
+  );
   switch (action.field) {
     case "video_mode": {
       // Action carries either D011 or D016 raw byte (set by builder).
@@ -180,7 +211,7 @@ export function applyAction(state: RasterState, action: RasterChangeAction): voi
         const mcm = (state.video_mode & 1) !== 0;
         state.video_mode = (ecm ? 4 : 0) | (bmm ? 2 : 0) | (mcm ? 1 : 0);
       }
-      return;
+      break;
     }
     case "screen_base_ptr": {
       // Action value carries raw $D018 byte; decode all three pointers.
@@ -197,8 +228,8 @@ export function applyAction(state: RasterState, action: RasterChangeAction): voi
     case "rsel":    state.rsel = !!v; return;
     case "csel":    state.csel = !!v; return;
     case "border_color":         state.border_color = v & 0x0f; return;
-    case "background_color":     state.background_color = v & 0x0f; return;
-    case "background_color_1":   state.background_color_1 = v & 0x0f; return;
+    case "background_color":     state.background_color = v & 0x0f; break;
+    case "background_color_1":   state.background_color_1 = v & 0x0f; break;
     case "background_color_2":   state.background_color_2 = v & 0x0f; return;
     case "background_color_3":   state.background_color_3 = v & 0x0f; return;
     case "sprite_mc_color_1":    state.sprite_mc_color_1 = v & 0x0f; return;
@@ -234,6 +265,7 @@ export function applyAction(state: RasterState, action: RasterChangeAction): voi
       state.vic_bank_base = computeVicBankBase(v & 0x03);
       return;
   }
+  if (updateXsmoothColor) state.xsmooth_color = deriveXsmoothColor(state);
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +314,9 @@ export function initStateFromVic(
   state.background_color_3 = (r[0x24] ?? 0) & 0x0f;
   state.sprite_mc_color_1 = (r[0x25] ?? 0) & 0x0f;
   state.sprite_mc_color_2 = (r[0x26] ?? 0) & 0x0f;
+
+  // Spec 285: derive xsmooth_color after colors + mode are set.
+  state.xsmooth_color = deriveXsmoothColor(state);
 
   state.sprite_x_msb = r[0x10] ?? 0;
   state.sprite_enable = r[0x15] ?? 0;

@@ -620,10 +620,24 @@ function paintLRBorderBands(
 ): void {
   // L band = pixels [0..display_xstart_pixel-1]
   // R band = pixels [display_xstop_pixel..end]
+  // Spec 285: xsmooth_color band — when xsmooth > 0, the rightmost N
+  // pixels of the L border use xsmooth_color (= per-mode bg/mc1 fill)
+  // instead of border color. VICE applies left-edge only (per OQ2).
   const color = state.border_color;
   const lx0 = Math.max(0, x0);
   const lx1 = Math.min(state.display_xstart_pixel - 1, x1);
-  if (lx1 >= lx0) fillSpan(fb, line, lx0, lx1, color);
+  if (lx1 >= lx0) {
+    const xs = state.xsmooth & 0x07;
+    if (xs > 0 && state.den && !state.vertical_ff) {
+      // Border up to display_xstart_pixel - xs, then xsmooth_color band
+      const borderEnd = Math.min(lx1, state.display_xstart_pixel - 1 - xs);
+      if (borderEnd >= lx0) fillSpan(fb, line, lx0, borderEnd, color);
+      const xsStart = Math.max(lx0, state.display_xstart_pixel - xs);
+      if (lx1 >= xsStart) fillSpan(fb, line, xsStart, lx1, state.xsmooth_color);
+    } else {
+      fillSpan(fb, line, lx0, lx1, color);
+    }
+  }
   const rx0 = Math.max(state.display_xstop_pixel, x0);
   const rx1 = Math.min(fb.width - 1, x1);
   if (rx1 >= rx0) fillSpan(fb, line, rx0, rx1, color);
