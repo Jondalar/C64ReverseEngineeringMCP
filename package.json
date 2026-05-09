@@ -79,6 +79,7 @@
     "smoke:vic-fidelity": "npm run build:mcp && node scripts/smoke-vic-fidelity.mjs",
     "smoke:vic-cycle-log": "npm run build:mcp && node scripts/smoke-vic-cycle-log.mjs",
     "smoke:vic-pixel-perfect": "npm run build:mcp && node scripts/smoke-vic-pixel-perfect.mjs",
+    "smoke:raster-changes": "npm run build:mcp && node scripts/smoke-raster-changes.mjs",
     "smoke:pla-fidelity": "npm run build:mcp && node scripts/smoke-pla-fidelity.mjs",
     "smoke:input-fidelity": "npm run build:mcp && node scripts/smoke-input-fidelity.mjs",
     "smoke:input": "npm run build:mcp && node scripts/smoke-input.mjs",
