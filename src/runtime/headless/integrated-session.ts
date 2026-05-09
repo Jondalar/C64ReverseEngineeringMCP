@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { VicIIVice, installVicIIVice, type VicBackend } from "./vic/vic-ii-vice.js";
 import { installSid, type Sid6581 } from "./sid/sid.js";
 import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
+import { renderFramePixelPerfect } from "./peripherals/vic-renderer-pixel.js";
 import { rgbaToPng } from "./peripherals/png-writer.js";
 import { writeFileSync } from "node:fs";
 import { installCia1 } from "./peripherals/cia1.js";
@@ -163,6 +164,11 @@ export interface IntegratedSessionOptions {
   // Sprint 66 hacks compensated for. Default 200_000 c64 cycles
   // (≈ 200ms PAL). Set 0 to disable.
   driveHeadStartCycles?: number;
+  // Spec 262 Phase B-E: opt-in pixel-perfect renderer. Default
+  // "per-char-row" (= existing renderer, no regression risk).
+  // "per-pixel" enables Spec 262d-i pixel-perfect path using
+  // VicIIVice.frameLineLogs. renderToPng() default uses this.
+  vicRenderer?: "per-char-row" | "per-pixel";
 }
 
 export interface PrgLoadResult {
@@ -248,6 +254,8 @@ export class IntegratedSession {
   public readonly driveHeadStartCycles: number;
   // Spec 098: named session-mode preset (resolved at construction).
   public readonly mode: SessionMode;
+  // Spec 262 Phase B-E: default renderer for renderFrame() / renderToPng().
+  public readonly vicRenderer: "per-char-row" | "per-pixel";
   // Spec 093: image format string ("g64" | "d64" | "other") + clock ratio.
   public readonly imageFormat: string;
   public readonly driveClockRatio: number;
@@ -406,6 +414,8 @@ export class IntegratedSession {
     // handle the race during normal scheduler tick. Caller may
     // re-enable via option.
     this.driveHeadStartCycles = opts.driveHeadStartCycles ?? 0;
+    // Spec 262 Phase B-E: vicRenderer default = per-char-row (no regression).
+    this.vicRenderer = opts.vicRenderer ?? "per-char-row";
     // Spec 093: trace wiring. timeSource bound to c64Cpu cycles via getter.
     this.iecBus.timeSource = () => this.c64Cpu.cycles;
     if (opts.traceIec) this.iecBus.enableTrace(opts.traceIecCapacity ?? 1024);
@@ -550,9 +560,25 @@ export class IntegratedSession {
     }
   }
 
-  // Render the current VIC state to the framebuffer (text mode only
-  // for Phase 65b — bitmap + sprites in 65d/65e).
-  renderFrame(): void {
+  // Render the current VIC state to the framebuffer.
+  // Spec 262 Phase B-E: dispatch on session.vicRenderer (or per-call
+  // override). Default per-char-row remains the canonical path so this
+  // method stays a no-regression alias for the legacy renderer.
+  renderFrame(opts?: { renderer?: "per-char-row" | "per-pixel" }): void {
+    const renderer = opts?.renderer ?? this.vicRenderer;
+    if (renderer === "per-pixel") {
+      // Build initial CIA2 PA byte from the current PRA & DDRA mask.
+      // The pixel-perfect renderer replays the per-cycle log onto the
+      // current snapshot; using the live PRA as the seed approximates
+      // the pre-frame value (overwritten by any in-frame PA writes).
+      const cia2Pa = this.cia2.pra & this.cia2.ddra;
+      renderFramePixelPerfect(this.framebuffer, {
+        vic: this.vic,
+        bus: this.c64Bus,
+        initialCia2PaByte: cia2Pa,
+      });
+      return;
+    }
     const cia2Pa = this.cia2.pra & this.cia2.ddra; // output bits only
     const bankBase = computeVicBankBase(cia2Pa & 0x03);
     renderTextModeFrame(this.framebuffer, {
@@ -570,7 +596,7 @@ export class IntegratedSession {
   // border in raw 504-pixel output.
   renderToPng(
     path: string,
-    opts?: { frameAligned?: boolean },
+    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" },
   ): { width: number; height: number; bytes: number } {
     // Spec 262c: optional frame-boundary sync. Default true — running
     // until the visible raster region is fully populated guarantees the
@@ -582,7 +608,7 @@ export class IntegratedSession {
     if (frameAligned) {
       this.runUntilFrameReady();
     }
-    this.renderFrame();
+    this.renderFrame({ renderer: opts?.renderer });
     const fb = this.framebuffer;
     // Active region center in internal 504×312 buf: (24+160, 51+100) = (184, 151).
     // For 384×272 output centered on active: origin = (184-192, 151-136) = (-8, 15).
