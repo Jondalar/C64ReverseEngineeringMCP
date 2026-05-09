@@ -12,6 +12,7 @@
 // reads kernel.<chip> as forwarder for backward-compat field access.
 
 import { readFileSync } from "node:fs";
+import { createNoDiskParser } from "../disk/no-disk-parser.js";
 import type { IntegratedSession } from "../integrated-session.js";
 import type { VideoSystem } from "./clock-domains.js";
 import type { MachineKernel, MachineSnapshot, MountedMedia } from "./machine-kernel.js";
@@ -48,8 +49,10 @@ import type { SyncStrategy } from "./sync-strategy.js";
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
   video: VideoSystem;
-  diskPath: string;
-  imageFormat: string;
+  /** Optional disk image. Omit to boot drive empty (= no media), like
+   *  real C64 + 1541 powered with no disk inserted. */
+  diskPath?: string;
+  imageFormat?: string;
   deviceId: number;
   startTrack: number;
   writeProtected?: boolean;
@@ -119,10 +122,12 @@ export class HeadlessMachineKernel implements MachineKernel {
 
   // Spec 200-c4: drive + disk side. Kernel owns parser, head, GCR
   // shifter and drive CPU; IEC drive-side wiring happens here too.
+  // diskPath empty / diskProvider undefined when booted with no media
+  // (like real C64 + 1541 powered with no disk).
   readonly diskPath: string;
   readonly imageFormat: string;
   readonly parser: G64Parser;
-  readonly diskProvider: DiskProvider;
+  diskProvider?: DiskProvider;
   readonly trackBuffer: TrackBuffer;
   readonly headPosition: HeadPosition;
   readonly gcrShifter: GcrShifter;
@@ -140,14 +145,22 @@ export class HeadlessMachineKernel implements MachineKernel {
     // Spec 200-c4: disk image + parser. D64 sources are pre-encoded to
     // a G64 byte stream in memory and then parsed normally. Real drive
     // ROM, real GCR pipeline, real IEC — same code path as native G64.
-    this.diskPath = deps.diskPath;
-    this.imageFormat = deps.imageFormat;
-    let imageBytes: Uint8Array = readFileSync(this.diskPath);
-    if (this.imageFormat === "d64") {
-      imageBytes = buildG64({ d64: imageBytes });
+    this.diskPath = deps.diskPath ?? "";
+    this.imageFormat = deps.imageFormat ?? "";
+    if (deps.diskPath) {
+      let imageBytes: Uint8Array = readFileSync(deps.diskPath);
+      if (this.imageFormat === "d64") {
+        imageBytes = buildG64({ d64: imageBytes });
+      }
+      this.parser = new G64Parser(imageBytes);
+      this.diskProvider = DiskProvider.fromImagePath(deps.diskPath);
+    } else {
+      // No-disk boot: drive on, drive empty. Sentinel parser returns
+      // null/empty for all reads so GcrShifter sees no sync (= "drive
+      // empty" behavior matching real HW).
+      this.parser = createNoDiskParser();
+      this.diskProvider = undefined;
     }
-    this.parser = new G64Parser(imageBytes);
-    this.diskProvider = DiskProvider.fromImagePath(this.diskPath);
     this.trackBuffer = new TrackBuffer(this.parser);
     // Pass G64 parser's actual half-track count so drive head can step
     // beyond standard 35-track cap. motm.g64 has 37 tracks (data up to

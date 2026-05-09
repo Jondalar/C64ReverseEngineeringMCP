@@ -15,15 +15,11 @@ const { startIntegratedSession, getIntegratedSession } = await import(
 // disk to instantiate). Use empty synthetic disk so session boots
 // to BASIC READY with no game data lurking. User picks real disk
 // via media picker.
-// IntegratedSession requires a diskPath at construction. Use blank
-// (= valid empty D64, no PRGs, blank disk title) so user picker is
-// the first real disk seen; LOAD"$",8 on blank shows just "0 BLOCKS"
-// not noisy "ONEBYTE" content.
-const placeholderDisk = resolvePath(repoRoot, "samples/synthetic/blank.d64");
-
-console.log(`[v3] starting session (placeholder: blank.d64, no auto-load)`);
+// Boot with NO disk in drive. 1541 powered + drive empty = real C64
+// behavior. User picks disk via media picker when ready. PRG / cart
+// workflows can also load directly into RAM without any disk.
+console.log(`[v3] starting session (no disk inserted)`);
 const { sessionId } = startIntegratedSession({
-  diskPath: placeholderDisk,
   mode: "true-drive",
   useMicrocodedCpu: true,
   vicRenderer: "vice-rasterized",

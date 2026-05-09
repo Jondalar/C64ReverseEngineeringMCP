@@ -105,7 +105,10 @@ export function validateDrives(drives: DriveConfig[]): { ok: true } | { ok: fals
 }
 
 export interface IntegratedSessionOptions {
-  diskPath: string;
+  /** Optional disk image path. Omit to boot drive empty (= no media,
+   *  like real C64 + 1541 powered with no disk inserted). PRG / cart
+   *  workflows can omit and load directly into RAM. */
+  diskPath?: string;
   // Spec 115 (M3.7) v1: optional multi-drive declaration. When set,
   // overrides single-drive `diskPath`/`deviceId`. v1 instantiates only
   // the device-8 slot; device-9 is validated and reported via
@@ -208,7 +211,7 @@ export class IntegratedSession {
   public readonly multiDriveDeferred: DriveConfig[] = [];
   public readonly parser: G64Parser;
   public readonly romSet: LoadedC64RomSet;
-  public readonly diskProvider: DiskProvider;
+  public diskProvider?: DiskProvider;
   public readonly kernalFileIo: KernalFileIoState;
   public readonly kernalSerial: KernalSerialState;
   public readonly kernalIo: KernalIoState;
@@ -312,7 +315,9 @@ export class IntegratedSession {
       if (primary.writeProtected !== undefined) (opts as IntegratedSessionOptions).writeProtected = primary.writeProtected;
       (opts as IntegratedSessionOptions).deviceId = primary.id;
     }
-    if (!existsSync(opts.diskPath)) throw new Error(`Disk image not found: ${opts.diskPath}`);
+    if (opts.diskPath && !existsSync(opts.diskPath)) {
+      throw new Error(`Disk image not found: ${opts.diskPath}`);
+    }
     // Spec 098: expand named mode preset into boolean overrides; explicit
     // booleans on opts still win over the preset.
     const resolvedFlags = resolveSessionFlags(opts.mode, {
@@ -352,9 +357,9 @@ export class IntegratedSession {
     const isPal = opts.isPal ?? true;
     this.driveCyclesPerC64Cycle = DRIVE_HZ / (isPal ? C64_HZ_PAL : C64_HZ_NTSC);
     this.driveClockRatio = this.driveCyclesPerC64Cycle;
-    const ext = opts.diskPath.toLowerCase().split(".").pop() ?? "";
+    const ext = (opts.diskPath ?? "").toLowerCase().split(".").pop() ?? "";
     this.imageFormat = ext === "g64" ? "g64" : ext === "d64" ? "d64" : ext || "other";
-    this.diskPath = opts.diskPath;
+    this.diskPath = opts.diskPath ?? "";
 
     // Spec 202: lockstep is diagnostic only. Microcoded CPU no longer
     // implies lockstep; true-drive is microcoded + event/catch-up.
@@ -835,14 +840,15 @@ export class IntegratedSession {
   // `true-drive` mode any fire throws HookForbiddenError and the
   // session crashes loud — that is the audit signal.
   private checkAndHandleTraps(): boolean {
-    if (this.enableKernalFileIoTraps && handleKernalFileIoTrap({
+    // Traps that need disk are no-ops when no disk inserted.
+    if (this.enableKernalFileIoTraps && this.diskProvider && handleKernalFileIoTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, state: this.kernalFileIo,
     })) {
       this.kernel.recordHookFire("kernal-fileio-trap", `pc=$${this.c64Cpu.pc.toString(16)}`);
       return true;
     }
-    if (this.enableKernalSerialTraps && handleKernalSerialTrap({
+    if (this.enableKernalSerialTraps && this.diskProvider && handleKernalSerialTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, drive: this.drive,
       iecBus: this.iecBus, state: this.kernalSerial,
@@ -850,7 +856,7 @@ export class IntegratedSession {
       this.kernel.recordHookFire("kernal-serial-trap", `pc=$${this.c64Cpu.pc.toString(16)}`);
       return true;
     }
-    if (this.enableKernalIoTraps && handleKernalIoTrap({
+    if (this.enableKernalIoTraps && this.diskProvider && handleKernalIoTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, serial: this.kernalSerial,
       state: this.kernalIo,
