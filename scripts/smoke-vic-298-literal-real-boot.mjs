@@ -56,6 +56,11 @@ setIrqHost({
 vicii_init();
 vicii_reset();
 
+// Share regs[] BY REFERENCE so we don't copy 64 bytes per cycle (= the
+// big perf cost). Both VicIIVice and literal port now read/write the
+// same array.
+vicii.regs = s.vic.regs;
+
 // 2. Capture framebuffer line-by-line
 const FB_W = 65 * 8;
 const FB_H = 312;
@@ -68,8 +73,7 @@ let onCycleCount = 0;
 const prevColRegs = new Uint8Array(0x10);
 s.vic.onCycle = (raster_y, raster_cycle, _clk) => {
     onCycleCount++;
-    // Mirror the live VIC regs into literal port BEFORE the cycle
-    for (let i = 0; i < 0x40; i++) vicii.regs[i] = s.vic.regs[i];
+    // regs[] shared by reference (set above) — no copy per cycle.
     // Mirror color reg writes into cregs lookup table
     // (= would be triggered by vicii-mem.c on $D020-$D02E writes per VICE)
     for (let r = 0x20; r <= 0x2e; r++) {

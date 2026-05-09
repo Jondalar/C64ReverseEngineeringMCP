@@ -22,6 +22,14 @@ import { buildG64 } from "../../disk/g64-builder.js";
 import { DiskProvider } from "./providers.js";
 import { existsSync, readFileSync } from "node:fs";
 import { VicIIVice, installVicIIVice, type VicBackend } from "./vic/vic-ii-vice.js";
+// Spec 298k literal-port modules (= eager-loaded; modules are tiny and
+// avoid module-loader cycle vs ESM/CJS).
+import * as LIT_VICII from "./vic/literal/vicii.js";
+import * as LIT_TYPES from "./vic/literal/vicii-types.js";
+import * as LIT_CYCLE from "./vic/literal/vicii-cycle.js";
+import * as LIT_FETCH from "./vic/literal/vicii-fetch.js";
+import * as LIT_IRQ from "./vic/literal/vicii-irq.js";
+import * as LIT_DRAW from "./vic/literal/vicii-draw-cycle.js";
 import { installSid, type Sid6581 } from "./sid/sid.js";
 import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
 import { renderFrameRasterized } from "./peripherals/vic-renderer-rasterized.js";
@@ -172,7 +180,14 @@ export interface IntegratedSessionOptions {
   // "per-char-row" (= existing renderer, no regression risk).
   // "per-pixel" enables Spec 262d-i pixel-perfect path using
   // VicIIVice.frameLineLogs. renderToPng() default uses this.
-  vicRenderer?: "per-char-row" | "per-pixel" | "vice-rasterized";
+  vicRenderer?: "per-char-row" | "per-pixel" | "vice-rasterized" | "literal-port";
+  // Spec 298k: enable literal VICE x64sc port as the rendering source.
+  // When true, the literal port runs alongside VicIIVice via the 297a
+  // onCycle hook (= one VIC cycle pump, both chips see same cycle
+  // count) and writes pixels into a 520×312 framebuffer accumulator.
+  // renderToPng with renderer:"literal-port" reads that accumulator
+  // (skipping the snapshot replay path entirely).
+  useLiteralPortRenderer?: boolean;
   // Spec 282: VIC palette selection. Default = "colodore" (modern
   // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
   // palette) for byte-exact VICE pixel-diff regression. See
@@ -238,6 +253,11 @@ export class IntegratedSession {
   public readonly vic: VicIIVice;
   public readonly sid: Sid6581;
   public readonly framebuffer: VicFramebuffer;
+  // Spec 298k: literal port render output. 520×312 color-index buffer
+  // accumulated per scanline from the literal port's vicii.dbuf via
+  // 297a onCycle hook. Set when useLiteralPortRenderer=true.
+  public literalPortFb?: Uint8Array;
+  public useLiteralPortRenderer: boolean = false;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -271,7 +291,7 @@ export class IntegratedSession {
   // Spec 098: named session-mode preset (resolved at construction).
   public readonly mode: SessionMode;
   // Spec 262 Phase B-E: default renderer for renderFrame() / renderToPng().
-  public readonly vicRenderer: "per-char-row" | "per-pixel" | "vice-rasterized";
+  public readonly vicRenderer: "per-char-row" | "per-pixel" | "vice-rasterized" | "literal-port";
   // Spec 093: image format string ("g64" | "d64" | "other") + clock ratio.
   public readonly imageFormat: string;
   public readonly driveClockRatio: number;
@@ -438,6 +458,11 @@ export class IntegratedSession {
     this.vicRenderer = opts.vicRenderer ?? "per-char-row";
     // Spec 282: bind palette to framebuffer. Default colodore (OQ1=b).
     if (opts.palette) this.framebuffer.setPalette(opts.palette);
+    // Spec 298k: install literal port renderer if opted in.
+    this.useLiteralPortRenderer = opts.useLiteralPortRenderer ?? false;
+    if (this.useLiteralPortRenderer) {
+      this.installLiteralPortRenderer();
+    }
     // Spec 093: trace wiring. timeSource bound to c64Cpu cycles via getter.
     this.iecBus.timeSource = () => this.c64Cpu.cycles;
     if (opts.traceIec) this.iecBus.enableTrace(opts.traceIecCapacity ?? 1024);
@@ -643,8 +668,14 @@ export class IntegratedSession {
   // border in raw 504-pixel output.
   renderToPng(
     path: string,
-    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" | "cycle-pumped" },
+    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" | "cycle-pumped" | "literal-port" },
   ): { width: number; height: number; bytes: number } {
+    // Spec 298k: literal port renderer = paint accumulated dbuf into
+    // framebuffer (= 520×312 color indices → palette → RGBA). Bypass
+    // snapshot replay entirely.
+    if (opts?.renderer === "literal-port" && this.literalPortFb) {
+      return this.renderLiteralPortToPng(path);
+    }
     // Spec 262c: optional frame-boundary sync. Default true — running
     // until the visible raster region is fully populated guarantees the
     // per-line scanlineSnapshots cover every visible line, eliminating
@@ -660,7 +691,12 @@ export class IntegratedSession {
     // start). Skip the snapshot re-render so we keep the live cycle
     // pump output.
     if (opts?.renderer !== "cycle-pumped") {
-      this.renderFrame({ renderer: opts?.renderer });
+      // literal-port + cycle-pumped already handled above; only the
+      // 3 snapshot renderers go through renderFrame()
+      const r = opts?.renderer;
+      if (r === "per-char-row" || r === "per-pixel" || r === "vice-rasterized" || r === undefined) {
+        this.renderFrame({ renderer: r });
+      }
     }
     const fb = this.framebuffer;
     // V3.1 (2026-05-09): symmetric borders matching internal renderer
@@ -1137,5 +1173,124 @@ export class IntegratedSession {
         drivePcTraceCapacity: this.drivePcTraceCapacity,
       },
     };
+  }
+
+  /**
+   * Spec 298k — install literal VICE x64sc port as the rendering source.
+   *
+   * Setup:
+   *   - Bind literal port's vicii.regs to share session.vic.regs by reference
+   *   - Bind literal port's ram_base_phi1/phi2 to c64Bus.ram
+   *   - Hook color RAM (= io[0x0800..]) and chargen ROM
+   *   - vicii_init + vicii_reset
+   *   - Install 297a onCycle hook that mirrors color regs (= equivalent
+   *     to vicii-mem.c colreg writes) + calls vicii_cycle() per cycle
+   *   - On raster_line transition, copy vicii.dbuf into literalPortFb
+   *
+   * Resulting `literalPortFb` (520×312 color indices) is rendered to
+   * PNG by renderToPng({ renderer: "literal-port" }).
+   */
+  private installLiteralPortRenderer(): void {
+    const { vicii } = LIT_TYPES;
+    const lit = LIT_VICII;
+    const litCycle = LIT_CYCLE;
+    const litFetch = LIT_FETCH;
+    const litIrq = LIT_IRQ;
+    const litDraw = LIT_DRAW;
+
+    // Bind RAM + share regs[] by reference (= no per-cycle copy)
+    lit.vicii_bind_ram(this.c64Bus.ram);
+    vicii.regs = this.vic.regs;
+
+    // Color RAM lives at io[0x0800..0x0bff]
+    const colorRamView = new Uint8Array(
+      this.c64Bus.io.buffer,
+      this.c64Bus.io.byteOffset + 0x0800,
+      0x400,
+    );
+
+    litFetch.setFetchHost({
+      mem_chargen_rom_ptr: this.c64Bus.charRom,
+      mem_color_ram_vicii: colorRamView,
+      export_ultimax_phi1: 0,
+      export_ultimax_phi2: 0,
+      ultimax_romh_phi1_read: () => null,
+      ultimax_romh_phi2_read: () => null,
+      reg_pc: 0,
+    });
+    litIrq.setIrqHost({
+      maincpu_set_irq: () => {},
+      maincpu_set_irq_clk: () => {},
+      maincpu_clk: () => 0,
+      interrupt_cpu_status_int_new: () => 0,
+    });
+
+    lit.vicii_init();
+    lit.vicii_reset();
+
+    // 520×312 framebuffer accumulator (= 65 cycles × 8 px = 520 wide)
+    const FB_W = 65 * 8;
+    const FB_H = 312;
+    this.literalPortFb = new Uint8Array(FB_W * FB_H);
+    const fb = this.literalPortFb;
+    let lastRasterLine = -1;
+    const prevColRegs = new Uint8Array(0x10);
+
+    this.vic.onCycle = (_raster_y, _raster_cycle, _clk) => {
+      // Mirror color reg writes ($D020-$D02E) into draw-cycle.ts cregs
+      // lookup table. VICE triggers via vicii-mem.c on actual writes;
+      // we poll because session.vic.regs writes go through VicIIVice
+      // store path which we don't intercept yet.
+      for (let r = 0x20; r <= 0x2e; r++) {
+        const v = this.vic.regs[r]! & 0x0f;
+        if (v !== prevColRegs[r - 0x20]) {
+          prevColRegs[r - 0x20] = v;
+          litDraw.vicii_monitor_colreg_store(r, v);
+        }
+      }
+      // Bind VIC bank from CIA2 PA (inverted bits 0-1)
+      const cia2Pa = (this.cia2.pra & this.cia2.ddra) & 0xff;
+      const bank = (~cia2Pa) & 0x03;
+      vicii.vbank_phi1 = bank * 0x4000;
+      vicii.vbank_phi2 = bank * 0x4000;
+
+      litCycle.vicii_cycle();
+
+      // Capture dbuf when line changes
+      if (vicii.raster_line !== lastRasterLine) {
+        if (lastRasterLine >= 0 && lastRasterLine < FB_H) {
+          const off = lastRasterLine * FB_W;
+          for (let x = 0; x < FB_W; x++) {
+            fb[off + x] = vicii.dbuf[x]!;
+          }
+        }
+        lastRasterLine = vicii.raster_line;
+      }
+    };
+  }
+
+  /**
+   * Spec 298k — render the literalPortFb (= 520×312 color indices) as
+   * PNG. Bypasses snapshot replay; reads only what the literal port
+   * has accumulated.
+   */
+  private renderLiteralPortToPng(path: string): { width: number; height: number; bytes: number } {
+    const FB_W = 65 * 8; // 520
+    const FB_H = 312;
+    const fb = this.literalPortFb!;
+    const palette = this.framebuffer.palette;
+    const rgba = new Uint8Array(FB_W * FB_H * 4);
+    for (let i = 0; i < FB_W * FB_H; i++) {
+      const cIdx = fb[i]! & 0x0f;
+      const [r, g, b] = palette[cIdx]!;
+      const off = i * 4;
+      rgba[off] = r;
+      rgba[off + 1] = g;
+      rgba[off + 2] = b;
+      rgba[off + 3] = 0xff;
+    }
+    const pngBytes = rgbaToPng(FB_W, FB_H, rgba);
+    writeFileSync(path, pngBytes);
+    return { width: FB_W, height: FB_H, bytes: pngBytes.length };
   }
 }
