@@ -97,7 +97,9 @@ export interface VicRenderContext {
   bus: HeadlessMemoryBus;
   // VIC sees memory through a 16KB bank selected by CIA2 PA bits 0-1
   // (inverted: 0→bank3, 1→bank2, 2→bank1, 3→bank0). The bank base is
-  // computed by the renderer per frame.
+  // re-derived per scanline from frameLineLogs (V3.1 fix). The
+  // initial value here is the FRAME-ENTRY bank; per-line overrides
+  // are computed inside renderFrame.
   vicBankBase: number;
 }
 
@@ -126,12 +128,26 @@ function vicRead(ctx: VicRenderContext, vicAddr: number): number {
 export function renderFrame(fb: VicFramebuffer, ctx: VicRenderContext): void {
   const { vic } = ctx;
   fillBorderPerScanline(fb, vic);
+  // V3.1 fix: build per-line CIA2 PA bank table so each char row
+  // can render against the bank active at its top-raster. Without
+  // this, raster-IRQ bank-switch split-screens (motm ingame) all
+  // render against the frame-entry bank.
+  const initialCia2Pa = (ctx.vicBankBase >> 14) & 0x03;
+  // Reverse computeVicBankBase: bank = 3 - (cia2Pa & 0x03), so
+  // cia2Pa = 3 - (bankBase>>14). But initial frame bank may not be
+  // recoverable that way. Use vic.frameLineLogs to extract per-line
+  // bank changes; initial seed comes from ctx.vicBankBase directly.
+  const cia2PaPerLine = buildLineCia2PaForRenderer(vic, initialCia2Pa);
+  const initialBank = ctx.vicBankBase;
   // Track which pixels are "foreground" (=non-bg) for sprite-bg
   // collision detection. 320x200 boolean grid.
   const fgMask = new Uint8Array(VISIBLE_W * VISIBLE_H);
   // For each char row, pick snapshot active at its top raster line.
   for (let row = 0; row < 25; row++) {
     const topRaster = VISIBLE_Y + row * 8;
+    // Per-row bank lookup (V3.1).
+    const rowBankBase = computeVicBankBase(cia2PaPerLine[topRaster] ?? initialCia2Pa);
+    ctx.vicBankBase = rowBankBase;
     const snap = snapAtLine(vic.scanlineSnapshots, topRaster);
     const ctrl1 = snap?.d011 ?? vic.regs[0x11]!;
     const ctrl2 = snap?.d016 ?? vic.regs[0x16]!;
@@ -177,7 +193,41 @@ export function renderFrame(fb: VicFramebuffer, ctx: VicRenderContext): void {
     vic.regs[0x22] = savedD022;
     vic.regs[0x23] = savedD023;
   }
+  // Restore frame-entry bank so sprite renderer + outside callers
+  // see consistent state.
+  ctx.vicBankBase = initialBank;
   renderSprites(fb, ctx, fgMask);
+}
+
+// V3.1 helper — derive per-line CIA2 PA byte from frameLineLogs.
+// Mirrors logic in vic-renderer-pixel.ts buildLineCia2Pa but
+// returns just the PA byte (not the bank-base) so renderer can
+// apply computeVicBankBase as needed.
+function buildLineCia2PaForRenderer(vic: VicLike, initialPa: number): number[] {
+  const out: number[] = new Array(312).fill(initialPa & 0xff);
+  let cur = initialPa & 0xff;
+  // frameLineLogs is optional (Spec 262 Phase A). If absent, all
+  // lines use initialPa.
+  const logs = (vic as any).frameLineLogs;
+  if (!Array.isArray(logs)) return out;
+  // Bank-change entries are recorded with reg=0x80 (VICII_LOG_CIA2_PA).
+  for (const lineEntry of logs) {
+    const writes = (lineEntry as any).writes;
+    if (!Array.isArray(writes)) continue;
+    for (const w of writes) {
+      if (w.reg === 0x80) cur = w.value & 0x03;
+    }
+    if (typeof lineEntry.rasterLine === "number" && lineEntry.rasterLine < out.length) {
+      out[lineEntry.rasterLine] = cur;
+    }
+  }
+  // Forward-fill: lines without explicit entry inherit from previous.
+  let last = initialPa & 0xff;
+  for (let i = 0; i < out.length; i++) {
+    if (out[i] !== initialPa) last = out[i]!;
+    else out[i] = last;
+  }
+  return out;
 }
 
 function snapAtLine(snaps: { rasterLine: number }[], line: number): { d011: number; d016: number; d018: number; d020: number; d021: number; d022: number; d023: number } | undefined {

@@ -191,6 +191,56 @@ export class V3WsServer {
       };
     });
 
+    // List active sessions — UI auto-picks first on connect.
+    this.on("session/list", async () => {
+      const { listIntegratedSessions } = await import("../runtime/headless/integrated-session-manager.js");
+      return listIntegratedSessions().map(({ sessionId, session }) => ({
+        sessionId,
+        mode: session.mode,
+        diskPath: session.diskPath,
+        c64Cycles: session.c64Cpu.cycles,
+      }));
+    });
+
+    // Render current frame as PNG → return base64 data URL.
+    this.on("session/screenshot", async ({ session_id }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const { readFileSync } = await import("node:fs");
+      const path = join(tmpdir(), `c64re-frame-${session_id}-${Date.now()}.png`);
+      s.renderToPng(path);
+      const bytes = readFileSync(path);
+      return { dataUrl: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length };
+    });
+
+    // Run for N cycles.
+    this.on("session/run", async ({ session_id, cycles }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      s.runFor(cycles ?? 100_000);
+      return { c64Cycles: s.c64Cpu.cycles };
+    });
+
+    // Reset (cold). Re-runs KERNAL boot to READY.
+    this.on("session/reset", async ({ session_id, video }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      s.resetCold(video ?? "pal-default");
+      // Run a frame budget so KERNAL gets to READY.
+      s.runFor(800_000);
+      return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc };
+    });
+
+    // Type text (PETSCII keyboard input).
+    this.on("session/type", async ({ session_id, text, hold_cycles, gap_cycles }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      s.typeText(text ?? "", hold_cycles ?? 80_000, gap_cycles ?? 80_000);
+      return { c64Cycles: s.c64Cpu.cycles, queued: text?.length ?? 0 };
+    });
+
     // Spec 263 — audio streaming.
     this.on("audio/start", ({ session_id, sample_rate, chunk_samples }) => {
       const s = getIntegratedSession(session_id);

@@ -700,15 +700,20 @@ export class VicIIVice {
       case 0x08: case 0x0a: case 0x0c: case 0x0e:
         // store_sprite_x_position_lsb — latch + (renderer reads).
         this.regs[a] = v;
+        // V3.1 fix: sprite-pos changes mid-frame = multiplexer trick.
+        this.captureScanline();
         break;
 
       case 0x01: case 0x03: case 0x05: case 0x07:
       case 0x09: case 0x0b: case 0x0d: case 0x0f:
+        // sprite y position
         this.regs[a] = v;
+        this.captureScanline();
         break;
 
       case VICII_R_SP_X_MSB:
         this.regs[a] = v;
+        this.captureScanline();
         break;
 
       case VICII_R_CTRL1:
@@ -726,15 +731,20 @@ export class VicIIVice {
 
       case VICII_R_SP_ENABLE:
         this.regs[a] = v;
+        // V3.1 fix: capture sprite enable changes for raster effects.
+        this.captureScanline();
         break;
 
       case VICII_R_CTRL2:
         this.regs[a] = v;
-        // B-level: lateral border/xsmooth tracking deferred to V3.
+        // V3.1 fix: capture d016 (multicolor + X-scroll + CSEL) for
+        // raster effects. Required for split-screen modes (motm ingame).
+        this.captureScanline();
         break;
 
       case VICII_R_SP_Y_EXP:
         this.regs[a] = v;
+        this.captureScanline();
         break;
 
       case VICII_R_MEM_PTR:
@@ -769,11 +779,14 @@ export class VicIIVice {
       case VICII_R_SP_MC_COL_1:
       case VICII_R_SP_MC_COL_2:
         this.regs[a] = u8(v & 0x0f); // colors are 4-bit.
+        // V3.1 fix: capture color changes for raster effects.
+        this.captureScanline();
         break;
 
       case 0x27: case 0x28: case 0x29: case 0x2a:
       case 0x2b: case 0x2c: case 0x2d: case 0x2e:
         this.regs[a] = u8(v & 0x0f); // sprite colors 4-bit.
+        this.captureScanline();
         break;
 
       case 0x2f:

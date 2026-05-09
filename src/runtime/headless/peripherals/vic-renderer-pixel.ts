@@ -159,18 +159,12 @@ function buildLineSnaps(vic: VicIIVice): LineSnap[] {
   for (let line = lastSnap.rasterLine + 1; line < out.length; line++) {
     out[line] = live;
   }
-  // Also: when the live state differs from the last-captured snap on
-  // visually-relevant fields (d011 / d016 / d020 etc.), assume the
-  // caller poked regs after the last snap was captured and apply those
-  // pokes from the FIRST visible line onward. This is the "test
-  // override" path; for real boot traces the snaps were captured per
-  // line so live === last snap and this is a no-op.
-  if (
-    live.d011 !== curSnap.d011 || live.d016 !== curSnap.d016
-    || live.d018 !== curSnap.d018 || live.d020 !== curSnap.d020
-  ) {
-    for (let line = 0; line < out.length; line++) out[line] = live;
-  }
+  // V3.1 fix 2026-05-09: REMOVED test-override block that stamped
+  // live state onto all 312 lines whenever live differed from last
+  // snap. That was the root cause of motm-ingame blank-render: after
+  // ~60s the live d018/d011 differs from frame-end snap, and the
+  // override would flatten all bands to the live state, losing
+  // split-screen distinction. Per-line snaps are authoritative.
   return out;
 }
 

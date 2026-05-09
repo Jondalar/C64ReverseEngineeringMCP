@@ -23,22 +23,25 @@ export function App(): JSX.Element {
     return offState;
   }, []);
 
+  // Auto-pick first session when WS opens (no session set yet).
+  useEffect(() => {
+    if (sessionId || conn !== "open") return;
+    const client = getClient();
+    client.call("session/list").then((sessions: any[]) => {
+      if (sessions.length > 0) setSessionId(sessions[0].sessionId);
+    }).catch(() => {});
+  }, [conn, sessionId]);
+
   // Poll session state every 500ms when connected.
   useEffect(() => {
-    if (conn !== "open") return;
+    if (conn !== "open" || !sessionId) return;
     const client = getClient();
     let alive = true;
     const tick = async () => {
       if (!alive) return;
       try {
-        // If we don't have a session id yet, poll the manager for the first one.
-        if (!sessionId) {
-          // No bootstrap RPC yet — leave empty until user mounts media.
-          // For now show "no session".
-        } else {
-          const s = await client.call("session/state", { session_id: sessionId });
-          setCycle(s.c64Cycles ?? 0);
-        }
+        const s = await client.call("session/state", { session_id: sessionId });
+        setCycle(s.c64Cycles ?? 0);
       } catch { /* ignore poll errors */ }
       if (alive) setTimeout(tick, 500);
     };
