@@ -179,6 +179,11 @@ export async function mountMedia(
     (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
     (session.kernel as unknown as { diskProvider: unknown }).diskProvider = newProvider;
     (session.kernalFileIo as unknown as { diskProvider?: unknown }).diskProvider = newProvider;
+    // Update parser aliases on session + kernel. Currently dead aliases
+    // (no consumer outside ctor) but kept consistent with direct-boot
+    // path so future readers see the live image, not the NoDisk sentinel.
+    (session.kernel as unknown as { parser: unknown }).parser = newParser;
+    (session as unknown as { parser: unknown }).parser = newParser;
     session.diskPath = path;
 
     addRecent(path, mediaType);
