@@ -1,6 +1,10 @@
 # Spec 288 — VIC-II odd/even line palette split
 
-**Sprint:** 144  **Status:** PROPOSED 2026-05-09  **Depends:** 282
+**Sprint:** 144  **Status:** RESOLVED 2026-05-09  **Depends:** 282
+
+**Resolved:** OQ1=(a) auto-on for chips with tables (= VICE
+default), OQ2=(a) skip pepto/colodore split (= they're computed,
+single table), OQ3=all three test modes.
 
 ## Goal
 

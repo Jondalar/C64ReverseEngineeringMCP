@@ -1,6 +1,10 @@
 # Spec 290 — VIC-II raster cache (line memoization)
 
-**Sprint:** 144  **Status:** PROPOSED 2026-05-09  **Depends:** 281, 289
+**Sprint:** 144  **Status:** RESOLVED 2026-05-09  **Depends:** 281, 289
+
+**Resolved:** OQ1=(a) per-line cache (= VICE), OQ2=(b) palette
+indices (~158 KB cheaper, identical output after LUT), OQ3=(b)
+correctness vs perf measured separately.
 
 ## Goal
 

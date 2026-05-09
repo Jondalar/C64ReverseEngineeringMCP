@@ -1,6 +1,9 @@
 # Spec 287 — VIC-II Φ1/Φ2 addressbus phase modeling
 
-**Sprint:** 144  **Status:** PROPOSED 2026-05-09  **Depends:** 286
+**Sprint:** 144  **Status:** RESOLVED 2026-05-09  **Depends:** 286
+
+**Resolved:** OQ1=(a) optional phi field on bus-trace events (no
+break), OQ2=(a) full chargen-mask split per phase (1:1 VICE), OQ3=both.
 
 ## Goal
 

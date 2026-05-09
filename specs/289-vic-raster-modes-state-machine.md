@@ -1,6 +1,9 @@
 # Spec 289 — VIC-II raster_modes_t state machine refactor
 
-**Sprint:** 144  **Status:** PROPOSED 2026-05-09  **Depends:** 281
+**Sprint:** 144  **Status:** RESOLVED 2026-05-09  **Depends:** 281
+
+**Resolved:** OQ1=(a) full extract refactor (= ALLES), OQ2=regression
+sufficient (output unchanged).
 
 ## Goal
 

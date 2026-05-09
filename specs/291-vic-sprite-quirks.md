@@ -1,6 +1,10 @@
 # Spec 291 — VIC-II sprite quirks (Y-crunch + self-collision + DMA byte timing)
 
-**Sprint:** 144  **Status:** PROPOSED 2026-05-09  **Depends:** 280d
+**Sprint:** 144  **Status:** RESOLVED 2026-05-09  **Depends:** 280d
+
+**Resolved:** OQ1=(b) full per-cycle Y-expansion latch (1:1 VICE),
+OQ2=(a) self-collision implemented, OQ3=(a) per-byte DMA now (V3
+timeline view), OQ4=both synth + regression.
 
 ## Goal
 

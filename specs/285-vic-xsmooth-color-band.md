@@ -1,6 +1,9 @@
 # Spec 285 — VIC-II xsmooth-color border band
 
-**Sprint:** 144  **Status:** PROPOSED 2026-05-09  **Depends:** 281
+**Sprint:** 144  **Status:** RESOLVED 2026-05-09  **Depends:** 281
+
+**Resolved:** OQ1=(c) per-mode wie VICE, OQ2=left only, OQ3=both
+synth + regression.
 
 ## Goal
 

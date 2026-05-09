@@ -1,6 +1,9 @@
 # Spec 286 — CIA2 PA VIC-bank switch cycle-exact
 
-**Sprint:** 144  **Status:** PROPOSED 2026-05-09  **Depends:** 280
+**Sprint:** 144  **Status:** RESOLVED 2026-05-09  **Depends:** 280
+
+**Resolved:** OQ1=(a) match VICE phi1/phi2 separate (overlap with
+Spec 287 accepted), OQ2=tear during fetch yes (1:1 VICE), OQ3=both.
 
 ## Goal
 
