@@ -144,17 +144,28 @@ export async function mountMedia(
     }
     const newParser = new G64Parser(rawData);
 
-    // Hot-swap the G64 parser inside the session's TrackBuffer.
-    // TrackBuffer.source is declared `readonly` but we need to replace it
-    // for disk-swap. We also clear the lazy-loaded tracks cache so the
-    // new parser is consulted on next access. All drive-state (head
-    // position, shifter, motor) is preserved — exactly "insert new disk".
+    // Hot-swap the G64 parser inside BOTH TrackBuffers:
+    //   - session.trackBuffer (= kernel.trackBuffer): KERNAL trap path
+    //   - session.drive.trackBuffer: drive ROM real-protocol path
+    // These are SEPARATE instances. Pre-fix: we only swapped the
+    // session/kernel side, so drive ROM kept reading the old disk =
+    // user picker showed picked disk metadata but content stayed at
+    // placeholder. TrackBuffer.source declared `readonly` (compile-
+    // time only) so cast through unknown.
     const tb = session.trackBuffer as unknown as {
       source: unknown;
       tracks: Map<number, unknown>;
     };
     tb.source = newParser;
     tb.tracks.clear();
+    const driveTb = session.drive.trackBuffer as unknown as {
+      source: unknown;
+      tracks: Map<number, unknown>;
+    } | undefined;
+    if (driveTb) {
+      driveTb.source = newParser;
+      driveTb.tracks.clear();
+    }
 
     // Update the kernel's diskProvider so KERNAL file traps see new files.
     (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
