@@ -161,7 +161,9 @@ export function LiveTab({ sessionId, setSessionId }: TabProps): JSX.Element {
       setActiveMedia(path);
       // Auto reset + LOAD"*",8,1 + RUN so user sees swapped disk boot.
       await client.call("session/reset", { session_id: sessionId, video: "pal-default" });
-      await client.call("session/run", { session_id: sessionId, cycles: 2_000_000 });
+      // Need ~3M cycles for KERNAL boot + BASIC fully at READY prompt.
+      // Less than this drops leading typed chars (L gets eaten).
+      await client.call("session/run", { session_id: sessionId, cycles: 5_000_000 });
       await client.call("session/type", { session_id: sessionId, text: 'LOAD"*",8,1\r' });
       await client.call("session/run", { session_id: sessionId, cycles: 30_000_000 });
       await client.call("session/type", { session_id: sessionId, text: "RUN\r" });

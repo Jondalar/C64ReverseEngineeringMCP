@@ -234,8 +234,10 @@ export class V3WsServer {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
       s.resetCold(video ?? "pal-default");
-      // Run a frame budget so KERNAL gets to READY.
-      s.runFor(800_000);
+      // Run enough cycles for KERNAL to fully reach READY + BASIC input
+      // poll. Anything < 3M cycles eats leading chars from typeText
+      // (kbd buffer sees first key before BASIC polls). 5M is safe.
+      s.runFor(5_000_000, { cycleBudget: 5_000_000 });
       return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc };
     });
 
