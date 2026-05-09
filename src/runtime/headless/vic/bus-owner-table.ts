@@ -47,6 +47,19 @@ export type BusOwner = "cpu" | "vic";
 export const PAL_SPRITE_FETCH_CYCLE = 54;
 /** PAL VICII_FETCH_CYCLE — first badline matrix fetch cycle. */
 export const PAL_BADLINE_FETCH_CYCLE = 11;
+/** Spec 294: PAL refresh cycles 11..15 (= 5 r-access slots per line).
+ *  VIC drives addrbus for DRAM refresh on these cycles every line.
+ *  Refresh does NOT steal CPU cycles (phi1=VIC, phi2=CPU). Used for
+ *  trace introspection via isRefreshCycle(). */
+export const PAL_REFRESH_FIRST_CYCLE = 11;
+export const PAL_REFRESH_LAST_CYCLE = 15;
+export const PAL_REFRESH_CYCLES_PER_LINE = 5;
+
+/** Spec 294: returns true if `cycleInLine` is a refresh r-access slot. */
+export function isRefreshCycle(cycleInLine: number): boolean {
+  return cycleInLine >= PAL_REFRESH_FIRST_CYCLE
+    && cycleInLine <= PAL_REFRESH_LAST_CYCLE;
+}
 /** Cycles consumed by one badline matrix fetch (chars + p-fetch). */
 export const PAL_BADLINE_LENGTH = 43; // VICII_SCREEN_TEXTCOLS + 3
 /** Per-sprite s-access cycle count. */
@@ -98,6 +111,10 @@ export function getBusOwner(
   isBadline: boolean,
   spriteFetchMask: number,
 ): BusOwner {
+  // Spec 294: refresh cycles 11..15 — VIC drives addrbus for DRAM
+  // refresh on every line. NOTE: refresh DOES NOT steal CPU cycles
+  // (phi1=VIC, phi2=CPU). For trace fidelity see isRefreshCycle();
+  // this getBusOwner returns CPU on non-badline refresh cycles.
   // 1) Badline matrix fetch — cycles 11..53 (= VICII_FETCH_CYCLE +
   //    VICII_SCREEN_TEXTCOLS - 1). Per VICE the +3 p-access tail (54..56)
   //    overlaps with the sprite-fetch window so we treat 11..53 here as
