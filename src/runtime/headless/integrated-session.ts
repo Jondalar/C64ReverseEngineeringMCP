@@ -737,6 +737,13 @@ export class IntegratedSession {
       this.drive.setSyncBaseline(this.c64Cpu.cycles); // = 0 still
     }
     this.sid.reset();
+    // Cold-reset C64 peripherals. Without this, second+ reset leaves
+    // CIA timers / IRQ state from previous run → no 50Hz timer A IRQ
+    // → KERNAL cursor blink countdown ($CD) never decrements →
+    // cursor stuck (= the "no cursor after reset" bug).
+    this.cia1.reset();
+    this.cia2.reset();
+    this.vic.reset();
     // Reset keyboard clock + drop pending key events — c64Cpu.cycles
     // restarts at 0, keyboard would otherwise schedule events at the
     // pre-reset clock and miss the window.
