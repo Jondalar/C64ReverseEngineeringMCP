@@ -215,11 +215,15 @@ export class V3WsServer {
       return { dataUrl: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length };
     });
 
-    // Run for N cycles.
+    // Run with C64 CYCLE budget (not instructions). runFor's first
+    // arg is instruction-count; we pass huge instr cap + tight
+    // cycleBudget so live UI gets cycle-accurate pacing (1 PAL frame
+    // = 19705 cycles default).
     this.on("session/run", async ({ session_id, cycles }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
-      s.runFor(cycles ?? 100_000);
+      const cycleBudget = cycles ?? 19705;
+      s.runFor(1_000_000, { cycleBudget });
       return { c64Cycles: s.c64Cpu.cycles };
     });
 
