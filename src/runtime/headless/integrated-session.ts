@@ -408,6 +408,8 @@ export class IntegratedSession {
     this.trackBuffer = this.kernel.trackBuffer;
     this.headPosition = this.kernel.headPosition;
     this.gcrShifter = this.kernel.gcrShifter;
+    // VICE attach/detach delay state machine needs current cpu cycle.
+    this.gcrShifter.setClockProvider(() => this.c64Cpu.cycles);
     this.drive = this.kernel.drive;
     if (this.mode === "true-drive" || this.mode === "debug-vice-compare") {
       this.kernel.setMode("true-drive");

@@ -159,6 +159,11 @@ export async function mountMedia(
       session.drive.trackBuffer.notifyMediaChange(newParser);
     }
     session.gcrShifter?.notifyMediaChange(newParser);
+    // VICE drive_image_attach: set attach_clk = current cpu cycle.
+    // Drive sees no-sync + neutral data for DRIVE_ATTACH_DELAY cycles
+    // (~1.8 sec PAL), letting drive ROM settle without abrupt
+    // bit-stream transition. Mirrors real HW media-insert physics.
+    session.gcrShifter?.notifyAttach(session.c64Cpu.cycles);
 
     // Update the kernel's diskProvider so KERNAL file traps see new files.
     (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
@@ -176,11 +181,23 @@ export async function mountMedia(
 
 /** Eject (clear) the disk in the given drive slot. */
 export function unmountMedia(
-  _session: IntegratedSession,
+  session: IntegratedSession,
   slot: DriveSlot,
 ): { slot: DriveSlot; ejected: boolean } {
-  // In V1 we don't zero-out the TrackBuffer because the drive ROM needs
-  // data to respond to the bus. Eject is a UI concept — we just mark it.
+  // VICE drive_image_detach: set detach_clk + swap to no-disk parser.
+  // Drive sees no-sync + neutral for DRIVE_DETACH_DELAY (~600K cycles).
+  // Track data freed; head position preserved.
+  const { createNoDiskParser } = require("../disk/no-disk-parser.js") as
+    typeof import("../disk/no-disk-parser.js");
+  const empty = createNoDiskParser();
+  session.trackBuffer.notifyMediaChange(empty);
+  if (session.drive.trackBuffer
+      && session.drive.trackBuffer !== session.trackBuffer) {
+    session.drive.trackBuffer.notifyMediaChange(empty);
+  }
+  session.gcrShifter?.notifyMediaChange(empty);
+  session.gcrShifter?.notifyDetach(session.c64Cpu.cycles);
+  session.diskPath = "";
   return { slot, ejected: true };
 }
 

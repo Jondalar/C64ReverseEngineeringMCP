@@ -58,6 +58,13 @@ import { type BYTE, u8 } from "../util/uint.js";
 
 export const CYCLES_PER_BYTE_BY_ZONE: ReadonlyArray<number> = [32, 30, 28, 26];
 
+// VICE drive.h media-attach delay constants. Drive sees no-sync +
+// neutral data for this many cycles after attach/detach so the read
+// amp + drive ROM can settle without abrupt bit-stream transition.
+export const DRIVE_ATTACH_DELAY = 3 * 600_000;          // 1,800,000 cycles
+export const DRIVE_DETACH_DELAY = 3 * 200_000;          //   600,000 cycles
+export const DRIVE_ATTACH_DETACH_DELAY = 3 * 400_000;   // 1,200,000 cycles
+
 /** Drive cycles per single GCR bit for the given zone (zone & 0x03). */
 export function cyclesPerByteForZone(zone: number): number {
   return CYCLES_PER_BYTE_BY_ZONE[zone & 0x03]!;
@@ -168,6 +175,19 @@ export class GcrShifter {
   // VIA2 PB5/PB6 density-zone override (undefined → derive from track).
   private densityOverride: 0 | 1 | 2 | 3 | undefined;
 
+  // VICE attach/detach state machine (drive.h DRIVE_ATTACH_DELAY etc).
+  // While attach_clk != 0 AND (clk - attach_clk) < DRIVE_ATTACH_DELAY:
+  //   syncBit returns "no sync" (0x80 / bit=1)
+  //   dataByte returns 0 (= GCR_read = 0 in VICE rotation_byte_read)
+  // attach_clk auto-clears once delay elapses (mirrors VICE
+  // rotation.c:1153). Same pattern for detach + attach-after-detach.
+  private attach_clk: number = 0;
+  private detach_clk: number = 0;
+  private attach_detach_clk: number = 0;
+  // External clock provider — set by IntegratedSession to c64Cpu.cycles.
+  // When undefined, attach delays are effectively skipped (= unit test mode).
+  private clockProvider?: () => number;
+
   // Track currently bound to the shifter; flushed when head moves.
   private latchedTrack = -1;
 
@@ -184,17 +204,21 @@ export class GcrShifter {
 
   /**
    * Disk-insert event: caller swapped the parser to a new disk.
-   * Real-HW analogue: door switch closed + media inserted. Drive's
-   * read amplifier sees fresh GCR stream from new media. We swap the
-   * parser ref + clear lazy track cache so next ensureTrackBytes
-   * pulls from new media; bit-stream state (last_read_data,
-   * bitOffset, dataByteLatch) is intentionally PRESERVED — drive
-   * ROM is mid-routine when user mounts mid-game; resetting these
-   * destroys in-flight protocol state and breaks fastloaders.
    *
-   * Drive head position is preserved (= matches real HW: insert
-   * doesn't move the head). Re-bind happens on next track read via
-   * ensureTrackBytes when latchedTrack still matches.
+   * Two regimes:
+   *   1. First insert (= prior parser yielded NULL bytes for all
+   *      tracks, e.g. NoDiskParser). Shifter accumulated bit-state
+   *      from null/0 reads while drive was idle/empty. RESET
+   *      bit-stream state so first reads from new disk start clean.
+   *      Real-HW analogue: drive was empty (no flux), now sees
+   *      fresh GCR stream from new media → read amp settles to
+   *      a clean bit pattern.
+   *   2. Disk-to-disk swap (= prior parser had real data). Drive
+   *      may be mid-protocol (fastloader). PRESERVE bit-stream
+   *      state — destroying it breaks in-flight reads.
+   *
+   * Detection: if previous parser.getRawTrackBytes(18) returned
+   * null, treat as first insert.
    */
   notifyMediaChange(newParser: G64Parser): void {
     (this as unknown as { parser: G64Parser }).parser = newParser;
@@ -207,6 +231,10 @@ export class GcrShifter {
 
   /** Latched data byte (VIA2 PRA = $1C01). */
   get dataByte(): BYTE {
+    // VICE rotation_byte_read (rotation.c:1145+): during attach delay,
+    // GCR_read forced to 0 regardless of underlying GCR data. Drive ROM
+    // sees neutral byte stream while media settles.
+    if (this.isInAttachDelay()) return 0;
     return this.dataByteLatch;
   }
 
@@ -215,9 +243,55 @@ export class GcrShifter {
    * rotation_sync_found L1134-1143:
    *   "0x0 is returned when sync is found and 0x80 is returned when no
    *    sync is found" (here normalised to a single bit, 0 or 1).
+   * During attach/detach delay, returns no-sync (= 0x80 → bit 1).
    */
   get syncBit(): 0 | 1 {
+    if (this.isInAttachDelay()) return 1;
     return this.syncActive ? 0 : 1;
+  }
+
+  /** True if currently inside attach/detach settle window. */
+  private isInAttachDelay(): boolean {
+    if (!this.clockProvider) return false;
+    const clk = this.clockProvider();
+    if (this.attach_clk !== 0) {
+      if (clk - this.attach_clk < DRIVE_ATTACH_DELAY) return true;
+      this.attach_clk = 0;  // auto-clear (mirrors VICE rotation.c:1153)
+    }
+    if (this.detach_clk !== 0) {
+      if (clk - this.detach_clk < DRIVE_DETACH_DELAY) return true;
+      this.detach_clk = 0;
+    }
+    if (this.attach_detach_clk !== 0) {
+      if (clk - this.attach_detach_clk < DRIVE_ATTACH_DETACH_DELAY) return true;
+      this.attach_detach_clk = 0;
+    }
+    return false;
+  }
+
+  /** Wire the clock source (= c64Cpu.cycles getter). Called once at
+   *  IntegratedSession construction. */
+  setClockProvider(p: () => number): void {
+    this.clockProvider = p;
+  }
+
+  /** Trigger attach delay — called by mountMedia. clk is current cpu cycle.
+   *  Pure VICE behavior: set attach_clk, don't touch shifter state.
+   *  During delay window, syncBit + dataByte getters return neutral.
+   *  After delay, shifter continues from wherever its bit-stream is —
+   *  next sync mark in real disk data will re-sync naturally. */
+  notifyAttach(clk: number): void {
+    if (this.detach_clk !== 0) {
+      this.attach_detach_clk = clk;
+      this.detach_clk = 0;
+    } else {
+      this.attach_clk = clk;
+    }
+  }
+
+  /** Trigger detach delay — called by unmountMedia. */
+  notifyDetach(clk: number): void {
+    this.detach_clk = clk;
   }
 
   /** True when SYNC is currently detected (convenience). */
