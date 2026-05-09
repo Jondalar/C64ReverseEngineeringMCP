@@ -1,51 +1,45 @@
 #!/usr/bin/env node
 // Spec 261/272 — V3 server bootstrap.
-// Starts WebSocket server on 4312, auto-mounts motm.g64 + boots to title.
-// User runs `npm run ui:v3:dev` separately (vite at 4313).
+// Starts WebSocket server on 4312, opens C64 session at fresh BASIC ready
+// with NO media mounted. User picks media via UI Live-tab dropdown.
 
 import { resolve as resolvePath } from "node:path";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const { V3WsServer } = await import(`${repoRoot}/dist/workspace-ui/v3-ws-server.js`);
-const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
+const { startIntegratedSession, getIntegratedSession } = await import(
+  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+);
 
-const args = process.argv.slice(2);
-const game = args[0] ?? "motm";
-const GAMES = {
-  motm:  "samples/motm.g64",
-  mm:    "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64",
-  im2:   "samples/impossible_mission_ii[epyx_1987](!).g64",
-  lnr:   "samples/last_ninja_remix_s1[system3_1991].g64",
-};
-const diskPath = resolvePath(repoRoot, GAMES[game] ?? GAMES.motm);
+// Need a placeholder disk for IntegratedSession init (= drive needs
+// disk to instantiate). Use empty synthetic disk so session boots
+// to BASIC READY with no game data lurking. User picks real disk
+// via media picker.
+const placeholderDisk = resolvePath(repoRoot, "samples/synthetic/1byte.d64");
 
-console.log(`[v3] auto-mounting ${game}: ${diskPath}`);
+console.log(`[v3] starting session (placeholder: empty 1byte.d64, no auto-load)`);
 const { sessionId } = startIntegratedSession({
-  diskPath, mode: "true-drive", useMicrocodedCpu: true,
-  vicRenderer: "per-pixel",
+  diskPath: placeholderDisk,
+  mode: "true-drive",
+  useMicrocodedCpu: true,
+  vicRenderer: "vice-rasterized",
 });
 console.log(`[v3] session id: ${sessionId}`);
 
-const PAL_HZ = 985248;
-console.log(`[v3] booting + LOAD"*",8,1...`);
-const session = (await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`)).getIntegratedSession(sessionId);
+console.log(`[v3] cold reset + boot to BASIC ready...`);
+const session = getIntegratedSession(sessionId);
 session.resetCold("pal-default");
-session.runFor(800_000);
-session.typeText('LOAD"*",8,1\r', 80_000, 80_000);
-for (let i = 0; i < 20; i++) session.runFor(50_000);
-console.log(`[v3] LOAD typed; advancing 45s...`);
-const target = session.c64Cpu.cycles + 45 * PAL_HZ;
-while (session.c64Cpu.cycles < target) session.runFor(50_000);
+session.runFor(2_000_000); // boot KERNAL until READY prompt
 console.log(`[v3] cycle=${session.c64Cpu.cycles} pc=$${session.c64Cpu.pc.toString(16)}`);
 
 console.log(`[v3] starting WebSocket server on ws://127.0.0.1:4312`);
 const server = new V3WsServer({ port: 4312, host: "127.0.0.1" });
 
 console.log(`[v3] ready.`);
-console.log(`[v3]   1. Run \`npm run ui:v3:dev\` in another terminal`);
-console.log(`[v3]   2. Open http://127.0.0.1:4313`);
-console.log(`[v3]   3. UI auto-picks session ${sessionId}`);
-console.log(`[v3]   4. Click Live tab → Run / Snapshot`);
+console.log(`[v3]   1. Open http://127.0.0.1:4313`);
+console.log(`[v3]   2. UI auto-picks session ${sessionId}`);
+console.log(`[v3]   3. Live tab: pick disk from dropdown → click Run → see cursor`);
+console.log(`[v3]   4. Type "LOAD\\"*\\",8,1<Enter>RUN<Enter>" or click buttons`);
 
 process.on("SIGINT", async () => {
   console.log(`\n[v3] shutting down...`);
