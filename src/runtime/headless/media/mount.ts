@@ -159,6 +159,16 @@ export async function mountMedia(
       session.drive.trackBuffer.notifyMediaChange(newParser);
     }
     session.gcrShifter?.notifyMediaChange(newParser);
+    // HeadPosition cap = constructed from initial parser's
+    // halfTrackCount (kernel.ts:168-172). NoDisk parser → 0 → fallback
+    // 35 tracks. motm.g64 has 37 tracks (extended for copy protection),
+    // so without re-cap the head can't reach tracks 36/37 after a
+    // mount-swap → fastloader read failures → retry loop. Update cap
+    // to match new image. Mirrors what kernel ctor does on direct boot.
+    const newHalfTrackCount = newParser.getHalfTrackCount();
+    if (newHalfTrackCount > 0) {
+      session.headPosition.setMaxHalfTracks(newHalfTrackCount);
+    }
     // VICE drive_image_attach: set attach_clk = current cpu cycle.
     // Drive sees no-sync + neutral data for DRIVE_ATTACH_DELAY cycles
     // (~1.8 sec PAL), letting drive ROM settle without abrupt
