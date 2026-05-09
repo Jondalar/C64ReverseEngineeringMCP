@@ -373,37 +373,39 @@ export class V3WsServer {
       const { getRecent } = await import("../runtime/headless/media/recent-files.js");
       const pmod = await import("node:path");
       const fsmod = await import("node:fs");
-      const recent = getRecent();
-      // Filter recents to existing files only (= drop stale paths from
-      // prior test runs that no longer exist on disk).
-      const existing = recent.filter((r: any) => {
-        try { return fsmod.existsSync(r.path); } catch { return false; }
-      });
-      if (existing.length > 0) {
-        return existing.map((r: any) => ({ ...r, name: r.name ?? pmod.basename(r.path) }));
-      }
-      // Fallback: scan TOP-LEVEL samples/ only (= no recursion into
-      // vice-testprogs / synthetic / etc which would flood the picker).
-      const fs = await import("node:fs");
-      const path = await import("node:path");
-      const samplesDir = path.join(process.cwd(), "samples");
-      const out: Array<{ path: string; name: string; type: string }> = [];
+
       const exts = [".d64", ".g64", ".crt", ".prg", ".vsf"];
-      function walk(dir: string): void {
-        if (!fs.existsSync(dir)) return;
-        for (const entry of fs.readdirSync(dir)) {
+      const seen = new Set<string>();
+      const out: Array<{ path: string; name: string; type: string }> = [];
+
+      // 1. Recents (existing only) first — preserves "recently used"
+      //    ordering at top of picker.
+      for (const r of getRecent() as any[]) {
+        try { if (!fsmod.existsSync(r.path)) continue; } catch { continue; }
+        if (seen.has(r.path)) continue;
+        seen.add(r.path);
+        out.push({ ...r, name: r.name ?? pmod.basename(r.path) });
+      }
+
+      // 2. ALWAYS scan top-level samples/ + UNION (= picker shows
+      //    all known disks, not just previously-mounted ones).
+      const samplesDir = pmod.join(process.cwd(), "samples");
+      if (fsmod.existsSync(samplesDir)) {
+        for (const entry of fsmod.readdirSync(samplesDir).sort()) {
           if (entry.startsWith(".") || entry === "node_modules") continue;
-          const full = path.join(dir, entry);
+          const full = pmod.join(samplesDir, entry);
           let st;
-          try { st = fs.statSync(full); } catch { continue; }
+          try { st = fsmod.statSync(full); } catch { continue; }
           if (st.isDirectory()) continue; // top-level only
+          if (seen.has(full)) continue;
           const lower = entry.toLowerCase();
           const ext = exts.find((e) => lower.endsWith(e));
-          if (ext) out.push({ path: full, name: path.basename(full), type: ext.slice(1) });
+          if (!ext) continue;
+          seen.add(full);
+          out.push({ path: full, name: pmod.basename(full), type: ext.slice(1) });
         }
       }
-      walk(samplesDir);
-      return out.slice(0, 50);
+      return out.slice(0, 100);
     });
 
     // ---- Spec 268 — Snapshot tree + scenario registry WS handlers ----
