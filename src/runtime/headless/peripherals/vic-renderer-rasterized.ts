@@ -34,6 +34,7 @@ import { buildPerLineLanesFromFrameLog } from "../vic/raster-changes-builder.js"
 import {
   applyAction,
   initStateFromVic,
+  updateVerticalFFAtLineStart,
   type RasterState,
 } from "../vic/raster-state.js";
 import { renderSpritesPerLine, type SpriteCollisionResult } from "../vic/sprite-render.js";
@@ -160,23 +161,30 @@ function renderOneLine(
   // produces the same result because a full segment uses one mode and
   // one set of colors at that point in the walk.
 
-  const yIsVisible = line >= VISIBLE_Y && line < VISIBLE_Y + VISIBLE_H;
+  // Spec 281: update vertical border flip-flop at line boundary
+  // (handles display_ystart enter / display_ystop bottom-border).
+  updateVerticalFFAtLineStart(state, line);
   // Initialize line: paint full line with current border color (default
   // when no display, or where outside 24/40-col display window).
   paintScanline(fb, line, state.border_color);
 
-  if (!yIsVisible) {
-    // Outside vertical display — apply lane changes (so colors stay
-    // consistent for mid-line border tricks future) but skip pixel emit.
+  // Top/bottom border = vertical FF set + no open-border trick this line.
+  // We still walk lanes so colors stay consistent for any mid-line
+  // border-color writes (rare but possible for vertical-band tricks).
+  if (state.vertical_ff && lane.background.length === 0
+      && lane.foreground.length === 0 && lane.sprites.length === 0) {
     for (const a of lane.border) applyAction(state, a);
-    for (const a of lane.background) applyAction(state, a);
-    for (const a of lane.sprites) applyAction(state, a);
     return EMPTY_COLL;
   }
 
-  // Clear fg mask row for this visible line.
+  // Clear fg mask row for this visible line. fgMask still uses the
+  // legacy 320×200 layout — sprite collision detection consults it
+  // only inside the display window. For 38-col / open-border lines
+  // the "outside-window" pixels never set fgMask anyway.
   const yIn = line - VISIBLE_Y;
-  fgMask.fill(0, yIn * VISIBLE_W, (yIn + 1) * VISIBLE_W);
+  if (yIn >= 0 && yIn < VISIBLE_H) {
+    fgMask.fill(0, yIn * VISIBLE_W, (yIn + 1) * VISIBLE_W);
+  }
 
   // Walk merged change queue — we step through background lane in
   // `where` order; between change points emit pixels for the segment
@@ -232,17 +240,31 @@ function emitGfxRun(
   xEnd: number,
   fgMask: Uint8Array,
 ): void {
-  // Clip to the active 320×200 area for graphics; outside that the
-  // border layer takes over.
-  const gfxX0 = VISIBLE_X;
-  const gfxX1 = VISIBLE_X + VISIBLE_W - 1;
+  // Spec 281: gfx clip area derived from current RSEL/CSEL state
+  // (display_xstart_pixel..display_xstop_pixel-1). VICE convention:
+  // display_xstop = first pixel of right border. Outside this range,
+  // the border layer takes over.
+  const gfxX0 = state.display_xstart_pixel;
+  const gfxX1 = state.display_xstop_pixel - 1;
   const fillX0 = Math.max(xStart, 0);
   const fillX1 = Math.min(xEnd, PAL_PIXELS_PER_LINE - 1);
-  // Solid background fill across the segment regardless of mode (will
-  // be overdrawn for active region below).
+  // V3.1 fix: when DEN=0 (= VIC display blanked), entire visible area
+  // shows BORDER color (= $D020), not background. VICE behavior +
+  // matches loader screens (e.g. motm during disk load).
+  if (!state.den) {
+    fillSpan(fb, line, fillX0, fillX1, state.border_color);
+    return;
+  }
+  // Spec 281: top/bottom border (vertical FF set) — fill border color
+  // unless open-border trick is active. OQ1: when both FFs OFF in
+  // open-border zone, draw bg-color (handled by the FF-off path below).
+  if (state.vertical_ff) {
+    fillSpan(fb, line, fillX0, fillX1, state.border_color);
+    return;
+  }
+  // DEN on, vertical FF off: solid bg fill across segment, mode-renderer
+  // overdraws active gfx region.
   fillSpan(fb, line, fillX0, fillX1, state.background_color);
-
-  if (!state.den) return;
   const a0 = Math.max(fillX0, gfxX0);
   const a1 = Math.min(fillX1, gfxX1);
   if (a1 < a0) return;
@@ -463,28 +485,43 @@ function drawBorderBands(
   fb: VicFramebuffer, line: number,
   borderQueue: RasterChangeAction[], state: RasterState,
 ): void {
-  // Pre-apply border-color queue in `where` order, drawing the border
-  // band segment for each new color.
+  // Spec 281: VICE 2-span draw_borders model. Top/bottom border (vertical
+  // FF set) = full-line border. L/R border = bands outside
+  // [display_xstart_pixel..display_xstop_pixel-1]. Mid-line border-color
+  // changes via borderQueue (often 0..2 entries).
+  if (state.vertical_ff) {
+    // Top/bottom border zone: full-line band, walk queue for mid-line splits.
+    let xs = 0;
+    for (const a of borderQueue) {
+      const xe = a.where;
+      if (xs < xe) fillSpan(fb, line, xs, xe - 1, state.border_color);
+      applyAction(state, a);
+      xs = xe;
+    }
+    fillSpan(fb, line, xs, PAL_PIXELS_PER_LINE - 1, state.border_color);
+    return;
+  }
+  // Display zone: only L/R border bands, gated by horizontal FF.
   let xs = 0;
   for (const a of borderQueue) {
     const xe = a.where;
-    if (xs < xe) {
-      paintBorderRange(fb, line, xs, xe - 1, state.border_color);
-    }
+    if (xs < xe) paintLRBorderBands(fb, line, xs, xe - 1, state);
     applyAction(state, a);
     xs = xe;
   }
-  paintBorderRange(fb, line, xs, PAL_PIXELS_PER_LINE - 1, state.border_color);
+  paintLRBorderBands(fb, line, xs, PAL_PIXELS_PER_LINE - 1, state);
 }
 
-function paintBorderRange(
-  fb: VicFramebuffer, line: number, x0: number, x1: number, color: number,
+function paintLRBorderBands(
+  fb: VicFramebuffer, line: number, x0: number, x1: number, state: RasterState,
 ): void {
-  // Border = pixels outside [VISIBLE_X..VISIBLE_X+VISIBLE_W-1].
+  // L band = pixels [0..display_xstart_pixel-1]
+  // R band = pixels [display_xstop_pixel..end]
+  const color = state.border_color;
   const lx0 = Math.max(0, x0);
-  const lx1 = Math.min(VISIBLE_X - 1, x1);
+  const lx1 = Math.min(state.display_xstart_pixel - 1, x1);
   if (lx1 >= lx0) fillSpan(fb, line, lx0, lx1, color);
-  const rx0 = Math.max(VISIBLE_X + VISIBLE_W, x0);
+  const rx0 = Math.max(state.display_xstop_pixel, x0);
   const rx1 = Math.min(fb.width - 1, x1);
   if (rx1 >= rx0) fillSpan(fb, line, rx0, rx1, color);
 }

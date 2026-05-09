@@ -58,6 +58,25 @@ export interface RasterState {
   sprite_multicolor: number;     // $D01C
   sprite_x_expand: number;       // $D01D
   sprite_y_expand: number;       // $D017
+
+  // ---- Spec 281: Border geometry + flip-flops ----
+  // Updated when RSEL/CSEL flip mid-frame (mirrors VICE
+  // raster.display_xstart / xstop / ystart / ystop in vicii-mem.c
+  // d011_store / d016_store).
+  display_ystart: number;        // 51 (RSEL=1) | 55 (RSEL=0)
+  display_ystop: number;         // 250 | 246
+  display_xstart_cycle: number;  // 17 (CSEL=1) | 18 (CSEL=0)
+  display_xstop_cycle: number;   // 56 | 55
+  display_xstart_pixel: number;  // 24 | 31
+  display_xstop_pixel: number;   // 343 | 334
+  // PAL row boundaries — VICE constants for vicii_per_pal_init.
+  row_24_start_line: number;     // 55
+  row_24_stop_line: number;      // 247
+  row_25_start_line: number;     // 51
+  row_25_stop_line: number;      // 251
+  // Border flip-flops (raster_t.blank_enabled + horizontal FF).
+  vertical_ff: boolean;          // true = top/bottom border ON
+  horizontal_ff: boolean;        // true = L or R border ON
 }
 
 export function createEmptyRasterState(): RasterState {
@@ -88,6 +107,21 @@ export function createEmptyRasterState(): RasterState {
     sprite_multicolor: 0,
     sprite_x_expand: 0,
     sprite_y_expand: 0,
+    // Spec 281 PAL defaults — VICE vicii.c VICII_PAL_* + viciitypes.h.
+    // screen_leftborderwidth = 32. 40-col: pixels 32..351 (320 wide).
+    // 38-col: pixels 39..342 (304 wide).
+    display_ystart: 51,
+    display_ystop: 251,
+    display_xstart_cycle: 17,
+    display_xstop_cycle: 56,
+    display_xstart_pixel: 32,
+    display_xstop_pixel: 352,
+    row_24_start_line: 55,
+    row_24_stop_line: 247,
+    row_25_start_line: 51,
+    row_25_stop_line: 251,
+    vertical_ff: true,    // start enabled at frame top until display_ystart hit
+    horizontal_ff: true,  // start enabled until cycle 17 of first display line
   };
 }
 
@@ -228,6 +262,13 @@ export function initStateFromVic(
   state.den = (d011 & 0x10) !== 0;
   state.rsel = (d011 & 0x08) !== 0;
   state.csel = (d016 & 0x08) !== 0;
+  // Spec 281: derive geometry from initial RSEL/CSEL.
+  state.display_ystart = state.rsel ? state.row_25_start_line : state.row_24_start_line;
+  state.display_ystop  = state.rsel ? state.row_25_stop_line  : state.row_24_stop_line;
+  state.display_xstart_cycle = state.csel ? 17 : 18;
+  state.display_xstop_cycle  = state.csel ? 56 : 55;
+  state.display_xstart_pixel = state.csel ? 32 : 39;
+  state.display_xstop_pixel  = state.csel ? 352 : 343;
 
   state.screen_base_ptr = dec.screen;
   state.chargen_base_ptr = dec.chargen;
@@ -256,6 +297,110 @@ export function initStateFromVic(
   return state;
 }
 
+// ---------------------------------------------------------------------------
+// Spec 281: Border flip-flop transitions.
+// Mirrors VICE vicii-mem.c check_lower_upper_border (vertical FF) +
+// horizontal FF set/clear conditions (vicii-fetch.c per-cycle).
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply RSEL flip mid-frame. Updates display_ystart/ystop AND the
+ * vertical_ff per VICE check_lower_upper_border semantics.
+ */
+export function updateRselMidFrame(
+  state: RasterState,
+  newRsel: boolean,
+  line: number,
+  cycleInLine: number,
+): void {
+  if (state.rsel === newRsel) return;
+  if (newRsel) {
+    // 24 → 25 row mode switch
+    state.display_ystart = state.row_25_start_line;
+    state.display_ystop  = state.row_25_stop_line;
+    if (line === state.row_24_stop_line && cycleInLine > 0) {
+      state.vertical_ff = true;
+    } else {
+      if (!state.vertical_ff && line === state.row_24_start_line && cycleInLine > 0) {
+        state.vertical_ff = false;
+      }
+      if (line === state.display_ystart && cycleInLine > 0 && !state.vertical_ff) {
+        state.vertical_ff = false;
+      }
+    }
+  } else {
+    // 25 → 24 row mode switch
+    state.display_ystart = state.row_24_start_line;
+    state.display_ystop  = state.row_24_stop_line;
+    if (!state.vertical_ff && line === state.row_25_start_line && cycleInLine > 0) {
+      state.vertical_ff = false;  // open-top trick
+    } else {
+      if (line === state.row_25_stop_line && cycleInLine > 0) {
+        state.vertical_ff = true;
+      }
+    }
+  }
+  state.rsel = newRsel;
+}
+
+/**
+ * Apply CSEL flip mid-line. Updates display_xstart/xstop. The actual
+ * horizontal FF transition happens at the new boundary in the
+ * per-cycle line walk via checkHorizontalFFAtCycle.
+ */
+export function updateCselMidLine(
+  state: RasterState,
+  newCsel: boolean,
+): void {
+  if (state.csel === newCsel) return;
+  state.csel = newCsel;
+  state.display_xstart_cycle = newCsel ? 17 : 18;
+  state.display_xstop_cycle  = newCsel ? 56 : 55;
+  state.display_xstart_pixel = newCsel ? 32 : 39;
+  state.display_xstop_pixel  = newCsel ? 352 : 343;
+}
+
+/**
+ * Run at the start of each line BEFORE per-cycle changes. Mirrors
+ * VICE vicii.c per-line vertical FF transitions. VICE convention:
+ * `display_ystop` is the FIRST line of the bottom border (= one past
+ * the last display line). Display range = ystart..ystop-1 inclusive.
+ *
+ *   - Line == display_ystop: SET FF (entering bottom border)
+ *   - Line == display_ystart && DEN: CLEAR FF (entering display)
+ *   - Line == display_ystart && !DEN: SET FF (DEN-off)
+ */
+export function updateVerticalFFAtLineStart(
+  state: RasterState,
+  line: number,
+): void {
+  if (line === state.display_ystop) {
+    state.vertical_ff = true;
+  }
+  if (line === state.display_ystart) {
+    if (state.den) state.vertical_ff = false;
+    else state.vertical_ff = true;
+  }
+}
+
+/**
+ * Per-cycle horizontal FF transition. Mirrors VICE vicii-fetch.c:
+ *   - cycle == display_xstop_cycle: SET (entering R border)
+ *   - cycle == display_xstart_cycle && !vertical_ff: CLEAR (entering display)
+ */
+export function updateHorizontalFFAtCycle(
+  state: RasterState,
+  cycleInLine: number,
+): void {
+  if (cycleInLine === state.display_xstop_cycle) {
+    state.horizontal_ff = true;
+  }
+  if (cycleInLine === state.display_xstart_cycle && !state.vertical_ff) {
+    state.horizontal_ff = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 /**
  * Field type guard — keeps the action match exhaustive for downstream
  * exhaustive-switch checks.
