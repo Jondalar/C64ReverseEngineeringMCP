@@ -324,6 +324,24 @@ export class VicIIVice {
   /** VICE: VICII_RASTER_CYCLE(clk) — current cycle within line. */
   public raster_cycle = 0;
 
+  /**
+   * Spec 297a: per-cycle hook for cycle-pumped pixel emission. When
+   * set, tick() advances one raster_cycle at a time and invokes this
+   * callback for EACH cycle (= matches viciisc/vicii-cycle.c
+   * vicii_cycle() per-cycle dispatch). Caller does Φ1 fetch, Φ2 fetch
+   * (if mayFetchC + bad_line), display pipe sample/advance, and 8-pixel
+   * emit into the shared framebuffer.
+   *
+   * When unset (= legacy snapshot rendering path), tick() retains
+   * batched line-wrap advancement (= no overhead).
+   *
+   * Args:
+   *   raster_y     — current raster line (0..screen_height-1)
+   *   raster_cycle — cycle within line (0..cycles_per_line-1)
+   *   clk          — c64 clock at this cycle
+   */
+  public onCycle?: (raster_y: number, raster_cycle: number, clk: number) => void;
+
   /** VICE: unsigned int sprite_fetch_msk — sprites currently DMA'd. */
   public sprite_fetch_msk = 0;
 
@@ -487,8 +505,20 @@ export class VicIIVice {
     if (cycles <= 0) return { stolenCycles: 0 };
     let stolen = 0;
     let remaining = cycles;
+    // Spec 297a: when onCycle hook is installed, advance 1 raster_cycle
+    // at a time so caller can do per-cycle Φ1/Φ2 fetch + display pipe
+    // emit (= viciisc/vicii-cycle.c vicii_cycle() dispatch shape).
+    // Without hook, batch advance to next line wrap (= legacy fast path).
+    const cyclePumped = !!this.onCycle;
     while (remaining > 0) {
-      const stepThisLine = Math.min(this.cycles_per_line - this.raster_cycle, remaining);
+      const stepThisLine = cyclePumped
+        ? Math.min(1, remaining)
+        : Math.min(this.cycles_per_line - this.raster_cycle, remaining);
+      // Fire per-cycle hook BEFORE advancing raster_cycle so the caller
+      // sees the cycle index it's about to process (= 0..cycles_per_line-1).
+      if (cyclePumped) {
+        this.onCycle!(this.raster_y, this.raster_cycle, this.clkPtr());
+      }
       this.raster_cycle += stepThisLine;
       remaining -= stepThisLine;
 
