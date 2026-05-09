@@ -197,11 +197,28 @@ Bad-line cycles 12-54 fetch from screen RAM (= matrix) + chargen/
 bitmap. Per VICE vicii-fetch.c. Latch screen-row + chargen-row at
 bad-line entry.
 
-### 280f: keep existing per-char-row for backwards compat
+### 280f: legacy renderer removal
 
-V3.1 transition: opt-in `vicRenderer: "vice-rasterized"` runs new
-path. Default stays per-char-row (= no regression). Once
-acceptance passes for all 4 games + FLI demo, flip default.
+OQ1 RESOLVED → DELETE per-char-row + per-pixel renderers entirely
+once vice-rasterized passes acceptance. Single-source-of-truth.
+Smoke tests get ported (vic-fidelity, visual-runtime, vic-cycle-log,
+vic-pixel-perfect → consolidated into vic-rasterized smoke).
+
+### 280g: per-cycle bus-stealing scheduler integration (OQ3)
+
+Mirror vice/src/vicii/vicii-cycle.c + vicii-fetch.c per-cycle bus
+owner table. Each PAL line cycle 0..62 marked CPU or VIC. VIC
+steals: badline matrix fetch (cycles 11-54), sprite DMA fetch (3
+cycles per active sprite at sprite Y match, cycles 58-15 wrap).
+
+Scheduler change: c64 CPU step checks bus-owner for current cycle.
+If VIC, advance master clock 1 cycle without CPU work. Drive lockstep
+stays — drive sees real master clock progress.
+
+Acceptance for 280g: bus-stealing-precision smoke (synthetic — set
+sprite enable + verify CPU cycle count drops by exactly N per
+sprite). Cycle-exact demos (= Krestage 3 if vendored, otherwise FLI
+test from samples/vice-testprogs).
 
 ## Acceptance
 
@@ -229,18 +246,34 @@ acceptance passes for all 4 games + FLI demo, flip default.
 
 ## Open questions for review
 
-- **OQ1:** Should we keep per-char-row + per-pixel as legacy
-  renderers, or remove once vice-rasterized validated?
-- **OQ2:** raster_changes_next_line entries currently lost on frame
-  wrap. VICE applies them on first line of next frame. Confirm
-  correct semantics + verify motm doesn't depend on this.
-- **OQ3:** sprite-DMA bus stealing accuracy — keep current
-  approximation in computeLineSteal or rewrite per-cycle?
-- **OQ4:** Default renderer flip timing — when flip from per-char-row
-  to vice-rasterized as `runtime` default? Per-spec criterion or
-  on user say-so?
-- **OQ5:** Cache_enabled (= raster line cache) optimization —
-  defer or include in 280f?
+- **OQ1 [RESOLVED 2026-05-09]:** DELETE per-char-row + per-pixel.
+  Forward-only. vice-rasterized = single renderer. Legacy egal.
+  Smoke tests get ported or dropped.
+- **OQ2 [RESOLVED 2026-05-09]:** Mirror VICE — nextLine queue carries
+  across frame wrap. Applied at start of line 0 next frame. Per-frame
+  `frameChanges[312]` arrays cleared on wrap; nextLine queue NOT
+  cleared until applied.
+- **OQ3 [RESOLVED 2026-05-09]:** Per-cycle bus stealing — 1:1 VICE.
+  Sprite DMA cycles + badline matrix fetch + sprite-pointer fetch
+  all cycle-precise. Scheduler integration: when VIC steals cycle X
+  of line Y, c64 CPU stalls that cycle. Drive-cpu lockstep stays
+  consistent (= drive sees real c64-clock progress, just CPU doesn't
+  advance during stall).
+  Adds scope to 280: sub-spec 280g (NEW) — bus-stealing scheduler
+  integration. Reads vice/src/vicii/vicii-cycle.c + vicii-fetch.c
+  for cycle-by-cycle bus owner table.
+- **OQ4 [RESOLVED 2026-05-09]:** Atomic flip gate — minimal 3
+  criteria:
+  1. **LNR** ingame renders pixel-equal vs VICE
+  2. **MotM** ingame split-screen renders pixel-equal
+  3. **MM** character-select renders pixel-equal
+  When all 3 pass → atomic commit: delete legacy renderers, no
+  flag, vice-rasterized = only path. Forward from there with more
+  demos/images/games as regression corpus grows.
+- **OQ5 [RESOLVED 2026-05-09]:** DEFER V3.2. Pure perf optimization
+  — pixel output identical to non-cached path. Cache invalidation
+  complexity not worth it until we hit perf wall. M1 handles
+  ~7.85M pixel-emits/sec easily; uncached fine for V3.1.
 
 ## References to study before impl
 
