@@ -305,7 +305,7 @@ export class V3WsServer {
       recorder.buffer.attach(cursorId);
       const chunk = chunk_samples ?? 1024;
       let seq = 0;
-      const timer = setInterval(() => {
+      const timer = setInterval(() => { // audit-ok: audio-stream wall-clock pump (~1024 samples @ 44.1kHz cadence). Not emulator timing — drains pre-rendered ResID buffer over WebSocket.
         recorder.flush();
         while (recorder.buffer.available(cursorId) >= chunk) {
           const { samples } = recorder.buffer.read(cursorId, chunk);
