@@ -28,7 +28,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
     const rect = screenEl.getBoundingClientRect();
     const sx = (clientX - rect.left) / rect.width;
     const sy = (clientY - rect.top) / rect.height;
-    return { x: Math.round(sx * 368), y: Math.round(sy * 272) };
+    return { x: Math.round(sx * 384), y: Math.round(sy * 272) };
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
@@ -86,9 +86,9 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
             className="wb-explore-selection"
             style={{
               position: "absolute",
-              left: (selection.x / 368) * rect.width,
+              left: (selection.x / 384) * rect.width,
               top: (selection.y / 272) * rect.height,
-              width: (selection.w / 368) * rect.width,
+              width: (selection.w / 384) * rect.width,
               height: (selection.h / 272) * rect.height,
             }}
           />

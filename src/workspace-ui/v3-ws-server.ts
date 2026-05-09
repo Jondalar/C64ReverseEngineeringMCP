@@ -184,10 +184,27 @@ export class V3WsServer {
     this.on("session/state", ({ session_id }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
+      const c = s.c64Cpu;
+      const v = s.vic.regs;
       return {
-        c64Cycles: s.c64Cpu.cycles,
+        c64Cycles: c.cycles,
         driveCycles: s.drive.cpu.cycles,
         mode: s.mode,
+        cpu: {
+          pc: c.pc, a: c.a, x: c.x, y: c.y, sp: c.sp,
+          flags: c.flags, cycles: c.cycles,
+        },
+        vic: {
+          rasterLine: (s.vic as any).raster_y ?? 0,
+          rasterCycle: (s.vic as any).raster_cycle ?? 0,
+          mode: ((v[0x11] >> 5) & 3) | (((v[0x16] >> 4) & 1) << 2),
+          bank: (s.cia2.pra & s.cia2.ddra & 0x03) ^ 0x03,
+          screenPtr: ((v[0x18] >> 4) & 0xf) << 10,
+          chargenPtr: ((v[0x18] >> 1) & 7) << 11,
+          bitmapPtr: (v[0x18] & 8) ? 0x2000 : 0,
+          border: v[0x20] & 0xf,
+          background: v[0x21] & 0xf,
+        },
       };
     });
 
@@ -451,6 +468,96 @@ export class V3WsServer {
       const { deleteScenario } = await import("../runtime/headless/v2/scenario-registry.js");
       const ok = deleteScenario(id);
       return { deleted: ok };
+    });
+
+    // Spec 352 — Monitor exec (VICE-compat subset).
+    this.on("monitor/exec", async ({ session_id, command }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) return { error: `no session ${session_id}` };
+      const cmd = String(command ?? "").trim();
+      if (!cmd) return { output: "" };
+      const tokens = cmd.split(/\s+/);
+      const op = tokens[0]!.toLowerCase();
+      const hex = (n: number, w = 2) => n.toString(16).padStart(w, "0").toUpperCase();
+      const parseAddr = (t?: string): number | null => {
+        if (!t) return null;
+        const v = parseInt(t.replace(/^\$/, ""), 16);
+        return isNaN(v) ? null : v & 0xffff;
+      };
+      try {
+        // Registers
+        if (op === "r" || op === "registers" || op === "cpu") {
+          const c = s.c64Cpu;
+          const flagsStr = "NV-BDIZC".split("").map((f, i) =>
+            ((c.flags >> (7-i)) & 1) ? f : f.toLowerCase()).join("");
+          return { output:
+            `  ADDR AC XR YR SP NV-BDIZC\n` +
+            `.;${hex(c.pc, 4)} ${hex(c.a)} ${hex(c.x)} ${hex(c.y)} ${hex(c.sp)} ${flagsStr}` };
+        }
+        // Memory dump: m [addr] [end]
+        if (op === "m" || op === "mem") {
+          const start = parseAddr(tokens[1]) ?? 0;
+          const end = parseAddr(tokens[2]) ?? Math.min(0xffff, start + 0x7f);
+          const lines: string[] = [];
+          for (let a = start & ~0xf; a <= end; a += 16) {
+            const bytes: string[] = []; const ascii: string[] = [];
+            for (let i = 0; i < 16 && a+i <= end; i++) {
+              const b = s.c64Bus.ram[a+i] ?? 0;
+              bytes.push(hex(b));
+              ascii.push(b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".");
+            }
+            lines.push(`>C:${hex(a, 4)}  ${bytes.join(" ").padEnd(48)}  ${ascii.join("")}`);
+          }
+          return { output: lines.join("\n") };
+        }
+        // Disassembly: d [addr] [count]
+        if (op === "d" || op === "disass") {
+          const start = parseAddr(tokens[1]) ?? s.c64Cpu.pc;
+          const count = parseInt(tokens[2] ?? "16", 10);
+          // Minimal disasm: just dump byte + crude opcode hint
+          const lines: string[] = [];
+          for (let i = 0, a = start; i < count; i++, a = (a + 1) & 0xffff) {
+            const op = s.c64Bus.ram[a] ?? 0;
+            lines.push(`.C:${hex(a, 4)}  ${hex(op)}        ; opcode`);
+          }
+          return { output: lines.join("\n") + "\n(full disasm: TODO)" };
+        }
+        // Execute: g <addr>
+        if (op === "g") {
+          const addr = parseAddr(tokens[1]);
+          if (addr !== null) s.c64Cpu.pc = addr;
+          // Run a frame budget; user can pause via UI
+          s.runFor(50_000, { cycleBudget: 50_000 });
+          return { output: `running from $${hex(s.c64Cpu.pc, 4)} (frame budget consumed)` };
+        }
+        // Step: step | next
+        if (op === "step" || op === "next" || op === "z") {
+          const before = s.c64Cpu.cycles;
+          s.runFor(1, { cycleBudget: 100 });
+          return { output: `.C:${hex(s.c64Cpu.pc, 4)} (${s.c64Cpu.cycles - before} cyc)` };
+        }
+        // Reset
+        if (op === "reset") {
+          s.resetCold("pal-default");
+          return { output: "reset" };
+        }
+        // Help
+        if (op === "help" || op === "?") {
+          return { output:
+            "VICE-compat monitor (subset):\n" +
+            "  r              registers\n" +
+            "  m <a> [b]      memory dump\n" +
+            "  d <a> [n]      disasm\n" +
+            "  g <a>          go (PC = a, run 1 frame)\n" +
+            "  step / next    one step\n" +
+            "  reset          reset\n" +
+            "  bk / break     breakpoints (TBD)\n" +
+            "  load/save/...  file ops (TBD)" };
+        }
+        return { error: `unknown command: ${op}. Try 'help'.` };
+      } catch (e: any) {
+        return { error: `exec error: ${e.message ?? e}` };
+      }
     });
 
     this.on("runtime/scenario_load", async ({ id }) => {

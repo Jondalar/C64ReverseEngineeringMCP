@@ -663,9 +663,12 @@ export class IntegratedSession {
     // require widening framebuffer + adjusting all draw helpers).
     // Symmetric 368×272 = correct ratio, smaller borders than VICE
     // but L/R equal as user requested.
+    // VICE x64sc default PAL visible window: 384×272.
+    //   L 32 + display 320 + R 32 = 384
+    //   T 36 + display 200 + B 36 = 272 (cropY=15 → 51 display start)
     const cropX = 0;
     const cropY = 15;
-    const cropW = 368;       // 24 left + 320 display + 24 right
+    const cropW = 384;
     const cropH = 272;
     const cropped = new Uint8Array(cropW * cropH * 4);
     for (let y = 0; y < cropH; y++) {

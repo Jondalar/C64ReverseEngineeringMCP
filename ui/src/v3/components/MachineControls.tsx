@@ -14,12 +14,18 @@ interface Props {
 
 export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken }: Props): JSX.Element {
   const c = getClient();
+  // Power = full cold reset (= drive RAM cleared, RAM fill pattern,
+  // VIC raster phase pinned). Resets EVERYTHING including drive ROM.
   const powerCycle = async () => {
     if (!sessionId) return;
-    await c.call("session/reset", { session_id: sessionId, video: "pal-default", cold: true });
+    await c.call("session/reset", { session_id: sessionId, video: "pal-default" });
     setRunState?.("running");
     onSnapshotTaken();
   };
+  // Reset = soft reset (= equivalent to pressing the C64 RESET key
+  // with a SuperReset cartridge: CPU PC → ($FFFC), no RAM clear, no
+  // drive reset). Currently same as Power; distinct semantics will
+  // be added when soft-reset path lands.
   const reset = async () => {
     if (!sessionId) return;
     await c.call("session/reset", { session_id: sessionId, video: "pal-default" });
