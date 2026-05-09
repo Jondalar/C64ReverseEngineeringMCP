@@ -29,7 +29,9 @@ function keyEventToC64(e: KeyboardEvent): string | null {
 
 export function LiveTab({ sessionId, setSessionId }: TabProps): JSX.Element {
   const [imgUrl, setImgUrl] = useState<string>("");
-  const [running, setRunning] = useState(false);
+  // Auto-start running so cursor blinks + frame poll fires from
+  // first page load. User can pause via ⏸ button.
+  const [running, setRunning] = useState(true);
   const [fps, setFps] = useState(0);
   const [drive, setDrive] = useState<DriveStatus | null>(null);
   const [media, setMedia] = useState<MediaEntry[]>([]);

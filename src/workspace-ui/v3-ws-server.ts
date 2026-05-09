@@ -372,29 +372,34 @@ export class V3WsServer {
     this.on("media/recent", async () => {
       const { getRecent } = await import("../runtime/headless/media/recent-files.js");
       const pmod = await import("node:path");
+      const fsmod = await import("node:fs");
       const recent = getRecent();
-      if (recent.length > 0) {
-        return recent.map((r: any) => ({ ...r, name: r.name ?? pmod.basename(r.path) }));
+      // Filter recents to existing files only (= drop stale paths from
+      // prior test runs that no longer exist on disk).
+      const existing = recent.filter((r: any) => {
+        try { return fsmod.existsSync(r.path); } catch { return false; }
+      });
+      if (existing.length > 0) {
+        return existing.map((r: any) => ({ ...r, name: r.name ?? pmod.basename(r.path) }));
       }
-      // Fallback: scan samples/ for media (bootstrap when no recents).
+      // Fallback: scan TOP-LEVEL samples/ only (= no recursion into
+      // vice-testprogs / synthetic / etc which would flood the picker).
       const fs = await import("node:fs");
       const path = await import("node:path");
       const samplesDir = path.join(process.cwd(), "samples");
       const out: Array<{ path: string; name: string; type: string }> = [];
       const exts = [".d64", ".g64", ".crt", ".prg", ".vsf"];
-      function walk(dir: string, depth = 0): void {
-        if (depth > 2 || !fs.existsSync(dir)) return;
+      function walk(dir: string): void {
+        if (!fs.existsSync(dir)) return;
         for (const entry of fs.readdirSync(dir)) {
           if (entry.startsWith(".") || entry === "node_modules") continue;
           const full = path.join(dir, entry);
           let st;
           try { st = fs.statSync(full); } catch { continue; }
-          if (st.isDirectory()) walk(full, depth + 1);
-          else {
-            const lower = entry.toLowerCase();
-            const ext = exts.find((e) => lower.endsWith(e));
-            if (ext) out.push({ path: full, name: path.basename(full), type: ext.slice(1) });
-          }
+          if (st.isDirectory()) continue; // top-level only
+          const lower = entry.toLowerCase();
+          const ext = exts.find((e) => lower.endsWith(e));
+          if (ext) out.push({ path: full, name: path.basename(full), type: ext.slice(1) });
         }
       }
       walk(samplesDir);

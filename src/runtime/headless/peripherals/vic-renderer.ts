@@ -34,7 +34,11 @@ export const FB_WIDTH_NTSC = 504;
 export const FB_HEIGHT_NTSC = 263;
 
 // Visible 320×200 area inset within border.
-export const VISIBLE_X = 24;
+// Spec 281: aligned with VICE 40-col display window. Display starts
+// at pixel 32 (= screen_leftborderwidth). Was 24 (legacy = bug:
+// char col 0 was rendered into border zone and overwritten,
+// effectively losing R/L/etc at column 0 of every text row).
+export const VISIBLE_X = 32;
 export const VISIBLE_Y = 51;
 export const VISIBLE_W = 320;
 export const VISIBLE_H = 200;
