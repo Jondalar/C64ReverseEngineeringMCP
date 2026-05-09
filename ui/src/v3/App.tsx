@@ -15,7 +15,7 @@ export function App(): JSX.Element {
   const [conn, setConn] = useState<ConnectionState>("closed");
   const [sessionId, setSessionId] = useState<string>("");
   const [cycle, setCycle] = useState<number>(0);
-  const [runState, setRunState] = useState<"running" | "paused">("running");
+  const [runState, setRunState] = useState<"running" | "paused" | "off">("running");
 
   useEffect(() => {
     const off = getClient().onState(setConn);

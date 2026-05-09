@@ -6,33 +6,40 @@ import { getClient } from "../ws-client.js";
 
 interface Props {
   sessionId: string;
-  runState: "running" | "paused";
-  setRunState?: (s: "running" | "paused") => void;
+  runState: "running" | "paused" | "off";
+  setRunState?: (s: "running" | "paused" | "off") => void;
   fps: number;
   onSnapshotTaken: () => void;
 }
 
 export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken }: Props): JSX.Element {
   const c = getClient();
-  // Power = full cold reset (= drive RAM cleared, RAM fill pattern,
-  // VIC raster phase pinned). Resets EVERYTHING including drive ROM.
-  const powerCycle = async () => {
+  // Power = ON/OFF toggle (NOT reset).
+  //   OFF → ON: simulate plugging in C64 = cold reset + start running.
+  //   ON  → OFF: simulate unplugging = stop polling, freeze state.
+  // Use Reset to restart without "unplugging".
+  const powerToggle = async () => {
     if (!sessionId) return;
-    await c.call("session/reset", { session_id: sessionId, video: "pal-default" });
-    setRunState?.("running");
-    onSnapshotTaken();
+    if (runState === "off") {
+      await c.call("session/reset", { session_id: sessionId, video: "pal-default" });
+      setRunState?.("running");
+      onSnapshotTaken();
+    } else {
+      setRunState?.("off");
+    }
   };
-  // Reset = soft reset (= equivalent to pressing the C64 RESET key
-  // with a SuperReset cartridge: CPU PC → ($FFFC), no RAM clear, no
-  // drive reset). Currently same as Power; distinct semantics will
-  // be added when soft-reset path lands.
+  // Reset = cold reset, keep powered. Equivalent to pressing the C64
+  // RESET key (or SuperReset cart). Re-runs KERNAL boot to READY.
   const reset = async () => {
     if (!sessionId) return;
     await c.call("session/reset", { session_id: sessionId, video: "pal-default" });
     setRunState?.("running");
     onSnapshotTaken();
   };
-  const togglePause = () => setRunState?.(runState === "running" ? "paused" : "running");
+  const togglePause = () => {
+    if (runState === "off") return;
+    setRunState?.(runState === "running" ? "paused" : "running");
+  };
   const step = async () => {
     if (!sessionId) return;
     try { await c.call("session/step", { session_id: sessionId }); } catch { /* monitor TBD */ }
@@ -49,9 +56,13 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
 
   return (
     <div className="wb-controls">
-      <button onClick={powerCycle} title="Power Cycle (cold reset)">⏻ Power</button>
-      <button onClick={reset} title="Reset">↺ Reset</button>
-      <button onClick={togglePause} title="Run / Pause">
+      <button
+        onClick={powerToggle}
+        className={runState === "off" ? "wb-power-off" : "wb-power-on"}
+        title={runState === "off" ? "Power ON (cold boot)" : "Power OFF (unplug)"}
+      >⏻ Power {runState === "off" ? "OFF" : "ON"}</button>
+      <button onClick={reset} disabled={runState === "off"} title="Reset (RESTORE key / cold reset, machine stays powered)">↺ Reset</button>
+      <button onClick={togglePause} disabled={runState === "off"} title="Run / Pause">
         {runState === "running" ? "⏸ Pause" : "▶ Run"}
       </button>
       <button onClick={step} disabled={runState !== "paused"} title="Step one instruction">⤳ Step</button>

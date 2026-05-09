@@ -99,12 +99,18 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     return () => { alive = false; };
   }, [sessionId]);
 
-  // Live keyboard capture (running + screen focused only)
+  // Live keyboard capture (running only, no focus required).
+  // Old behaviour required screen focus; that left users confused
+  // because there was no visible focus state. Now: any keystroke
+  // while emulator is running goes through, unless the focused
+  // element is an input/textarea (so monitor/forms still work).
   useEffect(() => {
-    if (!screenFocused || !sessionId || runState !== "running") return;
+    if (!sessionId || runState !== "running") return;
     const client = getClient();
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tgt = e.target as HTMLElement | null;
+      if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
       const c = keyEventToC64(e);
       if (c === null) return;
       e.preventDefault();
@@ -113,7 +119,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [screenFocused, sessionId, runState]);
+  }, [sessionId, runState]);
 
   // Snapshot single frame (= force re-render even when paused)
   const snapshot = async () => {
@@ -135,7 +141,17 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       />
       <div className="wb-live-grid">
         <div className="wb-screen-wrap">
-          {imgUrl ? (
+          {runState === "off" ? (
+            <div className="wb-screen-off" style={{
+              background: "#000",
+              width: "100%", height: "100%",
+              minHeight: 300,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#444", fontSize: 14, fontFamily: "monospace",
+            }}>
+              POWER OFF
+            </div>
+          ) : imgUrl ? (
             <img
               ref={screenRef}
               src={imgUrl}
