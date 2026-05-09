@@ -227,7 +227,11 @@ export class V3WsServer {
       const { join } = await import("node:path");
       const { readFileSync } = await import("node:fs");
       const path = join(tmpdir(), `c64re-frame-${session_id}-${Date.now()}.png`);
-      s.renderToPng(path);
+      // Default session renderer is per-char-row which currently renders
+      // only border (no chars/sprites). Use vice-rasterized for the live
+      // UI — VICE-faithful per-line raster_changes path is the V3 default
+      // for everything VIC-parity (Spec 280c).
+      s.renderToPng(path, { renderer: "vice-rasterized" });
       const bytes = readFileSync(path);
       return { dataUrl: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length };
     });
