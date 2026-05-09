@@ -810,4 +810,60 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       }, null, 2) }] };
     }),
   );
+
+  // ---- Spec 269 — export ----
+
+  server.tool(
+    "runtime_export_screenshot",
+    "Spec 269 — export PNG screenshot for a scenario. Runs scenario from start to atCycle (or end). Scale 1/2/4 for pixel-art upscale.",
+    {
+      scenario_id: z.string(),
+      out_path: z.string(),
+      scale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional().default(1),
+      at_cycle: z.number().optional(),
+    },
+    safeHandler("runtime_export_screenshot", async ({ scenario_id, out_path, scale, at_cycle }) => {
+      const { exportScreenshot } = await import("../runtime/headless/export/screenshot.js");
+      const result = await exportScreenshot(scenario_id, out_path, {
+        scale: scale as 1 | 2 | 4,
+        atCycle: at_cycle,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_export_video",
+    "Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed). PAL 50fps, RGBA + s16le piped to ffmpeg.",
+    {
+      scenario_id: z.string(),
+      out_path: z.string(),
+      duration: z.number().optional().default(5),
+      scale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional().default(1),
+    },
+    safeHandler("runtime_export_video", async ({ scenario_id, out_path, duration, scale }) => {
+      const { exportVideo } = await import("../runtime/headless/export/video.js");
+      const result = await exportVideo(scenario_id, out_path, {
+        duration,
+        scale: scale as 1 | 2 | 4,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_export_audio",
+    "Spec 269 / 263 — export WAV audio for a scenario. Captures SID via reSID mirror, writes stereo s16le.",
+    {
+      scenario_id: z.string(),
+      out_path: z.string(),
+      duration: z.number().optional().default(5),
+      format: z.enum(["wav"]).optional().default("wav"),
+    },
+    safeHandler("runtime_export_audio", async ({ scenario_id, out_path, duration }) => {
+      const { exportScenarioAudio } = await import("../runtime/headless/export/audio-export.js");
+      const result = await exportScenarioAudio(scenario_id, out_path, { duration });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
 }
