@@ -43,6 +43,9 @@ jobs:
       - name: Audit (timing-fork)
         run: npm run audit:timing-fork
 
+      - name: Generate synthetic test disks
+        run: npm run smoke:gen
+
       - name: Smoke — kernel facade
         run: npm run smoke:kernel-facade
 
