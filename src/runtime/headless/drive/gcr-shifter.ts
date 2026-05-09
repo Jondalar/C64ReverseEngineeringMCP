@@ -185,21 +185,20 @@ export class GcrShifter {
   /**
    * Disk-insert event: caller swapped the parser to a new disk.
    * Real-HW analogue: door switch closed + media inserted. Drive's
-   * read amplifier sees fresh GCR stream from new media. Internal
-   * caches + bit-stream state must drop to track the new disk.
-   * Position (= head over current track) is preserved (= drive head
-   * doesn't move when media is inserted).
+   * read amplifier sees fresh GCR stream from new media. We swap the
+   * parser ref + clear lazy track cache so next ensureTrackBytes
+   * pulls from new media; bit-stream state (last_read_data,
+   * bitOffset, dataByteLatch) is intentionally PRESERVED — drive
+   * ROM is mid-routine when user mounts mid-game; resetting these
+   * destroys in-flight protocol state and breaks fastloaders.
+   *
+   * Drive head position is preserved (= matches real HW: insert
+   * doesn't move the head). Re-bind happens on next track read via
+   * ensureTrackBytes when latchedTrack still matches.
    */
   notifyMediaChange(newParser: G64Parser): void {
     (this as unknown as { parser: G64Parser }).parser = newParser;
     this.trackCache.clear();
-    // Re-bind current track so next ensureTrackBytes pulls from new media
-    this.latchedTrack = -1;
-    // Reset shifter bit-stream state (= equivalent to read amp seeing
-    // fresh media; old in-flight bits invalidated)
-    this.last_read_data = 0;
-    this.bitOffset = 0;
-    this.dataByteLatch = 0xff;
   }
 
   // -------------------------------------------------------------------------
