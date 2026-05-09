@@ -75,6 +75,12 @@ import {
   type AlarmContext,
 } from "../alarm/alarm-context.js";
 import { u8, u16, u32, type BYTE, type WORD, type CLOCK } from "../util/uint.js";
+import { getBusOwner } from "./bus-owner-table.js";
+import {
+  fetchMatrix,
+  type BadlineFetchResult,
+  type BadlineBus,
+} from "./badline-fetch.js";
 
 // ---------------------------------------------------------------------------
 // Constants — viciitypes.h verbatim.
@@ -326,6 +332,22 @@ export class VicIIVice {
   public currentLineLog: ScanlineRegLog = { rasterLine: 0, writes: [] };
   public frameLineLogs: ScanlineRegLog[] = [];
 
+  // -----------------------------------------------------------------------
+  // Spec 280e: per-line badline DMA result (vbuf + cbuf + bitmapBuf).
+  //
+  // Set on each bad line (isBadline() true) at raster_y transition.
+  // Null on non-bad lines (= renderer uses idle $3fff filler).
+  // Cleared to null at frame wrap (raster_y → 0).
+  // Per-line accessor getCurrentLineMatrix() consumed by Spec 280c renderer.
+  //
+  // badlineBus is optional: when wired (e.g. from integrated-session),
+  // the real fetch runs; when null the matrix stays null (B-level mode,
+  // cycle-count accounting only).
+  // -----------------------------------------------------------------------
+  public currentLineMatrix: BadlineFetchResult | null = null;
+  /** Wire to enable real badline DMA fetches.  Leave null for cycle-only mode. */
+  public badlineBus: BadlineBus | null = null;
+
   // ---- alarms (Spec 149 foundation) -----------------------------------
   /** VICE: vicii.raster_irq_alarm — fires at vicii_irq_set_raster_line
    *  computed clk. Callback = vicii_irq_alarm_handler. */
@@ -339,6 +361,18 @@ export class VicIIVice {
 
   /** Cumulative cycles counted into bus-stealing this line — debug only. */
   private linesStolen = 0;
+
+  /**
+   * Spec 280g: when true, `tick()` no longer charges block bus-stealing
+   * via backend.stealCpuCycles(). Instead, the per-cycle scheduler is
+   * expected to call `getBusStallForCycle(raster_cycle)` BEFORE each
+   * CPU step and skip the CPU step if it returns true. The drive +
+   * peripherals still tick (= master clock advances). This mirrors
+   * VICE's BA-low CPU stalling.
+   *
+   * Default false (= legacy block accounting via computeLineSteal).
+   */
+  public usePerCycleBusStealing = false;
 
   constructor(opts: VicIIViceOptions) {
     this.backend = opts.backend;
@@ -385,6 +419,8 @@ export class VicIIVice {
     // Spec 262a: drop log buffers on powerup.
     this.currentLineLog = { rasterLine: 0, writes: [] };
     this.frameLineLogs = [];
+    // Spec 280e: reset badline matrix.
+    this.currentLineMatrix = null;
     this.reset();
   }
 
@@ -463,6 +499,8 @@ export class VicIIVice {
           this.scanlineSnapshots.length = 0;
           // Spec 262a: new frame — clear frame-wide log buffer.
           this.frameLineLogs.length = 0;
+          // Spec 280e: clear badline matrix at frame wrap.
+          this.currentLineMatrix = null;
           // Spec 205-A c7: frame boundary — wrap to line 0.
           this.onFrame?.(this.clkPtr());
         }
@@ -476,11 +514,45 @@ export class VicIIVice {
         // Bus stealing for this line — VICE handle_fetch_matrix +
         // handle_check_sprite_dma + handle_fetch_sprite. At B-level we
         // collapse to one accounting call per line.
+        //
+        // Spec 280g: also primes `bad_line` + `sprite_fetch_msk` for
+        // the new per-cycle bus-owner table. When per-cycle stealing
+        // is enabled, we still call computeLineSteal() so those
+        // fields are populated for getBusStallForCycle(), but we
+        // discard the count (the scheduler will stall the CPU one
+        // cycle at a time instead of in a block).
         const lineSteal = this.computeLineSteal();
-        if (lineSteal > 0) {
+        if (!this.usePerCycleBusStealing && lineSteal > 0) {
           stolen += lineSteal;
           // Notify backend so maincpu_clk can be advanced explicitly.
           this.backend.stealCpuCycles(lineSteal, this.clkPtr());
+        }
+
+        // Spec 280e: badline DMA matrix fetch.  If a bus is wired and
+        // this is a bad line, populate currentLineMatrix (vbuf+cbuf).
+        // charRowStart = mem_counter = (raster_y - first_dma_line) / 8 * 40
+        // (standard linear layout; advanced usage can override via
+        // badlineBus = null to skip).
+        if (this.bad_line && this.badlineBus !== null) {
+          // Sub-row 0 here — caller (renderer) owns sub-row per pixel line.
+          // We fetch at sub-row 0 because fetchMatrix only needs vbuf/cbuf;
+          // the renderer calls fetchChargen/fetchBitmap per sub-row using
+          // the stored vbuf from currentLineMatrix.
+          const charRowStart =
+            Math.floor((this.raster_y - this.first_dma_line) / 8) * 40;
+          const { vbuf, cbuf } = fetchMatrix(
+            this.badlineBus,
+            this.vbank_phi2,
+            this.screen_ptr,
+            charRowStart,
+          );
+          this.currentLineMatrix = {
+            vbuf,
+            cbuf,
+            bitmapBuf: new Uint8Array(40), // renderer fills per sub-row
+          };
+        } else if (!this.bad_line) {
+          this.currentLineMatrix = null;
         }
 
         // Raster IRQ comparator. VICE handles via alarm at
@@ -512,6 +584,15 @@ export class VicIIVice {
    * sequentially. Total cycles match; intra-line phase does not. Spec
    * 150 §point 16 marks this as acceptable for KERNAL serial timing
    * because KERNAL writes $DD00 outside the badline window.
+   *
+   * Spec 280g: this block-charge accounting is the LEGACY path. When
+   * `usePerCycleBusStealing=true`, `tick()` still calls this to prime
+   * `bad_line` + `sprite_fetch_msk` for the per-cycle bus-owner table
+   * but discards the returned count. To be removed in 280f once all
+   * paths run on the per-cycle accounting.
+   *
+   * @deprecated since Spec 280g — use getBusStallForCycle() in
+   * scheduler integration. Kept callable for legacy paths.
    */
   private computeLineSteal(): number {
     let steal = 0;
@@ -574,6 +655,25 @@ export class VicIIVice {
 
     this.linesStolen = steal;
     return steal;
+  }
+
+  /**
+   * Spec 280g — per-cycle bus-owner check used by the cycle-lockstep
+   * scheduler. Returns true iff VIC owns the bus on `cycleInLine` of
+   * the current scanline (= CPU should stall this cycle).
+   *
+   * Reads cached `bad_line` + `sprite_fetch_msk` populated at line
+   * entry by computeLineSteal(). The scheduler MUST call this before
+   * each CPU step when `usePerCycleBusStealing` is enabled. If
+   * cycleInLine is unspecified, the live `raster_cycle` is used.
+   *
+   * Note: this is purely a query; the bus-owner table is pure (see
+   * bus-owner-table.ts). State priming happens in computeLineSteal()
+   * once per line wrap inside `tick()`.
+   */
+  getBusStallForCycle(cycleInLine?: number): boolean {
+    const c = cycleInLine ?? this.raster_cycle;
+    return getBusOwner(c, this.bad_line !== 0, this.sprite_fetch_msk) === "vic";
   }
 
   // -------------------------------------------------------------------------
@@ -1112,6 +1212,22 @@ export class VicIIVice {
   /** Spec 262a: renderer access — completed lines for the current frame. */
   getFrameLineLogs(): readonly ScanlineRegLog[] {
     return this.frameLineLogs;
+  }
+
+  /**
+   * Spec 280e: per-line accessor for the Spec 280c renderer.
+   *
+   * Returns the vbuf+cbuf fetched on the current bad line, or null if
+   * this line is not a bad line (= idle/border/not-in-DMA-range) or if
+   * no badlineBus is wired.
+   *
+   * The renderer reads vbuf[i] to find char codes and cbuf[i] for
+   * foreground colors.  bitmapBuf is initially zeroed; the renderer
+   * should call fetchChargen() / fetchBitmap() from badline-fetch.ts
+   * for the appropriate sub-row and fill bitmapBuf itself.
+   */
+  getCurrentLineMatrix(): BadlineFetchResult | null {
+    return this.currentLineMatrix;
   }
 
   /** Renderer access. */
