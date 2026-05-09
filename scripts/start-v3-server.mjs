@@ -15,9 +15,13 @@ const { startIntegratedSession, getIntegratedSession } = await import(
 // disk to instantiate). Use empty synthetic disk so session boots
 // to BASIC READY with no game data lurking. User picks real disk
 // via media picker.
-const placeholderDisk = resolvePath(repoRoot, "samples/synthetic/1byte.d64");
+// IntegratedSession requires a diskPath at construction. Use blank
+// (= valid empty D64, no PRGs, blank disk title) so user picker is
+// the first real disk seen; LOAD"$",8 on blank shows just "0 BLOCKS"
+// not noisy "ONEBYTE" content.
+const placeholderDisk = resolvePath(repoRoot, "samples/synthetic/blank.d64");
 
-console.log(`[v3] starting session (placeholder: empty 1byte.d64, no auto-load)`);
+console.log(`[v3] starting session (placeholder: blank.d64, no auto-load)`);
 const { sessionId } = startIntegratedSession({
   diskPath: placeholderDisk,
   mode: "true-drive",
