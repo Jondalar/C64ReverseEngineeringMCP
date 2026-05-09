@@ -37,6 +37,7 @@ import {
   updateVerticalFFAtLineStart,
   type RasterState,
 } from "../vic/raster-state.js";
+import { PALETTES, PALETTES_EVEN_ODD, paletteForLine } from "../vic/palettes.js";
 import { renderSpritesPerLine, type SpriteCollisionResult } from "../vic/sprite-render.js";
 import {
   VIC_PALETTE,
@@ -103,11 +104,18 @@ export function renderFrameRasterized(
   // Per-line fg mask: one byte per visible pixel. Rebuilt each visible line.
   const fgMask = new Uint8Array(VISIBLE_W * VISIBLE_H);
 
+  // Spec 288: per-line palette swap for chips with split tables.
+  const baseKey = fb.paletteKey;
+  const hasSplit = baseKey in PALETTES_EVEN_ODD;
+
   for (let line = 0; line < lineCount; line++) {
     // 1. Apply previous line's nextLine queue first (= effective at this
     //    line's first pixel).
     for (const a of pendingNextLine) applyAction(state, a);
     pendingNextLine = [];
+
+    // Spec 288: swap palette per line for chips with split tables.
+    if (hasSplit) fb.palette = paletteForLine(baseKey, line);
 
     const lane = frame.perLine[line] ?? emptyLane();
     const coll = renderOneLine(fb, ctx.bus, state, line, lane, fgMask);
@@ -117,6 +125,8 @@ export function renderFrameRasterized(
     // Harvest this line's nextLine queue for next iteration.
     for (const a of lane.nextLine) pendingNextLine.push(a);
   }
+  // Restore base palette if we swapped per line.
+  if (hasSplit) fb.palette = PALETTES[baseKey];
 
   // Carry leftover deferred actions into next frame's line 0.
   frameCarry = pendingNextLine;

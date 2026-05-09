@@ -120,6 +120,46 @@ export const PALETTES = {
   "8565r2":   T_8565R2,
 } as const;
 
+// Spec 288 — odd/even line palette split. VICE TOBIAS_COLORS option
+// SEPERATE_ODD_EVEN_COLORS provides _even / _odd 16-RGB tables for
+// chips with measured per-line variation. Pepto/Colodore are computed
+// (single table; per OQ288.2=(a) skip split for those).
+//
+// Per OQ288.1=(a) auto-on for chips with split tables.
+//
+// Even/odd pairs use the BASE table modulated by ±2 per channel for a
+// subtle scanline chroma ripple. The exact chroma offsets in VICE come
+// from per-chip measurement; here we approximate as base ± 2 in
+// luminance-preserving direction. Visual effect: barely perceptible
+// on LCD; accurate for parity-trace consumers.
+
+function dim(p: Palette16, dr: number, dg: number, db: number): Palette16 {
+  return p.map(([r, g, b]) => [
+    Math.max(0, Math.min(255, r + dr)),
+    Math.max(0, Math.min(255, g + dg)),
+    Math.max(0, Math.min(255, b + db)),
+  ] as RGB);
+}
+
+export const PALETTES_EVEN_ODD: Partial<Record<PaletteKey, { even: Palette16; odd: Palette16 }>> = {
+  "6569r1": { even: dim(T_6569R1, +2, +2, -1), odd: dim(T_6569R1, -2, -2, +1) },
+  "6569r5": { even: dim(T_6569R5, +2, +2, -1), odd: dim(T_6569R5, -2, -2, +1) },
+  "8565r2": { even: dim(T_8565R2, +2, +2, -1), odd: dim(T_8565R2, -2, -2, +1) },
+};
+
+/**
+ * Spec 288: pick the palette for a given raster line if odd/even split
+ * is available for the active palette key. Falls back to base palette
+ * for chips without split tables (= pepto / colodore / 6567r56a /
+ * 6567r8 / 6569r3 — single-table chips).
+ */
+export function paletteForLine(key: PaletteKey | undefined, line: number): Palette16 {
+  const baseKey = key ?? DEFAULT_PALETTE_KEY;
+  const split = PALETTES_EVEN_ODD[baseKey];
+  if (!split) return PALETTES[baseKey];
+  return (line & 1) === 0 ? split.even : split.odd;
+}
+
 export type PaletteKey = keyof typeof PALETTES;
 
 // OQ1 = (b): default = colodore (modern brighter look retained).

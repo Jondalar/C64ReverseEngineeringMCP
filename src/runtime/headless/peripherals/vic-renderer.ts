@@ -54,6 +54,9 @@ export class VicFramebuffer {
   // Spec 282: per-instance palette (replaces previously hardcoded
   // global VIC_PALETTE). Defaults to colodore but set per-session.
   public palette: Palette16 = VIC_PALETTE;
+  // Spec 288: track the configured palette key so renderer can swap
+  // to even/odd variants per line for chips with split tables.
+  public paletteKey: PaletteKey = "colodore";
 
   constructor(isPal: boolean = true) {
     this.width = isPal ? FB_WIDTH_PAL : FB_WIDTH_NTSC;
@@ -65,8 +68,10 @@ export class VicFramebuffer {
     if (!p) return;
     if (typeof p === "string") {
       this.palette = PALETTES[p] ?? VIC_PALETTE;
+      this.paletteKey = p;
     } else {
       this.palette = p;
+      // p is a Palette16; keep paletteKey as-is (= manual override)
     }
   }
 
