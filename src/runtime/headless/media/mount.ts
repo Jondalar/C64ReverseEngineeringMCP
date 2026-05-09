@@ -160,6 +160,7 @@ export async function mountMedia(
     (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
     (session.kernel as unknown as { diskProvider: unknown }).diskProvider = newProvider;
     (session.kernalFileIo as unknown as { diskProvider?: unknown }).diskProvider = newProvider;
+    session.diskPath = path;
 
     addRecent(path, mediaType);
   } catch (e) {

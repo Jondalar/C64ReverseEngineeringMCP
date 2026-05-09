@@ -197,7 +197,7 @@ export class IntegratedSession {
   // constructed; passed into DriveCpu so the VIA2 backend reads its
   // dataByte / syncBit and DriveCpuCycled ticks it per drive cycle.
   public readonly gcrShifter: GcrShifter;
-  public readonly diskPath: string;
+  public diskPath: string;
   // Spec 115 v1: list of drive-9+ slots that were declared but not
   // yet instantiated. Empty when only device-8 is in use.
   public readonly multiDriveDeferred: DriveConfig[] = [];
@@ -643,13 +643,17 @@ export class IntegratedSession {
     }
     this.renderFrame({ renderer: opts?.renderer });
     const fb = this.framebuffer;
-    // Active region center in internal 504×312 buf: (24+160, 51+100) = (184, 151).
-    // For 384×272 output centered on active: origin = (184-192, 151-136) = (-8, 15).
-    // Clamp origin to (0, 15). Width in source = 392 (= 384 + 8 left clip).
-    // Just crop [0..391, 15..286] = 392×272. VICII has wider right HBLANK we drop.
+    // V3.1 (2026-05-09): symmetric borders matching internal renderer
+    // layout. VISIBLE_X=24 in vic-renderer.ts → display at internal
+    // x=24..343 (320px). Output equal 24-px borders L/R = 368 wide.
+    // VICE standard is 384×272 with 32-px borders, but our internal
+    // buf has only 24-px left margin (re-rendering wider would
+    // require widening framebuffer + adjusting all draw helpers).
+    // Symmetric 368×272 = correct ratio, smaller borders than VICE
+    // but L/R equal as user requested.
     const cropX = 0;
     const cropY = 15;
-    const cropW = 392;
+    const cropW = 368;       // 24 left + 320 display + 24 right
     const cropH = 272;
     const cropped = new Uint8Array(cropW * cropH * 4);
     for (let y = 0; y < cropH; y++) {
@@ -716,6 +720,11 @@ export class IntegratedSession {
       this.drive.setSyncBaseline(this.c64Cpu.cycles); // = 0 still
     }
     this.sid.reset();
+    // Reset keyboard clock + drop pending key events — c64Cpu.cycles
+    // restarts at 0, keyboard would otherwise schedule events at the
+    // pre-reset clock and miss the window.
+    this.keyboard.clearEvents();
+    this.keyboard.resetClock();
     // Pin VIC raster phase deterministically.
     (this.vic as { rasterLine?: number }).rasterLine = spec.vicRasterPhase;
     // Pin drive head to profile-specified start track.

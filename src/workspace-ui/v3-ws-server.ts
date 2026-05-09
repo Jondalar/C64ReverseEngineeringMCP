@@ -223,7 +223,9 @@ export class V3WsServer {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
       const cycleBudget = cycles ?? 19705;
-      s.runFor(1_000_000, { cycleBudget });
+      // Instruction cap must exceed cycle cap so cycleBudget always wins.
+      // Min cycles per 6502 instruction = 2, so cycles/2 ≈ max instructions.
+      s.runFor(Math.ceil(cycleBudget / 2) + 1000, { cycleBudget });
       return { c64Cycles: s.c64Cpu.cycles };
     });
 
@@ -243,6 +245,26 @@ export class V3WsServer {
       if (!s) throw new Error(`no session ${session_id}`);
       s.typeText(text ?? "", hold_cycles ?? 80_000, gap_cycles ?? 80_000);
       return { c64Cycles: s.c64Cpu.cycles, queued: text?.length ?? 0 };
+    });
+
+    // Drive status — LED + half-track + motor for Live tab display.
+    this.on("session/drive_status", ({ session_id }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const drv = s.drive;
+      const halfTrack = (s.headPosition as any).trackHalf ?? 0;
+      const motorOn = !!(s as any).gcrShifter?.motorOn;
+      const via1Pb = (drv.bus.via1 as any).orb ?? 0;
+      const via1Ddrb = (drv.bus.via1 as any).ddrb ?? 0;
+      const ledOn = (via1Pb & via1Ddrb & 0x08) !== 0;
+      return {
+        device: 8,
+        ledOn,
+        motorOn,
+        halfTrack,
+        track: Math.floor(halfTrack / 2) + 1,
+        drivePc: drv.cpu.pc,
+      };
     });
 
     // Spec 263 — audio streaming.
@@ -347,7 +369,34 @@ export class V3WsServer {
 
     this.on("media/recent", async () => {
       const { getRecent } = await import("../runtime/headless/media/recent-files.js");
-      return getRecent();
+      const pmod = await import("node:path");
+      const recent = getRecent();
+      if (recent.length > 0) {
+        return recent.map((r: any) => ({ ...r, name: r.name ?? pmod.basename(r.path) }));
+      }
+      // Fallback: scan samples/ for media (bootstrap when no recents).
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const samplesDir = path.join(process.cwd(), "samples");
+      const out: Array<{ path: string; name: string; type: string }> = [];
+      const exts = [".d64", ".g64", ".crt", ".prg", ".vsf"];
+      function walk(dir: string, depth = 0): void {
+        if (depth > 2 || !fs.existsSync(dir)) return;
+        for (const entry of fs.readdirSync(dir)) {
+          if (entry.startsWith(".") || entry === "node_modules") continue;
+          const full = path.join(dir, entry);
+          let st;
+          try { st = fs.statSync(full); } catch { continue; }
+          if (st.isDirectory()) walk(full, depth + 1);
+          else {
+            const lower = entry.toLowerCase();
+            const ext = exts.find((e) => lower.endsWith(e));
+            if (ext) out.push({ path: full, name: path.basename(full), type: ext.slice(1) });
+          }
+        }
+      }
+      walk(samplesDir);
+      return out.slice(0, 50);
     });
 
     // ---- Spec 268 — Snapshot tree + scenario registry WS handlers ----
