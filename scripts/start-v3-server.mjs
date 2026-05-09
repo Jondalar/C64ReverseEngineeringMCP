@@ -29,6 +29,19 @@ console.log(`[v3] session id: ${sessionId}`);
 console.log(`[v3] cold reset + boot to BASIC ready...`);
 const session = getIntegratedSession(sessionId);
 session.resetCold("pal-default");
+
+// Spec 297l: opt-in cycle-pumped renderer via C64RE_CYCLE_PUMPED=1.
+// Installs VicIIVice.onCycle hook so framebuffer is filled per-cycle
+// (vs vice-rasterized snapshot replay). Pixel-perfect parity with
+// VICE x64sc; perf hit accepted (= optimization-pass deferred).
+if (process.env.C64RE_CYCLE_PUMPED === "1") {
+  const { installCyclePumpedRenderer } = await import(
+    `${repoRoot}/dist/runtime/headless/vic/cycle-pumped-renderer.js`
+  );
+  installCyclePumpedRenderer(session);
+  console.log(`[v3] cycle-pumped renderer installed (= 297l opt-in)`);
+}
+
 session.runFor(2_000_000); // boot KERNAL until READY prompt
 console.log(`[v3] cycle=${session.c64Cpu.cycles} pc=$${session.c64Cpu.pc.toString(16)}`);
 

@@ -643,7 +643,7 @@ export class IntegratedSession {
   // border in raw 504-pixel output.
   renderToPng(
     path: string,
-    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" },
+    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" | "cycle-pumped" },
   ): { width: number; height: number; bytes: number } {
     // Spec 262c: optional frame-boundary sync. Default true — running
     // until the visible raster region is fully populated guarantees the
@@ -655,7 +655,13 @@ export class IntegratedSession {
     if (frameAligned) {
       this.runUntilFrameReady();
     }
-    this.renderFrame({ renderer: opts?.renderer });
+    // Spec 297l: cycle-pumped mode = framebuffer is filled continuously
+    // by VicIIVice.onCycle hook (= installCyclePumpedRenderer at session
+    // start). Skip the snapshot re-render so we keep the live cycle
+    // pump output.
+    if (opts?.renderer !== "cycle-pumped") {
+      this.renderFrame({ renderer: opts?.renderer });
+    }
     const fb = this.framebuffer;
     // V3.1 (2026-05-09): symmetric borders matching internal renderer
     // layout. VISIBLE_X=24 in vic-renderer.ts → display at internal

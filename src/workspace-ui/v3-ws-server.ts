@@ -231,7 +231,11 @@ export class V3WsServer {
       // only border (no chars/sprites). Use vice-rasterized for the live
       // UI — VICE-faithful per-line raster_changes path is the V3 default
       // for everything VIC-parity (Spec 280c).
-      s.renderToPng(path, { renderer: "vice-rasterized" });
+      // Spec 297l: when C64RE_CYCLE_PUMPED=1, framebuffer is filled
+      // continuously by the cycle-pumped renderer (= installed at
+      // start-v3-server.mjs); skip snapshot re-render here.
+      const renderer = process.env.C64RE_CYCLE_PUMPED === "1" ? "cycle-pumped" : "vice-rasterized";
+      s.renderToPng(path, { renderer });
       const bytes = readFileSync(path);
       return { dataUrl: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length };
     });

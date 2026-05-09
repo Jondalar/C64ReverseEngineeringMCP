@@ -19,7 +19,7 @@
 // renderer (= vice-rasterized) remains active.
 
 import {
-  CYCLE_TAB_PAL, PHI1_FETCH_G, PHI1_IDLE,
+  CYCLE_TAB_PAL, PHI1_FETCH_G, PHI1_IDLE, PHI1_SPR_PTR, PHI1_SPR_DMA1,
   type CycleEntry,
 } from "./cycle-table-pal.js";
 import {
@@ -31,6 +31,18 @@ import { fetchPhi1, fetchIdleGfx, type FetchPhi1Context } from "./fetch-phi1.js"
 import {
   VISIBLE_X, VISIBLE_Y, VISIBLE_W, VISIBLE_H, type VicFramebuffer,
 } from "../peripherals/vic-renderer.js";
+import {
+  newSpriteEngine, loadSpriteRegs, loadSpriteDmaByte, onLineStart as spriteOnLineStart,
+  type SpriteEngine,
+} from "./sprite-cycle.js";
+import {
+  newBorderState, onLineStartBorder, applyMainBorderCheck, isInBorder,
+  type BorderState,
+} from "./border-state.js";
+import {
+  newSpriteCollisionState, type SpriteCollisionState,
+} from "./sprite-collision-latch.js";
+import { compositePixel } from "./cycle-pixel-composite.js";
 
 /** Session shape consumed by the renderer (decoupled from IntegratedSession). */
 interface SessionLike {
@@ -59,9 +71,21 @@ interface RendererState {
   vcbase: number;
   rc: number;        // 0..7 within character row
   idleState: boolean;
+  // Sprite + border + collision (= full pipeline integration in 297l)
+  sprites: SpriteEngine[];
+  border: BorderState;
+  collision: SpriteCollisionState;
+  /** Per-sprite DMA byte counter (resets at SPR_PTR cycle for that sprite). */
+  spriteDmaByteIdx: number[];
+  /** Sprite data pointer (= byte read at SPR_PTR cycle, scaled × 64). */
+  spriteDataPtr: number[];
+  /** Last seen raster_y so we trigger onLineStart only on change. */
+  lastRasterY: number;
 }
 
 function newRendererState(): RendererState {
+  const sprites: SpriteEngine[] = [];
+  for (let i = 0; i < 8; i++) sprites.push(newSpriteEngine(i));
   return {
     pipe: newDisplayPipeState(),
     vbuf: new Uint8Array(40),
@@ -71,6 +95,12 @@ function newRendererState(): RendererState {
     vcbase: 0,
     rc: 0,
     idleState: false,
+    sprites,
+    border: newBorderState(),
+    collision: newSpriteCollisionState(),
+    spriteDmaByteIdx: new Array(8).fill(0),
+    spriteDataPtr: new Array(8).fill(0),
+    lastRasterY: -1,
   };
 }
 
@@ -225,10 +255,44 @@ export function installCyclePumpedRenderer(session: SessionLike): { uninstall: (
     const d022 = session.vic.regs[0x22]! & 0x0f;
     const d023 = session.vic.regs[0x23]! & 0x0f;
     const d024 = session.vic.regs[0x24]! & 0x0f;
+    const d025 = session.vic.regs[0x25]! & 0x0f;
+    const d026 = session.vic.regs[0x26]! & 0x0f;
+    const d015 = session.vic.regs[0x15]!;
+    const d017 = session.vic.regs[0x17]!;
+    const d01b = session.vic.regs[0x1b]!;
+    const d01c = session.vic.regs[0x1c]!;
+    const d01d = session.vic.regs[0x1d]!;
+    const d010 = session.vic.regs[0x10]!;
     const ecmActive = (d011 & 0x40) !== 0;
     const bmm = (d011 & 0x20) !== 0;
     const mode = computeVideoMode(d011, d016);
     const fetchCtx = buildFetchCtx(session, ecmActive);
+
+    // -------- Per-line setup (raster_y change → border + sprites onLineStart) --------
+    if (raster_y !== state.lastRasterY) {
+      state.lastRasterY = raster_y;
+      onLineStartBorder(state.border, raster_y, d011);
+      // Sync sprite regs from VIC for all 8 sprites
+      for (let s = 0; s < 8; s++) {
+        const xLow = session.vic.regs[s * 2]!;
+        const yPos = session.vic.regs[s * 2 + 1]!;
+        const xMsb = (d010 >> s) & 1;
+        loadSpriteRegs(state.sprites[s]!,
+          xLow, xMsb, yPos,
+          (d015 >> s & 1) !== 0,
+          (d017 >> s & 1) !== 0,
+          (d01b >> s & 1) !== 0,
+          (d01c >> s & 1) !== 0,
+          (d01d >> s & 1) !== 0,
+          session.vic.regs[0x27 + s]!,
+        );
+      }
+      for (let s = 0; s < 8; s++) spriteOnLineStart(state.sprites[s]!, raster_y);
+    }
+
+    // -------- Per-cycle main border check --------
+    applyMainBorderCheck(state.border, cycle, "phi1", d016);
+    applyMainBorderCheck(state.border, cycle, "phi2", d016);
 
     // -------- Φ1 fetch --------
     let newGbuf: number | null = null;
@@ -252,6 +316,33 @@ export function installCyclePumpedRenderer(session: SessionLike): { uninstall: (
       newGbuf = fetchPhi1(fetchCtx, fetchAddr);
     } else if (phi1.phi1 === PHI1_IDLE) {
       newGbuf = fetchIdleGfx(fetchCtx);
+    } else if (phi1.phi1 === PHI1_SPR_PTR) {
+      // Sprite pointer fetch: read pointer at $07F8+spriteN within VIC bank
+      // (= screen_base_ptr + 0x3f8 + sprite_num).
+      const screenBase = screenBaseFromD018(d018);
+      const spriteN = phi1.phi1SpriteNum;
+      const ptrAddr = screenBase + 0x3f8 + spriteN;
+      const ptr = fetchPhi1(fetchCtx, ptrAddr);
+      state.spriteDataPtr[spriteN] = ptr * 64;  // sprite data = pointer × 64
+      state.spriteDmaByteIdx[spriteN] = 0;
+      // SprPtr cycles also implicitly fetch sprite data byte 0 in same cycle?
+      // No — SprPtr ↔ SprDma0 is the same Φ1 cycle in cycle table marked
+      // SprPtr (= ptr+data0). Per VICE we model both as one Φ1 fetch each.
+      // Read data byte 0 immediately after pointer:
+      if ((d015 >> spriteN & 1) !== 0) {
+        const dataByte0 = fetchPhi1(fetchCtx, state.spriteDataPtr[spriteN]! + 0);
+        loadSpriteDmaByte(state.sprites[spriteN]!, 0, dataByte0);
+        state.spriteDmaByteIdx[spriteN] = 1;
+      }
+    } else if (phi1.phi1 === PHI1_SPR_DMA1) {
+      // Sprite DMA1+DMA2: fetch bytes 1 + 2 of sprite data.
+      const spriteN = phi1.phi1SpriteNum;
+      if ((d015 >> spriteN & 1) !== 0) {
+        const dataByte1 = fetchPhi1(fetchCtx, state.spriteDataPtr[spriteN]! + 1);
+        const dataByte2 = fetchPhi1(fetchCtx, state.spriteDataPtr[spriteN]! + 2);
+        loadSpriteDmaByte(state.sprites[spriteN]!, 1, dataByte1);
+        loadSpriteDmaByte(state.sprites[spriteN]!, 2, dataByte2);
+      }
     }
 
     // VICE vicii-fetch.c:267-270: vmli + vc advance HERE (after Φ1
@@ -284,15 +375,29 @@ export function installCyclePumpedRenderer(session: SessionLike): { uninstall: (
     const xLine = raster_cycle * 8;
     const yPix = raster_y;
     if (phi1.visible || phi2.visible) {
-      // Active display row in the visible band only — outside, leave
-      // border alone (=  border state machine = 297j).
+      // Active display row in the visible band only.
       if (yPix >= VISIBLE_Y && yPix < VISIBLE_Y + VISIBLE_H) {
         for (let i = 0; i < 8; i++) {
           if (i === state.pipe.xscroll_pipe) latchPipeRegs(state.pipe);
           if (i === 4) sampleVmode16(state.pipe, d016);
           if (i === 7) holdVmode16Pipe2(state.pipe);
-          emitPixel(session.framebuffer, xLine + i, yPix, state.pipe, mode,
-                    d021, d022, d023, d024);
+          if (isInBorder(state.border)) {
+            // Border pixel = $D020.
+            const fb = session.framebuffer;
+            const [rB, gB, bB] = fb.palette[d020]!;
+            const off = (yPix * fb.width + (xLine + i)) * 4;
+            fb.pixels[off] = rB;
+            fb.pixels[off + 1] = gB;
+            fb.pixels[off + 2] = bB;
+            fb.pixels[off + 3] = 0xff;
+          } else {
+            // Composite gfx + sprites + collision (= 297i).
+            compositePixel(
+              session.framebuffer, xLine + i, yPix, state.pipe, mode,
+              d021, d022, d023, d024, d025, d026,
+              state.sprites, state.collision,
+            );
+          }
           shiftGbufOnePixel(state.pipe);
         }
       }
