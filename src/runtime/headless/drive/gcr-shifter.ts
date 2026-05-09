@@ -269,6 +269,50 @@ export class GcrShifter {
     return false;
   }
 
+  /**
+   * VICE drive_writeprotect_sense (drive-writeprotect.c:32). Returns
+   * 0x10 = WP set (= "no disk" or "attached writable") or 0x0 = WP
+   * cleared (= "WP just changed" / attach window).
+   *
+   * 1541 DOS watches PB4 transitions via `wpsw` + `lwpt` to trigger
+   * "new disk inserted" handling (re-read BAM, flush cached headers,
+   * reset error flags). Without dynamic transition the drive ROM
+   * keeps stale state from prior NoDisk phase.
+   *
+   * Truth table (VICE):
+   *   detach in progress (< DRIVE_DETACH_DELAY)         → 0x0
+   *   attach-after-detach (< DRIVE_ATTACH_DETACH_DELAY) → 0x10
+   *   attach in progress (< DRIVE_ATTACH_DELAY)         → 0x0
+   *   no disk loaded                                    → 0x10
+   *   disk loaded + read_only                           → 0x0
+   *   disk loaded + writable                            → 0x10
+   */
+  writeProtectSense(): 0 | 0x10 {
+    if (!this.clockProvider) {
+      // No clock = unit test / pre-init: treat as no disk = WP set
+      return this.parser.getRawTrackBytes(18) === null ? 0x10 : 0x10;
+    }
+    const clk = this.clockProvider();
+    if (this.detach_clk !== 0) {
+      if (clk - this.detach_clk < DRIVE_DETACH_DELAY) return 0;
+      this.detach_clk = 0;
+    }
+    if (this.attach_detach_clk !== 0) {
+      if (clk - this.attach_detach_clk < DRIVE_ATTACH_DETACH_DELAY) return 0x10;
+      this.attach_detach_clk = 0;
+    }
+    if (this.attach_clk !== 0) {
+      if (clk - this.attach_clk < DRIVE_ATTACH_DELAY) return 0;
+      this.attach_clk = 0;
+    }
+    // No transition pending — return based on current disk presence.
+    const noDisk = this.parser.getRawTrackBytes(18) === null;
+    if (noDisk) return 0x10;
+    // Disk loaded — read_only flag would set 0x0 here, but we don't
+    // model read-only at shifter level yet (default writable = 0x10).
+    return 0x10;
+  }
+
   /** Wire the clock source (= c64Cpu.cycles getter). Called once at
    *  IntegratedSession construction. */
   setClockProvider(p: () => number): void {

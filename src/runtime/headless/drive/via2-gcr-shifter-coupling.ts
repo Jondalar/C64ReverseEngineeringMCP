@@ -69,8 +69,22 @@ export function makeGcrShifterCoupling(
       // PB7 = SYNC# (active LOW). Pulled live from shifter.
       // syncBit returns 0 when sync detected, 1 otherwise.
       if (shifter.syncBit === 0) bits &= ~PB_SYNC;
-      // PB4 = WPS — 1 when not write-protected; pull low if WP.
-      if (writeProtected) bits &= ~PB_WPS;
+      // PB4 = WPS — VICE drive_writeprotect_sense semantics.
+      // Returns 0x10 (WP set) for no-disk + attached writable,
+      // 0x0 (WP cleared) during attach delay window. 1541 DOS
+      // watches PB4 transitions via `wpsw` / `lwpt` to detect
+      // disk insert. Constructor `writeProtected` option overrides
+      // = always WP set if disk image is read-only.
+      const wpSenseFromShifter = shifter.writeProtectSense();
+      if (writeProtected) {
+        // Caller-forced WP: pull low always
+        bits &= ~PB_WPS;
+      } else if (wpSenseFromShifter === 0) {
+        // VICE attach window: WP just changed → pull low
+        bits &= ~PB_WPS;
+      }
+      // wpSenseFromShifter === 0x10 → leave PB4 high (= WP not set
+      // = drive ready for write, or no disk → DOS will probe)
       // Other bits (LED, motor read-back, density read-back, step phase
       // read-back) are normally driven by the latch; the chip core
       // already merges DDR-output bits in, so we leave them at default
