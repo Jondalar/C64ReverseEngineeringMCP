@@ -21,8 +21,11 @@ function test(name, fn) {
   }
 }
 
+// Use a synthetic disk image — samples/* is gitignored so real game
+// disks (motm.g64 etc.) are not available in CI. smoke:gen runs first
+// in quick.yml and produces samples/synthetic/1block.g64.
 const { session } = startIntegratedSession({
-  diskPath: resolvePath(repoRoot, "samples/motm.g64"),
+  diskPath: resolvePath(repoRoot, "samples/synthetic/1block.g64"),
   mode: "true-drive",
   useMicrocodedCpu: true,
 });
@@ -81,9 +84,9 @@ test("trace() returns controller", () => {
   if (typeof tc.publish !== "function") throw new Error("no publish");
 });
 
-test("renderToPng() — 392x272 cropped", () => {
+test("renderToPng() — 384x272 cropped (VICE x64sc default)", () => {
   const r = session.renderToPng("/tmp/spec206-smoke.png");
-  if (r.width !== 392 || r.height !== 272) throw new Error(`unexpected size ${r.width}x${r.height}`);
+  if (r.width !== 384 || r.height !== 272) throw new Error(`unexpected size ${r.width}x${r.height}`);
   if (r.bytes < 100) throw new Error("png too small");
 });
 
