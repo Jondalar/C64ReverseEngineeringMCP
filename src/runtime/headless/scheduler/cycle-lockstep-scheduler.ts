@@ -66,6 +66,19 @@ export interface CycleLockstepDeps {
   // double-counts cycles in variants A/B (lockstep already ticked
   // drive, then flush re-ticks from lastSyncC64Clk=0).
   afterCycleSync?: (c64Cycle: number, driveCycle: number) => void;
+  // Spec 280g: per-cycle bus-stall query. When set and returns true,
+  // the C64 CPU is NOT stepped this cycle (VIC owns the bus for
+  // matrix/sprite DMA). Peripherals + drive still tick — master clock
+  // advances normally so drive lockstep stays consistent. Mirrors VICE
+  // BA-low CPU stalling. When undefined or returns false, CPU steps as
+  // normal.
+  busStallForNextC64Cycle?: () => boolean;
+  // Spec 280g: optional hook to advance the c64Cpu.cycles counter when
+  // the CPU is stalled by VIC. Required so peripherals downstream of
+  // the cpu cycle counter (cpuCycleCounter) keep ticking. If not
+  // provided, master clock still advances via cycleCount but the CPU
+  // counter stays put.
+  advanceC64CpuCycleOnStall?: () => void;
 }
 
 export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
@@ -100,8 +113,20 @@ export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
     // sync when CPU bursts cycles for IRQ service, branch+pgcross, or
     // illegal-opcode burn.
     const cpuBefore = this.deps.cpuCycleCounter ? this.deps.cpuCycleCounter() : this.cycleCount;
-    // Tick the CPU first.
-    this.deps.c64Components[0]!.executeCycle();
+    // Spec 280g: per-cycle VIC bus stealing. If VIC owns the bus this
+    // cycle, the CPU does NOT step. Master clock still advances (via
+    // cycleCount + drive tick + alarm context) so drive lockstep is
+    // unaffected. Mirrors VICE BA-low stalling.
+    const stalled = this.deps.busStallForNextC64Cycle?.() ?? false;
+    if (!stalled) {
+      // Tick the CPU first.
+      this.deps.c64Components[0]!.executeCycle();
+    } else if (this.deps.advanceC64CpuCycleOnStall) {
+      // Even though CPU did not step, bump its cycle counter so the
+      // cpuCycleCounter delta + downstream wall-clock peripherals
+      // (CIA timers, SID) keep ticking at the right rate.
+      this.deps.advanceC64CpuCycleOnStall();
+    }
     const cpuAfter = this.deps.cpuCycleCounter ? this.deps.cpuCycleCounter() : (cpuBefore + 1);
     const delta = Math.max(1, cpuAfter - cpuBefore);
     // Tick remaining C64 chips by `delta` so peripherals advance with

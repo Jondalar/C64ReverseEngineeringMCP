@@ -204,7 +204,7 @@ once vice-rasterized passes acceptance. Single-source-of-truth.
 Smoke tests get ported (vic-fidelity, visual-runtime, vic-cycle-log,
 vic-pixel-perfect → consolidated into vic-rasterized smoke).
 
-### 280g: per-cycle bus-stealing scheduler integration (OQ3)
+### 280g: per-cycle bus-stealing scheduler integration (OQ3) — SHIPPED 2026-05-09
 
 Mirror vice/src/vicii/vicii-cycle.c + vicii-fetch.c per-cycle bus
 owner table. Each PAL line cycle 0..62 marked CPU or VIC. VIC

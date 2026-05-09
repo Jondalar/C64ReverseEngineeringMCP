@@ -169,6 +169,13 @@ export interface IntegratedSessionOptions {
   // "per-pixel" enables Spec 262d-i pixel-perfect path using
   // VicIIVice.frameLineLogs. renderToPng() default uses this.
   vicRenderer?: "per-char-row" | "per-pixel";
+  // Spec 280g: opt-in per-cycle VIC bus stealing. When true, the
+  // cycle-lockstep scheduler queries vic.getBusStallForCycle() before
+  // each CPU step and stalls the CPU one cycle at a time when VIC
+  // owns the bus (badline matrix DMA + sprite DMA). Default false
+  // (= legacy block accounting via VicIIVice.computeLineSteal).
+  // Requires useCycleLockstep=true.
+  usePerCycleBusStealing?: boolean;
 }
 
 export interface PrgLoadResult {
@@ -470,6 +477,14 @@ export class IntegratedSession {
         // cycle — mirrors the same pattern as CIA (Spec 146 migration).
         new AlarmContextCycled(this.drivecpuAlarmContext, () => this.drive.cpu.cycles),
       ];
+      // Spec 280g: enable per-cycle bus stealing on the VIC chip.
+      // Scheduler will query vic.getBusStallForCycle() before each CPU
+      // step. When stalled, CPU does NOT step; cpu.cycles still bumps
+      // so peripherals + drive (driven off cpu cycle delta) stay in
+      // sync, and master clock advances normally.
+      if (opts.usePerCycleBusStealing) {
+        this.vic.usePerCycleBusStealing = true;
+      }
       this.scheduler = new CycleLockstepSchedulerImpl({
         c64Components, driveComponents,
         c64IsAtInstructionBoundary: () => cpuComponent.isAtInstructionBoundary?.() ?? true,
@@ -497,6 +512,13 @@ export class IntegratedSession {
           opts.probeMode === "A" || opts.probeMode === "B"
             ? (c64Cycle, _driveCycle) => this.drive.setSyncBaseline(c64Cycle)
             : undefined,
+        // Spec 280g per-cycle bus stealing wiring.
+        busStallForNextC64Cycle: opts.usePerCycleBusStealing
+          ? () => this.vic.getBusStallForCycle()
+          : undefined,
+        advanceC64CpuCycleOnStall: opts.usePerCycleBusStealing
+          ? () => { (this.c64Cpu as { cycles: number }).cycles += 1; }
+          : undefined,
       });
     }
     // Spec 142: bus-access trace producer wiring. Pass live object
