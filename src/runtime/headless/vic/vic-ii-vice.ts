@@ -1207,6 +1207,12 @@ export class VicIIVice {
       reg: VICII_LOG_CIA2_PA,
       value: u8(value),
     });
+    // Spec 286: cycle-exact bank update — apply to live state at write
+    // time so subsequent fetches in the same line see the new bank.
+    // VICE behavior: vbank_phi1 / vbank_phi2 update synchronously.
+    // CIA2 PA bits 0..1 = inverted (bank = 3 - (PA & 3)).
+    const bankNum = 3 - (value & 0x03);
+    this.setVbank(bankNum);
   }
 
   /** Spec 262a: renderer access — completed lines for the current frame. */
