@@ -221,6 +221,8 @@ export interface Cia6526ViceOptions {
   powerFreq?: number;
   /** CIA_MODEL_6526 (default) or CIA_MODEL_6526A. */
   model?: number;
+  /** VICE: write_offset. C64SC/SCPU64 set this to 0, default CIA core uses 1. */
+  writeOffset?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -349,6 +351,7 @@ export class Cia6526Vice {
     this.rmwFlagPtr = opts.rmwFlagPtr ?? (() => 0);
     this.name = opts.name ?? "CIA";
     this.model = opts.model ?? CIA_MODEL_6526;
+    this.write_offset = opts.writeOffset ?? STORE_OFFSET;
 
     this.ta = new Ciat(`${this.name}_TA`, this.clkPtr());
     this.tb = new Ciat(`${this.name}_TB`, this.clkPtr());

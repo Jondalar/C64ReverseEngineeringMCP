@@ -1,654 +1,99 @@
-# Full Headless TS C64 + 1541 TrueDrive Roadmap
-
-## Intent
-
-Build a full TypeScript C64 + 1541 emulator that is useful without a
-GUI:
-
-- deterministic CLI/MCP sessions for LLM-driven reverse engineering
-- inspectable state at CPU, memory, VIC, CIA, SID, IEC, drive, and disk
-  layers
-- scriptable input and breakpoints
-- visual render artifacts when needed
-- full C64 hardware behavior, except actual sound output
-- full 1541 TrueDrive behavior for D64/G64 media, including real drive
-  ROM execution, IEC protocol, GCR rotation, drive CPU/VIA timing, and
-  write-back
-
-This is not a reduced loader harness. It is a headless emulator. VICE
-remains the external oracle and human-facing fallback while this runtime
-catches up, but the target state is that VICE is no longer needed for
-normal autonomous analysis runs.
-
-The only explicit non-goal is audio output. SID register behavior,
-readback, timers/envelopes/oscillator state relevant to software, and SID
-write tracing are still in scope. Generating audible WAV/audio is not.
-
-## Product Versions
-
-### V1.0 — Full Headless C64 + 1541 Emulator
-
-V1.0 is the machine. It delivers a full headless TypeScript C64 emulator
-and a full 1541 TrueDrive implementation. The only excluded surface is
-audible sound output.
-
-Done when:
-
-- C64 hardware behavior is complete enough that real software cannot
-  distinguish it from a normal C64 for supported media paths.
-- 1541 TrueDrive loads D64/G64 through real drive ROM, IEC, GCR, and
-  drive CPU/VIA behavior without KERNAL serial/file traps.
-- PRG, CRT, D64, and G64 boot paths work through the same runtime.
-- visual rendering, scripted input, snapshots, traces, and VICE
-  comparison exist.
-- the compatibility ladder reaches the target commercial games and
-  selected demos.
-
-### V2.0 — LLM Reverse-Engineering Workbench
-
-V2.0 is the RE system built on top of the machine. The emulator becomes
-an oracle agents can ask questions, collect evidence from, and use to
-improve disassembly, extraction, testing, and project knowledge.
-
-Done when:
-
-- agents can ask runtime questions and receive evidence-backed answers
-- follow-a-path tracing works for concrete RE questions
-- visual disassembly links code, data, and runtime evidence
-- hypotheses can be tested automatically
-- rewind/forward snapshots support exploration
-- sandbox and extraction workflows can consume runtime state
-- runtime artifacts are registered into project knowledge
-
-### V3.0 — Human C64RE UI
-
-V3.0 is the human-facing interface built on top of the same emulator and
-RE workbench. It makes C64RE usable as an interactive C64 analysis
-environment, not only as an MCP/headless runtime.
-
-Done when:
-
-- the workspace UI can show a live C64 screen
-- keyboard and joystick input can be driven from the browser
-- users can mount/change PRG, CRT, D64, and G64 media
-- an integrated monitor exposes CPU, memory, breakpoints, disassembly,
-  trace, and watchpoints
-- SID output is available for human playback without making audio output
-  a V1 headless acceptance requirement
-- users can export screenshots, video captures, and audio captures from
-  a session
-
-## Current State
-
-The project has already crossed several important thresholds:
-
-- C64 cold boot reaches BASIC in microcoded + lockstep mode.
-- Keyboard typing works end-to-end.
-- C64 CPU has an equivalence harness against the legacy core.
-- Integrated C64+1541 lockstep exists.
-- G64 sessions default to cycle-lockstep + microcoded CPU.
-- Drive CPU can use the microcoded core for sub-instruction bus access.
-- IEC LISTEN/SECOND/NAME transfer works far enough for real-serial LOAD.
-- GCR has a free-running bit-level shifter and byte-ready/SO wiring.
-- Maniac Mansion `LOAD"MM",8,1` transfers 38658 bytes byte-perfect.
-
-Current blocker:
-
-- Bug 40: after successful LOAD and EOI detection, C64 KERNAL remains in
-  ACPTR/EOI retry instead of returning cleanly to BASIC/direct mode.
-- Sprint 111 / motm fastloader: evidence now points beyond a local
-  IEC bit-bang fix. The current hypothesis is that the runtime lacks a
-  single VICE-compatible synchronization invariant between C64, drive,
-  IEC, VIA/CIA, and clocks. The architecture proposal is captured in
-  `docs/headless-core-synchronization-refactor.md`.
-
-Do not touch:
-
-- `src/disk/g64-parser.ts` unless a parser-specific regression is proven.
-- KERNAL serial/file traps as a success path for TrueDrive acceptance.
-- game-specific PC traps.
-
-## North Star
-
-Two goals drive the roadmap:
-
-1. A full TS C64 emulator for CLI/LLM use, excluding only sound output.
-2. A full 1541 TrueDrive implementation comparable to VICE for real disk
-   behavior, including G64 custom loaders and write-back.
-
-The work should be cut into small stories that each create a regression
-artifact or a tool an agent can reuse.
-
-## Milestone 0 — Finish Real LOAD Control Flow
-
-Goal: real KERNAL LOAD returns to a usable C64 state without traps.
-
-Stories:
-
-- **M0.1 Bug 40 EOF trace**
-  Capture drive PC, C64 PC, IEC lines, `$90`, `$A5`, drive channel state,
-  and TALK/UNTALK state from the last data byte through return to idle.
-
-- **M0.2 VICE EOF comparison**
-  Capture the same end-of-file window in VICE and align on the last data
-  byte / EOI signal. Record the first behavioral divergence.
-
-- **M0.3 EOI/TALK fix**
-  Fix whichever side is wrong:
-  drive failing to send the EOI byte frame, C64 retry loop timing, TALK
-  cleanup, UNTALK handling, or ATN ACK state.
-
-- **M0.4 LOAD acceptance smoke**
-  Add a stable smoke command that proves:
-  `LOAD"*",8,1`, `LOAD"MM",8,1`, and a small synthetic one-block file
-  return to BASIC with the expected status and bytes in RAM.
-
-Acceptance:
-
-- no `?DEVICE NOT PRESENT`
-- no `?LOAD ERROR`
-- `$90` ends as EOI-only or clean status according to KERNAL path
-- C64 leaves `$EE00` retry area
-- drive remains ready for the next command
-
-## Milestone 1 — Emulator Core Contract
-
-Goal: make the runtime a coherent emulator API, not a pile of sprint
-debug hooks.
-
-Stories:
-
-- **M1.1 Session modes**
-  Define explicit modes:
-  `fast-trap`, `real-kernal`, `true-drive`, `debug-vice-compare`.
-  Tool output must always report the active mode.
-
-- **M1.2 Unified stepping**
-  Provide clear APIs for:
-  `step_cycles`, `step_instructions`, `run_until_pc`,
-  `run_until_raster`, `run_until_iec_event`, `run_until_stable_screen`.
-
-- **M1.3 Deterministic reset profile**
-  Standardize PAL/NTSC, RAM init pattern, ROM set, joystick state,
-  keyboard buffer, disk motor/head state, and drive RAM reset.
-
-- **M1.4 Structured state snapshots**
-  One JSON snapshot shape for CPU, memory banks, VIC, CIA1/2, SID, IEC,
-  drive CPU, VIA1/2, GCR head, disk, keyboard, joystick, and traps.
-
-- **M1.5 Regression harness**
-  Add a compatibility matrix runner that records pass/fail plus artifacts
-  for each target disk/PRG/CRT.
-
-Acceptance:
-
-- an agent can start a session, run it, inspect every subsystem, and
-  reproduce the same result from the same inputs.
-
-## Milestone 2 — Full C64 Hardware Fidelity
-
-Goal: emulate the C64 machine completely enough that software cannot
-tell it is running in a reduced runtime. The only excluded surface is
-actual audio output.
-
-Stories:
-
-- **M2.1 CPU cycle and interrupt fidelity**
-  Harden documented and stable undocumented opcodes, IRQ/NMI timing,
-  BRK/RTI/RTS/JSR stack behavior, RDY/stall behavior, and per-cycle bus
-  accesses.
-
-- **M2.2 CIA1/CIA2 fidelity**
-  Complete timers A/B, TOD clock, serial/shift behavior, ICR/IER
-  edge cases, keyboard matrix, joystick ports, IEC-facing CIA2, NMI
-  behavior, and timer interactions used by KERNAL serial and games.
-
-- **M2.3 VIC-II fidelity**
-  Raster counter, badlines, sprite DMA, sprite priority/collision,
-  border behavior, text/bitmap/multicolor/ECM modes, raster IRQ timing,
-  open-border tricks, and mid-frame register writes.
-
-- **M2.4 PLA and memory bus fidelity**
-  `$00/$01` CPU port, RAM/ROM/I/O banking, color RAM, char ROM access,
-  Ultimax, EXROM/GAME, open bus behavior, and cartridge interaction.
-
-- **M2.5 Input fidelity**
-  Keyboard, joysticks, RESTORE/NMI, key debounce, typed text macros, and
-  frame/cycle scheduled input playback.
-
-- **M2.6 SID software-visible behavior**
-  SID registers, readable oscillator/noise/envelope behavior, ADSR timing
-  relevant to polling loops, and write tracing. No sound output required.
-
-Acceptance:
-
-- BASIC/KERNAL behave normally under typed commands.
-- raster IRQ games and sprite-heavy screens reach stable visual states.
-- cart, PRG, D64, and G64 boot paths share the same C64 core.
-- no acceptance item depends on audible output.
-
-## Milestone 3 — Full 1541 TrueDrive
-
-Goal: emulate the 1541 as a real drive, not as a file provider. Real
-KERNAL serial, drive ROM, VIA timing, GCR rotation, head movement,
-read/write behavior, and custom loaders must work without traps.
-
-Stories:
-
-- **M3.1 Drive CPU microcoded hardening**
-  Keep drive on microcoded sub-instruction access. Add drive-specific
-  CPU equivalence fixtures around IRQ, SO/V flag, indexed addressing,
-  stack, and undocumented opcodes seen in drive code.
-
-- **M3.2 VIA1 IEC contract**
-  Lock down line polarity, CA1 ATN edge behavior, PB4 ATN_ACK, device ID
-  jumpers, IRQ timing, and read/write side effects with synthetic tests.
-
-- **M3.3 KERNAL serial byte matrix**
-  Test LISTEN, UNLISTEN, TALK, UNTALK, SECOND, TKSA, CIOUT, ACPTR, EOI,
-  timeout, and retry paths against synthetic drive states.
-
-- **M3.4 D64 file path**
-  Ensure standard D64 directory/file loading uses the same true-drive
-  path where possible, not a trap path. Keep fast direct extract as a
-  separate analysis helper.
-
-- **M3.5 G64 GCR shifter fidelity**
-  Harden bit-level rotation, sync detection, byte-ready/SO, density
-  zones, motor on/off, head stepping, half-track behavior, and write
-  protect.
-
-- **M3.6 Write support**
-  Verify SAVE, scratch/rename/write-back basics and persist modified G64
-  tracks without mutating the original image.
-
-- **M3.7 Multi-drive shape**
-  Model drive 8-11 cleanly. Drive 8 can land first, but the architecture
-  must not assume a single drive forever.
-
-- **M3.8 Drive fidelity backlog**
-  Cover the remaining true-drive details explicitly: motor spin-up/down,
-  density-bit override, track zero/stop behavior, half-track reads,
-  open-bus behavior, VIA shift-register modes, timer edge cases, SO pin
-  behavior, write splice behavior, and disk-change semantics.
-
-Acceptance titles:
-
-- synthetic LISTEN/SECOND/NAME/EOI
-- standard D64 one-file LOAD
-- Maniac Mansion side 1 boot file and `MM` file
-- Murder on the Mississippi boot
-- Impossible Mission II / Last Ninja Remix first load
-
-## Milestone 4 — Visual Runtime
-
-Goal: make the emulator visually useful to an LLM.
-
-Stories:
-
-- **M4.1 Stable framebuffer API**
-  `headless_render_screen` returns PNG plus VIC mode metadata and source
-  memory ranges.
-
-- **M4.2 VIC timing baseline**
-  Raster counter, badlines, sprite DMA, IRQ timing, border state, and
-  mid-frame register writes need known limitations and tests.
-
-- **M4.3 Screen-state query**
-  Provide text/screen RAM/PETSCII extraction, color RAM summary, sprite
-  positions, bitmap mode state, and dirty regions.
-
-- **M4.4 Input macros**
-  Typed text, joystick scripts, key holds, frame-based input playback.
-
-- **M4.5 Visual acceptance**
-  For each target game, store a small expected-state artifact:
-  "BASIC READY", "searching/loading", "title screen", "first gameplay".
-
-Acceptance:
-
-- MM title/character-select screen can be rendered as an artifact.
-- visual state can be queried without relying only on screenshots.
-
-## Milestone 5 — LLM-Oriented Debugging
-
-Goal: make the emulator explainable and easy to drive from tools.
-
-Stories:
-
-- **M5.1 Trace channels**
-  Separate CPU, memory, IEC, drive PC, GCR, VIC, CIA, SID, keyboard,
-  joystick traces. Ring buffers for live use, JSONL for persisted runs.
-
-- **M5.2 Event-indexed search**
-  Search by PC, address read/write, IEC edge, raster line, IRQ, drive
-  command, GCR sync, byte-ready, and screen change.
-
-- **M5.3 VICE swimlane**
-  Keep headless-vs-VICE trace alignment as a first-class command. Every
-  compatibility bug should end with a small divergence artifact.
-
-- **M5.4 Scenario DSL**
-  YAML/JSON scenario files:
-  media, reset mode, typed input, joystick script, breakpoints, run
-  limits, expected state, artifacts to emit.
-
-- **M5.5 Knowledge integration**
-  Every diagnostic run registers artifacts and can emit findings/tasks
-  into project knowledge.
-
-Acceptance:
-
-- Claude/Codex can run one command and get a precise "next divergence"
-  artifact instead of manually reading console logs.
-
-## Milestone 6 — Cartridge and Expansion Coverage
-
-Goal: make non-disk C64 software boot paths reliable.
-
-Stories:
-
-- **M6.1 PLA truth-table tests**
-  Verify RAM/ROM/I/O/cart banking for normal, Ultimax, EXROM/GAME, and
-  C64 port `$00/$01` cases.
-
-- **M6.2 CRT runtime mappers**
-  Implement and test priority cart types: 8K/16K, Ocean, Magic Desk,
-  EasyFlash, GMOD, Megabyter, C64MegaCart.
-
-- **M6.3 Cart debug tools**
-  Report cart type, active bank, EXROM/GAME state, mapped ranges, and
-  bank-switch writes.
-
-Acceptance:
-
-- representative CRTs boot to first visible screen.
-- disk + cart combinations do not regress disk loading.
-
-## Milestone 7 — SID Behavior Without Audio Output
-
-Goal: emulate SID behavior that software can observe, while explicitly
-excluding actual sound output.
-
-Stories:
-
-- **M7.1 SID register and readback model**
-  Stable read/write behavior, oscillator/noise readback, paddle read
-  behavior where relevant, ADSR state, envelope counters, and timing
-  enough that polling code behaves correctly.
-
-- **M7.2 SID trace**
-  Log SID writes with PC/cycle attribution and identify music init/play
-  routines.
-
-- **M7.3 No-audio boundary**
-  Document the boundary clearly: no speaker/audio stream/WAV output is
-  required for the headless emulator. SID state and traces remain
-  queryable.
-
-Acceptance:
-
-- games polling SID do not hang.
-- agents can identify active music/SFX routines from traces.
-- no acceptance item requires audible output.
-
-## Milestone 8 — Performance and Operations
-
-Goal: make long headless runs practical.
-
-Stories:
-
-- **M8.1 Run budgets**
-  Clear cycle/instruction/frame budgets with partial results.
-
-- **M8.2 Snapshot/resume**
-  VSF or internal snapshots for C64 + drive + disk head + traces.
-
-- **M8.3 Fast-forward safe paths**
-  Safe idle-loop skips only when proven not to change externally visible
-  state. Never hide timing bugs in TrueDrive mode.
-
-- **M8.4 CI profile**
-  Small synthetic tests in CI, sample game tests skipped unless local
-  samples exist.
-
-Acceptance:
-
-- a 100M-cycle run is debuggable, cancellable, and produces useful
-  artifacts.
-
-## Story Cutting Rules
-
-Use these rules when turning this roadmap into specs and sprints:
-
-- One story must produce one reusable command, tool, or regression
-  artifact.
-- Do not combine a probe and a fix unless the fix is trivial.
-- Prefer synthetic tests for protocol invariants, sample games for
-  acceptance.
-- Every emulator compatibility bug should name the exact subsystem it
-  exonerates and the exact subsystem it implicates.
-- Keep trap-based helpers as analysis tools, not acceptance paths.
-- Update `BUGREPORT.md` only for bugs; update this roadmap when the
-  compatibility ladder changes.
-
-## V2.0 Epics — LLM Reverse-Engineering Workbench
-
-These are intentionally listed after the V1.0 emulator milestones. Do
-not let V2.0 features distract from finishing the full emulator, but keep
-the architecture ready for them.
-
-### V2.1 Runtime Question Answering
-
-Agents ask questions directly against a running or recorded session:
-
-- "Why is this loop not exiting?"
-- "Who writes `$D018=$16`?"
-- "Which routine sets loader_done?"
-- "Which disk file or sector supplied this RAM range?"
-
-The answer must include trace evidence, addresses, cycle/window context,
-and links to generated artifacts.
-
-### V2.2 Follow-a-Path Tracing
-
-Given a concrete question, the runtime sets the right breakpoints,
-watchpoints, and trace filters automatically.
-
-Examples:
-
-- follow a value from table read to VIC register write
-- follow a pointer from zero page to copy destination
-- follow a disk byte from GCR/sector/file to RAM
-- follow a flag from initialization to wait-loop exit
-
-### V2.3 Visual Disassembly Workbench
-
-Disassembly becomes runtime-aware:
-
-- current PC and hot paths highlighted
-- per-instruction execution counts
-- memory reads/writes shown next to instructions
-- data blocks classified from runtime usage
-- screen/sprite/bitmap/charset evidence linked to ASM
-
-### V2.4 Autonomous Runtime Testing
-
-Agents can run tests without VICE GUI or human observation:
-
-- boot smoke
-- disk LOAD smoke
-- game milestone smoke
-- visual smoke
-- trace regression
-- VICE swimlane regression
-- known-bug regression
-
-Tests should assert states, not only PCs.
-
-### V2.5 Rewind / Forward
-
-Snapshots and deterministic replay allow time travel:
-
-- rewind before first write to an address
-- replay a loader/depacker window
-- branch from a snapshot with different input
-- compare two paths from the same state
-
-### V2.6 Sandbox Bridge
-
-Headless captures real runtime state; sandbox runs isolated routines
-quickly.
-
-Workflow:
-
-1. Headless finds routine and live inputs.
-2. Snapshot exports registers/RAM/zero page.
-3. Sandbox executes the routine repeatedly or under varied inputs.
-4. Headless validates the result in context.
-
-### V2.7 Extraction Bridge
-
-Extraction tells what exists. Runtime tells what is used.
-
-Use runtime evidence to:
-
-- validate sprites/charsets/bitmaps/music/data
-- correlate disk/G64 reads to RAM ranges
-- dump depacked payloads after real execution
-- distinguish unused assets from active game data
-
-### V2.8 Runtime Evidence To Knowledge
-
-Runtime traces should produce project knowledge:
-
-- findings with evidence ranges
-- entities for routines/data/files/assets
-- relations between disk files, routines, and RAM ranges
-- answered questions when runtime proves a hypothesis
-- registered artifacts for traces, snapshots, PNGs, and reports
-
-### V2.9 VICE Swimlane Oracle
-
-VICE comparison stays a first-class workflow:
-
-- align traces by PC/cycle/state
-- find first behavioral divergence
-- emit compact divergence artifacts
-- keep VICE as oracle while headless reaches full fidelity
-
-V2.0 acceptance: an agent can ask "why", run the emulator, collect
-evidence, update the disassembly/knowledge layer, and produce a focused
-next action without manually reading raw traces.
-
-## V3.0 Epics — Human C64RE UI
-
-V3.0 turns the headless runtime and LLM workbench into an interactive UI
-for people. It should reuse the same emulator core and artifact model;
-it must not fork a second emulator path.
-
-### V3.1 Live C64 Screen
-
-The UI shows the running machine:
-
-- live framebuffer from VIC state
-- selectable scale, aspect, PAL/NTSC timing indicators
-- pause, resume, step frame, step cycle/instruction shortcuts
-- visual overlays for raster line, sprites, badlines, screen memory,
-  charset, bitmap, and color RAM when useful
-
-### V3.2 Keyboard and Joystick Emulation
-
-Humans can interact with software directly:
-
-- browser keyboard mapped to C64 keyboard matrix
-- on-screen keyboard for special keys and layouts
-- joystick port 1/2 mapping
-- configurable keysets
-- recorded input scripts exportable as scenario files
-
-### V3.3 Media Selection
-
-The UI can mount and switch media:
-
-- PRG, CRT, D64, and G64 selection from project artifacts
-- drag/drop or file picker for ad-hoc media
-- drive reset / C64 reset / cold boot / warm reset controls
-- visible media state: disk name, track, motor, head, write-protect,
-  current file/channel where available
-
-### V3.4 Monitor
-
-The UI gets a human monitor comparable to the CLI/MCP tools:
-
-- registers, flags, stack, zero page, memory viewer
-- disassembly around PC and selected addresses
-- breakpoints, watchpoints, tracepoints
-- step into/over/out where meaningful
-- IEC, CIA, VIA, VIC, SID, GCR state panels
-- trace search and bookmarks
-
-### V3.5 SID Playback
-
-Audio output belongs here, not in V1 headless acceptance. The SID
-strategy should be decided by a spike:
-
-- first preference: browser-friendly JS/WASM SID engine, ideally
-  libsidplayfp/resid-style via WebAssembly or a proven JS SID player
-- second option: synthesize audio from our own SID register/envelope
-  model through WebAudio once software-visible SID behavior is stable
-- optional/native option: wrap a local/native SID implementation for
-  desktop use, but keep it out of the browser-critical path
-
-HardSID-style hardware integration should be treated as optional
-specialist support, not the default. It is useful for enthusiasts but
-too narrow and hardware-dependent for the core UI.
-
-Acceptance:
-
-- music/SFX playback works for common SID register-player routines
-- UI can mute, pause, and capture audio
-- headless no-audio tests remain unaffected
-
-### V3.6 Export Screenshots / Video / Sound
-
-Sessions can produce human-shareable artifacts:
-
-- PNG screenshots from exact frames
-- animated/video capture from frame ranges
-- WAV/FLAC/OGG audio capture if SID playback is enabled
-- synchronized video+audio export as a later target
-- all exports registered as project artifacts
-
-### V3.7 Human/LLM Bridge
-
-The UI and LLM workbench should reinforce each other:
-
-- user-selected monitor ranges become trace queries
-- clicked screen regions link to memory/VIC evidence
-- breakpoints and bookmarks become project knowledge
-- LLM-generated findings can point to UI monitor locations
-
-V3.0 acceptance: a human can load media, run it, interact with it,
-inspect the machine, hear SID playback, and export evidence without
-leaving the C64RE UI.
-
-## Compatibility Ladder
-
-Use this as the long-term acceptance ladder:
-
-1. C64 cold boot reaches BASIC READY.
-2. Typed BASIC commands execute.
-3. PRG injection and direct SYS work.
-4. CRT boot works for simple cartridges.
-5. Real KERNAL `LOAD"*",8,1` works from D64.
-6. Real KERNAL `LOAD"*",8,1` works from G64.
-7. Real KERNAL file load returns cleanly after EOI.
-8. Maniac Mansion boot file loads and starts.
-9. Maniac Mansion `MM` file loads and starts.
-10. Maniac Mansion reaches title/character-select.
-11. Murder, Last Ninja Remix, and Impossible Mission II reach first
-    interactive state.
-12. Custom fastloaders and drive-code uploads work without traps.
-13. Raster/sprite-heavy demos render acceptably.
-14. Save/write-back scenarios persist correctly.
+# Headless Runtime Track
+
+This document is a runtime-track orientation note. The canonical roadmap
+is [../EPIC_ROADMAP.md](../EPIC_ROADMAP.md). The binding emulator-core
+architecture is [adr-headless-machine-kernel.md](adr-headless-machine-kernel.md).
+
+The Headless Runtime is one subsystem of C64RE MCP. It exists to provide
+deterministic, scriptable C64/1541 execution for agents, tests, traces,
+and the V3 Emulator UI. It does not replace the project knowledge layer,
+the Workspace UI, or VICE as compatibility oracle.
+
+## Product Role
+
+### V1 — Machine Core
+
+V1 is the full headless C64 + 1541 runtime:
+
+- C64 CPU, CIA, VIC, PLA, SID software-visible state, input, reset,
+  snapshots, and traces
+- full 1541 TrueDrive path with real drive ROM, drive CPU/VIA, IEC, GCR,
+  motor/head/media behavior, and D64/G64 support
+- no KERNAL serial/file traps as TrueDrive acceptance path
+- no audible sound output requirement
+- VICE-compatible observable behavior for commercial-game loaders
+
+### V2 — LLM Reverse-Engineering Workbench
+
+V2 turns the runtime into an evidence engine:
+
+- deterministic replay and snapshots
+- DuckDB-backed trace store and rollups
+- follow-a-path tracing
+- transaction swimlanes for C64 CPU, IO, IEC, drive CPU, VIA/GCR, and
+  runtime events
+- runtime evidence linked to disassembly and project knowledge
+- VICE first-divergence comparison as a debug-tier oracle
+
+### V3 — Human Emulator UI
+
+V3 uses the same runtime in a browser:
+
+- live C64 screen
+- media selection
+- monitor/debugger
+- keyboard and joystick input
+- frozen screen exploration that writes findings/artifacts back to
+  project knowledge
+- trace swimlanes and later rewind/export/audio surfaces
+
+## Current Focus As Of 2026-05-09
+
+The old "loader harness" framing is obsolete. Current work is about
+emulator fidelity and usable runtime evidence:
+
+- real-game VIC-II parity and regression corpus
+- live media attach/swap behavior
+- VICE-like drive status surfaces, including LED behavior
+- browser keyboard passthrough and virtual joystick UX
+- monitor command compatibility with VICE
+- DuckDB trace storage and zoomable swimlanes
+- project-knowledge integration for runtime outputs
+
+The MoTM fastloader/1541 work established the working rule for hard bugs:
+do not guess from large logs. Capture focused, aligned windows and compare
+VICE vs Headless transaction by transaction on a shared clock.
+
+## Working Rules
+
+- VICE remains the oracle. A core fix should name the exact
+  VICE-observable behavior it matches.
+- Headless product acceptance must not depend on game-specific PC traps.
+- Smoke tests are useful, but integration tests and real-media E2E tests
+  are mandatory for core behavior.
+- Real-media E2E coverage should include Maniac Mansion, Murder on the
+  Mississippi, Last Ninja, and Impossible Mission II when local samples
+  are available.
+- Runtime outputs should be registered as project artifacts when they are
+  evidence.
+- Large raw JSONL traces are a transport/debug artifact, not the final UI
+  format. Prefer DuckDB trace stores, rollups, focused swimlanes, and
+  registered summaries.
+
+## Important Specs
+
+| Area | Specs |
+|---|---|
+| Kernel/runtime core | 200-220 |
+| V2 LLM workbench | 230-251 |
+| V3 technical UI | 260-272 |
+| VIC/drive fidelity follow-ups | 280-297 |
+| V3 UX decisions | 350-357 |
+
+## Do Not Reintroduce
+
+- treating Headless as only a loader/depacker helper
+- using KERNAL traps as TrueDrive success criteria
+- game-specific traps as compatibility fixes
+- private UI-only state that bypasses project knowledge
+- raw trace files as the only durable answer to an RE question

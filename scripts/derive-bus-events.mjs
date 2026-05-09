@@ -93,7 +93,23 @@ const readOpList = READ_OPCODES.join(",");
 const allOpList = ALL_OPCODES.join(",");
 const addrList = watchAddrs.join(",");
 
+// VICE cpuhistory captures registers BEFORE instruction (per
+// 6510core.c monitor_cpuhistory_store at line 2409, fires after
+// FETCH_OPCODE before execute). So:
+//   STA opcodes: a == stored value (pre = post for STA). RELIABLE.
+//   LDA opcodes: a == stale pre-LDA value. NEXT row's a == loaded
+//                value (post-LDA = pre-next-instr). Use LEAD.
 const insertSql = `
+WITH src AS (
+  SELECT
+    cpu, clock, master_clock, pc, opcode, b1, b2, a, x, y, p, source,
+    LEAD(a) OVER (PARTITION BY cpu ORDER BY clock, pc) AS a_next,
+    LEAD(x) OVER (PARTITION BY cpu ORDER BY clock, pc) AS x_next,
+    LEAD(y) OVER (PARTITION BY cpu ORDER BY clock, pc) AS y_next,
+    LEAD(p) OVER (PARTITION BY cpu ORDER BY clock, pc) AS p_next
+  FROM instructions
+  WHERE run_id='${runId}'
+)
 INSERT INTO bus_events (
   run_id, seq, cpu, clock, master_clock, pc,
   kind, addr, value, old_value,
@@ -110,18 +126,20 @@ SELECT
   CASE WHEN opcode IN (${writeOpList}) THEN 'write' ELSE 'read' END AS kind,
   CAST(b1 + b2 * 256 AS USMALLINT) AS addr,
   CASE
-    WHEN opcode IN (173, 141) THEN a    -- LDA / STA
-    WHEN opcode IN (174, 142) THEN x    -- LDX / STX
-    WHEN opcode IN (172, 140) THEN y    -- LDY / STY
-    WHEN opcode = 44          THEN (p & 192)  -- BIT: bit7=N, bit6=V
+    WHEN opcode = 141 THEN a            -- STA: pre-STA a = stored value
+    WHEN opcode = 142 THEN x            -- STX
+    WHEN opcode = 140 THEN y            -- STY
+    WHEN opcode = 173 THEN a_next       -- LDA: NEXT row's a = loaded value
+    WHEN opcode = 174 THEN x_next       -- LDX
+    WHEN opcode = 172 THEN y_next       -- LDY
+    WHEN opcode = 44  THEN (p_next & 192) -- BIT: NEXT row's P bit7=N, bit6=V
     ELSE NULL
   END AS value,
   NULL AS old_value,
   NULL AS line_atn, NULL AS line_clk, NULL AS line_data,
   source
-FROM instructions
-WHERE run_id='${runId}'
-  AND opcode IN (${allOpList})
+FROM src
+WHERE opcode IN (${allOpList})
   AND b1 IS NOT NULL AND b2 IS NOT NULL
   AND (b1 + b2 * 256) IN (${addrList})
 `;

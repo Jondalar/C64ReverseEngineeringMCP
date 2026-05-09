@@ -11,7 +11,34 @@ Predecessor handover: `docs/handover-2026-05-07.md` (kernel cut, AM session).
 
 ## TL;DR
 
-motm `LOAD"*",8,1` stalls headless after 4096 bytes (custom fastloader TX#3). VICE same disk runs to game-handoff. After today's session the divergence is pinned to a **single off-by-one in master_clock at master_clock = ab_entry + 6144**, which flips KERNAL $EEA9 debounce-loop iteration count by 1, snowballing into mis-framed bytes by TX#3. **Root cause not yet fixed**; three rejected hypotheses + three remaining suspects.
+motm `LOAD"*",8,1` stalls headless after 4096 bytes (custom fastloader TX#3). VICE same disk runs to game-handoff. After today's session the visible post-`ab_entry` symptom is pinned to a **single off-by-one in master_clock at ab_entry + 6144**, which flips KERNAL $EEA9 debounce-loop iteration count by 1 and later snowballs into mis-framed bytes by TX#3.
+
+That is **not yet the root cause**. It is the first divergence found after the current shared anchor. The real root may be earlier, during the KERNAL `LOAD"*",8,1` serial transaction before `ab_entry`. Do not start the next session by chasing a new broad suspect. First establish the earliest comparable transaction and walk it side by side.
+
+## 2026-05-07 PM continuation
+
+Built pre-`ab_entry` transaction swimlane (Step 0 above). Full
+findings logged in `docs/1541-IRQ-FastLoader-Bug.md` Probe 5
+("pre-`ab_entry` transaction swimlane"). Read that section before
+resuming.
+
+Headlines:
+
+- Pre-`ab_entry` shared anchor = first `STA $DD00 = $9F` at PC=$ED33
+  (KERNAL LISTEN ATN-assert). Both stores fire once.
+- First mismatching transaction at rel=12 mc: c64 read $DD00 returns
+  DATA released in VICE, DATA asserted in HL.
+- Causal chain proven from trace + 1541 ROM hand-trace: HL drive ends
+  boot with PRB=$04 (ATNA=0); VICE drive must have ATNA=1. The 1541
+  ROM `LDA $1800 / AND #$E5 / STA $1800` sequence at $EBE8-$EBED
+  latches drive's idle PRB based on `cpu_bus` at the moment of read,
+  which depends on c64-vs-drive scheduler phase.
+- Root-cause hypothesis: scheduler interleave phase divergence
+  between drive and c64 at boot. Suspect #1 from this handover
+  confirmed; suspects #2 and #3 demoted.
+- Bug NOT fixed. Next session: build `(drv_data, cpu_bus, cpu_port)`
+  per-recompute trace channel, capture both sides, diff at
+  drive's $EBE8 LDA. NO source edits made in PM session.
 
 ## What got done today
 
@@ -70,7 +97,7 @@ motm `LOAD"*",8,1` stalls headless after 4096 bytes (custom fastloader TX#3). VI
 
 HL is fully deterministic: rebuild + re-capture produces byte-identical traces (master_clocks, instruction counts, anchor counts all match exactly). VICE varies by ~40-100k cycles per capture due to user-typed-LOAD timing — but ab_entry-aligned comparisons stabilise within ±1 cycle for the divergence point.
 
-## Three remaining suspects (single-cycle-precision)
+## Remaining suspects (single-cycle-precision)
 
 1. **Scheduler interleave rounding**: drive at 1MHz vs c64 985248Hz. Kernel uses integer cycle steps. If our integer rounding produces 1-cycle phase difference vs VICE's continuous-time model, accumulated drift over 1975 c64 instructions ≈ 6144 master_clock fits the observation.
 
@@ -80,17 +107,87 @@ HL is fully deterministic: rebuild + re-capture produces byte-identical traces (
 
 ## Concrete next-session plan
 
-### Step 1 — Pick one suspect, build cycle-precise instrumentation
+### Step 0 — Stop the loop: establish the earliest comparable transaction
 
-Recommendation: **suspect #2 (CIA1/CIA2 timer phase)** first. Reason: KERNAL serial output ($EE85 area) is driven by CIA1 timer; CIA1 timer fires drive c64's $DD00 toggle cadence. If CIA1 timer fires at master_clock T-1 in HL but T in VICE, KERNAL spins 1 fewer iteration in HL → matches the observed -1 cycle drift exactly.
+The current `ab_entry` anchor is too late. It proves where the later
+snowball becomes visible, but it does not prove the original cause.
+The next session must first build or select a common pre-`ab_entry`
+anchor in the KERNAL serial protocol, then compare transaction by
+transaction:
 
-Instrumentation:
-- Add a `cia_timer_edge` trace channel that records every CIA1/CIA2 T1 underflow + T2 underflow + ICR-flag-set with master_clock.
-- Capture HL motm 60s + replay VICE store. Diff the timer-edge timeline at master_clock = ab_entry + (5500..6500) (the divergence window).
+```text
+C64 instruction -> $DD00 read/write -> resolved IEC state ->
+drive $1800 read/write -> drive instruction/branch
+```
+
+Required output before testing any new timing hypothesis:
+
+- a side-by-side transaction swimlane for the earliest shared KERNAL
+  `LOAD"*",8,1` serial byte where both stores can be aligned
+- the first row where actor, value, line state, or follow-up branch
+  differs
+- a statement whether the divergence occurs before or after `ab_entry`
+
+If the current VICE store cannot provide a valid pre-`ab_entry` shared
+anchor because binmon starts after drive cold-boot, do **not** pretend
+`ab_entry` is enough. Either:
+
+1. recapture VICE with the earliest possible synchronized capture
+   point, or
+2. explicitly limit the conclusion to "post-ab_entry symptom only".
+
+This prevents the session from cycling through late-symptom
+hypotheses.
+
+### Step 1 — Only then pick one suspect and build cycle-precise instrumentation
+
+Do not default to CIA timers just because the $EEA9 symptom is on the
+C64 side. Pick the suspect implied by the first mismatching
+transaction:
+
+- If C64 writes the same $DD00 value at the same relative point, but
+  the resolved IEC state differs: instrument IEC propagation /
+  CIA2-visible input latency.
+- If drive writes the same $1800 value at the same relative point, but
+  C64 sees a different $DD00 value: instrument CIA2 PA read/latch
+  semantics.
+- If the drive reaches the matching $1800 read/write one cycle earlier
+  or later with identical PCs/opcodes: instrument scheduler interleave
+  and drive/C64 ratio rounding.
+- If the CIA timer edge precedes the first mismatching transaction:
+  instrument CIA1/CIA2 timer phase.
+
+CIA timer instrumentation is valid only after the transaction swimlane
+shows the timer edge is causally before the first mismatch.
+
+Instrumentation must match the selected suspect:
+
+- CIA timer suspect: add a `cia_timer_edge` trace channel that records
+  CIA1/CIA2 T1 underflow, T2 underflow, and ICR-flag-set with
+  master_clock.
+- IEC/CIA2-visible latency suspect: add an `iec_line_edge` /
+  `$DD00-read-visible-state` trace that records the resolved line state
+  at write commit and at the next C64 read.
+- VIA1/drive-visible latency suspect: add a `$1800-read-visible-state`
+  trace that records drive-visible lines before/after VIA1 PRB writes.
+- Scheduler suspect: add a per-master-clock interleave trace showing
+  which domain ran first, how many native cycles were advanced, and
+  whether both domains observed the same bus state.
 
 ### Step 2 — Look at VICE source first
 
-Per memory `feedback_read_vice_first.md`: read VICE source carefully BEFORE forming hypotheses. The CIA timer rclk math lives in `vice/vice/src/core/ciacore.c`. Compare to our `src/runtime/headless/cia/cia6526*.ts`.
+Per memory `feedback_read_vice_first.md`: read VICE source carefully
+BEFORE forming fixes. Pick the VICE source area from the first
+mismatching transaction:
+
+- CIA timers: `vice/src/core/ciacore.c` vs
+  `src/runtime/headless/cia/cia6526*.ts`
+- CIA2 IEC port: VICE `c64cia2.c` / `iecbus.c` vs
+  `src/runtime/headless/peripherals/cia2.ts` and `iec-bus-core.ts`
+- Drive VIA1 IEC port: VICE `via1d1541.c` / `iecbus.c` vs
+  `src/runtime/headless/via/via1d1541.ts` and `iec-bus-core.ts`
+- Scheduler/interleave: VICE drive/c64 alarm scheduling vs
+  `src/runtime/headless/kernel/headless-machine-kernel.ts`
 
 ### Step 3 — Don't trust replay-only finds
 
@@ -102,7 +199,11 @@ Already proved Cpu6510 vs Cpu65xxVice produce identical c64 trace in this scenar
 
 ### Step 5 — Don't recapture VICE unless necessary
 
-User has been burned by long VICE re-captures; only request when needed. The motm-s218-vice store is good baseline for now.
+User has been burned by long VICE re-captures; only request when
+needed. The motm-s218-vice store is a good baseline for post-`ab_entry`
+analysis. A recapture is justified only if Step 0 proves no valid
+pre-`ab_entry` shared transaction can be aligned from the existing
+store.
 
 ## Tooling tips
 
@@ -137,4 +238,7 @@ User has been burned by long VICE re-captures; only request when needed. The mot
 
 Three hypotheses tested + rejected. Three remaining suspects all need cycle-precise instrumentation we don't have yet. Speculative fixes risk introducing new bugs. Honest stop with reproducible debug stack ready for next session.
 
-Don't try to fix without first building suspect-#2 (CIA timer-edge) instrumentation. Trying random fixes will be unproductive.
+Don't try to fix from the late `$EEA9` symptom alone. First produce the
+earliest comparable transaction swimlane and select instrumentation
+from the actual first mismatch. Trying random fixes will be
+unproductive.

@@ -45,6 +45,7 @@ export function makeTestCia(opts?: {
   ticksPerSec?: number; powerFreq?: number;
   startClk?: number;
   model?: number;
+  writeOffset?: number;
 }): {
   cia: Cia6526Vice;
   events: BackendEvents;
@@ -63,6 +64,7 @@ export function makeTestCia(opts?: {
     ticksPerSec: opts?.ticksPerSec ?? 985248,
     powerFreq: opts?.powerFreq ?? 50,
     model: opts?.model,
+    writeOffset: opts?.writeOffset,
   });
   cia.reset();
   return { cia, events, portA, portB, clk };

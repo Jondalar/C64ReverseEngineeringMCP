@@ -1,70 +1,103 @@
-# Headless RE Runtime
+# Headless TS C64 + 1541 Runtime
 
-WIP loader- and depacker-oriented C64 runtime. Faster than a full visible
-VICE session, intentionally not cycle-exact. Targets workflows where you
-want to:
+The Headless Runtime is the TypeScript emulator subsystem used by MCP
+tools, agents, regression scripts, and the V3 Emulator UI. It is no
+longer just a loader/depacker harness.
 
-- run loader and depacker stubs without spinning up the emulator window
-- trace KERNAL `SETNAM` / `SETLFS` / `LOAD` / `SAVE` behaviour
-- follow `$0001` banking-sensitive control flow
-- iterate faster than VICE when VIC / SID accuracy is irrelevant
+It remains part of the larger C64RE MCP project:
 
-For everything beyond that scope, fall back to the [VICE runtime](vice.md).
+- C64RE owns the project knowledge, artifacts, specs, workflow, and UI.
+- VICE remains the compatibility oracle and useful external debugger.
+- Headless provides deterministic, scriptable runtime evidence for
+  agents and browser clients.
 
-## Sessions
+## Runtime Modes
+
+The roadmap and ADR distinguish these modes:
+
+| Mode | Purpose |
+|---|---|
+| `fast-trap` | Fast analysis path where KERNAL/file traps are acceptable helper behavior. Not an acceptance path for TrueDrive. |
+| `real-kernal` | C64 KERNAL runs normally while media access may still use limited helpers. |
+| `true-drive` | Real 1541 ROM, drive CPU/VIA, IEC, GCR, motor/head/media behavior. Required for custom fastloaders. |
+| `debug-vice-compare` | Headless run prepared for first-divergence comparison against VICE. |
+| `debug-lockstep` / `debug-push-only` / `debug-hybrid` | Diagnostic-only modes. They are not product acceptance modes. |
+
+See [../adr-headless-machine-kernel.md](../adr-headless-machine-kernel.md)
+and [../../EPIC_ROADMAP.md](../../EPIC_ROADMAP.md).
+
+## Integrated C64 + 1541 Sessions
 
 | Tool | Description |
 |---|---|
-| `headless_session_start` | Start a session, optionally attaching a PRG and D64/G64. |
-| `headless_session_status` | Report current state, inferred BASIC `SYS`, and recent loader activity. |
-| `headless_session_run` | Run for a bounded number of instructions or until a stop PC. |
-| `headless_session_step` | Execute a single instruction. |
-| `headless_session_stop` | Stop the current session. |
+| `headless_integrated_session_start` | Start a C64 session with optional PRG/CRT/D64/G64 media, mode, and reset profile. |
+| `headless_integrated_session_run` | Run by instruction/cycle budget or until a stop condition. |
+| `headless_integrated_session_status` | Report machine state, media state, clocks, and recent runtime status. |
+| `headless_integrated_session_snapshot` | Capture structured C64/drive/runtime state for analysis or replay. |
+| `headless_integrated_session_load_prg` | Load a PRG into an existing session. |
+| `headless_integrated_session_type` | Type text through the emulated keyboard path. |
+| `headless_integrated_session_joystick` | Set joystick directions/fire for the active session. |
 
-## Breakpoints / watches / interrupts
+## Standalone Drive Sessions
 
-| Tool | Description |
-|---|---|
-| `headless_breakpoint_add` | Execution or read / write / access breakpoints. Memory-access breakpoints fire on the effective address, so they catch indirect pointer-driven accesses too. |
-| `headless_breakpoint_clear` | Clear all breakpoints / watchpoints. |
-| `headless_watch_add` | Register watched memory ranges; their bytes are embedded directly into trace output when touched. |
-| `headless_watch_clear` | Clear watched ranges. |
-| `headless_interrupt_request` | Request a pending IRQ or NMI. |
-| `headless_interrupt_clear` | Clear pending IRQ/NMI state. |
-| `headless_io_interrupt_trigger` | Trigger simple VIC / CIA interrupt sources via emulated I/O status / mask registers. |
-
-## Trace queries
-
-Persisted trace lives at
-`analysis/headless-runtime/<session>/trace/runtime-trace.jsonl`.
+Standalone drive tools are useful for 1541/G64 investigation and for
+isolating media or VIA behavior from a full C64 boot.
 
 | Tool | Description |
 |---|---|
-| `headless_trace_tail` | Render recent trace events with accesses, stack, bank state, watch hits. |
-| `headless_trace_find_pc` | Search the persisted trace for a specific PC. |
-| `headless_trace_find_access` | Search for reads / writes to an effective address. |
-| `headless_trace_slice` | Slice the trace around an event index. |
-| `headless_trace_build_index` | Build a persistent PC / access hotspot index for the session. |
+| `headless_drive_session_start` | Start a 1541 drive session backed by a G64/D64 image. |
+| `headless_drive_status` | Inspect drive CPU, VIA, motor/head, track, and media state. |
+| `headless_iec_bus_state` | Inspect resolved IEC line state. |
+| `headless_drive_session_save_vsf` | Save a drive snapshot. |
+| `headless_drive_session_load_vsf` | Restore a drive snapshot. |
+| `headless_drive_persist_writes` | Persist modified media to an output image. |
 
-## Monitor
+## Monitor, Interrupts, And Rendering
 
 | Tool | Description |
 |---|---|
-| `headless_monitor_registers` | Read CPU registers. |
-| `headless_monitor_memory` | Read a memory range. |
+| `headless_interrupt_request` | Request IRQ/NMI in the session. |
+| `headless_interrupt_clear` | Clear pending interrupt state. |
+| `headless_io_interrupt_trigger` | Trigger simple emulated I/O interrupt sources. |
+| `headless_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
 
-## Current first-slice scope
+The V3 UI builds on the same runtime surface and adds browser control,
+screen display, monitor interaction, media selection, keyboard/joystick
+input, frozen screen exploration, and trace swimlanes.
 
-- 6510 CPU core with RAM / ROM windows and `$0001` banking
-- KERNAL traps for `SETNAM`, `SETLFS`, `LOAD`, `SAVE`
-- D64 / G64-backed disk provider for loader-following
-- CRT-backed mappers: EasyFlash (with simple AMD-style flash writes),
-  Magic Desk, Ocean, generic 8K / 16K, Ultimax
-- Per-instruction memory access log + watched-range snapshots
+## Trace And Evidence Direction
 
-## Out of scope (today)
+Headless runtime evidence should become project artifacts:
 
-- VIC / SID / CIA behaviour beyond simple memory / I/O stubs
-- Cycle-exact IRQ / NMI timing and side effects
-- Cartridge mappers beyond the EasyFlash / generic slice
-- Protovision MegaByter and other writable mapper families
+- raw traces or DuckDB-backed trace stores
+- compact swimlane windows
+- screenshots and visual state summaries
+- snapshots and replay checkpoints
+- findings/entities/relations derived from runtime observations
+
+Large JSONL traces are not the desired long-term UI format. The current
+direction is a DuckDB trace store with typed event tables, post-hoc
+rollups, zoomable time windows, and VICE/headless trace import.
+
+Relevant specs:
+
+- [../../specs/217-duckdb-trace-store.md](../../specs/217-duckdb-trace-store.md)
+- [../../specs/230-v2-llm-workbench-master.md](../../specs/230-v2-llm-workbench-master.md)
+- [../../specs/234-transaction-swimlane.md](../../specs/234-transaction-swimlane.md)
+- [../../specs/355-emulator-trace-swimlane-workbench-ux.md](../../specs/355-emulator-trace-swimlane-workbench-ux.md)
+
+## Current Development Focus
+
+As of 2026-05-09, the active runtime work is around:
+
+- VICE-parity C64/1541 behavior for real games and custom loaders
+- VIC-II pixel/line/raster fidelity with real-game regression corpus
+- media attach/swap behavior in live sessions
+- monitor and V3 browser control surface
+- keyboard/joystick passthrough from the browser
+- drive status surfaces such as LED/motor/head/write-protect
+- structured trace storage and side-by-side swimlane analysis
+
+Do not introduce game-specific traps as product fixes. Compatibility
+bugs should identify the exact VICE-observable event or state being
+matched.

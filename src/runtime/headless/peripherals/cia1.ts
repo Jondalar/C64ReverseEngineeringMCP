@@ -36,6 +36,8 @@ export interface InstallCia1Options {
   alarmContext: AlarmContext;
   /** CPU clock provider — usually `() => session.c64Cpu.cycles`. */
   clkPtr: () => CLOCK;
+  /** VICE: C64SC/SCPU64 use CIA write_offset=0; default core uses 1. */
+  writeOffset?: number;
   /**
    * Spec 203-c2: optional IRQ edge callback. Called when CIA1's
    * IRQ pin level changes. Implementer routes to
@@ -104,6 +106,7 @@ export function installCia1(bus: HeadlessMemoryBus, opts: InstallCia1Options): I
     alarmContext: opts.alarmContext,
     clkPtr: opts.clkPtr,
     name: "CIA1",
+    writeOffset: opts.writeOffset,
   });
   cia.reset();
 

@@ -1,452 +1,102 @@
-# 1541 IRQ / FastLoader Bug - Current Decision State
+# 1541 IRQ / FastLoader Bug - CLOSED
 
-**Status:** ROOT CAUSE PROVEN — HL stage-1 bit-bang IEC handshake.
-**Last updated:** 2026-05-08 late evening, post `$0763=$00` patch test.
+**Status:** FIXED / CLOSED 2026-05-08.
+**Fix commit:** `d927a1a` - `drive: cap stepInward at halfTrack 70 (track 35)`.
+**Closure commit:** `207a734` - Spec 213 + Spec 218 closed.
 
-## Test infrastructure (2026-05-08 night)
+## Final Result
 
-Vendored Wolfgang Lorenz C64 Emulator Test Suite (public domain) under
-`samples/vice-testprogs/lorenz-2.15/`. ~144 tests on Disk1 covering all
-6502 opcodes + addressing modes + flags + interrupts + CIA/VIC timing.
+The MoTM true-drive fastloader failure is fixed without a game-specific
+workaround. The headless runtime now keeps the 1541 head inside the real
+mechanical range: inward stepping is capped at halfTrack 70, i.e. track
+35. Extended G64 images may contain tracks 36-42, but an unmodified 1541
+cannot seek there.
 
-Run via:
-```
-npm run test:lorenz:disk1
-```
+Previous headless behavior allowed the drive head to step past track 35
+on `motm.g64`. During MoTM stage-1 this made the 1541 ROM JOB loop read
+from unreachable extended-track data, producing spurious `$03` job error
+status bytes. Those bytes corrupted the stage-1 INX count and changed the
+runtime fastloader operand from `LDA $0300,Y` to `LDA $0311,Y`, which
+broke the sector-chain byte and deadlocked the drive on an invalid sector.
 
-**Lorenz Disk1: 100% PASS** after BCD ADC/SBC fix (commit f250645).
+With the fix, stage-1 naturally writes:
 
-Lorenz Disk2 partial: BEQR..ALRB pass, fails at ARRB (NMOS BCD quirk
-in illegal $6B opcode — task #46).
-
-Also vendored 50+ CIA testprogs + 13 drive testprogs from VICE under
-`samples/vice-testprogs/cia/` and `samples/vice-testprogs/drive/`.
-Runner: `scripts/run-testprog.mjs`. Per-test pass detection still
-needs configuration per VICE testprog convention.
-
-## Observation 2026-05-08 night — drive motor always on in HL
-
-During motm stage-1 (drive clock 13M-23M = 10s drive time), HL drive
-$1C00 PB writes ALL have bit 2 (motor) SET. 337k GCR byte_ready
-events fire during this window. Real hw likely toggles motor off
-between reads → fewer byte_ready events → ROM JOB loop runs less
-aggressively → ZP[$01] not overwritten with stale $03 errors.
-
-Hypothesis for next session: HL drive ROM emulation keeps motor on
-when real hw turns it off after JOB completion. Need VICE x64sc
-session monitoring drive $1C00 over time to compare motor toggle
-pattern.
-
-## VICE COMPARISON CONFIRMS DIVERGENCE (2026-05-08 night)
-
-Live VICE x64sc session running motm.g64 + monitor inspection:
-
-```
-VICE drive $0762-$0764 = B9 00 03    (= LDA $0300,Y, CORRECT)
-HL   drive $0762-$0764 = B9 11 03    (= LDA $0311,Y, BROKEN)
+```text
+Drive $0762-$0764 = B9 00 03
+Effective target = LDA $0300,Y
 ```
 
-Both VICE and HL install IDENTICAL motm runtime fastloader code at
-drive $0700-$07FF (verified byte-by-byte). The ONLY difference is the
-self-modified $0763 byte at end of stage-1.
+No `$0763=$00` patch is needed.
 
-VICE drive ZP after stage-1 exit:
-```
-$00=$01 $01=$01 $02=$80 $03=$80 $04=$80 $05=$00
-$06=$01 $07=$00 $08=$01 $09=$01 $0A=$01 $0B=$02
-$0C=$01 $0D=$03 $0E=$01 $0F=$04
-```
+## Verification
 
-VICE proves real hardware produces X count = $00, drive's runtime
-fastloader operand = $0300 (correct). HL stage-1 INX-loop produces
-17 spurious INX events → X = $11 → operand = $0311 → wrong sector
-byte read.
+Verified locally on 2026-05-08:
 
-## ROOT CAUSE (proven by smoking-gun patch test 2026-05-08 late evening)
-
-**Bug**: HL stage-1 bit-bang IEC handshake produces X register = $11
-(= 17 INX events) instead of correct X = $00 (= 0 INX events).
-
-**Effect chain**:
-1. Stage-1 ($0340-$03E0 in drive RAM, loaded by `B-E,2,0,01,00`)
-   counts INX events over 48-bit IEC handshake.
-2. End of stage-1: `pla / sta $0763 / jmp $0400` stores X to $0763.
-3. $0763 is the **operand low byte** of motm runtime fastloader's
-   `LDA $0XXX,Y` at PC=$0762 (= drive RAM, opcode $B9).
-4. With $0763=$00: runtime reads `LDA $0300,Y`. Y=1 → `$0301` =
-   sector byte 1 = next-S link (correct).
-5. With $0763=$11: runtime reads `LDA $0311,Y`. Y=1 → `$0312` =
-   sector byte 18 (WRONG; happens to coincide for some sectors).
-6. c64-side captures TX stream byte 1 → c64 RAM $0320 (per
-   `$445F sta $0320` when chunk byte counter $0321=1). Sends $0320
-   in next ack-packet's third slot.
-7. Drive RX'es ack: 24-bit ROL chain puts ack's third byte into
-   drive ZP[$07] = next sector for ROM read job.
-8. With wrong byte (e.g., $2A from T17/S14 byte 18), ROM tries to
-   read sector 42 (invalid for any track) → no SYNC found → ROM
-   stuck → drive deadlock → c64 deadlock.
-
-**Smoking-gun test** (`scripts/probe-motm-patch-0763.mjs`):
-
-Detect stage-1 writing $11 to $0763, force-overwrite to $00,
-continue running.
-
-| Field | Unpatched | Patched ($0763=$00) |
-|-------|-----------|---------------------|
-| c64 PC after 60s | $43C8 (retry-spin) | $43C8 (actively RXing) |
-| drive PC | $07BE spin (idle) | $F7EA (ROM, active) |
-| drive ZP[$06] | $11 (T17 stuck) | $0D (T13, riv2 area) |
-| drive ZP[$07] | $2A (sector 42 invalid) | $0E (sector 14 valid) |
-| c64 dest $4500-$6FFF | all zeros | **7473 non-zero bytes** |
-
-With patch: dad fully loaded ✓ + 16dad loaded ✓ + riv2 in progress.
-motm advances through file chain instead of stuck after 512 bytes.
-
-## WHERE TO FIX
-
-The X-count is computed by stage-1 code at $0340-$03E0 (drive RAM).
-Per-bit logic ($036D-$0381):
-```
-$036D lda #$80 / sta $01 / cli      ; arm flag
-$0372 lda $01 / bmi $0372            ; spin on flag
-$0376 sei / cmp #$01 / beq skip-INX / inx
-$037C dec $09 / bpl $036D            ; 16 bits per round, 3 rounds
+```bash
+npm run build:mcp
+node scripts/probe-motm-stage1-x.mjs
+node scripts/e2e-game-ladder.mjs --profile e2e-local
 ```
 
-### Mechanism investigated 2026-05-08 late evening
+Observed result:
 
-Drive's ZP[$01] modifications during stage-1 window (probe-motm-zp01-writes.mjs):
-- **PC=$F96B (1541 ROM `STA $0000,Y` with Y=$01)**: 56 writes total
-  - Value $01: 40 (= "job complete OK")
-  - Value $03: 17 (= "no SYNC / no header" error)
-  - Value $00: 3
-- **PC=$0371 (motm RAM `STA $01`)**: 51 writes, all $80 (arm flag)
-- Other ROM paths (D582 / D2AB / EAAF / EAC2): few writes
+```text
+Drive $0762: $b9
+Drive $0763: $00
+Drive $0764: $03
+Effective LDA target: $0300,Y
+Drive ZP[$06/$07]: $0d/$0e
 
-`$F96B` is in the standard 1541 ROM `JOB result handler` — it stores
-job completion status to `ZP[$3F]+$0000` where ZP[$3F] = current job
-slot index. With Y=$01 → writes ZP[$01].
-
-motm's "host signal flag" at ZP[$01] **collides with 1541 ROM's job
-slot 1 status byte**.
-
-When motm writes `$01=$80` (arm), ROM interprets as "queue READ job for
-buffer 1". ROM JOB loop (triggered by VIA2 T1 timer IRQ ~every 41ms)
-picks up the job, tries to read from track/sector at ZP[$08]/[$09]
-(buffer 1's T/S slot, **uninit/garbage**), fails or succeeds:
-- Success → ROM stores $01 → motm reads $01 → BEQ skip-INX (X stays 0)
-- "no header" error → ROM stores $03 → motm reads $03 → INX
-
-Real hardware: motor off + sane ROM init means JOB-1 always returns
-$01 success (or never gets processed). HL produces 17 of 48 = $03
-errors.
-
-### Real root candidates
-
-1. **HL drive ZP $08/$09 init state**: if real hw boots with $08/$09
-   pointing to a valid sector (e.g., T18/S0 BAM), ROM JOB-1 always
-   succeeds. HL might init differently → invalid sector → error.
-2. **HL motor-on default**: GCR shifter `motorOn = true` by default
-   (`gcr-shifter.ts:166`). Real 1541 boots with motor off. With
-   motor on at boot, GCR ticks immediately, sync events fire,
-   VIA2 IRQ + ROM JOB loop run aggressively.
-3. **HL VIA2 T1 timer rate**: if T1 latch differs from real, JOB
-   loop runs at different rate → different INX count.
-
-### Investigation tools
-
-- `scripts/probe-motm-stage1-x.mjs`: dumps drive $0763 after stage-1
-- `scripts/probe-motm-patch-0763.mjs`: smoking-gun patch test
-- `scripts/probe-motm-zp01-writes.mjs`: hooks bus.write to log every
-  drive ZP[$01] modification with PC + reg state
-
-### Next steps
-
-a. Probe ZP $08/$09 init state HL vs VICE. If different, fix init.
-b. Try patching `gcr-shifter.ts:166` `motorOn = false` default. Run
-   probe-motm-patch-0763.mjs without the patch — see if motor-fix
-   alone clears the issue.
-c. If neither fixes, consider runtime workaround: detect motm
-   stage-1 signature and force $0763=$00 in drive RAM after stage-1
-   completes. Brittle but unblocks loading.
-
-Note: this bug has likely affected MANY fastloaders that reuse ZP $00
-or $01. Anything using stage-1 IEC handshake to communicate
-count/state through INX-pattern collides with ROM job slot status.
-**Authoritative section:** this block supersedes contradictory
-hypotheses in the historical log below.
-
-## 2026-05-08 evening — forensic trace decoded
-
-Source: `samples/traces/v2-baseline/motm-spec218-hybrid60-headless-store-2026-05-08/trace.duckdb`
-(60s, 40M instructions, 6.4M bus events, captured with hybrid drive-sync patch
-commit `3d10fee` which fixes BIT $4278 polarity bug).
-
-motm protocol decoded fully (proven from disasm + trace):
-
-- 24-bit packet from c64 = `mode | cmd | $0320`. MSB-first.
-  c64 TX via `W425C`. Drive RX via $0410-$044B (24× ROL through
-  ZP[$07]/$06/$08).
-- After RX: `ZP[$08]=mode`, `ZP[$06]=cmd`, `ZP[$07]=junk`.
-- Drive dispatches via $0470 self-mod JMP using table at $0475/$0480
-  indexed by `ZP[$08]` (mode value).
-  - mode=$06 → $0633 handler (dir lookup, file address setup)
-  - mode=$01 → $06C1 handler (ack, TX next 256-byte chunk)
-  - mode=$02 → $06D5 (multi-sector TX loop)
-- Drive TX-loop $075A-$0774: `INC $09 / LDY / LDA $0311,Y / JMP $070B`.
-  Wraps at 256 bytes via `INC $09 → BEQ $0755 RTS`.
-- c64 RX via `W43BE` bitbang_rx_byte (16 reads + 16 writes of $DD00 per
-  byte). c64 sends ACK (mode=$01) via $4493 path: each chunk-end (=256
-  bytes) → `INC $0321` wraps → `INC $0322` → ack-send if
-  `$0323==0 && $031F!=0`.
-
-Working flow up to deadlock:
-
-1. c64 sends mode=$06 cmd packet (cmd_load_dad cmd=$04). Drive RX OK.
-2. Drive runs mode-6 handler $0633: dir lookup, JSR $07A1 (ROM read
-   T17/S4), 1st RTS at drive clock 35.11M.
-3. Drive TX 1st chunk (256 bytes from $0300 buffer).
-4. c64 RX OK, sends ACK 1 (mode=$01) at master 35.04M.
-5. Drive 2nd JSR $07A1 (ROM read next sector via $0300/$0301 link),
-   2nd RTS at 35.43M.
-6. Drive TX 2nd chunk (256 bytes). **Total 512 TX bytes.**
-7. c64 sends ACK 2 at master 35.32M.
-8. Drive 3rd JSR $07A1 / 3rd RTS at 35.73M.
-9. **Drive 4th JSR $07A1 NEVER RTSs.**
-
-Stuck state evidence:
-
-- Drive ZP[$00]=$80 (job pending, motm spinning $07BE).
-- Drive ZP[$06]=$11 / ZP[$07]=$2A → track 17, **sector 42 (INVALID,
-  max sector for track 17 = 21).**
-- ROM at $F353 (WPSW = wait sync) loops 17k+ iterations post-stuck,
-  never finds GCR sync byte for invalid sector.
-- ROM at $F3BE/$F3C8 (read sector logic) ran 28k+37k iterations, also
-  spinning.
-- c64 stuck in $43BE retry-loop ~46k iterations.
-
-**Root cause hypothesis**: HL GCR-decode produced wrong bytes at
-$0300/$0301 of dad's sector chain. motm $0650-$0656 reads next-T/S
-from buffer → ZP[$07]=$2A (garbage). ROM tries to read sector 42
-(doesn't exist on track 17) → SYNC never found → drive deadlock →
-c64 deadlock.
-
-The "stalls after exactly 4096 bytes" symptom from earlier is
-4096 rx_byte chip events = 4096 bits = **512 bytes** = exactly 2
-chunks. Identical observation, now decoded.
-
-## What 2026-05-08 ruled out (don't redo)
-
-- **CIA2-NMI / FLAG path**: motm protocol fully POLLED (c64 reads
-  $DD00 directly in $43BE). NO NMI/FLAG involved.
-- **VIA2 byte_ready IRQ-TX**: drive uses POLLED bitbang_tx_8bit
-  ($070D-$0735), no IRQ-driven TX.
-- **bitbang TX/RX timing**: 512 bytes successfully transferred
-  end-to-end. Cycle-step + polarity correct for this range.
-- **BIT $4278 polarity (Codex spec 218)**: real bug, fixed by hybrid
-  patch (commit 3d10fee). NOT the deadlock cause; necessary not
-  sufficient.
-- **c64 chunk-handling logic ($4400-$44B4)**: works correctly for
-  first 2 chunks. Not the bug.
-- **drive mode-6 handler logic**: handler ran correctly, found dir
-  entry, set up file address, dispatched to $06C1 → TX path. Fine.
-- **drive bitbang_tx_8bit timing ($070B-$0735)**: TX'd 512 bytes
-  successfully. Edge timing OK.
-
-## Concrete next steps (2026-05-08)
-
-1. **Compare HL vs VICE $0300 buffer content per ROM-read.** Need
-   byte-by-byte diff after each $07A1 RTS. Better: instrument both
-   to dump $0300 after each sector read.
-2. **Run HL GCR-decode standalone on motm.g64.** Read raw track 17
-   from G64, run HL's GCR-byte decoder, compare bytes to VICE/D64
-   extraction. Find first divergent decode.
-3. **Trace dad sector chain from disk.** Manifest says dad starts
-   T17/S4 (5121 bytes ≈ 21 sectors). Walk T/S links. If chain valid
-   in disk image but HL decodes wrong link byte, that pinpoints
-   decode bug to specific sector.
-
-## 2026-05-08 evening continuation — GCR decode RULED OUT, mode-1 protocol mismatch found
-
-Step 2/3 above executed via `scripts/probe-motm-dad-chain.mjs`.
-
-**Static HL G64 decoder produces VALID dad chain** (21 sectors, all
-T/S links valid, total 5122 bytes ≈ manifest dad size 5121):
-```
-T17/S4 → T17/S14 → T17/S5 → T17/S15 → T17/S6 → T17/S16 → T17/S7
-       → T17/S17 → T17/S8 → T17/S18 → T17/S9 → T17/S19 → T17/S10
-       → T17/S20 → T17/S13 → T16/S1 → T16/S11 → T16/S0 → T16/S10
-       → T16/S20 → T16/S8 → next T0/S42 (LAST, 42 bytes used)
+Profile e2e-local: 6/6 pass, 0 fail
+motm-full-boot: PASS, hooks=0, dad-range non-zero: 7474
+mm-s1-boot:    PASS
+im2-boot:      PASS
+lnr-s1-boot:   PASS
 ```
 
-Drive RAM $0300 stuck-dump = T17/S14 sector content **byte-identical**
-to static decode:
-```
-$0300: 11 05 15 03 ff 15 1b 00 2a 7f 75 54 00 0d 0b 08 a8 ff
-```
-$0301 = $05 = correct next-S (T17/S5). HL runtime GCR-decode of
-T17/S14 is correct. **GCR decode is NOT the root cause.**
+Additional committed verification notes:
 
-### Mode-1 ack handler doesn't advance T/S
+- Spec 218 is closed by the head-position cap.
+- Spec 213 is closed with GcrShifter always-on in true-drive mode.
+- Lorenz Disk1 is 100% PASS after the CPU BCD fixes.
+- GCR shifter and sync-detector unit tests pass.
 
-Trace (only STA writes, opcodes $85/$86/$84/$8D/$8E/$8C):
+## Final Root Cause
 
-ZP[$07] writes total: 3, all in mode-6 handler.
-- clock 34360610, PC=$0645: A=$01 (mode-6 init)
-- clock 35110821, PC=$0659: A=$04 (`LDA $0301` from dir buffer)
-- clock 35110937, PC=$069C: A=$04 (`LDA $0015` final)
+The root cause was not CIA2-NMI, VIA2 byte-ready IRQ, IEC bit polarity,
+GCR decode, or a game-specific sector-chain quirk.
 
-After mode-6 dispatch, ZP[$06]/$07 = $11/$04 (= T17/S4 dad start).
-**Never written again** in trace.
+It was a physical-drive modeling bug: headless honored extended G64 track
+count for head movement, but a stock 1541 has a mechanical stop at track
+35. MoTM's stage-1 handshake is sensitive to this because it collides with
+1541 ROM job-slot status bytes while the drive ROM is active.
 
-Mode-1 ack handler at $06C1 has **no T/S advance code**. Each ack
-triggers re-read of same sector T17/S4.
+## Do Not Reopen
 
-$07A1 entries (PC=1953, 4 total):
-- entry 1 @ 34360624 → RTS 35110805 (mode-6 dir read T18/S1)
-- entry 2 @ 35110954 → RTS 35428357 (T17/S4 = chunk 1)
-- entry 3 @ 35593604 → RTS 35726534 (T17/S4 = chunk 2, **same sector**)
-- entry 4 @ 35890764 → **NO RTS** (T17/S4 again, stuck)
+Do not continue the old MoTM investigation branches unless a new,
+independent regression appears. These are closed for this bug:
 
-ROM reads T17/S4 successfully **twice** then stuck on **3rd identical
-read**. Post-stuck chip_events: GCR still ticking (1M+ byte_ready,
-11k sync_edge). Disk rotating, syncs detected. ROM fails 4th read.
+- CIA2 FLAG/NMI path
+- VIA2 byte-ready IRQ TX path
+- BIT `$4278` polarity as the remaining blocker
+- stage-1 `$0763=$11` as current behavior
+- GCR sector-chain decode as the root cause
+- motor-always-on as the final root cause
+- game-specific `$0763=$00` runtime patch
 
-### Mode-2 handler $06D5 has T/S advance — never called
-
-Dispatch table:
-- mode=$01 → $06C1 (no advance)
-- mode=$02 → $06D5 (HAS T/S advance via `JSR $0777` interleave calc)
-- mode=$06 → $0633 (mode-6 setup)
-
-c64's `$4493: lda #$01 / sta $031E / jsr $425C` always sends mode=$01.
-
-### Open questions
-
-1. Why does ROM read T17/S4 successfully twice then fail third time?
-   GCR ticking, syncs found. ROM internal state diverges somehow.
-2. Is HL drive head-position stable across reads? 2nd read might
-   have stepped head leaving 3rd attempt off-track.
-3. Is motm protocol fundamentally expecting mode-2 not mode-1 for
-   chunk acks? Real hardware test needed. Or VICE trace decode of
-   same window.
-4. Do 2 successful reads of T17/S4 produce IDENTICAL drive buffer
-   content? If different, GCR-shifter phase / head jitter
-   non-determinism. If identical, c64 RX'd duplicated bytes anyway —
-   file load broken regardless.
-
-### New concrete next steps
-
-a. **Probe HL drive head-position state at each $07A1 RTS.** Compare
-   against VICE.
-b. **Compare drive $0300 content across the 2 successful T17/S4
-   reads.** Identical or divergent?
-c. **Decode VICE drive trace for master 34M-36M window.** Confirm
-   VICE drive ZP $06/$07 advances between chunks AND/OR c64 sends
-   different mode for next chunk. Establishes protocol expectation.
-
-## 2026-05-08 evening continuation 2 — ROOT CAUSE: stage-1 X count wrong
-
-Followed the $0320-byte trail. c64 captures TX stream byte 1 into
-`$0320` (via `$445F sta $0320` when `$0321=$01`), then sends `$0320`
-in next ack-packet's third slot. Drive RX puts it into ZP[$07] = next
-sector for ROM job.
-
-For protocol to work: TX stream byte 1 must equal sector byte 1 (=
-next-S link byte at `$0301`).
-
-Drive TX-loop reads `LDA $0311,Y` at PC=$0762 (b1=$11, b2=$03). With
-Y=1 reads `$0312` = sector byte 18, **NOT** sector byte 1.
-
-For T17/S4: byte 18 = $0E (coincidence — also matches sector 14 =
-correct next). Chunk 1 worked.
-For T17/S14: byte 18 = $2A (does NOT match correct next-S = $05).
-Ack 2 sent `$0320=$2A` → drive ZP[$07]=$2A → ROM tries T17/S42 → no
-sync → drive deadlock.
-
-`$0763` (= operand low byte of `LDA $03XX,Y`) is **self-modified at
-end of stage-1**. drive_t1s0 disasm:
-```
-$03BC sei / pla / sta $0763 / jmp $0400
-```
-The popped value came from `txa / pha` at $0395 — X register holds
-count of INX events from 48-bit stage-1 handshake.
-
-**HL trace: STA $0763 with A=$11**. So drive's runtime LDA operand
-becomes $0311 → reads sector byte 18.
-
-**Real hardware likely produces X=$00**, so LDA reads from $0300 →
-TX stream byte 1 = $0301 = correct next-S link.
-
-**Root cause**: HL stage-1 bit-bang IEC handshake produces wrong INX
-count = $11 instead of $00.
-
-Stage-1 bit decode loop ($036D-$0381):
-```
-$036D lda #$80 / sta $01 / cli      ; arm flag
-$0372 lda $01 / bmi $0372            ; spin on flag
-$0376 sei / cmp #$01 / beq skip-INX / inx
-$037C dec $09 / bpl $036D            ; 16 bits per round, 3 rounds
-```
-
-`$01` byte is modified by 1541 ROM IRQ handler (= drive's standard
-IEC bit-decode IRQ). Each received DATA-line transition writes $01.
-
-Per bit: drive arms `$01=$80`, CLI, waits for IRQ. IRQ stores
-received bit pattern. drive checks `cmp #$01`. If exactly $01, skip
-INX. Else INX.
-
-For X=$00: every bit must produce `$01==$01` after IRQ. Means each
-received bit's IRQ writes exactly $01 to ZP[$01].
-
-For X=$11: 17 of 48 bits produced `$01 != $01`.
-
-**Bug location**: HL's IEC bus / drive ROM IRQ handler / 1541 PRB
-handling produces wrong $01 byte values during stage-1 handshake.
-
-### Concrete next steps (most narrow)
-
-α. **Run probe-motm-drive-ram-stuck.mjs and dump $0763 right after
-   stage-1 completes** (before B-E result). Confirm HL=$11.
-β. **Capture VICE motm with monitor: read drive $0763 after stage-1
-   handshake**. Confirm VICE value (probably $00).
-γ. **Decode 48-bit stage-1 input**: log every IRQ that writes drive
-   $01 during clock < 23.5M (before $0400 entry). Compare ZP[$01]
-   value sequence HL vs VICE.
-δ. **Read 1541 ROM IRQ handler** to understand bit-decode logic.
-   Find which PRB/PRA bit gets stored to $01 and under what
-   condition.
-
-## Reference data
-
-- HL trace: `samples/traces/v2-baseline/motm-spec218-hybrid60-headless-store-2026-05-08/trace.duckdb`. Query via `node scripts/trace-store-query.mjs --db <path> sql '<SELECT>'`.
-- VICE baseline: `samples/traces/v2-baseline/motm/{c64,drive}-history.jsonl`, `drive-ram.bin`.
-- Stuck-state drive RAM: `samples/traces/v2-baseline/motm-hybrid-stuck-drive-ram.bin` (2KB).
-- Repro script: `scripts/probe-motm-drive-ram-stuck.mjs`.
-- AB c64 disasm: `/Users/alex/Development/C64/Cracking/Murder/analysis/disk/motm/02_ab_disasm.asm` (1249 bytes).
-- Drive stage-1 disasm: `/Users/alex/Development/C64/Cracking/Murder/analysis/disk/motm/raw_sectors/drive_t1s0_disasm.asm` (258 bytes, $0300-$0401).
-- Drive runtime fastloader at $0400-$07FF: NOT separately disasmed. Hand-decoded from stuck-dump bytes during 2026-05-08 session. Install mechanism unclear (no M-W bytes in AB, no separate sector found).
-
-## TypeScript / LLM Reality Check
-
-TypeScript is not the blocker by itself. A cycle-sensitive emulator in
-TypeScript is feasible if time is integer, event ordering is explicit,
-and all IO visibility rules are centralized and testable.
-
-The LLM risk is different: without a transaction-level oracle, agents
-generate plausible timing hypotheses forever. For this bug class, LLMs
-must be constrained to produce side-by-side evidence first and only then
-propose a fix.
+The remaining useful work is normal regression hardening: keep MoTM, MM,
+IM2, and LNR in the local true-drive E2E ladder and avoid future changes
+that bypass the real 1541 head-position limit.
 
 ## Historical Investigation Log
 
-The following log is retained for evidence and chronology. It contains
-superseded hypotheses and should not be used as next-step authority
-unless a statement is also present in the Current Decision State above.
+The following log is retained for evidence and chronology only. It
+contains superseded hypotheses and must not be used as next-step
+authority unless a statement is also present in the final closure above.
 
 # 1541 IRQ / FastLoader Bug - Historical Log - motm `LOAD"*",8,1`
 
-**Status:** open — root-cause area narrowed; first divergent bit identified.
+**Status:** ARCHIVED / SUPERSEDED — do not use as current diagnosis.
 **Last updated:** 2026-05-07 (probes 1-4 + Spec 218 prework + bit-swimlane v0).
 
 **Headline:**

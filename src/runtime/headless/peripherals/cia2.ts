@@ -32,6 +32,8 @@ export interface InstallCia2Options {
   alarmContext: AlarmContext;
   /** CPU clock provider — usually `() => session.c64Cpu.cycles`. */
   clkPtr: () => CLOCK;
+  /** VICE: C64SC/SCPU64 use CIA write_offset=0; default core uses 1. */
+  writeOffset?: number;
   /**
    * Spec 203-c2: optional NMI edge callback. Called when CIA2's
    * IRQ pin level changes (asserts → CPU NMI). Implementer routes
@@ -40,11 +42,11 @@ export interface InstallCia2Options {
   onNmiEdge?: (asserted: boolean, edgeClock: CLOCK) => void;
   /**
    * Spec 201-c2: PA-out write callback. Called when CIA2 PA latch /
-   * DDR is updated. Implementer routes the (or, ddr) pair to the IEC
+   * DDR is updated. Implementer routes the composed PA byte to the IEC
    * bus, typically via `kernel.bus.c64Write(0xDD00, ...)` which then
    * delegates to `iecBus.setC64Output`.
    */
-  iecWrite: (or: number, ddr: number) => void;
+  iecWrite: (paOut: number, ddr: number, effectiveClock?: CLOCK) => void;
   /**
    * Spec 201-c2: PA-in read callback. Returns the IEC line state as
    * an 8-bit byte (raw `cpu_port`-equivalent input bits). Implementer
@@ -58,29 +60,33 @@ export function installCia2(
   opts: InstallCia2Options,
 ): InstalledCia2 {
   let cia: Cia6526Vice | undefined;
+  const writeOffset = opts.writeOffset ?? 1;
+  const iecWriteClock = () => opts.clkPtr() + (writeOffset === 0 ? 1 : 0);
   // CIA2 IRQ pin → C64 NMI line. VICE c64cia2.c cia2_set_int_clk
   // drives maincpu_set_nmi(I_CIA2, value).
   let nmiLevel = 0;
 
   const backend: CiaBackend = {
-    // Per VICE c64cia2.c:148-160 — when CIA2 PA-out changes, the
+    // Per VICE c64cia2.c:148-162 — when CIA2 PA-out changes, the
     // composed PA byte (latch | ~ddr) is forwarded to iecbus / VIC
     // bank logic via the kernel-supplied iecWrite callback.
-    storePa: () => {
+    storePa: (paOut) => {
       if (!cia) return;
-      const or = cia.c_cia[0] /* CIA_PRA */ ?? 0;
       const ddr = cia.c_cia[2] /* CIA_DDRA */ ?? 0;
-      opts.iecWrite(or, ddr);
+      opts.iecWrite(paOut, ddr, iecWriteClock());
     },
     storePb: () => { /* user port not modeled */ },
-    // VICE c64cia2.c read_ciapa returns DDR-composed: output bits
-    // come from the latch, input bits from the IEC bus.
+    // VICE c64cia2.c read_ciapa:
+    //   value = ((PRA | ~DDRA) & 0x3f) | iecbus_callback_read(clk)
+    // The IEC callback returns cached cpu_port bits 4/6/7. Low port
+    // input bits float high unless userport PA2/PA3 pulls them low
+    // (userport not modeled here).
     readPa: () => {
       const pins = opts.iecReadPins();
       if (!cia) return pins;
       const pra = cia.c_cia[0] /* CIA_PRA */ ?? 0;
       const ddr = cia.c_cia[2] /* CIA_DDRA */ ?? 0;
-      return ((pra & ddr) | (pins & ~ddr)) & 0xff;
+      return (((pra | ~ddr) & 0x3f) | pins) & 0xff;
     },
     readPb: () => 0xff,
     pulsePc: () => { /* RS232 handshake — unused */ },
@@ -99,6 +105,7 @@ export function installCia2(
     alarmContext: opts.alarmContext,
     clkPtr: opts.clkPtr,
     name: "CIA2",
+    writeOffset: opts.writeOffset,
   });
   cia.reset();
 
@@ -112,7 +119,7 @@ export function installCia2(
   }
   // Initial PA state: output bits all-high so IEC bus starts released.
   // KERNAL IOINIT will program proper DDR/PRA later.
-  opts.iecWrite(0xff, 0x3f);
+  opts.iecWrite(0xff, 0x3f, iecWriteClock());
   return {
     cia,
     nmiLine: () => nmiLevel !== 0,

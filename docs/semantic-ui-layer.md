@@ -4,6 +4,11 @@ Persistent project-knowledge store + workspace UI. Together they turn the
 heuristic + LLM analysis output into a navigable RE workspace that
 survives across sessions and chunks the work into LLM-sized windows.
 
+This document is about the C64RE project UI layer, not only the emulator.
+The Workspace UI remains the project browser. The V3 Emulator UI is a
+runtime client that can feed new evidence back into the same project
+knowledge layer.
+
 ## Architecture
 
 ```
@@ -37,6 +42,13 @@ survives across sessions and chunks the work into LLM-sized windows.
 │   tabs: dashboard · docs · memory · cartridge · disk ·    │
 │         load · flow · listing · activity                   │
 │   global hex overlay (mon icon on every artifact)         │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  V3 Emulator UI  (runtime client, WebSocket/API)           │
+│                                                            │
+│   live machine · monitor · media · inspector · trace       │
+│   swimlanes · frozen explore to knowledge                  │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -88,6 +100,34 @@ npm run ui:dev           # live-reload via Vite on http://127.0.0.1:4311
 ```
 
 The UI is React + Vite, no global state library. Tabs map 1:1 to views.
+
+The Workspace UI is for project state: artifacts, docs, memory maps,
+media layout, load sequence, flow graph, annotated listing, findings,
+tasks, and activity. It should not become a second emulator.
+
+## V3 Emulator UI
+
+```
+npm run v3:server        # Headless Runtime WebSocket/API server
+npm run ui:v3:dev        # V3 browser client
+```
+
+The Emulator UI is for live machine work:
+
+- C64 screen, power/reset, pause/resume, snapshots, and later rewind
+- project media selection or drag/drop PRG/CRT/D64/G64
+- monitor/debugger with VICE-compatible command syntax
+- browser keyboard passthrough and virtual joystick
+- runtime inspector for CPU, CIA, VIC, SID, IEC, drive, media, and trace
+  state
+- frozen explore: while paused, screen regions can become project
+  artifacts/findings/entities
+- trace swimlanes for C64 CPU, IO, IEC, drive CPU, VIA/GCR, and runtime
+  events
+
+The V3 UI must use the same Headless Runtime and project knowledge APIs
+as the MCP tools. It must not fork a separate emulator path or maintain a
+private knowledge store.
 
 Header toggles (Spec 054 + Spec 058):
 - `Show all versions` — default off; exposes V0..V(n-1) artifacts for
@@ -173,6 +213,12 @@ read as half-empty bars.
 
 CORS is open (`Access-Control-Allow-Origin: *`) so the dev server on
 `:4311` can hit the API server on `:4310` during UI iteration.
+
+The V3 runtime server is separate from this Workspace UI server. Its
+contract is specified in
+[`specs/272-websocket-protocol.md`](../specs/272-websocket-protocol.md)
+and the 350-series UX specs. Runtime-produced artifacts should still be
+saved through the project knowledge layer when they become evidence.
 
 ## Example workspace
 

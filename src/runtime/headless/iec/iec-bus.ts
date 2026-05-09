@@ -224,21 +224,13 @@ export class IecBus {
   // === C64 reads $DD00 PA ($DC00 callback) ===
   // VICE: iecbus_cpu_read_conf1 returns CACHED iecbus.cpu_port.
   buildC64InputBits(): number {
-    // VICE bit layout in cpu_port:
-    //   bit 4 = ATN  (only c64 drives, but cpu_port has it from cpu_bus)
-    //   bit 6 = CLK
-    //   bit 7 = DATA
-    // C64 reads $DD00:
-    //   bit 6 = CLK_IN, bit 7 = DATA_IN
-    // VICE returns cpu_port directly — caller (CIA2) merges with PA latch.
-    // Our CIA2 stub uses readPins() → returns the bus-derived bits.
-    // Match VICE: return cpu_port bits 6+7 (the input bits) plus
-    // VIC bank bits float high.
-    let bits = 0;
-    bits |= CIA2_PA_VIC_BANK_LO | CIA2_PA_VIC_BANK_HI;
-    if (this.clkLine) bits |= CIA2_PA_CLK_IN;
-    if (this.dataLine) bits |= CIA2_PA_DATA_IN;
-    const result = bits & 0xff;
+    // VICE iecbus_cpu_read_conf1:
+    //   drive_cpu_execute_all(clock);
+    //   return iecbus.cpu_port;
+    // CIA2 read_ciapa then ORs this with
+    // ((PRA | ~DDRA) & 0x3f). Do not synthesize VIC-bank or floating
+    // low bits here; that belongs in CIA2 read_ciapa.
+    const result = this.core.cpu_port & 0xff;
     this.busAccessProducer?.emitC64Access({ op: "read", addr: this.cia2PaAddr, value: result });
     return result;
   }

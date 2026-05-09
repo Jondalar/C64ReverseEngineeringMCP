@@ -1,6 +1,9 @@
 node_modules/
 dist/
 build/
+.claude/
+knowledge/
+ui/dist-v3/
 .DS_Store
 analysis/
 monitor.log

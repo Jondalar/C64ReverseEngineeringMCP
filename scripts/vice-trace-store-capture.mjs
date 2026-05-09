@@ -88,10 +88,12 @@ const DRIVE_HZ = 1_000_000;
 // ---------------------------------------------------------------------
 // Spawn VICE
 // ---------------------------------------------------------------------
+const extraArgs = (process.env.VICE_EXTRA_ARGS ?? "").split(" ").filter(Boolean);
 const viceArgs = [
   "-default",
   "-monchislines", "16777215",   // VICE flag for cpuhistory ring size
   "-binarymonitor", "-binarymonitoraddress", `ip4://127.0.0.1:${port}`,
+  ...extraArgs,
   "-8", diskPath,
 ];
 console.log(`launching: ${VICE_X64SC} ${viceArgs.join(" ")}`);

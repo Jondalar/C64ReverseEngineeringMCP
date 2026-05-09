@@ -35,6 +35,11 @@ test("write_offset defaults to 1 (STORE_OFFSET)", () => {
   assert.equal(cia.write_offset, 1);
 });
 
+test("write_offset can be configured for C64SC CIA instances", () => {
+  const { cia } = makeTestCia({ writeOffset: 0 });
+  assert.equal(cia.write_offset, 0);
+});
+
 // VICE: ciacore_store_internal computes rclk = clk - write_offset
 // (ciacore.c line 795). With clk advancing during sequential writes,
 // the latch updates happen at rclk-1.

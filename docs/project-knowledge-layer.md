@@ -6,16 +6,21 @@ This repository now contains a backend-first `project-knowledge` subsystem that 
 
 The design keeps semantic interpretation, persistence, derived views, and analysis-run registration in the backend. The workspace UI consumes the stable JSON view-models from `project/views/*.json` and the `/api/*` endpoints surfaced by the workspace UI server.
 
-Current state (after Sprints 1-51, Specs 001-058): the layer ships
-artifact lineage + same-path versions (Spec 025), seven-phase workflow
+Current state: the layer is the stable backend for the whole C64RE MCP
+project, including static extraction, LLM semantic work, VICE evidence,
+Headless Runtime evidence, and the Workspace UI. It ships artifact
+lineage + same-path versions (Spec 025), seven-phase workflow
 (Spec 034), master/worker pattern (Spec 035), question auto-resolution
 (Spec 052), phase-1 noise archive (Spec 053), latest-version-per-lineage
 default (Spec 054), routine + segment-reclass findings auto-emit
 (Spec 055), per-payload scope filter (Spec 056), closed-loop sweep
-(Spec 057), and hide-internal-files (Spec 058). All knowledge-layer
-record kinds carry `internal?: boolean` for the user-facing-vs-LLM
-distinction and propagate it via `LineageVisibilityContext` /
-`InternalVisibilityContext` in the UI.
+(Spec 057), and hide-internal-files (Spec 058).
+
+All knowledge-layer record kinds carry `internal?: boolean` for the
+user-facing-vs-LLM distinction and propagate it via
+`LineageVisibilityContext` / `InternalVisibilityContext` in the
+Workspace UI. Runtime artifacts from VICE, Headless, trace-store, and V3
+UI workflows should be registered here when they become evidence.
 
 ## Layering
 
@@ -316,8 +321,12 @@ This keeps legacy output paths working while making the results available as str
 3. Let the integration layer record outputs into `knowledge/artifacts.json` and `analysis/runs/`.
 4. Begin storing semantic interpretation in structured records instead of freeform markdown.
 5. Build stable `views/*.json` after significant analysis steps.
-6. Later add a local React dashboard that reads only the persisted view-model files.
-7. In a future pass, migrate default output locations from legacy `analysis/...` paths toward the new `artifacts/...` layout where it makes sense, without breaking existing projects.
+6. Keep the Workspace UI reading only persisted backend view-model files.
+7. Let the V3 Emulator UI write evidence back through this layer instead
+   of inventing a private store.
+8. In a future pass, migrate default output locations from legacy
+   `analysis/...` paths toward the new `artifacts/...` layout where it
+   makes sense, without breaking existing projects.
 
 ## Example Workspace
 

@@ -36,6 +36,8 @@ The contract is:
   possible on its own
 - raw runtime traces are source artifacts; compact runtime summaries are
   a later phase
+- VICE, Headless Runtime, trace stores, and V3 UI captures are evidence
+  providers for the same project model, not separate side projects
 
 `project_init` should create this contract up front, and
 `project_status` should explain where the project currently sits inside
@@ -97,6 +99,29 @@ So the intended model is:
 1. heuristic facts
 2. semantic understanding
 3. runtime-backed semantic confidence
+
+## Runtime Evidence Providers
+
+C64RE has two runtime sources:
+
+- **VICE** — compatibility oracle, external debugger, monitor, and trace
+  reference.
+- **Headless Runtime** — TypeScript C64 + 1541 runtime used by MCP tools,
+  automated tests, trace stores, snapshots, and the V3 Emulator UI.
+
+Both are project evidence sources. A runtime run is only useful to the
+workflow when its output is registered or summarized into durable project
+artifacts:
+
+- trace store or focused swimlane window
+- screenshot / framebuffer / visual state summary
+- snapshot / replay checkpoint
+- finding with address, clock, and evidence link
+- entity or relation created from confirmed runtime behavior
+- answered open question or new task
+
+Do not leave important conclusions only in console output, chat, or an
+unregistered markdown note.
 
 ## Phase Overview
 
