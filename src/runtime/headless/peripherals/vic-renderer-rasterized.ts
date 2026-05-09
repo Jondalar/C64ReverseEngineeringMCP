@@ -36,6 +36,7 @@ import {
   initStateFromVic,
   type RasterState,
 } from "../vic/raster-state.js";
+import { renderSpritesPerLine, type SpriteCollisionResult } from "../vic/sprite-render.js";
 import {
   VIC_PALETTE,
   VicFramebuffer,
@@ -93,6 +94,14 @@ export function renderFrameRasterized(
   // Pending nextLine actions accumulated by the line we just drew.
   let pendingNextLine: RasterChangeAction[] = [];
 
+  // Accumulated sprite collision flags for the whole frame.
+  // OR'd into vic regs $D01E (sp-sp) / $D01F (sp-bg) at frame end.
+  let frameSpSpColl = 0;
+  let frameSpBgColl = 0;
+
+  // Per-line fg mask: one byte per visible pixel. Rebuilt each visible line.
+  const fgMask = new Uint8Array(VISIBLE_W * VISIBLE_H);
+
   for (let line = 0; line < lineCount; line++) {
     // 1. Apply previous line's nextLine queue first (= effective at this
     //    line's first pixel).
@@ -100,7 +109,9 @@ export function renderFrameRasterized(
     pendingNextLine = [];
 
     const lane = frame.perLine[line] ?? emptyLane();
-    renderOneLine(fb, ctx.bus, state, line, lane);
+    const coll = renderOneLine(fb, ctx.bus, state, line, lane, fgMask);
+    frameSpSpColl |= coll.spriteSpCollision;
+    frameSpBgColl |= coll.spriteBgCollision;
 
     // Harvest this line's nextLine queue for next iteration.
     for (const a of lane.nextLine) pendingNextLine.push(a);
@@ -108,6 +119,12 @@ export function renderFrameRasterized(
 
   // Carry leftover deferred actions into next frame's line 0.
   frameCarry = pendingNextLine;
+
+  // Write back collision flags. These are sticky (latch until cleared by CPU read).
+  if (frameSpSpColl !== 0 || frameSpBgColl !== 0) {
+    ctx.vic.regs[0x1e] = ((ctx.vic.regs[0x1e] ?? 0) | frameSpSpColl) & 0xff;
+    ctx.vic.regs[0x1f] = ((ctx.vic.regs[0x1f] ?? 0) | frameSpBgColl) & 0xff;
+  }
 }
 
 function emptyLane(): RasterChangesPerLine {
@@ -121,13 +138,16 @@ function emptyLane(): RasterChangesPerLine {
 // Per-line render.
 // ---------------------------------------------------------------------------
 
+const EMPTY_COLL: SpriteCollisionResult = { spriteBgCollision: 0, spriteSpCollision: 0 };
+
 function renderOneLine(
   fb: VicFramebuffer,
   bus: HeadlessMemoryBus,
   state: RasterState,
   line: number,
   lane: RasterChangesPerLine,
-): void {
+  fgMask: Uint8Array,
+): SpriteCollisionResult {
   // VICE handle_visible_line_with_changes splits the line into:
   //   1. Background pass (full line)
   //   2. Foreground pass (graphics chars over background)
@@ -151,8 +171,12 @@ function renderOneLine(
     for (const a of lane.border) applyAction(state, a);
     for (const a of lane.background) applyAction(state, a);
     for (const a of lane.sprites) applyAction(state, a);
-    return;
+    return EMPTY_COLL;
   }
+
+  // Clear fg mask row for this visible line.
+  const yIn = line - VISIBLE_Y;
+  fgMask.fill(0, yIn * VISIBLE_W, (yIn + 1) * VISIBLE_W);
 
   // Walk merged change queue — we step through background lane in
   // `where` order; between change points emit pixels for the segment
@@ -172,23 +196,27 @@ function renderOneLine(
     const action = bgQueue[bgIdx]!;
     const xe = action.where;
     if (xs < xe) {
-      emitGfxRun(fb, bus, state, line, xs, xe - 1);
+      emitGfxRun(fb, bus, state, line, xs, xe - 1, fgMask);
       xs = xe;
     }
     applyAction(state, action);
     bgIdx++;
   }
   if (xs < PAL_PIXELS_PER_LINE) {
-    emitGfxRun(fb, bus, state, line, xs, PAL_PIXELS_PER_LINE - 1);
+    emitGfxRun(fb, bus, state, line, xs, PAL_PIXELS_PER_LINE - 1, fgMask);
   }
 
   // Border pass — draw border bands (left+right) using current border
   // color; respect mid-line border-color changes.
   drawBorderBands(fb, line, borderQueue, state);
 
-  // Sprite pass — single-sprite-per-line cut. Walks sprites lane to apply
-  // mid-line position/color/enable changes; full multiplexer in 280d.
-  drawSpritesForLine(fb, bus, state, line, lane.sprites);
+  // Sprite pass — 280d full multiplexer. Walk sprite lane changes first to
+  // apply mid-line position/color/enable updates, then render.
+  for (const a of lane.sprites) applyAction(state, a);
+
+  return renderSpritesPerLine(
+    state, line, fb.pixels, fb.width, fgMask, bus, VIC_PALETTE,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +230,7 @@ function emitGfxRun(
   line: number,
   xStart: number,
   xEnd: number,
+  fgMask: Uint8Array,
 ): void {
   // Clip to the active 320×200 area for graphics; outside that the
   // border layer takes over.
@@ -219,11 +248,11 @@ function emitGfxRun(
   if (a1 < a0) return;
 
   switch (state.video_mode) {
-    case 0: drawStdTextSeg(fb, bus, state, line, a0, a1); break;
-    case 1: drawMcTextSeg(fb, bus, state, line, a0, a1); break;
-    case 2: drawStdBitmapSeg(fb, bus, state, line, a0, a1); break;
-    case 3: drawMcBitmapSeg(fb, bus, state, line, a0, a1); break;
-    case 4: drawExtTextSeg(fb, bus, state, line, a0, a1); break;
+    case 0: drawStdTextSeg(fb, bus, state, line, a0, a1, fgMask); break;
+    case 1: drawMcTextSeg(fb, bus, state, line, a0, a1, fgMask); break;
+    case 2: drawStdBitmapSeg(fb, bus, state, line, a0, a1, fgMask); break;
+    case 3: drawMcBitmapSeg(fb, bus, state, line, a0, a1, fgMask); break;
+    case 4: drawExtTextSeg(fb, bus, state, line, a0, a1, fgMask); break;
     default: drawIdleSeg(fb, line, a0, a1, state.background_color); break;
   }
 }
@@ -254,7 +283,7 @@ function vicRead(bus: HeadlessMemoryBus, bankBase: number, addr: number): number
 // ---------- Standard text (mode 0) ----------
 function drawStdTextSeg(
   fb: VicFramebuffer, bus: HeadlessMemoryBus, state: RasterState,
-  line: number, x0: number, x1: number,
+  line: number, x0: number, x1: number, fgMask: Uint8Array,
 ): void {
   const yIn = line - VISIBLE_Y;
   if (yIn < 0 || yIn >= VISIBLE_H) return;
@@ -272,15 +301,19 @@ function drawStdTextSeg(
     const charByte = vicRead(bus, state.vic_bank_base,
       state.chargen_base_ptr + charCode * 8 + charY);
     const bit = (charByte >> (7 - (xIn & 7))) & 1;
-    if (bit) fb.setPixel(x, line, fg);
-    else fb.setPixel(x, line, state.background_color);
+    if (bit) {
+      fb.setPixel(x, line, fg);
+      fgMask[yIn * VISIBLE_W + xIn] = 1;
+    } else {
+      fb.setPixel(x, line, state.background_color);
+    }
   }
 }
 
 // ---------- Multicolor text (mode 1) ----------
 function drawMcTextSeg(
   fb: VicFramebuffer, bus: HeadlessMemoryBus, state: RasterState,
-  line: number, x0: number, x1: number,
+  line: number, x0: number, x1: number, fgMask: Uint8Array,
 ): void {
   const yIn = line - VISIBLE_Y;
   if (yIn < 0 || yIn >= VISIBLE_H) return;
@@ -302,8 +335,9 @@ function drawMcTextSeg(
     if (!isMc) {
       const bit = (byte >> (7 - (xIn & 7))) & 1;
       fb.setPixel(x, line, bit ? (cram & 0x0f) : state.background_color);
+      if (bit) fgMask[yIn * VISIBLE_W + xIn] = 1;
     } else {
-      // 2-pixel pairs.
+      // 2-pixel pairs. Bits 10/11 are fg for collision purposes (VICE convention).
       const pair = (xIn & 7) >> 1;
       const bits = (byte >> ((3 - pair) * 2)) & 0x03;
       const c =
@@ -312,6 +346,8 @@ function drawMcTextSeg(
         bits === 2 ? state.background_color_2 :
         fg;
       fb.setPixel(x, line, c);
+      // bits 10 and 11 (bits>=2) are foreground for collision detection.
+      if (bits >= 2) fgMask[yIn * VISIBLE_W + xIn] = 1;
     }
   }
 }
@@ -319,7 +355,7 @@ function drawMcTextSeg(
 // ---------- Standard bitmap (mode 2) ----------
 function drawStdBitmapSeg(
   fb: VicFramebuffer, bus: HeadlessMemoryBus, state: RasterState,
-  line: number, x0: number, x1: number,
+  line: number, x0: number, x1: number, fgMask: Uint8Array,
 ): void {
   const yIn = line - VISIBLE_Y;
   if (yIn < 0 || yIn >= VISIBLE_H) return;
@@ -338,13 +374,14 @@ function drawStdBitmapSeg(
     const byte = vicRead(bus, state.vic_bank_base, bmpAddr);
     const bit = (byte >> (7 - (xIn & 7))) & 1;
     fb.setPixel(x, line, bit ? fg : bg);
+    if (bit) fgMask[yIn * VISIBLE_W + xIn] = 1;
   }
 }
 
 // ---------- Multicolor bitmap (mode 3) ----------
 function drawMcBitmapSeg(
   fb: VicFramebuffer, bus: HeadlessMemoryBus, state: RasterState,
-  line: number, x0: number, x1: number,
+  line: number, x0: number, x1: number, fgMask: Uint8Array,
 ): void {
   const yIn = line - VISIBLE_Y;
   if (yIn < 0 || yIn >= VISIBLE_H) return;
@@ -372,13 +409,15 @@ function drawMcBitmapSeg(
       bits === 2 ? c10 :
       c11;
     fb.setPixel(x, line, c);
+    // bits 10 and 11 are fg for collision purposes.
+    if (bits >= 2) fgMask[yIn * VISIBLE_W + xIn] = 1;
   }
 }
 
 // ---------- Extended-bg text (mode 4) ----------
 function drawExtTextSeg(
   fb: VicFramebuffer, bus: HeadlessMemoryBus, state: RasterState,
-  line: number, x0: number, x1: number,
+  line: number, x0: number, x1: number, fgMask: Uint8Array,
 ): void {
   const yIn = line - VISIBLE_Y;
   if (yIn < 0 || yIn >= VISIBLE_H) return;
@@ -403,6 +442,7 @@ function drawExtTextSeg(
       state.chargen_base_ptr + charCode * 8 + charY);
     const bit = (byte >> (7 - (xIn & 7))) & 1;
     fb.setPixel(x, line, bit ? fg : bgs[bgIdx]!);
+    if (bit) fgMask[yIn * VISIBLE_W + xIn] = 1;
   }
 }
 
@@ -447,73 +487,6 @@ function paintBorderRange(
   const rx0 = Math.max(VISIBLE_X + VISIBLE_W, x0);
   const rx1 = Math.min(fb.width - 1, x1);
   if (rx1 >= rx0) fillSpan(fb, line, rx0, rx1, color);
-}
-
-// ---------------------------------------------------------------------------
-// Sprite render — single-sprite per line cut. Walks sprite-lane changes
-// to update positions/colors mid-line; full multiplexer is 280d.
-// ---------------------------------------------------------------------------
-
-function drawSpritesForLine(
-  fb: VicFramebuffer, bus: HeadlessMemoryBus, state: RasterState,
-  line: number, spriteQueue: RasterChangeAction[],
-): void {
-  // First: apply mid-line sprite changes in order. We don't split the
-  // line into segments here (sprites in V1 280c are drawn as a single
-  // full-line pass with the *post-walk* state). 280d will refine.
-  for (const a of spriteQueue) applyAction(state, a);
-
-  if (state.sprite_enable === 0) return;
-
-  // Sprite y on screen-relative coords; visible region origin offset 50
-  // (vice convention; we use 50 to match peripherals/vic-renderer.ts).
-  const lineForSprite = line - 50;
-  if (lineForSprite < 0 || lineForSprite >= VISIBLE_H + 50) return;
-
-  const screenOff = state.screen_base_ptr;
-  for (let sp = 0; sp < 8; sp++) {
-    if ((state.sprite_enable & (1 << sp)) === 0) continue;
-    const sy = state.sprite_y[sp]!;
-    const expandY = (state.sprite_y_expand & (1 << sp)) !== 0;
-    const expandX = (state.sprite_x_expand & (1 << sp)) !== 0;
-    const isMc = (state.sprite_multicolor & (1 << sp)) !== 0;
-    const color = state.sprite_color[sp]!;
-    const heightPx = expandY ? 42 : 21;
-    const dy = lineForSprite - (sy - 50);
-    if (dy < 0 || dy >= heightPx) continue;
-    const srcRow = expandY ? (dy >> 1) : dy;
-    const ptrByte = vicRead(bus, state.vic_bank_base, screenOff + 0x3f8 + sp);
-    const dataBase = ptrByte * 64;
-    const sx = state.sprite_x[sp]!;
-    for (let byteIdx = 0; byteIdx < 3; byteIdx++) {
-      const byte = vicRead(bus, state.vic_bank_base, dataBase + srcRow * 3 + byteIdx);
-      if (!isMc) {
-        for (let bit = 0; bit < 8; bit++) {
-          if (((byte >> (7 - bit)) & 1) === 0) continue;
-          const baseInScreen = sx + byteIdx * 8 + bit - 24;
-          const w = expandX ? 2 : 1;
-          for (let r = 0; r < w; r++) {
-            const px = VISIBLE_X + baseInScreen * (expandX ? 1 : 1) + r;
-            fb.setPixel(px, line, color);
-          }
-        }
-      } else {
-        for (let pair = 0; pair < 4; pair++) {
-          const bits = (byte >> ((3 - pair) * 2)) & 0x03;
-          if (bits === 0) continue;
-          const c = bits === 1 ? state.sprite_mc_color_1
-                  : bits === 2 ? color
-                  : state.sprite_mc_color_2;
-          const baseInScreen = sx + byteIdx * 8 + pair * 2 - 24;
-          const w = expandX ? 4 : 2;
-          for (let r = 0; r < w; r++) {
-            const px = VISIBLE_X + baseInScreen + r;
-            fb.setPixel(px, line, c);
-          }
-        }
-      }
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
