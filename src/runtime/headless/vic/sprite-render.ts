@@ -105,7 +105,7 @@ export function renderSpritesPerLine(
   fbWidth: number,
   fgMask: Uint8Array,
   bus: HeadlessMemoryBus,
-  palette: ReadonlyArray<[number, number, number]>,
+  palette: ReadonlyArray<readonly [number, number, number]>,
 ): SpriteCollisionResult {
   const result: SpriteCollisionResult = { spriteBgCollision: 0, spriteSpCollision: 0 };
 

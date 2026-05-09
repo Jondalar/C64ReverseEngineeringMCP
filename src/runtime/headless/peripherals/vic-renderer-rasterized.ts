@@ -223,7 +223,7 @@ function renderOneLine(
   for (const a of lane.sprites) applyAction(state, a);
 
   return renderSpritesPerLine(
-    state, line, fb.pixels, fb.width, fgMask, bus, VIC_PALETTE,
+    state, line, fb.pixels, fb.width, fgMask, bus, fb.palette,
   );
 }
 

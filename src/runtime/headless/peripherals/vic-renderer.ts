@@ -39,31 +39,21 @@ export const VISIBLE_Y = 51;
 export const VISIBLE_W = 320;
 export const VISIBLE_H = 200;
 
-// Colodore VIC palette — modern reference, brighter than the original
-// Pepto. Source: colodore.com (default settings). 16 RGB triples.
-export const VIC_PALETTE: ReadonlyArray<[number, number, number]> = [
-  [0x00, 0x00, 0x00], // 0  black
-  [0xff, 0xff, 0xff], // 1  white
-  [0x81, 0x33, 0x38], // 2  red
-  [0x75, 0xce, 0xc8], // 3  cyan
-  [0x8e, 0x3c, 0x97], // 4  purple
-  [0x56, 0xac, 0x4d], // 5  green
-  [0x2e, 0x2c, 0x9b], // 6  blue
-  [0xed, 0xf1, 0x71], // 7  yellow
-  [0x8e, 0x50, 0x29], // 8  orange
-  [0x55, 0x38, 0x00], // 9  brown
-  [0xc4, 0x6c, 0x71], // 10 light red
-  [0x4a, 0x4a, 0x4a], // 11 dark grey
-  [0x7b, 0x7b, 0x7b], // 12 grey
-  [0xa9, 0xff, 0x9f], // 13 light green
-  [0x70, 0x6d, 0xeb], // 14 light blue
-  [0xb2, 0xb2, 0xb2], // 15 light grey
-];
+// Spec 282: palette suite. VIC_PALETTE re-exported from palettes.ts
+// as the active default (= colodore per OQ1=(b)). Per-session
+// override via VicFramebuffer.setPalette().
+import { PALETTES, DEFAULT_PALETTE_KEY, type Palette16, type PaletteKey } from "../vic/palettes.js";
+export const VIC_PALETTE: Palette16 = PALETTES[DEFAULT_PALETTE_KEY];
+export type { Palette16, PaletteKey } from "../vic/palettes.js";
+export { PALETTES, DEFAULT_PALETTE_KEY, getPalette, listPalettes } from "../vic/palettes.js";
 
 export class VicFramebuffer {
   public readonly width: number;
   public readonly height: number;
   public readonly pixels: Uint8Array; // RGBA, length = width*height*4
+  // Spec 282: per-instance palette (replaces previously hardcoded
+  // global VIC_PALETTE). Defaults to colodore but set per-session.
+  public palette: Palette16 = VIC_PALETTE;
 
   constructor(isPal: boolean = true) {
     this.width = isPal ? FB_WIDTH_PAL : FB_WIDTH_NTSC;
@@ -71,8 +61,17 @@ export class VicFramebuffer {
     this.pixels = new Uint8Array(this.width * this.height * 4);
   }
 
+  setPalette(p: Palette16 | PaletteKey | null | undefined): void {
+    if (!p) return;
+    if (typeof p === "string") {
+      this.palette = PALETTES[p] ?? VIC_PALETTE;
+    } else {
+      this.palette = p;
+    }
+  }
+
   fill(colorIndex: number): void {
-    const [r, g, b] = VIC_PALETTE[colorIndex & 0x0f]!;
+    const [r, g, b] = this.palette[colorIndex & 0x0f]!;
     for (let i = 0; i < this.pixels.length; i += 4) {
       this.pixels[i] = r;
       this.pixels[i + 1] = g;
@@ -84,7 +83,7 @@ export class VicFramebuffer {
   setPixel(x: number, y: number, colorIndex: number): void {
     if (x < 0 || x >= this.width || y < 0 || y >= this.height) return;
     const off = (y * this.width + x) * 4;
-    const [r, g, b] = VIC_PALETTE[colorIndex & 0x0f]!;
+    const [r, g, b] = this.palette[colorIndex & 0x0f]!;
     this.pixels[off] = r;
     this.pixels[off + 1] = g;
     this.pixels[off + 2] = b;

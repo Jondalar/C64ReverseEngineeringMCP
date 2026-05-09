@@ -170,6 +170,11 @@ export interface IntegratedSessionOptions {
   // "per-pixel" enables Spec 262d-i pixel-perfect path using
   // VicIIVice.frameLineLogs. renderToPng() default uses this.
   vicRenderer?: "per-char-row" | "per-pixel" | "vice-rasterized";
+  // Spec 282: VIC palette selection. Default = "colodore" (modern
+  // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
+  // palette) for byte-exact VICE pixel-diff regression. See
+  // src/runtime/headless/vic/palettes.ts for the full list.
+  palette?: import("./vic/palettes.js").PaletteKey;
   // Spec 280g: opt-in per-cycle VIC bus stealing. When true, the
   // cycle-lockstep scheduler queries vic.getBusStallForCycle() before
   // each CPU step and stalls the CPU one cycle at a time when VIC
@@ -424,6 +429,8 @@ export class IntegratedSession {
     this.driveHeadStartCycles = opts.driveHeadStartCycles ?? 0;
     // Spec 262 Phase B-E: vicRenderer default = per-char-row (no regression).
     this.vicRenderer = opts.vicRenderer ?? "per-char-row";
+    // Spec 282: bind palette to framebuffer. Default colodore (OQ1=b).
+    if (opts.palette) this.framebuffer.setPalette(opts.palette);
     // Spec 093: trace wiring. timeSource bound to c64Cpu cycles via getter.
     this.iecBus.timeSource = () => this.c64Cpu.cycles;
     if (opts.traceIec) this.iecBus.enableTrace(opts.traceIecCapacity ?? 1024);
