@@ -166,6 +166,21 @@ export async function mountMedia(
       driveTb.source = newParser;
       driveTb.tracks.clear();
     }
+    // GcrShifter holds its OWN private parser ref + lazy trackCache
+    // captured/populated at boot. Drive ROM reads bytes through
+    // gcrShifter — does NOT go via TrackBuffer. Swap parser AND
+    // clear trackCache so subsequent reads pull from new disk.
+    // Without trackCache.clear() the drive keeps serving cached
+    // bytes from the prior disk even after parser swap (= the real
+    // bug behind "ONEBYTE shown after mounting POLARBEAR").
+    const shifter = session.gcrShifter as unknown as {
+      parser: unknown;
+      trackCache: Map<number, unknown>;
+    } | undefined;
+    if (shifter) {
+      shifter.parser = newParser;
+      shifter.trackCache.clear();
+    }
 
     // Update the kernel's diskProvider so KERNAL file traps see new files.
     (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;

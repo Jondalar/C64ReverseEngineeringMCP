@@ -159,19 +159,14 @@ export function LiveTab({ sessionId, setSessionId }: TabProps): JSX.Element {
     if (!sessionId) return;
     try {
       const client = getClient();
+      // Mount + cold reset = fresh 1541 init + clean BASIC READY.
+      // User drives boot via LOAD"*",8,1 button + RUN button themselves.
+      // No auto-chain (= no UI blocking, no mystery 30s wait).
       await client.call("media/mount", { session_id: sessionId, slot: 8, path });
       setActiveMedia(path);
-      // Auto reset + LOAD"*",8,1 + RUN so user sees swapped disk boot.
       await client.call("session/reset", { session_id: sessionId, video: "pal-default" });
-      // Need ~3M cycles for KERNAL boot + BASIC fully at READY prompt.
-      // Less than this drops leading typed chars (L gets eaten).
-      await client.call("session/run", { session_id: sessionId, cycles: 5_000_000 });
-      await client.call("session/type", { session_id: sessionId, text: 'LOAD"*",8,1\r' });
-      await client.call("session/run", { session_id: sessionId, cycles: 30_000_000 });
-      await client.call("session/type", { session_id: sessionId, text: "RUN\r" });
-      await client.call("session/run", { session_id: sessionId, cycles: 5_000_000 });
-      await snapshot();
-      setRunning(true);
+      // server's reset handler already advances 5M cycles to BASIC READY.
+      setRunning(true);  // keep frame poll alive
     } catch (e) { console.error("mount:", e); }
   };
 
