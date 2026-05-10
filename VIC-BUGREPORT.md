@@ -182,19 +182,46 @@ target.
   lazy update at start of `draw_colors8` (= VICE
   vicii-draw-cycle.c:637 reapplies same value next cycle anyway).
 
-### Code review NOT YET checked (= bugs likely live here):
+### Code review batch 2 (2026-05-10):
 
-- `vicii-fetch.ts` — matrix fetch / sprite-pointer fetch / sprite-
-  data fetch addressing. **V3 hot candidate** (= sky region wrong
-  bulk content suggests fetch returns wrong bytes for that region).
+- `vicii-fetch.ts` — checked 1:1 vs viciisc/vicii-fetch.c. fetch_phi1
+  + fetch_phi2 + v_fetch_addr + g_fetch_addr + vicii_fetch_matrix +
+  sprite fetch + chargen overlay all match. Only JS-isms (& 0xff,
+  >>> 0). No HIGH severity divergences. CLEAN.
+- `integrated-session.ts` — TWO real issues found:
+  * **Issue 1 (FIXED commit 2026-05-10)**: `tickLitVic()` updated
+    vbank from CIA2 PA BEFORE calling `vicii_cycle()` → bank switch
+    landed 1 cycle early. Fix: swap order (vicii_cycle first, then
+    vbank update). Matches VICE Phi1/Phi2 phase model.
+  * **Issue 3 (DEFERRED)**: CPU register writes via bus.write hit
+    `vicii_store(reg, value)` IMMEDIATELY. Then within same outer
+    iteration of `stepMicrocodedC64Instruction`, `vic.tick(consumed)`
+    fires `onCycle` → `tickLitVic` → `vicii_cycle()` reads regs[]
+    with the JUST-WRITTEN value. VICE behavior: VIC fetch at Phi1,
+    CPU write at Phi2 same cycle, new value visible NEXT cycle.
+    Fix requires either snapshot regs OR queue writes 1-cycle OR
+    swap cpu/VIC tick order — bigger refactor.
+
+### Code review NOT YET checked:
+
 - `vicii-chip-model.ts` — cycle table (= per-cycle BA bits, fetch
   type, sprite slot for cycles 0-62). If table off by 1 cycle,
-  badline DMA + sprite DMA timing drifts.
-- `integrated-session.ts` — our integration layer between CPU
-  cycle and literal VIC tick. **V2 hot candidate** (= mid-frame CPU
-  STA $D0xx → literal port consume must align to exact VICE phase).
-  Specifically `tickLitVic()` + `stepMicrocodedC64Instruction` per-
-  cycle path + `useLiteralPortVicPerCycle` ordering.
+  badline DMA + sprite DMA timing drifts. **Lower probability since
+  no symptom directly traces to BA timing.**
+
+### Top remaining hypothesis for V2/V3:
+
+**Issue 3 (CPU register write same-cycle visibility)** — most
+plausible cause of V2 mid-frame mode-change tearing. SCRAMBLE banner
+writes D011 mid-line; literal port reads new D011 1 cycle EARLIER
+than VICE → transition cells get new mode applied 1 cycle ahead →
+visible per-row tearing.
+
+For V3 sky stripes, bulk wrong content suggests address-level bug
+(= fetch reading wrong bank/offset), but vicii-fetch.ts code review
+came back CLEAN. Could still be:
+- mid-frame xscroll xsmooth update timing (= related to Issue 3)
+- sprite DMA stealing badline matrix fetch cycles in wrong pattern
 
 ## How to add a new bug
 
