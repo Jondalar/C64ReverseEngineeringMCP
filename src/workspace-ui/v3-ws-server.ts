@@ -227,13 +227,9 @@ export class V3WsServer {
       const { join } = await import("node:path");
       const { readFileSync } = await import("node:fs");
       const path = join(tmpdir(), `c64re-frame-${session_id}-${Date.now()}.png`);
-      // Spec 305: UI default flipped to literal port (= VICE x64sc
-      // viciisc TS port). Reverse env flag for legacy fallback:
-      //   default                 → literal-port (Spec 298k)
-      //   C64RE_LEGACY_VIC=1      → vice-rasterized snapshot replay
-      let renderer: "literal-port" | "vice-rasterized" = "literal-port";
-      if (process.env.C64RE_LEGACY_VIC === "1") renderer = "vice-rasterized";
-      s.renderToPng(path, { renderer });
+      // Spec 306: literal-port unconditional (snapshot renderers
+      // deleted; no fallback path remains in this layer).
+      s.renderToPng(path, { renderer: "literal-port" });
       const bytes = readFileSync(path);
       return { dataUrl: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length };
     });

@@ -19,11 +19,14 @@ const { startIntegratedSession, getIntegratedSession } = await import(
 // behavior. User picks disk via media picker when ready. PRG / cart
 // workflows can also load directly into RAM without any disk.
 console.log(`[v3] starting session (no disk inserted)`);
+const useLiteral = process.env.C64RE_LITERAL_VIC === "1";
 const { sessionId } = startIntegratedSession({
   mode: "true-drive",
   useMicrocodedCpu: true,
-  vicRenderer: "vice-rasterized",
+  vicRenderer: "literal-port",
+  useLiteralPortRenderer: useLiteral,
 });
+if (useLiteral) console.log(`[v3] literal VICE port active (= 298k opt-in)`);
 console.log(`[v3] session id: ${sessionId}`);
 
 console.log(`[v3] cold reset + boot to BASIC ready...`);
