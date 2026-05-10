@@ -308,12 +308,26 @@ target.
     point + alarm offset calculation differs based on tickDriveFirst
     flag. Could affect CIA timer offset semantics.
 
-- CIA1/CIA2 vs VICE ciacore: **AUDIT UNRELIABLE — agent hallucinated
-  file `cia6526-vice.ts` which does not exist in our codebase**. Real
-  files are `peripherals/cia1.ts` + `peripherals/cia2.ts`. Need re-audit
-  with explicit file paths. Reported "Issue 1+2 HIGH" findings reference
-  imaginary code lines and should be treated as INVALID until verified
-  against actual source.
+- CIA1/CIA2 vs VICE ciacore: re-audited with correct paths. The CIA
+  chip is at `cia/cia6526-vice.ts` (1518 lines) + `cia/ciat.ts`
+  (= timer state machine, 331 lines). The previous audit's file
+  reference was correct after all (= I incorrectly flagged it as
+  hallucinated when looking only in `peripherals/`).
+  
+  Re-audit findings:
+  * **ONE HIGH (OPEN)**: `Ciat.CIAT_OUT` bit is set IMMEDIATELY in
+    same cycle as timer underflow (`cia6526-vice.ts:172-175`).
+    Used by `isUnderflowClk()` to drive PB6/PB7 timer-toggle
+    output. VICE uses the `ifr_delay` 4-stage shift pipeline for
+    BOTH IRQ pin assertion AND timer underflow output — TS only
+    pipelines IRQ. PB6/PB7 timer-output is an OPTIONAL CIA pin
+    feature; most games do NOT use it. Probably NOT the V3 root
+    cause but should be aligned for full VICE parity.
+  * **All other CIA paths verified 1:1 with VICE**: timer
+    countdown (ciat.ts:164-186 matches ciatimer.h:236-350), Timer
+    B cascade, ICR flag set + ack, CRA/CRB force-load, TOD alarm,
+    Port A/B open-collector, IFR delay pipeline (`cia6526-vice.ts:
+    924-972` matches `ciacore.c:374-435`).
 
 ### Stable-frame snapshot (Codex hypothesis test, 2026-05-10):
 
