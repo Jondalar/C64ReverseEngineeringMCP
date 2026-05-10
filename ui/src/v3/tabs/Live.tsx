@@ -26,14 +26,96 @@ interface DriveStatus {
   halfTrack: number; track: number; drivePc: number;
 }
 
-function keyEventToC64(e: KeyboardEvent): string | null {
-  if (e.key === "Enter") return "\r";
-  if (e.key === "Backspace") return "";
-  if (e.key === "Escape") return "";
-  if (e.key === "Tab") return "";
-  if (e.key.length === 1) return e.key;
+// Spec 310 — symbolic mapping: host KeyboardEvent → C64 matrix key name(s).
+// Returns null if no mapping. Returns array of 1-2 keys (= base + optional
+// L_SHIFT for shifted-only chars like ", ?, etc).
+type C64KeyName = string;
+function keyEventToC64Keys(e: KeyboardEvent): C64KeyName[] | null {
+  // Special non-printable keys (host code → C64 matrix).
+  const code = e.code;
+  switch (code) {
+    case "Enter":      return ["RETURN"];
+    case "Backspace":  return ["DEL"];
+    case "Escape":     return ["RUN_STOP"];
+    case "Tab":        return ["C_EQ"];
+    case "Home":       return ["HOME"];
+    case "ControlLeft":
+    case "ControlRight": return ["CTRL"];
+    case "ShiftLeft":  return ["L_SHIFT"];
+    case "ShiftRight": return ["R_SHIFT"];
+    case "ArrowDown":  return ["CRSR_DN"];
+    case "ArrowRight": return ["CRSR_RT"];
+    case "ArrowUp":    return ["L_SHIFT", "CRSR_DN"];
+    case "ArrowLeft":  return ["L_SHIFT", "CRSR_RT"];
+    case "F1":         return ["F1"];
+    case "F2":         return ["L_SHIFT", "F1"];
+    case "F3":         return ["F3"];
+    case "F4":         return ["L_SHIFT", "F3"];
+    case "F5":         return ["F5"];
+    case "F6":         return ["L_SHIFT", "F5"];
+    case "F7":         return ["F7"];
+    case "F8":         return ["L_SHIFT", "F7"];
+    case "Space":      return ["SPACE"];
+  }
+  // Printable: use e.key (= already host-layout-resolved character).
+  // C64 matrix is uppercase letters; map digits + punctuation directly.
+  const k = e.key;
+  if (k.length !== 1) return null;
+  const ch = k.toUpperCase();
+  // Letters A-Z
+  if (ch >= "A" && ch <= "Z") {
+    const out = [ch];
+    if (e.shiftKey) out.unshift("L_SHIFT");
+    return out;
+  }
+  // Digits 0-9 (non-shifted)
+  if (ch >= "0" && ch <= "9" && !e.shiftKey) return [ch];
+  // Common punctuation (= unshifted host = C64 key)
+  switch (k) {
+    case "+": return ["+"];
+    case "-": return ["-"];
+    case "*": return ["*"];
+    case "/": return ["/"];
+    case "=": return ["="];
+    case ":": return [":"];
+    case ";": return [";"];
+    case ",": return [","];
+    case ".": return ["."];
+    case "@": return ["@"];
+  }
+  // Shifted punctuation: emit L_SHIFT + base C64 key per matrix.
+  if (e.shiftKey) {
+    switch (k) {
+      case "\"": return ["L_SHIFT", "2"];
+      case "?":  return ["L_SHIFT", "/"];
+      case "(":  return ["L_SHIFT", "8"];
+      case ")":  return ["L_SHIFT", "9"];
+      case "<":  return ["L_SHIFT", ","];
+      case ">":  return ["L_SHIFT", "."];
+      case "!":  return ["L_SHIFT", "1"];
+      case "$":  return ["L_SHIFT", "4"];
+      case "%":  return ["L_SHIFT", "5"];
+      case "&":  return ["L_SHIFT", "6"];
+      case "'":  return ["L_SHIFT", "7"];
+    }
+  }
   return null;
 }
+
+// Spec 310 — virtual joystick mapping: WASD + Space → bits.
+// Returns the bit name (= JoystickState property) or null if not a joy key.
+type JoyBit = "up" | "down" | "left" | "right" | "fire";
+function joystickBitForCode(code: string): JoyBit | null {
+  switch (code) {
+    case "KeyW": return "up";
+    case "KeyA": return "left";
+    case "KeyS": return "down";
+    case "KeyD": return "right";
+    case "Space": return "fire";
+  }
+  return null;
+}
+type JoystickMode = "off" | "port1" | "port2";
 
 export function LiveTab({ sessionId, setSessionId, runState = "running", setRunState }: TabProps): JSX.Element {
   const [imgUrl, setImgUrl] = useState<string>("");
@@ -99,27 +181,96 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     return () => { alive = false; };
   }, [sessionId]);
 
-  // Live keyboard capture (running only, no focus required).
-  // Old behaviour required screen focus; that left users confused
-  // because there was no visible focus state. Now: any keystroke
-  // while emulator is running goes through, unless the focused
-  // element is an input/textarea (so monitor/forms still work).
+  // Spec 310 — virtual joystick UI state (per-tab; not persisted).
+  const [joyMode, setJoyMode] = useState<JoystickMode>("off");
+  const [joyBits, setJoyBits] = useState<Record<JoyBit, boolean>>({ up: false, down: false, left: false, right: false, fire: false });
+  const [pressedKeys, setPressedKeys] = useState<string[]>([]);
+
+  // Spec 310 — live keyboard + virtual joystick passthrough.
+  // While emulator runs: keydown → key_down WS, keyup → key_up WS.
+  // If joyMode != "off" and key is WASD+Space: route to joystick_set
+  // instead and DO NOT also send to keyboard matrix.
+  // Inputs/textareas (monitor) keep host focus → bypass.
+  // Window blur / unmount → release_keys (= clear all live keys + joy).
   useEffect(() => {
     if (!sessionId || runState !== "running") return;
     const client = getClient();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // Track which keys we currently consider "pressed" by us, so we can
+    // emit clean keyup pairs even if the browser repeats keydown.
+    const pressedDown = new Set<string>(); // tracking by event.code
+    const joyState: Record<JoyBit, boolean> = { up: false, down: false, left: false, right: false, fire: false };
+
+    const sendJoy = () => {
+      const port = joyMode === "port1" ? 1 : joyMode === "port2" ? 2 : 0;
+      if (port === 0) return;
+      client.call("session/joystick_set", { session_id: sessionId, port, ...joyState }).catch(() => {});
+      setJoyBits({ ...joyState });
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.altKey) return;
       const tgt = e.target as HTMLElement | null;
       if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
-      const c = keyEventToC64(e);
-      if (c === null) return;
+      // Virtual joystick path: swallow WASD/Space when active.
+      if (joyMode !== "off") {
+        const bit = joystickBitForCode(e.code);
+        if (bit) {
+          e.preventDefault();
+          if (joyState[bit]) return; // already down
+          joyState[bit] = true;
+          sendJoy();
+          return;
+        }
+      }
+      // Keyboard path.
+      const keys = keyEventToC64Keys(e);
+      if (!keys) return;
       e.preventDefault();
-      if (c === "") return;
-      client.call("session/type", { session_id: sessionId, text: c }).catch(() => {});
+      if (pressedDown.has(e.code)) return;
+      pressedDown.add(e.code);
+      for (const key of keys) {
+        client.call("session/key_down", { session_id: sessionId, key }).catch(() => {});
+      }
+      setPressedKeys(Array.from(pressedDown));
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [sessionId, runState]);
+    const onKeyUp = (e: KeyboardEvent) => {
+      const tgt = e.target as HTMLElement | null;
+      if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+      if (joyMode !== "off") {
+        const bit = joystickBitForCode(e.code);
+        if (bit) {
+          e.preventDefault();
+          if (!joyState[bit]) return;
+          joyState[bit] = false;
+          sendJoy();
+          return;
+        }
+      }
+      const keys = keyEventToC64Keys(e);
+      if (!keys) return;
+      if (!pressedDown.has(e.code)) return;
+      pressedDown.delete(e.code);
+      for (const key of keys) {
+        client.call("session/key_up", { session_id: sessionId, key }).catch(() => {});
+      }
+      setPressedKeys(Array.from(pressedDown));
+    };
+    const onBlur = () => {
+      pressedDown.clear();
+      for (const k of Object.keys(joyState) as JoyBit[]) joyState[k] = false;
+      setPressedKeys([]);
+      setJoyBits({ ...joyState });
+      client.call("session/release_keys", { session_id: sessionId }).catch(() => {});
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      onBlur();
+    };
+  }, [sessionId, runState, joyMode]);
 
   // Snapshot single frame (= force re-render even when paused)
   const snapshot = async () => {
@@ -178,6 +329,33 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           {screenFocused && runState === "running" && (
             <p className="wb-screen-hint">⌨ Keyboard captured — click outside to disable</p>
           )}
+          {/* Spec 310 — virtual joystick segmented control + status. */}
+          <div className="wb-joystick-bar" style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 8px", fontSize: 12, fontFamily: "monospace" }}>
+            <span>Virtual Joystick:</span>
+            {(["off", "port1", "port2"] as JoystickMode[]).map(m => (
+              <button
+                key={m}
+                onClick={() => setJoyMode(m)}
+                style={{
+                  padding: "2px 8px",
+                  background: joyMode === m ? "#4a90e2" : "#222",
+                  color: joyMode === m ? "#fff" : "#aaa",
+                  border: "1px solid #444",
+                  cursor: "pointer",
+                }}
+              >{m === "off" ? "Off" : m === "port1" ? "Joy #1" : "Joy #2"}</button>
+            ))}
+            {joyMode !== "off" && (
+              <span style={{ marginLeft: 12, color: "#8c8" }}>
+                Bits: {(["up","down","left","right","fire"] as JoyBit[]).filter(b => joyBits[b]).join(" ") || "—"}
+              </span>
+            )}
+            {pressedKeys.length > 0 && (
+              <span style={{ marginLeft: 12, color: "#cc8" }}>
+                Keys: {pressedKeys.join(" ")}
+              </span>
+            )}
+          </div>
         </div>
         <InspectorPanel sessionId={sessionId} drive={drive} drive9={drive9} />
       </div>

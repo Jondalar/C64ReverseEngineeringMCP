@@ -875,6 +875,23 @@ export class IntegratedSession {
     this.kernel.notifyInputChange("keyboard", { kind: "type_text", length: text.length });
   }
 
+  // Spec 310: live key press / release (browser passthrough).
+  keyDown(key: import("./peripherals/keyboard.js").KeyName): void {
+    this.keyboard.setKeyDown(key);
+    this.kernel.notifyInputChange("keyboard", { kind: "key_down", key });
+  }
+  keyUp(key: import("./peripherals/keyboard.js").KeyName): void {
+    this.keyboard.setKeyUp(key);
+    this.kernel.notifyInputChange("keyboard", { kind: "key_up", key });
+  }
+  releaseAllKeys(): void {
+    this.keyboard.releaseAllLive();
+    this.kernel.notifyInputChange("keyboard", { kind: "release_all" });
+  }
+  pressedKeys(): import("./peripherals/keyboard.js").KeyName[] {
+    return this.keyboard.livePressedKeys();
+  }
+
   // Sprint 93.1: set joystick port 2 directional / fire state.
   setJoystick2(state: Partial<JoystickState>): void {
     if (state.up !== undefined) this.joystick2.up = state.up;

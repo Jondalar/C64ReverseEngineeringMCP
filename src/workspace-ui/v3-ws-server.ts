@@ -267,6 +267,60 @@ export class V3WsServer {
       return { c64Cycles: s.c64Cpu.cycles, queued: text?.length ?? 0 };
     });
 
+    // Spec 310 — live keyboard passthrough (browser keydown/keyup).
+    this.on("session/key_down", ({ session_id, key }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      s.keyDown(key);
+      return { ok: true, pressed: s.pressedKeys() };
+    });
+    this.on("session/key_up", ({ session_id, key }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      s.keyUp(key);
+      return { ok: true, pressed: s.pressedKeys() };
+    });
+    this.on("session/release_keys", ({ session_id }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      s.releaseAllKeys();
+      // Also clear joystick state on release-all (= focus loss policy).
+      s.setJoystick1({ up: false, down: false, left: false, right: false, fire: false });
+      s.setJoystick2({ up: false, down: false, left: false, right: false, fire: false });
+      return { ok: true };
+    });
+
+    // Spec 310 — virtual joystick state. UI maps WASD+Space → bits and
+    // POSTs them here. Mode (off/port1/port2) is UI-side state; this
+    // handler accepts the resolved port + bits.
+    this.on("session/joystick_set", ({ session_id, port, up, down, left, right, fire }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const state = { up: !!up, down: !!down, left: !!left, right: !!right, fire: !!fire };
+      if (port === 1) s.setJoystick1(state); else s.setJoystick2(state);
+      return { ok: true };
+    });
+    this.on("session/joystick_clear", ({ session_id, port }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const cleared = { up: false, down: false, left: false, right: false, fire: false };
+      if (port === 1 || port === undefined) s.setJoystick1(cleared);
+      if (port === 2 || port === undefined) s.setJoystick2(cleared);
+      return { ok: true };
+    });
+
+    // Spec 310 — input status (= UI inspector reads pressed keys + joy
+    // bits; per-session, includes both ports so UI can mirror state).
+    this.on("session/input_status", ({ session_id }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      return {
+        pressed: s.pressedKeys(),
+        joystick1: { ...s.joystick1 },
+        joystick2: { ...s.joystick2 },
+      };
+    });
+
     // Drive status — LED + half-track + motor for Live tab display.
     this.on("session/drive_status", ({ session_id }) => {
       const s = getIntegratedSession(session_id);

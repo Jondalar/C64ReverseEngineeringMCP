@@ -59,6 +59,10 @@ export interface KeyEvent {
 export class KeyboardMatrix {
   private events: KeyEvent[] = [];
   private cycleNow = 0;
+  // Spec 310: persistent live-key state (= browser keydown without
+  // matching keyup). Parallel to the events queue used by typeText /
+  // queueKeyEvent / pressKey. readRowsForPa considers BOTH.
+  private livePressed: Set<KeyName> = new Set();
 
   // Queue a key press starting from now for `holdCycles` cycles.
   // Convenience helper for "press a key for ~50ms": holdCycles ~50000.
@@ -96,6 +100,12 @@ export class KeyboardMatrix {
   pendingEventCount(): number { return this.events.length; }
   currentCycle(): number { return this.cycleNow; }
 
+  // Spec 310: live key press / release (browser passthrough).
+  setKeyDown(key: KeyName): void { this.livePressed.add(key); }
+  setKeyUp(key: KeyName): void { this.livePressed.delete(key); }
+  releaseAllLive(): void { this.livePressed.clear(); }
+  livePressedKeys(): KeyName[] { return Array.from(this.livePressed); }
+
   // Advance current time. Called by integrated session per CPU step.
   advance(cycles: number): void {
     this.cycleNow += cycles;
@@ -106,20 +116,32 @@ export class KeyboardMatrix {
   // CIA1 PB read returns row bits ANDed across all selected columns.
   readRowsForPa(paValue: number): number {
     let rowMask = 0xff; // all rows high (= no key pressed)
+    // Queued events (typeText / pressKey time-window).
     for (const ev of this.events) {
       if (this.cycleNow < ev.startCycle || this.cycleNow >= ev.endCycle) continue;
       const coord = KEY_MATRIX[ev.key];
       if (!coord) continue;
       const [col, row] = coord;
-      // Column N is "selected" if PA bit N = 0 (active-low column drive).
-      if ((paValue & (1 << col)) === 0) {
-        rowMask &= ~(1 << row);
-      }
+      if ((paValue & (1 << col)) === 0) rowMask &= ~(1 << row);
+    }
+    // Spec 310: live pressed keys (browser passthrough).
+    for (const key of this.livePressed) {
+      const coord = KEY_MATRIX[key];
+      if (!coord) continue;
+      const [col, row] = coord;
+      if ((paValue & (1 << col)) === 0) rowMask &= ~(1 << row);
     }
     return rowMask;
   }
 
   resetClock(): void {
+    this.cycleNow = 0;
+  }
+
+  // Spec 310: full state clear used by cold reset paths.
+  clear(): void {
+    this.events = [];
+    this.livePressed.clear();
     this.cycleNow = 0;
   }
 }
