@@ -179,7 +179,10 @@ export interface IntegratedSessionOptions {
   // "per-char-row" (= existing renderer, no regression risk).
   // "per-pixel" enables Spec 262d-i pixel-perfect path using
   // VicIIVice.frameLineLogs. renderToPng() default uses this.
-  vicRenderer?: "per-char-row" | "literal-port";
+  /** @deprecated Spec 309: literal-port is sole renderer. This option is
+   *   ignored. Kept here only so old callers don't TS-error during
+   *   migration window. */
+  vicRenderer?: "literal-port";
   // Spec 298k: enable literal VICE x64sc port as the rendering source.
   // When true, the literal port runs alongside VicIIVice via the 297a
   // onCycle hook (= one VIC cycle pump, both chips see same cycle
@@ -338,7 +341,8 @@ export class IntegratedSession {
   // Spec 098: named session-mode preset (resolved at construction).
   public readonly mode: SessionMode;
   // Spec 262 Phase B-E: default renderer for renderFrame() / renderToPng().
-  public readonly vicRenderer: "per-char-row" | "literal-port";
+  /** Always "literal-port" since Spec 309 (sole renderer). */
+  public readonly vicRenderer: "literal-port" = "literal-port";
   // Spec 093: image format string ("g64" | "d64" | "other") + clock ratio.
   public readonly imageFormat: string;
   public readonly driveClockRatio: number;
@@ -501,8 +505,8 @@ export class IntegratedSession {
     // handle the race during normal scheduler tick. Caller may
     // re-enable via option.
     this.driveHeadStartCycles = opts.driveHeadStartCycles ?? 0;
-    // Spec 262 Phase B-E: vicRenderer default = per-char-row (no regression).
-    this.vicRenderer = opts.vicRenderer ?? "per-char-row";
+    // Spec 309: vicRenderer is always "literal-port" (default value applies).
+    void opts.vicRenderer; // accepted for backwards-compat, ignored
     // Spec 282: bind palette to framebuffer. Default colodore (OQ1=b).
     if (opts.palette) this.framebuffer.setPalette(opts.palette);
     // Spec 298k: install literal port renderer if opted in.
@@ -694,18 +698,34 @@ export class IntegratedSession {
   // Spec 262 Phase B-E: dispatch on session.vicRenderer (or per-call
   // override). Default per-char-row remains the canonical path so this
   // method stays a no-regression alias for the legacy renderer.
-  renderFrame(opts?: { renderer?: "per-char-row" }): void {
-    // Spec 306: snapshot renderers vice-rasterized + per-pixel deleted.
-    // Only per-char-row remains (= legacy VicIIVice text-mode path).
-    // Literal-port path bypasses this method entirely via renderToPng().
-    void opts;
-    const cia2Pa = this.cia2.pra & this.cia2.ddra; // output bits only
-    const bankBase = computeVicBankBase(cia2Pa & 0x03);
-    renderTextModeFrame(this.framebuffer, {
-      vic: this.vic,
-      bus: this.c64Bus,
-      vicBankBase: bankBase,
-    });
+  /** Spec 309: paint literal port literalPortFb into framebuffer.pixels
+   *  RGBA. Only video.ts export pipeline still uses this; renderToPng
+   *  now writes directly via renderLiteralPortToPng (no framebuffer
+   *  copy). */
+  renderFrame(): void {
+    if (!this.literalPortFb) return;
+    const FB_W = this.litFbW;
+    const FB_H = this.litFbH;
+    const fb = this.framebuffer;
+    const palette = fb.palette;
+    const dst = fb.pixels;
+    const src = this.literalPortFb;
+    // VICE x64sc visible window crop (= same as renderLiteralPortToPng):
+    // X=[96..480) → 384 wide, Y=[16..288) → 272 tall, mapped to fb at
+    // (0..384, 0..272). fb.width default 504; we paint columns 0..384.
+    const dispW = 384, dispH = 272;
+    const xOff = 96, yOff = 16;
+    for (let y = 0; y < dispH; y++) {
+      for (let x = 0; x < dispW; x++) {
+        const idx = src[(y + yOff) * FB_W + (x + xOff)] & 0x0f;
+        const rgb = palette[idx]!;
+        const off = (y * fb.width + x) * 4;
+        dst[off]     = rgb[0];
+        dst[off + 1] = rgb[1];
+        dst[off + 2] = rgb[2];
+        dst[off + 3] = 0xff;
+      }
+    }
   }
 
   // Render current VIC state then write to a PNG file. Phase 65f.
@@ -716,38 +736,12 @@ export class IntegratedSession {
   // border in raw 504-pixel output.
   renderToPng(
     path: string,
-    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "literal-port" },
+    opts?: { frameAligned?: boolean },
   ): { width: number; height: number; bytes: number } {
-    // Spec 306: legacy renderer values "vice-rasterized" + "per-pixel"
-    // dropped from union (= files deleted). Pass-through .mjs callers
-    // sending those strings will fall through to per-char-row default
-    // since the type narrowing below excludes them.
-    // Spec 298k: literal port renderer = paint accumulated dbuf into
-    // framebuffer (= 520×312 color indices → palette → RGBA). Bypass
-    // snapshot replay entirely.
-    if (opts?.renderer === "literal-port" && this.literalPortFb) {
-      return this.renderLiteralPortToPng(path);
-    }
-    // Spec 303: when useLiteralPortVicFb flag is on AND no explicit
-    // renderer requested, default to literal-port framebuffer.
-    // Explicit `opts.renderer` always wins (= caller can still request
-    // snapshot renderer for diff comparison).
-    if (opts?.renderer === undefined &&
-        this.useLiteralPortVicFb &&
-        this.literalPortFb) {
-      return this.renderLiteralPortToPng(path);
-    }
-    // Spec 262c: optional frame-boundary sync. Default true — running
-    // until the visible raster region is fully populated guarantees the
-    // per-line scanlineSnapshots cover every visible line, eliminating
-    // the "empty rows at top/bottom" race when callers snap a frame
-    // mid-trace. Pass `frameAligned: false` to preserve V1 behavior
-    // (= render whatever scanline state is currently latched).
-    const frameAligned = opts?.frameAligned !== false;
-    if (frameAligned) {
-      this.runUntilFrameReady();
-    }
-    // Spec 306: only per-char-row remains in renderFrame().
+    // Spec 309: literal-port is sole renderer.
+    if (opts?.frameAligned !== false) this.runUntilFrameReady();
+    if (this.literalPortFb) return this.renderLiteralPortToPng(path);
+    // Defensive: paint via renderFrame (= literal port too).
     this.renderFrame();
     const fb = this.framebuffer;
     // V3.1 (2026-05-09): symmetric borders matching internal renderer

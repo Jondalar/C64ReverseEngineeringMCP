@@ -227,9 +227,8 @@ export class V3WsServer {
       const { join } = await import("node:path");
       const { readFileSync } = await import("node:fs");
       const path = join(tmpdir(), `c64re-frame-${session_id}-${Date.now()}.png`);
-      // Spec 306: literal-port unconditional (snapshot renderers
-      // deleted; no fallback path remains in this layer).
-      s.renderToPng(path, { renderer: "literal-port" });
+      // Spec 309: literal-port is sole renderer; opts.renderer dropped.
+      s.renderToPng(path);
       const bytes = readFileSync(path);
       return { dataUrl: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length };
     });
