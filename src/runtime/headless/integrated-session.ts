@@ -210,6 +210,11 @@ export interface IntegratedSessionOptions {
   // callbacks remain no-op (this flag controls only which side the CPU
   // samples). Diff harness compares both.
   useLiteralPortVicIrq?: boolean;
+  // Spec 302: route CPU bus stall to literal port `ba_low` (returned
+  // by vicii_cycle()) instead of VicIIVice.getBusStallForCycle().
+  // Defaults to useLiteralPortVicReads. Requires
+  // usePerCycleBusStealing=true (otherwise legacy block path is used).
+  useLiteralPortVicStall?: boolean;
   // Spec 282: VIC palette selection. Default = "colodore" (modern
   // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
   // palette) for byte-exact VICE pixel-diff regression. See
@@ -286,6 +291,11 @@ export class IntegratedSession {
   public useLiteralPortVicReads: boolean = false;
   // Spec 301: route CPU IRQ line to literal vicii.irq_status.
   public useLiteralPortVicIrq: boolean = false;
+  // Spec 302: route CPU bus stall to literal port ba_low.
+  public useLiteralPortVicStall: boolean = false;
+  // Spec 302: last ba_low captured from litCycle.vicii_cycle() — read
+  // by busStallForNextC64Cycle when useLiteralPortVicStall is on.
+  private lastLitBaLow: 0 | 1 = 0;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -494,6 +504,9 @@ export class IntegratedSession {
     this.useLiteralPortVicReads = opts.useLiteralPortVicReads ?? this.useLiteralPortVicPerCycle;
     // Spec 301: literal IRQ defaults to literal-reads flag.
     this.useLiteralPortVicIrq = opts.useLiteralPortVicIrq ?? this.useLiteralPortVicReads;
+    // Spec 302: literal stall defaults to literal-reads flag (literal
+    // ba_low is only meaningful when per-cycle hook drives vicii_cycle).
+    this.useLiteralPortVicStall = opts.useLiteralPortVicStall ?? this.useLiteralPortVicReads;
     if (this.useLiteralPortRenderer) {
       this.installLiteralPortRenderer();
     }
@@ -587,8 +600,15 @@ export class IntegratedSession {
             ? (c64Cycle, _driveCycle) => this.drive.setSyncBaseline(c64Cycle)
             : undefined,
         // Spec 280g per-cycle bus stealing wiring.
+        // Spec 302: when useLiteralPortVicStall on, sample literal
+        // port ba_low (captured in onCycle hook from prior
+        // vicii_cycle() call) instead of VicIIVice. Off-by-one alignment
+        // matches VICE semantic ("ba_low computed in cycle N gates
+        // Φ2 of cycle N+1" via prefetch countdown).
         busStallForNextC64Cycle: opts.usePerCycleBusStealing
-          ? () => this.vic.getBusStallForCycle()
+          ? (this.useLiteralPortVicStall
+              ? () => this.lastLitBaLow === 1
+              : () => this.vic.getBusStallForCycle())
           : undefined,
         advanceC64CpuCycleOnStall: opts.usePerCycleBusStealing
           ? () => { (this.c64Cpu as { cycles: number }).cycles += 1; }
@@ -1354,7 +1374,8 @@ export class IntegratedSession {
       vicii.vbank_phi1 = bank * 0x4000;
       vicii.vbank_phi2 = bank * 0x4000;
 
-      litCycle.vicii_cycle();
+      // Spec 302: capture ba_low for next CPU cycle's stall query.
+      this.lastLitBaLow = (litCycle.vicii_cycle() & 1) as 0 | 1;
 
       // Capture dbuf when line changes
       if (vicii.raster_line !== lastRasterLine) {
