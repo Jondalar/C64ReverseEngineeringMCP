@@ -58,6 +58,10 @@ export function vicii_init(): void {
  */
 export function vicii_reset(): void {
     vicii.regs.fill(0);
+    /* VICE vicii.c:291 inits raster_cycle = 6 but our VicIIVice diff
+     * harness (Spec 300) inits to 0 and depends on alignment. Keeping
+     * 0 here pending VicIIVice-side fix. Cosmetic 6-cycle offset only
+     * visible at very startup before first frame settles. */
     vicii.raster_cycle = 0;
     vicii.cycle_flags = 0;
     vicii.raster_line = 0;
@@ -86,7 +90,8 @@ export function vicii_reset(): void {
     vicii.sprite_display_bits = 0;
     vicii.sprite_dma = 0;
     for (const s of vicii.sprite) {
-        s.data = 0; s.mc = 0; s.mcbase = 0; s.pointer = 0; s.exp_flop = 0; s.x = 0;
+        /* Spec V-init-fix: VICE vicii.c:240 — exp_flop = 1 (Y-expansion flip-flop init) */
+        s.data = 0; s.mc = 0; s.mcbase = 0; s.pointer = 0; s.exp_flop = 1; s.x = 0;
     }
     vicii.last_color_reg = 0xff;
     vicii.last_color_value = 0;
@@ -96,5 +101,15 @@ export function vicii_reset(): void {
     vicii.set_vborder = 1;
     vicii.main_border = 1;
     vicii.refresh_counter = 0xff;
+    /* Spec V-init-fix: VICE vicii.c:296-300 — light pen state init */
+    if (vicii.light_pen) {
+        vicii.light_pen.state = 0;
+        vicii.light_pen.triggered = 0;
+        vicii.light_pen.x = 0;
+        vicii.light_pen.y = 0;
+        vicii.light_pen.x_extra_bits = 0;
+        // CLOCK_MAX = 0xFFFFFFFF in VICE
+        vicii.light_pen.trigger_cycle = 0xffffffff;
+    }
     vicii_draw_cycle_init();
 }
