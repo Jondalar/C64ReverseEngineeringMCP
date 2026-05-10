@@ -149,6 +149,53 @@ mid-frame sampling.
 
 ---
 
+## Investigation Status — Code Review Sweep (2026-05-10)
+
+Pixel-diff harness (`scripts/diff-scramble-vs-vice.mjs`) confirms
+bugs are real:
+- B-title-vs-04: 81.73% match (worst rows 24-26 + 42-47 = SCRAMBLE
+  banner; row 90 = body text)
+- C-ingame-vs-07: 52.17% match (band 68-169 = sky region 70-81%
+  differ per row)
+
+VSF inject path (`src/runtime/headless/vsf/vice-vsf-load.ts`) parses
+VICE x64sc snapshots: MAINCPU + C64MEM (64K RAM + CPU port) + VIC-II
+regs[64] + raster_line/cycle + vbuf/cbuf/dbuf + sprite[8] +
+color_ram[1024] + draw_cycle_snapshot (174 bytes) + CIA1/CIA2 PA/PB.
+Inject works structurally but VICE PNG = result of CPU + IRQ
+execution → static state inject can't reproduce VICE pre-pause
+framebuffer. = useful diagnostic infra but not pixel-perfect-diff
+target.
+
+### Code review checked CLEAN (= 1:1 with VICE viciisc):
+
+- `vicii-draw-cycle.ts` — gfx pipeline, sprite render, border draw,
+  color resolve, vmode pipe latching, xscroll latch all match
+  vicii-draw-cycle.c. Only divergences are JS-isms (`& 0xff`
+  masking, `>>> 0` unsigned cast) required for JS bitwise semantics.
+- `vicii-cycle.ts` — per-cycle state machine, badline detection,
+  border state machine, sprite DMA, prefetch_cycles, ba_low return:
+  all match vicii-cycle.c. Same JS-ism mask pattern only.
+- `vicii-mem.ts` — D011/D012/D015/D016/D018/D019/D01A/D020-D02E
+  store handlers all match vicii-mem.c. Eager `cregs[]` update via
+  `vicii_monitor_colreg_store` is functionally equivalent to VICE's
+  lazy update at start of `draw_colors8` (= VICE
+  vicii-draw-cycle.c:637 reapplies same value next cycle anyway).
+
+### Code review NOT YET checked (= bugs likely live here):
+
+- `vicii-fetch.ts` — matrix fetch / sprite-pointer fetch / sprite-
+  data fetch addressing. **V3 hot candidate** (= sky region wrong
+  bulk content suggests fetch returns wrong bytes for that region).
+- `vicii-chip-model.ts` — cycle table (= per-cycle BA bits, fetch
+  type, sprite slot for cycles 0-62). If table off by 1 cycle,
+  badline DMA + sprite DMA timing drifts.
+- `integrated-session.ts` — our integration layer between CPU
+  cycle and literal VIC tick. **V2 hot candidate** (= mid-frame CPU
+  STA $D0xx → literal port consume must align to exact VICE phase).
+  Specifically `tickLitVic()` + `stepMicrocodedC64Instruction` per-
+  cycle path + `useLiteralPortVicPerCycle` ordering.
+
 ## How to add a new bug
 
 Sequence:
