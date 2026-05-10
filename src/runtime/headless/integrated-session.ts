@@ -1178,23 +1178,31 @@ export class IntegratedSession {
 
     let guard = 0;
     if (this.useLiteralPortVicPerCycle) {
-      // Spec 299 per-cycle interleave: tick VIC by 1 cycle per CPU bus
-      // cycle so any CPU write to $D000-$D03F lands at the EXACT raster
-      // cycle of the store (= literal port draws with correct mid-line
-      // register value). VicIIVice.tick(1) fires onCycle hook which
-      // advances literal port via vicii_cycle().
+      // Spec V-V2-fix Issue 3: VIC tick FIRST, CPU step SECOND per cycle.
+      // VICE Phi1/Phi2 model: VIC samples regs[]/bus at cycle start
+      // (Phi1 fetch). CPU writes happen at Phi2 (cycle end). New reg
+      // values take effect at NEXT cycle's VIC fetch.
+      // Previously: cpu.executeCycle ran first, then vic.tick. CPU
+      // mid-cycle write to $D011/$D016/$D018 was visible to literal
+      // port's vicii_cycle in the SAME cycle → mode/scroll/screen-
+      // pointer changes landed 1 cycle EARLY → V2 mid-frame tearing.
+      // Now: vic.tick(1) runs first (= VIC fetches with regs from
+      // previous cycle's writes). Then cpu.executeCycle (= writes hit
+      // regs[], take effect at next iteration's vic.tick).
       do {
         this.updateMicrocodedInterruptLines();
+        // VIC tick first — fires onCycle → tickLitVic → vicii_cycle.
+        // Reads regs[] in their pre-this-cycle state.
+        this.vic.tick(1);
+        // CPU step. Bus writes hit regs[] but VIC for THIS cycle
+        // already advanced. Effect lands NEXT cycle.
         const before = (this.c64Cpu as unknown as { cycles: number }).cycles;
         cpu.executeCycle();
         const after = (this.c64Cpu as unknown as { cycles: number }).cycles;
         const consumed = after - before;
-        // Spec 307 (revert of driver-inversion attempt): vic.tick(consumed)
-        // remains the canonical per-cycle driver. It fires onCycle which
-        // calls tickLitVic. Skipping vic.tick breaks VicIIVice.raster_y +
-        // bad_line/sprite_fetch_msk that diff harnesses + reg reads still
-        // depend on. Real perf strip = Phase 7 (Spec 308) work.
-        if (consumed > 0) this.vic.tick(consumed);
+        // If CPU consumed >1 cycles in one executeCycle (= rare,
+        // microcoded path normally = 1), tick remaining VIC cycles.
+        if (consumed > 1) this.vic.tick(consumed - 1);
         if (++guard > 256) {
           throw new Error(
             `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
