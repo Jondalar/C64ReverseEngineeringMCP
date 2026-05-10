@@ -204,6 +204,12 @@ export interface IntegratedSessionOptions {
   // OR masks) instead of VicIIVice values. Writes still mirror to
   // both chips for diff harness.
   useLiteralPortVicReads?: boolean;
+  // Spec 301: route CPU IRQ line to literal vicii.irq_status instead
+  // of VicIIVice.irqAsserted(). Defaults to useLiteralPortVicReads.
+  // Both chips still maintain their own irq_status; literal IRQ host
+  // callbacks remain no-op (this flag controls only which side the CPU
+  // samples). Diff harness compares both.
+  useLiteralPortVicIrq?: boolean;
   // Spec 282: VIC palette selection. Default = "colodore" (modern
   // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
   // palette) for byte-exact VICE pixel-diff regression. See
@@ -278,6 +284,8 @@ export class IntegratedSession {
   public useLiteralPortVicPerCycle: boolean = false;
   // Spec 300: route $D000-$D3FF reads through literal vicii_read.
   public useLiteralPortVicReads: boolean = false;
+  // Spec 301: route CPU IRQ line to literal vicii.irq_status.
+  public useLiteralPortVicIrq: boolean = false;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -484,6 +492,8 @@ export class IntegratedSession {
     // Spec 300: literal reads default to per-cycle flag (literal raster_y
     // is only in sync when per-cycle hook drives it).
     this.useLiteralPortVicReads = opts.useLiteralPortVicReads ?? this.useLiteralPortVicPerCycle;
+    // Spec 301: literal IRQ defaults to literal-reads flag.
+    this.useLiteralPortVicIrq = opts.useLiteralPortVicIrq ?? this.useLiteralPortVicReads;
     if (this.useLiteralPortRenderer) {
       this.installLiteralPortRenderer();
     }
@@ -1120,7 +1130,11 @@ export class IntegratedSession {
     // their setIntClk callback; sample that directly instead of the old
     // irqAsserted() helper. Falls back to irqAsserted for tests that
     // poke icrFlags directly without going through the CIA write API.
-    cpu.irqLine = (this.cia1IrqLine() || this.cia1.irqAsserted()) || this.vic.irqAsserted();
+    // Spec 301: literal IRQ source when flag on.
+    const vicIrqAsserted = this.useLiteralPortVicIrq
+      ? ((LIT_TYPES.vicii.irq_status & this.vic.regs[0x1a]! & 0x0f) !== 0)
+      : this.vic.irqAsserted();
+    cpu.irqLine = (this.cia1IrqLine() || this.cia1.irqAsserted()) || vicIrqAsserted;
     cpu.nmiLine = this.cia2NmiLine() || this.cia2.irqAsserted();
   }
 
