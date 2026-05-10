@@ -308,6 +308,13 @@ export class IntegratedSession {
   private litLastRasterLine: number = -1;
   private readonly litFbW: number = 65 * 8;
   private readonly litFbH: number = 312;
+  // Spec V-stable-frame: complete-frame snapshot. literalPortFb is the
+  // ACCUMULATOR (= currently filling). literalPortFbStable is the LAST
+  // COMPLETE FRAME (= snap of literalPortFb taken when raster wraps to
+  // line 0 = full frame just finished). renderLiteralPortToPng reads
+  // from stable buffer so it never sees a half-filled frame.
+  public literalPortFbStable: Uint8Array | null = null;
+  private litStableFrameCount: number = 0;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -1426,6 +1433,20 @@ export class IntegratedSession {
           fb[off + x] = lv.dbuf[x]!;
         }
       }
+      // Spec V-stable-frame: when wrapping to line 0 (= frame complete),
+      // snapshot the just-finished accumulator into the stable buffer.
+      // renderLiteralPortToPng uses stable so it never sees a half-
+      // filled frame mid-render.
+      if (lv.raster_line === 0 && last !== 0 && last !== -1) {
+        const acc = this.literalPortFb;
+        if (acc) {
+          if (this.literalPortFbStable === null) {
+            this.literalPortFbStable = new Uint8Array(acc.length);
+          }
+          this.literalPortFbStable.set(acc);
+          this.litStableFrameCount++;
+        }
+      }
       this.litLastRasterLine = lv.raster_line;
     }
   }
@@ -1438,7 +1459,10 @@ export class IntegratedSession {
   private renderLiteralPortToPng(path: string): { width: number; height: number; bytes: number } {
     const FB_W_INTERNAL = 65 * 8; // 520 — full dbuf width
     const FB_H_INTERNAL = 312;
-    const fb = this.literalPortFb!;
+    // Spec V-stable-frame: prefer stable (= last complete frame) over
+    // mid-fill accumulator. Falls back to accumulator if no full frame
+    // has wrapped yet (= just-booted scenario).
+    const fb = this.literalPortFbStable ?? this.literalPortFb!;
     const palette = this.framebuffer.palette;
 
     // Spec 298k harness fixes (= what user identified as off):
