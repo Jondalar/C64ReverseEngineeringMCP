@@ -112,35 +112,31 @@ Pixel-diff vs VICE C-ingame PNG: 54.14% match (= 81% per-row diff
 in rows 44-200 = entire visible game area). Issue 3 fix gained
 +1.97%, all other audits CLEAN — bug not in literal port code itself.
 
-**Remaining hypotheses (= all OUTSIDE literal port — not yet audited):**
+**Remaining hypotheses (post all 2026-05-10 audits + fixes):**
 
-1. **`cycle-lockstep-scheduler.ts`** — IRQ delivery timing between
-   CPU + literal port + VicIIVice. If raster IRQ fires at wrong
-   cycle relative to where CPU was at the moment, game's raster
-   handler runs slightly off → wrong reg writes hit at wrong raster.
+1. **`cycle-lockstep-scheduler.ts` PROCESS_ALARMS** — VICE drains
+   all alarms (CIA timer underflow + VIC raster IRQ + TOD) at
+   instruction boundary. Our TS may dispatch per-cycle (= scheduler
+   audit Issue 4). If alarm fires mid-instruction in TS where VICE
+   waits for boundary, CIA + VIC IRQ entries land at different
+   cycles. **Top remaining suspect.**
 
-2. **CIA1/CIA2 timer + IRQ delivery** — CIA timers run independently;
-   their IRQ assertion to CPU pin must align with CPU instruction
-   boundary. If CIA IRQ fires 1-2 cycles off vs VICE, game's
-   stable-raster routines (= LDA $D012/CMP/BCC + NOPs) diverge.
+2. **CIA1/CIA2 timer pipeline** — CIA chip code 1:1 with VICE per
+   re-audit BUT ONE divergence: PB6/PB7 timer-output bit
+   (`isUnderflowClk`) reads `Ciat.CIAT_OUT` raw, VICE pipelines
+   through `ifr_delay`. Probably not V3 root cause (= PB6/PB7
+   optional pin feature) but related to alarm/timer pipeline.
 
-3. **VicIIVice in fidelity mode interfering** — even with literal
-   port as authority, VicIIVice still ticks (= Spec 304 didn't fully
-   strip it). Shared `regs[]` reference plus separate raster_y
-   counters could create inconsistency. VicIIVice IRQ alarm path
-   might mistime.
+3. **Multi-feature interaction stress** — badline DMA + sprite DMA
+   + D016 mid-line xscroll + D018 mid-frame screen RAM swap all
+   concurrent. Each feature works in isolation. Combined behavior
+   may expose interaction bug not visible to per-file audit.
 
-4. **Multi-feature interaction stress** — badline DMA + sprite DMA +
-   D016 mid-line xscroll + D018 mid-frame screen RAM swap all
-   concurrent. Each feature works in isolation (= TREX bitmap clean,
-   motm BASIC clean). Combined behavior may expose an interaction
-   bug not visible to per-file audit.
+4. ~~VicIIVice in fidelity mode interfering~~ — **ELIMINATED**
+   via VicIIVice-tick strip (= Spec V-strip-vicii-tick 2026-05-10).
 
-5. **literalPortFb capture race** — `tickLitVic` captures dbuf at
-   line wrap. If raster wraps mid-runFor, single line may be
-   captured twice or skipped. Spec 307 refactor hypothetically
-   prone to this. Could explain "stripes" (= alternating captured
-   vs not).
+5. ~~literalPortFb capture race~~ — **ELIMINATED** via stable-frame
+   snap (`literalPortFbStable`, 2026-05-10).
 **Reference**: Spec 291 (Sprite quirks) + Spec 283 (BA/AEC) both
 completed for VicIIVice. Literal port handles BA/AEC + sprite DMA but
 the interaction during ACTIVE scroll (= D016 xscroll changing per
@@ -338,6 +334,46 @@ stripes might be capture race. Result: **diff numbers UNCHANGED**
 (B 85.45%, C 54.14%). Capture race ruled out as V3 root cause. Fix
 remains semantically correct + addresses V5 (= partial frame after
 fast scroll).
+
+### Spec V-strip-vicii-tick (2026-05-10):
+
+Per user direction, dropped VicIIVice tick from fidelity-mode hot
+path (= stepMicrocodedC64Instruction now drives `tickLitVic()`
+directly, no `vic.tick(consumed)` call). VicIIVice raster_y synced
+from literal in tickLitVic so legacy consumers (VSF save, UI
+inspector) keep working.
+
+Consequences:
+- Spec 300 (R/W diff) + Spec 302 (stall diff) harnesses obsolete
+  (= both compared VicIIVice vs literal which require VicIIVice
+  ticking). Archived to `scripts/archive/dual-truth-diff/`.
+- 297/301/303/298k/309 trex regressions all PASS.
+- Scramble pixel-diff numbers UNCHANGED (= literal logic identical;
+  strip removed parallel state work, not rendering).
+- **V3 Hypothesis 3 (= "VicIIVice in fidelity mode interfering")
+  ELIMINATED** since VicIIVice no longer ticks in fidelity mode.
+
+### Remaining V3 hypotheses (post all fixes):
+
+1. **Scheduler PROCESS_ALARMS** — VICE drains all alarms
+   (= CIA timer underflow + VIC raster IRQ + TOD) at instruction
+   boundary. Our TS may dispatch per-cycle. If alarm fires
+   mid-instruction in TS where VICE waits for boundary, CIA timer
+   IRQ + VIC raster IRQ entry could land at slightly different
+   cycles. Both CIA + VIC alarms go through same scheduler pipeline,
+   so both potentially affected. **Top remaining suspect.**
+
+2. **Multi-feature interaction stress** — badline DMA + sprite DMA
+   + D016 mid-line xscroll + D018 mid-frame screen RAM swap all
+   concurrent. Each feature works in isolation (= TREX bitmap clean,
+   motm BASIC clean). Combined behavior may expose interaction bug
+   not visible to per-file audit.
+
+3. ~~VicIIVice in fidelity mode interfering~~ — ELIMINATED via
+   VicIIVice-tick strip 2026-05-10.
+
+4. ~~literalPortFb capture race~~ — ELIMINATED via stable-frame
+   snap 2026-05-10.
 
 ### Remaining V3 mystery:
 
