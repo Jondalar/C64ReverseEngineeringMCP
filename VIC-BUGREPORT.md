@@ -16,14 +16,14 @@ Status legend:
 
 ---
 
-## Bug V1 — Sprites do not render in side border
+## Bug V1 — Sprites in side border / open-border missing details
 
-**Status**: OPEN
-**Severity**: High — breaks any title screen / status bar that
-positions sprites left of $18 or right of $158 (= side border area).
-**Repro**: Scramble Infinity (Mirage). Title screen "INFINITY" word
-formed by sprites placed in right border. Title text "SCRAMBLE" split
-by raster IRQ shows broken upper rows.
+**Status**: OPEN — REPRODUCED 2026-05-10
+**Severity**: Medium — affects title screens/games using open-border trick.
+**Repro**: Scramble Infinity loader credits screen. Trace shows D015=$FF
+(all 8 sprites enabled) but no mid-line CSEL toggle (D016 stays $18
+during sprite-display rasters).
+Probe: `samples/screenshots/vic-bugs/scramble-02-credits-180M.png`.
 **Reference**: Spec 281 (= "Border geometry dynamics RSEL/CSEL
 mid-frame, open-border") — completed for VicIIVice but the literal
 port draw_sprites in `vicii-draw-cycle.ts` only emits sprite pixels
@@ -43,12 +43,28 @@ side border (= left/right) does not suppress sprites.
 
 ## Bug V2 — Mid-frame raster split causes per-line tearing on title text
 
-**Status**: OPEN
+**Status**: OPEN — REPRODUCED 2026-05-10 via probe-scramble-stages.mjs
 **Severity**: Medium — affects fancy title screens with per-line
 register changes (= rainbow text, animated logo).
-**Repro**: Scramble Infinity title screen. SCRAMBLE word at top has
-horizontal stripes: each raster line shows partial/wrong pixels of
-the title.
+**Repro**: Scramble Infinity loader credits screen. Boot via mount-API,
+wait 180M cyc → "Ready Joy 2" credits frame. SCRAMBLE word at top has
+horizontal stripes per char-row.
+Probe: `node scripts/probe-scramble-stages.mjs` →
+`samples/screenshots/vic-bugs/scramble-02-credits-180M.png`.
+
+**Trace (1 frame, credits screen)**: 76 VIC writes across 34 raster lines.
+Critical mode switches:
+- raster 26: `D011=$5B D015=$FF` (= text mode + DEN, sprites enable)
+- raster 45: `D016=$18 D011=$3B` (= switch to BMM with MCM)
+- raster 150: D019 ack (raster IRQ #2)
+- raster 155-170: `D016 $17↔$18` toggled every line (= MCM + xscroll
+  toggle for animation effect on bottom band)
+- raster 170: D019 ack
+
+The SCRAMBLE banner sits in raster 26-45 = text-mode region. Literal
+port likely consumes D011 mode change 1-2 cycles after VICE → some
+char cells in transition rows render with stale mode → visible
+tearing.
 **Reference**: Spec 287 (Φ1/Φ2 addressbus phase modeling) +
 Spec 286 (CIA2 PA bank-switch cycle-exact) both completed for
 VicIIVice. Literal port matrix fetch reads `vicii.regs[0x18]` /
