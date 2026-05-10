@@ -215,6 +215,10 @@ export interface IntegratedSessionOptions {
   // Defaults to useLiteralPortVicReads. Requires
   // usePerCycleBusStealing=true (otherwise legacy block path is used).
   useLiteralPortVicStall?: boolean;
+  // Spec 303: route renderToPng() default to literal port
+  // (literalPortFb) instead of snapshot renderers. Defaults to
+  // useLiteralPortVicReads. Explicit `opts.renderer` always wins.
+  useLiteralPortVicFb?: boolean;
   // Spec 282: VIC palette selection. Default = "colodore" (modern
   // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
   // palette) for byte-exact VICE pixel-diff regression. See
@@ -293,6 +297,8 @@ export class IntegratedSession {
   public useLiteralPortVicIrq: boolean = false;
   // Spec 302: route CPU bus stall to literal port ba_low.
   public useLiteralPortVicStall: boolean = false;
+  // Spec 303: route renderToPng default to literal port framebuffer.
+  public useLiteralPortVicFb: boolean = false;
   // Spec 302: last ba_low captured from litCycle.vicii_cycle() — read
   // by busStallForNextC64Cycle when useLiteralPortVicStall is on.
   private lastLitBaLow: 0 | 1 = 0;
@@ -507,6 +513,8 @@ export class IntegratedSession {
     // Spec 302: literal stall defaults to literal-reads flag (literal
     // ba_low is only meaningful when per-cycle hook drives vicii_cycle).
     this.useLiteralPortVicStall = opts.useLiteralPortVicStall ?? this.useLiteralPortVicReads;
+    // Spec 303: literal framebuffer default routing.
+    this.useLiteralPortVicFb = opts.useLiteralPortVicFb ?? this.useLiteralPortVicReads;
     if (this.useLiteralPortRenderer) {
       this.installLiteralPortRenderer();
     }
@@ -728,6 +736,15 @@ export class IntegratedSession {
     // framebuffer (= 520×312 color indices → palette → RGBA). Bypass
     // snapshot replay entirely.
     if (opts?.renderer === "literal-port" && this.literalPortFb) {
+      return this.renderLiteralPortToPng(path);
+    }
+    // Spec 303: when useLiteralPortVicFb flag is on AND no explicit
+    // renderer requested, default to literal-port framebuffer.
+    // Explicit `opts.renderer` always wins (= caller can still request
+    // snapshot renderer for diff comparison).
+    if (opts?.renderer === undefined &&
+        this.useLiteralPortVicFb &&
+        this.literalPortFb) {
       return this.renderLiteralPortToPng(path);
     }
     // Spec 262c: optional frame-boundary sync. Default true — running
