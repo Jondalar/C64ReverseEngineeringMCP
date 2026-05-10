@@ -19,14 +19,20 @@ const { startIntegratedSession, getIntegratedSession } = await import(
 // behavior. User picks disk via media picker when ready. PRG / cart
 // workflows can also load directly into RAM without any disk.
 console.log(`[v3] starting session (no disk inserted)`);
-const useLiteral = process.env.C64RE_LITERAL_VIC === "1";
+// Spec 304/309: literal port is the ONLY working renderer post Spec 306
+// (snapshot renderers deleted). Flag defaults to true via session
+// constructor; passing explicit false would short-circuit literal-port
+// install. Allow C64RE_LEGACY_VIC=1 reverse opt-out for emergency
+// fallback to per-char-row text-only rendering.
+const useLegacy = process.env.C64RE_LEGACY_VIC === "1";
 const { sessionId } = startIntegratedSession({
   mode: "true-drive",
   useMicrocodedCpu: true,
-  vicRenderer: "literal-port",
-  useLiteralPortRenderer: useLiteral,
+  vicRenderer: useLegacy ? "per-char-row" : "literal-port",
+  useLiteralPortRenderer: !useLegacy,
 });
-if (useLiteral) console.log(`[v3] literal VICE port active (= 298k opt-in)`);
+if (useLegacy) console.log(`[v3] LEGACY per-char-row renderer (= debug)`);
+else console.log(`[v3] literal VICE port active (= default)`);
 console.log(`[v3] session id: ${sessionId}`);
 
 console.log(`[v3] cold reset + boot to BASIC ready...`);
