@@ -734,7 +734,7 @@ export class IntegratedSession {
   // border in raw 504-pixel output.
   renderToPng(
     path: string,
-    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" | "cycle-pumped" | "literal-port" },
+    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" | "literal-port" },
   ): { width: number; height: number; bytes: number } {
     // Spec 298k: literal port renderer = paint accumulated dbuf into
     // framebuffer (= 520×312 color indices → palette → RGBA). Bypass
@@ -761,17 +761,13 @@ export class IntegratedSession {
     if (frameAligned) {
       this.runUntilFrameReady();
     }
-    // Spec 297l: cycle-pumped mode = framebuffer is filled continuously
-    // by VicIIVice.onCycle hook (= installCyclePumpedRenderer at session
-    // start). Skip the snapshot re-render so we keep the live cycle
-    // pump output.
-    if (opts?.renderer !== "cycle-pumped") {
-      // literal-port + cycle-pumped already handled above; only the
-      // 3 snapshot renderers go through renderFrame()
-      const r = opts?.renderer;
-      if (r === "per-char-row" || r === "per-pixel" || r === "vice-rasterized" || r === undefined) {
-        this.renderFrame({ renderer: r });
-      }
+    // Spec 305: cycle-pumped renderer wiring removed (was Spec 297l
+    // dead code — installCyclePumpedRenderer never called by any
+    // consumer). literal-port already handled above; only the
+    // 3 snapshot renderers go through renderFrame().
+    const r = opts?.renderer;
+    if (r === "per-char-row" || r === "per-pixel" || r === "vice-rasterized" || r === undefined) {
+      this.renderFrame({ renderer: r });
     }
     const fb = this.framebuffer;
     // V3.1 (2026-05-09): symmetric borders matching internal renderer

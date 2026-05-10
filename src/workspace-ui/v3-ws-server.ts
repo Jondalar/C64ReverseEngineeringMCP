@@ -227,14 +227,12 @@ export class V3WsServer {
       const { join } = await import("node:path");
       const { readFileSync } = await import("node:fs");
       const path = join(tmpdir(), `c64re-frame-${session_id}-${Date.now()}.png`);
-      // Default session renderer is per-char-row which currently renders
-      // only border (no chars/sprites). Use vice-rasterized for the live
-      // UI — VICE-faithful per-line raster_changes path is the V3 default
-      // for everything VIC-parity (Spec 280c).
-      // Spec 297l: when C64RE_CYCLE_PUMPED=1, framebuffer is filled
-      // continuously by the cycle-pumped renderer (= installed at
-      // start-v3-server.mjs); skip snapshot re-render here.
-      const renderer = process.env.C64RE_CYCLE_PUMPED === "1" ? "cycle-pumped" : "vice-rasterized";
+      // Spec 305: UI default flipped to literal port (= VICE x64sc
+      // viciisc TS port). Reverse env flag for legacy fallback:
+      //   default                 → literal-port (Spec 298k)
+      //   C64RE_LEGACY_VIC=1      → vice-rasterized snapshot replay
+      let renderer: "literal-port" | "vice-rasterized" = "literal-port";
+      if (process.env.C64RE_LEGACY_VIC === "1") renderer = "vice-rasterized";
       s.renderToPng(path, { renderer });
       const bytes = readFileSync(path);
       return { dataUrl: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length };
