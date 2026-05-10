@@ -9,10 +9,18 @@ interface Drive {
   halfTrack: number; track: number; drivePc: number;
 }
 
+type JoyMode = "off" | "port1" | "port2";
+type JoyBit = "up" | "down" | "left" | "right" | "fire";
+
 interface Props {
   sessionId: string;
   drive: Drive | null;
   drive9: Drive | null;
+  // Spec 310 — virtual joystick UI state owned by Live tab; rendered here.
+  joyMode?: JoyMode;
+  setJoyMode?: (m: JoyMode) => void;
+  joyBits?: Record<JoyBit, boolean>;
+  pressedKeys?: string[];
 }
 
 interface CpuState {
@@ -25,7 +33,7 @@ interface VicState {
   border?: number; background?: number;
 }
 
-export function InspectorPanel({ sessionId, drive, drive9 }: Props): JSX.Element {
+export function InspectorPanel({ sessionId, drive, drive9, joyMode = "off", setJoyMode, joyBits, pressedKeys }: Props): JSX.Element {
   const [cpu, setCpu] = useState<CpuState | null>(null);
   const [vic, setVic] = useState<VicState | null>(null);
 
@@ -106,6 +114,42 @@ export function InspectorPanel({ sessionId, drive, drive9 }: Props): JSX.Element
           </table>
         </section>
       )}
+      {/* Spec 310 — virtual joystick segmented control + live status. */}
+      <section>
+        <h3>Virtual JOY</h3>
+        <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+          {(["off", "port1", "port2"] as JoyMode[]).map(m => {
+            const label = m === "off" ? "OFF" : m === "port1" ? "1" : "2";
+            return (
+              <button
+                key={m}
+                onClick={() => setJoyMode?.(m)}
+                style={{
+                  padding: "2px 10px",
+                  background: joyMode === m ? "#4a90e2" : "#222",
+                  color: joyMode === m ? "#fff" : "#aaa",
+                  border: "1px solid #444",
+                  cursor: "pointer",
+                  fontFamily: "monospace",
+                  flex: "1 1 auto",
+                  minWidth: 0,
+                }}
+              >{label}</button>
+            );
+          })}
+        </div>
+        <table className="wb-regs">
+          <tbody>
+            <tr><th>bits</th><td style={{ minWidth: 110 }}>{
+              joyMode === "off" ? "—" : ((["up","down","left","right","fire"] as JoyBit[])
+                .filter(b => joyBits?.[b]).join(" ") || "—")
+            }</td></tr>
+            <tr><th>keys</th><td style={{ minWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{
+              pressedKeys && pressedKeys.length > 0 ? pressedKeys.join(" ") : "—"
+            }</td></tr>
+          </tbody>
+        </table>
+      </section>
       <section>
         <h3>Breakpoints</h3>
         <p className="wb-muted">none</p>

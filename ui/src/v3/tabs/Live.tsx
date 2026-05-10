@@ -329,35 +329,16 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           {screenFocused && runState === "running" && (
             <p className="wb-screen-hint">⌨ Keyboard captured — click outside to disable</p>
           )}
-          {/* Spec 310 — virtual joystick segmented control + status. */}
-          <div className="wb-joystick-bar" style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 8px", fontSize: 12, fontFamily: "monospace" }}>
-            <span>Virtual Joystick:</span>
-            {(["off", "port1", "port2"] as JoystickMode[]).map(m => (
-              <button
-                key={m}
-                onClick={() => setJoyMode(m)}
-                style={{
-                  padding: "2px 8px",
-                  background: joyMode === m ? "#4a90e2" : "#222",
-                  color: joyMode === m ? "#fff" : "#aaa",
-                  border: "1px solid #444",
-                  cursor: "pointer",
-                }}
-              >{m === "off" ? "Off" : m === "port1" ? "Joy #1" : "Joy #2"}</button>
-            ))}
-            {joyMode !== "off" && (
-              <span style={{ marginLeft: 12, color: "#8c8" }}>
-                Bits: {(["up","down","left","right","fire"] as JoyBit[]).filter(b => joyBits[b]).join(" ") || "—"}
-              </span>
-            )}
-            {pressedKeys.length > 0 && (
-              <span style={{ marginLeft: 12, color: "#cc8" }}>
-                Keys: {pressedKeys.join(" ")}
-              </span>
-            )}
-          </div>
         </div>
-        <InspectorPanel sessionId={sessionId} drive={drive} drive9={drive9} />
+        <InspectorPanel
+          sessionId={sessionId}
+          drive={drive}
+          drive9={drive9}
+          joyMode={joyMode}
+          setJoyMode={setJoyMode}
+          joyBits={joyBits}
+          pressedKeys={pressedKeys}
+        />
       </div>
       <MonitorPanel
         sessionId={sessionId}
