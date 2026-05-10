@@ -503,8 +503,12 @@ export class IntegratedSession {
     // Spec 282: bind palette to framebuffer. Default colodore (OQ1=b).
     if (opts.palette) this.framebuffer.setPalette(opts.palette);
     // Spec 298k: install literal port renderer if opted in.
-    this.useLiteralPortRenderer = opts.useLiteralPortRenderer ?? false;
-    this.useLiteralPortVicPerCycle = opts.useLiteralPortVicPerCycle ?? false;
+    // Spec 304: defaults flipped on. Literal port is now the
+    // authoritative VIC-II path out of the box. Explicit `false`
+    // in opts still selects legacy VicIIVice-only path for diff
+    // comparison harnesses.
+    this.useLiteralPortRenderer = opts.useLiteralPortRenderer ?? true;
+    this.useLiteralPortVicPerCycle = opts.useLiteralPortVicPerCycle ?? true;
     // Spec 300: literal reads default to per-cycle flag (literal raster_y
     // is only in sync when per-cycle hook drives it).
     this.useLiteralPortVicReads = opts.useLiteralPortVicReads ?? this.useLiteralPortVicPerCycle;
