@@ -6,7 +6,33 @@ testing in the V3 UI. Focus = pixel/cycle differences vs VICE x64sc
 reference output. See also Spec 296 (= VIC real-game stress corpus).
 
 Migration plan: `docs/vic-ii-literal-port-migration-analysis-plan-2026-05-10.md`
-Implementation pulls: Specs 300-309 (= literal port made authority).
+Implementation pulls: Specs 300-308 (= literal port made authority).
+
+## 2026-05-10 — INVESTIGATION FROZEN per ADR
+
+`docs/adr-vice-execution-contract.md` (Accepted 2026-05-10) requires
+all timing-sensitive VIC-II work to go through the VICE execution
+contract first, not isolated chip patches. Spec 309 created to track
+the contract alignment (alarms / IRQ lines / CPU boundary order).
+
+Until Spec 309 acceptance gates pass, do NOT:
+
+- propose pixel-side fixes (sprite border, raster split, palette,
+  framebuffer races already eliminated)
+- run pixel-diff harnesses as evidence of correctness
+- patch isolated CIA/VIC/VIA files without caller-order analysis
+- strip VICE-equivalent code paths "because they look unused"
+
+V1 / V2 / V3 below remain OPEN but are now downstream of Spec 309.
+The "remaining hypotheses" sections capture prior best guesses; they
+will be re-evaluated once execution-contract trace parity exists.
+
+The `Spec V-strip-vicii-tick` change (= stripped `vic.tick(1)` from
+the per-cycle path) was REVERTED 2026-05-10 because (a) it broke
+Scramble post-credits SPACE handling and (b) per ADR, stripping
+VICE-equivalent code is forbidden. Issue 1 (vbank order) + Issue 3
+(VIC tick before CPU step) remain in place pending Spec 309 Phase 0
+confirmation that VICE actually does it that way.
 
 Status legend:
 - `OPEN` — reproduced, not fixed
