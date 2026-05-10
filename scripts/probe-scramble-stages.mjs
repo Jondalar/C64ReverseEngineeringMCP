@@ -97,32 +97,32 @@ const captureStage = async (label, settleCycles) => {
     JSON.stringify({ state: pre, writeCount: traceWrites.length, byRaster: Object.fromEntries(lines.map(ln => [ln, byRaster.get(ln)])) }, null, 2));
 };
 
-// Stage progression: loader bar → "Ready Joy 2" loader credits screen
-// → press FIRE → title screen (= where V1+V2 are most visible) →
-// → press FIRE → in-game (= V3 scroll bug).
+// Helper: press SPACE via keyDown/keyUp + wait
+const pressSpace = (holdCyc = 500_000, releaseCyc = 1_500_000) => {
+  s.keyDown("SPACE");
+  s.runFor(holdCyc / 5, { cycleBudget: holdCyc });
+  s.keyUp("SPACE");
+  s.runFor(releaseCyc / 5, { cycleBudget: releaseCyc });
+};
+
+// Stage progression with SPACE between transitions, generous waits.
 await captureStage("01-loaderbar-30M", 30_000_000);
-await captureStage("02-credits-180M", 150_000_000); // wait until ready joy 2 visible
+await captureStage("02-credits-180M", 150_000_000); // ready joy 2 / press fire to start
 
-console.log("→ pressing JOY 2 FIRE...");
-s.setJoystick2({ fire: true });
-s.runFor(500_000, { cycleBudget: 500_000 });
-s.setJoystick2({ fire: false });
-await captureStage("03-after-fire1", 30_000_000);
-await captureStage("04-title-60M", 60_000_000);
+console.log("→ SPACE to advance from credits to title...");
+pressSpace();
+await captureStage("03-after-space1", 60_000_000);
 
-console.log("→ pressing JOY 2 FIRE again...");
-s.setJoystick2({ fire: true });
-s.runFor(500_000, { cycleBudget: 500_000 });
-s.setJoystick2({ fire: false });
-await captureStage("05-after-fire2", 30_000_000);
-await captureStage("06-game-60M", 60_000_000);
+console.log("→ SPACE again (title to menu)...");
+pressSpace();
+await captureStage("04-after-space2", 60_000_000);
 
-console.log("→ pressing JOY 2 FIRE again (start game)...");
-s.setJoystick2({ fire: true });
-s.runFor(500_000, { cycleBudget: 500_000 });
-s.setJoystick2({ fire: false });
-await captureStage("07-game-active", 60_000_000);
-await captureStage("08-game-active2", 60_000_000);
+console.log("→ SPACE again (menu to game)...");
+pressSpace();
+await captureStage("05-after-space3", 60_000_000);
+
+await captureStage("06-game-active", 60_000_000);
+await captureStage("07-game-late", 60_000_000);
 
 stopIntegratedSession(sessionId);
 console.log("\nDONE. Snapshots in samples/screenshots/vic-bugs/scramble-*.png");
