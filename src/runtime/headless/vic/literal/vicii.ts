@@ -21,12 +21,21 @@ import { vicii_draw_cycle_init } from "./vicii-draw-cycle.js";
 export function vicii_bind_ram(ram: Uint8Array): void {
     vicii.ram_base_phi1 = ram;
     vicii.ram_base_phi2 = ram;
-    /* C64 default: bank 0, full 16KB window, no offset, chargen overlay
-     * at $1000-$1FFF. */
+    /* C64: ram_base is full 64K. Bank base added at fetch time as
+     * vbank_phi2 (= 0/$4000/$8000/$C000 from CIA2 PA). vaddr_mask MUST
+     * be $FFFF (= no mask) so bank bits survive the mask step in
+     * fetch_phi2. With $3FFF mask, bank bits 14-15 get stripped → all
+     * banks read from bank 0 → custom screen/bitmap/charset in banks
+     * 1-3 invisible (bug fixed Spec 309).
+     *
+     * chargen overlay: mask $7000 + value $1000 matches absolute
+     * addresses $1000-$1FFF AND $9000-$9FFF (= bank 0 + bank 2 only,
+     * matching real C64 hardware where chargen ROM is wired only into
+     * banks 0 and 2). */
     vicii.vbank_phi1 = 0;
     vicii.vbank_phi2 = 0;
-    vicii.vaddr_mask_phi1 = 0x3fff;
-    vicii.vaddr_mask_phi2 = 0x3fff;
+    vicii.vaddr_mask_phi1 = 0xffff;
+    vicii.vaddr_mask_phi2 = 0xffff;
     vicii.vaddr_offset_phi1 = 0;
     vicii.vaddr_offset_phi2 = 0;
     vicii.vaddr_chargen_mask_phi1 = 0x7000;
