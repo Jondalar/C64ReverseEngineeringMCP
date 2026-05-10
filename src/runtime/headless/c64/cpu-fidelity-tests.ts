@@ -1,4 +1,9 @@
 // Spec 103 (M2.1) — CPU cycle + interrupt fidelity tests.
+// Spec 309 Phase C — updated to drive IRQ/NMI via cpuIntStatus.setIrq /
+// setNmi instead of boolean irqLine / nmiLine writes. Per ADR
+// docs/adr-vice-execution-contract.md: the CPU never polls chip output
+// pins. Chips write their assert clk via setIrq / setNmi; the CPU reads
+// globalPendingInt at opcode boundary.
 //
 // v1 covers:
 //   M2.1c — IRQ entry cycle delta (7 cycles), NMI entry, NMI-during-IRQ
@@ -13,6 +18,7 @@
 //                  + this file's IRQ/stack fixtures form the substitute.
 
 import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
+import { IK_IRQ } from "../cpu/interrupt-cpu-status.js";
 
 export interface CheckResult { label: string; pass: boolean; detail?: string }
 function check(label: string, cond: boolean, detail?: string): CheckResult {
@@ -72,7 +78,10 @@ export function runIrqEntryCycleTest(): CheckResult[] {
   cpu.reset(0x0200);
   cpu.flags = 0x20; // I clear, allow IRQ
   cpu.sp = 0xff;
-  cpu.irqLine = true;
+  // Spec 309 Phase C: drive IRQ via cpuIntStatus.setIrq.
+  // Allocate an int_num for this test source, then assert the line.
+  const testIrqNum = cpu.cpuIntStatus.newIntNum("TestIRQ");
+  cpu.cpuIntStatus.setIrq(testIrqNum, true, cpu.clk);
 
   const cyclesBefore = cpu.cycles;
   const cycles = runUntilBoundary(cpu, 20);
@@ -107,10 +116,11 @@ export function runNmiEntryCycleTest(): CheckResult[] {
   cpu.reset(0x0200);
   cpu.flags = 0x24; // I set: should NOT block NMI
   cpu.sp = 0xff;
-  cpu.nmiLine = true;
-  // NMI is edge-triggered: prevNmi=false → see edge on first
-  // executeCycle. Trigger by toggling line via field if needed; the
-  // microcoded core compares `nmiLine && !prevNmi`.
+  // Spec 309 Phase C: drive NMI via cpuIntStatus.setNmi.
+  // NMI is sticky in globalPendingInt (IK_NMI stays set until ackNmi).
+  const testNmiNum = cpu.cpuIntStatus.newIntNum("TestNMI");
+  cpu.cpuIntStatus.setNmi(testNmiNum, true, cpu.clk);
+
   const cyclesBefore = cpu.cycles;
   const cycles = runUntilBoundary(cpu, 20);
   const elapsed = cpu.cycles - cyclesBefore;
@@ -118,8 +128,7 @@ export function runNmiEntryCycleTest(): CheckResult[] {
   out.push(check("NMI entry takes 7 cycles", elapsed === 7, `got=${elapsed}`));
   out.push(check("PC = NMI vector $0500 after entry", cpu.pc === 0x0500, `pc=$${cpu.pc.toString(16)}`));
   out.push(check("I flag set after NMI entry", (cpu.flags & 0x04) !== 0, `flags=$${cpu.flags.toString(16)}`));
-  out.push(check("NMI even with I=1 (edge-triggered, not maskable)",
-    cpu.pc === 0x0500));
+  out.push(check("NMI even with I=1 (not maskable)", cpu.pc === 0x0500));
   void cycles;
 
   return out;
@@ -243,14 +252,19 @@ export function runNmiOverIrqPriorityTest(): CheckResult[] {
   cpu.reset(0x0200);
   cpu.flags = 0x20; // I clear
   cpu.sp = 0xff;
-  cpu.nmiLine = true;
-  cpu.irqLine = true;
+  // Spec 309 Phase C: drive NMI + IRQ via cpuIntStatus.
+  const testNmiNum = cpu.cpuIntStatus.newIntNum("TestNMI");
+  const testIrqNum = cpu.cpuIntStatus.newIntNum("TestIRQ");
+  cpu.cpuIntStatus.setNmi(testNmiNum, true, cpu.clk);
+  cpu.cpuIntStatus.setIrq(testIrqNum, true, cpu.clk);
 
   runUntilBoundary(cpu, 20);
   out.push(check("NMI wins when both pending: PC = $0500",
     cpu.pc === 0x0500, `pc=$${cpu.pc.toString(16)}`));
-  out.push(check("IRQ stays pending (irqLine still true)",
-    cpu.irqLine === true));
+  // After NMI is taken: IK_NMI ack'd (cleared). IRQ source still asserted
+  // (nirq=1), so globalPendingInt should still have IK_IRQ set.
+  out.push(check("IRQ stays pending (IK_IRQ still in globalPendingInt)",
+    (cpu.cpuIntStatus.globalPendingInt & IK_IRQ) !== 0));
 
   return out;
 }
