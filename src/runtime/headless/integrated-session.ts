@@ -197,6 +197,13 @@ export interface IntegratedSessionOptions {
   // Acceptance gated on minimal D020/D018/D016/D011 split PRGs vs
   // VICE x64sc reference.
   useLiteralPortVicPerCycle?: boolean;
+  // Spec 300: route $D000-$D3FF reads through literal vicii_read.
+  // Defaults to useLiteralPortVicPerCycle (literal raster_y is only in
+  // sync when per-cycle hook drives it). Reads return literal-state
+  // values (raster line, IRQ status, collision read-clear, unused-bit
+  // OR masks) instead of VicIIVice values. Writes still mirror to
+  // both chips for diff harness.
+  useLiteralPortVicReads?: boolean;
   // Spec 282: VIC palette selection. Default = "colodore" (modern
   // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
   // palette) for byte-exact VICE pixel-diff regression. See
@@ -269,6 +276,8 @@ export class IntegratedSession {
   public useLiteralPortRenderer: boolean = false;
   // Spec 299: per-cycle CPU/VIC interleave flag (= literal port timing fix)
   public useLiteralPortVicPerCycle: boolean = false;
+  // Spec 300: route $D000-$D3FF reads through literal vicii_read.
+  public useLiteralPortVicReads: boolean = false;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -472,6 +481,9 @@ export class IntegratedSession {
     // Spec 298k: install literal port renderer if opted in.
     this.useLiteralPortRenderer = opts.useLiteralPortRenderer ?? false;
     this.useLiteralPortVicPerCycle = opts.useLiteralPortVicPerCycle ?? false;
+    // Spec 300: literal reads default to per-cycle flag (literal raster_y
+    // is only in sync when per-cycle hook drives it).
+    this.useLiteralPortVicReads = opts.useLiteralPortVicReads ?? this.useLiteralPortVicPerCycle;
     if (this.useLiteralPortRenderer) {
       this.installLiteralPortRenderer();
     }
@@ -1288,13 +1300,20 @@ export class IntegratedSession {
     const bus = this.c64Bus as unknown as {
       registerIoHandler: (a: number, h: { read: (a: number) => number; write: (a: number, v: number) => void }) => void;
     };
+    const useLitReads = this.useLiteralPortVicReads;
     for (let mirror = 0; mirror < 0x400; mirror += 0x40) {
       for (let r = 0; r < 0x40; r++) {
         const a = 0xd000 + mirror + r;
         const reg = r;
         const vicChip = this.vic;
         bus.registerIoHandler(a, {
-          read: () => vicChip.read(reg),
+          // Spec 300: read source = literal vicii_read when flag on
+          // (literal raster_y is in sync via per-cycle hook), else
+          // legacy VicIIVice. Diff harness compares both via direct
+          // chip access regardless of which one serves IO reads.
+          read: useLitReads
+            ? () => LIT_MEM.vicii_read(reg)
+            : () => vicChip.read(reg),
           write: (_addr, value) => {
             // Mirror to literal port FIRST (= VICE order: store updates
             // derived state immediately, draw_cycle picks up in same cycle)
