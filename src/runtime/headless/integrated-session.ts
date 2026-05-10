@@ -1198,19 +1198,22 @@ export class IntegratedSession {
       // regs[], take effect at next iteration's vic.tick).
       do {
         this.updateMicrocodedInterruptLines();
-        // Spec V-strip-vicii-tick: drive literal port DIRECTLY.
-        // VicIIVice tick stripped from fidelity-mode hot path.
-        // VicIIVice raster_y synced inside tickLitVic for legacy
-        // consumers (VSF, UI inspector). Spec 300 diff harness no
-        // longer applies — dual-truth proof obsolete since literal
-        // is sole authority.
-        this.tickLitVic();
+        // Spec V-V2-fix Issue 3 (= Phi1/Phi2 timing): VIC tick FIRST,
+        // CPU step SECOND per cycle. VICE Phi1/Phi2 model: VIC samples
+        // regs[]/bus at cycle start (Phi1 fetch). CPU writes happen at
+        // Phi2 (cycle end). New reg values take effect at NEXT cycle's
+        // VIC fetch.
+        // Spec V-strip-vicii-tick REVERTED 2026-05-10: stripping
+        // vic.tick caused Scramble to not progress past credits SPACE
+        // (= timing-sensitive state machine breaks). Restored vic.tick
+        // for VicIIVice raster_y advance + IRQ alarm + bad_line
+        // priming. Issue 3 swap (= VIC tick before CPU) preserved.
+        this.vic.tick(1);
         const before = (this.c64Cpu as unknown as { cycles: number }).cycles;
         cpu.executeCycle();
         const after = (this.c64Cpu as unknown as { cycles: number }).cycles;
         const consumed = after - before;
-        // If CPU consumed >1 cycles, drive literal for remaining.
-        for (let k = 1; k < consumed; k++) this.tickLitVic();
+        if (consumed > 1) this.vic.tick(consumed - 1);
         if (++guard > 256) {
           throw new Error(
             `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
@@ -1424,12 +1427,6 @@ export class IntegratedSession {
     const bank = (~cia2Pa) & 0x03;
     lv.vbank_phi1 = bank * 0x4000;
     lv.vbank_phi2 = bank * 0x4000;
-    // Spec V-strip-vicii-tick: keep VicIIVice.raster_y in sync from
-    // literal so legacy consumers (VSF save, UI inspector) keep
-    // reading reasonable values. We no longer call vic.tick() in
-    // fidelity mode — VicIIVice is a passive container for regs[]
-    // (shared by reference) + raster_y mirror.
-    this.vic.raster_y = lv.raster_line;
     if (lv.raster_line !== this.litLastRasterLine) {
       const last = this.litLastRasterLine;
       if (last >= 0 && last < this.litFbH) {
