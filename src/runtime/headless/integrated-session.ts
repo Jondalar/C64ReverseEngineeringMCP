@@ -1397,11 +1397,17 @@ export class IntegratedSession {
    */
   private tickLitVic(): void {
     const lv = LIT_TYPES.vicii;
+    // Spec V-V2-fix: VIC samples vbank at START of cycle (= Phi1 fetch).
+    // Run vicii_cycle() FIRST with vbank from PREVIOUS cycle. CIA2 PA
+    // bits change due to mid-cycle CPU write (= Phi2). New bank takes
+    // effect NEXT cycle. Previously vbank was updated BEFORE
+    // vicii_cycle = bank switch landed 1 cycle early → contributed to
+    // V2 mid-frame mode-change tearing.
+    this.lastLitBaLow = (LIT_CYCLE.vicii_cycle() & 1) as 0 | 1;
     const cia2Pa = (this.cia2.pra & this.cia2.ddra) & 0xff;
     const bank = (~cia2Pa) & 0x03;
     lv.vbank_phi1 = bank * 0x4000;
     lv.vbank_phi2 = bank * 0x4000;
-    this.lastLitBaLow = (LIT_CYCLE.vicii_cycle() & 1) as 0 | 1;
     if (lv.raster_line !== this.litLastRasterLine) {
       const last = this.litLastRasterLine;
       if (last >= 0 && last < this.litFbH) {
