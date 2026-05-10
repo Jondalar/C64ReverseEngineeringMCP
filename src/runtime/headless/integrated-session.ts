@@ -30,6 +30,7 @@ import * as LIT_CYCLE from "./vic/literal/vicii-cycle.js";
 import * as LIT_FETCH from "./vic/literal/vicii-fetch.js";
 import * as LIT_IRQ from "./vic/literal/vicii-irq.js";
 import * as LIT_DRAW from "./vic/literal/vicii-draw-cycle.js";
+import * as LIT_MEM from "./vic/literal/vicii-mem.js";
 import { installSid, type Sid6581 } from "./sid/sid.js";
 import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
 import { renderFrameRasterized } from "./peripherals/vic-renderer-rasterized.js";
@@ -807,6 +808,17 @@ export class IntegratedSession {
     this.drivePcTrace = [];
     // Spec 205-A c10: publish reset event to session trace channel.
     this.kernel.notifyReset(profile);
+    // Spec 298k step 5: reset literal port state on cold reset so
+    // multiple sessions / UI resets / repeated tests get clean
+    // deterministic literal VIC state per machine reset.
+    if (this.useLiteralPortRenderer) {
+      LIT_VICII.vicii_reset();
+      // Re-bind RAM (= ram_base_phi1/phi2 may have been replaced)
+      LIT_VICII.vicii_bind_ram(this.c64Bus.ram);
+      LIT_TYPES.vicii.regs = this.vic.regs;
+      // Reset literal-port framebuffer accumulator
+      this.literalPortFb?.fill(0);
+    }
   }
 
   // Sprint 93.1: queue text typing into keyboard matrix. Hold/gap default
@@ -1228,26 +1240,42 @@ export class IntegratedSession {
     lit.vicii_init();
     lit.vicii_reset();
 
+    // Spec 298k step 2: register $D000-$D03F write hooks so literal port
+    // sees ALL VIC reg writes via vicii_store (= proper side effects:
+    // ysmooth update, raster_irq_line update, sprite x recompute, IRQ
+    // raise/clear, color reg cregs[] propagation). Replaces poll-based
+    // color reg sync. Reads stay through VicIIVice (= legacy snapshot
+    // renderer still uses VICE-rasterized snapshots).
+    const bus = this.c64Bus as unknown as {
+      registerIoHandler: (a: number, h: { read: (a: number) => number; write: (a: number, v: number) => void }) => void;
+    };
+    for (let mirror = 0; mirror < 0x400; mirror += 0x40) {
+      for (let r = 0; r < 0x40; r++) {
+        const a = 0xd000 + mirror + r;
+        const reg = r;
+        const vicChip = this.vic;
+        bus.registerIoHandler(a, {
+          read: () => vicChip.read(reg),
+          write: (_addr, value) => {
+            // Mirror to literal port FIRST (= VICE order: store updates
+            // derived state immediately, draw_cycle picks up in same cycle)
+            LIT_MEM.vicii_store(reg, value);
+            // Also keep VicIIVice in sync (= UI / scheduler / IRQ pump
+            // still depend on VicIIVice raster_y / IRQ status)
+            vicChip.write(reg, value);
+          },
+        });
+      }
+    }
+
     // 520×312 framebuffer accumulator (= 65 cycles × 8 px = 520 wide)
     const FB_W = 65 * 8;
     const FB_H = 312;
     this.literalPortFb = new Uint8Array(FB_W * FB_H);
     const fb = this.literalPortFb;
     let lastRasterLine = -1;
-    const prevColRegs = new Uint8Array(0x10);
 
     this.vic.onCycle = (_raster_y, _raster_cycle, _clk) => {
-      // Mirror color reg writes ($D020-$D02E) into draw-cycle.ts cregs
-      // lookup table. VICE triggers via vicii-mem.c on actual writes;
-      // we poll because session.vic.regs writes go through VicIIVice
-      // store path which we don't intercept yet.
-      for (let r = 0x20; r <= 0x2e; r++) {
-        const v = this.vic.regs[r]! & 0x0f;
-        if (v !== prevColRegs[r - 0x20]) {
-          prevColRegs[r - 0x20] = v;
-          litDraw.vicii_monitor_colreg_store(r, v);
-        }
-      }
       // Bind VIC bank from CIA2 PA (inverted bits 0-1)
       const cia2Pa = (this.cia2.pra & this.cia2.ddra) & 0xff;
       const bank = (~cia2Pa) & 0x03;
@@ -1267,6 +1295,7 @@ export class IntegratedSession {
         lastRasterLine = vicii.raster_line;
       }
     };
+    void litDraw; // import retained for previous polling path; now unused
   }
 
   /**
