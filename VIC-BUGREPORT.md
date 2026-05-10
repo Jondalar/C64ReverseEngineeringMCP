@@ -202,26 +202,63 @@ target.
     Fix requires either snapshot regs OR queue writes 1-cycle OR
     swap cpu/VIC tick order — bigger refactor.
 
-### Code review NOT YET checked:
+### Code review batch 3 (2026-05-10):
 
-- `vicii-chip-model.ts` — cycle table (= per-cycle BA bits, fetch
-  type, sprite slot for cycles 0-62). If table off by 1 cycle,
-  badline DMA + sprite DMA timing drifts. **Lower probability since
-  no symptom directly traces to BA timing.**
+- `vicii-chip-model.ts` — checked vs viciisc/vicii-chip-model.c.
+  cycle_tab_pal 126 entries match VICE EXACTLY. All masks +
+  helpers identical. CLEAN.
+- `vicii-irq.ts` — checked vs viciisc/vicii-irq.c. IRQ state
+  machine, raster IRQ, ack, mask, collision triggers all match.
+  CLEAN.
+- `vicii.ts` — init/reset glue. **THREE real bugs found**, two
+  fixed:
+  * **FIXED**: sprite[].exp_flop initialized to 0 (= should be 1
+    per VICE vicii.c:240). Y-expansion flip-flop now starts SET.
+  * **FIXED**: light_pen state was uninitialized (= D013/D014 reads
+    returned garbage). Now init per VICE vicii.c:296-300.
+  * **DEFERRED**: raster_cycle should reset to 6 (per VICE
+    vicii.c:291) but VicIIVice still inits to 0 → Spec 300 diff
+    harness misaligns. Keeping 0 until VicIIVice removed or
+    shared init lands.
+- `vicii-types.ts` — checked vs viciitypes.h. Only divergences
+  are JS-isms (= TS `number` vs C `uint8_t`/`uint16_t`). Could
+  cause subtle wrap-around in extreme scenarios but no concrete
+  bug traced to it. NOT a functional bug.
 
-### Top remaining hypothesis for V2/V3:
+### FULL AUDIT COMPLETE — all 8 literal port files + integration
 
-**Issue 3 (CPU register write same-cycle visibility)** — most
-plausible cause of V2 mid-frame mode-change tearing. SCRAMBLE banner
-writes D011 mid-line; literal port reads new D011 1 cycle EARLIER
-than VICE → transition cells get new mode applied 1 cycle ahead →
-visible per-row tearing.
+| File | Status |
+|---|---|
+| vicii-draw-cycle.ts | CLEAN |
+| vicii-cycle.ts | CLEAN |
+| vicii-mem.ts | CLEAN |
+| vicii-fetch.ts | CLEAN |
+| vicii-chip-model.ts | CLEAN |
+| vicii-irq.ts | CLEAN |
+| vicii.ts | FIXED (exp_flop + light_pen) + DEFERRED (raster_cycle=6) |
+| vicii-types.ts | JS-isms only |
+| integrated-session.ts | FIXED (Issue 1 vbank order + Issue 3 CPU/VIC tick order) |
 
-For V3 sky stripes, bulk wrong content suggests address-level bug
-(= fetch reading wrong bank/offset), but vicii-fetch.ts code review
-came back CLEAN. Could still be:
-- mid-frame xscroll xsmooth update timing (= related to Issue 3)
-- sprite DMA stealing badline matrix fetch cycles in wrong pattern
+### Pixel-diff results vs VICE PNG (after all fixes):
+
+- B-title-vs-04: **85.45% match** (was 81.74% pre-fixes; +3.71%)
+- C-ingame-vs-07: **54.14% match** (was 52.17%; +1.97%)
+
+### Remaining V3 mystery:
+
+V3 (in-game scrolling sky stripes) only +1.97% improvement. ALL
+literal port files audited 1:1 vs VICE C. Suspected remaining bug
+locations:
+- Scheduler / tick driver (= cycle-lockstep-scheduler.ts) — not
+  yet audited; could affect IRQ delivery timing → game's mid-line
+  IRQ handler runs at wrong cycle → wrong reg writes
+- CIA1/CIA2 timer / IRQ delivery cycle alignment
+- VicIIVice (= legacy fallback) interfering with literal port
+  in fidelity mode (= shared regs[] reference may not be enough)
+- Or: Scramble specifically uses some VIC feature whose port
+  code is correct in isolation but wrong in interaction with
+  badline + sprite DMA + scroll all happening together (= multi-
+  feature stress test we don't have isolated repro for)
 
 ## How to add a new bug
 
