@@ -43,6 +43,22 @@ side border (= left/right) does not suppress sprites.
 
 ## Bug V2 — Mid-frame raster split causes per-line tearing on title text
 
+**Hypotheses ranked (= top first):**
+
+1. **PRIMARY (FIXED, gained +3.71%)**: Issue 3 = CPU register
+   write was visible to literal `vicii_cycle()` in SAME cycle.
+   Fixed via swap of CPU/VIC tick order — VIC ticks first per cycle
+   (reads regs[] from prior cycle), CPU writes after (visible NEXT
+   cycle). Matches VICE Phi1/Phi2 phase model.
+
+2. **PARTIAL (FIXED, no measurable diff)**: Issue 1 = vbank update
+   in tickLitVic was BEFORE vicii_cycle. Fixed via swap.
+
+3. **REMAINING +14.55% gap**: Likely same hypotheses as V3 below
+   (= scheduler / CIA IRQ delivery / VicIIVice interference / multi-
+   feature interaction). Code-level audit of all literal port files
+   came back CLEAN.
+
 **Status**: OPEN — REPRODUCED 2026-05-10 via probe-scramble-stages.mjs
 **Severity**: Medium — affects fancy title screens with per-line
 register changes (= rainbow text, animated logo).
@@ -85,12 +101,46 @@ trace vs VICE for exact write→consume cycle delta.
 
 ## Bug V3 — Background scroll + sprite DMA produces horizontal stripes in sky
 
-**Status**: OPEN
+**Status**: OPEN — code-review CLEAN in literal port, hypothesis
+moved to scheduler / CIA / multi-feature interaction
 **Severity**: High — affects any side-scroller with sprites flying.
 **Repro**: Scramble Infinity in-game. Player flies right, level
 scrolls. Blue sky region (= upper background) shows horizontal blue
 stripes during scroll. Stripes intensify when sprites (rockets) are
 present. Right-edge column sometimes empty.
+Pixel-diff vs VICE C-ingame PNG: 54.14% match (= 81% per-row diff
+in rows 44-200 = entire visible game area). Issue 3 fix gained
++1.97%, all other audits CLEAN — bug not in literal port code itself.
+
+**Remaining hypotheses (= all OUTSIDE literal port — not yet audited):**
+
+1. **`cycle-lockstep-scheduler.ts`** — IRQ delivery timing between
+   CPU + literal port + VicIIVice. If raster IRQ fires at wrong
+   cycle relative to where CPU was at the moment, game's raster
+   handler runs slightly off → wrong reg writes hit at wrong raster.
+
+2. **CIA1/CIA2 timer + IRQ delivery** — CIA timers run independently;
+   their IRQ assertion to CPU pin must align with CPU instruction
+   boundary. If CIA IRQ fires 1-2 cycles off vs VICE, game's
+   stable-raster routines (= LDA $D012/CMP/BCC + NOPs) diverge.
+
+3. **VicIIVice in fidelity mode interfering** — even with literal
+   port as authority, VicIIVice still ticks (= Spec 304 didn't fully
+   strip it). Shared `regs[]` reference plus separate raster_y
+   counters could create inconsistency. VicIIVice IRQ alarm path
+   might mistime.
+
+4. **Multi-feature interaction stress** — badline DMA + sprite DMA +
+   D016 mid-line xscroll + D018 mid-frame screen RAM swap all
+   concurrent. Each feature works in isolation (= TREX bitmap clean,
+   motm BASIC clean). Combined behavior may expose an interaction
+   bug not visible to per-file audit.
+
+5. **literalPortFb capture race** — `tickLitVic` captures dbuf at
+   line wrap. If raster wraps mid-runFor, single line may be
+   captured twice or skipped. Spec 307 refactor hypothetically
+   prone to this. Could explain "stripes" (= alternating captured
+   vs not).
 **Reference**: Spec 291 (Sprite quirks) + Spec 283 (BA/AEC) both
 completed for VicIIVice. Literal port handles BA/AEC + sprite DMA but
 the interaction during ACTIVE scroll (= D016 xscroll changing per
