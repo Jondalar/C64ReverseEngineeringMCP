@@ -33,8 +33,6 @@ import * as LIT_DRAW from "./vic/literal/vicii-draw-cycle.js";
 import * as LIT_MEM from "./vic/literal/vicii-mem.js";
 import { installSid, type Sid6581 } from "./sid/sid.js";
 import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
-import { renderFrameRasterized } from "./peripherals/vic-renderer-rasterized.js";
-import { renderFramePixelPerfect } from "./peripherals/vic-renderer-pixel.js";
 import { rgbaToPng } from "./peripherals/png-writer.js";
 import { writeFileSync } from "node:fs";
 import { installCia1 } from "./peripherals/cia1.js";
@@ -181,7 +179,7 @@ export interface IntegratedSessionOptions {
   // "per-char-row" (= existing renderer, no regression risk).
   // "per-pixel" enables Spec 262d-i pixel-perfect path using
   // VicIIVice.frameLineLogs. renderToPng() default uses this.
-  vicRenderer?: "per-char-row" | "per-pixel" | "vice-rasterized" | "literal-port";
+  vicRenderer?: "per-char-row" | "literal-port";
   // Spec 298k: enable literal VICE x64sc port as the rendering source.
   // When true, the literal port runs alongside VicIIVice via the 297a
   // onCycle hook (= one VIC cycle pump, both chips see same cycle
@@ -302,6 +300,11 @@ export class IntegratedSession {
   // Spec 302: last ba_low captured from litCycle.vicii_cycle() — read
   // by busStallForNextC64Cycle when useLiteralPortVicStall is on.
   private lastLitBaLow: 0 | 1 = 0;
+  // Spec 307: literal driver state — moved out of onCycle closure so
+  // tickLitVic() can be called directly from stepMicrocodedC64Instruction.
+  private litLastRasterLine: number = -1;
+  private readonly litFbW: number = 65 * 8;
+  private readonly litFbH: number = 312;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -335,7 +338,7 @@ export class IntegratedSession {
   // Spec 098: named session-mode preset (resolved at construction).
   public readonly mode: SessionMode;
   // Spec 262 Phase B-E: default renderer for renderFrame() / renderToPng().
-  public readonly vicRenderer: "per-char-row" | "per-pixel" | "vice-rasterized" | "literal-port";
+  public readonly vicRenderer: "per-char-row" | "literal-port";
   // Spec 093: image format string ("g64" | "d64" | "other") + clock ratio.
   public readonly imageFormat: string;
   public readonly driveClockRatio: number;
@@ -666,23 +669,22 @@ export class IntegratedSession {
   // exactly one fresh visible region. Bounded by ~3 frames of CPU
   // cycles to avoid wedging if the c64 is halted (= JAM / WAI loop).
   private runUntilFrameReady(): void {
+    // Spec 307: read literal raster_line directly (literal port is the
+    // authority; VicIIVice.raster_y may not advance in fidelity mode
+    // when stepMicrocodedC64Instruction skips vic.tick).
+    const litRy = () => LIT_TYPES.vicii.raster_line;
     const targetVisibleEnd = (this.vic.first_dma_line | 0) + 200; // PAL: 48+200=248
     const maxCycles = this.vic.cycles_per_line * this.vic.screen_height * 3; // ~3 frames
     const startCycles = this.c64Cpu.cycles;
-    // Step 1 — force raster wrap to line 0 if we aren't already there.
-    // Run small instruction batches and inspect raster_y after each.
-    let waitedForWrap = this.vic.raster_y === 0;
+    let waitedForWrap = litRy() === 0;
     while (!waitedForWrap) {
       if (this.c64Cpu.cycles - startCycles >= maxCycles) return;
-      const before = this.vic.raster_y;
+      const before = litRy();
       this.runFor(64, { cycleBudget: 256 });
-      if (this.vic.raster_y < before) waitedForWrap = true; // wrapped past max
-      if (this.vic.raster_y === 0) waitedForWrap = true;
+      if (litRy() < before) waitedForWrap = true; // wrapped past max
+      if (litRy() === 0) waitedForWrap = true;
     }
-    // Step 2 — run until raster_y >= targetVisibleEnd (within same
-    // frame). If raster_y wraps again we still stop on the first
-    // iteration where it's >= target.
-    while (this.vic.raster_y < targetVisibleEnd) {
+    while (litRy() < targetVisibleEnd) {
       if (this.c64Cpu.cycles - startCycles >= maxCycles) return;
       this.runFor(64, { cycleBudget: 256 });
     }
@@ -692,31 +694,11 @@ export class IntegratedSession {
   // Spec 262 Phase B-E: dispatch on session.vicRenderer (or per-call
   // override). Default per-char-row remains the canonical path so this
   // method stays a no-regression alias for the legacy renderer.
-  renderFrame(opts?: { renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" }): void {
-    const renderer = opts?.renderer ?? this.vicRenderer;
-    if (renderer === "vice-rasterized") {
-      // Spec 280c — VICE-faithful per-line raster_changes renderer.
-      const cia2Pa = this.cia2.pra & this.cia2.ddra;
-      renderFrameRasterized(this.framebuffer, {
-        vic: this.vic,
-        bus: this.c64Bus,
-        initialCia2PaByte: cia2Pa,
-      });
-      return;
-    }
-    if (renderer === "per-pixel") {
-      // Build initial CIA2 PA byte from the current PRA & DDRA mask.
-      // The pixel-perfect renderer replays the per-cycle log onto the
-      // current snapshot; using the live PRA as the seed approximates
-      // the pre-frame value (overwritten by any in-frame PA writes).
-      const cia2Pa = this.cia2.pra & this.cia2.ddra;
-      renderFramePixelPerfect(this.framebuffer, {
-        vic: this.vic,
-        bus: this.c64Bus,
-        initialCia2PaByte: cia2Pa,
-      });
-      return;
-    }
+  renderFrame(opts?: { renderer?: "per-char-row" }): void {
+    // Spec 306: snapshot renderers vice-rasterized + per-pixel deleted.
+    // Only per-char-row remains (= legacy VicIIVice text-mode path).
+    // Literal-port path bypasses this method entirely via renderToPng().
+    void opts;
     const cia2Pa = this.cia2.pra & this.cia2.ddra; // output bits only
     const bankBase = computeVicBankBase(cia2Pa & 0x03);
     renderTextModeFrame(this.framebuffer, {
@@ -734,8 +716,12 @@ export class IntegratedSession {
   // border in raw 504-pixel output.
   renderToPng(
     path: string,
-    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "per-pixel" | "vice-rasterized" | "literal-port" },
+    opts?: { frameAligned?: boolean; renderer?: "per-char-row" | "literal-port" },
   ): { width: number; height: number; bytes: number } {
+    // Spec 306: legacy renderer values "vice-rasterized" + "per-pixel"
+    // dropped from union (= files deleted). Pass-through .mjs callers
+    // sending those strings will fall through to per-char-row default
+    // since the type narrowing below excludes them.
     // Spec 298k: literal port renderer = paint accumulated dbuf into
     // framebuffer (= 520×312 color indices → palette → RGBA). Bypass
     // snapshot replay entirely.
@@ -761,14 +747,8 @@ export class IntegratedSession {
     if (frameAligned) {
       this.runUntilFrameReady();
     }
-    // Spec 305: cycle-pumped renderer wiring removed (was Spec 297l
-    // dead code — installCyclePumpedRenderer never called by any
-    // consumer). literal-port already handled above; only the
-    // 3 snapshot renderers go through renderFrame().
-    const r = opts?.renderer;
-    if (r === "per-char-row" || r === "per-pixel" || r === "vice-rasterized" || r === undefined) {
-      this.renderFrame({ renderer: r });
-    }
+    // Spec 306: only per-char-row remains in renderFrame().
+    this.renderFrame();
     const fb = this.framebuffer;
     // V3.1 (2026-05-09): symmetric borders matching internal renderer
     // layout. VISIBLE_X=24 in vic-renderer.ts → display at internal
@@ -1198,6 +1178,11 @@ export class IntegratedSession {
         cpu.executeCycle();
         const after = (this.c64Cpu as unknown as { cycles: number }).cycles;
         const consumed = after - before;
+        // Spec 307 (revert of driver-inversion attempt): vic.tick(consumed)
+        // remains the canonical per-cycle driver. It fires onCycle which
+        // calls tickLitVic. Skipping vic.tick breaks VicIIVice.raster_y +
+        // bad_line/sprite_fetch_msk that diff harnesses + reg reads still
+        // depend on. Real perf strip = Phase 7 (Spec 308) work.
         if (consumed > 0) this.vic.tick(consumed);
         if (++guard > 256) {
           throw new Error(
@@ -1377,35 +1362,47 @@ export class IntegratedSession {
       }
     }
 
-    // 520×312 framebuffer accumulator (= 65 cycles × 8 px = 520 wide)
-    const FB_W = 65 * 8;
-    const FB_H = 312;
-    this.literalPortFb = new Uint8Array(FB_W * FB_H);
-    const fb = this.literalPortFb;
-    let lastRasterLine = -1;
-
-    this.vic.onCycle = (_raster_y, _raster_cycle, _clk) => {
-      // Bind VIC bank from CIA2 PA (inverted bits 0-1)
-      const cia2Pa = (this.cia2.pra & this.cia2.ddra) & 0xff;
-      const bank = (~cia2Pa) & 0x03;
-      vicii.vbank_phi1 = bank * 0x4000;
-      vicii.vbank_phi2 = bank * 0x4000;
-
-      // Spec 302: capture ba_low for next CPU cycle's stall query.
-      this.lastLitBaLow = (litCycle.vicii_cycle() & 1) as 0 | 1;
-
-      // Capture dbuf when line changes
-      if (vicii.raster_line !== lastRasterLine) {
-        if (lastRasterLine >= 0 && lastRasterLine < FB_H) {
-          const off = lastRasterLine * FB_W;
-          for (let x = 0; x < FB_W; x++) {
-            fb[off + x] = vicii.dbuf[x]!;
-          }
-        }
-        lastRasterLine = vicii.raster_line;
-      }
-    };
+    // Spec 307: 520×312 framebuffer accumulator allocated once.
+    // tickLitVic() uses the persistent state fields (litLastRasterLine,
+    // litFbW, litFbH) so it can be called directly from
+    // stepMicrocodedC64Instruction without a closure indirection.
+    this.literalPortFb = new Uint8Array(this.litFbW * this.litFbH);
+    this.litLastRasterLine = -1;
+    // Spec 307: onCycle still wired for cycle-lockstep + fast-trap
+    // paths (= scheduler / non-microcoded routes that don't hit
+    // stepMicrocodedC64Instruction). For the microcoded per-cycle
+    // path (default in true-drive mode), tickLitVic() is called
+    // DIRECTLY instead of through this hook.
+    this.vic.onCycle = () => this.tickLitVic();
     void litDraw; // import retained for previous polling path; now unused
+  }
+
+  /**
+   * Spec 307 — literal port per-cycle driver. Called directly from
+   * stepMicrocodedC64Instruction (per-cycle path) to advance literal
+   * VIC state by one cycle without going through VicIIVice.tick +
+   * onCycle callback. Also captures the dbuf scanline into the
+   * accumulator framebuffer when raster line changes.
+   */
+  private tickLitVic(): void {
+    const lv = LIT_TYPES.vicii;
+    const cia2Pa = (this.cia2.pra & this.cia2.ddra) & 0xff;
+    const bank = (~cia2Pa) & 0x03;
+    lv.vbank_phi1 = bank * 0x4000;
+    lv.vbank_phi2 = bank * 0x4000;
+    this.lastLitBaLow = (LIT_CYCLE.vicii_cycle() & 1) as 0 | 1;
+    if (lv.raster_line !== this.litLastRasterLine) {
+      const last = this.litLastRasterLine;
+      if (last >= 0 && last < this.litFbH) {
+        const off = last * this.litFbW;
+        const fb = this.literalPortFb!;
+        const w = this.litFbW;
+        for (let x = 0; x < w; x++) {
+          fb[off + x] = lv.dbuf[x]!;
+        }
+      }
+      this.litLastRasterLine = lv.raster_line;
+    }
   }
 
   /**
