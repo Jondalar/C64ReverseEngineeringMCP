@@ -18,6 +18,9 @@ const { startIntegratedSession, stopIntegratedSession } = await import(
 const LIT_TYPES = await import(
   `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
 
+// === Use new VICE VSF loader ===
+const { loadViceVsf } = await import(`${REPO}/dist/runtime/headless/vsf/vice-vsf-load.js`);
+
 // VSF parser (verified working w/ motm earlier)
 function parseVsf(path) {
   const buf = readFileSync(path);
@@ -119,38 +122,42 @@ for (const stage of stages) {
     useMicrocodedCpu: true,
   });
   s.resetCold("pal-default");
-  console.log(`Injecting VSF: ${stage.vsf}`);
-  const { vicRegs } = injectVsf(s, `${REF}/${stage.vsf}`);
-  console.log(`  VIC regs after inject: D011=$${vicRegs[0x11].toString(16)} D012=$${vicRegs[0x12].toString(16)} D015=$${vicRegs[0x15].toString(16)} D016=$${vicRegs[0x16].toString(16)} D018=$${vicRegs[0x18].toString(16)} D01A=$${vicRegs[0x1a].toString(16)}`);
+  console.log(`Loading VICE VSF: ${stage.vsf}`);
+  const result = loadViceVsf(s, `${REF}/${stage.vsf}`);
+  const r = s.vic.regs;
+  console.log(`  VIC regs: D011=$${r[0x11].toString(16)} D012=$${r[0x12].toString(16)} D015=$${r[0x15].toString(16)} D016=$${r[0x16].toString(16)} D018=$${r[0x18].toString(16)} D01A=$${r[0x1a].toString(16)}`);
   console.log(`  CIA2 PA=$${(s.cia2.pra & 0xff).toString(16)} bank=${(~(s.cia2.pra & s.cia2.ddra)) & 3}`);
-  console.log(`  CPU PC=$${s.c64Cpu.pc.toString(16)}`);
+  console.log(`  CPU: PC=$${result.cpu.pc.toString(16)} A=$${result.cpu.a.toString(16)} X=$${result.cpu.x.toString(16)} Y=$${result.cpu.y.toString(16)} SP=$${result.cpu.sp.toString(16)}`);
+  console.log(`  Lit raster_line=${LIT_TYPES.vicii.raster_line} raster_cycle=${LIT_TYPES.vicii.raster_cycle} bad_line=${LIT_TYPES.vicii.bad_line}`);
 
   // CPU PC inject is buggy → CPU would corrupt RAM. Skip CPU entirely.
   // Tick VIC directly for 2 PAL frames (= literal port hook drives
   // tickLitVic per cycle, fills literalPortFb from STATIC injected state).
-  // Bootstrap CPU: read IRQ vector from injected RAM @ $0314/$0315.
-  // Set PC there + run a few frames so game's IRQ handler establishes
-  // VIC state. Game RAM stays mostly intact since handler is short.
-  const irqVecLo = s.c64Bus.read(0x0314);
-  const irqVecHi = s.c64Bus.read(0x0315);
-  const irqVec = (irqVecHi << 8) | irqVecLo;
-  console.log(`  IRQ vector $0314/15 = $${irqVec.toString(16)}`);
-  // Force CPU to run game's IRQ handler in a loop: set PC = irqVec.
-  s.c64Cpu.pc = irqVec;
-  // Set CPU port $01 to known good (= match VSF: $35 = BASIC out, KERNAL out)
-  s.c64Bus.write(0x01, 0x37); // standard
-  console.log(`Running 5 frames CPU + VIC...`);
-  for (let f = 0; f < 5; f++) {
-    s.runFor(50_000, { cycleBudget: 50_000 });
+  // VICE VSF gave us full state. Drive literal port directly via
+  // vicii_cycle() (= bypass VicIIVice.tick which may not fire onCycle
+  // hook in all paths). Capture dbuf into literalPortFb manually.
+  console.log(`Driving literal port directly (1 frame)...`);
+  const LIT_CYCLE = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii-cycle.js`);
+  const FB_W = 65 * 8;
+  const fb = s.literalPortFb;
+  let lastLine = LIT_TYPES.vicii.raster_line;
+  for (let i = 0; i < 19656; i++) {
+    LIT_CYCLE.vicii_cycle();
+    const ln = LIT_TYPES.vicii.raster_line;
+    if (ln !== lastLine && fb && lastLine >= 0 && lastLine < 312) {
+      const off = lastLine * FB_W;
+      for (let x = 0; x < FB_W; x++) fb[off + x] = LIT_TYPES.vicii.dbuf[x];
+      lastLine = ln;
+    }
   }
   let fbNonZero = 0;
   if (s.literalPortFb) {
     for (let i = 0; i < s.literalPortFb.length; i++) if (s.literalPortFb[i] !== 0) fbNonZero++;
   }
-  console.log(`  literalPortFb nonzero=${fbNonZero}/${s.literalPortFb?.length ?? 0}  PC=$${s.c64Cpu.pc.toString(16)}  D011=$${s.vic.regs[0x11].toString(16)} D018=$${s.vic.regs[0x18].toString(16)}`);
+  console.log(`  literalPortFb nonzero=${fbNonZero}/${s.literalPortFb?.length ?? 0}  D011=$${s.vic.regs[0x11].toString(16)} D018=$${s.vic.regs[0x18].toString(16)}`);
 
   const ourPath = `${OUT}/${stage.name}-ours.png`;
-  s.renderToPng(ourPath);
+  s.renderToPng(ourPath, { frameAligned: false });
   console.log(`  ours -> ${ourPath}`);
 
   // Diff vs VICE PNG
