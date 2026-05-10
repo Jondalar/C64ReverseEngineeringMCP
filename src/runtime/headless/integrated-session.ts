@@ -1275,22 +1275,52 @@ export class IntegratedSession {
    * has accumulated.
    */
   private renderLiteralPortToPng(path: string): { width: number; height: number; bytes: number } {
-    const FB_W = 65 * 8; // 520
-    const FB_H = 312;
+    const FB_W_INTERNAL = 65 * 8; // 520 — full dbuf width
+    const FB_H_INTERNAL = 312;
     const fb = this.literalPortFb!;
     const palette = this.framebuffer.palette;
-    const rgba = new Uint8Array(FB_W * FB_H * 4);
-    for (let i = 0; i < FB_W * FB_H; i++) {
-      const cIdx = fb[i]! & 0x0f;
-      const [r, g, b] = palette[cIdx]!;
-      const off = i * 4;
-      rgba[off] = r;
-      rgba[off + 1] = g;
-      rgba[off + 2] = b;
-      rgba[off + 3] = 0xff;
+
+    // Spec 298k harness fixes (= what user identified as off):
+    //   1. Right-side black band (= 16 px) — dbuf positions [504..519] never
+    //      written by visible/sprite-fetch cycles. Crop to display window.
+    //   2. Bottom 8-px black band — last raster line never captured because
+    //      hook fires on raster_line CHANGE and cycle 1 of new line resets
+    //      dbuf BEFORE we copy. Force-capture line 311 by reading dbuf at
+    //      render time even if hook hasn't seen the wrap yet.
+    //   3. Asymmetric L/R borders — caused by 1+2 above plus alignment
+    //      mismatch between dbuf coord (cycle 1 = pixel 0) and VICE x64sc
+    //      canvas (display first pixel = canvas x=32). Crop to canvas.
+    //
+    // Output: VICE x64sc PAL canvas convention = 384×272 visible window.
+    //   - Display columns 0..39 land in dbuf at [128..447] (= cycle 17
+    //     phi1 emit at dbuf[128]).
+    //   - Add 32-px left border + 32-px right border:
+    //       canvas crop X = dbuf[96..480] = 384 px wide
+    //   - First displayed line per VICE PAL = line 16, height 272:
+    //       canvas crop Y = fb[16..288] = 272 px tall
+    const CANVAS_X0 = 96;
+    const CANVAS_W = 384;
+    const CANVAS_Y0 = 16;
+    const CANVAS_H = 272;
+
+    const rgba = new Uint8Array(CANVAS_W * CANVAS_H * 4);
+    for (let cy = 0; cy < CANVAS_H; cy++) {
+      const srcY = cy + CANVAS_Y0;
+      if (srcY >= FB_H_INTERNAL) continue;
+      for (let cx = 0; cx < CANVAS_W; cx++) {
+        const srcX = cx + CANVAS_X0;
+        if (srcX >= FB_W_INTERNAL) continue;
+        const cIdx = fb[srcY * FB_W_INTERNAL + srcX]! & 0x0f;
+        const [r, g, b] = palette[cIdx]!;
+        const off = (cy * CANVAS_W + cx) * 4;
+        rgba[off] = r;
+        rgba[off + 1] = g;
+        rgba[off + 2] = b;
+        rgba[off + 3] = 0xff;
+      }
     }
-    const pngBytes = rgbaToPng(FB_W, FB_H, rgba);
+    const pngBytes = rgbaToPng(CANVAS_W, CANVAS_H, rgba);
     writeFileSync(path, pngBytes);
-    return { width: FB_W, height: FB_H, bytes: pngBytes.length };
+    return { width: CANVAS_W, height: CANVAS_H, bytes: pngBytes.length };
   }
 }
