@@ -294,6 +294,37 @@ target.
 - B-title-vs-04: **85.45% match** (was 81.74% pre-fixes; +3.71%)
 - C-ingame-vs-07: **54.14% match** (was 52.17%; +1.97%)
 
+### Code review batch 4 (2026-05-10) — scheduler + CIA:
+
+- `cycle-lockstep-scheduler.ts` + `alarm-context.ts` + `cycle-wrappers.ts`
+  vs VICE alarm.c + maincpu.c: **2 HIGH severity findings**:
+  * **Issue 4 (OPEN)**: VICE PROCESS_ALARMS macro drains alarms at
+    instruction-boundary (after interrupt check). Our TS calls
+    updateInterruptLines per CYCLE before CPU tick. Order may cause
+    raster IRQ to fire mid-instruction in TS where VICE waits for
+    boundary. Net effect: IRQ entry at slightly different cycle.
+    Specific impact unclear without trace.
+  * **Issue 5 (OPEN — likely cosmetic)**: Drive co-execution sync
+    point + alarm offset calculation differs based on tickDriveFirst
+    flag. Could affect CIA timer offset semantics.
+
+- CIA1/CIA2 vs VICE ciacore: **AUDIT UNRELIABLE — agent hallucinated
+  file `cia6526-vice.ts` which does not exist in our codebase**. Real
+  files are `peripherals/cia1.ts` + `peripherals/cia2.ts`. Need re-audit
+  with explicit file paths. Reported "Issue 1+2 HIGH" findings reference
+  imaginary code lines and should be treated as INVALID until verified
+  against actual source.
+
+### Stable-frame snapshot (Codex hypothesis test, 2026-05-10):
+
+Per Codex direction, implemented `literalPortFbStable` snapshot taken
+when raster wraps to line 0 (= frame complete). renderLiteralPortToPng
+prefers stable buffer over mid-fill accumulator. Hypothesis: V3 sky
+stripes might be capture race. Result: **diff numbers UNCHANGED**
+(B 85.45%, C 54.14%). Capture race ruled out as V3 root cause. Fix
+remains semantically correct + addresses V5 (= partial frame after
+fast scroll).
+
 ### Remaining V3 mystery:
 
 V3 (in-game scrolling sky stripes) only +1.97% improvement. ALL
