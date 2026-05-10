@@ -21,6 +21,7 @@
 import { readFileSync } from "node:fs";
 import type { IntegratedSession } from "../integrated-session.js";
 import { vicii as litVicii } from "../vic/literal/vicii-types.js";
+import { vicii_set_draw_cycle_state } from "../vic/literal/vicii-draw-cycle.js";
 
 interface ModuleEntry {
   name: string;
@@ -186,9 +187,45 @@ export function loadViceVsf(session: IntegratedSession, path: string): VsfLoadRe
     sp.exp_flop = readU8();
     sp.x = readU32();
   }
-  // Subsequent draw_cycle_snapshot + raster_snapshot deferred
-  // (= cosmetic; rendering produces correct output from current
-  // dbuf + sprite + matrix fetch state already injected).
+  // === draw_cycle_snapshot (174 bytes) — pipeline + render state ===
+  const sprite_x_pipe = [];
+  for (let i = 0; i < 8; i++) sprite_x_pipe.push(buf.readUInt32LE(p + 16 + i*4));
+  const sbuf_reg = new Uint32Array(8);
+  for (let i = 0; i < 8; i++) sbuf_reg[i] = buf.readUInt32LE(p + 0x36 + i*4);
+  const dcs = {
+    gbuf_pipe0_reg: buf[p+0]!, cbuf_pipe0_reg: buf[p+1]!, vbuf_pipe0_reg: buf[p+2]!,
+    gbuf_pipe1_reg: buf[p+3]!, cbuf_pipe1_reg: buf[p+4]!, vbuf_pipe1_reg: buf[p+5]!,
+    xscroll_pipe: buf[p+6]!,
+    vmode11_pipe: buf[p+7]!, vmode16_pipe: buf[p+8]!, vmode16_pipe2: buf[p+9]!,
+    gbuf_reg: buf[p+10]!, gbuf_mc_flop: buf[p+11]!, gbuf_pixel_reg: buf[p+12]!,
+    cbuf_reg: buf[p+13]!, vbuf_reg: buf[p+14]!,
+    dmli: buf[p+15]!,
+    sprite_x_pipe,
+    sprite_pri_bits: buf[p+0x30]!, sprite_mc_bits: buf[p+0x31]!, sprite_expx_bits: buf[p+0x32]!,
+    sprite_pending_bits: buf[p+0x33]!, sprite_active_bits: buf[p+0x34]!, sprite_halt_bits: buf[p+0x35]!,
+    sbuf_reg,
+    sbuf_pixel_reg: new Uint8Array(buf.subarray(p+0x56, p+0x5e)),
+    sbuf_expx_flops: buf[p+0x5e]!, sbuf_mc_flops: buf[p+0x5f]!,
+    border_state: buf[p+0x60]!,
+    render_buffer: new Uint8Array(buf.subarray(p+0x61, p+0x69)),
+    pri_buffer: new Uint8Array(buf.subarray(p+0x69, p+0x71)),
+    pixel_buffer: new Uint8Array(buf.subarray(p+0x71, p+0x79)),
+    cregs: new Uint8Array(buf.subarray(p+0x79, p+0xa8)),
+    last_color_reg: buf[p+0xa8]!, last_color_value: buf[p+0xa9]!,
+    cycle_flags_pipe: buf.readUInt32LE(p+0xaa),
+  };
+  vicii_set_draw_cycle_state(dcs);
+  p += 174;
+
+  // === raster_snapshot — variable length, contains pixel buffers ===
+  // current_line(4) + width(4) + height(4) + pitch(4) + pixels(variable)
+  // Skip — our literal port has its own line-by-line accumulator.
+
+  // === Continue MAINCPU interrupt state ===
+  // After CPU module's last_opcode_info (4) + ane_log_level (4) +
+  // lxa_log_level (4): irq state 40 bytes + new irq state 12 bytes.
+  // We have CPU clk + regs already. Skip nested state for now (=
+  // not directly settable on our cpu6510 without API additions).
 
   // === CIA1 / CIA2 ===
   const cia1Mod = findModule(buf, "CIA1");

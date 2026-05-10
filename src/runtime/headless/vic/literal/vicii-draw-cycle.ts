@@ -94,6 +94,91 @@ export function vicii_monitor_colreg_store(reg: number, value: number): void {
     last_color_value = value;
 }
 
+/** Spec V-fix-corpus: VICE VSF inject helper. Sets ALL module-level
+ * draw cycle pipeline state from VICE snapshot draw_cycle_snapshot
+ * block (174 bytes). Field order matches vicii-draw-cycle.c. */
+export interface DrawCycleSnapshot {
+    gbuf_pipe0_reg: number; cbuf_pipe0_reg: number; vbuf_pipe0_reg: number;
+    gbuf_pipe1_reg: number; cbuf_pipe1_reg: number; vbuf_pipe1_reg: number;
+    xscroll_pipe: number;
+    vmode11_pipe: number; vmode16_pipe: number; vmode16_pipe2: number;
+    gbuf_reg: number; gbuf_mc_flop: number; gbuf_pixel_reg: number;
+    cbuf_reg: number; vbuf_reg: number;
+    dmli: number;
+    sprite_x_pipe: number[];                 // length 8 (u32)
+    sprite_pri_bits: number; sprite_mc_bits: number; sprite_expx_bits: number;
+    sprite_pending_bits: number; sprite_active_bits: number; sprite_halt_bits: number;
+    sbuf_reg: Uint32Array;                    // length 8
+    sbuf_pixel_reg: Uint8Array;               // length 8
+    sbuf_expx_flops: number; sbuf_mc_flops: number;
+    border_state: number;
+    render_buffer: Uint8Array;                // length 8
+    pri_buffer: Uint8Array;                   // length 8
+    pixel_buffer: Uint8Array;                 // length 8
+    cregs: Uint8Array;                        // length 0x2f
+    last_color_reg: number; last_color_value: number;
+    cycle_flags_pipe: number;
+}
+
+export function vicii_set_draw_cycle_state(s: DrawCycleSnapshot): void {
+    gbuf_pipe0_reg = s.gbuf_pipe0_reg;
+    cbuf_pipe0_reg = s.cbuf_pipe0_reg;
+    vbuf_pipe0_reg = s.vbuf_pipe0_reg;
+    gbuf_pipe1_reg = s.gbuf_pipe1_reg;
+    cbuf_pipe1_reg = s.cbuf_pipe1_reg;
+    vbuf_pipe1_reg = s.vbuf_pipe1_reg;
+    xscroll_pipe = s.xscroll_pipe;
+    vmode11_pipe = s.vmode11_pipe;
+    vmode16_pipe = s.vmode16_pipe;
+    vmode16_pipe2 = s.vmode16_pipe2;
+    gbuf_reg = s.gbuf_reg;
+    gbuf_mc_flop = s.gbuf_mc_flop;
+    gbuf_pixel_reg = s.gbuf_pixel_reg;
+    cbuf_reg = s.cbuf_reg;
+    vbuf_reg = s.vbuf_reg;
+    dmli = s.dmli;
+    for (let i = 0; i < 8; i++) sprite_x_pipe[i] = s.sprite_x_pipe[i]!;
+    sprite_pri_bits = s.sprite_pri_bits;
+    sprite_mc_bits = s.sprite_mc_bits;
+    sprite_expx_bits = s.sprite_expx_bits;
+    sprite_pending_bits = s.sprite_pending_bits;
+    sprite_active_bits = s.sprite_active_bits;
+    sprite_halt_bits = s.sprite_halt_bits;
+    sbuf_reg.set(s.sbuf_reg);
+    sbuf_pixel_reg.set(s.sbuf_pixel_reg);
+    sbuf_expx_flops = s.sbuf_expx_flops;
+    sbuf_mc_flops = s.sbuf_mc_flops;
+    border_state = s.border_state;
+    render_buffer.set(s.render_buffer);
+    pri_buffer.set(s.pri_buffer);
+    pixel_buffer.set(s.pixel_buffer);
+    cregs.set(s.cregs);
+    last_color_reg = s.last_color_reg;
+    last_color_value = s.last_color_value;
+    cycle_flags_pipe = s.cycle_flags_pipe;
+}
+
+export function vicii_get_draw_cycle_state(): DrawCycleSnapshot {
+    return {
+        gbuf_pipe0_reg, cbuf_pipe0_reg, vbuf_pipe0_reg,
+        gbuf_pipe1_reg, cbuf_pipe1_reg, vbuf_pipe1_reg,
+        xscroll_pipe, vmode11_pipe, vmode16_pipe, vmode16_pipe2,
+        gbuf_reg, gbuf_mc_flop, gbuf_pixel_reg,
+        cbuf_reg, vbuf_reg, dmli,
+        sprite_x_pipe: [...sprite_x_pipe],
+        sprite_pri_bits, sprite_mc_bits, sprite_expx_bits,
+        sprite_pending_bits, sprite_active_bits, sprite_halt_bits,
+        sbuf_reg: new Uint32Array(sbuf_reg),
+        sbuf_pixel_reg: new Uint8Array(sbuf_pixel_reg),
+        sbuf_expx_flops, sbuf_mc_flops, border_state,
+        render_buffer: new Uint8Array(render_buffer),
+        pri_buffer: new Uint8Array(pri_buffer),
+        pixel_buffer: new Uint8Array(pixel_buffer),
+        cregs: new Uint8Array(cregs),
+        last_color_reg, last_color_value, cycle_flags_pipe,
+    };
+}
+
 /**************************************************************************
  *
  * SECTION  draw_graphics()
