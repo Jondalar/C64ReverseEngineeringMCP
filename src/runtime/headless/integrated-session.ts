@@ -189,6 +189,14 @@ export interface IntegratedSessionOptions {
   // renderToPng with renderer:"literal-port" reads that accumulator
   // (skipping the snapshot replay path entirely).
   useLiteralPortRenderer?: boolean;
+  // Spec 299: per-cycle CPU/VIC interleave. When true, the microcoded
+  // CPU loop calls vic.tick(1) per executeCycle (= literal port advances
+  // 1 raster cycle per CPU bus cycle). Without this flag, the legacy
+  // batched per-instruction tick stays. CPU register writes that happen
+  // mid-instruction reach the VIC at the exact cycle of the store.
+  // Acceptance gated on minimal D020/D018/D016/D011 split PRGs vs
+  // VICE x64sc reference.
+  useLiteralPortVicPerCycle?: boolean;
   // Spec 282: VIC palette selection. Default = "colodore" (modern
   // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
   // palette) for byte-exact VICE pixel-diff regression. See
@@ -259,6 +267,8 @@ export class IntegratedSession {
   // 297a onCycle hook. Set when useLiteralPortRenderer=true.
   public literalPortFb?: Uint8Array;
   public useLiteralPortRenderer: boolean = false;
+  // Spec 299: per-cycle CPU/VIC interleave flag (= literal port timing fix)
+  public useLiteralPortVicPerCycle: boolean = false;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -461,6 +471,7 @@ export class IntegratedSession {
     if (opts.palette) this.framebuffer.setPalette(opts.palette);
     // Spec 298k: install literal port renderer if opted in.
     this.useLiteralPortRenderer = opts.useLiteralPortRenderer ?? false;
+    this.useLiteralPortVicPerCycle = opts.useLiteralPortVicPerCycle ?? false;
     if (this.useLiteralPortRenderer) {
       this.installLiteralPortRenderer();
     }
@@ -1036,7 +1047,12 @@ export class IntegratedSession {
     // old per-tick contract before the new core moved the bump to
     // the backend hook (caused uint32 wrap during long runs, motm
     // probe at clk≈0xFFFFD192).
-    const vicTick = this.vic.tick(consumed); // audit-ok: legacy per-instruction VIC tick; replaced by Spec 203
+    // Spec 299: skip end-of-instruction batched tick when per-cycle
+    // mode is active (= stepMicrocodedC64Instruction already ticked
+    // VIC per CPU cycle, ticking again would double-advance the raster).
+    const vicTick = (this.useLiteralPortVicPerCycle && this.useMicrocodedCpu)
+      ? { stolenCycles: 0 }
+      : this.vic.tick(consumed); // audit-ok: legacy per-instruction VIC tick; replaced by Spec 203
     const totalCycles = consumed + vicTick.stolenCycles;
     // Tick CIA / SID / keyboard for the full wall-clock window.
     this.cia1.tick(totalCycles); // audit-ok: legacy CIA wall-clock tick; replaced by Spec 203
@@ -1107,15 +1123,38 @@ export class IntegratedSession {
     }
 
     let guard = 0;
-    do {
-      this.updateMicrocodedInterruptLines();
-      cpu.executeCycle();
-      if (++guard > 256) {
-        throw new Error(
-          `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
-        );
-      }
-    } while (!cpu.isAtInstructionBoundary());
+    if (this.useLiteralPortVicPerCycle) {
+      // Spec 299 per-cycle interleave: tick VIC by 1 cycle per CPU bus
+      // cycle so any CPU write to $D000-$D03F lands at the EXACT raster
+      // cycle of the store (= literal port draws with correct mid-line
+      // register value). VicIIVice.tick(1) fires onCycle hook which
+      // advances literal port via vicii_cycle().
+      do {
+        this.updateMicrocodedInterruptLines();
+        const before = (this.c64Cpu as unknown as { cycles: number }).cycles;
+        cpu.executeCycle();
+        const after = (this.c64Cpu as unknown as { cycles: number }).cycles;
+        const consumed = after - before;
+        if (consumed > 0) this.vic.tick(consumed);
+        if (++guard > 256) {
+          throw new Error(
+            `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
+          );
+        }
+      } while (!cpu.isAtInstructionBoundary());
+    } else {
+      // Legacy batched path: VIC ticks AFTER full instruction (= caller
+      // does this.vic.tick(consumed) after stepMicrocodedC64Instruction).
+      do {
+        this.updateMicrocodedInterruptLines();
+        cpu.executeCycle();
+        if (++guard > 256) {
+          throw new Error(
+            `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
+          );
+        }
+      } while (!cpu.isAtInstructionBoundary());
+    }
   }
 
   private checkC64Interrupts(): void {
