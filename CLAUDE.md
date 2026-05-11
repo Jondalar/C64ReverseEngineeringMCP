@@ -4,15 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Working Process (Mandatory)
 
+Branch `vice-arch-port` operates under the arch-port doctrine — all
+runtime port work cites a §-anchor in one of:
+
+- `docs/vice-c64-arch.md`
+- `docs/vice-1541-arch.md`
+- `docs/vice-iec-arc42.md`
+
 Before starting ANY task in this repo:
 
-1. Read `BUGREPORT.md` — known bugs and fix status (open vs FIXED).
-2. Read `REQUIREMENTS.md` — refinement / enhancement backlog.
-3. Read `PLAN.md` — sprint state, what is open, what is next.
+1. Read `PLAN.md` — roadmap + working baseline + step gates.
+2. Locate the relevant §-anchor in the deep-dive doc above.
+3. Read the corresponding spec under `specs/4XX-*.md` (or create one
+   citing the doc anchor if none exists).
 
-These three files are source of truth. Do not propose work that duplicates a fixed bug, ignores a pending sprint, or contradicts plan order. Update them as work lands (mark bugs FIXED with commit ref, move requirements to specs/sprints, flip sprint status).
-
-Spec-driven flow stays: PLAN → spec under `specs/NNN-*.md` → sprint todos → implementation. New work without a spec is incomplete.
+Spec-driven flow stays: PLAN → spec under `specs/4XX-*.md` → implementation.
+New work without a doc citation is incomplete. Historical specs live in
+`specs/_archive/` and pre-arch-port docs in `docs/_archive/` — read-only,
+not source of truth for new work.
 
 **API-first via headless.** Every feature lands first as MCP tool / library / endpoint with smoke coverage. UI follows in a later sprint once the API is stable. Do not block API work on UI design; do not ship UI without the underlying API.
 
