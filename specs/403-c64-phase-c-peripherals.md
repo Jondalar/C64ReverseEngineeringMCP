@@ -143,6 +143,12 @@ Known deviations to verify:
   program (e.g. raster IRQ setup) against canned VICE trace cycle by
   cycle for first 100k cycles. Zero divergence.
 - MM s1 + Scramble unchanged.
+- **Recurring gate (Spec 401 inheritance)**: after impl, set
+  `Cpu65xxVice.perCycleAlarmDrain = true` and re-run MM + Scramble.
+  If both green → CIA was the latent bug source; enable flag
+  permanently in spec 401 + collapse `serviceInterrupt` /
+  `doInterrupt` to one path; mark Spec 401 DONE. If Scramble still
+  regresses → spec 404 inherits the gate.
 
 ## Open Questions
 

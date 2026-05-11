@@ -211,6 +211,12 @@ Known deviations to verify:
 - MM s1 PC=$65f at t=120s, character select pixel-clean (no D018
   raster misalignment).
 - Scramble Infinity title + "Loader music: ..." at t=60s pixel-clean.
+- **Recurring gate (Spec 401 inheritance)**: after impl, set
+  `Cpu65xxVice.perCycleAlarmDrain = true` and re-run MM + Scramble.
+  VIC-side timing changes are most likely root cause of Scramble's
+  $61d regression with strict drain. If both green → enable flag
+  permanently + collapse dispatch paths + mark Spec 401 DONE.
+  If still red → spec 408 (drive Phase B) inherits.
 
 ## Open Questions
 

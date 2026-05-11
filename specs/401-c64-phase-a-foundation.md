@@ -1,9 +1,32 @@
 # Spec 401 — C64 Phase A: Foundation (no peripherals)
 
-**Status:** PROPOSED
+**Status:** PARTIAL (commit `2005494`) — 2 OQs deferred as
+recurring gates across downstream specs (403, 404, 408).
 **Branch:** `vice-arch-port`
 **Depends on:** 400 (tick-order audit)
 **Doctrine:** 1:1 VICE x64sc port. Never deviate.
+
+## Recurring gate (post-2005494)
+
+The following two OQ resolutions are wired but **gated** by
+`Cpu65xxVice.perCycleAlarmDrain` (default `false`):
+
+- **OQ-401-1**: per-cycle alarm drain (= VICE 6510dtvcore.c
+  per-cycle pattern). When flag = `true`, Scramble Infinity LOAD
+  never completes (PC traps at $61d).
+- **OQ-401-3**: single dispatch path via `doInterrupt(globalPendingInt)`.
+  Currently both `serviceInterrupt` and `doInterrupt` alive in
+  `startInstructionCycle`.
+
+**Root cause**: latent timing bug exposed by strict drain. Lives in
+downstream chip (CIA 403, VIC 404, or drive 408). Cannot fix here in
+isolation — needs the chip-side spec to land.
+
+**Recurring acceptance check** for specs 403, 404, 408: after spec
+N implementation, set `Cpu65xxVice.perCycleAlarmDrain = true`, run
+MM + Scramble. If both still green → enable flag permanently, collapse
+dispatch paths, mark Spec 401 as DONE. If still red → spec N+1 picks
+up the gate.
 
 ## Goal
 

@@ -108,6 +108,12 @@ Deviations to verify:
   ($C000-$FFFF read-only), open bus elsewhere. Each page returns
   correct dispatcher.
 - MM + Scramble unchanged.
+- **Recurring gate (Spec 401 inheritance)**: after impl, set
+  `Cpu65xxVice.perCycleAlarmDrain = true` and re-run MM + Scramble.
+  Drive-CPU restructure may be the latent bug source if VIC (404)
+  did not resolve. If both green → enable flag permanently +
+  collapse dispatch paths + mark Spec 401 DONE. If still red →
+  hand off to next spec until root cause found.
 
 ## Open Questions
 
