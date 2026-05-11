@@ -18,13 +18,12 @@ import { Cia6526Vice, type CiaBackend } from "../cia/cia6526-vice.js";
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import type { CLOCK } from "../util/uint.js";
 import type { HeadlessMemoryBus } from "../memory-bus.js";
+import type { InterruptCpuStatus } from "../cpu/interrupt-cpu-status.js";
 
 export const CIA2_BASE = 0xdd00;
 
 export interface InstalledCia2 {
   cia: Cia6526Vice;
-  /** True iff the CIA2 NMI pin is currently asserted (mirrors VICE). */
-  nmiLine: () => boolean;
 }
 
 export interface InstallCia2Options {
@@ -34,6 +33,11 @@ export interface InstallCia2Options {
   clkPtr: () => CLOCK;
   /** VICE: C64SC/SCPU64 use CIA write_offset=0; default core uses 1. */
   writeOffset?: number;
+  /**
+   * Spec 309 Phase D: InterruptCpuStatus instance for the main CPU.
+   * CIA2 setIntClk calls cpuIntStatus.setNmi(cia2IntNum, value, clk).
+   */
+  cpuIntStatus: InterruptCpuStatus;
   /**
    * Spec 203-c2: optional NMI edge callback. Called when CIA2's
    * IRQ pin level changes (asserts → CPU NMI). Implementer routes
@@ -62,9 +66,8 @@ export function installCia2(
   let cia: Cia6526Vice | undefined;
   const writeOffset = opts.writeOffset ?? 1;
   const iecWriteClock = () => opts.clkPtr() + (writeOffset === 0 ? 1 : 0);
-  // CIA2 IRQ pin → C64 NMI line. VICE c64cia2.c cia2_set_int_clk
-  // drives maincpu_set_nmi(I_CIA2, value).
-  let nmiLevel = 0;
+  // Spec 309 Phase D: allocate intNum once.
+  const cia2IntNum = opts.cpuIntStatus.newIntNum("CIA2");
 
   const backend: CiaBackend = {
     // Per VICE c64cia2.c:148-162 — when CIA2 PA-out changes, the
@@ -90,12 +93,14 @@ export function installCia2(
     },
     readPb: () => 0xff,
     pulsePc: () => { /* RS232 handshake — unused */ },
-    setIntClk: (val) => {
-      const prev = nmiLevel;
-      nmiLevel = val;
-      // Spec 203-c2: emit timestamped edge on level change.
-      if ((prev !== 0) !== (val !== 0)) {
-        opts.onNmiEdge?.(val !== 0, opts.clkPtr());
+    // Spec 309 Phase D: setIntClk pushes NMI edge into cpuIntStatus
+    // (= c64cia2.c:86-89 interrupt_set_nmi).
+    setIntClk: (val, clk) => {
+      const asserted = val !== 0;
+      const prevAsserted = (opts.cpuIntStatus.pendingInt[cia2IntNum.id]! & 0x01 /* IK_NMI */) !== 0;
+      opts.cpuIntStatus.setNmi(cia2IntNum, asserted, clk);
+      if (asserted !== prevAsserted) {
+        opts.onNmiEdge?.(asserted, clk);
       }
     },
   };
@@ -122,6 +127,5 @@ export function installCia2(
   opts.iecWrite(0xff, 0x3f, iecWriteClock());
   return {
     cia,
-    nmiLine: () => nmiLevel !== 0,
   };
 }

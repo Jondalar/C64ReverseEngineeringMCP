@@ -476,9 +476,12 @@ export class IntegratedSession {
     // Spec 219 c4 — provide cycle clock for CPU-port capacitor decay.
     this.c64Bus.setCpuPortClock(() => this.c64Cpu.cycles);
     this.cia1 = this.kernel.cia1;
-    this.cia1IrqLine = this.kernel.cia1IrqLine;
     this.cia2 = this.kernel.cia2;
-    this.cia2NmiLine = this.kernel.cia2NmiLine;
+    // Phase D: CIA1/CIA2 now push into cpuIntStatus directly; no level
+    // getters needed on the session. Keep stub closures only for legacy
+    // checkC64Interrupts path (Cpu6510 non-microcoded).
+    this.cia1IrqLine = () => this.cia1.irqAsserted();
+    this.cia2NmiLine = () => this.cia2.irqAsserted();
     this.keyboard = this.kernel.keyboard;
     this.joystick1 = this.kernel.joystick1;
     this.joystick2 = this.kernel.joystick2;
@@ -553,6 +556,7 @@ export class IntegratedSession {
       const microcoded = new Cpu65xxVice({
         memBus: this.c64Bus,
         alarmContext: this.maincpuAlarmContext,
+        cpuIntStatus: this.kernel.cpuIntStatus,
       });
       // Replace c64Cpu with microcoded version. Cast — both share
       // public register state interface.
@@ -1165,28 +1169,18 @@ export class IntegratedSession {
   // micro-cycle.
   private updateMicrocodedInterruptLines(): void {
     const cpu = this.c64Cpu as any;
-    // Phase-C compat-bridge: CPU exposes cpuIntStatus; push CIA1/VIC IRQ
-    // level (level-based, setIrq false also clears) and CIA2 NMI on edge.
+    // Phase D: CIA1/CIA2 push directly into cpu.cpuIntStatus via their
+    // setIntClk hooks (= ciacore my_set_int). Session bridge handles VIC
+    // only until Phase E moves VIC raster IRQ to direct push.
     if (!cpu.cpuIntStatus) return;
-    if (!this.intNumCia1Irq) {
-      this.intNumCia1Irq = cpu.cpuIntStatus.newIntNum("cia1-irq");
-      this.intNumVicIrq  = cpu.cpuIntStatus.newIntNum("vic-irq");
-      this.intNumCia2Nmi = cpu.cpuIntStatus.newIntNum("cia2-nmi");
+    if (!this.intNumVicIrq) {
+      this.intNumVicIrq = cpu.cpuIntStatus.newIntNum("vic-irq");
     }
     const clk = cpu.cycles ?? cpu.clk ?? 0;
     const vicIrqAsserted = this.useLiteralPortVicIrq
       ? ((LIT_TYPES.vicii.irq_status & this.vic.regs[0x1a]! & 0x0f) !== 0)
       : this.vic.irqAsserted();
-    cpu.cpuIntStatus.setIrq(this.intNumCia1Irq, this.cia1IrqLine() || this.cia1.irqAsserted(), clk);
-    cpu.cpuIntStatus.setIrq(this.intNumVicIrq,  vicIrqAsserted, clk);
-    // NMI sticky: only fire setNmi(true) on rising edge; setNmi(false) on falling.
-    const cia2NmiLevel = this.cia2NmiLine() || this.cia2.irqAsserted();
-    if (cia2NmiLevel && !this.prevCia2NmiBridgeLevel) {
-      cpu.cpuIntStatus.setNmi(this.intNumCia2Nmi, true, clk);
-    } else if (!cia2NmiLevel && this.prevCia2NmiBridgeLevel) {
-      cpu.cpuIntStatus.setNmi(this.intNumCia2Nmi, false, clk);
-    }
-    this.prevCia2NmiBridgeLevel = cia2NmiLevel;
+    cpu.cpuIntStatus.setIrq(this.intNumVicIrq, vicIrqAsserted, clk);
   }
 
   private stepMicrocodedC64Instruction(): void {

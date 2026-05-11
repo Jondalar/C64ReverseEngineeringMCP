@@ -19,6 +19,7 @@ import type { AlarmContext } from "../alarm/alarm-context.js";
 import type { CLOCK } from "../util/uint.js";
 import type { HeadlessMemoryBus } from "../memory-bus.js";
 import { KeyboardMatrix, joystickActiveLowMask, type JoystickState } from "./keyboard.js";
+import type { InterruptCpuStatus } from "../cpu/interrupt-cpu-status.js";
 
 export const CIA1_BASE = 0xdc00;
 
@@ -27,8 +28,6 @@ export interface InstalledCia1 {
   keyboard: KeyboardMatrix;
   joystick2: JoystickState;
   joystick1: JoystickState;  // Spec 107 v1
-  /** True iff the CIA1 IRQ pin is currently asserted (mirrors VICE). */
-  irqLine: () => boolean;
 }
 
 export interface InstallCia1Options {
@@ -38,6 +37,12 @@ export interface InstallCia1Options {
   clkPtr: () => CLOCK;
   /** VICE: C64SC/SCPU64 use CIA write_offset=0; default core uses 1. */
   writeOffset?: number;
+  /**
+   * Spec 309 Phase D: InterruptCpuStatus instance for the main CPU.
+   * CIA1 setIntClk calls cpuIntStatus.setIrq(cia1IntNum, value, clk)
+   * directly (= c64cia1.c:95-98 interrupt_set_irq).
+   */
+  cpuIntStatus: InterruptCpuStatus;
   /**
    * Spec 203-c2: optional IRQ edge callback. Called when CIA1's
    * IRQ pin level changes. Implementer routes to
@@ -51,10 +56,8 @@ export function installCia1(bus: HeadlessMemoryBus, opts: InstallCia1Options): I
   const joystick2: JoystickState = { up: false, down: false, left: false, right: false, fire: false };
   const joystick1: JoystickState = { up: false, down: false, left: false, right: false, fire: false };
   let cia: Cia6526Vice | undefined;
-  // CIA1 IRQ pin level — VICE c64cia1.c cia1_set_int_clk drives
-  // maincpu_set_irq(I_CIA1, value). Here we just latch the level so
-  // the integrated-session interrupt-line refresh can sample it.
-  let irqLevel = 0;
+  // Spec 309 Phase D: allocate intNum once — matches ciacore_init.
+  const cia1IntNum = opts.cpuIntStatus.newIntNum("CIA1");
 
   // Sprint 79: keyboard matrix backend reads PA latch (column drive)
   // and returns active row bits (active-low) for currently-pressed
@@ -91,12 +94,15 @@ export function installCia1(bus: HeadlessMemoryBus, opts: InstallCia1Options): I
       return kbRows & joyMask;
     },
     pulsePc: () => { /* unused on CIA1 */ },
-    setIntClk: (val) => {
-      const prev = irqLevel;
-      irqLevel = val;
-      // Spec 203-c2: emit timestamped edge on level change.
-      if ((prev !== 0) !== (val !== 0)) {
-        opts.onIrqEdge?.(val !== 0, opts.clkPtr());
+    // Spec 309 Phase D: setIntClk pushes edge into cpuIntStatus directly
+    // (= c64cia1.c:95-98 interrupt_set_irq). CPU reads globalPendingInt
+    // at opcode boundary; no level-polling from session.
+    setIntClk: (val, clk) => {
+      const asserted = val !== 0;
+      const prevAsserted = (opts.cpuIntStatus.pendingInt[cia1IntNum.id]! & 0x02 /* IK_IRQ */) !== 0;
+      opts.cpuIntStatus.setIrq(cia1IntNum, asserted, clk);
+      if (asserted !== prevAsserted) {
+        opts.onIrqEdge?.(asserted, clk);
       }
     },
   };
@@ -123,6 +129,5 @@ export function installCia1(bus: HeadlessMemoryBus, opts: InstallCia1Options): I
     keyboard,
     joystick2,
     joystick1,
-    irqLine: () => irqLevel !== 0,
   };
 }

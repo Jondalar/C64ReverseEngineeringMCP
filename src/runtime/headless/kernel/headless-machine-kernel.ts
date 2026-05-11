@@ -21,6 +21,7 @@ import type { KernelTraceController } from "./kernel-trace.js";
 import { KernelTraceControllerImpl } from "./kernel-trace.js";
 import { TraceRegistry } from "../trace/channels.js";
 import type { AlarmContext } from "../alarm/alarm-context.js";
+import { InterruptCpuStatus } from "../cpu/interrupt-cpu-status.js";
 import { alarmContextNew } from "../alarm/alarm-context.js";
 import { Cpu6510 } from "../cpu6510.js";
 import { HeadlessMemoryBus } from "../memory-bus.js";
@@ -104,8 +105,8 @@ export class HeadlessMachineKernel implements MachineKernel {
   c64Cpu: Cpu6510;
   readonly cia1: Cia6526Vice;
   readonly cia2: Cia6526Vice;
-  readonly cia1IrqLine: () => boolean;
-  readonly cia2NmiLine: () => boolean;
+  /** Spec 309 Phase D: shared with Cpu65xxVice — chips push setIrq/setNmi here. */
+  readonly cpuIntStatus: InterruptCpuStatus;
   readonly keyboard: KeyboardMatrix;
   readonly joystick1: JoystickState;
   readonly joystick2: JoystickState;
@@ -217,10 +218,14 @@ export class HeadlessMachineKernel implements MachineKernel {
       addr: 0xdd00,
       access,
     });
+    // Spec 309 Phase D: shared InterruptCpuStatus instance — chips push
+    // setIrq/setNmi here; Cpu65xxVice reads globalPendingInt at opcode boundary.
+    this.cpuIntStatus = new InterruptCpuStatus();
     const cia2Install = installCia2(this.c64Bus, {
       alarmContext: this.alarms.maincpu,
       clkPtr: ciaClkPtr,
       writeOffset: c64CiaWriteOffset,
+      cpuIntStatus: this.cpuIntStatus,
       onNmiEdge: (asserted, edgeClock) => {
         this.emitIrqEvent({
           line: "nmi",
@@ -246,11 +251,11 @@ export class HeadlessMachineKernel implements MachineKernel {
       iecReadPins: () => this.bus.c64Read(0xdd00, buildC64BusCtx("read")),
     });
     this.cia2 = cia2Install.cia;
-    this.cia2NmiLine = cia2Install.nmiLine;
     const cia1Install = installCia1(this.c64Bus, {
       alarmContext: this.alarms.maincpu,
       clkPtr: ciaClkPtr,
       writeOffset: c64CiaWriteOffset,
+      cpuIntStatus: this.cpuIntStatus,
       onIrqEdge: (asserted, edgeClock) => {
         this.emitIrqEvent({
           line: "irq",
@@ -263,7 +268,6 @@ export class HeadlessMachineKernel implements MachineKernel {
       },
     });
     this.cia1 = cia1Install.cia;
-    this.cia1IrqLine = cia1Install.irqLine;
     this.keyboard = cia1Install.keyboard;
     this.joystick2 = cia1Install.joystick2;
     this.joystick1 = cia1Install.joystick1;
