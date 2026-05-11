@@ -250,6 +250,10 @@ export class DriveCpu {
   // Sleep mode: drive is in known busy-wait loop, skip ahead to next
   // bus state change. Cleared on bus state change.
   private sleeping = false;
+  // Phase-C compat-bridge: per-source IntNum allocations for drive 6502.
+  // Lazy-init on first dispatch site that touches microcoded path.
+  private intNumVia1Irq: any = null;
+  private intNumVia2Irq: any = null;
   // Idle-wakeup callback installed by IntegratedSession via IecBus.
   // When iec bus state changes, we wake the drive.
   public wakeUp(): void { this.sleeping = false; }
@@ -385,11 +389,15 @@ export class DriveCpu {
     // KERNAL-serial loader timing it relies on.
     if (cycleStepped && this.microcoded) {
       const cycled = this.cpu as Cpu65xxVice;
+      if (!this.intNumVia1Irq && cycled.cpuIntStatus) {
+        this.intNumVia1Irq = cycled.cpuIntStatus.newIntNum("via1-irq");
+        this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
+      }
       while (this.cycleAccumulator16dot16 >= 0x10000) {
-        if (cycled.isAtInstructionBoundary()) {
-          cycled.irqLine =
-            this.bus.via1.irqAsserted(cycled.cycles) ||
-            this.bus.via2.irqAsserted(cycled.cycles);
+        if (cycled.isAtInstructionBoundary() && this.intNumVia1Irq) {
+          // Phase-C compat: push VIA IRQ level into cpuIntStatus.
+          cycled.cpuIntStatus.setIrq(this.intNumVia1Irq, this.bus.via1.irqAsserted(cycled.cycles), cycled.cycles);
+          cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
         }
         cycled.executeCycle();
         if (this.gcrShifter) this.gcrShifter.tick(1);
@@ -448,12 +456,15 @@ export class DriveCpu {
     if (this.microcoded) {
       const cycled = this.cpu as Cpu65xxVice;
       const before = cycled.cycles;
-      // Spec 141 v2: pass current drive clock so VIA's clocked
-      // irqAsserted enforces INTERRUPT_DELAY=2 between IFR-set and
-      // CPU IRQ entry. Matches VICE drivecpu interrupt_check_irq_delay.
-      cycled.irqLine =
-        this.bus.via1.irqAsserted(cycled.cycles) ||
-        this.bus.via2.irqAsserted(cycled.cycles);
+      // Phase-C compat: VIA IRQ level pushed to cpuIntStatus.
+      if (!this.intNumVia1Irq && cycled.cpuIntStatus) {
+        this.intNumVia1Irq = cycled.cpuIntStatus.newIntNum("via1-irq");
+        this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
+      }
+      if (this.intNumVia1Irq) {
+        cycled.cpuIntStatus.setIrq(this.intNumVia1Irq, this.bus.via1.irqAsserted(cycled.cycles), cycled.cycles);
+        cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
+      }
       // Tick at least once, then until back at boundary.
       cycled.executeCycle();
       while (!cycled.isAtInstructionBoundary()) cycled.executeCycle();

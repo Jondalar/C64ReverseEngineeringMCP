@@ -37,7 +37,7 @@ import { MICROCODE_TABLE, ADDR_MODE_PATTERNS, type MicrocodeEntry } from "./micr
 import { UNDOC_TABLE } from "./undoc-table.js";
 import type { IoPort6510Hook } from "./io-port-6510.js";
 import type { BYTE, WORD, CLOCK } from "../util/uint.js";
-import { u8, u16, u32, clkAdd } from "../util/uint.js"; // u32 used by cycles setter
+import { u8, u16, u32, clkAdd, clkDelta } from "../util/uint.js"; // u32 used by cycles setter
 import {
   alarmContextDispatch,
   alarmContextNextPendingClk,
@@ -209,6 +209,23 @@ export class Cpu65xxVice implements CycleSteppable {
   private lastOpcodeInfo = 0;
 
   // ============================================================
+  // Phase-C compatibility-ablation: Phase B Interrupt-Semantik
+  // wiederhergestellt, Level-Quelle aus cpuIntStatus.globalPendingInt.
+  // VICE-style irqDelayCycles / checkIrqDelay / OPINFO-dispatch DEAKTIVIERT.
+  // Diese Felder + irqShouldDispatch/nmiShouldDispatch reproduzieren
+  // exakt das Verhalten aus cde0798 (Phase B WORKING).
+  // ============================================================
+  /** VICE OPINFO_DELAYS_INTERRUPT — taken branch w/o page-cross delays IRQ by +1. */
+  private lastOpcodeDelaysInterrupt = false;
+  /** Cycle of last I-flag-clear (CLI / PLP-clearing-I / RTI-clearing-I). */
+  public lastIFlagClearCycle: CLOCK = 0;
+  /** Length (in cycles) of instruction that cleared I — defer IRQ until *next* boundary. */
+  public lastIFlagClearInstrLen: CLOCK = 0;
+  /** NMI edge-detect state (Phase B). */
+  private nmiPending = false;
+  private prevNmiLevel = false;
+
+  // ============================================================
   // SO (Set Overflow) input pin — Spec 153 / Sprint 114.
   //
   // Mirrors VICE drivecpu.c drivecpu_set_overflow() + the
@@ -360,6 +377,11 @@ export class Cpu65xxVice implements CycleSteppable {
     this.lastOpcodeInfo = 0;
     this.last_opcode_info = 0;
     this.cpuIntStatus.reset();
+    this.lastOpcodeDelaysInterrupt = false;
+    this.lastIFlagClearCycle = 0;
+    this.lastIFlagClearInstrLen = 0;
+    this.nmiPending = false;
+    this.prevNmiLevel = false;
     this.jammed = false;
     this.lastJamOpcode = 0;
     this.lastJamPc = 0;
@@ -530,28 +552,54 @@ export class Cpu65xxVice implements CycleSteppable {
     }
   }
 
-  // -------- Core instruction loop --------
+  // -------- Phase B compat: level-source from cpuIntStatus --------
+  /** IRQ level = currently asserted by any chip via setIrq. */
+  private irqLevelFromStatus(): boolean {
+    return (this.cpuIntStatus.globalPendingInt & IK_IRQ) !== 0;
+  }
+  /** NMI level = currently asserted by any chip via setNmi (sticky until ackNmi). */
+  private nmiLevelFromStatus(): boolean {
+    return (this.cpuIntStatus.globalPendingInt & IK_NMI) !== 0;
+  }
+
+  /** VICE interrupt_check_irq_delay analogue (Phase B semantics, cde0798). */
+  private irqShouldDispatch(): boolean {
+    if (!this.irqLevelFromStatus()) return false;
+    if ((this.reg_p & P_INTERRUPT) !== 0) return false;
+    if (this.lastOpcodeDelaysInterrupt) return false;
+    if (this.lastIFlagClearInstrLen > 0) {
+      const sinceClear = clkDelta(this.clk, this.lastIFlagClearCycle);
+      if (sinceClear < this.lastIFlagClearInstrLen) return false;
+    }
+    return true;
+  }
+
+  private nmiShouldDispatch(): boolean {
+    if (!this.nmiPending) return false;
+    if (this.lastOpcodeDelaysInterrupt) return false;
+    return true;
+  }
+
+  // -------- Core instruction loop (Phase B compat-ablation) --------
   private startInstructionCycle(): void {
-    // Per-opcode boundary alarm drain — 6510dtvcore.c:1734-1736.
+    // Per-opcode boundary alarm drain — VICE PROCESS_ALARMS.
     this.drainAlarms();
 
-    // IK_IRQPEND stale-clk clear — 6510dtvcore.c:1752-1756.
-    this.cpuIntStatus.clearStaleIrqPend(this.clk);
+    // NMI edge detection (Phase B: rising-edge latches nmiPending).
+    const nmiLevel = this.nmiLevelFromStatus();
+    if (nmiLevel && !this.prevNmiLevel) this.nmiPending = true;
+    this.prevNmiLevel = nmiLevel;
 
-    // Sample globalPendingInt — 6510dtvcore.c:1758.
-    const pending = this.cpuIntStatus.globalPendingInt;
-    if (pending !== IK_NONE) {
-      // DO_INTERRUPT — 6510dtvcore.c:1763.
-      this.doInterrupt(pending);
-      // Post-interrupt IK_IRQPEND cleanup — 6510dtvcore.c:1764-1766.
-      if (
-        !(this.cpuIntStatus.globalPendingInt & IK_IRQ)
-        && (this.cpuIntStatus.globalPendingInt & IK_IRQPEND)
-      ) {
-        this.cpuIntStatus.globalPendingInt &= ~IK_IRQPEND;
-      }
-      // Post-DO_INTERRUPT alarm drain — 6510dtvcore.c:1768-1770.
-      this.drainAlarms();
+    // VICE DO_INTERRUPT — NMI > IRQ > opcode fetch (Phase B path).
+    if (this.nmiShouldDispatch()) {
+      this.nmiPending = false;
+      this.cpuIntStatus.ackNmi();
+      this.serviceInterrupt(0xfffa, false);
+      this.interruptDispatchedThisCycle = true;
+      return;
+    }
+    if (this.irqShouldDispatch()) {
+      this.serviceInterrupt(0xfffe, false);
       this.interruptDispatchedThisCycle = true;
       return;
     }
@@ -565,6 +613,8 @@ export class Cpu65xxVice implements CycleSteppable {
     // 6510dtvcore.c:138. Flags will be set below per opcode semantics.
     this.lastOpcodeInfo = opcode & 0xff;
     this.last_opcode_info = opcode & 0xff;
+    // Phase B compat: clear delays_interrupt flag at fetch (cde0798:484).
+    this.lastOpcodeDelaysInterrupt = false;
 
     const entry = MICROCODE_TABLE[opcode];
     if (!entry) {
@@ -786,15 +836,16 @@ export class Cpu65xxVice implements CycleSteppable {
       case 'sec': this.reg_p |= P_CARRY; break;
       case 'cli':
         this.reg_p &= ~P_INTERRUPT;
-        // OPCODE_ENABLES_IRQ — 6510dtvcore.c:149 / 6510core.h:68.
-        // CLI clears I: IRQ is enabled but delayed by one more boundary.
+        // Phase B compat: I-flag-clear stamp — defer IRQ until next-instr boundary.
+        this.lastIFlagClearCycle = this.clk;
+        this.lastIFlagClearInstrLen = u32(this.clk - this.currentInstrStartClk + 2);
+        // OPINFO_ENABLES_IRQ kept inert for future re-activation.
         this.lastOpcodeInfo = opinfoSetEnablesIrq(this.lastOpcodeInfo);
         this.last_opcode_info = this.lastOpcodeInfo;
         break;
       case 'sei':
         this.reg_p |= P_INTERRUPT;
-        // OPCODE_DISABLES_IRQ — 6510dtvcore.c:145 / 6510core.h:62.
-        // SEI sets I but the IRQ latched before SEI still fires once.
+        // OPINFO_DISABLES_IRQ kept inert.
         this.lastOpcodeInfo = opinfoSetDisablesIrq(this.lastOpcodeInfo);
         this.last_opcode_info = this.lastOpcodeInfo;
         break;
@@ -822,11 +873,12 @@ export class Cpu65xxVice implements CycleSteppable {
         const prevI = (oldP & P_INTERRUPT) !== 0;
         const newI  = (this.reg_p & P_INTERRUPT) !== 0;
         if (prevI && !newI) {
-          // I-flag went 1→0: PLP enabled IRQs — OPCODE_ENABLES_IRQ.
+          // Phase B compat: I 1→0 stamp.
+          this.lastIFlagClearCycle = this.clk;
+          this.lastIFlagClearInstrLen = u32(this.clk - this.currentInstrStartClk + 2);
           this.lastOpcodeInfo = opinfoSetEnablesIrq(this.lastOpcodeInfo);
           this.last_opcode_info = this.lastOpcodeInfo;
         } else if (!prevI && newI) {
-          // I-flag went 0→1: PLP disabled IRQs — OPCODE_DISABLES_IRQ.
           this.lastOpcodeInfo = opinfoSetDisablesIrq(this.lastOpcodeInfo);
           this.last_opcode_info = this.lastOpcodeInfo;
         }
@@ -846,15 +898,15 @@ export class Cpu65xxVice implements CycleSteppable {
       case 'jsr': this.reg_pc = u16(s.operandLo | (s.operandHi << 8)); break;
       case 'rts': this.reg_pc = u16(this.reg_pc + 1); break;
       case 'rti': {
-        // RTI restored P from stack (via pop_p micro-op). Check I transition.
         const prevIRti = (oldP & P_INTERRUPT) !== 0;
         const newIRti  = (this.reg_p & P_INTERRUPT) !== 0;
         if (prevIRti && !newIRti) {
-          // I-flag went 1→0: RTI enabled IRQs — OPCODE_ENABLES_IRQ.
+          // Phase B compat: I 1→0 stamp.
+          this.lastIFlagClearCycle = this.clk;
+          this.lastIFlagClearInstrLen = u32(this.clk - this.currentInstrStartClk + 2);
           this.lastOpcodeInfo = opinfoSetEnablesIrq(this.lastOpcodeInfo);
           this.last_opcode_info = this.lastOpcodeInfo;
         } else if (!prevIRti && newIRti) {
-          // I-flag went 0→1: RTI disabled IRQs — OPCODE_DISABLES_IRQ.
           this.lastOpcodeInfo = opinfoSetDisablesIrq(this.lastOpcodeInfo);
           this.last_opcode_info = this.lastOpcodeInfo;
         }
@@ -918,9 +970,8 @@ export class Cpu65xxVice implements CycleSteppable {
     if ((oldPc & 0xff00) !== (this.reg_pc & 0xff00)) {
       this.clk = clkAdd(this.clk, 1); // page cross = +1 (no DELAYS_INTERRUPT)
     } else {
-      // Spec 309 Phase C: taken branch with no page-cross.
-      // OPCODE_DELAYS_INTERRUPT — 6510dtvcore.c:141 / 6510core.h:56.
-      // Adds 1 to irq_delay_cycles threshold at next opcode boundary.
+      // Phase B compat: branch taken w/o page-cross delays IRQ by 1 boundary.
+      this.lastOpcodeDelaysInterrupt = true;
       this.lastOpcodeInfo = opinfoSetDelaysInterrupt(this.lastOpcodeInfo);
       this.last_opcode_info = this.lastOpcodeInfo;
     }

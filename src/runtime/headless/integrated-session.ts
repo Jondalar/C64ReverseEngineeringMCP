@@ -270,6 +270,11 @@ export class IntegratedSession {
   // model (maincpu_set_irq / maincpu_set_nmi).
   private readonly cia1IrqLine: () => boolean;
   private readonly cia2NmiLine: () => boolean;
+  // Phase-C compat-bridge: per-source IntNum + NMI edge state.
+  private intNumCia1Irq: any = null;
+  private intNumVicIrq: any = null;
+  private intNumCia2Nmi: any = null;
+  private prevCia2NmiBridgeLevel = false;
   public readonly keyboard: KeyboardMatrix;
   public readonly joystick2: JoystickState;
   // Spec 107 (M2.5) v1
@@ -1160,17 +1165,28 @@ export class IntegratedSession {
   // micro-cycle.
   private updateMicrocodedInterruptLines(): void {
     const cpu = this.c64Cpu as any;
-    if (!("irqLine" in cpu)) return;
-    // Sprint 113 Phase 2: CIA1/CIA2 expose a latched IRQ-pin level via
-    // their setIntClk callback; sample that directly instead of the old
-    // irqAsserted() helper. Falls back to irqAsserted for tests that
-    // poke icrFlags directly without going through the CIA write API.
-    // Spec 301: literal IRQ source when flag on.
+    // Phase-C compat-bridge: CPU exposes cpuIntStatus; push CIA1/VIC IRQ
+    // level (level-based, setIrq false also clears) and CIA2 NMI on edge.
+    if (!cpu.cpuIntStatus) return;
+    if (!this.intNumCia1Irq) {
+      this.intNumCia1Irq = cpu.cpuIntStatus.newIntNum("cia1-irq");
+      this.intNumVicIrq  = cpu.cpuIntStatus.newIntNum("vic-irq");
+      this.intNumCia2Nmi = cpu.cpuIntStatus.newIntNum("cia2-nmi");
+    }
+    const clk = cpu.cycles ?? cpu.clk ?? 0;
     const vicIrqAsserted = this.useLiteralPortVicIrq
       ? ((LIT_TYPES.vicii.irq_status & this.vic.regs[0x1a]! & 0x0f) !== 0)
       : this.vic.irqAsserted();
-    cpu.irqLine = (this.cia1IrqLine() || this.cia1.irqAsserted()) || vicIrqAsserted;
-    cpu.nmiLine = this.cia2NmiLine() || this.cia2.irqAsserted();
+    cpu.cpuIntStatus.setIrq(this.intNumCia1Irq, this.cia1IrqLine() || this.cia1.irqAsserted(), clk);
+    cpu.cpuIntStatus.setIrq(this.intNumVicIrq,  vicIrqAsserted, clk);
+    // NMI sticky: only fire setNmi(true) on rising edge; setNmi(false) on falling.
+    const cia2NmiLevel = this.cia2NmiLine() || this.cia2.irqAsserted();
+    if (cia2NmiLevel && !this.prevCia2NmiBridgeLevel) {
+      cpu.cpuIntStatus.setNmi(this.intNumCia2Nmi, true, clk);
+    } else if (!cia2NmiLevel && this.prevCia2NmiBridgeLevel) {
+      cpu.cpuIntStatus.setNmi(this.intNumCia2Nmi, false, clk);
+    }
+    this.prevCia2NmiBridgeLevel = cia2NmiLevel;
   }
 
   private stepMicrocodedC64Instruction(): void {

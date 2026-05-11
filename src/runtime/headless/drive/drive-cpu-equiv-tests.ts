@@ -86,7 +86,12 @@ function runOneInstrLegacy(cpu: Cpu6510, bus: DriveBus): number {
 
 function runOneInstrMicro(cpu: Cpu65xxVice, bus: DriveBus): number {
   const before = cpu.cycles;
-  cpu.irqLine = bus.via1.irqAsserted() || bus.via2.irqAsserted();
+  // Phase-C compat: push VIA IRQ level into cpuIntStatus.
+  const ctxAny = cpu as any;
+  if (!ctxAny.__testIntNumVia) {
+    ctxAny.__testIntNumVia = cpu.cpuIntStatus.newIntNum("test-via");
+  }
+  cpu.cpuIntStatus.setIrq(ctxAny.__testIntNumVia, bus.via1.irqAsserted() || bus.via2.irqAsserted(), cpu.cycles);
   cpu.executeCycle();
   while (!cpu.isAtInstructionBoundary()) cpu.executeCycle();
   const consumed = cpu.cycles - before;
