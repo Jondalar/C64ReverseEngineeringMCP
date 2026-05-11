@@ -1,15 +1,36 @@
 // Drive head positioning + track-buffer model.
 //
 // The 1541's head moves in half-track increments via VIA2 PB bits 0-1
-// (the "STEP" bits). The head-step pattern is a 2-bit gray-code
-// sequence:
-//   00 → 01 → 11 → 10 → 00  (one direction = inward, towards higher tracks)
-//   00 → 10 → 11 → 01 → 00  (other direction = outward, towards lower tracks)
+// (the "STEP" bits). Doctrine: 1:1 VICE TDE port.
 //
-// Drive ROM walks this sequence one step per ~5ms to physically move
-// the head. Each transition advances the head by half a track. We
-// model the same way: keep the previous STEP bits, decode the
-// transition, advance/retreat by 0.5.
+// Spec 411 / docs/vice-1541-arch.md §7.3 + §14 invariant 7 + §17
+// OQ-411-1: VICE uses **modulo-4 phase counts**, NOT 2-bit Gray code.
+// Step IN sequence  00→01→10→11→00 (Δ=+1)
+// Step OUT sequence 00→11→10→01→00 (Δ=-1)
+// Only Δ = ±1 mod 4 moves; Δ = 0 ignored; Δ = 2 (invalid double-step)
+// ignored.
+//
+// VICE cite — src/drive/iecieee/via2d.c:229-313 (via2d_store, PRB
+// branch):
+//   track_number          = drv->current_half_track - 2;
+//   new_stepper_position  = byte & 3;
+//   old_stepper_position  = track_number & 3;
+//   step_count            = (new - old) & 3;
+//   if (step_count == 3) step_count = -1;
+//   if ((byte & 0x4) && (step_count == 1 || step_count == -1))
+//       drive_move_head(step_count, drv);
+//
+// Two critical fidelity points vs the older "lastStepBits delta"
+// model:
+//   (1) The reference for `old` is the CURRENT physical half-track
+//       (mod 4), NOT the last PB byte written. Reset/cold-boot, VSF
+//       restore, and any path that mutates `trackHalf` without going
+//       through `applyStepBits` (e.g. mountMedia repositioning) stays
+//       consistent — the next stepper write computes its delta from
+//       wherever the head actually is.
+//   (2) Stepping is GATED by motor-on (PB.2). Motor off ⇒ no head
+//       motion even on phase change. VICE: `if (byte & 0x4)` around
+//       drive_move_head.
 //
 // On real hardware the head ranges 1..40 (some 1541-II variants
 // support 41-42 for double-sided; we cap at 35 default, 40 extended
@@ -49,38 +70,36 @@ export class HeadPosition {
     this.maxHalfTracks = max;
   }
 
-  // Called when VIA2 PB STEP bits change. Decodes stepper phase
-  // direction and advances by 0.5 (half-track) per phase advance.
+  // Called when VIA2 PB STEP bits (PB0/PB1) + MOTOR bit (PB2) change.
   //
-  // Spec 096 (Bug 40): real 1541 ROM 901229-05 writes a 4-phase
-  // sequence to PB0/PB1: 00 → 11 → 10 → 01 → 00. This is NOT
-  // standard Gray code. Drive head moves one half-track per phase
-  // transition. Sequence direction (clockwise/counter-clockwise on
-  // the cycle) determines inward vs outward.
+  // 1:1 VICE port — `src/drive/iecieee/via2d.c:229-313` `via2d_store()`.
+  // Doc: vice-1541-arch.md §7.3 + §14 invariant 7 + §17 OQ-411-1.
   //
-  // Empirically observed in headless probe: drive ROM uses
-  // [00, 11, 10, 01] cycle for OUTWARD stepping (toward lower
-  // tracks). Reverse cycle = INWARD.
-  applyStepBits(newBits: number): void {
-    const old = this.lastStepBits & 0x3;
+  // Algorithm:
+  //   old_stepper_position = (current_half_track - 2) & 3   // VICE numbering: track 1.0 = ht 2
+  //   new_stepper_position = newBits & 3
+  //   step_count           = (new - old) & 3
+  //   if (step_count == 3) step_count = -1
+  //   if (motor_on && step_count == ±1) move head one half-track
+  //
+  // `lastStepBits` is retained for VSF snapshot compatibility but is
+  // NOT part of the decision — VICE compares to current physical
+  // half-track, not the prior PB byte.
+  applyStepBits(newBits: number, motorOn: boolean = true): void {
     const next = newBits & 0x3;
-    if (old === next) {
-      this.lastStepBits = next;
-      return;
-    }
-    // Outward cycle: 00 → 11 → 10 → 01 → 00 (4-phase, drive
-    // ROM 901229-05 writes this sequence to step toward lower
-    // tracks). Pattern indices: 00=0, 11=1, 10=2, 01=3.
-    const outwardSeq = [0, 3, 2, 1];
-    const oldIdx = outwardSeq.indexOf(old);
-    const newIdx = outwardSeq.indexOf(next);
-    if (oldIdx >= 0 && newIdx >= 0) {
-      const diff = (newIdx - oldIdx + 4) % 4;
-      if (diff === 1) this.stepOutward();
-      else if (diff === 3) this.stepInward();
-      // diff = 2 means a 2-position jump — treat as invalid (no
-      // movement) since real hardware would briefly reverse and
-      // then resume.
+    // VICE: track_number = current_half_track - 2; old = track_number & 3.
+    // Our trackHalf uses the same numbering (track 1.0 → trackHalf 2),
+    // so (trackHalf - 2) & 3 yields the VICE old_stepper_position.
+    const old = (this.trackHalf - 2) & 0x3;
+    let stepCount = (next - old) & 0x3;
+    if (stepCount === 3) stepCount = -1;
+    // VICE via2d.c:255 — `if (byte & 0x4)` — stepper only acts when
+    // motor on. Phase still latches into lastStepBits regardless.
+    if (motorOn) {
+      if (stepCount === 1) this.stepInward();
+      else if (stepCount === -1) this.stepOutward();
+      // stepCount === 0 → no motion. stepCount === 2 → invalid
+      // double-step, ignored (per VICE via2d.c:307).
     }
     this.lastStepBits = next;
   }

@@ -95,7 +95,10 @@ export function makeGcrVia2Pb(coupling: Via2GcrCoupling): ViaPortBackend {
       return bits;
     },
     onOutputChanged: (orValue, ddrMask, _cause) => {
-      coupling.headPosition.applyStepBits(orValue & (PB_STEP_LO | PB_STEP_HI));
+      // Spec 411 / vice-1541-arch.md §7.3 + §17 OQ-411-1 — stepper is
+      // motor-gated. VICE via2d.c:255 `if (byte & 0x4)`.
+      const motorOn = (orValue & PB_MOTOR) !== 0;
+      coupling.headPosition.applyStepBits(orValue & (PB_STEP_LO | PB_STEP_HI), motorOn);
       // Spec 113 M3.5a: PB2 = MOTOR. Bit 1 = motor on. Real hardware
       // honors the latch bit when DDR has PB2 as output. Drive ROM
       // toggles MOTOR around inactivity timeout and during seek.

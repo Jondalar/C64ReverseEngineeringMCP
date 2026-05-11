@@ -92,15 +92,19 @@ export function makeGcrShifterCoupling(
       return bits;
     },
     onPbOutputChanged: (orValue, ddrMask) => {
-      // Step phase: VIA2 PB0/PB1 → head positioner. Always honoured
-      // (real HW reads the latch even when DDR is mid-flip).
-      headPosition.applyStepBits(orValue & (PB_STEP_LO | PB_STEP_HI));
+      // Spec 411 / vice-1541-arch.md §7.3 + §14 invariant 7 +
+      // §17 OQ-411-1 — stepper is GATED on motor-on. VICE via2d.c:255
+      // `if (byte & 0x4)` wraps drive_move_head. Pass motor latch to
+      // applyStepBits so phase changes during motor-off don't move
+      // the head (matches §7.4 motor-on coil-enable semantics).
+      const motorOn = (orValue & PB_MOTOR) !== 0;
+      headPosition.applyStepBits(orValue & (PB_STEP_LO | PB_STEP_HI), motorOn);
 
       // Motor (PB2): only when configured as output (DDR=1). Mirrors
       // VICE drive_set_motor sampling: motor latch ignored if pin is
-      // input.
+      // input. Cite: via2d.c:325-337 (BRA_MOTOR_ON branch).
       if ((ddrMask & PB_MOTOR) !== 0) {
-        shifter.setMotor((orValue & PB_MOTOR) !== 0);
+        shifter.setMotor(motorOn);
       }
 
       // Density (PB5/PB6): only honoured when both bits are outputs.
