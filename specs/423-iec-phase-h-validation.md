@@ -78,18 +78,19 @@ This spec adds smokes, no source.
 
 ## Open Questions
 
-- **OQ-423-1**: UNRESOLVED — needs user input. See
-  `docs/vice-iec-arc42.md §17.8`. VICE source does not vendor
-  copy-protected loader test programs. Corpus images (Krill,
-  Bitfire, Sparkle, Spindle, Booze, Hermes,
-  fastloader-tests demos) must be sourced separately and
-  vendored under `samples/fastloader-tests/`. Licensing call =
-  user.
-- **OQ-423-2**: UNRESOLVED — needs user input. See
-  `docs/vice-iec-arc42.md §17.8`. Each loader has its own
-  jump-to-game PC; pinning these requires running each test on
-  VICE x64sc with known-good config and recording the PC at the
-  "game running" state. Operator work, not VICE-source-answerable.
+- **OQ-423-1**: RESOLVED 2026-05-11 — user decision. **Curated
+  subset**: Krill (covered via Scramble Infinity), Bitfire,
+  covertbitops. Other loaders skipped. Vendor under
+  `samples/fastloader-tests/` once author licenses confirmed.
+  Aligned with OQ-415-1 resolution.
+- **OQ-423-2**: RESOLVED 2026-05-11 — user decision.
+  **Capture-on-first-green** strategy: on the first successful
+  boot of each loader, record final PC + screen RAM hash + PNG
+  as golden master under `samples/golden-master/<loader>/`. Future
+  runs regression-check against frozen golden. User may later
+  capture manual VICE x64sc reference (PC + VSF snapshot) once
+  test images are vendored, replacing the auto-captured golden
+  with a VICE-verified one.
 
 ## Files touched
 

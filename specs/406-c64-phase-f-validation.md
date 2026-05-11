@@ -83,19 +83,24 @@ This spec adds **smokes and corpora**, no source changes.
 
 ## Open Questions
 
-- **OQ-406-1 — UNRESOLVED — need user decision:** VICE testprog
-  vendoring license. VICE itself is GPL-2+; the `testprogs/`
-  directory has no separate top-level LICENSE in VICE source. This
-  is a *license-policy* question (re-distribute under GPL-2+ or
-  contact authors), not a VICE-source question. The project's
-  current `samples/vice-testprogs/LICENSE.md` already addresses
-  this; reviewer should confirm it covers the planned vendoring.
-- **OQ-406-2 — UNRESOLVED — need user decision:** Diff-trace cycle
-  budget for CI. Not a VICE-source question; project-policy choice
-  (how slow may smokes be on the CI machine).
-- **OQ-406-3 — UNRESOLVED — need user decision:** Boot-ladder
-  golden-master strategy (re-use `vicRenderer: "literal-port"` +
-  PNG hash). Not a VICE-source question; project-tooling choice.
+- **OQ-406-1 — RESOLVED 2026-05-11 — user decision:** Vendor VICE
+  testprogs under GPL-2+ (= same terms as VICE). Existing
+  `samples/vice-testprogs/LICENSE.md` covers redistribution.
+  Expand corpus as needed under same terms.
+- **OQ-406-2 — RESOLVED 2026-05-11 — user decision:** No GitHub
+  CI/CD. Tests run locally. Diff-trace budget = **per-spec budget**:
+  - Core C64/1541/IEC specs (e.g. 401, 408, 416): 100k cycles
+    diff-trace (boot phase only, ~0.1 sec).
+  - Phase D (404), Phase F rotation (412): 1M cycles (~1 sec).
+  - Validation specs (406, 415, 423): 10M cycles (~10 sec).
+  Budget pinned in each spec's Acceptance section as
+  `node scripts/smoke-NNN-diff-trace.mjs --cycles=<N>`.
+- **OQ-406-3 — RESOLVED 2026-05-11 — user decision:** Boot-ladder
+  golden-master = **PNG hash + screen RAM hash** per stage. Reference
+  vorlage saved at `samples/golden-master/c64-boot-ready.png`
+  (bare cold reset → READY screen). Additional stages (post-LOAD"$",
+  post-LOAD"*",8,1) captured on first green run and frozen as
+  golden masters. Hash mismatch = test fail.
 
 ## Files touched
 

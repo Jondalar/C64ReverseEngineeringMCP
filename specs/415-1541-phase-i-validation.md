@@ -78,23 +78,24 @@ This spec adds smokes + corpus, no source changes.
 
 ## Open Questions
 
-- **OQ-415-1**: UNRESOLVED — need user input. doc §17. VICE
-  testprogs vendored at `samples/vice-testprogs/` (4/4 pass per
-  memo `feedback_truedrive_101`). Krill / Bitfire / Sparkle /
-  Hermes / Spindle / Booze / Bongo demo disks are **NOT** in the
-  repo. User must decide whether to vendor demo disks under
-  `samples/fastloader-tests/` or skip the broad corpus and rely on
-  motm + Scramble Infinity for fastloader coverage.
+- **OQ-415-1**: RESOLVED 2026-05-11 — user decision. Vendor a
+  **curated subset**: Krill (already covered via
+  `samples/scramble_infinity.d64`), Bitfire (vendor demo disk), and
+  covertbitops (vendor demo disk). Other loaders (Sparkle, Hermes,
+  Spindle, Booze, Bongo) skipped — covered by motm AB-fastloader +
+  the chosen 3 for ATN-handshake + custom-serial breadth. Vendor
+  under `samples/fastloader-tests/` once author licenses confirmed.
 - **OQ-415-2**: RESOLVED 2026-05-11 — doc §17, §9. Format/write
   test correctly deferred. VICE has the write-back path
   (`drive_gcr_data_writeback`, `fsimage-create.c:516,567`,
   `driveimage.c:230`) but our TS port is read-only (memo
   `drive-write-support.md` archived). Phase I step 36 deferred to
   a post-arch-port write-support spec.
-- **OQ-415-3**: UNRESOLVED — need user input. doc §17. Comparable
-  to spec 406 C64-diff (which does not have a pinned CI budget in
-  doc either). Suggest seeding at 1M drive cycles ≈ 1 sec
-  wall-time per snapshot per test; tune from CI feedback.
+- **OQ-415-3**: RESOLVED 2026-05-11 — user decision. No GitHub CI.
+  Tests run locally. **Per-spec budget** (= spec 406 decision):
+  this Phase I validation spec runs **10M drive cycles** for the
+  drive-diff-trace canary (~10 sec wall-time). Other 1541 specs
+  use 100k (core) / 1M (rotation, VIA) per their own acceptance.
 
 ## Files touched
 

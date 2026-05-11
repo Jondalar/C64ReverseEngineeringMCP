@@ -304,19 +304,16 @@ None. Orchestrator stubs are unwired.
   fast-IEC byte (`c64fastiec.c:78`), parallel cable, and monitor stop.
   Pattern is *lazy catchup on bus observation*, drive absorbs varying
   Δclk per call.
-- **Q3 — UNRESOLVED — need user decision:** BA-line model — where to
-  track `maincpu_ba_low_flags` bitfield migration (extend Spec 401 to
-  include it, or split to a dedicated spec). Doc §3.4 + §5.7 describe
-  the VICE-side semantics; the *project-management* choice of which
-  spec owns it is not derivable from VICE source.
-- **Q4 — UNRESOLVED — need user investigation:** how the legacy
-  whole-instruction drive path (`runOneInstruction`) interacts with
-  KERNAL serial-loader timing. VICE itself has **no** whole-instruction
-  drive path — `drivecpu_execute` always cycle-steps. The current TS
-  `runOneInstruction` is a TS-side compatibility shim and the question
-  "is it still needed" can only be answered by running a smoke without
-  it (which is what the spec already proposes). Not a VICE-source
-  question.
+- **Q3 — RESOLVED 2026-05-11 — user decision:** Spec 401 owns
+  `maincpu_ba_low_flags` bitfield. Rationale: flag lives with
+  `maincpu_clk` (= foundation/core), VIC just sets the bit; reader is
+  CPU stall path. Spec 404 (VIC-II) only modifies the bit, does not
+  own it.
+- **Q4 — RESOLVED 2026-05-11 — user decision:** Legacy
+  `runOneInstruction` (whole-instruction drive path) gets **deleted
+  in spec 401** without a separate "prove not needed" smoke. If
+  smokes + game gate stay green after removal, the path was unused.
+  VICE has no equivalent — strict 1:1 doctrine forbids it.
 
 ## Files touched
 

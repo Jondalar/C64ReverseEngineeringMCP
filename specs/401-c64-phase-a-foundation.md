@@ -138,6 +138,16 @@ Known deviations to verify:
    path matching VICE).
 4. Confirm memory tables are per-page-dispatched and rebuilt on PLA
    config change (interface stays; spec 402 fills in PLA config).
+5. **Add `maincpu_ba_low_flags` bitfield** (per resolved OQ-400-Q3):
+   field lives in the C64 cycle state alongside `maincpu_clk`. Set
+   via OR from `vicii_cycle()` return value (= spec 404's job to
+   write the bit); read by CPU stall path (this spec writes the
+   reader, VIC writes the writer). Cite `mainc64cpu.c:97-110` + §11
+   step 3 + §5.7.
+6. **Delete legacy `runOneInstruction` whole-instruction drive path**
+   (per resolved OQ-400-Q4): VICE has no equivalent — strict 1:1
+   forbids it. Remove from `drive-cpu.ts`. Acceptance gate proves
+   removal safe: smokes + MM s1 + Scramble Infinity stay green.
 
 ## Consumer changes
 

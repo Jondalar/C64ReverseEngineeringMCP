@@ -122,10 +122,13 @@ Known status:
 
 ## Open Questions
 
-- **OQ-405-1 — UNRESOLVED — need user decision:** Datasette scope.
-  VICE-side semantics are documented (`docs/vice-c64-arch.md §9`),
-  but whether any in-scope game (MM, Scramble, Lorenz corpus) requires
-  datasette is a project-scope decision, not derivable from VICE.
+- **OQ-405-1 — RESOLVED 2026-05-11 — user decision:** Datasette
+  **deferred to post-arch-port spec**. No in-scope game (MM,
+  Scramble, motm, IM2, LNR, Lorenz CPU corpus) requires datasette.
+  Spec 405 stubs it: `// not implemented — no in-scope game
+  requires it (deferred to post-arch-port spec)`. Spec compiles
+  without the actual pulse-list / CIA1 FLAG path. Bit 4 of $01
+  read/write stays a no-op datasette hook.
 - **OQ-405-2 — RESOLVED** → `docs/vice-c64-arch.md §7.1`. VICE's
   x64sc default is **ReSID** (`src/sid/sid-resources.c:101-105`:
   `SID_ENGINE_DEFAULT` → `SID_ENGINE_RESID` when ReSID is built in,
