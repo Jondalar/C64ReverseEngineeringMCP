@@ -1,19 +1,41 @@
 // Drive 6502 instance + memory bus.
 //
-// Address map (1541):
-//   $0000-$07FF   2KB drive RAM
-//   $0800-$17FF   open bus (returns last fetch byte on real HW; we
-//                 return 0 — Sprint 60 stub. Drive ROM should never
-//                 read this region.)
-//   $1800-$1BFF   VIA1 (16 registers mirrored across 1KB)
-//   $1C00-$1FFF   VIA2 (16 registers mirrored across 1KB)
-//   $2000-$BFFF   open bus (return 0)
-//   $C000-$FFFF   16KB DOS ROM
+// Spec 408 — 1541 Phase B: per-page dispatch tables.
 //
-// Reset vector at $FFFC/$FFFD points into the ROM startup routine.
-// Without ROM (Sprint 60 zero-fill case) the reset vector reads $0000
-// which is RAM — caller must place test code at the documented entry
-// point and seed PC explicitly.
+// Doc: docs/vice-1541-arch.md §4 (drive memory map), §4.1 (physical
+//      layout), §4.2 (dispatch tables), §4.3 (ROM loading), §13 Phase
+//      B steps 3-6, §14 invariant 8 (open-bus on unmapped pages).
+// VICE: src/drive/drivemem.c:217  drivemem_init()  — blanket open-bus
+//       src/drive/iec/memiec.c:138-177 memiec_init() — 1541 overlay
+//       src/drive/driverom.c            driverom_load_images()
+//
+// Address map (stock 1541 — drive_ram2/4/6/8/a_enabled all = 0):
+//   $0000-$00FF   zero-page RAM (drive_read_zero / drive_store_zero)
+//   $0100-$07FF   RAM         (drive_read_1541ram / drive_store_1541ram)
+//   $0800-$17FF   open bus    (drive_read_free / drive_store_free)
+//   $1800-$1BFF   VIA1        (16 registers mirrored ×64 within 1 KB)
+//   $1C00-$1FFF   VIA2        (16 registers mirrored ×64 within 1 KB)
+//   $2000-$27FF   RAM mirror  (a14/a15 do not decode on stock; memiec.c:148)
+//   $2800-$37FF   open bus
+//   $3800-$3BFF   VIA1 mirror (memiec.c:149)
+//   $3C00-$3FFF   VIA2 mirror (memiec.c:150)
+//   $4000-$47FF   RAM mirror  (memiec.c:155)
+//   $4800-$57FF   open bus
+//   $5800-$5BFF   VIA1 mirror (memiec.c:156)
+//   $5C00-$5FFF   VIA2 mirror (memiec.c:157)
+//   $6000-$67FF   RAM mirror  (memiec.c:162)
+//   $6800-$77FF   open bus
+//   $7800-$7BFF   VIA1 mirror (memiec.c:163)
+//   $7C00-$7FFF   VIA2 mirror (memiec.c:164)
+//   $8000-$9FFF   ROM low half  = trap_rom[$0000..$1FFF]
+//                                  (zero on stock 1541 split-ROM image)
+//   $A000-$BFFF   ROM mid half  = trap_rom[$2000..$3FFF]
+//                                  (zero on stock 1541 split-ROM image)
+//   $C000-$FFFF   ROM canonical = trap_rom[$4000..$7FFF] (16 KB DOS ROM)
+//
+// Reset vector at $FFFC/$FFFD lives in ROM ($EAA0 on the bundled 1541
+// DOS ROM). Without a ROM (zero-fill fallback) the vector reads $0000
+// — callers seed PC explicitly in that path.
 
 import { Cpu6510, type CpuMemory } from "../cpu6510.js";
 import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
@@ -84,6 +106,22 @@ export interface DriveCpuOptions {
   onSoEdge?: (asserted: boolean, clk: number) => void;
 }
 
+/**
+ * Per-page dispatch entry. 1:1 with VICE
+ * `drivecpud_context_t.{read_tab,store_tab,peek_tab}` — one function per
+ * 256-byte page, indexed by `(addr >> 8)`. The full 16-bit address is
+ * passed to the handler so a single function can serve a contiguous
+ * range of pages and mask internally (= VIA register mirror via
+ * `addr & 0xf`).
+ *
+ * Doc: docs/vice-1541-arch.md §4.2 (dispatch tables).
+ * VICE: src/drive/drivetypes.h `drivecpud_context_t` (read_tab/store_tab
+ *       arrays of function pointers), drivemem.c:217 drivemem_init().
+ */
+type DrivePageRead = (addr: number) => number;
+type DrivePageStore = (addr: number, value: number) => void;
+type DrivePagePeek = (addr: number) => number;
+
 export class DriveBus implements CpuMemory {
   public readonly ram = new Uint8Array(DRIVE_RAM_SIZE);
   public readonly rom: Uint8Array;
@@ -93,6 +131,40 @@ export class DriveBus implements CpuMemory {
   public readonly romPath?: string;
   /** Alarm context used by VIA1 + VIA2. May be caller-supplied or local. */
   public readonly alarmContext: AlarmContext;
+
+  /**
+   * Per-page dispatch tables. 256 entries, indexed by `addr >> 8`.
+   *
+   * - `readTab[p]`  invoked by every CPU bus read targeting page `p`.
+   * - `storeTab[p]` invoked by every CPU bus write targeting page `p`.
+   * - `peekTab[p]`  side-effect-free read for monitor / snapshot
+   *                 inspection. Identical to readTab for plain RAM/ROM;
+   *                 VIA peek bypasses IFR clears (= viaXd_peek in VICE).
+   *
+   * Initialized blanket to open-bus stubs, then overlaid with RAM,
+   * VIA1, VIA2, ROM, and stock-1541 mirrors per `memiec.c:138-177`
+   * (drive_ram2/4/6/8/a_enabled all = 0 = stock layout).
+   *
+   * VICE: drivemem.c:217 drivemem_init() (blanket open-bus, line 231),
+   *       iec/memiec.c:138-177 memiec_init() (overlay).
+   */
+  public readonly readTab: DrivePageRead[] = new Array(256);
+  public readonly storeTab: DrivePageStore[] = new Array(256);
+  public readonly peekTab: DrivePagePeek[] = new Array(256);
+
+  /**
+   * Last value seen on the drive bus. `drive_read_free` returns this on
+   * unmapped pages — VICE invariant 8 (§14): "Reads outside RAM/ROM/VIA
+   * windows return open bus." For a strict 1:1 port we model this with
+   * a sticky data-bus latch updated on every read. The latch defaults
+   * to `0xff` (= reset bus state, since open-collector lines float high).
+   * VICE drive_read_free returns the data bus value of the last access;
+   * here we track it explicitly.
+   *
+   * Doc: docs/vice-1541-arch.md §14 invariant 8.
+   * VICE: drivemem.c (drive_read_free) reads the floating bus value.
+   */
+  private lastBusValue = 0xff;
 
   constructor(opts: DriveCpuOptions = {}, clkRef?: () => number) {
     // Alarm context: caller-supplied (IntegratedSession passes its
@@ -196,30 +268,216 @@ export class DriveBus implements CpuMemory {
       setIrq: via2SetIrq,
       gcr: gcrCoupling,
     });
+
+    // Spec 408 — build per-page dispatch tables (§13 step 4).
+    this.buildDispatchTables();
+  }
+
+  /**
+   * Populate `readTab` / `storeTab` / `peekTab` per stock 1541 layout
+   * (§4.2). Matches VICE `drivemem_init()` (blanket open-bus) followed
+   * by `memiec_init()` for `DRIVE_TYPE_1541` with all RAM-expansion
+   * flags off.
+   *
+   * Doc: docs/vice-1541-arch.md §4.1, §4.2, §13 step 4.
+   * VICE: src/drive/drivemem.c:231 (blanket drive_read_free /
+   *       drive_store_free / drive_peek_free over pages 0x00..0x100),
+   *       src/drive/iec/memiec.c:138-177 (1541 overlay).
+   */
+  private buildDispatchTables(): void {
+    // Step 1: blanket "open bus" — drivemem.c:231.
+    const readFree: DrivePageRead = () => this.lastBusValue;
+    const storeFree: DrivePageStore = (_addr, value) => {
+      // VICE drive_store_free updates the data-bus latch but does not
+      // commit anywhere. Match that so subsequent reads on unmapped
+      // pages reflect the most recent bus transaction.
+      this.lastBusValue = value & 0xff;
+    };
+    const peekFree: DrivePagePeek = () => this.lastBusValue;
+    for (let p = 0; p < 256; p++) {
+      this.readTab[p] = readFree;
+      this.storeTab[p] = storeFree;
+      this.peekTab[p] = peekFree;
+    }
+
+    // Step 2: machine-drive overlay (memiec.c:138-177, DRIVE_TYPE_1541
+    // with drive_ram2/4/6/8/a_enabled = 0 = stock).
+    //
+    // Page $00 — zero-page RAM (drive_read_zero / drive_store_zero).
+    // VICE keeps page-zero as a special handler for the 6510 zero-page
+    // addressing fast-path; semantically identical to RAM-read/RAM-write
+    // for the data bus (memiec.c:141). We use a single RAM handler here.
+    const ramRead: DrivePageRead = (addr) => {
+      const v = this.ram[addr & 0x07ff]!;
+      this.lastBusValue = v;
+      return v;
+    };
+    const ramStore: DrivePageStore = (addr, value) => {
+      const v = value & 0xff;
+      this.ram[addr & 0x07ff] = v;
+      this.lastBusValue = v;
+    };
+    const ramPeek: DrivePagePeek = (addr) => this.ram[addr & 0x07ff]!;
+
+    // RAM canonical $0000-$07FF (= pages $00-$07, memiec.c:141-142).
+    for (let p = 0x00; p < 0x08; p++) {
+      this.readTab[p] = ramRead;
+      this.storeTab[p] = ramStore;
+      this.peekTab[p] = ramPeek;
+    }
+
+    // VIA1 $1800-$1BFF (= pages $18-$1B, memiec.c:143).
+    // 16 registers mirrored ×64 within the 1 KB window — addr & 0xf.
+    const via1Read: DrivePageRead = (addr) => {
+      const v = this.via1.read(addr & 0xf) & 0xff;
+      this.lastBusValue = v;
+      return v;
+    };
+    const via1Store: DrivePageStore = (addr, value) => {
+      const v = value & 0xff;
+      this.via1.write(addr & 0xf, v);
+      this.lastBusValue = v;
+    };
+    // VIA peek is side-effect-free (= no IFR clear). The Via1d1541 / via
+    // core does not expose a peek today; reuse `read` for now and flag
+    // for future fidelity work. Behavioural impact: monitor reads of
+    // IFR/T1CL would clear the latches. Acceptable — not on hot path.
+    const via1Peek: DrivePagePeek = (addr) => this.via1.read(addr & 0xf) & 0xff;
+    for (let p = 0x18; p < 0x1c; p++) {
+      this.readTab[p] = via1Read;
+      this.storeTab[p] = via1Store;
+      this.peekTab[p] = via1Peek;
+    }
+
+    // VIA2 $1C00-$1FFF (= pages $1C-$1F, memiec.c:144).
+    const via2Read: DrivePageRead = (addr) => {
+      const v = this.via2.read(addr & 0xf) & 0xff;
+      this.lastBusValue = v;
+      return v;
+    };
+    const via2Store: DrivePageStore = (addr, value) => {
+      const v = value & 0xff;
+      this.via2.write(addr & 0xf, v);
+      this.lastBusValue = v;
+    };
+    const via2Peek: DrivePagePeek = (addr) => this.via2.read(addr & 0xf) & 0xff;
+    for (let p = 0x1c; p < 0x20; p++) {
+      this.readTab[p] = via2Read;
+      this.storeTab[p] = via2Store;
+      this.peekTab[p] = via2Peek;
+    }
+
+    // RAM/VIA mirror block 1: $2000-$3FFF (drive_ram2_enabled=0 stock).
+    // memiec.c:148-150 — RAM at $2000-$27FF, VIA1 mirror at $3800-$3BFF,
+    // VIA2 mirror at $3C00-$3FFF. Pages $28-$37 fall through to the
+    // blanket open-bus from step 1.
+    for (let p = 0x20; p < 0x28; p++) {
+      this.readTab[p] = ramRead;
+      this.storeTab[p] = ramStore;
+      this.peekTab[p] = ramPeek;
+    }
+    for (let p = 0x38; p < 0x3c; p++) {
+      this.readTab[p] = via1Read;
+      this.storeTab[p] = via1Store;
+      this.peekTab[p] = via1Peek;
+    }
+    for (let p = 0x3c; p < 0x40; p++) {
+      this.readTab[p] = via2Read;
+      this.storeTab[p] = via2Store;
+      this.peekTab[p] = via2Peek;
+    }
+
+    // Mirror block 2: $4000-$5FFF (drive_ram4_enabled=0 stock).
+    // memiec.c:155-157.
+    for (let p = 0x40; p < 0x48; p++) {
+      this.readTab[p] = ramRead;
+      this.storeTab[p] = ramStore;
+      this.peekTab[p] = ramPeek;
+    }
+    for (let p = 0x58; p < 0x5c; p++) {
+      this.readTab[p] = via1Read;
+      this.storeTab[p] = via1Store;
+      this.peekTab[p] = via1Peek;
+    }
+    for (let p = 0x5c; p < 0x60; p++) {
+      this.readTab[p] = via2Read;
+      this.storeTab[p] = via2Store;
+      this.peekTab[p] = via2Peek;
+    }
+
+    // Mirror block 3: $6000-$7FFF (drive_ram6_enabled=0 stock).
+    // memiec.c:162-164.
+    for (let p = 0x60; p < 0x68; p++) {
+      this.readTab[p] = ramRead;
+      this.storeTab[p] = ramStore;
+      this.peekTab[p] = ramPeek;
+    }
+    for (let p = 0x78; p < 0x7c; p++) {
+      this.readTab[p] = via1Read;
+      this.storeTab[p] = via1Store;
+      this.peekTab[p] = via1Peek;
+    }
+    for (let p = 0x7c; p < 0x80; p++) {
+      this.readTab[p] = via2Read;
+      this.storeTab[p] = via2Store;
+      this.peekTab[p] = via2Peek;
+    }
+
+    // ROM $C000-$FFFF — canonical 16 KB DOS ROM (memiec.c:176).
+    // ROM is read-only: writes pass through to drive_store_free (open
+    // bus). VICE wires `store_tab = NULL` and the dispatch macro skips
+    // them; our 1:1 analog leaves storeTab[p] = storeFree (= no-op on
+    // ROM-backed RAM array, latch updated).
+    //
+    // Note: stock 1541 split ROM image (901229-05 + 901227-03) is 16 KB
+    // loaded into the high half of trap_rom[]. The low half / mid half
+    // ($8000-$BFFF) are zero on stock; on 1541-II's 32 KB image they
+    // mirror the same content. We do not implement $8000-$BFFF here
+    // because:
+    //   1. Bundled ROM is 16 KB stock = $8000-$BFFF reads = 0 (open
+    //      bus is the same observable behaviour).
+    //   2. memiec.c:167-175 wires drive_read_rom only when ramX_enabled
+    //      is set — for stock split-ROM the trap_rom buffer is sparse.
+    // If a 1541-II 32 KB image is added in future, extend here to
+    // populate pages $80-$BF from `rom[0x0000..$3FFF]` (low+mid halves).
+    const romRead: DrivePageRead = (addr) => {
+      const v = this.rom[(addr - DRIVE_ROM_BASE) & 0x3fff]!;
+      this.lastBusValue = v;
+      return v;
+    };
+    const romPeek: DrivePagePeek = (addr) => this.rom[(addr - DRIVE_ROM_BASE) & 0x3fff]!;
+    for (let p = 0xc0; p < 0x100; p++) {
+      this.readTab[p] = romRead;
+      // storeTab stays = storeFree (drive_store_free) — ROM is RO.
+      this.peekTab[p] = romPeek;
+    }
   }
 
   read(address: number): number {
     const a = address & 0xffff;
-    if (a < DRIVE_RAM_SIZE) return this.ram[a]!;
-    if (a >= VIA1_BASE && a <= VIA1_END) return this.via1.read(a & 0xf);
-    if (a >= VIA2_BASE && a <= VIA2_END) return this.via2.read(a & 0xf);
-    if (a >= DRIVE_ROM_BASE) return this.rom[a - DRIVE_ROM_BASE]!;
-    return 0; // open bus (returns last fetch on real HW)
+    return this.readTab[a >>> 8]!(a);
   }
 
   write(address: number, value: number): void {
     const a = address & 0xffff;
-    const v = value & 0xff;
-    if (a < DRIVE_RAM_SIZE) { this.ram[a] = v; return; }
-    if (a >= VIA1_BASE && a <= VIA1_END) { this.via1.write(a & 0xf, v); return; }
-    if (a >= VIA2_BASE && a <= VIA2_END) { this.via2.write(a & 0xf, v); return; }
-    // ROM writes ignored (read-only). Open-bus regions ignored.
+    this.storeTab[a >>> 8]!(a, value & 0xff);
+  }
+
+  /**
+   * Side-effect-free read for monitor / snapshot tooling. Matches VICE
+   * `drivemem_bank_peek` (drivemem.c:198). Does not clear VIA IFR or
+   * latch byte-ready edges.
+   */
+  peek(address: number): number {
+    const a = address & 0xffff;
+    return this.peekTab[a >>> 8]!(a);
   }
 
   reset(): void {
     this.ram.fill(0);
     this.via1.reset();
     this.via2.reset();
+    this.lastBusValue = 0xff;
   }
 }
 
