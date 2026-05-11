@@ -1184,6 +1184,17 @@ export class IntegratedSession {
     cpu.cpuIntStatus.setIrq(this.intNumVicIrq, vicIrqAsserted, clk);
   }
 
+  /**
+   * Spec 401 — per-cycle orchestrator entry. Each iteration is one
+   * x64sc bus cycle (= one VICE CLK_INC pass). The CPU's executeCycle
+   * internally does the canonical CLK_INC: alarm-drain → bumpDelays →
+   * clk++ (Cpu65xxVice.tick(), doc §11 steps 1-3, c64cpusc.c:47).
+   * VIC tick stays at the orchestrator level for spec 401 Phase A;
+   * spec 404 Phase D folds vicii_cycle() back into the CPU's tick().
+   *
+   * Doc: docs/vice-c64-arch.md §11 step 4; VICE: maincpu.c:526
+   * maincpu_mainloop.
+   */
   private stepMicrocodedC64Instruction(): void {
     const cpu = this.c64Cpu as unknown as {
       executeCycle?: () => void;

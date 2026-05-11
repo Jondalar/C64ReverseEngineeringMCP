@@ -17,7 +17,7 @@
 
 import { Cpu6510, type CpuMemory } from "../cpu6510.js";
 import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
-import { alarmContextNew, alarmContextDispatch, type AlarmContext } from "../alarm/alarm-context.js";
+import { alarmContextNew, type AlarmContext } from "../alarm/alarm-context.js";
 import { Via1d1541 } from "../via/via1d1541.js";
 import { Via2d1541, type Via2GcrPortCoupling } from "../via/via2d1541.js";
 import { makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
@@ -371,7 +371,24 @@ export class DriveCpu {
   // fewer cycles owed because lastSyncC64Clk is updated only by what
   // we actually consumed. cycleAccumulator16dot16 carries fractional
   // C64 cycles between calls.
-  executeToClock(c64Clk: number, cycleStepped: boolean = false): void {
+  /**
+   * Spec 401 / OQ-400-Q4 — `cycleStepped` flag dropped; the executor
+   * now always runs the cycle-stepped microcoded path (= 1:1 VICE
+   * `drivecpu_execute_one` / 6510core.c per-cycle decomposition).
+   * VICE has no whole-instruction drive dispatch — strict 1:1 forbids
+   * it. The legacy `!microcoded` whole-instruction fallback was the
+   * "legacy `runOneInstruction` whole-instruction drive path" called
+   * out by OQ-400-Q4; it is gone. Callers that relied on it must opt
+   * into `useMicrocodedCpu: true` at DriveCpu construction.
+   *
+   * The `cycleStepped` arg is retained for back-compat call sites; it
+   * is now ignored.
+   *
+   * Doc: docs/vice-1541-arch.md §3; docs/vice-c64-arch.md §3.2.
+   * VICE source: src/drive/drivecpu.c (drivecpu_execute_one) +
+   * src/6510core.c (per-bus-cycle macro template).
+   */
+  executeToClock(c64Clk: number, _cycleStepped: boolean = false): void {
     if (c64Clk <= this.lastSyncC64Clk) return;
     const c64Delta = c64Clk - this.lastSyncC64Clk;
     this.lastSyncC64Clk = c64Clk;
@@ -383,119 +400,83 @@ export class DriveCpu {
     }
     // Accumulate fractional drive cycles owed.
     this.cycleAccumulator16dot16 += this.syncFactor16dot16 * c64Delta;
-    // Spec 218 hybrid: cycle-stepped path (microcoded only) when caller
-    // requests sub-cycle precision (e.g. motm AB-fastloader $4278 BIT
-    // sample). Whole-instruction path retained as default to keep
-    // KERNAL-serial loader timing it relies on.
-    if (cycleStepped && this.microcoded) {
-      const cycled = this.cpu as Cpu65xxVice;
-      if (!this.intNumVia1Irq && cycled.cpuIntStatus) {
-        this.intNumVia1Irq = cycled.cpuIntStatus.newIntNum("via1-irq");
-        this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
-      }
-      while (this.cycleAccumulator16dot16 >= 0x10000) {
-        if (cycled.isAtInstructionBoundary() && this.intNumVia1Irq) {
-          // Phase-C compat: push VIA IRQ level into cpuIntStatus.
-          cycled.cpuIntStatus.setIrq(this.intNumVia1Irq, this.bus.via1.irqAsserted(cycled.cycles), cycled.cycles);
-          cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
-        }
-        cycled.executeCycle();
-        if (this.gcrShifter) this.gcrShifter.tick(1);
-        if (cycled.isAtInstructionBoundary()) {
-          this.onInstructionComplete?.(
-            cycled.pc & 0xffff, 0, 0, 0,
-            cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
-            cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
-            cycled.cycles,
-          );
-        }
-        this.cycleAccumulator16dot16 -= 0x10000;
-      }
-      return;
+    if (!this.microcoded) {
+      throw new Error(
+        "DriveCpu.executeToClock: legacy whole-instruction Cpu6510 path " +
+        "removed (spec 401 / OQ-400-Q4). Construct DriveCpu with " +
+        "useMicrocodedCpu: true.",
+      );
+    }
+    const cycled = this.cpu as Cpu65xxVice;
+    if (!this.intNumVia1Irq && cycled.cpuIntStatus) {
+      this.intNumVia1Irq = cycled.cpuIntStatus.newIntNum("via1-irq");
+      this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
     }
     while (this.cycleAccumulator16dot16 >= 0x10000) {
-      const consumed = this.runOneInstruction();
-      // Spec 153 / Sprint 114: tick GcrShifter for the cycles consumed.
-      // Non-lockstep callers drive the shifter through this path; the
-      // SO-pin pulse-shape behaviour of DriveCpuCycled is approximated
-      // here by raising soLine back high after the tick (microcoded
-      // path only — legacy CPU uses direct V-flag set).
-      if (this.gcrShifter) {
-        // Byte-ready callback in DriveCpu sets V directly on reg_p
-        // (mirrors VICE drivecpu_set_overflow). No SO-pin pulse needed.
-        this.gcrShifter.tick(consumed);
+      if (cycled.isAtInstructionBoundary() && this.intNumVia1Irq) {
+        // Phase-C compat: push VIA IRQ level into cpuIntStatus.
+        cycled.cpuIntStatus.setIrq(this.intNumVia1Irq, this.bus.via1.irqAsserted(cycled.cycles), cycled.cycles);
+        cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
       }
-      // Sprint 113 Phase 2: VIA1 + VIA2 are alarm-driven (Via1d1541 /
-      // Via2d1541). No tick() needed — alarm context is drained by the
-      // microcoded CPU inline (Cpu65xxVice) or via the legacy CPU path
-      // here. For the legacy-CPU executeToClock path we drain pending
-      // drive alarms after each instruction to keep T1/T2 timers current.
-      // (In lockstep, AlarmContextCycled handles drain per cycle.)
-      if (!this.microcoded) {
-        const ctx = this.bus.alarmContext;
-        const cpuClk = (this.cpu as Cpu6510).cycles;
-        let guard = 0;
-        while (cpuClk >= ctx.next_pending_alarm_clk) {
-          alarmContextDispatch(ctx, cpuClk);
-          if (++guard > 0x1000) break;
-        }
+      cycled.executeCycle();
+      if (this.gcrShifter) this.gcrShifter.tick(1);
+      if (cycled.isAtInstructionBoundary()) {
+        this.onInstructionComplete?.(
+          cycled.pc & 0xffff, 0, 0, 0,
+          cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
+          cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
+          cycled.cycles,
+        );
       }
-      this.cycleAccumulator16dot16 -= consumed * 0x10000;
+      this.cycleAccumulator16dot16 -= 0x10000;
     }
   }
 
-  // Legacy step API kept for back-compat (will be removed once
-  // IntegratedSession fully on executeToClock).
+  // Spec 401 / OQ-400-Q4 — `step()` and `runOneInstruction` now drive
+  // the cycled microcoded CPU only. The legacy `Cpu6510.step()` whole-
+  // instruction dispatch path is removed (VICE has no whole-instruction
+  // drive dispatch; cf. drivecpu.c `drivecpu_execute_one` which cycles
+  // 6510core.c per bus cycle). Callers must opt into useMicrocodedCpu.
   step(): number {
     return this.runOneInstruction();
   }
 
-  // Run exactly one instruction on whichever CPU is wired. For the
-  // microcoded path, drive-cycle until next instruction boundary.
+  /** Drive cycles until the next instruction boundary (microcoded-only). */
   private runOneInstruction(): number {
-    if (this.microcoded) {
-      const cycled = this.cpu as Cpu65xxVice;
-      const before = cycled.cycles;
-      // Phase-C compat: VIA IRQ level pushed to cpuIntStatus.
-      if (!this.intNumVia1Irq && cycled.cpuIntStatus) {
-        this.intNumVia1Irq = cycled.cpuIntStatus.newIntNum("via1-irq");
-        this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
-      }
-      if (this.intNumVia1Irq) {
-        cycled.cpuIntStatus.setIrq(this.intNumVia1Irq, this.bus.via1.irqAsserted(cycled.cycles), cycled.cycles);
-        cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
-      }
-      // Tick at least once, then until back at boundary.
-      cycled.executeCycle();
-      while (!cycled.isAtInstructionBoundary()) cycled.executeCycle();
-      // Spec 205-A c4 / Spec 217: inner cpu's onInstructionComplete
-      // (installed by kernel directly on this.cpu) fires inside the
-      // microcode dispatch above. The wrapper hook below is kept for
-      // backward-compat; pass post-state minimally so signature
-      // matches the inner-cpu shape.
-      this.onInstructionComplete?.(
-        cycled.pc & 0xffff, 0, 0, 0,
-        cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
-        cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
-        cycled.cycles,
+    if (!this.microcoded) {
+      throw new Error(
+        "DriveCpu.runOneInstruction: legacy whole-instruction Cpu6510 " +
+        "path removed (spec 401 / OQ-400-Q4). Construct with " +
+        "useMicrocodedCpu: true.",
       );
-      return cycled.cycles - before;
     }
-    const legacy = this.cpu as Cpu6510;
-    if (!legacy.interruptsDisabled()) {
-      const irq =
-        this.bus.via1.irqAsserted(legacy.cycles) ||
-        this.bus.via2.irqAsserted(legacy.cycles);
-      if (irq) legacy.serviceInterrupt(0xfffe, false);
+    const cycled = this.cpu as Cpu65xxVice;
+    const before = cycled.cycles;
+    // Phase-C compat: VIA IRQ level pushed to cpuIntStatus.
+    if (!this.intNumVia1Irq && cycled.cpuIntStatus) {
+      this.intNumVia1Irq = cycled.cpuIntStatus.newIntNum("via1-irq");
+      this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
     }
-    const before = legacy.cycles;
-    legacy.step();
+    if (this.intNumVia1Irq) {
+      cycled.cpuIntStatus.setIrq(this.intNumVia1Irq, this.bus.via1.irqAsserted(cycled.cycles), cycled.cycles);
+      cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
+    }
+    // Tick at least once, then until back at boundary. Per-bus-cycle
+    // path matches VICE 6510core.c addressing-mode decomposition.
+    cycled.executeCycle();
+    while (!cycled.isAtInstructionBoundary()) cycled.executeCycle();
+    // Spec 205-A c4 / Spec 217: inner cpu's onInstructionComplete
+    // (installed by kernel directly on this.cpu) fires inside the
+    // microcode dispatch above. The wrapper hook below is kept for
+    // backward-compat; pass post-state minimally so signature
+    // matches the inner-cpu shape.
     this.onInstructionComplete?.(
-      legacy.pc & 0xffff, 0, 0, 0,
-      legacy.a, legacy.x, legacy.y, legacy.sp, legacy.flags,
-      legacy.cycles,
+      cycled.pc & 0xffff, 0, 0, 0,
+      cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
+      cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
+      cycled.cycles,
     );
-    return legacy.cycles - before;
+    return cycled.cycles - before;
   }
 
   /**

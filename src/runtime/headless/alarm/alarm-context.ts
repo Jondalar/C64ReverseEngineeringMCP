@@ -1,5 +1,13 @@
 // Spec 149 — Alarm system 1:1 VICE port (FOUNDATION).
 //
+// Spec 401 audit (= docs/vice-c64-arch.md §12 Phase A step 2): the
+// public API + on-disk shape already match VICE alarm.h/alarm.c
+// (min-heap-by-clock, alarm_set / alarm_unset / alarm_context_dispatch /
+// alarm_context_next_pending_clk). The CPU's per-cycle CLK_INC tick
+// (cpu/cpu65xx-vice.ts:tick) calls into this module; no changes were
+// required for spec 401. Drain ordering is owned by the CPU (= drain
+// BEFORE clk++ per §11 step 1.a, §13 invariant 1).
+//
 // Source: VICE 3.7.1 src/alarm.h (187 LOC) + src/alarm.c (212 LOC).
 // This is a faithful translation of the VICE alarm primitive: a per-
 // context unsorted "pending alarms" array (cap 256) with a cached

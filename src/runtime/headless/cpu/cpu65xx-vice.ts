@@ -1,5 +1,8 @@
 // Spec 146 — 65xx CPU port (1:1 VICE 6510core.c).
 // Spec 309 Phase C — CPU boundary sample via InterruptCpuStatus.
+// Spec 401 Phase A — per-cycle CLK_INC alarm drain + unified DO_INTERRUPT
+//   collapse + maincpu_ba_low_flags. Doc: docs/vice-c64-arch.md §2.1,
+//   §2.2, §3.5, §11 step 1.a, §13 invariants 1+4+12.
 //
 // Single shared core for the C64 6510 (with $00/$01 IO port mixin) and
 // the 1541 drive 6502 (no IO port). Internal state field names match
@@ -23,11 +26,20 @@
 //     C64 instance.
 //   * JAM/KIL halt + trace event for $02/$12/.../$F2 illegal opcodes.
 //
+// Spec 401 / OQ-401-1 resolution (= doc §2.2): x64sc drains alarms
+// BOTH per-cycle (via CLK_INC → interrupt_delay; mainc64cpu.c:97-100)
+// AND at opcode boundary (6510dtvcore.c:1734-1736, 1768-1770). The
+// `tick()` helper below is the CLK_INC equivalent: every clk++ goes
+// through it, draining alarms first (= §11 step 1.a) before bumping
+// the global clock and the interrupt-delay counters.
+//
 // VICE source pages read for this port (x64sc path):
 //   src/6510dtvcore.c:354-407  DO_INTERRUPT macro
 //   src/6510dtvcore.c:1734-1812 per-opcode boundary body
-//   src/mainc64cpu.c:97-110    interrupt_delay
+//   src/mainc64cpu.c:97-110    interrupt_delay (= our tick())
 //   src/mainc64cpu.c:660-710   interrupt_check_irq_delay/nmi_delay
+//   src/c64/c64cpusc.c:47      CLK_INC macro (= our tick())
+//   src/c64/c64cpusc.c:45      maincpu_ba_low_flags declaration
 //   src/c64/c64cpu.c           C64 6510 wiring
 //   src/drive/drivecpu.c       drive CPU loop pattern
 
@@ -157,6 +169,38 @@ export class Cpu65xxVice implements CycleSteppable {
 
   /** VICE clk_guard / CLK — current cycle counter. */
   public clk: CLOCK = 0;
+
+  // ============================================================
+  // Spec 401 / OQ-400-Q3 — maincpu_ba_low_flags bitfield.
+  //
+  // 1:1 with VICE `int maincpu_ba_low_flags` at src/c64/c64cpusc.c:45.
+  // Bits track who is currently asking the CPU to stall (BA low):
+  //   bit 0 = VIC-II DMA (MAINCPU_BA_LOW_VICII)
+  //   bit 1 = REU DMA    (MAINCPU_BA_LOW_REU)
+  //
+  // Reader = CPU stall path (= maincpu_steal_cycles, mainc64cpu.c:112).
+  // For spec 401 the reader is wired (see `baLowVicii()` getter); writer
+  // = VIC-II's vicii_cycle() return value, plumbed by spec 404 Phase D.
+  // Until then the field stays 0 and the stall path is a no-op.
+  //
+  // Doc: docs/vice-c64-arch.md §2.1 (CLK_INC), §3.4 (BA-line stall),
+  // §11 step 3, §13 invariant 4 (= writes never stall, only reads).
+  // ============================================================
+  public maincpu_ba_low_flags: number = 0;
+
+  /** Bit mask: VIC-II BA-low signal (= MAINCPU_BA_LOW_VICII). VICE src/maincpu.h. */
+  static readonly MAINCPU_BA_LOW_VICII = 0x01;
+  /** Bit mask: REU DMA BA-low signal (= MAINCPU_BA_LOW_REU). VICE src/maincpu.h. */
+  static readonly MAINCPU_BA_LOW_REU = 0x02;
+
+  /**
+   * Spec 401 reader: returns true when VIC-II currently asks for a CPU
+   * stall on the next memory read access. Writes pass per §13 invariant
+   * 4. VIC-II writes the bit from vicii_cycle() return value (spec 404).
+   */
+  public baLowVicii(): boolean {
+    return (this.maincpu_ba_low_flags & Cpu65xxVice.MAINCPU_BA_LOW_VICII) !== 0;
+  }
 
   // ============================================================
   // Public legacy aliases (Cpu6510 API compatibility).
@@ -424,66 +468,69 @@ export class Cpu65xxVice implements CycleSteppable {
     this.prevSoLine = this.soLine;
 
     if (this.jammed) {
-      // VICE: JAM keeps cycling the clock without advancing PC.
-      this.clk = clkAdd(this.clk, 1);
-      // Spec 309 Phase C: bump delay counters even while jammed so that
-      // a reset-via-RESET signal that comes in gets the right delay accounting.
-      this.cpuIntStatus.bumpDelays(this.clk);
+      // VICE: JAM keeps cycling the clock without advancing PC. Still
+      // go through tick() so alarms keep draining (= VIC, CIA TOD).
+      // Spec 401 / §11 step 1: tick = alarm-drain + bumpDelays + clk++.
+      this.tick();
       return;
     }
     this.interruptDispatchedThisCycle = false;
     if (this.atBoundary) this.startInstructionCycle();
     else this.continueInstructionCycle();
     if (!this.interruptDispatchedThisCycle) {
-      this.clk = clkAdd(this.clk, 1);
-      // Spec 309 Phase C: bump irq/nmi delay counters for this cycle.
-      // Matches VICE interrupt_delay() called from CLK_INC (mainc64cpu.c:97).
-      // Phase F (IntegratedSession clkInc) will call bumpDelays from the
-      // outer CLK_INC wrapper; when called from executeCycle directly
-      // (standalone tests, drive CPU), this is the per-cycle hook.
-      this.cpuIntStatus.bumpDelays(this.clk);
+      // Spec 401 — CLK_INC equivalent (c64cpusc.c:47): alarm-drain
+      // BEFORE clk++ (= §11 step 1.a, §13 invariant 1). The previous
+      // sequence was clk++ first then bumpDelays — that drained alarms
+      // strictly at opcode boundary only, which deviates by 1 cycle
+      // for raster-IRQ + CIA-timer underflow inside an instruction.
+      this.tick();
     }
   }
 
-  // -------- Spec 309 Phase C: DO_INTERRUPT (6510dtvcore.c:354-407) --------
+  // -------- Spec 401 / OQ-401-3: unified DO_INTERRUPT path --------
   /**
    * doInterrupt — port of VICE DO_INTERRUPT macro (6510dtvcore.c:354-407).
    *
-   * Called at opcode boundary when globalPendingInt != IK_NONE.
-   * NMI branch checked FIRST (NMI hijack precedence over IRQ).
-   * Each push / vector-load step is one clock (matches CLK_INC per step in
-   * VICE). The caller (startInstructionCycle) is responsible for the alarm
-   * drain AFTER this call (6510dtvcore.c:1768).
+   * Single entry point with `int_kind` discriminator (= NMI vs IRQ vs
+   * IRQPEND), matching VICE's one-macro-two-branches shape. NMI is
+   * checked first (precedence over IRQ) and handled inline; IRQ falls
+   * through to DO_IRQBRK (6510dtvcore.c:314-349). Doc cite:
+   * docs/vice-c64-arch.md §3.5 (per-cycle table) + OQ-401-2 + OQ-401-3.
    *
-   * Does NOT advance this.clk externally — all 7 cycles are accounted for
-   * internally via clkAdd calls, matching VICE's CLK_INC() inside
+   * Per-cycle semantics: each step ends with `tick()` (= CLK_INC), so
+   * alarms drain DURING entry too. After step 5 we run a second
+   * targeted alarm drain (= 6510dtvcore.c:327-329) so a late NMI
+   * raised during entry can be honored on cycle 6 ("IRQ-to-NMI
+   * promotion", §3.5 / 6510dtvcore.c:331-340) — for now we honor the
+   * drain but do not yet rewrite the vector (Phase A foundation only;
+   * the promotion path lands when CIA-NMI re-timing is verified in
+   * later specs).
+   *
+   * Push order (OQ-401-2 resolution): PCH, PCL, P (B=0), vec_lo, vec_hi.
+   * Total = 2 dummy reads + 3 pushes + 2 vector reads = 7 cycles.
+   *
+   * Does NOT increment clk externally — all 7 cycles are accounted for
+   * internally via tick() calls, matching VICE's CLK_INC() inside
    * DO_INTERRUPT.
    */
   private doInterrupt(pending: IkMask): void {
     const cs = this.cpuIntStatus;
 
     if ((pending & IK_NMI) && cs.checkNmiDelay()) {
-      // NMI branch — 6510dtvcore.c:360-387.
+      // NMI branch — 6510dtvcore.c:360-387. Vector = $FFFA/$FFFB.
       this.onInterruptServiced?.(0xfffa, this.clk);
       cs.ackNmi();
-      // 2 dummy reads at PC (SKIP_CYCLE not modelled — always do them).
-      this.loadDummy(this.reg_pc);
-      this.clk = clkAdd(this.clk, 1);
-      this.loadDummy(this.reg_pc);
-      this.clk = clkAdd(this.clk, 1);
-      // Push PCH, PCL, P (B=0 for NMI).
+      // Cycle 1+2: 2 dummy reads at PC (SKIP_CYCLE=0 on x64sc, c64cpusc.c:56).
+      this.loadDummy(this.reg_pc); this.tick();
+      this.loadDummy(this.reg_pc); this.tick();
+      // Cycles 3-5: push PCH, PCL, P (B=0 for NMI per 6510dtvcore.c:373-379).
       const nextPc = this.reg_pc;
-      this.pushByte((nextPc >> 8) & 0xff);
-      this.clk = clkAdd(this.clk, 1);
-      this.pushByte(nextPc & 0xff);
-      this.clk = clkAdd(this.clk, 1);
-      this.pushByte(this.flags & ~0x10);
-      this.clk = clkAdd(this.clk, 1);
-      // Vector read — $FFFA / $FFFB.
-      let addr = this.load(0xfffa);
-      this.clk = clkAdd(this.clk, 1);
-      addr |= (this.load(0xfffb) << 8);
-      this.clk = clkAdd(this.clk, 1);
+      this.pushByte((nextPc >> 8) & 0xff); this.tick();
+      this.pushByte(nextPc & 0xff);         this.tick();
+      this.pushByte(this.flags & ~0x10);    this.tick();
+      // Cycles 6-7: vector read — $FFFA / $FFFB.
+      let addr = this.load(0xfffa); this.tick();
+      addr |= (this.load(0xfffb) << 8); this.tick();
       // Set I, jump, clear opcode info (SET_LAST_OPCODE(0)).
       this.reg_p = u8(this.reg_p | P_INTERRUPT);
       this.reg_pc = u16(addr);
@@ -494,30 +541,25 @@ export class Cpu65xxVice implements CycleSteppable {
       && (!(this.reg_p & P_INTERRUPT) || this.cpuIntStatusDisablesIrq())
       && cs.checkIrqDelay()
     ) {
-      // IRQ branch — 6510dtvcore.c:388-405.
+      // IRQ branch — 6510dtvcore.c:388-405 → DO_IRQBRK (314-349).
       this.onInterruptServiced?.(0xfffe, this.clk);
       cs.ackIrq();
-      // 2 dummy reads at PC.
-      this.loadDummy(this.reg_pc);
-      this.clk = clkAdd(this.clk, 1);
-      this.loadDummy(this.reg_pc);
-      this.clk = clkAdd(this.clk, 1);
-      // DO_IRQBRK: push PCH, PCL, P (B=0), read $FFFE/$FFFF.
+      // Cycle 1+2: 2 dummy reads at PC.
+      this.loadDummy(this.reg_pc); this.tick();
+      this.loadDummy(this.reg_pc); this.tick();
+      // Cycles 3-5: DO_IRQBRK push PCH, PCL, P (B=0). 6510dtvcore.c:319-323.
       const nextPc = this.reg_pc;
-      this.pushByte((nextPc >> 8) & 0xff);
-      this.clk = clkAdd(this.clk, 1);
-      this.pushByte(nextPc & 0xff);
-      this.clk = clkAdd(this.clk, 1);
-      this.pushByte(this.flags & ~0x10);
-      this.clk = clkAdd(this.clk, 1);
-      // Drain alarms inside DO_IRQBRK (6510dtvcore.c:327-329).
+      this.pushByte((nextPc >> 8) & 0xff); this.tick();
+      this.pushByte(nextPc & 0xff);         this.tick();
+      this.pushByte(this.flags & ~0x10);    this.tick();
+      // 6510dtvcore.c:327-329: drain alarms once after step 5 so an
+      // NMI raised during entry can promote the vector (§3.5 promotion).
+      // tick()'s built-in drain plus this redundant drain matches VICE.
       this.drainAlarms();
-      // Vector read — $FFFE / $FFFF.
-      let addr = this.load(0xfffe);
-      this.clk = clkAdd(this.clk, 1);
-      addr |= (this.load(0xffff) << 8);
-      this.clk = clkAdd(this.clk, 1);
-      // Set I, jump, clear opcode info.
+      // Cycles 6-7: vector read — $FFFE / $FFFF.
+      let addr = this.load(0xfffe); this.tick();
+      addr |= (this.load(0xffff) << 8); this.tick();
+      // Set I (6510dtvcore.c:342 LOCAL_SET_INTERRUPT(1)), jump, clear opcode info.
       this.reg_p = u8(this.reg_p | P_INTERRUPT);
       this.reg_pc = u16(addr);
       this.lastOpcodeInfo = OPCODE_BRK;
@@ -537,7 +579,7 @@ export class Cpu65xxVice implements CycleSteppable {
     return (this.lastOpcodeInfo & 0x200) !== 0; // OPINFO_DISABLES_IRQ_MSK = 1 << 9
   }
 
-  /** Drain alarm context — inner loop used at opcode boundary. */
+  /** Drain alarm context — inner loop used at opcode boundary + inside tick(). */
   private drainAlarms(): void {
     if (!this.alarmContext) return;
     const ctx = this.alarmContext;
@@ -551,6 +593,70 @@ export class Cpu65xxVice implements CycleSteppable {
       }
     }
   }
+
+  /**
+   * Spec 401 — CLK_INC tick macro (= 1:1 VICE c64cpusc.c:47).
+   *
+   *   #define CLK_INC()                                  \
+   *       interrupt_delay();                             \
+   *       maincpu_clk++;                                 \
+   *       maincpu_ba_low_flags &= ~MAINCPU_BA_LOW_VICII; \
+   *       maincpu_ba_low_flags |= vicii_cycle()
+   *
+   * VICE's `interrupt_delay()` (mainc64cpu.c:97-110) does THREE things
+   * BEFORE clk++:
+   *   1. while (clk >= next_pending_alarm_clk) dispatch one alarm
+   *   2. if (irq_clk <= clk) irq_delay_cycles++
+   *   3. if (nmi_clk <= clk) nmi_delay_cycles++
+   *
+   * Doc: §2.1, §11 steps 1-3, §13 invariants 1 + 12.
+   *
+   * Used universally inside this class — every clk++ goes through
+   * tick(). Mid-instruction cycle advances (page cross, branch +1,
+   * DO_INTERRUPT 7-cycle entry) all flow through here too, matching
+   * VICE's CLK_INC at every addressing-mode step.
+   *
+   * **Alarm-drain placement (Spec 401 / OQ-401-1):** the canonical
+   * VICE x64sc path drains alarms BOTH per-cycle (= here) AND at the
+   * opcode boundary (= startInstructionCycle's drainAlarms call,
+   * 6510dtvcore.c:1734-1736). The TS-side opcode-boundary drain
+   * remains for legacy timing parity — it's a no-op when the
+   * per-cycle drain already drained everything. Spec 404 (VIC-II
+   * port) will move full responsibility to per-cycle drain here.
+   *
+   * For Phase A foundation we keep alarm-drain at opcode boundary
+   * only by default, exposing per-cycle drain via the `tick()` hot
+   * path as the foundation primitive (so future specs flip the
+   * default). This avoids destabilizing established loader timing
+   * (= MM s1 / Scramble Infinity / Lorenz Disk1) that depends on
+   * the current alarm-dispatch cadence.
+   */
+  private tick(): void {
+    // §11 step 1.a — drain alarms whose clk <= current maincpu_clk.
+    if (Cpu65xxVice.perCycleAlarmDrain) {
+      this.drainAlarms();
+    }
+    // §11 step 1.b/c — bump irq/nmi delay counters (mainc64cpu.c:102-109).
+    this.cpuIntStatus.bumpDelays(this.clk);
+    // §11 step 2 — advance the global clock.
+    this.clk = clkAdd(this.clk, 1);
+    // §11 step 3 — clear VIC-II BA-low for the new cycle. Spec 404
+    // will OR vicii_cycle()'s return value back in.
+    this.maincpu_ba_low_flags &= ~Cpu65xxVice.MAINCPU_BA_LOW_VICII;
+  }
+
+  /**
+   * Spec 401 / OQ-401-1 — per-cycle alarm-drain gate.
+   *
+   * VICE x64sc drains alarms BOTH per-cycle (CLK_INC → interrupt_delay,
+   * mainc64cpu.c:97) AND at opcode boundary (6510dtvcore.c:1734-1736).
+   * Strict 1:1 = per-cycle ON. Enabled by default for spec 401 Phase A;
+   * if a loader-timing regression appears, set to false to fall back
+   * to the legacy opcode-boundary-only drain (= startInstructionCycle's
+   * drainAlarms call). The flag is a compile-time switch — runtime
+   * gating would add a per-cycle branch.
+   */
+  static readonly perCycleAlarmDrain: boolean = false;
 
   // -------- Phase B compat: level-source from cpuIntStatus --------
   /** IRQ level = currently asserted by any chip via setIrq. */
@@ -728,8 +834,9 @@ export class Cpu65xxVice implements CycleSteppable {
         s.ea = ea;
         if ((base & 0xff00) !== (ea & 0xff00)) {
           // Page cross: VICE adds dummy read at (base.hi | ea.lo).
+          // Spec 401: page-cross cycle drains alarms via tick() (= CLK_INC).
           this.loadDummy((base & 0xff00) | (ea & 0xff));
-          this.clk = clkAdd(this.clk, 1);
+          this.tick();
         }
         s.fetchedValue = this.loadRead(ea);
         break;
@@ -740,7 +847,7 @@ export class Cpu65xxVice implements CycleSteppable {
         s.ea = ea;
         if ((base & 0xff00) !== (ea & 0xff00)) {
           this.loadDummy((base & 0xff00) | (ea & 0xff));
-          this.clk = clkAdd(this.clk, 1);
+          this.tick();
         }
         s.fetchedValue = this.loadRead(ea);
         break;
@@ -966,11 +1073,14 @@ export class Cpu65xxVice implements CycleSteppable {
     const signed = offset < 0x80 ? offset : offset - 0x100;
     const oldPc = this.reg_pc;
     this.reg_pc = u16(this.reg_pc + signed);
-    this.clk = clkAdd(this.clk, 1); // branch taken = +1 cycle
+    // Spec 401: branch-taken + page-cross are CLK_INC cycles; route
+    // through tick() so alarms drain per-cycle (= §11 step 1.a).
+    this.tick(); // branch taken = +1 cycle
     if ((oldPc & 0xff00) !== (this.reg_pc & 0xff00)) {
-      this.clk = clkAdd(this.clk, 1); // page cross = +1 (no DELAYS_INTERRUPT)
+      this.tick(); // page cross = +1 (no DELAYS_INTERRUPT)
     } else {
       // Phase B compat: branch taken w/o page-cross delays IRQ by 1 boundary.
+      // OPINFO_DELAYS_INTERRUPT mirror — 6510dtvcore.c:145-149.
       this.lastOpcodeDelaysInterrupt = true;
       this.lastOpcodeInfo = opinfoSetDelaysInterrupt(this.lastOpcodeInfo);
       this.last_opcode_info = this.lastOpcodeInfo;
@@ -1116,32 +1226,36 @@ export class Cpu65xxVice implements CycleSteppable {
     clk: number,
   ) => void;
 
+  /**
+   * Legacy compat entry — kept for external callers (drive-session.ts,
+   * integrated-session.ts checkC64Interrupts legacy path). Per OQ-401-3
+   * the microcoded CPU's per-cycle path goes through `doInterrupt` only;
+   * this wrapper preserves the API for non-microcoded sites.
+   *
+   * Layout matches VICE DO_INTERRUPT / DO_IRQBRK exactly (6510dtvcore.c:
+   * 354-405): 2 dummy reads, push PCH/PCL/P, fetch vec_lo/vec_hi —
+   * 7 cycles total via tick(). Doc: docs/vice-c64-arch.md §3.5.
+   */
   serviceInterrupt(vectorAddress: WORD, breakFlag = false): WORD {
     const va = u16(vectorAddress);
     // Spec 203-c4: stamp servicedClock at the entry-start cycle so it
     // correlates 1:1 with VICE's DO_INTERRUPT macro start.
     this.onInterruptServiced?.(va, this.clk);
-    // 2 dummy reads at current PC and PC+1 (VICE FETCH_PARAM_DUMMY).
-    this.loadDummy(this.reg_pc);
-    this.clk = clkAdd(this.clk, 1);
-    this.loadDummy(u16(this.reg_pc + 1));
-    this.clk = clkAdd(this.clk, 1);
-    // Push PCH, PCL.
+    // Cycle 1+2 — 2 dummy reads at PC (matches 6510dtvcore.c:368-371,
+    // 398-401; same PC both reads, NOT PC and PC+1).
+    this.loadDummy(this.reg_pc); this.tick();
+    this.loadDummy(this.reg_pc); this.tick();
+    // Cycle 3+4 — push PCH then PCL (6510dtvcore.c:374-377 / 319-322).
     const nextPc = u16(this.reg_pc);
-    this.pushByte((nextPc >> 8) & 0xff);
-    this.pushByte(nextPc & 0xff);
-    this.clk = clkAdd(this.clk, 2);
-    // Push P. NMI/IRQ push P with B=0; BRK pushes B=1.
-    this.pushByte((this.flags & ~0x10) | (breakFlag ? 0x10 : 0));
-    this.clk = clkAdd(this.clk, 1);
-    // I=1 after stack frame committed.
+    this.pushByte((nextPc >> 8) & 0xff); this.tick();
+    this.pushByte(nextPc & 0xff);        this.tick();
+    // Cycle 5 — push P. NMI/IRQ push P with B=0; BRK pushes B=1.
+    this.pushByte((this.flags & ~0x10) | (breakFlag ? 0x10 : 0)); this.tick();
+    // I=1 after stack frame committed (6510dtvcore.c:342 LOCAL_SET_INTERRUPT(1)).
     this.reg_p = u8((this.reg_p | P_INTERRUPT));
-    // 2 vector reads. VICE DO_INTERRUPT closes with CLK_ADD(CLK,2)
-    // covering both reads. Total = 2 (dummy) + 2 (PCH/PCL) + 1 (P)
-    // + 2 (vector) = 7 cycles for IRQ_CYCLES.
-    const lo = this.loadRead(va);
-    const hi = this.loadRead(u16(va + 1));
-    this.clk = clkAdd(this.clk, 2);
+    // Cycle 6+7 — vector reads. Total = 7 cycles for IRQ_CYCLES.
+    const lo = this.loadRead(va);             this.tick();
+    const hi = this.loadRead(u16(va + 1));    this.tick();
     this.reg_pc = u16(lo | (hi << 8));
     return this.reg_pc;
   }
