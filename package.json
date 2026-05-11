@@ -85,6 +85,8 @@
     "smoke:406-vice-diff-trace": "npm run build:mcp && node scripts/smoke-406-vice-diff-trace.mjs",
     "smoke:406-boot-ladder": "npm run build:mcp && node scripts/smoke-406-boot-ladder.mjs",
     "smoke:407-drive-struct": "npm run build:mcp && node scripts/smoke-407-drive-struct.mjs",
+    "smoke:409-sync-factor": "npm run build:mcp && node scripts/smoke-409-sync-factor.mjs",
+    "smoke:409-push-flush": "npm run build:mcp && node scripts/smoke-409-push-flush.mjs",
     "smoke:vic-fidelity": "npm run build:mcp && node scripts/smoke-vic-fidelity.mjs",
     "smoke:vic-cycle-log": "npm run build:mcp && node scripts/smoke-vic-cycle-log.mjs",
     "smoke:vic-pixel-perfect": "npm run build:mcp && node scripts/smoke-vic-pixel-perfect.mjs",

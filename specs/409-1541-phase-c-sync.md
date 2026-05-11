@@ -1,9 +1,40 @@
 # Spec 409 — 1541 Phase C: Sync model
 
-**Status:** PROPOSED
+**Status:** IMPLEMENTED 2026-05-11
 **Branch:** `vice-arch-port`
 **Depends on:** 408
 **Doctrine:** 1:1 VICE TDE port.
+
+## Implementation notes (2026-05-11)
+
+- `src/runtime/headless/drive/drive-cpu.ts` — pinned exact VICE
+  `sync_factor` constants (PAL `0x103D5`, NTSC `0xFA4F`) computed via
+  `floor(65536 * 1_000_000 / cycles_per_sec)` matching
+  `drivesync.c:57`. Added `driveSetMachineParameter(cyclesPerSec)`
+  (1:1 with `drive_set_machine_parameter`) +
+  `getSyncFactor16dot16()` accessor + `driveCpuExecuteOne(hostClk)`
+  wrapper (= `drive_cpu_execute_one` shape per `drive.c:991`).
+  Module constants `SYNC_FACTOR_1541_PAL` / `SYNC_FACTOR_1541_NTSC`
+  / `C64_PAL_CYCLES_PER_SEC` / `C64_NTSC_CYCLES_PER_SEC` /
+  `DRIVE_NOMINAL_HZ` exported for smokes.
+- `src/runtime/headless/kernel/headless-machine-kernel.ts` — kernel
+  now calls `drive.driveSetMachineParameter(cyclesPerSec)` directly
+  with PAL/NTSC selection, replacing the legacy ratio-only
+  `setSyncRatio` call so VICE's exact `floor()` constant is used
+  end-to-end. Legacy `setSyncRatio` retained on `DriveCpu` for
+  back-compat (also now uses `Math.floor`).
+- Push-flush call-site audit: `HeadlessKernelBus.c64Read` /
+  `c64Write` at `$DD00` already call `catchUpDriveIfReady(ctx)`
+  BEFORE the bus mutation — TS analog of `iecbus_cpu_write_conf1`
+  / `iecbus_cpu_read_conf1` (= arc42 §5.11 rows 1-2, the only
+  sites active for a single 1541 at unit 8). No additional sites
+  required for stock 1541; conf2/conf3, burst, parallel cable,
+  snapshot path are out of scope for this branch.
+- New smokes: `scripts/smoke-409-sync-factor.mjs` (5/5),
+  `scripts/smoke-409-push-flush.mjs` (6/6).
+- Regression: `smoke:cpu-fidelity` 31/31, `smoke:cia-fidelity`
+  22/22, `smoke:408-drive-mem-dispatch` 29/29,
+  `smoke:407-drive-struct` 20/20.
 
 ## Goal
 

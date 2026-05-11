@@ -62,6 +62,37 @@ export const VIA1_END = 0x1bff;
 export const VIA2_BASE = 0x1c00;
 export const VIA2_END = 0x1fff;
 
+// ─────────────────────────────────────────────────────────────────────
+// Spec 409 — VICE-exact sync_factor constants.
+//
+// Computed via `drive_set_machine_parameter(cycles_per_sec)`:
+//   sync_factor = floor(65536 * 1_000_000 / cycles_per_sec)
+//
+// Doc:  docs/vice-1541-arch.md §5.1 (formula + values), §17 OQ-409-1/2/3.
+// VICE: src/drive/drivesync.c:57.
+//       src/c64/c64.h:35 C64_PAL_CYCLES_PER_SEC  = 985248.
+//       src/c64/c64.h:42 C64_NTSC_CYCLES_PER_SEC = 1022730.
+// ─────────────────────────────────────────────────────────────────────
+
+/** VICE C64 PAL cycles per second. Source: `src/c64/c64.h:35`. */
+export const C64_PAL_CYCLES_PER_SEC = 985248;
+/** VICE C64 NTSC cycles per second. Source: `src/c64/c64.h:42`. */
+export const C64_NTSC_CYCLES_PER_SEC = 1022730;
+/**
+ * Drive nominal clock: 1.000 MHz, hard-coded literal in
+ * `src/drive/drivesync.c:57` (= `1000000.0` inside the floor formula).
+ * No separate `drive_freq` symbol exists; see OQ-409-3 in
+ * `docs/vice-1541-arch.md §17`.
+ */
+export const DRIVE_NOMINAL_HZ = 1_000_000;
+
+/** PAL sync_factor for 1541 (clock_frequency = 1). 0x103D5 = 66517. */
+export const SYNC_FACTOR_1541_PAL =
+  Math.floor(65536 * (DRIVE_NOMINAL_HZ / C64_PAL_CYCLES_PER_SEC));
+/** NTSC sync_factor for 1541 (clock_frequency = 1). 0xFA4F = 64079. */
+export const SYNC_FACTOR_1541_NTSC =
+  Math.floor(65536 * (DRIVE_NOMINAL_HZ / C64_NTSC_CYCLES_PER_SEC));
+
 export interface DriveCpuOptions {
   deviceId?: number;        // 8-11; default 8
   rom?: LoadedDriveRom;     // skip ROM load if caller provides one
@@ -581,8 +612,15 @@ export class DriveCpu implements Drive1541Unit {
   public get alarmContext(): AlarmContext { return this.bus.alarmContext; }
   // ───────────────────────────────────────────────────────────────────
 
-  // Spec 090: 16.16 fixed-point sync_factor. drive_cycles_per_c64_cycle.
-  // PAL: 1.01477 → 0x103C5 (= 1.0149 in 16.16). NTSC: 0x10000 (1.0).
+  // Spec 090 / Spec 409 Phase C: 16.16 fixed-point sync_factor.
+  // drive_cycles_per_c64_cycle, computed via VICE's exact formula
+  //   sync_factor = floor(65536 * (drive_freq / host_freq))
+  //              ≡ floor(65536 * 1_000_000 / cycles_per_sec)
+  // PAL  (985248):  0x103D5 = 66517 (drive runs FASTER than C64).
+  // NTSC (1022730): 0xFA4F  = 64079 (drive runs slower).
+  //
+  // Doc: docs/vice-1541-arch.md §5.1, §13 Phase C step 7, §17 OQ-409-1/2/3.
+  // VICE: src/drive/drivesync.c:57 drive_set_machine_parameter().
   private syncFactor16dot16 = 0;
   // Drive's last sync clock (in C64 cycles) — i.e. up to which C64
   // cycle we have already caught up.
@@ -760,9 +798,69 @@ export class DriveCpu implements Drive1541Unit {
     this.sleeping = false;
   }
 
-  // Spec 090: configure sync ratio. PAL = 1.01477 (1MHz drive / 985.248kHz C64).
+  // Spec 090 / Spec 409: configure sync ratio. PAL = 1.01477
+  // (1MHz drive / 985.248kHz C64).
+  //
+  // **Strict 1:1 VICE port (spec 409)**: the canonical factor is computed
+  // via `driveSetMachineParameter(cyclesPerSec)` (= VICE
+  // drive_set_machine_parameter, drivesync.c:57). This back-compat helper
+  // accepts the (drive/host) ratio used by IntegratedSession and converts
+  // via the same `floor(ratio * 65536)` formula so callers that already
+  // hold the ratio get the exact same constant VICE would.
+  //
+  // Doc: docs/vice-1541-arch.md §5.1 + §13 Phase C step 7.
+  // VICE: src/drive/drivesync.c:57.
   setSyncRatio(driveCyclesPerC64Cycle: number): void {
-    this.syncFactor16dot16 = Math.round(driveCyclesPerC64Cycle * 0x10000);
+    // VICE uses floor(); we match exactly. round() drifts for some
+    // inputs (e.g. NTSC ratio with C64_HZ_NTSC=1022727 vs 1022730).
+    this.syncFactor16dot16 = Math.floor(driveCyclesPerC64Cycle * 0x10000);
+  }
+
+  /**
+   * Spec 409 — VICE-exact sync_factor init.
+   *
+   * Mirrors `drive_set_machine_parameter(long cycles_per_sec)` in
+   * `src/drive/drivesync.c:55-65`:
+   *
+   * ```c
+   * sync_factor = (unsigned int)floor(65536.0 * (1000000.0 /
+   *                                   (double)cycles_per_sec));
+   * for (dnr = 0; dnr < NUM_DISK_UNITS; dnr++)
+   *     drivesync_factor(diskunit_context[dnr]);
+   * ```
+   *
+   * Then `drivesync_factor` multiplies by `clock_frequency` (1 for
+   * 1541, 2 for 1581/1571). 1541 only here → factor unchanged.
+   *
+   * - PAL  cycles_per_sec = 985248  → 66517 = 0x103D5.
+   * - NTSC cycles_per_sec = 1022730 → 64079 = 0xFA4F.
+   *
+   * Recomputed on PAL/NTSC switch (= VICE `c64_set_model_timing()`
+   * at `src/c64/c64.c:1347`).
+   *
+   * Doc: docs/vice-1541-arch.md §5.1 (formula), §5.3 (PAL/NTSC
+   *      switch), §13 Phase C step 7, §17 OQ-409-1/2/3.
+   * Doc: docs/vice-iec-arc42.md §5.12.
+   * VICE: src/drive/drivesync.c:55-65 drive_set_machine_parameter().
+   */
+  driveSetMachineParameter(cyclesPerSec: number): void {
+    if (!(cyclesPerSec > 0)) {
+      throw new Error(`driveSetMachineParameter: invalid cyclesPerSec=${cyclesPerSec}`);
+    }
+    // clock_frequency = 1 for 1541 (this.clockFrequency = 1 const).
+    this.syncFactor16dot16 = this.clockFrequency *
+      Math.floor(65536.0 * (1000000.0 / cyclesPerSec));
+  }
+
+  /**
+   * Spec 409 — expose the 16.16 sync_factor for verification smokes
+   * and snapshot/debug tooling. Pure getter; no side-effects.
+   *
+   * VICE: `diskunit_context_t.cpud->sync_factor` (drivetypes.h /
+   * drivesync.c).
+   */
+  getSyncFactor16dot16(): number {
+    return this.syncFactor16dot16;
   }
 
   reset(pc?: number): void {
@@ -776,6 +874,28 @@ export class DriveCpu implements Drive1541Unit {
   // Sync drive clock baseline (called when c64Clk wraps or on cold reset).
   setSyncBaseline(c64Clk: number): void {
     this.lastSyncC64Clk = c64Clk;
+  }
+
+  /**
+   * Spec 409 — VICE `drive_cpu_execute_one(unit, host_clk)` wrapper.
+   *
+   * Push-mode entry from the C64 side for a single drive unit. For the
+   * stock 1541 (this class) this is a thin alias for `executeToClock`;
+   * VICE picks `drivecpu_execute` (6502) vs `drivecpu65c02_execute` based
+   * on `drv->type` (see `src/drive/drive.c:991-1000`). With only the
+   * 6502-based 1541 implemented here, dispatch is direct.
+   *
+   * Mirrors the §13 Phase C step 10 contract:
+   *
+   *   Convert (host_clk - last_clk) cycles to drive cycles via
+   *   fixed-point accumulation, run 6502 until drive_clk ≥ stop_clk,
+   *   update last_clk.
+   *
+   * Doc: docs/vice-1541-arch.md §13 Phase C step 10.
+   * VICE: src/drive/drive.c:991 `drive_cpu_execute_one`.
+   */
+  driveCpuExecuteOne(hostClk: number): void {
+    this.executeToClock(hostClk);
   }
 
   // Spec 090: execute drive cycles up to the given C64 clock value.

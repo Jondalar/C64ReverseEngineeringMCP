@@ -34,7 +34,11 @@ import { installCia1 } from "../peripherals/cia1.js";
 import type { KeyboardMatrix, JoystickState } from "../peripherals/keyboard.js";
 import { installCia2 } from "../peripherals/cia2.js";
 import type { Cia6526Vice } from "../cia/cia6526-vice.js";
-import { DriveCpu } from "../drive/drive-cpu.js";
+import {
+  DriveCpu,
+  C64_PAL_CYCLES_PER_SEC,
+  C64_NTSC_CYCLES_PER_SEC,
+} from "../drive/drive-cpu.js";
 import { TrackBuffer, HeadPosition } from "../drive/head-position.js";
 import { GcrShifter } from "../drive/gcr-shifter.js";
 import { G64Parser } from "../../../disk/g64-parser.js";
@@ -409,8 +413,24 @@ export class HeadlessMachineKernel implements MachineKernel {
     // Spec 141 v2: drive clock source for ATN edge IRQ stamping.
     this.iecBus.driveClockSource = () =>
       (this.drive.cpu as { cycles: number }).cycles;
-    // Spec 090: configure drive's sync ratio + zero baseline.
-    this.drive.setSyncRatio(deps.driveCyclesPerC64Cycle);
+    // Spec 090 / Spec 409: configure drive's sync_factor + zero baseline.
+    //
+    // VICE init path (`drive_set_machine_parameter(cyclesPerSec)`) takes
+    // the host C64 cycles-per-second directly and computes the 16.16
+    // sync_factor via `floor(65536 * 1_000_000 / cycles_per_sec)`. We
+    // mirror that here using the kernel's PAL/NTSC selection so the
+    // factor is byte-identical to VICE (PAL=0x103D5, NTSC=0xFA4F).
+    //
+    // The legacy `setSyncRatio(driveCyclesPerC64Cycle)` path is preserved
+    // for back-compat; the new entry point is the canonical 1:1 port.
+    //
+    // Doc: docs/vice-1541-arch.md §5.1, §5.3, §13 Phase C step 7,
+    //      §17 OQ-409-1/2/3.
+    // VICE: src/drive/drivesync.c:55-65 drive_set_machine_parameter().
+    const cyclesPerSec = isPal
+      ? C64_PAL_CYCLES_PER_SEC
+      : C64_NTSC_CYCLES_PER_SEC;
+    this.drive.driveSetMachineParameter(cyclesPerSec);
     this.drive.setSyncBaseline(0);
     this.eventCatchup = new EventCatchupStrategy({
       drive: this.drive,
