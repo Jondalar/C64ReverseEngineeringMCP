@@ -27,6 +27,12 @@ import { loadDriveRom, DRIVE_ROM_BASE, DRIVE_ROM_SIZE, type LoadedDriveRom } fro
 import { IecBusCore } from "../iec/iec-bus-core.js";
 import type { IecBus } from "../iec/iec-bus.js";
 import type { TrackBuffer, HeadPosition } from "./head-position.js";
+import {
+  DRIVE_TYPE_1541,
+  type Drive1541Unit,
+  type DriveSlot,
+  type DriveType1541Family,
+} from "./drive-types.js";
 
 export const DRIVE_RAM_SIZE = 0x0800; // $0000-$07FF
 export const VIA1_BASE = 0x1800;
@@ -224,7 +230,21 @@ export class DriveBus implements CpuMemory {
 // Sync points: every $DD00 access (via KernelBus catch-up) +
 // after each C64 instruction. Drive's clock advances independently
 // using fixed-point sync_factor (drive 1MHz / C64 985.248kHz ratio).
-export class DriveCpu {
+//
+// Spec 407 — 1541 Phase A: `DriveCpu` now also satisfies the
+// `Drive1541Unit` interface (= `diskunit_context_t` shape) by exposing
+// `clk`, `drives[2]`, `cpu`, `via1`, `via2`, `cia1571=null`, `rom`,
+// `ram`, `alarmContext`, `clockFrequency=1`, `type=DRIVE_TYPE_1541`,
+// `mynumber=deviceId`, `reset()`, `shutdown()`. The legacy flat fields
+// (`bus.via1`, etc.) are preserved verbatim — no consumer-side rewrite
+// required by spec 407 (consumer rewrite handled by 408/409).
+//
+// Doc: docs/vice-1541-arch.md §2.1 + §13 Phase A.
+// VICE: src/drive/drivetypes.h:166 `diskunit_context_t`,
+//       src/drive/drive.h:236 `drive_t`,
+//       src/drive/drive.c:162 `drive_init()`,
+//       src/drive/drive.c:298 `drive_shutdown()`.
+export class DriveCpu implements Drive1541Unit {
   // Legacy whole-instruction CPU (default). May be replaced by the
   // cycled CPU when useMicrocodedCpu=true.
   public readonly cpu: Cpu6510 | Cpu65xxVice;
@@ -238,6 +258,70 @@ export class DriveCpu {
   // ticks `gcrShifter` per drive cycle and bypasses
   // `trackBuffer.tickShifter`.
   public readonly gcrShifter?: GcrShifter;
+
+  // ───────────────────────────────────────────────────────────────────
+  // Spec 407 — Drive1541Unit (= `diskunit_context_t`) shape.
+  //
+  // These fields project the existing flat state onto the nested VICE
+  // structure. They are non-allocating accessors (drives[] is a single
+  // immutable tuple; clk reads cpu.cycles live).
+  //
+  // VICE: src/drive/drivetypes.h:166 `diskunit_context_t`.
+  // Doc: docs/vice-1541-arch.md §2.1.
+  // ───────────────────────────────────────────────────────────────────
+
+  /** Device number (8..11). Mirrors VICE `diskunit_context_t.mynumber`. */
+  public readonly mynumber: number;
+  /**
+   * Drive type. Always `DRIVE_TYPE_1541` for the supported config
+   * (1541-II is identical at this layer; only ROM differs — doc §2.2).
+   */
+  public readonly type: DriveType1541Family = DRIVE_TYPE_1541;
+  /**
+   * 1541 = 1 MHz drive. PAL/NTSC switch affects only `sync_factor`,
+   * not `clock_frequency` (doc §13 step 2 + §5.1).
+   */
+  public readonly clockFrequency: 1 = 1;
+  /** 1571-only CIA. NULL for 1541 (= doc §13 step 2 explicit). */
+  public readonly cia1571: null = null;
+  /**
+   * `drives[NUM_DRIVES]`. 1541 uses slot 0 only; slot 1 is `null`
+   * (= VICE NULL pointer for the unused 1571 second-head slot).
+   * OQ-407-1 resolution (doc §17). Tuple is constructed in the
+   * `DriveCpu` constructor after slot 0 fields are assigned. Slot 0
+   * may be `null` for harness configurations without a GCR pipeline.
+   */
+  public readonly drives: readonly [DriveSlot | null, DriveSlot | null];
+
+  /**
+   * Per-unit drive clock (= `*clk_ptr` in VICE, indirecting to
+   * `diskunit_clk[mynumber]`). Reads `cpu.cycles` live so existing
+   * code paths that drive `cpu.cycles` stay authoritative.
+   *
+   * VICE: `drivetypes.h:166` `CLOCK *clk_ptr`.
+   */
+  public get clk(): number { return this.cpu.cycles; }
+  /**
+   * VIA1 — IEC interface. Alias of `bus.via1`. Doc §6.
+   * VICE: `src/drive/iec/via1d1541.c`.
+   */
+  public get via1(): Via1d1541 { return this.bus.via1; }
+  /**
+   * VIA2 — disk controller. Alias of `bus.via2`. Doc §7.
+   * VICE: `src/drive/iecieee/via2d.c`.
+   */
+  public get via2(): Via2d1541 { return this.bus.via2; }
+  /** Drive RAM (2 KB stock 1541). Alias of `bus.ram`. Doc §4.1. */
+  public get ram(): Uint8Array { return this.bus.ram; }
+  /** Drive ROM (16 KB). Alias of `bus.rom`. Doc §4.1. */
+  public get rom(): Uint8Array { return this.bus.rom; }
+  /**
+   * Per-unit alarm context. VIA1 + VIA2 alarms register here.
+   * Alias of `bus.alarmContext`. Doc §13 step 1.
+   * VICE: `drivecpu.c:356` `drivecpu_execute()`.
+   */
+  public get alarmContext(): AlarmContext { return this.bus.alarmContext; }
+  // ───────────────────────────────────────────────────────────────────
 
   // Spec 090: 16.16 fixed-point sync_factor. drive_cycles_per_c64_cycle.
   // PAL: 1.01477 → 0x103C5 (= 1.0149 in 16.16). NTSC: 0x10000 (1.0).
@@ -267,6 +351,9 @@ export class DriveCpu {
   public wakeUp(): void { this.sleeping = false; }
 
   constructor(opts: DriveCpuOptions = {}) {
+    // Spec 407 — record device number for Drive1541Unit shape.
+    // VICE: `diskunit_context_t.mynumber` (drivetypes.h:166).
+    this.mynumber = opts.deviceId ?? 8;
     // Sprint 113 Phase 2: DriveBus needs the CPU clock pointer for VIA1/VIA2
     // construction. CPU hasn't been built yet, so we pass a live closure that
     // reads cpu.cycles once the cpu field is assigned below.
@@ -368,6 +455,51 @@ export class DriveCpu {
       const cpu = this.cpu as { flags: number };
       this.trackBuffer.onByteReady = () => { cpu.flags |= 0x40; };
     }
+
+    // Spec 407 — populate `drives[]` tuple. 1541 uses slot 0 only;
+    // slot 1 is `null` (= VICE NULL for unused 1571 second-head slot,
+    // OQ-407-1). The slot wraps the per-physical-drive state — head
+    // position, track buffer, GCR shifter — that VICE keeps inside
+    // `drive_t` (drive.h:236). The fields are optional on `DriveCpu`
+    // (depend on caller-provided opts.gcr/opts.gcrShifter); slot 0 is
+    // only emitted when both head + shifter are supplied. When neither
+    // is wired (= equiv tests, raw CPU/VIA harnesses) slot 0 is also
+    // `null` — matches VICE behaviour for a unit with no image
+    // attached (drives[0] still allocated but inactive).
+    //
+    // VICE: src/drive/drive.h:236 `drive_t`,
+    //       src/drive/drivetypes.h:169 `drives[NUM_DRIVES]`.
+    const slot0: DriveSlot | null =
+      this.headPosition && this.trackBuffer && this.gcrShifter
+        ? {
+            drive: 0,
+            diskunit: this,
+            headPosition: this.headPosition,
+            trackBuffer: this.trackBuffer,
+            gcrShifter: this.gcrShifter,
+            readOnly: opts.gcr?.writeProtected ?? false,
+          }
+        : null;
+    this.drives = [slot0, null] as const;
+  }
+
+  /**
+   * Spec 407 — `drive_shutdown` stub.
+   *
+   * VICE releases per-unit resources here: alarm context, image
+   * detach, log destruction. In the TS port there is no malloc to
+   * free; we clear references and run a `bus.reset()` to drop state
+   * predictably. Idempotent.
+   *
+   * Doc: docs/vice-1541-arch.md §2.3 (boot/init) + §13-H step 33.
+   * VICE: src/drive/drive.c:298 `drive_shutdown()`.
+   */
+  shutdown(): void {
+    this.bus.reset();
+    this.cpu.reset();
+    this.lastSyncC64Clk = 0;
+    this.cycleAccumulator16dot16 = 0;
+    this.sleeping = false;
   }
 
   // Spec 090: configure sync ratio. PAL = 1.01477 (1MHz drive / 985.248kHz C64).
