@@ -284,17 +284,15 @@ export class HeadlessMachineKernel implements MachineKernel {
     // by VicIIVice on every irq state update; only level transitions
     // emit a kernel event.
     let vicPrevAsserted = false;
-    // Spec 309 Phase E': allocate VIC intNum once.
-    const vicIntNum = this.cpuIntStatus.newIntNum("VICII");
     const vicBusBackend: VicBackend = {
       stealCpuCycles: (count: number, _clk: number) => {
         (this.c64Cpu as { cycles: number }).cycles += count;
       },
       setIrqLine: (asserted: boolean, clk: number) => {
-        // Spec 309 Phase E': chip-side push — VIC pin level changes go
-        // direct into cpuIntStatus.setIrq. CPU reads globalPendingInt at
-        // opcode boundary; no session-side polling.
-        this.cpuIntStatus.setIrq(vicIntNum, asserted, clk);
+        // Phase E' REVERTED: chip-side push caused VIC graphics regression
+        // (D018 / raster splits misaligned by ~1-2 cycles vs pre-E' baseline).
+        // VIC IRQ stays sampled by session-side updateMicrocodedInterruptLines
+        // (= 1-cycle delay vs vic-tick = matches game expectations).
         if (asserted !== vicPrevAsserted) {
           vicPrevAsserted = asserted;
           this.emitIrqEvent({
