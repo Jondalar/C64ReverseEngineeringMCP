@@ -104,11 +104,17 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-416-1**: drv_data[16] — VICE indexes by device # (0..15).
-  TS may use Map. Confirm contiguous array preserves "no devices"
-  bit pattern (default 0xFF = all released).
-- **OQ-416-2**: cpu_bus byte transform — cite exact bit map from
-  c64iec.c:123 in doc §5.2.
+- **OQ-416-1**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §17.1`. `iecbus_t.drv_data[IECBUS_NUM]`
+  is a contiguous 16-element uint8 array
+  (`vice/src/iecbus.h:64`, `IECBUS_NUM = 16`); `iecbus_init`
+  memsets the whole struct to 0xFF so "no device" is naturally
+  0xFF (`vice/src/iecbus/iecbus.c:199`).
+- **OQ-416-2**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §17.1`. Bit map table added.
+  Formula `(((data<<2)&0x80) | ((data<<2)&0x40) | ((data<<1)&0x10))`
+  is `vice/src/c64/c64iec.c:121-124`; doc §5.1/§5.2 already give
+  the equivalent expansion.
 
 ## Files touched
 

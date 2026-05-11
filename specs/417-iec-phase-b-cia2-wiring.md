@@ -98,10 +98,22 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-417-1**: VICE x64sc uses CIA write_offset = 0 (= C64SC)?
-  Confirm in `c64cia2.c`.
-- **OQ-417-2**: `iecbus_status_set` bitmap — what bits mean?
-  Device 8 = bit 8? Cite.
+- **OQ-417-1**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §17.2`. `cia2_setup_context` forces
+  `cia->write_offset = 0` for `VICE_MACHINE_C64SC` /
+  `VICE_MACHINE_SCPU64` (`vice/src/c64/c64cia2.c:307-310`);
+  default is 1 (`vice/src/core/ciacore.c:2028`). The store wraps
+  the IEC callback as
+  `(*iecbus_callback_write)(tmp, maincpu_clk + !(write_offset))`
+  (`vice/src/c64/c64cia2.c:162`); x64sc passes `maincpu_clk + 1`.
+- **OQ-417-2**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §17.2`. Bitmap is NOT "device 8 = bit 8".
+  It is a packed per-unit nibble of four orthogonal status flags
+  (TRUEDRIVE / DRIVETYPE / IECDEVICE / TRAPDEVICE — `iecbus.h:37-40`),
+  mapped via `iecbus_device_index[16]` lookup to NONE/IECDEVICE/
+  TRUEDRIVE, then a composite key over units 4..11 selects one of
+  four `iecbus_cpu_{read,write}_confN` callback pairs
+  (`vice/src/iecbus/iecbus.c:432-463`).
 
 ## Files touched
 

@@ -78,10 +78,18 @@ This spec adds smokes, no source.
 
 ## Open Questions
 
-- **OQ-423-1**: Fastloader test corpus availability — vendor under
-  `samples/fastloader-tests/`.
-- **OQ-423-2**: Per-test PC checkpoints — pin known-good PC values
-  for each fastloader (= regression guard).
+- **OQ-423-1**: UNRESOLVED — needs user input. See
+  `docs/vice-iec-arc42.md §17.8`. VICE source does not vendor
+  copy-protected loader test programs. Corpus images (Krill,
+  Bitfire, Sparkle, Spindle, Booze, Hermes,
+  fastloader-tests demos) must be sourced separately and
+  vendored under `samples/fastloader-tests/`. Licensing call =
+  user.
+- **OQ-423-2**: UNRESOLVED — needs user input. See
+  `docs/vice-iec-arc42.md §17.8`. Each loader has its own
+  jump-to-game PC; pinning these requires running each test on
+  VICE x64sc with known-good config and recording the PC at the
+  "game running" state. Operator work, not VICE-source-answerable.
 
 ## Files touched
 

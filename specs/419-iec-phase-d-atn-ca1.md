@@ -87,10 +87,20 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-419-1**: `iec_old_atn` storage location — global or
-  per-bus? Cite.
-- **OQ-419-2**: VIA_SIG_RISE vs VIA_SIG_FALL constant values —
-  pin in doc.
+- **OQ-419-1**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §17.4`. `iec_old_atn` is a single
+  file-scope `static uint8_t` in `vice/src/iecbus/iecbus.c:65`
+  (init `0x10` = ATN released). Shared across all
+  `iecbus_cpu_write_confN` variants. NOT per-bus / per-unit.
+  Re-seeded on undump via `iecbus_cpu_undump`
+  (`vice/src/iecbus/iecbus.c:208`).
+- **OQ-419-2**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §17.4`.
+  `vice/src/via.h:134,139-140`:
+  `VIA_SIG_CA1 = 0`, `VIA_SIG_FALL = 0`, `VIA_SIG_RISE = 1`.
+  `viacore_signal` matches `(edge ? 1 : 0)` against
+  `PCR & VIA_PCR_CA1_CONTROL` (= PCR bit 0). DOS 1541 ROM clears
+  PCR bit 0 → IRQ fires on falling edge.
 
 ## Files touched
 

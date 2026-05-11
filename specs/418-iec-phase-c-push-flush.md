@@ -91,8 +91,14 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-418-1**: §5.11 call-site enumeration — pin exact list in
-  doc. Currently §5.11 referenced but list not explicit in TS audit.
+- **OQ-418-1**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §5.11` (verified call-site table added)
+  and `§17.3`. Eight VICE call sites enumerated:
+  `iecbus_cpu_{read,write}_conf{1,2,3}` in
+  `vice/src/iecbus/iecbus.c` (lines 229, 241, 292, 304, 355, 368)
+  plus burst-mod `read_ciaicr`/`read_sdr` in
+  `vice/src/c64/c64cia2.c:248,256`. For single-1541 x64sc the
+  hot-path sites are conf1 read+write.
 
 ## Files touched
 

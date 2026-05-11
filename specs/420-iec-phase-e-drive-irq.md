@@ -87,9 +87,20 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-420-1**: INTERRUPT_DELAY for C64 vs drive — both = 2? Doc
-  §5.10 confirms; verify.
-- **OQ-420-2**: 1541 ROM IRQ vector $FFFE/$FFFF = $FE67? Cite.
+- **OQ-420-1**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §17.5`. Both C64 and drive use the same
+  compile-time `#define INTERRUPT_DELAY 2`
+  (`vice/src/interrupt.h:39`); drive copy of
+  `interrupt_check_irq_delay`
+  (`vice/src/drive/drivecpu.c:330-351`) is byte-identical to
+  main-CPU copy (`vice/src/maincpu.c:484`). Both apply branch +
+  CLI corrections via `OPINFO_DELAYS_INTERRUPT` /
+  `OPINFO_ENABLES_IRQ`.
+- **OQ-420-2**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §17.5`. Verified at byte level on
+  vendored `vice/data/DRIVES/dos1541-325302-01+901229-05.bin`
+  (16 KiB, loaded at $C000): offset 0x3FFE/0x3FFF = `0x67 0xFE`
+  → IRQ vector $FE67.
 
 ## Files touched
 

@@ -562,6 +562,26 @@ runs **before** any state mutation. The invariant "drive is at
 instruction boundary at every observable C64 IEC event" is
 maintained by this discipline.
 
+**Verified call-site set (2026-05-11 against vice/src/)**:
+
+| File:line | Function | Flush call |
+|---|---|---|
+| `src/iecbus/iecbus.c:241` | `iecbus_cpu_write_conf1` (single-drive write path) | `drive_cpu_execute_one(unit, clock)` |
+| `src/iecbus/iecbus.c:229` | `iecbus_cpu_read_conf1` (single-drive read path) | `drive_cpu_execute_all(clock)` |
+| `src/iecbus/iecbus.c:304` | `iecbus_cpu_write_conf2` (drive 9 write) | `drive_cpu_execute_one(unit, clock)` |
+| `src/iecbus/iecbus.c:292` | `iecbus_cpu_read_conf2` (drive 9 read) | `drive_cpu_execute_all(clock)` |
+| `src/iecbus/iecbus.c:368` | `iecbus_cpu_write_conf3` (multi-drive/virtual write) | `drive_cpu_execute_all(clock)` + `serial_iec_device_exec(clock)` |
+| `src/iecbus/iecbus.c:355` | `iecbus_cpu_read_conf3` (multi-drive/virtual read) | `drive_cpu_execute_all(clock)` + `serial_iec_device_exec(clock)` |
+| `src/c64/c64cia2.c:248` | `read_ciaicr` (burst-mod CIA2) | `drive_cpu_execute_all(maincpu_clk)` |
+| `src/c64/c64cia2.c:256` | `read_sdr` (burst-mod CIA2) | `drive_cpu_execute_all(maincpu_clk)` |
+
+For x64sc with a single 1541 attached at unit 8, the only flush
+sites that fire during a fastloader inner loop are the
+`conf1` write/read pair (rows 1-2). All four "conf1" / "conf2"
+paths also call `viacore_signal(VIA_SIG_CA1, …)` and
+`iec_update_ports()` after `iec_update_cpu_bus(data)` — see
+§6.1 sequence diagram.
+
 ### §5.12 `sync_factor` initialization details **[clone-relevant]**
 
 Cf. `vice-1541-arch.md` §5 for the full derivation. Summary:
@@ -1147,13 +1167,35 @@ emulator that fails fastloaders subtly.
 ### Phase B — CIA2 wiring
 
 4. CIA2 PA store callback → `iecbus_cpu_write_conf1(data,
-   maincpu_clk + write_offset_correction)`. Note: VICE adjusts the
-   clock by `+!write_offset` to account for the cycle on which the
-   write actually settles on the bus.
+   maincpu_clk + !(cia_context->write_offset))`
+   (`src/c64/c64cia2.c:162`).  `cia_context->write_offset` defaults
+   to `1` in `ciacore_setup_context` (`src/core/ciacore.c:2028`)
+   and is forced to `0` for `VICE_MACHINE_C64SC` /
+   `VICE_MACHINE_SCPU64` in `cia2_setup_context`
+   (`src/c64/c64cia2.c:307-310`). Net effect on x64sc: the IEC
+   callback is invoked with **`maincpu_clk + 1`** (the cycle the
+   write settles on the bus); on non-SC builds with
+   `write_offset = 1` it is `maincpu_clk + 0`.
 5. CIA2 PA read callback → `iecbus_cpu_read_conf1(maincpu_clk)`.
-6. Both callbacks are registered via function pointer (`iecbus_callback_read/write`)
-   indirected through `iecbus_status_set(devices_bitmap)` — late
-   binding allows switching to virtual-drive mode without recompile.
+6. Both callbacks are registered via function pointer
+   (`iecbus_callback_read/write`) chosen by
+   `calculate_callback_index()` in
+   `src/iecbus/iecbus.c:432-463`. The "device bitmap" is **not** a
+   per-device-number bitmap; it is a packed per-unit nibble built
+   from four 1-bit state flags
+   (`IECBUS_STATUS_TRUEDRIVE`,
+   `IECBUS_STATUS_DRIVETYPE`,
+   `IECBUS_STATUS_IECDEVICE`,
+   `IECBUS_STATUS_TRAPDEVICE` — see `iecbus.h:37-40`) per unit
+   index, mapped through `iecbus_device_index[16]` to one of three
+   resolved device classes (`NONE`, `IECDEVICE`, `TRUEDRIVE`). The
+   composite key (`device[8] << 0 | device[9] << 2 |
+   device[10] << 6 | device[11] << 8 | …`) then selects one of
+   four `iecbus_cpu_read_confN` / `iecbus_cpu_write_confN`
+   implementations: conf0 (no drive), conf1 (only unit 8 TDE),
+   conf2 (only unit 9 TDE), conf3 (multi-drive / mixed virtual).
+   Late binding allows switching to virtual-drive mode without
+   recompile.
 
 ### Phase C — Push-flush model
 
@@ -1198,11 +1240,23 @@ emulator that fails fastloaders subtly.
     `iecbus.drv_data[unit]`, recompute `iecbus.drv_bus[unit]` per
     the drive-type-specific formula (§5.9), recompute `cpu_port`,
     `drv_port`. **No drive flush needed** — drive is already current.
-16. VIA1 `read_prb` (drive reads $1800): return
-    `((PRB & DDRB) | (drv_port ^ 0x85) | 0x1A | driveid) & ~DDRB`
-    layered with the output bits from PRB. The cached `drv_port` is
-    fresh because it was updated atomically at the last C64 PA write
-    or drive PB write.
+16. VIA1 `read_prb` (drive reads $1800): VICE
+    `src/drive/iec/via1d1541.c:337-355` does:
+
+    ```c
+    driveid = (via1p->number << 5) & 0x60;
+    tmp     = (iecbus->drv_port ^ 0x85) | 0x1a | driveid;
+    byte    = (PRB & DDRB) | (tmp & ~DDRB);
+    ```
+
+    i.e. the input-mask layer is `((drv_port ^ 0x85) | 0x1A | driveid)
+    & ~DDRB`, OR-ed with the bits the drive itself drove
+    (`PRB & DDRB`). For unit 8 `via1p->number == 0`, so
+    `driveid == 0`; unit 9 = 0x20, unit 10 = 0x40, unit 11 = 0x60.
+    The mask `0x60` (= `(3 << 5)`) covers the two
+    device-address-preset switch bits (PB5, PB6). The cached
+    `drv_port` is fresh because it was updated atomically at the last
+    C64 PA write or drive PB write.
 
 ### Phase G — Burst mode (optional, but required for JiffyDOS)
 
@@ -1259,3 +1313,201 @@ chip-specific invariants.
 If any of those is violated in a clone, expect: fastloader misbehavior,
 non-deterministic ATN-handshake timing, occasional boot hangs, or
 disk-image corruption.
+
+---
+
+## §17 Spec-OQ resolutions (specs 416-423, captured 2026-05-11)
+
+All "Open Questions" in specs 416-423 were re-checked against
+vendored VICE source on 2026-05-11. Each entry below is keyed to
+the spec OQ-id and cites the VICE file:line that answers it.
+
+### §17.1 Phase A — `iecbus_t` shape (Spec 416)
+
+- **OQ-416-1** (`drv_data[16]` indexing semantics):
+  RESOLVED. VICE declares `uint8_t drv_data[IECBUS_NUM]` in
+  `iecbus_t` (`src/iecbus.h:64`) with `IECBUS_NUM = 16`
+  (`src/iecbus.h:35`). It is a contiguous array indexed by
+  device number (0..15); units 8..11 are the four disk units,
+  units 4..7 and 12..15 are reserved for IEC printers / IEC
+  expansion. `iecbus_init()` resets the whole struct to `0xFF`
+  (`src/iecbus/iecbus.c:199`), so the "no devices" pull pattern
+  is naturally `0xFF` for every slot. A TS port using a
+  contiguous `Uint8Array(16)` or fixed 16-element array
+  preserves this; a sparse `Map` keyed by device# also
+  preserves it provided absent entries fold as `0xFF` in the
+  AND-reduction. See §5.1 for the wired-AND fold formula.
+
+- **OQ-416-2** (exact bit map of `iec_update_cpu_bus`):
+  RESOLVED. VICE `src/c64/c64iec.c:121-124`:
+
+  ```c
+  void iec_update_cpu_bus(uint8_t data) {
+      iecbus.cpu_bus = (((data << 2) & 0x80)
+                     | ((data << 2) & 0x40)
+                     | ((data << 1) & 0x10));
+  }
+  ```
+
+  Mapping `data` = the value of `(uint8_t)~PRA_byte` passed from
+  `store_ciapa` (`c64cia2.c:150` `tmp = (uint8_t)~byte;`):
+
+  | Source bit (in `data` = `~CIA2.PA`) | Meaning | Destination bit in `cpu_bus` |
+  |---|---|---|
+  | `data` bit 5 | DATA OUT | `cpu_bus` bit 7 (DATA) |
+  | `data` bit 4 | CLK OUT  | `cpu_bus` bit 6 (CLK)  |
+  | `data` bit 3 | ATN OUT  | `cpu_bus` bit 4 (ATN)  |
+
+  `(data << 2) & 0x80` and `(data << 2) & 0x40` are
+  mathematically equivalent to `(data << 2) & 0xC0`; the
+  explicit two-AND form in VICE is a micro-optimization. Doc
+  §5.1 already states the equivalence; doc §5.2 already gives
+  the formula. No correction needed.
+
+### §17.2 Phase B — CIA2 wiring (Spec 417)
+
+- **OQ-417-1** (x64sc `write_offset`):
+  RESOLVED. `src/c64/c64cia2.c:307-310` forces
+  `cia->write_offset = 0` for both `VICE_MACHINE_C64SC` and
+  `VICE_MACHINE_SCPU64`. The default
+  (`src/core/ciacore.c:2028`) is `1`. The CIA2 PA store wraps
+  the callback as
+  `(*iecbus_callback_write)(tmp, maincpu_clk + !(cia_context->write_offset))`
+  (`src/c64/c64cia2.c:162`), so x64sc passes
+  `maincpu_clk + 1` and non-SC builds pass `maincpu_clk + 0`.
+  See doc §15 step 4 (updated 2026-05-11).
+
+- **OQ-417-2** (`iecbus_status_set` bitmap layout):
+  RESOLVED. Bitmap is **not** "device-number indexed". It is
+  a four-bit per-unit nibble built from four orthogonal status
+  flags (`IECBUS_STATUS_TRUEDRIVE` = bit 3,
+  `IECBUS_STATUS_DRIVETYPE` = bit 2,
+  `IECBUS_STATUS_IECDEVICE` = bit 1,
+  `IECBUS_STATUS_TRAPDEVICE` = bit 0 — see
+  `src/iecbus.h:37-40` and `src/iecbus/iecbus.c:521-532`).
+  The 16 possible per-unit combinations are then mapped via a
+  fixed lookup table `iecbus_device_index[16]`
+  (`src/iecbus/iecbus.c:493-510`) to one of three resolved
+  classes (`NONE`, `IECDEVICE`, `TRUEDRIVE`). A second packed
+  composite key over units 8..11 + 4..7
+  (`src/iecbus/iecbus.c:436-443`) selects one of four
+  read/write callback pairs (`conf0`/`conf1`/`conf2`/`conf3`).
+  See doc §15 step 6 (updated 2026-05-11).
+
+### §17.3 Phase C — push-flush call-sites (Spec 418)
+
+- **OQ-418-1** (`§5.11` call-site enumeration):
+  RESOLVED. Eight verified VICE call sites listed in doc §5.11
+  (table added 2026-05-11). For a single-drive x64sc with TDE,
+  the only sites that fire during a fastloader inner loop are
+  `iecbus_cpu_write_conf1` (`src/iecbus/iecbus.c:241`) and
+  `iecbus_cpu_read_conf1` (`src/iecbus/iecbus.c:229`). Burst
+  paths (`c64cia2.c:248`, `c64cia2.c:256`) are conditional on
+  `burst_mod == BURST_MOD_CIA2`. Multi-drive `conf3` paths
+  additionally call `serial_iec_device_exec(clock)` after the
+  drive flush.
+
+### §17.4 Phase D — ATN edge + CA1 (Spec 419)
+
+- **OQ-419-1** (`iec_old_atn` storage):
+  RESOLVED. `iec_old_atn` is a **single file-scope static**
+  uint8_t in `src/iecbus/iecbus.c:65`
+  (`static uint8_t iec_old_atn = 0x10;`), shared across all
+  callback variants and used identically inside
+  `iecbus_cpu_write_conf1` / `conf2` / `conf3`. It is **not**
+  per-unit or per-bus; the C64 has exactly one IEC bus, and
+  ATN is C64-driven, so a single global is sufficient. It is
+  re-seeded on snapshot undump via `iecbus_cpu_undump`
+  (`src/iecbus/iecbus.c:208`). Init value `0x10` = "ATN
+  released" (line HIGH).
+
+- **OQ-419-2** (`VIA_SIG_RISE` / `VIA_SIG_FALL` constants):
+  RESOLVED. `src/via.h:139-140`:
+  `#define VIA_SIG_FALL 0`, `#define VIA_SIG_RISE 1`. Line
+  selector `#define VIA_SIG_CA1 0` (`src/via.h:134`).
+  `viacore_signal` compares `(edge ? 1 : 0)` against
+  `via_context->via[VIA_PCR] & VIA_PCR_CA1_CONTROL` (= PCR bit
+  0). DOS 1541 ROM clears PCR bit 0 → IFR_CA1 fires on
+  **falling edge** (`edge == 0` matches `PCR & 1 == 0`). The
+  iecbus call sites pass `iec_old_atn ? 0 : VIA_SIG_RISE` —
+  i.e. `0` (fall) when the new state is ATN-asserted and
+  `1` (rise) when the new state is ATN-released
+  (`src/iecbus/iecbus.c:265-266`, `:328-329`, `:398-399`). See
+  doc §5.5 and §6.5.
+
+### §17.5 Phase E — Drive IRQ delivery (Spec 420)
+
+- **OQ-420-1** (`INTERRUPT_DELAY` for C64 and drive):
+  RESOLVED. **Both** use the same compile-time constant
+  `#define INTERRUPT_DELAY 2` from `src/interrupt.h:39`. The
+  drive copy of `interrupt_check_irq_delay`
+  (`src/drive/drivecpu.c:330-351`) is byte-identical to the
+  main-CPU copy (`src/maincpu.c:484`). Both add the branch +
+  CLI delay corrections (`OPINFO_DELAYS_INTERRUPT`,
+  `OPINFO_ENABLES_IRQ`).
+
+- **OQ-420-2** (1541 ROM IRQ vector):
+  RESOLVED. Verified by inspecting the vendored ROM
+  `data/DRIVES/dos1541-325302-01+901229-05.bin` (16 KiB,
+  loaded at $C000): bytes at offset `0x3FFE` / `0x3FFF` =
+  `0x67 0xFE` → IRQ vector `$FE67`. Doc §5.10 and §15 step 14
+  already state this; verified at byte level 2026-05-11.
+
+### §17.6 Phase F — Drive-side bus access (Spec 421)
+
+- **OQ-421-1** (`driveid` constant for unit 8):
+  RESOLVED. VICE `src/drive/iec/via1d1541.c:345`:
+  `driveid = (via1p->number << 5) & 0x60;`. `via1p->number`
+  is the **drive index** 0..3 (NOT the device number 8..11);
+  for unit 8 → `number = 0` → `driveid = 0`. Other units:
+  unit 9 → 0x20, unit 10 → 0x40, unit 11 → 0x60. Mask `0x60`
+  (= `3 << 5`) covers PB5/PB6 — the two device-address-preset
+  switch bits read by ROM `$EBE7`. Doc §15 step 16 updated
+  2026-05-11 to show the exact C code.
+
+### §17.7 Phase G — Burst mode (Spec 422)
+
+- **OQ-422-1** (JiffyDOS in scope?):
+  RESOLVED — **deferred** by spec itself. Game corpus (MM,
+  Scramble, motm, IM2, LNR) uses bit-bang IEC + custom
+  fastloaders, not burst. VICE source for the path exists at
+  `src/c64/c64fastiec.c:c64fastiec_fast_cpu_write`; the
+  CIA2-side trigger is `src/c64/c64cia2.c:store_sdr` calling
+  `c64fastiec_fast_cpu_write` when
+  `burst_mod == BURST_MOD_CIA2`. Stub recommended in spec.
+  No doc change required; §5.8 already describes it.
+
+### §17.8 Phase H — Validation (Spec 423)
+
+- **OQ-423-1** (fastloader test corpus):
+  **UNRESOLVED — needs user input.** VICE source does not
+  vendor copy-protected loader test programs. Corpus images
+  (Krill, Bitfire, Sparkle, Spindle, Booze, Hermes,
+  fastloader-tests demos) must be sourced separately and
+  vendored under `samples/fastloader-tests/`. Licensing for
+  each loader's test program needs the user's call.
+
+- **OQ-423-2** (per-test PC checkpoints):
+  **UNRESOLVED — needs user input.** Each loader has its own
+  jump-to-game PC; pinning these requires running each test on
+  VICE x64sc with a known-good config and recording the PC at
+  the "game running" state. This is operator work, not
+  VICE-source-answerable.
+
+### Summary
+
+| OQ | Status | Doc anchor |
+|---|---|---|
+| OQ-416-1 | RESOLVED | §17.1, §5.1 |
+| OQ-416-2 | RESOLVED | §17.1, §5.2 |
+| OQ-417-1 | RESOLVED | §17.2, §15 step 4 |
+| OQ-417-2 | RESOLVED | §17.2, §15 step 6 |
+| OQ-418-1 | RESOLVED | §17.3, §5.11 |
+| OQ-419-1 | RESOLVED | §17.4, §5.5 |
+| OQ-419-2 | RESOLVED | §17.4, §5.5 |
+| OQ-420-1 | RESOLVED | §17.5, §5.10 |
+| OQ-420-2 | RESOLVED | §17.5, §5.10 |
+| OQ-421-1 | RESOLVED | §17.6, §15 step 16 |
+| OQ-422-1 | RESOLVED (deferred) | §17.7, §5.8 |
+| OQ-423-1 | UNRESOLVED — user input | §17.8 |
+| OQ-423-2 | UNRESOLVED — user input | §17.8 |

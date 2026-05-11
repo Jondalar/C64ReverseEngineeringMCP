@@ -63,8 +63,13 @@ This spec is **optional**. Recommended deferral:
 
 ## Open Questions
 
-- **OQ-422-1**: Is JiffyDOS in scope? Currently no game in corpus
-  uses it. Decision: defer.
+- **OQ-422-1**: RESOLVED 2026-05-11 (deferred) — see
+  `docs/vice-iec-arc42.md §17.7` and §5.8. Decision: defer.
+  Game corpus (MM, Scramble, motm, IM2, LNR) uses bit-bang IEC +
+  custom fastloaders, not burst. VICE path is
+  `vice/src/c64/c64fastiec.c:c64fastiec_fast_cpu_write`; the
+  CIA2-side trigger is `vice/src/c64/c64cia2.c:store_sdr` when
+  `burst_mod == BURST_MOD_CIA2`. Stub-only implementation in TS.
 
 ## Files touched
 

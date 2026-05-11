@@ -92,9 +92,14 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-421-1**: `driveid` constant for 1541 unit 8 — per arc42
-  §5.7 `(diskunit_idx & 0x3) << 5`. For unit 8 (idx 0) = 0?
-  Confirm.
+- **OQ-421-1**: RESOLVED 2026-05-11 — see
+  `docs/vice-iec-arc42.md §17.6` and updated §15 step 16. VICE
+  `vice/src/drive/iec/via1d1541.c:345`:
+  `driveid = (via1p->number << 5) & 0x60;` where
+  `via1p->number` = drive index 0..3 (not the device number).
+  For unit 8 → `number = 0` → driveid = 0. Other units:
+  9→0x20, 10→0x40, 11→0x60. Mask 0x60 = `3 << 5` covers PB5/PB6
+  (device-address-preset switches read by ROM $EBE7).
 
 ## Files touched
 
