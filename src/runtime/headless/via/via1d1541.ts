@@ -31,6 +31,7 @@
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import type { IecBusCore } from "../iec/iec-bus-core.js";
 import { u8, type BYTE, type CLOCK } from "../util/uint.js";
+import type { InterruptCpuStatus, IntNum } from "../cpu/interrupt-cpu-status.js";
 import {
   Via6522Vice,
   VIA_PRA,
@@ -78,9 +79,22 @@ export class Via1d1541 {
   private readonly iec: IecBusCore;
   private readonly deviceId: number;
 
+  // Spec 410 (1541 Phase D step 15) — chip-side IRQ push target.
+  // Doc: docs/vice-1541-arch.md §13 step 15, §14 invariant 4–6.
+  // VICE source: src/drive/iec/via1d1541.c:92 `set_int()` calls
+  //   `interrupt_set_irq(dc->cpu->int_status, int_num, value, rclk)`.
+  // When `attachIrqLine` has been called, viacore's `update_myviairq`
+  // pushes directly into the drive CPU's `InterruptCpuStatus`; the
+  // legacy `setIrq` callback (drive-cpu polling bridge) is bypassed.
+  private chipIntStatus?: InterruptCpuStatus;
+  private chipIntNum?: IntNum;
+  private chipPrev = false;
+  private readonly setIrqCallback: (value: number, clk: CLOCK) => void;
+
   constructor(opts: Via1d1541Options) {
     this.iec = opts.iec;
     this.deviceId = opts.deviceId;
+    this.setIrqCallback = opts.setIrq;
 
     const backend: ViaBackend = {
       // VICE via1d1541.c read_prb (lines 337-362). Stock 1541 path
@@ -123,7 +137,33 @@ export class Via1d1541 {
       setCa2: () => undefined, // VICE via1d1541.c set_ca2: no-op.
       setCb2: () => undefined, // VICE via1d1541.c set_cb2: no-op.
 
-      setInt: (value, clk) => opts.setIrq(value, clk),
+      // Spec 410 step 15 — VIA1 IRQ → drive 6502 IRQ line.
+      // VICE: src/drive/iec/via1d1541.c:92 `set_int()` →
+      //   `interrupt_set_irq(dc->cpu->int_status, int_num, value, rclk)`.
+      // When `attachIrqLine` has been called (DriveCpu owns the
+      // drive's `InterruptCpuStatus`), we push level changes directly
+      // into `cpuIntStatus.setIrq(via1IntNum, value!==0, clk)` — this
+      // is the chip-side push that replaces the drive-cpu polling
+      // bridge (Phase 309-D' analog).
+      // The legacy `setIrqCallback` still fires for edge-tracking
+      // consumers (event-ring trace), preserving Spec 203-c3 semantics
+      // while removing the dispatch-from-polling path.
+      setInt: (value, clk) => {
+        if (this.chipIntStatus && this.chipIntNum) {
+          const asserted = value !== 0;
+          if (asserted !== this.chipPrev) {
+            this.chipPrev = asserted;
+            // VICE update_myviairq → set_int → interrupt_set_irq.
+            // cite: src/drive/iec/via1d1541.c:99 (set_int body).
+            this.chipIntStatus.setIrq(this.chipIntNum, asserted, clk);
+          }
+        }
+        // Always fire the callback — Spec 203-c3 edge consumers (trace,
+        // event-ring) depend on it. With `chipIntStatus` attached, the
+        // legacy `drive-cpu` polling bridge installed at construction
+        // becomes a no-op edge-tracker only (no setIrq into intStatus).
+        this.setIrqCallback(value, clk);
+      },
 
       reset: () => undefined, // VICE via1d1541.c reset: no-op.
     };
@@ -138,6 +178,32 @@ export class Via1d1541 {
       rmwFlagSet: opts.rmwFlagSet,
       clkBump: opts.clkBump,
     });
+  }
+
+  /**
+   * Spec 410 (1541 Phase D step 15) — install the chip-side IRQ push
+   * target.
+   *
+   * Doc: docs/vice-1541-arch.md §13 step 15.
+   * VICE source: src/drive/iec/via1d1541.c:92 `set_int()` calls
+   *   `interrupt_set_irq(dc->cpu->int_status, int_num, value, rclk)`.
+   *
+   * Called by `DriveCpu` after constructing the drive 6502 — passes the
+   * drive's `InterruptCpuStatus`. The VIA core's `update_myviairq`
+   * pushes IRQ level transitions directly into `cpuIntStatus`; the
+   * 2-cycle `INTERRUPT_DELAY` is honoured per `interrupt_set_irq`.
+   * The legacy `drive-cpu.ts` per-cycle polling bridge for VIA1 is
+   * dropped once attached (analog to Phase 309-D' for C64 CIA1/CIA2).
+   */
+  attachIrqLine(cpuIntStatus: InterruptCpuStatus, label = "via1-irq"): void {
+    this.chipIntStatus = cpuIntStatus;
+    this.chipIntNum = cpuIntStatus.newIntNum(label);
+    // Seed level: viacore's current (ifr & ier & 0x7f) != 0 state.
+    // Mirrors VICE `update_myviairq(via)` called once after attach so the
+    // intStatus reflects the live VIA IRQ line.
+    const asserted = this.via.irqAsserted();
+    this.chipPrev = asserted;
+    this.chipIntStatus.setIrq(this.chipIntNum, asserted, 0);
   }
 
   /**

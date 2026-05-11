@@ -252,8 +252,16 @@ export class DriveCpu {
   private sleeping = false;
   // Phase-C compat-bridge: per-source IntNum allocations for drive 6502.
   // Lazy-init on first dispatch site that touches microcoded path.
-  private intNumVia1Irq: any = null;
+  //
+  // Spec 410 (2026-05-11) — `intNumVia1Irq` retired. VIA1 IRQ is now
+  // pushed chip-side from `Via1d1541.attachIrqLine` → `cpuIntStatus.setIrq`
+  // (1:1 with VICE src/drive/iec/via1d1541.c:92 `set_int()`). VIA2 still
+  // goes through the polling bridge below; spec 411 migrates it.
   private intNumVia2Irq: any = null;
+  // Spec 410 — `true` once `bus.via1.attachIrqLine` has been called.
+  // Guards `executeToClock` / `runOneInstruction` against re-applying
+  // the polled level after each instruction.
+  private via1Attached = false;
   // Idle-wakeup callback installed by IntegratedSession via IecBus.
   // When iec bus state changes, we wake the drive.
   public wakeUp(): void { this.sleeping = false; }
@@ -271,6 +279,21 @@ export class DriveCpu {
       : new Cpu6510(this.bus);
     // Wire the closure to the actual CPU object now that it's created.
     cpuRef = this.cpu as { cycles: number };
+
+    // Spec 410 step 15 — VIA1 chip-side IRQ push.
+    // Doc: docs/vice-1541-arch.md §13 step 15 + §14 invariant 4.
+    // VICE: src/drive/iec/via1d1541.c:92 set_int() pushes via
+    //   interrupt_set_irq(dc->cpu->int_status, int_num, value, rclk).
+    // Attach AFTER cpu construction so `this.cpu.cpuIntStatus` is
+    // the drive's own InterruptCpuStatus (one per drive — VICE
+    // dc->cpu->int_status). Drops the per-cycle polling bridge in
+    // `executeToClock` / `runOneInstruction` for VIA1 (= Phase 309-D'
+    // analog for the drive CPU).
+    if (this.microcoded) {
+      const cycled = this.cpu as Cpu65xxVice;
+      this.bus.via1.attachIrqLine(cycled.cpuIntStatus, "via1-irq");
+      this.via1Attached = true;
+    }
     this.trackBuffer = opts.gcr?.trackBuffer;
     this.headPosition = opts.gcr?.headPosition;
     this.gcrShifter = opts.gcrShifter;
@@ -408,14 +431,15 @@ export class DriveCpu {
       );
     }
     const cycled = this.cpu as Cpu65xxVice;
-    if (!this.intNumVia1Irq && cycled.cpuIntStatus) {
-      this.intNumVia1Irq = cycled.cpuIntStatus.newIntNum("via1-irq");
+    // Spec 410 — VIA1 polling bridge dropped (chip-side push via
+    // `Via1d1541.attachIrqLine`). VIA2 still polled at instruction
+    // boundary until spec 411 migrates it.
+    if (!this.intNumVia2Irq && cycled.cpuIntStatus) {
       this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
     }
     while (this.cycleAccumulator16dot16 >= 0x10000) {
-      if (cycled.isAtInstructionBoundary() && this.intNumVia1Irq) {
-        // Phase-C compat: push VIA IRQ level into cpuIntStatus.
-        cycled.cpuIntStatus.setIrq(this.intNumVia1Irq, this.bus.via1.irqAsserted(cycled.cycles), cycled.cycles);
+      if (cycled.isAtInstructionBoundary() && this.intNumVia2Irq) {
+        // VIA2 IRQ polling — replaced by spec 411 chip-side push.
         cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
       }
       cycled.executeCycle();
@@ -452,13 +476,12 @@ export class DriveCpu {
     }
     const cycled = this.cpu as Cpu65xxVice;
     const before = cycled.cycles;
-    // Phase-C compat: VIA IRQ level pushed to cpuIntStatus.
-    if (!this.intNumVia1Irq && cycled.cpuIntStatus) {
-      this.intNumVia1Irq = cycled.cpuIntStatus.newIntNum("via1-irq");
+    // Spec 410 — VIA1 polling bridge dropped (chip-side push from
+    // `Via1d1541.attachIrqLine`). VIA2 stays polled (spec 411 follows).
+    if (!this.intNumVia2Irq && cycled.cpuIntStatus) {
       this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
     }
-    if (this.intNumVia1Irq) {
-      cycled.cpuIntStatus.setIrq(this.intNumVia1Irq, this.bus.via1.irqAsserted(cycled.cycles), cycled.cycles);
+    if (this.intNumVia2Irq) {
       cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
     }
     // Tick at least once, then until back at boundary. Per-bus-cycle

@@ -69,6 +69,8 @@
     "smoke:snapshot-diff": "npm run build:mcp && node scripts/smoke-snapshot-diff.mjs",
     "smoke:drive-equiv": "npm run build:mcp && node scripts/smoke-drive-equiv.mjs",
     "smoke:via1-iec": "npm run build:mcp && node scripts/smoke-via1-iec.mjs",
+    "smoke:410-via1-pb": "npm run build:mcp && node scripts/smoke-410-via1-pb-formula.mjs",
+    "smoke:410-via1-atn": "npm run build:mcp && node scripts/smoke-410-via1-atn-edge.mjs",
     "smoke:serial-matrix": "npm run build:mcp && node scripts/smoke-serial-matrix.mjs",
     "smoke:g64-fidelity": "npm run build:mcp && node scripts/smoke-g64-fidelity.mjs",
     "smoke:write-support": "npm run build:mcp && node scripts/smoke-write-support.mjs",
