@@ -79,6 +79,8 @@
     "smoke:cpu-fidelity": "npm run build:mcp && node scripts/smoke-cpu-fidelity.mjs",
     "smoke:cia-fidelity": "npm run build:mcp && node scripts/smoke-cia-fidelity.mjs",
     "smoke:403-cia-vice-trace": "npm run build:mcp && node scripts/smoke-403-cia-vice-trace.mjs",
+    "smoke:405-snapshot-roundtrip": "npm run build:mcp && node scripts/smoke-405-snapshot-roundtrip.mjs",
+    "smoke:405-io-mirror": "npm run build:mcp && node scripts/smoke-405-io-mirror.mjs",
     "smoke:vic-fidelity": "npm run build:mcp && node scripts/smoke-vic-fidelity.mjs",
     "smoke:vic-cycle-log": "npm run build:mcp && node scripts/smoke-vic-cycle-log.mjs",
     "smoke:vic-pixel-perfect": "npm run build:mcp && node scripts/smoke-vic-pixel-perfect.mjs",

@@ -271,6 +271,29 @@ export class HeadlessMemoryBus {
     }
     if (normalized >= 0xd000 && normalized <= 0xdfff) {
       if (this.ioVisible()) {
+        // Spec 405 / §8.1 / §8.2 — I/O area dispatch + open-bus.
+        // Doc anchor: docs/vice-c64-arch.md §8.1 (page-aligned I/O
+        // dispatch), §8.2 (chip register mirrors).
+        // VICE cite: src/c64io.c:352-371 — when no chip claims the
+        // address VICE returns `vicii_read_phi1()` (the last byte the
+        // VIC fetched). We approximate phi1 open-bus with the cached
+        // `this.io[]` shadow (= last value seen on the I/O bus at that
+        // address). Chip mirrors are installed by each peripheral's
+        // own `install*` function:
+        //   - VIC-II:   $D000-$D03F mirrored every 0x40 across $D000-$D3FF
+        //               (vic-ii-vice.ts installVicIIVice, c64-snapshot
+        //               §8.2). 64-byte stride, 16-fold mirror.
+        //   - SID:      $D400-$D41F mirrored every 0x20 across $D400-$D7FF
+        //               (sid.ts installSid, c64sid.c). 32-byte stride.
+        //   - Color RAM:$D800-$DBFF (1Kx4, low nibble valid; upper nibble
+        //               is open-bus, masked to $f0 below).
+        //   - CIA1:     $DC00-$DC0F (base only — 16-fold mirror to $DC10-$DCFF
+        //               not yet installed; no in-scope game reads from a CIA
+        //               mirror. Future spec extends `installCia1` to mirror.)
+        //   - CIA2:     $DD00-$DD0F (same — base only, mirror deferred).
+        // All mirror ranges are pre-installed at session boot, so the
+        // handler lookup below already covers them; no extra masking
+        // needed here.
         const handler = this.ioHandlers.get(normalized);
         const value = handler?.read?.(normalized);
         if (value !== undefined) {
@@ -353,13 +376,26 @@ export class HeadlessMemoryBus {
       this.cpuPortValue = byte;
       this.ram[0x0001] = byte;
       // Spec 402 / §12 step 7 — bits 0..2 (LORAM/HIRAM/CHAREN) feed PLA;
-      // bits 3..5 hook the datasette (stub here, full impl in spec 405).
-      // Cite: c64pla.c:51.
+      // bits 3..5 hook the datasette (stub — see datasetteHookStub).
+      // Cite: c64pla.c:51 (`c64pla_config_changed`).
       this.memPlaConfigChanged();
-      // Spec 402 / §4.3 — bits 3..5 = cassette write / sense / motor.
-      // Stub the datasette write/motor hook so the call-site exists for
-      // spec 405. Sense (bit 4) is an input pin and not touched here.
-      this.datasetteHookStub((byte & 0x20) === 0, (byte >> 3) & 1);
+      // Spec 405 / §9 / OQ-405-1 — datasette hook.
+      // VICE cite: c64pla.c:80-94. bits 3..5 of $01 hook the tape port:
+      //   bit 3 (mask 0x08) = cassette WRITE line
+      //   bit 4 (mask 0x10) = cassette SENSE OUT (PLAY-key feedback)
+      //   bit 5 (mask 0x20) = cassette MOTOR control (active LOW)
+      // For this port the entire tape port is deferred ("not implemented
+      // — no in-scope game (MM, Scramble, motm, IM2, LNR, Lorenz corpus)
+      // requires datasette; deferred to post-arch-port spec"). The hook
+      // call-site is kept so a future spec can wire it without re-tracing
+      // the write path. Bit 4 of $01 is therefore a no-op datasette hook
+      // (= sense out goes nowhere; bit-4 reads still see the pullup HIGH
+      // via the INPUT_PULLS mask in computeCpuPortDataRead()).
+      this.datasetteHookStub(
+        /* motorOn */ (byte & 0x20) === 0,
+        /* writeBit */ (byte >> 3) & 1,
+        /* senseOut */ (byte >> 4) & 1,
+      );
       this.recordAccess("write", normalized, byte, "cpu_port_value");
       return;
     }
@@ -409,14 +445,27 @@ export class HeadlessMemoryBus {
     this.memConfig = this.memConfigTable[this.memConfigIndex]!;
   }
 
-  /** Spec 402 / §4.3 — datasette hook slot. Bits 3..5 of $01 hook the
-   *  datasette in VICE (write=cassette-write-line, sense=cassette-sense
-   *  input, motor=cassette-motor). Implemented as a stub for the C64-only
-   *  port; full datasette lands in spec 405 / Phase E.
-   *  Cite: c64mem.c `zero_store()` / `pport_data_set_default_cpu()`. */
+  /** Spec 405 / §9 / OQ-405-1 — datasette tape-port hook.
+   *
+   *  Doc anchor: docs/vice-c64-arch.md §9 (Datasette), §12 Phase E step 22.
+   *  VICE cite: src/c64/c64pla.c:80-94 (tape port pin writes),
+   *             src/c64/c64datasette.c (PULSE alarm + CIA1 FLAG wiring).
+   *
+   *  Status: **stub** — not implemented; no in-scope game (MM, Scramble,
+   *  motm, IM2, LNR, Lorenz CPU corpus) requires the datasette. Full
+   *  alarm-driven pulse list + bit-4-of-$01 → CIA1 FLAG bit wiring is
+   *  **deferred to a post-arch-port spec** per OQ-405-1 resolution
+   *  (2026-05-11).
+   *
+   *  Bit 4 of $01 (sense-out) is therefore a no-op datasette hook;
+   *  bit-4 reads still see the standard pullup mask through
+   *  computeCpuPortDataRead() (= no tape attached → bit-4 HIGH).
+   *  // TODO post-arch-port: wire alarm-driven pulse list + CIA1 FLAG.
+   */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private datasetteHookStub(_motorOn: boolean, _writeBit: number): void {
-    // No-op for spec 402; placeholder for spec 405 datasette wiring.
+  private datasetteHookStub(_motorOn: boolean, _writeBit: number, _senseOut: number): void {
+    // not implemented — no in-scope game requires it (deferred to
+    // post-arch-port spec; bit 4 of $01 is a no-op datasette hook).
   }
 
   private basicVisible(): boolean { return this.memConfig.bankA === 'basic'; }

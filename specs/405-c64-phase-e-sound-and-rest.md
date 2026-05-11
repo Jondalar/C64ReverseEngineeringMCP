@@ -1,9 +1,42 @@
 # Spec 405 — C64 Phase E: Sound and the rest
 
-**Status:** PROPOSED
+**Status:** COMPLETE (2026-05-11)
 **Branch:** `vice-arch-port`
 **Depends on:** 404
 **Doctrine:** 1:1 VICE x64sc port. Never deviate.
+
+## Completion summary
+
+- VSF save order reordered to match `c64-snapshot.c:76-91`
+  (MAINCPU → C64MEM → CIA1 → CIA2 → SID → DRIVE-group → VIC-II →
+  KEYBOARD). SID is now written **before** VIC-II.
+- Datasette hook (`memory-bus.ts::datasetteHookStub`) carries explicit
+  spec 405 cite + post-arch-port deferred marker. Bit 4 of $01 is a
+  no-op datasette hook; bit-4 reads see the pullup HIGH.
+- I/O dispatch + open-bus comment block added to `memory-bus.ts` read
+  path (cite: `c64io.c:352-371`, doc §8.1/§8.2). VIC mirror tiles
+  ($D000-$D3FF, 0x40 stride) and SID mirror tiles ($D400-$D7FF, 0x20
+  stride) already in place from prior specs; CIA mirror to $DC10-$DCFF
+  and $DD10-$DDFF is documented as future work (no in-scope game
+  requires it).
+- Two new smokes:
+  - `scripts/smoke-405-snapshot-roundtrip.mjs` — 11/11 PASS
+  - `scripts/smoke-405-io-mirror.mjs` — 9/9 PASS
+- `smoke:cpu-fidelity` 31/31, `smoke:cia-fidelity` 22/22.
+
+Files touched (vs spec "Files touched" list):
+
+- `src/runtime/headless/vsf/session-vsf.ts` — module-order reorder + cite.
+- `src/runtime/headless/memory-bus.ts` — datasette stub renamed/cited +
+  I/O open-bus comment block.
+- `package.json` — registered the two new smoke targets.
+- `scripts/smoke-405-snapshot-roundtrip.mjs` — new.
+- `scripts/smoke-405-io-mirror.mjs` — new.
+
+NOT touched (per spec hard constraints): `cpu65xx-vice.ts`, any CIA /
+VIC / drive / IEC bus source. Audit confirmed SID writes already route
+through the I/O table (`sid.ts::installSid` at $D400-$D7FF); no
+producer change required there.
 
 ## Goal
 

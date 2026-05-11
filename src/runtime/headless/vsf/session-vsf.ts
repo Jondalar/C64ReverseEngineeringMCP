@@ -47,43 +47,83 @@ export interface SessionVsfLoadResult {
   errors: Array<{ module: string; error: string }>;
 }
 
+// Spec 405 / OQ-405-3 — VSF module write order. Doc anchor:
+// docs/vice-c64-arch.md §10.1. VICE cite: src/c64/c64-snapshot.c:76-91
+// `c64_snapshot_write` writes modules in this exact sequence:
+//   MAINCPU → C64 → CIA1 → CIA2 → SID → DRIVE → FSDRIVE → VICII →
+//   C64GLUE → EVENT → MEMHACKS → TAPEPORT → KEYBOARD → JOYPORT_1 →
+//   JOYPORT_2 → USERPORT.
+//
+// Note SID is BEFORE VICII (not after as in pre-spec-405 order).
+// IEC state is embedded in the DRIVE chunk (= VIC drive
+// subsystem owns the IEC bus serializer; we keep it as a sibling
+// module here since our DRIVE chunk has its own VSF layout).
+// FSDRIVE, C64GLUE, EVENT, MEMHACKS, TAPEPORT, JOYPORT_*, USERPORT
+// have no in-scope game requirement and are not serialized; the
+// resulting VSF is a strict subset of VICE's module list.
+//
+// Load (`loadSessionVsf`) dispatches via a switch and is therefore
+// order-independent, but `saveSessionVsf` MUST emit in the VICE
+// order so the bytes round-trip 1:1 with VICE-produced VSFs.
 export function saveSessionVsf(session: IntegratedSession, outputPath: string): SessionVsfSaveResult {
   const writer = new VsfWriter(VSF_MACHINE_C64);
   const modules: string[] = [];
 
-  // C64-main side (Spec 251 — newly added).
+  // 1. MAINCPU (c64-snapshot.c:76).
   writer.addModule(VSF_MODULE_MAINCPU, serializeCpu(session.c64Cpu as any),
     VSF_HL_MODULE_VERSION_MAJOR, VSF_HL_MODULE_VERSION_MINOR);
   modules.push(VSF_MODULE_MAINCPU);
+  // 2. C64 (= C64MEM RAM + PLA latch; c64-snapshot.c:77).
   writer.addModule(VSF_MODULE_C64MEM, serializeC64Mem(session.c64Bus),
     VSF_HL_MODULE_VERSION_MAJOR, VSF_HL_MODULE_VERSION_MINOR);
   modules.push(VSF_MODULE_C64MEM);
+  // 3. CIA1 (c64-snapshot.c:78).
   writer.addModule(VSF_MODULE_CIA1, serializeCia(session.cia1),
     VSF_HL_MODULE_VERSION_MAJOR, VSF_HL_MODULE_VERSION_MINOR);
   modules.push(VSF_MODULE_CIA1);
+  // 4. CIA2 (c64-snapshot.c:79).
   writer.addModule(VSF_MODULE_CIA2, serializeCia(session.cia2),
     VSF_HL_MODULE_VERSION_MAJOR, VSF_HL_MODULE_VERSION_MINOR);
   modules.push(VSF_MODULE_CIA2);
-  writer.addModule(VSF_MODULE_VICII, serializeVicII(session.vic),
-    VSF_HL_MODULE_VERSION_MAJOR, VSF_HL_MODULE_VERSION_MINOR);
-  modules.push(VSF_MODULE_VICII);
+  // 5. SID (c64-snapshot.c:80) — BEFORE VICII.
   writer.addModule(VSF_MODULE_SID, serializeSid(session.sid),
     VSF_HL_MODULE_VERSION_MAJOR, VSF_HL_MODULE_VERSION_MINOR);
   modules.push(VSF_MODULE_SID);
-  writer.addModule(VSF_MODULE_KEYBOARD, serializeKeyboard(session.keyboard),
-    VSF_HL_MODULE_VERSION_MAJOR, VSF_HL_MODULE_VERSION_MINOR);
-  modules.push(VSF_MODULE_KEYBOARD);
-
-  // Drive side (existing).
+  // 6. DRIVE (c64-snapshot.c:81) — drive_snapshot_write_module emits
+  //    DRIVECPU + DRIVERAM + VIA1d1541 + VIA2d1541 + GCR head state.
+  //    We split into named sibling chunks for round-trip clarity;
+  //    the wire-order stays grouped under "DRIVE".
   writer.addModule(VSF_MODULE_DRIVECPU, serializeCpu(session.drive.cpu as any));
   writer.addModule(VSF_MODULE_DRIVERAM, serializeRam(session.drive.bus.ram));
   writer.addModule(VSF_MODULE_VIA1D1541, serializeVia(session.drive.bus.via1));
   writer.addModule(VSF_MODULE_VIA2D1541, serializeVia(session.drive.bus.via2));
-  writer.addModule(VSF_MODULE_IEC, serializeIecBus(session.iecBus));
   writer.addModule(VSF_MODULE_GCRHEAD, serializeGcrHead(session.headPosition, session.trackBuffer));
   modules.push(VSF_MODULE_DRIVECPU, VSF_MODULE_DRIVERAM,
-    VSF_MODULE_VIA1D1541, VSF_MODULE_VIA2D1541,
-    VSF_MODULE_IEC, VSF_MODULE_GCRHEAD);
+    VSF_MODULE_VIA1D1541, VSF_MODULE_VIA2D1541, VSF_MODULE_GCRHEAD);
+  // 6b. IEC bus (= part of DRIVE chunk in VICE per OQ-405-3 note —
+  //     "IEC state is embedded in DRIVE chunk, not a top-level module"
+  //     — we keep it grouped with DRIVE here for the same reason).
+  writer.addModule(VSF_MODULE_IEC, serializeIecBus(session.iecBus));
+  modules.push(VSF_MODULE_IEC);
+  // 7. FSDRIVE (c64-snapshot.c:82) — not modeled, skip.
+  // 8. VICII (c64-snapshot.c:83).
+  writer.addModule(VSF_MODULE_VICII, serializeVicII(session.vic),
+    VSF_HL_MODULE_VERSION_MAJOR, VSF_HL_MODULE_VERSION_MINOR);
+  modules.push(VSF_MODULE_VICII);
+  // 9. C64GLUE (c64-snapshot.c:84) — not modeled (HMOS discrete default
+  //    has no observable state beyond config index, already in C64MEM).
+  // 10. EVENT (c64-snapshot.c:85) — recording subsystem, not modeled.
+  // 11. MEMHACKS (c64-snapshot.c:86) — REU/cart extensions, not modeled.
+  // 12. TAPEPORT (c64-snapshot.c:87) — datasette deferred per OQ-405-1
+  //     ("not implemented — no in-scope game requires it; deferred to
+  //     post-arch-port spec").
+  // 13. KEYBOARD (c64-snapshot.c:88).
+  writer.addModule(VSF_MODULE_KEYBOARD, serializeKeyboard(session.keyboard),
+    VSF_HL_MODULE_VERSION_MAJOR, VSF_HL_MODULE_VERSION_MINOR);
+  modules.push(VSF_MODULE_KEYBOARD);
+  // 14. JOYPORT_1 (c64-snapshot.c:89) — not modeled.
+  // 15. JOYPORT_2 (c64-snapshot.c:90) — not modeled.
+  // 16. USERPORT (c64-snapshot.c:91) — not modeled.
 
   const bytes = writer.toBytes();
   writeFileSync(outputPath, bytes);
