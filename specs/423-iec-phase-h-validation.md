@@ -79,10 +79,13 @@ This spec adds smokes, no source.
 ## Open Questions
 
 - **OQ-423-1**: RESOLVED 2026-05-11 — user decision. **Curated
-  subset**: Krill (covered via Scramble Infinity), Bitfire,
-  covertbitops, **Comaland** (= scroll-stress demo). Other loaders
-  skipped. User places under `samples/fastloader-tests/`.
-  Aligned with OQ-415-1 resolution.
+  subset** (= aligned with OQ-415-1):
+  - Krill (covered via Scramble Infinity)
+  - Bitfire (user-vendored demo disk)
+  - Covert Bitops: `c64loader` (MIT) + `c64gameframework` (source
+    builds → own deterministic test disk)
+  - Comaland (scroll-stress demo)
+  Other loaders skipped.
 - **OQ-423-2**: RESOLVED 2026-05-11 — user decision.
   **Capture-on-first-green** strategy: on the first successful
   boot of each loader, record final PC + screen RAM hash + PNG

@@ -79,15 +79,21 @@ This spec adds smokes + corpus, no source changes.
 ## Open Questions
 
 - **OQ-415-1**: RESOLVED 2026-05-11 — user decision. Vendor a
-  **curated subset**: Krill (already covered via
-  `samples/scramble_infinity.d64`), Bitfire (vendor demo disk),
-  covertbitops (vendor demo disk), and **Comaland** (= demo with
-  horizontal scrolling, known cycle-exact stress test referenced in
-  bmc64 TESTING.md). User downloads + places under
-  `samples/fastloader-tests/` (Bitfire, covertbitops, Comaland).
+  **curated subset** under `samples/fastloader-tests/`:
+  - **Krill** — already covered via `samples/scramble_infinity.d64`.
+  - **Bitfire** — vendor demo disk (placed by user).
+  - **Covert Bitops** — vendor + **source-build**:
+    - `c64loader` (= MIT license, github.com/cadaver/c64loader) →
+      assembled IFFL fastloader test PRG.
+    - `c64gameframework` (= github.com/cadaver/c64gameframework) →
+      `make` builds example game as .d64 image (22-row scroll +
+      24-sprite multiplexer + IRQ music + integrated loader =
+      comprehensive stress test, deterministic, reproducible).
+  - **Comaland** — PAL demo, horizontal-scroll cycle-exact stress
+    (per bmc64 TESTING.md). User places disk.
   Other loaders (Sparkle, Hermes, Spindle, Booze, Bongo) skipped —
-  covered by motm AB-fastloader + the chosen 4 for ATN-handshake +
-  custom-serial breadth + scroll-stress.
+  motm AB-fastloader + the 4 chosen covers ATN-handshake +
+  custom-serial + scroll-stress.
 - **OQ-415-2**: RESOLVED 2026-05-11 — doc §17, §9. Format/write
   test correctly deferred. VICE has the write-back path
   (`drive_gcr_data_writeback`, `fsimage-create.c:516,567`,
