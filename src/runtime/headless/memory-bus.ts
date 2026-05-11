@@ -14,6 +14,47 @@ function clampWord(value: number): number {
   return value & 0xffff;
 }
 
+// Spec 402 — C64 Phase B: Memory and PLA.
+// Doc anchor: docs/vice-c64-arch.md §4.1, §4.2, §4.3, §4.4, §4.6, §12 Phase B,
+// §13 invariants 3, 11, 14.
+// VICE cite: src/c64/c64mem.c:80 (NUM_CONFIGS=32), :83 (NUM_VBANKS=4),
+//            src/c64/c64pla.c:51 (c64pla_config_changed),
+//            src/c64/c64gluelogic.c:144 (default GLUE_LOGIC_DISCRETE),
+//            src/c64/c64.h:79 (FALLOFF_CYCLES=350000).
+//
+// OQ-402-1 (RESOLVED): NUM_CONFIGS=32 (5-bit index from
+//   LORAM, HIRAM, CHAREN, GAME, EXROM), NUM_VBANKS=4 (CIA2 PA bits 0..1).
+//   Only ~14 unique in stock-C64 use; VICE allocates the full 32 for
+//   branchless dispatch. Cite: c64mem.c:80,83.
+// OQ-402-2 (RESOLVED): Fall-off = 350000 cycles ≈ 355 ms @ PAL.
+//   Cite: c64.h:79.
+// OQ-402-3 (RESOLVED): Default glue logic for VICE_MACHINE_C64 (x64/x64sc)
+//   = GLUE_LOGIC_DISCRETE (HMOS). Cite: c64gluelogic.c:144.
+
+/** Spec 402 / §4.1 — NUM_CONFIGS = 32 (c64mem.c:80). */
+export const NUM_CONFIGS = 32;
+/** Spec 402 / §4.1 — NUM_VBANKS = 4 (c64mem.c:83). */
+export const NUM_VBANKS = 4;
+
+/** Spec 402 / §4.4 — glue-logic selection per c64gluelogic.c. */
+export type GlueLogic = "discrete" | "custom_ic";
+
+/** Spec 402 / §4.1 — per-config bank mapping. ~14 unique entries in the
+ * stock-C64 no-cart slice; the rest are duplicates per VICE's table-driven
+ * dispatch. We keep one entry per of the 32 (LORAM|HIRAM|CHAREN|GAME|EXROM)
+ * combinations. Each address window is labelled with a discrete region
+ * tag, mirroring VICE's mem_read_tab[][] pointer fan-out. */
+export interface MemConfigEntry {
+  /** $8000-$9FFF mapping. */
+  bank8: "ram" | "cart_lo";
+  /** $A000-$BFFF mapping. */
+  bankA: "ram" | "basic" | "cart_hi";
+  /** $D000-$DFFF mapping. */
+  bankD: "ram" | "io" | "char";
+  /** $E000-$FFFF mapping. */
+  bankE: "ram" | "kernal" | "cart_hi_ultimax";
+}
+
 export class HeadlessMemoryBus {
   public readonly ram = new Uint8Array(0x10000);
   public readonly basicRom = new Uint8Array(0x2000);
@@ -24,11 +65,25 @@ export class HeadlessMemoryBus {
   private readonly ioHandlers = new Map<number, HeadlessIoHandler>();
   private cpuPortDirection = 0x2f;
   private cpuPortValue = 0x37;
-  // Spec 219 c4 — capacitor-decay model for CPU-port bits 6,7 (NMOS C64).
+  // Spec 219 c4 / Spec 402 — capacitor-decay model for CPU-port bits 6,7.
   // Mirrors VICE c64mem.c pport.data_set_bitN / data_set_clk_bitN /
   // data_falloff_bitN. Bit transitions output→input snapshot the latched
-  // data bit; the snapshot decays to 0 after ~350000 c64 cycles.
+  // data bit; the snapshot decays to 0 after FALLOFF_CYCLES cycles.
+  // OQ-402-2: 350000 cycles ≈ 355 ms @ PAL 985248 Hz. Cite: c64.h:79.
   private static readonly FALLOFF_CYCLES = 350000;
+  // Spec 402 / §4.4 / OQ-402-3 — default for VICE_MACHINE_C64 is
+  // GLUE_LOGIC_DISCRETE (HMOS) per c64gluelogic.c:144. C64C (CMOS) opt-in.
+  private glueLogic: GlueLogic = "discrete";
+  // Spec 402 / §4.1 — 32-entry pre-built config table (NUM_CONFIGS=32).
+  // Built at construct time; indexed via memConfigIndex.
+  // VICE cite: c64meminit.c — fills mem_read_tab[32][257] +
+  // mem_write_tab[NUM_VBANKS][32][257] at init.
+  private readonly memConfigTable: readonly MemConfigEntry[] = buildMemConfigTable();
+  // Current 5-bit selector: (LORAM | HIRAM<<1 | CHAREN<<2 | GAME<<3 | EXROM<<4).
+  // Recomputed in mem_pla_config_changed() (= c64pla.c:51 analog).
+  private memConfigIndex = 0;
+  // Reverse-lookup cached entry (memConfigTable[memConfigIndex]).
+  private memConfig: MemConfigEntry = this.memConfigTable[0]!;
   private cpuPortClock: () => number = () => 0;
   private dataSetBit6 = 0; // 0x40 or 0
   private dataSetBit7 = 0; // 0x80 or 0
@@ -63,6 +118,35 @@ export class HeadlessMemoryBus {
     this.dataSetClkBit7 = 0;
     this.dataFalloffBit6 = 0;
     this.dataFalloffBit7 = 0;
+    // Spec 402 — recompute PLA config index after port reset.
+    this.memPlaConfigChanged();
+  }
+
+  /** Spec 402 / §4.4 — glue logic resource setter (HMOS / CMOS). */
+  setGlueLogic(g: GlueLogic): void {
+    this.glueLogic = g;
+  }
+
+  /** Spec 402 / §4.4 — read currently selected glue logic. */
+  getGlueLogic(): GlueLogic {
+    return this.glueLogic;
+  }
+
+  /** Spec 402 / §4.1 — current 5-bit PLA config index
+   *  `(LORAM | HIRAM<<1 | CHAREN<<2 | GAME<<3 | EXROM<<4)`. */
+  getMemConfigIndex(): number {
+    return this.memConfigIndex;
+  }
+
+  /** Spec 402 / §4.1 — current pre-built mem-config entry. */
+  getMemConfig(): MemConfigEntry {
+    return this.memConfig;
+  }
+
+  /** Spec 402 / §4.1 — read-only copy of the 32-entry config table.
+   *  Cite: c64mem.c:80 NUM_CONFIGS=32. */
+  getMemConfigTable(): readonly MemConfigEntry[] {
+    return this.memConfigTable;
   }
 
   setCpuPortClock(fn: () => number): void {
@@ -95,6 +179,19 @@ export class HeadlessMemoryBus {
 
   attachCartridge(cartridge: HeadlessCartridgeMapper | undefined): void {
     this.cartridge = cartridge;
+    // Spec 402 / §12 step 8 — cartridge GAME/EXROM lines feed the 5-bit
+    // memConfig selector. On attach/detach (or banking-register write
+    // that changes the lines), re-run the PLA reconfig hook so the
+    // table-driven dispatch picks up the new lines.
+    this.memPlaConfigChanged();
+  }
+
+  /** Spec 402 / §4.1 / §12 step 8 — cartridge-side notification that
+   *  GAME/EXROM lines have changed. Cartridge mappers call this from
+   *  their banking-register write site (e.g. EasyFlash $DE02 writes).
+   *  Cite: c64pla.c:51 `c64pla_config_changed()`. */
+  notifyCartridgeLinesChanged(): void {
+    this.memPlaConfigChanged();
   }
 
   beginInstructionTrace(): void {
@@ -232,6 +329,10 @@ export class HeadlessMemoryBus {
       }
       this.cpuPortDirection = byte;
       this.ram[0x0000] = byte;
+      // Spec 402 / §12 step 7 — bits 0..2 trigger mem_pla_config_changed.
+      // DDR also affects the (~dir | data) selector, so recompute here.
+      // Cite: c64pla.c:51.
+      this.memPlaConfigChanged();
       this.recordAccess("write", normalized, byte, "cpu_port_direction");
       return;
     }
@@ -251,6 +352,14 @@ export class HeadlessMemoryBus {
       }
       this.cpuPortValue = byte;
       this.ram[0x0001] = byte;
+      // Spec 402 / §12 step 7 — bits 0..2 (LORAM/HIRAM/CHAREN) feed PLA;
+      // bits 3..5 hook the datasette (stub here, full impl in spec 405).
+      // Cite: c64pla.c:51.
+      this.memPlaConfigChanged();
+      // Spec 402 / §4.3 — bits 3..5 = cassette write / sense / motor.
+      // Stub the datasette write/motor hook so the call-site exists for
+      // spec 405. Sense (bit 4) is an input pin and not touched here.
+      this.datasetteHookStub((byte & 0x20) === 0, (byte >> 3) & 1);
       this.recordAccess("write", normalized, byte, "cpu_port_value");
       return;
     }
@@ -268,52 +377,52 @@ export class HeadlessMemoryBus {
     this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
   }
 
-  // Sprint 87 (Spec 087) / Sprint 113 audit: PLA truth-table approach. Inputs:
-  //   LORAM ($01 bit 0), HIRAM ($01 bit 1), CHAREN ($01 bit 2)
-  //   /EXROM, /GAME from cartridge (1 = released/inactive, 0 = asserted)
-  // No cartridge attached: EXROM=1, GAME=1.
+  // Spec 402 / §4.1 / §4.3 — PLA reconfig hook.
+  // Cite: src/c64/c64pla.c:51 `c64pla_config_changed()`.
+  //
+  // Recompute the 5-bit memConfig selector
+  //   (LORAM | HIRAM<<1 | CHAREN<<2 | GAME<<3 | EXROM<<4)
+  // from the latched processor-port state + cartridge lines, then swap
+  // `this.memConfig` to the matching pre-built entry.
   //
   // Mode bits per VICE c64mem.c:216:
   //   mem_config bits 0..2 = (~pport.dir | pport.data) & 7
-  // i.e. for OUTPUT pins (dir bit=1) the bit equals the latched data bit;
+  // For OUTPUT pins (dir bit=1) the bit equals the latched data bit;
   // for INPUT pins (dir bit=0) the bit is forced HIGH (pulled up). This
   // matches the LORAM/HIRAM/CHAREN pullups on real HW.
-  private pla(): { bank8: 'ram' | 'cart_lo'; bankA: 'ram' | 'basic' | 'cart_hi'; bankD: 'ram' | 'io' | 'char'; bankE: 'ram' | 'kernal' | 'cart_hi_ultimax' } {
+  private memPlaConfigChanged(): void {
     const port = (~this.cpuPortDirection | this.cpuPortValue) & 0x07;
-    const loram = (port & 0x01) !== 0;
-    const hiram = (port & 0x02) !== 0;
-    const charen = (port & 0x04) !== 0;
+    const loram = port & 0x01;
+    const hiram = (port >> 1) & 0x01;
+    const charen = (port >> 2) & 0x01;
     const lines = this.cartridge?.getLines();
-    const exrom = lines ? (lines.exrom !== 0) : true;
-    const game = lines ? (lines.game !== 0) : true;
-    // Ultimax mode: GAME=0 AND EXROM=1.
-    const ultimax = !game && exrom;
-
-    let bank8: 'ram' | 'cart_lo' = 'ram';
-    if (ultimax) bank8 = 'cart_lo';
-    else if (loram && hiram && !exrom) bank8 = 'cart_lo';
-
-    let bankA: 'ram' | 'basic' | 'cart_hi' = 'ram';
-    if (ultimax) bankA = 'ram';                 // unmapped in Ultimax
-    else if (loram && hiram && !exrom && !game) bankA = 'cart_hi'; // 16K cart
-    else if (loram && hiram) bankA = 'basic';   // standard
-
-    let bankD: 'ram' | 'io' | 'char' = 'ram';
-    if (ultimax) bankD = 'io';                  // I/O always in Ultimax
-    else if ((loram || hiram) && charen) bankD = 'io';
-    else if ((loram || hiram) && !charen) bankD = 'char';
-
-    let bankE: 'ram' | 'kernal' | 'cart_hi_ultimax' = 'ram';
-    if (ultimax) bankE = 'cart_hi_ultimax';
-    else if (hiram) bankE = 'kernal';
-
-    return { bank8, bankA, bankD, bankE };
+    // No cart: EXROM=1, GAME=1 (lines released). Per spec 402 §12 step 8
+    // OQ-402-1 — stub when no cart attached.
+    const game = lines ? (lines.game & 1) : 1;
+    const exrom = lines ? (lines.exrom & 1) : 1;
+    // Spec 402 §4.1 selector: 5 bits, low→high
+    //   bit0=LORAM, bit1=HIRAM, bit2=CHAREN, bit3=EXROM, bit4=GAME.
+    // Cite: src/c64/c64mem.c:216
+    //   mem_config = (((~pport.dir | pport.data) & 0x7)
+    //                | (export.exrom << 3) | (export.game << 4));
+    this.memConfigIndex = (loram | (hiram << 1) | (charen << 2) | (exrom << 3) | (game << 4)) & 0x1f;
+    this.memConfig = this.memConfigTable[this.memConfigIndex]!;
   }
 
-  private basicVisible(): boolean { return this.pla().bankA === 'basic'; }
-  private kernalVisible(): boolean { return this.pla().bankE === 'kernal'; }
-  private ioVisible(): boolean { return this.pla().bankD === 'io'; }
-  private charVisible(): boolean { return this.pla().bankD === 'char'; }
+  /** Spec 402 / §4.3 — datasette hook slot. Bits 3..5 of $01 hook the
+   *  datasette in VICE (write=cassette-write-line, sense=cassette-sense
+   *  input, motor=cassette-motor). Implemented as a stub for the C64-only
+   *  port; full datasette lands in spec 405 / Phase E.
+   *  Cite: c64mem.c `zero_store()` / `pport_data_set_default_cpu()`. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private datasetteHookStub(_motorOn: boolean, _writeBit: number): void {
+    // No-op for spec 402; placeholder for spec 405 datasette wiring.
+  }
+
+  private basicVisible(): boolean { return this.memConfig.bankA === 'basic'; }
+  private kernalVisible(): boolean { return this.memConfig.bankE === 'kernal'; }
+  private ioVisible(): boolean { return this.memConfig.bankD === 'io'; }
+  private charVisible(): boolean { return this.memConfig.bankD === 'char'; }
 
   /**
    * Compute VICE-equivalent `pport.data_read` for $01.
@@ -374,4 +483,53 @@ function classifyRamRegion(address: number): string {
   if (address >= 0x0200 && address < 0xa000) return "ram";
   if (address >= 0xc000 && address < 0xd000) return "ram_high";
   return "ram";
+}
+
+// Spec 402 / §4.1 — pre-build the 32-entry mem-config table.
+// Cite: src/c64/c64meminit.c (fills mem_read_tab[][] at init for each
+// (LORAM, HIRAM, CHAREN, GAME, EXROM) combination). VICE allocates the
+// full 32 entries even though only ~14 are unique (NUM_CONFIGS=32 at
+// c64mem.c:80).
+//
+// Selector encoding (low→high) — matches VICE c64mem.c:216 exactly:
+//   bit0 = LORAM   ($01 bit 0, output high = "ROM mapped")
+//   bit1 = HIRAM   ($01 bit 1, output high = "Kernal/BASIC mapped")
+//   bit2 = CHAREN  ($01 bit 2, output high = "I/O mapped" / low = char ROM)
+//   bit3 = EXROM   (cartridge line; 1 = released/inactive)
+//   bit4 = GAME    (cartridge line; 1 = released/inactive)
+//
+// Reference truth table: docs/vice-c64-arch.md §4.2 (stock C64, no cart)
+// + Ultimax mode (GAME=0 AND EXROM=1).
+function buildMemConfigTable(): MemConfigEntry[] {
+  const table: MemConfigEntry[] = [];
+  for (let idx = 0; idx < NUM_CONFIGS; idx++) {
+    const loram = (idx & 0x01) !== 0;
+    const hiram = (idx & 0x02) !== 0;
+    const charen = (idx & 0x04) !== 0;
+    const exrom = (idx & 0x08) !== 0;
+    const game = (idx & 0x10) !== 0;
+    // Ultimax mode: GAME=0 AND EXROM=1.
+    const ultimax = !game && exrom;
+
+    let bank8: MemConfigEntry["bank8"] = "ram";
+    if (ultimax) bank8 = "cart_lo";
+    else if (loram && hiram && !exrom) bank8 = "cart_lo";
+
+    let bankA: MemConfigEntry["bankA"] = "ram";
+    if (ultimax) bankA = "ram"; // unmapped in Ultimax
+    else if (loram && hiram && !exrom && !game) bankA = "cart_hi"; // 16K cart
+    else if (loram && hiram) bankA = "basic";
+
+    let bankD: MemConfigEntry["bankD"] = "ram";
+    if (ultimax) bankD = "io"; // I/O always in Ultimax
+    else if ((loram || hiram) && charen) bankD = "io";
+    else if ((loram || hiram) && !charen) bankD = "char";
+
+    let bankE: MemConfigEntry["bankE"] = "ram";
+    if (ultimax) bankE = "cart_hi_ultimax";
+    else if (hiram) bankE = "kernal";
+
+    table.push({ bank8, bankA, bankD, bankE });
+  }
+  return table;
 }

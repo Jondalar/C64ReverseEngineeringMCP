@@ -13,8 +13,14 @@
 // memory-bus.ts; the mixin reflects state for callers that want to
 // observe CPU-port writes via the trace stream.
 //
-// In phase 2 the banking effect should move out of memory-bus into a
-// PLA module observing this port; spec 146 leaves that as follow-up.
+// Spec 402 — STATUS: this mixin is currently dead code on the C64 path
+// (no caller wires `ioPortHook` in cpu65xx-vice options). The canonical
+// $00/$01 latch + DDR + bit-6/7 fall-off + PLA reconfig hook lives in
+// `memory-bus.ts` (see `HeadlessMemoryBus.read/write` + `memPlaConfigChanged`).
+// This file is preserved as a hook surface for future "split CPU port out
+// of memory-bus" refactors; for spec 402's 1:1 VICE port the memory-bus
+// path is the single source of truth. Cite: c64pla.c:51, c64mem.c:80,
+// c64.h:79 (FALLOFF_CYCLES=350000).
 
 import type { BYTE } from "../util/uint.js";
 import { u8 } from "../util/uint.js";

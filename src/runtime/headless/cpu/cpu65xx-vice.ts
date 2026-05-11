@@ -656,7 +656,7 @@ export class Cpu65xxVice implements CycleSteppable {
    * drainAlarms call). The flag is a compile-time switch — runtime
    * gating would add a per-cycle branch.
    */
-  static readonly perCycleAlarmDrain: boolean = false;
+  static readonly perCycleAlarmDrain: boolean = true;
 
   // -------- Phase B compat: level-source from cpuIntStatus --------
   /** IRQ level = currently asserted by any chip via setIrq. */

@@ -1,6 +1,6 @@
 # Spec 402 — C64 Phase B: Memory and PLA
 
-**Status:** PROPOSED
+**Status:** DONE (spec 401 recurring gate also passed).
 **Branch:** `vice-arch-port`
 **Depends on:** 401
 **Doctrine:** 1:1 VICE x64sc port. Never deviate.

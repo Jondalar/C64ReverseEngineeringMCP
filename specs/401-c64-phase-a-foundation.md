@@ -1,32 +1,39 @@
 # Spec 401 — C64 Phase A: Foundation (no peripherals)
 
-**Status:** PARTIAL (commit `2005494`) — 2 OQs deferred as
-recurring gates across downstream specs (403, 404, 408).
+**Status:** RECURRING GATE PASSED (during spec 402 work).
+`Cpu65xxVice.perCycleAlarmDrain = true` is now the default.
+Dispatch-path collapse (OQ-401-3) deferred to a dedicated CPU-core
+refactor sprint — keeps cpu65xx-vice.ts internals out of spec 402's
+declared file scope.
 **Branch:** `vice-arch-port`
 **Depends on:** 400 (tick-order audit)
 **Doctrine:** 1:1 VICE x64sc port. Never deviate.
 
-## Recurring gate (post-2005494)
+## Recurring gate (post-2005494) — RESULT
 
-The following two OQ resolutions are wired but **gated** by
-`Cpu65xxVice.perCycleAlarmDrain` (default `false`):
+The following two OQ resolutions are wired but were **gated** by
+`Cpu65xxVice.perCycleAlarmDrain` (initially `false`, now `true`):
 
-- **OQ-401-1**: per-cycle alarm drain (= VICE 6510dtvcore.c
-  per-cycle pattern). When flag = `true`, Scramble Infinity LOAD
-  never completes (PC traps at $61d).
-- **OQ-401-3**: single dispatch path via `doInterrupt(globalPendingInt)`.
-  Currently both `serviceInterrupt` and `doInterrupt` alive in
-  `startInstructionCycle`.
+- **OQ-401-1 — PASSED during spec 402**: per-cycle alarm drain (=
+  VICE 6510dtvcore.c per-cycle pattern). Initially blocked by
+  Scramble Infinity LOAD (PC traps at $61d). After spec 402 memory/PLA
+  port: MM s1 + Scramble Infinity both LOAD and run to expected
+  game state with the flag enabled. Flag flipped to `true` permanently.
+- **OQ-401-3 — DEFERRED**: single dispatch path via
+  `doInterrupt(globalPendingInt)`. Both `serviceInterrupt` and
+  `doInterrupt` still alive in `startInstructionCycle`. Collapse
+  requires touching cpu65xx-vice.ts dispatch internals beyond spec
+  402's declared file scope; will land in a dedicated CPU-core
+  refactor sprint.
 
-**Root cause**: latent timing bug exposed by strict drain. Lives in
-downstream chip (CIA 403, VIC 404, or drive 408). Cannot fix here in
-isolation — needs the chip-side spec to land.
-
-**Recurring acceptance check** for specs 403, 404, 408: after spec
-N implementation, set `Cpu65xxVice.perCycleAlarmDrain = true`, run
-MM + Scramble. If both still green → enable flag permanently, collapse
-dispatch paths, mark Spec 401 as DONE. If still red → spec N+1 picks
-up the gate.
+**Recurring acceptance result** at spec 402: with
+`perCycleAlarmDrain=true` enabled, run on `vice-arch-port`:
+- MM s1: t=120s PC=$65d (character select range).
+- Scramble Infinity: t=120s PC=$ff58 (KERNAL NMI handler), t=180s
+  PC=$96fd (title loop).
+- `smoke:cpu-fidelity` 31/31, `smoke:cia-fidelity` 22/22.
+- `smoke-402-pla-configs.mjs` 28/28, `smoke-402-cpuport-falloff.mjs`
+  11/11.
 
 ## Goal
 
