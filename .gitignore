@@ -23,3 +23,7 @@ traces/
 samples/screenshots/*
 !samples/screenshots/proof/
 !samples/screenshots/proof/**
+!samples/golden-master/
+!samples/golden-master/**
+!samples/fastloader-tests/
+!samples/fastloader-tests/**
