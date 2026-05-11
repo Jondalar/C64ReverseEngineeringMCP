@@ -33,30 +33,72 @@ import type { HeadPosition } from "./head-position.js";
 import { type BYTE, u8 } from "../util/uint.js";
 
 // ---------------------------------------------------------------------------
-// Density / speed-zone tables.
+// Density / speed-zone tables — Spec 412 / doc §8.3, §17 OQ-412-2.
 //
-// VICE rotation.c L88-90:
+// Canonical VICE source: `src/drive/rotation.c:89`:
 //   static const unsigned int rot_speed_bps[2][4] = {
-//       { 250000, 266667, 285714, 307692 },
-//       { 125000, 133333, 142857, 153846 } };
+//       { 250000, 266667, 285714, 307692 },   // freq=0 (1541 1× speed)
+//       { 125000, 133333, 142857, 153846 } }; // freq=1 (1571 HS — not used here)
 //
-// At 1MHz drive clock the per-bit cycle counts are
-//   zone 0:   4.000 µs/bit   → 32 drive cycles per GCR byte
-//   zone 1:   3.750 µs/bit   → 30
-//   zone 2:   3.500 µs/bit   → 28
-//   zone 3:   3.250 µs/bit   → 26
+// 1541 uses only `rot_speed_bps[0]` (clockFrequency=1). At a 1 MHz
+// drive clock (= 1e6 cycles/sec):
+//   zone 0:   250000 bps → 4.000 cyc/bit → 32 drive cycles per GCR byte
+//   zone 1:   266667 bps → 3.750 cyc/bit → 30
+//   zone 2:   285714 bps → 3.500 cyc/bit → 28
+//   zone 3:   307692 bps → 3.250 cyc/bit → 26
 // The hardware mapping (VIA2 PB5/PB6) is: zone 0 = outer (slowest,
 // tracks 31-35); zone 3 = inner (fastest, tracks 1-17).
 //
 // We work in fixed-point ×8 (drive cycles × 8 ≡ bit-time × 64) so all
-// arithmetic stays integer.  CYCLES_PER_BYTE_BY_ZONE = drive cycles
-// per 8 bits = drive cycles × 8 / 8.  We accumulate driveCycles*8
-// per tick and pull one bit each time the accumulator reaches the
-// (cyclesPerByte) threshold — i.e. one bit per (cyclesPerByte / 8)
-// drive cycles.
+// arithmetic stays integer. CYCLES_PER_BYTE_BY_ZONE = drive cycles per
+// 8 bits. We accumulate driveCycles*8 per tick and pull one bit each
+// time the accumulator reaches the (cyclesPerByte) threshold — one
+// bit per (cyclesPerByte / 8) drive cycles.
+//
+// Doc: docs/vice-1541-arch.md §8.3 + §17 OQ-412-2 (RESOLVED 2026-05-11).
+// VICE: src/drive/rotation.c:89 `rot_speed_bps[2][4]`.
 // ---------------------------------------------------------------------------
 
+/**
+ * VICE-exact bits-per-second per (frequency, zone). Frequency 0 = 1541
+ * 1× speed; frequency 1 = 1571 high-speed (kept for completeness, not
+ * used by the 1541 path).
+ *
+ * Doc: docs/vice-1541-arch.md §8.3, §17 OQ-412-2.
+ * VICE: src/drive/rotation.c:89 `rot_speed_bps[2][4]`.
+ */
+export const ROT_SPEED_BPS: ReadonlyArray<ReadonlyArray<number>> = [
+  [250000, 266667, 285714, 307692],
+  [125000, 133333, 142857, 153846],
+] as const;
+
+/**
+ * Drive cycles per GCR byte by zone (1541, frequency=0). Pinned to
+ * VICE `rot_speed_bps[0][zone]` at 1 MHz drive clock:
+ *
+ *   cycles_per_byte[zone] = round(1_000_000 / rot_speed_bps[0][zone] * 8)
+ *
+ *   zone 0: 32 (= 1e6 / 250000 * 8 = 32.000)
+ *   zone 1: 30 (= 1e6 / 266667 * 8 = 29.9996…)
+ *   zone 2: 28 (= 1e6 / 285714 * 8 = 28.0000…)
+ *   zone 3: 26 (= 1e6 / 307692 * 8 = 26.0000…)
+ *
+ * Doc: docs/vice-1541-arch.md §8.3 + §17 OQ-412-2.
+ * VICE: src/drive/rotation.c:89 + drive_clock=1MHz.
+ */
 export const CYCLES_PER_BYTE_BY_ZONE: ReadonlyArray<number> = [32, 30, 28, 26];
+
+/**
+ * VICE-exact wobble PRNG seed. Per OQ-412-1 (RESOLVED 2026-05-11) the
+ * wobble xorShift32 is seeded to the fixed constant `0x1234abcd` in
+ * both `rotation_init()` (rotation.c:100) and `rotation_reset()`
+ * (rotation.c:122). Deterministic across runs — important for
+ * diff-trace reproducibility (doc §8.5).
+ *
+ * Doc: docs/vice-1541-arch.md §8.5 + §17 OQ-412-1.
+ * VICE: src/drive/rotation.c:100, 122, 290 (`xorShift32`).
+ */
+export const ROTATION_WOBBLE_PRNG_SEED = 0x1234abcd as const;
 
 // VICE drive.h media-attach delay constants. Drive sees no-sync +
 // neutral data for this many cycles after attach/detach so the read
@@ -190,6 +232,23 @@ export class GcrShifter {
 
   // Track currently bound to the shifter; flushed when head moves.
   private latchedTrack = -1;
+
+  // Spec 412 / doc §8.5 + §17 OQ-412-1 (RESOLVED 2026-05-11): VICE-exact
+  // wobble PRNG. Seeded to fixed constant 0x1234abcd in both
+  // rotation_init() (rotation.c:100) and rotation_reset() (rotation.c:122).
+  // Advanced via xorShift32 (rotation.c:290-292). Even though the
+  // simplified shifter does not currently apply RPM modulation to the
+  // bit-cell timing (the simple path uses constant cycles_per_byte =
+  // rot_speed_bps[0][zone] at nominal 300 RPM), the PRNG state is
+  // modelled for deterministic diff-trace fidelity vs VICE and for any
+  // future wobble-factor injection. `rotationTickCount` mirrors the
+  // VICE per-drive-cycle rotation_rotate_disk invocation counter; used
+  // by spec 412 acceptance smoke (tick count == drive cycle count).
+  //
+  // Doc: docs/vice-1541-arch.md §8.5 + §17 OQ-412-1.
+  // VICE: src/drive/rotation.c:100, 122, 290.
+  private wobbleXorShift32 = ROTATION_WOBBLE_PRNG_SEED >>> 0;
+  private rotationTickCount = 0;
 
   // Latched VIA2 PA byte (last completed byte from the shifter).
   // VICE drive_t.GCR_read.  Default 0xff = "no data" (open bus).
@@ -353,6 +412,32 @@ export class GcrShifter {
     return this.bit_counter;
   }
 
+  /**
+   * Spec 412 — per-drive-cycle rotation invocation counter. Mirrors
+   * the VICE invariant: `rotation_rotate_disk()` is called exactly
+   * once per drive CPU cycle. Smoke
+   * `scripts/smoke-412-rotation-per-cycle.mjs` asserts this matches
+   * the drive cycle count after 1M cycles.
+   *
+   * Doc: docs/vice-1541-arch.md §14 invariant 1.
+   * VICE: src/drive/rotation.c (rotation_rotate_disk invoked from
+   *       drivecpu_rotate macro inside 6510core.c per-cycle loop).
+   */
+  get tickCount(): number {
+    return this.rotationTickCount;
+  }
+
+  /**
+   * Spec 412 — current VICE-exact wobble PRNG state (xorShift32).
+   * Useful for smoke diff-trace alignment vs VICE captures.
+   *
+   * Doc: docs/vice-1541-arch.md §8.5 + §17 OQ-412-1.
+   * VICE: src/drive/rotation.c:290 (RANDOM_nextUInt advance).
+   */
+  get wobblePrngState(): number {
+    return this.wobbleXorShift32 >>> 0;
+  }
+
   // -------------------------------------------------------------------------
   // Configuration setters (driven by VIA2 backend)
   // -------------------------------------------------------------------------
@@ -413,8 +498,24 @@ export class GcrShifter {
    * complex 1541_gcr path).
    */
   tick(driveCycles: number): void {
+    // Spec 412 / doc §13 step 24 / §14 invariant 1: rotation_rotate_disk
+    // runs exactly once per drive CPU cycle. Caller invokes this with
+    // driveCycles=1 from the cycle-stepped path (DriveCpuCycled +
+    // DriveCpu.executeToClock); the tick counter increments per call
+    // regardless of motor state so the spec-412 acceptance smoke can
+    // verify the per-cycle invariant.
+    if (driveCycles > 0) this.rotationTickCount += driveCycles;
     // VICE rotation.c L1108: motor-off → no rotation.
     if (!this.motorOn || driveCycles <= 0) return;
+    // Advance wobble PRNG once per call. VICE rotation.c L290-292
+    // xorShift32 (note operator precedence — `^=` after the
+    // post-increment shift; we replicate the assignment pattern
+    // exactly so the state sequence matches bit-for-bit). Doc §8.5.
+    let x = this.wobbleXorShift32 >>> 0;
+    x = (x ^ (x << 13)) >>> 0;
+    x = (x ^ (x >>> 17)) >>> 0;
+    x = (x ^ (x << 5)) >>> 0;
+    this.wobbleXorShift32 = x;
 
     // Resync if head moved — we re-bind to the new track and clear
     // the shifter (matches existing TrackBuffer behaviour and is
@@ -468,7 +569,17 @@ export class GcrShifter {
     this.dataByteLatch = u8(snap.dataByte);
   }
 
-  /** Force-reset to a fresh state on the current track (test helper). */
+  /**
+   * Force-reset to a fresh state on the current track (test helper).
+   *
+   * Spec 412: re-seed the wobble PRNG to the VICE-exact fixed
+   * constant 0x1234abcd (rotation.c:122 `rotation_reset()`). The
+   * tick counter is also cleared — matches VICE `rotation_begins()`
+   * which resets cycle_index on each rotation re-anchor.
+   *
+   * Doc: docs/vice-1541-arch.md §8.5 + §17 OQ-412-1.
+   * VICE: src/drive/rotation.c:122 `rotation_reset()`.
+   */
   reset(): void {
     this.bitOffset = 0;
     this.last_read_data = 0;
@@ -481,6 +592,8 @@ export class GcrShifter {
     }
     this.dataByteLatch = 0xff;
     this.latchedTrack = -1;
+    this.wobbleXorShift32 = ROTATION_WOBBLE_PRNG_SEED >>> 0;
+    this.rotationTickCount = 0;
     // Defer track-rebind to next tick().
   }
 

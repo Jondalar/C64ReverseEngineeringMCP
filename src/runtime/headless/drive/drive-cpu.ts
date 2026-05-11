@@ -952,6 +952,13 @@ export class DriveCpu implements Drive1541Unit {
         // VIA2 IRQ polling — replaced by spec 411 chip-side push.
         cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
       }
+      // Spec 412 PARTIAL: doc §14 invariant 1 says rotation tick BEFORE
+      // cpu. Switching to BEFORE regresses Krill loader (Scramble Infinity
+      // stuck at $eeb1 KERNAL LOAD). Pre-existing TS timing divergence
+      // somewhere else gates Krill on post-cpu rotation. Keep AFTER for
+      // now; deferred to dedicated drive-timing investigation sprint.
+      // doc/code: docs/vice-1541-arch.md §14 invariant 1 (target) vs
+      // current (= AFTER). Spec 412 status PARTIAL.
       cycled.executeCycle();
       if (this.gcrShifter) this.gcrShifter.tick(1);
       if (cycled.isAtInstructionBoundary()) {
@@ -996,8 +1003,16 @@ export class DriveCpu implements Drive1541Unit {
     }
     // Tick at least once, then until back at boundary. Per-bus-cycle
     // path matches VICE 6510core.c addressing-mode decomposition.
+    //
+    // Spec 412 PARTIAL: rotation AFTER cpu (= pre-412 pattern); BEFORE
+    // pattern regresses Krill loader. See spec 412 status / drive-cpu.ts
+    // executeToClock for context.
     cycled.executeCycle();
-    while (!cycled.isAtInstructionBoundary()) cycled.executeCycle();
+    if (this.gcrShifter) this.gcrShifter.tick(1);
+    while (!cycled.isAtInstructionBoundary()) {
+      cycled.executeCycle();
+      if (this.gcrShifter) this.gcrShifter.tick(1);
+    }
     // Spec 205-A c4 / Spec 217: inner cpu's onInstructionComplete
     // (installed by kernel directly on this.cpu) fires inside the
     // microcode dispatch above. The wrapper hook below is kept for

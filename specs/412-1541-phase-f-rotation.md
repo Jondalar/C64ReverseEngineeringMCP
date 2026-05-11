@@ -1,6 +1,13 @@
 # Spec 412 — 1541 Phase F: Rotation
 
-**Status:** PROPOSED
+**Status:** PARTIAL 2026-05-12 — wobble PRNG seed + rot_speed_bps
+constants + rotation-tick counter + smokes landed. **Order swap
+(rotation tick BEFORE cpu per §14 invariant 1) reverted** — caused
+Scramble Infinity Krill-loader regression (PC stuck $eeb1 KERNAL
+LOAD). Pre-existing TS timing divergence elsewhere gates Krill on
+post-cpu rotation. Deferred to dedicated drive-timing investigation
+sprint when more drive specs land (419 ATN, 420 drive IRQ, 421
+drive bus access).
 **Branch:** `vice-arch-port`
 **Depends on:** 411
 **Doctrine:** 1:1 VICE TDE port.
