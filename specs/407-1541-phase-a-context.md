@@ -112,12 +112,15 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-407-1**: Do we need `drives[1]` placeholder for future dual
-  1571 support, or skip entirely for 1541? Doc says 1541
-  `drives[1]` unused.
-- **OQ-407-2**: Should `cpud` (= 6502 inner ctx) be separate from
-  `cpu` (= the 6510core port instance)? VICE has this split; TS
-  may collapse.
+- **OQ-407-1**: RESOLVED 2026-05-11 — doc §17. 1541 uses only
+  `drives[0]`. `drives[1]` is allocated for 1571 dual-side ONLY.
+  For the 1541-only port: allocate a single slot or leave
+  `drives[1]=NULL`. Cite `drivetypes.h:169` `drives[NUM_DRIVES]`.
+- **OQ-407-2**: RESOLVED 2026-05-11 — doc §17. VICE explicitly
+  separates `drivecpu_context_t` (registers, clock, alarm, PC base)
+  from `drivecpud_context_t` (256-page dispatch tables, sync_factor).
+  Split exists for cache locality. TS should split. Cite
+  `drivetypes.h:99-137`, doc §3.1.
 
 ## Files touched
 

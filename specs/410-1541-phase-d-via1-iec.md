@@ -125,10 +125,16 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-410-1**: `driveid` constant — for unit 8, what value? VICE
-  uses `(diskunit_idx & 0x3) << 5` per arc42 §5.7. Confirm.
-- **OQ-410-2**: SDR semantics on VIA1 — used by burst mode only?
-  Doc §6.6 mentions burst.
+- **OQ-410-1**: RESOLVED 2026-05-11 — doc §17, §6.4.
+  `driveid = (via1p->number << 5) & 0x60`. unit-index 0 (dev 8) =
+  $00; unit 1 (dev 9) = $20; unit 2 (dev 10) = $40; unit 3
+  (dev 11) = $60. Cite `src/drive/iec/via1d1541.c:345`.
+- **OQ-410-2**: RESOLVED 2026-05-11 — doc §17, §6.6. VIA1 SDR
+  on stock 1541 has **empty store callbacks** (`store_sr`,
+  `store_acr` are stubs in `via1d1541.c:274-280`). Burst mode is a
+  1571-only feature on the 1571's CIA chip, **not** via1d1541.
+  Viacore-level SDR machinery still runs (alarms, IFR) but no
+  1541-specific side-effects.
 
 ## Files touched
 

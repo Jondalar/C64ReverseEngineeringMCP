@@ -97,9 +97,23 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-414-1**: VICE `drive_enable` exact resource list to hook —
-  alarms, IEC callbacks, ROM patches (if any). Cite `drive.c:991`.
-- **OQ-414-2**: Snapshot drive module write order — pin in doc §11.
+- **OQ-414-1**: RESOLVED 2026-05-11 — doc §17, §2.3. `drive_enable()`
+  (`src/drive/drive.c:482-529`) does: (a) check
+  `Drive%uTrueEmulation` resource; (b) call `drive_image_attach()`
+  for each populated drive slot (re-geometry); (c) set
+  `cpu->stop_clk = *clk_ptr` for resync; (d) call
+  `drivecpu_wake_up()` (or 65c02 variant for CMDHD etc.); (e)
+  update UI. **No** separate IEC callback list — the IEC bus
+  state already iterates over all units `4..8+NUM_DISK_UNITS`
+  (`via1d1541.c:200`) and skips disabled units via the `enable`
+  flag.
+- **OQ-414-2**: RESOLVED 2026-05-11 — doc §17, §11. Drive snapshot
+  module write order is now pinned in §11: `DRIVE<unr>` module
+  scalars (incl. 24 rotation `snap_*` fields) → `DRIVECPU<unr>`
+  module (regs + clk + interrupt) → `machine_drive_snapshot_write`
+  (VIA1/VIA2) → optional `GCRIMAGE` / `P64IMAGE` / `IMAGE` if
+  `save_disks` is set. Cite `src/drive/drive-snapshot.c:162-330`,
+  `src/drive/drivecpu.c:568-640`.
 
 ## Files touched
 

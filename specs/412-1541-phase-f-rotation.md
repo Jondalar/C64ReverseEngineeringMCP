@@ -129,10 +129,17 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-412-1**: Wobble PRNG seed — VICE uses fixed or system-time?
-  Determinism matters for diff-trace.
-- **OQ-412-2**: `bits_per_cycle[zone]` exact 4-zone values from
-  `rotation.c` — pin in doc §8.3 with VICE constants.
+- **OQ-412-1**: RESOLVED 2026-05-11 — doc §17, §8.5. Wobble PRNG
+  (`xorShift32`) is seeded to **fixed constant `0x1234abcd`** in
+  both `rotation_init()` and `rotation_reset()` — deterministic
+  across runs. Cite `src/drive/rotation.c:100, 122, 290`.
+  Additional `lib_unsigned_rand` jitter (`rotation_do_wobble`,
+  ±0.5 units in freq/cycles) uses the global lib_rand state
+  (NOT separately seeded); influence on bit-cell timing is small.
+- **OQ-412-2**: RESOLVED 2026-05-11 — doc §17, §7.4, §8.3. 4-zone
+  bps values: `{250000, 266667, 285714, 307692}` (freq=0, 1541 1×)
+  and `{125000, 133333, 142857, 153846}` (freq=1, 1571 HS).
+  Cite `src/drive/rotation.c:89` `rot_speed_bps[2][4]`.
 
 ## Files touched
 

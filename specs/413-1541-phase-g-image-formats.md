@@ -99,10 +99,19 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-413-1**: D64 GCR encoding — VICE may pre-encode at attach
-  or lazy-encode per-track-fetch? Cite `driveimage.c:169`.
-- **OQ-413-2**: P64 — defer or implement? Doc says optional.
-  Memo lists no P64 dependent games in scope.
+- **OQ-413-1**: RESOLVED 2026-05-11 — doc §17, §9.1. D64→GCR is
+  **eager at attach**. `drive_image_attach()`
+  (`src/drive/driveimage.c:169-220`) calls `disk_image_read_image()`
+  which dispatches to `fsimage_read_dxx_image()`
+  (`src/diskimage/fsimage-dxx.c:149-280`), which encodes every
+  track to `gcr->tracks[].data` at attach time. On detach,
+  `drive_gcr_data_writeback()` reverses if any track is dirty.
+- **OQ-413-2**: RESOLVED 2026-05-11 — doc §17, §9.3. P64 is a
+  first-class image type in VICE (peer to G64). For our 1541 port:
+  **defer P64** — no titles in the supported corpus require it;
+  G64 covers all current copy-protected disks. Add a TODO stub so
+  format-probe falls through cleanly. Cite
+  `src/diskimage/diskimage.c:92,178,250,...`.
 
 ## Files touched
 

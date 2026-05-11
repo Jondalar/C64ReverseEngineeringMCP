@@ -118,13 +118,21 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-409-1**: Exact PAL sync_factor — arc42 §5.12 says
-  `(C64_FREQ << 16) / DRIVE_FREQ`. Compute: `985248 * 65536 /
-  1000000 ≈ 64559` = `0xFC2F`. Verify in VICE source.
-- **OQ-409-2**: NTSC sync_factor formula — does VICE recompute on
-  every video-mode switch or once at init?
-- **OQ-409-3**: Drive-side `cycles_per_second = 1000000` constant
-  vs C64 PAL `985248` — confirm both are stable references in TS.
+- **OQ-409-1**: RESOLVED 2026-05-11 — doc §17, §5.1. The formula in
+  VICE is **the inverse** of what arc42 §5.12 implies. VICE computes
+  `floor(65536 * 1_000_000 / cycles_per_sec)`. For PAL
+  `cycles_per_sec = 985248` → `sync_factor = 66517 = 0x103D5`.
+  Drive runs **faster** than C64 on PAL, so factor > 65536. Cite
+  `src/drive/drivesync.c:57`.
+- **OQ-409-2**: RESOLVED 2026-05-11 — doc §17, §5.3. NTSC =
+  **64079 = 0xFA4F** (`floor(65536 × 1_000_000 / 1_022_730)`).
+  Recomputed **once per PAL/NTSC switch** via
+  `drive_set_machine_parameter()` called from
+  `c64_set_model_timing()` (`src/c64/c64.c:1347`). Not per frame.
+- **OQ-409-3**: RESOLVED 2026-05-11 — doc §17, §5.1. Drive nominal
+  clock is hard-coded `1000000.0` literal in `drivesync.c:57`. No
+  separate `drive_freq` symbol; C64 PAL `985248` / NTSC `1022730`
+  come from `src/c64/c64.h:35,42` and are the only stable refs.
 
 ## Files touched
 

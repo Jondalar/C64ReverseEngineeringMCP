@@ -78,12 +78,23 @@ This spec adds smokes + corpus, no source changes.
 
 ## Open Questions
 
-- **OQ-415-1**: Fastloader corpus availability — Krill examples
-  vendored? Bitfire, Sparkle test images?
-- **OQ-415-2**: Format/write test is in Phase I list (step 36).
-  Requires write support which is deferred. Document deferral.
-- **OQ-415-3**: Drive-diff-trace cycle budget — slower than C64-
-  diff (Spec 406). Pin a CI-friendly budget.
+- **OQ-415-1**: UNRESOLVED — need user input. doc §17. VICE
+  testprogs vendored at `samples/vice-testprogs/` (4/4 pass per
+  memo `feedback_truedrive_101`). Krill / Bitfire / Sparkle /
+  Hermes / Spindle / Booze / Bongo demo disks are **NOT** in the
+  repo. User must decide whether to vendor demo disks under
+  `samples/fastloader-tests/` or skip the broad corpus and rely on
+  motm + Scramble Infinity for fastloader coverage.
+- **OQ-415-2**: RESOLVED 2026-05-11 — doc §17, §9. Format/write
+  test correctly deferred. VICE has the write-back path
+  (`drive_gcr_data_writeback`, `fsimage-create.c:516,567`,
+  `driveimage.c:230`) but our TS port is read-only (memo
+  `drive-write-support.md` archived). Phase I step 36 deferred to
+  a post-arch-port write-support spec.
+- **OQ-415-3**: UNRESOLVED — need user input. doc §17. Comparable
+  to spec 406 C64-diff (which does not have a pinned CI budget in
+  doc either). Suggest seeding at 1M drive cycles ≈ 1 sec
+  wall-time per snapshot per test; tune from CI feedback.
 
 ## Files touched
 

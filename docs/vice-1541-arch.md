@@ -433,18 +433,49 @@ handler via JSR $E853).
 ### §4.1 Physical 1541 layout
 
 ```
-$0000-$07FF  RAM (2 KB)
-$0800-$17FF  open bus (echoes; some boards have RAM here as 8KB-mod)
-$1800-$180F  VIA1 — IEC interface, mirrored across $1800-$1BFF
-$1C00-$1C0F  VIA2 — disk controller, mirrored across $1C00-$1FFF
-$2000-$BFFF  open bus
-$C000-$FFFF  ROM (16 KB: 901229-05 + 901227-03 split,
-                       or single d1541ii.rom for 1541-II)
+$0000-$00FF  zero-page (drive_read_zero / drive_store_zero, page-0 special)
+$0100-$07FF  RAM (1.75 KB; total RAM region 2 KB = $0000-$07FF)
+$0800-$17FF  open bus  (drive_read_free / drive_store_free)
+$1800-$1BFF  VIA1 — IEC interface, registers $1800-$180F mirror ×64
+$1C00-$1FFF  VIA2 — disk controller, registers $1C00-$1C0F mirror ×64
+$2000-$27FF  RAM mirror of $0000-$07FF  (a14/a15 don't decode)
+$2800-$37FF  open bus
+$3800-$3BFF  VIA1 mirror
+$3C00-$3FFF  VIA2 mirror
+$4000-$47FF  RAM mirror   (a15 doesn't decode)
+$4800-$57FF  open bus
+$5800-$5BFF  VIA1 mirror
+$5C00-$5FFF  VIA2 mirror
+$6000-$67FF  RAM mirror
+$6800-$77FF  open bus
+$7800-$7BFF  VIA1 mirror
+$7C00-$7FFF  VIA2 mirror
+$8000-$9FFF  ROM "low half"   = trap_rom[0x0000..0x1FFF] (zero on
+                                  stock 1541; 1541-II maps here too)
+$A000-$BFFF  ROM "mid half"   = trap_rom[0x2000..0x3FFF] (zero on
+                                  stock 1541)
+$C000-$FFFF  ROM (16 KB)      = trap_rom[0x4000..0x7FFF]
+                                  (901229-05 low + 901227-03 high split,
+                                   or single d1541ii.rom for 1541-II)
 ```
 
-VICE allocates a **64 KB** RAM array per unit even though stock 1541
-has 2 KB — leaves room for RAM-expansion mods (RAM-link, +8K, etc.)
-and for shared code with 1571/1581.
+VICE allocates a **64 KB** RAM array per unit (`drive_ram[]`) even
+though stock 1541 has 2 KB — leaves room for RAM-expansion mods
+(RAM-link, +8K, etc., toggled via `drive_ramX_enabled` flags) and for
+shared code with 1571/1581.
+
+The mirror layout comes from `src/drive/iec/memiec.c:138-177`
+`memiec_init()` — pages $00, $01-$07, $18-$1C (VIA1), $1C-$20 (VIA2)
+are repeated at $20-$28/$38-$3C/$3C-$40 etc. when the RAM-expansion
+flags are off. The "open bus" gaps inside each $2000-block (e.g.
+$2800-$37FF, $4800-$57FF) keep the blanket `drive_read_free` handler
+from `drivemem_init()`. ROM physically occupies $C000-$FFFF on the
+stock 1541; the trap_rom[] buffer is 32 KB, and the dispatch tables
+window it at `trap_rom`, `&trap_rom[0x2000]`, `&trap_rom[0x4000]` for
+$8000, $A000, $C000 respectively. On stock 1541 the first 16 KB of
+trap_rom is zero (only 16K ROM is loaded into `rom[0x4000..0x7FFF]`),
+so $8000-$BFFF reads as 0 unless a 32 K ROM image (1541-II /
+JiffyDOS variants) populates the low half.
 
 ### §4.2 Dispatch tables
 
@@ -467,28 +498,42 @@ void drivemem_init(diskunit_context_t *unit)
 }
 ```
 
-`machine_drive_mem_init()` for 1541 calls `drivemem_set_func()` to fill:
+`memiec_init()` for `DRIVE_TYPE_1541` (memiec.c:138-177) fills:
 
 ```c
-/* RAM at $0000-$07FF */
-drivemem_set_func(cpud, 0x00, 0x08,
-                  drive_read_ram, drive_store_ram, NULL,
-                  drv->drive_ram, (0x0800 << 16) | 0x0000);
+/* zero page: special handlers (page-zero indexing optimization) */
+drivemem_set_func(cpud, 0x00, 0x01,
+                  drive_read_zero, drive_store_zero, drive_peek_zero,
+                  NULL, 0);
+/* RAM $0100-$07FF */
+drivemem_set_func(cpud, 0x01, 0x08,
+                  drive_read_1541ram, drive_store_1541ram, drive_peek_1541ram,
+                  &drv->drive_ram[0x0100], 0);
 
 /* VIA1 at $1800-$1BFF */
-drivemem_set_func(cpud, 0x18, 0x1C,
+drivemem_set_func(cpud, 0x18, 0x1c,
                   via1d1541_read, via1d1541_store, via1d1541_peek,
                   NULL, 0);
 
 /* VIA2 at $1C00-$1FFF */
-drivemem_set_func(cpud, 0x1C, 0x20,
+drivemem_set_func(cpud, 0x1c, 0x20,
                   via2d_read, via2d_store, via2d_peek,
                   NULL, 0);
 
-/* ROM at $C000-$FFFF */
-drivemem_set_func(cpud, 0xC0, 0x100,
-                  drive_read_rom, NULL, drive_peek_rom,
-                  drv->rom, (0xFFFF << 16) | 0xC000);
+/* If no RAM expansion: RAM/VIA1/VIA2 mirror at $2000-$3FFF */
+drivemem_set_func(cpud, 0x20, 0x28, drive_read_1541ram, ...);
+drivemem_set_func(cpud, 0x38, 0x3c, via1d1541_read, ...);
+drivemem_set_func(cpud, 0x3c, 0x40, via2d_read, ...);
+/* …and again at $4000-$5FFF, $6000-$7FFF (when ramX_enabled = 0) */
+
+/* ROM low half $8000-$BFFF (mirror of high half) */
+drivemem_set_func(cpud, 0x80, 0xa0, drive_read_rom, NULL, drive_peek_rom,
+                  drv->trap_rom, 0);
+drivemem_set_func(cpud, 0xa0, 0xc0, drive_read_rom, NULL, drive_peek_rom,
+                  &drv->trap_rom[0x2000], 0);
+/* ROM at $C000-$FFFF (canonical 16K) */
+drivemem_set_func(cpud, 0xc0, 0x100, drive_read_rom, NULL, drive_peek_rom,
+                  &drv->trap_rom[0x4000], 0);
 ```
 
 The `read_base_tab[]` + `read_limit_tab[]` are an optimization for
@@ -528,15 +573,17 @@ the `read_base_tab[]` entries.
 ### §5.1 The 16.16 fixed-point factor
 
 ```c
-/* src/drive/drivesync.c (edited) */
+/* src/drive/drivesync.c:53 (verbatim) */
 static unsigned int sync_factor;     /* 16.16 fixed point, machine-wide */
 
 void drive_set_machine_parameter(long cycles_per_sec)
 {
-    /* cycles_per_sec = host CPU speed (985248 PAL, 1022730 NTSC) */
+    /* cycles_per_sec = host CPU speed (985248 PAL, 1022730 NTSC,
+       see c64/c64.h:35 C64_PAL_CYCLES_PER_SEC = 985248,
+                       c64/c64.h:42 C64_NTSC_CYCLES_PER_SEC = 1022730) */
     sync_factor = (unsigned int)floor(65536.0 * (1000000.0 / cycles_per_sec));
-    /* PAL:  ≈ 66514   (drive runs slightly faster than C64)
-       NTSC: ≈ 64092   (drive runs slightly slower than C64) */
+    /* PAL  (985248):  floor(65536 * 1.014967…) = 66517 = 0x103D5
+       NTSC (1022730): floor(65536 * 0.977778…) = 64079 = 0xFA4F  */
 
     for (dnr = 0; dnr < NUM_DISK_UNITS; dnr++)
         drivesync_factor(diskunit_context[dnr]);
@@ -545,16 +592,24 @@ void drive_set_machine_parameter(long cycles_per_sec)
 void drivesync_factor(diskunit_context_t *drv)
 {
     drv->cpud->sync_factor = drv->clock_frequency * sync_factor;
-    /* 1541 (clock_frequency=1):  ≈ 66514
-       1581 (clock_frequency=2):  ≈ 133028 */
+    /* 1541 (clock_frequency=1):  66517 PAL / 64079 NTSC
+       1581 (clock_frequency=2): 133034 PAL / 128158 NTSC */
 }
 ```
 
 The drive's nominal clock is 1.000 MHz; the C64's is 0.985 MHz (PAL)
 or 1.022 MHz (NTSC). Ratio:
 
-- PAL: drive/C64 ≈ 1.0149. `sync_factor ≈ 66514` ≈ 1.0149 × 65536.
-- NTSC: drive/C64 ≈ 0.978. `sync_factor ≈ 64092`.
+- PAL: drive/C64 ≈ 1.0149. `sync_factor = 66517` ≈ 1.0149 × 65536
+  (exact: `floor(65536 × 1_000_000 / 985_248) = 66517`).
+- NTSC: drive/C64 ≈ 0.978. `sync_factor = 64079`
+  (exact: `floor(65536 × 1_000_000 / 1_022_730) = 64079`).
+- Drive nominal clock is always **1 000 000 Hz** (`drivesync.c:57`
+  hard-coded `1000000.0`). Recompute happens once at machine init or
+  whenever `drive_set_machine_parameter()` is called (see
+  c64/c64.c:1347, which fires from `c64_set_model_timing()` on
+  PAL/NTSC switch). Drive itself does **not** carry a separate
+  `drive_freq` constant — the 1 000 000 is implicit in the formula.
 
 ### §5.2 Why fixed-point
 
@@ -683,7 +738,12 @@ static void store_prb(via_context_t *via_context, uint8_t byte,
 static uint8_t read_prb(via_context_t *via_context)
 {
     drivevia1_context_t *via1p = via_context->prv;
-    uint8_t driveid = (via1p->number << 5) & 0x60;  /* device addr bits 5,6 */
+    /* via1p->number = unit index 0..3 (device 8..11). The two address
+       jumper bits go to PB5+PB6. Formula from via1d1541.c:345:        */
+    uint8_t driveid = (via1p->number << 5) & 0x60;  /* unit-0=$00 (dev8)
+                                                       unit-1=$20 (dev9)
+                                                       unit-2=$40 (dev10)
+                                                       unit-3=$60 (dev11) */
     uint8_t byte;
 
     if (iecbus != NULL) {
@@ -722,11 +782,19 @@ IFR_CA1 if matched. The 1541 ROM configures CA1 for **falling-edge**
 (`PCR & 0x01 = 0`), so IRQ fires on H→L (= ATN asserted). See
 `vice-iec-arc42.md` §5.5 for the rclk timing details.
 
-### §6.6 VIA1 timers
+### §6.6 VIA1 timers and SDR
 
 Largely unused by stock 1541 DOS (no T1/T2 ISR). Some fastloaders use
-them. `viacore.c` provides full T1/T2/SDR support driven by alarms in
+them. `viacore.c` provides full T1/T2 support driven by alarms in
 the drive's alarm context.
+
+VIA1's SDR (shift register) on the 1541 is **not wired to burst-mode
+hardware** — burst mode is a 1571-only feature implemented via the
+1571's CIA, not via1d1541. In `via1d1541.c:278` `store_sr()` and the
+PCR/ACR `store_*` callbacks are all empty stubs, so the viacore-level
+SDR/timer machinery still ticks (alarms, IFR bits) but there's no
+1541-specific side-effect on writes. Custom fastloaders that touch
+SDR (`$180A`) get pure viacore behavior.
 
 ---
 
@@ -786,19 +854,34 @@ core ORs into the V flag at instruction boundary.
 
 ### §7.3 Stepper motor
 
-PB bits 0-1 form a 2-bit Gray code. Software steps by walking the
-sequence in/out:
+PB bits 0-1 form a 2-bit pulse-counter encoding the four stepper-coil
+phases. The valid in-sequence/out-sequence is **modular +1 / -1**, not
+a strict Gray code:
 
 ```
-step IN:  00 → 01 → 11 → 10 → 00 → ...   (each step = ½ track inward)
-step OUT: 00 → 10 → 11 → 01 → 00 → ...   (each step = ½ track outward)
+step IN:  00 → 01 → 10 → 11 → 00 → ...   (each step = ½ track inward)
+step OUT: 00 → 11 → 10 → 01 → 00 → ...   (each step = ½ track outward)
 ```
 
-VICE in `via2d_store()` decodes the new PB&3 vs old PB&3 and calls
-`drive_move_head(±1, drive)` if it's a single-step transition. The
-half-track counter `drive->current_half_track` advances; when it
+VICE in `iecieee/via2d.c:249-311` `via2d_store()` decodes:
+
+```c
+new_stepper_position = byte & 3;
+old_stepper_position = drive->current_half_track & 3;
+step_count = (new_stepper_position - old_stepper_position) & 3;
+if (step_count == 3) step_count = -1;   /* wrap = step OUT */
+/* step_count == 0 → no motion; ==1 → step IN; ==-1 → step OUT
+   step_count == 2 (double-step) → ignored (hardware would not move) */
+if (motor_on && (step_count == 1 || step_count == -1)) {
+    drive_move_head(step_count, drv);
+}
+```
+
+The half-track counter `drive->current_half_track` advances; when it
 crosses a track boundary, the GCR buffer pointer is reloaded to the
-new track's data via `drive_set_half_track()`.
+new track's data via `drive_set_half_track()`. The "Gray-code" framing
+in older docs is wrong — VICE compares modulo-4 numerical position,
+not Gray-code adjacency.
 
 The DOS ROM uses a software delay (~12000 cycles, $F99C) between
 steps to let the head settle. Real drives can step faster; cheating
@@ -812,10 +895,19 @@ the delay is what fastloaders sometimes do.
 
 | PB.6,5 | Zone | Tracks | Bitrate | Bytes/track |
 |:-:|:-:|:-:|:-:|:-:|
-| 11 | 0 | 1-17 | 250 kbps | ~7692 |
-| 10 | 1 | 18-24 | 266.67 kbps | ~7142 |
-| 01 | 2 | 25-30 | 285.71 kbps | ~6666 |
-| 00 | 3 | 31-35 | 307.69 kbps | ~6250 |
+| 11 | 0 | 1-17 | 250 000 bps  | ~7692 |
+| 10 | 1 | 18-24 | 266 667 bps | ~7142 |
+| 01 | 2 | 25-30 | 285 714 bps | ~6666 |
+| 00 | 3 | 31-35 | 307 692 bps | ~6250 |
+
+VICE pins these via `rot_speed_bps[2][4]` in `rotation.c:89`:
+
+```c
+static const unsigned int rot_speed_bps[2][4] = {
+    { 250000, 266667, 285714, 307692 },   /* freq=0 (1×, 1541)    */
+    { 125000, 133333, 142857, 153846 }    /* freq=1 (2×, 1571 HS) */
+};
+```
 
 (Real numbers are bits/track ÷ 8; VICE uses bit-resolution head
 offsets.)
@@ -1010,6 +1102,18 @@ bit-advance rate, modulated by a sine-like function with PRNG-seeded
 phase. Resources `Drive8RPM`, `Drive8WobbleFrequency`,
 `Drive8WobbleAmplitude` control the model.
 
+The wobble PRNG (`rotation.c:290`) is `xorShift32` and is seeded to a
+**fixed constant `0x1234abcd`** in both `rotation_init()`
+(rotation.c:100) and `rotation_reset()` (rotation.c:122). This means
+the wobble pattern is deterministic across runs — important for
+diff-trace reproducibility. Additionally, `rotation_do_wobble()`
+(rotation.c:308-331) mixes in `lib_unsigned_rand()` for the
+freq-jitter / cycles-jitter terms (`wobble_rand_freq = 10000`,
+`wobble_rand_cycles = 10000`), which is **not** seeded from a fixed
+constant — it uses the global `lib_rand` state. The deterministic
+xorShift32 path dominates the carry-bit timing; the lib_rand jitter
+is small (±0.5 freq / ±0.5 cycle units).
+
 For copy-protection emulation (where the protection measures RPM by
 counting cycles between two SYNC marks), wobble must be present and
 not zero. Set amplitude = 0 → fail certain protections; set
@@ -1136,19 +1240,50 @@ DRIVE8                              ← unit 8
 
 DRIVE9..DRIVE11 same shape if enabled.
 
-**Restore order** (write order reversed):
+**Write order** (`drive-snapshot.c:162` `drive_snapshot_write_module`):
 
-1. Restore unit-level scalars (sets up `current_half_track`, `gcr` buffer
-   reload).
-2. Restore CPU (registers, clock, interrupt state).
-3. Restore VIA1, VIA2 (timers re-armed via `viacore_snapshot_module_read`
-   which re-schedules alarms in the drive's alarm context).
-4. Restore rotation (write into `rotation[]` via `rotation_table_set`).
-5. Restore GCR-IMAGE if present (overwrites attached image with snapshot's
-   in-memory state — useful for save-state of protected disks).
+1. `vdrive_snapshot_module_write()` — non-TDE state first.
+2. For each unit, module `DRIVE8..DRIVE11`:
+   - byte `has_tde`, byte `has_drives` (1 or 2).
+   - DW `MachineVideoStandard` (== `sync_factor` selector,
+     per drive-snapshot.c:212).
+   - per drive in unit: bulk of `drive_t` scalars in this fixed order:
+     `attach_clk, byte_ready_level, clock_frequency, current_half_track,
+      detach_clk, extend_image_policy, GCR_head_offset, GCR_read,
+      GCR_write_value, idling_method, parallel_cable, read_only,
+      rotation_table_ptr[unr], type,` then the 24 `snap_*` rotation
+     scalars (accum, rotation_last_clk, bit_counter, zero_count,
+     last_read_data, last_write_data, seed, speed_zone, ue7_dcba,
+     ue7_counter, uf4_counter, fr_randcount, filter_counter,
+     filter_state, filter_last_state, write_flux, PulseHeadPosition,
+     xorShift32, so_delay, cycle_index, ref_advance, req_ref_cycles),
+     then `attach_detach_clk, byte_ready_edge, byte_ready_active`.
+3. Then for each TDE-enabled unit: `drivecpu_snapshot_write_module()`
+   writes `DRIVECPU8` (clk, A/X/Y/SP/PC/P, last_opcode_info,
+   last_clk, cycle_accum, last_exc_cycles, stop_clk, cpu_last_data,
+   `interrupt_write_snapshot()`, drive_ram[0x800],
+   `interrupt_write_new_snapshot()`).
+4. Then `machine_drive_snapshot_write()` for VIA1/VIA2/etc.
+5. If `save_disks`: per drive, `drive_snapshot_write_gcrimage_module`
+   / `_p64image_module` / `_image_module`.
 
-**Crucial**: restore *must* re-arm all alarms relative to the current
-drive clock. Snapshot stores cycles-until-next-fire, not absolute clock.
+**Restore order** (read traverses modules by name, not strict reverse).
+The drive scalars module is opened first, then `DRIVECPU8`, then VIA
+modules in `machine_drive_snapshot_read()`. After all scalars are in,
+`drivecpu_snapshot_read_module` calls `drivecpu_reset(drv)` first
+(line 658 of drivecpu.c) and then writes the restored regs.
+
+**Clock semantics**: VICE stores **absolute clock values**
+(`*drv->clk_ptr`, `attach_clk`, `t1reload`, `t2zero`, …) — see
+`drivecpu_snapshot_write_module()` lines 582-593 and the viacore /
+alarm save paths. After restore, alarms are re-armed via
+`viacore_snapshot_module_read()` which calls `alarm_set()` with the
+restored absolute clock; the drive clock is also restored absolute so
+the alarm fires at the correct moment. Restore-then-step must not
+re-bias the clock or the alarm fires at the wrong wall-time relative
+to the host. (This is more permissive than "store cycles-until-fire"
+but the result is the same provided the host and drive clock are
+both restored as snapshotted.)
 
 ---
 
@@ -1347,17 +1482,24 @@ defined for drivecpu).
    setups and multi-device daisy chains.
 6. **CA1 polarity = falling edge for ATN.** PCR&0x01 must be 0 in
    `viacore_signal` comparison.
-7. **VIA2 stepper transitions are 2-bit Gray code; only single-step
-   transitions move the head.** Software writes intermediate values;
-   ignore them.
+7. **VIA2 stepper transitions are 2-bit modulo-4 phase counts; only
+   single-step transitions (Δphase = +1 step in / -1 step out) move
+   the head.** Δphase = 0 → no motion; Δphase = 2 → ignored (invalid
+   double-step). Software occasionally writes intermediate values;
+   only ±1 mod 4 advances `current_half_track`. See `via2d.c:249`.
 8. **DRIVE_RAM is 64 KB but only $0000-$07FF is real on stock 1541.**
    Reads outside RAM/ROM/VIA windows return open bus
    (`drive_read_free`).
 9. **GCR head offset wraps at `GCR_current_track_size × 8` bits.**
    Tracks are circular; head returns to byte 0 after passing the
    last byte.
-10. **Snapshot restore re-arms alarms relative to current drive clock.**
-    Loading absolute clock = alarms fire instantly or never.
+10. **Snapshot restore is consistent — drive clock and alarm-clocks
+    are both absolute and restored as a coherent set.** VICE stores
+    absolute clocks; `viacore_snapshot_module_read()` calls
+    `alarm_set()` with those absolute values, and the drive clock is
+    restored to the snapshotted absolute. Do **not** "shift" the
+    drive clock or only restore part of the set — partial restore =
+    alarms fire instantly or never.
 11. **Image attach pulses WPS for the DOS to detect insertion.**
     Without: KERNAL doesn't notice the new disk.
 12. **`drivecpu_execute(drv, clk)` is push-mode**: drive runs only
@@ -1410,3 +1552,36 @@ defined for drivecpu).
   fastloader stress tests.
 - zimmers.net/cbmpics/cbm/c64/ — disk-controller documentation,
   6502-on-drive notes, GCR explanations.
+
+---
+
+## §17 Open Questions resolved 2026-05-11 (specs 407-415)
+
+Resolved against VICE source under `vice/vice/src/`. File:line cites
+are authoritative.
+
+| OQ | Resolution | Cite |
+|---|---|---|
+| 407-1 | 1541 uses only `drives[0]`. `drives[1]` allocated for 1571 dual-side ONLY. For 1541-only port, allocate single slot or leave `drives[1]=NULL`. | `drivetypes.h:169` `drives[NUM_DRIVES]`; §2.1 |
+| 407-2 | `drivecpu_context_t` (registers, clock, alarm, PC base) and `drivecpud_context_t` (256-page dispatch tables, sync_factor) are explicitly **separate structs** in VICE. The split exists for cache locality — dispatch tables are large and immutable. TS should split. | `drivetypes.h:99-137`; §3.1 |
+| 408-1 | VIA1 register window is `$1800-$1BFF` (4 pages = 1024 bytes, registers $1800-$180F mirrored ×64). Dispatch sets pages `0x18..0x1c`. With RAM-expansion disabled, also mirrors at $3800, $5800, $7800. | `memiec.c:143,149,156,163`; §4.1, §4.2 |
+| 408-2 | $0800-$17FF is **open bus** on stock 1541 (drive_read_free). Only the RAM-expansion-mod `drive_ram2_enabled` path maps RAM at $0800. Doc §4.1 updated. | `memiec.c:142,145-151`; §4.1 |
+| 409-1 | PAL `sync_factor` = `floor(65536 × 1_000_000 / 985_248)` = **66517 = 0x103D5**. | `drivesync.c:57`; `c64.h:35` PAL=985248; §5.1 |
+| 409-2 | NTSC `sync_factor` = **64079 = 0xFA4F**. Recomputed by `drive_set_machine_parameter(cycles_per_sec)` called from `c64_set_model_timing()` on PAL/NTSC switch — once per switch, not per frame. | `drivesync.c:53`; `c64/c64.c:1347`; `c64.h:42` NTSC=1022730; §5.1, §5.3 |
+| 409-3 | Drive nominal clock is **always 1 000 000 Hz**, hard-coded in `drivesync.c:57` as the literal `1000000.0`. There is no `drive_freq` constant; only the host PAL/NTSC constants from `c64.h` are stable references. | `drivesync.c:57`; §5.1 |
+| 410-1 | `driveid = (via1p->number << 5) & 0x60`. For unit-index 0 (device 8) = $00; unit 1 (dev 9) = $20; unit 2 (dev 10) = $40; unit 3 (dev 11) = $60. | `via1d1541.c:345`; §6.4 |
+| 410-2 | VIA1 SDR (`$180A`) on stock 1541 has **empty store callbacks** (`store_sr`, `store_acr` are stubs). Burst mode is a 1571-only feature on the 1571's CIA chip, not via1d1541. Viacore-level SDR machinery still runs but no 1541-specific side-effects. | `via1d1541.c:274-280`; §6.6 |
+| 411-1 | Stepper Gray-code framing in older docs is **wrong**. VICE uses modulo-4 phase counts: `step_count = (new_pos - old_pos) & 3`. Sequence is 00→01→10→11→00 in / 00→11→10→01→00 out. Only Δ = +1 / -1 (mod 4) moves; Δ = 0 ignored; Δ = 2 ignored (invalid double-step). | `iecieee/via2d.c:232-311`; §7.3 |
+| 411-2 | SOE at reset: PCR = 0 (viacore_reset sets registers 11-15 = 0, including PCR). With CA2 control bits (PCR bits 1-3) = 0, CA2 is input-mode (SOE OFF). DOS ROM at $EAA0 reset entry then writes PCR to enable SOE before the first read loop. | `viacore.c:378-434`; §7.6 |
+| 412-1 | Wobble PRNG (`xorShift32`) is seeded to **fixed constant `0x1234abcd`** in both `rotation_init()` and `rotation_reset()`. Deterministic across runs. Additional `lib_unsigned_rand` jitter (~±0.5 in freq/cycles units) is not seeded. | `rotation.c:100, 122, 290, 308-331`; §8.5 |
+| 412-2 | `bits_per_cycle[zone]` 4-zone values are `{250000, 266667, 285714, 307692}` for freq=0 (1541 1×) and `{125000, 133333, 142857, 153846}` for freq=1 (1571 HS). | `rotation.c:89` `rot_speed_bps[2][4]`; §7.4, §8.3 |
+| 413-1 | D64→GCR encoding is **eager at attach** (not lazy). `drive_image_attach()` calls `disk_image_read_image()` which dispatches to `fsimage_read_dxx_image()`, which encodes every track to `gcr->tracks[].data` at attach time. On detach, `drive_gcr_data_writeback()` reverses if a track is dirty. | `driveimage.c:169-220`; `fsimage-dxx.c:149-280`; §9.1 |
+| 413-2 | P64 is a **first-class image type** in VICE (peer to G64, both branch through `DISK_IMAGE_TYPE_*` in `diskimage.c:92,178,...`). For our 1541 port: **defer P64** — no titles in the supported corpus require it; G64 covers all current copy-protected disks. Add a TODO stub so detection falls through cleanly. | `diskimage.c:92,178,250,...`; §9.3 |
+| 414-1 | `drive_enable()` does: (a) check `Drive%uTrueEmulation` resource, (b) call `drive_image_attach()` for each populated slot (re-geometry), (c) set `cpu->stop_clk = *clk_ptr` for resync, (d) call `drivecpu_wake_up()` (or 65c02 variant for CMDHD etc.), (e) update UI. **It does NOT** hook into a separate IEC callback list — the IEC bus state already iterates over all units `4..8+NUM_DISK_UNITS` (`via1d1541.c:200`) and skips disabled units via the `enable` flag. | `drive.c:482-529`; §2.3 |
+| 414-2 | Snapshot drive write order is now pinned in §11 with all 24 rotation `snap_*` fields, drivecpu module fields, viacore module fields, and image module (if `save_disks`). | `drive-snapshot.c:162-280`; `drivecpu.c:568-640`; §11 |
+| 415-1 | Fastloader corpus availability: **UNRESOLVED — need user input**. VICE testprogs vendored at `samples/vice-testprogs/` per memo `feedback_truedrive_101`, currently 4/4 pass. Krill / Bitfire / Sparkle / Hermes / Spindle / Booze / Bongo demos are NOT in the repo. User must decide whether to vendor demo disks under `samples/fastloader-tests/` or skip the broad corpus and rely on motm + Scramble Infinity. |  |
+| 415-2 | Format/write test is correctly deferred: write-back path exists in VICE (`drive_gcr_data_writeback`, `fsimage-create.c:516`) but no D64-detach writeback in our TS port — memo `drive-write-support.md` archived. Format step (Phase I step 36) deferred to a post-arch-port spec. Acceptance smoke for write tests omitted; covered by future write-support spec. | `fsimage-create.c:516,567`; `driveimage.c:230`; §9 |
+| 415-3 | Drive-diff-trace cycle budget: **UNRESOLVED — need user input**. Comparable to spec 406 C64-diff (which itself does not have a pinned CI-budget number in the doc). Suggest seeding at 1M drive cycles ≈ 1 sec wall-time per snapshot per test; tune from CI feedback. |  |
+
+The two unresolved items (415-1 corpus, 415-3 CI budget) require
+project-level decisions that are not derivable from VICE source.

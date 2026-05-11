@@ -117,10 +117,18 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-411-1**: 1541 stepper Gray code table — confirm exact
-  sequence from `via2d1541.c`.
-- **OQ-411-2**: SOE bit default — at reset, is SO routing on or
-  off? DOS ROM probably sets it on; verify.
+- **OQ-411-1**: RESOLVED 2026-05-11 — doc §17, §7.3. The
+  "Gray-code" framing is **wrong**. VICE uses **modulo-4 phase
+  counts**: `step_count = (new_pos - old_pos) & 3`. Step IN
+  sequence 00→01→10→11→00 (Δ=+1); step OUT 00→11→10→01→00 (Δ=-1).
+  Only Δ = ±1 mod 4 moves; Δ = 0 ignored; Δ = 2 (invalid
+  double-step) ignored. Cite
+  `src/drive/iecieee/via2d.c:232-311` `via2d_store()`.
+- **OQ-411-2**: RESOLVED 2026-05-11 — doc §17, §7.6. SOE is
+  **OFF at reset**: `viacore_reset()` (`src/core/viacore.c:378-434`)
+  sets registers 11-15 = 0 including PCR. PCR=0 → CA2 in input mode
+  → SOE off. DOS ROM at $EAA0 then writes PCR before the first read
+  loop to enable SOE.
 
 ## Files touched
 

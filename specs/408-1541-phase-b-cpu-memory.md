@@ -111,10 +111,15 @@ Deviations to verify:
 
 ## Open Questions
 
-- **OQ-408-1**: VIA1 mirror range — VICE maps $1800-$1FFF (= 8
-  mirrors)? Cite `drivemem.c` for exact range.
-- **OQ-408-2**: 1541 has $0800-$0FFF unmapped (= mirrors RAM)?
-  Open bus or RAM mirror?
+- **OQ-408-1**: RESOLVED 2026-05-11 — doc §17, §4.1, §4.2. VIA1
+  window is **$1800-$1BFF** (4 pages = 1024 bytes, 16 regs mirrored
+  ×64 within the window). Dispatch sets pages `0x18..0x1c`. With
+  RAM-expansion-mod disabled, the window is also mirrored at $3800,
+  $5800, $7800. Cite `src/drive/iec/memiec.c:143,149,156,163`.
+- **OQ-408-2**: RESOLVED 2026-05-11 — doc §17, §4.1. $0800-$17FF on
+  stock 1541 is **open bus** (`drive_read_free`). RAM mirror at
+  $0800 only when the `drive_ram2_enabled` RAM-expansion-mod flag
+  is set. Cite `memiec.c:142,145-151`.
 
 ## Files touched
 
