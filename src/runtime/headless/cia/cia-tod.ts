@@ -5,6 +5,17 @@
 // in `ciacore_store_internal()` lines 860-912 and `ciacore_read()`
 // lines 1260-1276.
 //
+// Spec 403 / OQ-403-2 (RESOLVED) — docs/vice-c64-arch.md §6.4.
+//   - The TOD alarm rate is the power-supply tick rate, NOT 1/10 s.
+//     `todticks = ticks_per_sec / power_freq` (ciacore.c:1879)
+//     ≈ 19705 cycles (PAL @ 50Hz) or 17046 cycles (NTSC @ 60Hz).
+//   - CRA bit 7 does NOT change the alarm rate; it changes the
+//     ring-counter match value: match=4 for 50Hz, match=5 for 60Hz
+//     (ciacore.c:1920-1921). BCD counter advances 10Hz when the host
+//     power frequency matches the CRA bit 7 selection. Mismatched
+//     selection runs TOD at the wrong wall-clock speed (well-known
+//     PAL/NTSC software pitfall).
+//
 // The TOD is a BCD clock (HR/MIN/SEC/10ths) driven by a 50/60Hz power
 // tick. VICE schedules `tod_alarm` at `clk + todticks` and the alarm
 // callback advances the BCD digits, divides 50/60 ticks down to 10Hz

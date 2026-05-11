@@ -67,31 +67,48 @@ export function installCia1(bus: HeadlessMemoryBus, opts: InstallCia1Options): I
   // Sprint 93.1: PA backend now exposes joystick port 2 state (active-
   // low bits 0-4). Real C64 wires joystick port 2 directly to CIA1 PA
   // inputs; keyboard column drive is the CIA's PA latch (output).
+  //
+  // Spec 403 / OQ-403-3 (RESOLVED) — docs/vice-c64-arch.md §6.6.
+  // Exact VICE formula at src/c64/c64cia1.c:337 (read_ciapa) and
+  // :425-431 (read_ciapb). Joystick pulls bits LOW via final AND,
+  // regardless of DDR / PR latch — it is a digital pull-down ANDed
+  // with the post-DDR latch value, NOT a "joystick override".
   const backend: CiaBackend = {
     storePa: () => { /* PA pins drive keyboard columns; nothing else */ },
     storePb: () => { /* PB pins are inputs from keyboard rows */ },
-    // VICE c64cia1.c read_ciapa: latch (DDR-output bits) | joystick
-    // active-low (DDR-input bits + pin pulls). KERNAL writes PA all-1
-    // to release columns, then walks bit by bit; reading PA must
-    // expose joy2 pulls AND the column the KERNAL just wrote.
+    // VICE: c64cia1.c:337 read_ciapa
+    //   byte = (val & (PRA | ~DDRA)) & read_joyport_dig(JOYPORT_2);
+    // where `val` is the keyboard-back-scan byte (0xff when PB does
+    // not drive columns — the dominant case). We skip the back-scan
+    // (it is documented at c64cia1.c:298-334 but never exercised by
+    // KERNAL / standard games) and use val=0xff, which is equivalent
+    // to `(PRA | ~DDRA) & joy2`.
     readPa: () => {
       const joy = joystickActiveLowMask(joystick2);
       if (!cia) return joy;
       const pra = cia.c_cia[0] /* CIA_PRA */ ?? 0;
       const ddr = cia.c_cia[2] /* CIA_DDRA */ ?? 0;
-      // Open-collector: a low pull from joy clamps even output-high
-      // pins low. Compose pra-output AND-with-pins (which reflect
-      // the joy pulls).
-      return ((pra & ddr) | (joy & ~ddr)) & joy;
+      return ((pra | ~ddr) & joy) & 0xff;
     },
+    // VICE: c64cia1.c:425-431 read_ciapb
+    //   byte = val & (PRB | ~DDRB);
+    //   byte |= val_outhi;          (val_outhi = DDRB & PRB)
+    //   byte &= read_joyport_dig(JOYPORT_1);
+    // `val` here is the keyboard-row pull-down byte derived from the
+    // PA column scan. KERNAL programs DDRB=0 (PB all input), so
+    // val_outhi=0 and (PRB | ~DDRB)=0xff, collapsing to `val & joy1`.
+    // We compute val via keyboard.readRowsForPa(PA-effective).
     readPb: () => {
       if (!cia) return 0xff;
-      const paOut = (cia.c_cia[0] /* CIA_PRA */ | ~cia.c_cia[2] /* CIA_DDRA */) & 0xff;
-      const kbRows = keyboard.readRowsForPa(paOut);
+      const pra = cia.c_cia[0] /* CIA_PRA */ ?? 0;
+      const ddra = cia.c_cia[2] /* CIA_DDRA */ ?? 0;
+      const prb = cia.c_cia[1] /* CIA_PRB */ ?? 0;
+      const ddrb = cia.c_cia[3] /* CIA_DDRB */ ?? 0;
+      const paOut = (pra | ~ddra) & 0xff;
+      const val = keyboard.readRowsForPa(paOut);
+      const valOutHi = (ddrb & prb) & 0xff;
       const joyMask = joystickActiveLowMask(joystick1);
-      // PB is input from keyboard rows — DDR composition not needed
-      // because KERNAL programs DDRB=0 (all input).
-      return kbRows & joyMask;
+      return ((val & ((prb | ~ddrb) & 0xff)) | valOutHi) & joyMask & 0xff;
     },
     pulsePc: () => { /* unused on CIA1 */ },
     // Spec 309 Phase D: setIntClk pushes edge into cpuIntStatus directly

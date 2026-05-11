@@ -69,21 +69,43 @@ export function installCia2(
   // Spec 309 Phase D: allocate intNum once.
   const cia2IntNum = opts.cpuIntStatus.newIntNum("CIA2");
 
+  // Spec 403 / docs/vice-c64-arch.md §6.6 + §12 step 12 + §13 invariant 13.
+  // CIA2 PA bit layout (verbatim doc + VICE c64cia2.c:136-164):
+  //   bit 0 = VIC-bank LSB (inverted via `tmp = ~byte; new_vbank = tmp & 3`)
+  //   bit 1 = VIC-bank MSB
+  //   bit 2 = userport D (RS-232 TXD)
+  //   bit 3 = ATN OUT
+  //   bit 4 = CLK OUT
+  //   bit 5 = DATA OUT
+  //   bit 6 = CLK IN
+  //   bit 7 = DATA IN
+  // VIC-bank update: `c64_glue_set_vbank(new_vbank, pa_ddr_change)`
+  // applies on both Phi1 and Phi2 boundaries (§5.10 / c64gluelogic.c).
+  // IEC update: `(*iecbus_callback_write)(tmp, maincpu_clk + !write_offset)`
+  // routes the inverted byte to the IEC bus engine.
+  // CIA2 IRQ → 6510 NMI line (§13 invariant 13, c64cia2.c:86-89).
   const backend: CiaBackend = {
-    // Per VICE c64cia2.c:148-162 — when CIA2 PA-out changes, the
-    // composed PA byte (latch | ~ddr) is forwarded to iecbus / VIC
-    // bank logic via the kernel-supplied iecWrite callback.
+    // Per VICE c64cia2.c:136-164 store_ciapa — when CIA2 PA-out changes,
+    // the composed PA byte (latch | ~ddr) is forwarded to iecbus / VIC
+    // bank logic via the kernel-supplied iecWrite callback. We pass the
+    // *non-inverted* paOut + ddr; the downstream consumer (kernel /
+    // IecBus / VIC bank) is responsible for the `tmp = ~byte` inversion
+    // because the IEC + VIC bank wiring depends on inverted active-low
+    // semantics. See `iec/iec-bus.ts setC64Output` for the inversion.
     storePa: (paOut) => {
       if (!cia) return;
       const ddr = cia.c_cia[2] /* CIA_DDRA */ ?? 0;
       opts.iecWrite(paOut, ddr, iecWriteClock());
     },
     storePb: () => { /* user port not modeled */ },
-    // VICE c64cia2.c read_ciapa:
-    //   value = ((PRA | ~DDRA) & 0x3f) | iecbus_callback_read(clk)
-    // The IEC callback returns cached cpu_port bits 4/6/7. Low port
+    // VICE: c64cia2.c:200-231 read_ciapa
+    //   value = ((PRA | ~DDRA) & 0x3f) | iecbus_callback_read(clk);
+    // The 0x3f mask keeps the IEC INPUT bits (6=CLK_IN, 7=DATA_IN)
+    // strictly driven by the bus. The IEC callback returns cached
+    // cpu_port bits 4/6/7 (CLK_OUT readback + CLK_IN + DATA_IN).
+    // Low bits (0..5) come from the PRA latch / DDR composition;
     // input bits float high unless userport PA2/PA3 pulls them low
-    // (userport not modeled here).
+    // (userport not modeled here, see VICE :216-228 for that branch).
     readPa: () => {
       const pins = opts.iecReadPins();
       if (!cia) return pins;
@@ -93,8 +115,9 @@ export function installCia2(
     },
     readPb: () => 0xff,
     pulsePc: () => { /* RS232 handshake — unused */ },
-    // Spec 309 Phase D: setIntClk pushes NMI edge into cpuIntStatus
-    // (= c64cia2.c:86-89 interrupt_set_nmi).
+    // Spec 309 Phase D + Spec 403 §13 invariant 13: setIntClk pushes
+    // NMI edge into cpuIntStatus (= c64cia2.c:86-89 interrupt_set_nmi).
+    // CIA2 IRQ → NMI, CIA1 IRQ → IRQ. Do not swap.
     setIntClk: (val, clk) => {
       const asserted = val !== 0;
       const prevAsserted = (opts.cpuIntStatus.pendingInt[cia2IntNum.id]! & 0x01 /* IK_NMI */) !== 0;

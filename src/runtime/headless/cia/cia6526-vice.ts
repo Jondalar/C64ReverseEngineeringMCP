@@ -136,7 +136,18 @@ export const CIA_IM_FLG = 0x10;
 export const CIA_IM_TBB = 0x100;
 
 // ---------------------------------------------------------------------------
-// IFR delay-line bits — ciacore.c lines 129-149 verbatim.
+// IFR delay-line bits — ciacore.c lines 126-149 verbatim.
+//
+// Spec 403 / OQ-403-1 (RESOLVED) — docs/vice-c64-arch.md §6.5.
+// `ifr_delay` is a 32-bit pipeline register. Each bit position represents
+// one pending action that will fire some number of cycles in the future.
+// Replicate the masks exactly; do not approximate. The 1-cycle ICR
+// read-clear / write-set interaction is implemented around
+// `src/core/ciacore.c:402-433` (cia_run_ifr_cycle) and re-checked on
+// every ICR access at `ciacore.c:961-996` (ciacore_store_internal ICR
+// path) and `ciacore.c:1289-1366` (ciacore_read ICR path). The right
+// acceptance criterion for a port is `ifr_delay` shift-register
+// equality after each cycle, not just IRQ-line equality.
 // ---------------------------------------------------------------------------
 export const CIA_IRQ_ACK1 = 0x0001;
 export const CIA_IRQ_ACK0 = 0x0002;
