@@ -284,20 +284,17 @@ export class HeadlessMachineKernel implements MachineKernel {
     // by VicIIVice on every irq state update; only level transitions
     // emit a kernel event.
     let vicPrevAsserted = false;
+    // Spec 309 Phase E': allocate VIC intNum once.
+    const vicIntNum = this.cpuIntStatus.newIntNum("VICII");
     const vicBusBackend: VicBackend = {
       stealCpuCycles: (count: number, _clk: number) => {
-        // Advance C64 CPU clock past stolen window. CPU does not step;
-        // scheduler drain (AlarmContextCycled) still fires for CIA timers
-        // so wall-clock peripherals advance. Mirrors VICE
-        // dma_maincpu_steal_cycles: maincpu_clk += count.
         (this.c64Cpu as { cycles: number }).cycles += count;
       },
       setIrqLine: (asserted: boolean, clk: number) => {
-        // IRQ line state is sampled via vic.irqAsserted() in
-        // checkC64Interrupts and updateMicrocodedInterruptLines —
-        // no additional latching needed here. Spec 203-c3: emit
-        // kernel event on edge so divergence diff has visibility into
-        // raster IRQ stamping.
+        // Spec 309 Phase E': chip-side push — VIC pin level changes go
+        // direct into cpuIntStatus.setIrq. CPU reads globalPendingInt at
+        // opcode boundary; no session-side polling.
+        this.cpuIntStatus.setIrq(vicIntNum, asserted, clk);
         if (asserted !== vicPrevAsserted) {
           vicPrevAsserted = asserted;
           this.emitIrqEvent({

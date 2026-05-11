@@ -1168,19 +1168,10 @@ export class IntegratedSession {
   // event/catch-up instruction loop below calls it before each CPU
   // micro-cycle.
   private updateMicrocodedInterruptLines(): void {
-    const cpu = this.c64Cpu as any;
-    // Phase D: CIA1/CIA2 push directly into cpu.cpuIntStatus via their
-    // setIntClk hooks (= ciacore my_set_int). Session bridge handles VIC
-    // only until Phase E moves VIC raster IRQ to direct push.
-    if (!cpu.cpuIntStatus) return;
-    if (!this.intNumVicIrq) {
-      this.intNumVicIrq = cpu.cpuIntStatus.newIntNum("vic-irq");
-    }
-    const clk = cpu.cycles ?? cpu.clk ?? 0;
-    const vicIrqAsserted = this.useLiteralPortVicIrq
-      ? ((LIT_TYPES.vicii.irq_status & this.vic.regs[0x1a]! & 0x0f) !== 0)
-      : this.vic.irqAsserted();
-    cpu.cpuIntStatus.setIrq(this.intNumVicIrq, vicIrqAsserted, clk);
+    // Phase 309 D'+E': all C64 chips (CIA1, CIA2, VIC) push directly
+    // into kernel.cpuIntStatus via their respective setIntClk / setIrqLine
+    // hooks. Session-side bridge is no longer needed for C64 CPU.
+    // Drive 6502 still has its own bridge in drive-cpu.ts (Phase H pending).
   }
 
   private stepMicrocodedC64Instruction(): void {
