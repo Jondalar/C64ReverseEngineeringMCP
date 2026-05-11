@@ -80,11 +80,14 @@ This spec adds smokes + corpus, no source changes.
 
 - **OQ-415-1**: RESOLVED 2026-05-11 — user decision. Vendor a
   **curated subset**: Krill (already covered via
-  `samples/scramble_infinity.d64`), Bitfire (vendor demo disk), and
-  covertbitops (vendor demo disk). Other loaders (Sparkle, Hermes,
-  Spindle, Booze, Bongo) skipped — covered by motm AB-fastloader +
-  the chosen 3 for ATN-handshake + custom-serial breadth. Vendor
-  under `samples/fastloader-tests/` once author licenses confirmed.
+  `samples/scramble_infinity.d64`), Bitfire (vendor demo disk),
+  covertbitops (vendor demo disk), and **Comaland** (= demo with
+  horizontal scrolling, known cycle-exact stress test referenced in
+  bmc64 TESTING.md). User downloads + places under
+  `samples/fastloader-tests/` (Bitfire, covertbitops, Comaland).
+  Other loaders (Sparkle, Hermes, Spindle, Booze, Bongo) skipped —
+  covered by motm AB-fastloader + the chosen 4 for ATN-handshake +
+  custom-serial breadth + scroll-stress.
 - **OQ-415-2**: RESOLVED 2026-05-11 — doc §17, §9. Format/write
   test correctly deferred. VICE has the write-back path
   (`drive_gcr_data_writeback`, `fsimage-create.c:516,567`,

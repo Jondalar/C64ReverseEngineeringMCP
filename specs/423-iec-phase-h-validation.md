@@ -80,8 +80,8 @@ This spec adds smokes, no source.
 
 - **OQ-423-1**: RESOLVED 2026-05-11 — user decision. **Curated
   subset**: Krill (covered via Scramble Infinity), Bitfire,
-  covertbitops. Other loaders skipped. Vendor under
-  `samples/fastloader-tests/` once author licenses confirmed.
+  covertbitops, **Comaland** (= scroll-stress demo). Other loaders
+  skipped. User places under `samples/fastloader-tests/`.
   Aligned with OQ-415-1 resolution.
 - **OQ-423-2**: RESOLVED 2026-05-11 — user decision.
   **Capture-on-first-green** strategy: on the first successful
