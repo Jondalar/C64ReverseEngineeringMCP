@@ -146,15 +146,28 @@ Known deviations to verify:
 
 ## Open Questions
 
-- **OQ-403-1**: ICR "v1 deviation pinned" — what specifically does
-  current TS do vs VICE? Update `docs/vice-c64-arch.md §6.5` with
-  current TS deviation table and resolve to 1:1.
-- **OQ-403-2**: TOD frequency source: doc says CRA bit 7 selects
-  50/60 Hz. Confirm in `ciacore.c` and pin which alarm rate VICE
-  uses (1/10 sec increment vs CPU-cycle-derived).
-- **OQ-403-3**: Joystick port 1 (CIA1 PB) layout: doc §6.6 mentions
-  "joy1 down-bit pulls corresponding PB pin low". Verify exact
-  formula in VICE; current TS may simplify.
+- **OQ-403-1 — PARTIALLY RESOLVED** → `docs/vice-c64-arch.md §6.5`.
+  VICE side documented: `ifr_delay` is a 32-bit pipeline register
+  with named flag positions at `src/core/ciacore.c:126-143`; the
+  1-cycle ICR read-clear / write-set is implemented at
+  `ciacore.c:402-433, 961-996`. The clone must reach `ifr_delay`
+  shift-register equality, not just IRQ-line equality. **The
+  TS-side "v1 deviation table"** (what *current TS* does differently
+  vs VICE) **is UNRESOLVED — need user / TS audit** — not derivable
+  from VICE source alone; produced by Spec 403 implementation phase.
+- **OQ-403-2 — RESOLVED** → `docs/vice-c64-arch.md §6.4`. The TOD
+  alarm rate is the **power-supply tick rate**, not 1/10 s.
+  `todticks = ticks_per_sec / power_freq` (`ciacore.c:1879`) ≈ 19705
+  cycles (PAL@50Hz). CRA bit 7 does **not** change the alarm rate;
+  it changes the ring-counter match value (`ciacore.c:1920-1921`,
+  match=4 for 50Hz, match=5 for 60Hz). BCD counter advances 10 Hz
+  for the matching power frequency.
+- **OQ-403-3 — RESOLVED** → `docs/vice-c64-arch.md §6.6`. Exact
+  VICE formula at `src/c64/c64cia1.c:425-431`:
+  `byte = val & (PRB | ~DDRB); byte |= val_outhi; byte &= read_joyport_dig(JOYPORT_1)`.
+  Joystick pulls bits low via the final AND, *regardless* of DDR/PRB —
+  not "joystick override", but a digital pull-down ANDed with the
+  post-DDR latch value. PA / joy2 mirror at `c64cia1.c:337`.
 
 ## Files touched
 

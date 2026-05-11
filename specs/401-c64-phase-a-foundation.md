@@ -162,18 +162,27 @@ Known deviations to verify:
 
 ## Open Questions (resolve doc-first per refinement Q8)
 
-- **OQ-401-1**: Is `CYCLE_EXACT_ALARM` defined for the C64 CPU build?
-  Doc §2.2 implies yes (per-cycle drain). Confirm at
-  `src/c64/c64cpusc.c` macro definitions and update
-  `docs/vice-c64-arch.md` §2.2 with the macro flag check.
-- **OQ-401-2**: What is the exact VICE bus-cycle layout for the 7-cycle
-  IRQ entry vs 7-cycle NMI entry? Doc §3.5 + §11 step 5 imply both
-  are 7 cycles. Verify against `src/6510core.c:436-530` and pin the
-  exact push order + dummy-read sequence in `vice-c64-arch.md` §3.5.
-- **OQ-401-3**: Current TS has both `serviceInterrupt` (Phase B
-  compat) and `doInterrupt` (Phase C). VICE has one DO_INTERRUPT.
-  Which TS code path stays — and how does the doc justify the choice
-  (cite §3.5 + §11 step 5)?
+- **OQ-401-1 — RESOLVED** → `docs/vice-c64-arch.md §2.2`. The macro
+  `CYCLE_EXACT_ALARM` is **not** defined for x64sc. x64sc uses
+  `6510dtvcore.c` (not `6510core.c`) and drains alarms both per-cycle
+  (via `CLK_INC` → `interrupt_delay` at `mainc64cpu.c:97`) and at
+  opcode boundary (`6510dtvcore.c:1734, 1768`). Only `scpu64cpu.c:65`
+  defines the macro.
+- **OQ-401-2 — RESOLVED** → `docs/vice-c64-arch.md §3.5`. Both NMI
+  and IRQ are 7 cycles, identical shape: 2 dummy reads at PC, push
+  PCH, push PCL, push P, fetch vec_lo, fetch vec_hi
+  (`src/6510dtvcore.c:354-405` for NMI prologue;
+  `src/6510dtvcore.c:314-349` `DO_IRQBRK` for IRQ tail). The doc now
+  carries a per-cycle table with file:line cites and the IRQ-to-NMI
+  promotion mechanism after step 5.
+- **OQ-401-3 — RESOLVED** → `docs/vice-c64-arch.md §3.5`. VICE has
+  exactly *one* `DO_INTERRUPT(int_kind)` macro
+  (`6510dtvcore.c:354`); NMI is handled inline, IRQ falls through to
+  `DO_IRQBRK`. The clone should mirror this: one entry point, two
+  branches. The TS-side `serviceInterrupt` path should be removed in
+  favor of a single dispatch with `int_kind` discriminator —
+  otherwise the cycle-5 IRQ-to-NMI promotion (which depends on a
+  shared alarm-drain in between) cannot be implemented faithfully.
 
 ## Files touched (planned)
 

@@ -122,13 +122,23 @@ Known status:
 
 ## Open Questions
 
-- **OQ-405-1**: Datasette scope — is it required for any in-scope
-  game? If no, defer to post-arch-port follow-up spec.
-- **OQ-405-2**: SID engine fidelity — VICE has multiple engines
-  (FastSID, ReSID, ReSIDfp). Which does headless target as 1:1?
-  Doc §7.1 lists them but no canonical pick.
-- **OQ-405-3**: VSF module order — list explicitly in
-  `docs/vice-c64-arch.md §10.1` and pin TS save/load to it.
+- **OQ-405-1 — UNRESOLVED — need user decision:** Datasette scope.
+  VICE-side semantics are documented (`docs/vice-c64-arch.md §9`),
+  but whether any in-scope game (MM, Scramble, Lorenz corpus) requires
+  datasette is a project-scope decision, not derivable from VICE.
+- **OQ-405-2 — RESOLVED** → `docs/vice-c64-arch.md §7.1`. VICE's
+  x64sc default is **ReSID** (`src/sid/sid-resources.c:101-105`:
+  `SID_ENGINE_DEFAULT` → `SID_ENGINE_RESID` when ReSID is built in,
+  else FastSID fallback). For 1:1 the headless port should target
+  ReSID (link the upstream C++ engine). FastSID is acceptable for
+  fast unit-tests where audio fidelity is not the metric.
+- **OQ-405-3 — RESOLVED** → `docs/vice-c64-arch.md §10.1`. Module
+  write/read order verbatim from `src/c64/c64-snapshot.c:76-91`:
+  MAINCPU → C64 → CIA1 → CIA2 → SID → DRIVE → FSDRIVE → VICII →
+  C64GLUE → EVENT → MEMHACKS → TAPEPORT → KEYBOARD → JOYPORT_1 →
+  JOYPORT_2 → USERPORT. Note SID is *before* VICII (not after);
+  C64GLUE is a separate module from C64MEM; IEC state is embedded
+  in DRIVE chunk, not a top-level module.
 
 ## Files touched
 

@@ -83,14 +83,19 @@ This spec adds **smokes and corpora**, no source changes.
 
 ## Open Questions
 
-- **OQ-406-1**: VICE testprog vendoring — what license / copyright
-  constraints? Doc §15 references but VICE is GPL. Likely OK to
-  vendor under same terms.
-- **OQ-406-2**: Diff-trace cycle budget vs runtime — 1M cycles per
-  canary may be slow; pin a `make smoke-fast` budget for CI.
-- **OQ-406-3**: Boot ladder for headless rendering — re-use
-  `vicRenderer: "literal-port"` + assert PNG hash equality vs
-  golden master.
+- **OQ-406-1 — UNRESOLVED — need user decision:** VICE testprog
+  vendoring license. VICE itself is GPL-2+; the `testprogs/`
+  directory has no separate top-level LICENSE in VICE source. This
+  is a *license-policy* question (re-distribute under GPL-2+ or
+  contact authors), not a VICE-source question. The project's
+  current `samples/vice-testprogs/LICENSE.md` already addresses
+  this; reviewer should confirm it covers the planned vendoring.
+- **OQ-406-2 — UNRESOLVED — need user decision:** Diff-trace cycle
+  budget for CI. Not a VICE-source question; project-policy choice
+  (how slow may smokes be on the CI machine).
+- **OQ-406-3 — UNRESOLVED — need user decision:** Boot-ladder
+  golden-master strategy (re-use `vicRenderer: "literal-port"` +
+  PNG hash). Not a VICE-source question; project-tooling choice.
 
 ## Files touched
 

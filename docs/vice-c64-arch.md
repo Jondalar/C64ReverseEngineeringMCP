@@ -132,6 +132,21 @@ share the heap.
 `maincpu_clk++` step. Firing after is observably wrong (sprite raster
 glitches, off-by-one timer reads).
 
+**`CYCLE_EXACT_ALARM` for x64sc — clarification.** The C macro
+`CYCLE_EXACT_ALARM` is **not** `#define`d by `c64cpusc.c` or
+`mainc64cpu.c`. It only affects the `PROCESS_ALARMS` macro inside
+`src/6510core.c:138-146` (instruction-boundary drain). x64sc does
+*not* include `6510core.c` directly; it includes `6510dtvcore.c` (via
+`mainc64cpu.c:809`), which always emits its own alarm-drain loops at
+opcode boundaries (`6510dtvcore.c:1734-1736`, `1768-1770`) **plus**
+per-cycle alarm drain through `CLK_INC()` → `interrupt_delay()`
+(`mainc64cpu.c:97`). Net effect on x64sc: alarms drain on **every
+cycle** (via `CLK_INC`) *and* once at the top of each opcode (via
+6510dtvcore). The Scpu64 build is the only x64 family target that
+actually `#define`s `CYCLE_EXACT_ALARM` (`scpu64cpu.c:65`).
+For a clone: drain alarms in your per-cycle macro and at opcode
+boundary; do not gate either on a `CYCLE_EXACT_ALARM` flag.
+
 ### §2.3 Interrupt delivery model
 
 Two parallel state machines, IRQ and NMI:
@@ -280,15 +295,49 @@ continue.
 
 ### §3.5 Interrupt entry
 
-7 cycles: dummy fetch, dummy fetch, push PCH, push PCL, push P, fetch
-vector lo, fetch vector hi. PC ← vector. Each cycle calls `CLK_INC()`
-(so VIC-II keeps running during entry).
+7 cycles for both IRQ and NMI, in this exact order
+(`src/6510dtvcore.c:354-405` `DO_INTERRUPT` for the NMI prologue,
+`src/6510dtvcore.c:314-349` `DO_IRQBRK` for IRQ/BRK tail; each step
+ends with `CLK_INC()` so VIC-II keeps running during entry):
+
+| # | Cycle | NMI path (`DO_INTERRUPT` IK_NMI) | IRQ path (`DO_INTERRUPT` → `DO_IRQBRK`) |
+|--:|---|---|---|
+| 1 | `LOAD_DUMMY(reg_pc)` + `CLK_INC` | dummy read at PC | dummy read at PC |
+| 2 | `LOAD_DUMMY(reg_pc)` + `CLK_INC` | dummy read at PC | dummy read at PC |
+| 3 | `PUSH(pc >> 8)` + `CLK_INC` | push PCH | push PCH (via `DO_IRQBRK`) |
+| 4 | `PUSH(pc & 0xff)` + `CLK_INC` | push PCL | push PCL |
+| 5 | `PUSH(LOCAL_STATUS())` + `CLK_INC` | push P (B=0) | push P (B=0) |
+| 6 | `LOAD(vec_lo)` + `CLK_INC` | fetch $fffa | fetch $fffe |
+| 7 | `LOAD(vec_hi)` + `CLK_INC` | fetch $fffb | fetch $ffff |
+
+After step 5, `DO_IRQBRK` drains alarms once more
+(`6510dtvcore.c:327`) and checks for a *late* NMI — if NMI was raised
+while we were entering an IRQ, the vector is rewritten to $fffa
+("IRQ-to-NMI promotion", `6510dtvcore.c:331-340`). NMI itself acks
+inside `DO_INTERRUPT` *before* the first dummy read
+(`interrupt_ack_nmi`, `6510dtvcore.c:366`). `LOCAL_SET_INTERRUPT(1)`
+is set on step 6 (between vec_lo and vec_hi for NMI, at vec_hi for
+IRQ via `DO_IRQBRK:342`). `SKIP_CYCLE` is 0 on x64sc
+(`src/c64/c64cpusc.c:56`) so all 7 cycles execute.
 
 The CPU samples IRQ/NMI status at the **second-to-last cycle** of each
-instruction (after `INTERRUPT_DELAY` is satisfied). Software-relevant
+instruction (after `INTERRUPT_DELAY` is satisfied —
+`src/interrupt.h:61`, `INTERRUPT_DELAY = 2`). The check itself is
+`interrupt_check_irq_delay(CPU_INT_STATUS, CLK)` /
+`interrupt_check_nmi_delay(CPU_INT_STATUS, CLK)` at the top of every
+`DO_INTERRUPT` invocation (`6510dtvcore.c:361, 391`). Software-relevant
 detail: a `CLI` followed by an IRQ takes one more instruction before
-the IRQ is honored — this is reproduced by checking IRQ on the cycle
-*after* the I flag is cleared, not the same cycle.
+the IRQ is honored — VICE reproduces this via the
+`OPCODE_ENABLES_IRQ` / `OPCODE_DISABLES_IRQ` flags
+(`6510dtvcore.c:145-149`).
+
+**One `DO_INTERRUPT` macro, two paths.** VICE has a *single*
+`DO_INTERRUPT(int_kind)` entry point (`6510dtvcore.c:354`). Inside
+it, NMI is handled inline; IRQ falls through to `DO_IRQBRK`
+(`6510dtvcore.c:404`). A clone should mirror this: one entry point,
+two branches by `int_kind`. Do **not** keep separate
+`serviceInterrupt` / `doInterrupt` paths — that doubles the surface
+and breaks the IRQ-to-NMI promotion on cycle 5.
 
 ---
 
@@ -308,9 +357,15 @@ The PLA derives the active memory map from:
 - `LORAM`, `HIRAM`, `CHAREN` (bits 0..2 of processor port `$01`)
 - `GAME`, `EXROM` (cartridge lines)
 
-= 5 input bits = 32 nominal configurations. Only 16 are unique because
-some inputs are redundant; VICE stores 32 anyway for table-driven
-dispatch.
+= 5 input bits = **exactly 32** nominal configurations
+(`#define NUM_CONFIGS 32` at `src/c64/c64mem.c:80`). Only ~14 are unique
+in stock-C64 use (pure 3-bit `$01` selector + cart variants); the other
+slots collapse to duplicates. VICE allocates the full 32-entry array
+for branchless table-driven dispatch and walks all 32 in init loops
+(`c64mem.c:667`, `c64mem.c:714`, `c64mem.c:745`, etc.).
+`NUM_VBANKS = 4` (`c64mem.c:83`) — write tables are indexed by VIC-II
+bank as well as memory config, so the write side is
+`32 × 4 × 257 = 32896` entries per pointer.
 
 ```c
 /* src/c64/c64mem.c (≈L70) */
@@ -369,10 +424,23 @@ void c64pla_config_changed(int tape_sense, int caps_sense, int pull_up_lower,
 
 `pport.dir` ($00) is the DDR; `pport.data` ($01) is the latched output.
 For bits configured as input (DDR=0), the *read-back* falls off to
-zero over time (~350 ms ≈ 22M cycles at 1 MHz) via the capacitive
-discharge of the data lines. VICE models this with **per-bit fall-off
-alarms** scheduled when a bit is set as input while previously driven
-high. Re-driving the bit (DDR=1 + value=1) cancels the alarm.
+zero over time via the capacitive discharge of the data lines. VICE
+uses a **fixed cycle constant** per bit (no full alarm — `data_set_clk_bitN`
+is compared against `maincpu_clk` at I/O-port read time, with a small
+random jitter added at schedule time):
+
+```c
+/* src/c64/c64.h:79 */
+#define C64_CPU6510_DATA_PORT_FALL_OFF_CYCLES 350000  /* ≈ 355 ms @ PAL */
+#define SX64_CPU6510_DATA_PORT_FALL_OFF_CYCLES 1500000 /* bits 3..5 on SX-64 */
+/* src/c64/c64mem.c:366-367 */
+#define FALLOFF_RANDOM (C64_CPU6510_DATA_PORT_FALL_OFF_CYCLES / 5)
+```
+
+Re-driving the bit (DDR=1 + value=1) clears `data_falloff_bitN`. The
+350000-cycle constant must be reproduced verbatim — `cpuports.prg`
+from the Lorenz testsuite fails when fall-off takes less than 5984
+cycles (`src/c64/c64.h:83` comment).
 
 Bits in detail:
 - `0`: LORAM (PLA input)
@@ -394,6 +462,13 @@ resource `GlueLogic` (0=discrete/HMOS, 1=CMOS).
 
 For a faithful clone of x64sc default: HMOS. For cycle-exact emulation
 of a C64C: CMOS.
+
+**Default per VICE:** `src/c64/c64gluelogic.c:144` sets
+`factory_value = GLUE_LOGIC_DISCRETE` (= 0 = HMOS / discrete) when
+`machine_class == VICE_MACHINE_C64`. The resource declaration at
+`c64gluelogic.c:136` lists CUSTOM_IC (= 1 = 252535-01 / CMOS) as the
+generic default, but it is overridden to DISCRETE for the C64 machine
+class. Other machine classes (C128, etc.) keep CUSTOM_IC.
 
 ### §4.5 VIC-II banking via CIA2 PA bits 0-1
 
@@ -445,9 +520,24 @@ unless debugging.
 
 ### §5.1 Cycle model
 
-PAL: **63 cycles per raster line, 312 lines per frame** (rasters 0..311).
-NTSC 6567R8: **65 cycles × 263 lines**. NTSC 6567R56A: **64 cycles ×
-262 lines**. VICE picks via `vicii_timing.c` and a chip-model resource.
+Constants are defined once in `src/c64/c64.h:36-51`:
+
+```c
+#define C64_PAL_CYCLES_PER_LINE 63
+#define C64_PAL_SCREEN_LINES    312
+#define C64_NTSC_CYCLES_PER_LINE 65       /* 6567R8 — VICE's NTSC default */
+#define C64_NTSC_SCREEN_LINES    263
+#define C64_NTSCOLD_CYCLES_PER_LINE 64    /* 6567R56A — selectable via resource */
+#define C64_NTSCOLD_SCREEN_LINES    262
+```
+
+`src/vicii/vicii-timing.c` (or `src/viciisc/vicii-timing.c` for x64sc)
+maps a `VICII_MODEL_*` resource value to one of these tuples. PAL =
+6569 (R1..R5). NTSC = 6567R8. NTSCOLD = 6567R56A. The chip-model
+resource picks between them; **VICE's default for x64sc-PAL builds is
+6569 PAL** (63 × 312). For the headless port: PAL-only is in scope —
+PAL constants alone are sufficient (per project memory
+`feedback_pal_first_ntsc_later`).
 
 `vicii.raster_cycle` (0..62 PAL, internally 0-based; data sheets use
 1-based "cycle 1..63") is the current sub-line cycle. It advances each
@@ -617,11 +707,38 @@ ba_low = matrix | OR(sprite[0..7])
 ```
 
 BA goes low **3 cycles before** the matrix-fetch / sprite-fetch
-window (so the CPU has time to relinquish the bus). The CPU's
-`check_ba()` polls `maincpu_ba_low_flags` and stalls read accesses
-while BA is low; writes proceed. After 3 cycles of BA-low, AEC goes
-low and even the address bus is released. Sprite cycles need BA+AEC
-both low to fetch.
+window (so the CPU has time to relinquish the bus). The exact
+implementation is in `src/viciisc/vicii-cycle.c:582-591`:
+
+```c
+if (ba_low) {
+    if (vicii.prefetch_cycles) {
+        vicii.prefetch_cycles--;
+    }
+} else {
+    /* this needs to be +1 because it gets decremented already in the
+       first ba cycle */
+    vicii.prefetch_cycles = 3 + 1;
+}
+```
+
+`prefetch_cycles` is reset to 4 every cycle BA is *not* low; once BA
+goes low it counts down 4→0. The CPU is allowed to do reads while
+`prefetch_cycles > 0`, blocked once it reaches 0
+(`vicii-cycle.c:610` and `vicii_check_sprite_ba`). The CPU's
+`check_ba()` (`mainc64cpu.c:194-`) polls `maincpu_ba_low_flags` and
+stalls read accesses while BA is low; writes proceed. After 3 cycles
+of BA-low, AEC goes low and even the address bus is released. Sprite
+cycles need BA+AEC both low to fetch.
+
+**Reconciliation with §11 step 3 ("BA latches one cycle ahead"):**
+the two phrasings are not in conflict. `vicii_cycle()` *returns*
+ba_low for the *next* CPU bus cycle (§11 step 4k); the CPU read at
+step 5 is gated by that *previous* `vicii_cycle()`'s returned ba_low.
+So the BA bit the CPU consults is always "1 cycle ahead of when VIC
+asserts it internally" — i.e. the prefetch-counter starts inside
+`vicii_cycle()`, but the CPU's stall decision is made on the
+post-return ba_low value.
 
 A worst-case bad line + 8 sprites = up to **43 stolen cycles** (badline
 40 + sprite slots 3). On these lines a CPU instruction can stall for
@@ -667,14 +784,24 @@ Edge cases (all reproduced in VICE):
 
 Three text modes × three graphic modes × multicolor variations:
 
-| Mode | $D011.5 (BMM) | $D011.6 (ECM) | $D016.4 (MCM) | Description |
-|:-|:-:|:-:|:-:|:-|
-| Standard text | 0 | 0 | 0 | 8×8 chars, 16 fg colors |
-| Multicolor text | 0 | 0 | 1 | 4×8 double-wide pixels, 4 colors |
-| Standard bitmap | 1 | 0 | 0 | 320×200, 2 colors per 8×8 cell |
-| Multicolor bitmap | 1 | 0 | 1 | 160×200, 4 colors per 8×8 cell |
-| ECM text | 0 | 1 | 0 | 64 chars, 4 backgrounds per char |
-| Invalid mode | any | 1 | 1 / 1 / 1 | black "blanking" — sprites still drawn |
+| Mode # | ECM | BMM | MCM | Description |
+|:-:|:-:|:-:|:-:|:-|
+| 0 | 0 | 0 | 0 | Standard text — 8×8 chars, 16 fg colors |
+| 1 | 0 | 0 | 1 | Multicolor text — 4×8 double-wide pixels, 4 colors |
+| 2 | 0 | 1 | 0 | Standard bitmap — 320×200, 2 colors per 8×8 cell |
+| 3 | 0 | 1 | 1 | Multicolor bitmap — 160×200, 4 colors per 8×8 cell |
+| 4 | 1 | 0 | 0 | ECM text — 64 chars, 4 backgrounds per char |
+| **5** | 1 | 0 | 1 | **Illegal** — black ("blanking"), sprites still drawn |
+| **6** | 1 | 1 | 0 | **Illegal** — black ("blanking"), sprites still drawn |
+| **7** | 1 | 1 | 1 | **Illegal** — black ("blanking"), sprites still drawn |
+
+Five valid modes (0–4), **three illegal modes (5, 6, 7)** — all
+pixel-output `COL_NONE` per the `colors[]` lookup in
+`src/viciisc/vicii-draw-cycle.c:133-142` (the last 12 entries —
+`ECM=1 BMM=0 MCM=1`, `ECM=1 BMM=1 MCM=0`, `ECM=1 BMM=1 MCM=1` — are
+all `COL_NONE COL_NONE COL_NONE COL_NONE`). Sprites continue to
+render in illegal modes (sprite priority is independent of graphics
+mode).
 
 `vicii_draw_cycle()` reads `vbuf[vmli]`, `cbuf[vmli]`, `gbuf` (single
 graphics byte fetched this cycle) plus sprite data, applies the mode,
@@ -724,7 +851,38 @@ updates its Phi2 view at end of cycle; Phi1 view at start of next.
 
 `$D019` = source flags (write 1 to clear). `$D01A` = mask. IRQ line
 goes low iff `source & mask & 0x0F != 0`. Asserted via
-`interrupt_set_irq(maincpu_int_status, vicii.int_num, on, maincpu_clk)`.
+`maincpu_set_irq_clk(vicii.int_num, on, mclk)` (= chip-side push,
+synchronous, no alarm).
+
+**Push site (chip-side, not alarm-driven):**
+
+```c
+/* src/viciisc/vicii-irq.c:36-56 */
+void vicii_irq_set_line(void) {
+    if (vicii.irq_status & vicii.regs[0x1a]) {
+        vicii.irq_status |= 0x80;
+        maincpu_set_irq(vicii.int_num, 1);     /* uses current maincpu_clk */
+    } else {
+        vicii.irq_status &= 0x7f;
+        maincpu_set_irq(vicii.int_num, 0);
+    }
+}
+
+void vicii_irq_raster_set(CLOCK mclk) {        /* explicit-clock variant */
+    vicii.irq_status |= 0x1;
+    vicii_irq_set_line_clk(mclk);              /* uses maincpu_set_irq_clk */
+}
+```
+
+Raster-IRQ uses the explicit-clock form (`_clk(mclk)`) because the
+raster compare in `vicii_cycle()` (§5.6, step 4i) needs to stamp the
+IRQ as having gone low *at this cycle's `maincpu_clk`*, not at some
+later opcode-boundary observation. Sprite/lightpen/collision sources
+use the implicit form which reads `maincpu_clk` directly. The clone
+must implement raster-IRQ as a synchronous chip-side push from inside
+the per-cycle `vicii_cycle()` — **not** via a deferred alarm —
+otherwise the 2-cycle interrupt-delay accounting is off by one and
+raster splits glitch.
 
 ### §5.12 Snapshot
 
@@ -878,9 +1036,35 @@ Input mode (CRA bit 6 = 0): CNT clocks bits in; after 8, IFR bit 3 set.
 
 ### §6.4 TOD
 
-50/60 Hz reference (TOD line), but VICE counts cycles to derive it:
-PAL = 50 ticks/sec, NTSC = 60. Alarm fires every 1/10 s of model
-frequency; counter increments BCD; on TOD match, IFR bit 2 set.
+50/60 Hz reference (TOD line), but VICE counts cycles to derive it.
+The alarm fires at the **power-supply tick rate**, not at 1/10 s:
+
+```c
+/* src/core/ciacore.c:1879 */
+cia_context->todticks = cia_context->ticks_per_sec / cia_context->power_freq;
+```
+
+`ticks_per_sec` = the CPU clock rate (985248 for PAL,
+1022727 for NTSC, set via `ciacore_set_tod_freq()`).
+`power_freq` = 50 or 60 (set from machine model, *not* CRA bit 7).
+So the alarm period ≈ 19705 cycles (PAL@50Hz) or 17046 cycles
+(NTSC@60Hz). On each alarm, a 3-bit ring counter (`todtickcounter`)
+advances 0→1→3→7→6→4→0; the 1/10s BCD counter increments only when
+the ring matches **CRA bit 7's selection**:
+
+```c
+/* src/core/ciacore.c:1920-1921 */
+update = (cia_context->todtickcounter ==
+    ((cia_context->c_cia[CIA_CRA] & CIA_CRA_TODIN_50HZ) ? 4 : 5));
+```
+
+CRA bit 7 = 1 → match at ring value 4 → 50 Hz / 5 = 10 Hz BCD tick.
+CRA bit 7 = 0 → match at ring value 5 → 60 Hz / 6 = 10 Hz BCD tick.
+So CRA bit 7 does **not** change the alarm rate; it changes the
+ring-counter match value. If the host runs at a frequency that does
+not match CRA bit 7's expectation, TOD runs at the wrong wall-clock
+speed (well-known PAL/NTSC software pitfall). On BCD-counter match
+against `tod_alarm`, IFR bit 2 set → IRQ if unmasked.
 
 ### §6.5 ICR (Interrupt Control Register, $0D)
 
@@ -893,9 +1077,24 @@ frequency; counter increments BCD; on TOD match, IFR bit 2 set.
   assert IRQ if non-zero.
 
 The `ifr_delay` and `sdr_delay` state machines are *the* reason CIA
-emulation is hard. Both are 16-bit shift registers where one bit
-position = one cycle of delay, and various ANDs/ORs gate side
-effects. Replicate the masks exactly; do not approximate.
+emulation is hard. Both are 32-bit pipeline registers (named
+`uint32_t ifr_delay`, `uint32_t sdr_delay` in `cia_context_t`) where
+each bit position represents one pending action that will fire some
+number of cycles in the future. Flag definitions are at
+`src/core/ciacore.c:126-143` (`CIA_IRQ_RAISE0`, `CIA_IRQ_RAISE1`,
+`CIA_IRQ_D7SET0`, `CIA_IRQ_D7SET1`, `CIA_IRQ_READ0`, `CIA_IRQ_READ1`,
+`CIA_IRQ_ACK_0`, `CIA_IRQ_ACK_1`, etc. — comments name each one).
+Replicate the masks exactly; do not approximate. The 1-cycle
+ICR read-clear / write-set interaction is implemented around
+`ciacore.c:402-433` and re-checked on every ICR access at
+`ciacore.c:961-996`.
+
+**Pitfall for the port:** "v1 deviation" findings should be compared
+**flag-by-flag** against `ifr_delay` semantics — the right
+acceptance criterion is `ifr_delay` shift-register equality after
+each cycle, not just IRQ-line-equality. A clone that ORs `ifr`
+directly into the line will *appear* to work for slow programs and
+break on tight raster + CIA timer interaction (e.g. CIA-FLI loaders).
 
 ### §6.6 Port A / Port B I/O
 
@@ -924,6 +1123,22 @@ known C64 issue.
 Reading PB does NOT clear pressed columns — it just reflects current
 ground state. Reading PA returns the latched output (pulled high by
 internal pull-ups on bits not grounded by joystick).
+
+**Exact VICE formula for PB (joy1) read** at `src/c64/c64cia1.c:425-431`:
+
+```c
+byte = val & (cia_context->c_cia[CIA_PRB] | ~(cia_context->c_cia[CIA_DDRB]));
+byte |= val_outhi;
+byte &= read_joyport_dig(JOYPORT_1);    /* joy1 pulls bits LOW (AND) */
+```
+
+`read_joyport_dig(JOYPORT_1)` returns a bitmask where pressed
+directions / fire pull the corresponding bit to 0. The final `&=` is
+the join: any direction/fire active drives the matching PB pin low
+**regardless of DDR/PRB state**. Same shape for PA / joy2 at
+`c64cia1.c:337`: `byte = (val & (PRA | ~DDRA)) & read_joyport_dig(JOYPORT_2)`.
+Clone: implement joyport as a digital bitmask that ANDs into the
+post-DDR/latch value — *not* as a "joystick override" branch.
 
 #### CIA2 IEC + VIC-bank + user port
 
@@ -959,10 +1174,17 @@ callback pointing at `interrupt_set_nmi` instead of `_irq`.
 ### §7.1 Engines
 
 - **FastSID**: table-based, fast, ~80% accurate.
-- **ReSID**: cycle-accurate C++ engine, current default.
+- **ReSID**: cycle-accurate C++ engine. **VICE's default for x64sc**
+  when ReSID is compiled in (`src/sid/sid-resources.c:101-105`:
+  `SID_ENGINE_DEFAULT` resolves to `SID_ENGINE_RESID` if available,
+  else falls back to `SID_ENGINE_FASTSID`).
 - **ReSID-fp**: floating-point variant, more accurate but slower.
 - **CatweaselMKIII** / **HardSID**: external real-hardware drivers
   (skip for clones).
+
+For 1:1 with x64sc: target **ReSID** (link the upstream C++ engine).
+FastSID is acceptable for fast unit-tests / golden-trace setup where
+audio fidelity is not the metric.
 
 ### §7.2 Capture and playback
 
@@ -1054,19 +1276,36 @@ the user via emulator UI (autostart presses PLAY).
 
 ### §10.1 Module list (write order)
 
+Verbatim from `src/c64/c64-snapshot.c:76-91` (call order is the wire
+order — read order at `:121-134` is identical):
+
 ```
-1.  MAINCPU         — 6510 regs, maincpu_clk, last_opcode_info, RDY/AEC state
-2.  C64MEM          — RAM, color RAM, processor port latches, mem_config
-3.  C64ROM          — optional: ROM images (Kernal/BASIC/Chargen)
-4.  CIA1            — full cia_context state
-5.  CIA2            — full cia_context state
-6.  VICII           — full vicii_t state
-7.  SID             — engine-specific state + register snapshot
-8.  C64CART         — cartridge state (if attached)
-9.  C64TAPE         — datasette state (motor, sense, position)
-10. DRIVE8..DRIVE11 — only if true drive emulation enabled (see 1541 doc)
-11. C64IEC          — iecbus_t state
+ 1. MAINCPU            (maincpu_snapshot_write_module)
+ 2. C64                (c64_snapshot_write_module — RAM, color RAM,
+                       processor port latches, mem_config; ROMs only if save_roms)
+ 3. CIA1               (ciacore_snapshot_write_module, machine_context.cia1)
+ 4. CIA2               (ciacore_snapshot_write_module, machine_context.cia2)
+ 5. SID                (sid_snapshot_write_module)
+ 6. DRIVE              (drive_snapshot_write_module — *all* drives in one chunk;
+                       only if save_disks / true-drive enabled)
+ 7. FSDRIVE            (fsdrive_snapshot_write_module)
+ 8. VICII              (vicii_snapshot_write_module)
+ 9. C64GLUE            (c64_glue_snapshot_write_module — HMOS/CMOS state)
+10. EVENT              (event_snapshot_write_module — only in event_mode)
+11. MEMHACKS           (memhacks_snapshot_write_modules — REU, georam, etc.)
+12. TAPEPORT           (tapeport_snapshot_write_module — datasette + adapters)
+13. KEYBOARD           (keyboard_snapshot_write_module)
+14. JOYPORT_1          (joyport_snapshot_write_module, JOYPORT_1)
+15. JOYPORT_2          (joyport_snapshot_write_module, JOYPORT_2)
+16. USERPORT           (userport_snapshot_write_module)
 ```
+
+Note: SID is **before** VICII in VICE's order (not after, as some
+older docs claim). C64GLUE is its own module (HMOS vs CMOS state
+machine, separate from C64MEM). The DRIVE module is one chunk that
+internally serializes all enabled drive units. IEC bus state is
+embedded in the DRIVE chunk for true-drive setups; there is no
+top-level `C64IEC` module.
 
 Each module has a `version_major`, `version_minor`, and chunk name.
 Read in same order; reject if any version mismatches.
@@ -1077,6 +1316,32 @@ After load, every active alarm (T1/T2 fire times, TOD ticks, sample
 intervals) must be rescheduled relative to the restored `maincpu_clk`.
 Snapshot stores the **remaining cycles** to next fire, not the
 absolute clock — load reschedules.
+
+---
+
+### §10.3 Drive catchup call sites (C64 ↔ drive lazy sync)
+
+`drive_cpu_execute_all(maincpu_clk)` is **not** called per host
+cycle. VICE invokes it lazily at the points where drive state could
+affect C64-visible behavior. Exact list (from `grep -rn
+drive_cpu_execute /src`):
+
+| Call site | Trigger |
+|---|---|
+| `src/c64/c64cia1.c:439, 446` | CIA1 PB read (joystick / kbd) before sampling |
+| `src/c64/c64cia2.c:248, 256` | CIA2 PA write/read (IEC line state changes) |
+| `src/c64/c64-snapshot.c:74` | Before snapshot write — drive must be at maincpu_clk |
+| `src/c64/c64fastiec.c:78` | Fast-IEC byte transmission (`drive_cpu_execute_one`) |
+| `src/c64/c64parallel.c:258` | Parallel-cable adapter (`drive_cpu_execute_one`) |
+| `src/iecbus/iecbus.c:229, 241, 292, 304, 355, 368` | IEC bus line read / write — both `_all` and `_one` variants |
+| `src/monitor/monitor_binary.c:1774`, `mon_parse.y:1227` | Monitor stop — drive frozen at same `clk` |
+
+Pattern: **on any C64-side observation or change of bus state**, the
+drive CPU is fast-forwarded to `maincpu_clk` first. There is **no
+per-N-cycle batch**. A clone must replicate this lazy-sync pattern:
+the drive sees `clk` jumps of varying size (1 cycle to thousands)
+between calls, and the rotation accumulator must absorb the delta
+verbatim. See `docs/vice-iec-arc42.md` §6 for the sequence diagrams.
 
 ---
 

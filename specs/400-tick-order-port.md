@@ -288,22 +288,35 @@ None. Orchestrator stubs are unwired.
 
 ## Open Questions
 
-- Q1: VICE's `CYCLE_EXACT_ALARM` macro is defined for C64
-  (`mainc64cpu.c`) but **not** for `drivecpu`. Confirm exact compile
-  flag from VICE build — needed before Spec 401 wires per-cycle vs
-  opcode-boundary drain differently for the two CPUs.
-- Q2: Drive-sync batch size — VICE schedules
-  `drive_cpu_execute_all` at "well-defined points"
-  (vice-iec-arc42 §6). Identify the exact call sites and frequency
-  (per CPU instruction? per N cycles? on IEC line change?). Needs
-  arc42 §6 sequence diagram review before Spec 403.
-- Q3: BA-line model — current TS has no `maincpu_ba_low_flags`
-  bitfield. §11 step 3 + §5.6 + §5.7 require it. Track as Spec 401
-  scope or defer to a dedicated 4XX spec?
-- Q4: How does the legacy whole-instruction drive path
-  (`runOneInstruction`) interact with KERNAL serial-loader timing
-  per current comment? Provide a smoke that fails without it before
-  removal.
+- **Q1 — RESOLVED** → `docs/vice-c64-arch.md §2.2`. VICE does **not**
+  `#define CYCLE_EXACT_ALARM` for x64sc; the macro only gates
+  `PROCESS_ALARMS` inside `src/6510core.c:138-146`. x64sc uses
+  `6510dtvcore.c` (included via `mainc64cpu.c:809`) which drains
+  alarms both per-cycle (via `CLK_INC` → `interrupt_delay`,
+  `mainc64cpu.c:97-110`) **and** at opcode boundary
+  (`6510dtvcore.c:1734-1736, 1768-1770`). Only `scpu64cpu.c:65` ever
+  defines the macro. Drive CPU uses `drive6510core.c` style with
+  opcode-boundary drain — that distinction stands.
+- **Q2 — RESOLVED** → `docs/vice-c64-arch.md §10.3`. `drive_cpu_execute_all`
+  is **not** batched per N cycles. It is called from CIA1 PB read
+  (`c64cia1.c:439, 446`), CIA2 PA r/w (`c64cia2.c:248, 256`), IEC bus
+  state changes (`iecbus.c:229, 241, 292, 304, 355, 368`), snapshot,
+  fast-IEC byte (`c64fastiec.c:78`), parallel cable, and monitor stop.
+  Pattern is *lazy catchup on bus observation*, drive absorbs varying
+  Δclk per call.
+- **Q3 — UNRESOLVED — need user decision:** BA-line model — where to
+  track `maincpu_ba_low_flags` bitfield migration (extend Spec 401 to
+  include it, or split to a dedicated spec). Doc §3.4 + §5.7 describe
+  the VICE-side semantics; the *project-management* choice of which
+  spec owns it is not derivable from VICE source.
+- **Q4 — UNRESOLVED — need user investigation:** how the legacy
+  whole-instruction drive path (`runOneInstruction`) interacts with
+  KERNAL serial-loader timing. VICE itself has **no** whole-instruction
+  drive path — `drivecpu_execute` always cycle-steps. The current TS
+  `runOneInstruction` is a TS-side compatibility shim and the question
+  "is it still needed" can only be answered by running a smoke without
+  it (which is what the spec already proposes). Not a VICE-source
+  question.
 
 ## Files touched
 

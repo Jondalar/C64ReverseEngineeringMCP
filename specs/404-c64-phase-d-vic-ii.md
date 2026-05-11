@@ -214,18 +214,34 @@ Known deviations to verify:
 
 ## Open Questions
 
-- **OQ-404-1**: §5.5 cycle table — confirm PAL has 63 cycles per
-  line, NTSC 64 or 65. Doc says "63/64/65" suggesting variants.
-  Pin which exact NTSC variant VICE uses (6567R8 vs 6567R56A).
-- **OQ-404-2**: §5.7 BA-low timing — "3 cycles before fetch, drop"
-  vs §11 step 3 "BA latches one cycle ahead". Reconcile + state
-  exact pre-assert window.
-- **OQ-404-3**: §5.11 + step 19 — does VICE push setIrq from inside
-  vicii_irq_raster_set (chip-side) or via alarm? `vicii-irq.c`
-  cite needed for exact call site.
-- **OQ-404-4**: Doc says "2 invalid (black) modes". Per Spec 284
-  archive we shipped 3 illegal modes 5/6/7. Clarify which are
-  "valid" vs "invalid" in §5.9 + match implementation.
+- **OQ-404-1 — RESOLVED** → `docs/vice-c64-arch.md §5.1`.
+  Constants live in `src/c64/c64.h:36-51`. PAL = 63 × 312 (6569).
+  NTSC = 65 × 263 (6567R8 — VICE's default NTSC variant). NTSCOLD =
+  64 × 262 (6567R56A — selectable via `VICII_MODEL_*` resource).
+  Headless scope is PAL-only.
+- **OQ-404-2 — RESOLVED** → `docs/vice-c64-arch.md §5.7`. Implementation
+  at `src/viciisc/vicii-cycle.c:582-591`: `prefetch_cycles` resets
+  to `3 + 1 = 4` while BA is high, counts down 4→0 once BA goes low.
+  CPU may read while `prefetch_cycles > 0`, stalls at 0.
+  Reconciles with §11 step 3 because `vicii_cycle()` *returns* the
+  next CPU cycle's ba_low (step 4k); CPU's bus access (step 5) is
+  gated by the *previous* `vicii_cycle()` return value — i.e. BA
+  latches one cycle ahead of when VIC asserts it internally.
+- **OQ-404-3 — RESOLVED** → `docs/vice-c64-arch.md §5.11`. Chip-side
+  push, **not** alarm. Raster compare in `vicii_cycle()` calls
+  `vicii_irq_raster_set(mclk)` → `vicii_irq_set_line_clk(mclk)` →
+  `maincpu_set_irq_clk(int_num, 1, mclk)` (`src/viciisc/vicii-irq.c:36-67`).
+  Synchronous, same-cycle, with explicit `mclk` so the
+  `INTERRUPT_DELAY = 2` accounting is anchored to this cycle. Sprite
+  / collision / lightpen sources use the implicit
+  `maincpu_set_irq` form which reads `maincpu_clk` directly.
+- **OQ-404-4 — RESOLVED** → `docs/vice-c64-arch.md §5.9`. There are
+  **5 valid modes (0–4)** and **3 illegal modes (5, 6, 7)** — all
+  three illegal modes output `COL_NONE` (black) per the `colors[]`
+  table at `src/viciisc/vicii-draw-cycle.c:133-142` (last 12 entries
+  = `ECM=1` × any BMM × any MCM that lands in 5/6/7). Sprites still
+  render in illegal modes. Doc previously said "2 invalid" — wrong;
+  corrected. Spec 284 (3 illegal modes) was right.
 
 ## Files touched
 

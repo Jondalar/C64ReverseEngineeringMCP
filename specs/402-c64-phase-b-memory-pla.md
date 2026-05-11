@@ -158,14 +158,25 @@ Known deviations to verify (fresh session fills file:line):
 
 ## Open Questions
 
-- **OQ-402-1**: Doc §4.1 says "16+ memory configs". Confirm the
-  exact count: pure C64 = 16 (4-bit), with cart = 32 (5-bit), of
-  which ~22 unique. Update §4.1 with the precise table size.
-- **OQ-402-2**: Fall-off timing constant. VICE source uses what
-  cycle count exactly? Confirm at `c64.c` init and update §4.3.
-- **OQ-402-3**: HMOS vs CMOS glue logic (§4.4): which model does
-  VICE x64sc default to? Spec scope = default model only; other
-  glue model is follow-up.
+- **OQ-402-1 — RESOLVED** → `docs/vice-c64-arch.md §4.1`.
+  `NUM_CONFIGS = 32` (`src/c64/c64mem.c:80`), `NUM_VBANKS = 4`
+  (`:83`). 5 input bits (LORAM, HIRAM, CHAREN, GAME, EXROM) →
+  32 slots; ~14 unique in stock-C64 use, the rest are duplicates.
+  VICE allocates the full 32-entry table for branchless dispatch.
+- **OQ-402-2 — RESOLVED** → `docs/vice-c64-arch.md §4.3`.
+  `C64_CPU6510_DATA_PORT_FALL_OFF_CYCLES = 350000`
+  (`src/c64/c64.h:79` ≈ 355 ms @ PAL 985248 Hz). SX-64 variant for
+  bits 3..5 = 1500000 (`c64.h:81`). Random jitter
+  `FALLOFF_RANDOM = CONST / 5` is added at schedule time
+  (`c64mem.c:366`). Lorenz `cpuports.prg` fails below 5984 cycles
+  (`c64.h:83`). Doc previously said "~22M cycles at 1 MHz" — that
+  was wrong; corrected.
+- **OQ-402-3 — RESOLVED** → `docs/vice-c64-arch.md §4.4`. Default
+  for `VICE_MACHINE_C64` (= x64 and x64sc) is **`GLUE_LOGIC_DISCRETE`
+  = HMOS** (`src/c64/c64gluelogic.c:144`). The resource's generic
+  factory_value at `:136` is CUSTOM_IC, but is overridden to
+  DISCRETE for the C64 machine class. Other machines (C128 etc.)
+  keep CUSTOM_IC.
 
 ## Files touched (planned)
 
