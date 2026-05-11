@@ -38,14 +38,25 @@ Inherited from `vic-fix` @ `0a47f50`:
   `scripts/test-scramble-screenshots.mjs` with
   `vicRenderer: "literal-port"`.
 
-## Gate per step
+## Gate per step (tiered per spec)
 
 Every step must end with:
 
 - `npm run build` (= `tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && fix-pipeline-ext`) green.
 - `smoke:cpu-fidelity` 31/31, `smoke:cia-fidelity` 22/22.
-- MM s1 + Scramble Infinity `vicRenderer: "literal-port"` both render
-  expected title.
+- Per-spec gate (tiered, refinement Q4):
+
+  | Tier | Specs | Test | Cycle budget |
+  |---|---|---|---|
+  | **Core / structural** | 402, 403, 405, 407, 408, 409, 413, 414, 416, 417, 418 | smokes only + per-spec new smoke | 100k diff-trace where applicable |
+  | **Game-affecting** | 404, 411, 412, 419, 420, 421 | smokes + MM + Scramble | 1M diff-trace |
+  | **Validation** | 406, 415, 423 | full corpus (MM, Scramble, motm, fastloader corpus, boot-ladder) | 10M diff-trace |
+
+  Rationale: agents otherwise burn ~6 min on game tests every spec,
+  including specs that cannot break gameplay (PLA, CIA fidelity,
+  SID, image format). Tiered budget saves ~2h across 20 remaining
+  autopilot specs.
+
 - No step lands red. If gate fails: revert step, write findings into
   the step's spec under "Open Questions", do not proceed.
 
