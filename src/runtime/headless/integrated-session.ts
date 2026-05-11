@@ -32,7 +32,9 @@ import * as LIT_IRQ from "./vic/literal/vicii-irq.js";
 import * as LIT_DRAW from "./vic/literal/vicii-draw-cycle.js";
 import * as LIT_MEM from "./vic/literal/vicii-mem.js";
 import { installSid, type Sid6581 } from "./sid/sid.js";
-import { VicFramebuffer, renderTextModeFrame, computeVicBankBase } from "./peripherals/vic-renderer.js";
+// Spec 404: removed `renderTextModeFrame`, `computeVicBankBase` from
+// import (= legacy snapshot renderer deleted; bank-base not needed here).
+import { VicFramebuffer } from "./peripherals/vic-renderer.js";
 import { rgbaToPng } from "./peripherals/png-writer.js";
 import { writeFileSync } from "node:fs";
 import { installCia1 } from "./peripherals/cia1.js";
@@ -1168,20 +1170,17 @@ export class IntegratedSession {
   // event/catch-up instruction loop below calls it before each CPU
   // micro-cycle.
   private updateMicrocodedInterruptLines(): void {
-    const cpu = this.c64Cpu as any;
-    // Phase 309 D': CIA1/CIA2 push directly into kernel.cpuIntStatus
-    // (= ciacore my_set_int chokepoint). VIC raster IRQ still sampled
-    // via session bridge — chip-side push (Phase E' attempt) caused
-    // raster-split timing regression on MM + Scramble.
-    if (!cpu.cpuIntStatus) return;
-    if (!this.intNumVicIrq) {
-      this.intNumVicIrq = cpu.cpuIntStatus.newIntNum("vic-irq");
-    }
-    const clk = cpu.cycles ?? cpu.clk ?? 0;
-    const vicIrqAsserted = this.useLiteralPortVicIrq
-      ? ((LIT_TYPES.vicii.irq_status & this.vic.regs[0x1a]! & 0x0f) !== 0)
-      : this.vic.irqAsserted();
-    cpu.cpuIntStatus.setIrq(this.intNumVicIrq, vicIrqAsserted, clk);
+    // Spec 404 Phase D — VIC IRQ chip-side push migration (= 1:1 VICE).
+    // All IRQ/NMI sources now push into kernel.cpuIntStatus directly:
+    //   - CIA1 IRQ:   ciacore my_set_int chokepoint (spec 403 / Phase 309-D').
+    //   - CIA2 NMI:   same chokepoint (spec 403).
+    //   - VIC IRQ:    literal-port `setIrqHost` calls cpuIntStatus.setIrq
+    //                 from inside vicii_irq_set_line / vicii_irq_raster_set
+    //                 (= chip-side push, see installLiteralPortRenderer
+    //                 wiring above). Doc §5.11; VICE vicii-irq.c:36-67.
+    // No session-side sampling required. Function retained as no-op for
+    // legacy call-sites (stepC64Instruction non-microcoded fallback path,
+    // CycleLockstepScheduler updateInterruptLines binding).
   }
 
   /**
@@ -1369,11 +1368,46 @@ export class IntegratedSession {
       ultimax_romh_phi2_read: () => null,
       reg_pc: 0,
     });
+    // Spec 404 Phase D — VIC-II IRQ chip-side push (= 1:1 VICE port).
+    // Doc anchor: docs/vice-c64-arch.md §5.11 ("Push site (chip-side, not
+    // alarm-driven)") + §12 step 19.
+    // VICE source: src/viciisc/vicii-irq.c:36-67 (vicii_irq_set_line,
+    // vicii_irq_raster_set / vicii_irq_set_line_clk) + maincpu.c maincpu_set_irq /
+    // maincpu_set_irq_clk wrappers around interrupt_set_irq() on
+    // maincpu_int_status.
+    //
+    // Previously: session-side sampling in updateMicrocodedInterruptLines
+    // (Phase 309-E revert). With spec 401 perCycleAlarmDrain landed, tick
+    // order is correct → chip-side push is now safe (no D018 misalignment).
+    // OQ-404-3 RESOLVED: chip-side push, with maincpu_set_irq_clk taking
+    // an explicit mclk so INTERRUPT_DELAY=2 anchors to the raster-compare
+    // cycle.
+    const sessionForIrq = this;
+    let vicIntNum: number = -1;
     litIrq.setIrqHost({
-      maincpu_set_irq: () => {},
-      maincpu_set_irq_clk: () => {},
-      maincpu_clk: () => 0,
-      interrupt_cpu_status_int_new: () => 0,
+      maincpu_set_irq: (_int_num: number, value: number) => {
+        const cpu = sessionForIrq.c64Cpu as unknown as { cpuIntStatus?: { setIrq: (n: number, v: boolean, clk: number) => void; newIntNum: (s: string) => number }; cycles: number };
+        if (!cpu.cpuIntStatus) return;
+        if (vicIntNum < 0) vicIntNum = cpu.cpuIntStatus.newIntNum("vic-irq");
+        cpu.cpuIntStatus.setIrq(vicIntNum, value !== 0, cpu.cycles);
+        sessionForIrq.intNumVicIrq = vicIntNum;
+      },
+      maincpu_set_irq_clk: (_int_num: number, value: number, mclk: number) => {
+        const cpu = sessionForIrq.c64Cpu as unknown as { cpuIntStatus?: { setIrq: (n: number, v: boolean, clk: number) => void; newIntNum: (s: string) => number } };
+        if (!cpu.cpuIntStatus) return;
+        if (vicIntNum < 0) vicIntNum = cpu.cpuIntStatus.newIntNum("vic-irq");
+        cpu.cpuIntStatus.setIrq(vicIntNum, value !== 0, mclk);
+        sessionForIrq.intNumVicIrq = vicIntNum;
+      },
+      maincpu_clk: () => (sessionForIrq.c64Cpu as unknown as { cycles: number }).cycles,
+      interrupt_cpu_status_int_new: (name: string) => {
+        const cpu = sessionForIrq.c64Cpu as unknown as { cpuIntStatus?: { newIntNum: (s: string) => number } };
+        if (!cpu.cpuIntStatus) return 0;
+        const n = cpu.cpuIntStatus.newIntNum(name);
+        vicIntNum = n;
+        sessionForIrq.intNumVicIrq = n;
+        return n;
+      },
     });
 
     lit.vicii_init();
@@ -1444,7 +1478,23 @@ export class IntegratedSession {
     // effect NEXT cycle. Previously vbank was updated BEFORE
     // vicii_cycle = bank switch landed 1 cycle early → contributed to
     // V2 mid-frame mode-change tearing.
-    this.lastLitBaLow = (LIT_CYCLE.vicii_cycle() & 1) as 0 | 1;
+    const baLow = (LIT_CYCLE.vicii_cycle() & 1) as 0 | 1;
+    this.lastLitBaLow = baLow;
+    // Spec 404 Phase D step 20 — OR-fold vicii_cycle() BA-low return into
+    // CPU's maincpu_ba_low_flags. Doc §11 step 3+4k, §13 invariant 4
+    // (writes pass; reads stall). VICE: c64cpusc.c:47 CLK_INC macro:
+    //   maincpu_ba_low_flags &= ~MAINCPU_BA_LOW_VICII;
+    //   maincpu_ba_low_flags |= vicii_cycle();   /* return value */
+    // Cpu65xxVice.tick() already does the clear (spec 401); the OR
+    // happens here right after vicii_cycle(). BA latches 1 cycle ahead
+    // because the CPU's read at cycle N is gated by the value set by
+    // vicii_cycle() of cycle N-1 (OQ-404-2; see vicii-cycle.c:582-591).
+    if (baLow) {
+      const cpu = this.c64Cpu as unknown as { maincpu_ba_low_flags?: number };
+      if (typeof cpu.maincpu_ba_low_flags === "number") {
+        cpu.maincpu_ba_low_flags |= 0x01; // MAINCPU_BA_LOW_VICII (cpu65xx-vice.ts:192)
+      }
+    }
     const cia2Pa = (this.cia2.pra & this.cia2.ddra) & 0xff;
     const bank = (~cia2Pa) & 0x03;
     lv.vbank_phi1 = bank * 0x4000;

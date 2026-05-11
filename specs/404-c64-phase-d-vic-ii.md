@@ -1,6 +1,25 @@
 # Spec 404 — C64 Phase D: VIC-II
 
-**Status:** PROPOSED
+**Status:** DONE — 2026-05-11
+- Cycle table verified byte-for-byte vs `viciisc/vicii-chip-model.c:111-237`.
+- Chip-side VIC IRQ push wired via literal-port `setIrqHost` → `cpuIntStatus.setIrq`
+  (= 1:1 VICE port; doc §5.11; VICE `vicii-irq.c:36-67`).
+- Session-side `updateMicrocodedInterruptLines` reduced to no-op (CIA1/CIA2/VIC
+  all push chip-side now).
+- `maincpu_ba_low_flags` OR-fold from `vicii_cycle()` return wired in
+  `tickLitVic()` (doc §11 step 4k; VICE `c64cpusc.c:47` CLK_INC macro).
+- Legacy snapshot-renderer paths in `peripherals/vic-renderer.ts` removed
+  (renderFrame + per-mode + sprite legacy paths; -562 LOC). Kept
+  `VicFramebuffer` + `computeVicBankBase` + palette re-exports.
+- New smokes: `smoke-404-cycle-table-diff` (14/14), `smoke-404-badline-trace`
+  (6/6), `smoke-404-sprite-dma` (3/3), `smoke-404-raster-irq` (5/5).
+- `smoke:cpu-fidelity` 31/31, `smoke:cia-fidelity` 22/22 stay green.
+- MM s1 at t=120s renders character-select pixel-clean (PC=$65d).
+- Scramble Infinity title + "Ready Joy 2" at t=60s pixel-clean (PC=$9049).
+- Chip-side VIC IRQ migration succeeded WITHOUT graphics regression (per
+  spec note: spec 401 `perCycleAlarmDrain=true` corrected tick-order = no
+  D018 misalignment as in original Phase 309-E revert).
+
 **Branch:** `vice-arch-port`
 **Depends on:** 401, 402, 403
 **Doctrine:** 1:1 VICE x64sc port. Never deviate.

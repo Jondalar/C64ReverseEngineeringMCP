@@ -3,10 +3,9 @@
 // MM title screen has distinctive sprites + "MANIAC MANSION" text in screen RAM.
 
 import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { VicFramebuffer, renderFrame, computeVicBankBase } from "../dist/runtime/headless/peripherals/vic-renderer.js";
-import { rgbaToPng } from "../dist/runtime/headless/peripherals/png-writer.js";
+// Spec 404: switched from legacy snapshot renderer (renderFrame) to the
+// canonical literal-port path via session.renderToPng().
 import { resolve } from "node:path";
-import { writeFileSync } from "node:fs";
 
 const disk = process.argv[2] ?? "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64";
 const cycleBudget = Number(process.argv[3] ?? 200_000_000);
@@ -57,16 +56,11 @@ const d020 = session.c64Bus.read(0xD020);
 const d021 = session.c64Bus.read(0xD021);
 console.error(`VIC: \$D011=$${d011.toString(16)} (display=${(d011 & 0x10) ? 'on' : 'off'} bitmap=${(d011 & 0x20) ? 'yes' : 'no'} ECM=${(d011 & 0x40) ? 'yes' : 'no'})  \$D016=$${d016.toString(16)} (multicolor=${(d016 & 0x10) ? 'yes' : 'no'})  \$D018=$${d018.toString(16)}  border=$${d020.toString(16)}  bg=$${d021.toString(16)}`);
 
-// Render PNG.
-const cia2Pa = session.c64Bus.read(0xDD00);
-const vicBankBase = computeVicBankBase(cia2Pa & 0x03);
-const fb = new VicFramebuffer(true);  // PAL
-renderFrame(fb, { vic: session.vic, bus: session.c64Bus, vicBankBase });
-const png = rgbaToPng(fb.width, fb.height, fb.pixels);
+// Render PNG via literal-port (spec 404).
 const flagSuffix = process.env.C64RE_USE_GCR_SHIFTER === "1" ? "shifter-on" : "shifter-off";
 const pngPath = resolve(process.cwd(), `mm-title-${flagSuffix}.png`);
-writeFileSync(pngPath, png);
-console.error(`PNG written: ${pngPath}  (${fb.width}x${fb.height}, ${png.length} bytes)`);
+const out = session.renderToPng(pngPath);
+console.error(`PNG written: ${pngPath}  (${out.width}x${out.height}, ${out.bytes} bytes)`);
 
 const screenRam = readFullScreen(session);
 const screenText = screenRamToText(screenRam);
