@@ -49,11 +49,60 @@ Every step must end with:
 - No step lands red. If gate fails: revert step, write findings into
   the step's spec under "Open Questions", do not proceed.
 
-## Step order
+## Refinement decisions (locked 2026-05-11)
+
+| Q | Decision |
+|---|---|
+| 1 | Doc clone-checklists wörtlich (= 23 phases + 1 meta = 24 specs) |
+| 2 | Doc-natural order: C64 → 1541 → IEC |
+| 3 | Delta-align (audit + minimal change) |
+| 4 | Phase-specific gate |
+| 5 | File:line specific audit |
+| 6 | Citations: doc §X.Y + VICE source file:line |
+| 7 | Strict 1-zu-1 mit doc phases |
+| 8 | Doc-first OQ resolution |
+| 9 | Specs may add new smokes |
+| 10 | PAL priority + NTSC stub (`// TODO NTSC`) |
+| 11 | Specs flag TS extras for DELETE |
+| 12 | Fresh Claude session (self-contained specs); Opus agents later |
+
+## Spec map
+
+| Spec | Title | Doc anchor |
+|---|---|---|
+| 400 | Tick-order port — audit + skeleton | c64 §11, 1541 §12, iec §6 |
+| **C64 §12** | | |
+| 401 | C64 Phase A: Foundation | c64 §12 A (steps 1–5) |
+| 402 | C64 Phase B: Memory and PLA | c64 §12 B (6–8) |
+| 403 | C64 Phase C: Peripherals (CIAs) | c64 §12 C (9–12) |
+| 404 | C64 Phase D: VIC-II | c64 §12 D (13–20) |
+| 405 | C64 Phase E: Sound and the rest | c64 §12 E (21–25) |
+| 406 | C64 Phase F: Validation | c64 §12 F (26–28) |
+| **1541 §13** | | |
+| 407 | 1541 Phase A: Per-drive context | 1541 §13 A (1–2) |
+| 408 | 1541 Phase B: CPU and memory | 1541 §13 B (3–6) |
+| 409 | 1541 Phase C: Sync model | 1541 §13 C (7–10) |
+| 410 | 1541 Phase D: VIA1 (IEC interface) | 1541 §13 D (11–15) |
+| 411 | 1541 Phase E: VIA2 (disk controller) | 1541 §13 E (16–21) |
+| 412 | 1541 Phase F: Rotation | 1541 §13 F (22–26) |
+| 413 | 1541 Phase G: Image formats | 1541 §13 G (27–30) |
+| 414 | 1541 Phase H: Lifecycle and integration | 1541 §13 H (31–34) |
+| 415 | 1541 Phase I: Validation | 1541 §13 I (35–40) |
+| **IEC §15** | | |
+| 416 | IEC Phase A: IEC bus shared state | iec §15 A (1–3) |
+| 417 | IEC Phase B: CIA2 wiring | iec §15 B (4–6) |
+| 418 | IEC Phase C: Push-flush model | iec §15 C (7–9) |
+| 419 | IEC Phase D: ATN edge + CA1 | iec §15 D (10–12) |
+| 420 | IEC Phase E: Drive 6502 IRQ delivery | iec §15 E (13–14) |
+| 421 | IEC Phase F: Drive-side bus access | iec §15 F (15–16) |
+| 422 | IEC Phase G: Burst mode (optional) | iec §15 G (17) |
+| 423 | IEC Phase H: Validation | iec §15 H (18–21) |
+
+## Step order (legacy 6-step view — for historical context)
 
 ### Step 1 — Tick-order audit & rewire
 
-Spec: `specs/400-tick-order-port.md` (TBD)
+Spec: `specs/400-tick-order-port.md` (committed)
 
 - Audit current per-cycle sequence in `IntegratedSession` against
   `vice-c64-arch.md` §11 (synthesized tick order) and `vice-1541-arch.md`
