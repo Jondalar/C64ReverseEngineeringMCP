@@ -65,6 +65,8 @@ export interface HeadlessMachineKernelDeps {
   useMicrocodedCpu: boolean;
   useCycleLockstep: boolean;
   driveCyclesPerC64Cycle: number;
+  /** Spec 428 Phase C — drive dispatch mode flag. */
+  driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
 }
 
 export interface KernelAlarmContexts {
@@ -374,6 +376,7 @@ export class HeadlessMachineKernel implements MachineKernel {
       // does. Required for sub-instruction bus access timing during
       // IEC bit-bang.
       useMicrocodedCpu: deps.useMicrocodedCpu,
+      driveDispatchMode: deps.driveDispatchMode,
       alarmContext: this.alarms.drivecpu,
       // Spec 201-c3: $1800 PB store threads through KernelBus.
       iecStorePb: (byte, device) =>

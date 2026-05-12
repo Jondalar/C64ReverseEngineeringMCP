@@ -19,9 +19,17 @@ const { startIntegratedSession, getIntegratedSession } = await import(
 // behavior. User picks disk via media picker when ready. PRG / cart
 // workflows can also load directly into RAM without any disk.
 console.log(`[v3] starting session (no disk inserted)`);
+// Spec 428 Phase C — drive dispatch mode opt-in via env var.
+// C64RE_DRIVE_DISPATCH=vice-whole-instruction → VICE drivecpu.c shape (IM2 fix).
+// Anything else / unset → cycle-stepped default (= current production).
+const driveDispatchMode = process.env.C64RE_DRIVE_DISPATCH === "vice-whole-instruction"
+  ? "vice-whole-instruction"
+  : "cycle-stepped";
+console.log(`[v3] driveDispatchMode = ${driveDispatchMode}`);
 const { sessionId } = startIntegratedSession({
   mode: "true-drive",
   useMicrocodedCpu: true,
+  driveDispatchMode,
 });
 console.log(`[v3] session id: ${sessionId}`);
 

@@ -109,6 +109,25 @@ export interface DriveCpuOptions {
   // Sprint 96 part 6 (Bug 39): use cycle-stepped microcoded CPU with
   // sub-instruction bus access. Required for IEC bit-bang correctness.
   useMicrocodedCpu?: boolean;
+  /**
+   * Spec 428 Phase C — drive CPU dispatch mode (opt-in flag, default
+   * "cycle-stepped" preserves current behavior).
+   *
+   * - "cycle-stepped" (default): Spec 401 path. `executeCycle` per CPU
+   *   clock, `gcrShifter.tick(1)` per CPU clock. C64-shaped CLK_INC.
+   * - "vice-whole-instruction": Spec 428 Phase C path. Mirrors VICE
+   *   `drivecpu.c:drivecpu_execute()` — run one full instruction
+   *   (via `runOneInstruction`), then `gcrShifter.tick(N)` ONCE with
+   *   N = cycles consumed. Restores pre-Spec-401 KERNAL-serial loader
+   *   timing required by IM2 Epyx FastLoad.
+   *
+   * Phase D will flip the default once Phase C gate proves no
+   * baseline-game regression with flag ON.
+   *
+   * Doc: specs/428-split-c64-and-1541-cpu-contracts.md.
+   * VICE cite: src/drive/drivecpu.c:356 drivecpu_execute().
+   */
+  driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
   // Sprint 113 Phase 2: VICE-style alarm context for the drive CPU.
   // VIA1 + VIA2 register their T1/T2/SR alarms here. When provided,
   // DriveCpu drains pending alarms after each instruction in the
@@ -544,6 +563,8 @@ export class DriveCpu implements Drive1541Unit {
   public readonly cpu: Cpu6510 | Cpu65xxVice;
   public readonly bus: DriveBus;
   public readonly microcoded: boolean;
+  /** Spec 428 Phase C — drive dispatch mode flag. */
+  public readonly driveDispatchMode: "cycle-stepped" | "vice-whole-instruction";
   // Sprint 96 part 7: GCR shifter coupling for free-running tick.
   public readonly trackBuffer?: TrackBuffer;
   public readonly headPosition?: HeadPosition;
@@ -690,6 +711,7 @@ export class DriveCpu implements Drive1541Unit {
     const clkRef = () => cpuRef.cycles;
     this.bus = new DriveBus(opts, clkRef);
     this.microcoded = opts.useMicrocodedCpu ?? false;
+    this.driveDispatchMode = opts.driveDispatchMode ?? "cycle-stepped";
     this.cpu = this.microcoded
       ? new Cpu65xxVice({ memBus: this.bus, alarmContext: opts.alarmContext ?? this.bus.alarmContext })
       : new Cpu6510(this.bus);
@@ -1088,6 +1110,39 @@ export class DriveCpu implements Drive1541Unit {
     if (!this.intNumVia2Irq && cycled.cpuIntStatus) {
       this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
     }
+    if (this.driveDispatchMode === "vice-whole-instruction") {
+      // Spec 428 Phase C — VICE drivecpu.c:356 drivecpu_execute() shape.
+      // Run one full instruction at a time, tick GCR once per instruction
+      // with N = cycles consumed. Restores pre-Spec-401 KERNAL-serial
+      // loader timing (= IM2 Epyx FastLoad path).
+      // Phase E will move GCR tick to opcode-template hook sites; Phase C
+      // approximates with one-tick-per-instruction.
+      while (this.cycleAccumulator16dot16 >= 0x10000) {
+        const before = cycled.cycles;
+        // VIA2 IRQ polling at instruction boundary (= same as cycle-stepped).
+        if (this.intNumVia2Irq) {
+          cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
+        }
+        // Tick CPU for one full instruction.
+        cycled.executeCycle();
+        while (!cycled.isAtInstructionBoundary()) {
+          cycled.executeCycle();
+        }
+        const consumed = cycled.cycles - before;
+        if (this.gcrShifter && consumed > 0) {
+          this.gcrShifter.tick(consumed);
+        }
+        this.onInstructionComplete?.(
+          cycled.pc & 0xffff, 0, 0, 0,
+          cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
+          cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
+          cycled.cycles,
+        );
+        this.cycleAccumulator16dot16 -= consumed * 0x10000;
+      }
+      return;
+    }
+    // Spec 401 default cycle-stepped path.
     while (this.cycleAccumulator16dot16 >= 0x10000) {
       if (cycled.isAtInstructionBoundary() && this.intNumVia2Irq) {
         // VIA2 IRQ polling — replaced by spec 411 chip-side push.
