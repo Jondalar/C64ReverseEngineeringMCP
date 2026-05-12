@@ -353,12 +353,12 @@ export const OPCODE_TABLE: Array<OpcodeInfo | null> = [
     "mode": "acc",
     "cycles": 2
   },
+  null,
   {
     "op": "jmp",
     "mode": "ind",
     "cycles": 5
   },
-  null,
   {
     "op": "adc",
     "mode": "abs",

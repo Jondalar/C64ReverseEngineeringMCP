@@ -23,6 +23,10 @@ export interface ViceRuntimeTraceConfig {
   intervalMs: number;
   cpuHistoryCount: number;
   monitorChisLines: number;
+  /** Also capture drive (memspace 1 = drive 8) cpuhistory per sample.
+   *  Default false. When true, instruction events include a `memspace`
+   *  field ("c64" | "drive"). */
+  captureDriveHistory?: boolean;
 }
 
 export interface ViceWorkspacePaths {

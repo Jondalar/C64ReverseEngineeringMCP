@@ -2,6 +2,10 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { auditProject, auditProjectCached } from "../project-knowledge/audit.js";
+import { repairProject } from "../project-knowledge/repair.js";
+import { runPayloadReverseWorkflow, runPrgReverseWorkflow } from "../lib/prg-workflow.js";
+import { findUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import { buildGraphicsView } from "./graphics-view.js";
 import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
 import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx } from "../compression-tools.js";
@@ -293,6 +297,566 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 021 knowledge tabs: read-only stores for the new UI tabs.
+  // Each endpoint reads the matching JSON store via the service layer
+  // and returns `{ items, projectDir, count }`. The UI does its own
+  // filtering and virtualisation.
+  if (requestUrl.pathname === "/api/findings" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listFindings();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/entities" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listEntities();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/flows" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listFlows();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/relations" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listRelations();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  // Spec 025 lineage: read the V0..Vn chain for an artifact id.
+  if (requestUrl.pathname === "/api/artifact/lineage" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const artifactId = requestUrl.searchParams.get("artifactId")?.trim();
+    if (!artifactId) {
+      send(res, jsonResponse(400, { error: "missing artifactId query param" }));
+      return;
+    }
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const chain = service.getLineage(artifactId);
+      send(res, jsonResponse(200, { projectDir, artifactId, count: chain.length, items: chain }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  // Spec 025 R23 containers: list sub-entries for a parent artifact.
+  if (requestUrl.pathname === "/api/containers" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const parentArtifactId = requestUrl.searchParams.get("parentArtifactId")?.trim() || undefined;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.listContainerEntries(parentArtifactId);
+      send(res, jsonResponse(200, { projectDir, parentArtifactId, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  // Spec 022: per-artifact workflow status matrix.
+  if (requestUrl.pathname === "/api/per-artifact-status" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const items = service.getPerArtifactStatus();
+      send(res, jsonResponse(200, { projectDir, count: items.length, items }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  // Spec 051 Sprint 44: annotation draft endpoints.
+  if (requestUrl.pathname === "/api/annotations/draft" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const draftPath = requestUrl.searchParams.get("path")?.trim();
+    if (!draftPath) {
+      send(res, jsonResponse(400, { error: "missing path query param" }));
+      return;
+    }
+    try {
+      const fullPath = resolve(projectDir, draftPath);
+      if (!existsSync(fullPath)) {
+        send(res, jsonResponse(404, { error: "draft not found", path: fullPath }));
+        return;
+      }
+      const text = readFileSync(fullPath, "utf8");
+      send(res, jsonResponse(200, { projectDir, path: draftPath, content: JSON.parse(text) }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/annotations/save" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; finalPath: string; payload: unknown };
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const fullPath = resolve(projectDir, payload.finalPath);
+        const dir = dirname(fullPath);
+        if (!existsSync(dir)) {
+          send(res, jsonResponse(404, { error: `target directory missing: ${dir}` }));
+          return;
+        }
+        writeFileSync(fullPath, `${JSON.stringify(payload.payload, null, 2)}\n`, "utf8");
+        send(res, jsonResponse(200, { projectDir, finalPath: fullPath, ok: true }));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  // Spec 053 / Bug 21: segment confirm / reject endpoints.
+  if (requestUrl.pathname === "/api/segment/confirm" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; artifactId: string; address: number; length: number; kind: string; evidenceArtifactId?: string };
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const result = service.markSegmentConfirmed({
+          artifactId: payload.artifactId,
+          address: payload.address,
+          length: payload.length,
+          kind: payload.kind,
+          evidenceArtifactId: payload.evidenceArtifactId,
+        });
+        if (!result) { send(res, jsonResponse(404, { error: "artifact not found" })); return; }
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/segment/reject" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; artifactId: string; address: number; length: number; kind: string; reason: string };
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const result = service.markSegmentRejected({
+          artifactId: payload.artifactId,
+          address: payload.address,
+          length: payload.length,
+          kind: payload.kind,
+          reason: payload.reason,
+        });
+        if (!result) { send(res, jsonResponse(404, { error: "artifact not found" })); return; }
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  // Bug 23 (Stage 2): clear a previously-set confirm/reject mark.
+  if (requestUrl.pathname === "/api/segment/clear" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; artifactId: string; address: number; length: number; kind: string };
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const result = service.clearSegmentMark({
+          artifactId: payload.artifactId,
+          address: payload.address,
+          length: payload.length,
+          kind: payload.kind,
+        });
+        if (!result) { send(res, jsonResponse(404, { error: "artifact not found" })); return; }
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/audit" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const fresh = requestUrl.searchParams.get("fresh") === "1";
+    try {
+      if (fresh) {
+        const audit = auditProject(projectDir, { includeFileScan: true });
+        send(res, jsonResponse(200, { audit, cacheStatus: "fresh", cachedAt: new Date().toISOString() }));
+      } else {
+        const cached = auditProjectCached(projectDir, { includeFileScan: true });
+        send(res, jsonResponse(200, cached));
+      }
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/open-question/batch" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          ids: string[];
+          patch: {
+            status?: "open" | "researching" | "answered" | "invalidated" | "deferred";
+            priority?: "low" | "medium" | "high" | "critical";
+            answerSummary?: string;
+            answeredByFindingId?: string;
+          };
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!Array.isArray(payload.ids) || payload.ids.length === 0) {
+          send(res, jsonResponse(400, { error: "ids must be a non-empty array." }));
+          return;
+        }
+        const service = new ProjectKnowledgeService(projectDir);
+        const errors: Array<{ id: string; error: string }> = [];
+        const updated: string[] = [];
+        for (const id of payload.ids) {
+          const existing = service.listOpenQuestions().find((question) => question.id === id);
+          if (!existing) {
+            errors.push({ id, error: "not found" });
+            continue;
+          }
+          try {
+            service.saveOpenQuestion({
+              id,
+              kind: existing.kind,
+              title: existing.title,
+              description: existing.description,
+              status: payload.patch.status ?? existing.status,
+              priority: payload.patch.priority ?? existing.priority,
+              confidence: existing.confidence,
+              entityIds: existing.entityIds,
+              artifactIds: existing.artifactIds,
+              findingIds: existing.findingIds,
+              answeredByFindingId: payload.patch.answeredByFindingId ?? existing.answeredByFindingId,
+              answerSummary: payload.patch.answerSummary ?? existing.answerSummary,
+            });
+            updated.push(id);
+          } catch (error) {
+            errors.push({ id, error: error instanceof Error ? error.message : String(error) });
+          }
+        }
+        send(res, jsonResponse(200, { updated, errors }));
+      } catch (error) {
+        send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  // Spec 061 / UX3: Bulk re-evaluate open questions via task queue.
+  // Two-phase: (1) deterministic sweep (archive_phase1_noise +
+  // sweepQuestionResolutions) scoped to selection's artifacts;
+  // (2) creates one automation-kind task that the LLM agent picks up
+  // via c64re_whats_next polling. Returns the task id + post-sweep
+  // remaining-question count.
+  if (requestUrl.pathname === "/api/tasks/bulk-revaluate" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          questionIds: string[];
+          priority?: "low" | "medium" | "high" | "critical";
+          scopeArtifactIds?: string[];
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!Array.isArray(payload.questionIds) || payload.questionIds.length === 0) {
+          send(res, jsonResponse(400, { error: "questionIds must be a non-empty array" }));
+          return;
+        }
+        const service = new ProjectKnowledgeService(projectDir);
+        const allQuestions = service.listOpenQuestions();
+        const targetQuestions = allQuestions.filter((q) => payload.questionIds.includes(q.id));
+        if (targetQuestions.length === 0) {
+          send(res, jsonResponse(404, { error: "no matching open questions for given ids" }));
+          return;
+        }
+        // Phase 1 (deterministic sweep): scope = union of selection's
+        // linked artifacts, OR explicit scopeArtifactIds when given.
+        const scopeArtifacts = (payload.scopeArtifactIds && payload.scopeArtifactIds.length > 0)
+          ? payload.scopeArtifactIds
+          : Array.from(new Set(targetQuestions.flatMap((q) => q.artifactIds)));
+        const sweepCounts: Array<{ artifactId: string; archived: number; answered: number }> = [];
+        let totalArchived = 0;
+        let totalAnswered = 0;
+        for (const aid of scopeArtifacts) {
+          try {
+            const r = service.runClosedLoopSweep({ artifactId: aid });
+            sweepCounts.push({ artifactId: aid, archived: r.archivedScoped, answered: r.questionsAnsweredScoped });
+            totalArchived += r.archivedScoped;
+            totalAnswered += r.questionsAnsweredScoped;
+          } catch {
+            // soft fail per artifact
+          }
+        }
+        // Phase 2: build the LLM task with the per-spec template.
+        const remainingIds = service.listOpenQuestions()
+          .filter((q) => payload.questionIds.includes(q.id) && (q.status === "open" || q.status === "researching"))
+          .map((q) => q.id);
+        const description = [
+          `Bulk re-evaluation of ${payload.questionIds.length} open questions.`,
+          ``,
+          `Phase 1 (already executed by the deterministic sweep):`,
+          `  - archive_phase1_noise(artifact_id=<scoped>) — ${totalArchived} findings archived`,
+          `  - auto_resolve_questions(artifact_id=<scoped>) — ${totalAnswered} questions auto-answered`,
+          `  Sweep ran across ${scopeArtifacts.length} artifact scope(s).`,
+          `  After phase 1, ${remainingIds.length} questions remain open. Continue with phase 2.`,
+          ``,
+          `Phase 2 (your work):`,
+          `  For each of these question IDs:`,
+          `    [${remainingIds.join(", ")}]`,
+          ``,
+          `  1. list_open_questions(filter to id) and read its title +`,
+          `     description + linked findings + linked artifacts.`,
+          `  2. Read the relevant ASM section (read_artifact on the linked`,
+          `     listing) + the linked annotations file (when present).`,
+          `  3. Decide ONE outcome:`,
+          `       - "answered" — covered by a finding / annotation; close it`,
+          `         via save_open_question(status="answered",`,
+          `                                answeredByFindingId=<finding-id>,`,
+          `                                answerSummary="<one sentence>")`,
+          `       - "invalidated" — was bullshit / hallucination;`,
+          `         save_open_question(status="invalidated",`,
+          `                            answerSummary="<why>")`,
+          `       - "researching" — needs deeper analysis; save_open_question`,
+          `         (status="researching") and append a brief next-step note`,
+          `         to its description.`,
+          `       - "still-open" — leave unchanged.`,
+          ``,
+          `  4. After all processed, call agent_record_step with the bilanz:`,
+          `       "Bulk re-eval done: X answered, Y invalidated,`,
+          `        Z researching, W still-open."`,
+          `       Include the original task id in the step description so`,
+          `       the UI can mark the task complete.`,
+          ``,
+          `Constraints:`,
+          `  - Use only the four outcomes above. Do not change priority,`,
+          `    tags, or other fields.`,
+          `  - If a question's linked finding is itself ambiguous, prefer`,
+          `    "researching" over guessing "answered".`,
+          `  - If a question has no addressRange + no linked finding +`,
+          `    no clear context, "invalidated" is appropriate.`,
+        ].join("\n");
+        const task = service.saveTask({
+          kind: "bulk-revaluate",
+          title: `Re-evaluate ${payload.questionIds.length} open questions`,
+          description,
+          status: "open",
+          priority: payload.priority ?? "medium",
+          questionIds: payload.questionIds,
+          artifactIds: scopeArtifacts,
+          producedByTool: "ui-bulk-revaluate",
+          agentKind: "automation",
+        });
+        send(res, jsonResponse(200, {
+          taskId: task.id,
+          questionCount: payload.questionIds.length,
+          phase1: { archived: totalArchived, answered: totalAnswered, sweepCounts },
+          remainingForPhase2: remainingIds.length,
+        }));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  // Spec 061 / UX3: Active bulk-revaluate tasks. Used by the UI to
+  // poll for in-flight automation work + render the per-question
+  // pending badge.
+  if (requestUrl.pathname === "/api/tasks/active-bulk" && req.method === "GET") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    try {
+      const service = new ProjectKnowledgeService(projectDir);
+      const allTasks = service.listTasks();
+      const active = allTasks.filter((t) =>
+        t.kind === "bulk-revaluate"
+        && (t.status === "open" || t.status === "in_progress")
+      );
+      send(res, jsonResponse(200, {
+        tasks: active.map((t) => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          questionIds: t.questionIds,
+          artifactIds: t.artifactIds,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+        })),
+      }));
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/run-payload-workflow" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          payloadId: string;
+          mode?: "quick" | "full";
+          outputDir?: string;
+          rebuildViews?: boolean;
+          entryPoints?: string[];
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!payload.payloadId?.trim()) {
+          send(res, jsonResponse(400, { error: "Missing payloadId." }));
+          return;
+        }
+        const result = await runPayloadReverseWorkflow({
+          projectRoot: projectDir,
+          payloadId: payload.payloadId,
+          mode: payload.mode,
+          outputDir: payload.outputDir,
+          rebuildViews: payload.rebuildViews,
+          entryPoints: payload.entryPoints,
+        });
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/run-prg-workflow" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          prgPath: string;
+          mode?: "quick" | "full";
+          outputDir?: string;
+          rebuildViews?: boolean;
+          entryPoints?: string[];
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        if (!payload.prgPath?.trim()) {
+          send(res, jsonResponse(400, { error: "Missing prgPath." }));
+          return;
+        }
+        const result = await runPrgReverseWorkflow({
+          projectRoot: projectDir,
+          prgPath: payload.prgPath,
+          mode: payload.mode,
+          outputDir: payload.outputDir,
+          rebuildViews: payload.rebuildViews,
+          entryPoints: payload.entryPoints,
+        });
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/repair" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          mode?: "dry-run" | "safe";
+          operations?: Array<"merge-fragments" | "register-artifacts" | "import-analysis" | "import-manifest" | "build-views">;
+          limit?: number;
+        };
+        const projectDir = payload.projectDir?.trim()
+          ? resolve(process.cwd(), payload.projectDir)
+          : options.projectDir;
+        const result = repairProject(projectDir, {
+          mode: payload.mode ?? "dry-run",
+          operations: payload.operations,
+          limit: payload.limit,
+        });
+        send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/scrub/annotate-segment" && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });
@@ -341,16 +905,28 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Bug 23 (Stage 2): /api/graphics-marks is now a thin compat shim.
+  // The shadow store at session/graphics-marks.json is gone — the analysis
+  // JSONs are the single source of truth. GET derives the marks map from
+  // buildGraphicsView items so any client that still reads /api/graphics-marks
+  // sees the live, agent-and-UI-merged state. POST routes to the same service
+  // methods used by /api/segment/{confirm,reject,clear}.
   if (requestUrl.pathname === "/api/graphics-marks" && req.method === "GET") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
       : options.projectDir;
-    const marksPath = join(projectDir, "session", "graphics-marks.json");
     try {
-      const marks = existsSync(marksPath)
-        ? JSON.parse(readFileSync(marksPath, "utf8")) as { marks?: Record<string, { status: "rejected" | "confirmed"; note?: string; updatedAt: string }> }
-        : { marks: {} };
-      send(res, jsonResponse(200, { projectDir, marks: marks.marks ?? {} }));
+      const service = new ProjectKnowledgeService(projectDir);
+      const view = buildGraphicsView(projectDir, service);
+      const marks: Record<string, { status: "rejected" | "confirmed"; note?: string }> = {};
+      for (const item of view.items) {
+        if (item.confirmed === true) {
+          marks[item.id] = { status: "confirmed" };
+        } else if (item.rejected === true) {
+          marks[item.id] = { status: "rejected", note: item.rejectedReason };
+        }
+      }
+      send(res, jsonResponse(200, { projectDir, marks }));
     } catch (error) {
       send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
     }
@@ -367,6 +943,13 @@ const server = createServer((req, res) => {
           itemId: string;
           status: "rejected" | "confirmed" | "clear";
           note?: string;
+          // Required for the service-routing path: the UI already has the
+          // GraphicsItem locally and can pass these through.
+          artifactId?: string;
+          address?: number;
+          length?: number;
+          kind?: string;
+          reason?: string;
         };
         const projectDir = payload.projectDir?.trim()
           ? resolve(process.cwd(), payload.projectDir)
@@ -375,22 +958,44 @@ const server = createServer((req, res) => {
           send(res, jsonResponse(400, { error: "Missing itemId." }));
           return;
         }
-        const marksPath = join(projectDir, "session", "graphics-marks.json");
-        mkdirSync(dirname(marksPath), { recursive: true });
-        const existing = existsSync(marksPath)
-          ? JSON.parse(readFileSync(marksPath, "utf8")) as { marks?: Record<string, { status: "rejected" | "confirmed"; note?: string; updatedAt: string }> }
-          : { marks: {} };
-        const map: Record<string, { status: "rejected" | "confirmed"; note?: string; updatedAt: string }> = existing.marks ?? {};
-        if (payload.status === "clear") {
-          delete map[payload.itemId];
-        } else {
-          map[payload.itemId] = {
-            status: payload.status,
-            note: payload.note,
-            updatedAt: new Date().toISOString(),
-          };
+        if (!payload.artifactId || typeof payload.address !== "number" || typeof payload.length !== "number" || !payload.kind) {
+          send(res, jsonResponse(400, { error: "Missing artifactId/address/length/kind. /api/graphics-marks now routes to service methods (Bug 23 stage 2) and needs the full segment payload." }));
+          return;
         }
-        writeFileSync(marksPath, JSON.stringify({ updatedAt: new Date().toISOString(), marks: map }, null, 2));
+        const service = new ProjectKnowledgeService(projectDir);
+        if (payload.status === "confirmed") {
+          service.markSegmentConfirmed({
+            artifactId: payload.artifactId,
+            address: payload.address,
+            length: payload.length,
+            kind: payload.kind,
+          });
+        } else if (payload.status === "rejected") {
+          service.markSegmentRejected({
+            artifactId: payload.artifactId,
+            address: payload.address,
+            length: payload.length,
+            kind: payload.kind,
+            reason: payload.reason ?? "User marked wrong via Graphics tab.",
+          });
+        } else {
+          service.clearSegmentMark({
+            artifactId: payload.artifactId,
+            address: payload.address,
+            length: payload.length,
+            kind: payload.kind,
+          });
+        }
+        // Re-derive the full marks map so the response shape matches GET.
+        const view = buildGraphicsView(projectDir, service);
+        const map: Record<string, { status: "rejected" | "confirmed"; note?: string }> = {};
+        for (const item of view.items) {
+          if (item.confirmed === true) {
+            map[item.id] = { status: "confirmed" };
+          } else if (item.rejected === true) {
+            map[item.id] = { status: "rejected", note: item.rejectedReason };
+          }
+        }
         send(res, jsonResponse(200, { projectDir, marks: map }));
       } catch (error) {
         send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error) }));
@@ -487,32 +1092,43 @@ const server = createServer((req, res) => {
       try {
         const payload = JSON.parse(body) as {
           projectDir?: string;
+          id?: string;
           title?: string;
           description?: string;
           kind?: string;
+          status?: "open" | "researching" | "answered" | "invalidated" | "deferred";
           priority?: "low" | "medium" | "high" | "critical";
           confidence?: number;
           entityIds?: string[];
           artifactIds?: string[];
           findingIds?: string[];
+          answeredByFindingId?: string;
+          answerSummary?: string;
         };
         const projectDir = payload.projectDir?.trim()
           ? resolve(process.cwd(), payload.projectDir)
           : options.projectDir;
-        if (!payload.title?.trim()) {
+        const service = new ProjectKnowledgeService(projectDir);
+        const existing = payload.id
+          ? service.listOpenQuestions().find((question) => question.id === payload.id)
+          : undefined;
+        if (!existing && !payload.title?.trim()) {
           send(res, jsonResponse(400, { error: "Missing question title." }));
           return;
         }
-        const service = new ProjectKnowledgeService(projectDir);
         const question = service.saveOpenQuestion({
-          title: payload.title.trim(),
-          description: payload.description?.trim() || undefined,
-          kind: payload.kind?.trim() || "llm-question",
-          priority: payload.priority ?? "medium",
-          confidence: payload.confidence ?? 0.65,
-          entityIds: payload.entityIds ?? [],
-          artifactIds: payload.artifactIds ?? [],
-          findingIds: payload.findingIds ?? [],
+          id: payload.id,
+          title: payload.title?.trim() || existing?.title || "(untitled)",
+          description: payload.description?.trim() ?? existing?.description,
+          kind: payload.kind?.trim() || existing?.kind || "llm-question",
+          status: payload.status ?? existing?.status,
+          priority: payload.priority ?? existing?.priority ?? "medium",
+          confidence: payload.confidence ?? existing?.confidence ?? 0.65,
+          entityIds: payload.entityIds ?? existing?.entityIds ?? [],
+          artifactIds: payload.artifactIds ?? existing?.artifactIds ?? [],
+          findingIds: payload.findingIds ?? existing?.findingIds ?? [],
+          answeredByFindingId: payload.answeredByFindingId ?? existing?.answeredByFindingId,
+          answerSummary: payload.answerSummary ?? existing?.answerSummary,
         });
         send(res, jsonResponse(200, { question }));
       } catch (error) {
@@ -984,6 +1600,25 @@ const server = createServer((req, res) => {
 
   if (requestUrl.pathname === "/api/health") {
     send(res, jsonResponse(200, { ok: true }));
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/registration-delta") {
+    try {
+      const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+        ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!.trim())
+        : options.projectDir;
+      const delta = scanRegistrationDelta(projectDir, 50);
+      const service = new ProjectKnowledgeService(projectDir);
+      const unimported = findUnimportedAnalysisArtifacts(service);
+      send(res, jsonResponse(200, {
+        ...delta,
+        unimportedAnalysisCount: unimported.length,
+        unimportedAnalysisExamples: unimported.slice(0, 10).map((u) => u.relativePath),
+      }));
+    } catch (e) {
+      send(res, jsonResponse(500, { error: e instanceof Error ? e.message : String(e) }));
+    }
     return;
   }
 

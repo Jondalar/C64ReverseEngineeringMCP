@@ -1,0 +1,96 @@
+name: quick
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - master
+
+concurrency:
+  group: quick-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Decode ROM bundle
+        if: env.C64_ROM_BUNDLE_B64 != ''
+        env:
+          C64_ROM_BUNDLE_B64: ${{ secrets.C64_ROM_BUNDLE_B64 }}
+        run: |
+          mkdir -p resources/roms
+          echo "$C64_ROM_BUNDLE_B64" | base64 -d | tar -xz -C resources/roms
+          ls -la resources/roms
+
+      - name: Build
+        run: npm run build
+
+      - name: Audit (no peer-tick)
+        run: npm run audit:no-peer-tick
+
+      - name: Audit (timing-fork)
+        run: npm run audit:timing-fork
+
+      - name: Generate synthetic test disks
+        run: npm run smoke:gen
+
+      - name: Smoke — kernel facade
+        run: npm run smoke:kernel-facade
+
+      - name: Smoke — kernel client (Spec 206)
+        run: npm run smoke:kernel-client
+
+      - name: Smoke — hook hygiene
+        run: npm run smoke:hook-hygiene
+
+      - name: Smoke — fidelity (cpu/cia/vic/pla/sid/input)
+        run: |
+          npm run smoke:cpu-fidelity
+          npm run smoke:cia-fidelity
+          npm run smoke:vic-fidelity
+          npm run smoke:pla-fidelity
+          npm run smoke:sid-fidelity
+          npm run smoke:input-fidelity
+
+      - name: Smoke — drive + g64
+        run: |
+          npm run smoke:drive-equiv
+          npm run smoke:via1-iec
+          npm run smoke:serial-matrix
+          npm run smoke:g64-fidelity
+          npm run smoke:write-support
+          npm run smoke:multi-drive
+          npm run smoke:fidelity-backlog
+
+      - name: Smoke — trace + snapshot + reset
+        run: |
+          npm run smoke:trace
+          npm run smoke:diff-trace
+          npm run smoke:stepping
+          npm run smoke:reset
+          npm run smoke:snapshot
+          npm run smoke:visual-runtime
+
+      - name: Smoke — cart + sid-polish + perf
+        run: |
+          npm run smoke:cart-fidelity
+          npm run smoke:sid-polish
+          npm run smoke:perf-ops
+
+      - name: E2E quick (c64-ready)
+        run: npm run test:e2e:quick
+
+      - name: E2E integration (motm-dir-load)
+        run: npm run test:e2e:integration

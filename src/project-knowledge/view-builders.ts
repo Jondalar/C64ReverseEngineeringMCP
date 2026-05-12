@@ -1,6 +1,40 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, extname, resolve as resolvePath } from "node:path";
 import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFileEntry } from "../disk/index.js";
+import { classifyArtifactInternal } from "./service.js";
+
+// Bug 26 / Spec 058 + this-session fix: legacy artifacts whose
+// `internal` flag was never set (predates the schema field) need
+// heuristic re-classification at view-build time so views like the
+// Load Sequence don't surface annotations / manifests as fake stages.
+// Uses the same path/role/kind heuristic that `saveArtifact` applies
+// for new records.
+function isInternalArtifactWithFallback(artifact: ArtifactRecord): boolean {
+  if (artifact.internal === true) return true;
+  if (artifact.internal === false) return false;
+  return classifyArtifactInternal({
+    path: artifact.relativePath || artifact.path,
+    role: artifact.role,
+    kind: artifact.kind,
+  });
+}
+
+// Entity-side fallback: an entity is internal when its primary linked
+// artifact is internal. Mirrors saveEntity's auto-derivation but
+// applied at view-build time for legacy entities that pre-date the
+// schema field.
+function isInternalEntityWithFallback(
+  entity: EntityRecord,
+  artifactsById: Map<string, ArtifactRecord>,
+): boolean {
+  if (entity.internal === true) return true;
+  if (entity.internal === false) return false;
+  const primaryId = entity.payloadSourceArtifactId ?? entity.artifactIds?.[0];
+  if (!primaryId) return false;
+  const primary = artifactsById.get(primaryId);
+  if (!primary) return false;
+  return isInternalArtifactWithFallback(primary);
+}
 import type {
   AnnotatedListingView,
   ArtifactRecord,
@@ -260,6 +294,8 @@ function inferDiskFileLoader(args: {
     relativePath: stem,
     status: "active",
     confidence: 1,
+    versions: [],
+    loadContexts: [],
     createdAt: "",
     updatedAt: "",
     sourceArtifactIds: [],
@@ -357,7 +393,9 @@ function formatByteCount(sizeBytes: number): string {
 
 export function buildProjectDashboardView(context: ViewBuildContext): ProjectDashboardView {
   const openTasks = context.tasks.filter((task) => task.status !== "done" && task.status !== "wont_fix").sort(compareByUpdatedAt);
-  const openQuestions = context.openQuestions.filter((question) => question.status !== "answered" && question.status !== "invalidated").sort(compareByUpdatedAt);
+  const openQuestions = context.openQuestions
+    .filter((question) => question.status !== "answered" && question.status !== "invalidated" && question.status !== "deferred")
+    .sort(compareByUpdatedAt);
   const activeFindings = context.findings
     .filter((finding) => finding.status !== "archived" && finding.status !== "rejected")
     .sort(compareByUpdatedAt);
@@ -498,6 +536,28 @@ export function buildMemoryMapView(context: ViewBuildContext): MemoryMapView {
     }
   }
 
+  // Memory map = RUNTIME view. Filter out entities that live exclusively
+  // on a medium (cart bank, disk track) and have no runtime presence.
+  // Heuristic:
+  //   - kind === cartridge-bank | chip | disk-track → medium-only, exclude
+  //   - mediumSpans set AND no payloadLoadAddress AND addressRange falls
+  //     within the cart window ($8000-$BFFF, $E000-$FFFF) → medium-only
+  //   - everything else (routines, code-segment, payload with load addr,
+  //     state vars, etc.) → keep
+  // The toggle to view cart-window mapping anyway lives in the UI.
+  const MEDIUM_ONLY_KINDS = new Set(["cartridge-bank", "chip", "disk-track"]);
+  function isMediumOnlyEntity(entity: typeof context.entities[number]): boolean {
+    if (MEDIUM_ONLY_KINDS.has(entity.kind)) return true;
+    if (entity.kind === "payload") return false; // payloads are runtime-resident by definition
+    const range = entity.addressRange;
+    if (!range) return false;
+    const inCartWindow = (range.start >= 0x8000 && range.end <= 0xbfff) || (range.start >= 0xe000 && range.end <= 0xffff);
+    if (entity.mediumSpans && entity.mediumSpans.length > 0 && inCartWindow && entity.payloadLoadAddress === undefined) {
+      return true;
+    }
+    return false;
+  }
+
   const regions = context.entities
     .filter((entity) => entity.addressRange)
     .sort((left, right) => {
@@ -523,16 +583,23 @@ export function buildMemoryMapView(context: ViewBuildContext): MemoryMapView {
       status: entity.status,
       confidence: entity.confidence,
       summary: entity.summary,
+      // Mark medium-only regions so the UI can hide them by default
+      // and surface them via the "show cart-window mapping" toggle.
+      mediumOnly: isMediumOnlyEntity(entity),
     }));
 
   const cellSize = 0x100;
   const rowStride = 0x1000;
+  // Runtime view: cell occupancy is computed from non-mediumOnly
+  // regions only. Cart-bank / disk-track residents stay in the
+  // regions[] list (UI surfaces them via the toggle).
+  const runtimeRegions = regions.filter((region) => !region.mediumOnly);
   const cells = Array.from({ length: 0x100 }, (_, index) => {
     const rowBase = Math.floor(index / 16) * rowStride;
     const columnOffset = (index % 16) * cellSize;
     const start = rowBase + columnOffset;
     const end = Math.min(0xffff, start + cellSize - 1);
-    const overlappingRegions = regions.filter((region) => region.start <= end && region.end >= start);
+    const overlappingRegions = runtimeRegions.filter((region) => region.start <= end && region.end >= start);
     const overlapIntervals = overlappingRegions.map((region) => ({
       start: Math.max(start, region.start),
       end: Math.min(end, region.end),
@@ -679,12 +746,17 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
           index?: number;
           name?: string;
           type?: string;
+          origin?: "kernal" | "custom";
           sizeSectors?: number;
           sizeBytes?: number;
           track?: number;
           sector?: number;
           loadAddress?: number;
           relativePath?: string;
+          md5?: string;
+          first16?: string;
+          last16?: string;
+          kindGuess?: string;
           sectorChain?: Array<{
             index?: number;
             track?: number;
@@ -750,11 +822,19 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             annotationCommentsByStage,
           });
           const title = file.name ?? `File ${index + 1}`;
-          const color = fnvHslColor([artifact.id, index, title, file.track ?? 0, file.sector ?? 0]);
+          const origin: "kernal" | "custom" = (file.origin === "custom" ? "custom" : "kernal");
+          // Bias the per-file colour so custom-LUT files read as a
+          // distinct family in the disk-layout grid: kernal gets the
+          // existing hash-derived hue, custom shifts it 180° around the
+          // wheel.
+          const colorKey: Array<string | number> = [artifact.id, index, title, file.track ?? 0, file.sector ?? 0];
+          if (origin === "custom") colorKey.push("custom");
+          const color = fnvHslColor(colorKey);
           return {
             id: `${artifact.id}-file-${index}`,
             title,
             type: file.type ?? "unknown",
+            origin,
             sizeSectors: file.sizeSectors,
             sizeBytes: file.sizeBytes,
             track: file.track,
@@ -770,6 +850,10 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             packer: file.packer ?? manifest?.defaultPacker,
             format: file.format ?? manifest?.defaultFormat,
             notes: file.notes ?? [],
+            md5: file.md5,
+            first16: file.first16,
+            last16: file.last16,
+            kindGuess: file.kindGuess,
           };
         });
       const fileBySector = new Map<string, { id: string; title: string; color?: string }>();
@@ -815,6 +899,22 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         ...files.flatMap((file) => file.sectorChain.map((cell) => cell.track)),
         ...files.map((file) => file.track ?? 0),
       );
+      // Spec 037 / Sprint 43 Block A: build (track,sector) → hint
+      // map from payload entities whose mediumSpans cover sectors
+      // and whose payloadDiskHint is set.
+      const hintByCell = new Map<string, "drive-code" | "protected" | "raw-unanalyzed" | "bad-crc" | "gap">();
+      for (const entity of context.entities) {
+        if (!entity.payloadDiskHint) continue;
+        for (const span of entity.mediumSpans ?? []) {
+          if (span.kind !== "sector") continue;
+          // Map sector chain start cell. Refining to "all touched
+          // sectors" requires walking the chain in the manifest
+          // which we can do later; for v1 mark just the starting
+          // sector — agents typically inspect the start cell.
+          hintByCell.set(`${span.track}:${span.sector}`, entity.payloadDiskHint);
+        }
+      }
+
       const sectors = Array.from({ length: trackCount }, (_, trackIndex) => trackIndex + 1)
         .flatMap((track) => {
           const sectorCount = SECTORS_PER_TRACK[track] ?? 17;
@@ -848,6 +948,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
               occupied: Boolean(match) || isBam || isDirectory || category === "orphan_allocated",
               category,
               color: match?.color,
+              hint: hintByCell.get(`${track}:${sector}`),
             };
           });
         });
@@ -1652,9 +1753,13 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
 }
 
 export function buildLoadSequenceView(context: ViewBuildContext): LoadSequenceView {
+  // Bug 26 / Spec 058: skip internal artifacts so annotations files,
+  // rebuild-check binaries, manifests, run-event-logs etc. don't show
+  // up as separate "payloads" alongside the real ones.
   const groupedArtifacts = new Map<string, { descriptor: NonNullable<ReturnType<typeof deriveStageDescriptor>>; artifacts: ArtifactRecord[] }>();
 
   for (const artifact of context.artifacts) {
+    if (isInternalArtifactWithFallback(artifact)) continue;
     const descriptor = deriveStageDescriptor(artifact);
     if (!descriptor) {
       continue;
@@ -1819,7 +1924,13 @@ export function buildFlowGraphView(context: ViewBuildContext): FlowGraphView {
 }
 
 function buildStructureFlowMode(context: ViewBuildContext): FlowGraphMode {
-  const entityById = new Map(context.entities.map((entity) => [entity.id, entity]));
+  // Bug 26 / Spec 058: drop internal entities from the flow graph so
+  // "Murder Annotations" / "Murder Disasm Rebuild Check" don't show up
+  // as nodes alongside the real "Murder" payload. Heuristic fallback
+  // covers legacy entities whose internal flag was never set.
+  const artifactsById = new Map(context.artifacts.map((a) => [a.id, a] as const));
+  const visibleEntities = context.entities.filter((e) => !isInternalEntityWithFallback(e, artifactsById));
+  const entityById = new Map(visibleEntities.map((entity) => [entity.id, entity]));
   const nodeMap = new Map<string, FlowGraphView["nodes"][number]>();
   const edgeMap = new Map<string, FlowGraphView["edges"][number]>();
   const relationEdgeIds = new Set<string>();
@@ -2275,10 +2386,15 @@ export function buildAnnotatedListingView(context: ViewBuildContext): AnnotatedL
     }
   }
 
+  const annotatedListingArtifactsById = new Map(context.artifacts.map((a) => [a.id, a] as const));
   const entityByAddress = [...context.entities]
-    .filter((entity) => entity.addressRange)
+    .filter((entity) => entity.addressRange && !isInternalEntityWithFallback(entity, annotatedListingArtifactsById))
     .sort((left, right) => left.addressRange!.start - right.addressRange!.start);
 
+  // analysis-json artifacts ARE internal by classification (LLM-only),
+  // but THIS view extracts user-facing listing entries FROM them, so
+  // we still iterate. Other listing surfaces (Load Sequence, Flow
+  // Graph, Scrub picker) enumerate artifacts as files and skip them.
   const entries = context.artifacts
     .filter((artifact) => artifact.role === "analysis-json")
     .flatMap((artifact) => {

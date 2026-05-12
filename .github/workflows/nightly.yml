@@ -1,0 +1,68 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 02:00 UTC = 03:00/04:00 CET
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci
+
+      - name: Decode ROM bundle
+        if: env.C64_ROM_BUNDLE_B64 != ''
+        env:
+          C64_ROM_BUNDLE_B64: ${{ secrets.C64_ROM_BUNDLE_B64 }}
+        run: |
+          mkdir -p resources/roms
+          echo "$C64_ROM_BUNDLE_B64" | base64 -d | tar -xz -C resources/roms
+
+      - run: npm run build
+      - run: npm run audit:no-peer-tick
+      - run: npm run audit:timing-fork
+
+      - name: All smokes
+        run: |
+          for s in kernel-facade kernel-client hook-hygiene cpu-fidelity \
+                   cia-fidelity vic-fidelity pla-fidelity sid-fidelity \
+                   input-fidelity drive-equiv via1-iec serial-matrix \
+                   g64-fidelity write-support multi-drive fidelity-backlog \
+                   trace diff-trace stepping reset snapshot visual-runtime \
+                   cart-fidelity sid-polish perf-ops; do
+            echo "=== smoke:$s ==="
+            npm run "smoke:$s"
+          done
+
+      - run: npm run test:e2e:integration
+      - run: npm run test:e2e:local
+
+      - name: Lorenz Disk1
+        run: npm run test:lorenz:disk1
+        timeout-minutes: 10
+
+      - name: CIA suite
+        run: npm run test:cia-suite
+        timeout-minutes: 15
+
+      - name: Open issue on failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Nightly failed — ${new Date().toISOString().slice(0,10)}`,
+              body: `Nightly workflow run #${context.runId} failed.\nLog: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['ci-failure'],
+            });

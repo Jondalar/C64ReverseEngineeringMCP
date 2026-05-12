@@ -78,13 +78,30 @@ async function main(): Promise<void> {
         registerDescriptors ??= await activeClient.getRegistersAvailable();
         const currentRegisters = await activeClient.getRegisters();
         const cpuHistory = await activeClient.getCpuHistory(record.runtimeTrace.cpuHistoryCount);
-        const appended = await appendRuntimeTrace(record, state, registerDescriptors, currentRegisters, cpuHistory);
+        const appended = await appendRuntimeTrace(record, state, registerDescriptors, currentRegisters, cpuHistory, "c64");
+        // Optional drive cpuhistory (memspace 1 = drive 8). Captured to
+        // same trace file with `memspace:"drive"` field on instruction
+        // events; sample header uses memspace tag too.
+        let driveItems = 0;
+        if (record.runtimeTrace.captureDriveHistory) {
+          try {
+            const driveHistory = await activeClient.getCpuHistory(record.runtimeTrace.cpuHistoryCount, 0x01);
+            const driveRegs = await activeClient.getRegisters(0x01);
+            const driveAppended = await appendRuntimeTrace(record, state, registerDescriptors, driveRegs, driveHistory, "drive");
+            driveItems = driveAppended.appendedItems;
+          } catch (err) {
+            await writeEvent(record, "runtime_trace_drive_history_error", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
         const afterSequence = activeClient.currentEventSequence;
         await activeClient.resume();
         await activeClient.waitForResume(afterSequence, 1_000).catch(() => undefined);
         await writeEvent(record, "runtime_trace_sample", {
           sampleIndex: state.sampleIndex,
           cpuHistoryItems: cpuHistory.length,
+          driveHistoryItems: driveItems,
           appendedItems: appended.appendedItems,
           clockFirst: appended.clockFirst,
           clockLast: appended.clockLast,
@@ -140,6 +157,7 @@ async function appendRuntimeTrace(
   descriptors: ViceRegisterDescriptor[],
   currentRegisters: ViceRegisterValue[],
   cpuHistory: ViceCpuHistoryItem[],
+  memspace: "c64" | "drive" = "c64",
 ): Promise<{ appendedItems: number; clockFirst?: string; clockLast?: string }> {
   const registerNames = new Map(descriptors.map((descriptor) => [descriptor.id, descriptor.name]));
   let appended = 0;
@@ -153,11 +171,15 @@ async function appendRuntimeTrace(
     capturedAt: new Date().toISOString(),
     currentPc: currentRegisters.find((registerValue) => registerValue.id === 3)?.value,
     items: cpuHistory.length,
+    memspace,
   }));
 
   for (const item of cpuHistory) {
     const clock = BigInt(item.clock);
-    if (state.lastClock !== undefined && clock <= state.lastClock) {
+    // Drive clock can lag behind c64 clock; only dedupe within same memspace.
+    // For c64 we keep existing dedupe; drive history we let through unchanged
+    // (each sample fetches a fresh chunk).
+    if (memspace === "c64" && state.lastClock !== undefined && clock <= state.lastClock) {
       continue;
     }
     const registerMap: Record<string, number> = {};
@@ -176,12 +198,15 @@ async function appendRuntimeTrace(
       pc,
       instructionBytes: item.instructionBytes,
       registers: registerMap,
+      memspace,
     }));
     if (!clockFirst) {
       clockFirst = item.clock;
     }
     clockLast = item.clock;
-    state.lastClock = clock;
+    if (memspace === "c64") {
+      state.lastClock = clock;
+    }
     appended += 1;
   }
 

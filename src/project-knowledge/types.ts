@@ -11,7 +11,9 @@ export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 
 export const EntityStatusSchema = z.enum(["proposed", "active", "confirmed", "rejected", "archived"]);
 export const TaskStatusSchema = z.enum(["open", "in_progress", "blocked", "done", "wont_fix"]);
-export const QuestionStatusSchema = z.enum(["open", "researching", "answered", "invalidated"]);
+// Spec 052: resolution-pending added so auto-resolution proposals
+// stay visible without committing to "answered" until user confirms.
+export const QuestionStatusSchema = z.enum(["open", "researching", "answered", "invalidated", "deferred", "resolution-pending"]);
 export const TimelineEventKindSchema = z.enum([
   "project.initialized",
   "artifact.registered",
@@ -25,15 +27,24 @@ export const TimelineEventKindSchema = z.enum([
   "checkpoint.created",
   "view.built",
   "note",
+  "artifact.phase-advanced",
+  "artifact.frozen",
 ]);
 
 export const ConfidenceSchema = z.number().min(0).max(1);
 export const IdSchema = z.string().min(1);
 export const TimestampSchema = z.string().min(1);
 
+// Bug 17 / Bug 18 (BUGREPORT): cart banks live at flattened offsets
+// >= $10000 (bank 0 = $0000-$1FFF, bank 8 = $10000-$11FFF, etc.).
+// AddressRangeSchema is reused across entities, findings, evidence,
+// flows, relations, view models, etc. — widening here propagates
+// the fix to every consumer in one edit (Bug 17 only widened the
+// view schemas). C64 main-CPU addresses still naturally fit 16 bits;
+// the wider range only matters for cart-internal offsets.
 export const AddressRangeSchema = z.object({
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
   bank: z.number().int().nonnegative().optional(),
   label: z.string().optional(),
 });
@@ -85,6 +96,28 @@ export const ArtifactKindSchema = z.enum([
   "other",
 ]);
 
+export const ArtifactVersionEntrySchema = z.object({
+  contentHash: z.string(),
+  capturedAt: TimestampSchema,
+  snapshotPath: z.string().optional(),
+  note: z.string().optional(),
+});
+
+// Spec 023 load contexts: an artifact's runtime address is not always
+// its on-disk PRG header (custom fastloaders can place the same file
+// at a different address). Express alternates as a list. Defined here
+// so ArtifactRecordSchema below can reference it.
+export const LoadContextSchema = z.object({
+  kind: z.enum(["as-stored", "runtime", "after-decompression"]),
+  address: z.number().int().nonnegative(),
+  bank: z.number().int().nonnegative().optional(),
+  evidence: z.array(EvidenceRefSchema).default([]),
+  triggeredByPc: z.number().int().nonnegative().optional(),
+  sourceTrack: z.number().int().nonnegative().optional(),
+  sourceSector: z.number().int().nonnegative().optional(),
+  capturedAt: TimestampSchema.optional(),
+});
+
 export const ArtifactRecordSchema = z.object({
   id: IdSchema,
   kind: ArtifactKindSchema,
@@ -105,6 +138,346 @@ export const ArtifactRecordSchema = z.object({
   fileSize: z.number().int().nonnegative().optional(),
   contentHash: z.string().optional(),
   addressRange: AddressRangeSchema.optional(),
+  tags: z.array(z.string()).default([]),
+  // Lineage chain (Spec 025): derivedFrom names the direct parent;
+  // lineageRoot is the V0 of the chain (computed automatically);
+  // versionLabel defaults to "V<rank>" but the caller can set any
+  // free-form label and rename later via rename_artifact_version.
+  derivedFrom: IdSchema.optional(),
+  lineageRoot: IdSchema.optional(),
+  versionLabel: z.string().optional(),
+  versionRank: z.number().int().nonnegative().optional(),
+  // Same-path history. The latest entry's snapshot lives at the
+  // current path; older entries point to snapshots/<artifact-id>/<hash>.bin.
+  versions: z.array(ArtifactVersionEntrySchema).default([]),
+  // Spec 020: per-artifact platform marker. Default is c64 when absent.
+  // Drives ZP / I/O register / ROM symbol annotation in the renderer.
+  platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional(),
+  // Spec 023: alternate load contexts beyond the on-disk PRG header.
+  loadContexts: z.array(LoadContextSchema).default([]),
+  // Spec 034: current phase in the seven-phase RE workflow. Default 1
+  // (extraction). Advanced explicitly via agent_advance_phase. A
+  // frozen artifact stays at its current phase and counts as "done"
+  // there for completion percentages — used by cracker mode for
+  // asset PRGs that do not need full annotation.
+  phase: z.number().int().min(1).max(7).optional(),
+  phaseFrozen: z.boolean().optional(),
+  phaseFrozenReason: z.string().optional(),
+  // Spec 041: per-artifact relevance tag for cracker / port priority.
+  // relevanceRank is derived (manual > load_sequence > load_event >
+  // alphabetic) and not persisted; it lives on the per-artifact
+  // status response.
+  relevance: z.enum(["loader", "protection", "save", "kernal", "asset", "other"]).optional(),
+  // Bug 26 / Spec 058: hide-from-user marker. true = infrastructure
+  // file used by the LLM and the UI itself (manifests, analysis JSONs,
+  // annotations files, run-event-logs, rebuild-check binaries, knowledge
+  // store, session state). User-facing UI surfaces filter these out by
+  // default. Auto-classified on save based on path / role / kind; can
+  // be overridden by explicit set.
+  internal: z.boolean().optional(),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+// Container sub-entry (Spec 025 R23 fold-in). A disk file may contain
+// named subentries that are not separate BAM/LUT files. Each sub-entry
+// is also represented as a normal artifact via derivedFrom = parentId.
+// Spec 026 project profile: structured project-specific bootstrap.
+export const ProjectProfileSchema = z.object({
+  goals: z.array(z.string()).default([]),
+  nonGoals: z.array(z.string()).default([]),
+  hardwareConstraints: z.array(z.object({
+    resource: z.string(),
+    constraint: z.string(),
+    reason: z.string().optional(),
+  })).default([]),
+  loaderModel: z.string().optional(),
+  destructiveOperations: z.array(z.object({
+    commandPattern: z.string(),
+    warning: z.string(),
+  })).default([]),
+  build: z.object({
+    command: z.string(),
+    cwd: z.string().optional(),
+    outputs: z.array(z.string()).default([]),
+  }).optional(),
+  test: z.object({
+    command: z.string(),
+    cwd: z.string().optional(),
+  }).optional(),
+  activeWorkspace: z.string().optional(),
+  dangerZones: z.array(z.object({
+    pathOrAddress: z.string(),
+    reason: z.string(),
+  })).default([]),
+  glossary: z.array(z.object({
+    term: z.string(),
+    definition: z.string(),
+    aliases: z.array(z.string()).default([]),
+  })).default([]),
+  antiPatterns: z.array(z.object({
+    title: z.string(),
+    reason: z.string(),
+    refutationEvidence: z.string().optional(),
+  })).default([]),
+  crackerOverrides: z.array(z.string()).default([]),
+  // Spec 034 + 035: optional gates and reminders.
+  phaseGateStrict: z.boolean().optional(),
+  phaseReminders: z.enum(["every-tool", "phase-transition", "off"]).optional(),
+  defaultRole: z.enum(["analyst", "cracker"]).optional(),
+  // Spec 046: workflow template the project follows.
+  workflow: z.enum(["full-re", "cracker-only", "analyst-deep", "targeted-routine", "bugfix"]).optional(),
+  workflowSelectedAt: TimestampSchema.optional(),
+  // Spec 052: question-resolution mode. auto = high-confidence
+  // matches close immediately; propose-only = every match becomes
+  // resolution-pending for explicit user confirmation.
+  questionAutoResolveMode: z.enum(["auto", "propose-only"]).optional(),
+  updatedAt: TimestampSchema,
+});
+
+// Spec 031 negative knowledge: anti-pattern record.
+export const AntiPatternSchema = z.object({
+  id: IdSchema,
+  title: z.string(),
+  reason: z.string(),
+  severity: z.enum(["info", "warn", "error"]).default("warn"),
+  evidence: z.array(EvidenceRefSchema).default([]),
+  appliesTo: z.object({
+    phase: z.string().optional(),
+    toolName: z.string().optional(),
+    commandPattern: z.string().optional(),
+  }).optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+// Spec 027 patch recipes.
+export const PatchRecipeSchema = z.object({
+  id: IdSchema,
+  title: z.string(),
+  reason: z.string(),
+  evidence: z.array(EvidenceRefSchema).default([]),
+  targetArtifactId: IdSchema,
+  targetFileOffset: z.number().int().nonnegative().optional(),
+  targetRuntimeAddress: z.number().int().nonnegative().optional(),
+  expectedBytes: z.string(), // hex
+  replacementBytes: z.string().optional(),
+  replacementSourcePath: z.string().optional(),
+  relocation: z.union([
+    z.object({ kind: z.literal("bias"), delta: z.number().int() }),
+    z.object({ kind: z.literal("absolute"), baseAddress: z.number().int().nonnegative() }),
+  ]).optional(),
+  sourceAssembler: z.string().optional(),
+  backupArtifactId: IdSchema.optional(),
+  verificationCommand: z.string().optional(),
+  status: z.enum(["draft", "applied", "verified", "reverted", "failed"]).default("draft"),
+  appliedAt: TimestampSchema.optional(),
+  appliedHash: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+// Spec 029 constraint checker: resource regions, operations, rules.
+export const ResourceRegionSchema = z.object({
+  id: IdSchema,
+  kind: z.enum(["ram-range", "zp-byte", "vic-region", "cart-bank", "cart-erase-sector", "eapi-runtime", "io-register"]),
+  name: z.string(),
+  start: z.number().int().nonnegative().optional(),
+  end: z.number().int().nonnegative().optional(),
+  bank: z.number().int().nonnegative().optional(),
+  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  notes: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const OperationSchema = z.object({
+  id: IdSchema,
+  kind: z.enum(["overlay-copy", "flash-erase", "flash-write", "bank-switch", "decrunch-write", "runtime-patch", "kernal-call"]),
+  triggeredBy: z.string(),
+  affects: z.array(IdSchema).default([]),
+  preconditions: z.array(z.string()).default([]),
+  evidence: z.array(EvidenceRefSchema).default([]),
+  notes: z.string().optional(),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const ConstraintRuleSchema = z.object({
+  id: IdSchema,
+  title: z.string(),
+  appliesTo: z.object({
+    regionKind: z.string().optional(),
+    opKind: z.string().optional(),
+  }).optional(),
+  rule: z.string(),
+  severity: z.enum(["info", "warn", "error"]).default("warn"),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+// Spec 032 build pipelines: ordered structured steps with explicit
+// inputs / outputs / expected hashes / verification. Used by R24
+// stale-output detection + run_build_pipeline orchestrator.
+export const BuildStepSchema = z.object({
+  id: IdSchema,
+  title: z.string().min(1),
+  command: z.string().min(1),
+  cwd: z.string().optional(),
+  inputArtifactIds: z.array(IdSchema).default([]),
+  outputArtifactIds: z.array(IdSchema).default([]),
+  expectedOutputHashes: z.record(z.string(), z.string()).optional(),
+  byteIdentityCheck: z.object({ artifactId: IdSchema, against: z.string() }).optional(),
+  sideEffects: z.array(z.string()).default([]),
+  evidence: z.array(EvidenceRefSchema).default([]),
+});
+
+export const BuildPipelineSchema = z.object({
+  id: IdSchema,
+  title: z.string().min(1),
+  description: z.string().optional(),
+  steps: z.array(BuildStepSchema).default([]),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const BuildRunStepResultSchema = z.object({
+  stepId: IdSchema,
+  status: z.enum(["pending", "running", "ok", "failed", "skipped"]),
+  exitCode: z.number().int().optional(),
+  stdoutTail: z.string().optional(),
+  stderrTail: z.string().optional(),
+  actualOutputHashes: z.record(z.string(), z.string()).optional(),
+  durationMs: z.number().int().nonnegative().optional(),
+});
+
+export const BuildRunSchema = z.object({
+  id: IdSchema,
+  pipelineId: IdSchema,
+  startedAt: TimestampSchema,
+  completedAt: TimestampSchema.optional(),
+  steps: z.array(BuildRunStepResultSchema).default([]),
+  status: z.enum(["running", "ok", "partial", "failed"]),
+});
+
+// Spec 030 runtime scenarios: define-once-run-many. Used by R20
+// scenario diffs (original vs port build N).
+export const RuntimeScenarioSchema = z.object({
+  id: IdSchema,
+  title: z.string().min(1),
+  description: z.string().optional(),
+  target: z.object({
+    kind: z.enum(["disk", "crt", "prg"]),
+    artifactId: IdSchema,
+  }),
+  startMedia: z.array(z.string()).default([]),
+  breakpoints: z.array(z.object({
+    pc: z.number().int().nonnegative(),
+    label: z.string().optional(),
+    bank: z.number().int().nonnegative().optional(),
+  })).default([]),
+  stopCondition: z.object({
+    kind: z.enum(["frame-count", "pc-hit", "timeout-seconds"]),
+    value: z.union([z.number().int(), z.string()]),
+  }),
+  expectedMilestone: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const RuntimeEventSchema = z.object({
+  capturedAt: TimestampSchema,
+  pc: z.number().int().nonnegative(),
+  bank: z.number().int().nonnegative().optional(),
+  caller: z.number().int().nonnegative().optional(),
+  fileKey: z.string().optional(),
+  trackSector: z.object({ track: z.number().int(), sector: z.number().int() }).optional(),
+  destinationStart: z.number().int().nonnegative().optional(),
+  destinationEnd: z.number().int().nonnegative().optional(),
+  sideIndex: z.number().int().nonnegative().optional(),
+  containerSubKey: z.string().optional(),
+  success: z.boolean().default(true),
+  notes: z.string().optional(),
+});
+
+export const RuntimeEventSummarySchema = z.object({
+  scenarioId: IdSchema,
+  runId: IdSchema,
+  capturedAt: TimestampSchema,
+  buildLabel: z.string().optional(),
+  target: z.object({ kind: z.string(), artifactId: IdSchema }),
+  events: z.array(RuntimeEventSchema).default([]),
+  hashes: z.record(z.string(), z.string()).default({}),
+  reachedMilestone: z.boolean().default(false),
+});
+
+export const RuntimeDiffSchema = z.object({
+  id: IdSchema,
+  baselineRunId: IdSchema,
+  candidateRunId: IdSchema,
+  scenarioId: IdSchema,
+  capturedAt: TimestampSchema,
+  missingLoads: z.array(RuntimeEventSchema).default([]),
+  extraLoads: z.array(RuntimeEventSchema).default([]),
+  diffPayloadHash: z.array(z.object({ key: z.string(), baselineHash: z.string(), candidateHash: z.string() })).default([]),
+  diffDestination: z.array(z.object({ key: z.string(), baselineDest: z.number().int().nonnegative(), candidateDest: z.number().int().nonnegative() })).default([]),
+  divergentPc: z.array(z.object({ index: z.number().int().nonnegative(), baselinePc: z.number().int().nonnegative(), candidatePc: z.number().int().nonnegative() })).default([]),
+});
+
+// Spec 028 loader ABI: declared loader entry points and recorded loader
+// events (static or trace-derived).
+export const LoaderEntryPointSchema = z.object({
+  id: IdSchema,
+  artifactId: IdSchema,
+  address: z.number().int().nonnegative(),
+  bank: z.number().int().nonnegative().optional(),
+  kind: z.enum(["jump-table", "sector-load", "container-decode", "dispatch", "init", "other"]),
+  name: z.string().optional(),
+  paramBlock: z.object({
+    address: z.number().int().nonnegative().optional(),
+    layout: z.string().optional(),
+  }).optional(),
+  notes: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+export const LoaderEventSchema = z.object({
+  id: IdSchema,
+  scenarioId: IdSchema.optional(),
+  loaderEntryPointId: IdSchema.optional(),
+  source: z.enum(["static", "trace"]),
+  fileKey: z.string().optional(),
+  trackSector: z.object({ track: z.number().int(), sector: z.number().int() }).optional(),
+  destinationStart: z.number().int().nonnegative().optional(),
+  destinationEnd: z.number().int().nonnegative().optional(),
+  callerPc: z.number().int().nonnegative().optional(),
+  containerSubKey: z.string().optional(),
+  sideIndex: z.number().int().nonnegative().optional(),
+  success: z.boolean().default(true),
+  notes: z.string().optional(),
+  capturedAt: TimestampSchema,
+});
+
+export const ContainerEntrySchema = z.object({
+  id: IdSchema,
+  parentArtifactId: IdSchema,
+  childArtifactId: IdSchema.optional(),
+  subKey: z.string().min(1),
+  containerOffset: z.number().int().nonnegative(),
+  containerLength: z.number().int().nonnegative(),
+  loadAddress: z.number().int().nonnegative().optional(),
+  registrationMode: z.enum(["resident", "transient", "deduped"]).optional(),
+  status: z.enum(["physically-present", "missing", "inherited"]).default("physically-present"),
+  inheritedFrom: IdSchema.optional(),
+  evidence: z.array(EvidenceRefSchema).default([]),
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
@@ -206,6 +579,13 @@ export const EntityKindSchema = z.enum([
   "symbol",
   "io-register",
   "entry-point",
+  // Payload = the working abstraction across mediums. A payload is a
+  // byte-blob with identity: a disk file, a LUT-extracted cart chunk, a
+  // hand-extracted custom-loader blob, or a PRG. Operations like depack,
+  // disasm, repack, build are scoped to the payload, not the medium.
+  // Other entity kinds (routine / data-table / etc) hang off a payload
+  // via the payloadId field.
+  "payload",
   "other",
 ]);
 
@@ -232,6 +612,20 @@ export const EntityMediumSpanSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+export const PayloadFormatSchema = z.enum([
+  "raw",
+  "prg",
+  "exomizer-raw",
+  "exomizer-sfx",
+  "byteboozer",
+  "byteboozer-lykia",
+  "rle",
+  "bwc-bitstream",
+  "bwc-raw",
+  "pucrunch",
+  "unknown",
+]);
+
 export const EntityRecordSchema = z.object({
   id: IdSchema,
   kind: EntityKindSchema,
@@ -242,6 +636,24 @@ export const EntityRecordSchema = z.object({
   evidence: z.array(EvidenceRefSchema).default([]),
   artifactIds: z.array(IdSchema).default([]),
   relatedEntityIds: z.array(IdSchema).default([]),
+  // Payload this entity belongs to. Routines, data tables, IRQ handlers
+  // etc. hang off a payload via this field — surfaces "show every
+  // routine inside chunk X" or "every finding for disk file Y" in O(1).
+  payloadId: IdSchema.optional(),
+  // Payload-only fields (ignored for other entity kinds): describe the
+  // byte-blob's identity, format, and where it lands at runtime.
+  payloadLoadAddress: z.number().int().min(0).max(0xffff).optional(),
+  payloadFormat: PayloadFormatSchema.optional(),
+  payloadPacker: z.string().optional(),
+  payloadSourceArtifactId: IdSchema.optional(),
+  payloadDepackedArtifactId: IdSchema.optional(),
+  payloadAsmArtifactIds: z.array(IdSchema).default([]),
+  payloadContentHash: z.string().optional(),
+  // Spec 037: payload-level disk-hint surfaces protection /
+  // drive-code / raw-unanalyzed sectors as colour overlay on the
+  // disk heatmap. Set automatically by inspect / extract tools or
+  // manually via set_payload_disk_hint.
+  payloadDiskHint: z.enum(["drive-code", "protected", "raw-unanalyzed", "bad-crc", "gap"]).optional(),
   addressRange: AddressRangeSchema.optional(),
   // Optional physical placement on the medium (disk sectors / cart slots).
   // Drives the MediumResidentRegion overlay in the medium-layout adapter.
@@ -252,6 +664,17 @@ export const EntityRecordSchema = z.object({
     .enum(["dos", "loader", "eapi", "startup", "code", "data", "padding", "unknown"])
     .optional(),
   tags: z.array(z.string()).default([]),
+  // Spec 060 / Bug 31: alternate names for the same payload entity.
+  // Disk-extract registers files by base name ("murder"); load-sequence
+  // / pipeline-cli registers them by load-order-prefixed name
+  // ("01_murder"). Saver-side dedup folds the alternate name into this
+  // list instead of spawning a sibling entity.
+  aliases: z.array(z.string()).default([]),
+  // Bug 26 / Spec 058: hide-from-user marker on entities. Entities
+  // derived from internal artifacts (annotations files, rebuild-check
+  // binaries, manifest indexes) inherit internal=true and stay out of
+  // user-facing payload/load/flow views by default.
+  internal: z.boolean().optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });
@@ -281,6 +704,15 @@ export const FindingRecordSchema = z.object({
   artifactIds: z.array(IdSchema).default([]),
   relationIds: z.array(IdSchema).default([]),
   flowIds: z.array(IdSchema).default([]),
+  // Optional: payload this finding scopes to (routine inside chunk X,
+  // data table inside disk file Y, etc.).
+  payloadId: IdSchema.optional(),
+  // Spec 053 Bug 20: optional address range so archive_phase1_noise
+  // can match findings to routine annotations covering them.
+  addressRange: AddressRangeSchema.optional(),
+  // Spec 053: when this finding has been superseded by a later
+  // routine annotation, archivedBy points at that newer finding.
+  archivedBy: IdSchema.optional(),
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
@@ -360,6 +792,13 @@ export const FlowRecordSchema = z.object({
 
 export const TaskPrioritySchema = z.enum(["low", "medium", "high", "critical"]);
 
+// Spec 038: auto-close hints for NEXT-hint generated tasks.
+export const TaskAutoCloseHintSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("file-exists"), path: z.string() }),
+  z.object({ kind: z.literal("artifact-registered"), role: z.string() }),
+  z.object({ kind: z.literal("phase-reached"), artifactId: IdSchema, phase: z.number().int().min(1).max(7) }),
+]);
+
 export const TaskRecordSchema = z.object({
   id: IdSchema,
   kind: z.string().min(1),
@@ -372,10 +811,40 @@ export const TaskRecordSchema = z.object({
   entityIds: z.array(IdSchema).default([]),
   artifactIds: z.array(IdSchema).default([]),
   questionIds: z.array(IdSchema).default([]),
+  // Spec 038: auto-suggested NEXT-hint tasks.
+  producedByTool: z.string().optional(),
+  autoSuggested: z.boolean().optional(),
+  autoCloseHint: TaskAutoCloseHintSchema.optional(),
+  // Spec 061 / UX3: distinguishes UI-/automation-triggered tasks
+  // (bulk re-evaluate, auto-build, etc.) from human TODOs. Defaults
+  // to "human" for legacy records. Drives Dashboard task-tile filter
+  // + per-question "re-eval pending" badge.
+  agentKind: z.enum(["human", "automation"]).optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
   completedAt: TimestampSchema.optional(),
 });
+
+// Spec 052 structured auto-resolve hint. Free-form string from
+// Spec 036 still readable through the legacy `free-form` variant.
+export const QuestionAutoResolveHintSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("phase-reached"), artifactId: IdSchema, phase: z.number().int().min(1).max(7) }),
+  z.object({ kind: z.literal("finding-with-entity"), entityId: IdSchema }),
+  z.object({ kind: z.literal("annotation-applied"), artifactId: IdSchema, address: z.number().int().nonnegative().optional() }),
+  z.object({ kind: z.literal("free-form"), note: z.string() }),
+]);
+
+// Spec 036 source provenance for open questions. Default "untagged"
+// for legacy records; new questions are expected to set source
+// explicitly via the producing tool.
+export const OpenQuestionSourceSchema = z.enum([
+  "heuristic-phase1",
+  "human-review",
+  "runtime-observation",
+  "static-analysis",
+  "other",
+  "untagged",
+]);
 
 export const OpenQuestionRecordSchema = z.object({
   id: IdSchema,
@@ -389,6 +858,16 @@ export const OpenQuestionRecordSchema = z.object({
   entityIds: z.array(IdSchema).default([]),
   artifactIds: z.array(IdSchema).default([]),
   findingIds: z.array(IdSchema).default([]),
+  // Spec 036: provenance + auto-resolvable hint.
+  source: OpenQuestionSourceSchema.default("untagged"),
+  autoResolvable: z.boolean().optional(),
+  // Spec 036 + 052: free-form text accepted (legacy) OR structured
+  // hint (new). Service layer normalises strings to {kind: "free-form"}.
+  autoResolveHint: z.union([z.string(), QuestionAutoResolveHintSchema]).optional(),
+  // Bug 29: optional address range so archive_phase1_noise can match
+  // questions to routine annotations covering them without depending
+  // on a `$xxxx` token in the title.
+  addressRange: AddressRangeSchema.optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
   answeredByFindingId: IdSchema.optional(),
@@ -505,25 +984,35 @@ export const ProjectDashboardViewSchema = z.object({
   recentTimeline: z.array(TimelineEventSchema),
 });
 
+// Bug 17 (BUGREPORT): cart banks live at flattened offsets >= $10000
+// (bank 0 = $0000-$1FFF, bank 8 = $10000-$11FFF, etc.). Widen the
+// region/cell/entry start+end fields to accept up to $FFFFFF (1 MB)
+// so multi-bank cart layouts pass schema validation. C64 main-CPU
+// addresses are still naturally bounded to $FFFF; the wider range
+// only matters for cart-internal offsets.
 export const MemoryMapRegionSchema = z.object({
   id: IdSchema,
   title: z.string().min(1),
   kind: z.string().min(1),
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
   bank: z.number().int().nonnegative().optional(),
   entityId: IdSchema.optional(),
   findingIds: z.array(IdSchema).default([]),
   status: z.string().min(1),
   confidence: ConfidenceSchema,
   summary: z.string().optional(),
+  // Region lives exclusively on a medium (cart bank, disk track) and
+  // has no runtime presence by default. UI hides these unless the
+  // "show cart-window mapping" toggle is on.
+  mediumOnly: z.boolean().default(false),
 });
 
 export const MemoryMapCellSchema = z.object({
   id: IdSchema,
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
-  rowBase: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
+  rowBase: z.number().int().min(0).max(0xffffff),
   columnOffset: z.number().int().min(0).max(0x0f00),
   category: z.enum(["free", "code", "data", "system", "other"]),
   dominantKind: z.string().min(1),
@@ -540,8 +1029,8 @@ export const MemoryMapHighlightSchema = z.object({
   id: IdSchema,
   title: z.string().min(1),
   kind: z.enum(["free-space", "code-block", "data-block", "mapped-block"]),
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
   sizeBytes: z.number().int().nonnegative(),
   entityId: IdSchema.optional(),
   summary: z.string().optional(),
@@ -564,6 +1053,7 @@ export const DiskLayoutFileSchema = z.object({
   id: IdSchema,
   title: z.string().min(1),
   type: z.string().min(1),
+  origin: z.enum(["kernal", "custom"]).default("kernal"),
   sizeSectors: z.number().int().nonnegative().optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
   track: z.number().int().nonnegative().optional(),
@@ -587,6 +1077,10 @@ export const DiskLayoutFileSchema = z.object({
   packer: z.string().optional(),
   format: z.string().optional(),
   notes: z.array(z.string()).default([]),
+  md5: z.string().optional(),
+  first16: z.string().optional(),
+  last16: z.string().optional(),
+  kindGuess: z.string().optional(),
 });
 
 export const DiskLayoutSectorCellSchema = z.object({
@@ -600,6 +1094,9 @@ export const DiskLayoutSectorCellSchema = z.object({
   occupied: z.boolean(),
   category: z.enum(["free", "free_zero", "free_data", "orphan_allocated", "file", "directory", "bam", "unknown"]),
   color: z.string().optional(),
+  // Spec 037 / Sprint 43 Block A: optional payload-level disk hint.
+  // Drives a border-overlay layer in the cylindrical heatmap.
+  hint: z.enum(["drive-code", "protected", "raw-unanalyzed", "bad-crc", "gap"]).optional(),
 });
 
 export const DiskLayoutDiskSchema = z.object({
@@ -920,8 +1417,8 @@ export const MediumLayoutViewSchema = z.object({
 
 export const AnnotatedListingEntrySchema = z.object({
   id: IdSchema,
-  start: z.number().int().min(0).max(0xffff),
-  end: z.number().int().min(0).max(0xffff),
+  start: z.number().int().min(0).max(0xffffff),
+  end: z.number().int().min(0).max(0xffffff),
   title: z.string().min(1),
   kind: z.string().min(1),
   entityId: IdSchema.optional(),
@@ -1065,6 +1562,19 @@ export function createRecordListSchema<T extends z.ZodTypeAny>(itemSchema: T) {
 }
 
 export const ArtifactStoreSchema = createRecordListSchema(ArtifactRecordSchema);
+export const ContainerEntryStoreSchema = createRecordListSchema(ContainerEntrySchema);
+export const LoaderEntryPointStoreSchema = createRecordListSchema(LoaderEntryPointSchema);
+export const LoaderEventStoreSchema = createRecordListSchema(LoaderEventSchema);
+export const AntiPatternStoreSchema = createRecordListSchema(AntiPatternSchema);
+export const PatchRecipeStoreSchema = createRecordListSchema(PatchRecipeSchema);
+export const ResourceRegionStoreSchema = createRecordListSchema(ResourceRegionSchema);
+export const OperationStoreSchema = createRecordListSchema(OperationSchema);
+export const ConstraintRuleStoreSchema = createRecordListSchema(ConstraintRuleSchema);
+export const RuntimeScenarioStoreSchema = createRecordListSchema(RuntimeScenarioSchema);
+export const RuntimeEventSummaryStoreSchema = createRecordListSchema(RuntimeEventSummarySchema);
+export const RuntimeDiffStoreSchema = createRecordListSchema(RuntimeDiffSchema);
+export const BuildPipelineStoreSchema = createRecordListSchema(BuildPipelineSchema);
+export const BuildRunStoreSchema = createRecordListSchema(BuildRunSchema);
 export const EntityStoreSchema = createRecordListSchema(EntityRecordSchema);
 export const FindingStoreSchema = createRecordListSchema(FindingRecordSchema);
 export const RelationStoreSchema = createRecordListSchema(RelationRecordSchema);
@@ -1084,9 +1594,42 @@ export type WorkflowPlan = z.infer<typeof WorkflowPlanSchema>;
 export type WorkflowPhaseState = z.infer<typeof WorkflowPhaseStateSchema>;
 export type WorkflowState = z.infer<typeof WorkflowStateSchema>;
 export type ArtifactRecord = z.infer<typeof ArtifactRecordSchema>;
+export type ArtifactVersionEntry = z.infer<typeof ArtifactVersionEntrySchema>;
+export type ContainerEntry = z.infer<typeof ContainerEntrySchema>;
+export type ContainerEntryStore = z.infer<typeof ContainerEntryStoreSchema>;
+export type LoadContext = z.infer<typeof LoadContextSchema>;
+export type LoaderEntryPoint = z.infer<typeof LoaderEntryPointSchema>;
+export type LoaderEntryPointStore = z.infer<typeof LoaderEntryPointStoreSchema>;
+export type LoaderEvent = z.infer<typeof LoaderEventSchema>;
+export type LoaderEventStore = z.infer<typeof LoaderEventStoreSchema>;
+export type ProjectProfile = z.infer<typeof ProjectProfileSchema>;
+export type AntiPattern = z.infer<typeof AntiPatternSchema>;
+export type AntiPatternStore = z.infer<typeof AntiPatternStoreSchema>;
+export type PatchRecipe = z.infer<typeof PatchRecipeSchema>;
+export type PatchRecipeStore = z.infer<typeof PatchRecipeStoreSchema>;
+export type ResourceRegion = z.infer<typeof ResourceRegionSchema>;
+export type ResourceRegionStore = z.infer<typeof ResourceRegionStoreSchema>;
+export type Operation = z.infer<typeof OperationSchema>;
+export type OperationStore = z.infer<typeof OperationStoreSchema>;
+export type ConstraintRule = z.infer<typeof ConstraintRuleSchema>;
+export type ConstraintRuleStore = z.infer<typeof ConstraintRuleStoreSchema>;
+export type RuntimeScenario = z.infer<typeof RuntimeScenarioSchema>;
+export type RuntimeScenarioStore = z.infer<typeof RuntimeScenarioStoreSchema>;
+export type RuntimeEvent = z.infer<typeof RuntimeEventSchema>;
+export type RuntimeEventSummary = z.infer<typeof RuntimeEventSummarySchema>;
+export type RuntimeEventSummaryStore = z.infer<typeof RuntimeEventSummaryStoreSchema>;
+export type RuntimeDiff = z.infer<typeof RuntimeDiffSchema>;
+export type RuntimeDiffStore = z.infer<typeof RuntimeDiffStoreSchema>;
+export type BuildPipeline = z.infer<typeof BuildPipelineSchema>;
+export type BuildPipelineStore = z.infer<typeof BuildPipelineStoreSchema>;
+export type BuildStep = z.infer<typeof BuildStepSchema>;
+export type BuildRun = z.infer<typeof BuildRunSchema>;
+export type BuildRunStore = z.infer<typeof BuildRunStoreSchema>;
+export type BuildRunStepResult = z.infer<typeof BuildRunStepResultSchema>;
 export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export type ArtifactScope = z.infer<typeof ArtifactScopeSchema>;
 export type EntityRecord = z.infer<typeof EntityRecordSchema>;
+export type PayloadFormat = z.infer<typeof PayloadFormatSchema>;
 export type FindingRecord = z.infer<typeof FindingRecordSchema>;
 export type FindingKind = z.infer<typeof FindingKindSchema>;
 export type RelationRecord = z.infer<typeof RelationRecordSchema>;

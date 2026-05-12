@@ -34,6 +34,14 @@ const VECTOR_IRQ = 0xfffe;
 
 const TRACE_LIMIT = 256;
 
+// Spec 011 Sprint 8: trace-write batching. Buffer up to N events
+// before flushing to disk; flush on stop / breakpoint / sample
+// boundary / buffer full. Sync per-event appendFileSync was the
+// dominant cost on long depack traces (700k+ events).
+const TRACE_FLUSH_BATCH = 1024;
+
+export type HeadlessTraceMode = "full" | "sampled" | "off";
+
 export interface HeadlessSessionStartOptions {
   prgPath?: string;
   diskPath?: string;
@@ -45,6 +53,10 @@ export interface HeadlessSessionStartOptions {
 export interface HeadlessRunOptions {
   maxInstructions?: number;
   stopPc?: number;
+  // Spec 011: trace mode. full = log every event; sampled =
+  // log every Nth event (sampleEvery); off = no trace I/O.
+  traceMode?: HeadlessTraceMode;
+  sampleEvery?: number;
 }
 
 function nowIso(): string {
@@ -228,6 +240,11 @@ class HeadlessSession {
   private diskProvider?: DiskProvider;
   private cartridge?: HeadlessCartridgeMapper;
   private traceIndex = 0;
+  // Spec 011 trace buffering + sampling state.
+  private traceMode: HeadlessTraceMode = "full";
+  private traceSampleEvery = 1;
+  private traceSampleCounter = 0;
+  private traceBuffer: string[] = [];
 
   constructor(public readonly projectDir: string) {
     this.workspace = createHeadlessWorkspace(projectDir, this.sessionId);
@@ -439,11 +456,19 @@ class HeadlessSession {
       throw new Error(`Headless session is not running (${this.state}).`);
     }
     const maxInstructions = Math.max(1, options.maxInstructions ?? 1000);
+    // Spec 011: trace mode + sample-every config per run.
+    if (options.traceMode) {
+      this.traceMode = options.traceMode;
+    }
+    if (options.sampleEvery !== undefined && options.sampleEvery > 0) {
+      this.traceSampleEvery = Math.floor(options.sampleEvery);
+    }
     let stepsExecuted = 0;
 
     while (stepsExecuted < maxInstructions) {
       const stopPc = options.stopPc !== undefined && this.cpu.pc === (options.stopPc & 0xffff);
       if (stopPc) {
+        this.flushTraceBuffer();
         return { reason: "stop_pc", stepsExecuted, currentPc: this.cpu.pc, lastTrap: this.lastTrap };
       }
       const breakpoint = this.breakpoints.get(this.cpu.pc);
@@ -451,6 +476,7 @@ class HeadlessSession {
         if (breakpoint.temporary) {
           this.breakpoints.delete(this.cpu.pc);
         }
+        this.flushTraceBuffer();
         return { reason: "breakpoint", stepsExecuted, currentPc: this.cpu.pc, lastTrap: this.lastTrap, breakpointId: breakpoint.id };
       }
       try {
@@ -465,16 +491,19 @@ class HeadlessSession {
         const watchpointId = this.executeInstruction();
         stepsExecuted += 1;
         if (watchpointId) {
+          this.flushTraceBuffer();
           return { reason: "watchpoint", stepsExecuted, currentPc: this.cpu.pc, lastTrap: this.lastTrap, breakpointId: watchpointId };
         }
       } catch (error) {
         this.state = "error";
         this.lastError = error instanceof Error ? error.message : String(error);
         this.stoppedAt = nowIso();
+        this.flushTraceBuffer();
         return { reason: "trap_error", stepsExecuted, currentPc: this.cpu.pc, lastTrap: this.lastTrap };
       }
     }
 
+    this.flushTraceBuffer();
     return { reason: "step_limit", stepsExecuted, currentPc: this.cpu.pc, lastTrap: this.lastTrap };
   }
 
@@ -484,6 +513,8 @@ class HeadlessSession {
     if (reason) {
       this.lastTrap = reason;
     }
+    // Spec 011: ensure buffered trace lines are durable.
+    this.flushTraceBuffer();
     this.writeSessionRecord();
     this.writeSummary();
     return this.getRecord();
@@ -727,8 +758,32 @@ class HeadlessSession {
     while (this.recentTrace.length > TRACE_LIMIT) {
       this.recentTrace.shift();
     }
-    appendFileSync(this.workspace.tracePath, `${JSON.stringify(event)}\n`, "utf8");
+    // Spec 011: trace mode + buffering.
+    if (this.traceMode === "off") {
+      this.writeSummary();
+      return;
+    }
+    if (this.traceMode === "sampled") {
+      this.traceSampleCounter += 1;
+      if (this.traceSampleCounter < this.traceSampleEvery) {
+        this.writeSummary();
+        return;
+      }
+      this.traceSampleCounter = 0;
+    }
+    this.traceBuffer.push(`${JSON.stringify(event)}\n`);
+    if (this.traceBuffer.length >= TRACE_FLUSH_BATCH) {
+      this.flushTraceBuffer();
+    }
     this.writeSummary();
+  }
+
+  // Spec 011: flush buffered trace lines. Called on batch full,
+  // stop, breakpoint hit, and explicit session-stop.
+  private flushTraceBuffer(): void {
+    if (this.traceBuffer.length === 0) return;
+    appendFileSync(this.workspace.tracePath, this.traceBuffer.join(""), "utf8");
+    this.traceBuffer.length = 0;
   }
 
   private captureStackSnapshot(sp: number): { sp: number; bytes: number[] } {

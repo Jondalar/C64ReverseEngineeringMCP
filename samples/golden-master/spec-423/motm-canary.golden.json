@@ -1,0 +1,20 @@
+{
+  "spec": "423",
+  "test": "motm-canary",
+  "doc": "docs/vice-iec-arc42.md §15 Phase H step 20",
+  "vice_cite": "src/serial/iecbus.c:191, src/drive/iec/via1d1541.c:212/337",
+  "c64Pc": "$b7bf",
+  "cpu_port": "$c0",
+  "drv_port": "$85",
+  "screenRamSha256": "b352dc7687a81d0ea8849cc3bbbea92d6332cca20dfed8ad61942dee2c470a08",
+  "observedPcs": [
+    "$43c1",
+    "$43ed",
+    "$b7bf",
+    "$b7bd",
+    "$b7bd",
+    "$b7bd",
+    "$b7bd",
+    "$b7bf"
+  ]
+}

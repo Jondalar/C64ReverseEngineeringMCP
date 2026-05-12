@@ -1,0 +1,3399 @@
+# C64ReverseEngineeringMCP — Bug Report
+
+Reported while reverse-engineering Murder on the Mississippi (Activision 1986).
+Project root: `/Users/alex/Development/C64/Cracking/Murder`.
+
+---
+
+## Bug 1 — Knowledge fragments across nested cwd
+
+**Status**: FIXED — commit `9e2ea26` ("fix: keep project knowledge and ui focus aligned"). `src/project-root.ts` walks parents from hint path looking for `knowledge/phase-plan.json` / `workflow-state.json`. Throws clear error when no marker found instead of silently creating new root. All listed tools (`extract_disk`, `analyze_prg`, `disasm_prg`, `extract_g64_sectors`, `extract_crt`, `inspect_disk`) expose `project_dir` parameter.
+
+**Severity**: High — silently fragments project knowledge, breaks UI completeness.
+
+### Summary
+Multiple c64re tools default `project_dir` to `process.cwd()` or derive it from input file path instead of resolving up to the actual project root (the dir containing `knowledge/phase-plan.json`). Result: knowledge stores fragment across:
+- `<root>/knowledge/`
+- `<root>/media/knowledge/`
+- `<root>/analysis/disk/knowledge/`
+- `<root>/analysis/drivecode/t01/knowledge/`
+
+Workspace UI only reads root store → entities/findings invisible despite tools reporting success.
+
+### Affected tools (observed)
+- `extract_disk` — wrote 16 disk-file entities into `<root>/media/knowledge/` because image lives in `media/`
+- `analyze_prg` — wrote ~40 entities into `<root>/analysis/disk/knowledge/` and `<root>/analysis/drivecode/t01/knowledge/` because PRG paths nested
+- `disasm_prg` — same as analyze_prg
+- Likely all tools whose JSONSchema lacks `project_dir` parameter or doesn't traverse upward
+
+### Reproduction
+```
+cd /tmp && mkdir mygame && cd mygame
+project_init(name="X", project_dir=".")
+# creates ./knowledge/phase-plan.json correctly
+
+cp foo.g64 ./media/foo.g64
+extract_disk(image_path="./media/foo.g64")
+# Expected: entities → ./knowledge/entities.json
+# Actual:   entities → ./media/knowledge/entities.json (NEW subproject created)
+```
+
+### Expected
+1. Tools resolve project root by walking parents looking for `knowledge/phase-plan.json` (or accept explicit `project_dir`)
+2. ALL knowledge writes go to that single root store
+3. `extract_disk`, `analyze_prg`, `disasm_prg`, `extract_g64_sectors`, etc. should expose `project_dir` parameter (some already do, several don't)
+
+### Actual
+Tools call `c64reProjectDir ?? cwd ?? dirname(input)` and create new project at that path if no `knowledge/` exists exactly there. Fragmentation is silent — output reports "Imported knowledge: N entities" but doesn't say WHERE.
+
+### Workaround
+After running fragmenting tools, manually merge child `knowledge/*.json` items into root via:
+```bash
+jq -s '{schemaVersion: .[0].schemaVersion, updatedAt: (now|todate),
+        items: ([.[].items // []] | add | unique_by(.id))}' \
+   <root>/knowledge/F.json \
+   <root>/media/knowledge/F.json \
+   <root>/analysis/*/knowledge/F.json \
+   > <root>/knowledge/F.json.new && mv <root>/knowledge/F.json.new <root>/knowledge/F.json
+```
+(for F in entities, findings, artifacts, open-questions, flows, relations, tasks)
+Then `build_all_views(project_dir=<root>)`.
+
+### Suggested fix
+1. Add helper `resolveProjectRoot(startPath)` that walks parents until it finds `knowledge/phase-plan.json` or `knowledge/workflow-state.json`. If none found AND no explicit `project_dir`, fail with clear error rather than silently creating new root.
+2. Add `project_dir` to ALL tool schemas (currently inconsistent — some tools have it, others don't).
+3. Tool output should include resolved root path: `Knowledge written to: <root>/knowledge/`.
+4. Optional: add `project_repair_knowledge` tool that detects fragmented stores under a root and merges them.
+
+---
+
+## Bug 2 — `relativePath` in artifacts.json broken when tools run from nested cwd
+
+**Status**: FIXED — commit `9a3e14b` ("fix: keep artifact paths project relative"). `ProjectKnowledgeStorage.resolveRelativePath` (`src/project-knowledge/storage.ts:410`) now uses `relative(root, resolve(root, path))`, idempotent for absolute paths and resolves relative paths against project root rather than tool cwd. Verified via `scripts/project-knowledge-smoke.mjs` which saves an artifact from nested cwd and asserts `relativePath === "analysis/disk/nested-cwd.json"`.
+
+**Severity**: High — UI cannot load saved artifact files.
+
+### Summary
+`save_artifact` (auto-called by `analyze_prg` / `disasm_prg`) records `relativePath` as path relative to **cwd of tool invocation**, not to project root. UI joins `projectDir + relativePath` to GET `/api/document` → 404 because the actual file is nested deeper.
+
+### Reproduction
+```
+project_init(project_dir=/abs/root)
+analyze_prg(prg_path=/abs/root/analysis/disk/foo.prg)
+disasm_prg(...)
+# artifact saved with:
+#   path:         /abs/root/analysis/disk/foo_disasm.asm
+#   relativePath: foo_disasm.asm    ← WRONG (should be analysis/disk/foo_disasm.asm)
+```
+
+### Expected
+`relativePath = path.relative(projectRoot, absolutePath)` always referenced to root.
+
+### Actual
+Tool computes relativePath against tool-cwd or input-file-dir. UI's `/api/document?projectDir=ROOT&path=foo_disasm.asm` looks at `<root>/foo_disasm.asm` → 404.
+
+### Workaround
+After running tools:
+```bash
+jq --arg root "/abs/root/" '.items |= map(if .path then .relativePath = (.path | sub($root; "")) else . end)' \
+   <root>/knowledge/artifacts.json > /tmp/x && mv /tmp/x <root>/knowledge/artifacts.json
+```
+
+### Suggested fix
+Inside `save_artifact` (and any auto-save path), compute `relativePath = path.relative(resolvedProjectRoot, absolutePath)` once, after Bug 1 is resolved.
+
+---
+
+## Bug 3 — Feature gap: KERNAL-ABI-aware immediate→symbol rewriting
+
+**Severity**: Medium — quality-of-life, not blocking.
+
+### Summary
+When `ldx #imm / ldy #imm / jsr $FFBD` (SETNAM) appears, the immediates equal `#<filename` / `#>filename` where `filename` lives at the address constructed by `(Y<<8)|X`. Disasm currently emits raw `ldx #$00 / ldy #$03` instead of `ldx #<filename_AB / ldy #>filename_AB`. Same pattern applies to SETLFS, OPEN, and other ABI-fixed KERNAL routines.
+
+### Example
+```
+// before
+boot_stage1_entry:
+      ...
+      lda  #$02                         // A = $02 (2)
+      ldx  #$00                         // X = $00 (0)
+      ldy  #$03                         // Y = $03 (3)
+      jsr  $FFBD                        // SETNAM
+
+filename_AB:
+      .text "AB"
+
+// desired
+boot_stage1_entry:
+      ...
+      lda  #$02                         // A = len
+      ldx  #<filename_AB
+      ldy  #>filename_AB
+      jsr  $FFBD                        // SETNAM
+
+filename_AB:
+      .text "AB"
+```
+
+### Why annotations don't fix this
+Annotation schema (`segments`, `labels`, `routines`) defines symbols at addresses but offers no per-instruction immediate-rewrite. There is no field for "this immediate operand at $02EC means lo-byte of $0300".
+
+### Existing related code
+`pipeline/src/lib/prg-disasm.ts` already detects KERNAL loader trio (`setnamAddress`, `setlfsAddress`, `loadAddress`). `inferLoaderFilenameCandidates` exists but matches a different (table-driven) pattern, not the simple 2-immediate case.
+
+### Suggested fix
+Extend `inferLoaderFilenameCandidates` (or add a new pass) to:
+1. For each known-ABI JSR (SETNAM, SETLFS, OPEN, etc.), walk back N instructions
+2. If matching `lda #imm` / `ldx #imm` / `ldy #imm` pattern, where `(ldy.imm << 8) | ldx.imm` is a labelled segment-start, mark those immediates for symbolic emission as `#<label` / `#>label`
+3. Render `<segment_label>` / `>segment_label` in the assembler output
+
+Initial KERNAL-ABI table:
+| JSR | A | X | Y |
+|-----|---|---|---|
+| `$FFBA` SETLFS | logical | device | secondary |
+| `$FFBD` SETNAM | length | name-lo | name-hi |
+| `$FFC0` OPEN | — | — | — |
+| `$FFE7` CLALL | — | — | — |
+
+Also useful: an annotation-schema extension `immediates: [{address, kind: "lo-of"\|"hi-of", label}]` for manual cases the heuristic misses.
+
+---
+
+## Bug 4 — Markdown docs not auto-registered; LLM has no instruction to save them as artifacts
+
+**Status**: FIXED — combo of skill-prompt update and server auto-enumeration. `docs/c64-reverse-engineering-skill.md` and `docs/workflow.md` now instruct the agent to call `save_artifact(kind="other", scope="knowledge", format="md", …)` for project-level markdown; the `save_artifact` tool description carries the same hint. New `/api/docs` endpoint in `src/workspace-ui/server.ts` walks the project root for `*.md` (depth-limited, blacklists `node_modules`/`.git`/`dist`/`ui`/`tools`/`pipeline`/`session`/`views`/`analysis/runs`/`analysis/extracted`) and returns `{path, relativePath, size, modifiedAt, title}` so the UI can surface unregistered docs as a fallback.
+
+**Severity**: Medium — docs the agent writes to disk stay invisible in UI Docs-tab until manually registered, but no documented workflow tells the agent to register them.
+
+### Summary
+The workspace UI **does** have a Docs tab. It surfaces markdown documents that are registered as artifacts in `knowledge/artifacts.json` with `format: "md"` (and probably `kind: "other"` / `scope: "knowledge"`). Server-side `/api/document?projectDir=…&path=…` already serves arbitrary `.md` files from the project root.
+
+The gap: when an LLM agent writes project documentation (`CLAUDE.md`, `docs/STATUS.md`, `docs/EF_PORT_PLAN.md`, `docs/PROTECTION.md`, `docs/LOADER.md`, etc.) via `Write`, the file lands on disk but no `save_artifact` call is made — because no skill prompt, tool description, or workflow doc instructs the agent to register markdown docs.
+
+Result: the user sees an empty Docs tab even though docs exist on disk.
+
+### Reproduction
+```
+# Agent follows the standard RE workflow
+project_init(project_dir=/abs/root)
+# (writes /abs/root/CLAUDE.md and /abs/root/docs/STATUS.md via Write)
+# Open workspace UI Docs tab
+# Expected: STATUS.md, CLAUDE.md visible
+# Actual: empty — no save_artifact was called for these files
+```
+
+Manual workaround that works:
+```
+save_artifact(
+  kind="other", scope="knowledge",
+  path="docs/STATUS.md", format="md",
+  role="status", title="STATUS"
+)
+# Now appears in Docs tab.
+```
+
+### Expected
+Either of:
+- **(a) Auto-discovery**: server enumerates `<root>/CLAUDE.md`, `<root>/README.md`, `<root>/docs/*.md`, `<root>/BUGREPORT.md`, `<root>/TODO.md` on `/api/docs` request without requiring artifact registration.
+- **(b) Documented convention**: skill prompts (`c64re_get_skill`, `full_re_workflow`, etc.) and the `save_artifact` description tell the agent "for any project-level markdown, call `save_artifact(kind=other, scope=knowledge, format=md, …)`".
+
+(a) is more robust (works for any tool/agent regardless of prompt). (b) plus a one-line addition to the workflow doc is cheaper.
+
+### Actual
+- Server `/api/document` works for any path inside project root.
+- UI Docs tab works — once docs are registered as `format: "md"` artifacts.
+- No workflow doc / prompt / tool description tells the agent to register markdown docs.
+- The `Write` tool used to author docs has no awareness of `save_artifact`.
+
+### Why this matters
+Long-running RE projects accumulate substantial documentation (status checklists, protection write-ups, port plans, bug reports). The Docs tab is the right surface — the missing piece is the bridge between "agent wrote a markdown file" and "Docs tab knows about it".
+
+### Suggested fix
+Cheapest first:
+1. Add to skill / workflow prompt: *"After writing any project-level markdown (CLAUDE.md, docs/*.md, BUGREPORT.md, TODO.md), register it via `save_artifact(kind=other, scope=knowledge, format=md, role=…, path=…, title=…)` so the workspace UI Docs tab can surface it."*
+2. Document the convention in `docs/c64-reverse-engineering-skill.md` and `docs/workflow.md`.
+
+Then optionally:
+3. Server: add `/api/docs` that auto-enumerates `*.md` under project root (depth-limited, skip `node_modules`, `analysis/runs`, etc.) so the Docs tab works even for unregistered files.
+4. Auto-register MDs at view-build time: `build_all_views` could scan for `*.md` and ensure every one is in `knowledge/artifacts.json`.
+
+---
+
+## Bug 5 — Self-mod operand-patch target uses non-existent label, breaks rebuild
+
+**Status**: FIXED — `pipeline/src/lib/prg-disasm.ts` label collection now keeps mid-instruction xref targets out of the free-standing label set; the renderer falls through to `findCodeLabelExpression` which emits `<owner>+<offset>` (e.g. `WFF3D+1`) using the synthetic `W<addr>` label that the renderer already declares at every instruction boundary referenced by an xref. Verified on a real-world PRG with heavy self-modifying code: 274 self-mod patch sites now render as `W<addr>+1`/`+2` and the rebuild compares byte-identical.
+
+**Severity**: High — disassembly does not assemble; defeats the byte-identity guarantee that is the tool's headline feature.
+
+### Summary
+When TRXDis emits a self-modifying-code patch (e.g. `STA WFF3E` to patch the operand byte of `LDA $XXXX,Y` at $FF3D), it labels the target by **address** as `WFF3E` — but `WFF3E` is mid-instruction (operand byte) and is **never declared** as a label in the output. KickAssembler then refuses to assemble:
+
+```
+Error: Unknown symbol 'WFF3E'
+Error: Unknown symbol 'WFF43'
+Error: Unknown symbol 'WFF3F'
+Error: Unknown symbol 'WFF44'
+```
+
+The accompanying comment proves c64re knows the correct symbolic form:
+```asm
+sta  WFF3E    // self-mod: patch operand at WFF3D+1 | probable code
+sta  WFF43    // self-mod: patch operand at WFF42+1 | probable code
+sta  WFF3F    // self-mod: patch operand at WFF3D+2 | probable code
+sta  WFF44    // self-mod: patch operand at WFF42+2 | probable code
+```
+
+### Reproduction
+```
+analyze_prg(prg_path=…/14_riv4_relocF500.prg)
+disasm_prg(prg_path=…, analysis_json=…)
+assemble_source(source_path=…/14_riv4_relocF500_disasm.asm,
+                compare_to=…/14_riv4_relocF500.prg)
+# Exit code 1 — 4 unknown-symbol errors at lines 854/855/857/860
+```
+
+After manually replacing `sta WFF3E` → `sta $FF3E` (raw address) and same for the other three, rebuild succeeds and bytes match exactly (2810/2810). So the disasm IS correct semantically — only the symbol-emission for self-mod operand-patches is broken.
+
+### Expected
+Either:
+- Emit `sta WFF3D+1` (label + offset) — KickAssembler / 64tass both accept this form
+- Or fall back to raw `sta $FF3E` when target is mid-instruction
+
+### Actual
+Emits `sta WFF3E` referring to an undeclared label that falls inside another instruction's encoding.
+
+### Suggested fix
+In the disasm renderer, when a self-mod patch target lies between two declared labels (`WFF3D` defined, `WFF3F` not — but request is `$FF3E`):
+1. Find the nearest declared label `≤ target`
+2. Emit `<label> + <target - label>` form
+3. Both KickAssembler and 64tass accept arithmetic on labels in operand position
+
+Alternative: just emit raw `$FF3E` for these cases — less pretty but always assembles.
+
+### Evidence
+File `analysis/disk/14_riv4_relocF500_disasm.asm` — 4 errors at lines 854/855/857/860. Same pattern likely affects every PRG with self-mod-style operand patching (very common in C64 software).
+
+---
+
+## Bug 6 — Branch into unlabelled data segment
+
+**Status**: FIXED (defensive) — `pipeline/src/lib/prg-disasm.ts` xref pass no longer mints a free-standing label when the xref target lacks an instruction owner (i.e. lands inside a data segment). The renderer then falls back to `<segment-label>+<offset>` when the target sits inside a labelled data segment, or to a raw `$XXXX` operand otherwise. This eliminates the "Unknown symbol Wxxxx" assembler errors caused by false-positive code islands branching into stochastic data. Root-cause classification fix (better code/data discrimination) is still pending; the defensive change keeps the build green in the meantime.
+
+**Severity**: High — disasm fails to assemble; not a self-mod issue, distinct root cause.
+
+### Summary
+TRXDis sometimes decodes bytes inside a data segment as code (false-positive `code` classification due to greedy linear probe), generates a branch instruction whose target falls within UNLABELLED data, then emits `bvc WBA0D` referring to a label that doesn't exist.
+
+### Reproduction
+```
+analyze_prg(prg_path=…/14_riv4.prg)   # PRG header $B500 (decoy load addr)
+disasm_prg(...)
+assemble_source(source_path=…/14_riv4_disasm.asm,
+                compare_to=…/14_riv4.prg)
+# Error: Unknown symbol 'WBA0D' at line 209
+```
+
+Context shows the surrounding bytes are clearly NOT real code:
+```asm
+rol  $7E58,x
+cli
+inx
+cli
+bvc  WBA0D
+sta  $59,x
+adc  ($5A,x)
+.byte $D2     // undocumented jam (opcode $D2)
+```
+The presence of `JAM` immediately after the branch confirms the linear probe walked off the end of real code into stochastic data, and the resulting `bvc` is meaningless. But once it's emitted in the rendering, KickAss can't resolve the target.
+
+### Expected
+Confidence-based gate: when a code-island has an internal branch whose target lies in an "unknown" / "data" segment AND the surrounding instructions decode poorly (e.g. JAM, undocumented opcode adjacent), reject the code-classification of the island and re-render as `.byte` data.
+
+### Actual
+Island gets emitted as code, branches reference labels in unrelated data ranges, rebuild fails.
+
+### Suggested fix
+1. After labelling pass, validate every relative branch target lands at a known label.
+2. If not, mark the source instruction's segment as "demote to data".
+3. Re-run rendering until fixed point.
+
+### Evidence
+File `analysis/disk/14_riv4_disasm.asm` (PRG header $B500) — 1 error.
+Same PRG re-analyzed with explicit load=$F500 (`14_riv4_relocF500.prg`) does NOT exhibit this — control-flow probe behaves differently when label resolution differs. Inconsistent.
+
+---
+
+## Bug 7 — Silent byte-mismatch in rebuild (no error, but bytes differ)
+
+**Status**: FIXED — `disasm_prg` now runs an automatic rebuild verification step after generating the ASM (see `rebuildVerification` in `src/server-tools/analysis-workflow.ts`). It assembles the freshly produced ASM via KickAssembler and byte-compares against the original PRG. The verdict is both printed in the tool stdout and baked into the ASM header as either `// rebuild verified byte-identical against <prg>` or `// WARNING: rebuild diverges from <prg> at body offset 0xXXXX; disassembly is not byte-identical`. Silent lossy disasms are no longer possible. Root-cause investigation for *why* a given PRG diverges is still left to the human or follow-up tooling.
+
+**Severity**: Critical — defeats byte-identity guarantee silently. Worse than Bug 5/6 because there's no compiler error to alert the user.
+
+### Summary
+For some PRGs, c64re's disasm assembles successfully (exit 0) but the resulting binary differs from the original. No warnings, no errors — only `compare_to` reveals the discrepancy.
+
+### Reproduction
+```
+analyze_prg(prg_path=…/15_love.prg)
+disasm_prg(...)
+assemble_source(source_path=…/15_love_disasm.asm,
+                compare_to=…/15_love.prg)
+# Exit code 0, Match: no, First diff offset: 2126
+```
+
+### Expected
+Either:
+- Match exactly, or
+- Fail loudly so the user knows the disassembly is lossy.
+
+### Actual
+Compiles cleanly, produces wrong bytes. If the user didn't run `compare_to`, this would go undetected and any annotation work / EF port based on this listing would be subtly broken.
+
+### Suggested fix
+1. Bake `assemble_source --compare_to=<original>` into `disasm_prg` post-condition; refuse to claim disasm complete if rebuild diverges.
+2. Or: emit an explicit warning in the disasm header: `// WARNING: rebuild diverges from original at offset $XXXX — this listing is not byte-identical`.
+3. Track *which* segment kind the diverging bytes belong to (almost certainly a misclassified data span emitted as code or vice-versa).
+
+### Evidence
+File `analysis/disk/15_love_disasm.asm`. Diff at body-offset 2126 ($a850 in the PRG body, which falls near the petscii_text/sprite boundary at $a84B..$a86B in the segment map).
+
+---
+
+## Coverage summary (Murder project)
+
+### Pre-fix (initial run on 16 PRGs)
+- 10/16 byte-perfect
+- 4× Bug 5 (self-mod-into-mid-instruction): `02_ab`, `10_ingrid`, `11_riv1`, `12_riv2`
+- 1× Bug 6 (BVC-into-data): `14_riv4` (PRG header $B500)
+- 1× Bug 7 (silent diff): `15_love`
+
+### Post-fix (re-run after Bug 1/2/4/5/6/7 marked FIXED in c64re)
+- 12/16 byte-perfect (up from 10)
+- Bug 5 verified fixed: `02_ab` ✓, `10_ingrid` ✓
+- Bug 6 verified fixed: `14_riv4` ✓
+- Bug 7 (warning mechanism) verified working — but 3 PRGs still diverge:
+  - `11_riv1` diff at body-offset 11734 (was previously hidden by Bug 5 errors)
+  - `12_riv2` diff at body-offset 17369 (was previously hidden by Bug 5 errors)
+  - `15_love` diff at body-offset 2126 (unchanged)
+
+Failures (kept for historical reference):
+
+---
+
+## Bug 8 — Text-segment classifier emits wrong kind (`screen_code_text` instead of `petscii_text`), produces wrong bytes
+
+**Severity**: High — disassembly compiles cleanly and looks reasonable, but produces different bytes than the original. The Bug 7 auto-verify mechanism warns about it; this is the underlying root cause for the divergence in 3 of 16 Murder PRGs.
+
+(Note: my earlier session marked Bug 7 "FIXED" referring to the **warning mechanism** — auto-verify now reports the divergence. The actual lossy-disasm root cause is what this Bug 8 entry describes; it remains to be fixed.)
+
+### Summary
+TRXDis identifies certain in-PRG byte ranges as text. When the bytes are standard PETSCII (`$20`-`$7E` printable ASCII range), it sometimes emits the segment with `kind: "screen_code_text"` and renders it as `.text "..."`. KickAssembler assembles `.text` as screen-codes (PETSCII→screen-code translation: `'A'` ($41) → screen-code $01, `'P'` ($50) → $10, etc.). The result: bytes differ from original.
+
+The fix is to either:
+1. Detect the actual encoding (printable PETSCII range → emit as `petscii_text`, or use `.byte` raw values), or
+2. When uncertain, fall back to raw `.byte` lists which always rebuild byte-identically.
+
+### Examples from Murder
+
+Three concrete cases observed; all show the same screen-code-instead-of-petscii pattern.
+
+**11_riv1.prg** — diff at body-offset 11734 (= $34D6 absolute, load=$0700):
+```
+orig  : FC 50 72 65 76 69 6F 75 73 20 6D 65 6E 75 FF A2
+built : FC 50 12 05 16 09 0F 15 13 20 0D 05 0E 15 FF A2
+orig text:  '.Previous menu..'
+built text: '.P....... ......'   <- screen-codes
+```
+"Previous menu" — but `r e v i o u s` ($72,$65,$76,$69,$6F,$75,$73) became screen-codes ($12,$05,$16,$09,$0F,$15,$13). Note `P` ($50) survived because the renderer kept the FIRST character outside the `.text` directive somehow (likely a string-prefix length byte handled separately).
+
+**12_riv2.prg** — diff at body-offset 17369 (= $92D9 absolute, load=$4F00):
+```
+orig  : 65 FF 72 65 74 75 72 6E 65 64 20 63 6F 6C 6F 67
+built : 65 FF 12 05 14 15 12 0E 05 04 20 03 0F 0C 0F 07
+orig text:  'e.returned colog'   <- "...returned cologne..." in dialog
+built text: 'e......... .....'   <- screen-codes
+```
+
+**15_love.prg** — diff at body-offset 2126 (= $A84E absolute, load=$A000):
+```
+orig  : 60 54 68 65 72 65 20 69 73 20 6E 6F 20 67 61 6D
+built : 60 54 08 05 12 05 20 09 13 20 0E 0F 20 07 01 0D
+orig text:  '`There is no gam'   <- "There is no game/way/..." dialog
+built text: 'T...... ........'   <- screen-codes
+```
+
+In all three cases the pattern is identical: a $FF or `RTS` ($60) terminator precedes a long-ish printable-ASCII string, and the classifier chose `screen_code_text` even though the bytes are clearly PETSCII (the engine prints these via standard CHROUT-style routines, hence raw PETSCII).
+
+### Reproduction
+```
+analyze_prg(prg_path=…/11_riv1.prg)
+disasm_prg(...)
+# disasm header now (post Bug-7 fix) carries:
+//   WARNING: rebuild diverges from 11_riv1.prg at body offset 0x2DD6;
+#            disassembly is not byte-identical
+```
+
+Open `analysis/disk/11_riv1_disasm.asm` around line ~$34D6 and find the offending `.text "Previous menu"` (or `screen_code_text` segment) declaration.
+
+### Suggested fix
+1. **Detection**: in the segment classifier, when the candidate bytes match `[\x20-\x7E]+` plus terminator, do *both* of these and pick the one that round-trips:
+   - render as `petscii_text` → assemble → check bytes match
+   - render as `screen_code_text` → assemble → check bytes match
+   The renderer can be its own oracle.
+2. **Default-to-safe**: if uncertainty remains, emit the bytes as a `.byte` list with an inline `// "Previous menu"` comment for readability. Always byte-identical.
+3. **Annotation hint**: if the user provides an annotation `kind: "petscii_text"` for a span, the renderer must respect it and emit literal byte-preserving form, not its own guess.
+
+### Evidence
+- `analysis/disk/11_riv1_disasm.asm` — diff offset 11734
+- `analysis/disk/12_riv2_disasm.asm` — diff offset 17369
+- `analysis/disk/15_love_disasm.asm` — diff offset 2126
+
+All three rebuilds compile cleanly (Bug 5 / Bug 6 do not apply); the divergence is purely text-encoding.
+
+---
+
+## (legacy summary — pre-Bug-8 framing)
+- 1× Bug 6 (branch-into-data): `14_riv4` (PRG header $B500); same PRG with load=$F500 rebuilds OK
+- 1× Bug 7 (silent diff): `15_love`
+
+So 10/16 = 62.5% first-try rebuild success on a real game. With Bug 5/6/7 fixed, expected 100%.
+
+---
+
+## Environment
+- c64re bundled in `/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP`
+- Run via `npx tsx src/cli.ts` per Claude Code MCP config
+- macOS Darwin 25.5.0
+- Project: Murder on the Mississippi, root `/Users/alex/Development/C64/Cracking/Murder`
+
+## Evidence in this project
+Pre-merge `/api/workspace` counts: `{entities: 0, findings: 4, artifacts: 2}` despite tool output reporting hundreds.
+Post-merge: `{entities: 80, findings: 55, artifacts: 37}`. Same data, surfaced after manual jq-merge of 4 stores.
+
+ASM-button in UI loaded blank until `relativePath` rewritten.
+
+`01_murder.prg` SETNAM call still emits raw `ldx #$00 / ldy #$03` despite `filename_AB` symbol being resolvable from `(Y<<8)|X = $0300`.
+
+`docs/EF_PORT_PLAN.md`, `docs/STATUS.md`, `docs/PROTECTION.md`, `docs/LOADER.md`, `CLAUDE.md` — all written to the project but invisible in UI until manually registered as artifacts; even then no markdown rendering.
+
+---
+
+## Bug 9 — `register_existing_files` glob handling inconsistent / silent zero-match
+
+**Status**: OPEN
+
+**Severity**: Medium — agent gets misled into thinking nothing matched, falls back to direct `save_artifact` calls.
+
+### Summary
+Calling `register_existing_files` with `patterns: [{ glob: "input/disk/*.g64", kind: "g64", scope: "input" }]` returned `Registered: 0`, `Already registered: 0`, `Unmatched: 0`. Same call with `**/*.g64` also `0` candidates scanned. File `input/disk/motm.g64` clearly exists. Direct `save_artifact` worked.
+
+### Reproduction
+```
+project_init(name="X", project_dir=/abs/root)
+mv foo.g64 /abs/root/input/disk/motm.g64
+register_existing_files(project_dir=/abs/root,
+  patterns=[{glob:"input/disk/*.g64", kind:"g64", scope:"input"}])
+# expected: Registered: 1
+# actual:   Candidates scanned: 0; Registered: 0
+```
+
+### Expected
+- Glob walk inspects `<project_dir>/input/disk/` and matches the file
+- Or returns a clear error: "no files found matching pattern; did you mean …"
+- Documented glob semantics (relative to project_dir? bash-style? minimatch?)
+
+### Suggested fix
+1. Document glob semantics in tool description (relative to project_dir, supports `*`, `**`, etc.).
+2. When `Candidates scanned: 0`, include the resolved walk root in the response so user can debug.
+3. Add optional `dry_run`-style debug listing of what walker saw.
+
+---
+
+## Bug 10 — Doppelregistrierung: same path registered as multiple artifacts
+
+**Status**: OPEN
+
+**Severity**: Low — clutters artifact list, confuses UI counts.
+
+### Summary
+Same file path can end up as two artifact entries with different titles/IDs. Observed: `input/disk/motm.g64` registered first via `save_artifact("Murder on the Mississippi (Activision 1986) — source disk G64")`, later via `register_existing_files` glob auto-titled `"motm.g64"` — both with identical relative path. No de-dup-by-path logic.
+
+### Expected
+`save_artifact` / `register_existing_files` checks if `relativePath` already registered; if so, either skip silently or update existing record (configurable). Currently it accumulates duplicates.
+
+### Suggested fix
+Add path-based de-dup pass to `register_existing_files` (it already has a `Skipped: N` counter — extend that to recognize prior registrations under any title).
+
+---
+
+## Bug 11 — Sprite analyzer over-eager: classifies non-sprite 64-byte blocks
+
+**Status**: OPEN
+
+**Severity**: Medium — produces false-confidence segment classification, requires manual override via annotations.
+
+### Summary
+The drive-side fastloader at T1/S0 (1541 buffer #2 = $0300-$03FF) starts with a JMP $0340 followed by a 48-byte jump-table of 1541 ROM addresses ($A47C, $A51A, $A7E4, $A786, …). `analyze_prg` classified $0300-$033F as `sprite` with **confidence 1.00**.
+
+### Expected
+Sprite analyzer should:
+- Reject ranges where a JMP/JSR opcode at the start would land inside the same range (suggesting code/table use)
+- Lower confidence when bytes look like aligned 16-bit address pairs (multiple bytes in $80-$FF range, alternating with $00-$7F)
+- Cross-check whether the range is referenced by a load instruction with X/Y indexing — sprites get loaded with `LDA #$xx / STA $D000+`, jump-tables with `LDA $0300,X / STA …`
+
+### Reproduction
+```
+File contents at offset 0:
+  4C 40 03   # JMP $0340 — clear code prefix
+  A4 7C A5 1A A7 E4 A7 86 …  # 16-bit ROM addresses (high-byte > $80)
+
+analyze_prg → segment classification:
+  $0300-$033F  sprite  confidence=1.00  analyzers=sprite
+```
+
+### Suggested fix
+Pre-check: if the first 3 bytes look like a 6502 JMP/JSR opcode and the target lies within the same range, reduce sprite confidence to ≤0.3. Same for ranges starting with valid disasm opcodes.
+
+---
+
+## Bug 12 — C64-centric annotation comments emitted on 1541 drive-code disasm
+
+**Status**: OPEN
+
+**Severity**: Medium — misleads readers, requires platform context per artifact.
+
+### Summary
+Disassembling drive-side code (target = 1541 6502, NOT C64) produces comments hard-coded to the C64 memory map. Examples:
+- `LDA $01` → comment `// CPU port (ROM/IO banking)` — wrong; on the 1541 `$01` is regular RAM byte (host-comm flag in this fastloader)
+- `STA $D011` would be commented "VIC control register" — but on a 1541 there is no VIC
+
+### Expected
+Disasm tool needs a per-artifact platform marker (`platform: c64 | 1541 | drive`) that switches:
+- ZP RAM-fact lookup tables
+- I/O register annotations ($1800/$180E = VIA1, $1C00 = VIA2 on 1541; $D000-$D02E = VIC, $D400-$D41C = SID, $DD00-$DD0F = CIA2 on C64)
+- ROM routine name lookups ($A47C/$A51A/$A7E4 = 1541 DOS ROM; $FFBA/$FFD5/$ED0C = C64 KERNAL)
+
+### Reproduction
+Disasm of T1/S0 drive code (`drive_t1s0_disasm.asm`):
+```
+W036D: lda  #$80                         // A = $80 (128)
+       sta  $01                          // store A → CPU port (ROM/IO banking)
+```
+Comment is wrong for 1541 context.
+
+### Suggested fix
+1. Add `platform` parameter to `analyze_prg` / `disasm_prg` defaulting to `c64`. Accept `1541`, `vic20`, `c128`, etc.
+2. Maintain per-platform annotation tables in `src/platform-knowledge/{c64,1541}.ts`.
+3. Disasm rendering selects table based on artifact platform.
+4. Save platform onto artifact metadata.
+
+---
+
+## Bug 13 — PRG header load-addr ignored when fastloader uses a different runtime dest
+
+**Status**: OPEN
+
+**Severity**: Medium — disasm shows code at wrong address when game uses a custom dest table.
+
+### Summary
+`disasm_prg` always uses the 2-byte PRG load header as the disassembly base address. But many late-80s games use a custom fastloader with a host-side destination table that overrides the on-disk load address. Result: the PRG file appears to load at e.g. `$A000` (per its header), but at runtime the loader places it at `$E000`. All address references in the disasm are wrong relative to the runtime location.
+
+### Reproduction
+`15_love.prg` PRG header says `$A000`. Custom fastloader in `02_ab.prg` has dest table at `$4343/$4351` whose entries point to `$E000-$EEFF` for cmd code `$16`. If the game loads love.prg via cmd $16, the actual runtime base is `$E000`, not `$A000` — but disasm uses `$A000`.
+
+### Expected
+- `disasm_prg` accepts an optional `load_address` parameter that overrides the PRG header
+- Or accepts a list of `(file_offset, runtime_address, length)` mappings for files placed at multiple destinations
+
+### Suggested fix
+1. Add `load_address` (hex string) override to `analyze_prg` / `disasm_prg` schemas.
+2. Document: "When the file is placed at a non-standard address by a custom loader, override here."
+3. UI memory-map view: show loaded ranges with the override taken into account.
+
+---
+
+## Bug 14 — `*_disasm_rebuild_check.prg` artifacts pollute artifact list as if they were source PRGs
+
+**Status**: OPEN
+
+**Severity**: Low — confuses agent (and probably user) into thinking there are multiple "versions" of the same source PRG.
+
+### Summary
+`disasm_prg` produces an automatic rebuild-check PRG (`<basename>_disasm_rebuild_check.prg`) so the agent can verify byte-for-byte rebuild. When `register_existing_files` runs with broad `*.prg` glob, those rebuild PRGs get registered as separate `prg` artifacts alongside the originals.
+
+UI shows them as siblings of the original — looks like there are two PRG files on disk for the same logical thing.
+
+### Expected
+Either:
+- Disasm tool registers the rebuild PRG itself with `kind: "rebuild-check"` (not `prg`) and `derived_from: <original-id>` so the UI can group / hide them
+- Default `register_existing_files` glob set excludes `*_disasm_rebuild_check.prg`
+- UI groups artifacts by `derived_from` chain when present
+
+### Suggested fix
+1. `disasm_prg` calls `save_artifact(kind="report" or "checkpoint", role="rebuild-check", source_artifact_ids=[<original>])` for the check PRG instead of leaving it for blanket registration.
+2. UI `disk-layout` view filters out artifacts with `role=rebuild-check`.
+
+---
+
+## Bug 15 — Findings / open-questions / entities are JSON-only; no UI rendering, no markdown surface
+
+**Status**: OPEN  (related to Bug 4 but distinct)
+
+**Severity**: High — the entire structured-knowledge layer (the *value* that c64re adds over plain disasm) is invisible to humans.
+
+### Summary
+`save_finding`, `save_open_question`, `save_entity`, `save_flow`, `save_relation` write JSON into `knowledge/findings/*.json`, `knowledge/questions/*.json`, etc. UI Docs-tab renders only Markdown files. There is **no view** that surfaces:
+- Findings (with body, evidence, confidence, status)
+- Open questions (with description, status, priority)
+- Entities (with attributes, addresses, links)
+- Relations / flows
+
+Bug 4 covers `*.md` files written by the agent; this bug covers structured Knowledge JSON which is not even Markdown to begin with.
+
+Result: an agent can save 30 high-quality findings + 15 open questions + 60 entities and the user sees an empty Docs tab.
+
+### Expected
+Either of:
+- **(a) Auto-render**: server endpoint `/api/findings`, `/api/open-questions`, `/api/entities`, etc. returns JSON; UI has dedicated tabs that render rich tables/cards.
+- **(b) Auto-generate-docs**: every `save_finding` triggers an append/rebuild of `docs/findings/<topic>.md` (or one consolidated `FINDINGS.md`) with evidence excerpts.
+
+### Reproduction
+```
+save_finding(kind="classification", title="Custom fastloader", summary="...", evidence=[…])
+# UI Docs-tab → empty
+# UI never shows the finding
+```
+
+### Suggested fix
+1. Add `/api/findings`, `/api/open-questions`, `/api/entities` endpoints in `src/workspace-ui/server.ts`.
+2. Add corresponding UI panels (Findings tab, Questions tab, Entities tab) — sortable/filterable tables.
+3. Cross-link to Evidence-Artifacts (file + line range when present).
+4. Optional fallback: `bulk_render_findings_to_md` that produces a consolidated `docs/FINDINGS.md`.
+
+---
+
+## Bug 16 — `analysis-run` artifacts registered but never imported (12 stale on Murder dashboard)
+
+**Status**: OPEN
+
+**Severity**: Medium — entities and findings missing despite analysis tools reporting success; user gets warned but no obvious next step.
+
+### Summary
+After running `analyze_prg` on several PRGs, the project_audit / dashboard reports:
+> 12 analysis-run artifact(s) registered but never imported. Entities / findings missing → loadSequence Payload-Focus stages have no linked entities. Run bulk_import_analysis_reports to back-fill.
+
+The expected `analyze_prg` flow already imports the analysis run as part of its execution (it returns `Imported analysis knowledge: N entities, M findings, …`). But subsequent re-runs (e.g. via `disasm_prg` with `analysis_json` pointing to the same file, or rebuild-check side effects) appear to re-register the run artifact without re-importing.
+
+### Expected
+- Either: every tool that produces an `analysis-run` artifact also auto-imports its knowledge (idempotently, so re-runs are safe)
+- Or: project_audit auto-runs `bulk_import_analysis_reports` when it detects unimported runs, instead of just warning
+
+### Reproduction
+```
+analyze_prg(prg_path=foo.prg)
+# imports
+disasm_prg(prg_path=foo.prg, analysis_json=foo_analysis.json)
+# may re-register the analysis-run artifact without re-import
+project_audit
+# warns: 1 analysis-run registered but never imported
+```
+
+### Suggested fix
+1. `disasm_prg` should NOT re-register the analysis-run artifact (it's not the producer of that artifact, it's a consumer).
+2. `analyze_prg` import is idempotent; safe to re-run on the same JSON.
+3. Add `bulk_import_analysis_reports` as an automatic step in `agent_onboard` when the audit detects unimported runs, instead of leaving it as a manual command.
+
+---
+
+## Bug 17 — `build_all_views` rejects address ranges > $FFFF (cart bank entries fail schema)
+
+**Status**: FIXED — commit `de23b3d`. MemoryMapRegion / MemoryMapCell / AnnotatedListingEntry start+end widened from `max(0xffff)` to `max(0xffffff)` so cart-bank entries (flattened offsets ≥ $10000) pass schema validation. C64 main-CPU addresses still naturally fit 16 bits; the wider range only matters for cart-internal offsets.
+
+**Severity**: High — `build_all_views` returns a Zod validation error and aborts; UI views go stale because no rebuild succeeds.
+
+### Summary
+After registering / saving cart-layout / memory-map entries that span cartridge banks (which live at file offsets >= $10000 — bank 0 = $0000-$1FFF, bank 1 = $2000-$3FFF, …, bank 8 = $10000-$11FFF), `build_all_views` fails with hundreds of:
+
+```
+"too_big", maximum: 65535, path: ["entries", N, "start" or "end"]
+```
+
+The `entries[].start`/`end` fields appear to be 16-bit-bounded (`max(65535)`), but multi-bank cart layouts inherently exceed $FFFF when flattened to a global byte offset.
+
+### Reproduction
+Murder project after running:
+```
+save_artifact(kind="other", scope="knowledge", title="EasyFlash Port Plan v0",
+              path="docs/EF_PORT_PLAN.md", format="md", role="port-plan")
+build_all_views(project_dir=/abs/root)
+```
+On a project with many registered entries (here ~890 entries across artifacts + analysis runs + cart-bank descriptors), `build_all_views` fails with the Zod error above.
+
+### Expected
+Either:
+- Address range schema accepts ≥ 24-bit values for cart-internal offsets (cart can be up to 1 MB = $FFFFF)
+- Or: cart entries use a structured `{bank: int, addr: u16}` pair instead of a flattened global offset
+- Or: cartridge-layout view uses its own schema separate from main-CPU memory-map (which legitimately is 16-bit only)
+
+### Suggested fix
+1. Pick one schema per view: memory-map = 16-bit only (skip entries that overflow); cartridge-layout = `{bank, addr_in_bank}` 2-tuple, no flattening.
+2. If schema split is too invasive, widen `entries[].start/end` to `u32` everywhere and treat values > $FFFF as "outside main CPU view" (cart-internal offset).
+3. Either way, surface a count of skipped/clamped entries in the response so the agent knows partial views built.
+
+---
+
+## Bug 18 — `import_analysis_report` / `bulk_import_analysis_reports` reject addressRange > $FFFF (related to Bug 17, but in import path)
+
+**Status**: FIXED — followup commit on the agent-workflows branch widened `AddressRangeSchema` (the canonical schema reused across entities, findings, evidence, flows, relations, and views) plus the remaining `MemoryMapFreeRegion`/cell schemas to `max(0xffffff)`. Bug 17's commit (`de23b3d`) only widened the view-builder branch; this followup propagates it to the import + entity / finding paths so cart-bank entries no longer fail Zod validation.
+
+**Severity**: Medium — analysis runs that span cart-internal offsets are silently skipped during bulk import; their entities and findings never appear in the knowledge layer even though `project_repair` reports `severity: ok`.
+
+### Summary
+Bug 17 widened `MemoryMapRegion` / `MemoryMapCell` / `AnnotatedListingEntry` from `max(0xffff)` to `max(0xffffff)` so view-builder accepts cart offsets. But the **entity / finding evidence schemas** still use 16-bit `addressRange.start` / `addressRange.end`. When an analysis-run JSON contains entities or findings with cart-bank addresses, `import_analysis_report` (and therefore `bulk_import_analysis_reports`, plus the `import-analysis` op of `project_repair`) skips the entire run with a Zod error.
+
+### Reproduction (live, from the Murder project)
+```
+project_repair(mode=safe, operations=["import-analysis"])
+# … most analysis runs imported fine, but one is skipped:
+# Skipped:
+#  - import-analysis artifact-manifest-json-analysis-mooke7e7:
+#    [
+#      {"code":"too_big","maximum":65535,"path":["items",1641,"evidence",0,"addressRange","start"]},
+#      {"code":"too_big","maximum":65535,"path":["items",1641,"evidence",0,"addressRange","end"]},
+#      {"code":"too_big","maximum":65535,"path":["items",1641,"addressRange","start"]},
+#      {"code":"too_big","maximum":65535,"path":["items",1641,"addressRange","end"]}
+#    ]
+```
+
+The skipped artifact:
+`artifacts/generated/payloads/entity-artifact-manifest-json-moocmvpu-disk-file-15-16_dad-prg/manifest.json_analysis.json`
+
+The four error paths show both the per-item top-level `addressRange` AND nested `evidence[].addressRange` reject > $FFFF. Bug 17's commit (`de23b3d`) only touched the view-builder schemas — these import-side ones were missed.
+
+### Expected
+- All schemas that may carry cart-bank addresses should be widened to 24-bit (or use the `{bank, addr_in_bank}` structured pair from Bug 17 option (2)).
+- Affected schemas to audit and widen consistently:
+  - `entities[].addressRange.{start,end}`
+  - `findings[].addressRange.{start,end}`
+  - `findings[].evidence[].addressRange.{start,end}`
+  - any other `addressRange` in flows / relations / open-questions
+- The `import-analysis` path should never silently lose data on a known-fixed-shape problem.
+
+### Suggested fix
+1. Grep `pipeline/src/` and `src/` for `max(0xffff)` / `max(65535)` and audit each occurrence — if it could carry a cart-internal offset, widen to `max(0xffffff)`.
+2. Add a regression test: `import_analysis_report` on a JSON with `addressRange.start = 0x12000` should round-trip without skip.
+3. After widening, re-run `project_repair safe import-analysis` on the Murder project and confirm the previously-skipped artifact imports cleanly.
+
+### Cross-reference
+- Bug 17 (FIXED `de23b3d`): same root cause in view-builder schemas. This bug is the import-side counterpart.
+- Bug 19: in the live Murder repro the > $FFFF addresses came from analyzing a 76 KB manifest.json as if it were a PRG (Bug 19). The 16-bit reject is therefore *correct* for that artifact and Bug 18's fix is only needed for legitimate cart-bank imports. Still file Bug 18 — the import path should match Bug 17's view-builder behaviour even if the only present case is a side-effect of Bug 19.
+
+---
+
+## Bug 19 — `analyze_prg` accepts non-PRG files; treats arbitrary bytes as load header
+
+**Status**: FIXED — followup commit on agent-workflows branch. `pipeline/src/analysis/prg.ts` now runs `validatePrgInput` before reading any byte: rejects files <3 bytes, files >65538 bytes (max PRG = 2-byte header + 64 KB body), and PRGs whose `load + body - 1` overflows the 16-bit address space. Soft warning when body starts with `{`, `[`, or `"` (looks like JSON/text). Smoke `scripts/bug19-murder-example-smoke.mjs` recreates the Murder manifest.json case (76971-byte JSON) and asserts the rejection plus three other edge cases.
+
+**Severity**: High — silently produces garbage analysis (nonsense entry points, fake address ranges that overflow 16-bit) for files that are not actual PRGs. Trips downstream schemas (Bug 18).
+
+### Summary
+`analyze_prg` does no input-shape validation. It always reads the first two bytes as a little-endian PRG load address. Pass it any file (JSON, binary blob, text), and it computes:
+- `loadAddress = file[0] | (file[1] << 8)`
+- `endAddress = loadAddress + file.length - 2`
+- proceeds with full disasm pipeline on the body
+
+For a non-PRG file >64 KB this generates `endAddress` outside 16-bit space, polluting the analysis JSON, the entity store, and the artifact registry with garbage.
+
+### Reproduction (live, from the Murder project)
+```
+ls -l analysis/disk/motm/manifest.json   # 76,971 bytes of JSON
+# An auto-workflow registered the manifest as a disk-file payload entity:
+#   entity-artifact-manifest-json-moocmvpu-disk-file-15-16_dad-prg
+# Then analyze_prg was triggered against it and produced:
+#   artifacts/generated/payloads/.../manifest.json_analysis.json
+jq '{binaryName, mapping}' .../manifest.json_analysis.json
+# {
+#   "binaryName": "/abs/.../analysis/disk/motm/manifest.json",
+#   "mapping": {
+#     "format": "prg",
+#     "loadAddress": 2683,    // = $0A7B = bytes "{\n" reinterpreted
+#     "startAddress": 2683,
+#     "endAddress": 79653,    // = $13725, > $FFFF — INVALID
+#     "fileOffset": 0,
+#     "fileSize": 76971
+#   }
+# }
+```
+
+`mapping.format` is hardcoded to `"prg"` regardless of the actual content.
+
+### Expected
+`analyze_prg` should validate the input is a plausible PRG before doing anything:
+1. **File-size sanity**: `fileSize <= 65538` (PRG header 2 + max 64 KB body). Reject larger files with a clear error.
+2. **Path / extension hint**: warn (or hard-reject in strict mode) when `prg_path` doesn't end in `.prg`.
+3. **Header plausibility**: `loadAddress + (fileSize - 2) - 1 <= $FFFF`. If overflow, reject as "not a PRG".
+4. **(Optional)** content sniffing: if first byte is printable-ASCII (`{ [ "` etc.), warn it looks like JSON/text.
+
+When rejecting, do NOT register an analysis-run artifact, do NOT emit `*_analysis.json` — fail fast with a useful error message naming the input.
+
+### Suggested fix
+Add `validatePrgInput(buffer, path)` early in `pipeline/src/analysis/analyze-prg.ts` (or wherever the entry sits):
+```ts
+function validatePrgInput(buffer: Uint8Array, path: string): void {
+  if (buffer.length < 3) throw new Error(`PRG too small: ${path}`);
+  if (buffer.length > 65538) throw new Error(
+    `Not a PRG: ${path} is ${buffer.length} bytes, exceeds max 65538`);
+  const load = buffer[0] | (buffer[1] << 8);
+  const end = load + (buffer.length - 2) - 1;
+  if (end > 0xffff) throw new Error(
+    `Not a PRG: ${path} load=$${hex(load)} + size=${buffer.length-2} -> $${hex(end)} overflows 16-bit`);
+}
+```
+
+### Why this matters beyond the one repro
+Any auto-pipeline that walks "all files in `analysis/disk/<image>/`" and calls `analyze_prg` per file will hit this on `manifest.json` and `track-metadata.json`. The auto-workflow that produced the entity in the live repro should also be audited for "treats every container entry as a PRG payload" — see related entity-naming oddity: the entity ID combined `manifest.json` with `disk-file-15` + `16_dad.prg`, suggesting payload registration mistakenly fused two file references.
+
+### Cross-reference
+- Bug 18: schema-reject downstream that correctly catches this case but for the wrong reason (Bug 18's fix would let the garbage analysis import successfully — bad outcome).
+
+---
+
+## Bug 20 — Phase-1 candidate noise persists; Phase-2 / PNG-render confirmations don't propagate back
+
+**Status**: FIXED (data layer) — Spec 053 / Sprint 46 commit on agent-workflows. New `archive_phase1_noise` MCP tool walks hypothesis findings whose `addressRange` is fully inside any `routine`/`annotation`-tagged finding's range and archives them with `archivedBy` pointer; paired heuristic-phase1 questions whose title address falls in the same range close with `answeredByFindingId`. New `mark_segment_confirmed` MCP tool writes `confirmed: true` + `confirmedBy` into `*_analysis.json` segments and creates a confirmation finding. UI Graphics-tab refactor (confirmed/unconfirmed/rejected buckets, thumbnail of evidence PNG) deferred to Sprint 43 follow-up. `render_graphics_preview` extension to call `mark_segment_confirmed` automatically when (path, address, length) uniquely matches stays a follow-up — agents can wire it manually for now.
+
+**Severity**: High — the Graphics, Findings, and Questions tabs are flooded with phase-1 heuristic noise that never gets pruned, even after deeper analysis has answered or invalidated each candidate.
+
+### Live numbers (Murder project after full Phase-1+2 run)
+- **Artifacts**: 357
+- **Active Findings**: **1203** — vast majority are auto-generated phase-1 RAM-region hypotheses ('RAM region $XYZ behaves like flag/counter/pointer_target/...') with confidence 0.42-0.85.
+- **Open Tasks**: 16
+- **Open Questions**: **570** — most are 'Validate: RAM region $XYZ behaves like mode_flag' type heuristic questions.
+- **Graphics tab**: "126 segments — 0 confirmed — 0 rejected" after rendering 240+ PNG previews via `scan_graphics_candidates` and visually confirming the content of 7 files.
+
+### Three-part problem
+
+**(a) Phase-1 sprite/data candidates do not get confirmed/rejected by Phase-2 annotations.**
+The `analyze_prg` sprite analyzer flags every 64-byte aligned region with mixed bits as "sprite" with confidence 1.0. These land as segments in `*_analysis.json`. The Graphics UI tab reads this list. When `propose_annotations` later refines or `render_graphics_preview` produces a visual proof, neither updates the underlying segment's `confirmed=true|false` flag. Result: 126 sprite-segments stay forever in the "0 confirmed / 0 rejected" purgatory.
+
+**(b) `render_graphics_preview` / `scan_graphics_candidates` outputs are not linked back to the originating segment.**
+When the agent runs `render_graphics_preview(input=chr2.prg, address=$5000, kind=sprite, length=$900)` and visually confirms "yes this is the NPC portrait set", the resulting PNG is saved as `session/graphics-previews/chr2_full.png` and registered with `kind=preview` — but there is NO `confirms_segment_id` reference, NO `segment_kind=sprite-mc` overwrite, NO writeback into `analysis/disk/motm/06_chr2_analysis.json` to mark the corresponding segment as confirmed.
+
+The Graphics tab continues to show all chr2's sprite-segments as "unconfirmed" even though we already rendered + visually confirmed them.
+
+**(c) Phase-1 RAM-region hypotheses pile up as findings/questions, never auto-archive when superseded.**
+`analyze_prg` saves a `hypothesis`-kind finding for every detected RAM region ('RAM region $031A behaves like mode_flag' etc.) AND a paired open question ('Validate: RAM region $031A behaves like mode_flag'). Phase-2 narrative annotations now describe these regions properly (e.g. "$031A: loader-busy/complete flag, set by bitbang_tx_24bit, polled by wait_loader_completion"). But the original auto-generated finding+question remain as `active`/`open`. There is no "this hypothesis is now subsumed by routine annotation X" auto-archive flow.
+
+Result: 1203 findings, 570 questions, of which only ~20 are human-curated. Signal-to-noise is awful.
+
+### Reproduction
+```
+project_init / extract_disk / analyze_prg on every PRG
+# observe: hundreds of 'hypothesis'-kind findings auto-saved per file
+# observe: corresponding 'open' questions per RAM region
+
+propose_annotations on every PRG  # Spec 042 / R15
+disasm_prg with annotations
+render_graphics_preview / scan_graphics_candidates on content files
+# render PNGs, visually confirm content of chr1-4, baby, romance, ingrid
+
+# Open the workspace UI Graphics tab:
+#   "126 segments — 0 confirmed — 0 rejected"
+# Open Findings tab:
+#   1200+ active findings, mostly heuristic noise, no way to mark obsolete in bulk
+# Open Questions tab:
+#   570 open, mostly auto-generated, no source-filter clarifies which ones are human-relevant
+```
+
+### Expected
+**(a)** When `render_graphics_preview` matches an existing sprite/charset/bitmap segment in `*_analysis.json`, automatically mark it as `confirmed: true` with `confirmation_kind: visual-render` and a back-pointer to the PNG path. Same for `propose_annotations` segment reclassifications.
+
+**(b)** Add a mechanism to mark a render result as confirming/rejecting a segment:
+```
+mark_segment_confirmed(prg_path, address, kind, confidence, evidence_artifact_id)
+mark_segment_rejected(prg_path, address, reason)
+```
+or a CLI flag on `render_graphics_preview` like `confirm_segment=true` that auto-writes back.
+
+**(c)** Auto-archive flow:
+- When a `routine` annotation is added at address $XXXX, all phase-1 hypothesis findings whose `addressRange` is fully inside that routine should be moved to `status=archived` with `archived_by_finding_id=<the new routine annotation finding>`.
+- Similarly, open-questions whose RAM-region is now documented in an annotation become `status=answered` automatically.
+- New tool: `archive_superseded_phase1_findings(project_dir)` that runs the heuristic and shows a dry-run before applying.
+
+### Suggested fix
+1. **Schema additions**:
+   - `Segment.confirmed?: boolean`
+   - `Segment.confirmedBy?: { kind: 'render' | 'annotation' | 'human', artifactId?: string, findingId?: string, capturedAt: string }`
+   - `Finding.archivedBy?: string` (id of newer finding that supersedes this)
+   - `OpenQuestion.answeredBy?: string` (id of finding that answers this)
+2. **`render_graphics_preview` enhancement**: accept optional `segment_id` parameter. When provided, write `confirmed=true` + back-pointer into the corresponding analysis JSON. Otherwise, attempt auto-match by `(input_path, address, length)` and only confirm if the match is unique.
+3. **`propose_annotations` enhancement**: when a segment reclassification has confidence > 0.8, mark the original segment as `confirmed`.
+4. **New tool `archive_phase1_noise(project_dir, dry_run=true)`**: walk all hypothesis-kind findings, find ones whose address range is now covered by a `routine` annotation, mark them archived. Walk open-questions, mark them `answered` when the source heuristic-phase1 region is now annotated.
+5. **UI Graphics tab**: respect `confirmed` flag — show three buckets (confirmed / unconfirmed / rejected) with counts. Also show the `confirmedBy.artifactId` PNG inline as a thumbnail when present.
+
+### Why this matters
+Without auto-archive, every project will accumulate phase-1 noise indefinitely. After 16 PRGs analyzed, MotM is at 1203 findings; a 50-PRG project would be at 4000+. The signal becomes invisible. Right now the agent has to manually save a "REFUTED: …" finding for each phase-1 hypothesis to invalidate it — that's not scalable.
+
+The graphics-preview-to-segment linkage gap is the same problem in microcosm: rendering a PNG and visually confirming it should propagate forward, not stay isolated as an unrelated `kind=preview` artifact.
+
+### Cross-reference
+- Bug 4: Markdown docs not auto-registered. Same family of "tool produces output but workflow doesn't surface it back".
+- Bug 15: structured findings JSON not rendered as docs. Adjacent — even when findings ARE good, they're hard to find.
+- R6 (REQUIREMENTS): open-question source tagging. Implemented in sprint 36 — partially helps because we can now filter by `source=heuristic-phase1`, but the auto-archive flow is still missing.
+- R7 (REQUIREMENTS): disk-layout sector status. Same general pattern — heuristic guesses need human/runtime confirmation flow that updates the underlying classification.
+
+---
+
+## Bug 21 — Spec 053 / Bug 20 fix landed in code but not exposed in running MCP server (sprint 46 partial)
+
+**Status**: FIXED — followup commit on agent-workflows. Added the missing companion `mark_segment_rejected` MCP tool, new `/api/segment/confirm` and `/api/segment/reject` workspace-ui endpoints, and wired the Graphics-tab `Confirm graphics` / `Mark wrong` buttons in `App.tsx` to POST to those endpoints alongside the existing `/api/graphics-marks` ephemeral-store call. The original `mark_segment_confirmed` was already present in `dist/` after sprint 46 — visibility issue would resolve once the agent's MCP host reconnected to a freshly rebuilt server. User must `npm run build:mcp` and reconnect after this commit to see the new tools.
+
+**Severity**: Medium — Bug 20's actual mitigation is unreachable until this lands.
+
+### Summary
+Sprint 46 commit message says "Bug 20 fix data layer". The data-layer service method (`markSegmentConfirmed`) and its MCP tool wrapper (`mark_segment_confirmed`) ARE implemented:
+
+```ts
+server.tool(
+  "mark_segment_confirmed",
+  "Spec 053 (Bug 20): mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence. Also creates a confirmation finding with status confirmed.",
+  { project_dir, artifact_id, address, length, kind, evidence_artifact_id },
+  …
+);
+```
+
+But:
+1. **Tool not in the MCP server's deferred tool catalogue** as observed by a freshly-reconnected agent. `ToolSearch select:mcp__c64-re__mark_segment_confirmed` returns `No matching deferred tools found`. Probably the dist build is stale or the tool registration is gated on a feature flag that's off.
+2. **No `mark_segment_rejected` companion**. The "Mark wrong" UI button has nowhere to go.
+3. **UI button wiring not verified**. The `Confirm graphics` / `Mark wrong` buttons render in `App.tsx` but the click handler has not been confirmed to call the new endpoint. Likely still a stub.
+
+### Reproduction
+```
+# Agent connected to the live MCP server (after Claude2 finished sprint 44+46)
+ToolSearch query="mark_segment"   # → No matching deferred tools found
+ToolSearch query="select:mcp__c64-re__mark_segment_confirmed" # → same
+# But:
+grep mark_segment_confirmed src/project-knowledge/mcp-tools.ts
+# → tool definition exists at line 660
+```
+
+### Expected
+- Rebuild the MCP server / dist after sprint 46 so the new tool is registered.
+- Add `mark_segment_rejected` companion (one-line wrapper around the same service path with kind=rejected status).
+- Wire the UI buttons in `Graphics` tab (App.tsx) to call `/api/segment/confirm` and `/api/segment/reject` server endpoints, which delegate to the same service.
+- After reconnect: `ToolSearch select:mcp__c64-re__mark_segment_confirmed` → loads schema. `ToolSearch select:mcp__c64-re__mark_segment_rejected` → loads schema.
+- After UI rebuild: clicking `Confirm graphics` on a candidate flips its row to "confirmed" and the counter on the Graphics tab header updates from "0 confirmed" to "1 confirmed".
+
+### Suggested fix
+1. Verify build artifacts in `dist/` reflect sprint 46. Re-run `npm run build:mcp` and restart the MCP server.
+2. Add `mark_segment_rejected` MCP tool (parallel to `mark_segment_confirmed`).
+3. Add `/api/segment/confirm` and `/api/segment/reject` HTTP endpoints in `src/workspace-ui/server.ts` that delegate to the service methods.
+4. Wire UI button handlers in App.tsx (Graphics tab section) to POST to those endpoints with `{ artifact_id, address, length, kind, evidence_artifact_id? }`.
+5. Smoke test: open Murder project's Graphics tab, click `Mark wrong` on `sprite_0300` from drive_t1s0.prg (which is the 1541 DOS jump-table, NOT a sprite), confirm row flips to "rejected" and counter increments.
+
+### Cross-reference
+- Bug 20: parent bug. This is the "code wrote but not landed" sub-issue.
+- Spec 053 (in `specs/`): the design that sprint 46 implemented partially.
+
+---
+
+## Bug 22 — `mark_segment_confirmed` / `mark_segment_rejected` cannot find the analysis JSON because of artifact-kind mismatch
+
+**Status**: FIXED (commit `05ef06b` — path-only filter, drops the broken kind branch)
+
+**Severity**: Medium — the Bug 20/21 mitigation tools are reachable but every call returns "No matching segment found" because the lookup never reaches the analysis file. Refutation/confirmation findings ARE recorded, but the segment in `*_analysis.json` is NOT updated, so the Graphics-tab counter stays at 0 confirmed / 0 rejected.
+
+### Summary
+`service.markSegmentConfirmed` (and the rejected counterpart) try to locate the analysis JSON via:
+
+```ts
+const analysisArtifact = this.listArtifacts().find((a) =>
+  a.kind === "analysis-run"
+  && (a.sourceArtifactIds ?? []).includes(args.artifactId)
+);
+```
+
+But in practice, the analysis JSON artifact gets registered with `kind: "other"` (verified live on the Murder project via `jq '.items[] | select(.path | test("drive_t1s0_analysis"))' knowledge/artifacts.json`):
+
+```json
+{
+  "id": "artifact-drive-t1s0-analysis-json-mood3yfv",
+  "kind": "other",                             ← service expects "analysis-run"
+  "sourceArtifactIds": ["artifact-drive-t1s0-prg-mood3yfu"],
+  "path": "/abs/.../drive_t1s0_analysis.json"
+}
+```
+
+So the lookup fails, the service falls back to "no match" path, returns:
+```
+Segment refutation finding: finding-segment-rejected-at-300-33f-sprite-...
+No matching segment found in analysis JSON; finding still recorded.
+```
+
+Result: the refutation finding lives in `findings.json` but the segment in `analysis/disk/motm/raw_sectors/drive_t1s0_analysis.json` is NOT updated with `rejected: true` / `rejectedReason: ...`. The Graphics tab still shows the segment as unmarked.
+
+A second, related issue: the same analysis JSON is registered as TWO artifacts (Bug 10 — duplicate registration), one with `kind: "other" + sourceArtifactIds: [prg-id]` and one with `kind: "other" + sourceArtifactIds: []`. Even if the kind filter were widened, the service still has to disambiguate.
+
+### Reproduction
+```
+project_init / analyze_prg / disasm_prg / register_existing_files (auto)
+
+# Live verification of the kind tag:
+jq '.items[] | select(.path | test("_analysis.json$")) | {id, kind, sourceArtifactIds: (.sourceArtifactIds // [])[0]}' knowledge/artifacts.json | head -20
+# Most entries: kind="other"
+
+# Try to mark a segment:
+mark_segment_rejected(
+  artifact_id="artifact-drive-t1s0-prg-mood3yfu",
+  address=768, length=64, kind="sprite",
+  reason="$0300-$033F is the 1541 DOS jump-table, not a sprite"
+)
+# Returns: "No matching segment found in analysis JSON; finding still recorded."
+# Verify: jq '.segments[] | select(.kind=="sprite") | .rejected' analysis/disk/motm/raw_sectors/drive_t1s0_analysis.json
+# → null (the segment was NOT updated)
+```
+
+### Expected
+1. Lookup widens the artifact-kind filter to include `kind in ("analysis-run", "other") AND path matches "*_analysis.json"`. OR `analyze_prg` should ALWAYS register its output with `kind="analysis-run"` (the canonical kind for that artifact role).
+2. After widening, calling `mark_segment_rejected` flips `segments[i].rejected=true` in the JSON file. Re-reading the JSON shows the change.
+3. UI Graphics tab reflects the change: counter increments, the row moves to "rejected" bucket.
+
+### Suggested fix
+1. **Service-side**: change the filter to accept either kind, OR match by `path.endsWith("_analysis.json")` on entries whose `sourceArtifactIds` includes the target.
+2. **Producer-side fix**: in the auto-registration path that follows `analyze_prg`, set `kind: "analysis-run"` consistently for `*_analysis.json` artifacts. This will also help Bug 16 (analysis-run artifacts not always recognized as such).
+3. **De-dup**: when `register_existing_files` or `save_artifact` would create a second entry for the same path, merge into the existing one (Bug 10 family).
+
+### Cross-reference
+- Bug 10: duplicate artifact registration. Same root path appears twice.
+- Bug 16: analysis-run artifacts registered but never imported. Same kind-tagging confusion.
+- Bug 21: Bug 20 mitigation landed but matching logic incomplete.
+
+### REOPEN: Bug 22 fix in commit `3654140` is incomplete
+
+After commit `3654140` ("Bug 22 fix: widen kind filter") and a fresh MCP server restart (PID 12745, started 01:09 May 3, AFTER fix at 01:03), `mark_segment_rejected` still returns `No matching segment found in analysis JSON; finding still recorded`. Direct probe of the running service via a smoke script:
+
+```js
+import { ProjectKnowledgeService } from "dist/project-knowledge/service.js";
+const svc = new ProjectKnowledgeService("/abs/Murder");
+const matches = svc.listArtifacts().filter(a =>
+  ((a.kind === "analysis-run") || (a.kind === "other" && a.path.endsWith("_analysis.json")))
+  && (a.sourceArtifactIds ?? []).includes("artifact-drive-t1s0-prg-mood3yfu")
+);
+// matches.length === 2:
+//   1) artifact-analyze-prg-drive-t1s0-prg-mood3yfw  kind=analysis-run
+//      path = analysis/runs/run-analyze-prg-analyze-prg-drive-t1s0-prg-mood3yfv.json   ← RUN-EVENT LOG
+//   2) artifact-drive-t1s0-analysis-json-mood3yfv  kind=other
+//      path = analysis/disk/motm/raw_sectors/drive_t1s0_analysis.json                  ← ACTUAL ANALYSIS JSON
+```
+
+`Array.find()` returns the FIRST entry → the run-event-log (a JSON file, but its content is `{events: [...]}` with no top-level `segments[]`). Service then does `Array.isArray(raw.segments)` → false → bails → no JSON write. Refutation finding is recorded but the segment in the analysis JSON keeps its old state.
+
+### Root cause
+The Bug 22 fix's `||` operator made the filter MORE permissive in the wrong direction. The `kind === "analysis-run"` arm has NO path constraint, so any artifact with `kind=analysis-run` qualifies — including the analyze_prg RUN-event-log artifact, which is also kind=analysis-run by convention, but whose JSON content is a run-log, not an analysis result.
+
+### Correct fix
+Drop the kind check entirely (or keep as a soft hint) — match by file shape:
+
+```ts
+const analysisArtifact = this.listArtifacts().find((a) =>
+  a.path.endsWith("_analysis.json")
+  && (a.sourceArtifactIds ?? []).includes(args.artifactId)
+);
+```
+
+OR validate after read:
+
+```ts
+if (raw && Array.isArray(raw.segments) && raw.segments.length > 0 && typeof raw.segments[0]?.start === "number") {
+  // good — proceed with match
+} else {
+  // wrong artifact, try next one
+}
+```
+
+The first form is simpler and unambiguous. Verified by manual filter walk on the live data — only the second entry (the actual `_analysis.json`) survives.
+
+### Status
+**FIXED** — commit `05ef06b` ("fix(bug 22 reopen): path-only filter in markSegmentConfirmed/Rejected"). Filter now uses path-only matching, drops the over-permissive kind branch. Verified live: `mark_segment_rejected(artifact-drive-t1s0-prg-mood3yfu, 768, 64, sprite)` → `Analysis JSON updated: drive_t1s0_analysis.json`. `jq '.segments[] | select(.kind=="sprite")' …/drive_t1s0_analysis.json` confirms `rejected: true` and `rejectedReason` written.
+
+### REFIX (commit `05ef06b`)
+
+Applied the path-only filter to BOTH `markSegmentConfirmed` and `markSegmentRejected` in `src/project-knowledge/service.ts`:
+
+```ts
+const analysisArtifact = this.listArtifacts().find((a) =>
+  a.path.endsWith("_analysis.json")
+  && (a.sourceArtifactIds ?? []).includes(args.artifactId)
+);
+```
+
+Kind branch dropped entirely — `_analysis.json` suffix is the unambiguous signal; the run-event-log artifacts use `*_run.json` / `run-*.json` paths so they no longer collide.
+
+Regression coverage in `scripts/sprint46-smoke.mjs`: registers BOTH a `kind="analysis-run"` run-log artifact AND the actual `kind="other"` segments JSON pointing at the same source PRG, then asserts `markSegmentRejected` writes back to the segments JSON (`segmentMatched === true`, `segments[0].rejected === true`). Smoke green.
+
+Verify on Murder: re-run `mark_segment_rejected` on the t1s0 sprite range — `segmentMatched` should now be `true` and `jq '.segments[] | select(.kind=="sprite") | .rejected'` on `drive_t1s0_analysis.json` should report `true`.
+
+---
+
+## Bug 23 — UI Graphics-tab counter does not reflect MCP `mark_segment_*` writes; two disconnected stores; segment list shows duplicates
+
+**Status**: FIXED (Stage 2 — single source of truth, shadow store removed)
+
+**Severity**: High — the entire Bug 20/21/22 chain is functionally invisible from the UI. Agent ran 59 confirm/reject calls successfully (`Analysis JSON updated: ...` for each), but the Graphics tab still shows "126 segments — 0 confirmed — 0 rejected" because UI reads from a different store.
+
+### Live evidence (Murder project after Bug 22 fix)
+1. Agent calls `mark_segment_rejected` 13× and `mark_segment_confirmed` 46× — every call returns `Analysis JSON updated: …`. Verified via `jq '.segments[].rejected'` on each `*_analysis.json` — flags ARE written.
+2. Open the workspace UI Graphics tab → counter still says `126 segments — 0 confirmed — 0 rejected`. Same drive_t1s0 sprite_0300 still appears as "unmarked" candidate.
+3. Curl the API the UI uses: `curl /api/graphics-marks?projectDir=…/Murder` → `{"projectDir": "…", "marks": {}}` — empty.
+
+### Root cause: two disconnected stores
+- **Path A — MCP tool**: `mark_segment_confirmed` / `mark_segment_rejected` (in `src/project-knowledge/mcp-tools.ts`) → service method `markSegmentConfirmed/Rejected` → writes `confirmed: true` / `rejected: true` directly into `*_analysis.json.segments[i]`. Persistent in the analysis JSON.
+- **Path B — UI HTTP endpoints**: `/api/segment/confirm` and `/api/segment/reject` (POST handlers in `src/workspace-ui/server.ts`) → write to a SEPARATE file (likely `session/graphics-marks.json` or similar), exposed via `/api/graphics-marks` GET.
+- **UI Graphics tab** reads from `/api/graphics-marks` (Path B), NOT from the analysis JSONs (Path A).
+
+So agent-driven flow is invisible to the UI, and human-driven flow (clicking "Confirm graphics" in UI) presumably doesn't update the analysis JSON either. Two pseudo-source-of-truth stores.
+
+### Bonus: duplicate listing — 126 segments instead of ~58
+The UI shows each segment TWICE (e.g. `sprite_0300` from drive_t1s0 appears two consecutive rows; `sprite_0701` from riv1 appears twice; etc.). Counting unique sprite/charset candidates across all `*_analysis.json` shows ~58, but Graphics tab shows 126 ≈ 58 × 2.
+
+This is the Bug 10 family: each `*_analysis.json` artifact appears twice in `artifacts.json` (once auto-registered by `analyze_prg`, once auto-registered by `project_repair register_existing_files`). The UI iterates ALL analysis-json artifacts and reads segments from each, so every segment shows up once per artifact entry.
+
+### Expected
+1. **Single source of truth** for segment confirmation: pick one store (recommend the analysis JSON — already keyed by segment + carries the original heuristic + can hold `confirmedBy` lineage). Both the MCP tool path AND the UI HTTP endpoint path should write to the SAME store, OR the secondary store should mirror the primary on every change.
+2. **UI Graphics tab** reads `confirmed`/`rejected` flags from the `*_analysis.json` segments (Path A) directly, instead of (or in addition to) `/api/graphics-marks` (Path B).
+3. **De-dup segment list** in the UI: when iterating analysis-json artifacts, group by content-hash or by `(absolute path, segment range)` so each unique segment appears once.
+
+### Suggested fix
+Two stages:
+
+**Stage 1 — sync stores**: have `/api/segment/confirm` and `/api/segment/reject` HTTP handlers also call `service.markSegmentConfirmed/Rejected` so the analysis JSON gets updated whenever a human clicks "Confirm graphics" / "Mark wrong". Have `mark_segment_*` MCP tools also append to `session/graphics-marks.json` so the UI counter updates. (Quick fix; both stores stay but stay in sync.)
+
+**Stage 2 — single source**: drop the `graphics-marks.json` shadow store entirely. UI Graphics tab GET endpoint walks all `*_analysis.json` segments + their `confirmed`/`rejected` flags directly. UI POST → service → analysis JSON. (Cleaner; deletes the duplication.)
+
+For the duplicate listing: when the Graphics tab aggregates segments, dedupe on `(analysisJsonPath, start, end, kind)` so a single segment doesn't appear twice even if its analysis JSON is registered twice. Alternatively, fix `register_existing_files` and `project_repair` to NOT register paths that are already known (Bug 10 fix).
+
+### Cross-reference
+- Bug 10: same root path appears twice in artifacts.json. Causes the 2× factor in the segment listing.
+- Bug 20: parent of this whole confirm/reject workflow.
+- Bug 21: tools wired but UI not listening.
+- Bug 22: filter logic (FIXED). Made the MCP path actually write to the JSON. But UI still doesn't see it.
+
+### FIX (Stage 2 — single source of truth)
+
+Approach: kill the `session/graphics-marks.json` shadow store entirely. Analysis JSON is the single source of truth.
+
+1. **`src/workspace-ui/graphics-view.ts`**:
+   - Dedupe analysis-json artifacts by absolute `path` before iterating (fixes 126 → 58 segment listing — Bug 10 family).
+   - `GraphicsItem` gained `confirmed` / `rejected` / `rejectedReason` / `confirmedByArtifactId` fields read directly from each segment.
+2. **`src/project-knowledge/service.ts`**: added `clearSegmentMark({artifactId, address, length, kind})` — strips `confirmed`/`confirmedBy`/`rejected`/`rejectedReason` from the matching segment, no finding created.
+3. **`src/workspace-ui/server.ts`**:
+   - `/api/segment/clear` POST handler routes to `service.clearSegmentMark`.
+   - `/api/graphics-marks` GET now derives the marks map from `buildGraphicsView` items (no file read).
+   - `/api/graphics-marks` POST now routes to `service.markSegmentConfirmed/Rejected/clearSegmentMark` (requires `artifactId`/`address`/`length`/`kind` in payload). Old shadow-store writes gone.
+4. **`ui/src/App.tsx`**:
+   - `setGraphicsMark` calls `/api/segment/{confirm,reject,clear}` directly (single write path, replaces dual write).
+   - `graphicsMarks` derived from `graphicsItems` via new `deriveGraphicsMarks` helper.
+   - `loadWorkspace` no longer fetches `/api/graphics-marks` separately — only `/api/graphics`.
+   - After a mark write, refetches `/api/graphics` so the counter and bucket re-render with the live segment state.
+5. **Regression coverage** (`scripts/sprint46-smoke.mjs`): `clearSegmentMark` happy path; `buildGraphicsView` dedupe — registers same `_analysis.json` twice via different artifact ids, asserts `view.items.filter(...).length === 1` and `confirmed` flag flows through.
+
+Net effect: every confirmed/rejected write — agent MCP call OR human UI click — lands in the analysis JSON. Counter, bucket assignment, agent and UI all read from the same place. Duplicate segment rows gone.
+
+Verify on Murder: restart MCP server, open Graphics tab. Counter should reflect the 59 prior agent calls (`Confirmed: 46 / Rejected: 13`). t1s0 sprite_0300 should appear in the rejected bucket. Segment list should be ~58 items (down from 126).
+
+---
+
+## Bug 24 — UI shows all artifact versions everywhere; should default to latest-only with opt-in history
+
+**Status**: FIXED v1 (Spec 054 — latest-per-lineage default everywhere + LineageVisibilityContext + history badge). Followups Sprint 24.5 (history pane) and 24.6 (server-side flow-graph dedup) deferred.
+
+**Severity**: Medium — clutters every panel that lists artifacts. Defeats the purpose of the lineage / versions model (Spec 025: a lineage chain is supposed to roll up to its latest entry by default).
+
+### Summary
+Only the Scrub picker (`ui/src/App.tsx:1801-1816`) currently filters artifacts to "highest `versionRank` per `lineageRoot`". Every other surface — PayloadsPanel, DiskPanel, ListingPanel, EntitiesPanel, FlowGraph, RecentActivity, scratchpad pickers, the inspector linked-artifacts list, the `/api/per-artifact-status` table, the cartridge layout view — iterates `snapshot.artifacts` directly and renders all V0..Vn entries side-by-side.
+
+Live evidence: MotM64 Flow Graph tab (screenshot 2026-05-03 10.44.09) shows 98 nodes / 87 edges where multiple nodes are repeated versions of the same lineage root (e.g. `entry_xxxx`, `code_xxxx` appearing as V0 + V1 + V2 in the same graph).
+
+### Expected
+1. **Default everywhere = latest only.** All UI panels and all `/api/*` endpoints that surface an artifact list filter to `latest-per-lineageRoot` by default.
+2. **Inspector "View history" affordance.** When an artifact is opened in any inspector, show a "View history" button that expands the lineage chain (V0 → V1 → ... → latest) inline. Clicking an older version opens it in a read-only view (later iteration: editable / forkable).
+3. **No silent loss.** Older versions stay first-class artifacts in `artifacts.json` and remain reachable from the lineage UI — they just don't pollute every list.
+
+### Suggested fix
+1. **Shared helper**: `latestArtifactsByLineage(artifacts: ArtifactRecord[]): ArtifactRecord[]` in a new `ui/src/lib/lineage.ts` (or move the existing ScrubPanel filter there). Returns the highest-`versionRank` entry per `lineageRoot` (falling back to `id` when `lineageRoot` is missing).
+2. **Apply at every read site**: replace direct `snapshot.artifacts` reads in PayloadsPanel, DiskPanel, ListingPanel, EntitiesPanel, FlowGraph aggregator, RecentActivity, per-artifact-status table, cartridge layout, inspector linked-artifacts. Same shape on the server: `/api/per-artifact-status`, `/api/artifact/lineage` consumers, `/api/findings` / `/api/entities` / `/api/flows` / `/api/relations` filter on the client side OR the server applies a `?include=latest` default.
+3. **Inspector history button**: small "View history (N)" link in the inspector header. Expands a stacked list of `versionLabel` + `versionRank` + `derivedFrom` chain. Each row clickable → opens that version in a sibling inspector pane with a "read-only — older version" banner.
+4. **Opt-out for power users**: top-level toggle `[ ] Show all versions` in the snapshot header for debugging — defaults off.
+
+### Cross-reference
+- Spec 025 (artifact lineage and versions) — defines `lineageRoot` / `versionRank` / `versions[]` schema.
+- Sprint 22 lineage chain UI — built the inspector lineage view that the new "View history" button reuses.
+- Bug 23 — duplicate listing in Graphics tab is a related-but-different cause (same path registered twice in `artifacts.json`); Bug 24 is the lineage-version case (different artifact ids, same lineage root).
+
+### FIX v1 (Spec 054)
+
+Per the spec's "default rule": every UI surface that LISTS artifacts shows the highest `versionRank` per `lineageRoot ?? id`. Lookups by id stay against the full list so older-version references still resolve.
+
+Implementation:
+
+1. **`ui/src/lib/lineage.ts`** (new): `latestArtifactsByLineage`, `lineageChain`, `lineageVersionCount`, `isLatestInLineage`, `lineageRootOf`.
+2. **`LineageVisibilityContext`** in `ui/src/App.tsx`: nested panels call `useLineageVisibility().latest(items)` instead of filtering inline. The context exposes `{ showAllVersions, latest }` so the toggle propagates without prop drilling.
+3. **Header toggle** `[ ] Show all versions` in the snapshot header — defaults off; flips the context to pass-through.
+4. **Surfaces patched** (8 client + 1 server):
+   - `WorkflowRunnerPanel.prgArtifacts` (workflow runner picker)
+   - `buildDocs(...)` at both call sites (initial load + re-derive)
+   - `EntityInspector.linkedArtifacts`
+   - `QuestionInspector.linkedArtifacts`
+   - `DiskFileInspector` ASM/PRG pairing (`asmSources`, `payloadBinaryArtifact`)
+   - `CartChunkInspector.fallbackAsm` chip ASM fallback
+   - `ScrubPanel` (refactored to use shared helper, now respects toggle)
+   - `service.getPerArtifactStatus` (collapses to latest per lineage)
+5. **History badge**: inspector "Linked Artifacts" rows render `+(N-1) older` when `lineageVersionCount > 1`. Tooltip points the user at the header toggle.
+6. **Spec doc**: `specs/054-bug24-latest-version-default.md` covers the rule, the helper API, the patched surfaces, and out-of-scope followups.
+
+Verified:
+- `npm run build` + `npm run ui:build` green.
+- `service.getPerArtifactStatus` smoke: register V0 + V1 of same `a.prg`, assert subjects.length === 1.
+
+Followups (in spec):
+- **Sprint 24.5** — clickable `+N older` badge expands a stacked V0..Vn list; each row opens an older version in a sibling inspector with a "read-only — older version" banner.
+- **Sprint 24.6** — server-side `buildFlowGraphView` collapses entity/relation nodes whose underlying artifacts share a lineage root. Bigger surface (touches flow imports), so deferred from v1.
+
+Verify on Murder: open the workspace UI, default Flow Graph + Inspector should now show latest-only counts. Toggle "Show all versions" in the header to expose V0..V(n-1) for debugging.
+
+---
+
+## Bug 25 — `save_finding` MCP tool exposes no `address_range` parameter; agent cannot create routine-coverage findings → `archive_phase1_noise` / `auto_resolve_questions` always return 0
+
+**Status**: FIXED Stage 1 (param added). R25/R26/R27 (auto-emit + closed loop + scope) tracked separately as Specs 055/056/057.
+
+**Severity**: High — entire phase-1 noise-archive workflow is unreachable from the agent. 570 open questions and 1200+ heuristic findings on Murder stay unanswered even after all 16 PRGs are deeply annotated.
+
+### Live evidence (Murder project after deep narrative annotations)
+```
+mcp__c64-re__archive_phase1_noise(dry_run=true)
+# → Routines scanned: 0   |   Findings would archive: 0   |   Questions answered: 0
+
+mcp__c64-re__propose_question_resolutions()
+# → No proposals — no auto-resolvable questions match.
+```
+
+### Root cause
+`src/project-knowledge/service.ts:archivePhase1Noise` filters routines by:
+```ts
+const routinesWithRange = allFindings.filter((f) =>
+  f.addressRange !== undefined
+  && ((f.tags ?? []).includes("routine") || (f.tags ?? []).includes("annotation"))
+);
+```
+
+It needs FINDINGS with TOP-LEVEL `f.addressRange` populated + `tags` ⊇ "routine"/"annotation". `FindingRecordSchema` defines `addressRange: AddressRangeSchema.optional()` with the comment "Spec 053 Bug 20: optional address range so archive_phase1_noise can match findings to routine annotations covering them".
+
+But `save_finding` MCP tool schema (`src/project-knowledge/mcp-tools.ts:1394`) only accepts `evidence[].addressRange` — NO top-level `address_range` parameter. So even when the agent calls `save_finding(kind=..., title=..., tags=["routine"], evidence=[{addressRange:{...}}])`, the address only goes onto evidence — the matcher ignores it.
+
+### Three broken links in the chain
+1. **Annotation → finding**: routines documented in `*_annotations.json` `routines[]` are NOT auto-emitted as findings. `findings.json` gets 0 routine entries from annotation work.
+2. **Finding → addressRange**: `save_finding` cannot set `f.addressRange` directly. Schema gap.
+3. **archive_phase1_noise → auto-resolve**: with 0 routine-findings carrying top-level addressRange, matcher loops over empty set → 0 questions answered.
+
+### Expected
+1. **`save_finding` tool gains `address_range` param**:
+   ```ts
+   address_range: z.object({ start: z.number(), end: z.number() }).optional()
+   ```
+   Forwarded as `service.saveFinding({ ..., addressRange: address_range })`.
+2. **`disasm_prg` (or new `import_annotations_as_findings`)**: when `*_annotations.json` exists, walk `routines[]` and auto-emit one finding per routine with `kind="classification"`, `addressRange`, `tags=["routine","annotation"]`, `summary` from the routine's `comment`.
+3. **Post-annotation hook**: after `disasm_prg` consumes annotations, automatically run `archive_phase1_noise` + `auto_resolve_questions` (or surface as NEXT-step). Per the user's request: "after annotation, the file's open-questions should be auto-re-evaluated".
+
+### Suggested fix
+- **Stage 1 (minimum viable)**: add `address_range` parameter to `save_finding` MCP tool. Document for routine-coverage findings: set `tags=["routine"]` + `address_range={start,end}`.
+- **Stage 2 (auto-emit)**: extend `disasm_prg` / `propose_annotations` to call `service.saveFinding(...)` per routine in the consumed annotations.
+- **Stage 3 (closed loop)**: after `disasm_prg` (or `save_finding` with routine tag), tool also runs `archivePhase1Noise()` + `autoResolveQuestions()` and returns counts.
+
+### Why this matters
+Missing primitive that makes Bug 20 actually solvable. Without it, deep-narrative work doesn't reduce phase-1 noise — agents do hours of analysis but the dashboard still shows the same noise counts. The user's feature request ("after annotation, re-evaluate open questions") is precisely what Stage 2+3 enable.
+
+### Cross-reference
+- Bug 20: parent. This is the precise data-shape gap preventing propagation.
+- Bug 22: companion fix for segment confirmation (FIXED). This bug is the routine-finding analog.
+- R6 (REQUIREMENTS): question source-tagging — sprint 36 implemented filter, doesn't auto-resolve.
+- R10 (REQUIREMENTS): generated-docs pipeline — same family pattern.
+- Spec 053: phase-1 noise archive infrastructure exists; agent-side data path missing.
+
+---
+
+## Bug 26 — Internal infrastructure files (manifest.json / *_analysis.json / *_annotations.json) leak into user-facing UI views
+
+**Status**: FIXED (Spec 058 — schema field `internal` + auto-classification + view-builder filters + UI toggle)
+
+**Severity**: Medium — UI noise. User sees rows like `analysis/disk/motm/raw_sectors/manifest.json` in the Graphics segment list, in artifact pickers, in recent-activity timelines. These files are infrastructure for the LLM and the UI itself, not artifacts the user is supposed to inspect.
+
+### Live evidence (Murder, screenshot 2026-05-03 11.25.42)
+Graphics tab segment list shows:
+- `sprite_203F` (real graphics segment) — source `analysis/disk/motm/restore-manifest.png`
+- `sprite_203F` again — source `analysis/disk/motm/raw_sectors/manifest.json`
+- `sprite_2232` — source `analysis/disk/motm/raw_sectors/manifest.json`
+
+Manifest.json should never produce segments. It's an internal index file.
+
+### Affected surfaces (suspected)
+- Graphics tab segment listing (graphics-view iterates ALL `analysis-json` artifacts including manifest)
+- Scrub picker
+- Inspector "Linked Artifacts" lists
+- Docs tab (would show *_analysis.json if it had .md extension; not currently but Bug 4 family risk)
+- Recent Activity timeline
+- PerArtifactStatus table
+- **Load Sequence tab** (screenshot 2026-05-03 11.45.39): each PRG appears 3x as separate payloads:
+  - "Murder" (real payload)
+  - "Murder Annotations" (annotations file registered as own entity → WRONG)
+  - "Murder Disasm Rebuild Check" (rebuild-check registered as own entity → WRONG)
+  - Plus same triple for "Ab" and other PRGs.
+  Lineage filter (Bug 24) does NOT collapse these because they are independent entities, not versions. ScrubPanel excludes `role==="rebuild-check"` artifacts but the entity-creation path doesn't apply that filter — entities are minted per registered artifact regardless of role.
+
+### Categorization
+**Internal-only files** (hide from user-facing views, keep in artifacts.json for LLM/UI):
+- `manifest.json`, `*_manifest.json`
+- `*_analysis.json`, `*_annotations.json`, `*_annotations.draft.json`
+- `analysis/runs/*.json` (run-event-logs)
+- `knowledge/*.json` (project-knowledge stores)
+- `session/*.json` (UI session state)
+- `*_RAM_STATE_FACTS.md`, `*_POINTER_TABLE_FACTS.md` (auto-generated reports — debatable; keep as docs but tag internal)
+
+**User-facing files** (always show):
+- `*.prg`, `*.crt`, `*.d64`, `*.g64`
+- `*.asm`, `*.tass`, `*.s`, `*.a65`
+- `*.png` (graphics renders the user inspects)
+- `doc/**`, `*.md` (handwritten docs)
+
+### Expected
+1. Add `internal: boolean` (or `audience: "user"|"llm"|"both"`) field to ArtifactRecord schema.
+2. Auto-classify on register: paths matching the internal patterns above → `internal: true`.
+3. Default UI views filter out `internal: true` artifacts. Toggle "Show internal files" in header (next to "Show all versions") for debug.
+4. Graphics-view: skip manifest.json / non-`*_analysis.json` files when iterating analysis-json artifacts. Only files matching `*_analysis.json` AND containing `segments[]` produce graphics items (already partial — Bug 22/23 fix narrowed by suffix; manifest.json should be additionally filtered by `role`).
+
+### Suggested fix
+- **Stage 1 (quick)**: in `graphics-view.ts`, narrow analysis-json filter to `path.endsWith("_analysis.json")` (exclude `manifest.json` even if registered with role="analysis-json").
+- **Stage 2 (systemic)**:
+  - Schema field `internal: boolean` (or `audience: "user"|"llm"|"both"`) on `ArtifactRecord` + on `EntityRecord` for the entity equivalent.
+  - Auto-classification on register: paths matching internal patterns above OR `role` in `{"annotations", "rebuild-check", "manifest", "analysis-json", "run-event-log"}` → mark `internal: true`.
+  - **Don't auto-create entities** for internal artifacts. Annotations / rebuild-check should stay as artifacts only, never become payload entities. (Fixes the Load Sequence triple.)
+  - Default UI views filter `internal: true` artifacts AND entities. Toggle "Show internal files" in header (next to "Show all versions") for debug.
+  - Server view-builders (`buildLoadSequenceView`, `buildFlowGraphView`, etc.) apply the same filter so the underlying data is clean, not just the UI render.
+
+### Cross-reference
+- Bug 4: doc registration scoping — same family (what's user-facing vs internal).
+- Bug 14: `*_disasm_rebuild_check.prg` filter — precedent for hiding auto-generated artifacts from picker.
+- Bug 24: Show all versions toggle — the new "Show internal files" toggle lives in the same header strip.
+- Bug 23: graphics-view dedupe by path — narrowing the filter to `_analysis.json` suffix here completes the cleanup.
+
+---
+
+## Bug 27 — Sprite analyzer accepts non-64-byte-aligned candidates (e.g. $1601 marked as sprite)
+
+**Status**: FIXED — `pushSpriteCandidate` rejects when `(start & 0x3F) !== 0`. VIC sprite blocks must be at multiples of 64 (sprite pointer × 64 = address).
+
+**Severity**: Low — false-positive sprite candidate. Reported by Mike on a Murder PRG, see screenshot 2026-05-03 11.39.51 ("Needs to be $1600 and not $1601"). Render preview shows the segment as a sprite but it's misaligned by 1 byte.
+
+### Background
+VIC-II sprite pointer at `screen+$3F8 + sprite_index` is an 8-bit value. Resolved sprite block address = `pointer × 64` within the current 16K VIC bank. So sprite blocks ARE always at addresses where `(addr & 0x3F) === 0`. A "sprite" detected at $1601, $1641, or any non-multiple-of-64 is hardware-impossible.
+
+### Expected
+Sprite analyzer rejects candidate whose `start & 0x3F !== 0`. Either drop the candidate entirely, or tighten the segment to the next 64-byte boundary above (`(start + 0x3F) & ~0x3F`) and re-test.
+
+### Suggested fix
+In `pipeline/src/analysis/analyzers/sprite.ts` (or wherever the 64-byte-block heuristic emits candidates):
+- Add a hard filter `if ((candidateStart & 0x3F) !== 0) skip;` at the top of the sprite-candidate emission.
+- Optional: emit a low-confidence "candidate_misaligned" hint at the byte offset for diagnostics.
+
+### Cross-reference
+- Bug 11: sprite analyzer over-eager (kind family — false-positive candidates).
+- Spec 053 / Bug 20: confirmed/rejected segment writeback can clean up the live finding once human marks $1601 rejected.
+
+---
+
+## Bug 28 — Auto-generated hypothesis findings populate `addressRange` only on `evidence[0]`, not top-level → `archive_phase1_noise` matcher fails
+
+**Status**: FIXED — Stage 1 (matcher fallback) + Stage 2 (producer fix in analysis-import + `backfill_finding_address_ranges` migration tool).
+
+**Severity**: High — blocks Bug 25 / R25 / R26 from actually archiving any noise. All upstream fixes work, but matcher rejects every hypothesis candidate because they only have evidence-level addressRange, not top-level.
+
+### Live evidence (Murder project after Bug 25 + R25 + R26 landed)
+```
+import_annotations_as_findings(artifact_id=…02_ab) → Routines: 25
+save_finding(kind="classification", title="Routine: $031A-$0324 fastloader control-block",
+             address_range={start:794, end:804}, tags=["routine","annotation"])
+# → Auto-archive: archived 0 findings, answered 0 questions [scope=project]
+
+archive_phase1_noise(dry_run=false)
+# → Routines scanned: 40   |   Findings archived: 0   |   Questions answered: 0
+```
+
+40 routine-findings exist with valid top-level `addressRange`. Routine side is fine.
+
+But hypothesis findings from `analyze_prg` look like:
+```json
+{
+  "id": "finding-artifact-02-ab-analysis-json-moocv7hh-ram-031a-031a",
+  "kind": "hypothesis",
+  "title": "RAM region 031A behaves like mode_flag",
+  // <-- NO top-level addressRange
+  "evidence": [
+    { "kind": "artifact", "addressRange": { "start": 794, "end": 794 } }   // only here
+  ]
+}
+```
+
+### Root cause
+`service.archivePhase1Noise` matcher requires top-level `f.addressRange`:
+```ts
+const hypothesisCandidates = allFindings.filter((f) =>
+  f.kind === "hypothesis"
+  && f.addressRange !== undefined          // <-- rejects all auto-emitted
+  && f.status !== "archived"
+  && !f.archivedBy
+);
+```
+
+Top-level filter rejects every auto-generated hypothesis (only evidence-level addr). Candidate set empty → 0 archived.
+
+### Expected
+Either:
+1. **Producer fix**: when `analyze_prg` emits hypothesis findings, populate BOTH `f.addressRange` (top-level) AND `f.evidence[i].addressRange`. Bug 25 enabled `save_finding` to do this — apply same in the auto-emitter.
+2. **Matcher fix**: in `archivePhase1Noise`, fall back to `f.evidence[0]?.addressRange` when `f.addressRange` is undefined.
+
+### Suggested fix
+**Stage 1 (matcher fallback)** — cheap, immediately fixes Murder:
+```ts
+function getEffectiveRange(f: FindingRecord): AddressRange | undefined {
+  if (f.addressRange) return f.addressRange;
+  return f.evidence?.find((e) => e.addressRange)?.addressRange;
+}
+const hypothesisCandidates = allFindings.filter((f) =>
+  f.kind === "hypothesis"
+  && getEffectiveRange(f) !== undefined
+  && f.status !== "archived"
+  && !f.archivedBy
+);
+// use getEffectiveRange(candidate) for overlap check
+```
+
+**Stage 2 (producer cleanup)**: populate `addressRange` on hypothesis findings emitted by `analyze_prg`. Migration helper `backfill_finding_address_ranges` for existing data.
+
+### Verification on Murder
+After fix:
+```
+archive_phase1_noise(dry_run=false)
+# Expected: hundreds of "RAM region 031A behaves like..." hypothesis findings
+# archived because effective range $031A falls inside routine "Routine:
+# $031A-$0324 fastloader control-block" (794-804).
+```
+
+### Cross-reference
+- Bug 25 (FIXED): `save_finding.address_range` agent-side. This is the auto-emitter analog.
+- Bug 20: parent — phase-1 noise persists. LAST data-shape gap preventing archive.
+- R25: works correctly (40 routine-findings emitted). Not at fault.
+- R26: works correctly (auto-sweep called after each `save_finding`). Not at fault — sweep just finds 0 candidates due to this bug.
+
+---
+
+## Bug 29 — `auto_resolve_questions` matches by `/\$([0-9A-Fa-f]{4})/` regex but auto-emitted titles have no `$` prefix
+
+**Status**: FIXED — Stage 1 (matcher accepts `addressRange` / `$xxxx` / bare-hex-after-`region|address|at`) + Stage 2 (producer fix in analysis-import + `backfill_question_address_ranges` migration tool).
+
+**Severity**: High — Bug 28 fix archived 453 hypothesis findings on Murder, but `auto_resolve_questions` still answers 0 because the question matcher requires a `$` prefix in the title that the auto-emitter never wrote.
+
+### Live evidence (Murder, after Bug 28 fix + `backfill_finding_address_ranges`)
+```
+backfill_finding_address_ranges → 1187 findings backfilled
+archive_phase1_noise           → 453 findings archived ✓
+auto_resolve_questions          → 0 answered ✗
+```
+
+Question titles look like:
+```json
+{
+  "title": "Validate: RAM region 031A behaves like mode_flag",
+  "addressRange": null,                      // not populated
+  "source": "heuristic-phase1"
+}
+```
+
+But `service.archivePhase1Noise` does:
+```ts
+const titleAddr = q.title.match(/\$([0-9A-Fa-f]{4})/);   // requires $
+if (!titleAddr) continue;
+```
+
+Auto-emitted titles use bare hex (`031A`) without `$`. Regex never matches → `continue` skips every question.
+
+### Expected
+1. **Matcher fix**: extend regex to accept both forms, OR use `q.addressRange` if populated.
+2. **Producer + backfill fix**: extend `analyze_prg` RAM-fact emitter to populate `q.addressRange`. Add `backfill_question_address_ranges` migration tool.
+
+### Suggested fix (cheap, immediate)
+```ts
+function getQuestionAddress(q: OpenQuestionRecord): number | undefined {
+  if (q.addressRange?.start !== undefined) return q.addressRange.start;
+  const dollar = q.title.match(/\$([0-9A-Fa-f]{4})\b/);
+  if (dollar) return parseInt(dollar[1], 16);
+  const labeled = q.title.match(/\b(?:region|address|at)\s+([0-9A-Fa-f]{4})\b/i);
+  if (labeled) return parseInt(labeled[1], 16);
+  return undefined;
+}
+```
+
+### Verification on Murder (post-fix)
+```
+auto_resolve_questions
+# Expected: hundreds answered because $031A falls inside routine "Routine:
+# $031A-$0324 fastloader control-block".
+# Open-question count drops ~570 → ~80.
+```
+
+### Cross-reference
+- Bug 28 (FIXED): hypothesis-finding side. This is the question-side analog.
+- Bug 20: parent. After this + Bug 28, phase-1 noise should be dispatched.
+- R26: works, just finds 0 question candidates due to this bug.
+
+---
+
+## Bug 30 — `saveArtifact` dedupe broken: same path registered N times with separate IDs (Bug 10 deep)
+
+**Status**: FIXED (saver-side, Sprint 52). Migration tool ships; per-project apply pending Sprint 55.
+
+**Severity**: High — corrupts the artifact graph. Drives every UI dedupe + lineage workaround. Root cause for UX2 payloads-tab triplicates and Bug 24 v2 fallback.
+
+### Live evidence (Murder)
+```
+$ jq '[.items[] | .relativePath] | length' knowledge/artifacts.json
+364
+$ jq '[.items[] | .relativePath] | unique | length' knowledge/artifacts.json
+276
+```
+
+→ **88 duplicate registrations**. 16 PRG files are each registered 3x:
+```
+$ jq '.items[] | select(.relativePath == "analysis/disk/motm/01_murder.prg") | {id, role, derivedFrom, lineageRoot, contentHash}' knowledge/artifacts.json
+{ "id": "artifact-01-murder-prg-moocom07", "role": "disasm-target", "derivedFrom": null, "lineageRoot": "artifact-01-murder-prg-moocom07", "versionRank": 0, "contentHash": "4d1908d4..." }
+{ "id": "artifact-01-murder-prg-moocq718", "role": "analysis-target", "derivedFrom": null, "lineageRoot": null, "versionRank": null, "contentHash": null }
+{ "id": "artifact-01-murder-prg-moocqb1y", "role": "disasm-target", "derivedFrom": null, "lineageRoot": null, "versionRank": null, "contentHash": null }
+```
+
+3 IDs, 3 different roles, 2 of 3 have null lineageRoot + contentHash, no derivedFrom links.
+
+### Root cause
+`service.saveArtifact` already has dedupe code:
+```ts
+const existing = input.id
+  ? store.items.find((item) => item.id === input.id)
+  : store.items.find((item) => item.path === absPath);
+```
+
+But callers — `analyze_prg`, `disasm_prg`, `register_existing_files`, `extract_disk` — pass DIFFERENT generated IDs in `input.id` for the same path, so the `input.id` branch always wins and a fresh record is created instead of the path-based dedupe firing.
+
+Plus: the auto-generated id `createId("artifact", input.title)` includes a timestamp suffix, so re-running the same tool produces a new ID each time, bypassing dedupe entirely.
+
+### Expected
+1. **Saver-side**: dedupe should fire by `(absPath, contentHash)` even when `input.id` differs. If existing artifact has the same path AND same content hash (or matching path with no content hash on either side), reuse and update fields instead of creating a new record.
+2. **Caller hygiene**: tools should avoid passing self-generated IDs unless they're stable (e.g., reuse the existing artifact's ID when the file is already known).
+3. **Migration**: `dedupe_artifact_registry()` one-shot tool that collapses same-path artifact rows. Conflict resolution: keep the row with `contentHash` set; merge `sourceArtifactIds`, `entityIds`, `tags`, `loadContexts` from siblings; remap references from removed IDs to the surviving ID across `entities.json`, `findings.json`, `relations.json`, `flows.json`, `tasks.json`, `open-questions.json`.
+
+### Cross-reference
+- Bug 10: parent (general "doppelregistrierung").
+- Bug 24 v2: introduced same-path dedup as Stage 2 of `latestArtifactsByLineage` to mask this in the UI; should become unnecessary once Bug 30 is fixed.
+- UX2: Payloads tab triplication. UI dedupe (Layer C) is interim until this lands.
+
+### Fix (Sprint 52)
+
+`service.saveArtifact` lookup rewritten to path-first. Three-tier matcher:
+1. explicit `input.id` match
+2. same `absPath` (Bug 10 family fix)
+3. same `contentHash` (file moved between paths)
+
+`existing.id` always wins over `input.id` when found via path/hash. `input.derivedFrom` set bypasses path/hash dedup so genuine derivative-mints stay separate.
+
+New helper `service.upsertArtifact()` is the canonical re-discovery entry — alias of `saveArtifact` for caller intent clarity.
+
+New migration tool `dedupe_artifact_registry({dry_run})` collapses legacy duplicates: survivor = oldest `createdAt`, tolerant merge of `sourceArtifactIds` / `entityIds` / `tags` / `evidence` / `loadContexts` / `versions` (union, dedup by content key); references remapped from deprecated ids to survivor ids across entities, findings, relations, flows, tasks, open-questions, including `evidence[].artifactId`, `entity.payloadSourceArtifactId`, `entity.payloadDepackedArtifactId`, `entity.payloadAsmArtifactIds`, `flow.nodes[].artifactId`, task `autoCloseHint.artifactId`, question `autoResolveHint.artifactId`.
+
+Smoke: `scripts/sprint52-smoke.mjs` covers (a) path-dedup overrides synthetic id, (b) hash-dedup catches moved files, (c) `derivedFrom` bypasses, (d) dry-run does not mutate, (e) apply collapses + remaps finding references.
+
+---
+
+## Bug 31 — Payload entity duplicates: load-order import + disk-extract import emit two entities for the same payload
+
+**Status**: FIXED (saver-side, Sprint 53). Migration tool ships; per-project apply pending Sprint 55.
+
+**Severity**: Medium — surfaces as 33 payload rows when there are only ~16 unique payloads. Drives UX2 payloads-tab confusion.
+
+### Live evidence (Murder)
+```
+$ jq '[.items[] | select(.payloadLoadAddress != null) | .name]' knowledge/entities.json
+[
+  "murder", "ab", "riv1", "riv2", "riv3", "riv4", "love",
+  "dad", "dad", "baby", "chr1", "chr2", "chr3", "chr4",
+  "romance", "ingrid",
+  "01_murder", "02_ab", "03_dad", "04_baby", "05_chr1",
+  "06_chr2", "07_chr3", "08_chr4", "09_romance", "10_ingrid",
+  "11_riv1", "12_riv2", "13_riv3", "14_riv4", "15_love", "16_dad",
+  "manifest.json"
+]
+```
+
+16 base names + 16 prefixed names + 1 manifest = 33 entities. Each pair (e.g. `murder` + `01_murder`) refers to the same content from different import paths.
+
+### Root cause
+- **Disk-extract import**: emits payload entities with the file's base name (`murder`).
+- **Load-sequence import**: emits payload entities with the load-order-numeric prefix (`01_murder`).
+- No cross-link: neither import looks up the other's existing entity by `payloadContentHash` or `payloadSourceArtifactId` before creating its own.
+- Plus the spurious `manifest.json` entity (Bug 26 family — manifest registered as a payload by mistake).
+
+### Expected
+1. **Importer hygiene**: before creating a payload entity, look up an existing entity with matching `payloadContentHash` (or matching `(payloadSourceArtifactId, payloadLoadAddress)` when hash absent). On match: enrich the existing entity with the new name as an alias, link via `derivedFrom`, or skip creation entirely depending on import context.
+2. **Schema add**: payload entity gains optional `aliases: string[]` so the load-order numeric prefix is preserved without spawning a sibling entity.
+3. **Manifest filter**: importers must not emit a payload entity for `manifest.json` (catch via `internal` flag or path filter).
+4. **Migration**: `dedupe_payload_entities()` one-shot. Group by `payloadContentHash` then `(payloadSourceArtifactId, payloadLoadAddress)`. Keep base-name entity, fold prefixed-name into `aliases[]`, remap entity-id references in findings / relations / flows / questions / tasks.
+
+### Cross-reference
+- Bug 30: payload entities also point at duplicate artifacts because of the artifact-layer dup. Fix Bug 30 first or together; this bug becomes simpler when each payload has exactly one source artifact id.
+- Bug 26: manifest.json being a payload entity is a Bug 26 leak.
+- UX2: payloads tab cleanup.
+
+### Fix (Sprint 53)
+
+Schema: `EntityRecord.aliases: string[]` (default `[]`).
+
+`saveEntity` payload dedup: when registering a payload-bearing entity (kind=="payload" or `payloadLoadAddress` set) without explicit-id match, look up by `payloadContentHash` (primary) or `(payloadSourceArtifactId, payloadLoadAddress)` (fallback). On match: reuse existing id, fold the new name into `aliases[]`. Survivor name + kind preserved; lists union-merged across calls.
+
+Manifest classification: `saveEntity` already auto-derives `internal` from the primary linked artifact (Bug 26 / Spec 058), so a payload pointing at an internal manifest artifact inherits `internal=true` and stays out of user-facing views.
+
+Migration: `dedupe_payload_entities({dry_run})` MCP tool. Groups payload-bearing entities by hash, then by (source, load). Survivor preference: kind=="payload" first, then earliest `createdAt`. Other names fold into `aliases[]`; manifest-source survivors marked internal. References remap from deprecated entity ids to survivor ids across entities (`relatedEntityIds`, `payloadId`), findings (`entityIds`, `payloadId`), relations (`sourceEntityId`, `targetEntityId`), flows (`entityIds`, `nodes[].entityId`), tasks (`entityIds`), open-questions (`entityIds`, `autoResolveHint.entityId`), artifacts (`entityIds`).
+
+Smoke: `scripts/sprint53-smoke.mjs` covers (a) hash dedup folds alias, (b) source+load fallback, (c) dry-run does not mutate, (d) apply collapses + remaps finding references, (e) manifest-internal classification.
+
+---
+
+## Bug 32 — `archive_phase1_noise` / `auto_resolve_questions` ignore confirmed/rejected segments + propose_annotations "Unknown N-byte block" questions never auto-close
+
+**Status**: FIXED (Sprint 54).
+
+
+
+**Status**: OPEN
+
+**Severity**: Medium-High — 66 static-analysis open questions on Murder remain after Phase 2/3 + Bug 28+29 fixes, even though the underlying ranges have been resolved by `mark_segment_*` calls or visual confirmation.
+
+### Live evidence (Murder, after Bug 28 + Bug 29 fixes + 59 routine-findings imported)
+```
+Open questions: 304   (down from 570)
+Of which source="static-analysis": 66   (= propose_annotations 'Unknown N-byte block at $XXXX-$YYYY')
+```
+
+Sample remaining questions:
+```
+"Unknown 2303-byte block at $5000-$58FE"     // = whole chr2 sprite-bank range
+"Unknown 1062-byte block at $A40F-$A834"     // = love.prg pre-save data area
+"Unknown 1695-byte block at $34E0-$3B7E"     // = riv1 save buffer + script tables
+"Unknown 1031-byte block at $B59F-$B9A5"     // = riv4 fastloader runtime data
+```
+
+All have:
+- `source: "static-analysis"` (emitted by `propose_annotations`, NOT phase-1)
+- `addressRange: null` (no backfill — never linked to a finding with a range)
+- title format "Unknown N-byte block at $XXXX-$YYYY" (range form, not single addr)
+
+### Three independent gaps causing the remaining 66 to stay open
+
+**(a) Range-form titles not parsed**: Bug 29 matcher `/\$([0-9A-Fa-f]{4})\b/` extracts the START address ($XXXX) but does not capture the END ($YYYY). For a routine to "cover" the question, it must span $XXXX–$YYYY entirely — single-address match isn't enough. Matcher needs to extract BOTH ends and check `routine.start <= startAddr && routine.end >= endAddr`.
+
+**(b) Segment-confirmation coverage ignored**: my earlier `mark_segment_rejected` calls (Bug 22 fix) wrote `rejected: true` into the analysis JSON's `segments[]` for known false-positives (chr4 charset $7000-$78EF, ingrid bitmap, drive_t1s0 jump-table). The auto-archive matcher only looks at routine-findings (kind="routine" tag + addressRange). It does NOT consider `segments[].confirmed === true` or `segments[].rejected === true` as coverage.
+
+Conceptually: if I CONFIRMED a region as sprite at $5000-$58FE, then "Unknown 2303-byte block at $5000-$58FE" should auto-close — that range is now classified.
+
+**(c) Per-artifact scope missing**: a question "Unknown N-byte block at $XXXX-$YYYY" is bound to a specific binary (its analysis-JSON artifact). Routines I emit have `artifactIds`. But matcher does intersect-by-address-only, not intersect-by-artifact-AND-address. Cross-file collision risk when files have overlapping address ranges (PRG load addresses overlap on Murder).
+
+### Expected
+1. **Range-form parser**: `getQuestionAddress` returns `{start, end}` not just `start`. Coverer check uses `r.start <= q.start && r.end >= q.end`.
+2. **Segment-confirmation coverage**: `archivePhase1Noise` and `autoResolveQuestions` walk all `*_analysis.json` `segments[]` entries with `confirmed: true || rejected: true`, treat as additional "coverage" entries.
+3. **Per-artifact scope**: when question links to artifact X, coverer must also link to SAME artifact (not just have overlapping address).
+
+### Suggested fix
+```ts
+// (a) Range parser
+function getQuestionRange(q): {start, end} | undefined {
+  if (q.addressRange) return q.addressRange;
+  const range = q.title.match(/\$([0-9A-Fa-f]{4})-\$([0-9A-Fa-f]{4})/);
+  if (range) return { start: parseInt(range[1], 16), end: parseInt(range[2], 16) };
+  const dollar = q.title.match(/\$([0-9A-Fa-f]{4})\b/);
+  if (dollar) { const s = parseInt(dollar[1], 16); return { start: s, end: s }; }
+  return undefined;
+}
+
+// (b) Segment-confirmation coverage
+function getCoverage(allFindings, allAnalysisJsons) {
+  const fromRoutines = allFindings.filter(routinePred).map(f => ({
+    artifactId: f.artifactIds?.[0],
+    addressRange: f.addressRange ?? evidence0Range(f),
+    source: 'routine-finding',
+  }));
+  const fromSegments = allAnalysisJsons.flatMap(j =>
+    (j.segments ?? [])
+      .filter(s => s.confirmed === true || s.rejected === true)
+      .map(s => ({
+        artifactId: j.sourceArtifactIds?.[0],
+        addressRange: { start: s.start, end: s.end },
+        source: 'segment-' + (s.confirmed ? 'confirmed' : 'rejected'),
+      }))
+  );
+  return [...fromRoutines, ...fromSegments];
+}
+
+// (c) Per-artifact scope
+const coverer = coverage.find(c =>
+  c.addressRange
+  && c.addressRange.start <= qRange.start
+  && c.addressRange.end >= qRange.end
+  && (c.artifactId == null || q.artifactIds?.includes(c.artifactId))
+);
+```
+
+### Verification on Murder (post-fix)
+`auto_resolve_questions` should answer ~50 of the 66 (chr2/chr3/chr4/baby/romance/ingrid blocks covered by sprite/bitmap segment confirmations + segment rejections). Remaining ~16 are genuinely-unknown ranges (riv1 script tables, riv4 fastloader data) needing explicit segment annotations.
+
+### Cross-reference
+- Bug 22 (FIXED): segment confirm/reject writeback — populates the data this matcher needs.
+- Bug 28 (FIXED): hypothesis-finding addressRange fallback. Same family, finding-side.
+- Bug 29 (FIXED): question title regex needed `$` prefix. This extends to RANGE-form titles + adds segment-coverage signal.
+- R26 (implemented): closed-loop sweep — more effective once this bug is fixed.
+
+### Fix (Sprint 54)
+
+`archivePhase1Noise` question matcher rewritten with three additions:
+
+1. **Range-form parser**: `questionRange()` returns `{start, end}` (not just `start`). Title patterns: `$XXXX-$YYYY` range form first, then `$XXXX` single-token, then `region|address|at XXXX` legacy form. Top-level `addressRange.end` honoured when present; falls back to `start`.
+2. **Coverage list**: built from BOTH routine-findings AND segment-confirmed/rejected entries read from `*_analysis.json` artifacts. Each coverage entry carries `{artifactId?, range, source, sourceId}`. Segment source IDs are the analysis-json artifact ids; routine source IDs are the finding ids.
+3. **Per-artifact strict intersect**: when both the question and the coverer have an artifact id, they must match. When either side is missing an artifact id, address-only intersect still applies. The `archivePhase1Noise({artifactId})` scope further restricts which analysis JSONs are read so cross-file collisions don't bleed in.
+
+Question source-set extended from `heuristic-phase1` only to `heuristic-phase1` ∪ `static-analysis`, so `propose_annotations` "Unknown N-byte block at $X-$Y" questions close once a routine annotation OR a segment confirmation/rejection covers their range.
+
+Smoke: `scripts/sprint54-smoke.mjs` covers (a) range-form title parsing + addressRange both-ends, (b) segment-confirmed AND segment-rejected coverage, (c) per-artifact strict intersect — A-linked closes, B-linked stays open when only A has coverage; scope arg respected.
+
+
+
+## Bug 33 — Manifest importer never sets `payloadContentHash` + Bug 31 fallback merges unrelated payloads sharing `(srcArtifact, loadAddr)`
+
+**Severity:** high (causes false-merge of distinct payload entities → permanent data loss on apply)
+**Discovered during:** Spec 060 migration dry-run on Murder project (2026-05-03)
+**Status:** FIXED (Sprint 55). Migration safe to apply on Murder after backfill tools run.
+
+### Symptom
+
+Spec-060 migration prompt step 6 (`dedupe_payload_entities(dry_run=true)`) on Murder project returned:
+
+```
+Duplicate groups: 1
+Rows would merge: 3
+Sample (first 1):
+  src+load:artifact-manifest-json-moocmvpu@16384
+    survivor=entity-...-disk-file-1-02_ab-prg (ab)
+    merged=baby, chr1, romance
+```
+
+`ab`, `baby`, `chr1`, `romance` are **four distinct PRGs** with **different content**, all happening to load at $4000 (classic sprite/bitmap bank base). They were imported from the same disk-manifest JSON, so they share `payloadSourceArtifactId`. The dedupe fallback `(srcArt, loadAddr)` collapses them.
+
+Merging would erase `baby`/`chr1`/`romance` entities, fold their refs into `ab`, and lose all per-payload knowledge for three files.
+
+Spec-060 prompt step 6 explicitly says: *"If at any point a dry-run shows an unexpected merge (different content being collapsed under one row), STOP and report. Do not apply the migration without explicit user confirmation."* — so this is the exact case the spec anticipated, but Bug 31 alone cannot be applied safely on any project that imported via manifest.
+
+### Two independent root causes
+
+**(a) Manifest importer — primary defect.** `import_manifest_artifact` (and any other entry-point that registers a `disk-file` / payload entity from a multi-payload container like a disk manifest, CRT chip table, archive listing) does NOT compute or set `payloadContentHash` on the entity. Without the primary key, Bug 31 dedupe falls through to the (srcArt, loadAddr) heuristic immediately for every manifest-sourced payload.
+
+**(b) Bug 31 fallback discriminator too loose.** The fallback key `(payloadSourceArtifactId, payloadLoadAddress)` treats the source artifact as a 1:1 reference. For an *aggregator* artifact (manifest, CRT, archive), the same srcArt legitimately backs N payloads. As soon as two of those N share a load address, fallback false-merges them.
+
+### Fix vectors (both should ship)
+
+**Fix A — manifest importer fills `payloadContentHash`** (new bug-fix sprint):
+
+1. In `import_manifest_artifact` (and any sibling importer that mints multiple payload entities from one container), for each payload entry:
+   - Resolve to actual file bytes (path is in the manifest entry).
+   - Compute SHA-256 (or whatever hash convention the project uses for `payloadContentHash` elsewhere).
+   - Set `entity.payloadContentHash` before persisting.
+2. Add `backfill_payload_content_hashes()` MCP tool for legacy projects: walks all payload-bearing entities with `payloadContentHash == null`, resolves `payloadSourceArtifactId` → file path → bytes → hash → write back. Idempotent. Supports `dry_run`.
+3. After backfill on Murder, all 16 disk-file entities have unique content hashes → Bug 31 primary key matches one-to-one (no merges) or matches genuine duplicates (across `01_murder` and `murder` aliases, which is the intended Spec-060 collapse).
+
+**Fix B — Bug 31 fallback tightened** (Bug 31 follow-up):
+
+Change fallback key from `(payloadSourceArtifactId, payloadLoadAddress)` to `(payloadSourceArtifactId, payloadLoadAddress, name)` — i.e., still allow the alias-collapse case (`01_murder` and `murder` share name-stem `murder` once load-order prefix is stripped, OR they pass name-equality via the prefix-strip rule already used elsewhere), but block the cross-payload collision case where the names are genuinely different (`ab` vs `baby` vs `chr1` vs `romance`).
+
+Pseudo-code:
+
+```ts
+function nameStem(name: string): string {
+  // strip leading "NN_" load-order prefix ("01_murder" → "murder")
+  return name.replace(/^\d+_/, '');
+}
+
+const fallbackKey = (e: Entity): string =>
+  `src+load+name:${e.payloadSourceArtifactId}@${e.payloadLoadAddress}#${nameStem(e.name)}`;
+```
+
+OR add an `aggregator: true` flag on artifacts that legitimately back N>1 payloads (manifests, CRTs) and refuse the fallback entirely when srcArt is an aggregator. Discriminator-on-name is simpler and catches all observed cases.
+
+### Verification on Murder (post-fix)
+
+Expected after Fix A + B applied + `backfill_payload_content_hashes` + `dedupe_payload_entities(dry_run=true)`:
+
+- 16 disk-file entities (no-prefix `murder`/`ab`/`riv1`/...) get content hashes.
+- 17 payload entities (prefixed `01_murder`/`02_ab`/...) already have hashes from `analyze_prg`.
+- Pairs like `murder` ↔ `01_murder` collapse via primary-key hash match (both pointing at the same file bytes, just registered twice — exact case Spec 060 wants merged).
+- `ab` ↔ `baby` ↔ `chr1` ↔ `romance` stay separate (different hashes, OR if hashes still null, name-discriminator blocks them).
+
+Final survivor count should drop from 33 to ~16 (one per actual PRG file).
+
+### Cross-reference
+
+- Spec 060 — canonical payload flow: defines `payloadContentHash` as the PRIMARY dedupe key; this bug is the implementation gap that prevents the spec from working end-to-end.
+- Bug 31 — payload entity dedupe (already fixed): provides the dedupe machinery; this bug is the followup tightening.
+- Bug 30 — artifact registry dedupe (already fixed): the artifact side cleaned up correctly on Murder dry-run (54 path-groups, 88 rows merge, 276 survivors); only the payload side blocks.
+
+### Fix (Sprint 55)
+
+**Fix A — manifest importer + backfill tools:**
+
+`importManifestKnowledge` now computes `payloadContentHash` per disk-file entry by hashing the file bytes (`relativePath` resolved against manifest's directory). The hash propagates through `saveEntity` so dedup primary-key matching works end-to-end for new imports. `sha256OfFile` exported from `service.ts` for shared use.
+
+Two backfill tools for legacy projects:
+
+- `backfill_payload_content_hashes` — walks payload-bearing entities with `payloadContentHash == null` whose `payloadSourceArtifactId` points at a directly-linked file (NOT a manifest), reads file bytes, sha256, writes back. Skips manifest-sourced entities (those need the second tool).
+- `backfill_manifest_payload_hashes` — walks artifacts of `kind == "manifest"`, re-parses each via `importManifestKnowledge`, and for every imported entity that already exists (matched by stable id), copies the freshly-computed hash into the legacy entity record.
+
+Both tools support `dry_run`, are idempotent, and report counts + 10-row samples.
+
+**Fix B — aggregator skip in dedup fallback:**
+
+`saveEntity` payload-dedup and `dedupePayloadEntities` migration both check `srcArt.kind === "manifest"` before falling back to `(payloadSourceArtifactId, payloadLoadAddress)` matching. When the source is an aggregator, the fallback is refused — the hash primary key is the only allowed matcher. Prevents false-merge of distinct PRGs that happen to share a load address (e.g. `ab`, `baby`, `chr1`, `romance` all loading at $4000 in Murder's manifest).
+
+The migration `dedupePayloadEntities` puts aggregator-sourced entities without hashes into solo-key buckets so they pass through untouched.
+
+**Murder migration order (post-fix):**
+
+1. `dedupe_artifact_registry()` — artifact layer (already safe).
+2. `backfill_payload_content_hashes()` — direct-linked PRG entities.
+3. `backfill_manifest_payload_hashes()` — manifest-sourced disk-file entities.
+4. `dedupe_payload_entities(dry_run=true)` — should now show only same-hash collapses (`murder` ↔ `01_murder`), no cross-payload false-merges.
+5. `dedupe_payload_entities()` — apply.
+
+Smoke: `scripts/sprint55-smoke.mjs` covers (a) aggregator-skip prevents false-merge, (b) manifest-import populates hash with sha256 of file bytes, (c) `backfill_payload_content_hashes` direct flow + dry-run, (d) `backfill_manifest_payload_hashes` re-parse flow + dry-run.
+
+---
+
+## Bug 34 — Legacy artifacts / entities lack `internal` flag → annotations leak into Load Sequence flow graph
+
+**Severity:** medium (UI clutter; misleading load-order arrows like `01 Murder → 01 Murder Annotations → 02 AB`).
+**Discovered during:** Sprint 56 verification on Murder, screenshot 2026-05-03 14.12.56 — Flow Graph tab → Load sub-mode shows annotation JSONs as load stages.
+**Status:** FIXED (Sprint 58).
+
+### Root cause
+
+Bug 26 / Spec 058 introduced auto-classification of `internal` on `saveArtifact` / `saveEntity`. Existing records (created before the schema field landed) keep `internal === undefined`. View-builders only filtered `artifact.internal === true` strict, so legacy records leaked through and annotations showed up alongside real payloads.
+
+### Fix (Sprint 58)
+
+**View-builder side (immediate UI fix):**
+
+`isInternalArtifactWithFallback` + `isInternalEntityWithFallback` helpers in `view-builders.ts` apply the same heuristic that `saveArtifact` uses (`classifyArtifactInternal` from `service.ts`) when `internal` is undefined. Used in:
+- `buildLoadSequenceView` (drove the bug)
+- `buildStructureFlowMode` (entity-side fallback uses primary linked artifact's flag)
+- `buildAnnotatedListingView` (same)
+
+**Migration tool (permanent cleanup):**
+
+`backfill_internal_flags({dry_run})` MCP tool walks artifacts + entities, runs the heuristic on records with `internal === undefined`, writes `internal: true` where it matches. Entity classification uses the (just-updated) artifact map so a single dry-run + apply suffices. Idempotent.
+
+Smoke at `scripts/sprint58-smoke.mjs` covers dry-run preservation + apply + idempotency + entity-from-artifact inheritance.
+
+## Bug 35 — `IntegratedSession.status().c64.instructions` always 0 in lockstep mode
+
+**Severity:** low (cosmetic; affects diagnostic JSON `instructionsExecuted` field).
+**Discovered during:** Sprint 93 / Spec 093 implementation, smoke run `npm run headless:mm:g64-debug` 2026-05-03.
+**Status:** open.
+
+### Symptom
+
+When `useCycleLockstep=true` (forced for G64 sessions per Spec 093), the cycle-lockstep scheduler advances peripherals via `runInstructions(1)` but does not increment `IntegratedSession.c64InstructionCount`. `status().c64.instructions` therefore stays 0 forever, which makes `diagnoseMm()`'s `instructionsExecuted` always read 0 in lockstep runs.
+
+### Fix
+
+Either (a) wire `c64InstructionCount += 1` inside the scheduler's per-instruction step, or (b) compute it from `cyclesExecuted / averageCyclesPerInstr` for diagnostic purposes only. Option (a) is cleaner. Touch points: `src/runtime/headless/integrated-session.ts:stepC64Instruction` scheduler branch + `scheduler/cycle-lockstep-scheduler.ts:runInstructions`.
+
+## Bug 36 — Microcoded `Cpu6510Cycled` indy/indx STA used wrong effective address (KERNAL boot broken)
+
+**Severity:** critical (made microcoded CPU mode unusable — KERNAL never finished cold reset).
+**Discovered during:** Sprint 93.1 typing-path debug 2026-05-03.
+**Status:** FIXED (Sprint 93.1, commit pending).
+
+### Symptom
+
+In `useMicrocodedCpu=true` mode, KERNAL cold reset never completed. Observable state:
+- `$01` stuck at `$26` instead of `$37` (BASIC ROM disabled).
+- IRQ vector `$0314/$0315 = $0000` (RESTOR vector copy never ran).
+- IRQ trampoline at `$FF48-$FF55` looped forever via `JMP ($0314) → $0000 → BRK → $FFFE → $FF48`.
+- BASIC banner / `READY.` never appeared on screen RAM.
+- All keyboard typing dead because SCNKEY never executed.
+
+Legacy CPU mode worked fine. Divergence first instruction: `$FD77` during RAMTAS.
+
+### Root cause
+
+Two coupled bugs in `src/runtime/headless/cpu/cpu6510-cycled.ts`:
+
+1. `fetch_zp_lo` micro-op never set `s.indPtr`. For indirect-Y addressing, the pattern is `fetch_opcode → fetch_zp_lo → fetch_ind_lo → fetch_ind_hi → read_ea_pgy` — there is no intervening `dummy_zp` (which is what set `indPtr` for indirect-X). Result: `fetch_ind_lo` always read from `$0000`, returning whatever happened to be there.
+
+2. `executeStore` re-derived the effective address itself, treating `s.operandLo` as the zero-page pointer. By the time the store executed, `operandLo` had been overwritten by the `fetch_ind_lo` micro-op with the indirect-low byte. The recomputed EA was therefore `mem[indirect_low] | (mem[(indirect_low + 1) & 0xff] << 8)` — completely wrong.
+
+Both bugs combined corrupted RAMTAS at `STA ($C1),Y` / `CMP ($C1),Y`: the store landed at the wrong address, the compare fetched the wrong byte, RAMTAS bailed out early, and KERNAL fell through into a degraded init path that never ran RESTOR.
+
+### Fix
+
+`fetch_zp_lo` now sets `s.indPtr = s.operandLo & 0xff`. (For indirect-X, `dummy_zp` later overwrites with `(operandLo + X) & 0xff`.) `executeStore` no longer recomputes — it writes to `s.ea` which is already correctly set by the preceding micro-ops (`dummy_zp` / `dummy_addr` / `fetch_ind_hi`).
+
+Verified by `scripts/sprint93-divergence.mjs`: legacy and microcoded CPUs now agree on PC for at least 50 000 instructions. `scripts/sprint93-1-smoke.mjs` shows microcoded mode now produces a fully booted BASIC banner + `READY.` prompt + scancode-level keyboard detection.
+
+## Bug 39 — Headless `LOAD"*",8,1` returns `?DEVICE NOT PRESENT` despite drive wired up — IEC bit-bang catastrophic bit-skip
+
+**Severity:** **CATASTROPHIC** (blocks every disk-loader game including MM, Murder, Last Ninja, IM2 — drive sees random / shifted bytes for ATN, LISTEN, SECOND, NAME, byte transfers, ACK; nothing in IEC protocol works).
+**Discovered during:** Sprint 95 typing-path verification 2026-05-04.
+**Status:** open — Sprint 96 narrowed root cause but not yet fixed.
+
+### Why this matters
+
+Earlier framing called the bit-skip "not catastrophic" — that was wrong.
+Every byte over IEC depends on every bit landing on the right CLK
+edge. Drive misreading even one bit per byte means:
+
+- LISTEN command byte → drive ID mismatch → drive ignores all
+  subsequent bytes for this transfer.
+- SECONDARY (open/load/save channel) byte → drive opens wrong
+  channel or rejects.
+- NAME bytes → drive looks up garbage filename → file-not-found.
+- LOAD payload bytes → bytes loaded into RAM are corrupted →
+  BASIC `?LOAD ERROR` or game crashes immediately.
+- Drive ACK byte to C64 (after each frame) → KERNAL sees wrong
+  status → bails to error path.
+
+So this single bug closes off **all** disk loading, not just
+custom fastloaders. Sprint 96 is gating MM (and every other
+disk-based acceptance test) at this single failure mode.
+
+### Symptom
+
+Headless integrated session, microcoded + lockstep, real KERNAL ROM.
+After cold reset + warm + `typeText("LOAD\"*\",8,1\r")`, KERNAL
+prints `SEARCHING FOR .` then `?DEVICE NOT PRESENT  ERROR`. KERNAL's
+ATN-LISTEN exchange to drive 8 timed out: drive ROM did not pull
+DATA low within the spec window.
+
+### Likely causes (next-session candidates)
+
+1. Drive ROM not initialised by the time LOAD starts — drive sits in
+   reset / has not yet entered idle loop at $EBFF.
+2. ATN edge from C64 not detected by drive VIA1 CA1 (was the Sprint
+   66 hack that pokes `$7C = $80`).
+3. Drive PB4 ATN-ACK polarity wrong — drive sees ATN, tries to ACK,
+   but bus does not register.
+4. Cycle ratio off enough that drive's ATN-handler runs too late.
+5. KERNAL serial-trap masking the real path even when traps are off.
+
+### Next step
+
+Use `scripts/dump-headless-trace.mjs` to capture the LOAD path; pull
+the matching VICE trace section (autostart serial); diff cycle-by-
+cycle around the first ATN edge (`STA $DD00` with bit 3 cleared in
+PA latch) until first divergence. This is the productive Sprint 93.2
+direction now that typing works.
+
+### Sprint 93.2 trap-vs-bit-bang split (2026-05-04)
+
+`scripts/sprint93-bug39.mjs` instrumented LOAD path. Findings:
+
+- Drive ROM is running (final drive PC bouncing in $EBFF-$EC4D
+  idle loop, exactly where it should sit awaiting next command).
+- ATN exchange completes the handshake outline: C64 pulls
+  ATN+CLK low, bit-bangs LISTEN command byte at cyc≈4_742_639,
+  releases ATN at cyc=4_744_147, drive responds with brief
+  DATA pull at cyc=4_744_594 (drive cycles ATN-handler
+  acknowledged). Drive `drvAtnAck` toggles correctly per the
+  Spec 081 PB4 fix.
+- After ATN release, the byte transfer fails to complete (drive
+  never pulls CLK low to indicate it is ready for next byte;
+  KERNAL times out → `?DEVICE NOT PRESENT`).
+- Same disk + same `typeText("LOAD\"*\",8,1\\r")` with KERNAL
+  traps enabled (`enableKernalSerialTraps + enableKernalIoTraps
+  + enableKernalFileIoTraps`) succeeds: screen clears, BASIC RUN
+  takes off (PC=$B4A0). So the trap-based loader path is intact;
+  only the real-serial bit-bang path is broken.
+
+Likely root cause: ATN/CLK/DATA edge timing not arriving at the
+drive at the cycles where 1541 ROM expects them. Either CIA1 or
+VIA1 timer not matching the bit-bang clock, or the cycle-ratio
+drift between scheduler and drive eats handshake bits.
+
+Sprint 96 candidate: bit-by-bit trace of first byte transfer in
+microcoded mode vs VICE bit-bang trace; fix whichever cycle-edge
+is off.
+
+### Sprint 96 progress (2026-05-04)
+
+Two related findings:
+
+1. **Scheduler cycle drift (root-cause likely)**. The microcoded
+   CPU's `executeCycle` calls bump `this.cycles` by more than 1 on
+   IRQ service (`this.cycles += 7`), branch taken / page-cross
+   (`this.cycles += 1`), and absx/absy/indy page-cross
+   (`this.cycles += 1`). The cycle-lockstep scheduler however
+   ticked peripherals + drive exactly once per `executeCycle`
+   call. Result: when CPU bursts cycles for an IRQ service or a
+   branch page-cross, peripherals + drive do NOT advance with it.
+   Over a few thousand instructions this causes substantial
+   wall-clock drift between CPU and drive — fatal for IEC
+   bit-bang where the drive needs to sample DATA at very specific
+   wall-clock cycles.
+
+   **Fix**: scheduler now reads `cpuCycleCounter()` before and
+   after the CPU step, and ticks the rest of the C64 components +
+   drive by the (cpuAfter - cpuBefore) delta instead of by 1. So a
+   7-cycle IRQ service now advances every other component by 7
+   too. Wired in `IntegratedSession` constructor for the
+   microcoded path. CPU equivalence harness still passes
+   (1880/1880, 0 divergences).
+
+2. **Drive byte interpretation still wrong**. Even after the
+   scheduler fix, the drive's `$77` reads `$2B` while KERNAL is
+   sending `$28` (LISTEN device 8). The bus-level bit-bang trace
+   shows DATA + CLK transitions arriving at the drive in the
+   correct order; drive's ATN handler runs (`drvAtnAck` toggles
+   correctly); but drive's `$79` (listener flag) never sets, so
+   drive ignores the LISTEN byte and goes back to idle. KERNAL
+   times out → `?DEVICE NOT PRESENT`.
+
+   Probably either (a) drive samples DATA on the wrong CLK edge
+   in our model, (b) bit-bang setup-time falls inside our drive's
+   debounce window, or (c) an off-by-one in the IEC trace
+   timestamps that masks the real edge sequence.
+
+   Resolution requires: 1541 ROM walk through ACPTR ($E9C9 area),
+   exact per-bit comparison vs a VICE bit-bang trace, fix to
+   whichever edge is off.
+
+### Sprint 96 progress part 2 (2026-05-04 cont.)
+
+3. **Drive ID jumper polarity inverted** (root cause #2). Headless
+   `IecBus.buildDrivePbInputBits` set PB5+PB6 HIGH for device 8.
+   Real 1541 schematic: J1, J2 are PCB traces; UNCUT trace
+   grounds the PB pin (bit reads 0). Default device 8 = both
+   uncut = both PB bits LOW. With the inverted polarity, the
+   1541 ROM jumper-decode routine at $EB3A computed
+   `$77 = $20 + 11 = $2B` — drive thought it was device 11.
+   KERNAL's LISTEN $28 then never matched and the drive ignored
+   every LOAD. Fix in `iec-bus.ts:buildDrivePbInputBits`
+   (Sprint 96 commit). After fix, drive RAM `$77 = $28` for
+   device 8 as expected.
+
+4. **Drive enters ACPTR but listener flag $79 still 0**. After
+   the jumper fix, drive PC trace shows: ATN handler entry
+   ($E853 → $E85B), DATA-ACK release ($E876 ORA #$10), wait
+   for CLK release ($E87B-$E882) → exits when C64 releases CLK,
+   ACPTR routine ($E9C9) — bit-by-bit receive loop iterating
+   $E9C0-$EA62 (~250 drive cycles per bit). But after the byte
+   transfer drive's `$79` (listener-active) is still 0 and `$7C`
+   (ATN flag) still `$80`. Drive either reads wrong byte from
+   ACPTR or hits EOI / timeout path. Resolution still needs
+   per-bit ACPTR walk vs VICE.
+
+### Sprint 96 progress part 3 (2026-05-04 cont.)
+
+5. **Drive samples wrong bit values during ACPTR**. Per-iteration
+   probe of `ROR $85` at `$EA18` shows drive's `$85` byte being
+   assembled with WRONG carry bits.
+
+   Probe of first 5 ROR hits during LISTEN $28 receive
+   (`scripts/sprint96-byte85.mjs`):
+   - Expected bit values (LSB first for `$28` = `0010_1000`):
+     `0, 0, 0, 1, 0, 1, 0, 0`
+   - Observed `$85` after 5 RORs = `$A0` (`1010_0000`)
+   - Decoded: drive received `0, 0, 1, 0, 1` for the first 5 bits
+   - Bits 2 and 4 are flipped from expected.
+
+   Drive's bit-receive loop at `$EA0B-$EA13` waits for CLK to go
+   high (released by C64), then samples DATA. The fact that
+   *some* bits arrive correctly and others don't means the
+   wall-clock alignment between C64's per-bit DATA setup and the
+   drive's $1800 read is off — almost certainly a CIA1 timer or
+   instruction-cycle delta issue in the headless model that
+   shifts the sampling edge by a few µs relative to spec.
+
+   Resolution path:
+   - Profile actual cycle gap (DATA setup → drive sample) in
+     headless and compare to the spec window (~30 µs setup).
+   - Verify CIA1 timer A cycles match real PAL 985.248 kHz.
+   - Likely fix is in CIA1 timer underflow handling or in our
+     remaining `this.cycles += N` paths inside Cpu6510Cycled.
+
+### Sprint 96 progress part 4 (2026-05-04 cont.)
+
+6. **Drive misses bits — sample interval too slow**.
+   `scripts/sprint96-bit-edge.mjs` probes drive's `$1800` read
+   at PC `$EA0B` at each bit-count decrement.
+
+   Observed sample timing for LISTEN $28 byte:
+   - bit 0 sampled at c64Cyc 4607093 (DATA=0 → 0 ✓)
+   - bit 1 sampled at c64Cyc 4607195 (Δ=102 cyc, DATA=0 → 0 ✓)
+   - bit 2 enter wait at c64Cyc 4607297 (CLK=0)
+   - bit 2 sampled at c64Cyc 4607483 (Δ=288 cyc from bit 1 sample,
+     DATA=1 → 1 — but KERNAL bit 2 was 0)
+
+   Drive's bit-loop ($EA0B-$EA22, ~11 c64 cycles per iteration)
+   should match KERNAL's per-bit cycle (~80 c64 cyc with the 4
+   NOPs). 102-cyc gap for bits 0→1 is plausible. The 288-cyc gap
+   for bit 1→2 means drive MISSED ONE KERNAL bit cycle.
+   Reconstructing drive's bit sequence (`0,0,1,0,1`) vs KERNAL's
+   first 5 bits of $28 (`0,0,0,1,0`): drive's c2..c4 align with
+   KERNAL's bits 3,4,5 — drive skipped exactly one bit.
+
+   Hypothesis: cycle-stepped drive CPU's actual instruction
+   timing is slightly slower than real 1541 (or our `delta`
+   accounting still has a one-cycle hole somewhere) so drive's
+   $EA0B-$EA22 wait loop occasionally misses a CLK-high window.
+   Each missed window → bit skip → byte interpretation shifted
+   → no listener-target match → drive ignores LOAD.
+
+   Resolution path: instrument drive cycle deltas across $EA0B
+   loop iterations; verify drive instruction cycles match real
+   1541 spec; likely fix is in drive cpu cycle accounting (the
+   drive uses the legacy Cpu6510 path, not microcoded — so any
+   drift there is independent of the microcoded fixes).
+
+### Sprint 96 detailed analysis + next-session handoff (2026-05-04 EOD)
+
+External review / second opinion:
+`docs/bug39-external-review.md`.
+
+**Confirmed sequence of facts (all empirically verified tonight):**
+
+1. Microcoded CPU is correct at instruction level (Sprint 94: 1880
+   cases, 0 divergences vs legacy Cpu6510 across all documented
+   opcodes + stable illegals × 8 seeds, BCD on/off).
+2. Scheduler `cpuCycleCounter` delta tick (Sprint 96 part 1) keeps
+   c64 peripherals + drive in sync when CPU bursts cycles for IRQ
+   / branch / page-cross. Verified: typing still works, equivalence
+   harness still passes after the fix.
+3. Drive ID jumper polarity (Sprint 96 part 2) was inverted; fixed.
+   Drive's `$77` now reads `$28` (correct LISTEN target for dev 8).
+4. Drive ATN handler runs end-to-end after the jumper fix:
+   `$E853 → $E85B init → $E876 ORA #$10 STA $1800` (DATA-ACK
+   release) → `$E87B-$E882` wait-for-CLK-release loop → `$E9C9`
+   ACPTR byte-receive routine.
+5. Drive's `drvAtnAck` toggles correctly per the Sprint 81 PB4 fix
+   (drive's ATN-handler successfully releases the auto-pull on
+   DATA after seeing ATN).
+6. Drive enters ACPTR bit-loop (`$E9C9` / `$EA0B-$EA22`).
+7. **The byte that lands in `$85` after 5 RORs is `$A0`.** Decoded
+   bits c0..c4 = `0, 0, 1, 0, 1`. Expected for KERNAL's LISTEN
+   `$28` LSB-first: `0, 0, 0, 1, 0, 1, ...`.
+8. Reconstructing the alignment: drive's c0,c1 match KERNAL's
+   bit 0,1; drive's c2 matches KERNAL's bit 3; drive's c3 matches
+   KERNAL's bit 4; drive's c4 matches KERNAL's bit 5. **Drive
+   skipped exactly one KERNAL bit between c1 and c2.**
+9. Cycle gaps observed: bit 0→1 sample = 102 c64 cyc (plausible);
+   bit 1→2 sample = 288 c64 cyc (one full KERNAL bit cycle missed).
+10. Drive's per-bit-loop iteration (`$EA0B → $EA13 BNE $EA0B`) is
+    ~11 c64 cyc (5 instructions). KERNAL's CLK-released window per
+    bit is ~22 c64 cyc (4 NOPs + a few bus accesses). Drive should
+    see the rising edge within 1-2 iterations.
+
+**Why the bit skip happens (current best hypothesis):**
+
+Drive cpu (legacy Cpu6510) is wrapped in `DriveCpuCycled` which
+runs ONE instruction per drive cycle "owed" — see
+`scheduler/cycle-wrappers.ts:75-93`:
+
+```ts
+executeCycle(): void {
+  if (this.cyclesOwed === 0) {
+    // IRQ check before instruction
+    ...
+    const before = this.drive.cpu.cycles;
+    this.drive.cpu.step();
+    const consumed = this.drive.cpu.cycles - before;
+    this.cyclesOwed = Math.max(0, consumed - 1);
+  } else {
+    this.cyclesOwed--;
+  }
+}
+```
+
+Drive's `$EA0B` (LDA $1800) bus access happens at the FIRST
+drive-cycle of the LDA instruction (in the legacy Cpu6510 step()
+all bus accesses happen at instruction start, not sub-cycle). So
+the read returns the IEC state at that ONE drive cycle. The next
+4 cycles drive "burns" idle (cyclesOwed counts down).
+
+So drive samples DATA every ~5 drive cycles (one instruction).
+Iteration loop: LDA(4) + EOR(2) + LSR(2) + AND(2) + BNE(3) = 13
+cycles. Each cycle drive checks DATA but only LDA latches the
+value used for the carry decision.
+
+KERNAL releases CLK for ~22 cyc, then pulls CLK back. If drive's
+LDA $1800 fires DURING that 22-cyc window, drive sees CLK high +
+correct DATA bit. If LDA fires OUTSIDE that window, drive sees
+CLK low → loops one more iteration (13 cyc) → checks again. By
+that time CLK has moved to next bit's setup phase.
+
+A subtle drift between drive's loop iteration period (13 cyc)
+and KERNAL's bit period (~80 cyc) means drive sometimes catches
+the rising edge late or misses it entirely. Once drive misses
+ONE bit, every subsequent bit-decode is shifted → byte garbage →
+no LISTEN match → drive ignores everything.
+
+**Concrete next-session work:**
+
+A. Instrument drive's `$EA0B` reads with EVERY iteration logged
+   (not just per `bitCount` decrement). Capture the precise
+   cycle gap between each $EA0B read and KERNAL's preceding
+   `STA $DD00` write. This shows whether the rising-edge window
+   is genuinely visible or whether drive is reading just before
+   / after.
+
+B. Compare against a real VICE bit-bang trace of the same LISTEN
+   $28 transfer. VICE's drive ACPTR sees the same KERNAL bit-bang
+   correctly — diffing the two will show the exact cycle-edge
+   misalignment in our drive cpu wrapper or IEC bus model.
+
+C. Audit the `Cpu6510.step()` legacy path's bus-access timing.
+   The legacy CPU does ALL bus accesses at instruction start
+   (one chunk per `step()`). Real 6502 reads happen at specific
+   sub-instruction cycles. For drive's `LDA $1800` (4 cycles),
+   real 6502 reads $1800 on cycle 3 (after fetch_opcode + addr
+   decode + dummy). Our legacy CPU reads at cycle 0. **3-cycle
+   timing offset on every drive bus access.** Multiplied across
+   the bit-loop, this could easily produce the observed 1-bit
+   skip.
+
+D. **Most promising fix path**: convert the drive CPU to use
+   `Cpu6510Cycled` (the same microcoded CPU we use for c64) so
+   drive bus accesses also land on the correct sub-instruction
+   cycle. This requires verifying microcoded cpu works in drive
+   environment (no KERNAL ROM, different memory map, no $00/$01
+   port). Lower-effort alternative: keep legacy drive CPU but
+   adjust the wrapper to delay the bus access by N drive cycles
+   to match where it would happen on real 6502.
+
+E. Verify CIA1 timer A on the C64 side ticks at exactly 985.248
+   kHz wall-clock. If KERNAL's bit-bang uses CIA timer for the
+   inter-bit delay (instead of NOPs), CIA timer drift would also
+   produce the symptom. Quick check: read $DC04/$DC05 timer A
+   value at start vs end of a known-duration loop, see if it
+   matches expected count.
+
+F. Side-quest: re-test Bug 36 / executeStore fix specifically for
+   indy on the drive CPU side too (drive ROM uses LDA ($f5),Y
+   heavily during ACPTR). The legacy Cpu6510 should handle indy
+   correctly since equivalence test passes, but worth a sanity
+   check given how confused the bit-receive is.
+
+**Sprint 96 acceptance test for next session:**
+
+`scripts/sprint96-bit-edge.mjs` should show drive sampling all
+8 bits of LISTEN $28 with correct DATA values (`0,0,0,1,0,1,0,0`).
+`$85` after the 8th ROR should equal `$28`. Drive's `$79` should
+become 1 (listener mode active). KERNAL should NOT print
+`?DEVICE NOT PRESENT`.
+
+If we can also see drive accept the SECONDARY byte ($F0 for OPEN
+write-with-name) and the NAME byte ($2A for "*"), then LOAD will
+actually start serving file bytes and Sprint 96 closes Bug 39.
+
+**Files to read/touch next session:**
+
+- `src/runtime/headless/cpu6510.ts` — legacy CPU step() — verify
+  bus access cycle positioning (option C/D).
+- `src/runtime/headless/scheduler/cycle-wrappers.ts:75-93` —
+  `DriveCpuCycled.executeCycle` — possibly insert a sub-cycle
+  delay or rework to use microcoded CPU.
+- `src/runtime/headless/cpu/cpu6510-cycled.ts` — would need a
+  bus-only mode (no $00/$01 CPU port) to be reusable for drive.
+- `src/runtime/headless/drive/drive-cpu.ts` — drive cpu setup;
+  this is where we'd swap the cpu implementation.
+- `scripts/sprint96-bit-edge.mjs` — the smoking-gun probe.
+- 1541 ROM `$E9C9-$EA70` — ACPTR routine (already disassembled
+  above in this section).
+- KERNAL ROM `$ED60-$ED90` — ISOUR bit-send routine (already
+  disassembled above).
+
+**Files NOT to touch (proven correct tonight):**
+
+- `src/runtime/headless/cpu/cpu6510-cycled.ts` instruction
+  semantics (1880/1880 equivalence).
+- `src/runtime/headless/iec/iec-bus.ts` jumper polarity
+  (Sprint 96 part 2 fix verified — `$77 = $28`).
+- `src/runtime/headless/scheduler/cycle-lockstep-scheduler.ts`
+  delta-tick logic (Sprint 96 part 1 fix verified — typing +
+  equivalence still pass).
+- `src/runtime/headless/peripherals/keyboard.ts` matrix
+  orientation (Sprint 95 fix — typing produces L/I/S/T/RETURN
+  correctly).
+
+### Sprint 96 progress part 5 (2026-05-04 cont.) — read-site probe
+
+Per external review (`docs/bug39-external-review.md`): added
+**direct $1800 read-site probe** at `DriveBus.read()` via
+script-side monkey-patch. `scripts/sprint96-via1-readsite.mjs`
+records every drive `$1800` access during ACPTR with full state
+(c64+drive cycle, drive PC/regs, $77/$79/$85/$98, IEC line state,
+last `$DD00` write + cycle distance).
+
+**New empirical data (corrected polarity from KERNAL ISOUR docs:
+DD00 bit5=0 → DATA released → bit "1" sent):**
+
+Drive latched 6 bits during ACPTR with bit-period c64-cycle
+gaps: 101, 102, **185**, 102, **188**, _stall_:
+
+| Bit | $98 | dd00 | bit5 | C64 sent | drive carry | gap (cyc) |
+|-----|-----|------|------|----------|-------------|-----------|
+| 1   | 8   | $2F  | 1    | "0"      | 0           | —         |
+| 2   | 7   | $2F  | 1    | "0"      | 0           | 101       |
+| 3   | 6   | $2F  | 1    | "0"      | 0           | 102       |
+| 4   | 5   | $2F  | 1    | "0"      | 0           | **185**   |
+| 5   | 4   | $8F  | 0    | "1"      | 1           | 102       |
+| 6   | 3   | $2F  | 1    | "0"      | 0           | **188**   |
+| 7   | 2   | —    | —    | _stall_  | —           | _∞_       |
+
+**Drive received: `0,0,0,0,1,0` (LSB first).
+Expected for $28: `0,0,0,1,0,1,0,0`.**
+
+Two stacked failures:
+
+**(i) Drive misses bits 4 and 6.** The 185 / 188-cyc gaps are
+each ~1.85× normal bit period (~100 cyc). Drive evidently was
+elsewhere (in `JSR $E9C0` debounce-read or `JSR $EA59`) when
+KERNAL released CLK for the missed bits. By the time drive's PC
+returned to `$EA0E`, KERNAL had already moved CLK back low for
+the *next* bit's setup. So drive captured every other bit.
+
+This **confirms the external-review hypothesis**: the legacy
+drive `Cpu6510.step()` does ALL bus accesses at instruction
+start (one chunk per JS call). Real 6502 spreads bus accesses
+across sub-instruction cycles. For `LDA $1800` (4 cyc) the
+read happens on cycle 3 in real silicon, cycle 0 in our model.
+Multiplied across the bit-loop iterations and the JSR/RTS chains
+into `$E9C0`, the cumulative drift is enough to walk past a
+~80-cyc CLK-released window.
+
+**(ii) KERNAL ISOUR stalls after bit 6.** After latching bit 6
+at c64Cyc 4607673, dd00 freezes at `$5F` (CLK pulled, DATA
+released, ATN asserted) for **1100+ cyc** while drive waits
+forever for next CLK release. C64 never sends bits 7 and 8.
+KERNAL eventually times out and releases ATN at c64Cyc 4608813
+(`dd00=$97`) — that is the `?DEVICE NOT PRESENT` path.
+
+The KERNAL stall is a **secondary bug** stacked on (i). Likely
+causes:
+- An IRQ (CIA1 timer or VIC raster) firing mid-ISOUR and
+  blowing the inter-bit timing.
+- KERNAL's frame-handshake check waiting for drive to pull DATA
+  for ack between bits — drive can't ack because it missed
+  earlier bits.
+- CIA timer wall-clock drift triggering KERNAL's listener-frame
+  timeout.
+
+(i) likely causes (ii): once drive misses bits, drive doesn't
+generate the expected DATA-line acks, KERNAL waits indefinitely
+for the listener to respond, then times out.
+
+### Sprint 96 next-session work (UPDATED with read-site evidence)
+
+**Primary fix**: convert drive CPU to cycle-stepped microcoded
+implementation with proper sub-instruction bus access. The
+external-review preferred fix is now empirically backed.
+
+Two implementation paths:
+
+1. **Reuse `Cpu6510Cycled` for drive** (largest leverage,
+   shares 1880/1880-equivalent core). Requires:
+   - Bypass / disable C64 `$00/$01` port behavior in cycled CPU
+     (drive bus doesn't have it).
+   - Rewire reset / IRQ vector through `DriveBus`.
+   - Verify reset / IRQ entry timing on drive.
+   - Re-run CPU equivalence harness from drive's perspective.
+
+2. **Smaller, isolated 6502 cycled CPU for drive only**
+   (`Drive6510Cycled`): copies the microcoded fetch-decode
+   ladder from `Cpu6510Cycled` but no $00/$01, simpler reset.
+   Lower blast radius for the c64 side, but duplicate code.
+
+Path (1) is preferred for code sharing.
+
+**After (i) fix, verify (ii)**: build a paired probe that
+captures C64 PC + dd00 timing during the ISOUR stall window
+(c64Cyc 4607673 → 4608813 in current trace). Decide whether the
+stall vanishes once drive responds correctly, or whether there
+is a separate IRQ-injection / CIA timing bug.
+
+**New script kept**:
+- `scripts/sprint96-via1-readsite.mjs` — direct read-site probe
+  with monkey-patched DriveBus.read + IecBus.setC64Output for
+  exact bit-cadence + dd00 / state correlation.
+
+## Bug 40 — KERNAL stuck in ACPTR EOI-handshake after real-serial LOAD completes
+
+**Severity:** Medium (blocks return to BASIC after successful LOAD).
+**Discovered during:** Sprint 96 final acceptance (2026-05-04).
+**Status:** **FIXED Sprint 98 (2026-05-04, commit 42b08b0).** Single-line
+stepper-sequence fix in `src/runtime/headless/drive/head-position.ts`
+applyStepBits(): replace Gray-code decoder `[00, 01, 11, 10]` with
+the actual 4-phase pattern drive ROM 901229-05 writes: `[00, 11, 10,
+01]`. Verified: synthetic 1-byte G64 LOAD"X",8,1 → `$0801=$42`,
+`$90=$40`, BASIC ready. MM LOAD"MM",8,1 → 38656 bytes loaded to
+`$0400-$9B00`, EOI received, BASIC ready. The level→edge ATN-poke
+fix in iec-bus.ts (commit 39ec2c5) also stays — it's correct
+independently and complements the stepper fix.
+
+### Summary
+
+After the new real-serial LOAD path successfully transfers MM
+(38658 bytes) to C64 RAM at $0400 and the drive correctly
+asserts EOI on the last byte (KERNAL `$90 = $40` confirms EOI
+flag set), C64 KERNAL never returns to BASIC direct mode.
+`SYS 1024` typed afterward never reaches BASIC — `c64Cpu.pc`
+stays in the $EE00 page (KERNAL ACPTR / EOI ACK loop) for
+100M+ simulated cycles.
+
+### State at hang (latest probe, 2026-05-04 EOD)
+
+C64 PC distribution across 80M sim cycles after `LOAD"MM",8,1`
+completes (top hits, fine-grained sample):
+- `$EE33` AND #$02   : 121
+- `$EEAC` CMP $DD00  : 118
+- `$EE3A` BMI loop   : 116
+- `$EEAF` BNE $EEA9  : 116
+- `$EE35` BNE $EE3E  : 116
+- `$EEB1` ASL A      : 115
+- `$EE30` LDA $DC0D  : 112
+- `$EE37` JSR $EEA9  : 111
+- `$EE0A`            :  77
+- `$EE85` release CLK:  28
+
+ALL hits inside KERNAL ACPTR retry loop $EE27..$EE5B.
+
+Final state snapshot:
+- `c64.pc = $EE25`   (about to re-execute STA $DC0F; outer-loop iter)
+- `drive.pc = $EC2D` (idle loop polling $1800 PB)
+- KERNAL `$90 = $40` (EOI received, set on last byte)
+- MM bytes byte-perfect at $0400+ (full 38658 B verified)
+- CIA1: cra=$01 crb=$08 icrFlags=$00 icrMask=$01
+        taLatch=$4025 tbLatch=$0100 tbCounter=$0100
+- IEC line: ATN=1 CLK=1 DATA=1 (ALL RELEASED, no party pulling)
+- c64.atnRel/clkRel/dataRel = 1/1/1
+- drive.clkRel/dataRel/atnAck = 1/1/0 (PB4 ATN_ACK still LOW
+  but ATN line HIGH so AND-gate auto-pull inactive)
+
+### Verified non-bugs
+
+- **CIA1 timer B IS underflowing correctly.** crb=$08 = one-shot
+  fired and stopped (bit 0 cleared). KERNAL read ICR_TB and
+  cleared the flag. Timer cycles through start→underflow→read
+  exactly as intended.
+- **CIA2 PA input polarity correct.** Real C64 has no input
+  inverter (only output side). Our model: `if (clkLine) bits |=
+  PA_CLK_IN` matches real silicon: line HIGH → bit=1.
+- **Drive sent ALL 38658 bytes correctly.** Last byte + EOI flag
+  reached C64 KERNAL; status \$40 confirms EOI seen.
+- **Bus is idle.** No party is holding any line; no electrical
+  deadlock.
+
+### Root cause (final, c64ref-confirmed)
+
+**LOAD's retry loop at \$F4F3-\$F509 retries on TIMEOUT bit before
+ever checking EOI.** Decoded via c64ref MCP tool against KERNAL
+ROM 901227-03:
+
+```
+\$F4F3 LDA #\$FD          ; load mask 1111_1101
+\$F4F5 AND \$90            ; clear bit 1 (TIMEOUT) only
+\$F4F7 STA \$90            ; status preserves bit 6 (EOI)
+\$F4F9 JSR \$FFE1          ; STOP key check
+\$F4FC BNE \$F501          ; STOP not pressed → continue
+\$F4FE JMP \$F633          ; STOP → abort
+\$F501 JSR \$EE13          ; ACPTR (receive byte)
+\$F504 TAX                 ; save byte in X
+\$F505 LDA \$90             ; check status
+\$F507 LSR A                ; bit 0 → carry, discard
+\$F508 LSR A                ; bit 1 → carry (TIMEOUT)
+\$F509 BCS \$F4F3          ; **retry if TIMEOUT bit was set**
+... bytes continue, EOI check at \$F526:
+\$F524 BIT \$90             ; sets V from bit 6
+\$F526 BVC \$F4F3           ; branch if no EOI → next byte
+                            ; fall through → LOAD complete
+```
+
+**The infinite loop mechanism:**
+
+1. LOAD clears bit 1 of \$90 at \$F4F7.
+2. LOAD JSR ACPTR at \$F501.
+3. ACPTR enters EOI ACK after first timer-B underflow (drive
+   not pulling CLK), sets \$90 |= \$40 (EOI), INC \$A5 (= 1),
+   BNE \$EE20 (restart timer).
+4. Second timer-B underflow, \$EE3E LDA \$A5 = 1, BEQ does NOT
+   fire, fall to \$EE42 LDA #\$02 \$EE44 JMP \$EDB2 (CSBERR).
+5. \$EDB2 JSR \$FE1C with A=\$02 → \$90 |= \$02 (TIMEOUT).
+6. \$EDB2 → CLI → CLC → BCC \$EE03 → release ATN/CLK/DATA →
+   RTS chain back to LOAD.
+7. LOAD at \$F505: \$90 = \$42 (EOI + TIMEOUT). LSR LSR → carry
+   = bit 1 = TIMEOUT. BCS \$F4F3 fires → retry.
+8. **EOI check at \$F526 NEVER REACHED.**
+9. Loop forever (until STOP key).
+
+Confirmed via live PC sample probe (scripts/sprint96-acptr-loop.mjs):
+- C64 cycles through \$F4F3 (\$F4F7), \$F4F9 (\$FE1C JSR), \$EE13
+  (ACPTR entry), \$EE03 (release lines), \$EE0A (delay loop).
+- \$A5 oscillates 0 ↔ 1 (each ACPTR resets at \$EE16).
+- \$90 oscillates \$40 ↔ \$42 (LOAD clears bit 1, ACPTR sets it).
+- Stack pointer stable around \$F3-\$F7 (no recursion).
+
+### Real 1541 expected behavior
+
+After drive sends the EOI byte over IEC, the protocol is:
+1. Drive: holds CLK released for >256 µs (EOI timeout signal).
+2. C64: detects timeout, ACKs by pulling DATA briefly.
+3. **Drive: pulls CLK, then bit-bangs the actual EOI byte (8 bits).**
+4. C64: receives bits at \$EE56 bit-recv loop, byte returned.
+5. LOAD: status \$90 = \$40 (EOI only, no TIMEOUT). LSR LSR → no
+   retry. BIT \$90 / BVC at \$F526 → falls through → LOAD complete.
+6. KERNAL: sends UNTALK (\$5F) via ATN. Drive cleans up.
+
+### Our drive behavior (deviation)
+
+Our drive ROM apparently RETURNS TO IDLE after the EOI signal
+without then sending the actual byte. This is the deviation
+from real 1541 behavior.
+
+Hypothesis (needs verification): drive's TALK byte send routine
+sends byte normally, but after EOI flag set on file pump's last
+byte, drive's send loop terminates BEFORE the byte is bit-banged
+to IEC (or drive's send routine doesn't include the EOI-with-byte
+"hold then send" sequence).
+
+### Next-session work (revised, prioritized)
+
+1. **Drive PC trace through end-of-file.** Add per-cycle drive
+   PC sampling for the last 5000 drive cycles before drive enters
+   \$EC2D idle area. Identify the exact ROM routine returning
+   drive to idle. Compare to VICE drive PC trace at the same
+   moment.
+
+2. **Inspect drive ROM TALK byte send routine.** Standard 1541
+   ROM TALK frame routine is around \$E919-\$E96D. Verify our
+   drive runs through the byte-send sequence including the EOI-
+   timing branch. The EOI-timing branch should INSERT a delay
+   (\$200µs CLK release) BEFORE the normal byte-send, NOT
+   replace it.
+
+3. **Verify drive's file pump. After file end, channel-state
+   machine should mark "EOI on next byte" then call FRMBYT once
+   more for the actual byte. Verify our drive does this.
+
+KEEP all the legacy ACPTR retry-loop docs above for reference.
+
+### KERNAL ACPTR retry loop ($EE27 inner mechanism)
+
+```
+$EE27: STA $DC0F          ; start timer B (one-shot)
+$EE2A: JSR $EE97          ; release DATA
+$EE2D: LDA $DC0D          ; clear ICR
+$EE30: LDA $DC0D          ; (debounce / second read = 0)
+$EE33: AND #$02
+$EE35: BNE $EE3E          ; never (second read clears flags)
+$EE37: JSR $EEA9          ; read $DD00, ASL → N=CLK_IN
+$EE3A: BMI $EE30          ; loop while CLK pulled
+$EE3C: BPL $EE56          ; CLK released → exit inner loop
+$EE56: NOP-undoc / INC $A5 / BNE $EE27  ; retry up to 256x
+```
+
+Inner loop exits immediately because CLK released ($A5 increments,
+BNE branches back to $EE27). Outer loop runs ~6250 iterations across
+80M sim cycles before our budget exhausts — never reaches the
+"give up + UNTALK" exit at $EE5D+.
+
+Each retry:
+1. Restart timer B.
+2. KERNAL JSR $EE97 = release DATA = signal "ready for next byte".
+3. Wait for drive to PULL CLK = "byte ready signal".
+4. If drive doesn't pull CLK within ~256 µs, retry.
+
+Drive does NOT pull CLK because drive's TALK byte loop completed
+after sending the EOI byte and drive returned to plain idle
+($EC2D area). Drive needs to remain in TALK state and respond
+to C64's "next byte request" by either:
+- Pulling CLK to send another byte (in the EOI repeat case, send
+  the EOI byte AGAIN — real 1541 protocol)
+- OR waiting for UNTALK via ATN
+
+If C64 KERNAL would eventually time out and send UNTALK on its
+own, drive would naturally process UNTALK and clean up. But the
+$A5 retry counter wraps every 256 iterations and the outer-outer
+loop seems to retry indefinitely in our budget window.
+
+### Likely fixes (ranked by probability)
+
+**(1) Drive ROM behavior expectation: stay in TALK send loop.**
+Real 1541 ROM in TALK FRMBYT loop: after sending byte (with or
+without EOI), routine returns to caller. Caller is the channel
+data-pump which checks if more bytes are available. After EOI
+byte sent, channel pump sees "no more data" but should not
+return to top-level idle — should stay in talker channel
+waiting for ATN low (UNTALK).
+
+Need to compare our drive's PC trace through the exact end-of-file
+moment against VICE's drive trace.
+
+**(2) Drive's PB4 (ATN_ACK) still LOW after talker session.**
+drvAtnAck=0 means PB4 = 0 = drive is configured to auto-pull DATA
+when ATN goes low. That's normal idle-listener state. But maybe
+during talker, drive should set PB4 HIGH so AND gate doesn't
+spuriously pull DATA when C64 next pulses ATN for UNTALK.
+
+Less likely — auto-pull only fires when ATN low. Currently ATN
+high so it's inactive.
+
+**(3) C64 KERNAL EOI retry path needs ATN-low signal sooner.**
+Maybe KERNAL should send UNTALK after first $A5 wraparound (256
+retries × 256 µs = 65 ms timeout) and our scheduler is somehow
+not letting it reach that path. Less likely since CIA1 timer B
+verified working.
+
+### Next-session work
+
+1. **VICE drive ROM trace.** Use VICE x64sc with -drive8type 1541
+   and run LOAD"BOOT",8,1 over a known-good G64. Trace drive PC
+   for the last 1000 cycles after the last byte is sent. Compare
+   to our drive PC trace at the equivalent moment.
+
+2. **Drive PC trace through end-of-file.** Add to our diagnostic:
+   capture drive PC for 100 cycles before and 1000 cycles after
+   the last GCR byte read (or last IEC byte sent). Identify
+   exactly which ROM routine returns drive to $EC2D area and
+   whether real 1541 takes the same path.
+
+3. **VICE drive ROM source.** /Users/alex/Downloads/trex_cracktro_complete/tools/vice-3.7.1/src/drive/
+   has the references. rotation.c we already used for shifter.
+   Look for drive 1541 file-byte send path — likely in iec1541
+   or DOS source.
+
+4. **If drive ROM behavior is by-design** and the issue is C64
+   KERNAL retry loop never giving up: investigate KERNAL
+   $EE5D-$EE5F (LDA #$08, STA $A5) and the path from there. Could
+   be that KERNAL needs a count-down via $A5 with a different
+   value.
+
+### Workaround for graphics-pipeline testing
+
+Set `session.c64Cpu.pc = 0x0400` directly after `LOAD"MM",8,1`
+completes (status $90 = $40 is the trigger). Bypasses BASIC
+stuck state. Not production-correct but unblocks VIC bitmap +
+sprite + raster IRQ rendering verification of MM title.
+
+### Sprint 98 / Spec 094-097 finding (2026-05-04) — synthetic 1-byte G64 reproduces
+
+Synthetic 1-byte file generator (Spec 097 M0.4b) produces
+`samples/synthetic/1byte.g64`. VICE x64sc loads it cleanly:
+`LOAD"X",8,1` → READY → `PRINT PEEK(2049)` returns 66 ($42).
+Generator validated end-to-end against real 1541 ROM.
+
+Headless against same fixture: stalls identically to MM. EOF trace
+(`samples/traces/synthetic-eof-narrow.jsonl`, schema v1) shows:
+
+- Drive enters TALK band ($E700-$EB00) at drvCyc 5149707 (drvPc=$E855)
+- Drive bounces in/out TALK to ROM helpers ($FE67/$FE75/$FF20/$FF22)
+- Drive last in TALK at drvCyc 5158607, drvPc=$E706
+- Next instruction (drvCyc 5158610): drive jumps to $C154 (PARSXQ region)
+- Walks $C154 → $D7B6 → $C2B3 (CMDSET) → $C2CB → tight loop
+  $C2FE-$C312 (job dispatcher / status path) → $D7BB → $D7F4 →
+  $D816 → $D82D → $C1E6 (PRSCLN) → $C26A (PARSE) → $C2AB → ...
+- Drive never returns to TALK band.
+- Just before transition (drvCyc 5158500-5158600), drive at
+  $E69C-$E6FF area = OKERR / ERRMSG / ERRMSG status routines.
+- C64 stuck in ACPTR retry $EEAF/$EEB1/$EEB6/$EEB7 + $ED5A/$ED5D
+  for entire post-transition window.
+- `eoiSeen=false` — drive **never sends EOI byte** to C64.
+
+Two failure footprints, same root cause:
+- MM 38658B: drive falls to top-level idle band ($EBE7-$EC2D)
+  after partial transfer.
+- Synthetic 1B: drive falls to PARSE / OKERR / status path
+  ($C100-$C312 / $E6XX / $D7XX) without ever sending EOI.
+
+Both = drive abandons TALK byte-send before C64 sees EOI flag.
+
+### Smoking gun (Sprint 98 code review, 2026-05-04)
+
+`src/runtime/headless/iec/iec-bus.ts:257-259` (Sprint 66 hack):
+
+```ts
+if (!this.atnLine && this.driveRamForAtnPoke) {
+  this.driveRamForAtnPoke[0x7c] = 0x80;
+}
+```
+
+Pokes drive RAM `$7C = $80` (ATN-pending flag) on every
+`notifyAtnChanged()` call while ATN line is low. Called from
+every `setC64Output` (every C64 write to `$DD00`).
+
+Standard 1541 ROM idle / dispatch loop reads `$7C` and jumps to
+ATN-handler / command-parser when non-zero. This poke should be
+edge-pulse only (set on ATN high→low transition), but is
+level-trigger: while ATN is low, every C64 IEC write re-pokes
+`$7C=$80`.
+
+During Bug 40 stall, ATN is low (C64 not releasing ATN — see
+"State at hang" coarse samples `iec.atn=false`,
+`c64Released.atn=false`). C64 ACPTR retry loop hammers `$DD00`
+multiple times per iteration. Each write re-pokes `$7C`. When
+drive's TALK send completes and falls through to dispatch, it
+reads `$7C != 0` and jumps to command-parser path, never
+returning to TALK byte-send.
+
+Companion hack `src/runtime/headless/drive/via6522.ts:335`
+fires CA1 IFR on EITHER edge instead of configured-polarity edge.
+Less directly implicated (drive dispatch reads `$7C` not IFR),
+but related.
+
+### Fix candidate (Spec 096)
+
+Convert `iec-bus.ts:257-259` from level-trigger to edge-trigger:
+
+```ts
+private prevAtnLow = false;
+
+private notifyAtnChanged(): void {
+  if (this.driveVia1) this.driveVia1.pulseCa1(this.atnLine);
+  const atnLow = !this.atnLine;
+  if (atnLow && !this.prevAtnLow && this.driveRamForAtnPoke) {
+    this.driveRamForAtnPoke[0x7c] = 0x80;
+  }
+  this.prevAtnLow = atnLow;
+}
+```
+
+Verify: re-run synthetic trace after fix, expect drive to complete
+TALK byte-send + emit EOI + drive to enter idle ($EBE7-$EC2D) +
+C64 LOAD return to BASIC.
+
+If synthetic passes: re-run MM. If MM passes: Bug 40 closed.
+
+Risk: if real ATN edge happens during ACPTR retry (KERNAL
+re-asserting ATN for UNTALK send), drive should still service via
+normal CA1 IRQ + `$1800` PB7 polling fallback. The hack masked a
+real edge-detection issue; converting to edge-only restores
+correct semantics.
+
+### Fix landed but Bug 40 still open (2026-05-04 Sprint 98 cont.)
+
+`iec-bus.ts:257-259` level→edge trigger fix landed. Re-ran synthetic
+trace post-fix; output byte-identical to pre-fix run, all flags +
+PC histograms match. Fix is correct (matches real CA1 edge
+semantics) but **not the dominant cause** of the synthetic stall.
+
+Deeper analysis of the post-fix coarse channel shows ATN line
+goes LOW three times during the stuck state:
+
+```
+ATN transition: prev=true now=false c64Cyc=4605732 c64Pc=$EE97 drvPc=$EC70
+ATN transition: prev=false now=true c64Cyc=4609927 c64Pc=$ED49 drvPc=$E9C7
+ATN transition: prev=true now=false c64Cyc=4611431 c64Pc=$EEB6 drvPc=$FAC0
+ATN transition: prev=false now=true c64Cyc=4613513 c64Pc=$F0A5 drvPc=$EBF7
+ATN transition: prev=true now=false c64Cyc=4613703 c64Pc=$EEB7 drvPc=$E6B6
+```
+
+Each transition is a real C64 write to `$DD00` with `ATN_OUT`
+bit asserted. Per c64ref:
+- `$EEAC CMP $DD00` (read), `$EEA9 LDA $DD00 ;DEBPIA` (read)
+- `$EEB6 / $EEB7 = DEX` in 1ms delay loop (W1MS1)
+- `$EE97 LDA $DD00` (read in serial-DATA-low set path)
+
+The PCs reading `$DD00` aren't writing — but during fine-trace
+of the c64Cyc 4613500-4613703 window, C64 visits:
+`$ED0B → $ED0E → $F0A4-$F0BC → $ED11-$ED14 → $ED20-$ED24 →
+$EE97-$EE9F → $ED27-$ED37 → $EE8E-$EE96 → $EE97-$EE9F → $EEB3-$EEB7`.
+
+`$EE8E` and `$EE97` are serial-bus output routines (set CLK low,
+release DATA). One of them — or a write reachable via this path
+sequence — is asserting `$DD00` ATN_OUT.
+
+Real KERNAL ACPTR retry loop ($EE27..$EE5B) **does not pull ATN**.
+Our headless KERNAL is executing UNTALK-send / serial-protocol
+path inappropriately during what should be plain ACPTR retries.
+That ATN-low edge is the real signal that drives the drive into
+the ATN handler / command parser path, abandoning TALK byte-send.
+
+**Real Bug 40 root cause (revised):**
+
+Something in our CIA2 / KERNAL execution causes C64 to write
+`$DD00` with `ATN_OUT` set during ACPTR retry. Drive correctly
+responds to the ATN edge by entering its ATN handler. Drive
+returns to listener / parser path because the ATN signal looks
+to drive like a new command. C64 keeps retrying, eventually
+re-asserts ATN, drive sees another edge, repeats forever.
+
+**Next-session work:**
+
+1. Identify exact c64 write that pulls ATN. Add a trap on
+   `$DD00` writes with ATN_OUT bit, log PC + value. Likely
+   only one or two PCs are responsible.
+2. Compare that write to real KERNAL ROM at the same PC: does
+   real KERNAL write the same byte (and our drive
+   misinterprets), or do we write a different byte (CIA2
+   model bug)?
+3. If our write is wrong → CIA2 / DDR model bug.
+4. If our write matches real KERNAL → real KERNAL would also
+   pull ATN here, but real drive must handle it differently.
+   Check VICE drive trace at the same protocol step.
+
+The level→edge fix on `$7C` poke is correct and stays — masks a
+real edge-detection issue and doesn't regress anything (trace
+byte-identical). It just doesn't close Bug 40 alone.
+
+### Refined root cause (Sprint 98 cont., 2026-05-04 EOD)
+
+Fine-trace analysis of c64Cyc 4613440-4613530 window decoded against
+c64ref. Initial reading suggested C64 was re-entering LOAD from
+scratch in a tight loop. **Stack-trace probe
+(`scripts/probe-load-reentry.mjs`) corrected that:**
+
+```
+HIT 1 c64Pc=$F4CB c64Cyc=4613489 sp=$f7 prevPc=$F658
+just-popped [sp-3..sp]: 56 f6 ca f4
+popped-target (sp-1,sp → +1): $F4CB
+total $F4CB hits: 1 after 8000000 c64-instr budget
+```
+
+**Only ONE $F4CB hit in 8M instructions.** Popped value $F4CA
+came from the JSR at `$F4C8 = JSR $F3D5 ;OPEN THE FILE`. The
+$F4CB hit is the **normal post-OPEN continuation** within KERNAL
+LOAD, not re-entry.
+
+C64 is doing the standard single-pass LOAD flow:
+1. `$F4C8 JSR $F3D5` — OPEN file (sends LISTEN + secondary +
+   filename via CIOUT + UNLISTEN to drive). 2-3 ATN edges.
+2. `$F4CB LDA $BA` — post-OPEN continuation.
+3. `$F4CD JSR $ED09` — TALK setup. 1 ATN edge.
+4. TKSA (secondary after TALK). possibly 1 more ATN edge.
+5. ACPTR loop — but drive never sends bytes, so we time out.
+6. Eventual UNTALK on abort. 1 ATN edge.
+
+5-6 ATN edges over the trace window = **normal LOAD protocol**,
+not re-entry. The earlier "ATN re-asserted during ACPTR retry"
+hypothesis was wrong.
+
+### Actual root cause (synthetic) — drive lookup hangs
+
+Drive PC distribution shows drive transitioned from TALK band
+to **PARSXQ ($C146) → CMDSET ($C2B3) → PARSE ($C268) → tight
+loop $C2FE-$C312 → file-system area $D7BB / $D816 / $D82D**.
+This is filename-parse + directory-lookup code in 1541 DOS,
+running AFTER drive received the filename via CIOUT.
+
+Drive enters this path at the right moment (after UNLISTEN
+from C64). But drive **never exits** — it stays in the
+parse / lookup loop indefinitely. Drive RAM at stuck moment:
+`$77=$28, $79=$00, $85=$3F` — `$85` may be a job-error code
+($3F = drive job error in some routines).
+
+Conclusion: **headless drive's directory/file lookup or GCR
+read on the synthetic G64 hangs.** VICE successfully reads
+the same fixture (`PEEK(2049) = 66`), so the synthetic G64
+is well-formed. Headless drive emulation is the deviation.
+
+For **MM** (real game disk): drive successfully reads
+directory + file, enters TALK, sends most/all bytes — and
+stops differently (drive transitions to idle band $EBE7-$EC2D
+post-EOF). MM and synthetic share the same symptom (C64 in
+ACPTR retry forever) but **different drive-side causes**:
+
+- **Synthetic**: drive hangs in directory/file lookup
+  ($C2FE/$D7BB area). Never sends a byte.
+- **MM**: drive sends file bytes correctly, then bails to
+  idle without emitting EOI on last byte.
+
+Both expose problems in headless drive's TALK / file-pump
+state machine, but at different stages.
+
+### Next-session priorities (revised again)
+
+1. **Synthetic-side investigation:** add drive-RAM snapshot to
+   the probe (drive zeropage `$00..$FF` at the moment drive
+   enters $C2FE loop). Identify what job/command the drive
+   thinks it's running.
+2. **GCR / VIA2 read path:** trace VIA2 PB reads at the
+   moment drive is reading directory sector. Compare to
+   real 1541 ROM expectation (head sync + sector header
+   detect). Likely culprit area.
+3. **If drive lookup is OK:** check why drive doesn't return
+   to TALK send after parsing. Maybe drive's TALK-mode flag
+   gets cleared by the level-trigger ATN-pending poke fix
+   landing — verify with one more re-run.
+4. **MM-side investigation:** different bug; defer until
+   synthetic LOADs cleanly. Then MM EOI bug becomes the
+   final piece.
+
+### Sub-bugs identified at drive level (Sprint 98 EOD #2)
+
+Drive-side probe (`scripts/probe-load-reentry.mjs` extended with
+head-position + IRQ-counter + VIA-state capture) at the stuck
+$D6BB BMI loop reveals:
+
+```
+DRV-SAMPLE 6  drvPc=$D6BA  c64Cyc=33322163  drvCyc=38896928
+head: currentTrack=19  (file is at T17 — head at WRONG track)
+drvZP: $00=$0F $01=$80 $02=$01 $03=$0F $04=$01 ...
+       $08-$09=$11 $00 (job 1: T17 S0 — read job target)
+       $12-$13=$53 $31 (disk ID "S1" ✓)
+
+VIA1: t1Latch=$D000 t1Counter=$A012 acr=$00 pcr=$01 ifr=$20 ier=$02
+VIA2: t1Latch=$3A00 t1Counter=$1807 acr=$41 pcr=$EC ifr=$20 ier=$40
+drvCpu flags=$E1 (I-flag clear/IRQ enabled)
+drvCpu sp=$33  (boot was $F3 — pushed 192 bytes!)
+```
+
+Continuation summary over 1M c64-instr probe:
+- IRQ entries: **0** (IRQ vector area $FE00-$FE7F never visited)
+- Job-loop PCs ($F2B0-$F50F): **0 unique** (job loop never runs)
+- Head transitions: 1 (head sat at T19 entire time)
+
+**Three sub-bugs in headless drive emulation (all contribute to
+the synthetic LOAD stall):**
+
+1. **Drive IRQ chain dead at stuck state.** VIA1 + VIA2 both
+   have `(ifr & ier & 0x7f) = 0` at the stuck moment, so neither
+   asserts the drive's `irqLine`. Real 1541 needs VIA T1
+   continuous-mode IRQs to drive the job loop and sync to the
+   GCR shifter. With no IRQ, no job loop, no sector read,
+   READ T17/S0 stays pending forever (BMI loops on bit 7 of
+   `$01` job slot).
+
+2. **Drive stack near-overflow (sp=$33, was $F3 at boot).**
+   Drive pushed 192 bytes since boot without unwinding. ~64
+   IRQ entries (3 bytes each: PC+P) without RTI. Drive's IRQ
+   handler entered repeatedly but never returned cleanly,
+   stack grew, eventually IRQ chain broke. Likely a bug in
+   our IRQ handler dispatch or VIA IFR clear-on-IRA path.
+
+3. **Drive head at track 19 instead of 17.** File is at T17/S0
+   (job 1 target). Drive stepped past target (or stepped wrong
+   direction). May be a head-position step-bit decode bug or
+   off-by-N in track counting. Possibly a downstream effect of
+   bug 1/2 (steps issued during failed sectors-read retries).
+
+These are headless-emulator bugs, not generator bugs (VICE loads
+the same `samples/synthetic/1byte.g64` cleanly with `PEEK(2049)
+= 66`).
+
+**Fix priority:**
+1. Bug 1 (IRQ chain) is dominant — without IRQs nothing else
+   can recover.
+2. Bug 2 (stack overflow) likely caused by bug 1 — IRQ handler
+   misbehavior. Fix bug 1 first, see if stack stays sane.
+3. Bug 3 (head track) defer — may auto-resolve once IRQ chain
+   restores normal job-loop sequencing.
+
+**Investigation steps for next session:**
+- Read `src/runtime/headless/drive/via6522.ts` `tick()` + `read()`
+  + `irqAsserted()` carefully. Look for clear-on-IFR-read paths
+  that might disable T1 IRQ inadvertently.
+- Compare VIA1/VIA2 ACR + IER values right after drive boot vs.
+  at stuck state. If T1 IER bit gets cleared somewhere, find
+  what writes IER.
+- Watch VIA T1 underflow path: real T1 in continuous mode reloads
+  from latch on underflow and re-asserts IFR. Verify our model
+  does this.
+
+### Refined finding (2026-05-04 EOD): VIA2 IS configured correctly
+
+1541 ROM `$F271 STA $1C0B` writes `#$41` to VIA2 ACR (T1 free-run +
+PA latching) and `$F28B STA $1C0E` writes `#$C0` to VIA2 IER
+(enable bit + T1). Probe-captured state at stuck moment matches:
+ACR=$41, IER=$40 (T1 IRQ enabled), counter mid-cycle ($1807 of
+latch $3A00), IFR T1 cleared (consistent with recent handler
+read of T1CL).
+
+The probe's IRQ-entries=0 is likely a **probe artifact**: drvPc
+sampled only once per c64 instruction (`runFor(1)`), so brief
+IRQ entries (handler enters $FE67, reads T1CL, runs job loop,
+RTI within 1 c64-instr window) are missed. IRQs probably DO fire.
+
+**Revised hypothesis chain:**
+
+1. IRQs fire periodically (T1 free-run + IER set + counter
+   counting). Probe just doesn't see them.
+2. Drive's job loop runs in IRQ handler, but **READ T17/S0
+   never completes** because head is at **T19, not T17**.
+3. From wrong track, drive can't find SYNC for T17 sector
+   header, write fails, status remains $80 (or job loop never
+   actually picks up job 1 due to logic bug).
+
+**Primary suspect: head-position step decode.**
+
+`src/runtime/headless/drive/head-position.ts` `applyStepBits()`
+decodes Gray-coded STEP_LO/STEP_HI bits (PB0/PB1) into head
+direction. If our decode is off-by-one or wrong-direction, drive
+ends at wrong track despite issuing correct step sequence.
+
+For synthetic test (T17 read after dir at T18): drive should
+step DOWN one track (T18 → T17). If our decoder steps UP, drive
+goes T18 → T19. Matches observation.
+
+For MM (real disk): drive may also step wrongly but enough other
+sectors are nearby that it eventually lands somewhere with valid
+data — explaining why MM mostly works (38658 bytes transferred)
+but synthetic fails entirely.
+
+**Next-session work (revised):**
+
+1. Read `applyStepBits()` in head-position.ts. Compare to real
+   1541 stepper Gray code: PB0/PB1 sequence
+   `00 → 01 → 11 → 10 → 00` advances UP one track (or down,
+   depending on convention).
+2. Add step-bit logging to probe — log every PB0/PB1 transition
+   with current track, see which direction drive is stepping.
+3. Compare to expected: drive should step DOWN from T18 to T17
+   to read the file. If we observe stepping UP, fix decoder.
+
+## Bug 37 — Headless KERNAL keystrokes detected by SCNKEY ($CB) but never reach buffer ($C5 / $0277)
+
+**Severity:** N/A — false alarm.
+**Discovered during:** Sprint 93.1 smoke 2026-05-03.
+**Status:** RESOLVED-NOT-A-BUG (Sprint 95 verification 2026-05-04).
+
+### Resolution
+
+Sprint 95 verification: typing "LIST<RETURN>" causes BASIC to print
+`LIST` on row 6 and a fresh `READY.` on row 8. Typing
+`LOAD"*",8,1<RETURN>` causes KERNAL to print `SEARCHING FOR .` and
+attempt the serial bus exchange. The original Bug 37 symptom was a
+truncated screen-dump in `scripts/sprint93-1-smoke.mjs` that only
+covered `$0400-$04EF` — the typed character actually landed at
+`$04F0` (row 6 col 0), one byte past the end of the dump window.
+
+### Symptom
+
+Sprint 93.1 typeText queues press/release events for `LIST<RETURN>`. SCNKEY at IRQ writes the correct scan code into `$CB` for each key in turn (observed transitions `$15 / $0C / $29 / $32 / $08 / $40`). However:
+- `$C5` (last accepted key) stays at `$40` (no key).
+- `$C6` (chars in buffer) stays at 0.
+- Screen at `$0400` shows BASIC banner + `READY.` but no echo of typed input.
+
+In a hold-the-key smoke (`queueKeyEvent("L", 0, 10_000_000)`), `$C5` does change to `$15` — so the matrix path itself works. The buffer write step still does not fire even with sustained press.
+
+### Likely causes (next-session candidates)
+
+1. KERNAL debounce expects more consecutive identical scans than the 80k-cycle press window provides. Plausible: jiffy IRQ rate in headless drifts from real C64; debounce never saturates.
+2. Buffer-size guard `$0289` or repeat counters `$028B/$028C` mis-initialised by KERNAL because earlier init did something odd.
+3. `$CC` (cursor blink) state interfering with SCNKEY's buffer-write entry point.
+
+### Next step
+
+Trace SCNKEY ($EA87) execution under microscope: log writes to `$CB`, `$C5`, `$C6`, `$028A-$028C`, and the path through $EBE2 buffer-store entry. Compare with VICE behavior given identical input timing. May require Sprint 93.1 to land typing infrastructure first and treat the SCNKEY behavior as a separate Sprint 93.1b investigation.
+
+### Sprint 94 update (2026-05-04)
+
+Single-step trace at `$EAE0-$EB47` (`scripts/sprint93-bug37b.mjs`)
+proves the SCNKEY → buffer path runs end-to-end after the keyboard
+matrix `[col, row]` fix:
+
+```
+PC=$EB28: STY $C5 → $C5=$2A
+PC=$EB30: CPX #$FF → X=$4C (not skipped)
+PC=$EB3C: STA $0277,X → buffer[0]=$4C
+PC=$EB40: STX $C6 → $C6=1
+```
+
+CHRIN at `$E5CD` then drains `$C6` back to 0. So the buffer DOES fill.
+The screen still does not echo `LIST`, confirming the issue is HIGHER
+than scancode handling — likely in BASIC's screen-input loop / KERNAL
+CHROUT path.
+
+Important: cross-validated in **both** legacy `Cpu6510` and microcoded
+`Cpu6510Cycled` modes. Behaviour identical. So Bug 37's "BASIC does
+not echo" symptom is not microcoded-specific. Sprint 94 CPU equivalence
+harness shows zero divergences across 1880 cases (all documented
+opcodes + stable illegals × 8 seeds, BCD on/off). Reframe Bug 37 as a
+non-CPU issue: candidate roots are VIC raster IRQ frequency drift,
+screen-editor `$D0` mode flag, CHROUT vector, or BASIC's input-line
+state machine.
+
+## Bug 38 — Legacy `Cpu6510` PHP did not force B-flag set (spec violation)
+
+**Severity:** low (silent — most code masks B on PLP).
+**Discovered during:** Sprint 94 CPU equivalence harness 2026-05-04.
+**Status:** FIXED (Sprint 94, commit pending).
+
+### Symptom
+
+Legacy `Cpu6510.php` pushed `flags & ~0x10` (B masked OFF). Real 6502
+spec: `PHP` always pushes flags with B=1 (and unused=1) — so the
+microcoded `Cpu6510Cycled` was already correct. The CPU equivalence
+harness flagged this as the only point of divergence between the two
+implementations.
+
+### Fix
+
+`src/runtime/headless/cpu6510.ts:php` now pushes `flags | 0x10`,
+matching the microcoded path and the 6502 spec. Re-run of
+`scripts/cpu-equivalence.mjs`: 1880 cases, 0 fails.
+
+## Bug 41 — Legacy `Cpu6510.step` over-counted every instruction by 1 cycle (FIXED Sprint 100, Spec 109)
+
+### Severity
+Medium. Wrong wall-clock for the legacy CPU path.
+
+### Symptoms
+- Drive equivalence walk on the 1541 ROM (50 000 instructions, ~17
+  unique opcodes visited) showed legacy total 215 476 cycles vs
+  microcoded total 181 842 — a ~33 600-cycle gap, ~0.67 extra cycles
+  per instruction averaged.
+- Per-opcode probe: every documented opcode the walk visited reported
+  `legacy = micro + 1` exactly. Examples: SEI (imp) 3 vs 2, INY (imp)
+  3 vs 2, INC $XX,X 7 vs 6, BNE rel-not-taken 3 vs 2.
+
+### Root cause
+`Cpu6510.step()` captured `cyclesBefore` *after* the opcode-fetch
+`read()` had already incremented `this.cycles` by 1 (each bus access
+ticks +1 — Spec 091 contract). The end-of-step top-up
+`this.cycles += info.cycles - accessesDone` then re-added the full
+table cycle count without crediting the fetch cycle, so every
+instruction landed at `info.cycles + 1` cycles instead of
+`info.cycles`.
+
+The microcoded `Cpu6510Cycled` was already correct: its outer
+`executeCycle()` ticks once per cycle and the per-instruction cycle
+count emerges from the microcode pattern length, not a separate
+top-up.
+
+### Fix
+Move `cyclesBefore = this.cycles` to before the opcode fetch in
+`step()` so `accessesDone` includes the fetch cycle and the top-up
+math closes out at the right total. `stepUndocumented` now takes the
+caller-supplied baseline (currently unused for top-up — undoc still
+relies on per-bus-access counting; documented in-source as a follow-up
+item).
+
+### Validation
+- `npm run smoke:drive-equiv` after fix: legacy total 181 844 vs
+  micro total 181 842 (residual 2-cycle gap from one IRQ-service
+  path at startup; tracked separately).
+- `npm run regress` 4/4 PASS (L2/L3/L7/L8) — the cycle change did
+  not break any LOAD-acceptance scenario including MM 38KB.
+- `npm run smoke:load`, `smoke:stepping`, `smoke:reset`,
+  `smoke:snapshot` all PASS.
+
+### Implications
+The legacy CPU has been reporting 1.5×-correct cycle totals on the
+C64 main core for the entire project (legacy was the default until
+the microcoded path was introduced and is still used for some flows
+when `useMicrocodedCpu` is not enabled). VIA / CIA timer ticks driven
+off `cycles - cyclesBefore` therefore ticked slightly slower than
+real wall-clock would have, but every consumer used the same
+inflated rate so internal lockstep stayed consistent. No user-visible
+regression resulted from the over-count; the fix simply aligns
+legacy with microcoded so the two CPUs are interchangeable on cycle
+totals as well as register state.
+
+## Bug 42 — VIC renderer read color RAM from `bus.ram` instead of `bus.io` (FIXED Sprint 104, Spec 105 v1)
+
+### Severity
+High. All multicolor text + bitmap rendering broken when game wrote
+color RAM (which is most non-trivial titles).
+
+### Symptoms
+- Maniac Mansion character-selection screen rendered with monochrome
+  / wrong-coloured logo + portraits
+- Renderer always saw color RAM as zero → `cramByte & 0x07 = 0` →
+  `isMc = false` → fell back to standard text mode for every cell
+- Multicolor text effects (4 colors per char from $D021/$D022/$D023
+  + color RAM low nibble) impossible to render correctly
+
+### Root cause
+`HeadlessMemoryBus` stores I/O bank ($D000-$DFFF) in
+`bus.io: Uint8Array(0x1000)` — color RAM at $D800-$DBFF lives at
+`io[0x800..0xbff]`. But every per-mode renderer in
+`vic-renderer.ts` read color RAM via `bus.ram[0xd800 + cellIdx]`
+which is a different array (the main 64K RAM backing store).
+Writes from KERNAL / game code went through `bus.write()` →
+`io[]`, but renderer reads bypassed the bus's I/O storage entirely.
+
+Result: color RAM was effectively zero from the renderer's
+perspective, regardless of what the game wrote.
+
+### Fix
+Change `colorRamBase = 0xd800` to `colorRamBase = 0x0800` in all
+per-mode renderers and switch the access from
+`bus.ram[colorRamBase + cellIdx]` to `bus.io[colorRamBase + cellIdx]`.
+`bus.io` is `public readonly` on `HeadlessMemoryBus` so direct
+access is fine for the renderer's read-only needs. (Going through
+`bus.read()` would also work but adds the I/O-handler dispatch +
+the new $f0 nibble open-bus mask which would corrupt the lower 4
+bits the renderer needs.)
+
+### Validation
+- MM character-selection screen now renders matching VICE reference
+  (yellow MANIAC MANSION logo, START button, 7 portraits with
+  selection box)
+- `npm run smoke:vic-fidelity` 10/10
+- `npm run regress` 5/5
+- Reference screenshot saved at
+  `samples/screenshots/mm-character-selection-headless.png`
+
+## Bug 43 — Custom 1541 fastloader stalls after handshake in integrated session (Murder on the Mississippi)
+
+### Severity
+High. Blocks integrated-session boot trace for any title that uses a
+custom drive fastloader once the loader leaves the standard KERNAL
+serial path. Affects most disk-protected commercial games (a large
+class of EF-port targets).
+
+### Repro
+1. `headless_integrated_session_start` with `motm.g64`,
+   `enable_kernal_*_traps=false`, `trace_drive=true`,
+   `trace_iec=true`. Lockstep + microcoded enforced (G64 default).
+2. Cold-boot to READY: `run` until breakpoint $E5CD.
+3. `headless_integrated_session_type` `LOAD"*",8,1\\r`.
+4. Run ~10 M instructions.
+
+Path:
+
+- AB.PRG (the loader installer) loads via standard KERNAL LOAD:
+  drive ROM serves it, head moves to track 18 dir → track of `AB`.
+- ab.prg @ $4000 installs custom drive code via M-W into drive
+  $0500-$07FF (~768 bytes) then M-E.
+- Drive jumps into custom code at $07C1: VIA1 ($1800) IEC bit-bang
+  + VIA2 ($1C00) head/sync logic. Head steps 18 → 15.5 → 16
+  (half-track = protection probe).
+- After the first phase the drive RTSes back to ROM ($F55E / $F561,
+  the FORMAT/sync-search area). C64 enters bit-bang RX loop at
+  $43CD-$43F0 polling $DD00 bit 7 (DATA IN) for the next byte and
+  spins forever.
+
+State at stall (snapshot):
+
+```
+C64 PC=$43CD A=10 X=07 Y=08 SP=F6 P=66 cycles=60.85M
+Drive PC=$F561 A=03 X=2A Y=00 SP=35 P=E5 cycles=69.22M
+Drive head: track 16 (was 15.5)
+IEC: c64Atn=1 c64Clk=1 c64Data=1 / drvClk=1 drvData=0 drvAtnAck=0
+VIA2 ACR=$41 (T1 free-run + SR external clock)
+```
+
+ab.prg RX loop @ $43CD:
+```
+$43CD  AD 00 DD   LDA $DD00
+$43D0  10 6F      BPL $4441   ; branch if DATA IN low (drive signaling)
+$43D2  49 40      EOR #$40
+$43D4  85 9A      STA $9A
+$43D6  09 20      ORA #$20
+$43D8  8D 00 DD   STA $DD00   ; toggle CLK OUT
+$43DB  EA EA      NOP NOP
+$43DD  29 DF      AND #$DF
+$43DF  8D 00 DD   STA $DD00
+$43E2  20 BD 43   JSR $43BD   ; sub
+$43E5  EA EA      NOP NOP
+$43E7  06 9A      ASL $9A
+$43E9  06 9A      ASL $9A
+$43EB  2E 1B 03   ROL $031B
+$43EE  CA         DEX
+$43EF  10 DC      BPL $43CD
+```
+
+Two-bit-per-iteration GCR-style bit-bang RX. Hand-rolls toggling
+CLK out (bit 5 of $DD00) and reads DATA in (bit 7). Drive is the
+TX side using VIA2 SR external clock and VIA1 PB IEC drivers.
+
+### Suspected root cause
+Most likely candidate: **VIA2 shift-register external-clock mode
+not (fully) modelled in the headless 1541 emulator's IEC mux**.
+$ACR=$41 = T1 free-run + SR mode 4 (shift in/out under external
+CLK). Custom loaders use this to push bytes onto IEC at handshake
+edges without per-bit CPU work. If the emulator's VIA2 SR doesn't
+clock bytes out *and assert them on the IEC DATA line as the loader
+expects*, the line never moves and the C64 RX loop never sees the
+DATA edge it polls.
+
+Secondary candidates worth ruling out before fixing:
+
+1. **VIA1 IEC edge-detection in lockstep** — drive ratio
+   1.014973 cycles per C64 cycle. Some bit-bang loaders rely on
+   *exact* IEC line transitions per drive-cycle; a 1-cycle skew
+   per byte adds up over many bytes.
+2. **Drive RTS back to ROM** — drive PC=$F561 (ROM idle/seek)
+   while C64 still polls. Either the custom code legitimately
+   exits to ROM expecting C64-driven re-entry that never comes,
+   or the emulated drive's job interpreter dispatched RTS
+   incorrectly. Disasm of drive RAM $0500-$07FF needed (`disasm_prg
+   --platform c1541`) to confirm intended exit.
+3. **Open-collector wired-AND modelling** — both sides reporting
+   `released` (drvData=false, c64Data=true) but C64 still spinning
+   on bit 7 = 0. Worth checking the IEC bus aggregator returns the
+   correct line state for the CIA2 PA read in this exact pin
+   combination.
+4. **Drive instruction counter** — secondary tooling artifact:
+   `headless_integrated_session_status` reports drive
+   `instructions=0` even though drive PC moves and cycles tick.
+   Probably a counter-update gap in the integrated drive step
+   path; not load-blocking on its own but obscures triage.
+
+### Why $DD00 itself is fine
+The C64-side reads/writes of $DD00 in the snapshot are
+plausible — CIA2 PA bits 3/4/5 are the ATN/CLK/DATA outputs and
+bit 7 is DATA IN. The bug is on the drive→IEC path: drive thinks
+it's transmitting (or already finished and now waits on a master
+that has gone silent), C64 polls forever. The receive code is a
+straightforward two-bit GCR shifter and is not the culprit.
+
+### Captured evidence
+Murder workspace, `analysis/headless-runtime/boot-trace-3/`:
+
+- `c64-ram-snapshot2.bin` — full 64KB C64 RAM at the stall.
+- `drive-ram-snapshot1.bin` (mid-phase) and
+  `drive-ram-snapshot2.bin` (stall) — drive 2KB RAM (custom
+  loader code at $0500-$07FF + zero-page job state).
+- `snapshot-meta.json` — CPU/IEC/VIA/head metadata.
+
+The drive RAM is suitable for `disasm_prg --platform c1541` to
+recover the loader state machine, which would resolve whether the
+RTS to $F561 is intentional or a wrong dispatch.
+
+### Suggested next steps
+1. Disasm drive RAM $0500-$07FF (c1541 platform) and identify the
+   intended C64↔drive sync point after the first read phase.
+2. Compare against VICE running the same disk image to the same
+   snapshot — VICE serves as ground truth: if VICE advances past
+   $43CD with the same loader, the bug is on our side; if VICE
+   also stalls, the loader expects something we're not providing
+   (e.g. a prior C64 register write at exactly the right cycle).
+3. Spot-check VIA2 SR external mode in the headless drive
+   emulator: does an SR-clocked byte assert on IEC PB at the
+   right edges? Add a smoke that exercises SR-shift-out into the
+   bus from drive and observes the shift on the C64 side.
+4. Add a `headless_integrated_session` set_pc / write_memory
+   pair so the bug can be reproduced from the exact stall state
+   without rerunning the full boot. (Tool gap noted in the boot
+   trace #3 step — currently only `load_prg` lets you write RAM,
+   and only at PRG load addresses.)
+
+### Implications for Murder EF port
+Phase-0 evidence already captured is sufficient for the EF port
+spec (custom-loader install verified end-to-end, bit-bang
+protocol disassembled, half-track protection at T15.5
+confirmed). But automated boot trace beyond the install phase is
+blocked until this is fixed — Phase 1+ (per-file load sequence,
+main game entry PC, runtime memory map after first big load) has
+to be either gathered via VICE side or unlocked by fixing this.

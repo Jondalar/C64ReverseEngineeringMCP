@@ -1,0 +1,120 @@
+{
+  "$schema": "./test-manifest.schema.json",
+  "version": 2,
+  "description": "Sample-disk test manifest for Sprint 112 (TrueDrive core sync). Smoke scripts iterate this; each entry tested by Specs 142/143/144 in their respective scenarios. Mode is REQUIRED per entry (Q7 decision = B, no implicit default).",
+  "modes": {
+    "truedrive-pure": "Silicon-faithful TrueDrive. No traps, no rescue hooks. Default for V2 fastloader work.",
+    "truedrive-rescue": "TrueDrive + rescue hooks ($7C poke, reevaluateCa1Level, idle-skip). Debug only.",
+    "trap-fast": "V1 KERNAL/M-W/M-E trap mode. Fastest, least faithful."
+  },
+  "loaderFamilies": {
+    "kernel-real-serial": "Standard KERNAL LOAD via real CIA2/IEC bit-bang. No game-specific fastloader.",
+    "kernel-trap": "KERNAL LOAD shortcut via $F50A trap (V1 trap-fast mode only).",
+    "system3": "System 3 family — custom fastloader at drive $0700 stage-2, 24-bit serial receive at $042F.",
+    "epyx": "Epyx FastLoad — drive bit-bang via $1800 PB.",
+    "vorpal": "Vorpal Loader (EA) — raw track GCR with custom encoding. Bards Tale, Ultima series.",
+    "ocean": "Ocean Loader v1-7 — byte-bang with sync patterns.",
+    "rainbow-arts": "Rainbow Arts loader (Turrican, Mars Cops).",
+    "byteboozer": "ByteBoozer / Dreamload / Krill loader — modern crack/demo loader.",
+    "codemasters": "CodeMasters Pavlodian / Time Crystal loader.",
+    "synthetic": "Hand-crafted disk image for narrow regression."
+  },
+  "expectedOutcomes": {
+    "loads_first_block": "Drive reads track 18 sector 1 successfully.",
+    "reaches_basic_ready": "C64 reaches BASIC READY prompt after reset.",
+    "reaches_title": "Game title screen renders.",
+    "accepts_input": "Game accepts joystick or keyboard input on title.",
+    "boots_to_first_room": "Game advances past title into first playable scene."
+  },
+  "entries": [
+    {
+      "id": "polarbear",
+      "file": "POLARBEAR.d64",
+      "family": "synthetic",
+      "mode": "truedrive-pure",
+      "expected": "loads_first_block",
+      "status": "works",
+      "purpose": "minimal synthetic baseline — no game logic, just one block."
+    },
+    {
+      "id": "mm-s1-trap",
+      "file": "maniac_mansion_s1[activision_1987](german)(manual)(!).g64",
+      "family": "kernel-trap",
+      "mode": "trap-fast",
+      "expected": "reaches_title",
+      "status": "works",
+      "purpose": "V1 baseline regress — KERNAL trap path, must stay green throughout Sprint 112."
+    },
+    {
+      "id": "mm-s1-realserial",
+      "file": "maniac_mansion_s1[activision_1987](german)(manual)(!).g64",
+      "family": "kernel-real-serial",
+      "mode": "truedrive-pure",
+      "expected": "reaches_title",
+      "status": "works",
+      "purpose": "primary kernel-real-serial regress baseline. MM transfers 38658 bytes byte-perfect (Sprint 88+)."
+    },
+    {
+      "id": "mm-s2-realserial",
+      "file": "maniac_mansion_s2[activision_1987](german)(manual)(!).g64",
+      "family": "kernel-real-serial",
+      "mode": "truedrive-pure",
+      "expected": "boots_to_first_room",
+      "status": "works",
+      "purpose": "MM disk swap — exercises multi-disk LOAD."
+    },
+    {
+      "id": "motm",
+      "file": "motm.g64",
+      "family": "system3",
+      "mode": "truedrive-pure",
+      "expected": "reaches_title",
+      "status": "broken-sprint111",
+      "purpose": "PRIMARY BUG CASE. Drive samples wrong DATA bit during 24-bit receive at $042F-$044C. Sprint 111 root-cause investigation. Spec 138 probe target."
+    },
+    {
+      "id": "lastninja-remix-s1",
+      "file": "last_ninja_remix_s1[system3_1991].g64",
+      "family": "system3",
+      "mode": "truedrive-pure",
+      "expected": "reaches_title",
+      "status": "untested",
+      "purpose": "second System 3 sample — does motm fix generalize to its sibling loaders?"
+    },
+    {
+      "id": "lastninja-remix-s2",
+      "file": "last_ninja_remix_s2[system3_1991].g64",
+      "family": "system3",
+      "mode": "truedrive-pure",
+      "expected": "boots_to_first_room",
+      "status": "untested",
+      "purpose": "side B / disk swap for last ninja remix."
+    },
+    {
+      "id": "lastninja-remix-s3",
+      "file": "last_ninja_remix_s3[system3_1991](!).g64",
+      "family": "system3",
+      "mode": "truedrive-pure",
+      "expected": "boots_to_first_room",
+      "status": "untested",
+      "purpose": "side C — additional level data."
+    },
+    {
+      "id": "impossible-mission-ii",
+      "file": "impossible_mission_ii[epyx_1987](!).g64",
+      "family": "epyx",
+      "mode": "truedrive-pure",
+      "expected": "reaches_title",
+      "status": "untested",
+      "purpose": "Epyx FastLoad family coverage."
+    }
+  ],
+  "todoFamilies": [
+    "vorpal",
+    "ocean",
+    "rainbow-arts",
+    "byteboozer",
+    "codemasters"
+  ],
+  "todoNotes": "User to drop ~5 additional originals from archive: 1x Vorpal (Bards Tale or Ultima 4/5), 1x Ocean (Op Wolf or Robocop), 1x Rainbow Arts (Turrican or Mars Cops), 1x ByteBoozer/Krill (modern demo crack), 1x CodeMasters (Dizzy or similar)."
+}

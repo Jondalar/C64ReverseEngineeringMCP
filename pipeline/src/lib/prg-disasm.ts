@@ -17,8 +17,14 @@ import {
   TableUsageFact,
 } from "../analysis/types";
 import { AnnotationsIndex, buildAnnotationsIndex, loadAnnotations } from "./annotations";
+import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
 import { convertKickAsmToTass } from "./tass-converter";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
+import { getPlatformOverrides, type PlatformTag } from "../platform-knowledge/index";
+
+// Spec 048: per-render platform override. Set at the top of
+// disassemblePrgToKickAsm; consulted by the comment generators.
+let activePlatform: PlatformTag = "c64";
 import { decodeInstruction, DecodedInstruction, isBranchInstruction, isCallInstruction, isJumpInstruction } from "./mos6502";
 import { hex16, hex8 } from "./format";
 import { lookupKernalAbi, RegisterName } from "./kernal-abi";
@@ -32,6 +38,11 @@ interface PrgDisasmOptions {
   entryPoints?: number[];
   title?: string;
   analysisPath?: string;
+  // Spec 048: optional platform tag. Default is "c64". When
+  // "c1541", renderer overlays the c1541 ZP / IO / ROM tables on
+  // top of the existing C64 lookups so drive disasm gets correct
+  // labels.
+  platform?: "c64" | "c1541";
 }
 
 interface InstructionIndex {
@@ -410,15 +421,28 @@ function generateInstructionComment(
     }
   }
 
-  // 2. KERNAL call
-  if ((mnem === "jsr" || mnem === "jmp") && target !== undefined && C64_KERNAL[target]) {
-    return `// ${C64_KERNAL[target]}`;
+  // 2. KERNAL call (or platform-specific ROM symbol — Spec 048)
+  if ((mnem === "jsr" || mnem === "jmp") && target !== undefined) {
+    const overrides = getPlatformOverrides(activePlatform);
+    if (overrides.rom[target]) {
+      return `// ${overrides.rom[target]}`;
+    }
+    if (C64_KERNAL[target]) {
+      return `// ${C64_KERNAL[target]}`;
+    }
   }
 
-  // 3. Zero-page stores/loads with known meaning
-  if (mode === "zp" && operand !== undefined && ZP_COMMON[operand]) {
-    const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
-    return `// ${desc} ${ZP_COMMON[operand]}`;
+  // 3. Zero-page stores/loads with known meaning (platform overlay first)
+  if (mode === "zp" && operand !== undefined) {
+    const overrides = getPlatformOverrides(activePlatform);
+    if (overrides.zp[operand]) {
+      const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
+      return `// ${desc} ${overrides.zp[operand]}`;
+    }
+    if (ZP_COMMON[operand]) {
+      const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
+      return `// ${desc} ${ZP_COMMON[operand]}`;
+    }
   }
 
   // 4. Self-modifying code: STA into code region
@@ -727,7 +751,20 @@ function buildAnnotatedSegments(segments: Segment[], annotations?: AnnotationsIn
 }
 
 function applyAnnotationSegmentSplits(context: RenderAnalysisContext): void {
-  const splitSegments = buildAnnotatedSegments(context.segments, context.annotations?.segmentAnnotations);
+  // Spec 055 Phase A: use effective-segments overlay so cross-boundary
+  // annotation reshape is honoured. Annotation $0800-$091F that extends
+  // into adjacent analysis segment $0900-$09FF now correctly trims the
+  // adjacent segment to $0920-$09FF instead of being silently dropped.
+  const overlays: AnnotationSegmentOverlay[] = (context.annotations?.segmentAnnotations ?? []).map(({ start, end, annotation }) => ({
+    start,
+    end,
+    kind: annotation.kind,
+    label: annotation.label,
+    comment: annotation.comment,
+  }));
+  const splitSegments = overlays.length > 0
+    ? buildEffectiveSegments(context.segments, overlays)
+    : buildAnnotatedSegments(context.segments, context.annotations?.segmentAnnotations);
   context.segments = splitSegments;
   context.segmentOwnerByAddress.clear();
   for (const segment of context.segments) {
@@ -1927,51 +1964,29 @@ function escapeKickAsmText(text: string): string {
   return text.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
 }
 
+// Spec 019 Bug 8: render PETSCII spans as `.byte` lists with an inline
+// ASCII comment instead of `.text`. KickAssembler `.text` translates
+// PETSCII to screen-codes by default, which silently breaks byte-identity
+// for PRGs that store raw PETSCII (CHROUT-style print routines). `.byte`
+// always rebuilds byte-identical; the inline comment preserves human
+// readability. Annotation-driven `.text` rendering can be reintroduced
+// later via an explicit override that also emits a KickAss `.encoding`
+// directive.
 function emitPetsciiTextSegment(prg: PrgImage, segment: Segment, lines: string[]): void {
   const offset = segment.start - prg.loadAddress;
   const bytes = Array.from(prg.data.subarray(offset, offset + segment.length));
+  emitBytesWithAsciiComment(bytes, lines);
+}
 
-  if (!canRenderAsKickAsmText(bytes)) {
-    const pagedText = segment.attributes?.pagedText === true;
-    const printableOrZero = bytes.every((value) => value === 0x00 || (value >= 0x20 && value <= 0x7e));
-    if (!(pagedText && printableOrZero)) {
-      emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines);
-      return;
-    }
-
-    let runStart = 0;
-    while (runStart < bytes.length) {
-      if (bytes[runStart] === 0x00) {
-        lines.push(`      .byte $00`);
-        runStart += 1;
-        continue;
-      }
-
-      let runEnd = runStart;
-      while (runEnd < bytes.length && bytes[runEnd] !== 0x00) {
-        runEnd += 1;
-      }
-
-      const text = bytes
-        .slice(runStart, runEnd)
-        .map((value) => String.fromCharCode(value))
-        .join("");
-      const chunkSize = 40;
-      for (let index = 0; index < text.length; index += chunkSize) {
-        const chunk = text.slice(index, index + chunkSize);
-        lines.push(`      .text "${escapeKickAsmText(chunk)}"`);
-      }
-
-      runStart = runEnd;
-    }
-    return;
-  }
-
-  const text = bytes.map((value) => String.fromCharCode(value)).join("");
-  const chunkSize = 40;
-  for (let index = 0; index < text.length; index += chunkSize) {
-    const chunk = text.slice(index, index + chunkSize);
-    lines.push(`      .text "${escapeKickAsmText(chunk)}"`);
+function emitBytesWithAsciiComment(bytes: number[], lines: string[]): void {
+  const chunkSize = 16;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.slice(index, index + chunkSize);
+    const hex = chunk.map((value) => `$${formatHex8(value)}`).join(", ");
+    const ascii = chunk
+      .map((value) => (value >= 0x20 && value <= 0x7e ? String.fromCharCode(value) : "."))
+      .join("");
+    lines.push(`      .byte ${hex.padEnd(16 * 5)} // "${ascii.replace(/"/g, '\\"')}"`);
   }
 }
 
@@ -2265,6 +2280,8 @@ function renderLegacy(prg: PrgImage, entryPoints: number[], lines: string[]): vo
 }
 
 export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): void {
+  // Spec 048: set per-render platform override. Default c64.
+  activePlatform = options.platform ?? "c64";
   const resolvedPrgPath = resolve(prgPath);
   const prg = readPrg(resolvedPrgPath);
   const analysisReport = maybeLoadAnalysis(resolvedPrgPath, options.analysisPath);

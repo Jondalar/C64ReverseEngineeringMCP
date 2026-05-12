@@ -1,7 +1,38 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, startTransition, useContext, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { HexView } from "./components/HexView.js";
 import { AsmView, type AsmViewSource } from "./components/AsmView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
+import { latestArtifactsByLineage, lineageVersionCount, isLatestInLineage } from "./lib/lineage.js";
+import { isInternalArtifact, isInternalEntity } from "./lib/internal.js";
+
+// Bug 24: nested panels read this to filter artifact lists to latest-only
+// (default) or pass through (when "Show all versions" toggle is on).
+// Identity-safe: when showAllVersions is true, latest() returns its input.
+const LineageVisibilityContext = createContext<{
+  showAllVersions: boolean;
+  latest: <T extends ArtifactRecord>(items: T[]) => T[];
+}>({ showAllVersions: false, latest: (items) => latestArtifactsByLineage(items) });
+
+function useLineageVisibility() {
+  return useContext(LineageVisibilityContext);
+}
+
+// Bug 26 / Spec 058: nested panels filter artifact + entity lists
+// against this context. Default hides infrastructure files; the
+// "Show internal files" header toggle flips it to pass-through.
+const InternalVisibilityContext = createContext<{
+  showInternal: boolean;
+  visibleArtifacts: <T extends ArtifactRecord>(items: T[]) => T[];
+  visibleEntities: <T extends EntityRecord>(items: T[], artifactsById: Map<string, ArtifactRecord>) => T[];
+}>({
+  showInternal: false,
+  visibleArtifacts: (items) => items.filter((a) => !isInternalArtifact(a)),
+  visibleEntities: (items, byId) => items.filter((e) => !isInternalEntity(e, byId)),
+});
+
+function useInternalVisibility() {
+  return useContext(InternalVisibilityContext);
+}
 import { FileInspector, type FileInspectorActionButton, type FileInspectorHeadlineExtra, type FileInspectorMetaRow, type FileInspectorSpanRow } from "./components/FileInspector.js";
 import { MediumPanelShell, type MediumOriginPillSpec } from "./components/MediumPanelShell.js";
 import { BootTracePanel } from "./components/BootTracePanel.js";
@@ -9,16 +40,26 @@ import { C64GraphicsView, type GraphicsRenderKind } from "./components/C64Graphi
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
+  AuditCachedResponse,
   EntityRecord,
   FindingRecord,
   FlowGraphView,
   LoadSequenceView,
   MemoryMapView,
+  OpenQuestionRecord,
+  PrgReverseWorkflowResponse,
+  ProjectAuditFinding,
+  ProjectRepairOperation,
+  ProjectRepairResponse,
   RelationRecord,
   WorkspaceUiSnapshot,
 } from "./types";
 
-type TabId = "dashboard" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "load" | "flow" | "listing" | "activity";
+// Spec 059 / UX1: view-centric tab structure (16 → 11). Removed:
+// findings/entities/flows/relations (record-list tabs — surface inside
+// inspector instead), load (folded into Flow sub-mode), activity
+// (folded into Dashboard).
+type TabId = "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -58,6 +99,10 @@ interface GraphicsItem {
   prgLoadAddress: number;
   fileOffset: number;
   analysisArtifactId: string;
+  confirmed?: boolean;
+  rejected?: boolean;
+  rejectedReason?: string;
+  confirmedByArtifactId?: string;
 }
 
 interface GraphicsApiResponse {
@@ -85,16 +130,16 @@ type CartChunkSelection = { cartridgeArtifactId: string; chunk: CartridgeLutChun
 
 const allTabs: Array<{ id: TabId; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
+  { id: "questions", label: "Questions" },
   { id: "docs", label: "Docs" },
   { id: "memory", label: "Memory Map" },
   { id: "graphics", label: "Graphics" },
   { id: "scrub", label: "Scrub" },
-  { id: "cartridge", label: "Cartridge" },
   { id: "disk", label: "Disk" },
-  { id: "load", label: "Load Sequence" },
+  { id: "cartridge", label: "Cartridge" },
+  { id: "payloads", label: "Payloads" },
   { id: "flow", label: "Flow Graph" },
   { id: "listing", label: "Annotated Listing" },
-  { id: "activity", label: "Recent Activity" },
 ];
 
 // Files we want to open in the (mon) hex viewer. Anything else (.json,
@@ -446,6 +491,121 @@ function MetricTile({ title, value, tone }: { title: string; value: string; tone
   );
 }
 
+// Spec 050 Block D: 7-cell pill showing per-artifact phase
+// progress. ✓ done · ⨯ pending · — not required for active
+// workflow. Frozen artifacts get a 🔒 prefix.
+function PhaseBadge({ phase, frozen }: { phase?: number; frozen?: boolean }) {
+  const current = phase ?? 1;
+  const cells = [1, 2, 3, 4, 5, 6, 7].map((p) => {
+    if (frozen && p === current) return "🔒";
+    if (p < current) return "✓";
+    if (p === current) return "•";
+    return "⨯";
+  }).join("");
+  const label = frozen ? `frozen at phase ${current}` : `phase ${current}/7`;
+  return (
+    <span className="phase-badge" title={label} aria-label={label}>
+      {cells}
+    </span>
+  );
+}
+
+// Spec 050 Block B: dashboard panel that fetches the per-artifact
+// status matrix and renders one row per PRG / raw / extract
+// artifact with phase badge + completion + quality + relevance.
+interface PerArtifactStatusRow {
+  artifactId: string;
+  title: string;
+  kind: string;
+  platform?: string;
+  phase?: number;
+  phaseFrozen?: boolean;
+  relativePath: string;
+  steps: Array<{ name: string; status: "done" | "pending" | "blocked" }>;
+  completionPctAnalyst: number;
+  completionPctCracker: number;
+}
+
+interface PerArtifactStatusResponse {
+  projectDir: string;
+  count: number;
+  items: PerArtifactStatusRow[];
+}
+
+function PerArtifactStatusPanel({ projectDir }: { projectDir: string }) {
+  const [rows, setRows] = useState<PerArtifactStatusRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"completion" | "title" | "phase">("completion");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await fetchJson<PerArtifactStatusResponse>(`/api/per-artifact-status?projectDir=${encodeURIComponent(projectDir)}`);
+        if (!cancelled) setRows(data.items ?? []);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [projectDir]);
+
+  const sorted = useMemo(() => {
+    const copy = [...rows];
+    switch (sortBy) {
+      case "completion": copy.sort((a, b) => b.completionPctAnalyst - a.completionPctAnalyst); break;
+      case "title": copy.sort((a, b) => a.title.localeCompare(b.title)); break;
+      case "phase": copy.sort((a, b) => (b.phase ?? 1) - (a.phase ?? 1)); break;
+    }
+    return copy;
+  }, [rows, sortBy]);
+
+  if (loading) return <div className="empty-inline">Loading per-artifact status…</div>;
+  if (error) return <div className="inspector-error"><pre>{error}</pre></div>;
+  if (rows.length === 0) return <div className="empty-inline">No phase-tracked artifacts.</div>;
+
+  return (
+    <section className="panel-card">
+      <div className="section-heading">
+        <h3>Per-Artifact Status</h3>
+        <span>{rows.length} artifacts</span>
+      </div>
+      <div className="inspector-chip-row">
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+          <option value="completion">sort: completion ↓</option>
+          <option value="title">sort: title ↑</option>
+          <option value="phase">sort: phase ↓</option>
+        </select>
+      </div>
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">phase</span>
+          <span className="questions-cell-meta">analyst%</span>
+          <span className="questions-cell-meta">cracker%</span>
+          <span className="questions-cell-meta">platform</span>
+        </div>
+        {sorted.slice(0, 200).map((r) => (
+          <div key={r.artifactId} className="questions-row">
+            <span className="questions-cell-title" title={r.relativePath}>{r.title}</span>
+            <span className="questions-cell-meta"><PhaseBadge phase={r.phase} frozen={r.phaseFrozen} /></span>
+            <span className="questions-cell-meta">{r.completionPctAnalyst}%</span>
+            <span className="questions-cell-meta">{r.completionPctCracker}%</span>
+            <span className="questions-cell-meta">{r.platform ?? "c64"}</span>
+          </div>
+        ))}
+        {sorted.length > 200 ? <div className="empty-inline">Showing first 200 of {sorted.length}.</div> : null}
+      </div>
+    </section>
+  );
+}
+
 function RecordList({
   title,
   items,
@@ -486,14 +646,907 @@ function RecordList({
   );
 }
 
-function DashboardPanel({
+const ALL_REPAIR_OPS: ProjectRepairOperation[] = [
+  "merge-fragments",
+  "register-artifacts",
+  "import-analysis",
+  "import-manifest",
+  "build-views",
+];
+
+function AuditPanel({
+  projectDir,
+  onReloadWorkspace,
+}: {
+  projectDir: string;
+  onReloadWorkspace: () => Promise<void>;
+}) {
+  const [audit, setAudit] = useState<AuditCachedResponse | null>(null);
+  const [busy, setBusy] = useState<"audit" | "audit-fresh" | "repair-dry" | "repair-safe" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lastRepair, setLastRepair] = useState<ProjectRepairResponse | null>(null);
+
+  async function loadAudit(fresh: boolean) {
+    setError(null);
+    setBusy(fresh ? "audit-fresh" : "audit");
+    try {
+      const url = `/api/audit?projectDir=${encodeURIComponent(projectDir)}${fresh ? "&fresh=1" : ""}`;
+      const data = await fetchJson<AuditCachedResponse>(url);
+      setAudit(data);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runRepair(mode: "dry-run" | "safe") {
+    if (mode === "safe" && !window.confirm("Run safe repair? This will write to knowledge/ and views/. Source files are not deleted.")) {
+      return;
+    }
+    setError(null);
+    setBusy(mode === "safe" ? "repair-safe" : "repair-dry");
+    try {
+      const data = await postJson<ProjectRepairResponse>("/api/repair", {
+        projectDir,
+        mode,
+        operations: ALL_REPAIR_OPS,
+      });
+      setLastRepair(data);
+      await loadAudit(true);
+      if (mode === "safe") await onReloadWorkspace();
+    } catch (repairError) {
+      setError(repairError instanceof Error ? repairError.message : String(repairError));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  useEffect(() => {
+    void loadAudit(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectDir]);
+
+  const findings: ProjectAuditFinding[] = audit?.audit.findings ?? [];
+  const counts = audit?.audit.counts;
+
+  return (
+    <section className="panel-card audit-panel">
+      <div className="section-heading">
+        <h3>Project Audit</h3>
+        <span>{audit ? `${audit.audit.severity} (${audit.cacheStatus})` : "loading..."}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <button type="button" className="inspector-chip" disabled={busy !== null} onClick={() => loadAudit(true)}>
+          {busy === "audit-fresh" ? "Auditing..." : "Refresh audit"}
+        </button>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busy !== null || !audit?.audit.safeRepairAvailable}
+          onClick={() => runRepair("dry-run")}
+        >
+          {busy === "repair-dry" ? "Planning..." : "Dry-run repair"}
+        </button>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busy !== null || !audit?.audit.safeRepairAvailable}
+          onClick={() => runRepair("safe")}
+        >
+          {busy === "repair-safe" ? "Repairing..." : "Run safe repair"}
+        </button>
+      </div>
+      {error ? <div className="inspector-error">{error}</div> : null}
+      {counts ? (
+        <div className="record-meta">
+          <span>nested={counts.nestedKnowledgeStores}</span>
+          <span>broken={counts.brokenArtifactPaths}</span>
+          <span>missing={counts.missingArtifacts}</span>
+          <span>unregistered={counts.unregisteredFiles}</span>
+          <span>unimported={counts.unimportedAnalysisArtifacts + counts.unimportedManifestArtifacts}</span>
+          <span>staleViews={counts.staleViews}</span>
+        </div>
+      ) : null}
+      <div className="record-stack compact">
+        {findings.length === 0 ? (
+          <div className="empty-inline">No audit findings.</div>
+        ) : (
+          findings.slice(0, 5).map((finding) => (
+            <article key={finding.id} className="mini-card">
+              <div className="record-topline">
+                <span>[{finding.severity}] {finding.title}</span>
+              </div>
+              <p>{finding.whyItMatters}</p>
+              <p><strong>Fix:</strong> {finding.suggestedFix}</p>
+              {finding.paths.length > 0 ? (
+                <div className="record-meta">
+                  <span>{finding.paths.length} affected path(s)</span>
+                </div>
+              ) : null}
+            </article>
+          ))
+        )}
+      </div>
+      {lastRepair ? (
+        <details className="audit-repair-result">
+          <summary>{`Last repair (${lastRepair.mode}) — executed=${lastRepair.executed.length} skipped=${lastRepair.skipped.length}`}</summary>
+          <div className="record-stack compact">
+            {lastRepair.planned.length > 0 ? (
+              <article className="mini-card">
+                <strong>Planned</strong>
+                <pre>{lastRepair.planned.slice(0, 20).join("\n")}</pre>
+              </article>
+            ) : null}
+            {lastRepair.executed.length > 0 ? (
+              <article className="mini-card">
+                <strong>Executed</strong>
+                <pre>{lastRepair.executed.slice(0, 20).join("\n")}</pre>
+              </article>
+            ) : null}
+            {lastRepair.skipped.length > 0 ? (
+              <article className="mini-card">
+                <strong>Skipped</strong>
+                <pre>{lastRepair.skipped.slice(0, 20).join("\n")}</pre>
+              </article>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function WorkflowRunnerPanel({
+  snapshot,
+  onReloadWorkspace,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onReloadWorkspace: () => Promise<void>;
+}) {
+  const { latest } = useLineageVisibility();
+  const { visibleArtifacts: visibleA } = useInternalVisibility();
+  const prgArtifacts = useMemo(
+    () => visibleA(latest(snapshot.artifacts.filter((artifact) => artifact.kind === "prg" || artifact.relativePath.toLowerCase().endsWith(".prg")))),
+    [snapshot.artifacts, latest, visibleA],
+  );
+  const [selected, setSelected] = useState<string | null>(prgArtifacts[0]?.id ?? null);
+  const [mode, setMode] = useState<"quick" | "full">("full");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<PrgReverseWorkflowResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selected || !prgArtifacts.find((artifact) => artifact.id === selected)) {
+      setSelected(prgArtifacts[0]?.id ?? null);
+    }
+  }, [prgArtifacts, selected]);
+
+  async function runWorkflow() {
+    const artifact = prgArtifacts.find((entry) => entry.id === selected);
+    if (!artifact) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const data = await postJson<PrgReverseWorkflowResponse>("/api/run-prg-workflow", {
+        projectDir: snapshot.project.rootPath,
+        prgPath: artifact.relativePath,
+        mode,
+      });
+      setResult(data);
+      await onReloadWorkspace();
+    } catch (workflowError) {
+      setError(workflowError instanceof Error ? workflowError.message : String(workflowError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (prgArtifacts.length === 0) {
+    return (
+      <section className="panel-card workflow-panel">
+        <div className="section-heading">
+          <h3>PRG Reverse Workflow</h3>
+          <span>no PRG artifacts</span>
+        </div>
+        <p className="empty-inline">Register a PRG with project_init / register_existing_files to enable the workflow runner.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel-card workflow-panel">
+      <div className="section-heading">
+        <h3>PRG Reverse Workflow</h3>
+        <span>{result ? result.status : "idle"}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <select
+          value={selected ?? ""}
+          onChange={(event) => setSelected(event.target.value || null)}
+          disabled={busy}
+        >
+          {prgArtifacts.map((artifact) => (
+            <option key={artifact.id} value={artifact.id}>{artifact.relativePath}</option>
+          ))}
+        </select>
+        <select value={mode} onChange={(event) => setMode(event.target.value === "quick" ? "quick" : "full")} disabled={busy}>
+          <option value="full">full (analyze + disasm + reports)</option>
+          <option value="quick">quick (analyze + disasm only)</option>
+        </select>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busy || !selected}
+          onClick={runWorkflow}
+        >
+          {busy ? "Running..." : "Run reverse workflow"}
+        </button>
+      </div>
+      {error ? <div className="inspector-error">{error}</div> : null}
+      {result ? (
+        <div className="record-stack compact">
+          <article className="mini-card">
+            <strong>Status: {result.status}</strong>
+            <p>Imported entities={result.importedCounts.entities} findings={result.importedCounts.findings} relations={result.importedCounts.relations} flows={result.importedCounts.flows} questions={result.importedCounts.openQuestions}</p>
+            <p>{result.nextRequiredAction}</p>
+          </article>
+          <article className="mini-card">
+            <strong>Phases</strong>
+            <pre>{result.phases.map((p) => `[${p.status}] ${p.phase}${p.reason ? " — " + p.reason : ""}`).join("\n")}</pre>
+          </article>
+          {result.artifactsWritten.length > 0 ? (
+            <article className="mini-card">
+              <strong>Artifacts written</strong>
+              <pre>{result.artifactsWritten.join("\n")}</pre>
+            </article>
+          ) : null}
+          {result.viewsBuilt.length > 0 ? (
+            <article className="mini-card">
+              <strong>Views rebuilt</strong>
+              <pre>{result.viewsBuilt.join("\n")}</pre>
+            </article>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+type QuestionStatusFilter = "all" | "open" | "researching" | "answered" | "invalidated" | "deferred";
+type QuestionPriorityFilter = "all" | "low" | "medium" | "high" | "critical";
+type QuestionSort = "updatedDesc" | "updatedAsc" | "confidenceAsc" | "confidenceDesc" | "priorityDesc";
+
+const PRIORITY_RANK: Record<string, number> = { low: 0, medium: 1, high: 2, critical: 3 };
+
+function QuestionsPanel({
+  snapshot,
+  onSelectQuestion,
+  onReloadWorkspace,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectQuestion: (questionId: string) => void;
+  onReloadWorkspace: () => Promise<void>;
+}) {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<QuestionStatusFilter>("open");
+  const [priorityFilter, setPriorityFilter] = useState<QuestionPriorityFilter>("all");
+  const [kindFilter, setKindFilter] = useState("");
+  const [sort, setSort] = useState<QuestionSort>("updatedDesc");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<string | null>(null);
+  // Spec 061 / UX3: track active bulk-revaluate tasks so questions can
+  // show a "re-eval pending" badge. Pending = question.id ∈ task.questionIds
+  // AND question.updatedAt < task.createdAt (agent hasn't touched yet).
+  const [activeBulkTasks, setActiveBulkTasks] = useState<Array<{ id: string; questionIds: string[]; createdAt: string }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function poll() {
+      try {
+        const data = await fetch(`/api/tasks/active-bulk?projectDir=${encodeURIComponent(snapshot.project.rootPath)}`).then((r) => r.json()) as { tasks: Array<{ id: string; questionIds: string[]; createdAt: string }> };
+        if (!cancelled) setActiveBulkTasks(data.tasks ?? []);
+      } catch {
+        if (!cancelled) setActiveBulkTasks([]);
+      }
+      if (!cancelled) timer = setTimeout(poll, 30000);
+    }
+    poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [snapshot.project.rootPath]);
+  const pendingByQuestionId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of activeBulkTasks) {
+      for (const qid of t.questionIds) {
+        if (!map.has(qid)) map.set(qid, t.id);
+      }
+    }
+    return map;
+  }, [activeBulkTasks]);
+
+  const kinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const q of snapshot.openQuestions) set.add(q.kind);
+    return [...set].sort();
+  }, [snapshot.openQuestions]);
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    let list = snapshot.openQuestions.filter((q) => {
+      if (statusFilter !== "all" && q.status !== statusFilter) return false;
+      if (priorityFilter !== "all" && q.priority !== priorityFilter) return false;
+      if (kindFilter && q.kind !== kindFilter) return false;
+      if (needle) {
+        const hay = `${q.title} ${q.description ?? ""} ${q.answerSummary ?? ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      switch (sort) {
+        case "updatedAsc": return a.updatedAt.localeCompare(b.updatedAt);
+        case "updatedDesc": return b.updatedAt.localeCompare(a.updatedAt);
+        case "confidenceAsc": return a.confidence - b.confidence;
+        case "confidenceDesc": return b.confidence - a.confidence;
+        case "priorityDesc": return (PRIORITY_RANK[b.priority] ?? 0) - (PRIORITY_RANK[a.priority] ?? 0);
+      }
+    });
+    return list;
+  }, [snapshot.openQuestions, search, statusFilter, priorityFilter, kindFilter, sort]);
+
+  const visible = filtered.slice(0, 500);
+  const allVisibleSelected = visible.length > 0 && visible.every((q) => selected.has(q.id));
+
+  function toggleId(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllVisible() {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        for (const q of visible) next.delete(q.id);
+      } else {
+        for (const q of visible) next.add(q.id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  async function applyBatch(patch: { status?: "deferred" | "invalidated" | "answered" | "open"; priority?: "low" | "medium" | "high" | "critical"; answerSummary?: string }) {
+    if (selected.size === 0) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const ids = [...selected];
+      const data = await postJson<{ updated: string[]; errors: Array<{ id: string; error: string }> }>("/api/open-question/batch", {
+        projectDir: snapshot.project.rootPath,
+        ids,
+        patch,
+      });
+      setLastResult(`Updated ${data.updated.length} of ${ids.length}.${data.errors.length > 0 ? ` ${data.errors.length} errors.` : ""}`);
+      if (data.errors.length > 0) {
+        setError(data.errors.slice(0, 5).map((e) => `${e.id}: ${e.error}`).join("\n"));
+      }
+      setSelected(new Set());
+      await onReloadWorkspace();
+    } catch (batchError) {
+      setError(batchError instanceof Error ? batchError.message : String(batchError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function batchSetPriority() {
+    const value = window.prompt("New priority (low/medium/high/critical):", "medium")?.trim().toLowerCase();
+    if (!value) return;
+    if (!["low", "medium", "high", "critical"].includes(value)) {
+      setError("Invalid priority.");
+      return;
+    }
+    await applyBatch({ priority: value as "low" | "medium" | "high" | "critical" });
+  }
+
+  // Spec 061 / UX3: bulk re-evaluate. Phase 1 deterministic sweep runs
+  // server-side; phase 2 queues an automation task the LLM picks up via
+  // c64re_whats_next. Returns the task id + post-sweep counts.
+  async function batchRevaluate() {
+    if (selected.size === 0) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const ids = [...selected];
+      const data = await postJson<{
+        taskId: string;
+        questionCount: number;
+        phase1: { archived: number; answered: number; sweepCounts: Array<{ artifactId: string; archived: number; answered: number }> };
+        remainingForPhase2: number;
+      }>("/api/tasks/bulk-revaluate", {
+        projectDir: snapshot.project.rootPath,
+        questionIds: ids,
+        priority: "medium",
+      });
+      setLastResult(
+        `Re-evaluation queued. Phase 1 closed ${data.phase1.answered} of ${data.questionCount} questions automatically; ` +
+        `${data.remainingForPhase2} remain for the LLM agent (task ${data.taskId}).`
+      );
+      setSelected(new Set());
+      await onReloadWorkspace();
+    } catch (revaluateError) {
+      setError(revaluateError instanceof Error ? revaluateError.message : String(revaluateError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Questions</h3>
+        <span>{filtered.length} of {snapshot.openQuestions.length} | selected {selected.size}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input
+          type="search"
+          placeholder="Search title / summary"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as QuestionStatusFilter)}>
+          <option value="all">all status</option>
+          <option value="open">open</option>
+          <option value="researching">researching</option>
+          <option value="answered">answered</option>
+          <option value="invalidated">invalidated</option>
+          <option value="deferred">deferred</option>
+        </select>
+        <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as QuestionPriorityFilter)}>
+          <option value="all">all priority</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="critical">critical</option>
+        </select>
+        <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}>
+          <option value="">all kinds</option>
+          {kinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+        </select>
+        <select value={sort} onChange={(event) => setSort(event.target.value as QuestionSort)}>
+          <option value="updatedDesc">updated ↓</option>
+          <option value="updatedAsc">updated ↑</option>
+          <option value="confidenceAsc">confidence ↑</option>
+          <option value="confidenceDesc">confidence ↓</option>
+          <option value="priorityDesc">priority ↓</option>
+        </select>
+      </div>
+      <div className="inspector-chip-row">
+        <button type="button" className="inspector-chip" onClick={selectAllVisible} disabled={busy || visible.length === 0}>
+          {allVisibleSelected ? "Unselect visible" : `Select visible (${visible.length})`}
+        </button>
+        <button type="button" className="inspector-chip" onClick={clearSelection} disabled={busy || selected.size === 0}>
+          Clear selection
+        </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={batchRevaluate} title="Phase 1 sweep (deterministic) + Phase 2 LLM task queued via UX3.">
+          {busy ? "..." : `Re-evaluate ${selected.size}`}
+        </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={() => applyBatch({ status: "deferred" })}>
+          {busy ? "..." : `Defer ${selected.size}`}
+        </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={() => applyBatch({ status: "invalidated" })}>
+          {`Invalidate ${selected.size}`}
+        </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={() => applyBatch({ status: "open" })}>
+          {`Reopen ${selected.size}`}
+        </button>
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={batchSetPriority}>
+          {`Set priority ${selected.size}`}
+        </button>
+      </div>
+      {lastResult ? <div className="empty-inline">{lastResult}</div> : null}
+      {error ? <div className="inspector-error"><pre>{error}</pre></div> : null}
+      {filtered.length > visible.length ? (
+        <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div>
+      ) : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-check"></span>
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">prio</span>
+          <span className="questions-cell-meta">conf</span>
+          <span className="questions-cell-meta">status</span>
+          <span className="questions-cell-meta">updated</span>
+        </div>
+        {visible.map((question) => (
+          <div key={question.id} className="questions-row">
+            <span className="questions-cell-check">
+              <input
+                type="checkbox"
+                checked={selected.has(question.id)}
+                onChange={() => toggleId(question.id)}
+                disabled={busy}
+              />
+            </span>
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => onSelectQuestion(question.id)}
+            >
+              {question.title}
+              {pendingByQuestionId.has(question.id) ? (
+                <span className="questions-pending-badge" title={`Re-eval task ${pendingByQuestionId.get(question.id)} pending. Agent picks it up via c64re_whats_next.`}>
+                  re-eval pending
+                </span>
+              ) : null}
+            </button>
+            <span className="questions-cell-meta">{question.kind}</span>
+            <span className="questions-cell-meta">{question.priority}</span>
+            <span className="questions-cell-meta">{pct(question.confidence)}</span>
+            <span className="questions-cell-meta">{question.status}</span>
+            <span className="questions-cell-meta">{shortTime(question.updatedAt)}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No questions match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
+// Spec 021 knowledge tabs: read-only flat-table panels for findings,
+// entities, flows, relations. Each panel mirrors the QuestionsPanel
+// pattern (search + filters + sort + virtualised rows capped at 500).
+// Click a row title -> selects the related entity in the workspace.
+
+function visibleSlice<T>(items: T[]): { visible: T[]; truncated: number } {
+  const visible = items.slice(0, 500);
+  return { visible, truncated: items.length - visible.length };
+}
+
+function FindingsPanel({
   snapshot,
   onSelectEntity,
-  onOpenDocument,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [kindFilter, setKindFilter] = useState("");
+  const [sort, setSort] = useState<"updatedDesc" | "updatedAsc" | "confidenceDesc" | "confidenceAsc">("updatedDesc");
+  const kinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of snapshot.findings) set.add(f.kind);
+    return [...set].sort();
+  }, [snapshot.findings]);
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    let list = snapshot.findings.filter((f) => {
+      if (statusFilter !== "all" && f.status !== statusFilter) return false;
+      if (kindFilter && f.kind !== kindFilter) return false;
+      if (needle) {
+        const hay = `${f.title} ${f.summary ?? ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      switch (sort) {
+        case "updatedAsc": return a.updatedAt.localeCompare(b.updatedAt);
+        case "updatedDesc": return b.updatedAt.localeCompare(a.updatedAt);
+        case "confidenceAsc": return a.confidence - b.confidence;
+        case "confidenceDesc": return b.confidence - a.confidence;
+      }
+    });
+    return list;
+  }, [snapshot.findings, search, statusFilter, kindFilter, sort]);
+  const { visible, truncated } = visibleSlice(filtered);
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Findings</h3>
+        <span>{filtered.length} of {snapshot.findings.length}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input type="search" placeholder="Search title / summary" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">all status</option>
+          <option value="proposed">proposed</option>
+          <option value="active">active</option>
+          <option value="confirmed">confirmed</option>
+          <option value="rejected">rejected</option>
+          <option value="archived">archived</option>
+        </select>
+        <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+          <option value="">all kinds</option>
+          {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+          <option value="updatedDesc">updated ↓</option>
+          <option value="updatedAsc">updated ↑</option>
+          <option value="confidenceDesc">confidence ↓</option>
+          <option value="confidenceAsc">confidence ↑</option>
+        </select>
+      </div>
+      {truncated > 0 ? <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div> : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">conf</span>
+          <span className="questions-cell-meta">status</span>
+          <span className="questions-cell-meta">entities</span>
+          <span className="questions-cell-meta">updated</span>
+        </div>
+        {visible.map((finding) => (
+          <div key={finding.id} className="questions-row">
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => finding.entityIds[0] && onSelectEntity(finding.entityIds[0])}
+              disabled={finding.entityIds.length === 0}
+              title={finding.summary ?? ""}
+            >
+              {finding.title}
+            </button>
+            <span className="questions-cell-meta">{finding.kind}</span>
+            <span className="questions-cell-meta">{pct(finding.confidence)}</span>
+            <span className="questions-cell-meta">{finding.status}</span>
+            <span className="questions-cell-meta">{finding.entityIds.length}</span>
+            <span className="questions-cell-meta">{shortTime(finding.updatedAt)}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No findings match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function EntitiesPanel({
+  snapshot,
+  onSelectEntity,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectEntity: (entityId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState("");
+  const [sort, setSort] = useState<"name" | "addressAsc" | "confidenceDesc">("name");
+  const kinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of snapshot.entities) set.add(e.kind);
+    return [...set].sort();
+  }, [snapshot.entities]);
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    let list = snapshot.entities.filter((e) => {
+      if (kindFilter && e.kind !== kindFilter) return false;
+      if (needle) {
+        const hay = `${e.name} ${e.summary ?? ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      switch (sort) {
+        case "name": return a.name.localeCompare(b.name);
+        case "addressAsc": return (a.addressRange?.start ?? Number.POSITIVE_INFINITY) - (b.addressRange?.start ?? Number.POSITIVE_INFINITY);
+        case "confidenceDesc": return b.confidence - a.confidence;
+      }
+    });
+    return list;
+  }, [snapshot.entities, search, kindFilter, sort]);
+  const { visible, truncated } = visibleSlice(filtered);
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Entities</h3>
+        <span>{filtered.length} of {snapshot.entities.length}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input type="search" placeholder="Search name / summary" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+          <option value="">all kinds</option>
+          {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+          <option value="name">name ↑</option>
+          <option value="addressAsc">address ↑</option>
+          <option value="confidenceDesc">confidence ↓</option>
+        </select>
+      </div>
+      {truncated > 0 ? <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div> : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Name</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">address</span>
+          <span className="questions-cell-meta">conf</span>
+          <span className="questions-cell-meta">artifacts</span>
+        </div>
+        {visible.map((entity) => (
+          <div key={entity.id} className="questions-row">
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => onSelectEntity(entity.id)}
+              title={entity.summary ?? ""}
+            >
+              {entity.name}
+            </button>
+            <span className="questions-cell-meta">{entity.kind}</span>
+            <span className="questions-cell-meta">
+              {entity.addressRange ? `$${entity.addressRange.start.toString(16).toUpperCase().padStart(4, "0")}` : "—"}
+            </span>
+            <span className="questions-cell-meta">{pct(entity.confidence)}</span>
+            <span className="questions-cell-meta">{entity.artifactIds.length}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No entities match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function FlowsPanel({
+  snapshot,
+  onSelectEntity,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectEntity: (entityId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return snapshot.flows.filter((f) => {
+      if (!needle) return true;
+      const hay = `${f.title} ${f.summary ?? ""}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [snapshot.flows, search]);
+  const { visible, truncated } = visibleSlice(filtered);
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Flows</h3>
+        <span>{filtered.length} of {snapshot.flows.length}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input type="search" placeholder="Search title / summary" value={search} onChange={(e) => setSearch(e.target.value)} />
+      </div>
+      {truncated > 0 ? <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div> : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">steps</span>
+          <span className="questions-cell-meta">entities</span>
+          <span className="questions-cell-meta">updated</span>
+        </div>
+        {visible.map((flow) => (
+          <div key={flow.id} className="questions-row">
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => flow.entityIds[0] && onSelectEntity(flow.entityIds[0])}
+              disabled={flow.entityIds.length === 0}
+              title={flow.summary ?? ""}
+            >
+              {flow.title}
+            </button>
+            <span className="questions-cell-meta">{flow.kind}</span>
+            <span className="questions-cell-meta">{flow.nodes.length}</span>
+            <span className="questions-cell-meta">{flow.entityIds.length}</span>
+            <span className="questions-cell-meta">{shortTime(flow.updatedAt)}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No flows match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function RelationsPanel({
+  snapshot,
+  onSelectEntity,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectEntity: (entityId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState("");
+  const kinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of snapshot.relations) set.add(r.kind);
+    return [...set].sort();
+  }, [snapshot.relations]);
+  const entityNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of snapshot.entities) map.set(e.id, e.name);
+    return map;
+  }, [snapshot.entities]);
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return snapshot.relations.filter((r) => {
+      if (kindFilter && r.kind !== kindFilter) return false;
+      if (!needle) return true;
+      const sourceName = entityNameById.get(r.sourceEntityId) ?? r.sourceEntityId;
+      const targetName = entityNameById.get(r.targetEntityId) ?? r.targetEntityId;
+      const hay = `${r.title} ${r.summary ?? ""} ${sourceName} ${targetName}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [snapshot.relations, search, kindFilter, entityNameById]);
+  const { visible, truncated } = visibleSlice(filtered);
+  return (
+    <section className="panel-card questions-panel">
+      <div className="section-heading">
+        <h3>Relations</h3>
+        <span>{filtered.length} of {snapshot.relations.length}</span>
+      </div>
+      <div className="inspector-chip-row">
+        <input type="search" placeholder="Search source/target/title" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+          <option value="">all kinds</option>
+          {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </div>
+      {truncated > 0 ? <div className="empty-inline">Showing first {visible.length} of {filtered.length}. Tighten the filter to see more.</div> : null}
+      <div className="questions-table">
+        <div className="questions-row questions-row-head">
+          <span className="questions-cell-title">Title</span>
+          <span className="questions-cell-meta">kind</span>
+          <span className="questions-cell-meta">source</span>
+          <span className="questions-cell-meta">target</span>
+          <span className="questions-cell-meta">conf</span>
+        </div>
+        {visible.map((relation) => (
+          <div key={relation.id} className="questions-row">
+            <button
+              type="button"
+              className="questions-cell-title questions-row-title"
+              onClick={() => onSelectEntity(relation.sourceEntityId)}
+              title={relation.summary ?? ""}
+            >
+              {relation.title}
+            </button>
+            <span className="questions-cell-meta">{relation.kind}</span>
+            <span className="questions-cell-meta" title={relation.sourceEntityId}>
+              {entityNameById.get(relation.sourceEntityId) ?? relation.sourceEntityId.slice(0, 12)}
+            </span>
+            <span className="questions-cell-meta" title={relation.targetEntityId}>
+              {entityNameById.get(relation.targetEntityId) ?? relation.targetEntityId.slice(0, 12)}
+            </span>
+            <span className="questions-cell-meta">{pct(relation.confidence)}</span>
+          </div>
+        ))}
+        {filtered.length === 0 ? <div className="empty-inline">No relations match the current filter.</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function DashboardPanel({
+  snapshot,
+  onSelectEntity,
+  onSelectQuestion,
+  onOpenDocument,
+  onReloadWorkspace,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onSelectEntity: (entityId: string) => void;
+  onSelectQuestion: (questionId: string) => void;
   onOpenDocument: (path: string) => void;
+  onReloadWorkspace: () => Promise<void>;
 }) {
   return (
     <div className="dashboard-shell">
@@ -511,14 +1564,38 @@ function DashboardPanel({
           ))}
         </div>
       </section>
+      <section className="panel-card">
+        <div className="section-heading">
+          <h3>Open Questions</h3>
+          <span>{snapshot.openQuestions.filter((q) => q.status === "open" || q.status === "researching").length} open · click to inspect</span>
+        </div>
+        <div className="record-stack">
+          {snapshot.views.projectDashboard.openQuestions.length === 0 ? (
+            <div className="empty-inline">No open questions in the dashboard view. Run build_all_views or rebuild from the audit panel below.</div>
+          ) : null}
+          {snapshot.views.projectDashboard.openQuestions.slice(0, 8).map((question) => (
+            <button key={question.id} type="button" className="record-card" onClick={() => onSelectQuestion(question.id)}>
+              <div className="record-topline">
+                <span>{question.title}</span>
+                <span className="record-status">{question.status}</span>
+              </div>
+              {question.summary ? <p>{question.summary}</p> : null}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <div className="split-columns">
         <section className="panel-card">
           <div className="section-heading">
             <h3>Current Work</h3>
-            <span>tasks and questions</span>
+            <span>tasks</span>
           </div>
           <div className="record-stack">
-            {snapshot.views.projectDashboard.openTasks.slice(0, 4).map((task) => (
+            {snapshot.views.projectDashboard.openTasks.length === 0 ? (
+              <div className="empty-inline">No open tasks.</div>
+            ) : null}
+            {snapshot.views.projectDashboard.openTasks.slice(0, 6).map((task) => (
               <button
                 key={task.id}
                 type="button"
@@ -534,15 +1611,6 @@ function DashboardPanel({
                 </div>
                 {task.summary ? <p>{task.summary}</p> : null}
               </button>
-            ))}
-            {snapshot.views.projectDashboard.openQuestions.slice(0, 3).map((question) => (
-              <article key={question.id} className="record-card static-card">
-                <div className="record-topline">
-                  <span>{question.title}</span>
-                  <span className="record-status">{question.status}</span>
-                </div>
-                {question.summary ? <p>{question.summary}</p> : null}
-              </article>
             ))}
           </div>
         </section>
@@ -572,6 +1640,12 @@ function DashboardPanel({
           </div>
         </section>
       </div>
+
+      <AuditPanel projectDir={snapshot.project.rootPath} onReloadWorkspace={onReloadWorkspace} />
+      <PerArtifactStatusPanel projectDir={snapshot.project.rootPath} />
+      <WorkflowRunnerPanel snapshot={snapshot} onReloadWorkspace={onReloadWorkspace} />
+      {/* Spec 059 / UX1: Recent Activity tab folded into Dashboard. */}
+      <ActivityPanel snapshot={snapshot} />
     </div>
   );
 }
@@ -658,6 +1732,16 @@ function groupGraphics(items: GraphicsItem[]): Array<{ id: string; title: string
   return GRAPHICS_GROUP_ORDER
     .map((group) => ({ id: group.id, title: group.title, items: items.filter((item) => group.matches(item.kind)) }))
     .filter((group) => group.items.length > 0);
+}
+
+// Bug 23 (Stage 2): derive the marks map from items. Single source of truth.
+function deriveGraphicsMarks(items: GraphicsItem[]): Record<string, { status: "rejected" | "confirmed"; note?: string }> {
+  const map: Record<string, { status: "rejected" | "confirmed"; note?: string }> = {};
+  for (const item of items) {
+    if (item.confirmed === true) map[item.id] = { status: "confirmed" };
+    else if (item.rejected === true) map[item.id] = { status: "rejected", note: item.rejectedReason };
+  }
+  return map;
 }
 
 function formatHex16(value: number): string {
@@ -824,9 +1908,22 @@ function ScrubPanel({
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number }) => void;
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
 }) {
-  const scrubArtifacts = artifacts.filter((artifact) =>
-    artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw"
+  // Filter rules:
+  //  1. Only PRG / CRT / raw — same as before.
+  //  2. Hide rebuild-check artifacts (Bug 14 followup; they pollute
+  //     the list with auto-generated *_disasm_rebuild_check.prg
+  //     entries that are not real source PRGs).
+  //  3. Lineage filter (Bug 24): default = highest versionRank per
+  //     lineageRoot. The "Show all versions" toggle in the header
+  //     bypasses it via the LineageVisibilityContext.
+  const lineageVisibility = useLineageVisibility();
+  const internalVisibility = useInternalVisibility();
+  const scrubArtifactsRaw = artifacts.filter((artifact) =>
+    (artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw")
+    && artifact.role !== "rebuild-check"
   );
+  const scrubArtifacts = internalVisibility.visibleArtifacts(lineageVisibility.latest(scrubArtifactsRaw))
+    .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   const [selectedPath, setSelectedPath] = useState<string>(scrubArtifacts[0]?.relativePath ?? "");
   const [offsetText, setOffsetText] = useState<string>("0000");
   const [windowText, setWindowText] = useState<string>("1000");
@@ -1155,6 +2252,7 @@ function MemoryMapPanel({
   const view = snapshot.views.memoryMap;
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [selectedStageKeys, setSelectedStageKeys] = useState<string[]>([]);
+  const [showMediumOnly, setShowMediumOnly] = useState<boolean>(false);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const columnOffsets = Array.from({ length: 16 }, (_, index) => index * view.cellSize);
   const rowBases = Array.from({ length: 16 }, (_, index) => index * view.rowStride);
@@ -1163,13 +2261,52 @@ function MemoryMapPanel({
     for (const artifact of snapshot.artifacts) map.set(artifact.id, artifact.kind);
     return map;
   }, [snapshot.artifacts]);
-  const allStageOptions = snapshot.views.loadSequence.items.map((item) => ({
-    key: item.key,
-    title: item.title,
-    entityIds: item.entityIds,
-    artifactIds: item.artifactIds,
-    mediaKinds: new Set(item.artifactIds.map((id) => artifactMediaClass(artifactKindById.get(id)))),
-  }));
+  // Pre-compute the effective entity count per stage. A stage filter only
+  // affects the heatmap when at least one entity resolves either via
+  // stage.entityIds directly OR via an entity whose artifactIds back-
+  // references one of stage.artifactIds. Without this hint, stages whose
+  // analysis-run artifact has no back-linked entities (very common when
+  // bulk CLI registers populate artifacts.json without corresponding
+  // import_analysis_report runs) silently filter to nothing — option
+  // turns blue, heatmap stays the same. Counting upfront lets the UI
+  // disable / annotate empty stages.
+  const entitiesByArtifactId = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const entity of snapshot.entities) {
+      for (const artifactId of entity.artifactIds) {
+        let set = map.get(artifactId);
+        if (!set) { set = new Set(); map.set(artifactId, set); }
+        set.add(entity.id);
+      }
+    }
+    return map;
+  }, [snapshot.entities]);
+
+  // Only include stages that actually filter the heatmap. A stage is
+  // "filterable" when it has at least one entity that lives somewhere in
+  // the address space (directly via item.entityIds, or transitively via
+  // an entity whose artifactIds back-references item.artifactIds).
+  // Stages built from generated-source / rebuilt PRG / preview artifacts
+  // never have entities and would render as no-op options. The banner
+  // separately surfaces unimported-analysis artifacts so the user knows
+  // why the dropdown looks short.
+  const allStageOptions = snapshot.views.loadSequence.items
+    .map((item) => {
+      const effective = new Set<string>(item.entityIds);
+      for (const artifactId of item.artifactIds) {
+        const linked = entitiesByArtifactId.get(artifactId);
+        if (linked) for (const id of linked) effective.add(id);
+      }
+      return {
+        key: item.key,
+        title: item.title,
+        entityIds: item.entityIds,
+        artifactIds: item.artifactIds,
+        mediaKinds: new Set(item.artifactIds.map((id) => artifactMediaClass(artifactKindById.get(id)))),
+        effectiveEntityCount: effective.size,
+      };
+    })
+    .filter((item) => item.effectiveEntityCount > 0);
   const diskStageCount = allStageOptions.filter((stage) => stage.mediaKinds.has("disk")).length;
   const cartStageCount = allStageOptions.filter((stage) => stage.mediaKinds.has("cartridge")).length;
   const showMediaFilter = diskStageCount > 0 && cartStageCount > 0;
@@ -1219,6 +2356,7 @@ function MemoryMapPanel({
   const selectedRegions = view.regions
     .filter((region) =>
       selectedCell?.regionIds.includes(region.id) &&
+      (showMediumOnly || !region.mediumOnly) &&
       (!hasStageFilter || (region.entityId !== undefined && focusedEntityIds.has(region.entityId)))
     )
     .sort((left, right) => left.start - right.start);
@@ -1297,24 +2435,53 @@ function MemoryMapPanel({
             <span><i className="legend-swatch legend-system" /> system</span>
             <span><i className="legend-swatch legend-other" /> other</span>
           </div>
-          <label className="memory-filter">
-            <span>Payload focus</span>
-            <select
-              multiple
-              value={selectedStageKeys}
-              onChange={(event) => {
-                const next = Array.from(event.target.selectedOptions).map((option) => option.value);
-                setSelectedStageKeys(next);
-              }}
-            >
-              {stageOptions.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.title}
-                </option>
-              ))}
-            </select>
-            <small>{hasStageFilter ? `${focusedStages.length} payloads focused` : "No filter. Showing full address space."}</small>
-          </label>
+          <div className="memory-filter">
+            <label className="memory-medium-toggle">
+              <input
+                type="checkbox"
+                checked={showMediumOnly}
+                onChange={(e) => setShowMediumOnly(e.target.checked)}
+              />
+              <span>Show cart/disk-resident regions</span>
+            </label>
+            <div className="memory-filter-header">
+              <span>Payload focus</span>
+              {selectedStageKeys.length > 0 ? (
+                <button type="button" className="memory-filter-clear" onClick={() => setSelectedStageKeys([])}>clear</button>
+              ) : null}
+            </div>
+            <div className="memory-filter-list" role="listbox" aria-multiselectable="true">
+              {stageOptions.map((item) => {
+                const active = selectedStageKeys.includes(item.key);
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    className={active ? "memory-filter-pill memory-filter-pill-active" : "memory-filter-pill"}
+                    onClick={() => {
+                      setSelectedStageKeys((current) =>
+                        current.includes(item.key)
+                          ? current.filter((k) => k !== item.key)
+                          : [...current, item.key]
+                      );
+                    }}
+                  >
+                    <span className="memory-filter-pill-title">{item.title}</span>
+                    <span className="memory-filter-pill-count">{item.effectiveEntityCount}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <small>
+              {hasStageFilter
+                ? `${focusedStages.length} payloads focused, ${focusedEntityIds.size} entities matched`
+                : stageOptions.length === 0
+                  ? "No filterable stages yet. Run bulk_import_analysis_reports to back-fill analysis JSON into entities."
+                  : "No filter. Showing full address space."}
+            </small>
+          </div>
         </div>
         <div className="memory-grid-wrap">
           <table className="memory-grid-table">
@@ -1508,6 +2675,27 @@ function CartridgePanel({
                 if (entity) onSelectEntity(entity.id);
               }}
               onSelectLutChunk={(chunk) => onSelectChunk(cartridge.artifactId, chunk)}
+              onSelectSegment={(segment) => {
+                // Synthesize a CartridgeLutChunk from the segment so the
+                // existing CartChunkInspector renders for it. Segments do
+                // not have LUT refs, so we use a synthetic "(segment)"
+                // lut+index pair to drive the inspector header. The chip
+                // file is resolved the same way as for chunks.
+                const synthetic: CartridgeLutChunk = {
+                  bank: segment.bank,
+                  slot: segment.slot,
+                  offsetInBank: segment.offsetInBank,
+                  length: segment.length,
+                  lut: "(segment)",
+                  index: 0,
+                  destAddress: segment.destAddress,
+                  refs: [],
+                  spans: [{ bank: segment.bank, offsetInBank: segment.offsetInBank, length: segment.length }],
+                  label: segment.label ?? segment.kind,
+                  notes: [`Resident segment classified as ${segment.kind}`],
+                };
+                onSelectChunk(cartridge.artifactId, synthetic);
+              }}
               onOpenBankHex={(_bank, chip) => {
                 if (!chip) return;
                 const path = chipArtifactPath(chip.file, manifestArtifact?.relativePath);
@@ -1692,31 +2880,38 @@ function DiskPanel({
                 <span>{activeDisk.format.toUpperCase()} [{activeDisk.diskId ?? "--"}]</span>
               </div>
               <div className="record-stack disk-file-stack">
-                {visibleFiles.map((file) => (
-                  <button
-                    key={file.id}
-                    type="button"
-                    className={selectedFile?.id === file.id ? "record-card active-record" : "record-card"}
-                    onClick={() => {
-                      setSelectedFileId(file.id);
-                      onSelectDiskFile(activeDisk.artifactId, file.id);
-                    }}
-                  >
-                    <div className="record-topline">
-                      <span className="disk-file-row-title">
-                        <span className="disk-file-color-dot" style={{ background: file.color ?? "#6e7681" }} />
-                        <span>{file.relativePath ?? file.title}</span>
-                      </span>
-                      <span className="record-status">{file.loadType}</span>
-                    </div>
-                    <div className="record-meta">
-                      <span>{file.sizeSectors ?? 0} blk</span>
-                      {file.loadAddress !== undefined ? <span>{hex(file.loadAddress)}</span> : null}
-                      {file.loaderSource ? <span>via {file.loaderSource}</span> : null}
-                      {file.packer ? <span>{file.packer}</span> : null}
-                    </div>
-                  </button>
-                ))}
+                {visibleFiles.map((file) => {
+                  // Spec 050 Block D: phase badge per disk file via
+                  // entity → payloadSourceArtifactId → artifact.phase.
+                  const entity = file.entityId ? snapshot.entities.find((e) => e.id === file.entityId) : undefined;
+                  const sourceArt = entity ? snapshot.artifacts.find((a) => a.id === (entity.payloadSourceArtifactId ?? entity.artifactIds[0])) : undefined;
+                  return (
+                    <button
+                      key={file.id}
+                      type="button"
+                      className={selectedFile?.id === file.id ? "record-card active-record" : "record-card"}
+                      onClick={() => {
+                        setSelectedFileId(file.id);
+                        onSelectDiskFile(activeDisk.artifactId, file.id);
+                      }}
+                    >
+                      <div className="record-topline">
+                        <span className="disk-file-row-title">
+                          <span className="disk-file-color-dot" style={{ background: file.color ?? "#6e7681" }} />
+                          <span>{file.relativePath ?? file.title}</span>
+                        </span>
+                        {sourceArt ? <PhaseBadge phase={sourceArt.phase} frozen={sourceArt.phaseFrozen} /> : null}
+                        <span className="record-status">{file.loadType}</span>
+                      </div>
+                      <div className="record-meta">
+                        <span>{file.sizeSectors ?? 0} blk</span>
+                        {file.loadAddress !== undefined ? <span>{hex(file.loadAddress)}</span> : null}
+                        {file.loaderSource ? <span>via {file.loaderSource}</span> : null}
+                        {file.packer ? <span>{file.packer}</span> : null}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <div className="panel-card inner-panel">
@@ -1780,13 +2975,31 @@ function DiskPanel({
                     filteredOut ? "disk-sector-filtered-out" : "",
                   ].filter(Boolean).join(" ");
                   const useFileColor = sector.category === "file" && sector.color && !filteredOut;
+                  // Spec 037 / Sprint 43 Block A: hint border overlay.
+                  const hintColor = sector.hint === "drive-code" ? "#a855f7"
+                    : sector.hint === "protected" ? "#ef4444"
+                    : sector.hint === "raw-unanalyzed" ? "#3b82f6"
+                    : sector.hint === "bad-crc" ? "#dc2626"
+                    : sector.hint === "gap" ? "#facc15"
+                    : undefined;
                   return (
-                    <path
-                      key={sector.id}
-                      d={sectorPath(sector.track, sector.angleStart, sector.angleEnd)}
-                      className={className}
-                      style={useFileColor ? { fill: sector.color } : undefined}
-                    />
+                    <g key={sector.id}>
+                      <path
+                        d={sectorPath(sector.track, sector.angleStart, sector.angleEnd)}
+                        className={className}
+                        style={useFileColor ? { fill: sector.color } : undefined}
+                      />
+                      {hintColor ? (
+                        <path
+                          d={sectorPath(sector.track, sector.angleStart, sector.angleEnd)}
+                          fill="none"
+                          stroke={hintColor}
+                          strokeWidth={1.5}
+                          strokeDasharray={sector.hint === "bad-crc" ? "2,2" : undefined}
+                          pointerEvents="none"
+                        />
+                      ) : null}
+                    </g>
                   );
                 })}
                 {[1, 18, 25, 31, activeDisk.trackCount].filter((value, index, array) => array.indexOf(value) === index).map((track) => {
@@ -1881,7 +3094,7 @@ function tabHasEntity(snapshot: WorkspaceUiSnapshot, entityId: string, tab: TabI
   const entity = snapshot.entities.find((candidate) => candidate.id === entityId);
   if (!entity) return false;
   if (tab === "dashboard") return true;
-  if (tab === "docs" || tab === "activity" || tab === "graphics" || tab === "scrub") return false;
+  if (tab === "docs" || tab === "graphics" || tab === "scrub") return false;
   if (tab === "memory") {
     return Boolean(entity.addressRange)
       || snapshot.views.memoryMap.cells.some((cell) => cell.entityIds.includes(entityId) || cell.dominantEntityId === entityId)
@@ -1889,8 +3102,8 @@ function tabHasEntity(snapshot: WorkspaceUiSnapshot, entityId: string, tab: TabI
       || snapshot.views.memoryMap.highlights.some((highlight) => highlight.entityId === entityId);
   }
   if (tab === "disk") return diskFileSelectionForEntity(snapshot, entityId) !== null;
-  if (tab === "load") return snapshot.views.loadSequence.items.some((item) => item.primaryEntityId === entityId || item.entityIds.includes(entityId));
-  if (tab === "flow") return snapshot.views.flowGraph.nodes.some((node) => node.entityId === entityId)
+  if (tab === "flow") return snapshot.views.loadSequence.items.some((item) => item.primaryEntityId === entityId || item.entityIds.includes(entityId))
+    || snapshot.views.flowGraph.nodes.some((node) => node.entityId === entityId)
     || Object.values(snapshot.views.flowGraph.modes ?? {}).some((mode) => mode.nodes.some((node) => node.entityId === entityId));
   if (tab === "listing") return snapshot.views.annotatedListing.entries.some((entry) => entry.entityId === entityId);
   if (tab === "cartridge") {
@@ -1919,8 +3132,9 @@ function firstEntityForTab(snapshot: WorkspaceUiSnapshot, tab: TabId): string | 
   if (tab === "disk") {
     return snapshot.views.diskLayout.disks.flatMap((disk) => disk.files.map((file) => file.entityId).filter(Boolean))[0] ?? null;
   }
-  if (tab === "load") {
-    return snapshot.views.loadSequence.items.flatMap((item) => item.primaryEntityId ? [item.primaryEntityId] : item.entityIds)[0] ?? null;
+  if (tab === "flow") {
+    const loadFirst = snapshot.views.loadSequence.items.flatMap((item) => item.primaryEntityId ? [item.primaryEntityId] : item.entityIds)[0];
+    if (loadFirst) return loadFirst;
   }
   if (tab === "flow") {
     return snapshot.views.flowGraph.nodes.find((node) => node.entityId)?.entityId
@@ -2046,6 +3260,64 @@ function LoadSequencePanel({
           </div>
         </div>
       </div>
+    </section>
+  );
+}
+
+// Spec 059 / UX1: wraps FlowPanel with a Load sub-mode that delegates
+// to LoadSequencePanel — folds the standalone Load Sequence tab in.
+function FlowPanelWithLoadMode({
+  flowGraph,
+  entities,
+  relations,
+  selectedEntityId,
+  onSelectEntity,
+  loadView,
+  snapshot,
+}: {
+  flowGraph: FlowGraphView;
+  entities: EntityRecord[];
+  relations: RelationRecord[];
+  selectedEntityId?: string | null;
+  onSelectEntity: (entityId: string) => void;
+  loadView: LoadSequenceView;
+  snapshot: WorkspaceUiSnapshot;
+}) {
+  const [topMode, setTopMode] = useState<"graph" | "load">("graph");
+  return (
+    <section className="panel-card">
+      <div className="inspector-chip-row" style={{ marginBottom: "0.5rem" }}>
+        <button
+          type="button"
+          className={topMode === "graph" ? "tab-button active" : "tab-button"}
+          onClick={() => setTopMode("graph")}
+        >
+          Flow Graph
+        </button>
+        <button
+          type="button"
+          className={topMode === "load" ? "tab-button active" : "tab-button"}
+          onClick={() => setTopMode("load")}
+        >
+          Load Sequence
+        </button>
+      </div>
+      {topMode === "graph" ? (
+        <FlowPanel
+          flowGraph={flowGraph}
+          entities={entities}
+          relations={relations}
+          selectedEntityId={selectedEntityId}
+          onSelectEntity={onSelectEntity}
+        />
+      ) : (
+        <LoadSequencePanel
+          view={loadView}
+          snapshot={snapshot}
+          selectedEntityId={selectedEntityId}
+          onSelectEntity={onSelectEntity}
+        />
+      )}
     </section>
   );
 }
@@ -2291,6 +3563,221 @@ function FlowPanel({
   );
 }
 
+// Spec 051 / Sprint 44: annotation draft viewer side panel.
+interface AnnotationDraft {
+  segments: Array<{ start: string; end: string; kind: string; label?: string; comment?: string; confidence: number; reason: string; autoGenerated: true }>;
+  labels: Array<{ address: string; label: string; comment?: string; confidence: number; reason: string; autoGenerated: true }>;
+  routines: Array<{ address: string; name: string; summary: string; confidence: number; reason: string; autoGenerated: true }>;
+  openQuestions: Array<{ title: string; description: string; confidence: number; source: "static-analysis" }>;
+  buckets: { high: number; medium: number; low: number };
+  source: { analysisPath: string; listingPath?: string };
+  generatedAt: string;
+}
+
+function AnnotationDraftPanel({ projectDir }: { projectDir: string }) {
+  const [draftPath, setDraftPath] = useState("");
+  const [draft, setDraft] = useState<AnnotationDraft | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savedPath, setSavedPath] = useState<string | null>(null);
+  const [pending, setPending] = useState<{
+    segments: Set<number>; labels: Set<number>; routines: Set<number>;
+  }>({ segments: new Set(), labels: new Set(), routines: new Set() });
+  // Spec 051 follow-up: per-suggestion edit overrides. Maps
+  // (kind, index) -> { label?, comment?, summary? }. Save merges
+  // overrides into the persisted JSON.
+  const [edits, setEdits] = useState<Record<string, { label?: string; comment?: string; summary?: string }>>({});
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+
+  function editKey(kind: string, i: number) { return `${kind}:${i}`; }
+  function setEditField(key: string, field: "label" | "comment" | "summary", value: string) {
+    setEdits((current) => ({ ...current, [key]: { ...current[key], [field]: value } }));
+  }
+
+  async function loadDraft() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchJson<{ projectDir: string; path: string; content: AnnotationDraft }>(`/api/annotations/draft?projectDir=${encodeURIComponent(projectDir)}&path=${encodeURIComponent(draftPath)}`);
+      setDraft(data.content);
+      // Default: accept high-confidence (≥0.8) suggestions
+      setPending({
+        segments: new Set(data.content.segments.map((s, i) => s.confidence >= 0.8 ? i : -1).filter((i) => i >= 0)),
+        labels: new Set(data.content.labels.map((s, i) => s.confidence >= 0.8 ? i : -1).filter((i) => i >= 0)),
+        routines: new Set(data.content.routines.map((s, i) => s.confidence >= 0.8 ? i : -1).filter((i) => i >= 0)),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggle(kind: "segments" | "labels" | "routines", index: number) {
+    setPending((p) => {
+      const next = new Set(p[kind]);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return { ...p, [kind]: next };
+    });
+  }
+
+  async function saveAll() {
+    if (!draft) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const finalPath = draftPath.replace(/\.draft\.json$/i, ".json");
+      const payload = {
+        segments: draft.segments.filter((_, i) => pending.segments.has(i)).map(({ start, end, kind, label, comment }, i) => {
+          const override = edits[editKey("segments", i)];
+          return { start, end, kind, label: override?.label ?? label, comment: override?.comment ?? comment };
+        }),
+        labels: draft.labels.filter((_, i) => pending.labels.has(i)).map(({ address, label, comment }, i) => {
+          const override = edits[editKey("labels", i)];
+          return { address, label: override?.label ?? label, comment: override?.comment ?? comment };
+        }),
+        routines: draft.routines.filter((_, i) => pending.routines.has(i)).map(({ address, name, summary }, i) => {
+          const override = edits[editKey("routines", i)];
+          return { address, name: override?.label ?? name, summary: override?.summary ?? summary };
+        }),
+      };
+      const result = await postJson<{ projectDir: string; finalPath: string; ok: boolean }>("/api/annotations/save", {
+        projectDir,
+        finalPath,
+        payload,
+      });
+      setSavedPath(result.finalPath);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel-card">
+      <div className="section-heading">
+        <h3>Annotation Draft Viewer</h3>
+        {draft ? <span>high {draft.buckets.high} · med {draft.buckets.medium} · low {draft.buckets.low}</span> : null}
+      </div>
+      <div className="inspector-chip-row">
+        <input
+          type="text"
+          placeholder="path to *_annotations.draft.json"
+          value={draftPath}
+          onChange={(e) => setDraftPath(e.target.value)}
+        />
+        <button type="button" className="inspector-chip" onClick={loadDraft} disabled={loading || !draftPath}>
+          {loading ? "..." : "Load"}
+        </button>
+        {draft ? (
+          <button type="button" className="inspector-chip" onClick={saveAll} disabled={saving}>
+            {saving ? "Saving..." : `Save ${pending.segments.size + pending.labels.size + pending.routines.size} accepted`}
+          </button>
+        ) : null}
+      </div>
+      {error ? <div className="inspector-error"><pre>{error}</pre></div> : null}
+      {savedPath ? <div className="empty-inline">Saved → {savedPath}</div> : null}
+      {draft ? (
+        <div className="questions-table">
+          <div className="questions-row questions-row-head">
+            <span className="questions-cell-check">✓</span>
+            <span className="questions-cell-title">Suggestion</span>
+            <span className="questions-cell-meta">type</span>
+            <span className="questions-cell-meta">confidence</span>
+          </div>
+          {draft.segments.map((s, i) => {
+            const key = editKey("segments", i);
+            const override = edits[key];
+            const editing = editingKey === key;
+            return (
+              <div key={`s-${i}`} className="questions-row">
+                <span className="questions-cell-check">
+                  <input type="checkbox" checked={pending.segments.has(i)} onChange={() => toggle("segments", i)} />
+                </span>
+                <span className="questions-cell-title" title={s.reason}>
+                  ${s.start}-${s.end} {s.kind}{" "}
+                  {editing ? (
+                    <>
+                      <input value={override?.label ?? s.label ?? ""} onChange={(e) => setEditField(key, "label", e.target.value)} placeholder="label" />
+                      <input value={override?.comment ?? s.comment ?? ""} onChange={(e) => setEditField(key, "comment", e.target.value)} placeholder="comment" />
+                    </>
+                  ) : (
+                    <>{override?.label ?? s.label ?? ""}{override?.comment ? ` // ${override.comment}` : ""}</>
+                  )}
+                </span>
+                <span className="questions-cell-meta">segment</span>
+                <span className="questions-cell-meta">
+                  {s.confidence.toFixed(2)}
+                  <button type="button" className="inspector-chip" onClick={() => setEditingKey(editing ? null : key)}>{editing ? "✓" : "✎"}</button>
+                </span>
+              </div>
+            );
+          })}
+          {draft.labels.map((l, i) => {
+            const key = editKey("labels", i);
+            const override = edits[key];
+            const editing = editingKey === key;
+            return (
+              <div key={`l-${i}`} className="questions-row">
+                <span className="questions-cell-check">
+                  <input type="checkbox" checked={pending.labels.has(i)} onChange={() => toggle("labels", i)} />
+                </span>
+                <span className="questions-cell-title" title={l.reason}>
+                  ${l.address}{" "}
+                  {editing ? (
+                    <input value={override?.label ?? l.label} onChange={(e) => setEditField(key, "label", e.target.value)} placeholder="label" />
+                  ) : (
+                    override?.label ?? l.label
+                  )}
+                </span>
+                <span className="questions-cell-meta">label</span>
+                <span className="questions-cell-meta">
+                  {l.confidence.toFixed(2)}
+                  <button type="button" className="inspector-chip" onClick={() => setEditingKey(editing ? null : key)}>{editing ? "✓" : "✎"}</button>
+                </span>
+              </div>
+            );
+          })}
+          {draft.routines.map((r, i) => {
+            const key = editKey("routines", i);
+            const override = edits[key];
+            const editing = editingKey === key;
+            return (
+              <div key={`r-${i}`} className="questions-row">
+                <span className="questions-cell-check">
+                  <input type="checkbox" checked={pending.routines.has(i)} onChange={() => toggle("routines", i)} />
+                </span>
+                <span className="questions-cell-title" title={r.reason}>
+                  ${r.address}{" "}
+                  {editing ? (
+                    <>
+                      <input value={override?.label ?? r.name} onChange={(e) => setEditField(key, "label", e.target.value)} placeholder="name" />
+                      <input value={override?.summary ?? r.summary} onChange={(e) => setEditField(key, "summary", e.target.value)} placeholder="summary" />
+                    </>
+                  ) : (
+                    <>{override?.label ?? r.name} — {override?.summary ?? r.summary}</>
+                  )}
+                </span>
+                <span className="questions-cell-meta">routine</span>
+                <span className="questions-cell-meta">
+                  {r.confidence.toFixed(2)}
+                  <button type="button" className="inspector-chip" onClick={() => setEditingKey(editing ? null : key)}>{editing ? "✓" : "✎"}</button>
+                </span>
+              </div>
+            );
+          })}
+          {draft.openQuestions.length > 0 ? (
+            <div className="empty-inline">{draft.openQuestions.length} open question(s) in draft. Use propose_annotations --persist-questions to save them.</div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ListingPanel({
   snapshot,
   query,
@@ -2352,6 +3839,169 @@ function ListingPanel({
             ))}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+function PayloadsPanel({
+  snapshot,
+  onOpenHex,
+  onOpenAsm,
+  onRunPayloadWorkflow,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
+  onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
+  onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [errorPerId, setErrorPerId] = useState<Record<string, string>>({});
+
+  function handleRun(payloadId: string) {
+    setErrorPerId((current) => {
+      const next = { ...current };
+      delete next[payloadId];
+      return next;
+    });
+    setBusyId(payloadId);
+    onRunPayloadWorkflow(payloadId, "full")
+      .then((result) => {
+        window.alert(`Workflow ${result.status}.\nImported entities=${result.importedCounts.entities} findings=${result.importedCounts.findings}.\nNext: ${result.nextRequiredAction}`);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setErrorPerId((current) => ({ ...current, [payloadId]: message }));
+      })
+      .finally(() => setBusyId((current) => (current === payloadId ? null : current)));
+  }
+
+  // A payload is any entity that carries payload metadata (load address
+  // or kind=payload) — disk files imported via manifest-import already
+  // populate this. Cart chunks are surfaced via the cartridge view's
+  // chunk inspector; once they get entity records they will appear
+  // here too.
+  const payloads = useMemo(() => {
+    return snapshot.entities
+      .filter((entity) =>
+        entity.kind === "payload" ||
+        entity.kind === "disk-file" ||
+        entity.payloadLoadAddress !== undefined
+      )
+      .sort((a, b) => {
+        const la = a.payloadLoadAddress ?? a.addressRange?.start ?? 0xffff;
+        const lb = b.payloadLoadAddress ?? b.addressRange?.start ?? 0xffff;
+        if (la !== lb) return la - lb;
+        return a.name.localeCompare(b.name);
+      });
+  }, [snapshot.entities]);
+
+  const artifactById = useMemo(() => new Map(snapshot.artifacts.map((a) => [a.id, a])), [snapshot.artifacts]);
+
+  const [filter, setFilter] = useState<string>("");
+  const visible = filter
+    ? payloads.filter((p) =>
+        p.name.toLowerCase().includes(filter.toLowerCase()) ||
+        (p.payloadFormat ?? "").includes(filter.toLowerCase())
+      )
+    : payloads;
+
+  return (
+    <section className="panel-card">
+      <div className="section-heading">
+        <h3>Payloads</h3>
+        <span>{visible.length}{visible.length !== payloads.length ? ` of ${payloads.length}` : ""} payloads</span>
+      </div>
+      <input
+        type="search"
+        placeholder="filter by name or format"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        className="payload-filter-input"
+      />
+      <div className="payload-list">
+        {visible.length === 0 ? (
+          <div className="empty-state">
+            No payloads yet. Run <code>extract_disk</code> / <code>extract_crt</code> against this project, or call <code>register_payload</code> to register a custom-loader blob.
+          </div>
+        ) : null}
+        {visible.map((payload) => {
+          const sourceArtifact = payload.payloadSourceArtifactId ? artifactById.get(payload.payloadSourceArtifactId) : undefined;
+          const depackedArtifact = payload.payloadDepackedArtifactId ? artifactById.get(payload.payloadDepackedArtifactId) : undefined;
+          const asmArtifacts = (payload.payloadAsmArtifactIds ?? [])
+            .map((id) => artifactById.get(id))
+            .filter((a): a is typeof snapshot.artifacts[number] => Boolean(a));
+          const load = payload.payloadLoadAddress ?? payload.addressRange?.start;
+          const loadText = load !== undefined ? `$${load.toString(16).toUpperCase().padStart(4, "0")}` : "—";
+          // Spec 050 Block D: phase badge per payload (resolves
+          // through payloadSourceArtifactId or first artifactId).
+          const sourceArtifactForBadge = artifactById.get(payload.payloadSourceArtifactId ?? payload.artifactIds[0] ?? "");
+          return (
+            <article key={payload.id} className="payload-card">
+              <header>
+                <strong>{payload.name}</strong>
+                {sourceArtifactForBadge ? <PhaseBadge phase={sourceArtifactForBadge.phase} frozen={sourceArtifactForBadge.phaseFrozen} /> : null}
+                <span className="payload-load">load {loadText}</span>
+                {payload.payloadFormat ? <span className="payload-format">{payload.payloadFormat}</span> : null}
+                {payload.payloadPacker ? <span className="payload-packer">{payload.payloadPacker}</span> : null}
+              </header>
+              {payload.summary ? <p>{payload.summary}</p> : null}
+              <footer className="payload-actions">
+                {sourceArtifact ? (
+                  <button
+                    type="button"
+                    className="payload-button payload-button-mon"
+                    title={`Open hex view of ${sourceArtifact.relativePath}`}
+                    onClick={() => onOpenHex(sourceArtifact.relativePath, {
+                      title: `${payload.name} (raw)`,
+                      baseAddress: load,
+                    })}
+                  >
+                    mon (raw)
+                  </button>
+                ) : null}
+                {depackedArtifact ? (
+                  <button
+                    type="button"
+                    className="payload-button payload-button-mon"
+                    title={`Open hex view of depacked bytes ${depackedArtifact.relativePath}`}
+                    onClick={() => onOpenHex(depackedArtifact.relativePath, {
+                      title: `${payload.name} (depacked)`,
+                      baseAddress: load,
+                    })}
+                  >
+                    mon (depacked)
+                  </button>
+                ) : null}
+                {asmArtifacts.length > 0 ? (
+                  <button
+                    type="button"
+                    className="payload-button payload-button-asm"
+                    title={`Open disassembly (${asmArtifacts.length} source${asmArtifacts.length === 1 ? "" : "s"})`}
+                    onClick={() => onOpenAsm(payload.name, bestAsmSourcesForArtifacts(asmArtifacts))}
+                  >
+                    asm
+                  </button>
+                ) : null}
+                {!sourceArtifact && !depackedArtifact && asmArtifacts.length === 0 ? (
+                  <span className="payload-empty">no linked artifacts (run register_payload or link_payload_to_asm)</span>
+                ) : null}
+                {(sourceArtifact || depackedArtifact) ? (
+                  <button
+                    type="button"
+                    className="payload-button"
+                    title={load !== undefined ? `Run reverse workflow on ${payload.name}` : "Set payloadLoadAddress before running the workflow"}
+                    disabled={busyId !== null || (payload.payloadFormat !== "prg" && load === undefined)}
+                    onClick={() => handleRun(payload.id)}
+                  >
+                    {busyId === payload.id ? "running..." : "reverse workflow"}
+                  </button>
+                ) : null}
+              </footer>
+              {errorPerId[payload.id] ? <div className="inspector-error"><pre>{errorPerId[payload.id]}</pre></div> : null}
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -2482,15 +4132,21 @@ function EntityInspector({
     );
   }
 
+  const lineageVisibility = useLineageVisibility();
+  const internalVisibility = useInternalVisibility();
   const artifactsById = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const entitiesById = new Map(snapshot.entities.map((candidate) => [candidate.id, candidate]));
   const linkedFindings = snapshot.findings.filter((finding) => finding.entityIds.includes(entity.id));
   const linkedRelations = snapshot.relations.filter((relation) => relation.sourceEntityId === entity.id || relation.targetEntityId === entity.id);
-  const linkedArtifacts = uniqueById(
+  // Bug 24: filter linked artifacts to latest version per lineage. Bug 26:
+  // also hide infrastructure files. The linked-by-id resolution stays
+  // against the full artifactsById map so older / internal references
+  // still resolve before the filters collapse them out.
+  const linkedArtifacts = internalVisibility.visibleArtifacts(lineageVisibility.latest(uniqueById(
     [...entity.artifactIds, ...linkedFindings.flatMap((finding) => finding.artifactIds)]
       .map((artifactId) => artifactsById.get(artifactId))
       .filter((artifact): artifact is ArtifactRecord => artifact !== undefined),
-  );
+  )));
   const relatedEntities = uniqueById(
     [
       ...entity.relatedEntityIds,
@@ -2526,7 +4182,7 @@ function EntityInspector({
   const jumpTargets = [
     entity.addressRange || memoryRegions.length > 0 ? { id: "memory", label: "Memory Map", tab: "memory" as TabId } : null,
     diskFiles.length > 0 ? { id: "disk", label: "Disk", tab: "disk" as TabId } : null,
-    loadItems.length > 0 ? { id: "load", label: "Load Sequence", tab: "load" as TabId } : null,
+    loadItems.length > 0 ? { id: "flow-load", label: "Load Sequence", tab: "flow" as TabId } : null,
     flowNodes.length > 0 ? { id: "flow", label: "Flow Graph", tab: "flow" as TabId } : null,
     listingEntries.length > 0 ? { id: "listing", label: "Annotated List", tab: "listing" as TabId } : null,
     docArtifacts.length > 0 ? { id: "docs", label: "Docs", tab: "docs" as TabId } : null,
@@ -2552,7 +4208,8 @@ function EntityInspector({
       return;
     }
     if (artifact.kind.includes("trace")) {
-      onOpenTab("activity");
+      // Activity tab folded into Dashboard (Spec 059).
+      onOpenTab("dashboard");
       return;
       }
     if (artifact.kind.includes("analysis")) {
@@ -2643,6 +4300,9 @@ function EntityInspector({
         <div className="record-stack compact">
           {linkedArtifacts.map((artifact) => {
             const showMon = isC64BinaryArtifact(artifact.relativePath);
+            // Bug 24: surface lineage size so the user knows older versions
+            // exist even though they are filtered out of the list.
+            const versionCount = lineageVersionCount(artifact, snapshot.artifacts);
             return (
               <div key={artifact.id} className="record-card-row">
                 <button type="button" className="record-card" onClick={() => openArtifact(artifact)}>
@@ -2654,6 +4314,11 @@ function EntityInspector({
                   <div className="record-meta">
                     <span>{artifact.role ?? artifact.scope}</span>
                     <span>{pct(artifact.confidence)}</span>
+                    {versionCount > 1 ? (
+                      <span title={`${versionCount} versions in this lineage. Toggle "Show all versions" in the header to expand.`}>
+                        +{versionCount - 1} older
+                      </span>
+                    ) : null}
                   </div>
                 </button>
                 {showMon ? (
@@ -2696,7 +4361,7 @@ function EntityInspector({
             </button>
           ))}
           {loadItems.map((item) => (
-            <button key={item.id} type="button" className="record-card" onClick={() => onOpenTab("load")}>
+            <button key={item.id} type="button" className="record-card" onClick={() => onOpenTab("flow")}>
               <div className="record-topline">
                 <span>{item.title}</span>
                 <span className="record-status">{item.role}</span>
@@ -2864,6 +4529,189 @@ function EntityInspector({
   );
 }
 
+function QuestionInspector({
+  snapshot,
+  question,
+  onClose,
+  onSelectEntity,
+  onOpenDocument,
+  onOpenHex,
+  onCreateTask,
+  onUpdateStatus,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  question: OpenQuestionRecord;
+  onClose: () => void;
+  onSelectEntity: (entityId: string) => void;
+  onOpenDocument: (path: string) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
+  onCreateTask: (defaults: { title: string; description?: string; entityIds?: string[]; artifactIds?: string[] }) => void;
+  onUpdateStatus: (questionId: string, status: "answered" | "invalidated" | "deferred" | "open", answerSummary?: string) => Promise<void>;
+}) {
+  const [busyAction, setBusyAction] = useState<"answered" | "invalidated" | "deferred" | "open" | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function runStatusChange(next: "answered" | "invalidated" | "deferred" | "open") {
+    setActionError(null);
+    setBusyAction(next);
+    try {
+      let answerSummary: string | undefined;
+      if (next === "answered") {
+        const reply = window.prompt("Answer summary (optional):", question.answerSummary ?? "") ?? "";
+        answerSummary = reply.trim() || undefined;
+      }
+      await onUpdateStatus(question.id, next, answerSummary);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  const lineageVisibility = useLineageVisibility();
+  const internalVisibility = useInternalVisibility();
+  const entitiesById = new Map(snapshot.entities.map((entity) => [entity.id, entity]));
+  const findingsById = new Map(snapshot.findings.map((finding) => [finding.id, finding]));
+  const artifactsById = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
+  const linkedFindings = question.findingIds
+    .map((findingId) => findingsById.get(findingId))
+    .filter((finding): finding is FindingRecord => finding !== undefined);
+  const linkedEntities = uniqueById(
+    [...question.entityIds, ...linkedFindings.flatMap((finding) => finding.entityIds)]
+      .map((entityId) => entitiesById.get(entityId))
+      .filter((entity): entity is EntityRecord => entity !== undefined),
+  );
+  // Bug 24 + Bug 26: linked artifacts in the question inspector —
+  // latest version per lineage AND drop infrastructure files.
+  const linkedArtifacts = internalVisibility.visibleArtifacts(lineageVisibility.latest(uniqueById(
+    [...question.artifactIds, ...linkedFindings.flatMap((finding) => finding.artifactIds)]
+      .map((artifactId) => artifactsById.get(artifactId))
+      .filter((artifact): artifact is ArtifactRecord => artifact !== undefined),
+  )));
+
+  function openArtifact(artifact: ArtifactRecord) {
+    if (artifact.relativePath.toLowerCase().endsWith(".md")) {
+      onOpenDocument(artifact.relativePath);
+      return;
+    }
+    if (isC64BinaryArtifact(artifact.relativePath)) {
+      onOpenHex(artifact.relativePath, { title: artifact.title });
+    }
+  }
+
+  return (
+    <section className="panel-card inspector-card">
+      <div className="section-heading">
+        <h3>Open Question</h3>
+        <button type="button" className="mon-icon-button" onClick={onClose}>back</button>
+      </div>
+      <div className="inspector-head">
+        <strong>{question.title}</strong>
+        <span>{question.status}</span>
+      </div>
+      <div className="record-meta">
+        <span>{question.kind}</span>
+        <span>{question.priority}</span>
+        <span>{pct(question.confidence)}</span>
+        <span>{shortTime(question.updatedAt)}</span>
+      </div>
+      {question.description ? <p className="inspector-copy">{question.description}</p> : null}
+      {question.answerSummary ? <p className="inspector-copy">{question.answerSummary}</p> : null}
+      <div className="inspector-chip-row">
+        {linkedEntities.slice(0, 4).map((entity) => (
+          <button key={entity.id} type="button" className="inspector-chip" onClick={() => onSelectEntity(entity.id)}>
+            {entity.name}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="inspector-chip"
+          onClick={() => onCreateTask({
+            title: `Resolve question: ${question.title}`,
+            description: question.description,
+            entityIds: linkedEntities.map((entity) => entity.id),
+            artifactIds: linkedArtifacts.map((artifact) => artifact.id),
+          })}
+        >
+          + LLM Task
+        </button>
+      </div>
+      <div className="inspector-chip-row">
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busyAction !== null || question.status === "answered"}
+          onClick={() => runStatusChange("answered")}
+        >
+          {busyAction === "answered" ? "Answering…" : "Answer"}
+        </button>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busyAction !== null || question.status === "invalidated"}
+          onClick={() => runStatusChange("invalidated")}
+        >
+          {busyAction === "invalidated" ? "Invalidating…" : "Invalidate"}
+        </button>
+        <button
+          type="button"
+          className="inspector-chip"
+          disabled={busyAction !== null || question.status === "deferred"}
+          onClick={() => runStatusChange("deferred")}
+        >
+          {busyAction === "deferred" ? "Deferring…" : "Defer"}
+        </button>
+        {question.status !== "open" ? (
+          <button
+            type="button"
+            className="inspector-chip"
+            disabled={busyAction !== null}
+            onClick={() => runStatusChange("open")}
+          >
+            {busyAction === "open" ? "Reopening…" : "Reopen"}
+          </button>
+        ) : null}
+      </div>
+      {actionError ? <div className="inspector-error">{actionError}</div> : null}
+      <div className="inspector-block">
+        <h4>Linked Findings</h4>
+        {linkedFindings.length === 0 ? <div className="empty-inline">No linked findings.</div> : null}
+        <div className="record-stack compact">
+          {linkedFindings.map((finding) => (
+            <article key={finding.id} className="mini-card">
+              <strong>{finding.title}</strong>
+              <p>{finding.summary ?? finding.kind}</p>
+              <div className="record-meta">
+                <span>{finding.status}</span>
+                <span>{pct(finding.confidence)}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+      <div className="inspector-block">
+        <h4>Linked Artifacts</h4>
+        {linkedArtifacts.length === 0 ? <div className="empty-inline">No linked artifacts.</div> : null}
+        <div className="record-stack compact">
+          {linkedArtifacts.map((artifact) => (
+            <button key={artifact.id} type="button" className="record-card" onClick={() => openArtifact(artifact)}>
+              <div className="record-topline">
+                <span>{artifact.title}</span>
+                <span className="record-status">{artifact.kind}</span>
+              </div>
+              <p>{artifact.relativePath}</p>
+              <div className="record-meta">
+                <span>{artifact.role ?? artifact.scope}</span>
+                <span>{pct(artifact.confidence)}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function d64SectorOffset(track: number, sector: number): number {
   let offset = 0;
   for (let t = 1; t < track; t += 1) {
@@ -2887,6 +4735,8 @@ function DiskFileInspector({
   onSelectEntity,
   onCreateTask,
   onCreateQuestion,
+  onRunPrgWorkflow,
+  onRunPayloadWorkflow,
 }: {
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
@@ -2895,7 +4745,10 @@ function DiskFileInspector({
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
   onOpenTab: (tab: TabId) => void;
   onSelectEntity: (entityId: string) => void;
+  onRunPrgWorkflow: (prgPath: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
+  onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
 } & LlmTodoActions) {
+  const [workflowBusy, setWorkflowBusy] = useState(false);
   const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
   const file = disk?.files.find((candidate) => candidate.id === selection.fileId);
   const diskArtifact = snapshot.artifacts.find((artifact) => artifact.id === selection.diskArtifactId);
@@ -2990,15 +4843,20 @@ function DiskFileInspector({
   // Cross-reference discovery — only meaningful for actual files, not
   // memory regions, so we keep this scoped to DiskFileInspector.
   const fileStem = (file.relativePath ?? file.title ?? "").split("/").pop()?.replace(/\.[^.]+$/, "")?.toLowerCase();
+  // Bug 24 + Bug 26: pair against latest version per lineage AND drop
+  // infrastructure files so older / internal revisions don't pollute.
+  const lineageVisibility = useLineageVisibility();
+  const internalVisibility = useInternalVisibility();
+  const visibleForPairing = internalVisibility.visibleArtifacts(lineageVisibility.latest(snapshot.artifacts));
   const asmSources: AsmViewSource[] = fileStem
     ? bestAsmSourcesForArtifacts(
-        snapshot.artifacts
+        visibleForPairing
           .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath))
           .filter((artifact) => artifact.relativePath.toLowerCase().includes(fileStem)),
       )
     : [];
   const payloadBinaryArtifact = fileStem
-    ? [...snapshot.artifacts]
+    ? [...visibleForPairing]
         .filter((artifact) => artifact.kind === "prg" && artifact.relativePath.toLowerCase().includes(fileStem))
         .sort((left, right) => binaryArtifactPriority(right) - binaryArtifactPriority(left))[0]
     : undefined;
@@ -3056,6 +4914,46 @@ function DiskFileInspector({
       }),
     });
   }
+  // Prefer the payload-aware workflow when the disk file has an entity
+  // record (any kind) carrying enough metadata. Fall back to the legacy
+  // PRG-path workflow only when the file has a `.prg` extension and no
+  // entity record exists.
+  if (file.entityId) {
+    secondaryActions.push({
+      label: workflowBusy ? "running..." : "reverse workflow",
+      title: `Run analyze + disasm + reports + view rebuild on payload ${file.entityId}`,
+      enabled: !workflowBusy,
+      onClick: () => {
+        setWorkflowBusy(true);
+        onRunPayloadWorkflow(file.entityId!, "full")
+          .then((result) => {
+            window.alert(`Workflow ${result.status}.\nImported entities=${result.importedCounts.entities} findings=${result.importedCounts.findings}.\nNext: ${result.nextRequiredAction}`);
+          })
+          .catch((error) => {
+            window.alert(`Workflow failed: ${error instanceof Error ? error.message : String(error)}`);
+          })
+          .finally(() => setWorkflowBusy(false));
+      },
+    });
+  } else if (payloadBinaryArtifact && payloadBinaryArtifact.relativePath.toLowerCase().endsWith(".prg")) {
+    const prgPath = payloadBinaryArtifact.relativePath;
+    secondaryActions.push({
+      label: workflowBusy ? "running..." : "reverse workflow",
+      title: `Run analyze + disasm + reports + view rebuild on ${prgPath}`,
+      enabled: !workflowBusy,
+      onClick: () => {
+        setWorkflowBusy(true);
+        onRunPrgWorkflow(prgPath, "full")
+          .then((result) => {
+            window.alert(`Workflow ${result.status}.\nImported entities=${result.importedCounts.entities} findings=${result.importedCounts.findings}.\nNext: ${result.nextRequiredAction}`);
+          })
+          .catch((error) => {
+            window.alert(`Workflow failed: ${error instanceof Error ? error.message : String(error)}`);
+          })
+          .finally(() => setWorkflowBusy(false));
+      },
+    });
+  }
   if (linkedLoadItems.length > 0) {
     secondaryActions.push({
       label: "→ load seq",
@@ -3064,7 +4962,7 @@ function DiskFileInspector({
       onClick: () => {
         const target = linkedLoadItems[0]!;
         if (target.primaryEntityId) onSelectEntity(target.primaryEntityId);
-        onOpenTab("load");
+        onOpenTab("flow");
       },
     });
   }
@@ -3132,13 +5030,18 @@ function CartChunkInspector({
   onClose,
   onOpenHex,
   onOpenAsm,
+  onRunPayloadWorkflow,
 }: {
   snapshot: WorkspaceUiSnapshot;
   selection: { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
   onClose: () => void;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
+  onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
 }) {
+  const [chunkWorkflowBusy, setChunkWorkflowBusy] = useState(false);
+  const lineageVisibility = useLineageVisibility();
+  const internalVisibility = useInternalVisibility();
   const cartridge = snapshot.views.cartridgeLayout.cartridges.find((cart) => cart.artifactId === selection.cartridgeArtifactId);
   const chunk = selection.chunk;
   const refs = chunk.refs?.length ? chunk.refs : [{ lut: chunk.lut, index: chunk.index, destAddress: chunk.destAddress }];
@@ -3257,12 +5160,36 @@ function CartChunkInspector({
           }),
       )
     : new Set<string>();
-  const cartAsmSources: AsmViewSource[] = bestAsmSourcesForArtifacts(
-    [...linkedAsmArtifactIds]
-      .map((artifactId) => snapshot.artifacts.find((artifact) => artifact.id === artifactId))
-      .filter((artifact): artifact is typeof snapshot.artifacts[number] => Boolean(artifact))
-      .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath)),
-  );
+  const linkedAsmArtifacts = [...linkedAsmArtifactIds]
+    .map((artifactId) => snapshot.artifacts.find((artifact) => artifact.id === artifactId))
+    .filter((artifact): artifact is typeof snapshot.artifacts[number] => Boolean(artifact))
+    .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath));
+
+  // Heuristic fallback: when the agent never ran link_cart_chunk_to_asm,
+  // fall back to matching by chip-file stem. e.g. a chunk that lives in
+  // bank_13_8000.bin with an asm artifact bank_13_8000.asm next to it
+  // gets surfaced even without an explicit relation.
+  let cartAsmSources: AsmViewSource[];
+  if (linkedAsmArtifacts.length > 0) {
+    cartAsmSources = bestAsmSourcesForArtifacts(linkedAsmArtifacts);
+  } else {
+    const chipStems = new Set<string>();
+    for (const span of spans) {
+      const chip = chipForSpan(span.bank);
+      if (!chip?.file) continue;
+      const stem = chip.file.replace(/\.[^.]+$/, "");
+      if (stem) chipStems.add(stem);
+    }
+    // Bug 24 + Bug 26: filter to latest version per lineage AND drop
+    // infrastructure files so older / internal revisions don't get
+    // bundled into the inspector.
+    const fallbackAsm = internalVisibility.visibleArtifacts(lineageVisibility.latest(snapshot.artifacts)).filter((artifact) => {
+      if (!/\.(asm|tass|s|a65)$/i.test(artifact.relativePath)) return false;
+      const stem = artifact.relativePath.split("/").pop()!.replace(/\.[^.]+$/, "");
+      return chipStems.has(stem);
+    });
+    cartAsmSources = bestAsmSourcesForArtifacts(fallbackAsm);
+  }
 
   const fileSpans: FileInspectorSpanRow[] = spans.map((span, partIndex) => {
     const chipPath = chipPathForSpan(span.bank);
@@ -3304,6 +5231,35 @@ function CartChunkInspector({
       onClick: () => onOpenAsm(`${chunk.lut}.${String(chunk.index).padStart(2, "0")}`, cartAsmSources),
     });
   }
+  const chunkPayloadKey = `cart-chunk:${chunk.bank}:${chunk.slot}:${chunk.offsetInBank}:${chunk.length}`;
+  const matchingPayload = snapshot.entities.find((entity) =>
+    entity.kind === "payload" && (entity.tags ?? []).includes(chunkPayloadKey),
+  );
+  if (matchingPayload) {
+    chunkSecondaryActions.push({
+      label: chunkWorkflowBusy ? "running..." : "reverse workflow",
+      title: `Run analyze + disasm + reports + view rebuild on payload ${matchingPayload.name}`,
+      enabled: !chunkWorkflowBusy,
+      onClick: () => {
+        setChunkWorkflowBusy(true);
+        onRunPayloadWorkflow(matchingPayload.id, "full")
+          .then((result) => {
+            window.alert(`Workflow ${result.status}.\nImported entities=${result.importedCounts.entities} findings=${result.importedCounts.findings}.\nNext: ${result.nextRequiredAction}`);
+          })
+          .catch((error) => {
+            window.alert(`Workflow failed: ${error instanceof Error ? error.message : String(error)}`);
+          })
+          .finally(() => setChunkWorkflowBusy(false));
+      },
+    });
+  } else {
+    chunkSecondaryActions.push({
+      label: "reverse workflow (no payload)",
+      title: "Run bulk_create_cart_chunk_payloads or register_payload first to promote this chunk to a payload entity, then re-open this inspector.",
+      enabled: false,
+      onClick: () => undefined,
+    });
+  }
 
   return (
     <FileInspector
@@ -3329,6 +5285,47 @@ function CartChunkInspector({
   );
 }
 
+function RegistrationBanner() {
+  const [delta, setDelta] = useState<{ unregisteredCount: number; unregisteredByExt: Record<string, number>; unimportedAnalysisCount?: number } | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/registration-delta`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (!cancelled && d) setDelta(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  if (!delta || dismissed) return null;
+  const hasUnregistered = delta.unregisteredCount > 0;
+  const hasUnimported = (delta.unimportedAnalysisCount ?? 0) > 0;
+  if (!hasUnregistered && !hasUnimported) return null;
+  const exts = Object.entries(delta.unregisteredByExt)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([e, n]) => `${e}=${n}`)
+    .join(", ");
+  return (
+    <div className="registration-banner">
+      <div className="registration-banner-lines">
+        {hasUnregistered ? (
+          <div>
+            <strong>⚠ {delta.unregisteredCount} files on disk are not registered as artifacts.</strong>
+            {" "}Top extensions: {exts}. Run <code>register_existing_files</code> from the agent to fix.
+          </div>
+        ) : null}
+        {hasUnimported ? (
+          <div>
+            <strong>⚠ {delta.unimportedAnalysisCount} analysis-run artifact(s) registered but never imported.</strong>
+            {" "}Entities / findings missing → loadSequence Payload-Focus stages have no linked entities. Run <code>bulk_import_analysis_reports</code> to back-fill.
+          </div>
+        ) : null}
+      </div>
+      <button type="button" onClick={() => setDismissed(true)}>dismiss</button>
+    </div>
+  );
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceUiSnapshot | null>(null);
   const [discoveredDocs, setDiscoveredDocs] = useState<DiscoveredMarkdownDoc[]>([]);
@@ -3346,6 +5343,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [listingQuery, setListingQuery] = useState("");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [tabSelections, setTabSelections] = useState<Partial<Record<TabId, string>>>({});
   const [selectedDocPath, setSelectedDocPath] = useState<string | null>(null);
   const [docContent, setDocContent] = useState("");
@@ -3356,6 +5354,15 @@ export function App() {
   const [todoComposer, setTodoComposer] = useState<TodoComposerState | null>(null);
   const [todoSaving, setTodoSaving] = useState(false);
   const [todoError, setTodoError] = useState<string | null>(null);
+  // Bug 24: default = list latest version per lineage. Toggle exposes
+  // V0..V(n-1) for debugging.
+  const [showAllVersions, setShowAllVersions] = useState<boolean>(false);
+  // Bug 26 / Spec 058: default hide infrastructure files. Toggle for debug.
+  const [showInternal, setShowInternal] = useState<boolean>(false);
+  const visibleArtifacts = useMemo(
+    () => (snapshot ? (showAllVersions ? snapshot.artifacts : latestArtifactsByLineage(snapshot.artifacts)) : []),
+    [snapshot, showAllVersions],
+  );
 
   function openAsmOverlay(title: string, sources: AsmViewSource[]) {
     if (sources.length === 0) return;
@@ -3395,20 +5402,25 @@ export function App() {
     setError(null);
     try {
       const encoded = encodeURIComponent(nextProjectDir);
-      const [nextSnapshot, docsResponse, graphicsResponse, marksResponse] = await Promise.all([
+      const [nextSnapshot, docsResponse, graphicsResponse] = await Promise.all([
         fetchJson<WorkspaceUiSnapshot>(`/api/workspace?projectDir=${encoded}`),
         fetchJson<DocsApiResponse>(`/api/docs?projectDir=${encoded}`).catch(() => ({ projectDir: nextProjectDir, docs: [] as DiscoveredMarkdownDoc[] })),
         fetchJson<GraphicsApiResponse>(`/api/graphics?projectDir=${encoded}`).catch(() => ({ projectDir: nextProjectDir, items: [] as GraphicsItem[], warnings: [] as string[] })),
-        fetchJson<{ marks: Record<string, { status: "rejected" | "confirmed"; note?: string }> }>(`/api/graphics-marks?projectDir=${encoded}`).catch(() => ({ marks: {} })),
       ]);
       setSnapshot(nextSnapshot);
       setDiscoveredDocs(docsResponse.docs);
       setGraphicsItems(graphicsResponse.items);
-      setGraphicsMarks(marksResponse.marks ?? {});
+      // Bug 23 (Stage 2): graphicsMarks is now derived from the items
+      // themselves (which carry confirmed/rejected from the analysis JSON).
+      // Single source of truth — no separate /api/graphics-marks fetch.
+      setGraphicsMarks(deriveGraphicsMarks(graphicsResponse.items));
       setSelectedGraphicsId(graphicsResponse.items[0]?.id ?? null);
       setSelectedEntityId(null);
+      setSelectedQuestionId(null);
       setTabSelections({});
-      const nextDocs = buildDocs(nextSnapshot.artifacts, docsResponse.docs);
+      // Bug 24: latest version per lineage in the docs list. The "show
+      // all versions" toggle re-runs this via the useMemo path below.
+      const nextDocs = buildDocs(latestArtifactsByLineage(nextSnapshot.artifacts), docsResponse.docs);
       setSelectedDocPath(nextDocs[0]?.relativePath ?? null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -3419,15 +5431,53 @@ export function App() {
 
   async function setGraphicsMark(itemId: string, status: "rejected" | "confirmed" | "clear") {
     if (!snapshot) return;
+    const item = graphicsItems.find((g) => g.id === itemId);
+    if (!item) return;
     try {
-      const response = await fetch("/api/graphics-marks", {
+      // Bug 23 (Stage 2): single write path. Both UI clicks and agent
+      // MCP calls land in the same store (the *_analysis.json segment
+      // flags), so the counter and buckets always agree.
+      const endpoint = status === "confirmed"
+        ? "/api/segment/confirm"
+        : status === "rejected"
+          ? "/api/segment/reject"
+          : "/api/segment/clear";
+      const body: Record<string, unknown> = {
+        projectDir: snapshot.project.rootPath,
+        artifactId: item.prgArtifactId,
+        address: item.start,
+        length: item.length,
+        kind: item.kind,
+      };
+      if (status === "rejected") body.reason = "User marked wrong via Graphics tab.";
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectDir: snapshot.project.rootPath, itemId, status }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json() as { marks: Record<string, { status: "rejected" | "confirmed"; note?: string }> };
-      setGraphicsMarks(payload.marks ?? {});
+      // Refetch the graphics view so item.confirmed/rejected reflect the
+      // change. Cheap — the endpoint is a single file read per analysis JSON.
+      const encoded = encodeURIComponent(snapshot.project.rootPath);
+      const refreshed = await fetchJson<GraphicsApiResponse>(`/api/graphics?projectDir=${encoded}`).catch(() => null);
+      if (refreshed) {
+        setGraphicsItems(refreshed.items);
+        setGraphicsMarks(deriveGraphicsMarks(refreshed.items));
+      } else {
+        // Fall back to optimistic local update if the refetch failed.
+        setGraphicsItems(graphicsItems.map((g) => g.id !== itemId ? g : ({
+          ...g,
+          confirmed: status === "confirmed" ? true : undefined,
+          rejected: status === "rejected" ? true : undefined,
+          rejectedReason: status === "rejected" ? (body.reason as string) : undefined,
+        })));
+        setGraphicsMarks((prev) => {
+          const next = { ...prev };
+          if (status === "clear") delete next[itemId];
+          else next[itemId] = { status, note: status === "rejected" ? (body.reason as string) : undefined };
+          return next;
+        });
+      }
     } catch (markError) {
       console.error("graphics mark failed", markError);
     }
@@ -3453,6 +5503,46 @@ export function App() {
       entityIds: defaults.entityIds ?? [],
       artifactIds: defaults.artifactIds ?? [],
     });
+  }
+
+  async function updateQuestionStatus(
+    questionId: string,
+    status: "answered" | "invalidated" | "deferred" | "open",
+    answerSummary?: string,
+  ) {
+    if (!snapshot) return;
+    await postJson("/api/open-question", {
+      projectDir: snapshot.project.rootPath,
+      id: questionId,
+      status,
+      answerSummary,
+    });
+    await loadWorkspace(snapshot.project.rootPath);
+    if (status !== "open") {
+      setSelectedQuestionId(null);
+    }
+  }
+
+  async function runPrgWorkflowFromInspector(prgPath: string, mode: "quick" | "full" = "full"): Promise<PrgReverseWorkflowResponse> {
+    if (!snapshot) throw new Error("No workspace loaded");
+    const result = await postJson<PrgReverseWorkflowResponse>("/api/run-prg-workflow", {
+      projectDir: snapshot.project.rootPath,
+      prgPath,
+      mode,
+    });
+    await loadWorkspace(snapshot.project.rootPath);
+    return result;
+  }
+
+  async function runPayloadWorkflowFromInspector(payloadId: string, mode: "quick" | "full" = "full"): Promise<PrgReverseWorkflowResponse> {
+    if (!snapshot) throw new Error("No workspace loaded");
+    const result = await postJson<PrgReverseWorkflowResponse>("/api/run-payload-workflow", {
+      projectDir: snapshot.project.rootPath,
+      payloadId,
+      mode,
+    });
+    await loadWorkspace(snapshot.project.rootPath);
+    return result;
   }
 
   async function saveTodoComposer() {
@@ -3592,20 +5682,30 @@ export function App() {
   }, [snapshot, selectedDocPath]);
 
   const selectedEntity = snapshot?.entities.find((entity) => entity.id === selectedEntityId);
-  const docs = snapshot ? buildDocs(snapshot.artifacts, discoveredDocs) : [];
+  const selectedQuestion = snapshot?.openQuestions.find((question) => question.id === selectedQuestionId);
+  // Bug 24 + Bug 26: filter to latest version per lineage AND drop
+  // infrastructure files (manifests, FACTS reports etc.). Toggles override.
+  const docs = useMemo(() => {
+    if (!snapshot) return [];
+    let list: ArtifactRecord[] = showAllVersions ? snapshot.artifacts : latestArtifactsByLineage(snapshot.artifacts);
+    if (!showInternal) list = list.filter((a) => !isInternalArtifact(a));
+    return buildDocs(list, discoveredDocs);
+  }, [snapshot, discoveredDocs, showAllVersions, showInternal]);
   const visibleTabs = snapshot
     ? allTabs.filter((tab) => {
         if (tab.id === "dashboard") return true;
+        if (tab.id === "questions") return snapshot.openQuestions.length > 0;
         if (tab.id === "docs") return docs.length > 0;
         if (tab.id === "memory") return snapshot.views.memoryMap.cells.length > 0;
         if (tab.id === "graphics") return graphicsItems.length > 0;
         if (tab.id === "scrub") return snapshot.artifacts.some((artifact) => artifact.kind === "prg" || artifact.kind === "crt" || artifact.kind === "raw");
         if (tab.id === "cartridge") return snapshot.views.cartridgeLayout.cartridges.length > 0;
         if (tab.id === "disk") return snapshot.views.diskLayout.disks.length > 0;
-        if (tab.id === "load") return snapshot.views.loadSequence.items.length > 0;
-        if (tab.id === "flow") return snapshot.views.flowGraph.nodes.length > 0;
+        // Spec 059 / UX1: Flow Graph tab covers both flow-graph nodes
+        // and the folded-in load sequence items.
+        if (tab.id === "flow") return snapshot.views.flowGraph.nodes.length > 0
+          || snapshot.views.loadSequence.items.length > 0;
         if (tab.id === "listing") return snapshot.views.annotatedListing.entries.length > 0;
-        if (tab.id === "activity") return snapshot.recentTimeline.length > 0;
         return true;
       })
     : allTabs;
@@ -3618,7 +5718,23 @@ export function App() {
 
   function handleSelectEntity(entityId: string, tabId: TabId = activeTab) {
     setSelectedEntityId(entityId);
+    setSelectedQuestionId(null);
     setTabSelections((current) => ({ ...current, [tabId]: entityId }));
+    setSelectedCartChunk(null);
+    setSelectedDiskFile(null);
+  }
+
+  function handleSelectQuestion(questionId: string) {
+    if (!snapshot) return;
+    const question = snapshot.openQuestions.find((candidate) => candidate.id === questionId);
+    if (!question) return;
+    const linkedFindingEntityId = question.findingIds
+      .map((findingId) => snapshot.findings.find((finding) => finding.id === findingId)?.entityIds[0])
+      .find((entityId): entityId is string => entityId !== undefined);
+    const nextEntityId = question.entityIds[0] ?? linkedFindingEntityId ?? null;
+    setSelectedQuestionId(questionId);
+    setSelectedEntityId(nextEntityId);
+    if (nextEntityId) setTabSelections((current) => ({ ...current, dashboard: nextEntityId }));
     setSelectedCartChunk(null);
     setSelectedDiskFile(null);
   }
@@ -3649,11 +5765,13 @@ export function App() {
           ?? firstDiskFileSelection(snapshot);
       setSelectedDiskFile(nextDiskSelection);
       setSelectedCartChunk(null);
+      setSelectedQuestionId(null);
       setSelectedEntityId(nextEntityId ?? diskSelectionEntityId(snapshot, nextDiskSelection));
       if (nextEntityId) setTabSelections((current) => ({ ...current, disk: nextEntityId }));
     } else {
       setSelectedDiskFile(null);
       if (nextTab !== "cartridge") setSelectedCartChunk(null);
+      if (nextTab !== "dashboard") setSelectedQuestionId(null);
       setSelectedEntityId(nextEntityId);
       if (nextEntityId) setTabSelections((current) => ({ ...current, [nextTab]: nextEntityId }));
     }
@@ -3661,7 +5779,29 @@ export function App() {
     setActiveTab(nextTab);
   }
 
+  const lineageVisibilityValue = useMemo(
+    () => ({
+      showAllVersions,
+      latest: <T extends ArtifactRecord>(items: T[]): T[] =>
+        showAllVersions ? items : latestArtifactsByLineage(items),
+    }),
+    [showAllVersions],
+  );
+
+  const internalVisibilityValue = useMemo(
+    () => ({
+      showInternal,
+      visibleArtifacts: <T extends ArtifactRecord>(items: T[]): T[] =>
+        showInternal ? items : items.filter((a) => !isInternalArtifact(a)),
+      visibleEntities: <T extends EntityRecord>(items: T[], artifactsById: Map<string, ArtifactRecord>): T[] =>
+        showInternal ? items : items.filter((e) => !isInternalEntity(e, artifactsById)),
+    }),
+    [showInternal],
+  );
+
   return (
+    <InternalVisibilityContext.Provider value={internalVisibilityValue}>
+    <LineageVisibilityContext.Provider value={lineageVisibilityValue}>
     <div className="app-root">
       <header className="hero-shell">
         <div className="hero-copy panel-card">
@@ -3678,12 +5818,33 @@ export function App() {
             <div className="hero-meta-line">
               <span>{snapshot.project.status}</span>
               <span>updated {shortTime(snapshot.generatedAt)}</span>
+              {/* Bug 24: default = latest version per lineage everywhere.
+                  Toggle exposes V0..V(n-1) for debugging. */}
+              <label style={{ display: "inline-flex", alignItems: "center", gap: "4px", cursor: "pointer", opacity: 0.75 }}>
+                <input
+                  type="checkbox"
+                  checked={showAllVersions}
+                  onChange={(event) => setShowAllVersions(event.target.checked)}
+                />
+                Show all versions
+              </label>
+              {/* Bug 26 / Spec 058: default hide infrastructure files.
+                  Toggle exposes manifests / analysis JSONs / etc. */}
+              <label style={{ display: "inline-flex", alignItems: "center", gap: "4px", cursor: "pointer", opacity: 0.75 }}>
+                <input
+                  type="checkbox"
+                  checked={showInternal}
+                  onChange={(event) => setShowInternal(event.target.checked)}
+                />
+                Show internal files
+              </label>
             </div>
           ) : null}
         </div>
       </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
+      <RegistrationBanner />
 
       {!snapshot ? (
         <main className="loading-shell">
@@ -3709,12 +5870,28 @@ export function App() {
               <DashboardPanel
                 snapshot={snapshot}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "dashboard")}
+                onSelectQuestion={handleSelectQuestion}
                 onOpenDocument={(path) => {
                   setSelectedDocPath(path);
                   handleOpenTab("docs");
                 }}
+                onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
               />
             ) : null}
+
+            {activeTab === "questions" ? (
+              <QuestionsPanel
+                snapshot={snapshot}
+                onSelectQuestion={handleSelectQuestion}
+                onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
+              />
+            ) : null}
+
+            {/* Spec 059 / UX1: findings/entities/flows/relations panels
+                removed from tab strip. Knowledge surfaces now live
+                inside the Inspector pane on every view. Raw access:
+                list_findings/list_entities/list_relations/list_flows
+                MCP tools or knowledge/*.json on disk. */}
 
             {activeTab === "docs" ? (
               <DocsPanel
@@ -3759,6 +5936,7 @@ export function App() {
                 onSelectChunk={(cartridgeArtifactId, chunk) => {
                   setSelectedCartChunk({ cartridgeArtifactId, chunk });
                   setSelectedEntityId(null);
+                  setSelectedQuestionId(null);
                 }}
                 onOpenHex={openHexOverlay}
               />
@@ -3773,39 +5951,48 @@ export function App() {
                   const file = disk?.files.find((candidate) => candidate.id === fileId);
                   setSelectedDiskFile({ diskArtifactId, fileId });
                   setSelectedEntityId(file?.entityId ?? null);
+                  setSelectedQuestionId(null);
                   if (file?.entityId) setTabSelections((current) => ({ ...current, disk: file.entityId! }));
                   setSelectedCartChunk(null);
                 }}
                 onOpenHex={openHexOverlay}
               />
             ) : null}
-            {activeTab === "load" ? (
-              <LoadSequencePanel
-                view={snapshot.views.loadSequence}
+            {activeTab === "payloads" ? (
+              <PayloadsPanel
                 snapshot={snapshot}
-                selectedEntityId={selectedEntityId}
-                onSelectEntity={(entityId) => handleSelectEntity(entityId, "load")}
+                onOpenHex={openHexOverlay}
+                onOpenAsm={openAsmOverlay}
+                onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
               />
             ) : null}
+            {/* Spec 059 / UX1: standalone Load Sequence tab folded
+                into Flow Graph as the "Load" sub-mode below. */}
             {activeTab === "flow" ? (
-              <FlowPanel
+              <FlowPanelWithLoadMode
                 flowGraph={snapshot.views.flowGraph}
                 entities={snapshot.entities}
                 relations={snapshot.relations}
                 selectedEntityId={selectedEntityId}
                 onSelectEntity={(entityId) => handleSelectEntity(entityId, "flow")}
+                loadView={snapshot.views.loadSequence}
+                snapshot={snapshot}
               />
             ) : null}
             {activeTab === "listing" ? (
-              <ListingPanel
-                snapshot={snapshot}
-                query={listingQuery}
-                setQuery={setListingQuery}
-                selectedEntityId={selectedEntityId}
-                onSelectEntity={(entityId) => handleSelectEntity(entityId, "listing")}
-              />
+              <>
+                <ListingPanel
+                  snapshot={snapshot}
+                  query={listingQuery}
+                  setQuery={setListingQuery}
+                  selectedEntityId={selectedEntityId}
+                  onSelectEntity={(entityId) => handleSelectEntity(entityId, "listing")}
+                />
+                <AnnotationDraftPanel projectDir={snapshot.project.rootPath} />
+              </>
             ) : null}
-            {activeTab === "activity" ? <ActivityPanel snapshot={snapshot} /> : null}
+            {/* Spec 059 / UX1: standalone Activity tab removed; the
+                widget folds into the Dashboard. */}
           </section>
 
           {activeTab !== "docs" ? (
@@ -3817,6 +6004,7 @@ export function App() {
                   onClose={() => setSelectedCartChunk(null)}
                   onOpenHex={openHexOverlay}
                   onOpenAsm={openAsmOverlay}
+                  onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
                 />
               ) : selectedDiskFile ? (
                 <DiskFileInspector
@@ -3829,6 +6017,22 @@ export function App() {
                   onSelectEntity={(entityId) => handleSelectEntity(entityId)}
                   onCreateTask={createTaskFromUi}
                   onCreateQuestion={createQuestionFromUi}
+                  onRunPrgWorkflow={runPrgWorkflowFromInspector}
+                  onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
+                />
+              ) : selectedQuestion ? (
+                <QuestionInspector
+                  snapshot={snapshot}
+                  question={selectedQuestion}
+                  onClose={() => setSelectedQuestionId(null)}
+                  onSelectEntity={handleSelectEntity}
+                  onOpenDocument={(path) => {
+                    setSelectedDocPath(path);
+                    handleOpenTab("docs");
+                  }}
+                  onOpenHex={openHexOverlay}
+                  onCreateTask={createTaskFromUi}
+                  onUpdateStatus={updateQuestionStatus}
                 />
               ) : (
                 <EntityInspector
@@ -3886,5 +6090,7 @@ export function App() {
         />
       ) : null}
     </div>
+    </LineageVisibilityContext.Provider>
+    </InternalVisibilityContext.Provider>
   );
 }

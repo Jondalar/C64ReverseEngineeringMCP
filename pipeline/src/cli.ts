@@ -1,13 +1,15 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { parseCrt, writeCrtOutputs } from "./lib/crt";
 import { exportMenuPayloads, reconstructBootPayloads } from "./lib/easyflash";
 import { emitKickAssemblerSources } from "./lib/kickasm";
 import { disassemblePrgToKickAsm } from "./lib/prg-disasm";
-import { analyzePrgFile, writeAnalysisReport } from "./analysis/pipeline";
+import { analyzePrgFile, analyzeRawFile, writeAnalysisReport } from "./analysis/pipeline";
 import { renderPointerTableMarkdown } from "./analysis/pointer-tables";
 import { renderRamStateMarkdown } from "./analysis/ram-state";
 import { analyzeSampleBuffer } from "./analysis/sample";
+import { consumeRegisterFlags, registerCliArtifact, registerCliPayload } from "./lib/artifact-register";
+import { readFileSync as readFileSyncFs } from "node:fs";
 
 function usage(): never {
   throw new Error(
@@ -22,12 +24,17 @@ function usage(): never {
       "  node dist/cli.js ram-report <analysisJson> [outputMd]",
       "  node dist/cli.js pointer-report <analysisJson> [outputMd]",
       "  node dist/cli.js analyze-sample [outputJson]",
+      "",
+      "Append --no-register to suppress automatic artifact registration when",
+      "writing into a project that already has knowledge/phase-plan.json.",
     ].join("\n"),
   );
 }
 
 function main(): void {
-  const [, , command, ...args] = process.argv;
+  const rawArgs = process.argv.slice(2);
+  const cleaned = consumeRegisterFlags(rawArgs);
+  const [command, ...args] = cleaned;
   if (!command) {
     usage();
   }
@@ -38,8 +45,18 @@ function main(): void {
     if (!crtPath) {
       usage();
     }
-    const parsed = parseCrt(readFileSync(resolve(crtPath)));
+    const crtAbs = resolve(crtPath);
+    const parsed = parseCrt(readFileSync(crtAbs));
     writeCrtOutputs(parsed, outputDir);
+    registerCliArtifact({
+      kind: "manifest",
+      scope: "generated",
+      title: `${basename(crtAbs)} CRT extract`,
+      path: resolve(outputDir, "manifest.json"),
+      format: "json",
+      role: "crt_manifest",
+      producedByTool: "pipeline_cli:extract-crt",
+    });
     return;
   }
 
@@ -61,41 +78,136 @@ function main(): void {
   }
 
   if (command === "disasm-prg") {
-    const prgPath = args[0];
+    // Spec 048: optional --platform <c64|c1541> flag. Strip it from
+    // the positional args before the existing arg parsing so we keep
+    // the public CLI shape stable.
+    let platform: "c64" | "c1541" = "c64";
+    const remaining: string[] = [];
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i] === "--platform" && args[i + 1]) {
+        platform = args[i + 1] as "c64" | "c1541";
+        i += 1;
+      } else if (args[i].startsWith("--platform=")) {
+        platform = args[i].slice("--platform=".length) as "c64" | "c1541";
+      } else {
+        remaining.push(args[i]);
+      }
+    }
+    const prgPath = remaining[0];
     if (!prgPath) {
       usage();
     }
-    const outputPath = resolve(args[1] ?? "analysis/main-game/main_disasm.asm");
-    const entryPoints = args[2]
-      ? args[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
+    const outputPath = resolve(remaining[1] ?? "analysis/main-game/main_disasm.asm");
+    const entryPoints = remaining[2]
+      ? remaining[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
       : [0x0827];
-    disassemblePrgToKickAsm(resolve(prgPath), outputPath, {
+    const prgAbs = resolve(prgPath);
+    disassemblePrgToKickAsm(prgAbs, outputPath, {
       entryPoints,
       title: prgPath,
-      analysisPath: args[3] ? resolve(args[3]) : undefined,
+      analysisPath: remaining[3] ? resolve(remaining[3]) : undefined,
+      platform,
+    });
+    registerCliArtifact({
+      kind: "generated-source",
+      scope: "generated",
+      title: `${basename(prgAbs)} disassembly (KickAssembler)`,
+      path: outputPath,
+      format: "asm",
+      role: "disasm",
+      producedByTool: "pipeline_cli:disasm-prg",
     });
     return;
   }
 
   if (command === "analyze-prg") {
-    const prgPath = args[0];
+    // Pull --load-address $XXXX (or 0xXXXX) out of args before consuming
+    // positional slots so callers can pass it anywhere.
+    let loadAddressOverride: number | undefined;
+    const positional: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index]!;
+      if (arg === "--load-address" || arg === "--loadAddress") {
+        const value = args[index + 1];
+        if (!value) throw new Error("--load-address requires a value");
+        const cleanedValue = value.startsWith("$") ? value.slice(1) : value;
+        loadAddressOverride = Number.parseInt(cleanedValue, 16);
+        if (Number.isNaN(loadAddressOverride)) throw new Error(`Invalid --load-address: ${value}`);
+        index += 1;
+        continue;
+      }
+      if (arg.startsWith("--load-address=")) {
+        const value = arg.slice("--load-address=".length);
+        const cleanedValue = value.startsWith("$") ? value.slice(1) : value;
+        loadAddressOverride = Number.parseInt(cleanedValue, 16);
+        if (Number.isNaN(loadAddressOverride)) throw new Error(`Invalid --load-address: ${value}`);
+        continue;
+      }
+      positional.push(arg);
+    }
+    const prgPath = positional[0];
     if (!prgPath) {
       usage();
     }
-    const outputPath = resolve(args[1] ?? "analysis/main-game/main_analysis.json");
-    const entryPoints = args[2]
-      ? args[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
+    const outputPath = resolve(positional[1] ?? "analysis/main-game/main_analysis.json");
+    const entryPoints = positional[2]
+      ? positional[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
       : [];
-    const report = analyzePrgFile(resolve(prgPath), {
-      userEntryPoints: entryPoints,
-    });
+    const prgAbs = resolve(prgPath);
+    const report = loadAddressOverride !== undefined
+      ? analyzeRawFile(prgAbs, loadAddressOverride, { userEntryPoints: entryPoints })
+      : analyzePrgFile(prgAbs, { userEntryPoints: entryPoints });
     writeAnalysisReport(report, outputPath);
+    registerCliArtifact({
+      kind: "analysis-run",
+      scope: "analysis",
+      title: `${basename(prgAbs)} analysis`,
+      path: outputPath,
+      format: "json",
+      role: "analysis",
+      producedByTool: "pipeline_cli:analyze-prg",
+      sourceArtifactIds: [], // resolved later via path; not yet known here
+    });
+    // Auto-register a payload entity for the input. Idempotent — re-running
+    // analyze-prg does not duplicate.
+    try {
+      const buf = readFileSyncFs(prgAbs);
+      if (loadAddressOverride !== undefined) {
+        registerCliPayload({
+          name: basename(prgAbs).replace(/\.[^.]+$/, ""),
+          loadAddress: loadAddressOverride,
+          format: "raw",
+          sourceArtifactPath: prgAbs,
+          size: buf.length,
+        });
+      } else if (buf.length >= 2) {
+        const loadAddr = buf[0]! | (buf[1]! << 8);
+        registerCliPayload({
+          name: basename(prgAbs).replace(/\.prg$/i, ""),
+          loadAddress: loadAddr,
+          format: "prg",
+          sourceArtifactPath: prgAbs,
+          size: buf.length - 2,
+        });
+      }
+    } catch {
+      // best effort; payload auto-creation is optional
+    }
     return;
   }
 
   if (command === "analyze-sample") {
     const outputPath = resolve(args[0] ?? "analysis/sample-analysis.json");
     writeAnalysisReport(analyzeSampleBuffer(), outputPath);
+    registerCliArtifact({
+      kind: "analysis-run",
+      scope: "analysis",
+      title: "Sample analysis",
+      path: outputPath,
+      format: "json",
+      role: "analysis",
+      producedByTool: "pipeline_cli:analyze-sample",
+    });
     return;
   }
 
@@ -107,6 +219,15 @@ function main(): void {
     const outputPath = resolve(args[1] ?? "analysis/main-game/RAM_STATE_FACTS.md");
     const report = JSON.parse(readFileSync(resolve(analysisPath), "utf8"));
     writeFileSync(outputPath, renderRamStateMarkdown(report), "utf8");
+    registerCliArtifact({
+      kind: "report",
+      scope: "generated",
+      title: "RAM state facts",
+      path: outputPath,
+      format: "md",
+      role: "ram_report",
+      producedByTool: "pipeline_cli:ram-report",
+    });
     return;
   }
 
@@ -118,6 +239,46 @@ function main(): void {
     const outputPath = resolve(args[1] ?? "analysis/main-game/POINTER_TABLE_FACTS.md");
     const report = JSON.parse(readFileSync(resolve(analysisPath), "utf8"));
     writeFileSync(outputPath, renderPointerTableMarkdown(report), "utf8");
+    registerCliArtifact({
+      kind: "report",
+      scope: "generated",
+      title: "Pointer table facts",
+      path: outputPath,
+      format: "md",
+      role: "pointer_report",
+      producedByTool: "pipeline_cli:pointer-report",
+    });
+    return;
+  }
+
+  // Spec 042: propose-annotations 2nd-pass classifier writes
+  // *_annotations.draft.json from *_analysis.json + optional listing.
+  if (command === "propose-annotations") {
+    const analysisPath = args[0];
+    if (!analysisPath) {
+      usage();
+    }
+    const analysisAbs = resolve(analysisPath);
+    const draftPath = resolve(args[1] ?? analysisAbs.replace(/_analysis\.json$/i, "_annotations.draft.json"));
+    const listingPath = args[2] ? resolve(args[2]) : undefined;
+    const { proposeAnnotations } = require("./analysis/annotators/index");
+    const draft = proposeAnnotations({
+      analysisJsonPath: analysisAbs,
+      listingPath,
+      outputPath: draftPath,
+    });
+    process.stdout.write(`Draft annotations: ${draftPath}\n`);
+    process.stdout.write(`Segments: ${draft.segments.length} | Labels: ${draft.labels.length} | Routines: ${draft.routines.length} | Open questions: ${draft.openQuestions.length}\n`);
+    process.stdout.write(`Buckets: high=${draft.buckets.high} medium=${draft.buckets.medium} low=${draft.buckets.low}\n`);
+    registerCliArtifact({
+      kind: "report",
+      scope: "analysis",
+      title: "Annotation draft",
+      path: draftPath,
+      format: "json",
+      role: "annotation-draft",
+      producedByTool: "pipeline_cli:propose-annotations",
+    });
     return;
   }
 

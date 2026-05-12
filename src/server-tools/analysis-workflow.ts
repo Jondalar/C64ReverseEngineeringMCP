@@ -6,6 +6,9 @@ import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
 import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { runAndFormatClosedLoopSweep } from "./closed-loop-sweep.js";
+import { runPayloadReverseWorkflow, runPrgReverseWorkflow, renderPrgReverseWorkflowResult } from "../lib/prg-workflow.js";
+import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
 const PACKER_DETECTION_THRESHOLD = 0.7;
@@ -76,9 +79,11 @@ async function rebuildVerification(args: {
   projectDir: string;
   asmPath: string;
   prgPath: string;
+  sourceArtifactId?: string;
 }): Promise<string> {
   const tempPrg = args.asmPath.replace(/\.asm$/i, "_rebuild_check.prg");
   let summaryLine: string;
+  let assemblyOk = false;
   try {
     const result = await assembleSource({
       projectDir: args.projectDir,
@@ -90,15 +95,38 @@ async function rebuildVerification(args: {
     if (result.exitCode !== 0) {
       summaryLine = `// WARNING: rebuild assembler exited ${result.exitCode}; this listing is not byte-identical with ${basename(args.prgPath)}`;
     } else if (result.compareMatches === false) {
+      assemblyOk = true;
       const offset = result.firstDiffOffset !== undefined ? `0x${result.firstDiffOffset.toString(16).toUpperCase()}` : "?";
       summaryLine = `// WARNING: rebuild diverges from ${basename(args.prgPath)} at body offset ${offset}; disassembly is not byte-identical`;
     } else if (result.compareMatches) {
+      assemblyOk = true;
       summaryLine = `// rebuild verified byte-identical against ${basename(args.prgPath)} (${result.comparedBytes ?? "?"} bytes)`;
     } else {
       summaryLine = `// rebuild verification skipped (no compare result)`;
     }
   } catch (error) {
     summaryLine = `// WARNING: rebuild verification failed to run: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  // Bug 14: classify the rebuild-check PRG as a verification report rather
+  // than letting blanket *.prg globs file it as a regular source PRG.
+  if (assemblyOk && existsSync(tempPrg)) {
+    try {
+      const service = new ProjectKnowledgeService(args.projectDir);
+      service.saveArtifact({
+        kind: "report",
+        scope: "analysis",
+        title: `Rebuild check: ${basename(tempPrg)}`,
+        path: tempPrg,
+        format: "prg",
+        role: "rebuild-check",
+        producedByTool: "disasm_prg",
+        sourceArtifactIds: args.sourceArtifactId ? [args.sourceArtifactId] : undefined,
+        tags: ["rebuild-check", "auto"],
+      });
+    } catch {
+      // best effort; don't fail the disasm flow over a registration hiccup
+    }
   }
 
   // Bake the verdict into the head of the ASM so a human reading the file
@@ -135,7 +163,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       output_json: z.string().optional().describe("Output path for the analysis JSON (default: next to PRG)"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses, e.g. [\"0827\", \"3E07\"]"),
     },
-    async ({ project_dir, prg_path, output_json, entry_points }) => {
+    safeHandler("analyze_prg", async ({ project_dir, prg_path, output_json, entry_points }) => {
       const pd = context.projectDir(project_dir ?? prg_path, true);
       const prgAbs = resolve(pd, prg_path);
       const outAbs = output_json
@@ -189,13 +217,28 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         } else if (knowledgeRegistration.message) {
           result.stdout += `\n${knowledgeRegistration.message}`;
         }
+        // Spec 038: emit auto-suggested NEXT-step task.
+        try {
+          const knowledgeService = new ProjectKnowledgeService(pd);
+          const expectedAsm = prgAbs.replace(/\.prg$/i, "_disasm.asm");
+          knowledgeService.emitNextStepTask({
+            producedByTool: "analyze_prg",
+            artifactIds: [knowledgeRegistration.outputArtifacts?.[0] ?? basename(prgAbs)],
+            title: `Run disasm_prg on ${basename(prgAbs)}`,
+            description: `Disassemble using ${basename(outAbs)} and verify rebuild.`,
+            autoCloseHint: { kind: "file-exists", path: expectedAsm },
+            priority: "medium",
+          });
+        } catch {
+          // best effort
+        }
         const packerSummary = summarizePackerHints(packerHints);
         if (packerSummary.length > 0) {
           result.stdout += `\n${packerSummary.join("\n")}`;
         }
       }
       return context.cliResultToContent(result);
-    },
+    }),
   );
 
   server.tool(
@@ -207,15 +250,30 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       output_asm: z.string().optional().describe("Output path for the .asm file"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses"),
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
+      platform: z.enum(["c64", "c1541"]).optional().describe("Spec 048: target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly."),
     },
-    async ({ project_dir, prg_path, output_asm, entry_points, analysis_json }) => {
+    safeHandler("disasm_prg", async ({ project_dir, prg_path, output_asm, entry_points, analysis_json, platform }) => {
       const pd = context.projectDir(project_dir ?? prg_path, true);
       const prgAbs = resolve(pd, prg_path);
       const outAbs = output_asm
         ? resolve(pd, output_asm)
         : prgAbs.replace(/\.prg$/i, "_disasm.asm");
       const entries = entry_points?.join(",") ?? "";
-      const args = [prgAbs, outAbs];
+      // Spec 048: resolve platform — explicit arg wins, else read
+      // from the artifact tag if registered, else default c64.
+      let resolvedPlatform: "c64" | "c1541" = platform ?? "c64";
+      if (!platform) {
+        try {
+          const knowledgeService = new ProjectKnowledgeService(pd);
+          const a = knowledgeService.listArtifacts().find((art) => art.path === prgAbs);
+          if (a?.platform === "c1541") resolvedPlatform = "c1541";
+        } catch {
+          // best effort
+        }
+      }
+      const args: string[] = [];
+      if (resolvedPlatform !== "c64") args.push("--platform", resolvedPlatform);
+      args.push(prgAbs, outAbs);
       if (entries) args.push(entries);
       if (analysis_json) args.push(resolve(pd, analysis_json));
       const result = await runCli("disasm-prg", args, { projectDir: pd });
@@ -276,8 +334,42 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}\n${verificationSummary}`;
         if (!hasAnnotations) {
           result.stdout += `\n\nNEXT STEP: Read the full ASM with read_artifact, then create ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then run disasm_prg again to produce the final annotated version.`;
+          // Spec 038: track NEXT-hint as auto-suggested task.
+          try {
+            const knowledgeService = new ProjectKnowledgeService(pd);
+            const subjectId = knowledgeRegistration.runPath ? `analysis-run:${basename(prgAbs)}` : basename(prgAbs);
+            knowledgeService.emitNextStepTask({
+              producedByTool: "disasm_prg",
+              artifactIds: [subjectId],
+              title: `Write ${basename(annotationsPath)}`,
+              description: `Write semantic annotations file then re-run disasm_prg with annotations.`,
+              autoCloseHint: { kind: "file-exists", path: annotationsPath },
+              priority: "medium",
+            });
+          } catch {
+            // best effort
+          }
         } else {
           result.stdout += `\nAnnotations applied from: ${annotationsPath}`;
+          // Spec 055 R25: auto-emit routine + segment-reclass findings
+          // from the annotations file. Soft fail — disasm success stands
+          // even if emit hits an error.
+          try {
+            const knowledgeService = new ProjectKnowledgeService(pd);
+            const sourceArtifact = knowledgeService.listArtifacts().find((a) => a.path === prgAbs);
+            if (sourceArtifact) {
+              const emit = knowledgeService.emitAnnotationFindings({
+                sourcePrgArtifactId: sourceArtifact.id,
+                annotationsPath,
+                analysisJsonPath: analysis_json ? resolve(pd, analysis_json) : undefined,
+              });
+              result.stdout += `\nFindings emitted: ${emit.routinesEmitted} routines, ${emit.segmentReclassesEmitted} reclasses (${emit.staleRemoved} stale removed).`;
+              // Spec 057 R26: closed-loop sweep, scoped to this PRG.
+              result.stdout += `\n${runAndFormatClosedLoopSweep(knowledgeService, { artifactId: sourceArtifact.id })}`;
+            }
+          } catch (emitError) {
+            result.stdout += `\nFindings emit: FAILED — ${emitError instanceof Error ? emitError.message : String(emitError)}`;
+          }
         }
         if (knowledgeRegistration.runPath) {
           result.stdout += `\nKnowledge run: ${knowledgeRegistration.runPath}`;
@@ -286,7 +378,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         }
       }
       return context.cliResultToContent(result);
-    },
+    }),
   );
 
   server.tool(
@@ -296,7 +388,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       analysis_json: z.string().describe("Path to the analysis JSON"),
       output_md: z.string().optional().describe("Output path for the markdown report"),
     },
-    async ({ analysis_json, output_md }) => {
+    safeHandler("ram_report", async ({ analysis_json, output_md }) => {
       const pd = context.projectDir(analysis_json, true);
       const jsonAbs = resolve(pd, analysis_json);
       const outAbs = output_md
@@ -336,7 +428,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         }
       }
       return context.cliResultToContent(result);
-    },
+    }),
   );
 
   server.tool(
@@ -346,7 +438,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       analysis_json: z.string().describe("Path to the analysis JSON"),
       output_md: z.string().optional().describe("Output path for the markdown report"),
     },
-    async ({ analysis_json, output_md }) => {
+    safeHandler("pointer_report", async ({ analysis_json, output_md }) => {
       const pd = context.projectDir(analysis_json, true);
       const jsonAbs = resolve(pd, analysis_json);
       const outAbs = output_md
@@ -386,6 +478,168 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         }
       }
       return context.cliResultToContent(result);
+    }),
+  );
+
+  registerPrgReverseWorkflow(server, context);
+}
+
+function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContext): void {
+  server.tool(
+    "propose_annotations",
+    "Spec 042: emit a draft *_annotations.draft.json by walking *_analysis.json + (optional) *_disasm.asm. Pattern fingerprints (pointer-table naming, text segment promotion, frequent call-target routines, large-unknown questions) feed the draft. Manual *_annotations.json is never touched. Pass persist_questions=true to also save openQuestions[] via save_open_question (source=static-analysis).",
+    {
+      project_dir: z.string().optional(),
+      analysis_json: z.string().describe("Path to the *_analysis.json file (relative to project_dir)."),
+      output_path: z.string().optional().describe("Optional draft output path; defaults to <stem>_annotations.draft.json next to the analysis."),
+      listing_path: z.string().optional().describe("Optional *_disasm.asm path for label naming heuristics."),
+      persist_questions: z.boolean().optional().describe("If true, also save openQuestions[] entries via save_open_question with source=static-analysis."),
     },
+    safeHandler("propose_annotations", async ({ project_dir, analysis_json, output_path, listing_path, persist_questions }) => {
+      const pd = context.projectDir(project_dir, true);
+      const analysisAbs = resolve(pd, analysis_json);
+      const draftAbs = output_path ? resolve(pd, output_path) : analysisAbs.replace(/_analysis\.json$/i, "_annotations.draft.json");
+      const listingAbs = listing_path ? resolve(pd, listing_path) : undefined;
+      // Pipeline runs in CommonJS; spawn the child to keep the
+      // ESM/CommonJS boundary clean and reuse the existing
+      // registerCliArtifact pipeline.
+      const args = [analysisAbs, draftAbs];
+      if (listingAbs) args.push(listingAbs);
+      const result = await runCli("propose-annotations", args, { projectDir: pd });
+      // Optional: walk the draft and persist openQuestions.
+      if (persist_questions && result.exitCode === 0 && existsSync(draftAbs)) {
+        try {
+          const draft = JSON.parse(readFileSync(draftAbs, "utf8")) as { openQuestions?: Array<{ title: string; description: string; confidence: number }> };
+          const service = new ProjectKnowledgeService(pd);
+          let saved = 0;
+          for (const q of draft.openQuestions ?? []) {
+            service.saveOpenQuestion({
+              kind: "static-analysis",
+              title: q.title,
+              description: q.description,
+              confidence: q.confidence,
+              source: "static-analysis",
+              autoResolvable: true,
+            });
+            saved += 1;
+          }
+          result.stdout = (result.stdout ?? "") + `\nPersisted ${saved} open question(s) (source=static-analysis).`;
+        } catch (error) {
+          result.stdout = (result.stdout ?? "") + `\nPersist questions skipped: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+      return context.cliResultToContent(result);
+    }),
+  );
+
+  server.tool(
+    "run_prg_reverse_workflow",
+    "Run the full first-pass PRG reverse-engineering workflow: register input, analyze, disassemble, generate RAM and pointer reports, import knowledge, and rebuild views. Returns done/incomplete/blocked plus the next required semantic action.",
+    {
+      project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
+      prg_path: z.string().describe("Path to the .prg file (absolute or relative to project_dir)."),
+      mode: z.enum(["quick", "full"]).optional().describe("quick = analyze + disasm only. full = also ram_report + pointer_report. Default full."),
+      output_dir: z.string().optional().describe("Override output directory. Default places outputs next to the PRG."),
+      rebuild_views: z.boolean().optional().describe("Run build_all_views after the workflow. Default true."),
+      entry_points: z.array(z.string()).optional().describe("Optional hex entry-point overrides (e.g. [\"0827\"])."),
+    },
+    safeHandler("run_prg_reverse_workflow", async ({ project_dir, prg_path, mode, output_dir, rebuild_views, entry_points }) => {
+      const pd = context.projectDir(project_dir ?? prg_path, true);
+      const result = await runPrgReverseWorkflow({
+        projectRoot: pd,
+        prgPath: prg_path,
+        mode,
+        outputDir: output_dir,
+        rebuildViews: rebuild_views,
+        entryPoints: entry_points,
+      });
+      return context.cliResultToContent({
+        stdout: renderPrgReverseWorkflowResult(result),
+        stderr: "",
+        exitCode: result.status === "blocked" ? 1 : 0,
+      });
+    }),
+  );
+
+  server.tool(
+    "run_payload_reverse_workflow",
+    "Run the reverse-engineering workflow on a payload entity. Resolves the payload's source artifact and load address, supports both PRG-header and raw blobs, stamps produced asm artifact ids back onto the payload.",
+    {
+      project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
+      payload_id: z.string().describe("Payload entity id (kind=payload)."),
+      mode: z.enum(["quick", "full"]).optional().describe("quick = analyze + disasm only. full = also ram_report + pointer_report. Default full."),
+      output_dir: z.string().optional().describe("Override output directory. Default artifacts/generated/payloads/<payload_id>."),
+      rebuild_views: z.boolean().optional().describe("Run build_all_views after the workflow. Default true."),
+      entry_points: z.array(z.string()).optional().describe("Optional hex entry-point overrides."),
+    },
+    safeHandler("run_payload_reverse_workflow", async ({ project_dir, payload_id, mode, output_dir, rebuild_views, entry_points }) => {
+      const pd = context.projectDir(project_dir, false);
+      const result = await runPayloadReverseWorkflow({
+        projectRoot: pd,
+        payloadId: payload_id,
+        mode,
+        outputDir: output_dir,
+        rebuildViews: rebuild_views,
+        entryPoints: entry_points,
+      });
+      return context.cliResultToContent({
+        stdout: renderPrgReverseWorkflowResult(result),
+        stderr: "",
+        exitCode: result.status === "blocked" ? 1 : 0,
+      });
+    }),
+  );
+
+  // Spec 055 R25: standalone tool to (re-)emit findings from an
+  // existing *_annotations.json. disasm_prg auto-emits during the
+  // consume pass; this tool covers projects whose annotations were
+  // never run through disasm_prg and explicit re-emit after manual
+  // edits.
+  server.tool(
+    "import_annotations_as_findings",
+    "Spec 055 R25: walk *_annotations.json routines[] + segments[] and emit one finding per routine and per segment-reclassification. Idempotent (clean-slate per binaryStem). Use this for older projects, after manual annotation edits, or to seed archive_phase1_noise / auto_resolve_questions matchers.",
+    {
+      project_dir: z.string().optional(),
+      artifact_id: z.string().describe("Source PRG artifact id."),
+      annotations_path: z.string().optional().describe("Defaults to <stem>_annotations.json next to the PRG."),
+      analysis_json: z.string().optional().describe("Optional analysis JSON for effective-segments overlay (improves routine end derivation)."),
+    },
+    safeHandler("import_annotations_as_findings", async ({ project_dir, artifact_id, annotations_path, analysis_json }) => {
+      const pd = context.projectDir(project_dir, true);
+      const knowledgeService = new ProjectKnowledgeService(pd);
+      const sourceArtifact = knowledgeService.listArtifacts().find((a) => a.id === artifact_id);
+      if (!sourceArtifact) {
+        return context.cliResultToContent({
+          stdout: "",
+          stderr: `Artifact not found: ${artifact_id}`,
+          exitCode: 1,
+        });
+      }
+      const annoAbs = annotations_path
+        ? resolve(pd, annotations_path)
+        : sourceArtifact.path.replace(/\.[^./]+$/, "_annotations.json");
+      const analysisAbs = analysis_json ? resolve(pd, analysis_json) : undefined;
+      try {
+        const emit = knowledgeService.emitAnnotationFindings({
+          sourcePrgArtifactId: artifact_id,
+          annotationsPath: annoAbs,
+          analysisJsonPath: analysisAbs,
+        });
+        const lines = [
+          `Findings emitted from ${annoAbs}:`,
+          `  Routines: ${emit.routinesEmitted}`,
+          `  Segment reclassifications: ${emit.segmentReclassesEmitted}`,
+          `  Stale removed: ${emit.staleRemoved}`,
+        ];
+        if (emit.annotationsArtifactId) lines.push(`  Annotations artifact: ${emit.annotationsArtifactId}`);
+        return context.cliResultToContent({ stdout: lines.join("\n"), stderr: "", exitCode: 0 });
+      } catch (error) {
+        return context.cliResultToContent({
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
+      }
+    }),
   );
 }

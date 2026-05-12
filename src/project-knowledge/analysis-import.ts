@@ -103,6 +103,7 @@ export interface ImportedEntityDraft {
   evidence: EvidenceRef[];
   artifactIds: string[];
   addressRange?: { start: number; end: number; bank?: number; label?: string };
+  payloadId?: string;
   tags: string[];
 }
 
@@ -116,7 +117,12 @@ export interface ImportedFindingDraft {
   evidence: EvidenceRef[];
   entityIds: string[];
   artifactIds: string[];
+  payloadId?: string;
   tags: string[];
+  // Bug 28: top-level address range so archive_phase1_noise can match
+  // hypothesis findings against routine annotations covering them. The
+  // emitter copies it from the evidence range when applicable.
+  addressRange?: { start: number; end: number; bank?: number; label?: string };
 }
 
 export interface ImportedRelationDraft {
@@ -160,6 +166,9 @@ export interface ImportedOpenQuestionDraft {
   artifactIds: string[];
   findingIds: string[];
   tags: string[];
+  // Bug 29: copy the parent finding's addressRange so
+  // archive_phase1_noise can match without title-regex acrobatics.
+  addressRange?: { start: number; end: number; bank?: number; label?: string };
 }
 
 export interface ImportedAnalysisKnowledge {
@@ -315,10 +324,13 @@ function maybeCreateOpenQuestion(
     artifactIds: [...finding.artifactIds],
     findingIds: [finding.id],
     tags: ["analysis-import", "derived-question"],
+    // Bug 29: inherit address range from the parent finding so
+    // archive_phase1_noise can match without title-regex tricks.
+    addressRange: finding.addressRange,
   });
 }
 
-export function importAnalysisKnowledge(artifact: ArtifactRecord): ImportedAnalysisKnowledge | undefined {
+export function importAnalysisKnowledge(artifact: ArtifactRecord, options?: { payloadId?: string }): ImportedAnalysisKnowledge | undefined {
   if (!existsSync(artifact.path)) {
     return undefined;
   }
@@ -423,6 +435,10 @@ export function importAnalysisKnowledge(artifact: ArtifactRecord): ImportedAnaly
       entityIds: [entityId],
       artifactIds: [artifact.id],
       tags: ["analysis-import", "ram-hypothesis"],
+      // Bug 28: top-level addressRange so archive_phase1_noise matcher
+      // sees the candidate. Producer-side fix complements the matcher
+      // fallback — both hold; new findings come out clean.
+      addressRange: { start: hypothesis.start, end: hypothesis.end },
     };
     findings.push(finding);
     maybeCreateOpenQuestion(artifact, finding, openQuestions);
@@ -632,4 +648,15 @@ export function importAnalysisKnowledge(artifact: ArtifactRecord): ImportedAnaly
     flows: dedupeById(flows),
     openQuestions: dedupeById(openQuestions),
   };
+}
+
+// Stamp payloadId across all entity / finding drafts in-place so the
+// caller can scope the imported knowledge to a single payload (the PRG
+// or chunk that produced this analysis report). Idempotent.
+export function stampImportedKnowledgeWithPayload(
+  imported: ImportedAnalysisKnowledge,
+  payloadId: string,
+): void {
+  for (const entity of imported.entities) entity.payloadId = payloadId;
+  for (const finding of imported.findings) finding.payloadId = payloadId;
 }

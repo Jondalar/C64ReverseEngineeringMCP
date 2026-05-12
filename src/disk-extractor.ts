@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createDiskParser, traceFileSectorChain, type DiskFileEntry, G64Parser } from "./disk/index.js";
+
+export type DiskFileOrigin = "kernal" | "custom";
 
 export interface ExtractedDiskFileSector {
   index: number;
@@ -12,8 +15,15 @@ export interface ExtractedDiskFileSector {
   isLast: boolean;
 }
 
+export interface ExtractedDiskFileOriginDetail {
+  // Free-form per-origin payload. For "kernal" the directory T/S of the
+  // entry. For "custom" the LUT T/S, entry index, and raw payload bytes.
+  [key: string]: unknown;
+}
+
 export interface ExtractedDiskFile {
   index: number;
+  origin: DiskFileOrigin;
   name: string;
   type: DiskFileEntry["type"];
   sizeSectors: number;
@@ -23,6 +33,22 @@ export interface ExtractedDiskFile {
   loadAddress?: number;
   relativePath: string;
   sectorChain: ExtractedDiskFileSector[];
+  md5?: string;
+  first16?: string;
+  last16?: string;
+  kindGuess?: string;
+  origin_detail?: ExtractedDiskFileOriginDetail;
+}
+
+function md5Hex(bytes: Uint8Array): string {
+  return createHash("md5").update(bytes).digest("hex");
+}
+
+function hexSlice(bytes: Uint8Array, start: number, end: number): string | undefined {
+  if (bytes.length === 0) return undefined;
+  const slice = bytes.slice(start, end);
+  if (slice.length === 0) return undefined;
+  return Buffer.from(slice).toString("hex");
 }
 
 export interface ExtractedDiskManifest {
@@ -75,8 +101,9 @@ export function readDiskDirectory(imagePath: string): ExtractedDiskManifest {
     diskId: directory.id,
     outputDir: "",
     manifestPath: "",
-    files: directory.files.map((entry, index) => ({
+    files: directory.files.map((entry, index): ExtractedDiskFile => ({
       index,
+      origin: "kernal",
       name: entry.name,
       type: entry.type,
       sizeSectors: entry.size,
@@ -86,6 +113,9 @@ export function readDiskDirectory(imagePath: string): ExtractedDiskManifest {
       loadAddress: entry.loadAddress,
       relativePath: "",
       sectorChain: traceFileSectorChain((t, s) => parser.getSector(t, s), entry),
+      origin_detail: {
+        directoryEntry: { track: entry.track, sector: entry.sector },
+      },
     })),
   };
 }
@@ -112,6 +142,7 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
 
     files.push({
       index,
+      origin: "kernal",
       name: entry.name,
       type: entry.type,
       sizeSectors: entry.size,
@@ -121,6 +152,12 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
       loadAddress: entry.loadAddress,
       relativePath,
       sectorChain: traceFileSectorChain((t, s) => parser.getSector(t, s), entry),
+      md5: md5Hex(bytes),
+      first16: hexSlice(bytes, 0, 16),
+      last16: hexSlice(bytes, Math.max(0, bytes.length - 16), bytes.length),
+      origin_detail: {
+        directoryEntry: { track: entry.track, sector: entry.sector },
+      },
     });
   });
 

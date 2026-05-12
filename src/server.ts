@@ -6,18 +6,27 @@ import { fileURLToPath } from "node:url";
 import { resolveProjectDir } from "./project-root.js";
 import { registerProjectKnowledgeTools } from "./project-knowledge/mcp-tools.js";
 import { registerToolKnowledge } from "./project-knowledge/integration.js";
+import { registerAgentWorkflowTools } from "./server-tools/agent-workflow.js";
 import { registerAnalysisWorkflowTools } from "./server-tools/analysis-workflow.js";
 import { registerMediaTools } from "./server-tools/media.js";
 import { registerArtifactTools } from "./server-tools/artifacts.js";
 import { registerAssemblyTools } from "./server-tools/assembly.js";
+import { registerBwcBitstreamTools } from "./server-tools/bwc-bitstream.js";
 import { registerCompressionTools } from "./server-tools/compression.js";
 import { registerGraphicsRenderTools } from "./server-tools/graphics-render.js";
 import { registerInspectRangeTools } from "./server-tools/inspect-range.js";
 import { registerDiskG64Tools } from "./server-tools/disk-g64.js";
 import { registerHeadlessTools } from "./server-tools/headless.js";
+import { registerRuntimeTools } from "./server-tools/runtime.js";
 import { registerReferenceTools } from "./server-tools/reference.js";
 import { registerPromptTools } from "./server-tools/prompts.js";
+import { registerPayloadTools } from "./server-tools/payloads.js";
+import { registerRegistrationTools } from "./server-tools/registration.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
+import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
+import { registerTraceStoreTools } from "./server-tools/trace-store.js";
+import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
+import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
 import { registerViceTools } from "./server-tools/vice.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
 
@@ -76,6 +85,42 @@ function tryRegisterKnowledgeArtifacts(
   }
 }
 
+// Spec 039: wrap server.tool() so descriptions get an auto-injected
+// `[Phase N]` (or `[Phase agnostic]`) prefix sourced from
+// src/agent-orchestrator/phase-tools.ts. Tools without a registered
+// phase keep their original description unchanged.
+//
+// Spec 049: also wrap the handler in phaseGatedHandler. Default
+// behavior unchanged because phaseGatedHandler short-circuits to
+// the inner handler when projectProfile.phaseGateStrict !== true.
+function applyPhaseTagInjector(server: McpServer): void {
+  const original = server.tool.bind(server) as (...args: unknown[]) => unknown;
+  (server as { tool: (...args: unknown[]) => unknown }).tool = (...args: unknown[]) => {
+    if (args.length >= 2 && typeof args[0] === "string" && typeof args[1] === "string") {
+      const toolName = args[0];
+      const description = args[1];
+      const tag = phaseForTool(toolName);
+      if (tag !== undefined) {
+        const prefix = tag === "agnostic" ? "[Phase agnostic]" : `[Phase ${tag}: ${PHASE_TITLES[tag]}]`;
+        if (!description.startsWith("[Phase")) {
+          args[1] = `${prefix} ${description}`;
+        }
+      }
+      // Spec 049: phase gate. Wrap the last arg (the handler) only
+      // if the tool is registered in PHASE_TOOLS (non-agnostic).
+      // This keeps agnostic tools unwrapped and avoids polluting the
+      // hot path for tools that never apply.
+      if (tag !== undefined && tag !== "agnostic" && args.length >= 4) {
+        const handler = args[args.length - 1];
+        if (typeof handler === "function") {
+          args[args.length - 1] = phaseGatedHandler(toolName, { projectDir }, handler as (a: unknown, extra?: unknown) => Promise<{ content: unknown[] }>);
+        }
+      }
+    }
+    return original(...args);
+  };
+}
+
 function createServer(): McpServer {
   const server = new McpServer({
     name: "c64-reverse-engineering",
@@ -83,6 +128,9 @@ function createServer(): McpServer {
   }, {
     capabilities: { logging: {} },
   });
+
+  // Spec 039: phase-tag prefix injection on every server.tool() call.
+  applyPhaseTagInjector(server);
 
   const toolContext: ServerToolContext = {
     projectDir,
@@ -92,18 +140,25 @@ function createServer(): McpServer {
     tryRegisterKnowledgeArtifacts,
   };
 
+  registerAgentWorkflowTools(server, toolContext);
   registerAnalysisWorkflowTools(server, toolContext);
   registerMediaTools(server, toolContext);
   registerArtifactTools(server, toolContext);
   registerAssemblyTools(server, toolContext);
+  registerBwcBitstreamTools(server, toolContext);
   registerCompressionTools(server, toolContext);
   registerGraphicsRenderTools(server, toolContext);
   registerInspectRangeTools(server, toolContext);
   registerDiskG64Tools(server, toolContext);
   registerHeadlessTools(server, toolContext);
+  registerRuntimeTools(server, toolContext);
+  registerTraceStoreTools(server, toolContext);
   registerReferenceTools(server, toolContext, repoDir());
   registerPromptTools(server, { readTextFile, repoRoot: repoDir() });
+  registerPayloadTools(server, toolContext);
+  registerRegistrationTools(server, toolContext);
   registerSandboxTools(server, toolContext);
+  registerSandboxDepackTool(server, toolContext);
   registerViceTools(server, toolContext);
   registerProjectKnowledgeTools(server, { repoDir: repoDir() });
 

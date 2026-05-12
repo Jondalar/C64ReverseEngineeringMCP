@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runSandbox, type SandboxLoad } from "../sandbox/index.js";
 import type { ServerToolContext } from "./types.js";
+import { safeHandler } from "./safe-handler.js";
 
 function parseHexWord(value: string): number {
   const normalized = value.trim().replace(/^\$/, "").replace(/^0x/i, "");
@@ -47,6 +48,7 @@ const memBlockSchema = z.object({
   hex_bytes: z.string().optional().describe("Inline hex bytes loaded at `address`."),
   address: z.string().optional().describe("Load address as hex (required for raw_path / hex_bytes)."),
   load_address_override: z.string().optional().describe("Override the PRG load address (rare)."),
+  mapping: z.enum(["ram", "rom", "ef_roml", "ef_romh"]).optional().describe("Read/write mapping for this load. \"ram\" (default) is fully writable. \"rom\"/\"ef_roml\"/\"ef_romh\" map the bytes as a READ-ONLY overlay: CPU reads in this range return the load's bytes, writes pass through to a parallel RAM array under the same addresses. Use this for cart depackers where source ($8000+ in ROM) and destination ($8000+ in RAM) collide in a flat sandbox. The CPU port at $01 is NOT emulated — both ef_roml and ef_romh just install the read-only overlay."),
 });
 
 export function registerSandboxTools(server: McpServer, context: ServerToolContext): void {
@@ -72,7 +74,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
       return_memory_ranges: z.array(z.object({ start: z.string(), end: z.string() })).optional().describe("Memory ranges to snapshot at end of run."),
       output_path: z.string().optional().describe("If set, write the contiguous span of all returned writes as a PRG (2-byte load header + bytes) to this path."),
     },
-    async (args) => {
+    safeHandler("sandbox_6502_run", async (args) => {
       try {
         const projectRoot = context.projectDir(undefined, true);
         const loads: SandboxLoad[] = args.loads.map((entry, idx) => {
@@ -84,14 +86,15 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
             return {
               prgPath: resolve(projectRoot, entry.prg_path),
               loadAddressOverride: entry.load_address_override ? parseHexWord(entry.load_address_override) : undefined,
+              mapping: entry.mapping,
             };
           }
           if (entry.raw_path) {
             if (!entry.address) throw new Error(`loads[${idx}]: address is required for raw_path`);
-            return { rawPath: resolve(projectRoot, entry.raw_path), address: parseHexWord(entry.address) };
+            return { rawPath: resolve(projectRoot, entry.raw_path), address: parseHexWord(entry.address), mapping: entry.mapping };
           }
           if (!entry.address) throw new Error(`loads[${idx}]: address is required for hex_bytes`);
-          return { bytes: parseHexBytes(entry.hex_bytes!), address: parseHexWord(entry.address) };
+          return { bytes: parseHexBytes(entry.hex_bytes!), address: parseHexWord(entry.address), mapping: entry.mapping };
         });
 
         const initialZp: Record<number, number> = {};
@@ -137,7 +140,10 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
           `Writes returned: ${result.writes.length}`,
         ];
         if (result.unimplementedOpcode) {
-          lines.push(`Unimplemented opcode: $${formatHexByte(result.unimplementedOpcode.opcode)} @ $${formatHexWord(result.unimplementedOpcode.pc)}`);
+          const { describeOpcode } = await import("../sandbox/opcode-table.js");
+          const mn = describeOpcode(result.unimplementedOpcode.opcode);
+          const mnText = mn === "unknown" ? "" : ` (${mn})`;
+          lines.push(`Unimplemented opcode: $${formatHexByte(result.unimplementedOpcode.opcode)}${mnText} @ $${formatHexWord(result.unimplementedOpcode.pc)}`);
         }
         if (result.writtenSpan) {
           lines.push(`Write span: $${formatHexWord(result.writtenSpan.start)}-$${formatHexWord(result.writtenSpan.end)} (${result.writtenSpan.bytes.length} bytes)`);
@@ -165,5 +171,5 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 }

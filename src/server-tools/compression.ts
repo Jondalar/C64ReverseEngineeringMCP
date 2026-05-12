@@ -23,6 +23,7 @@ import {
 import { lykiaEncode } from "../byteboozer-lykia-encoder.js";
 import { lykiaDecompress } from "../byteboozer-lykia-decoder.js";
 import type { ServerToolContext } from "./types.js";
+import { safeHandler } from "./safe-handler.js";
 
 interface SharedEncodingManifestCandidate {
   runIndex: number;
@@ -128,7 +129,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       write_address: z.string().optional().describe("Optional load address for the header, e.g. 8000"),
       optimal: z.boolean().optional().describe("Use optimal parsing instead of greedy packing (default: true)"),
     },
-    async ({ input_path, output_path, include_header, write_address, optimal }) => {
+    safeHandler("pack_rle", async ({ input_path, output_path, include_header, write_address, optimal }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -164,7 +165,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "depack_rle",
@@ -175,7 +176,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       has_header: z.boolean().optional().describe("Treat the first two bytes as a load address header"),
       max_size: z.number().int().positive().optional().describe("Optional hard output-size ceiling"),
     },
-    async ({ input_path, output_path, has_header, max_size }) => {
+    safeHandler("depack_rle", async ({ input_path, output_path, has_header, max_size }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -207,7 +208,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "pack_exomizer_raw",
@@ -219,7 +220,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       reverse_output: z.boolean().optional().describe("Write the outfile in reverse order (-r)"),
       no_encoding_header: z.boolean().optional().describe("Do not write the Exomizer encoding header (-E)"),
     },
-    async ({ input_path, output_path, backwards, reverse_output, no_encoding_header }) => {
+    safeHandler("pack_exomizer_raw", async ({ input_path, output_path, backwards, reverse_output, no_encoding_header }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -253,7 +254,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "depack_exomizer_raw",
@@ -264,7 +265,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       backwards: z.boolean().optional().describe("Use Exomizer backward mode (-b)"),
       reverse_output: z.boolean().optional().describe("Write the outfile in reverse order (-r)"),
     },
-    async ({ input_path, output_path, backwards, reverse_output }) => {
+    safeHandler("depack_exomizer_raw", async ({ input_path, output_path, backwards, reverse_output }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -294,7 +295,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "depack_exomizer_sfx",
@@ -304,7 +305,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       output_path: z.string().optional().describe("Optional output path for the unpacked PRG"),
       entry_address: z.string().optional().describe("Optional entry override for desfx, e.g. 080D or 'load'"),
     },
-    async ({ input_path, output_path, entry_address }) => {
+    safeHandler("depack_exomizer_sfx", async ({ input_path, output_path, entry_address }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -337,7 +338,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "pack_exomizer_sfx",
@@ -348,7 +349,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       output_path: z.string().optional().describe("Optional output path for the generated SFX binary"),
       extra_args: z.array(z.string()).optional().describe("Optional extra Exomizer CLI flags, e.g. ['-q', '-t52']"),
     },
-    async ({ target, input_specs, output_path, extra_args }) => {
+    safeHandler("pack_exomizer_sfx", async ({ target, input_specs, output_path, extra_args }) => {
       try {
         const pd = context.projectDir(output_path ?? input_specs[0], true);
         const outputAbs = output_path
@@ -388,7 +389,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "pack_exomizer_shared_encoding",
@@ -406,7 +407,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       reverse_output: z.boolean().optional().describe("Reverse packed payload byte order after packing"),
       packed_suffix: z.string().optional().describe("Suffix appended to each packed payload (default: .exo)"),
     },
-    async ({ input_paths, output_dir, discover_runs, sample_size, seed, imported_encoding, max_passes, favor_speed, backwards, reverse_output, packed_suffix }) => {
+    safeHandler("pack_exomizer_shared_encoding", async ({ input_paths, output_dir, discover_runs, sample_size, seed, imported_encoding, max_passes, favor_speed, backwards, reverse_output, packed_suffix }) => {
       try {
         const pd = context.projectDir(output_dir ?? input_paths[0], true);
         const outputAbs = output_dir ? resolve(pd, output_dir) : join(pd, "analysis", "compression", "shared-encoding");
@@ -451,7 +452,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "pack_byteboozer",
@@ -463,7 +464,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       relocate_to: z.string().optional().describe("Optional relocation address passed as -r xxxx"),
       clip_start_address: z.boolean().optional().describe("Clip the start address in the output file (-b)"),
     },
-    async ({ input_path, output_path, executable_start, relocate_to, clip_start_address }) => {
+    safeHandler("pack_byteboozer", async ({ input_path, output_path, executable_start, relocate_to, clip_start_address }) => {
       try {
         if (executable_start && relocate_to) {
           throw new Error("Provide either executable_start or relocate_to, not both.");
@@ -503,7 +504,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "pack_byteboozer_native",
@@ -516,7 +517,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       relocate_to: z.string().optional().describe("Relocation target for the decrunch-in-place start address (hex). Only applies to standard preset."),
       strip_prg_header: z.boolean().optional().describe("Treat the input file as RAW payload (no PRG load-address header). You must supply dest_address in this case."),
     },
-    async ({ input_path, output_path, preset, dest_address, relocate_to, strip_prg_header }) => {
+    safeHandler("pack_byteboozer_native", async ({ input_path, output_path, preset, dest_address, relocate_to, strip_prg_header }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -605,7 +606,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "compare_exomizer_shared_encoding_sets",
@@ -616,7 +617,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         manifest_paths: z.array(z.string()).min(1).describe("One or more manifest.json files belonging to this strategy"),
       })).min(2).describe("Two or more manifest sets to compare"),
     },
-    async ({ comparison_sets }) => {
+    safeHandler("compare_exomizer_shared_encoding_sets", async ({ comparison_sets }) => {
       try {
         const hintPath = comparison_sets[0]?.manifest_paths[0];
         const pd = context.projectDir(hintPath, true);
@@ -663,7 +664,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "depack_byteboozer",
@@ -674,7 +675,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       offset: z.string().optional().describe("Optional hex file offset to start from"),
       length: z.string().optional().describe("Optional hex byte length to limit the input slice"),
     },
-    async ({ input_path, output_path, offset, length }) => {
+    safeHandler("depack_byteboozer", async ({ input_path, output_path, offset, length }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -709,7 +710,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "depack_byteboozer_lykia",
@@ -721,7 +722,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       length: z.string().optional().describe("Optional hex byte length to limit the input slice"),
       dest_hi: z.string().optional().describe("Optional BITBUF seed (hex byte). Defaults to stream byte 1 (the header dest_hi)."),
     },
-    async ({ input_path, output_path, offset, length, dest_hi }) => {
+    safeHandler("depack_byteboozer_lykia", async ({ input_path, output_path, offset, length, dest_hi }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -759,7 +760,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "suggest_depacker",
@@ -769,7 +770,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       offset: z.string().optional().describe("Optional hex offset into the file, e.g. 001A"),
       length: z.string().optional().describe("Optional hex length to limit the probe window"),
     },
-    async ({ input_path, offset, length }) => {
+    safeHandler("suggest_depacker", async ({ input_path, offset, length }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -803,7 +804,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "try_depack",
@@ -820,7 +821,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       reverse_output: z.boolean().optional().describe("For Exomizer raw only: use -r"),
       entry_address: z.string().optional().describe("For Exomizer SFX only: optional desfx entry override, e.g. 080D or 'load'"),
     },
-    async ({ input_path, format, output_path, offset, length, has_rle_header, max_size, backwards, reverse_output, entry_address }) => {
+    safeHandler("try_depack", async ({ input_path, format, output_path, offset, length, has_rle_header, max_size, backwards, reverse_output, entry_address }) => {
       try {
         const pd = context.projectDir(input_path, true);
         const inputAbs = resolve(pd, input_path);
@@ -928,7 +929,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         });
       }
     },
-  );
+));
 
   server.tool(
     "record_file_packer",
@@ -943,7 +944,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       format: z.string().optional().describe("Optional format / dialect (e.g. 'prg', 'raw', 'sfx-loader')."),
       notes: z.array(z.string()).optional().describe("Optional notes appended to files[].notes."),
     },
-    async ({ manifest_path, file_index, file_name, file_relative_path, scope, packer, format, notes }) => {
+    safeHandler("record_file_packer", async ({ manifest_path, file_index, file_name, file_relative_path, scope, packer, format, notes }) => {
       try {
         const pd = context.projectDir(manifest_path, true);
         const abs = resolve(pd, manifest_path);
@@ -983,7 +984,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "link_cart_chunk_to_asm",
@@ -1000,7 +1001,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       asm_artifact_id: z.string().describe("ID of the ArtifactRecord for the .asm/.tass output."),
       summary: z.string().optional().describe("Optional human-readable note shown on the relation."),
     },
-    async ({ lut_path, project_dir, bank, slot, offset_in_bank, length, lut, idx, asm_artifact_id, summary }) => {
+    safeHandler("link_cart_chunk_to_asm", async ({ lut_path, project_dir, bank, slot, offset_in_bank, length, lut, idx, asm_artifact_id, summary }) => {
       try {
         const pd = context.projectDir(project_dir ?? lut_path, true);
         const lutAbs = resolve(pd, lut_path);
@@ -1096,7 +1097,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 
   server.tool(
     "record_cart_chunk_packer",
@@ -1113,7 +1114,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       format: z.string().optional().describe("Optional format / dialect (e.g. 'prg', 'raw', 'sfx-loader')."),
       notes: z.array(z.string()).optional().describe("Optional notes appended to the chunk's notes array."),
     },
-    async ({ lut_path, bank, slot, offset_in_bank, length, lut, idx, packer, format, notes }) => {
+    safeHandler("record_cart_chunk_packer", async ({ lut_path, bank, slot, offset_in_bank, length, lut, idx, packer, format, notes }) => {
       try {
         const pd = context.projectDir(lut_path, true);
         const lutAbs = resolve(pd, lut_path);
@@ -1193,5 +1194,5 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
       }
     },
-  );
+));
 }

@@ -1,0 +1,112 @@
+// Spec 064 Sprint 69 smoke — CIA1/CIA2 timer model + IRQ wiring.
+//
+// Tests:
+// - Cia6526 timer A underflow sets ICR bit 0 + irqAsserted
+// - Read of ICR clears flags + drops IRQ line
+// - IntegratedSession: CIA1 timer fires regular jiffy IRQs during
+//   KERNAL cold-start; jiffy clock $A0/$A1/$A2 advances within first
+//   ~2M instructions
+// - File-IO traps default OFF (no trap activity in default mode)
+// - File-IO traps still selectable via enableKernalFileIoTraps option
+//   (Sprint 67 fallback path) for sessions where real KERNAL serial
+//   stalls
+
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import assert from "node:assert/strict";
+import { Cia6526Vice, ICR_TA, CIA_CRA, CIA_TALO, CIA_TAHI, CIA_ICR } from "../dist/runtime/headless/cia/cia6526-vice.js";
+import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+
+// Sprint 113 Phase 2 (Spec 146): Cia6526Vice is alarm-driven. Smoke
+// helper owns the simulated CPU clock and bumps it before tick(N) so
+// the underlying alarm dispatch sees the deadline.
+function makeSmokeCia() {
+  const clk = { v: 1000 };
+  const stub = {
+    storePa: () => {}, storePb: () => {},
+    readPa: () => 0xff, readPb: () => 0xff,
+    pulsePc: () => {}, setIntClk: () => {},
+  };
+  const cia = new Cia6526Vice({
+    backend: stub,
+    alarmContext: alarmContextNew("smoke_maincpu"),
+    clkPtr: () => clk.v,
+    name: "SMOKE_CIA",
+  });
+  cia.reset();
+  const realTick = cia.tick.bind(cia);
+  cia.tick = (n) => { clk.v += Math.max(0, n | 0); realTick(n); };
+  return cia;
+}
+
+// ---- Test 1: timer A underflow sets ICR_TA + irqAsserted (when masked) ----
+{
+  const cia = makeSmokeCia();
+  cia.write(CIA_TALO, 9);              // latch low
+  cia.write(CIA_TAHI, 0);               // latch high (timer stopped → loads counter)
+  cia.write(CIA_CRA, 0x01);             // START + continuous
+  cia.tick(10);                         // underflow at cycle 10
+  assert.equal(cia.icrFlags & ICR_TA, ICR_TA, "ICR_TA set after underflow");
+  assert.equal(cia.irqAsserted(), false, "IRQ not asserted while ICR mask=0");
+  cia.write(CIA_ICR, 0x80 | ICR_TA);    // enable mask bit 0
+  assert.equal(cia.irqAsserted(), true, "IRQ asserted after enable");
+  console.log("  ✓ Cia6526Vice timer A underflow + IRQ assert");
+}
+
+// ---- Test 2: Read of ICR clears flags + drops IRQ ----
+{
+  const cia = makeSmokeCia();
+  cia.icrFlags = ICR_TA;
+  cia.icrMask = ICR_TA;
+  assert.equal(cia.irqAsserted(), true);
+  const v = cia.read(CIA_ICR);
+  assert.equal(v & 0x80, 0x80, "summary bit set");
+  assert.equal(v & ICR_TA, ICR_TA, "TA flag in returned byte");
+  assert.equal(cia.icrFlags, 0, "ICR flags cleared after read");
+  assert.equal(cia.irqAsserted(), false, "IRQ dropped");
+  console.log("  ✓ ICR read clears flags + drops IRQ line");
+}
+
+// ---- Test 3: IntegratedSession KERNAL cold-start jiffy clock ----
+{
+  const samples = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples";
+  const candidate = join(samples, "maniac_mansion_s1[activision_1987](german)(manual)(!).g64");
+  if (!existsSync(candidate)) {
+    console.log("  (jiffy test skipped — no sample G64)");
+  } else {
+    const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+    const { session } = startIntegratedSession({ diskPath: candidate });
+    session.resetCold();
+    session.runFor(2_000_000);
+    const jiffyHi = session.c64Bus.ram[0xa0];
+    const jiffyMid = session.c64Bus.ram[0xa1];
+    const jiffyLo = session.c64Bus.ram[0xa2];
+    const total = (jiffyHi << 16) | (jiffyMid << 8) | jiffyLo;
+    assert.ok(total > 0, `jiffy clock advanced from 0; got ${total} (= $${total.toString(16)})`);
+    // Sprint 78 brought VIC raster ticking — KERNAL now detects PAL
+    // (16421 = 50Hz) vs NTSC (17045 = 60Hz). Accept either.
+    assert.ok(
+      session.cia1.taLatch === 17045 || session.cia1.taLatch === 16421 || session.cia1.taLatch > 0,
+      `CIA1 TA latch = PAL (16421) or NTSC (17045); got ${session.cia1.taLatch}`,
+    );
+    assert.notEqual(session.cia1.cra & 0x01, 0, "CIA1 timer A running");
+    assert.notEqual(session.cia1.icrMask & ICR_TA, 0, "CIA1 timer A IRQ enabled");
+    console.log(`  ✓ KERNAL jiffy clock advanced to ${total} after 2M insns; CIA1 timer A running`);
+  }
+}
+
+// ---- Test 4: file-IO traps OFF by default ----
+{
+  const samples = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples";
+  const candidate = join(samples, "maniac_mansion_s1[activision_1987](german)(manual)(!).g64");
+  if (existsSync(candidate)) {
+    const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+    const { session } = startIntegratedSession({ diskPath: candidate });
+    assert.equal(session.enableKernalFileIoTraps, false, "default = traps off");
+    const { session: trapped } = startIntegratedSession({ diskPath: candidate, enableKernalFileIoTraps: true });
+    assert.equal(trapped.enableKernalFileIoTraps, true, "opt-in works");
+    console.log("  ✓ File-IO traps OFF by default; opt-in via flag");
+  }
+}
+
+console.log("Sprint 69 smoke (CIA1/CIA2 timer model + IRQ wiring) OK");

@@ -1,0 +1,436 @@
+# VIC-II Literal Port — Bug Report
+
+Tracks rendering bugs in the literal VICE x64sc TS port
+(`src/runtime/headless/vic/literal/`) discovered during real-game
+testing in the V3 UI. Focus = pixel/cycle differences vs VICE x64sc
+reference output. See also Spec 296 (= VIC real-game stress corpus).
+
+Migration plan: `docs/vic-ii-literal-port-migration-analysis-plan-2026-05-10.md`
+Implementation pulls: Specs 300-308 (= literal port made authority).
+
+## 2026-05-10 — INVESTIGATION FROZEN per ADR
+
+`docs/adr-vice-execution-contract.md` (Accepted 2026-05-10) requires
+all timing-sensitive VIC-II work to go through the VICE execution
+contract first, not isolated chip patches. Spec 309 created to track
+the contract alignment (alarms / IRQ lines / CPU boundary order).
+
+Until Spec 309 acceptance gates pass, do NOT:
+
+- propose pixel-side fixes (sprite border, raster split, palette,
+  framebuffer races already eliminated)
+- run pixel-diff harnesses as evidence of correctness
+- patch isolated CIA/VIC/VIA files without caller-order analysis
+- strip VICE-equivalent code paths "because they look unused"
+
+V1 / V2 / V3 below remain OPEN but are now downstream of Spec 309.
+The "remaining hypotheses" sections capture prior best guesses; they
+will be re-evaluated once execution-contract trace parity exists.
+
+The `Spec V-strip-vicii-tick` change (= stripped `vic.tick(1)` from
+the per-cycle path) was REVERTED 2026-05-10 because (a) it broke
+Scramble post-credits SPACE handling and (b) per ADR, stripping
+VICE-equivalent code is forbidden. Issue 1 (vbank order) + Issue 3
+(VIC tick before CPU step) remain in place pending Spec 309 Phase 0
+confirmation that VICE actually does it that way.
+
+Status legend:
+- `OPEN` — reproduced, not fixed
+- `INVESTIGATING` — diagnosis in progress
+- `FIXED` — resolved + commit ref
+- `WONT_FIX` — out of scope or accepted limitation
+
+---
+
+## Bug V1 — Sprites in side border / open-border missing details
+
+**Status**: OPEN — REPRODUCED 2026-05-10
+**Severity**: Medium — affects title screens/games using open-border trick.
+**Repro**: Scramble Infinity loader credits screen. Trace shows D015=$FF
+(all 8 sprites enabled) but no mid-line CSEL toggle (D016 stays $18
+during sprite-display rasters).
+Probe: `samples/screenshots/vic-bugs/scramble-02-credits-180M.png`.
+**Reference**: Spec 281 (= "Border geometry dynamics RSEL/CSEL
+mid-frame, open-border") — completed for VicIIVice but the literal
+port draw_sprites in `vicii-draw-cycle.ts` only emits sprite pixels
+within the display window. Real C64 hardware: sprites render across
+the full visible area including border whenever VIC has display
+window enabled, regardless of CSEL/RSEL.
+
+**Symptom**: Sprite pixels disappear when `main_border` flag is set
+for that pixel column. INFINITY logo rendered as missing letters.
+
+**Suspected fix**: in `draw_sprites8` / `draw_sprites(i)` skip the
+border-suppression path. Sprite render must precede `draw_border8` so
+border can OVERPAINT sprite pixels in TOP/BOTTOM-border lines but
+side border (= left/right) does not suppress sprites.
+
+---
+
+## Bug V2 — Mid-frame raster split causes per-line tearing on title text
+
+**Hypotheses ranked (= top first):**
+
+1. **PRIMARY (FIXED, gained +3.71%)**: Issue 3 = CPU register
+   write was visible to literal `vicii_cycle()` in SAME cycle.
+   Fixed via swap of CPU/VIC tick order — VIC ticks first per cycle
+   (reads regs[] from prior cycle), CPU writes after (visible NEXT
+   cycle). Matches VICE Phi1/Phi2 phase model.
+
+2. **PARTIAL (FIXED, no measurable diff)**: Issue 1 = vbank update
+   in tickLitVic was BEFORE vicii_cycle. Fixed via swap.
+
+3. **REMAINING +14.55% gap**: Likely same hypotheses as V3 below
+   (= scheduler / CIA IRQ delivery / VicIIVice interference / multi-
+   feature interaction). Code-level audit of all literal port files
+   came back CLEAN.
+
+**Status**: OPEN — REPRODUCED 2026-05-10 via probe-scramble-stages.mjs
+**Severity**: Medium — affects fancy title screens with per-line
+register changes (= rainbow text, animated logo).
+**Repro**: Scramble Infinity loader credits screen. Boot via mount-API,
+wait 180M cyc → "Ready Joy 2" credits frame. SCRAMBLE word at top has
+horizontal stripes per char-row.
+Probe: `node scripts/probe-scramble-stages.mjs` →
+`samples/screenshots/vic-bugs/scramble-02-credits-180M.png`.
+
+**Trace (1 frame, credits screen)**: 76 VIC writes across 34 raster lines.
+Critical mode switches:
+- raster 26: `D011=$5B D015=$FF` (= text mode + DEN, sprites enable)
+- raster 45: `D016=$18 D011=$3B` (= switch to BMM with MCM)
+- raster 150: D019 ack (raster IRQ #2)
+- raster 155-170: `D016 $17↔$18` toggled every line (= MCM + xscroll
+  toggle for animation effect on bottom band)
+- raster 170: D019 ack
+
+The SCRAMBLE banner sits in raster 26-45 = text-mode region. Literal
+port likely consumes D011 mode change 1-2 cycles after VICE → some
+char cells in transition rows render with stale mode → visible
+tearing.
+**Reference**: Spec 287 (Φ1/Φ2 addressbus phase modeling) +
+Spec 286 (CIA2 PA bank-switch cycle-exact) both completed for
+VicIIVice. Literal port matrix fetch reads `vicii.regs[0x18]` /
+`regs[0x16]` LIVE but cycle-phase alignment vs CPU writes may be
+off by 1 cycle in some patterns. Migration Phase 0.2 documented
+"split-raster effects may show ±1-2 raster-cycle drift vs VICE".
+
+**Symptom**: When game writes D016/D018/D021 mid-line for
+multi-color title effects, our literal port samples old value for
+some columns and new value for others, producing visible stripes.
+
+**Suspected fix**: audit cycle-phase ordering of CPU `STA $D0xx` →
+literal port matrix fetch consumption. May need 1-cycle delay/latch
+in `vicii_store` for matrix-fetch-affecting registers. Compare
+trace vs VICE for exact write→consume cycle delta.
+
+---
+
+## Bug V3 — Background scroll + sprite DMA produces horizontal stripes in sky
+
+**Status**: OPEN — code-review CLEAN in literal port, hypothesis
+moved to scheduler / CIA / multi-feature interaction
+**Severity**: High — affects any side-scroller with sprites flying.
+**Repro**: Scramble Infinity in-game. Player flies right, level
+scrolls. Blue sky region (= upper background) shows horizontal blue
+stripes during scroll. Stripes intensify when sprites (rockets) are
+present. Right-edge column sometimes empty.
+Pixel-diff vs VICE C-ingame PNG: 54.14% match (= 81% per-row diff
+in rows 44-200 = entire visible game area). Issue 3 fix gained
++1.97%, all other audits CLEAN — bug not in literal port code itself.
+
+**Remaining hypotheses (post all 2026-05-10 audits + fixes):**
+
+1. **`cycle-lockstep-scheduler.ts` PROCESS_ALARMS** — VICE drains
+   all alarms (CIA timer underflow + VIC raster IRQ + TOD) at
+   instruction boundary. Our TS may dispatch per-cycle (= scheduler
+   audit Issue 4). If alarm fires mid-instruction in TS where VICE
+   waits for boundary, CIA + VIC IRQ entries land at different
+   cycles. **Top remaining suspect.**
+
+2. **CIA1/CIA2 timer pipeline** — CIA chip code 1:1 with VICE per
+   re-audit BUT ONE divergence: PB6/PB7 timer-output bit
+   (`isUnderflowClk`) reads `Ciat.CIAT_OUT` raw, VICE pipelines
+   through `ifr_delay`. Probably not V3 root cause (= PB6/PB7
+   optional pin feature) but related to alarm/timer pipeline.
+
+3. **Multi-feature interaction stress** — badline DMA + sprite DMA
+   + D016 mid-line xscroll + D018 mid-frame screen RAM swap all
+   concurrent. Each feature works in isolation. Combined behavior
+   may expose interaction bug not visible to per-file audit.
+
+4. ~~VicIIVice in fidelity mode interfering~~ — **ELIMINATED**
+   via VicIIVice-tick strip (= Spec V-strip-vicii-tick 2026-05-10).
+
+5. ~~literalPortFb capture race~~ — **ELIMINATED** via stable-frame
+   snap (`literalPortFbStable`, 2026-05-10).
+**Reference**: Spec 291 (Sprite quirks) + Spec 283 (BA/AEC) both
+completed for VicIIVice. Literal port handles BA/AEC + sprite DMA but
+the interaction during ACTIVE scroll (= D016 xscroll changing per
+frame + sprite DMA stealing cycles + matrix fetch) may be glitchy.
+
+**Symptom**: Sky background = solid color region. Should render as
+uniform blue. Shows alternating blue/dark-blue horizontal stripes
+during scroll. Pattern intensifies when sprites active.
+
+**Suspected fix**:
+1. Audit matrix fetch byte cache when sprite DMA pre-empts a badline
+   cycle (= `vbuf` partially populated → wrong colors emitted)
+2. Audit `litLastRasterLine` capture race in `tickLitVic` — when
+   raster wraps mid-runFor, dbuf for line N may be captured TWICE or
+   missed entirely
+3. Possibly literalPortFb capture timing: line N captured at start
+   of line N+1, but if that line is a badline DMA stall, the capture
+   happens DURING fetch → partial dbuf
+
+Plus: right-edge missing column suggests literal port stops drawing
+1-2 cycles before VICE end-of-line. Audit `cycle_table_pal` last few
+entries vs VICE viciisc.
+
+---
+
+## Bug V4 — Default palette differs from VICE Pepto reference
+
+**Status**: WONT_FIX (= cosmetic; user accepted)
+**Severity**: Low — colors look slightly off vs VICE screenshots.
+**Repro**: Any rendered frame compared to VICE screenshot.
+**Symptom**: Our default palette = colodore. VICE default = Pepto
+or 6569R3. Color saturation + hue noticeably different.
+**Workaround**: Pass `palette: "6569r3"` or `palette: "pepto"` to
+session opts when starting (Spec 282 palettes available).
+**Note**: User explicitly said "egal" 2026-05-10. Documented for
+later when pixel-perfect VICE-diff CI returns.
+
+---
+
+## Bug V5 — Rendered output may show partial frame after fast scroll
+
+**Status**: OPEN — secondary to V3; may share root cause
+**Severity**: Medium
+**Repro**: TBD — observed in Scramble in-game scroll captures
+**Symptom**: Some frames captured by `renderToPng` show top/bottom
+mismatch (= top from frame N, bottom from frame N-1).
+**Reference**: `renderToPng` calls `runUntilFrameReady` which waits
+for `LIT_TYPES.vicii.raster_line >= targetVisibleEnd` (= 248 PAL).
+literalPortFb captures line N at start of line N+1 via tickLitVic.
+If raster wraps inside runUntilFrameReady's poll loop, fb mixes
+frames.
+
+**Suspected fix**: capture FULL frame to a separate buffer at frame
+boundary (= raster wrap to 0), then render that snapshot. Avoids
+mid-frame sampling.
+
+---
+
+## Investigation Status — Code Review Sweep (2026-05-10)
+
+Pixel-diff harness (`scripts/diff-scramble-vs-vice.mjs`) confirms
+bugs are real:
+- B-title-vs-04: 81.73% match (worst rows 24-26 + 42-47 = SCRAMBLE
+  banner; row 90 = body text)
+- C-ingame-vs-07: 52.17% match (band 68-169 = sky region 70-81%
+  differ per row)
+
+VSF inject path (`src/runtime/headless/vsf/vice-vsf-load.ts`) parses
+VICE x64sc snapshots: MAINCPU + C64MEM (64K RAM + CPU port) + VIC-II
+regs[64] + raster_line/cycle + vbuf/cbuf/dbuf + sprite[8] +
+color_ram[1024] + draw_cycle_snapshot (174 bytes) + CIA1/CIA2 PA/PB.
+Inject works structurally but VICE PNG = result of CPU + IRQ
+execution → static state inject can't reproduce VICE pre-pause
+framebuffer. = useful diagnostic infra but not pixel-perfect-diff
+target.
+
+### Code review checked CLEAN (= 1:1 with VICE viciisc):
+
+- `vicii-draw-cycle.ts` — gfx pipeline, sprite render, border draw,
+  color resolve, vmode pipe latching, xscroll latch all match
+  vicii-draw-cycle.c. Only divergences are JS-isms (`& 0xff`
+  masking, `>>> 0` unsigned cast) required for JS bitwise semantics.
+- `vicii-cycle.ts` — per-cycle state machine, badline detection,
+  border state machine, sprite DMA, prefetch_cycles, ba_low return:
+  all match vicii-cycle.c. Same JS-ism mask pattern only.
+- `vicii-mem.ts` — D011/D012/D015/D016/D018/D019/D01A/D020-D02E
+  store handlers all match vicii-mem.c. Eager `cregs[]` update via
+  `vicii_monitor_colreg_store` is functionally equivalent to VICE's
+  lazy update at start of `draw_colors8` (= VICE
+  vicii-draw-cycle.c:637 reapplies same value next cycle anyway).
+
+### Code review batch 2 (2026-05-10):
+
+- `vicii-fetch.ts` — checked 1:1 vs viciisc/vicii-fetch.c. fetch_phi1
+  + fetch_phi2 + v_fetch_addr + g_fetch_addr + vicii_fetch_matrix +
+  sprite fetch + chargen overlay all match. Only JS-isms (& 0xff,
+  >>> 0). No HIGH severity divergences. CLEAN.
+- `integrated-session.ts` — TWO real issues found:
+  * **Issue 1 (FIXED commit 2026-05-10)**: `tickLitVic()` updated
+    vbank from CIA2 PA BEFORE calling `vicii_cycle()` → bank switch
+    landed 1 cycle early. Fix: swap order (vicii_cycle first, then
+    vbank update). Matches VICE Phi1/Phi2 phase model.
+  * **Issue 3 (DEFERRED)**: CPU register writes via bus.write hit
+    `vicii_store(reg, value)` IMMEDIATELY. Then within same outer
+    iteration of `stepMicrocodedC64Instruction`, `vic.tick(consumed)`
+    fires `onCycle` → `tickLitVic` → `vicii_cycle()` reads regs[]
+    with the JUST-WRITTEN value. VICE behavior: VIC fetch at Phi1,
+    CPU write at Phi2 same cycle, new value visible NEXT cycle.
+    Fix requires either snapshot regs OR queue writes 1-cycle OR
+    swap cpu/VIC tick order — bigger refactor.
+
+### Code review batch 3 (2026-05-10):
+
+- `vicii-chip-model.ts` — checked vs viciisc/vicii-chip-model.c.
+  cycle_tab_pal 126 entries match VICE EXACTLY. All masks +
+  helpers identical. CLEAN.
+- `vicii-irq.ts` — checked vs viciisc/vicii-irq.c. IRQ state
+  machine, raster IRQ, ack, mask, collision triggers all match.
+  CLEAN.
+- `vicii.ts` — init/reset glue. **THREE real bugs found**, two
+  fixed:
+  * **FIXED**: sprite[].exp_flop initialized to 0 (= should be 1
+    per VICE vicii.c:240). Y-expansion flip-flop now starts SET.
+  * **FIXED**: light_pen state was uninitialized (= D013/D014 reads
+    returned garbage). Now init per VICE vicii.c:296-300.
+  * **DEFERRED**: raster_cycle should reset to 6 (per VICE
+    vicii.c:291) but VicIIVice still inits to 0 → Spec 300 diff
+    harness misaligns. Keeping 0 until VicIIVice removed or
+    shared init lands.
+- `vicii-types.ts` — checked vs viciitypes.h. Only divergences
+  are JS-isms (= TS `number` vs C `uint8_t`/`uint16_t`). Could
+  cause subtle wrap-around in extreme scenarios but no concrete
+  bug traced to it. NOT a functional bug.
+
+### FULL AUDIT COMPLETE — all 8 literal port files + integration
+
+| File | Status |
+|---|---|
+| vicii-draw-cycle.ts | CLEAN |
+| vicii-cycle.ts | CLEAN |
+| vicii-mem.ts | CLEAN |
+| vicii-fetch.ts | CLEAN |
+| vicii-chip-model.ts | CLEAN |
+| vicii-irq.ts | CLEAN |
+| vicii.ts | FIXED (exp_flop + light_pen) + DEFERRED (raster_cycle=6) |
+| vicii-types.ts | JS-isms only |
+| integrated-session.ts | FIXED (Issue 1 vbank order + Issue 3 CPU/VIC tick order) |
+
+### Pixel-diff results vs VICE PNG (after all fixes):
+
+- B-title-vs-04: **85.45% match** (was 81.74% pre-fixes; +3.71%)
+- C-ingame-vs-07: **54.14% match** (was 52.17%; +1.97%)
+
+### Code review batch 4 (2026-05-10) — scheduler + CIA:
+
+- `cycle-lockstep-scheduler.ts` + `alarm-context.ts` + `cycle-wrappers.ts`
+  vs VICE alarm.c + maincpu.c: **2 HIGH severity findings**:
+  * **Issue 4 (OPEN)**: VICE PROCESS_ALARMS macro drains alarms at
+    instruction-boundary (after interrupt check). Our TS calls
+    updateInterruptLines per CYCLE before CPU tick. Order may cause
+    raster IRQ to fire mid-instruction in TS where VICE waits for
+    boundary. Net effect: IRQ entry at slightly different cycle.
+    Specific impact unclear without trace.
+  * **Issue 5 (OPEN — likely cosmetic)**: Drive co-execution sync
+    point + alarm offset calculation differs based on tickDriveFirst
+    flag. Could affect CIA timer offset semantics.
+
+- CIA1/CIA2 vs VICE ciacore: re-audited with correct paths. The CIA
+  chip is at `cia/cia6526-vice.ts` (1518 lines) + `cia/ciat.ts`
+  (= timer state machine, 331 lines). The previous audit's file
+  reference was correct after all (= I incorrectly flagged it as
+  hallucinated when looking only in `peripherals/`).
+  
+  Re-audit findings:
+  * **ONE HIGH (OPEN)**: `Ciat.CIAT_OUT` bit is set IMMEDIATELY in
+    same cycle as timer underflow (`cia6526-vice.ts:172-175`).
+    Used by `isUnderflowClk()` to drive PB6/PB7 timer-toggle
+    output. VICE uses the `ifr_delay` 4-stage shift pipeline for
+    BOTH IRQ pin assertion AND timer underflow output — TS only
+    pipelines IRQ. PB6/PB7 timer-output is an OPTIONAL CIA pin
+    feature; most games do NOT use it. Probably NOT the V3 root
+    cause but should be aligned for full VICE parity.
+  * **All other CIA paths verified 1:1 with VICE**: timer
+    countdown (ciat.ts:164-186 matches ciatimer.h:236-350), Timer
+    B cascade, ICR flag set + ack, CRA/CRB force-load, TOD alarm,
+    Port A/B open-collector, IFR delay pipeline (`cia6526-vice.ts:
+    924-972` matches `ciacore.c:374-435`).
+
+### Stable-frame snapshot (Codex hypothesis test, 2026-05-10):
+
+Per Codex direction, implemented `literalPortFbStable` snapshot taken
+when raster wraps to line 0 (= frame complete). renderLiteralPortToPng
+prefers stable buffer over mid-fill accumulator. Hypothesis: V3 sky
+stripes might be capture race. Result: **diff numbers UNCHANGED**
+(B 85.45%, C 54.14%). Capture race ruled out as V3 root cause. Fix
+remains semantically correct + addresses V5 (= partial frame after
+fast scroll).
+
+### Spec V-strip-vicii-tick (2026-05-10):
+
+Per user direction, dropped VicIIVice tick from fidelity-mode hot
+path (= stepMicrocodedC64Instruction now drives `tickLitVic()`
+directly, no `vic.tick(consumed)` call). VicIIVice raster_y synced
+from literal in tickLitVic so legacy consumers (VSF save, UI
+inspector) keep working.
+
+Consequences:
+- Spec 300 (R/W diff) + Spec 302 (stall diff) harnesses obsolete
+  (= both compared VicIIVice vs literal which require VicIIVice
+  ticking). Archived to `scripts/archive/dual-truth-diff/`.
+- 297/301/303/298k/309 trex regressions all PASS.
+- Scramble pixel-diff numbers UNCHANGED (= literal logic identical;
+  strip removed parallel state work, not rendering).
+- **V3 Hypothesis 3 (= "VicIIVice in fidelity mode interfering")
+  ELIMINATED** since VicIIVice no longer ticks in fidelity mode.
+
+### Remaining V3 hypotheses (post all fixes):
+
+1. **Scheduler PROCESS_ALARMS** — VICE drains all alarms
+   (= CIA timer underflow + VIC raster IRQ + TOD) at instruction
+   boundary. Our TS may dispatch per-cycle. If alarm fires
+   mid-instruction in TS where VICE waits for boundary, CIA timer
+   IRQ + VIC raster IRQ entry could land at slightly different
+   cycles. Both CIA + VIC alarms go through same scheduler pipeline,
+   so both potentially affected. **Top remaining suspect.**
+
+2. **Multi-feature interaction stress** — badline DMA + sprite DMA
+   + D016 mid-line xscroll + D018 mid-frame screen RAM swap all
+   concurrent. Each feature works in isolation (= TREX bitmap clean,
+   motm BASIC clean). Combined behavior may expose interaction bug
+   not visible to per-file audit.
+
+3. ~~VicIIVice in fidelity mode interfering~~ — ELIMINATED via
+   VicIIVice-tick strip 2026-05-10.
+
+4. ~~literalPortFb capture race~~ — ELIMINATED via stable-frame
+   snap 2026-05-10.
+
+### Remaining V3 mystery:
+
+V3 (in-game scrolling sky stripes) only +1.97% improvement. ALL
+literal port files audited 1:1 vs VICE C. Suspected remaining bug
+locations:
+- Scheduler / tick driver (= cycle-lockstep-scheduler.ts) — not
+  yet audited; could affect IRQ delivery timing → game's mid-line
+  IRQ handler runs at wrong cycle → wrong reg writes
+- CIA1/CIA2 timer / IRQ delivery cycle alignment
+- VicIIVice (= legacy fallback) interfering with literal port
+  in fidelity mode (= shared regs[] reference may not be enough)
+- Or: Scramble specifically uses some VIC feature whose port
+  code is correct in isolation but wrong in interaction with
+  badline + sprite DMA + scroll all happening together (= multi-
+  feature stress test we don't have isolated repro for)
+
+## How to add a new bug
+
+Sequence:
+1. Reproduce in headless OR UI; capture screenshot in
+   `samples/screenshots/vic-bugs/V<N>-<short>.png`
+2. Add entry above with: status, severity, repro PRG/scenario, symptom,
+   reference Specs, suspected root cause, suspected fix.
+3. If fix lands: change Status to `FIXED — commit <sha>` + add a one-
+   line "Resolution" note describing the actual fix.
+
+## Relationship to main BUGREPORT.md
+
+Main `BUGREPORT.md` tracks tooling/workflow bugs (= MCP tools,
+project knowledge fragmentation, mount-swap, etc). This file is
+exclusively VIC-II rendering bugs in the literal port. Migration
+plan + Spec 309 fix moved literal port to authoritative status; from
+now on every pixel difference vs VICE x64sc lives here.

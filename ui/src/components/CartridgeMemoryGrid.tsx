@@ -26,6 +26,7 @@ interface CartridgeMemoryGridProps {
   onOpenChipHex?: ChipClickHandler;
   onOpenEepromHex?: () => void;
   onSelectLutChunk?: (chunk: CartridgeLutChunk) => void;
+  onSelectSegment?: (segment: CartridgeSegment) => void;
   onOpenBankHex?: (bank: CartridgeBankView, chip: CartridgeChipView | undefined) => void;
 }
 
@@ -64,6 +65,7 @@ export function CartridgeMemoryGrid({
   onOpenChipHex,
   onOpenEepromHex,
   onSelectLutChunk,
+  onSelectSegment,
   onOpenBankHex,
 }: CartridgeMemoryGridProps) {
   // "all" = no filter; otherwise show only chunks where this LUT appears
@@ -192,12 +194,17 @@ export function CartridgeMemoryGrid({
           const labelFragment = segment.label ? `${segment.label} · ` : "";
           const destFragment = segment.destAddress !== undefined ? ` → $${segment.destAddress.toString(16).toUpperCase().padStart(4, "0")}` : "";
           const tooltip = `${labelFragment}bank ${segment.bank} ${segment.slot} off $${segment.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${segment.length} B, ${segment.kind})${destFragment}`;
+          const clickable = Boolean(onSelectSegment);
           return (
             <div
               key={`${segment.kind}-${segment.offsetInBank}-${idx}`}
-              className={klass}
+              className={clickable ? `${klass} cart-segment-clickable` : klass}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
               title={tooltip}
+              onClick={clickable ? (event) => {
+                event.stopPropagation();
+                onSelectSegment?.(segment);
+              } : undefined}
             />
           );
         })}

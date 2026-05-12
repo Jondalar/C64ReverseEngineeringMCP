@@ -1,49 +1,96 @@
 # C64 Reverse Engineering MCP
 
-Self-contained MCP server for LLM-driven reverse engineering of Commodore 64
-software. Bundles the TRXDis analysis pipeline, a project-knowledge layer,
-a workspace UI, and an MCP tool surface for an LLM client (Claude Code,
-Cursor, Codex, …) to reason about PRGs, CRTs, D64 / G64 disks, packed
-streams, runtime traces, and custom loaders.
+C64RE MCP is a project-centric reverse-engineering workbench for
+Commodore 64 software. It combines deterministic extraction tools, a
+persistent knowledge layer, an LLM workflow contract, a workspace UI, VICE
+integration, and a TypeScript headless C64/1541 runtime.
 
-## Why an LLM
+The Headless Runtime is important, but it is one subsystem of the larger
+C64RE project. The project goal is not only to boot software. The goal is
+to turn disks, cartridges, PRGs, traces, screenshots, disassemblies, and
+LLM findings into durable project knowledge that survives across sessions.
 
-Traditional disassemblers identify code via control flow and mark
-everything else "Data" or "Unknown". They lack:
+## What It Does
 
-- **Semantic understanding** — colour table vs charset vs sprite block
-- **Cross-reference reasoning** — `LDA $09AB,X → STA $D800,X` ⇒ `$09AB`
-  is a colour table
-- **Pattern knowledge** — raster IRQs, SID player conventions, Koala
-  format, EasyFlash chip layouts, BB2 vs Exomizer streams
-- **Cross-domain inference** — VIC + SID + KERNAL + CIA + cartridge
-  mapper context all at once
+- analyzes PRG, CRT, D64, and G64 inputs through deterministic tooling
+- emits and verifies disassembly/source artifacts
+- stores semantic knowledge as entities, findings, relations, flows,
+  tasks, open questions, and registered artifacts
+- builds stable JSON views consumed by the workspace UI
+- exposes VICE as an external oracle, debugger, and trace source
+- exposes a TypeScript Headless Runtime for CLI/MCP/LLM workflows
+- supports runtime evidence, traces, snapshots, monitor operations, and
+  future human emulator UI features
 
-The MCP exposes deterministic facts (TRXDis pipeline) and an annotation
-surface that lets the LLM add semantic interpretation **without ever
-mutating bytes** — every annotated rebuild is verified byte-identical
-against the original PRG.
+## Why An LLM
+
+Traditional disassemblers identify code and data, but they do not know
+what the code means. C64RE separates deterministic facts from semantic
+interpretation:
+
+- deterministic tools extract bytes, files, banks, sectors, xrefs,
+  reports, and candidate segments
+- the LLM records hypotheses, explanations, and decisions in structured
+  project knowledge
+- runtime evidence from VICE or Headless confirms or refutes those
+  hypotheses
+- the UI renders backend-produced views instead of becoming a second
+  analysis engine
+
+The intended result is not just `segment $7C21-$7F4F contains code`, but
+`this routine is the loader-side dispatcher that switches from KERNAL
+serial into the custom fastloader and then hands control to the scene
+init`.
 
 ## Architecture
 
-```
-┌────────────────────────────────────────────────────────────┐
-│  LLM Client (Claude Code, Cursor, Codex, …)                │
-│       │                                                    │
-│       │ MCP prompts + tools (stdio)                        │
-│       ▼                                                    │
-│  MCP Server  ─────────  Project Knowledge Layer            │
-│   - analysis              (entities · findings · flows ·   │
-│   - crt / disk             relations · tasks · views)      │
-│   - compression                  │                         │
-│   - vice runtime                 ▼                         │
-│   - headless runtime      Workspace UI Server              │
-│   - sandbox 6502           (Vite/React, hex overlay,       │
-│   - knowledge layer         cart bank grid, flow graph)    │
-└────────────────────────────────────────────────────────────┘
+```text
+┌───────────────────────────────────────────────────────────────┐
+│ LLM clients / human users                                      │
+│ Claude Code · Codex · Cursor · Browser UI                     │
+└──────────────────────────────┬────────────────────────────────┘
+                               │ MCP tools / HTTP / WebSocket
+                               ▼
+┌───────────────────────────────────────────────────────────────┐
+│ C64RE MCP Server                                               │
+│                                                               │
+│ deterministic tools                                            │
+│ - TRXDis analysis / disassembly                                │
+│ - CRT, disk, G64, compression, BWC helpers                     │
+│ - C64Ref ROM lookup, sandbox, build helpers                    │
+│                                                               │
+│ project knowledge                                              │
+│ - artifacts · entities · findings · relations                  │
+│ - flows · tasks · open questions · views                       │
+│                                                               │
+│ runtime evidence                                               │
+│ - VICE runtime / monitor / traces                              │
+│ - Headless TS C64 + 1541 runtime                               │
+│ - DuckDB trace store / swimlanes / snapshots                   │
+└──────────────────────────────┬────────────────────────────────┘
+                               │ view models / runtime streams
+                               ▼
+┌───────────────────────────────────────────────────────────────┐
+│ User Interfaces                                                │
+│                                                               │
+│ Workspace UI                                                   │
+│ - dashboard · docs · memory · cartridge · disk                 │
+│ - load sequence · flow graph · annotated listing · activity    │
+│                                                               │
+│ Emulator UI / V3 workbench                                     │
+│ - live C64 screen · media · monitor · inspector                │
+│ - keyboard / joystick · trace swimlanes · frozen explore       │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-Detailed walkthrough: [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md).
+Detailed walkthroughs:
+
+- [docs/workflow.md](docs/workflow.md) — RE workflow contract
+- [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md) — knowledge
+  store and Workspace UI
+- [docs/project-knowledge-layer.md](docs/project-knowledge-layer.md) —
+  project knowledge internals
+- [EPIC_ROADMAP.md](EPIC_ROADMAP.md) — current V1/V2/V3 roadmap
 
 ## Setup
 
@@ -54,21 +101,21 @@ npm install
 npm run build
 ```
 
-The TRXDis pipeline is bundled and built automatically.
+The bundled TRXDis pipeline is built automatically.
 
-### Environment variables
+### Environment Variables
 
 | Variable | Description | Required |
 |---|---|---|
-| `C64RE_PROJECT_DIR` | Working directory for analyses | Yes |
+| `C64RE_PROJECT_DIR` | Working directory for the RE project | Yes |
 | `C64RE_TOOLS_DIR` | Override: external TRXDis build instead of bundled | No |
 | `C64RE_KICKASS_JAR` | Override path to KickAssembler jar | No |
 | `C64RE_64TASS_BIN` | Override path to `64tass` | No |
 | `C64RE_EXOMIZER_BIN` | Override path to `exomizer` | No |
-| `C64RE_BYTEBOOZER_BIN` | Override path to `b2` (ByteBoozer 2) | No |
+| `C64RE_BYTEBOOZER_BIN` | Override path to `b2` / ByteBoozer 2 | No |
 | `C64RE_VICE_BIN` | Override path to `x64sc` | No |
 | `C64RE_VICE_CONFIG_PATH` | Override source `vicerc` copied into VICE sessions | No |
-| `C64RE_VICE_CONFIG_DIR` | Override source VICE config dir (expects `vicerc` inside) | No |
+| `C64RE_VICE_CONFIG_DIR` | Override source VICE config dir, with `vicerc` inside | No |
 
 ### Claude Code
 
@@ -86,7 +133,7 @@ Add `.mcp.json` at the RE-project root:
 }
 ```
 
-Use a full path to `npx` if you use nvm.
+Use a full path to `npx` if your shell uses `nvm`.
 
 ### Codex
 
@@ -97,45 +144,82 @@ args = ["-lc", "cd /path/to/C64ReverseEngineeringMCP && NODE_NO_WARNINGS=1 ./nod
 env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 ```
 
-### Workspace UI (optional)
+## Workspace UI
+
+The Workspace UI is the project-knowledge browser.
 
 ```bash
 npm run ui:build
 npm run ui:serve            # API + bundled UI on http://127.0.0.1:4310
-npm run ui:dev              # Vite live-reload on http://127.0.0.1:4311
+npm run ui:dev              # Vite live reload on http://127.0.0.1:4311
 ```
 
-See [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md) for the cart
-grid, hex overlay, and flow-graph views.
+See [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md).
 
-## Tool surface
+## Emulator UI / V3 Workbench
 
-Per-area docs (full tool tables + workflow notes):
+The V3 UI is the human-facing emulator workbench backed by the same
+Headless Runtime and project APIs.
+
+```bash
+npm run v3:server           # runtime WebSocket/API server
+npm run ui:v3:dev           # V3 browser client
+```
+
+Current UX specs live in the 350-series:
+
+- [specs/350-emulator-workbench-ux-master.md](specs/350-emulator-workbench-ux-master.md)
+- [specs/351-emulator-live-machine-ux.md](specs/351-emulator-live-machine-ux.md)
+- [specs/352-emulator-monitor-vice-compat-ux.md](specs/352-emulator-monitor-vice-compat-ux.md)
+- [specs/353-emulator-media-project-flow-ux.md](specs/353-emulator-media-project-flow-ux.md)
+- [specs/354-emulator-frozen-explore-to-knowledge-ux.md](specs/354-emulator-frozen-explore-to-knowledge-ux.md)
+- [specs/355-emulator-trace-swimlane-workbench-ux.md](specs/355-emulator-trace-swimlane-workbench-ux.md)
+- [specs/356-dashboard-launch-emulator-ux.md](specs/356-dashboard-launch-emulator-ux.md)
+- [specs/357-browser-keyboard-virtual-joystick-ux.md](specs/357-browser-keyboard-virtual-joystick-ux.md)
+
+## Tool Surface
+
+Per-area docs:
 
 | Area | Doc |
 |---|---|
-| Analysis pipeline (`analyze_prg`, `disasm_prg`, `assemble_source`, …) | [docs/tools/analysis.md](docs/tools/analysis.md) |
-| CRT cartridges (`extract_crt`, `reconstruct_lut`, `disasm_menu`, …) | [docs/tools/crt.md](docs/tools/crt.md) |
-| Disk images (`inspect_disk`, `extract_disk`, G64 low-level, …) | [docs/tools/disk.md](docs/tools/disk.md) |
-| Compression (RLE, Exomizer raw / SFX / shared-encoding, BB2, depack triage) | [docs/tools/compression.md](docs/tools/compression.md) |
-| C64Ref ROM knowledge (BASIC + KERNAL lookup) | [docs/tools/c64ref.md](docs/tools/c64ref.md) |
-| VICE runtime / debugger (sessions, traces, monitor, breakpoints) | [docs/tools/vice.md](docs/tools/vice.md) |
-| Headless RE runtime (loader / depacker analysis) | [docs/tools/headless.md](docs/tools/headless.md) |
-| 6502 sandbox (`sandbox_6502_run` for porting depackers) | [docs/tools/sandbox.md](docs/tools/sandbox.md) |
-| Project knowledge (entities, findings, flows, view builders) | [docs/tools/knowledge.md](docs/tools/knowledge.md) |
-| Artifact access (`read_artifact`, `list_artifacts`, `build_tools`) | [docs/tools/artifacts.md](docs/tools/artifacts.md) |
+| Analysis pipeline (`analyze_prg`, `disasm_prg`, `assemble_source`, reports) | [docs/tools/analysis.md](docs/tools/analysis.md) |
+| CRT cartridges and bank layouts | [docs/tools/crt.md](docs/tools/crt.md) |
+| Disk images, D64/G64 extraction, low-level media data | [docs/tools/disk.md](docs/tools/disk.md) |
+| Compression and depack triage | [docs/tools/compression.md](docs/tools/compression.md) |
+| BWC bit-stream codec | `src/bwc-bitstream-ts/` |
+| C64Ref BASIC/KERNAL/ROM lookup | [docs/tools/c64ref.md](docs/tools/c64ref.md) |
+| VICE runtime, monitor, debugger, trace oracle | [docs/tools/vice.md](docs/tools/vice.md) |
+| Headless TS C64 + 1541 runtime | [docs/tools/headless.md](docs/tools/headless.md) |
+| 6502 sandbox | [docs/tools/sandbox.md](docs/tools/sandbox.md) |
+| Project knowledge tools | [docs/tools/knowledge.md](docs/tools/knowledge.md) |
+| Artifact access | [docs/tools/artifacts.md](docs/tools/artifacts.md) |
+| Agent workflow doctrine | [docs/agent-doctrine.md](docs/agent-doctrine.md), [docs/re-phases.md](docs/re-phases.md) |
 
-## Workflow + semantic UI
+## Workflow
 
-- [docs/workflow.md](docs/workflow.md) — three-phase RE workflow
-  (heuristic → semantic → verification), MCP prompts, design philosophy,
-  benchmark.
-- [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md) — project
-  knowledge store schema, view builders, workspace UI panels, hex
-  overlay, server endpoints.
-- [docs/c64-reverse-engineering-skill.md](docs/c64-reverse-engineering-skill.md)
-  — canonical workflow / skill text the prompts reference.
-- [TODO.md](TODO.md) — roadmap and known gaps.
+The active workflow is project-first:
+
+1. initialize or audit a project workspace
+2. register real input media and source artifacts
+3. run deterministic extraction/disassembly
+4. import outputs into project knowledge
+5. record semantic findings, tasks, open questions, and relations
+6. collect runtime evidence only when it answers a concrete question
+7. aggregate traces/snapshots into reusable artifacts
+8. rebuild UI views
+
+Headless and VICE runs are evidence providers. Their output should be
+registered as artifacts and linked back to findings/entities instead of
+living only as console logs or loose markdown.
+
+Canonical planning docs:
+
+- [PLAN.md](PLAN.md) — short pointer for agents
+- [EPIC_ROADMAP.md](EPIC_ROADMAP.md) — V1/V2/V3 product roadmap
+- [BUGREPORT.md](BUGREPORT.md) — bug tracker
+- [REQUIREMENTS.md](REQUIREMENTS.md) — refinement backlog
+- `specs/` — implementation specs and ADR follow-ups
 
 ## License
 

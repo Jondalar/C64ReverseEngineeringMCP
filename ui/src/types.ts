@@ -32,6 +32,19 @@ export interface ArtifactRecord {
   status: string;
   confidence: number;
   updatedAt: string;
+  // Spec 020 platform marker. Default c64 when absent.
+  platform?: "c64" | "c1541" | "c128" | "vic20" | "plus4" | "other";
+  // Spec 025 lineage fields. Surfaced in tabs for grouping later.
+  derivedFrom?: string;
+  lineageRoot?: string;
+  versionLabel?: string;
+  versionRank?: number;
+  // Spec 034 phase tracking.
+  phase?: number;
+  phaseFrozen?: boolean;
+  phaseFrozenReason?: string;
+  // Spec 041 relevance.
+  relevance?: "loader" | "protection" | "save" | "kernal" | "asset" | "other";
 }
 
 export interface EntityRecord {
@@ -51,6 +64,12 @@ export interface EntityRecord {
     | { kind: "slot"; bank: number; slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" | "EEPROM" | "OTHER"; offsetInBank: number; length: number }
   >;
   mediumRole?: "dos" | "loader" | "eapi" | "startup" | "code" | "data" | "padding" | "unknown";
+  payloadLoadAddress?: number;
+  payloadFormat?: string;
+  payloadPacker?: string;
+  payloadSourceArtifactId?: string;
+  payloadDepackedArtifactId?: string;
+  payloadAsmArtifactIds?: string[];
   artifactIds: string[];
   relatedEntityIds: string[];
   tags?: string[];
@@ -132,8 +151,12 @@ export interface OpenQuestionRecord {
   priority: string;
   confidence: number;
   entityIds: string[];
+  artifactIds: string[];
   findingIds: string[];
+  createdAt: string;
   updatedAt: string;
+  answeredByFindingId?: string;
+  answerSummary?: string;
 }
 
 export interface TimelineEvent {
@@ -197,6 +220,7 @@ export interface MemoryMapView {
     status: string;
     confidence: number;
     summary?: string;
+    mediumOnly?: boolean;
   }>;
 }
 
@@ -222,11 +246,14 @@ export interface DiskLayoutView {
       occupied: boolean;
       category: "free" | "free_zero" | "free_data" | "orphan_allocated" | "file" | "directory" | "bam" | "unknown";
       color?: string;
+      // Spec 037 / Sprint 43 Block A: payload-level disk hint.
+      hint?: "drive-code" | "protected" | "raw-unanalyzed" | "bad-crc" | "gap";
     }>;
     files: Array<{
       id: string;
       title: string;
       type: string;
+      origin?: "kernal" | "custom";
       sizeSectors?: number;
       sizeBytes?: number;
       track?: number;
@@ -250,6 +277,10 @@ export interface DiskLayoutView {
       packer?: string;
       format?: string;
       notes?: string[];
+      md5?: string;
+      first16?: string;
+      last16?: string;
+      kindGuess?: string;
     }>;
   }>;
 }
@@ -479,3 +510,90 @@ export interface WorkspaceUiSnapshot {
     flowGraph: FlowGraphView;
   };
 }
+
+export type ProjectAuditSeverity = "ok" | "low" | "medium" | "high";
+
+export interface ProjectAuditFinding {
+  id: string;
+  severity: Exclude<ProjectAuditSeverity, "ok">;
+  title: string;
+  paths: string[];
+  whyItMatters: string;
+  suggestedFix: string;
+}
+
+export interface ProjectAuditResult {
+  root: string;
+  severity: ProjectAuditSeverity;
+  findings: ProjectAuditFinding[];
+  suggestedActions: string[];
+  safeRepairAvailable: boolean;
+  counts: {
+    nestedKnowledgeStores: number;
+    missingArtifacts: number;
+    brokenArtifactPaths: number;
+    unregisteredFiles: number;
+    unimportedAnalysisArtifacts: number;
+    unimportedManifestArtifacts: number;
+    staleViews: number;
+  };
+}
+
+export interface AuditCachedResponse {
+  audit: ProjectAuditResult;
+  cacheStatus: "fresh" | "cached";
+  cachedAt?: string;
+}
+
+export type ProjectRepairOperation =
+  | "merge-fragments"
+  | "register-artifacts"
+  | "import-analysis"
+  | "import-manifest"
+  | "build-views";
+
+export interface ProjectRepairResponse {
+  root: string;
+  mode: "dry-run" | "safe";
+  operations: ProjectRepairOperation[];
+  planned: string[];
+  executed: string[];
+  skipped: string[];
+  filesChanged: string[];
+  before: ProjectAuditResult;
+  after?: ProjectAuditResult;
+}
+
+export interface PrgReverseWorkflowPhase {
+  phase: string;
+  status: "done" | "skipped" | "blocked";
+  output?: string;
+  artifact?: string;
+  reason?: string;
+  log?: string;
+}
+
+export interface PrgReverseWorkflowResponse {
+  projectRoot: string;
+  prgPath: string;
+  mode: "quick" | "full";
+  startedAt: string;
+  status: "done" | "incomplete" | "blocked";
+  phases: PrgReverseWorkflowPhase[];
+  importedCounts: {
+    entities: number;
+    findings: number;
+    relations: number;
+    flows: number;
+    openQuestions: number;
+  };
+  artifactsWritten: string[];
+  viewsBuilt: string[];
+  nextRequiredAction: string;
+  analysisPath: string;
+  asmPath: string;
+  tassPath: string;
+  ramReportPath?: string;
+  pointerReportPath?: string;
+}
+

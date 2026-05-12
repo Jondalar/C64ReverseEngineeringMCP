@@ -1,0 +1,869 @@
+// Spec 238 — V2 MCP tool layer.
+//
+// Wraps AgentQueryApi (Spec 237) into agent-shaped MCP tools.
+// Tools accept session_id + scenario context, return structured
+// JSON suitable for save_finding / save_open_question pipeline.
+//
+// Headless-over-VICE framing (2026-05-09): every tool description
+// recommends headless as the default. VICE consult only via
+// `runtime_compare_with_vice` and only when scenario absent from
+// baseline corpus.
+
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { safeHandler } from "./safe-handler.js";
+import type { ServerToolContext } from "./types.js";
+
+async function getApi(sessionId: string) {
+  const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+  const session = getIntegratedSession(sessionId);
+  if (!session) throw new Error(`No integrated session ${sessionId}`);
+  const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
+  return createAgentQueryApi({ session });
+}
+
+export function registerRuntimeTools(server: McpServer, _context: ServerToolContext): void {
+  // ---- Monitor (Spec 248) ----
+  server.tool(
+    "runtime_monitor_registers",
+    "Spec 248 — read CPU registers (c64 or drive). Headless-first: prefer this over `vice_monitor_registers`.",
+    {
+      session_id: z.string(),
+      memspace: z.enum(["c64", "drive"]).optional(),
+    },
+    safeHandler("runtime_monitor_registers", async ({ session_id, memspace }) => {
+      const api = await getApi(session_id);
+      const r = api.monitorRegisters(memspace ?? "c64");
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_monitor_memory",
+    "Spec 248 — read raw memory range (c64 or drive). Headless-first.",
+    {
+      session_id: z.string(),
+      start: z.number(),
+      end: z.number(),
+    },
+    safeHandler("runtime_monitor_memory", async ({ session_id, start, end }) => {
+      const api = await getApi(session_id);
+      const bytes = api.monitorMemory(start, end);
+      const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join(" ");
+      return { content: [{ type: "text", text: `${bytes.length} bytes from $${start.toString(16)}-$${end.toString(16)}:\n${hex}` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_monitor_disasm",
+    "Spec 248 — disassemble N instructions starting at addr. Use indirect-target resolution from trace when available.",
+    {
+      session_id: z.string(),
+      addr: z.number(),
+      count: z.number().default(10),
+    },
+    safeHandler("runtime_monitor_disasm", async ({ session_id, addr, count }) => {
+      const api = await getApi(session_id);
+      const lines = api.monitorDisasm(addr, count);
+      return { content: [{ type: "text", text: lines.map(l => l.text).join("\n") }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_step_into",
+    "Spec 248 — single-step one instruction.",
+    { session_id: z.string() },
+    safeHandler("runtime_step_into", async ({ session_id }) => {
+      const api = await getApi(session_id);
+      api.stepInto();
+      const r = api.monitorRegisters("c64");
+      return { content: [{ type: "text", text: `stepped to PC=$${r.pc.toString(16)}` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_step_over",
+    "Spec 248 — defensive step-over with stack-watch + cycle budget. Reports if sub-routine modified flow.",
+    {
+      session_id: z.string(),
+      budget: z.number().optional(),
+    },
+    safeHandler("runtime_step_over", async ({ session_id, budget }) => {
+      const api = await getApi(session_id);
+      const r = api.stepOver(budget !== undefined ? { budget } : undefined);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_until",
+    "Spec 248 — run until PC reaches target addr or budget exhausted.",
+    {
+      session_id: z.string(),
+      addr: z.number(),
+      budget: z.number().optional(),
+    },
+    safeHandler("runtime_until", async ({ session_id, addr, budget }) => {
+      const api = await getApi(session_id);
+      const r = api.until(addr, budget !== undefined ? { budget } : undefined);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  // ---- Breakpoints (Spec 241) ----
+  server.tool(
+    "runtime_breakpoint_add",
+    "Spec 241 — add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst).",
+    {
+      session_id: z.string(),
+      id: z.string(),
+      pc: z.number(),
+      action: z.enum(["halt", "log", "snapshot", "trace_burst"]).default("halt"),
+    },
+    safeHandler("runtime_breakpoint_add", async ({ session_id, id, pc, action }) => {
+      const api = await getApi(session_id);
+      api.addPcBreakpoint(id, pc, action);
+      return { content: [{ type: "text", text: `breakpoint ${id} added at PC=$${pc.toString(16)} action=${action}` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_breakpoint_list",
+    "Spec 241 — list all registered breakpoints.",
+    { session_id: z.string() },
+    safeHandler("runtime_breakpoint_list", async ({ session_id }) => {
+      const api = await getApi(session_id);
+      const list = api.listBreakpoints();
+      return { content: [{ type: "text", text: JSON.stringify(list, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_breakpoint_remove",
+    "Spec 241 — remove breakpoint by id.",
+    { session_id: z.string(), id: z.string() },
+    safeHandler("runtime_breakpoint_remove", async ({ session_id, id }) => {
+      const api = await getApi(session_id);
+      const ok = api.removeBreakpoint(id);
+      return { content: [{ type: "text", text: ok ? `removed ${id}` : `${id} not found` }] };
+    }),
+  );
+
+  // ---- Snapshot diff (Spec 246) ----
+  server.tool(
+    "runtime_save_vsf",
+    "Spec 251 — save full session state as VICE Snapshot Format bytes.",
+    {
+      session_id: z.string(),
+      output_path: z.string(),
+    },
+    safeHandler("runtime_save_vsf", async ({ session_id, output_path }) => {
+      const api = await getApi(session_id);
+      const bytes = api.saveVsf();
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(output_path, bytes);
+      return { content: [{ type: "text", text: `saved ${bytes.length} bytes to ${output_path}` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_load_vsf",
+    "Spec 251 — restore full session state from VSF file.",
+    {
+      session_id: z.string(),
+      input_path: z.string(),
+    },
+    safeHandler("runtime_load_vsf", async ({ session_id, input_path }) => {
+      const api = await getApi(session_id);
+      const { readFileSync } = await import("node:fs");
+      const bytes = new Uint8Array(readFileSync(input_path));
+      api.loadVsf(bytes);
+      return { content: [{ type: "text", text: `loaded ${bytes.length} bytes from ${input_path}` }] };
+    }),
+  );
+
+  // ---- Resolve PC (Spec 235) ----
+  server.tool(
+    "runtime_resolve_pc",
+    "Spec 235 — resolve PC to project label/routine/segment/source-line. Layered lookup.",
+    {
+      session_id: z.string(),
+      artifact_id: z.string(),
+      pc: z.number(),
+    },
+    safeHandler("runtime_resolve_pc", async ({ session_id, artifact_id, pc }) => {
+      const api = await getApi(session_id);
+      const r = api.resolvePc(artifact_id, pc);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  // ---- Status ----
+  server.tool(
+    "runtime_status",
+    "Spec 237 — AgentQueryApi facade introspection. Reports what V2 surface is available + session cycle counts.",
+    { session_id: z.string() },
+    safeHandler("runtime_status", async ({ session_id }) => {
+      const api = await getApi(session_id);
+      const s = api.status();
+      return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
+    }),
+  );
+
+  // ---- Snapshot diff between two VSF files ----
+  server.tool(
+    "runtime_diff_snapshots",
+    "Spec 246 — semantic diff between two VSF snapshot files. Returns RAM changedRanges + CPU/CIA/VIC/SID/PLA chip diffs.",
+    {
+      a_path: z.string(),
+      b_path: z.string(),
+      enrich: z.boolean().default(false),
+    },
+    safeHandler("runtime_diff_snapshots", async ({ a_path, b_path, enrich }) => {
+      const { readFileSync } = await import("node:fs");
+      const { diffSnapshots, formatDiff } = await import("../runtime/headless/v2/snapshot-diff.js");
+      const a = new Uint8Array(readFileSync(a_path));
+      const b = new Uint8Array(readFileSync(b_path));
+      const diff = diffSnapshots(a, b, { enrich });
+      const text = formatDiff(diff);
+      return { content: [{ type: "text", text }] };
+    }),
+  );
+
+  // ---- Trace store query (Spec 232) ----
+  server.tool(
+    "runtime_query_events",
+    "Spec 232 — query event-indexed trace store. Filter by family + cycle/pc/addr ranges. Headless-first: prefer over `vice_trace_*` for V2 workflows.",
+    {
+      run_id: z.string(),
+      family: z.string(),
+      duckdb_path: z.string(),
+      cycle_start: z.number().optional(),
+      cycle_end: z.number().optional(),
+      pc_start: z.number().optional(),
+      pc_end: z.number().optional(),
+      addr_start: z.number().optional(),
+      addr_end: z.number().optional(),
+      limit: z.number().default(1000),
+    },
+    safeHandler("runtime_query_events", async (args) => {
+      const { queryEvents } = await import("../runtime/headless/v2/query-events.js");
+      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
+      const duckdb = await import("@duckdb/node-api");
+      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
+      const conn = await inst.connect();
+      const backend = new DuckDbQueryBackend(conn);
+      const q: any = { runId: args.run_id, family: args.family, limit: args.limit };
+      if (args.cycle_start !== undefined && args.cycle_end !== undefined) q.cycleRange = [args.cycle_start, args.cycle_end];
+      if (args.pc_start !== undefined && args.pc_end !== undefined) q.pcRange = [args.pc_start, args.pc_end];
+      if (args.addr_start !== undefined && args.addr_end !== undefined) q.addrRange = [args.addr_start, args.addr_end];
+      const rows = await queryEvents(backend, q);
+      return { content: [{ type: "text", text: `${rows.length} rows\n${JSON.stringify(rows.slice(0, 200), null, 2)}` }] };
+    }),
+  );
+
+  // ---- Follow-a-path (Spec 233) ----
+  server.tool(
+    "runtime_follow_path",
+    "Spec 233 — follow causal chain back from an event. 5 rules: pc_predecessor, stack_frame, mem_dep, irq_origin, io_dep. Optional cross-domain (c64↔drive via IEC).",
+    {
+      run_id: z.string(),
+      duckdb_path: z.string(),
+      end_event_cycle: z.number(),
+      end_event_family: z.string(),
+      end_event_key: z.string().describe("JSON-encoded event key"),
+      max_depth: z.number().default(50),
+      cycle_window: z.number().default(100_000),
+      cross_domain: z.boolean().default(true),
+    },
+    safeHandler("runtime_follow_path", async (args) => {
+      const { followPath } = await import("../runtime/headless/v2/follow-path.js");
+      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
+      const duckdb = await import("@duckdb/node-api");
+      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
+      const conn = await inst.connect();
+      const backend = new DuckDbQueryBackend(conn);
+      const chain = await followPath(backend, {
+        runId: args.run_id,
+        endEventCycle: args.end_event_cycle,
+        endEventFamily: args.end_event_family as any,
+        endEventKey: JSON.parse(args.end_event_key),
+        maxDepth: args.max_depth,
+        cycleWindow: args.cycle_window,
+        crossDomain: args.cross_domain,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(chain, null, 2) }] };
+    }),
+  );
+
+  // ---- Swimlane (Spec 234) ----
+  server.tool(
+    "runtime_swimlane_slice",
+    "Spec 234 — transaction-level swimlane (cpu+bus+drive). Compact mode default.",
+    {
+      run_id: z.string(),
+      duckdb_path: z.string(),
+      cycle_start: z.number(),
+      cycle_end: z.number(),
+      compact: z.boolean().default(true),
+    },
+    safeHandler("runtime_swimlane_slice", async (args) => {
+      const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
+      const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
+      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
+      const duckdb = await import("@duckdb/node-api");
+      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
+      const conn = await inst.connect();
+      const backend = new DuckDbQueryBackend(conn);
+      const slice = await swimlaneSlice(backend, {
+        runId: args.run_id,
+        cycleRange: [args.cycle_start, args.cycle_end],
+        compact: args.compact,
+      });
+      const md = renderMarkdown(slice, { maxRows: 200 });
+      return { content: [{ type: "text", text: md }] };
+    }),
+  );
+
+  // ---- Taint (Spec 244) ----
+  server.tool(
+    "runtime_trace_taint",
+    "Spec 244 — taint analysis / dataflow. Walks back from (cycle, addr) via 5 contribution kinds. Cross-domain bridge default-on.",
+    {
+      run_id: z.string(),
+      duckdb_path: z.string(),
+      start_cycle: z.number(),
+      start_addr: z.number(),
+      max_depth: z.number().default(100),
+      cycle_window: z.number().default(1_000_000),
+    },
+    safeHandler("runtime_trace_taint", async (args) => {
+      const { traceTaint } = await import("../runtime/headless/v2/taint.js");
+      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
+      const duckdb = await import("@duckdb/node-api");
+      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
+      const conn = await inst.connect();
+      const backend = new DuckDbQueryBackend(conn);
+      const graph = await traceTaint(backend, {
+        runId: args.run_id,
+        startCycle: args.start_cycle,
+        startAddr: args.start_addr,
+        maxDepth: args.max_depth,
+        cycleWindow: args.cycle_window,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] };
+    }),
+  );
+
+  // ---- Loader profile (Spec 245) ----
+  server.tool(
+    "runtime_profile_loader",
+    "Spec 245 — fastloader / protection profiling. IO touches + IEC activity + disk activity + 5 protection-pattern detectors with confidence scoring.",
+    {
+      duckdb_path: z.string(),
+      scenario_id: z.string(),
+      cycle_start: z.number(),
+      cycle_end: z.number(),
+    },
+    safeHandler("runtime_profile_loader", async (args) => {
+      const { profileLoader } = await import("../runtime/headless/v2/loader-profile.js");
+      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
+      const duckdb = await import("@duckdb/node-api");
+      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
+      const conn = await inst.connect();
+      const backend = new DuckDbQueryBackend(conn);
+      const profile = await profileLoader(backend, args.scenario_id, [args.cycle_start, args.cycle_end]);
+      return { content: [{ type: "text", text: JSON.stringify(profile, null, 2) }] };
+    }),
+  );
+
+  // ---- Fingerprint scan (Spec 247) ----
+  server.tool(
+    "runtime_scan_fingerprints",
+    "Spec 247 — match routine bytes against bundled/TREX/local fingerprint libraries. Lookup chain via C64RE_FINGERPRINT_LIBS env.",
+    {
+      artifact_id: z.string(),
+      bytes_hex: z.string().describe("Hex-encoded artifact bytes (no 0x prefix, no spaces)"),
+      base_addr: z.number(),
+      report_all: z.boolean().default(false),
+      min_confidence: z.number().default(0.5),
+    },
+    safeHandler("runtime_scan_fingerprints", async (args) => {
+      const { scanFingerprints } = await import("../runtime/headless/v2/fingerprint.js");
+      const cleanHex = args.bytes_hex.replace(/[^0-9a-fA-F]/g, "");
+      const bytes = new Uint8Array(cleanHex.length / 2);
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16);
+      }
+      const matches = scanFingerprints(args.artifact_id, bytes, args.base_addr, {
+        reportAll: args.report_all, threshold: args.min_confidence,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(matches, null, 2) }] };
+    }),
+  );
+
+  // ---- Bookmarks (Spec 242) ----
+  server.tool(
+    "runtime_bookmark_add",
+    "Spec 242 — add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
+    {
+      duckdb_path: z.string(),
+      run_id: z.string(),
+      cycle: z.number(),
+      label: z.string(),
+      family: z.string().optional(),
+      event_key_json: z.string().optional(),
+      note: z.string().optional(),
+      bind_mode: z.enum(["cycle", "event-key", "both"]).default("both"),
+      tags: z.array(z.string()).optional(),
+    },
+    safeHandler("runtime_bookmark_add", async (args) => {
+      const { addBookmark } = await import("../runtime/headless/v2/bookmarks.js");
+      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
+      const duckdb = await import("@duckdb/node-api");
+      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
+      const conn = await inst.connect();
+      const backend = new DuckDbQueryBackend(conn);
+      const id = await addBookmark(backend as any, {
+        runId: args.run_id, cycle: args.cycle, label: args.label,
+        family: args.family as any,
+        eventKey: args.event_key_json ? JSON.parse(args.event_key_json) : undefined,
+        note: args.note, bindMode: args.bind_mode, tags: args.tags,
+      });
+      return { content: [{ type: "text", text: `bookmark added: ${id}` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_bookmark_list",
+    "Spec 242 — list bookmarks for a run.",
+    {
+      duckdb_path: z.string(),
+      run_id: z.string(),
+      cycle_start: z.number().optional(),
+      cycle_end: z.number().optional(),
+    },
+    safeHandler("runtime_bookmark_list", async (args) => {
+      const { listBookmarks } = await import("../runtime/headless/v2/bookmarks.js");
+      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
+      const duckdb = await import("@duckdb/node-api");
+      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
+      const conn = await inst.connect();
+      const backend = new DuckDbQueryBackend(conn);
+      const range = args.cycle_start !== undefined && args.cycle_end !== undefined ? [args.cycle_start, args.cycle_end] as [number, number] : undefined;
+      const list = await listBookmarks(backend as any, args.run_id, range);
+      return { content: [{ type: "text", text: JSON.stringify(list, null, 2) }] };
+    }),
+  );
+
+  // ---- Regression (Spec 250) ----
+  server.tool(
+    "runtime_regression_capture_baseline",
+    "Spec 250 — LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
+    {
+      scenario_id: z.string(),
+    },
+    safeHandler("runtime_regression_capture_baseline", async ({ scenario_id }) => {
+      // Note: requires scenarioRegistry map at runtime; for now pass empty map (= scenario must be runScenario-loadable separately).
+      // Real wiring requires V2 scenario registry; defer to follow-up. Stub returns guidance.
+      return { content: [{ type: "text", text: `runtime_regression_capture_baseline: scenarioRegistry not yet wired in MCP server. Use scripts/regress-cli.mjs capture ${scenario_id} directly.` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_regression_compare",
+    "Spec 250 — compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
+    {
+      scenario_id: z.string(),
+    },
+    safeHandler("runtime_regression_compare", async ({ scenario_id }) => {
+      return { content: [{ type: "text", text: `runtime_regression_compare: scenarioRegistry not yet wired in MCP server. Use scripts/regress-cli.mjs compare ${scenario_id} directly.` }] };
+    }),
+  );
+
+  // ---- Spec 263 — SID audio export ----
+  server.tool(
+    "runtime_audio_export",
+    "Spec 263 — render `duration_sec` PAL seconds of SID audio (resid synth) to a stereo s16le 44.1kHz WAV file. Headless-first: passive recorder mirrors the live session SID write stream.",
+    {
+      session_id: z.string(),
+      out_path: z.string(),
+      duration_sec: z.number(),
+    },
+    safeHandler("runtime_audio_export", async ({ session_id, out_path, duration_sec }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { AudioExportSession } = await import("../runtime/headless/audio/sid-audio-recorder.js");
+      const { exportSessionAudio } = await import("../runtime/headless/audio/export.js");
+      const exp = new AudioExportSession(session as any, { sampleRate: 44100 });
+      const r = exportSessionAudio(session as any, exp, out_path, duration_sec);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  // ---- Media browser + mount (Spec 265) ----
+  server.tool(
+    "runtime_media_list_paths",
+    "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
+    {},
+    safeHandler("runtime_media_list_paths", async () => {
+      const { listFsRoots } = await import("../runtime/headless/media/fs-browser.js");
+      const roots = listFsRoots();
+      return { content: [{ type: "text", text: JSON.stringify(roots, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_media_browse",
+    "Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed).",
+    {
+      path: z.string().describe("Absolute or relative directory path to browse"),
+    },
+    safeHandler("runtime_media_browse", async ({ path }) => {
+      const { browseDir } = await import("../runtime/headless/media/fs-browser.js");
+      const result = browseDir(path);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_media_mount",
+    "Spec 265 — mount media file (.d64/.g64/.crt/.prg/.vsf) to a drive slot (8 or 9) on the active session.",
+    {
+      session_id: z.string(),
+      slot: z.number().int().default(8).describe("Drive slot: 8 (primary) or 9"),
+      path: z.string().describe("Absolute path to the media file"),
+    },
+    safeHandler("runtime_media_mount", async ({ session_id, slot, path }) => {
+      if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { mountMedia } = await import("../runtime/headless/media/mount.js");
+      const result = await mountMedia(session, slot as 8 | 9, path);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_media_unmount",
+    "Spec 265 — eject media from drive slot.",
+    {
+      session_id: z.string(),
+      slot: z.number().int().default(8),
+    },
+    safeHandler("runtime_media_unmount", async ({ session_id, slot }) => {
+      if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { unmountMedia } = await import("../runtime/headless/media/mount.js");
+      const result = unmountMedia(session, slot as 8 | 9);
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_media_swap",
+    "Spec 265 — swap disk in slot (eject + mount new path, no reset). Multi-disk convenience for Side B etc.",
+    {
+      session_id: z.string(),
+      slot: z.number().int().default(8),
+      path: z.string().describe("Absolute path to the new disk image"),
+    },
+    safeHandler("runtime_media_swap", async ({ session_id, slot, path }) => {
+      if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { swapDisk } = await import("../runtime/headless/media/mount.js");
+      const result = await swapDisk(session, slot as 8 | 9, path);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  // ---- Spec 264 — Input (keyboard + joystick) tools ----
+
+  server.tool(
+    "runtime_input_load_vicerc",
+    "Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2). Bootstrap config from VICE settings.",
+    { vicerc_path: z.string().optional() },
+    safeHandler("runtime_input_load_vicerc", async ({ vicerc_path }) => {
+      const { loadVicerc } = await import("../runtime/headless/input/vicerc-loader.js");
+      const cfg = loadVicerc(vicerc_path);
+      return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_input_load_config",
+    "Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
+    {
+      config_path: z.string().optional(),
+      vicerc_path: z.string().optional(),
+    },
+    safeHandler("runtime_input_load_config", async ({ config_path, vicerc_path }) => {
+      const { loadInputConfig } = await import("../runtime/headless/input/input-config.js");
+      const cfg = loadInputConfig({ configPath: config_path, vicercPath: vicerc_path });
+      return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_input_save_config",
+    "Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json. Never touches vicerc.",
+    {
+      config: z.object({
+        version: z.literal(1),
+        keyboardMode: z.enum(["qwerty", "positional"]),
+        joystickPort: z.union([z.literal(1), z.literal(2)]),
+        keyset: z.object({
+          north: z.string(), east: z.string(), south: z.string(),
+          west: z.string(), fire: z.string(),
+        }),
+        gamepad: z.object({
+          axisH: z.number(), axisV: z.number(),
+          deadzone: z.number(), fireButton: z.number(),
+        }),
+      }),
+      config_path: z.string().optional(),
+    },
+    safeHandler("runtime_input_save_config", async ({ config, config_path }) => {
+      const { saveInputConfig } = await import("../runtime/headless/input/input-config.js");
+      saveInputConfig(config as any, config_path);
+      return { content: [{ type: "text", text: `Saved to ${config_path ?? "~/.config/c64re/joystick.json"}` }] };
+    }),
+  );
+
+  // ---- Spec 268 — Scenario registry ----
+
+  server.tool(
+    "runtime_scenario_list",
+    "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
+    {},
+    safeHandler("runtime_scenario_list", async () => {
+      const { listScenarios } = await import("../runtime/headless/v2/scenario-registry.js");
+      const scenarios = listScenarios();
+      return { content: [{ type: "text", text: JSON.stringify(scenarios, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_scenario_save",
+    "Spec 268 — save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
+    {
+      id: z.string(),
+      diskPath: z.string(),
+      mode: z.enum(["fast-trap", "real-kernal", "true-drive"]),
+      cycleBudget: z.number(),
+      inputs: z.array(z.object({
+        atCycle: z.number(),
+        kind: z.enum(["keyboard", "joystick1", "joystick2"]),
+        payload: z.unknown(),
+      })).default([]),
+      startSnapshot: z.string().optional().describe("VSF file path or omit for empty (scenario is a plan only)."),
+    },
+    safeHandler("runtime_scenario_save", async ({ id, diskPath, mode, cycleBudget, inputs, startSnapshot }) => {
+      const { saveScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const scenario: any = { id, diskPath, mode, cycleBudget, inputs, startSnapshot: startSnapshot ?? "" };
+      const { filePath } = saveScenario(scenario);
+      return { content: [{ type: "text", text: `saved to ${filePath}` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_scenario_load",
+    "Spec 268 — load a single scenario by id. Checks project dir first, then samples.",
+    { id: z.string() },
+    safeHandler("runtime_scenario_load", async ({ id }) => {
+      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const s = loadScenario(id);
+      if (!s) throw new Error(`scenario '${id}' not found`);
+      return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_scenario_delete",
+    "Spec 268 — delete a scenario JSON by id. Returns true if found and removed.",
+    { id: z.string() },
+    safeHandler("runtime_scenario_delete", async ({ id }) => {
+      const { deleteScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const ok = deleteScenario(id);
+      return { content: [{ type: "text", text: ok ? `deleted ${id}` : `${id} not found` }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_snapshot_tree",
+    "Spec 268 — return the full branch tree for a rewind session. Requires session with active RewindManager.",
+    { session_id: z.string() },
+    safeHandler("runtime_snapshot_tree", async ({ session_id }) => {
+      const api = await getApi(session_id);
+      const rm = api.beginRewindSession();
+      const handle = rm.handle();
+      // Convert Map to plain object for serialisation.
+      const branches: Record<string, any> = {};
+      for (const [k, v] of handle.branches) {
+        branches[k] = v;
+      }
+      return { content: [{ type: "text", text: JSON.stringify({
+        scenarioId: handle.scenarioId,
+        rootBranchId: handle.rootBranchId,
+        rootSnapshotId: handle.rootSnapshotId,
+        ringSize: handle.ringSize,
+        branches,
+      }, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_promote_branch",
+    "Spec 268 — promote a transient rewind branch to a persistent Scenario record.",
+    { session_id: z.string(), branch_id: z.string() },
+    safeHandler("runtime_promote_branch", async ({ session_id, branch_id }) => {
+      const api = await getApi(session_id);
+      const rm = api.beginRewindSession();
+      const { scenarioId, scenario, patches } = rm.promoteBranch(branch_id);
+      return { content: [{ type: "text", text: JSON.stringify({ scenarioId, scenario, patches }, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_run_scenario",
+    "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
+    { id: z.string() },
+    safeHandler("runtime_run_scenario", async ({ id }) => {
+      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { runScenario } = await import("../runtime/headless/v2/scenario.js");
+      const s = loadScenario(id);
+      if (!s) throw new Error(`scenario '${id}' not found`);
+      const scenario: any = {
+        ...s,
+        startSnapshot: typeof s.startSnapshot === "string" && s.startSnapshot
+          ? s.startSnapshot
+          : Buffer.from(s.startSnapshot as string ?? "", "base64"),
+      };
+      const result = runScenario(scenario);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  // ---- Spec 271 — Parallel batch scenario runner ----
+
+  server.tool(
+    "runtime_run_scenarios_parallel",
+    "Spec 271 — run multiple scenarios in parallel via worker_threads. Returns batchId for polling.",
+    {
+      scenario_ids: z.array(z.string()).min(1),
+      worker_count: z.number().int().min(1).optional(),
+    },
+    safeHandler("runtime_run_scenarios_parallel", async ({ scenario_ids, worker_count }) => {
+      const { WorkerPool, resolveWorkerCount } = await import("../runtime/headless/parallel/scenario-pool.js");
+      const { createBatch, updateProgress, completeBatch, failBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+
+      const n = resolveWorkerCount(scenario_ids.length, worker_count);
+      const entry = createBatch(scenario_ids, n);
+
+      const pool = new WorkerPool({
+        workerCount: n,
+        projectDir: process.env.C64RE_PROJECT_DIR,
+        onProgress: (completed, _total) => updateProgress(entry.batchId, completed),
+      });
+
+      // Fire-and-forget; results accumulate in store.
+      pool.runBatch(scenario_ids).then(results => {
+        completeBatch(entry.batchId, results);
+      }).catch((e: Error) => {
+        failBatch(entry.batchId, e.message ?? String(e));
+      });
+
+      return { content: [{ type: "text", text: JSON.stringify(serialiseBatch(entry), null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_batch_status",
+    "Spec 271 — poll progress of a parallel batch. Returns completed / total and status.",
+    { batch_id: z.string() },
+    safeHandler("runtime_batch_status", async ({ batch_id }) => {
+      const { getBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+      const entry = getBatch(batch_id);
+      if (!entry) throw new Error(`batch '${batch_id}' not found`);
+      return { content: [{ type: "text", text: JSON.stringify(serialiseBatch(entry), null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_batch_results",
+    "Spec 271 — collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
+    { batch_id: z.string() },
+    safeHandler("runtime_batch_results", async ({ batch_id }) => {
+      const { getBatch, serialiseBatch, serialiseResults } = await import("../runtime/headless/parallel/batch-store.js");
+      const entry = getBatch(batch_id);
+      if (!entry) throw new Error(`batch '${batch_id}' not found`);
+      if (entry.status === "running") throw new Error(`batch '${batch_id}' still running (${entry.completed}/${entry.total})`);
+      return { content: [{ type: "text", text: JSON.stringify({
+        batch: serialiseBatch(entry),
+        results: serialiseResults(entry),
+      }, null, 2) }] };
+    }),
+  );
+
+  // ---- Spec 269 — export ----
+
+  server.tool(
+    "runtime_export_screenshot",
+    "Spec 269 — export PNG screenshot for a scenario. Runs scenario from start to atCycle (or end). Scale 1/2/4 for pixel-art upscale.",
+    {
+      scenario_id: z.string(),
+      out_path: z.string(),
+      scale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional().default(1),
+      at_cycle: z.number().optional(),
+    },
+    safeHandler("runtime_export_screenshot", async ({ scenario_id, out_path, scale, at_cycle }) => {
+      const { exportScreenshot } = await import("../runtime/headless/export/screenshot.js");
+      const result = await exportScreenshot(scenario_id, out_path, {
+        scale: scale as 1 | 2 | 4,
+        atCycle: at_cycle,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_export_video",
+    "Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed). PAL 50fps, RGBA + s16le piped to ffmpeg.",
+    {
+      scenario_id: z.string(),
+      out_path: z.string(),
+      duration: z.number().optional().default(5),
+      scale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional().default(1),
+    },
+    safeHandler("runtime_export_video", async ({ scenario_id, out_path, duration, scale }) => {
+      const { exportVideo } = await import("../runtime/headless/export/video.js");
+      const result = await exportVideo(scenario_id, out_path, {
+        duration,
+        scale: scale as 1 | 2 | 4,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_export_audio",
+    "Spec 269 / 263 — export WAV audio for a scenario. Captures SID via reSID mirror, writes stereo s16le.",
+    {
+      scenario_id: z.string(),
+      out_path: z.string(),
+      duration: z.number().optional().default(5),
+      format: z.enum(["wav"]).optional().default("wav"),
+    },
+    safeHandler("runtime_export_audio", async ({ scenario_id, out_path, duration }) => {
+      const { exportScenarioAudio } = await import("../runtime/headless/export/audio-export.js");
+      const result = await exportScenarioAudio(scenario_id, out_path, { duration });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+}

@@ -1,0 +1,47 @@
+name: heavy
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  heavy:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-heavy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci
+
+      - name: Decode ROM bundle
+        if: env.C64_ROM_BUNDLE_B64 != ''
+        env:
+          C64_ROM_BUNDLE_B64: ${{ secrets.C64_ROM_BUNDLE_B64 }}
+        run: |
+          mkdir -p resources/roms
+          echo "$C64_ROM_BUNDLE_B64" | base64 -d | tar -xz -C resources/roms
+
+      - run: npm run build
+
+      - name: Lorenz disk2
+        run: npm run test:lorenz:disk2
+        timeout-minutes: 12
+
+      - name: Lorenz disk3
+        run: npm run test:lorenz:disk3
+        timeout-minutes: 12
+
+      - name: Lorenz disk4
+        run: npm run test:lorenz:disk4
+        timeout-minutes: 12
+
+      - name: Drive suite
+        run: npm run test:drive-suite
+        timeout-minutes: 15

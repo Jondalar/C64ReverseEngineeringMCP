@@ -27,6 +27,13 @@ export interface GraphicsItem {
   prgLoadAddress: number;
   fileOffset: number;        // byte offset inside the .prg file (after the 2-byte header)
   analysisArtifactId: string;
+  // Bug 23 (Stage 2): segment confirmation status read directly from the
+  // analysis JSON. Single source of truth — no shadow store. UI counter
+  // and bucket assignment derive from these flags.
+  confirmed?: boolean;
+  rejected?: boolean;
+  rejectedReason?: string;
+  confirmedByArtifactId?: string;
 }
 
 const GRAPHICS_KINDS: ReadonlySet<string> = new Set<GraphicsKind>([
@@ -48,6 +55,10 @@ interface AnalysisSegment {
   kind: string;
   label?: string;
   attributes?: Record<string, unknown>;
+  confirmed?: boolean;
+  rejected?: boolean;
+  rejectedReason?: string;
+  confirmedBy?: { kind?: string; artifactId?: string; capturedAt?: string };
 }
 
 interface AnalysisReport {
@@ -120,7 +131,17 @@ export function buildGraphicsView(
 ): { items: GraphicsItem[]; warnings: string[] } {
   const artifacts = service.listArtifacts();
   const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
-  const analysisArtifacts = artifacts.filter((artifact) => artifact.role === "analysis-json");
+  // Bug 23 (Bug 10 family): the same *_analysis.json file gets registered
+  // multiple times in artifacts.json (once auto by analyze_prg, once by
+  // project_repair / register_existing_files). Iterating each registration
+  // produces duplicate segments in the Graphics tab (126 vs ~58 on Murder).
+  // Dedupe by absolute path — the file is the truth, not the artifact id.
+  const analysisArtifactsRaw = artifacts.filter((artifact) => artifact.role === "analysis-json");
+  const dedupByPath = new Map<string, ArtifactRecord>();
+  for (const a of analysisArtifactsRaw) {
+    if (!dedupByPath.has(a.path)) dedupByPath.set(a.path, a);
+  }
+  const analysisArtifacts = [...dedupByPath.values()];
   const items: GraphicsItem[] = [];
   const warnings: string[] = [];
 
@@ -165,6 +186,10 @@ export function buildGraphicsView(
         prgLoadAddress: loadAddress,
         fileOffset,
         analysisArtifactId: analysisArtifact.id,
+        confirmed: segment.confirmed === true ? true : undefined,
+        rejected: segment.rejected === true ? true : undefined,
+        rejectedReason: segment.rejectedReason,
+        confirmedByArtifactId: segment.confirmedBy?.artifactId,
       });
     }
   }

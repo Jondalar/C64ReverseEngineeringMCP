@@ -1,0 +1,19 @@
+{
+  "spec": "423",
+  "test": "krill-loader",
+  "doc": "docs/vice-iec-arc42.md §15 Phase H step 21",
+  "vice_cite": "src/serial/iecbus.c:191, src/drive/iec/via1d1541.c:212/337, src/drive/drive.c:991",
+  "c64Pc": "$93d4",
+  "cpu_port": "$0",
+  "drv_port": "$0",
+  "screenRamSha256": "9ad0e30bbad1d242390cb094ba416a8ed1725edac9721d6d3b451a234f5df340",
+  "observedPcs": [
+    "$426",
+    "$94df",
+    "$93da",
+    "$97be",
+    "$9752",
+    "$93d4"
+  ],
+  "nonzeroBytes": 521
+}

@@ -438,6 +438,9 @@ export interface AnalysisReport {
 
 export interface AnalysisOptions {
   userEntryPoints?: number[];
+  // Spec 047: when true, code-island demote uses 0.45 threshold
+  // (more aggressive). Default false → conservative 0.3.
+  demoteAggressive?: boolean;
 }
 
 export interface SegmentAnalyzer {
