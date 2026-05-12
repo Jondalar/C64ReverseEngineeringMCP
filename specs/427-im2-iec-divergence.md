@@ -237,6 +237,23 @@ Run this on a throwaway worktree/branch only:
    resolved. Those commits are downstream layers and will hide the
    first cause.
 
+## Phase A Evidence Gate result (2026-05-12)
+
+Per Spec 428 Phase A protocol, throwaway worktree at `2005494`:
+
+| Variant | drive-cpu.ts | cpu65xx-vice.ts | IM2 PC@t=60s | Title idle reached |
+|---|---|---|---|---|
+| Baseline 2005494 | new (Spec 401) | new (Spec 401) | $1018 | NO ✗ |
+| **A**: drive restored | **old (0a47f50)** | new (Spec 401) | **$48D3** | **YES ✓** |
+| B: cpu restored | new (Spec 401) | old (0a47f50) | $1018 | NO ✗ |
+
+Decisive: `drive-cpu.ts` Spec 401 changes are the sole regression
+source. `cpu65xx-vice.ts` Spec 401 changes are clean.
+
+Implication: Spec 428 implementation can target `drive-cpu.ts`
+exclusively. The C64-side CPU foundation (CLK_INC + alarm-drain
+ordering + interrupt-delay) is correct and should be preserved.
+
 ## Bisect results (2026-05-12)
 
 Per Spec 401 isolation contract:
