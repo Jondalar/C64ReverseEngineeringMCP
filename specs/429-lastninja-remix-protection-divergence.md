@@ -622,3 +622,48 @@ before most passes complete.
 
 The early depacker invocations match (same A values stored to
 \$2F at PC=\$01CF). Divergence comes later.
+
+## Update 5 — 2026-05-12: PLA / \$01 audit against VICE
+
+Checked headless CPU-port/PLA handling against VICE:
+
+- VICE `mem_pla_config_changed()` computes memory config as
+  `((~pport.dir | pport.data) & 7) | EXROM<<3 | GAME<<4`.
+- Headless `HeadlessMemoryBus.memPlaConfigChanged()` uses the same
+  lower-three-bit formula for LORAM/HIRAM/CHAREN and the same
+  no-cartridge released-line model.
+- Existing PLA smoke (`scripts/smoke-pla-fidelity.mjs`) passes
+  22/22 checks for no-cart banking, \$00/\$01 reads, color RAM
+  nibble semantics, and I/O vs RAM under PLA.
+
+Important caveat: headless is **not byte-for-byte VICE** for every
+6510 processor-port edge case:
+
+- VICE resets the pport latch to DDR=0/DATA=0 and relies on pullups
+  plus KERNAL init; headless reset currently starts at DDR=\$2F,
+  DATA=\$37.
+- VICE writes to \$00/\$01 also write `vicii_read_phi1()` into the
+  underlying RAM byte; headless stores the CPU-port write byte.
+- VICE adds randomized falloff timing for floating bits 6/7;
+  headless uses deterministic 350000-cycle falloff.
+- Datasette-side effects from \$01 bits 3/4/5 are stubbed in
+  headless; not expected to affect LNR unless the game probes tape
+  lines explicitly.
+
+Conclusion for this bug: a broad PLA mapping error is unlikely. If
+LORAM/HIRAM/CHAREN were wrong, many other titles would fail much
+earlier and the LNR snapshots would not show stable \$00=\$2F /
+\$01=\$37. Do **not** restart a generic PLA rewrite.
+
+Narrow check still required at the first depacker divergence:
+
+1. Log every read/write of \$00 and \$01 from game entry \$0828 until
+   the first \$013F vs \$0143 divergence.
+2. Log `memConfigIndex` and mapped region for the source reads feeding
+   the \$0100-\$0145 depacker.
+3. Compare VICE vs headless at the exact divergent instruction:
+   \$2F/\$30 source pointer, Y, control byte, \$01, and effective
+   memory mapping.
+4. Only if \$01 or `memConfigIndex` differs at that point should this
+   become a PLA bug. Otherwise continue with source-pointer/data-load
+   or timing divergence.
