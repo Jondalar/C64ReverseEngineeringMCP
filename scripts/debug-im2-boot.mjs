@@ -66,7 +66,7 @@ session.renderToPng("/tmp/im2-01-loaded.png");
 snapshot("LOADED");
 
 session.typeText("RUN\r");
-for (const sec of [5, 10, 20, 40, 60, 90, 120]) {
+for (const sec of [5, 10, 20, 40, 60, 90, 120, 240, 360]) {
   session.runFor(sec * 1_000_000, { cycleBudget: sec * 1_000_000 });
   const path = `/tmp/im2-t${sec.toString().padStart(3,"0")}s.png`;
   session.renderToPng(path);
