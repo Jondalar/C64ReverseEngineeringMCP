@@ -492,3 +492,108 @@ trace = one-off race condition path.
   game banks RAM in/out, cycle-precise sensitive.
 - Test Spec 428 Phase E (rotate hooks) — even though "data
   is intact", cycle alignment in BUS reads may shift.
+
+## Update 3 — 2026-05-12: cpuhistory diff VICE vs headless
+
+Captured VICE cpuhistory into DuckDB trace store via
+`scripts/lnr-vice-cpuhistory.mjs` — 12.4M instructions, 248
+polls × 50k history items, autostart -warp boot. Schema
+parity with headless trace store.
+
+Aligned both traces at game-entry PC=\$0828 first hit:
+- headless first \$0828: clk 225,201,656
+- VICE     first \$0828: clk 95,171,012
+
+Mem-copy loop \$0828-\$082e ran with IDENTICAL register state
+(Y, A values matched per iter). Loop completed normally in
+both.
+
+### First divergence
+
+PC histogram in 5-million-cycle post-RUN window:
+
+| PC      | headless | VICE | ratio |
+|---------|----------|------|-------|
+| \$012E  | 18,391   | 4,737| 3.9×  |
+| \$0122  | 8,253    | 1,897| 4.4×  |
+| \$013F  | 287      | **0**| ∞     |
+| \$0141  | 287      | **0**| ∞     |
+| \$0143  | **0**    | 3,890| ∞     |
+| \$0145  | **0**    | 3,890| ∞     |
+
+Headless takes \$013F/\$0141 path; VICE takes \$0143/\$0145 path.
+Mutually exclusive. **First behaviour divergence.**
+
+### Decoded depacker at \$0130-\$0145
+
+```
+$0130: E6 2D    INC $2D       ; output ptr++
+$0132: D0 02    BNE +2 → $0136
+$0134: E6 2E    INC $2E
+$0136: CA       DEX
+$0137: D0 F5    BNE -11 → $012E (inner loop continues)
+$0139: F0 C5    BEQ -59 → $0100 (next control byte)
+$013B: A9 00    LDA #$00       ; constant-fill branch
+$013D: F0 EF    BEQ -17 → $012E
+$013F: A9 FF    LDA #$FF       ; ← HEADLESS path = $FF-fill
+$0141: D0 EB    BNE -21 → $012E
+$0143: B1 2F    LDA ($2F),Y    ; ← VICE path = literal-copy
+$0145: 91 2D    STA ($2D),Y
+$0147: E6 2F    INC $2F        ; source ptr++
+```
+
+= **LZ-style depacker** with constant-fill + literal-copy
+dispatch. The dispatch reads control byte at \$0100 via
+`LDA ($zp),Y` + `ROL ×4` + `AND #imm` + jump-table lookup
+at \$0109.
+
+### Implication
+
+Headless depacker reads different control byte than VICE.
+Either:
+1. **Source-pointer divergence** — \$2F/\$30 point to different
+   addresses, reading different compressed data.
+2. **Compressed data corruption** — \$2F/\$30 same, but bytes
+   at that address differ (= LOAD-time data integrity bug
+   after all, BUT subtle — bytes match at \$1400 yet differ
+   elsewhere).
+3. **Earlier ZP-state divergence** — earlier mem-copy at
+   \$0828 wrote to wrong destination, corrupting later
+   depacker source.
+
+### Next concrete step
+
+1. Decode jump-table dispatch at \$0109. Find what bytes are
+   read from compressed source.
+2. Capture \$2F/\$30 (source pointer) at moment of first
+   divergence in both traces. Same or different?
+3. If same: dump bytes at *(2F/30+Y) in both. Different =
+   data load bug.
+4. If different: trace BACK from \$0100 to find why \$2F/\$30
+   diverged. Likely earlier bug.
+
+Tools ready:
+- `scripts/lnr-mem-dump.mjs` (headless full state)
+- `scripts/lnr-vice-mem-dump.mjs` (VICE full state)
+- `scripts/lnr-vice-cpuhistory.mjs` (VICE cpuhistory → DuckDB)
+- All DuckDB at `samples/traces/v2-baseline/lnr-*-2026-05-12/`
+
+## Update 4 — 2026-05-12: RAM init pattern mismatch
+
+VICE `src/ram.c` default: `start_value=$FF`, `value_invert=128`.
+= 128-byte chunks alternating $FF/$00 starting with $FF.
+
+Ours was 64-byte chunks $00/$FF starting with $00 — both block
+size AND start polarity wrong.
+
+Commit `Spec 100 — match VICE RAM init pattern` (11858e8):
+flipped ramFillA/B + block size to 128.
+
+LNR depacker (at $0100-$0145) reads control bytes via `LDA ($zp),Y`
+where ZP source pointer is set somewhere. If source points into
+uninit RAM, control-byte stream depends on RAM init pattern.
+Different pattern = different depacker decisions = different
+JMP target = crash vs success.
+
+Test pending: rerun LNR with new pattern. Also test motm/MM/IM2/
+Scramble for no-regression.
