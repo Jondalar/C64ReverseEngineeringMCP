@@ -155,7 +155,75 @@ node -e "import('./dist/runtime/headless/integrated-session-manager.js').then(..
   the protection check, not bypassing it).
 - VIC rendering issues unrelated to LastNinja.
 
+## Trace findings (2026-05-12 DuckDB-paced)
+
+`scripts/trace-lnr.mjs` (paced LOAD → 60M cycles → RUN → 30M cycles)
+into `samples/traces/v2-baseline/lnr-headless-paced-2026-05-12/`.
+
+Top user-code PCs in 80M-cycle window:
+- \$408B/\$408E: 270k visits (= loader stub main entry)
+- \$0828/\$082A: 35k each (= autostart hand-off)
+- \$112x-\$113x: smaller (= keyboard-scan routine)
+
+Last user-code instruction before fail:
+
+  cyc=232,394,154  PC=\$1130  RTS
+  cyc=232,394,157  PC=\$FF90  KERNAL SETMSG entry
+
+Code at \$1108-\$1130 disassembled from RAM:
+
+  \$1108: LDA #\$FF / STA \$DC02   ; CIA1 DDRA = all output
+  \$110D: LDX #\$00 / STX \$DC03   ; CIA1 DDRB = all input
+  \$1112: LDA \$1388,X            ; row table
+  \$1115: CMP #\$FF / BEQ \$112B   ; end-of-table marker
+  \$1119: STA \$DC00              ; CIA1 PRA = scan row
+  \$111C: LDA \$1389,X / AND \$DC01 ; AND mask with CIA1 PRB read
+  \$1122: STA \$1387,X / INX INX INX
+  \$1128: JMP \$1112
+  \$112B: LDA #\$00 / STA \$DC02   ; restore DDRA
+  \$1130: RTS
+
+= **Direct CIA1 keyboard matrix scan**, bypassing KERNAL.
+
+Post-\$1130 sequence: \$FF90 → \$FE18..\$FE20 → \$DD36 (CIA2 access)
+→ \$FF48 (IRQ vector destination) → no more user code for 100M
+cycles → ends at \$E5CF (READY).
+
+Vectors at fail time: NMI \$0318=\$FE47, IRQ \$0314=\$EA31 (both
+default KERNAL). Game did NOT patch vectors.
+
+## Refined hypothesis
+
+The \$1108 routine writes keyboard rows to \$DC00 and reads PRB
+columns from \$DC01. The mask table at \$1389 plus AND with \$DC01
+encodes an expected key state. If keyboard matrix returns:
+- All \$FF when no key pressed (= ideal floating-high) → mask
+  result matches expected → game proceeds.
+- Anything else (= our matrix returns 0 or differs from real
+  hardware) → mismatch → game falls to error path.
+
+ALT: a CIA timer IRQ fires during the scan, vectoring through
+\$FFFE/\$0314 → KERNAL IRQ handler. KERNAL IRQ does its own
+keyboard scan that conflicts with game's scan. State corrupted.
+
+The \$DD36 access in the trace is suspicious — that's outside
+the documented CIA2 register map (\$DD00..\$DD0F + mirrors). May
+be a CPU mid-instruction operand or a producer-trace artifact
+that records the page+offset rather than the actual register.
+
 ## Next step
 
-Decide: Phase E first (cheap, may fix multiple games at once) vs
-direct LastNinja-specific GCR/half-track investigation.
+1. **First**: try Phase 428-E (rotate hooks at VICE template
+   sites). Cycle-precision rotate-hook delivery may shift CIA
+   timing enough for game's NMI window to miss. Cheap, broad
+   benefit if it works.
+
+2. **If Phase E doesn't fix**: instrument \$DC00/\$DC01 reads +
+   writes during the \$1108 routine. Capture exact mask values
+   stored to \$1387,X. Compare what VICE delivers vs ours.
+
+3. **Halftrack GCR audit** deferred until 1+2 ruled out.
+
+4. **Keyboard matrix default state** audit — our matrix may
+   return wrong "no key pressed" value vs real C64 floating
+   inputs.
