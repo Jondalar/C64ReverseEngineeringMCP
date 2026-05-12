@@ -1,9 +1,39 @@
 # Spec 421 — IEC Phase F: Drive-side bus access
 
-**Status:** PROPOSED
+**Status:** RESOLVED 2026-05-12 — verification-only landing.
 **Branch:** `vice-arch-port`
 **Depends on:** 420
 **Doctrine:** 1:1 VICE IEC port.
+
+## Resolution summary (2026-05-12)
+
+All three spec-421 producer primitives were already in place from
+prior specs:
+
+1. **PB read formula** — `src/runtime/headless/via/via1d1541.ts:103-109`
+   matches VICE `src/drive/iec/via1d1541.c:347-350` byte-for-byte:
+   `((PRB & DDRB) | ((drv_port ^ 0x85) | 0x1A | driveid) & ~DDRB)`.
+   Driveid encoding `((deviceId-8) << 5) & 0x60` matches
+   `via1d1541.c:345` `(via1p->number << 5) & 0x60`.
+2. **PB write 4-step recompute** —
+   `src/runtime/headless/iec/iec-bus-core.ts:124-128`
+   (`drive_store_pb`) matches VICE `via1d1541.c:226-241`: `drv_data = ~byte`
+   → `recompute_drv_bus(unit)` → `iec_update_ports()` (= cpu_port +
+   drv_port).
+3. **No drive flush on PB write** — verified by Sub-test 3 of new
+   smoke `scripts/smoke-421-via1-pb-roundtrip.mjs`: drive PB writes
+   never invoke `pushFlush.{all,one}` nor `flushAuditor`. C64-side
+   PA write does invoke `pushFlush.one` (= sanity).
+
+Acceptance achieved:
+
+- `npm run build` zero errors.
+- `smoke:cpu-fidelity` 31/31, `smoke:cia-fidelity` 22/22, drive
+  testprogs 4/4.
+- IEC phase smokes (416/417/418/419/420) all green; new
+  smoke-421-via1-pb-roundtrip 23/23.
+- MM s1 LOAD"*",8,1 reaches PC=$65f (= character select baseline
+  pre-spec-421); Scramble LOAD"*",8,1 reaches PC=$9709 area.
 
 ## Goal
 
