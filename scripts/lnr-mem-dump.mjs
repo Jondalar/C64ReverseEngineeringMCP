@@ -40,23 +40,28 @@ const { session } = startIntegratedSession({
 });
 
 const RANGE_LO = 0x0000;
-const RANGE_HI = 0x2000;
+const RANGE_HI = 0x10000;
 
 async function dump(phase) {
   const ram = session.c64Bus.ram;
+  const dram = session.drive.ram;
   const pc = session.c64Cpu.pc;
+  const dpc = session.drive.cpu?.pc ?? 0;
   const cyc = session.c64Cpu.cycles;
   const rows = [];
   for (let a = RANGE_LO; a < RANGE_HI; a++) {
     rows.push(`('${phase}', ${cyc}, ${pc}, ${a}, ${ram[a]})`);
   }
-  // batched insert
+  // drive RAM at offset $10000+ for table-only-distinct addresses
+  for (let a = 0; a < dram.length; a++) {
+    rows.push(`('${phase}_drive', ${cyc}, ${dpc}, ${a}, ${dram[a]})`);
+  }
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const slab = rows.slice(i, i + CHUNK).join(",");
     await run(`INSERT INTO mem_dump VALUES ${slab}`);
   }
-  console.log(`[${phase}] cyc=${cyc} pc=$${pc.toString(16)} bytes=${rows.length}`);
+  console.log(`[${phase}] cyc=${cyc} c64.pc=$${pc.toString(16)} drive.pc=$${dpc.toString(16)} ramBytes=${ram.length} driveRamBytes=${dram.length}`);
 }
 
 console.log("Boot...");

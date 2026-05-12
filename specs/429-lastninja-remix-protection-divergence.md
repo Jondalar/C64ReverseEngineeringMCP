@@ -347,3 +347,86 @@ $1400-$143F divergence is **deterministic from disk content**
 
 Spec 428 Phase E (rotate hooks) does NOT address data integrity.
 Defer Phase E indefinitely — wrong investigation track.
+
+## Update 2 — 2026-05-12 (drive RAM + VICE-game-running comparison)
+
+Re-ran VICE with `-autostart` + 60s warp wait. Game state stable
+in VICE (basic_end=$9600, d018=$09). Compared bytes at $1400:
+
+**VICE-game-running ≡ headless-after-crash** — IDENTICAL at $1400:
+
+```
+$1400-$1409 (both):
+  100 ($64) 133 ($85) 124 ($7C) 100 ($64) 134 ($86)
+  100 ($64) 121 ($79) 135 ($87) 124 ($7C) 121 ($79)
+  $140A-$1411: 00 00 00 00 00 00 00 00
+```
+
+Same bytes. Same memory. = data integrity ruled out.
+
+### Drive RAM confirmed active
+
+Drive PC progression in headless run:
+- after_boot: $EC2D (drive ROM idle loop)
+- after_load: $EC9B (drive ROM LISTEN/TALK)
+- after_run_crash: $05F1 (drive RAM custom fastloader)
+
+Drive hot PCs in trace (custom RAM code running):
+- $05CD: 18570 visits
+- $05DE: 18060 visits
+- $05CD-$05EA + $0636/$0638: thousands each
+
+= **Fastloader uploaded into drive RAM and actively executing.**
+
+### CPU port + vectors all clean
+
+| addr | hl_boot | hl_load | hl_crash |
+|------|---------|---------|----------|
+| $00  | 47 ($2F)| 47      | 47       |
+| $01  | 55 ($37)| 55      | 55       |
+| $0314/15 | $EA31 | $EA31 | $EA31  | (KERNAL IRQ default)
+| $0316/17 | $FE66 | $FE66 | $FE66  | (KERNAL BRK default)
+| $0318/19 | $FE47 | $FE47 | $FE47  | (KERNAL NMI default)
+
+Game uses **default KERNAL IRQ vector**. No vector hijack visible
+at our snapshot points (game may bank RAM in $E000+ during IRQ via
+`PLA / STA $01` at $109A — that's the IRQ-exit restore site).
+
+### Real root cause candidate — $B7 polling
+
+Code at $0369: `CMP #$AC / BNE $0384`. Compares A to $AC.
+A loaded by JSR $0395 = `LDA $B7 / RTS`. Game polls $B7
+waiting for it to become $AC ($172 dec).
+
+Headless trace at clk 232391423: A=$FF after `LDA $B7`.
+After-crash dump: $B7=$FF (not $AC).
+
+= **Game polls $B7 for $AC, gets $FF, gives up → JMP $1400.**
+
+$B7 = KERNAL ZP `FNLEN` (file name length). Some game routine
+or KERNAL IO call should write $AC to $B7 as a status code,
+indicating fastloader successfully delivered a byte/block.
+
+### Likely fastloader signaling path
+
+LNR's drive fastloader pushes bytes to C64 via CIA2 FLAG
+(NMI line) or via timer-1 SerialBus-like bit-bang. C64-side
+NMI handler reads byte, stores to specific ZP location,
+maybe at $B7 or via redirect.
+
+Hypothesis: **CIA2 FLAG NMI delivery fails in headless OR
+C64-side NMI handler doesn't write $AC to $B7 in correct
+state.** Spec 419-class fastloader hook NMI/IRQ-timing bug.
+
+### Next concrete step
+
+1. Trace CIA2 FLAG line transitions during boot-to-game.
+   Filter trace_store chip_events for CIA2 IRQ/NMI asserts.
+2. Compare with VICE FLAG-edge count.
+3. Inspect game's NMI handler entry (PCs in $FExx range
+   transitioning to game code via $0318 vector).
+4. Capture every write to $B7 in headless. Find what value
+   each writer puts there. Compare with expected $AC.
+
+If CIA2 FLAG NMI flow is the culprit, this is a Spec 419 /
+Spec 207 (drive bit-bang IEC) regression.

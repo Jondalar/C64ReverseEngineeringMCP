@@ -1,6 +1,6 @@
-// VICE-side memory dump for LNR — phase parity with headless.
-// Steps: cold boot, mount disk (no autostart), LOAD"*",8,1, snapshot,
-//        RUN, wait for crash-point, snapshot again.
+// VICE memdump w/ autostart + verify game ran.
+// LNR is auto-LOAD"*",8,1 + RUN via -autostart.
+// Wait long enough for fastloader + boot.
 
 import { spawn } from "node:child_process";
 import { resolve as resolvePath, join } from "node:path";
@@ -40,11 +40,12 @@ CREATE TABLE IF NOT EXISTS mem_dump (
 if (!existsSync(VICE_X64SC)) { console.error(`x64sc not found: ${VICE_X64SC}`); process.exit(2); }
 
 const port = 6512;
-console.log("Spawn x64sc (no autostart)...");
+console.log("Spawn x64sc -autostart ...");
 const vice = spawn(VICE_X64SC, [
   "-binarymonitor", "-binarymonitoraddress", `ip4://127.0.0.1:${port}`,
   "-warp", "-silent",
-  "-8", resolvePath(repoRoot, "samples/last_ninja_remix_s1[system3_1991].g64"),
+  "-autostart", resolvePath(repoRoot, "samples/last_ninja_remix_s1[system3_1991].g64"),
+  "-autostart-warp",
 ], { stdio: ["ignore", "ignore", "pipe"] });
 vice.stderr.on("data", (d) => process.stderr.write(`[vice] ${d}`));
 vice.on("exit", (code) => console.log(`[vice exit ${code}]`));
@@ -62,6 +63,10 @@ async function dump(phase) {
   const buf = await mon.readMemory(RANGE_LO, RANGE_HI - 1);
   const regs = await mon.getRegisters().catch(() => []);
   const pcReg = regs.find((r) => r.name === "PC")?.value ?? 0;
+  // Check game-ran markers
+  const basicEnd = buf[0x002D] | (buf[0x002E] << 8);
+  const d018 = (await mon.readMemory(0xD018, 0xD018)).readUInt8(0);
+  console.log(`[${phase}] pc=$${pcReg.toString(16)} basic_end=$${basicEnd.toString(16)} d018=$${d018.toString(16)}`);
   const rows = [];
   for (let i = 0; i < buf.length; i++) {
     rows.push(`('${phase}', 0, ${pcReg}, ${RANGE_LO + i}, ${buf[i]})`);
@@ -71,25 +76,15 @@ async function dump(phase) {
     const slab = rows.slice(i, i + CHUNK).join(",");
     await run(`INSERT INTO mem_dump VALUES ${slab}`);
   }
-  console.log(`[${phase}] pc=$${pcReg.toString(16)} bytes=${buf.length}`);
 }
 
-console.log("Wait cold-boot to READY (5s warp)...");
-await new Promise((r) => setTimeout(r, 5000));
-await mon.resume();
-await new Promise((r) => setTimeout(r, 500));
-
-console.log('Type LOAD"*",8,1 ...');
-await mon.keyboardFeed(Buffer.from('LOAD"*",8,1\r'));
-// LOAD via fastloader can take 20-40s real-time in warp mode.
-await new Promise((r) => setTimeout(r, 40_000));
-await dump("vice_after_load");
-
-console.log("Type RUN ...");
-await mon.keyboardFeed(Buffer.from('RUN\r'));
-// Wait ~30s for any crash-equivalent state.
+console.log("Wait 30s for boot...");
 await new Promise((r) => setTimeout(r, 30_000));
-await dump("vice_after_run");
+await dump("vice_boot_30s");
+
+console.log("Wait additional 30s...");
+await new Promise((r) => setTimeout(r, 30_000));
+await dump("vice_boot_60s");
 
 console.log("Done. Quitting...");
 await mon.quitVice().catch(() => {});
