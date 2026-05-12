@@ -559,6 +559,11 @@ export class IntegratedSession {
         memBus: this.c64Bus,
         alarmContext: this.maincpuAlarmContext,
         cpuIntStatus: this.kernel.cpuIntStatus,
+        // Spec 425 — C64 CPU calls vicii_cycle() from inside tick() per
+        // VICE CLK_INC. Drive CPU MUST NOT pass this hook.
+        c64ViciiCycle: this.useLiteralPortVicPerCycle
+          ? () => this.tickLitVic()
+          : undefined,
       });
       // Replace c64Cpu with microcoded version. Cast — both share
       // public register state interface.
@@ -1206,35 +1211,14 @@ export class IntegratedSession {
 
     let guard = 0;
     if (this.useLiteralPortVicPerCycle) {
-      // Spec V-V2-fix Issue 3: VIC tick FIRST, CPU step SECOND per cycle.
-      // VICE Phi1/Phi2 model: VIC samples regs[]/bus at cycle start
-      // (Phi1 fetch). CPU writes happen at Phi2 (cycle end). New reg
-      // values take effect at NEXT cycle's VIC fetch.
-      // Previously: cpu.executeCycle ran first, then vic.tick. CPU
-      // mid-cycle write to $D011/$D016/$D018 was visible to literal
-      // port's vicii_cycle in the SAME cycle → mode/scroll/screen-
-      // pointer changes landed 1 cycle EARLY → V2 mid-frame tearing.
-      // Now: vic.tick(1) runs first (= VIC fetches with regs from
-      // previous cycle's writes). Then cpu.executeCycle (= writes hit
-      // regs[], take effect at next iteration's vic.tick).
+      // Spec 425 — Cpu65xxVice.tick() owns CLK_INC. Every CPU clock
+      // increment (= internal tick) calls vicii_cycle() via c64ViciiCycle
+      // hook. No session-side vic.tick pumping. IRQ entry, branch +1,
+      // page-cross, illegal-opcode burn cycles all interleave with VIC
+      // automatically.
       do {
         this.updateMicrocodedInterruptLines();
-        // Spec V-V2-fix Issue 3 (= Phi1/Phi2 timing): VIC tick FIRST,
-        // CPU step SECOND per cycle. VICE Phi1/Phi2 model: VIC samples
-        // regs[]/bus at cycle start (Phi1 fetch). CPU writes happen at
-        // Phi2 (cycle end). New reg values take effect at NEXT cycle's
-        // VIC fetch.
-        // Spec V-strip-vicii-tick REVERTED 2026-05-10: stripping
-        // vic.tick caused Scramble to not progress past credits SPACE
-        // (= timing-sensitive state machine breaks). Restored vic.tick
-        // for VicIIVice raster_y advance + IRQ alarm + bad_line
-        // priming. Issue 3 swap (= VIC tick before CPU) preserved.
-        this.vic.tick(1);
-        const before = (this.c64Cpu as unknown as { cycles: number }).cycles;
         cpu.executeCycle();
-        const after = (this.c64Cpu as unknown as { cycles: number }).cycles;
-        const consumed = after - before;
-        if (consumed > 1) this.vic.tick(consumed - 1);
         if (++guard > 256) {
           throw new Error(
             `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
@@ -1470,31 +1454,17 @@ export class IntegratedSession {
    * onCycle callback. Also captures the dbuf scanline into the
    * accumulator framebuffer when raster line changes.
    */
-  private tickLitVic(): void {
+  private tickLitVic(): 0 | 1 {
     const lv = LIT_TYPES.vicii;
     // Spec V-V2-fix: VIC samples vbank at START of cycle (= Phi1 fetch).
     // Run vicii_cycle() FIRST with vbank from PREVIOUS cycle. CIA2 PA
     // bits change due to mid-cycle CPU write (= Phi2). New bank takes
-    // effect NEXT cycle. Previously vbank was updated BEFORE
-    // vicii_cycle = bank switch landed 1 cycle early → contributed to
-    // V2 mid-frame mode-change tearing.
+    // effect NEXT cycle.
     const baLow = (LIT_CYCLE.vicii_cycle() & 1) as 0 | 1;
     this.lastLitBaLow = baLow;
-    // Spec 404 Phase D step 20 — OR-fold vicii_cycle() BA-low return into
-    // CPU's maincpu_ba_low_flags. Doc §11 step 3+4k, §13 invariant 4
-    // (writes pass; reads stall). VICE: c64cpusc.c:47 CLK_INC macro:
-    //   maincpu_ba_low_flags &= ~MAINCPU_BA_LOW_VICII;
-    //   maincpu_ba_low_flags |= vicii_cycle();   /* return value */
-    // Cpu65xxVice.tick() already does the clear (spec 401); the OR
-    // happens here right after vicii_cycle(). BA latches 1 cycle ahead
-    // because the CPU's read at cycle N is gated by the value set by
-    // vicii_cycle() of cycle N-1 (OQ-404-2; see vicii-cycle.c:582-591).
-    if (baLow) {
-      const cpu = this.c64Cpu as unknown as { maincpu_ba_low_flags?: number };
-      if (typeof cpu.maincpu_ba_low_flags === "number") {
-        cpu.maincpu_ba_low_flags |= 0x01; // MAINCPU_BA_LOW_VICII (cpu65xx-vice.ts:192)
-      }
-    }
+    // Spec 425 — BA-low return now folded into maincpu_ba_low_flags
+    // BY THE CPU, not here. Cpu65xxVice.tick() calls c64ViciiCycle hook
+    // and ORs the result. tickLitVic is pure side-effect-free w.r.t. CPU.
     const cia2Pa = (this.cia2.pra & this.cia2.ddra) & 0xff;
     const bank = (~cia2Pa) & 0x03;
     lv.vbank_phi1 = bank * 0x4000;
@@ -1525,6 +1495,7 @@ export class IntegratedSession {
       }
       this.litLastRasterLine = lv.raster_line;
     }
+    return baLow;
   }
 
   /**

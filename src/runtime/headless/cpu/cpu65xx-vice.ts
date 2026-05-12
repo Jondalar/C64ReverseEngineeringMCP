@@ -139,6 +139,21 @@ export interface Cpu65xxOptions {
    * Mirrors VICE maincpu_int_status / drive[i]->cpu->int_status pattern.
    */
   cpuIntStatus?: InterruptCpuStatus;
+  /**
+   * Spec 425 — C64-only VIC-II cycle hook.
+   *
+   * When provided, `tick()` calls this AFTER alarm-drain + clk++ +
+   * BA-clear, matching VICE `CLK_INC()` from c64cpusc.c:47:
+   *
+   *   interrupt_delay();
+   *   maincpu_clk++;
+   *   maincpu_ba_low_flags &= ~MAINCPU_BA_LOW_VICII;
+   *   maincpu_ba_low_flags |= vicii_cycle();
+   *
+   * Return value = VICE `ba_low` (1 if BA-low, 0 otherwise).
+   * Drive 1541 CPU MUST NOT receive this hook.
+   */
+  c64ViciiCycle?: () => 0 | 1;
 }
 
 /**
@@ -331,11 +346,14 @@ export class Cpu65xxVice implements CycleSteppable {
   public readonly ioPortHook?: IoPort6510Hook;
   /** Optional VICE-style alarm context. See Cpu65xxOptions.alarmContext. */
   public readonly alarmContext?: AlarmContext;
+  /** Spec 425 — C64 VIC-II cycle hook (= VICE CLK_INC's vicii_cycle call). */
+  private c64ViciiCycle?: () => 0 | 1;
 
   constructor(opts: Cpu65xxOptions) {
     this.memory = opts.memBus;
     this.ioPortHook = opts.ioPortHook;
     this.alarmContext = opts.alarmContext;
+    this.c64ViciiCycle = opts.c64ViciiCycle;
     // Spec 309 Phase C: use provided status or create private one.
     // Phase F (IntegratedSession) will pass the shared maincpuIntStatus here.
     this.cpuIntStatus = opts.cpuIntStatus ?? new InterruptCpuStatus();
@@ -352,8 +370,43 @@ export class Cpu65xxVice implements CycleSteppable {
     for (const l of this.busListeners) l(ev);
   }
 
+  /**
+   * Spec 425 — VICE check_ba() / maincpu_steal_cycles() read-stall.
+   *
+   * VICE: mainc64cpu.c:194 check_ba(), mainc64cpu.c:112 maincpu_steal_cycles(),
+   *       vicii-cycle.c:628 vicii_steal_cycles().
+   *
+   * When VIC-II BA is low and CPU is about to read, advance maincpu_clk
+   * + call vicii_cycle() repeatedly until BA releases. Writes pass; this
+   * is called from load*() only, not store().
+   *
+   * Drains pending alarms after the steal (= matches maincpu_steal_cycles
+   * mainc64cpu.c:127).
+   */
+  private checkBaBeforeRead(): void {
+    if (!this.c64ViciiCycle) return;
+    if ((this.maincpu_ba_low_flags & Cpu65xxVice.MAINCPU_BA_LOW_VICII) === 0) return;
+    // VICE vicii_steal_cycles (vicii-cycle.c:628):
+    //   do {
+    //       maincpu_clk++;
+    //       ba_low = vicii_cycle();
+    //   } while (ba_low);
+    // Order matters: clk advances BEFORE vicii_cycle.
+    let guard = 0;
+    let baLow: 0 | 1;
+    do {
+      this.clk = clkAdd(this.clk, 1);
+      baLow = this.c64ViciiCycle();
+      if (++guard > 64) break; // safety cap
+    } while (baLow);
+    this.maincpu_ba_low_flags &= ~Cpu65xxVice.MAINCPU_BA_LOW_VICII;
+    // VICE maincpu_steal_cycles drains alarms after the steal.
+    if (Cpu65xxVice.perCycleAlarmDrain) this.drainAlarms();
+  }
+
   /** LOAD — VICE src/6510core.c. Honors $00/$01 hook on C64. */
   load(addr: WORD): BYTE {
+    this.checkBaBeforeRead();
     const a = u16(addr);
     let v: BYTE;
     if (this.ioPortHook && (a === 0x0000 || a === 0x0001)) {
@@ -640,9 +693,16 @@ export class Cpu65xxVice implements CycleSteppable {
     this.cpuIntStatus.bumpDelays(this.clk);
     // §11 step 2 — advance the global clock.
     this.clk = clkAdd(this.clk, 1);
-    // §11 step 3 — clear VIC-II BA-low for the new cycle. Spec 404
-    // will OR vicii_cycle()'s return value back in.
+    // §11 step 3 — clear VIC-II BA-low for the new cycle.
     this.maincpu_ba_low_flags &= ~Cpu65xxVice.MAINCPU_BA_LOW_VICII;
+    // Spec 425 — VICE CLK_INC's final step: OR vicii_cycle() return
+    // back into maincpu_ba_low_flags. C64-only (drive has no hook).
+    // Cite: c64cpusc.c:47, vicii-cycle.c:374.
+    if (this.c64ViciiCycle) {
+      if (this.c64ViciiCycle()) {
+        this.maincpu_ba_low_flags |= Cpu65xxVice.MAINCPU_BA_LOW_VICII;
+      }
+    }
   }
 
   /**
