@@ -5,7 +5,6 @@
 **Rollout doctrine:** each phase is ONE commit, ONE test gate, ONE
 optional revert. No phase touches more than its phase scope. No
 phase ships without its gate green.
-**Branch:** `vic_bugs`
 **Depends on:** 427 (IM2 regression evidence), 401 (failed shared-core
 foundation), earlier CPU split attempt (Spec 358, not present in current
 tree)
