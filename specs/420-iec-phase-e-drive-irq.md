@@ -1,9 +1,69 @@
 # Spec 420 — IEC Phase E: Drive 6502 IRQ delivery
 
-**Status:** PROPOSED
+**Status:** DONE 2026-05-12
 **Branch:** `vice-arch-port`
 **Depends on:** 419
 **Doctrine:** 1:1 VICE IEC port.
+
+## Completion notes (2026-05-12)
+
+Verification-only landing — no Producer/Consumer code change required.
+All §15 Phase E (steps 13–14) primitives were already in place from
+prior specs:
+
+- INTERRUPT_DELAY=2 (= shared C64 + drive constant per OQ-420-1) lives
+  in `src/runtime/headless/cpu/interrupt-cpu-status.ts:29` and is used
+  by `checkIrqDelay`/`checkNmiDelay` (= 1:1 with VICE
+  `interrupt_check_irq_delay`, `vice/src/maincpu.c:484` +
+  byte-identical `vice/src/drive/drivecpu.c:330-351`,
+  `vice/src/interrupt.h:39`).
+- 7-cycle drive 6502 IRQ entry = `cpu65xx-vice.ts:516 doInterrupt`
+  (microcoded path) + `cpu65xx-vice.ts:1239 serviceInterrupt` (legacy
+  call site). Both honour DO_INTERRUPT layout: 2 dummy reads + 3
+  pushes (PCH/PCL/P) + 2 vector reads at $FFFE/$FFFF
+  (= `vice/src/6510core.c:436` DO_INTERRUPT macro).
+- 1541 DOS ROM IRQ vector = $FE67 (= OQ-420-2 byte-level verify on
+  vendored `resources/roms/dos1541-325302-01+901229-05.bin` offset
+  0x3FFE/0x3FFF = `0x67 0xFE`).
+- VIA1 chip-side IRQ push from spec 410 already routes
+  `viacore_signal` → `set_int` → `cpuIntStatus.setIrq` with `rclk =
+  drive_clk`, eliminating any drive-side polling bridge for VIA1
+  (per `Via1d1541.attachIrqLine` at `via1d1541.ts:198` —
+  cite `vice/src/drive/iec/via1d1541.c:92`).
+- Per-cycle `bumpDelays` happens inside the cycled CPU's CLK_INC
+  analogue, so the gate `*drv->clk_ptr >= irq_clk + INTERRUPT_DELAY`
+  fires at the first instruction boundary satisfying the rule.
+
+New smoke `scripts/smoke-420-drive-irq-delay.mjs` (8 sub-tests):
+1. INTERRUPT_DELAY constant pinned to 2.
+2. ATN edge → drive `cpuIntStatus.irqClk` stamped at `drive_clk`.
+3. `checkIrqDelay` false at +1 cycle, true at +2 cycles.
+4. Drive 6502 IRQ entry consumes exactly 7 drive cycles
+   (DO_INTERRUPT) and lands inside the handler at $FE67/$FE68.
+5. Vendored 1541 DOS ROM offset 0x3FFE/0x3FFF = `0x67 0xFE` (= $FE67).
+
+Acceptance gate (game-affecting tier per PLAN.md):
+
+- `npm run build` zero TS errors.
+- `smoke:cpu-fidelity` 31/31, `smoke:cia-fidelity` 22/22.
+- `smoke:fidelity-backlog` 6/6.
+- VICE drive testprogs 4/4 (`run-cia-suite.mjs --group drive`).
+- New `smoke:420-drive-irq-delay` 8/8.
+- MM s1 — boot reaches PC=$65f (character select) from t=60s onward
+  (= existing baseline preserved).
+- Scramble Infinity — LOAD complete, game loop visible (PC oscillates
+  $9003 / $9062 / $9715 / $9721, well within title-bitmap region per
+  baseline $9709).
+
+Files touched:
+
+- `specs/420-iec-phase-e-drive-irq.md` (this — DONE marker + notes).
+- `scripts/smoke-420-drive-irq-delay.mjs` (new).
+- `package.json` (register `smoke:420-drive-irq-delay`).
+
+`cpu65xx-vice.ts`, `via1d1541.ts`, and `drive-cpu.ts` were NOT
+modified — verification-only per spec wording ("DO NOT touch
+cpu65xx-vice.ts (= deferred CPU-core sprint)").
 
 ## Goal
 
