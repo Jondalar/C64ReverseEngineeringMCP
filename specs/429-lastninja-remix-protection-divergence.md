@@ -227,3 +227,68 @@ that records the page+offset rather than the actual register.
 4. **Keyboard matrix default state** audit — our matrix may
    return wrong "no key pressed" value vs real C64 floating
    inputs.
+
+## Root-cause analysis 2026-05-12 (DuckDB deep dive)
+
+**Keyboard scan red herring — verified clean.**
+
+\$1108 routine (table-driven CIA1 keyboard scan) executed 7 times
+in jiffy IRQ context (PCs $1084-$10A1 wrap = full IRQ handler with
+PLA/PLA/PLA/RTI exit). Every call stored mask=$01 at \$1387 and
+mask=$04 at \$138A — meaning PB read returned \$FF (= no key).
+Our CIA1+keyboard impl produces correct values.
+
+**True crash sequence**:
+
+```
+clk 232242010 PC=$0848  STA #$7F → $DC0D  (disable all CIA1 IRQ)
+... game runs main loop ($0B86 BIT $D011/BPL = raster wait,
+    $0913 NOP/DEY/BNE delay, $0B2F-$0B53 mem-copy) ...
+clk 232391431 PC=$0369  CMP / BNE-not-taken  (state-machine check)
+clk 232391436 PC=$0384  CLC
+clk 232391442 PC=$0385  RTS  (sub-return SP $FB→$FD)
+clk 232391444 PC=$035A  BEQ  (mem-copy STA(zp),Y/INY/INC ZP loop)
+clk 232391467 PC=$0365  RTS  (sub-return SP $FB→$FD)
+clk 232391470 PC=$02C9  JMP $1400  ← legit game flow
+clk 232391471 PC=$1400  op $64 — GARBAGE DATA executed as code
+clk 232391474 PC=$1402  op $7C (illegal)
+clk 232391481 PC=$1407  op $87 (illegal SAX)
+clk 232391487 PC=$1409  op $79 ADC abs,Y
+clk 232391494 PC=$140C  op $00  BRK  ← crash
+clk 232391498 PC=$FF6F  (BRK vector + KERNAL trampoline)
+...
+clk 232395209 PC=$FF70  STA $81 → $DC0D  (KERNAL re-enables CIA1)
+clk 232395211             CIA1 irq_assert (jiffy IFR pending fires)
+clk ...       PC=$E5CF  KERNAL READY
+```
+
+**Conclusion**: \$1400 contains GARBAGE, not loaded code.
+\$02C9 JMP \$1400 is *intended* game flow. The bytes at \$1400+
+should have been loaded from disk but were not.
+
+**= disk LOAD / fastloader data integrity bug, NOT a keyboard
+or CIA issue.**
+
+\$02C9 has only 1 hit in 155M-instruction trace = code reached
+this branch exactly once via game's state machine, and that's
+when it failed.
+
+## Investigation pivot
+
+1. Dump headless memory \$1400-\$14FF after LOAD"*",8,1 + RUN.
+2. Capture VICE x64sc same state at same clock. Diff bytes.
+3. Identify the file (LNR uses multi-file load via fastloader)
+   that should populate \$1400. Inspect disk directory + file
+   header records.
+4. If file load incomplete → identify byte/sector boundary
+   where fastloader truncated.
+5. If file load correct but bytes still differ → fastloader
+   sector-decode bug.
+
+## Out of scope (revised)
+
+- CIA1 keyboard matrix (verified clean).
+- CIA1 timer IRQ timing (game disabled, verified).
+- VIC raster IRQ (game polls $D011 in main loop, works).
+- $1108 protection-routine analysis (not protection — normal
+  keyboard scan, returns "no key" as expected).
