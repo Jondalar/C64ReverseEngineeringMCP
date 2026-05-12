@@ -39,7 +39,13 @@ export class IecBusCore {
   public readonly drv_data = new Uint8Array(16);   // raw drive PB output (= ~ORB)
   public drv_port = 0x85;      // effective bus state seen by drive (= READ_DATA|READ_CLK|READ_ATN)
 
-  // VICE iec_old_atn state for ATN edge detection (src/iecbus/iecbus.c:65).
+  // VICE iec_old_atn state for ATN edge detection.
+  // Spec 419 — Phase D pin (= §15 step 10 + §17.4 OQ-419-1).
+  // VICE: `static uint8_t iec_old_atn = 0x10;` at
+  //   src/iecbus/iecbus.c:65 — file-scope single static (NOT per-bus
+  //   / per-unit), shared across all iecbus_cpu_write_conf{1,2,3}
+  //   variants and re-seeded on undump via iecbus_cpu_undump
+  //   (src/iecbus/iecbus.c:208).
   public iec_old_atn = 0x10;   // initial: ATN released (cpu_bus & 0x10 = 0x10)
 
   constructor() {
@@ -140,22 +146,33 @@ export class IecBusCore {
     onAtnEdge?: (risingEdge: boolean) => void,
   ): void {
     this.iec_update_cpu_bus(data);
-    // ATN edge detection (iecbus.c:247-268).
+    // Spec 419 — Phase D ATN edge detection (= §15 step 10 +
+    // §17.4 OQ-419-1).
+    // VICE: src/iecbus/iecbus.c:247-268 (write_conf1 body). The
+    // compare uses the (cpu_bus & 0x10) mask verbatim against
+    // `iec_old_atn`; on change `iec_old_atn` is updated to the
+    // NEW state and `viacore_signal(via1d1541, VIA_SIG_CA1, edge)`
+    // is fired with `edge = iec_old_atn ? 0 : VIA_SIG_RISE`.
+    //   - iec_old_atn = 0x10 (HIGH/released) → pass 0 (= falling-edge tag)
+    //   - iec_old_atn = 0    (LOW /asserted) → pass VIA_SIG_RISE (=1, rising-edge tag)
+    // The signal arg is a polarity-tag (= "polarity tag of just-
+    // observed edge"); viacore_signal then matches it against
+    // `PCR & VIA_PCR_CA1_CONTROL` (= PCR bit 0). See §17.4 OQ-419-2:
+    // src/via.h:139-140 define VIA_SIG_FALL=0, VIA_SIG_RISE=1.
     const newAtn = this.cpu_bus & 0x10;
     if (this.iec_old_atn !== newAtn) {
       this.iec_old_atn = newAtn;
-      // VICE: viacore_signal(via1d1541, VIA_SIG_CA1, iec_old_atn ? 0 : VIA_SIG_RISE)
-      // - iec_old_atn = 0x10 (HIGH/released) → pass 0 (= falling-edge tag)
-      // - iec_old_atn = 0    (LOW /asserted) → pass VIA_SIG_RISE (=1, rising-edge tag)
-      // This is OPPOSITE of physical edge direction. The signal arg
-      // is "polarity tag of just-observed edge". viacore_signal then
-      // checks if PCR matches.
       if (onAtnEdge) {
-        // Risk: misnamed param. Actually VICE passes EDGE-DIRECTION-OPPOSITE
-        // tag, but viacore_signal interprets it together with PCR. For our
-        // simpler pulseCa1, we pass the level (newLevel = atnLine boolean).
-        // newAtn = 0x10 → ATN released (HIGH) → newLevel = true
-        // newAtn = 0    → ATN asserted (LOW)  → newLevel = false
+        // We deviate from VICE's polarity-tag-on-bus by passing the
+        // post-inverter CA1 input LEVEL boolean to driveVia1.pulseCa1
+        // (= iec-bus.ts), which models the 7406 inverter explicitly
+        // and tracks `_lastCa1` to derive the actual CA1 pin edge.
+        // The end-result IFR set matches VICE 1:1 for both the DOS
+        // 1541 ROM PCR=$01 (= positive edge, fires on ATN ASSERT)
+        // and PCR=0 (= negative edge) configurations — see
+        // scripts/smoke-419-atn-edge.mjs sub-test 4.
+        //   newAtn = 0x10 → ATN released (HIGH) → onAtnEdge(true)
+        //   newAtn = 0    → ATN asserted (LOW)  → onAtnEdge(false)
         onAtnEdge(newAtn !== 0);
       }
     }

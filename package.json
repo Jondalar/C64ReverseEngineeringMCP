@@ -84,6 +84,7 @@
     "smoke:416-iecbus-formulas": "npm run build:mcp && node scripts/smoke-416-iecbus-formulas.mjs",
     "smoke:417-cia2-iecbus": "npm run build:mcp && node scripts/smoke-417-cia2-iecbus.mjs",
     "smoke:418-push-flush-coverage": "npm run build:mcp && node scripts/smoke-418-push-flush-coverage.mjs",
+    "smoke:419-atn-edge": "npm run build:mcp && node scripts/smoke-419-atn-edge.mjs",
     "smoke:serial-matrix": "npm run build:mcp && node scripts/smoke-serial-matrix.mjs",
     "smoke:g64-fidelity": "npm run build:mcp && node scripts/smoke-g64-fidelity.mjs",
     "smoke:write-support": "npm run build:mcp && node scripts/smoke-write-support.mjs",

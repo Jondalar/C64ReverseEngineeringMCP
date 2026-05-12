@@ -401,6 +401,15 @@ export class Via6522Vice {
   }
 
   // ---- viacore_signal (lines 441-474) — backend → VIA edge -------------
+  // Spec 419 — Phase D pin (= §15 step 11 + §5.5 + §17.4 OQ-419-2).
+  // VICE constants: src/via.h:134 `#define VIA_SIG_CA1 0`,
+  //   src/via.h:139 `#define VIA_SIG_FALL 0`, :140 `VIA_SIG_RISE 1`.
+  // VICE viacore_signal CA1 case at src/core/viacore.c:441-461 gates
+  // IFR_CA1 set on `(edge ? 1 : 0) == (PCR & VIA_PCR_CA1_CONTROL)`,
+  // i.e. the polarity tag must equal PCR bit 0. After the gate it
+  // calls `update_myviairq` (= update_myviairq_rclk(via, *clk_ptr),
+  // src/core/viacore.c:203-213) which forwards `set_int(num, value,
+  // rclk = *clk_ptr)` to the backend (= §15 step 12 rclk stamping).
   signal(line: ViaSignalLine, edge: ViaSignalEdge): void {
     const edgeBit = edge === "rise" ? 1 : 0;
     switch (line) {

@@ -1,9 +1,34 @@
 # Spec 419 — IEC Phase D: ATN edge + CA1
 
-**Status:** PROPOSED
+**Status:** ACCEPTED 2026-05-12
 **Branch:** `vice-arch-port`
 **Depends on:** 418
 **Doctrine:** 1:1 VICE IEC port.
+
+## Resolution summary (2026-05-12)
+
+Audit confirmed that all three Phase D producer requirements were
+already in place from earlier spec work (motm-via1-ca1 fix, Spec 410,
+Spec 416). This spec ships:
+
+1. Doc + VICE source citations pinned in
+   `iec-bus-core.ts` (`iec_old_atn` + `c64_store_dd00` ATN-edge),
+   `iec-bus.ts` (`_performC64Write` ATN-edge callback),
+   `via6522-vice.ts` (`signal()` CA1 case),
+   `via1d1541.ts` (`signalAtnEdge` + `pulseCa1`).
+2. New smoke `scripts/smoke-419-atn-edge.mjs` (16/16 PASS) covering
+   the integrated CIA2 PA → IEC bus → drive VIA1 CA1 IFR + IRQ
+   stamping path within INTERRUPT_DELAY drive cycles.
+3. Verification of OQ-419-1 (= `iec_old_atn` is single file-scope
+   static, init `0x10`) and OQ-419-2 (= VIA_SIG_CA1=0,
+   VIA_SIG_FALL=0, VIA_SIG_RISE=1 per `vice/src/via.h:134, 139-140`).
+
+Bonus finding (2026-05-12): doc §5.5 / §17.4 statement "DOS 1541 ROM
+clears PCR bit 0 → IFR_CA1 fires on falling edge" is contradicted by
+direct ROM inspection. The ROM at `$EB2F` writes `LDA #$01 / STA $180C`
+⇒ PCR=$01 (= positive edge, fires on ATN ASSERTED). Verified against
+`resources/roms/dos1541-325302-01+901229-05.bin`. The TS port matches
+this convention end-to-end.
 
 ## Goal
 

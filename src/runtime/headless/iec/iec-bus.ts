@@ -310,12 +310,20 @@ export class IecBus {
       this.pushFlush.one(8, clock, this.flushCycleStepped);
     }
     // Spec 418 steps 2-5 — atomic mutation block.
+    // Spec 419 — Phase D: the ATN-edge callback issued from
+    // core.c64_store_dd00 fires `viacore_signal(via1d1541, VIA_SIG_CA1,
+    // ...)` analog. Doc: §15 Phase D step 10 + §5.5 + §17.4.
+    // VICE: src/iecbus/iecbus.c:247-268 (= the iecbus_cpu_write_conf1
+    // ATN-edge → viacore_signal → update_myviairq_rclk chain).
+    // Per 1541 schematic + VICE iecbus.c logic: CA1 input pin sees
+    // INVERTED ATN line (7406 inverter). ATN line LOW (asserted) →
+    // CA1 HIGH. DOS 1541 ROM at $EB2F writes PCR=$01 (= positive
+    // edge) → fires on assertion. Pass !atnHigh so pulseCa1 sees the
+    // CA1 input level; pulseCa1 derives the edge tag and forwards to
+    // via.signal("ca1", "rise"|"fall") which matches the VICE
+    // viacore_signal polarity-gate at src/core/viacore.c:441-461.
     this.core.c64_store_dd00(data & 0xff, (atnHigh) => {
       const stamp = this.driveClockSource?.();
-      // Per 1541 schematic + VICE iecbus.c logic: CA1 input pin sees
-      // INVERTED ATN line (7406 inverter). ATN line LOW (asserted) →
-      // CA1 HIGH. Drive ROM PCR=\$01 (positive edge) → fires on
-      // assertion. Pass !atnHigh so pulseCa1 sees the CA1 input level.
       this.driveVia1?.pulseCa1(!atnHigh, stamp);
       this.prevAtnLow = !atnHigh;
     });

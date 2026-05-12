@@ -209,12 +209,14 @@ export class Via1d1541 {
   /**
    * Forward an ATN edge from the C64 → drive VIA1 CA1.
    *
-   * VICE wiring: c64iec.c iec_update_ports + iecbus.c
-   * iecbus_cpu_write_conf1 lines 247-268 detect ATN edge and call
-   * `viacore_signal(via1d1541, VIA_SIG_CA1, edge)` where edge =
-   * `iec_old_atn ? 0 : VIA_SIG_RISE`. iec_old_atn = 0x10 → ATN
-   * released (line HIGH) → tag 0; iec_old_atn = 0 → ATN asserted
-   * (LOW) → tag 1.
+   * Spec 419 — Phase D step 10 + §17.4 OQ-419-2 (verbatim VICE
+   * polarity-tag convention). VICE: src/iecbus/iecbus.c:247-268
+   * (write_conf1 ATN-edge → `viacore_signal(via1d1541, VIA_SIG_CA1,
+   * iec_old_atn ? 0 : VIA_SIG_RISE)`); src/via.h:134, :139-140
+   * define VIA_SIG_CA1=0, VIA_SIG_FALL=0, VIA_SIG_RISE=1.
+   *
+   * iec_old_atn = 0x10 → ATN released (line HIGH) → tag 0;
+   * iec_old_atn = 0    → ATN asserted (LOW)       → tag 1.
    *
    * @param risingEdgeTag VICE-style edge tag — true = "tag 1" (ATN
    *        just went LOW i.e. asserted), false = "tag 0" (released).
@@ -327,13 +329,24 @@ export class Via1d1541 {
    * Legacy: pulseCa1 shim — translates old `pulseCa1(newLevel, stamp?)` API
    * to the VICE `signal(ca1, rise|fall)` call used by iec-bus.ts ATN edge.
    *
-   * VICE CA1 polarity on VIA1: PCR=0x01 → positive edge, PCR=0x00 →
-   * negative edge. The drive ROM writes PCR=$01 so CA1 fires on ATN
-   * assertion (CA1 input goes HIGH when ATN goes LOW — inverter in path).
+   * Spec 419 — Phase D step 10 + 11. VICE CA1 polarity on VIA1: PCR=0x01
+   * → positive edge, PCR=0x00 → negative edge. The DOS 1541 ROM at
+   * $EB2F writes `LDA #$01 / STA $180C` ⇒ PCR=$01 so CA1 fires on
+   * ATN assertion (CA1 input goes HIGH when ATN goes LOW — 7406
+   * inverter in path). Verified 2026-05-12 against
+   * resources/roms/dos1541-325302-01+901229-05.bin.
+   *
+   * VICE viacore_signal: src/core/viacore.c:441-461 gates IFR_CA1 on
+   * `(edge ? 1 : 0) == (PCR & VIA_PCR_CA1_CONTROL)` — see
+   * via6522-vice.ts signal() for the 1:1 port and
+   * scripts/smoke-419-atn-edge.mjs for end-to-end coverage.
    *
    * The legacy pulseCa1(newLevel) convention: `true` = pin HIGH.
    * VICE viacore_signal convention: `rise` = pin transitions high.
-   * We detect the edge by comparing with the last seen pin state.
+   * We detect the edge by comparing with the last seen pin state
+   * (= explicit `_lastCa1` track) instead of VICE's polarity-tag
+   * pattern; the end-result IFR set matches VICE 1:1 for both PCR
+   * configurations.
    */
   private _lastCa1 = true; // starts high (ATN released)
   pulseCa1(newLevel: boolean, _clockStamp?: number): void {
