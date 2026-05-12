@@ -1,9 +1,34 @@
 # Spec 418 — IEC Phase C: Push-flush model
 
-**Status:** PROPOSED
+**Status:** DONE (2026-05-12)
 **Branch:** `vice-arch-port`
 **Depends on:** 417
 **Doctrine:** 1:1 VICE IEC port.
+
+## Implementation summary
+
+- `IecBus.pushFlush` injected by the kernel, called from
+  `_performC64Write` (= `drive_cpu_execute_one(8, clock)`) and
+  `_performC64Read` (= `drive_cpu_execute_all(clock)`) BEFORE any
+  cpu_bus / drv_bus / cpu_port / drv_port mutation. The flush is
+  now a property of the IecBus mutation primitive itself, not an
+  optional KernelBus precondition.
+- Spec 218 PC-based hybrid-sync hint (`cycleStepped = pc < 0xa000`)
+  preserved by forwarding through `setC64Output` / `buildC64InputBits`
+  → `flushCycleStepped` → `pushFlush.{one,all}(unit, clk, cycleStepped)`.
+- Old `catchUpDriveIfReady` in `headless-kernel-bus.ts` retired;
+  replaced by `computeCycleStepped(ctx)` (same PC heuristic, no
+  duplicate flush).
+- Atomic mutation: §15 step 9 invariant met by JS synchronous
+  execution — `core.c64_store_dd00` runs `iec_update_cpu_bus`,
+  ATN-edge propagation, `recompute_drv_bus(8)` and
+  `iec_update_ports` as one unit; the drive cannot tick between
+  steps.
+- New smoke `scripts/smoke-418-push-flush-coverage.mjs` (24/24)
+  asserts (a) auditor records every conf{0..3} read+write call,
+  (b) flush fires before mutation (snapshot equality), (c)
+  cycleStepped flag travels verbatim, (d) pushFlush is optional
+  for back-compat smokes.
 
 ## Goal
 

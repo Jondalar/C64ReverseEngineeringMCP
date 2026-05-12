@@ -421,6 +421,34 @@ export class HeadlessMachineKernel implements MachineKernel {
     // Spec 141 v2: drive clock source for ATN edge IRQ stamping.
     this.iecBus.driveClockSource = () =>
       (this.drive.cpu as { cycles: number }).cycles;
+    // Spec 418 — push-flush invariant per docs/vice-iec-arc42.md
+    // §15 Phase C steps 7-9 + §5.11 call-site enumeration.
+    //
+    // VICE 1:1 mapping:
+    //   IecBus.pushFlush.one(unit, clk)  ⇒ drive_cpu_execute_one(unit, clk)
+    //                                        (src/iecbus/iecbus.c:241,
+    //                                         src/drive/drive.c:991)
+    //   IecBus.pushFlush.all(clk)        ⇒ drive_cpu_execute_all(clk)
+    //                                        (src/iecbus/iecbus.c:229,
+    //                                         src/drive/drive.c:1001)
+    //
+    // Promoted from a KernelBus precondition (Spec 218
+    // `catchUpDriveIfReady`) to a property of the IecBus mutation
+    // primitive itself, so a future caller cannot mutate the bus
+    // without flushing first. KernelBus retains the cycleStepped
+    // PC heuristic (Spec 218 hybrid hack) and forwards it through
+    // setC64Output/buildC64InputBits → flushCycleStepped.
+    this.iecBus.pushFlush = {
+      one: (unit, clk, cycleStepped) => {
+        if (unit !== 8) return;
+        this.catchUpDrive(8, clk, cycleStepped);
+      },
+      all: (clk, cycleStepped) => {
+        // Single-1541 baseline: "all" == "unit 8". Multi-drive (conf3)
+        // would walk every active TDE unit here.
+        this.catchUpDrive(8, clk, cycleStepped);
+      },
+    };
     // Spec 090 / Spec 409: configure drive's sync_factor + zero baseline.
     //
     // VICE init path (`drive_set_machine_parameter(cyclesPerSec)`) takes

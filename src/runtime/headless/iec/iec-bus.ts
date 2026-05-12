@@ -97,6 +97,43 @@ export class IecBus {
   // Spec 141 v2: drive clock source for ATN-edge IRQ stamping.
   public driveClockSource?: () => number;
 
+  // Spec 418 — Push-flush invariant per docs/vice-iec-arc42.md §15
+  // Phase C step 7 + §5.11 call-site enumeration. Injected by the
+  // owning kernel; executed by `_performC64Write` /
+  // `_performC64Read` BEFORE any cpu_bus / drv_bus / cpu_port /
+  // drv_port mutation.
+  //
+  // VICE 1:1 mapping (cf. §5.11 verified table 2026-05-11):
+  //   - `flushAll(clock)`  ⇒ `drive_cpu_execute_all(clock)`
+  //                          (= read sites: iecbus_cpu_read_conf{1,2,3})
+  //   - `flushOne(clock)`  ⇒ `drive_cpu_execute_one(unit, clock)`
+  //                          (= write sites: iecbus_cpu_write_conf{1,2})
+  //
+  // VICE source:
+  //   src/iecbus/iecbus.c:229   (read_conf1 → drive_cpu_execute_all)
+  //   src/iecbus/iecbus.c:241   (write_conf1 → drive_cpu_execute_one)
+  //   src/drive/drive.c:991     (drive_cpu_execute_one)
+  //   src/drive/drive.c:1001    (drive_cpu_execute_all)
+  //
+  // For x64sc + single 1541 on unit 8 (= conf1) the only sites that
+  // fire are the conf1 pair; both call drive_cpu_execute_{one,all}
+  // BEFORE mutating bus state. Doc §17.3 OQ-418-1 resolution.
+  public pushFlush?: { all: (clock: number, cycleStepped: boolean) => void; one: (unit: number, clock: number, cycleStepped: boolean) => void };
+
+  // Spec 418 — instrumentation hook (smoke-only). Records every site
+  // that drove a push-flush so the smoke can assert each VICE §5.11
+  // call site in TS actually issues the flush before mutation. Do
+  // not use for production logic.
+  public flushAuditor?: (rec: { kind: "all" | "one"; site: "c64-write" | "c64-read"; clock: number; preCpuBus: number; preCpuPort: number; cycleStepped: boolean }) => void;
+
+  // Spec 418 — per-call cycleStepped hint, set by setC64Output /
+  // buildC64InputBits before they invoke the callback dispatcher and
+  // cleared right after. Forwarded to pushFlush.{one,all} so the
+  // kernel can preserve its Spec 218 PC-based hybrid-sync rule.
+  // Default false ("KERNAL whole-instruction flush") matches the old
+  // catchUpDriveIfReady fallback when no PC was supplied.
+  private flushCycleStepped = false;
+
   // Drive VIA1 reference for ATN edge propagation.
   private driveVia1?: DriveVia1Like;
 
@@ -220,7 +257,7 @@ export class IecBus {
   // which is where the cpu_bus mutation + ATN edge propagation lives.
   // Doc anchors: §15 Phase B step 4 + §17.2 OQ-417-1.
   // VICE: src/c64/c64cia2.c:148-162.
-  setC64Output(cia2Pa: number, _ddrMask: number, effectiveClock?: number): void {
+  setC64Output(cia2Pa: number, _ddrMask: number, effectiveClock?: number, cycleStepped?: boolean): void {
     // Per c64cia2.c:150 — invert raw PA byte before iecbus.
     const inverted = (~cia2Pa) & 0xff;
     // Spec 417: route through the VICE callback pointer. CIA2 normally
@@ -229,18 +266,50 @@ export class IecBus {
     // a missing clock degrades to the live drive-clock source so
     // legacy direct callers (smokes / serial-matrix tests) still work.
     const clock = effectiveClock ?? this.driveClockSource?.() ?? 0;
+    // Spec 418 — convey the per-call cycleStepped hint used by
+    // _performC64Write's pushFlush path. KernelBus passes
+    // `pc < 0xa000` (Spec 218 hybrid hack; see headless-kernel-bus.ts).
+    this.flushCycleStepped = cycleStepped === true;
     this.callbacks.callbackWrite(inverted, clock);
+    this.flushCycleStepped = false;
     this.busAccessProducer?.emitC64Access({ op: "write", addr: this.cia2PaAddr, value: cia2Pa & 0xff });
   }
 
-  // Spec 417 — actual cpu_bus mutation. Called from the conf1 callback
-  // (or directly by smokes that bypass CIA2). Mirrors VICE
-  // iecbus_cpu_write_conf1 (src/iecbus/iecbus.c:226-287) without the
-  // drive_cpu_execute_one() flush — KernelBus already does that via
-  // `catchUpDriveIfReady` on the c64Write path. `data` is the inverted
-  // PA byte.
-  private _performC64Write(data: number, _clock: number): void {
+  // Spec 417 / Spec 418 — atomic flush + cpu_bus mutation. Called from
+  // the conf1 callback (or directly by smokes that bypass CIA2).
+  //
+  // VICE 1:1 sequence (src/iecbus/iecbus.c:237-287, write_conf1):
+  //   1. drive_cpu_execute_one(unit, clock)         ← push-flush (Spec 418)
+  //   2. iec_update_cpu_bus(data)                   ← cpu_bus mutation
+  //   3. ATN edge check + viacore_signal(VIA1, CA1) ← edge propagation
+  //   4. recompute drv_bus[8]                       ← drive contribution
+  //   5. iec_update_ports                           ← cpu_port + drv_port
+  //
+  // Steps 2-5 happen inside core.c64_store_dd00 and execute as one
+  // synchronous JS unit — the drive cannot tick between them (= the
+  // §15 step 9 atomicity invariant; doc §16 invariant 1).
+  //
+  // Doc anchors: §15 Phase C steps 7-9, §5.11 (write_conf1 row 1),
+  // §6.1 sequence diagram. Spec 418 promotes the flush from a
+  // KernelBus precondition (which a future caller could forget) to
+  // a property of the IecBus mutation primitive itself.
+  // `data` is the post-`tmp = ~byte` inverted PA byte (c64cia2.c:150).
+  private _performC64Write(data: number, clock: number): void {
     const prev = { atn: this.atnLine, clk: this.clkLine, data: this.dataLine };
+    // Spec 418 step 1 — push-flush BEFORE any state mutation.
+    // VICE: src/iecbus/iecbus.c:241 → drive_cpu_execute_one(unit, clock).
+    if (this.pushFlush) {
+      this.flushAuditor?.({
+        kind: "one",
+        site: "c64-write",
+        clock,
+        preCpuBus: this.core.cpu_bus,
+        preCpuPort: this.core.cpu_port,
+        cycleStepped: this.flushCycleStepped,
+      });
+      this.pushFlush.one(8, clock, this.flushCycleStepped);
+    }
+    // Spec 418 steps 2-5 — atomic mutation block.
     this.core.c64_store_dd00(data & 0xff, (atnHigh) => {
       const stamp = this.driveClockSource?.();
       // Per 1541 schematic + VICE iecbus.c logic: CA1 input pin sees
@@ -284,18 +353,45 @@ export class IecBus {
   // (`iecbus_callback_read`), which for the V2 single-drive baseline
   // dispatches to conf1. Doc anchors: §15 Phase B step 5 + §17.2.
   // VICE: src/c64/c64cia2.c read_ciapa, src/iecbus/iecbus.c:226.
-  buildC64InputBits(effectiveClock?: number): number {
+  buildC64InputBits(effectiveClock?: number, cycleStepped?: boolean): number {
     const clock = effectiveClock ?? this.driveClockSource?.() ?? 0;
+    // Spec 418 — convey cycleStepped hint to _performC64Read's
+    // pushFlush call. Same Spec 218 hybrid-sync rule as the write side.
+    this.flushCycleStepped = cycleStepped === true;
     const result = this.callbacks.callbackRead(clock) & 0xff;
+    this.flushCycleStepped = false;
     this.busAccessProducer?.emitC64Access({ op: "read", addr: this.cia2PaAddr, value: result });
     return result;
   }
 
-  // Spec 417 — actual cached cpu_port readback. Mirrors VICE
-  // iecbus_cpu_read_conf1 (src/iecbus/iecbus.c:226-237) without the
-  // drive_cpu_execute_all() — KernelBus's `catchUpDriveIfReady` does
-  // that on the c64Read path.
-  private _performC64Read(_clock: number): number {
+  // Spec 417 / Spec 418 — atomic flush + cached cpu_port readback.
+  //
+  // VICE 1:1 sequence (src/iecbus/iecbus.c:226-234, read_conf1):
+  //   1. drive_cpu_execute_all(clock)  ← push-flush (Spec 418)
+  //   2. return iecbus.cpu_port        ← cached readback (no mutation)
+  //
+  // The read variant does not mutate state, but the flush is still
+  // mandatory: the C64's observed `cpu_port` already includes the
+  // AND-fold of every drv_bus[unit] (cf. core.iec_update_ports), and
+  // those drv_bus contributions only reflect drive activity up to
+  // the drive's last instruction boundary. Without the flush, the
+  // drive would still be lagging and the C64 would read a stale
+  // bus snapshot — observable at every fastloader bit-pump.
+  //
+  // Doc anchors: §15 Phase C steps 7-9, §5.11 (read_conf1 row 2),
+  // §6.2 sequence diagram, §16 invariant 1.
+  private _performC64Read(clock: number): number {
+    if (this.pushFlush) {
+      this.flushAuditor?.({
+        kind: "all",
+        site: "c64-read",
+        clock,
+        preCpuBus: this.core.cpu_bus,
+        preCpuPort: this.core.cpu_port,
+        cycleStepped: this.flushCycleStepped,
+      });
+      this.pushFlush.all(clock, this.flushCycleStepped);
+    }
     return this.core.cpu_port & 0xff;
   }
 
