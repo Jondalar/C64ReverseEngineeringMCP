@@ -1532,13 +1532,15 @@ export class IntegratedSession {
     //      canvas (display first pixel = canvas x=32). Crop to canvas.
     //
     // Output: VICE x64sc PAL canvas convention = 384×272 visible window.
-    //   - Display columns 0..39 land in dbuf at [128..447] (= cycle 17
-    //     phi1 emit at dbuf[128]).
+    //   - Empirical dbuf measurement (Spec 428 / IM2 fix follow-up):
+    //     display columns land in dbuf[136..455] (= 320 px).
     //   - Add 32-px left border + 32-px right border:
-    //       canvas crop X = dbuf[96..480] = 384 px wide
+    //       canvas crop X = dbuf[104..488] = 384 px wide, balanced.
+    //   - Previous X0=96 gave L=40px / R=24px (asymmetric, visible bug
+    //     reported by user — UI rechte Border zu schmal).
     //   - First displayed line per VICE PAL = line 16, height 272:
     //       canvas crop Y = fb[16..288] = 272 px tall
-    const CANVAS_X0 = 96;
+    const CANVAS_X0 = 104;
     const CANVAS_W = 384;
     const CANVAS_Y0 = 16;
     const CANVAS_H = 272;

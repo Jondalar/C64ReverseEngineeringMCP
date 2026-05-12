@@ -1,6 +1,8 @@
 # Spec 427 — IM2 IEC bus state divergence (CPU stuck before screen fill)
 
-**Status:** FINDING ONLY 2026-05-12 — no implementation in this spec
+**Status:** RESOLVED 2026-05-12 — fixed via Spec 428 Phase D
+**Resolution commit:** `29e816c` (drive dispatch default flipped to
+vice-whole-instruction). IM2 reaches PC=$48E9 title idle loop.
 **Implementation:** see Spec 428 (small-slice phased plan)
 **Branch:** `vic_bugs`
 **Depends on:** 425 (CLK_INC), 426 (VIC bank)
