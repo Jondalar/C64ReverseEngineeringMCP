@@ -1480,19 +1480,25 @@ the spec OQ-id and cites the VICE file:line that answers it.
 ### §17.8 Phase H — Validation (Spec 423)
 
 - **OQ-423-1** (fastloader test corpus):
-  **UNRESOLVED — needs user input.** VICE source does not
-  vendor copy-protected loader test programs. Corpus images
-  (Krill, Bitfire, Sparkle, Spindle, Booze, Hermes,
-  fastloader-tests demos) must be sourced separately and
-  vendored under `samples/fastloader-tests/`. Licensing for
-  each loader's test program needs the user's call.
+  **RESOLVED 2026-05-11** — user decision. Curated subset
+  (= aligned with OQ-415-1):
+  - Krill (= covered via samples/scramble_infinity.d64)
+  - Bitfire (user-vendored under `samples/fastloader-tests/`)
+  - Covert Bitops `c64loader` (MIT) + `c64gameframework`
+    (source builds → own deterministic test disk)
+  - Comaland (PAL scroll-stress demo)
+  Other loaders (Sparkle / Spindle / Booze / Hermes) skipped.
+  `smoke-423-fastloader-corpus.mjs` walks the subset; absent
+  images SKIP-with-reason (= explicit resolved path).
 
 - **OQ-423-2** (per-test PC checkpoints):
-  **UNRESOLVED — needs user input.** Each loader has its own
-  jump-to-game PC; pinning these requires running each test on
-  VICE x64sc with a known-good config and recording the PC at
-  the "game running" state. This is operator work, not
-  VICE-source-answerable.
+  **RESOLVED 2026-05-11** — user decision. Capture-on-first-green
+  strategy: on the first successful boot of each loader, record
+  final PC + screen RAM SHA-256 + PNG as golden master under
+  `samples/golden-master/spec-423/`. Future runs regression-check
+  against the frozen golden. User may later replace the
+  auto-captured golden with a VICE x64sc-verified manual reference
+  (PC + VSF snapshot) once test images are vendored.
 
 ### Summary
 
@@ -1509,5 +1515,5 @@ the spec OQ-id and cites the VICE file:line that answers it.
 | OQ-420-2 | RESOLVED | §17.5, §5.10 |
 | OQ-421-1 | RESOLVED | §17.6, §15 step 16 |
 | OQ-422-1 | RESOLVED (deferred) | §17.7, §5.8 |
-| OQ-423-1 | UNRESOLVED — user input | §17.8 |
-| OQ-423-2 | UNRESOLVED — user input | §17.8 |
+| OQ-423-1 | RESOLVED | §17.8 |
+| OQ-423-2 | RESOLVED | §17.8 |

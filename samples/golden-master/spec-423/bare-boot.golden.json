@@ -1,0 +1,12 @@
+{
+  "spec": "423",
+  "test": "bare-boot",
+  "doc": "docs/vice-iec-arc42.md §15 Phase H step 18",
+  "vice_cite": "src/serial/iecbus.c:148,191",
+  "c64Pc": "$e5cf",
+  "drivePc": "$ec18",
+  "cpu_port": "$80",
+  "drv_port": "$81",
+  "screenRamSha256": "779f678c1cbfcdd2d69c2f8c80da70f20c164bc66027cf078491a2513242c7c4",
+  "c64CycleCount": 7983667
+}

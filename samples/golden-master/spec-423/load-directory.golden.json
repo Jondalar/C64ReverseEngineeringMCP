@@ -1,0 +1,14 @@
+{
+  "spec": "423",
+  "test": "load-directory",
+  "doc": "docs/vice-iec-arc42.md §15 Phase H step 19",
+  "vice_cite": "src/c64/c64cia2.c:213, src/drive/iec/via1d1541.c:212/337",
+  "diskPath": "samples/synthetic/blank.d64",
+  "usingFallback": false,
+  "c64Pc": "$e5cf",
+  "cpu_port": "$c0",
+  "drv_port": "$85",
+  "hasBlocksFree": true,
+  "hasQuotedHeader": true,
+  "screenRamSha256": "f30c150e210a22b3ec3782f8fd6e4154bb7e60d8eb882e531807a38bc54b0531"
+}

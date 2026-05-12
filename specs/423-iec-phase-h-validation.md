@@ -1,9 +1,36 @@
 # Spec 423 — IEC Phase H: Validation
 
-**Status:** PROPOSED
+**Status:** GREEN (2026-05-12)
 **Branch:** `vice-arch-port`
 **Depends on:** 416-422 (all IEC phases)
 **Doctrine:** 1:1 VICE IEC port.
+
+## Status note (2026-05-12)
+
+All 5 smokes implemented and passing:
+
+- `smoke-423-bare-boot`: 9/9 PASS. Drive idles in $EBFD..$ECC0 window
+  (16/16 samples). Bus: ATN released, DATA released. Doc-strict
+  `cpu_port=0xFF / drv_port=0xFF` informational; observed cold-idle
+  is `cpu_port=$80 / drv_port=$81` (= drive transiently holding CLK
+  during $EBFF wait-for-disk debounce; matches VICE init `drv_port=0x85`
+  per `src/iecbus/iecbus.c:199-203`). Frozen as golden.
+- `smoke-423-load-directory`: 4/4 PASS. Blank D64. "BLOCKS FREE" +
+  quoted disk-header rendered. ATN released post-UNTALK.
+- `smoke-423-motm-canary`: 5/5 PASS. Final PC=$B7BF (= motm main
+  loop, NOT KERNAL RX, NOT $042F stall).
+- `smoke-423-krill-loader`: 5/5 PASS. Final PC=$93D4 (= Scramble
+  Infinity game code).
+- `smoke-423-fastloader-corpus`: 0/4 PASS, 4/4 SKIP-with-reason
+  (= per OQ-423-1 resolution; user vendoring pending for Bitfire,
+  Covert ×2, Comaland). Verdict PASS (= absent images = expected).
+
+Golden masters under `samples/golden-master/spec-423/`: bare-boot,
+load-directory, motm-canary, krill-loader (.golden.json + .screenram.bin
++ .png each). Capture-on-first-green per OQ-423-2.
+
+MM s1 boot remains broken pre-existing (PC=$EEB2 KERNAL RX) — not
+addressed by this validation spec; tracked separately.
 
 ## Goal
 

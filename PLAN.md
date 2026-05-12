@@ -109,6 +109,17 @@ Every step must end with:
 | 422 | IEC Phase G: Burst mode (optional) | iec §15 G (17) |
 | 423 | IEC Phase H: Validation | iec §15 H (18–21) |
 
+## vice-arch-port status (2026-05-12)
+
+Spec series 401–423 GREEN (modulo PARTIAL: 401 OQ-401-3 deferred,
+412 rotation tick order swap deferred). Spec 423 = final validation
+spec; 5 smokes (`smoke-423-{bare-boot,load-directory,motm-canary,
+krill-loader,fastloader-corpus}.mjs`) + 4 frozen golden masters
+under `samples/golden-master/spec-423/`. motm canary GREEN
+(PC=$B7BF main loop), Krill canary GREEN (PC=$93D4 game code).
+Branch ready for merge or post-arch-port pickup (write support,
+datasette, cartridges, NTSC, JiffyDOS, multi-drive).
+
 ## Step order (legacy 6-step view — for historical context)
 
 ### Step 1 — Tick-order audit & rewire
