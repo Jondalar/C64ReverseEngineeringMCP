@@ -50,6 +50,7 @@ import { HookRegistry, type HookName } from "./kernel-hooks.js";
 import { EventCatchupStrategy } from "./event-catchup-strategy.js";
 import { LockstepStrategy } from "./lockstep-strategy.js";
 import type { SyncStrategy } from "./sync-strategy.js";
+import { vicii_set_vbank as litViciiSetVbank } from "../vic/literal/vicii.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
@@ -64,6 +65,8 @@ export interface HeadlessMachineKernelDeps {
   useMicrocodedCpu: boolean;
   useCycleLockstep: boolean;
   driveCyclesPerC64Cycle: number;
+  /** Spec 428 Phase C — drive dispatch mode flag. */
+  driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
 }
 
 export interface KernelAlarmContexts {
@@ -261,6 +264,10 @@ export class HeadlessMachineKernel implements MachineKernel {
         this.vic?.recordCia2PaChange(or & 0xff);
       },
       iecReadPins: () => this.bus.c64Read(0xdd00, buildC64BusCtx("read")),
+      // Spec 426 — VIC bank switch push. CIA2 fires when effective PA
+      // bits 0..1 inversion changes. Routes to literal VIC vbank setter.
+      // VICE: c64cia2.c:148 → c64_glue_set_vbank → vicii_set_vbank.
+      onVicBankChange: (newVbank) => litViciiSetVbank(newVbank),
     });
     this.cia2 = cia2Install.cia;
     const cia1Install = installCia1(this.c64Bus, {
@@ -369,6 +376,7 @@ export class HeadlessMachineKernel implements MachineKernel {
       // does. Required for sub-instruction bus access timing during
       // IEC bit-bang.
       useMicrocodedCpu: deps.useMicrocodedCpu,
+      driveDispatchMode: deps.driveDispatchMode,
       alarmContext: this.alarms.drivecpu,
       // Spec 201-c3: $1800 PB store threads through KernelBus.
       iecStorePb: (byte, device) =>

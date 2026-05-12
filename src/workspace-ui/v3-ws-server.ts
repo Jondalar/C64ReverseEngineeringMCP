@@ -330,8 +330,14 @@ export class V3WsServer {
       const drv = s.drive;
       const halfTrack = (s.headPosition as any).trackHalf ?? 0;
       const motorOn = !!(s as any).gcrShifter?.motorOn;
-      const ledOn = drv.bus.ledMonitor.currentLedOn();
-      const ledFlashing = drv.bus.ledMonitor.isFlashing(drv.cpu.cycles);
+      // VICE 1:1 LED model (drive.c:870-931): PWM duty cycle per UI poll.
+      // Fast PB3 toggles average to brightness; DOS error blink oscillates
+      // duty per poll; idle = 0. sqrt curve for human-eye perception.
+      const { pwm: ledPwm, on: ledOn } = drv.bus.ledMonitor.sampleAndReset(drv.cpu.cycles);
+      // Flash = duty between 20%..80% sustained across polls (= DOS error
+      // ~2Hz blink shows up that way). UI treats ledPwm directly as
+      // brightness; ledFlashing kept for backwards-compat tagging.
+      const ledFlashing = ledPwm >= 200 && ledPwm <= 800;
       // VIA2 CB2 from PCR bits 5..7. PCR & 0xE0:
       //   0xC0 (110) = manual high  → R/W = read
       //   0xE0 (111) = manual high  → R/W = read
@@ -380,6 +386,7 @@ export class V3WsServer {
         device: 8,
         ledOn,
         ledFlashing,
+        ledPwm,
         motorOn,
         rwMode,
         halfTrack,

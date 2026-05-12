@@ -45,6 +45,26 @@ action.** VICE is fallback / oracle only.
 - Don't propose `vice_session_start` or VICE-side capture as the
   default investigative step.
 
+## Traces (Mandatory 2026-05-12)
+
+**Always trace broadly + abundantly + into DuckDB. Never write
+one-off JSONL/CSV trace scripts.**
+
+- Capture path: use the existing trace-store infrastructure —
+  `vice_trace_runtime_start` (MCP), `trace_store_query`,
+  `trace_store_bus_find`, `trace_store_top_pcs`,
+  `scripts/trace-store-diff.mjs`, and the headless equivalents.
+- Volume: capture EVERY relevant event family (cpu_step,
+  mem_read, mem_write, irq, drive_*, vic_*, cia_*, via_*) for
+  the full window of interest. Don't downsample at capture
+  time — let DuckDB filter on query.
+- One-off `console.log` or quick `node -e "..."` PC dumps are
+  **debug primitives only**, not real traces. After a hunch is
+  confirmed, switch to a DuckDB capture before continuing.
+- Diff workflow: VICE trace + headless trace → both into trace
+  store → query for first divergence with SQL, not by hand
+  comparison of JSONL.
+
 ## Agent Doctrine (Mandatory)
 
 When operating inside an actual C64 RE *project* (i.e. a `C64RE_PROJECT_DIR` workspace, not this MCP repo itself):

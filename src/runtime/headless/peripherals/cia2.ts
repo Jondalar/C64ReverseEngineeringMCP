@@ -57,6 +57,13 @@ export interface InstallCia2Options {
    * routes through `kernel.bus.c64Read(0xDD00, ...)`.
    */
   iecReadPins: () => number;
+  /**
+   * Spec 426 — VIC bank switch push site (= VICE c64cia2.c:136-155 +
+   * c64gluelogic.c:86-106). Called when the effective CIA2 PA output
+   * byte changes such that the bank bits (0..1 inverted) differ.
+   * Implementer routes to vicii_set_vbank(newVbank).
+   */
+  onVicBankChange?: (newVbank: number, effectivePa: number) => void;
 }
 
 export function installCia2(
@@ -64,6 +71,7 @@ export function installCia2(
   opts: InstallCia2Options,
 ): InstalledCia2 {
   let cia: Cia6526Vice | undefined;
+  let lastVbank = -1;  // Spec 426 — track VIC bank to fire onVicBankChange only on transition
   const writeOffset = opts.writeOffset ?? 1;
   // Spec 417 / §15 Phase B step 4 / §17.2 OQ-417-1.
   // VICE `c64cia2.c:162`:
@@ -102,6 +110,16 @@ export function installCia2(
       if (!cia) return;
       const ddr = cia.c_cia[2] /* CIA_DDRA */ ?? 0;
       opts.iecWrite(paOut, ddr, iecWriteClock());
+      // Spec 426 — push VIC bank change. paOut = (PRA | ~DDRA) & 0xff
+      // (composed by cia6526-vice.ts:1304). Inverted bits 0..1 = bank.
+      // VICE c64cia2.c:148 `tmp = ~byte; new_vbank = tmp & 3;`
+      if (opts.onVicBankChange) {
+        const newVbank = (~paOut) & 0x03;
+        if (newVbank !== lastVbank) {
+          lastVbank = newVbank;
+          opts.onVicBankChange(newVbank, paOut);
+        }
+      }
     },
     storePb: () => { /* user port not modeled */ },
     // VICE: c64cia2.c:200-231 read_ciapa
@@ -154,6 +172,13 @@ export function installCia2(
   // Initial PA state: output bits all-high so IEC bus starts released.
   // KERNAL IOINIT will program proper DDR/PRA later.
   opts.iecWrite(0xff, 0x3f, iecWriteClock());
+  // Spec 426 — initial VIC bank from CIA2 reset state.
+  // After cia.reset(): PRA=$00, DDRA=$00 → effective PA = ($00 | ~$00) & $ff
+  // = $ff → bank = (~$ff)&3 = 0. VIC bank 0 = $0000-$3FFF (= KERNAL default).
+  if (opts.onVicBankChange) {
+    lastVbank = 0;
+    opts.onVicBankChange(0, 0xff);
+  }
   return {
     cia,
   };
