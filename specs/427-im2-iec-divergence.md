@@ -1,6 +1,7 @@
 # Spec 427 — IM2 IEC bus state divergence (CPU stuck before screen fill)
 
-**Status:** OPEN 2026-05-12
+**Status:** FINDING ONLY 2026-05-12 — no implementation in this spec
+**Implementation:** see Spec 428 (small-slice phased plan)
 **Branch:** `vic_bugs`
 **Depends on:** 425 (CLK_INC), 426 (VIC bank)
 **Doctrine:** 1:1 VICE x64sc. Drive + IEC state must converge with
@@ -340,7 +341,17 @@ motm + Krill smokes pass on the cycle-stepped path because their
 fastloader protocols tolerate ±1-2 cycle byte-ready jitter. IM2
 Epyx FastLoad does not.
 
-## Planned fix (do NOT implement without further review)
+## Planned fix — DEFERRED to Spec 428
+
+This section is **finding-only documentation**. Implementation
+contract + small-slice phased plan + per-phase regression gates
+live in `specs/428-split-c64-and-1541-cpu-contracts.md`.
+
+Do **not** implement the changes below from this spec. They are
+captured here for reference and to make the bug report self-
+contained. Spec 428 is authoritative for the rollout.
+
+## Planned fix sketch (reference only)
 
 The fix is to restore the **whole-instruction drive dispatch** as
 the default DriveCpu path, matching VICE drivecpu.c → 6510core.c
@@ -390,11 +401,21 @@ to a per-game opt-in rather than a default switch.
 
 ## Spec 428 candidate (not opened yet)
 
-The drive-dispatch refactor is large enough to deserve its own
-spec rather than a Spec 427 amendment. Suggested title:
-"Spec 428 — Drive CPU whole-instruction dispatch (1:1 VICE
-drivecpu.c)". Spec 427 stays the bug doc; Spec 428 carries the
-implementation contract.
+The regression exposes the same architecture problem that was already
+attempted in the earlier CPU split work: `Cpu65xxVice` is currently used
+for both the C64 CPU and the 1541 drive CPU, but VICE does not use the
+same execution contract for both:
+
+- C64 x64sc main CPU: `c64cpusc.c` + `6510dtvcore.c`, external
+  cycle-stepped `CLK_INC` cadence, VIC/CIA alarm interaction, BA stalls,
+  6510 I/O port.
+- 1541 drive CPU: `drivecpu.c` + `6510core.c`, opcode-template dispatch
+  with drive-local `CLK`, alarm context, VIA IRQs, and GCR rotation hooks
+  inside the template.
+
+Therefore the fix should be a new dedicated spec:
+"Spec 428 — Split C64 and 1541 CPU execution contracts". Spec 427 stays
+the bug/evidence doc; Spec 428 carries the implementation contract.
 
 ## Claude task contract
 

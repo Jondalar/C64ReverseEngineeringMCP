@@ -1,6 +1,10 @@
 # Spec 428 — Split C64 and 1541 CPU execution contracts
 
-**Status:** DRAFT 2026-05-12
+**Status:** PLAN 2026-05-12 (rollout in small testable slices)
+**Branch:** `vic_bugs` → individual phase branches as we go
+**Rollout doctrine:** each phase is ONE commit, ONE test gate, ONE
+optional revert. No phase touches more than its phase scope. No
+phase ships without its gate green.
 **Branch:** `vic_bugs`
 **Depends on:** 427 (IM2 regression evidence), 401 (failed shared-core
 foundation), earlier CPU split attempt (Spec 358, not present in current
@@ -131,76 +135,200 @@ Implementation shape:
   - opcode semantics where the VICE templates are identical
   - Lorenz/functional opcode tests
 
-## Implementation Phases
+## Implementation Phases (small slices)
 
-### Phase A — Evidence Gate
+Each phase is **ONE commit, ONE branch, ONE gate**. Phases run
+sequentially; do not start phase N+1 before phase N's gate is
+green. If a phase regresses ANY existing canary, revert before
+proceeding.
 
-Before code changes:
+### Phase A — Evidence Gate (no production code change)
 
-1. Run Spec 427 Variant A:
-   - base `2005494`
-   - restore only `src/runtime/headless/drive/drive-cpu.ts` from
-     `0a47f50`
-   - IM2 must reach `$48D3-$48EE` to prove the drive path is sufficient.
-2. Run Spec 427 Variant B:
-   - base `2005494`
-   - restore only `src/runtime/headless/cpu/cpu65xx-vice.ts` from
-     `0a47f50`
-   - record result.
-3. Do not implement this spec if Variant A does not implicate the drive
-   path.
+**Goal:** prove which Spec 401 file is the regression source
+before splitting anything.
 
-### Phase B — Rename the Contracts
+**Scope:**
+- throwaway worktree only, NOT vic_bugs branch
+- 3 builds, 3 IM2 boot tests
+- write findings into spec; commit nothing else
 
-Make the architecture visible without changing behavior:
+**Steps:**
+1. Worktree at `2005494` baseline. Confirm IM2 stuck $1xxx.
+2. Variant A: same worktree, `git checkout 0a47f50 -- src/runtime/headless/drive/drive-cpu.ts`. Build, IM2 test.
+3. Variant B: reset, then `git checkout 0a47f50 -- src/runtime/headless/cpu/cpu65xx-vice.ts`. Build, IM2 test.
 
-- Add `C64CpuViceSc` wrapper or alias for current C64 main CPU usage.
-- Add `DriveCpuVice` wrapper or alias for current drive CPU usage.
-- `IntegratedSession` and `DriveCpu` should type against the explicit
-  contracts, not against `Cpu65xxVice` directly.
-- This phase must be behavior-neutral.
+**Gate (= must hold to proceed to Phase B):**
+- One of A or B reaches PC=$48D3-$48EE within 200M C64 cycles.
+- Result recorded in Spec 427 with PC + cycle number.
+- Worktree removed; vic_bugs untouched.
 
-### Phase C — Restore Drive Whole-Instruction Dispatch
+**Stop condition:** if NEITHER variant fixes IM2, Spec 428
+hypothesis is wrong. Halt + reopen Spec 427 root-cause hunt.
 
-Restore the VICE drive shape:
+---
 
-- `DriveCpu.executeToClock(c64Clk)` computes owed drive cycles via
-  `sync_factor`, `cycle_accum`, and `stop_clk`.
-- While drive `CLK < stop_clk`, execute one drive opcode template.
-- Return consumed drive cycles per opcode.
-- Tick GCR/rotation according to VICE drive hooks, not blindly once per
-  external cycle.
+### Phase B — Behavior-neutral contract surface
 
-Important: `gcrShifter.tick(N)` once per instruction is only a temporary
-compatibility fallback. The correct target is VICE hook placement:
+**Goal:** make the architectural intent visible in types. Zero
+runtime behavior change.
 
-- `LOCAL_SET_OVERFLOW(0)` calls `drivecpu_rotate()` then clears
-  `byte_ready_edge`.
-- `PHP`, `BVC`, and `BVS` call `drivecpu_rotate()` and then consume
-  `byte_ready_edge` if set.
+**Scope:**
+- new file `src/runtime/headless/cpu/c64-cpu-contract.ts`
+- new file `src/runtime/headless/cpu/drive-cpu-contract.ts`
+- both export TS interfaces only, no implementations
+- update `IntegratedSession.c64Cpu` typed against `C64MainCpuContract`
+- update `DriveCpu.cpu` typed against `DriveCpuContract`
+- both contracts are satisfied by current `Cpu65xxVice` instance
+  (= structural typing, no code change to that class)
 
-### Phase D — Drive IRQ and Alarm Parity
+**Gate:**
+- `npm run build:mcp` clean
+- `npm run smoke:cpu-fidelity` 31/31
+- `npm run smoke:cia-fidelity` 22/22
+- MM s1 PC=$65f
+- Scramble in game code
+- motm PC=$B7BF
 
-Align drive IRQ timing with VICE drive CPU:
+**Revert recipe:** delete the two new files + revert the type
+annotations. Zero side effects.
 
-- drive alarm context belongs to drive CPU.
-- VIA1/VIA2 IRQ levels feed the drive CPU interrupt status.
-- IRQ sampling happens at the same instruction-template boundary as
-  `6510core.c`, not at arbitrary C64-side cycle points.
+---
 
-### Phase E — Regression Gate
+### Phase C — Drive whole-instruction dispatch as OPT-IN
 
-Required pass list:
+**Goal:** introduce VICE-shaped drive outer loop, gated by flag.
+Default = OFF. Existing behavior preserved.
 
-- IM2 reaches `$48D3-$48EE` title idle within 200M C64 cycles.
-- MM s1 reaches character select (`$65x` loop).
-- Scramble Infinity reaches title/game code.
-- motm canary reaches expected fastloader/game loop.
-- Krill loader smoke stays green.
-- Lorenz CPU corpus stays green.
-- VICE drive test programs stay green.
-- `npm run smoke:cpu-fidelity`
-- `npm run smoke:cia-fidelity`
+**Scope:**
+- `DriveCpu`: new option `driveDispatchMode: "cycle-stepped" | "vice-whole-instruction"` (default `"cycle-stepped"`)
+- `vice-whole-instruction` path mirrors VICE `drivecpu.c:drivecpu_execute()`:
+  - sync_factor → owed cycles → stop_clk
+  - while `CLK < stop_clk`: call `cpu.executeOneInstruction()` (returns consumed cycles)
+  - `gcrShifter.tick(N)` ONCE per instruction with N = consumed
+- `cycle-stepped` path unchanged
+
+**Gate (= default OFF):**
+- all Phase B gates
+- IM2 still stuck (= proves default unchanged)
+
+**Phase C test gate (= opt-in flag ON):**
+- new smoke `smoke-428-drive-whole-instruction.mjs`:
+  - IM2 with flag ON reaches $48D3 within 200M cycles ✓
+  - MM s1 with flag ON reaches $65f ✓
+  - Scramble with flag ON reaches game code ✓
+  - motm with flag ON reaches $B7BF ✓
+  - Krill loader (Scramble) ✓
+
+**Stop condition:** if flag-ON breaks any baseline game, the
+whole-instruction implementation is buggy. Fix before Phase D.
+
+---
+
+### Phase D — Flip drive default to VICE whole-instruction
+
+**Goal:** make the VICE-faithful path the default. Cycle-stepped
+becomes opt-in for motm AB-fastloader probe only.
+
+**Scope:**
+- `DriveCpu`: default `driveDispatchMode = "vice-whole-instruction"`
+- motm AB-fastloader probe (if still used in any harness) explicitly
+  opts back to `"cycle-stepped"`
+- update CLAUDE.md / PLAN.md if doctrine needs to reflect
+
+**Gate:**
+- all Phase C flag-ON gate items, BUT with no flag (= default)
+- IM2 reaches $48D3 default ✓
+- Lorenz CPU corpus stays green
+- VICE drive test programs stay green
+- Full game canary: MM s1 + Scramble + motm + IM2 all pass
+
+**Revert recipe:** flip default back to `"cycle-stepped"`. Single
+line change.
+
+---
+
+### Phase E — Rotate hooks at VICE template sites (precision pass)
+
+**Goal:** `drivecpu_rotate()` cycle-exact placement. Replace
+`gcrShifter.tick(N)`-per-instruction with hook calls at the four
+VICE sites:
+- `LOCAL_SET_OVERFLOW(0)` (in 6510core.c)
+- 3 main opcode-loop sites (vicii-cycle.c:2527, 2815, 2934)
+
+**Scope:**
+- `Cpu65xxVice` (or split drive variant): emit `onRotateHook`
+  callback at the 4 sites
+- `DriveCpu` consumer wires `onRotateHook → gcrShifter.tick(1)`
+- `byte_ready_edge` consumption moves to `LOCAL_SET_OVERFLOW(0)`
+  + `PHP` + `BVC` + `BVS` sites
+
+**Gate:**
+- all Phase D gates
+- new smoke `smoke-428-byte-ready-cycle-exact.mjs` — synthetic
+  test PRG that BIT-tests $1C00 PB7 SYNC across known cycle
+  offsets; expected pattern matches VICE byte-by-byte
+
+**Stop condition:** if precision pass regresses anything, revert
+to Phase D's per-instruction `tick(N)`. Phase D output is already
+production-acceptable; Phase E is precision polish.
+
+---
+
+### Phase F — Rename + collapse shared class (optional cleanup)
+
+**Goal:** finalize the architectural split per Spec 358 intent.
+
+**Scope:**
+- extract shared opcode templates into `Isa65xxCore` (= shared
+  ISA primitives only — no execution loop)
+- `Cpu6510ViceSc` (C64) and `Cpu6502DriveVice` (drive) each
+  contain their own outer loop, delegate ISA to `Isa65xxCore`
+- delete `Cpu65xxVice`
+
+**Gate:**
+- all Phase E gates
+- file-by-file diff review against VICE source files (cite each
+  line)
+
+**Stop condition:** Phase F is **optional**. Phase D + E already
+fix IM2 and ship the working architecture. Phase F is the
+clean-room finish — defer if time-constrained.
+
+---
+
+## Per-phase test inventory
+
+| Phase | Smokes | Games | Lorenz | VICE-testprogs |
+|---|---|---|---|---|
+| A | none (worktree) | IM2 only | — | — |
+| B | cpu + cia | MM + Scramble + motm | — | — |
+| C (flag OFF) | cpu + cia | MM + Scramble + motm | — | — |
+| C (flag ON) | + 428-whole-instr | MM + Scramble + motm + IM2 + Krill | — | — |
+| D | cpu + cia | MM + Scramble + motm + IM2 + Krill | full | 4/4 |
+| E | + 428-byte-ready | + cycle-exact diff trace | full | 4/4 |
+| F | all | all | full | 4/4 + manual review |
+
+## Risk profile per phase
+
+- **Phase A**: zero risk (no production code touched).
+- **Phase B**: zero behavior risk (type annotations only).
+- **Phase C** (flag OFF): zero risk (new path inactive).
+- **Phase C** (flag ON): isolated to IM2 + manual flag testing.
+- **Phase D**: HIGH — flips default. This is the gate where
+  motm + Krill smokes most likely shift. Keep Phase D commit
+  small + standalone so revert is trivial.
+- **Phase E**: medium — precision pass, may shift cycle counts.
+- **Phase F**: low — pure refactor, all tests must already pass.
+
+## Phase ordering rationale
+
+A before B: must prove the drive path matters before touching code.
+B before C: type surface lets Phase C add new path without ambiguity.
+C before D: flag-gated path proves new dispatch works on real games
+before flipping default.
+D before E: ship the fix with per-instruction tick first; precision
+polish layered after.
+F last: cleanup only after correctness is locked in.
 
 ## Do Not Do
 
