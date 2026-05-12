@@ -321,24 +321,81 @@ export class V3WsServer {
       };
     });
 
-    // Drive status — LED + half-track + motor for Live tab display.
+    // Spec 424 — Drive status: LED + motor + R/W + flash + T/S + PC.
+    // LED bit is VIA2 PB3 (not VIA1 — pre-424 was wrong VIA, latent
+    // bug). R/W direction = VIA2 CB2 routed via PCR bits 5..7.
     this.on("session/drive_status", ({ session_id }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
       const drv = s.drive;
       const halfTrack = (s.headPosition as any).trackHalf ?? 0;
       const motorOn = !!(s as any).gcrShifter?.motorOn;
-      const via1Pb = (drv.bus.via1 as any).orb ?? 0;
-      const via1Ddrb = (drv.bus.via1 as any).ddrb ?? 0;
-      const ledOn = (via1Pb & via1Ddrb & 0x08) !== 0;
+      const ledOn = drv.bus.ledMonitor.currentLedOn();
+      const ledFlashing = drv.bus.ledMonitor.isFlashing(drv.cpu.cycles);
+      // VIA2 CB2 from PCR bits 5..7. PCR & 0xE0:
+      //   0xC0 (110) = manual high  → R/W = read
+      //   0xE0 (111) = manual high  → R/W = read
+      //   0x80/0xA0 = pulse/handshake → treat as read default
+      //   0x00..0x40 = manual low / pulse low → write
+      const pcrCb2 = (drv.bus.via2 as any).pcr & 0xE0;
+      const rwMode: "read" | "write" =
+        (pcrCb2 === 0xC0 || pcrCb2 === 0xE0) ? "read" : "write";
+      // V1: sector not derived from GCR pipeline (DOS-tracked at $80 in
+      // drive RAM during BAM ops). Surface raw last-decoded sector header
+      // when shifter exposes it; else 0. Follow-up spec to parse $1C00
+      // GCR header bytes.
+      const sector = (s as any).gcrShifter?.lastSectorHeader ?? 0;
+
+      // Spec 424 follow-up — IEC bus snapshot + transfer-mode heuristic.
+      // CIA2 PA ($DD00):
+      //   bit 0..1 = VIC bank (output)
+      //   bit 3    = ATN out (active LOW after inversion on bus)
+      //   bit 4    = CLK out
+      //   bit 5    = DATA out
+      //   bit 6    = CLK in (read)
+      //   bit 7    = DATA in (read)
+      // We surface raw PA latch + DDR + composed read value.
+      const cia2 = s.cia2 as any;
+      const dd00pra = cia2.pra & 0xff;
+      const dd00ddr = cia2.ddra & 0xff;
+
+      // Transfer mode: sticky classifier. C64 PC during recent serial
+      // bus activity. KERNAL serial routines live in $E000..$FFFF when
+      // HIRAM=1 (= ROM banked in). Anything else driving the bus = CUSTOM.
+      // Cheap heuristic: current PC. KERNAL bands:
+      //   $ED00-$EE00 = main IEC routines (LISTEN/TALK/SECOND/etc.)
+      //   $EE13-$EF00 = SEND/RECV bit-bang
+      //   $F4A5-$F634 = LOAD path
+      // Everything else is CUSTOM (or idle if bus has been quiescent).
+      const c64pc = (s as any).c64Cpu?.pc ?? 0;
+      const transferMode: "kernal" | "custom" | "idle" =
+        c64pc >= 0xE000 && c64pc <= 0xFFFF ? "kernal" :
+        c64pc >= 0xF400 && c64pc <= 0xF800 ? "kernal" :
+        // Heuristic: if drive cpu is idle in $EBFD..$ECC0 wait-loop AND
+        // C64 in BASIC ($A000..$BFFF) or RAM, classify as idle.
+        (drv.cpu.pc >= 0xEBFD && drv.cpu.pc <= 0xECC0) ? "idle" :
+        "custom";
+
       return {
         device: 8,
         ledOn,
+        ledFlashing,
         motorOn,
+        rwMode,
         halfTrack,
         track: Math.floor(halfTrack / 2) + 1,
+        sector,
         drivePc: drv.cpu.pc,
+        // Spec 424 follow-up — IEC + transfer indicator
+        dd00: { pra: dd00pra, ddr: dd00ddr },
+        transferMode,
       };
+    });
+
+    // Spec 424 — cartridge status. IntegratedSession has no cart
+    // plumbing yet (deferred to follow-up spec 425). Returns null.
+    this.on("session/cart_status", ({ session_id: _ }) => {
+      return null;
     });
 
     // Spec 263 — audio streaming.

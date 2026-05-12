@@ -15,6 +15,7 @@ import { loadCartridgeMapper } from "../cartridge.js";
 import type { HeadlessCartridgeMapperType } from "../types.js";
 import { addRecent } from "./recent-files.js";
 import type { MediaType } from "./fs-browser.js";
+import { createNoDiskParser } from "../disk/no-disk-parser.js";
 
 export type DriveSlot = 8 | 9;
 
@@ -231,8 +232,6 @@ export function unmountMedia(
   // VICE drive_image_detach: set detach_clk + swap to no-disk parser.
   // Drive sees no-sync + neutral for DRIVE_DETACH_DELAY (~600K cycles).
   // Track data freed; head position preserved.
-  const { createNoDiskParser } = require("../disk/no-disk-parser.js") as
-    typeof import("../disk/no-disk-parser.js");
   const empty = createNoDiskParser();
   session.trackBuffer.notifyMediaChange(empty);
   if (session.drive.trackBuffer

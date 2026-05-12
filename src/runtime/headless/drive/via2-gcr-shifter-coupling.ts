@@ -42,6 +42,10 @@ export interface GcrShifterCouplingOptions {
   headPosition: HeadPosition;
   /** Optional: write-protect sense. Default false (writable). */
   writeProtected?: boolean;
+  /** Spec 424 — sink for VIA2 PB3 LED bit transitions (cycle, on). */
+  ledSink?: (on: boolean, clk: number) => void;
+  /** Spec 424 — clock source used when stamping LED transitions. */
+  clkRef?: () => number;
 }
 
 /**
@@ -53,7 +57,8 @@ export interface GcrShifterCouplingOptions {
 export function makeGcrShifterCoupling(
   opts: GcrShifterCouplingOptions,
 ): Via2GcrPortCoupling {
-  const { shifter, headPosition, writeProtected = false } = opts;
+  const { shifter, headPosition, writeProtected = false, ledSink, clkRef } = opts;
+  let lastLedOn = false;
 
   return {
     // VIA2 PA = $1C01 — current latched GCR data byte from the shifter.
@@ -119,9 +124,15 @@ export function makeGcrShifterCoupling(
         shifter.clearDensityOverride();
       }
 
-      // LED (PB3) is observable-only at this layer; ignored.
-      // (Reserved for V3 disk-LED reporting hooks.)
-      void PB_LED;
+      // Spec 424 — LED (PB3) reporting hook. PB3 is output (DDR=1)
+      // when 1541 DOS controls the LED. Sample latch state when
+      // configured as output; otherwise treat as off.
+      const ledOutput = (ddrMask & PB_LED) !== 0;
+      const ledOn = ledOutput && ((orValue & PB_LED) !== 0);
+      if (ledOn !== lastLedOn) {
+        lastLedOn = ledOn;
+        ledSink?.(ledOn, clkRef ? clkRef() : 0);
+      }
     },
   };
 }

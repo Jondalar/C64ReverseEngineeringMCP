@@ -17,13 +17,27 @@ import { getClient } from "../ws-client.js";
 import type { TabProps } from "./Live.types.js";
 import { MonitorPanel } from "../components/MonitorPanel.js";
 import { InspectorPanel } from "../components/InspectorPanel.js";
-import { MediaStrip } from "../components/MediaStrip.js";
 import { MachineControls } from "../components/MachineControls.js";
 import { ExploreOverlay } from "../components/ExploreOverlay.js";
 
 interface DriveStatus {
-  device: number; ledOn: boolean; motorOn: boolean;
-  halfTrack: number; track: number; drivePc: number;
+  device: number;
+  ledOn: boolean;
+  ledFlashing?: boolean;
+  motorOn: boolean;
+  rwMode?: "read" | "write";
+  halfTrack: number;
+  track: number;
+  sector?: number;
+  drivePc: number;
+  dd00?: { pra: number; ddr: number };
+  transferMode?: "kernal" | "custom" | "idle";
+}
+
+interface CartStatus {
+  type: string;
+  bank: number;
+  activity: "read" | "write" | "idle";
 }
 
 // Spec 310 — symbolic mapping: host KeyboardEvent → C64 matrix key name(s).
@@ -122,6 +136,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const [fps, setFps] = useState(0);
   const [drive, setDrive] = useState<DriveStatus | null>(null);
   const [drive9, setDrive9] = useState<DriveStatus | null>(null);
+  const [cart, setCart] = useState<CartStatus | null>(null);
   const [activeMedia, setActiveMedia] = useState<string>("");
   const [activeMedia9, setActiveMedia9] = useState<string>("");
   const [screenFocused, setScreenFocused] = useState(false);
@@ -164,7 +179,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     return () => { alive = false; };
   }, [sessionId, runState]);
 
-  // Drive status poll
+  // Drive + cart status poll
   useEffect(() => {
     if (!sessionId) return;
     const client = getClient();
@@ -174,6 +189,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       try {
         const ds = await client.call<DriveStatus>("session/drive_status", { session_id: sessionId });
         if (alive) setDrive(ds);
+      } catch { /* ignore */ }
+      try {
+        const cs = await client.call<CartStatus | null>("session/cart_status", { session_id: sessionId });
+        if (alive) setCart(cs ?? null);
       } catch { /* ignore */ }
       if (alive) setTimeout(tick, 250);
     };
@@ -334,6 +353,12 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           sessionId={sessionId}
           drive={drive}
           drive9={drive9}
+          cart={cart}
+          activeMedia={activeMedia}
+          activeMedia9={activeMedia9}
+          onMounted={(slot, path) => {
+            if (slot === 8) setActiveMedia(path); else if (slot === 9) setActiveMedia9(path);
+          }}
           joyMode={joyMode}
           setJoyMode={setJoyMode}
           joyBits={joyBits}
@@ -344,16 +369,6 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
         sessionId={sessionId}
         maximized={monitorMax}
         onToggleMax={() => setMonitorMax(!monitorMax)}
-      />
-      <MediaStrip
-        sessionId={sessionId}
-        drive={drive}
-        drive9={drive9}
-        activeMedia={activeMedia}
-        activeMedia9={activeMedia9}
-        onMounted={(slot, path) => {
-          if (slot === 8) setActiveMedia(path); else setActiveMedia9(path);
-        }}
       />
     </div>
   );

@@ -45,6 +45,7 @@ import { Via2d1541, type Via2GcrPortCoupling } from "../via/via2d1541.js";
 import { makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
 import { makeGcrShifterCoupling } from "./via2-gcr-shifter-coupling.js";
 import type { GcrShifter } from "./gcr-shifter.js";
+import { DriveLedMonitor } from "./led-monitor.js";
 import { loadDriveRom, DRIVE_ROM_BASE, DRIVE_ROM_SIZE, type LoadedDriveRom } from "./drive-rom.js";
 import { IecBusCore } from "../iec/iec-bus-core.js";
 import type { IecBus } from "../iec/iec-bus.js";
@@ -182,6 +183,8 @@ export class DriveBus implements CpuMemory {
   public readonly readTab: DrivePageRead[] = new Array(256);
   public readonly storeTab: DrivePageStore[] = new Array(256);
   public readonly peekTab: DrivePagePeek[] = new Array(256);
+  /** Spec 424 — drive activity LED tracker (VIA2 PB3 latch transitions). */
+  public readonly ledMonitor: DriveLedMonitor = new DriveLedMonitor();
 
   /**
    * Last value seen on the drive bus. `drive_read_free` returns this on
@@ -280,6 +283,8 @@ export class DriveBus implements CpuMemory {
         shifter: opts.gcrShifter,
         headPosition: opts.gcr.headPosition,
         writeProtected: opts.gcr.writeProtected,
+        ledSink: (on, clk) => this.ledMonitor.noteTransition(on, clk),
+        clkRef: clkRef ?? (() => 0),
       });
     } else if (opts.gcr) {
       const paBackend = makeGcrVia2Pa(opts.gcr);

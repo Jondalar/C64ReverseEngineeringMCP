@@ -694,11 +694,66 @@ body {
 .wb-regs { width: 100%; font-size: 11px; border-collapse: collapse; }
 .wb-regs th { color: var(--c64-fg-muted); text-align: left; font-weight: normal; padding: 1px 4px; }
 .wb-regs td { color: var(--c64-fg); padding: 1px 4px; font-family: ui-monospace, monospace; }
+/* Spec 424 — drive/cart LED color matrix per user direction. */
 .wb-led {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  background: #333;
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  background: #444;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
-.wb-led.on { background: var(--c64-red); box-shadow: 0 0 4px var(--c64-red); }
+.wb-led.off    { background: #444; }
+.wb-led.motor  { background: #e0c040; box-shadow: 0 0 4px #e0c040; }
+.wb-led.read   { background: #40d060; box-shadow: 0 0 4px #40d060; }
+.wb-led.write  { background: #e04040; box-shadow: 0 0 4px #e04040; }
+.wb-led.on     { background: var(--c64-red); box-shadow: 0 0 4px var(--c64-red); }
+.wb-led.blink  { animation: wb-led-blink 0.5s steps(1) infinite; }
+@keyframes wb-led-blink {
+  0%, 49%   { background: #e04040; box-shadow: 0 0 4px #e04040; }
+  50%, 100% { background: #e0c040; box-shadow: 0 0 4px #e0c040; }
+}
+
+/* Spec 424 — device row (drive 8/9, cart) inside inspector. */
+.wb-device-row {
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: var(--c64-fg);
+}
+/* Device row uses h3 like CPU/VIC sections; line1 lays out h3 + LED + button inline. */
+.wb-device-row { padding-top: 0; }
+.wb-device-line1 {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+  border-bottom: 1px solid var(--c64-border); padding-bottom: 2px;
+}
+.wb-device-label {
+  /* override block h3 layout; inherit color + uppercase from .wb-inspector h3 */
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--c64-blue-bright); margin: 0; padding: 0;
+  border: none; flex-shrink: 0;
+}
+.wb-device-insert, .wb-device-eject {
+  background: var(--c64-bg-1); color: var(--c64-fg-muted);
+  border: 1px solid var(--c64-border); padding: 0 6px;
+  cursor: pointer; font-family: inherit; font-size: 10px;
+  margin-left: auto;
+  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wb-device-eject:hover { color: var(--c64-red); border-color: var(--c64-red); }
+.wb-device-insert:hover { color: var(--c64-blue-bright); border-color: var(--c64-blue-bright); }
+.wb-device-picker {
+  list-style: none; padding: 0; margin: 2px 0;
+  background: var(--c64-bg-1); border: 1px solid var(--c64-border);
+  max-height: 150px; overflow-y: auto;
+}
+.wb-device-picker li button {
+  width: 100%; text-align: left; background: transparent; color: var(--c64-fg);
+  border: none; padding: 2px 6px; cursor: pointer; font: inherit;
+}
+.wb-device-picker li button:hover { background: var(--c64-bg-2); color: var(--c64-blue-bright); }
+.wb-picker-eject { color: var(--c64-red) !important; font-weight: bold; }
+.wb-picker-eject:hover { background: var(--c64-red) !important; color: #fff !important; }
+.wb-picker-current { color: var(--c64-yellow) !important; }
+.wb-device-line2 { /* now wraps a wb-regs table */ }
+
 .wb-muted { color: var(--c64-fg-muted); font-size: 11px; }
 
 /* Monitor */
