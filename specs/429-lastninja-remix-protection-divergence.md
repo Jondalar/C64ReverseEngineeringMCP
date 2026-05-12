@@ -292,3 +292,58 @@ when it failed.
 - VIC raster IRQ (game polls $D011 in main loop, works).
 - $1108 protection-routine analysis (not protection — normal
   keyboard scan, returns "no key" as expected).
+
+## Apples-to-apples memdump diff 2026-05-12
+
+Scripts:
+- `scripts/lnr-mem-dump.mjs` (headless: phases after_boot /
+  after_load / after_run_crash, dumps $0000-$1FFF into DuckDB)
+- `scripts/lnr-vice-mem-dump.mjs` (VICE: phases vice_after_load /
+  vice_after_run, same range)
+
+Both DuckDB stores live under
+`samples/traces/v2-baseline/lnr-mem-dump-<date>/`.
+
+**Result at $1400 region (sprite data area)**:
+
+| addr   | hl_after_load | vice_after_load |
+|--------|---------------|-----------------|
+| $1400  | 149 ($95)     | 0               |
+| $1401  | 10 ($0A)      | 0               |
+| $1402  | 240 ($F0)     | 255 ($FF)       |
+| $1403  | 214 ($D6)     | 255 ($FF)       |
+| $1404  | 201 ($C9)     | 255 ($FF)       |
+| $1405  | 1             | 255 ($FF)       |
+| $1406  | 208           | 0               |
+| ...    | game code     | sprite pattern  |
+
+VICE shows clear sprite-shape pattern (`00 00 FF FF FF FF 00 00`
+× many) — that's a sprite definition. Headless has code-like bytes.
+
+**= LOAD path delivers different bytes to $1400 in headless vs
+VICE.** Same fastloader, same disk, same KERNAL — divergent
+output.
+
+8192 bytes diffed: 1929 match, 6263 differ (= 23.5% match).
+Most divergence is game state (different "after LOAD" CPU state
+since we couldn't checkpoint-match exact cycle). But the
+$1400-$143F divergence is **deterministic from disk content**
+— sprite data ≠ code.
+
+## Investigation handoff
+
+1. Identify which file segment / sector populates $1400-$14BF.
+   - LNR uses fastloader, not standard KERNAL LOAD.
+   - Drive ROM at $0500-$07FF is custom (already detected by
+     Spec 419 fastloader hooks).
+2. Audit fastloader decode path for that sector.
+   - Compare raw GCR bytes from G64 → decoded bytes delivered
+     to C64 via IEC.
+   - VICE vs ours: same input, different output = decoder bug.
+3. Or: file ordering bug — LNR may load multiple files via
+   wildcard, headless may pick wrong "first file".
+4. Or: load-address bug — headless interprets PRG header
+   differently, lands segment at wrong RAM address.
+
+Spec 428 Phase E (rotate hooks) does NOT address data integrity.
+Defer Phase E indefinitely — wrong investigation track.
