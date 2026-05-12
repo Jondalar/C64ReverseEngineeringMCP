@@ -1,6 +1,6 @@
 # Spec 416 — IEC Phase A: IEC bus shared state
 
-**Status:** PROPOSED
+**Status:** IMPLEMENTED 2026-05-12
 **Branch:** `vice-arch-port`
 **Depends on:** 415
 **Doctrine:** 1:1 VICE IEC port.

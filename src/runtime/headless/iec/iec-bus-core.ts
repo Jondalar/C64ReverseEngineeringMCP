@@ -1,9 +1,16 @@
-// Spec 140 v3 — VICE 1:1 IEC bus core port.
+// Spec 140 v3 / Spec 416 — VICE 1:1 IEC bus core port.
 //
 // Mirrors VICE 3.7.1 iecbus_t struct + functions:
 //   src/iecbus/iecbus.c (state + iecbus_cpu_write_conf1 logic)
 //   src/c64/c64iec.c    (iec_update_cpu_bus, iec_update_ports)
 //   src/drive/iec/via1d1541.c (read_prb, store_prb)
+//
+// Doc anchors (spec 416 / vice-iec-arc42.md):
+//   §5.1   iecbus_t structure
+//   §5.2   iec_update_cpu_bus / iec_update_ports formulas
+//   §15 A  Phase A clone-checklist (steps 1-3)
+//   §16    cross-doc invariant index
+//   §17.1  spec-OQ resolutions (drv_data[16] shape, cpu_bus formula)
 //
 // Type semantics: TS Number is 64-bit float; bitwise ops convert to
 // 32-bit signed int. VICE C uses uint8_t / uint32_t with explicit
@@ -16,19 +23,27 @@ void VICE_PCR_CA1_NEG;
 void VICE_PCR_CA1_POS;
 
 export class IecBusCore {
-  // VICE iecbus_t struct fields. Initial values match
-  // iecbus_init() in iecbus.c:197-203 (memset 0xff + drv_port = 0x85).
+  // Spec 416 §5.1 / §15 A step 1 — pin iecbus_t shape.
+  // VICE struct: src/iecbus.h:56-83. Fields per spec 416 §15 A:
+  //   cpu_bus, cpu_port, drv_port, drv_bus[16], drv_data[16].
+  // IECBUS_NUM = 16 (src/iecbus.h:35). drv_data / drv_bus are
+  // contiguous 16-element uint8 arrays indexed by device number
+  // (units 8..11 are disk units; 4..7 + 12..15 reserved). See
+  // §17.1 OQ-416-1 resolution.
+  // Initial values match iecbus_init() in src/iecbus/iecbus.c:197-203
+  // (memset 0xff over whole struct + drv_port = READ_DATA|READ_CLK|
+  // READ_ATN = 0x01 | 0x04 | 0x80 = 0x85).
   public cpu_bus = 0xff;       // c64-side intent (post c64cia2.c:150 ~byte invert)
   public cpu_port = 0xff;      // effective bus state seen by c64 (cached)
   public readonly drv_bus = new Uint8Array(16);    // per-unit bus contribution
   public readonly drv_data = new Uint8Array(16);   // raw drive PB output (= ~ORB)
-  public drv_port = 0x85;      // effective bus state seen by drive
+  public drv_port = 0x85;      // effective bus state seen by drive (= READ_DATA|READ_CLK|READ_ATN)
 
-  // VICE iec_old_atn state for ATN edge detection (iecbus.c:65).
+  // VICE iec_old_atn state for ATN edge detection (src/iecbus/iecbus.c:65).
   public iec_old_atn = 0x10;   // initial: ATN released (cpu_bus & 0x10 = 0x10)
 
   constructor() {
-    // memset 0xff over the whole struct (iecbus.c:199).
+    // memset 0xff over the whole struct — src/iecbus/iecbus.c:199.
     this.drv_bus.fill(0xff);
     this.drv_data.fill(0xff);
   }
@@ -42,26 +57,40 @@ export class IecBusCore {
     this.iec_old_atn = 0x10;
   }
 
-  // c64iec.c:121-124 iec_update_cpu_bus.
-  // VICE convention: data is the INVERTED PA latch byte
-  // (per c64cia2.c:150 `tmp = ~byte`). Caller MUST invert before
-  // calling. cpu_bus encodes "1 = c64 NOT asserting" (= line HIGH).
+  // Spec 416 §5.2 / §15 A step 2 — iec_update_cpu_bus.
+  // VICE: src/c64/c64iec.c:121-124. Formula verbatim:
+  //   cpu_bus = ((data<<2)&0x80) | ((data<<2)&0x40) | ((data<<1)&0x10)
+  // VICE convention: `data` is the INVERTED PA latch byte
+  // (per src/c64/c64cia2.c:150 `tmp = (uint8_t)~byte`). Caller MUST
+  // invert before calling. cpu_bus encodes "1 = c64 NOT asserting"
+  // (= line HIGH). Bit map per §17.1 OQ-416-2:
+  //   data bit 5 (DATA OUT) → cpu_bus bit 7 (DATA)
+  //   data bit 4 (CLK  OUT) → cpu_bus bit 6 (CLK)
+  //   data bit 3 (ATN  OUT) → cpu_bus bit 4 (ATN)
   iec_update_cpu_bus(data: number): void {
     const d = data & 0xff;
     this.cpu_bus = (((d << 2) & 0x80) | ((d << 2) & 0x40) | ((d << 1) & 0x10)) & 0xff;
   }
 
-  // c64iec.c:126-138 iec_update_ports.
-  // cpu_port = cpu_bus AND-folded with all drv_bus[*] (units 4-15).
-  // drv_port = composed view from cpu_port + cpu_bus.
+  // Spec 416 §5.2 / §15 A step 3 — iec_update_ports.
+  // VICE: src/c64/c64iec.c:126-138. AND-fold cpu_bus with all
+  // drv_bus[4..8+NUM_DISK_UNITS-1]; we widen to [4..15] (NUM_DISK_UNITS=4
+  // → [4..11]; entries 12..15 stay 0xff per memset, AND is identity).
+  // drv_port bit layout (wired to VIA1 PB; getting it wrong corrupts
+  // every read — see §11 risks + §15 A step 3):
+  //   drv_port bit 0 (DATA_IN) ← cpu_port bit 7 (DATA)
+  //   drv_port bit 2 (CLK_IN)  ← cpu_port bit 6 (CLK)
+  //   drv_port bit 7 (ATN)     ← cpu_bus  bit 4 (ATN intent — C64-only)
+  // Note ATN bit comes from raw cpu_bus, NOT post-AND cpu_port (ATN
+  // is C64-driven only; drives never assert ATN).
   iec_update_ports(): void {
     let cp = this.cpu_bus;
     for (let unit = 4; unit < 16; unit++) cp &= this.drv_bus[unit]!;
     this.cpu_port = cp & 0xff;
     this.drv_port = (
-      ((this.cpu_port >> 4) & 0x04) |
-      (this.cpu_port >> 7) |
-      ((this.cpu_bus << 3) & 0x80)
+      ((this.cpu_port >> 4) & 0x04) |   // bit 6 → bit 2 (CLK_IN)
+      (this.cpu_port >> 7) |            // bit 7 → bit 0 (DATA_IN)
+      ((this.cpu_bus << 3) & 0x80)      // bit 4 → bit 7 (ATN)
     ) & 0xff;
   }
 
