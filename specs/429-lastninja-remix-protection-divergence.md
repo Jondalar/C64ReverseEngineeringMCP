@@ -430,3 +430,65 @@ state.** Spec 419-class fastloader hook NMI/IRQ-timing bug.
 
 If CIA2 FLAG NMI flow is the culprit, this is a Spec 419 /
 Spec 207 (drive bit-bang IEC) regression.
+
+## Comprehensive dump 2026-05-12 (full state, 4 phases)
+
+Updated scripts capture C64 RAM \$0000-\$FFFF + drive RAM
+\$0000-\$07FF + all I/O register state + CPU regs at 4 phases:
+
+Headless: after_boot, after_load, after_run_mid, after_run_crash.
+VICE:     vice_5s,    vice_20s,  vice_40s,      vice_60s.
+
+### Page-level diff (headless after_run_crash vs VICE vice_40s)
+
+Most pages 100% match. Significant divergence:
+
+| Page    | Match | Reason |
+|---------|-------|--------|
+| \$0000  | 66%   | ZP state mid-vs-post |
+| \$0100  | 80%   | stack state |
+| \$0500  | 76%   | scratch RAM |
+| \$1400  | 88%   | game runtime data |
+| \$4000-\$4400 | 50-78% | game loader stub |
+| \$7F00-\$8000 | 50%   | game data |
+| \$D000-\$DFFF | 0-12% | I/O regs (live state, expected) |
+| \$E000  | 50%   | RAM under ROM |
+
+\$1400 bytes IDENTICAL (\$64 \$85 \$7C \$64 \$86 \$64 \$79 \$87 \$7C \$79)
+between headless-crashed + VICE-running. NOT data integrity.
+
+### Drive-side bit-bang confirmed live
+
+bus_events table: **1,090,568 IEC line_change events** in
+trace window. DATA line toggles every 20-30 cycles =
+fastloader bit-bang active.
+
+chip_events:
+- via1 irq: 144 (LISTEN/UNLSN attention)
+- via2 irq: 25,935 (byte-ready every GCR byte)
+- cia2 ifr_set: **2** (RESTORE key or KERNAL-init only)
+
+CIA2 NMI path silent = LNR not using NMI-driven fastloader.
+Uses polling-style \$DD00 read in C64 code instead.
+
+### Real divergence is cycle-precision branch
+
+Game code at \$0369 \`CMP #\$AC / BNE\` controls one decision.
+\$B7 in headless=\$FF, in VICE=\$0. Both ≠ \$AC, both BNE.
+So check passes/fails same way. Not the branch.
+
+True root cause must be cycle-timing-induced state divergence
+elsewhere in game's complex IRQ+main-loop interaction with
+drive fastloader. \$02C9 JMP \$1400 hit exactly once in 155M
+trace = one-off race condition path.
+
+### Open work
+
+- Per-cycle CPU trace diff VICE vs headless. Find first PC
+  divergence using VICE binmon checkpoint capture.
+- Audit game's IRQ entry sequence ($1080) — does our IRQ
+  ack timing match VICE's exact cycle?
+- Compare \$01 CPU port banking transitions during IRQ —
+  game banks RAM in/out, cycle-precise sensitive.
+- Test Spec 428 Phase E (rotate hooks) — even though "data
+  is intact", cycle alignment in BUS reads may shift.
