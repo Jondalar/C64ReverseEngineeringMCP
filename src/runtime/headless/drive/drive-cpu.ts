@@ -630,6 +630,34 @@ export class DriveCpu implements Drive1541Unit {
   // Sleep mode: drive is in known busy-wait loop, skip ahead to next
   // bus state change. Cleared on bus state change.
   private sleeping = false;
+
+  // ───────────────────────────────────────────────────────────────────
+  // Spec 414 — Phase H step 32 (enable/disable hooks).
+  //
+  // VICE `drive_enable()` / `drive_disable()` toggle a per-unit
+  // `enable` flag on `diskunit_context_t`. When disabled the drive CPU
+  // does not run; the IEC bus state already iterates over all units
+  // `4..8+NUM_DISK_UNITS` (`via1d1541.c:200`) and skips disabled units
+  // via this `enable` flag — there is **no** separate IEC callback
+  // list (OQ-414-1, doc §17, §2.3).
+  //
+  // In TS the equivalent is:
+  //   - `enabled = false` makes `executeToClock` early-return (drive
+  //     CPU stops). VIA1 PB output stops updating, so `setDriveOutput`
+  //     is no longer driven from the drive side. The IEC bus core's
+  //     drv_data slot for this unit retains its last-released state.
+  //   - `enable()` re-arms by calling `setSyncBaseline(currentClk)`
+  //     (= `cpu->stop_clk = *clk_ptr` per drive.c:514) and
+  //     `wakeUp()` (= `drivecpu_wake_up`, drive.c:520). We do not
+  //     re-attach the disk image here — the TS port keeps the parser
+  //     swap inside `mountMedia`/`unmountMedia` (mount.ts), which
+  //     mirrors VICE `drive_image_attach` already.
+  //
+  // Doc: docs/vice-1541-arch.md §13 Phase H step 32, §2.3, §17 OQ-414-1.
+  // VICE: src/drive/drive.c:482-529 `drive_enable()`,
+  //       src/drive/drive.c:531-560 `drive_disable()`.
+  // ───────────────────────────────────────────────────────────────────
+  public enabled = true;
   // Phase-C compat-bridge: per-source IntNum allocations for drive 6502.
   // Lazy-init on first dispatch site that touches microcoded path.
   //
@@ -863,12 +891,110 @@ export class DriveCpu implements Drive1541Unit {
     return this.syncFactor16dot16;
   }
 
+  /**
+   * Spec 414 — hard reset (= drive_init / power-on).
+   *
+   * Clears drive RAM ($0000-$07FF), resets VIA1+VIA2, resets CPU at
+   * reset vector. Equivalent to VICE `drive_init` + `drivemem_init`
+   * which zero-initialise the RAM array. Distinct from `softReset()`
+   * which preserves RAM (= drivecpu_reset / RESET-line pulse).
+   *
+   * Doc: docs/vice-1541-arch.md §2.3 (init sequence — RAM zeroed at
+   *      `lib_calloc` in `drive_init`, drive.c:162-285),
+   *      §13 Phase H step 33 (hard reset clears RAM).
+   * VICE: src/drive/drive.c:162 `drive_init()`, drivecpu.c:251
+   *       `drivecpu_init()` (allocates drive_ram via lib_calloc).
+   */
   reset(pc?: number): void {
     this.bus.reset();
     this.cpu.reset(pc);
     this.lastSyncC64Clk = 0;
     this.cycleAccumulator16dot16 = 0;
     this.sleeping = false;
+  }
+
+  /**
+   * Spec 414 — soft reset (= RESET-line pulse).
+   *
+   * Per `drivecpu_reset()` (drivecpu.c:194-209): zero the drive clock,
+   * call `interrupt_cpu_status_reset` (clears pending IRQ/NMI), then
+   * `interrupt_trigger_reset` (CPU jumps to reset vector at $FFFC).
+   * **RAM is NOT cleared** — it survives the RESET pulse. Same for
+   * VIA timer latches and shift register (per VICE `viacore.reset`
+   * which preserves register 10 = SR; doc §13 Phase H step 33).
+   *
+   * Use when emulating the C64-side RESET button or `JMP ($FFFC)`
+   * from the drive monitor; use `reset()` (hard) for power-cycle
+   * semantics where RAM must be reinitialised.
+   *
+   * Doc: docs/vice-1541-arch.md §13 Phase H step 33 (soft reset
+   *      pulses RESET line; RAM preserved).
+   * VICE: src/drive/drivecpu.c:194 `drivecpu_reset()`,
+   *       src/core/viacore.c:378-439 `viacore_reset` (SR preserved).
+   */
+  softReset(pc?: number): void {
+    // VIA reset preserves SR (register 10) per viacore.c:357 — already
+    // implemented in via6522-vice.ts (loop starts at register 11).
+    this.bus.via1.reset();
+    this.bus.via2.reset();
+    // CPU reset = clear interrupt latches + jump to reset vector. RAM
+    // is NOT touched (= drivecpu_reset semantics).
+    this.cpu.reset(pc);
+    this.lastSyncC64Clk = 0;
+    this.cycleAccumulator16dot16 = 0;
+    this.sleeping = false;
+  }
+
+  /**
+   * Spec 414 — `drive_enable()` analog (Phase H step 32).
+   *
+   * Re-arms a previously-disabled drive: sets `enabled = true`,
+   * resyncs the host-side baseline (= `cpu->stop_clk = *clk_ptr` in
+   * drive.c:514), and wakes the CPU from sleep (= `drivecpu_wake_up`
+   * in drive.c:520).
+   *
+   * No IEC callback registration: the IEC bus already iterates all
+   * units and skips disabled (OQ-414-1; doc §17). No image re-attach:
+   * the parser swap lives in `mount.ts` `mountMedia`, which is the
+   * caller's responsibility (mirrors VICE `drive_image_attach`).
+   *
+   * Doc: docs/vice-1541-arch.md §13 Phase H step 32, §2.3,
+   *      §17 OQ-414-1.
+   * VICE: src/drive/drive.c:482-529 `drive_enable()` —
+   *       (a) check `Drive%uTrueEmulation` resource (= caller in TS),
+   *       (b) re-attach images (= `mountMedia` in TS),
+   *       (c) set `cpu->stop_clk = *clk_ptr` (= setSyncBaseline),
+   *       (d) `drivecpu_wake_up` (= wakeUp),
+   *       (e) update UI (= no-op in TS headless).
+   */
+  enable(currentHostClk?: number): void {
+    this.enabled = true;
+    if (currentHostClk !== undefined) {
+      this.lastSyncC64Clk = currentHostClk >>> 0;
+    }
+    this.wakeUp();
+  }
+
+  /**
+   * Spec 414 — `drive_disable()` analog (Phase H step 32).
+   *
+   * Sets `enabled = false`. Subsequent `executeToClock` calls
+   * early-return; the drive CPU stops advancing. `sleeping = true`
+   * matches VICE `drivecpu_sleep`. The IEC bus continues to operate
+   * (= ATN edge from C64 still pulses CA1) but with no drive CPU
+   * advance, no VIA1 PB output is generated — matching VICE's
+   * "iterate units, skip disabled" model.
+   *
+   * Per drive.c:540 the order is `drv->enable = 0; ... drivecpu_sleep`.
+   * We follow the same order so any concurrent IEC callback sees the
+   * disabled flag before sleep is set.
+   *
+   * Doc: docs/vice-1541-arch.md §13 Phase H step 32, §17 OQ-414-1.
+   * VICE: src/drive/drive.c:531-560 `drive_disable()`.
+   */
+  disable(): void {
+    this.enabled = false;
+    this.sleeping = true;
   }
 
   // Sync drive clock baseline (called when c64Clk wraps or on cold reset).
@@ -922,6 +1048,16 @@ export class DriveCpu implements Drive1541Unit {
    * src/6510core.c (per-bus-cycle macro template).
    */
   executeToClock(c64Clk: number, _cycleStepped: boolean = false): void {
+    // Spec 414 — disabled drive does not advance. The IEC bus still
+    // operates (ATN edge → pulseCa1 still fires) but with no drive
+    // CPU progress, VIA1 PB output never updates — matches VICE's
+    // "iterate units, skip disabled" model (`via1d1541.c:200`,
+    // OQ-414-1). Advance the host-clock baseline so the next
+    // re-enable doesn't replay a huge backlog of host cycles.
+    if (!this.enabled) {
+      this.lastSyncC64Clk = c64Clk >>> 0;
+      return;
+    }
     if (c64Clk <= this.lastSyncC64Clk) return;
     const c64Delta = c64Clk - this.lastSyncC64Clk;
     this.lastSyncC64Clk = c64Clk;

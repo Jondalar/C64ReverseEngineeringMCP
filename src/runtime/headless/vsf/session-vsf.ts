@@ -196,5 +196,46 @@ export function loadSessionVsf(session: IntegratedSession, inputPath: string): S
       result.errors.push({ module: mod.name, error: (e as Error).message });
     }
   }
+
+  // Spec 414 — Phase H step 34 + §14 invariant 10:
+  //   "Snapshot restore is consistent — drive clock and alarm-clocks
+  //    are both absolute and restored as a coherent set."
+  //
+  // The drive's `lastSyncC64Clk` baseline is internal bookkeeping
+  // (= where the host-clock cursor sat when the last `executeToClock`
+  // returned). It is NOT a VICE module field — VICE keeps the same
+  // information as `cpu->last_clk` inside `drivecpu_context_t` and
+  // serialises it through `drivecpu_snapshot_write_module`
+  // (drivecpu.c:582-593). Our HL-VSF layout collapses that into the
+  // pair (`session.c64Cpu.cycles`, `session.drive.cpu.cycles`) +
+  // a derived sync baseline.
+  //
+  // Without this re-arm, post-restore `executeToClock(c64Clk)` would
+  // early-return for every host cycle until the C64 clock caught up
+  // to the pre-restore drive baseline (= "alarms fire instantly or
+  // never" failure mode called out in §14 invariant 10).
+  //
+  // Re-arm strategy = `drive.enable(currentHostClk)`:
+  //   - sets `enabled = true` (no-op if already on),
+  //   - resets `lastSyncC64Clk = c64Cpu.cycles` (= cpu->stop_clk per
+  //     drive.c:514),
+  //   - clears `sleeping` (= drivecpu_wake_up per drive.c:520).
+  //
+  // This is the same invocation `mountMedia` makes and matches VICE
+  // `drive_enable` semantics (drive.c:482-529). The drive's own
+  // alarms (VIA1/VIA2 T1/T2/SR) are re-armed lazily by the next VIA
+  // register write (= viacore alarm_set, see via6522-vice.ts:544 etc.)
+  // — they're not persisted in the HL-VSF VIA module today (only the
+  // visible register state is, per OQ-414-2 doc §11 footnote: full
+  // 1:1 alarm absolute-clock persistence is a follow-up).
+  //
+  // Doc: docs/vice-1541-arch.md §13 Phase H step 34, §14 invariant 10,
+  //      §17 OQ-414-2.
+  // VICE: src/drive/drivecpu.c:582-593 (last_clk in DRIVECPU module),
+  //       src/drive/drive.c:514 (cpu->stop_clk = *clk_ptr),
+  //       src/core/viacore.c viacore_snapshot_module_read (alarm_set
+  //         on restore with absolute clock).
+  session.drive.enable(session.c64Cpu.cycles);
+
   return result;
 }

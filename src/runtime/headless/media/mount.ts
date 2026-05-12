@@ -175,6 +175,24 @@ export async function mountMedia(
     // bit-stream transition. Mirrors real HW media-insert physics.
     session.gcrShifter?.notifyAttach(session.c64Cpu.cycles);
 
+    // Spec 414 — Phase H step 32: re-arm drive enable after image
+    // (re-)attach. VICE `drive_enable()` (drive.c:482-529) does:
+    // (a) check `Drive%uTrueEmulation` resource — TS always-on,
+    // (b) `drive_image_attach` for each populated slot — done above
+    //     via parser swap + headPosition cap update,
+    // (c) `cpu->stop_clk = *clk_ptr` — done by enable() via
+    //     setSyncBaseline,
+    // (d) `drivecpu_wake_up()` — done by enable() via wakeUp(),
+    // (e) UI update — no-op in headless.
+    // Idempotent: enable() on an already-enabled drive only resyncs
+    // the baseline + clears sleep, both of which are correct after
+    // a media swap.
+    //
+    // Doc: docs/vice-1541-arch.md §2.4 (image attach), §13 Phase H
+    //      step 32, §17 OQ-414-1.
+    // VICE: src/drive/drive.c:482-529 `drive_enable`.
+    session.drive.enable(session.c64Cpu.cycles);
+
     // Update the kernel's diskProvider so KERNAL file traps see new files.
     (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
     (session.kernel as unknown as { diskProvider: unknown }).diskProvider = newProvider;
@@ -194,7 +212,18 @@ export async function mountMedia(
   return { slot, mountedPath: path, type: mediaType, sectors, errors: errors.length ? errors : undefined };
 }
 
-/** Eject (clear) the disk in the given drive slot. */
+/** Eject (clear) the disk in the given drive slot.
+ *
+ * Spec 414 — note: detach does NOT call `drive.disable()`. Per VICE
+ * (`drive_image_detach`, driveimage.c:230) image detach only:
+ *   - writes back GCR/P64 if dirty,
+ *   - sets `detach_clk` for the WPS pulse window,
+ *   - clears `image` and `GCR_image_loaded`.
+ * The drive remains enabled; the CPU keeps running its ROM and the
+ * IEC bus continues to be serviced. Only the TrueEmulation resource
+ * toggle calls `drive_disable()` (drive.c:531-560). Doc §13 Phase H
+ * step 32, §17 OQ-414-1.
+ */
 export function unmountMedia(
   session: IntegratedSession,
   slot: DriveSlot,

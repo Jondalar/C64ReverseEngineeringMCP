@@ -1,6 +1,6 @@
 # Spec 414 — 1541 Phase H: Lifecycle and integration
 
-**Status:** PROPOSED
+**Status:** DONE 2026-05-12
 **Branch:** `vice-arch-port`
 **Depends on:** 413
 **Doctrine:** 1:1 VICE TDE port.
