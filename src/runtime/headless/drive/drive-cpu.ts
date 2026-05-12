@@ -711,7 +711,9 @@ export class DriveCpu implements Drive1541Unit {
     const clkRef = () => cpuRef.cycles;
     this.bus = new DriveBus(opts, clkRef);
     this.microcoded = opts.useMicrocodedCpu ?? false;
-    this.driveDispatchMode = opts.driveDispatchMode ?? "cycle-stepped";
+    // Spec 428 Phase D — default flipped to VICE-faithful whole-instruction
+    // dispatch. Cycle-stepped remains opt-in via explicit option.
+    this.driveDispatchMode = opts.driveDispatchMode ?? "vice-whole-instruction";
     this.cpu = this.microcoded
       ? new Cpu65xxVice({ memBus: this.bus, alarmContext: opts.alarmContext ?? this.bus.alarmContext })
       : new Cpu6510(this.bus);
