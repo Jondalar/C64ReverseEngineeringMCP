@@ -28,10 +28,17 @@ export interface ResetProfileSpec {
   driveStartTrack: number;
 }
 
+// VICE ram.c defaults: start_value=$FF, value_invert=128.
+// Algorithm (src/ram.c:298-310):
+//   j = ((offset / value_invert) & 1) ? 0xff : 0x00;
+//   value = start_value ^ j;
+// = 128-byte chunks alternating $FF / $00, starting with $FF.
+// Our prior 64-byte $00-first scheme broke games that depend on
+// power-on RAM pattern (e.g. LNR depacker reads uninit ZP/RAM).
 const PAL_DEFAULT: ResetProfileSpec = {
   isPal: true,
-  ramFillA: 0x00,
-  ramFillB: 0xff,
+  ramFillA: 0xff,
+  ramFillB: 0x00,
   vicRasterPhase: 0,
   driveStartTrack: 18,
 };
@@ -50,10 +57,11 @@ export function getResetProfile(profile: ResetProfile): ResetProfileSpec {
   }
 }
 
-// Apply the profile's RAM fill pattern. Block size 64 bytes (real
-// C64 power-on pattern alternates roughly per 64-byte block).
+// Apply the profile's RAM fill pattern. Block size 128 bytes
+// matches VICE ram.c default `value_invert=128` (= alternate
+// every 128 bytes).
 export function applyRamFillPattern(ram: Uint8Array, spec: ResetProfileSpec): void {
-  const blockSize = 64;
+  const blockSize = 128;
   for (let i = 0; i < ram.length; i++) {
     const block = Math.floor(i / blockSize);
     ram[i] = (block & 1) === 0 ? spec.ramFillA : spec.ramFillB;
