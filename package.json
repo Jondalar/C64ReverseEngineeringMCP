@@ -73,6 +73,8 @@
     "smoke:410-via1-atn": "npm run build:mcp && node scripts/smoke-410-via1-atn-edge.mjs",
     "smoke:412-rotation-per-cycle": "npm run build:mcp && node scripts/smoke-412-rotation-per-cycle.mjs",
     "smoke:412-sync-detect": "npm run build:mcp && node scripts/smoke-412-sync-detect.mjs",
+    "smoke:413-d64-gcr": "npm run build:mcp && node scripts/smoke-413-d64-gcr.mjs",
+    "smoke:413-g64-half-track": "npm run build:mcp && node scripts/smoke-413-g64-half-track.mjs",
     "smoke:serial-matrix": "npm run build:mcp && node scripts/smoke-serial-matrix.mjs",
     "smoke:g64-fidelity": "npm run build:mcp && node scripts/smoke-g64-fidelity.mjs",
     "smoke:write-support": "npm run build:mcp && node scripts/smoke-write-support.mjs",

@@ -2,6 +2,25 @@
 // G64 physical track stream with proper SYNC + GCR header + GCR data
 // per VICE conventions.
 //
+// Spec 413 — 1541 Phase G step 27 ("D64 attach: per track, encode
+// each sector's header + data into GCR; store in
+// gcr->tracks[ht].data").
+//
+// Doctrine: 1:1 VICE TDE port.
+// Doc:  docs/vice-1541-arch.md §9.1 (D64 attach encode loop),
+//       §9.4 (format dispatch),
+//       §13 Phase G step 27,
+//       §17 OQ-413-1 (eager at attach, NOT on-demand).
+// VICE: src/drive/driveimage.c:169-220 drive_image_attach() →
+//       src/diskimage/diskimage.c disk_image_read_image() →
+//       src/diskimage/fsimage-dxx.c:149-280 fsimage_read_dxx_image().
+//       VICE walks every track once at attach time and fills
+//       gcr->tracks[half_track].data with the encoded GCR stream.
+//       This builder does the same thing in TS: invoked at mount
+//       time (mount.ts:142-143, headless-machine-kernel.ts:157-159)
+//       so the G64Parser sees a fully-encoded image, not lazy-encoded
+//       per-track.
+//
 // G64 file layout:
 //   0x00..0x07: "GCR-1541"
 //   0x08:       version (0)

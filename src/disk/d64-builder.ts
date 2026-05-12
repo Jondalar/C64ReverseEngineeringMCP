@@ -187,3 +187,47 @@ export function buildD64(opts: D64BuildOptions): Uint8Array {
 
   return img;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Spec 413 — 1541 Phase G step 29: D64 detach scan-back / writeback.
+//
+// Doctrine: 1:1 VICE TDE port.
+// Doc:  docs/vice-1541-arch.md §9.1 (D64 detach decode loop),
+//       §13 Phase G step 29 ("D64 detach: per track, scan GCR for
+//       SYNC + headers, decode sectors back to D64 layout. Detect
+//       modifications via GCR_dirty_track").
+// VICE: src/drive/drive.c drive_gcr_data_writeback() — iterates the
+//       per-track GCR_dirty_track[] flags and calls
+//       fsimage_write_sector() to scan-back into the .d64 buffer.
+//
+// Status: NOT IMPLEMENTED — post-arch-port. Per spec 413 Audit:
+//   "D64 detach + writeback: probably absent (read-only)."
+//   "Stub for now; full write support is post-arch-port."
+//
+// All current in-scope titles (motm, MM, IM2, LNR, Scramble Infinity)
+// are read-only workloads. When D64 write is needed (e.g. format/save
+// flows), this stub is the entry point. Inputs:
+//   - per-track raw GCR buffers (TrackBuffer.modifiedTracks).
+//   - per-track dirty flag (TrackBuffer mutation list).
+// Output: 174848-byte D64 buffer with decoded sectors written back
+//   at standard D64 offsets (use d64Offset above).
+//
+// Implementation guidance for the future port:
+//   1. For each dirty track, run the GCR scan-back loop equivalent
+//      of `gcr.ts decodeGCRTrack` — same code path the current G64
+//      smoke fixtures exercise.
+//   2. For each successfully decoded sector, splice into the D64
+//      buffer at d64Offset(track, sector).
+//   3. Preserve sectors not touched by the dirty track set.
+//   4. Mirror VICE's semantics around DRIVE_EXTEND_ASK for
+//      non-standard tracks (35+).
+export function buildD64FromGCR(
+  _gcrTracks: Map<number, Uint8Array>,
+  _dirtyTracks: Set<number>,
+): Uint8Array {
+  // not implemented: post-arch-port (Spec 413 step 29, OQ-413-1).
+  throw new Error(
+    "D64 detach / GCR-to-D64 writeback is not implemented (Spec 413: post-arch-port). " +
+    "Current scope is read-only — see docs/vice-1541-arch.md §13 Phase G step 29.",
+  );
+}
