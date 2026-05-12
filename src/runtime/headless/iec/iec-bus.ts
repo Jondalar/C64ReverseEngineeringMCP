@@ -10,6 +10,12 @@
 
 import type { BusAccessTraceProducer } from "../trace/bus-access.js";
 import { IecBusCore } from "./iec-bus-core.js";
+import {
+  IECBUS_STATUS_DRIVETYPE,
+  IECBUS_STATUS_TRUEDRIVE,
+  IecBusCallbacks,
+  type IecBusOps,
+} from "./iecbus-callbacks.js";
 
 // PB bit positions for device-ID jumpers on 1541 VIA1 PB5/PB6.
 // Moved here from drive/via1-iec.ts (Sprint 113 Phase 2).
@@ -55,6 +61,15 @@ export interface IecEdgeRecord {
 export class IecBus {
   // 1:1 VICE iecbus_t — single source of truth.
   public readonly core = new IecBusCore();
+
+  // Spec 417 — VICE iecbus_callback_{read,write} indirection. Owned
+  // here so CIA2 + KernelBus can route through the same dispatcher
+  // VICE uses (`(*iecbus_callback_write)(tmp, maincpu_clk + !write_offset)`
+  // — c64cia2.c:162). The active callback variant (conf0..conf3) is
+  // selected by `callbacks.statusSet(...)` (= iecbus_status_set).
+  // Doc anchors: docs/vice-iec-arc42.md §15 Phase B step 6, §17.2.
+  // VICE: src/iecbus.h:91-99, src/iecbus/iecbus.c:432-572.
+  public readonly callbacks: IecBusCallbacks;
 
   // Spec 093 trace.
   private traceEnabled = false;
@@ -104,6 +119,28 @@ export class IecBus {
   // kernel decides whether to publish based on the "iec" trace channel
   // mode. Set via `setEdgeListener`.
   private edgeListener?: (rec: IecEdgeRecord) => void;
+
+  constructor() {
+    // Spec 417 — install the iecbus_callback_{read,write} dispatcher
+    // and bind it to the IecBus's actual write/read primitives. The
+    // ops object exposes `_performC64Write` / `_performC64Read` which
+    // do the unconditional cpu_bus / drv_bus / ATN-edge mutation
+    // (= the VICE conf1 body in src/iecbus/iecbus.c:226-287).
+    const ops: IecBusOps = {
+      performWrite: (data, clock) => this._performC64Write(data, clock),
+      performRead: (clock) => this._performC64Read(clock),
+    };
+    this.callbacks = new IecBusCallbacks(ops);
+
+    // Spec 417 step 6 — register the default config: x64sc + 1541 TDE
+    // on unit 8 ⇒ conf1. We mirror VICE's resource-driven path that
+    // calls iecbus_status_set during machine startup
+    // (`src/iecbus/iecbus.c:521-572`). For our V2 single-1541 baseline
+    // we set TRUEDRIVE + DRIVETYPE for unit 8; the resolved nibble is
+    // 0b1100 which iecbus_device_index[12] maps to TRUEDRIVE → conf1.
+    this.callbacks.statusSet(IECBUS_STATUS_TRUEDRIVE, 8, true);
+    this.callbacks.statusSet(IECBUS_STATUS_DRIVETYPE, 8, true);
+  }
 
   // === Trace API ===
 
@@ -174,26 +211,46 @@ export class IecBus {
   //   3. ATN edge → viacore_signal(via1d1541, CA1, ...)
   //   4. recompute drv_bus[8]
   //   5. iec_update_ports
-  setC64Output(cia2Pa: number, _ddrMask: number): void {
+  //
+  // Spec 417: this is the legacy CIA2-side entrypoint. The store
+  // (raw CIA PA byte → inverted → callback) now routes through the
+  // VICE-style function-pointer indirection at
+  // `this.callbacks.callbackWrite` (= iecbus_callback_write).
+  // The conf1 callback ultimately invokes `_performC64Write(...)`,
+  // which is where the cpu_bus mutation + ATN edge propagation lives.
+  // Doc anchors: §15 Phase B step 4 + §17.2 OQ-417-1.
+  // VICE: src/c64/c64cia2.c:148-162.
+  setC64Output(cia2Pa: number, _ddrMask: number, effectiveClock?: number): void {
     // Per c64cia2.c:150 — invert raw PA byte before iecbus.
     const inverted = (~cia2Pa) & 0xff;
+    // Spec 417: route through the VICE callback pointer. CIA2 normally
+    // supplies effectiveClock = `maincpu_clk + !write_offset`
+    // (= maincpu_clk + 1 for x64sc, see c64cia2.c:307-310 / :162);
+    // a missing clock degrades to the live drive-clock source so
+    // legacy direct callers (smokes / serial-matrix tests) still work.
+    const clock = effectiveClock ?? this.driveClockSource?.() ?? 0;
+    this.callbacks.callbackWrite(inverted, clock);
+    this.busAccessProducer?.emitC64Access({ op: "write", addr: this.cia2PaAddr, value: cia2Pa & 0xff });
+  }
+
+  // Spec 417 — actual cpu_bus mutation. Called from the conf1 callback
+  // (or directly by smokes that bypass CIA2). Mirrors VICE
+  // iecbus_cpu_write_conf1 (src/iecbus/iecbus.c:226-287) without the
+  // drive_cpu_execute_one() flush — KernelBus already does that via
+  // `catchUpDriveIfReady` on the c64Write path. `data` is the inverted
+  // PA byte.
+  private _performC64Write(data: number, _clock: number): void {
     const prev = { atn: this.atnLine, clk: this.clkLine, data: this.dataLine };
-    // Single core mutation — handles update_cpu_bus, ATN edge,
-    // drv_bus[8/9] recompute, iec_update_ports.
-    this.core.c64_store_dd00(inverted, (atnHigh) => {
+    this.core.c64_store_dd00(data & 0xff, (atnHigh) => {
       const stamp = this.driveClockSource?.();
-      // Per 1541 schematic + VICE iecbus.c logic: CA1 input pin
-      // sees INVERTED ATN line state (7406 inverter in path).
-      // ATN line LOW (asserted) → CA1 input HIGH.
-      // ATN line HIGH (released) → CA1 input LOW.
-      // Drive ROM PCR=\$01 (= positive edge config) then fires on
-      // ATN line HIGH→LOW transition (= assertion = CA1 LOW→HIGH).
-      // Pass !atnHigh so pulseCa1 sees the CA1 input level.
+      // Per 1541 schematic + VICE iecbus.c logic: CA1 input pin sees
+      // INVERTED ATN line (7406 inverter). ATN line LOW (asserted) →
+      // CA1 HIGH. Drive ROM PCR=\$01 (positive edge) → fires on
+      // assertion. Pass !atnHigh so pulseCa1 sees the CA1 input level.
       this.driveVia1?.pulseCa1(!atnHigh, stamp);
       this.prevAtnLow = !atnHigh;
     });
     this.recordEdge("c64", prev);
-    this.busAccessProducer?.emitC64Access({ op: "write", addr: this.cia2PaAddr, value: cia2Pa & 0xff });
   }
 
   // === Drive PB store ($1800 ORB write) ===
@@ -223,16 +280,23 @@ export class IecBus {
 
   // === C64 reads $DD00 PA ($DC00 callback) ===
   // VICE: iecbus_cpu_read_conf1 returns CACHED iecbus.cpu_port.
-  buildC64InputBits(): number {
-    // VICE iecbus_cpu_read_conf1:
-    //   drive_cpu_execute_all(clock);
-    //   return iecbus.cpu_port;
-    // CIA2 read_ciapa then ORs this with
-    // ((PRA | ~DDRA) & 0x3f). Do not synthesize VIC-bank or floating
-    // low bits here; that belongs in CIA2 read_ciapa.
-    const result = this.core.cpu_port & 0xff;
+  // Spec 417: routed through the VICE callback pointer
+  // (`iecbus_callback_read`), which for the V2 single-drive baseline
+  // dispatches to conf1. Doc anchors: §15 Phase B step 5 + §17.2.
+  // VICE: src/c64/c64cia2.c read_ciapa, src/iecbus/iecbus.c:226.
+  buildC64InputBits(effectiveClock?: number): number {
+    const clock = effectiveClock ?? this.driveClockSource?.() ?? 0;
+    const result = this.callbacks.callbackRead(clock) & 0xff;
     this.busAccessProducer?.emitC64Access({ op: "read", addr: this.cia2PaAddr, value: result });
     return result;
+  }
+
+  // Spec 417 — actual cached cpu_port readback. Mirrors VICE
+  // iecbus_cpu_read_conf1 (src/iecbus/iecbus.c:226-237) without the
+  // drive_cpu_execute_all() — KernelBus's `catchUpDriveIfReady` does
+  // that on the c64Read path.
+  private _performC64Read(_clock: number): number {
+    return this.core.cpu_port & 0xff;
   }
 
   // === Drive reads $1800 PB === (legacy fallback for trace etc.)

@@ -65,6 +65,12 @@ export function installCia2(
 ): InstalledCia2 {
   let cia: Cia6526Vice | undefined;
   const writeOffset = opts.writeOffset ?? 1;
+  // Spec 417 / §15 Phase B step 4 / §17.2 OQ-417-1.
+  // VICE `c64cia2.c:162`:
+  //   (*iecbus_callback_write)(tmp, maincpu_clk + !(cia->write_offset))
+  // ⇒ x64sc (write_offset=0) passes `maincpu_clk + 1`; default
+  //   ciacore (write_offset=1) passes `maincpu_clk + 0`.
+  // The `!(write_offset)` is logical-NOT of an int: 1 if 0, else 0.
   const iecWriteClock = () => opts.clkPtr() + (writeOffset === 0 ? 1 : 0);
   // Spec 309 Phase D: allocate intNum once.
   const cia2IntNum = opts.cpuIntStatus.newIntNum("CIA2");

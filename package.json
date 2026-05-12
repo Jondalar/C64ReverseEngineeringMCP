@@ -82,6 +82,7 @@
     "smoke:415-fastloaders": "npm run build:mcp && node scripts/smoke-415-fastloaders.mjs",
     "smoke:415-drive-diff-trace": "npm run build:mcp && node scripts/smoke-415-drive-diff-trace.mjs",
     "smoke:416-iecbus-formulas": "npm run build:mcp && node scripts/smoke-416-iecbus-formulas.mjs",
+    "smoke:417-cia2-iecbus": "npm run build:mcp && node scripts/smoke-417-cia2-iecbus.mjs",
     "smoke:serial-matrix": "npm run build:mcp && node scripts/smoke-serial-matrix.mjs",
     "smoke:g64-fidelity": "npm run build:mcp && node scripts/smoke-g64-fidelity.mjs",
     "smoke:write-support": "npm run build:mcp && node scripts/smoke-write-support.mjs",

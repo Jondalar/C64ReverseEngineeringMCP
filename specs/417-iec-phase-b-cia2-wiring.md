@@ -1,9 +1,42 @@
 # Spec 417 — IEC Phase B: CIA2 wiring
 
-**Status:** PROPOSED
+**Status:** IMPLEMENTED 2026-05-12
 **Branch:** `vice-arch-port`
 **Depends on:** 416
 **Doctrine:** 1:1 VICE IEC port.
+
+## Implementation
+
+- `src/runtime/headless/iec/iecbus-callbacks.ts` (new) — VICE
+  `iecbus_callback_{read,write}` function-pointer indirection +
+  `iecbus_status_set` per-unit nibble + `iecbus_device_index[16]`
+  lookup + `calculate_callback_index` composite key dispatcher
+  selecting conf0/conf1/conf2/conf3.
+- `src/runtime/headless/iec/iec-bus.ts` — owns one `IecBusCallbacks`
+  instance, default-binds unit 8 to TRUEDRIVE+DRIVETYPE
+  ⇒ conf1. `setC64Output` and `buildC64InputBits` route through
+  `callbacks.callbackWrite` / `callbacks.callbackRead` (private
+  `_performC64Write` / `_performC64Read` are the conf1 body).
+- `src/runtime/headless/peripherals/cia2.ts` — `iecWriteClock` doc
+  cite added (= VICE `maincpu_clk + !(write_offset)`).
+- `src/runtime/headless/kernel/headless-kernel-bus.ts` — forward
+  `ctx.clock` to `setC64Output` / `buildC64InputBits` so the iecbus
+  callback sees the correct CIA2-supplied clock.
+- `src/runtime/headless/kernel/headless-machine-kernel.ts` — pinned
+  `c64CiaWriteOffset = 0` doc cite expanded with §17.2 OQ-417-1.
+- `scripts/smoke-417-cia2-iecbus.mjs` (new) — 22 checks across 7
+  sub-tests covering default conf-pair, status_set lookup table,
+  composite key dispatch, callback dispatcher (data, clock) pass-through,
+  setC64Output cpu_bus mutation, write_offset wrap formula, end-to-end
+  bus-access producer wiring.
+
+Acceptance results (2026-05-12):
+- `npm run build` — clean.
+- `smoke:cpu-fidelity` — 31/31.
+- `smoke:cia-fidelity` — 22/22.
+- `smoke:416-iecbus-formulas` — 27/27 (no regression).
+- `smoke:417-cia2-iecbus` — 22/22.
+- `test:drive-suite` — 4/4.
 
 ## Goal
 

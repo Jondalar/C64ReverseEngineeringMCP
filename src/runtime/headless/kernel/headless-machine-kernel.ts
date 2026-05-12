@@ -210,8 +210,16 @@ export class HeadlessMachineKernel implements MachineKernel {
     // pass deferred-resolution callbacks because `this.bus` is wired
     // at end of constructor; the closures resolve at runtime when CIA2
     // actually accesses PA, by which time `this.bus` exists.
-    // VICE x64sc/C64SC sets CIA write_offset=0 for CIA1/2. For CIA2
-    // PA writes, c64cia2.c forwards IEC writes at maincpu_clk + 1.
+    // Spec 417 / §17.2 OQ-417-1 — pin CIA2 write_offset = 0 for the
+    // x64sc / SCPU64 machine class. VICE
+    // `cia2_setup_context` forces `cia->write_offset = 0` for both
+    // VICE_MACHINE_C64SC and VICE_MACHINE_SCPU64 (`vice/src/c64/
+    // c64cia2.c:307-310`); the default in `ciacore_setup_context` is 1
+    // (`vice/src/core/ciacore.c:2028`). The store_ciapa wrapper then
+    // invokes `(*iecbus_callback_write)(tmp, maincpu_clk +
+    // !(cia_context->write_offset))` (`vice/src/c64/c64cia2.c:162`),
+    // so x64sc passes `maincpu_clk + 1`. We use the same pin for
+    // CIA1 below — both CIAs share the C64SC override.
     const c64CiaWriteOffset = 0;
     const buildC64BusCtx = (access: "read" | "write", clock = this.c64Cpu.cycles) => ({
       side: "c64" as const,

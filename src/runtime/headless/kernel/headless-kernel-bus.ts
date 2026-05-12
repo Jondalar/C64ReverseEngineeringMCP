@@ -21,12 +21,14 @@ export const DRIVE_IEC_PB_ADDR = 0x1800;
 export class HeadlessKernelBus implements KernelBus {
   constructor(private readonly kernel: HeadlessMachineKernel) {}
 
-  c64Read(addr: number, _ctx: BusAccessContext): number {
+  c64Read(addr: number, ctx: BusAccessContext): number {
     if (addr === C64_IEC_PA_ADDR) {
-      this.catchUpDriveIfReady(_ctx);
+      this.catchUpDriveIfReady(ctx);
       // VICE iecbus_cpu_read_conf1: cached cpu_port composed from
       // c64 output + AND-gated drv_bus[unit] + ATN gate.
-      return this.kernel.iecBus.buildC64InputBits();
+      // Spec 417: forward `ctx.clock` so the iecbus callback sees
+      // the correct maincpu_clk (used by future chip-event stamps).
+      return this.kernel.iecBus.buildC64InputBits(ctx.clock);
     }
     return this.kernel.c64Bus.read(addr);
   }
@@ -35,7 +37,12 @@ export class HeadlessKernelBus implements KernelBus {
     if (addr === C64_IEC_PA_ADDR) {
       this.catchUpDriveIfReady(ctx);
       const ddr = ctx.ddrMask ?? 0xff;
-      this.kernel.iecBus.setC64Output(value & 0xff, ddr);
+      // Spec 417: forward `ctx.clock` (= CIA2's
+      // `maincpu_clk + !write_offset` — see c64cia2.c:162). For x64sc
+      // / SCPU64 (write_offset=0) this is `maincpu_clk + 1`. The
+      // IecBus routes through `callbacks.callbackWrite(...)` to mimic
+      // VICE's `(*iecbus_callback_write)(tmp, clock)` pointer call.
+      this.kernel.iecBus.setC64Output(value & 0xff, ddr, ctx.clock);
       return;
     }
     this.kernel.c64Bus.write(addr, value);
