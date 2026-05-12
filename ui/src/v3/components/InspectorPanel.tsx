@@ -8,6 +8,7 @@ interface Drive {
   device: number;
   ledOn: boolean;
   ledFlashing?: boolean;
+  ledPwm?: number;  // Spec 424 VICE 1:1 — 0..1000 brightness
   motorOn: boolean;
   rwMode?: "read" | "write";
   halfTrack: number;
@@ -56,12 +57,20 @@ interface VicState {
 // Spec 424 LED color matrix — user direction 2026-05-12.
 function driveLedClass(d: Drive | null): string {
   if (!d) return "wb-led";
-  if (d.ledFlashing) return "wb-led blink";
-  if (!d.motorOn && !d.ledOn) return "wb-led off";
-  if (d.ledOn && d.rwMode === "write") return "wb-led write";
-  if (d.ledOn) return "wb-led read";
-  if (d.motorOn) return "wb-led motor";
-  return "wb-led off";
+  // Spec 424 VICE 1:1 PWM model: ledPwm 0..1000 = perceptual brightness.
+  // Drop blink animation; brightness IS the signal.
+  const pwm = d.ledPwm ?? (d.ledOn ? 1000 : 0);
+  if (pwm < 50 && !d.motorOn) return "wb-led off";
+  if (pwm < 50 && d.motorOn) return "wb-led motor";  // yellow: motor only
+  if (d.rwMode === "write") return pwm >= 700 ? "wb-led write" : "wb-led write-dim";
+  return pwm >= 700 ? "wb-led read" : "wb-led read-dim";
+}
+function driveLedStyle(d: Drive | null): React.CSSProperties | undefined {
+  if (!d) return undefined;
+  const pwm = d.ledPwm ?? (d.ledOn ? 1000 : 0);
+  if (pwm <= 0) return undefined;
+  const alpha = Math.max(0.2, Math.min(1, pwm / 1000));
+  return { opacity: alpha };
 }
 
 function cartLedClass(c: Cart | null | undefined): string {
@@ -72,10 +81,11 @@ function cartLedClass(c: Cart | null | undefined): string {
 }
 
 function DeviceRow({
-  label, ledClass, mediaList, currentPath, onMount, onEject, exts, secondLine,
+  label, ledClass, ledStyle, mediaList, currentPath, onMount, onEject, exts, secondLine,
 }: {
   label: string;
   ledClass: string;
+  ledStyle?: React.CSSProperties;
   mediaList: RecentMedium[];
   currentPath: string;
   onMount: (path: string) => void;
@@ -91,7 +101,7 @@ function DeviceRow({
     <div className="wb-device-row">
       <div className="wb-device-line1">
         <h3 className="wb-device-label">{label}</h3>
-        <span className={ledClass} title="LED" />
+        <span className={ledClass} style={ledStyle} title="LED" />
         <button
           className={currentPath ? "wb-device-eject" : "wb-device-insert"}
           onClick={() => setOpen(o => !o)}
@@ -273,6 +283,7 @@ export function InspectorPanel({
           <DeviceRow
             label="DRIVE 8"
             ledClass={driveLedClass(drive)}
+            ledStyle={driveLedStyle(drive)}
             mediaList={media}
             currentPath={activeMedia}
             onMount={(p) => mountSlot(8, p)}
@@ -288,6 +299,7 @@ export function InspectorPanel({
           <DeviceRow
             label="DRIVE 9"
             ledClass={driveLedClass(drive9)}
+            ledStyle={driveLedStyle(drive9)}
             mediaList={media}
             currentPath={activeMedia9}
             onMount={(p) => mountSlot(9, p)}
