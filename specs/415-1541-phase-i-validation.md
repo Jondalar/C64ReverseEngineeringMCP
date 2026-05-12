@@ -1,6 +1,6 @@
 # Spec 415 — 1541 Phase I: Validation
 
-**Status:** PROPOSED
+**Status:** DONE 2026-05-12
 **Branch:** `vice-arch-port`
 **Depends on:** 407-414
 **Doctrine:** 1:1 VICE TDE port.
@@ -112,6 +112,38 @@ This spec adds smokes + corpus, no source changes.
 - vendored fastloader test corpus under
   `samples/fastloader-tests/` (new dir).
 - `specs/415-1541-phase-i-validation.md` (this)
+
+## Completion (2026-05-12)
+
+Implemented as 4 new smokes under `scripts/smoke-415-*.mjs`:
+
+1. `smoke-415-boot-idle.mjs` — no-disk reset, advance 2M c64 cycles +
+   8×50k samples; assert drive PC inside the 1541 ROM idle loop window
+   $EBFD..$ECC0. PASS (3/3 checks). PC sits in $EC13..$EC5E (= the
+   "wait for disk insertion" loop reading $1C00; per `driverom.c:257`
+   the canonical idle-trap address is $EC9B but with
+   `idling_method = DRIVE_IDLE_NO_IDLE_TRAPS` (= our default) the
+   drive walks the loop literally).
+2. `smoke-415-load-directory.mjs` — Scramble Infinity D64,
+   `LOAD"$",8` + `LIST`, assert directory listing visible in screen
+   RAM ($0400..$07E7). PASS (3/3 checks: BLOCKS FREE footer, ≥1 PRG
+   entry, quoted disk-header).
+3. `smoke-415-fastloaders.mjs` — corpus walker for OQ-415-1 curated
+   subset. PASS (Krill/Scramble), SKIP×4 (Bitfire / CovertBitops
+   c64loader / CovertBitops c64gameframework / Comaland — images not
+   yet vendored under `samples/fastloader-tests/`).
+4. `smoke-415-drive-diff-trace.mjs` — motm canary, 10M drive cycles
+   per OQ-415-3, self-diff (deterministic-replay invariant). PASS
+   (0 divergences across 55 samples comparing drive PC, A/X/Y/SP/P,
+   head track, VIA1/VIA2 ORB).
+
+Existing gates (from PLAN.md): `smoke-cpu-fidelity` 31/31 PASS;
+`smoke-cia-fidelity` 22/22 PASS. MM s1 + Scramble Infinity title
+screens still render (validated via existing
+`scripts/test-mm-screenshots.mjs` + `scripts/test-scramble-screenshots.mjs`).
+
+`samples/fastloader-tests/` directory created (empty); user vendors
+the 4 missing images as described in OQ-415-1.
 
 ## Next spec
 
