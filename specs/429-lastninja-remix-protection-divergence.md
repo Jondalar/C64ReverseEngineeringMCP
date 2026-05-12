@@ -597,3 +597,28 @@ JMP target = crash vs success.
 
 Test pending: rerun LNR with new pattern. Also test motm/MM/IM2/
 Scramble for no-regression.
+
+### Update 4a — Quick-test results (2026-05-12)
+
+| Game | Result | PC | Notes |
+|------|--------|----|----|
+| motm | **PASS** | $B7BF | main loop, 227s |
+| MM s1 | (pending) | | |
+| LNR s1 | **FAIL** | $E5D4 | KERNAL READY, 266s, 912M cycles |
+
+RAM init pattern alone doesn't fix LNR. motm still works = no
+regression.
+
+### STA \$2F frequency diff (= depacker store-source-ptr)
+
+| Trace | STA \$2F count |
+|-------|---------------|
+| headless | 152 |
+| VICE     | 4284 |
+
+= VICE runs the depacker **28× more times** than headless. Game
+makes far more decompression passes in VICE. Headless crashes
+before most passes complete.
+
+The early depacker invocations match (same A values stored to
+\$2F at PC=\$01CF). Divergence comes later.

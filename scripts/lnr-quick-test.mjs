@@ -1,23 +1,24 @@
-// Quick post-RAM-init-change verification:
-// LNR + MM + motm reach known states.
+// Quick post-RAM-init-change verification with per-game flush.
 
 import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
 import { mountMedia } from "../dist/runtime/headless/media/mount.js";
 import { resolve } from "node:path";
 
-const games = [
-  { label: "LNR s1",
-    disk: "samples/last_ninja_remix_s1[system3_1991].g64",
-    runMs: 200_000, expect: pc => pc !== 0xE5CF && pc !== 0xE5D4 },
-  { label: "MM s1",
-    disk: "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64",
-    runMs: 180_000, expect: pc => pc >= 0x500 && pc <= 0x7ff },
-  { label: "motm",
-    disk: "samples/motm.g64",
-    runMs: 180_000, expect: pc => pc === 0xb7bf || pc === 0xb7bd },
-];
+const which = process.argv[2] ?? "all";
 
-for (const g of games) {
+const games = {
+  motm: {
+    disk: "samples/motm.g64",
+    runMs: 180_000, expect: pc => pc === 0xb7bf || pc === 0xb7bd, label: "motm" },
+  mm: {
+    disk: "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64",
+    runMs: 180_000, expect: pc => pc >= 0x500 && pc <= 0x7ff, label: "MM s1" },
+  lnr: {
+    disk: "samples/last_ninja_remix_s1[system3_1991].g64",
+    runMs: 200_000, expect: pc => pc !== 0xE5CF && pc !== 0xE5D4, label: "LNR s1" },
+};
+
+async function runOne(g) {
   const t0 = Date.now();
   const { session } = startIntegratedSession({
     mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port",
@@ -34,6 +35,10 @@ for (const g of games) {
   const cyc = session.c64Cpu.cycles;
   const ok = g.expect(pc);
   const dt = ((Date.now() - t0) / 1000).toFixed(1);
-  console.log(`[${ok ? "PASS" : "FAIL"}] ${g.label} pc=$${pc.toString(16)} cyc=${cyc} (${dt}s)`);
+  process.stdout.write(`[${ok ? "PASS" : "FAIL"}] ${g.label} pc=$${pc.toString(16)} cyc=${cyc} (${dt}s)\n`);
+  return ok;
 }
+
+const list = which === "all" ? ["motm", "mm", "lnr"] : [which];
+for (const k of list) await runOne(games[k]);
 process.exit(0);
