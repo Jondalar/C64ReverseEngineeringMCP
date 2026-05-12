@@ -38,6 +38,66 @@ color RAM match byte-for-byte). VICE's CPU then writes screen
 color codes to \$C000-\$C3E7. Our CPU never does → striped
 output.
 
+## VICE PC-stream milestones
+
+The VICE reference is not a single KERNAL LOAD then direct game
+entry. IM2 uses a multi-stage boot path:
+
+| Wall time | VICE clk | VICE PC | Phase |
+|---|---:|---|---|
+| 1s | ~37M | \$A5DC | BASIC interpreter |
+| 3-5s | ~61-85M | \$AD5x | BASIC SYS path |
+| 8s | ~120M | \$3310 | IM2 loader stub |
+| 12-50s | ~170-653M | \$48D3-\$48EE loop | game title idle |
+
+Current headless symptom: at clk ~65M, after apparent LOAD
+completion, PC is \$16E8. That means we are already out of the
+BASIC interpreter, but we have not reached the VICE \$3310 loader
+stub path and never converge on the \$48D3-\$48EE title idle loop.
+
+This changes the debug target:
+
+- Do **not** start by debugging pixels, D018, color RAM, or the
+  bitmap data. Spec 426 already proved the renderer and memory bank
+  path can draw the VICE state correctly.
+- Do **not** compare only wall-clock seconds. VICE warp timing is
+  useful for orientation, but the actionable key is C64 cycle + PC
+  milestone + bus event order.
+- First answer: does headless hit the same milestones in the same
+  order: BASIC -> SYS path -> \$3310 loader stub -> \$48D3-\$48EE
+  title idle?
+- If headless diverges before \$3310, debug KERNAL/BASIC/SYS path
+  and the handoff into the IM2 loader.
+- If both reach \$3310, debug the IM2 loader's subsequent IEC
+  handshake by comparing \$DD00/\$DD02 events and drive VIA1/IEC
+  events by ordinal and cycle.
+
+## Bisect result
+
+Claude's bisect narrowed the regression to the first `vice-arch-port`
+code change:
+
+| Commit | Meaning | IM2 result |
+|---|---|---|
+| `0a47f50` | `vic-fix` tip, pre-vice-arch-port | reaches \$48D3 title idle |
+| `2005494` | Spec 401 first code change | stuck in \$1xxx path |
+
+Spec 401 touched five files, but only two have meaningful runtime
+behavior churn:
+
+- `src/runtime/headless/cpu/cpu65xx-vice.ts` (+280 LOC): introduces
+  `tick()`, routes page-cross/branch/interrupt cycles through it,
+  changes interrupt entry dummy-read/tick sequencing, and changes
+  delay-counter bump placement from after `clk++` to before `clk++`.
+- `src/runtime/headless/drive/drive-cpu.ts` (-181/+177 churn):
+  removes the legacy whole-instruction drive path and makes
+  `executeToClock` always run the microcoded cycle-stepped path; GCR
+  shifter now ticks one cycle at a time.
+
+Therefore the next step is **not** a broad audit of the later 1541
+rewrite. First isolate which of these two Spec 401 changes is
+sufficient to break IM2.
+
 ## Hypothesis
 
 CIA2 PA read `\$44` (VICE) vs `\$04` (us, latch-only field) ≠
@@ -86,8 +146,13 @@ node scripts/debug-im2-boot.mjs
 
 ## Acceptance
 
-- Diff our IEC bus state + CIA2 PA read against VICE every 100k
-  cycles during IM2 boot. First divergence cycle identified.
+- Trace VICE and headless through the same PC milestones: BASIC
+  interpreter, BASIC SYS path, \$3310 IM2 loader stub,
+  \$48D3-\$48EE title idle. First missing/mismatching milestone
+  identified with C64 cycle and PC.
+- Diff our IEC bus state + CIA2 PA read against VICE at event
+  granularity, not only every 100k cycles. The first divergent
+  \$DD00/\$DD02 or drive VIA1/IEC event is identified.
 - Root cause traced to specific module (drive CPU / VIA1 / VIA2
   / IEC bus core / CIA2 PA read path).
 - Fix applied. IM2 title renders matching VICE within frame
@@ -97,15 +162,255 @@ node scripts/debug-im2-boot.mjs
 
 ## Next investigation steps
 
-1. Trace OUR `\$DD00` reads (cpu pc + composed byte + iec pins
-   contribution) during IM2 boot. Identify cycle where IM2 polls
-   \$DD00 and what it expects vs what we return.
-2. Compare drive-side state (drive PC, VIA1 ORB, VIA2 PB,
-   bus clk/data lines) at matching C64 cycles between VICE and
-   ours.
-3. Test isolated: load VICE VSF + step through IM2 from \$0/\$3
-   (post-load state) checking which path matches VICE's
-   subsequent PC stream.
+1. Add/adjust a headless PC-stream script matching
+   `scripts/vice-im2-pc-stream.mjs` output schema. Sample at the
+   known VICE clock landmarks: 37M, 61M, 85M, 120M, 170M, 653M,
+   and also record first-entry cycles for \$3310 and the
+   \$48D3-\$48EE idle loop.
+2. Fix debug output that reports CIA2 PA or VIC bank from the raw
+   `cia2.pra` latch. For comparisons, always log: raw PRA latch,
+   DDRA, effective CPU-read byte from \$DD00, IEC input bits merged
+   into bits 6/7, and decoded bank from the effective byte where
+   relevant.
+3. Trace OUR `\$DD00` reads and `\$DD00/\$DD02` writes during IM2
+   boot with: c64 cycle, PC, opcode, A/X/Y/P, raw PRA, DDRA,
+   effective \$DD00 byte, IEC ATN/CLK/DATA, and whether the event
+   happened before or after the \$3310 milestone.
+4. Trace drive-side events in the same window: drive PC, VIA1 PRB,
+   VIA1 DDRB, VIA1 IFR/IER/PCR, VIA2 PB, and IEC ATN/CLK/DATA line
+   state. Convert drive time to C64 master-clock using the existing
+   trace-store clock contract.
+5. Compare by phases:
+   - If headless never reaches \$3310: stop. The bug is before the
+     IM2 loader stub and the IEC fastloader is not yet the active
+     suspect.
+   - If headless reaches \$3310 but not \$48D3-\$48EE: compare
+     \$DD00/\$DD02 events by ordinal within the loader stub first,
+     then compare the nearest drive VIA1/IEC event.
+   - If \$DD00 returned bytes match but PC diverges: inspect IRQ/NMI
+     entry timing and CPU flags at the branch where the paths split.
+6. Prefer DuckDB/swimlane traces for the real comparison. JSONL is
+   acceptable only as a temporary capture format if it is ingested
+   into the trace store before analysis.
+
+## Spec 401 isolation contract
+
+Run this on a throwaway worktree/branch only:
+
+1. Baseline GOOD:
+   - reset to `0a47f50`
+   - build
+   - run IM2 PC-stream
+   - confirm first-entry \$3310 and \$48D3-\$48EE.
+2. Baseline BAD:
+   - reset to `2005494`
+   - build
+   - run same IM2 PC-stream
+   - confirm stuck \$1xxx and record whether \$3310 was ever reached.
+3. Variant A — isolate drive:
+   - reset to `2005494`
+   - restore only `src/runtime/headless/drive/drive-cpu.ts` from
+     `0a47f50`
+   - build and run same IM2 PC-stream
+   - if IM2 reaches \$48D3, the Spec 401 drive executor change is
+     sufficient to explain the regression.
+4. Variant B — isolate C64 CPU:
+   - reset to `2005494`
+   - restore only `src/runtime/headless/cpu/cpu65xx-vice.ts` from
+     `0a47f50`
+   - build and run same IM2 PC-stream
+   - if IM2 reaches \$48D3, the Spec 401 C64 CPU tick/interrupt
+     change is sufficient to explain the regression.
+5. Only if Variant A proves drive involvement: audit `drive-cpu.ts`
+   line-by-line for drive-cycle accumulator rounding, GCR shifter
+   `tick(1)` vs previous `tick(consumed)`, byte-ready/SO/V-flag
+   timing, VIA1 PRB/IFR IRQ sampling at instruction boundary vs every
+   cycle, and SYNC detect ordering relative to drive CPU reads.
+6. Only if Variant B proves C64 CPU involvement: audit
+   `cpu65xx-vice.ts` line-by-line for `tick()` ordering vs VICE
+   `CLK_INC`, delay-counter bump before/after `clk++`, page-cross and
+   branch extra-cycle interrupt-delay semantics, `serviceInterrupt()`
+   dummy reads/vector timing, and any path where `tick()` drains
+   alarms twice or at the wrong cycle.
+7. Do **not** audit Spec 408-414 until this two-file Spec 401 split is
+   resolved. Those commits are downstream layers and will hide the
+   first cause.
+
+## Bisect results (2026-05-12)
+
+Per Spec 401 isolation contract:
+
+| Commit | IM2 outcome at t=60s |
+|---|---|
+| `0a47f50` vic-fix tip (pre-arch-port) | PC=\$48D3 = **title idle loop** ✓ |
+| `2005494` Spec 401 | PC=\$1xxx, stuck ✗ |
+| `c957356` Spec 407 | PC=\$1xxx, stuck ✗ |
+
+= Regression introduced AT Spec 401 (commit `2005494`). Specs
+408-414 layer further drive changes on top but are not the
+first cause.
+
+Spec 401 diff scope:
+- `src/runtime/headless/cpu/cpu65xx-vice.ts` +280 LOC
+- `src/runtime/headless/drive/drive-cpu.ts` -181/+177 churn
+
+Drive change in `drive-cpu.ts`:
+- **BEFORE** (working): `executeToClock(c64Clk, cycleStepped=false)`
+  had two paths:
+  - `cycleStepped && microcoded` → cycle-by-cycle (Spec 218
+    hybrid, opt-in for motm AB-fastloader)
+  - **else** → `runOneInstruction()` whole-instruction path
+  - Comment cited: "Whole-instruction path retained as default to
+    keep KERNAL-serial loader timing it relies on."
+- **AFTER** Spec 401: the whole-instruction fallback is **deleted**.
+  All callers forced into cycle-stepped microcoded
+  `Cpu65xxVice.executeCycle` loop.
+
+Spec 401 commit message justification:
+> "VICE has no whole-instruction drive dispatch — strict 1:1
+> forbids it. The legacy `runOneInstruction` whole-instruction
+> drive path was the OQ-400-Q4 fallback; it is gone."
+
+## VICE drive dispatch reality check
+
+That justification is **wrong**. Read of
+`/Users/alex/Development/C64/Tools/vice/vice/src/drive/drivecpu.c`
++ `src/6510core.c`:
+
+```c
+// drivecpu.c:393
+while (*drv->clk_ptr < cpu->stop_clk) {
+    ...
+    #include "6510core.c"   // ← generic 6510 core, whole-instruction
+}
+```
+
+`6510core.c` is the **shared generic 6510 emulation core** that
+processes opcodes whole, with per-opcode cycle templates handling
+CLK increments and `drivecpu_rotate()` calls at specific opcode
+template sites (V-flag clear/set, byte-ready windows). It is the
+SAME core x64sc uses for the C64 main CPU when that CPU is not
+running in the SC cycle-stepped variant.
+
+VICE architecture clarified:
+- **C64 main CPU in x64sc**: cycle-stepped via `c64cpusc.c` (= the
+  SC variant; CLK_INC macro after every CPU clock).
+- **Drive CPU in all VICE variants (including x64sc)**:
+  whole-instruction via `drivecpu.c` → `6510core.c`. CLK is
+  advanced inside opcode templates, not by external per-CPU-clock
+  dispatch. `rotation_rotate_disk()` is called at opcode-internal
+  points, not after every clock.
+
+Spec 401 conflated these. It applied the x64sc CLK_INC cycle-stepped
+model to BOTH C64 and drive. The drive side was already 1:1 with
+VICE before Spec 401 (= whole-instruction `runOneInstruction()`
+default). Removing the whole-instruction fallback moved the drive
+*away* from VICE, not closer.
+
+## Why the cycle-stepped drive path breaks IM2 Epyx FastLoad
+
+Effective bus-timing differences vs VICE drive 6510core:
+
+1. **GCR rotation cadence**: cycle-stepped path calls
+   `gcrShifter.tick(1)` after every CPU clock. VICE calls
+   `rotation_rotate_disk()` only at the specific opcode-template
+   sites (LOCAL_SET_OVERFLOW + the three opcode loop hooks in
+   6510core.c). Result: byte-ready edge produced at a different
+   CPU-cycle offset relative to the running opcode.
+
+2. **byte_ready_edge / SO-pin latch consumption**: VICE consumes
+   the SO latch at instruction boundaries inside 6510core.c (= V
+   flag set). Cycle-stepped path consumes at per-cycle granularity
+   under the assumption that the instruction-boundary check is
+   cycle-equivalent. For an opcode that takes 4-7 cycles, the
+   precise cycle at which V flag is set differs.
+
+3. **VIA1 IRQ push timing**: in cycle-stepped path we push setIrq
+   inside `executeCycle`. VICE pushes IRQ at the instruction
+   boundary the 6510core template defines for IRQ entry. Off by
+   1-2 cycles depending on opcode.
+
+4. **`drivecpu_rotate()` placement**: Spec 412 PARTIAL commit
+   already noted "rotation tick order swap deferred — Scramble
+   Krill loader regression". That same class of timing difference
+   is what breaks IM2 Epyx FastLoad. IM2's protocol bit-bangs
+   tighter than Krill so it's more sensitive.
+
+motm + Krill smokes pass on the cycle-stepped path because their
+fastloader protocols tolerate ±1-2 cycle byte-ready jitter. IM2
+Epyx FastLoad does not.
+
+## Planned fix (do NOT implement without further review)
+
+The fix is to restore the **whole-instruction drive dispatch** as
+the default DriveCpu path, matching VICE drivecpu.c → 6510core.c
+exactly. Keep cycle-stepped only as an opt-in for the specific
+motm AB-fastloader $4278 BIT-sample probe case that was the
+original Spec 218 hybrid motivation.
+
+Concretely:
+1. Restore `DriveCpu.executeToClock`'s legacy whole-instruction
+   path (`runOneInstruction()` loop) as the default.
+2. Keep the cycle-stepped microcoded path opt-in via
+   `cycleStepped: true` flag.
+3. C64 main CPU stays cycle-stepped (= Spec 425 CLK_INC contract;
+   that is 1:1 with x64sc c64cpusc.c CLK_INC and is doctrinally
+   correct).
+4. Drive runs `Cpu65xxVice` in **whole-instruction mode** =
+   `executeOneInstruction()` returning the cycles consumed, then
+   the wrapper accounts for those cycles in the drive sync
+   accumulator. This matches VICE `drivecpu_execute` loop running
+   the 6510core opcode template per iteration.
+5. Drive `gcrShifter.tick(N)` should be called once per
+   instruction with N = cycles consumed by that instruction (not
+   `tick(1)` per CPU clock). Sites matching VICE's
+   `drivecpu_rotate()` placement (V-flag clear in
+   LOCAL_SET_OVERFLOW; 3 opcode-loop sites) are the precise
+   targets — implementing the byte-ready edge cycle-exact requires
+   intercepting those opcode template hooks.
+6. VIA1/VIA2 IRQ assertion stays chip-side push (= Specs 410/411
+   still apply — that part is correct).
+
+Acceptance for the fix:
+- IM2 reaches PC=\$48D3-\$48EE title idle loop within 200M c64
+  cycles.
+- MM s1 character select PC=\$65f stays green.
+- Scramble Infinity title bitmap stays green.
+- motm canary PC=\$B7BF stays green.
+- Krill loader (Scramble) stays green.
+- VICE drive testprogs 4/4 stay green.
+- Lorenz Disk1 stays 100%.
+- smoke:cpu-fidelity 31/31, smoke:cia-fidelity 22/22 stay green.
+
+Risk: motm + Krill currently pass on cycle-stepped path. Restoring
+whole-instruction may shift their byte-ready timing by 1-2 cycles
+also. Mitigation: bisect-test motm + Krill on the whole-instruction
+path before broad sign-off. If they regress, the fix shape changes
+to a per-game opt-in rather than a default switch.
+
+## Spec 428 candidate (not opened yet)
+
+The drive-dispatch refactor is large enough to deserve its own
+spec rather than a Spec 427 amendment. Suggested title:
+"Spec 428 — Drive CPU whole-instruction dispatch (1:1 VICE
+drivecpu.c)". Spec 427 stays the bug doc; Spec 428 carries the
+implementation contract.
+
+## Claude task contract
+
+Claude must produce the next result as a small evidence packet, not a
+speculative fix:
+
+1. `vice-im2-pc-stream.json` and `headless-im2-pc-stream.json` with
+   the same schema and cycle/PC milestones.
+2. A table showing whether headless reaches \$3310 and \$48D3-\$48EE,
+   with first-entry cycles.
+3. The Spec 401 Variant A/B matrix result.
+4. If \$3310 is reached, a second table with the first 50
+   \$DD00/\$DD02 events from VICE/headless aligned by ordinal.
+5. The first GOOD/BAD divergence stated as: `phase`, `c64_cycle`,
+   `pc`, `event`, `vice_value`, `headless_value`, `suspect_module`.
+6. No code fix until that first divergence is named.
 
 ## Files touched
 
@@ -120,3 +425,10 @@ node scripts/debug-im2-boot.mjs
 - VIC bank switch contract (Spec 426 implemented)
 - CLK_INC contract (Spec 425 implemented)
 - Drive disk parsing (motm + Krill loaders confirm parsing OK)
+- D018 bit 0. It is an unused/VICE-readback quirk and does not
+  explain why \$C000 is never filled.
+- Game-specific patches, artificial timing constants, or IM2-only
+  workarounds.
+- Last Ninja, Scramble, MM, or motm until the first IM2 divergence
+  has been identified. They are regression canaries, not the primary
+  investigation path.
