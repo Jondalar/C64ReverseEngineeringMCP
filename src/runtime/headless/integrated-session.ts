@@ -1465,10 +1465,11 @@ export class IntegratedSession {
     // Spec 425 — BA-low return now folded into maincpu_ba_low_flags
     // BY THE CPU, not here. Cpu65xxVice.tick() calls c64ViciiCycle hook
     // and ORs the result. tickLitVic is pure side-effect-free w.r.t. CPU.
-    const cia2Pa = (this.cia2.pra & this.cia2.ddra) & 0xff;
-    const bank = (~cia2Pa) & 0x03;
-    lv.vbank_phi1 = bank * 0x4000;
-    lv.vbank_phi2 = bank * 0x4000;
+    // Spec 426 — VIC bank derivation REMOVED from tickLitVic. Bank
+    // switch now pushed from CIA2 PA/DDRA store path
+    // (peripherals/cia2.ts onVicBankChange → vicii_set_vbank).
+    // Previous bug: `pra & ddra` zeroed input bits → wrong bank when
+    // DDRA had bits 0/1 as input (real C64: those float high).
     if (lv.raster_line !== this.litLastRasterLine) {
       const last = this.litLastRasterLine;
       if (last >= 0 && last < this.litFbH) {

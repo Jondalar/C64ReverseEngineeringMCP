@@ -45,6 +45,24 @@ export function vicii_bind_ram(ram: Uint8Array): void {
 }
 
 /**
+ * Spec 426 — literal vicii_set_vbank (= VICE viciisc/vicii.c:364-388).
+ * Push site = CIA2 PA/DDRA store path via c64_glue_set_vbank.
+ *
+ * Cite: src/viciisc/vicii.c:364 `vicii_set_vbank(int num_vbank)`:
+ *   int tmp = num_vbank << 14;
+ *   vicii_set_vbanks(tmp, tmp);
+ */
+export function vicii_set_vbank(num_vbank: number): void {
+    const base = (num_vbank & 0x03) << 14;
+    vicii.vbank_phi1 = base;
+    vicii.vbank_phi2 = base;
+}
+
+export function vicii_get_vbank(): number {
+    return (vicii.vbank_phi1 >>> 14) & 3;
+}
+
+/**
  * vicii_init() literal subset — chip model + draw cycle init.
  */
 export function vicii_init(): void {
