@@ -1,9 +1,38 @@
 # Spec 429 — Last Ninja Remix copy-protection divergence
 
-**Status:** OPEN 2026-05-12
+**Status:** OPEN 2026-05-12; narrowed 2026-05-13
 **Branch:** `vic_bugs`
 **Depends on:** 428 Phase D (drive whole-instruction dispatch default)
 **Doctrine:** 1:1 VICE drive timing. No game-specific patches.
+
+## 2026-05-13 correction
+
+Do not treat this as a copy-protection / half-track investigation. The
+next architectural step is Spec 430: make the IEC/VIA/GCR/1541
+communication path a literal VICE-shaped TypeScript port.
+
+Plain KERNAL LOAD succeeds, so the KERNAL routine itself is not the
+primary suspect. The active failure is that the 1541 eventually answers
+differently than VICE during the loader / fastloader communication path.
+
+Use these first:
+
+- `docs/1541-vice-like-for-like-iec-via-analysis-2026-05-13.md`
+- `specs/430-1541-iec-via-literal-vice-port.md`
+
+Current priority is implementation, not another proof loop:
+
+1. Port `iecbus.c` shape and call order literally.
+2. Port `via1d1541.c` shape and call order literally.
+3. Route production ATN through VICE-style `viacore_signal` edge tags.
+4. Port `gcr.c` sector-read behavior literally, including bit-level sync
+   scanning from arbitrary positions.
+5. Remove production use of legacy/hybrid wrappers that differ from VICE.
+
+Do not start with arbitrary drive PC drift before the custom loader.
+Drive ROM phase can differ in harmless idle windows. The useful anchor is
+the first loader / fastloader IEC exchange where VICE and headless produce
+different `$DD00` or `$1800` values.
 
 ## Symptom
 
