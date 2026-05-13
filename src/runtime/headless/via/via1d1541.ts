@@ -1,10 +1,24 @@
-// Spec 147 — VIA1 (1541 IEC) instance, Phase 1.
+// Spec 147 / Spec 433 — VIA1 (1541 IEC) literal port of VICE
+// src/drive/iec/via1d1541.c (~420 LOC).
 //
-// Source: VICE 3.7.1 src/drive/iec/via1d1541.c (~420 LOC).
+// VICE function map (line ranges from VICE 3.7.1):
 //
-// VIA1 ($1800-$1BFF on the 1541 drive bus) handles the IEC serial
-// bus interface and ATN signaling. Port wiring (via1d1541.c lines
-// 324-336):
+//   VICE function        Lines       TS impl                Notes
+//   -------------------   --------    --------------------   --------
+//   struct via_context_t  via.h      Via6522Vice fields     shared
+//   via1d1541_setup_*     31-95      constructor             wiring
+//   set_int               92-104     backend.setInt          IRQ push
+//   store_pra (no-op)     289-294    backend.storePa         stock 1541
+//   read_pra              290-322    backend.readPa          PA+DDR mask
+//   store_prb             212-249    backend.storePb         → iec
+//   read_prb              324-362    backend.readPb          drive_id
+//   set_ca2 (no-op)       111-113    backend.setCa2          explicit
+//   set_cb2 (no-op)       116-118    backend.setCb2          explicit
+//   store_pcr             ~120       backend.storePcr        pass-through
+//   store_acr/sr/t2l      n/a        backend setters         no-ops
+//   reset (no-op)         n/a        backend.reset           explicit
+//
+// Port wiring (via1d1541.c lines 324-336):
 //   PB Bit 7   ATN IN    (input)
 //   PB Bit 6-5 device address preset (input)
 //   PB Bit 4   ATN ack OUT (output, drives bus)
@@ -16,17 +30,15 @@
 //   IN mask:  1110 0101  (0xe5)
 //   OUT mask: 0001 1010  (0x1a)
 //
-// CA1 ← ATN IN edge from C64 (used by drive ROM for ATN handler).
-// CA2/CB2 unused (set_ca2/set_cb2 are no-ops in VICE via1d1541.c).
+// CA1 ← ATN IN edge from C64. Production ATN path (Spec 432):
+//   iecbus.c → viacore_signal(via1d1541, VIA_SIG_CA1, edge_tag)
+//   = signalAtnEdge(risingEdgeTag).
+// CA2/CB2 unused — explicit no-ops to match VICE via1d1541.c.
 //
-// Backend wraps `IecBusCore`:
-//  - storePb: drive_store_pb(byte) → IecBusCore (recompute drv_bus,
-//    drv_port, propagate to c64 cpu_port).
-//  - readPb: drive_read_pb(prb, deviceId) → 1:1 VICE formula.
-//  - readPa: returns parallel-cable byte (1541 stock = open-bus 0xff).
-//  - storePa: parallel-cable write (no-op for stock 1541 in V1).
-//  - storeSr / storeT2L / storeAcr / storePcr / setCa2 / setCb2: no-ops
-//    matching VICE via1d1541.c. (set_int routes IRQ to drive CPU.)
+// Spec 433 wrapper purge slice:
+//   - pulseCa1 / reevaluateCa1Level / _lastCa1 / onCa1IerEnabled
+//     are @deprecated test-only and not invoked from production.
+//   - Production callers go through signalAtnEdge (edge-tag) only.
 
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import type { IecBusCore } from "../iec/iec-bus-core.js";
@@ -325,30 +337,16 @@ export class Via1d1541 {
     return this.via.irqAsserted();
   }
 
-  /**
-   * Legacy: pulseCa1 shim — translates old `pulseCa1(newLevel, stamp?)` API
-   * to the VICE `signal(ca1, rise|fall)` call used by iec-bus.ts ATN edge.
-   *
-   * Spec 419 — Phase D step 10 + 11. VICE CA1 polarity on VIA1: PCR=0x01
-   * → positive edge, PCR=0x00 → negative edge. The DOS 1541 ROM at
-   * $EB2F writes `LDA #$01 / STA $180C` ⇒ PCR=$01 so CA1 fires on
-   * ATN assertion (CA1 input goes HIGH when ATN goes LOW — 7406
-   * inverter in path). Verified 2026-05-12 against
-   * resources/roms/dos1541-325302-01+901229-05.bin.
-   *
-   * VICE viacore_signal: src/core/viacore.c:441-461 gates IFR_CA1 on
-   * `(edge ? 1 : 0) == (PCR & VIA_PCR_CA1_CONTROL)` — see
-   * via6522-vice.ts signal() for the 1:1 port and
-   * scripts/smoke-419-atn-edge.mjs for end-to-end coverage.
-   *
-   * The legacy pulseCa1(newLevel) convention: `true` = pin HIGH.
-   * VICE viacore_signal convention: `rise` = pin transitions high.
-   * We detect the edge by comparing with the last seen pin state
-   * (= explicit `_lastCa1` track) instead of VICE's polarity-tag
-   * pattern; the end-result IFR set matches VICE 1:1 for both PCR
-   * configurations.
-   */
-  private _lastCa1 = true; // starts high (ATN released)
+  // ---- Legacy test-only helpers (Spec 433 wrapper purge) ----------------
+  // Production paths use signalAtnEdge (above). The helpers below are
+  // kept only so the two legacy smoke scripts that drive CA1 by level
+  // (scripts/sprint61-smoke.mjs, scripts/smoke-419-atn-edge.mjs) keep
+  // compiling. Do not call from production code.
+
+  /** @deprecated @internal test-only — production uses signalAtnEdge. */
+  private _lastCa1 = true;
+
+  /** @deprecated @internal test-only — production uses signalAtnEdge. */
   pulseCa1(newLevel: boolean, _clockStamp?: number): void {
     const wasHigh = this._lastCa1;
     const isHigh = newLevel;
@@ -358,26 +356,5 @@ export class Via1d1541 {
     } else if (wasHigh && !isHigh) {
       this.via.signal("ca1", "fall");
     }
-    // No edge (no change) = no signal. VICE is edge-only, no level re-eval.
   }
-
-  /**
-   * Legacy: reevaluateCa1Level — Sprint 66 shim for boot-order race.
-   * In the VICE-faithful core the signal() is edge-only; the re-eval
-   * hack is only needed for the legacy core. Keep as a no-op stub so
-   * iec-bus.ts `onCa1IerEnabled` wiring compiles and doesn't crash.
-   */
-  reevaluateCa1Level(_currentLevel: boolean): void {
-    // VICE-faithful: edge-only. No-op; the CA1 IFR is set only on
-    // a real edge (signal call), not on level re-eval.
-  }
-
-  /**
-   * Legacy: onCa1IerEnabled callback — set by iec-bus.ts when CA1 IER
-   * is newly enabled so stale ATN state can be re-evaluated. Kept as a
-   * settable property so iec-bus.ts `attachDriveVia1` wiring still works.
-   * The VICE core fires the interrupt only on a real signal edge, so the
-   * callback itself is a no-op call (reevaluateCa1Level is a no-op above).
-   */
-  public onCa1IerEnabled?: () => void;
 }

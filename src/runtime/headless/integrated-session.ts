@@ -525,9 +525,9 @@ export class IntegratedSession {
     // duplicate assignment here.
     // Q9 head-start disabled by default in v3+: with bus formula
     // 1:1 VICE + drive RAM mostly correct, head-start no longer
-    // needed for boot-order race. CA1 IRQ + reevaluateCa1Level
-    // handle the race during normal scheduler tick. Caller may
-    // re-enable via option.
+    // needed for boot-order race. CA1 IRQ edge-tag (Spec 432) fires
+    // at the moment of $DD00 ATN change. Caller may re-enable via
+    // option.
     this.driveHeadStartCycles = opts.driveHeadStartCycles ?? 0;
     // Spec 309: vicRenderer is always "literal-port" (default value applies).
     void opts.vicRenderer; // accepted for backwards-compat, ignored

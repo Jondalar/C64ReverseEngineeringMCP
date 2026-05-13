@@ -25,15 +25,10 @@ const PB_DEV_ID1 = 1 << 6;
 /**
  * Drive VIA1 interface used by the IEC bus. Spec 432 (Phase B):
  * production ATN edge propagation goes through `signalAtnEdge`
- * (VICE viacore_signal edge-tag form). `pulseCa1` and
- * `reevaluateCa1Level` are legacy/test-only and no longer called
- * from production IEC code.
+ * (VICE viacore_signal edge-tag form).
  */
 export interface DriveVia1Like {
   signalAtnEdge(risingEdgeTag: boolean): void;
-  pulseCa1?(newLevel: boolean, clockStamp?: number): void;
-  reevaluateCa1Level?(currentLevel: boolean): void;
-  onCa1IerEnabled?: () => void;
 }
 
 // CIA2 PA bit assignments.
