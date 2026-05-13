@@ -1,6 +1,26 @@
-// Drive 6502 instance + memory bus.
+// Drive 6502 instance + memory bus + drivecpu catch-up.
 //
 // Spec 408 — 1541 Phase B: per-page dispatch tables.
+// Spec 435 — drivecpu.c catch-up wrapper literal VICE port:
+//
+//   VICE function           Lines      TS impl                     Notes
+//   ---------------------    --------   --------------------------  --------
+//   drivecpu_init            58-95      DriveCpu.constructor        + reset
+//   drivecpu_reset           107-130    DriveCpu.reset              + reset state
+//   drivecpu_wake_up         132-151    DriveCpu.wakeUp             clear sleeping
+//   drivecpu_sleep           153-172    DriveCpu.sleep              effectively no-op
+//   drivecpu_execute         356-470    DriveCpu.executeToClock     core catch-up
+//   drive_cpu_execute_one    991-1020   driveCpuExecuteOne (export) public entry
+//   drive_cpu_execute_all    1001-1050  driveCpuExecuteAll (export) public entry
+//
+// State shape (mirrors VICE drivecpu_context_t):
+//   lastClk           VICE cpu->last_clk
+//   cycleAccum        VICE cpu->cycle_accum (16.16 fixed-point)
+//   syncFactor16dot16 VICE cpu->sync_factor
+//
+// Spec 401 owns the inner cycle-stepped 6502 dispatch; Spec 428 owns the
+// optional "vice-whole-instruction" dispatch mode. Both run inside the
+// VICE-shaped catch-up wrapper.
 //
 // Doc: docs/vice-1541-arch.md §4 (drive memory map), §4.1 (physical
 //      layout), §4.2 (dispatch tables), §4.3 (ROM loading), §13 Phase
@@ -650,9 +670,9 @@ export class DriveCpu implements Drive1541Unit {
   private syncFactor16dot16 = 0;
   // Drive's last sync clock (in C64 cycles) — i.e. up to which C64
   // cycle we have already caught up.
-  private lastSyncC64Clk = 0;
+  private lastClk = 0;
   // Fixed-point accumulator — fractional drive cycles owed.
-  private cycleAccumulator16dot16 = 0;
+  private cycleAccum = 0;
   // Sleep mode: drive is in known busy-wait loop, skip ahead to next
   // bus state change. Cleared on bus state change.
   private sleeping = false;
@@ -850,8 +870,8 @@ export class DriveCpu implements Drive1541Unit {
   shutdown(): void {
     this.bus.reset();
     this.cpu.reset();
-    this.lastSyncC64Clk = 0;
-    this.cycleAccumulator16dot16 = 0;
+    this.lastClk = 0;
+    this.cycleAccum = 0;
     this.sleeping = false;
   }
 
@@ -937,8 +957,8 @@ export class DriveCpu implements Drive1541Unit {
   reset(pc?: number): void {
     this.bus.reset();
     this.cpu.reset(pc);
-    this.lastSyncC64Clk = 0;
-    this.cycleAccumulator16dot16 = 0;
+    this.lastClk = 0;
+    this.cycleAccum = 0;
     this.sleeping = false;
   }
 
@@ -969,8 +989,8 @@ export class DriveCpu implements Drive1541Unit {
     // CPU reset = clear interrupt latches + jump to reset vector. RAM
     // is NOT touched (= drivecpu_reset semantics).
     this.cpu.reset(pc);
-    this.lastSyncC64Clk = 0;
-    this.cycleAccumulator16dot16 = 0;
+    this.lastClk = 0;
+    this.cycleAccum = 0;
     this.sleeping = false;
   }
 
@@ -999,7 +1019,7 @@ export class DriveCpu implements Drive1541Unit {
   enable(currentHostClk?: number): void {
     this.enabled = true;
     if (currentHostClk !== undefined) {
-      this.lastSyncC64Clk = currentHostClk >>> 0;
+      this.lastClk = currentHostClk >>> 0;
     }
     this.wakeUp();
   }
@@ -1028,7 +1048,7 @@ export class DriveCpu implements Drive1541Unit {
 
   // Sync drive clock baseline (called when c64Clk wraps or on cold reset).
   setSyncBaseline(c64Clk: number): void {
-    this.lastSyncC64Clk = c64Clk;
+    this.lastClk = c64Clk;
   }
 
   /**
@@ -1053,11 +1073,26 @@ export class DriveCpu implements Drive1541Unit {
     this.executeToClock(hostClk);
   }
 
+  /**
+   * Spec 435 — VICE `drive_cpu_execute_all(host_clk)` wrapper.
+   *
+   * Iterates over all active drive units and catches each up to the
+   * given host clock. For the 1541-only milestone this is equivalent
+   * to `driveCpuExecuteOne(hostClk)`. The named entry point exists so
+   * the IEC bus read path (iecbus.c:229 `drive_cpu_execute_all(clock)`)
+   * has a 1:1 callable in TS.
+   *
+   * VICE: src/drive/drive.c:1001 `drive_cpu_execute_all`.
+   */
+  driveCpuExecuteAll(hostClk: number): void {
+    this.executeToClock(hostClk);
+  }
+
   // Spec 090: execute drive cycles up to the given C64 clock value.
   // Idempotent if c64Clk hasn't advanced. Drive may run a few cycles
   // ahead at end of each call (instruction overrun) — next call sees
-  // fewer cycles owed because lastSyncC64Clk is updated only by what
-  // we actually consumed. cycleAccumulator16dot16 carries fractional
+  // fewer cycles owed because lastClk is updated only by what
+  // we actually consumed. cycleAccum carries fractional
   // C64 cycles between calls.
   /**
    * Spec 401 / OQ-400-Q4 — `cycleStepped` flag dropped; the executor
@@ -1084,20 +1119,20 @@ export class DriveCpu implements Drive1541Unit {
     // OQ-414-1). Advance the host-clock baseline so the next
     // re-enable doesn't replay a huge backlog of host cycles.
     if (!this.enabled) {
-      this.lastSyncC64Clk = c64Clk >>> 0;
+      this.lastClk = c64Clk >>> 0;
       return;
     }
-    if (c64Clk <= this.lastSyncC64Clk) return;
-    const c64Delta = c64Clk - this.lastSyncC64Clk;
-    this.lastSyncC64Clk = c64Clk;
+    if (c64Clk <= this.lastClk) return;
+    const c64Delta = c64Clk - this.lastClk;
+    this.lastClk = c64Clk;
     if (this.sleeping) {
       // Drive in known busy-wait; defer cycles until wakeUp().
       // Accumulate the C64 delta for later replay.
-      this.cycleAccumulator16dot16 += this.syncFactor16dot16 * c64Delta;
+      this.cycleAccum += this.syncFactor16dot16 * c64Delta;
       return;
     }
     // Accumulate fractional drive cycles owed.
-    this.cycleAccumulator16dot16 += this.syncFactor16dot16 * c64Delta;
+    this.cycleAccum += this.syncFactor16dot16 * c64Delta;
     if (!this.microcoded) {
       throw new Error(
         "DriveCpu.executeToClock: legacy whole-instruction Cpu6510 path " +
@@ -1119,7 +1154,7 @@ export class DriveCpu implements Drive1541Unit {
       // loader timing (= IM2 Epyx FastLoad path).
       // Phase E will move GCR tick to opcode-template hook sites; Phase C
       // approximates with one-tick-per-instruction.
-      while (this.cycleAccumulator16dot16 >= 0x10000) {
+      while (this.cycleAccum >= 0x10000) {
         const before = cycled.cycles;
         // VIA2 IRQ polling at instruction boundary (= same as cycle-stepped).
         if (this.intNumVia2Irq) {
@@ -1140,12 +1175,12 @@ export class DriveCpu implements Drive1541Unit {
           cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
           cycled.cycles,
         );
-        this.cycleAccumulator16dot16 -= consumed * 0x10000;
+        this.cycleAccum -= consumed * 0x10000;
       }
       return;
     }
     // Spec 401 default cycle-stepped path.
-    while (this.cycleAccumulator16dot16 >= 0x10000) {
+    while (this.cycleAccum >= 0x10000) {
       if (cycled.isAtInstructionBoundary() && this.intNumVia2Irq) {
         // VIA2 IRQ polling — replaced by spec 411 chip-side push.
         cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
@@ -1167,7 +1202,7 @@ export class DriveCpu implements Drive1541Unit {
           cycled.cycles,
         );
       }
-      this.cycleAccumulator16dot16 -= 0x10000;
+      this.cycleAccum -= 0x10000;
     }
   }
 

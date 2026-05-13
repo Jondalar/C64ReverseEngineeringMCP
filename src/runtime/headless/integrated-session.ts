@@ -638,10 +638,10 @@ export class IntegratedSession {
         tickDriveFirst: opts.probeMode === "B",
         disableLockstepDriveTick: opts.probeMode === "C",
         // In probe variants A/B (lockstep + flush), the lockstep loop
-        // ticks drive each cycle. We MUST update drive.lastSyncC64Clk
+        // ticks drive each cycle. We MUST update drive.lastClk
         // here so the IEC-flush hook sees drive-already-current and
         // becomes a no-op. Without this, flush re-ticks all cycles
-        // since lastSyncC64Clk=0, causing massive over-tick.
+        // since lastClk=0, causing massive over-tick.
         // For variant C, we DO want flush to do real work, so skip
         // the sync (drive will accumulate naturally per flush call).
         afterCycleSync:

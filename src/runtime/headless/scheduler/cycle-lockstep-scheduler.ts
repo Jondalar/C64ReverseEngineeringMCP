@@ -64,7 +64,7 @@ export interface CycleLockstepDeps {
   // "synced to c64Cycle X" so the push-flush hook becomes a no-op
   // when drive is already current. Without this hook, push-flush
   // double-counts cycles in variants A/B (lockstep already ticked
-  // drive, then flush re-ticks from lastSyncC64Clk=0).
+  // drive, then flush re-ticks from lastClk=0).
   afterCycleSync?: (c64Cycle: number, driveCycle: number) => void;
   // Spec 280g: per-cycle bus-stall query. When set and returns true,
   // the C64 CPU is NOT stepped this cycle (VIC owns the bus for
@@ -156,7 +156,7 @@ export class CycleLockstepSchedulerImpl implements CycleLockstepScheduler {
         }
       }
       // Spec 138: notify integrated-session per-cycle so it can sync
-      // drive.lastSyncC64Clk in lockstep-with-flush variants.
+      // drive.lastClk in lockstep-with-flush variants.
       this.deps.afterCycleSync?.(this.cycleCount, this.driveCycleCount);
     }
   }

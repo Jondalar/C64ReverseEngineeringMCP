@@ -23,17 +23,12 @@ export class HeadlessKernelBus implements KernelBus {
 
   c64Read(addr: number, ctx: BusAccessContext): number {
     if (addr === C64_IEC_PA_ADDR) {
-      // VICE iecbus_cpu_read_conf1: cached cpu_port composed from
-      // c64 output + AND-gated drv_bus[unit] + ATN gate.
-      // Spec 417: forward `ctx.clock` so the iecbus callback sees
-      // the correct maincpu_clk.
-      // Spec 418: drive flush now happens INSIDE
-      // IecBus._performC64Read via `pushFlush.all(clock, cycleStepped)`
-      // ⇒ drive_cpu_execute_all (src/iecbus/iecbus.c:229,
-      //   src/drive/drive.c:1001). Doc §15 Phase C step 7,
-      // §5.11 row 2. KernelBus only supplies the cycleStepped hint.
-      const cycleStepped = this.computeCycleStepped(ctx);
-      return this.kernel.iecBus.buildC64InputBits(ctx.clock, cycleStepped);
+      // VICE iecbus_cpu_read_conf1 (iecbus.c:229) → drive_cpu_execute_all,
+      // returns cached iecbus.cpu_port. Push-flush happens inside
+      // IecBus._performC64Read via pushFlush.all(clock).
+      // Spec 435: hybrid `cycleStepped` hint removed. DriveCpu always
+      // runs the cycle-stepped microcoded path (Spec 401).
+      return this.kernel.iecBus.buildC64InputBits(ctx.clock, false);
     }
     return this.kernel.c64Bus.read(addr);
   }
@@ -41,18 +36,13 @@ export class HeadlessKernelBus implements KernelBus {
   c64Write(addr: number, value: number, ctx: BusAccessContext): void {
     if (addr === C64_IEC_PA_ADDR) {
       const ddr = ctx.ddrMask ?? 0xff;
-      // Spec 417: forward `ctx.clock` (= CIA2's
-      // `maincpu_clk + !write_offset` — see c64cia2.c:162). For x64sc
-      // / SCPU64 (write_offset=0) this is `maincpu_clk + 1`. The
-      // IecBus routes through `callbacks.callbackWrite(...)` to mimic
-      // VICE's `(*iecbus_callback_write)(tmp, clock)` pointer call.
-      // Spec 418: drive flush now happens INSIDE
-      // IecBus._performC64Write via `pushFlush.one(8, clock, cycleStepped)`
-      // ⇒ drive_cpu_execute_one (src/iecbus/iecbus.c:241,
-      //   src/drive/drive.c:991). Doc §15 Phase C step 7,
-      // §5.11 row 1. KernelBus only supplies the cycleStepped hint.
-      const cycleStepped = this.computeCycleStepped(ctx);
-      this.kernel.iecBus.setC64Output(value & 0xff, ddr, ctx.clock, cycleStepped);
+      // Spec 417: forward ctx.clock (= maincpu_clk + !write_offset per
+      // c64cia2.c:162). For x64sc (write_offset=0) → maincpu_clk + 1.
+      // Spec 418: drive flush inside IecBus._performC64Write via
+      // pushFlush.one(8, clock) ⇒ drive_cpu_execute_one
+      // (iecbus.c:241, drive.c:991).
+      // Spec 435: hybrid `cycleStepped` hint removed.
+      this.kernel.iecBus.setC64Output(value & 0xff, ddr, ctx.clock, false);
       return;
     }
     this.kernel.c64Bus.write(addr, value);
@@ -86,16 +76,4 @@ export class HeadlessKernelBus implements KernelBus {
     this.kernel.drive.bus.write(addr, value);
   }
 
-  // Spec 418 — Spec 218 hybrid-sync rule lifted out of the old
-  // catchUpDriveIfReady. The drive flush itself is now invoked from
-  // IecBus._performC64{Write,Read} (= the §5.11 mutation primitive);
-  // KernelBus only supplies the `cycleStepped` flag. KERNAL ROM
-  // ($A000+) → whole-instruction sync; userland ($0000-$9FFF) →
-  // cycle-stepped sub-cycle sync (e.g. motm AB-fastloader at $4278
-  // BIT $DD00). Doc §15 Phase C step 7 (push-flush invariant);
-  // VICE: src/iecbus/iecbus.c:229,241.
-  private computeCycleStepped(ctx: BusAccessContext): boolean {
-    const pc = ctx.pc ?? 0;
-    return pc < 0xa000;
-  }
 }

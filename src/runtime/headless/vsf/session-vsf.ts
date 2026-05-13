@@ -201,7 +201,7 @@ export function loadSessionVsf(session: IntegratedSession, inputPath: string): S
   //   "Snapshot restore is consistent — drive clock and alarm-clocks
   //    are both absolute and restored as a coherent set."
   //
-  // The drive's `lastSyncC64Clk` baseline is internal bookkeeping
+  // The drive's `lastClk` baseline is internal bookkeeping
   // (= where the host-clock cursor sat when the last `executeToClock`
   // returned). It is NOT a VICE module field — VICE keeps the same
   // information as `cpu->last_clk` inside `drivecpu_context_t` and
@@ -217,7 +217,7 @@ export function loadSessionVsf(session: IntegratedSession, inputPath: string): S
   //
   // Re-arm strategy = `drive.enable(currentHostClk)`:
   //   - sets `enabled = true` (no-op if already on),
-  //   - resets `lastSyncC64Clk = c64Cpu.cycles` (= cpu->stop_clk per
+  //   - resets `lastClk = c64Cpu.cycles` (= cpu->stop_clk per
   //     drive.c:514),
   //   - clears `sleeping` (= drivecpu_wake_up per drive.c:520).
   //
