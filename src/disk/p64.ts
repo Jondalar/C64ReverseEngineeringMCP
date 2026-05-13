@@ -20,11 +20,22 @@
 //   /Users/alex/Development/C64/Tools/vice/vice/src/lib/p64/p64.h
 //
 // This file currently ports:
-//   - P64MemoryStream*   ✅ (step 2b — this commit)
-//   - P64PulseStream*    ⏳ (step 2c follow-up)
-//   - P64Image*          ⏳ (step 2d follow-up)
-//   - P64RangeCoder*     ⏳ (step 2d follow-up)
-//   - P64CRC32           ⏳ (step 2d follow-up)
+//   - P64MemoryStream*   ✅ real (utility, harmless)
+//   - P64PulseStream*    🟡 STUB (throws with spec marker)
+//   - P64Image*          🟡 STUB (throws with spec marker)
+//   - P64RangeCoder*     🟡 STUB (internal — not exported, but listed)
+//   - P64CRC32           🟡 STUB (internal — not exported, but listed)
+//
+// Stub strategy (Spec 441 step 2c, user-approved 2026-05-13 —
+// [[feedback_p64_stubs_ok]]):
+//   - Real .p64 disk image required to verify a literal port.
+//   - User has none today.
+//   - Stubs throw `Error("P64 stub — Spec 441-P64 follow-up needed")`
+//     at runtime, never silent.
+//   - G64/D64 paths (rotation_1541_simple, rotation_1541_gcr) get
+//     full 1:1 port — they don't depend on these helpers.
+//   - When a .p64 disk surfaces: replace stubs with literal port of
+//     VICE p64.c:399-1211.
 //
 // "Allocated" semantics: VICE doubles capacity on overflow; TS port
 // mirrors that pattern using Uint8Array re-allocation. JS GC handles
@@ -32,9 +43,23 @@
 // post-destroy state.
 
 import type {
+  PP64Image,
   PP64MemoryStream,
+  PP64PulseStream,
   TP64MemoryStream,
 } from "./p64-types.js";
+
+// ============================================================================
+// Stub helper — uniform error message with spec marker.
+// ============================================================================
+const P64_STUB_MARKER =
+  "P64 stub — Spec 441-P64 follow-up needed. " +
+  "User has no .p64 disk image to verify a literal port against. " +
+  "When a .p64 disk surfaces, port VICE p64.c:399-1211 verbatim.";
+
+function p64stub(fnName: string): never {
+  throw new Error(`[${fnName}] ${P64_STUB_MARKER}`);
+}
 
 // ============================================================================
 // TP64MemoryStream — random-access byte stream
@@ -320,4 +345,163 @@ export function P64MemoryStreamAppendFromCount(
     }
   }
   return ToDo;
+}
+
+// ============================================================================
+// TP64PulseStream — stubs (Spec 441-P64 follow-up).
+// ----------------------------------------------------------------------------
+// VICE: p64.c lines 399-981
+// ============================================================================
+
+export function P64PulseStreamCreate(_Instance: PP64PulseStream): void {
+  p64stub("P64PulseStreamCreate");
+}
+export function P64PulseStreamDestroy(_Instance: PP64PulseStream): void {
+  p64stub("P64PulseStreamDestroy");
+}
+export function P64PulseStreamClear(_Instance: PP64PulseStream): void {
+  p64stub("P64PulseStreamClear");
+}
+export function P64PulseStreamAllocatePulse(_Instance: PP64PulseStream): number {
+  p64stub("P64PulseStreamAllocatePulse");
+}
+export function P64PulseStreamFreePulse(
+  _Instance: PP64PulseStream,
+  _Index: number,
+): void {
+  p64stub("P64PulseStreamFreePulse");
+}
+export function P64PulseStreamAddPulse(
+  _Instance: PP64PulseStream,
+  _Position: number,
+  _Strength: number,
+): void {
+  p64stub("P64PulseStreamAddPulse");
+}
+export function P64PulseStreamRemovePulses(
+  _Instance: PP64PulseStream,
+  _Position: number,
+  _Count: number,
+): void {
+  p64stub("P64PulseStreamRemovePulses");
+}
+export function P64PulseStreamRemovePulse(
+  _Instance: PP64PulseStream,
+  _Position: number,
+): void {
+  p64stub("P64PulseStreamRemovePulse");
+}
+export function P64PulseStreamDeltaPositionToNextPulse(
+  _Instance: PP64PulseStream,
+  _Position: number,
+): number {
+  p64stub("P64PulseStreamDeltaPositionToNextPulse");
+}
+export function P64PulseStreamGetNextPulse(
+  _Instance: PP64PulseStream,
+  _Position: number,
+): number {
+  p64stub("P64PulseStreamGetNextPulse");
+}
+export function P64PulseStreamGetPulseCount(_Instance: PP64PulseStream): number {
+  p64stub("P64PulseStreamGetPulseCount");
+}
+export function P64PulseStreamGetPulse(
+  _Instance: PP64PulseStream,
+  _Position: number,
+): number {
+  p64stub("P64PulseStreamGetPulse");
+}
+export function P64PulseStreamSetPulse(
+  _Instance: PP64PulseStream,
+  _Position: number,
+  _Strength: number,
+): void {
+  p64stub("P64PulseStreamSetPulse");
+}
+export function P64PulseStreamSeek(
+  _Instance: PP64PulseStream,
+  _Position: number,
+): void {
+  p64stub("P64PulseStreamSeek");
+}
+export function P64PulseStreamConvertFromGCR(
+  _Instance: PP64PulseStream,
+  _Bytes: Uint8Array,
+  _Len: number,
+): void {
+  p64stub("P64PulseStreamConvertFromGCR");
+}
+export function P64PulseStreamConvertToGCR(
+  _Instance: PP64PulseStream,
+  _Bytes: Uint8Array,
+  _Len: number,
+): void {
+  p64stub("P64PulseStreamConvertToGCR");
+}
+export function P64PulseStreamConvertToGCRWithLogic(
+  _Instance: PP64PulseStream,
+  _Bytes: Uint8Array,
+  _Len: number,
+  _SpeedZone: number,
+): number {
+  p64stub("P64PulseStreamConvertToGCRWithLogic");
+}
+export function P64PulseStreamReadFromStream(
+  _Instance: PP64PulseStream,
+  _Stream: PP64MemoryStream,
+): number {
+  p64stub("P64PulseStreamReadFromStream");
+}
+export function P64PulseStreamWriteToStream(
+  _Instance: PP64PulseStream,
+  _Stream: PP64MemoryStream,
+): number {
+  p64stub("P64PulseStreamWriteToStream");
+}
+
+// ============================================================================
+// TP64Image — stubs (Spec 441-P64 follow-up).
+// ----------------------------------------------------------------------------
+// VICE: p64.c lines 984-1180
+// ============================================================================
+
+export function P64ImageCreate(_Instance: PP64Image): void {
+  p64stub("P64ImageCreate");
+}
+export function P64ImageDestroy(_Instance: PP64Image): void {
+  p64stub("P64ImageDestroy");
+}
+export function P64ImageClear(_Instance: PP64Image): void {
+  p64stub("P64ImageClear");
+}
+export function P64ImageReadFromStream(
+  _Instance: PP64Image,
+  _Stream: PP64MemoryStream,
+): number {
+  p64stub("P64ImageReadFromStream");
+}
+export function P64ImageWriteToStream(
+  _Instance: PP64Image,
+  _Stream: PP64MemoryStream,
+): number {
+  p64stub("P64ImageWriteToStream");
+}
+
+/**
+ * P64 file-format signature ("PSV\0" + 0x1A) — first 5 bytes of every
+ * .p64 file. Use at mount time to detect P64 disks and refuse-with-
+ * marker so the runtime never hits a stub mid-execution.
+ *
+ * VICE: p64.c P64ImageReadFromStream signature check.
+ */
+export const P64_FILE_SIGNATURE = new Uint8Array([0x50, 0x53, 0x56, 0x00, 0x1A]);
+
+/** Quick header check — true if the first 5 bytes match the P64 signature. */
+export function isP64Image(bytes: Uint8Array): boolean {
+  if (bytes.length < P64_FILE_SIGNATURE.length) return false;
+  for (let i = 0; i < P64_FILE_SIGNATURE.length; i++) {
+    if (bytes[i] !== P64_FILE_SIGNATURE[i]) return false;
+  }
+  return true;
 }
