@@ -29,15 +29,31 @@
  * VICE-shaped names.
  */
 
+// VICE `From_GCR_conv_data[32]` — src/gcr.c:59-65. Invalid entries are
+// 0 (silent decode-as-zero) per VICE. Do NOT change to 0xff — that
+// diverges from VICE's bit-for-bit byte output on corrupt GCR. Use
+// `isValidGcrNybble` if a separate validity flag is needed.
 const GCR_DECODE: number[] = [
-  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-  0xff, 0x08, 0x00, 0x01, 0xff, 0x0c, 0x04, 0x05,
-  0xff, 0xff, 0x02, 0x03, 0xff, 0x0f, 0x06, 0x07,
-  0xff, 0x09, 0x0a, 0x0b, 0xff, 0x0d, 0x0e, 0xff,
+  0, 0, 0, 0, 0, 0, 0, 0,
+  0, 8, 0, 1, 0, 12, 4, 5,
+  0, 0, 2, 3, 0, 15, 6, 7,
+  0, 9, 10, 11, 0, 13, 14, 0,
 ];
+
+// Valid 5-bit GCR nybble set (VICE GCR_conv_data[16] inverse). Used by
+// diagnostic helpers that want to flag invalid GCR without changing the
+// VICE-faithful byte output.
+const VALID_GCR_NYBBLES = new Set<number>([
+  0x0a, 0x0b, 0x12, 0x13, 0x0e, 0x0f, 0x16, 0x17,
+  0x09, 0x19, 0x1a, 0x1b, 0x0d, 0x1d, 0x1e, 0x15,
+]);
 
 export function decodeGCRNybble(gcr5: number): number {
   return GCR_DECODE[gcr5 & 0x1f];
+}
+
+export function isValidGcrNybble(gcr5: number): boolean {
+  return VALID_GCR_NYBBLES.has(gcr5 & 0x1f);
 }
 
 function getBit(data: Uint8Array, bitIndex: number): number {
@@ -85,7 +101,11 @@ function decodeGCRGroupDetailed(gcr: Uint8Array, offset = 0): { bytes: Uint8Arra
   result[3] = (decoded[6]! << 4) | decoded[7]!;
   return {
     bytes: result,
-    valid: decoded.every((value) => value !== 0xff),
+    // Validity = "every input nybble was in the valid GCR set". VICE
+    // does not track this (silently decodes invalid → 0), but we keep
+    // it as a separate signal for diagnostic tooling. Production
+    // sector reads do NOT depend on this flag.
+    valid: nybbles.every((n) => isValidGcrNybble(n)),
   };
 }
 
@@ -318,12 +338,29 @@ export function gcr_find_sync(raw: Uint8Array, p: number, s: number): SyncMark |
 }
 
 /**
- * VICE gcr.c gcr_decode_block (lines 205-232) — decode `num` GCR
- * bytes from arbitrary bit position `p`. Wraps around track end.
- * @returns decoded bytes (raw GCR — caller decodes 5-bit groups).
+ * VICE gcr.c gcr_decode_block (lines 205-232) — decode `num` GROUPS
+ * from arbitrary bit position `p`. Each group consumes 5 GCR bytes
+ * and produces 4 decoded bytes. Wraps around track end.
+ *
+ * VICE signature: `void gcr_decode_block(raw, p, uint8_t *buf, int num)`
+ * writes `num * 4` decoded bytes into `buf`. Here we return the
+ * decoded byte array (length = `num * 4`) instead of mutating an
+ * out-parameter.
+ *
+ * @param raw  GCR track bytes
+ * @param p    starting bit position
+ * @param num  number of GROUPS to decode (each group = 5 GCR → 4 raw)
+ * @returns Uint8Array of length `num * 4` with decoded bytes
  */
 export function gcr_decode_block(raw: Uint8Array, p: number, num: number): Uint8Array {
-  return readAlignedBytesFromBit(raw, p, num);
+  // Read num * 5 GCR bytes from bit position p, then decode group by group.
+  const gcrBytes = readAlignedBytesFromBit(raw, p, num * 5);
+  const result = new Uint8Array(num * 4);
+  for (let i = 0; i < num; i++) {
+    const group = decodeGCRGroupDetailed(gcrBytes, i * 5);
+    result.set(group.bytes, i * 4);
+  }
+  return result;
 }
 
 /**

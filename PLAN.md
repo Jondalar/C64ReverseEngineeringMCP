@@ -117,6 +117,19 @@ Every step must end with:
 | 435 | Phase E — drivecpu.c catch-up literal port | iec §5.4, §5.7, §5.12; 1541 §3.2, §5 |
 | 436 | Phase F — Final wrapper audit + dead-code purge | iec §9 ADR-4, §11 |
 | 437 | Phase G — gcr.c literal port (bit-level) | 1541 §8.2, §8.4, §8.5 |
+| **Epic 440 — 1541 vollständig 1:1 VICE-port** | | |
+| 440 | Epic charter — full 1541 port. Subagent-audits forbidden. | epic doc |
+| 441 | rotation.c literal port + gcr-shifter.ts audit | 1541 §8 |
+| 442 | viacore.c Claude-self re-audit (33 fns → 60+) | iec §5.5 |
+| 443 | VIA1 + VIA2 d1541 literal re-port + formula tests | 1541 §6, §7 |
+| 444 | drivecpu.c true literal (stop_clk field, exec body 1:1) | iec §5.4, 1541 §3 |
+| 445 | gcr.c write-path + encoder + GCR_conv_data table | 1541 §8.2 |
+| 446 | drivesync.c full PAL/NTSC sync_factor logic | 1541 §5 |
+| 447 | memiec.c + driverom.c literal port | 1541 §4 |
+| 448 | alarm.c literal port (alarm_context_t, alarm_t) | – |
+| 449 | fdc.c error codes + cbmdos.h enum | 1541 §8 |
+| 450 | Full read/write/verify validation harness | – |
+| 451 | NTSC regression check (PAL-first done) | – |
 
 ## vice-arch-port status (2026-05-12)
 
@@ -143,6 +156,24 @@ Order: 431 → 432 → 433 → 434 → 435 → 436 → 437.
 Spec gate per phase: `npm run canary:spec-430` (introduced in Spec
 431). All 4 green canaries must stay green; LNR-S1 first-divergence
 row must not regress earlier than the previous phase's report.
+
+**Sprint 430 retrospective (2026-05-13):** Sprint 430 closed only the
+IEC/VIA/GCR-read path. The subagent audit results (Spec 434 + initial
+Spec 437 PASS claim) were UNRELIABLE — manual gegen-check found
+divergences (GCR_DECODE table `0xff` vs VICE `0`; `gcr_decode_block`
+export semantic). Sprint 430 should be considered PARTIAL. The
+full-1541 work is captured in **Epic 440** (Specs 440-451) below.
+
+## Epic 440 status (2026-05-13)
+
+Branch: TBD (start new branch when Spec 440 charter is committed).
+**Doctrine:** No subagent audits. Claude reads VICE source itself
+for every audit verdict. 12 sequential specs (440 → 451). Full chip
++ function 1:1 port; write-path + rotation audit + alarm system +
+drivesync + memory map + ROM loader + fdc — all OPEN.
+
+Goal: end-to-end byte-identical 1541 vs VICE for read+write+timing.
+Doc: `docs/epic-1541-full-vice-port.md`.
 
 ## Step order (legacy 6-step view — for historical context)
 
