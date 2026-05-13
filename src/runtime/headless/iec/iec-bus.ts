@@ -124,12 +124,10 @@ export class IecBus {
   // not use for production logic.
   public flushAuditor?: (rec: { kind: "all" | "one"; site: "c64-write" | "c64-read"; clock: number; preCpuBus: number; preCpuPort: number; cycleStepped: boolean }) => void;
 
-  // Spec 418 — per-call cycleStepped hint, set by setC64Output /
-  // buildC64InputBits before they invoke the callback dispatcher and
-  // cleared right after. Forwarded to pushFlush.{one,all} so the
-  // kernel can preserve its Spec 218 PC-based hybrid-sync rule.
-  // Default false ("KERNAL whole-instruction flush") matches the old
-  // catchUpDriveIfReady fallback when no PC was supplied.
+  // Spec 435: hybrid-sync rule removed. The `cycleStepped` hint is
+  // always false now; this field and its threading through
+  // pushFlush.{one,all} remain to keep the call sites stable until
+  // Spec 436 (post-port) deletes the parameter entirely.
   private flushCycleStepped = false;
 
   // Drive VIA1 reference for ATN edge propagation.
@@ -264,9 +262,7 @@ export class IecBus {
     // a missing clock degrades to the live drive-clock source so
     // legacy direct callers (smokes / serial-matrix tests) still work.
     const clock = effectiveClock ?? this.driveClockSource?.() ?? 0;
-    // Spec 418 — convey the per-call cycleStepped hint used by
-    // _performC64Write's pushFlush path. KernelBus passes
-    // `pc < 0xa000` (Spec 218 hybrid hack; see headless-kernel-bus.ts).
+    // Spec 435: cycleStepped hint always false post-port.
     this.flushCycleStepped = cycleStepped === true;
     this.callbacks.callbackWrite(inverted, clock);
     this.flushCycleStepped = false;
@@ -356,8 +352,7 @@ export class IecBus {
   // VICE: src/c64/c64cia2.c read_ciapa, src/iecbus/iecbus.c:226.
   buildC64InputBits(effectiveClock?: number, cycleStepped?: boolean): number {
     const clock = effectiveClock ?? this.driveClockSource?.() ?? 0;
-    // Spec 418 — convey cycleStepped hint to _performC64Read's
-    // pushFlush call. Same Spec 218 hybrid-sync rule as the write side.
+    // Spec 435: cycleStepped hint always false post-port.
     this.flushCycleStepped = cycleStepped === true;
     const result = this.callbacks.callbackRead(clock) & 0xff;
     this.flushCycleStepped = false;
