@@ -1,16 +1,32 @@
-// Spec 140 v3 / Spec 416 — VICE 1:1 IEC bus core port.
+// Spec 140 v3 / Spec 416 / Spec 432 — VICE 1:1 IEC bus core port.
 //
 // Mirrors VICE 3.7.1 iecbus_t struct + functions:
-//   src/iecbus/iecbus.c (state + iecbus_cpu_write_conf1 logic)
-//   src/c64/c64iec.c    (iec_update_cpu_bus, iec_update_ports)
-//   src/drive/iec/via1d1541.c (read_prb, store_prb)
 //
-// Doc anchors (spec 416 / vice-iec-arc42.md):
+//   File                              VICE function         Line(s) ported
+//   ---------------------------------  ---------------------  ----------------
+//   src/iecbus/iecbus.c                struct iecbus_t state  iecbus.h:55-83
+//   src/iecbus/iecbus.c                iecbus_init            197-203
+//   src/iecbus/iecbus.c                iecbus_cpu_undump      206-210
+//   src/c64/c64iec.c                   iec_update_cpu_bus     121-124
+//   src/c64/c64iec.c                   iec_update_ports       126-138
+//   src/iecbus/iecbus.c                iecbus_cpu_write_conf1 237-287
+//                                      (incl. ATN-edge →
+//                                       viacore_signal CA1)   247-268
+//                                      drv_bus[8] recompute   281-285
+//   src/drive/iec/via1d1541.c          store_prb (drive→bus)  211-248
+//
+// Doc anchors (vice-iec-arc42.md):
 //   §5.1   iecbus_t structure
 //   §5.2   iec_update_cpu_bus / iec_update_ports formulas
-//   §15 A  Phase A clone-checklist (steps 1-3)
-//   §16    cross-doc invariant index
+//   §6.1   $DD00 store sequence diagram
+//   §15 B  Phase B (literal port) — clone-checklist
 //   §17.1  spec-OQ resolutions (drv_data[16] shape, cpu_bus formula)
+//   §17.4  ATN edge VIA_SIG_CA1 polarity-tag convention
+//
+// Spec 432 Phase B: ATN edge propagation uses the VICE polarity-tag
+// form `viacore_signal(via1d1541, VIA_SIG_CA1, edge_tag)` end-to-end.
+// The previous level-based `pulseCa1` adapter is removed from
+// production paths.
 //
 // Type semantics: TS Number is 64-bit float; bitwise ops convert to
 // 32-bit signed int. VICE C uses uint8_t / uint32_t with explicit
@@ -127,53 +143,40 @@ export class IecBusCore {
     this.iec_update_ports();
   }
 
-  // via1d1541.c:323-347 read_prb (drive reads $1800).
-  // byte = ((PRB & 0x1A) | drv_port) ^ 0x85 | (number << 5)
-  // For drive 8: number = 0 → orval = 0. Drive 9 → orval = 0x20.
-  // Per Q5: device id (8/9) → unit-internal number (0/1) → orval.
-  drive_read_pb(prb: number, deviceId: number): number {
-    const orval = ((deviceId - 8) << 5) & 0xff;
-    return (((prb & 0x1a) | this.drv_port) ^ 0x85 | orval) & 0xff;
-  }
-
   // iecbus.c:237-287 iecbus_cpu_write_conf1 — c64 stores $DD00 PA.
   // Caller passes:
   //   data = INVERTED PA latch (= ~rawByte per c64cia2.c:150)
-  //   onAtnEdge: callback for ATN edge propagation to drive VIA1 CA1.
-  //              Receives `risingEdge` flag (true = atn went HIGH).
+  //   onAtnEdge: callback receiving the VICE-style edge tag
+  //              (false = FALL, true = RISE — see iecbus.c:251).
+  //              True = RISE = "CA1 pin just went HIGH" = "ATN line
+  //              just asserted (went LOW)". False = FALL = ATN line
+  //              released. Forwarded to via1d1541.signalAtnEdge which
+  //              calls via.signal("ca1", "rise"/"fall") matching VICE
+  //              viacore_signal(via1d1541, VIA_SIG_CA1, edge_tag).
+  // Spec 432 — Phase B: edge-tag is the production path. Old level-
+  // based (boolean ATN-pin-level) callback was the Sprint 113 shim;
+  // it is now removed.
   c64_store_dd00(
     data: number,
-    onAtnEdge?: (risingEdge: boolean) => void,
+    onAtnEdge?: (edgeTagRise: boolean) => void,
   ): void {
     this.iec_update_cpu_bus(data);
-    // Spec 419 — Phase D ATN edge detection (= §15 step 10 +
-    // §17.4 OQ-419-1).
     // VICE: src/iecbus/iecbus.c:247-268 (write_conf1 body). The
     // compare uses the (cpu_bus & 0x10) mask verbatim against
     // `iec_old_atn`; on change `iec_old_atn` is updated to the
     // NEW state and `viacore_signal(via1d1541, VIA_SIG_CA1, edge)`
     // is fired with `edge = iec_old_atn ? 0 : VIA_SIG_RISE`.
-    //   - iec_old_atn = 0x10 (HIGH/released) → pass 0 (= falling-edge tag)
-    //   - iec_old_atn = 0    (LOW /asserted) → pass VIA_SIG_RISE (=1, rising-edge tag)
-    // The signal arg is a polarity-tag (= "polarity tag of just-
-    // observed edge"); viacore_signal then matches it against
-    // `PCR & VIA_PCR_CA1_CONTROL` (= PCR bit 0). See §17.4 OQ-419-2:
+    //   - iec_old_atn = 0x10 (HIGH/released) → tag 0 (FALL)
+    //   - iec_old_atn = 0    (LOW /asserted) → tag 1 (RISE)
     // src/via.h:139-140 define VIA_SIG_FALL=0, VIA_SIG_RISE=1.
     const newAtn = this.cpu_bus & 0x10;
     if (this.iec_old_atn !== newAtn) {
       this.iec_old_atn = newAtn;
       if (onAtnEdge) {
-        // We deviate from VICE's polarity-tag-on-bus by passing the
-        // post-inverter CA1 input LEVEL boolean to driveVia1.pulseCa1
-        // (= iec-bus.ts), which models the 7406 inverter explicitly
-        // and tracks `_lastCa1` to derive the actual CA1 pin edge.
-        // The end-result IFR set matches VICE 1:1 for both the DOS
-        // 1541 ROM PCR=$01 (= positive edge, fires on ATN ASSERT)
-        // and PCR=0 (= negative edge) configurations — see
-        // scripts/smoke-419-atn-edge.mjs sub-test 4.
-        //   newAtn = 0x10 → ATN released (HIGH) → onAtnEdge(true)
-        //   newAtn = 0    → ATN asserted (LOW)  → onAtnEdge(false)
-        onAtnEdge(newAtn !== 0);
+        // Edge-tag passthrough — VICE polarity:
+        //   newAtn = 0x10 (released) → edge tag 0 (FALL) → false
+        //   newAtn = 0    (asserted) → edge tag 1 (RISE) → true
+        onAtnEdge(newAtn === 0);
       }
     }
     // Recompute drv_bus[8] (1541 type — default branch in

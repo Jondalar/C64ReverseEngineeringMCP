@@ -23,13 +23,16 @@ const PB_DEV_ID0 = 1 << 5;
 const PB_DEV_ID1 = 1 << 6;
 
 /**
- * Minimal interface for a drive VIA1 object. Accepts both the legacy
- * `Via6522` (drive/via6522.ts) and the new `Via1d1541` (via/via1d1541.ts)
- * so iec-bus.ts doesn't hard-depend on either concrete class.
+ * Drive VIA1 interface used by the IEC bus. Spec 432 (Phase B):
+ * production ATN edge propagation goes through `signalAtnEdge`
+ * (VICE viacore_signal edge-tag form). `pulseCa1` and
+ * `reevaluateCa1Level` are legacy/test-only and no longer called
+ * from production IEC code.
  */
 export interface DriveVia1Like {
-  pulseCa1(newLevel: boolean, clockStamp?: number): void;
-  reevaluateCa1Level(currentLevel: boolean): void;
+  signalAtnEdge(risingEdgeTag: boolean): void;
+  pulseCa1?(newLevel: boolean, clockStamp?: number): void;
+  reevaluateCa1Level?(currentLevel: boolean): void;
   onCa1IerEnabled?: () => void;
 }
 
@@ -231,13 +234,13 @@ export class IecBus {
 
   attachDriveVia1(via: DriveVia1Like): void {
     this.driveVia1 = via;
-    // Initialize CA1 baseline (CA1 pin = inverted ATN line per 1541 schematic).
-    via.pulseCa1(!this.atnLine);
-    // Sprint 66 boot-order race re-eval shim. Spec 144 will gate this.
-    via.onCa1IerEnabled = () => {
-      // CA1 input = inverted ATN.
-      via.reevaluateCa1Level(!this.atnLine);
-    };
+    // Spec 432 — no synthetic CA1 edge or level seed at attach time.
+    // VICE iecbus.c does not emit any CA1 signal during init; the
+    // first real C64 $DD00 write fires the first edge via
+    // iecbus_cpu_write_conf1 → viacore_signal(VIA_SIG_CA1, edge_tag).
+    // iec_old_atn defaults to 0x10 (released) per iecbus.c:65, matching
+    // IecBusCore's initial state, so the first C64 write that asserts
+    // ATN produces the correct rising edge.
   }
 
   // === C64 IEC store ($DD00 PA write) ===
@@ -309,23 +312,18 @@ export class IecBus {
       });
       this.pushFlush.one(8, clock, this.flushCycleStepped);
     }
-    // Spec 418 steps 2-5 — atomic mutation block.
-    // Spec 419 — Phase D: the ATN-edge callback issued from
-    // core.c64_store_dd00 fires `viacore_signal(via1d1541, VIA_SIG_CA1,
-    // ...)` analog. Doc: §15 Phase D step 10 + §5.5 + §17.4.
-    // VICE: src/iecbus/iecbus.c:247-268 (= the iecbus_cpu_write_conf1
-    // ATN-edge → viacore_signal → update_myviairq_rclk chain).
-    // Per 1541 schematic + VICE iecbus.c logic: CA1 input pin sees
-    // INVERTED ATN line (7406 inverter). ATN line LOW (asserted) →
-    // CA1 HIGH. DOS 1541 ROM at $EB2F writes PCR=$01 (= positive
-    // edge) → fires on assertion. Pass !atnHigh so pulseCa1 sees the
-    // CA1 input level; pulseCa1 derives the edge tag and forwards to
-    // via.signal("ca1", "rise"|"fall") which matches the VICE
-    // viacore_signal polarity-gate at src/core/viacore.c:441-461.
-    this.core.c64_store_dd00(data & 0xff, (atnHigh) => {
-      const stamp = this.driveClockSource?.();
-      this.driveVia1?.pulseCa1(!atnHigh, stamp);
-      this.prevAtnLow = !atnHigh;
+    // Spec 432 (Phase B) — production ATN edge uses VICE edge-tag
+    // semantics. Literal mapping of VICE iecbus.c:247-268:
+    //   viacore_signal(unit->via1d1541, VIA_SIG_CA1,
+    //                  iec_old_atn ? 0 : VIA_SIG_RISE);
+    // core.c64_store_dd00 → onAtnEdge(edgeTagRise: boolean)
+    //                     → driveVia1.signalAtnEdge(edgeTagRise)
+    //                     → via.signal("ca1", "rise"|"fall")
+    // Previous level-based pulseCa1 production path removed per
+    // Spec 430 §4.
+    this.core.c64_store_dd00(data & 0xff, (edgeTagRise) => {
+      this.driveVia1?.signalAtnEdge(edgeTagRise);
+      this.prevAtnLow = edgeTagRise;
     });
     this.recordEdge("c64", prev);
   }
@@ -404,9 +402,9 @@ export class IecBus {
   }
 
   // === Drive reads $1800 PB === (legacy fallback for trace etc.)
-  // Production path goes through via1-iec.ts readPbFull → core.drive_read_pb.
-  // This helper kept for back-compat callers (trace iec snapshot,
-  // unit tests).
+  // Production path goes through via1d1541.readPb (literal VICE
+  // via1d1541.c:323-347 formula). This helper kept for back-compat
+  // callers (trace iec snapshot, unit tests).
   buildDrivePbInputBits(deviceId: number): number {
     // Per VICE read_prb formula but without PRB latch portion (caller
     // merges). Returns just the input bits (DATA/CLK/ATN) plus jumper.
@@ -462,15 +460,13 @@ export class IecBus {
     this.prevAtnLow = false;
   }
 
-  // Spec 145 v3+ — re-init drive VIA1 CA1 pin baseline AFTER
-  // drive.reset() (which clears via.lastCa1Pin to true). Real CA1
-  // input = !atnLine; initial ATN released → CA1 LOW → lastCa1Pin
-  // must be false. Otherwise first ATN-assert edge isn't detected.
-  // Call from IntegratedSession.resetCold AFTER drive.reset().
+  // Spec 432 — production no longer caches a CA1 level in via1d1541.
+  // The first C64 $DD00 ATN-asserting write fires the rising edge
+  // directly via iecbus.c:251 viacore_signal(VIA_SIG_CA1, edge_tag).
+  // This method is kept as a no-op for backwards-compat callers
+  // (IntegratedSession.resetCold).
   syncDriveCa1Baseline(): void {
-    if (this.driveVia1) {
-      this.driveVia1.pulseCa1(!this.atnLine);
-    }
+    // intentionally no-op (Spec 432, see method header)
   }
 
   snapshot(): {
