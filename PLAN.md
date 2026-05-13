@@ -108,6 +108,15 @@ Every step must end with:
 | 421 | IEC Phase F: Drive-side bus access | iec §15 F (15–16) |
 | 422 | IEC Phase G: Burst mode (optional) | iec §15 G (17) |
 | 423 | IEC Phase H: Validation | iec §15 H (18–21) |
+| **Sprint 430 — Literal VICE port (1541/IEC/VIA/GCR)** | | |
+| 430 | Parent — Literal VICE port doctrine | iec §5, §6; 1541 §6, §8 |
+| 431 | Phase A — Canary freeze + DuckDB diff infra | iec §15; 1541 §3.2, §6.1–§6.5 |
+| 432 | Phase B — iecbus.c literal port | iec §5.1, §5.11, §6.1, §6.2, §9 ADR-1 |
+| 433 | Phase C — via1d1541.c literal port | iec §5.5, §6.3–§6.5; 1541 §6 |
+| 434 | Phase D — viacore.c subset audit (1541 VIA1/VIA2) | iec §5.5; 1541 §6.5, §6.6 |
+| 435 | Phase E — drivecpu.c catch-up literal port | iec §5.4, §5.7, §5.12; 1541 §3.2, §5 |
+| 436 | Phase F — Final wrapper audit + dead-code purge | iec §9 ADR-4, §11 |
+| 437 | Phase G — gcr.c literal port (bit-level) | 1541 §8.2, §8.4, §8.5 |
 
 ## vice-arch-port status (2026-05-12)
 
@@ -119,6 +128,21 @@ under `samples/golden-master/spec-423/`. motm canary GREEN
 (PC=$B7BF main loop), Krill canary GREEN (PC=$93D4 game code).
 Branch ready for merge or post-arch-port pickup (write support,
 datasette, cartridges, NTSC, JiffyDOS, multi-drive).
+
+## Sprint 430 status (2026-05-13)
+
+Branch `1541-literal-vice`. Spec 430 split into 7 phase-specs
+(431–437). Sequential execution mandatory ([[feedback_sequential_specs]]).
+Per-phase wrapper purge (incremental Phase F slices in 432–435; final
+sweep in 436). LNR-S1 stays RED across the sprint; retest at end of
+437. Canaries: motm, MM, IM2, Scramble (GREEN gate), LNR-S1 (RED
+oracle).
+
+Order: 431 → 432 → 433 → 434 → 435 → 436 → 437.
+
+Spec gate per phase: `npm run canary:spec-430` (introduced in Spec
+431). All 4 green canaries must stay green; LNR-S1 first-divergence
+row must not regress earlier than the previous phase's report.
 
 ## Step order (legacy 6-step view — for historical context)
 
