@@ -18,6 +18,55 @@ only; this epic covers the rest.
 - `docs/epic-1541-full-vice-port.md` — epic master doc
 - Sequence: 441 → 442 → 443 → 444 → 445 → 446 → 447 → 448 → 449 → 450 → 451
 
+## Mandatory per-spec workflow (7 steps)
+
+Every spec from 441 onward MUST follow this sequence. No shortcuts,
+no merged steps, no parallel execution within a spec:
+
+1. **Mapping-Tabelle** — write the full row-per-VICE-function table
+   first. Columns: VICE function, VICE file:line range, TS impl
+   (or "MISSING"), TS file:line range (or `-`), state-shape diff
+   notes, verdict-target (target = MATCH).
+2. **Code portieren** — implement the literal TS counterpart for
+   every row that is not already MATCH. Preserve function names,
+   struct field names, call order. No "improvements".
+3. **Alte produktionspfade entfernen** — delete every TS path that
+   the new literal port replaces. No "@deprecated" fallbacks left
+   alive in production. Tests that still exercise the old shape
+   either get migrated or marked `@internal test-only`.
+4. **Beweis** — produce a grep + trace report proving the
+   production code path now goes through the new literal functions
+   and ONLY through them. File: `docs/spec-<NNN>-production-proof.md`.
+   Includes: greps for old symbol names (zero matches in `src/`),
+   single-path trace with file:line cites.
+5. **Tests** — unit tests covering every formula and every state
+   transition the spec touched. Tests live in `tests/<spec>-*.test.ts`
+   or `scripts/smoke-<spec>-*.mjs`. Vectors lifted from VICE source
+   or harvested via `vice_trace_runtime_start` ONCE.
+6. **Keine subagent-verdicts** — Claude reads VICE source itself
+   for every verdict. Subagents may do lookups (find file, grep
+   for symbol) but never produce a MATCH/BUG conclusion.
+7. **Keine architektur-entscheidung ohne explizite rückfrage** —
+   if a port forces a choice that wasn't pre-specified (rename a
+   class, split a file, change a struct shape, introduce a new
+   helper, defer a sub-task), STOP and ask the user before
+   implementing.
+
+Each spec from 441 onward must list at the top:
+
+```
+**Workflow gate:** 7-step (per Spec 440)
+```
+
+And its acceptance must include:
+- ✅ Step 1 mapping doc committed
+- ✅ Step 2 port code committed
+- ✅ Step 3 old paths deleted (zero grep hits in `src/`)
+- ✅ Step 4 production-proof doc committed
+- ✅ Step 5 tests committed and green
+- ✅ Step 6 no subagent verdicts recorded
+- ✅ Step 7 every architecture call escalated to user
+
 ## Acceptance
 
 1. Epic doc committed (`docs/epic-1541-full-vice-port.md`).
