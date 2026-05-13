@@ -10,6 +10,10 @@ C64RE project. The project goal is not only to boot software. The goal is
 to turn disks, cartridges, PRGs, traces, screenshots, disassemblies, and
 LLM findings into durable project knowledge that survives across sessions.
 
+The runtime work intentionally uses VICE as the correctness reference. Where
+the TypeScript runtime ports VICE behavior or code structure, that work is
+licensed as GPL-compatible derivative work and VICE is credited below.
+
 ## What It Does
 
 - analyzes PRG, CRT, D64, and G64 inputs through deterministic tooling
@@ -223,4 +227,25 @@ Canonical planning docs:
 
 ## License
 
-MIT
+C64RE MCP is licensed under the GNU General Public License v3.0 or later
+(`GPL-3.0-or-later`). See [LICENSE](LICENSE).
+
+Parts of the C64, 1541, VIC-II, CIA, VIA, IEC, GCR, monitor, trace, and
+runtime behavior are derived from, ported from, or validated against
+[VICE](https://vice-emu.sourceforge.io/), the Versatile Commodore Emulator.
+VICE is licensed under the GNU General Public License version 2 or later;
+C64RE uses the "or later" permission and distributes this project under
+GPL-3.0-or-later.
+
+Thank you to the VICE project and its contributors. C64RE treats VICE as
+the primary oracle for Commodore behavior and documents port provenance in
+the relevant source files, specs, and architecture notes.
+
+Additional notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+### ROMs And Third-Party Media
+
+Commodore ROM images, commercial disks, cartridges, and other copyrighted
+media are not part of this project license. If runtime tests or examples
+need ROMs, provide them locally through your own legally obtained copies or
+environment-specific paths.

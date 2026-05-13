@@ -1,7 +1,7 @@
 {
   "name": "c64-reverse-engineering-mcp",
   "version": "0.1.0",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "description": "MCP server for C64 reverse engineering — analysis pipeline, disassembly, and semantic classification",
   "scripts": {

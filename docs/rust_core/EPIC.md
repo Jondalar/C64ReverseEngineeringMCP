@@ -102,7 +102,9 @@ The Rust core is selected per session by configuration, e.g.
 - No direct per-cycle MCP or JSON-RPC surface.
 - No greenfield replacement for project knowledge, media tools, VICE
   integration, trace store, or UI.
-- No GPL code import from VICE or zinc64.
+- No untracked GPL code import from VICE or zinc64. If a future Rust core
+  ports GPL emulator code, the file-level provenance and project-level
+  GPL obligations must be documented explicitly.
 - No one-shot rewrite of the existing TypeScript runtime.
 
 ## Design Principles

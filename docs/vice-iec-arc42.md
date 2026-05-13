@@ -89,8 +89,10 @@ not.
 - **Real 1541 ROM**: We use the unmodified DOS 1541 ROM
   (`dos1541-325302-01+901229-05.bin`). Any deviation from VICE that
   changes ROM-visible state is suspect.
-- **No code lifted from VICE**: Our codebase is MIT. Comparisons
-  paraphrase VICE behavior; no GPL-licensed code is copied.
+- **VICE-derived runtime code is GPL**: The current project license is
+  GPL-3.0-or-later. Runtime modules may port VICE behavior and code shape
+  directly when that is the safest way to preserve correctness. Such ports
+  must document the VICE source file/function they derive from.
 - **Cycle-stepped 6502 in the drive**: The microcoded CPU
   (`Cpu6510Microcoded`) is required for IEC correctness because the
   drive samples bus state mid-instruction (operand fetch, indexed

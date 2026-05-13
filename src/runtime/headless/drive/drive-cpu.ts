@@ -65,6 +65,8 @@ import { Via2d1541, type Via2GcrPortCoupling } from "../via/via2d1541.js";
 import { makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
 import { makeGcrShifterCoupling } from "./via2-gcr-shifter-coupling.js";
 import type { GcrShifter } from "./gcr-shifter.js";
+import { type Drive_t, makeDrive_t } from "./drive-t.js";
+import { rotation_init, rotation_reset } from "./rotation.js";
 import { DriveLedMonitor } from "./led-monitor.js";
 import { loadDriveRom, DRIVE_ROM_BASE, DRIVE_ROM_SIZE, type LoadedDriveRom } from "./drive-rom.js";
 import { IecBusCore } from "../iec/iec-bus-core.js";
@@ -594,6 +596,13 @@ export class DriveCpu implements Drive1541Unit {
   // `trackBuffer.tickShifter`.
   public readonly gcrShifter?: GcrShifter;
 
+  // Spec 441 step 4a — Drive_t struct (VICE drive.h:236-365 literal).
+  // Populated alongside gcrShifter during the migration. Until step 4e
+  // (cycle-wrapper switch) this field is NOT read by production code;
+  // rotation.ts entry points expect to operate on this struct once
+  // the migration completes.
+  public readonly drive: Drive_t;
+
   // ───────────────────────────────────────────────────────────────────
   // Spec 407 — Drive1541Unit (= `diskunit_context_t`) shape.
   //
@@ -757,6 +766,19 @@ export class DriveCpu implements Drive1541Unit {
     this.trackBuffer = opts.gcr?.trackBuffer;
     this.headPosition = opts.gcr?.headPosition;
     this.gcrShifter = opts.gcrShifter;
+
+    // Spec 441 step 4a — drive_t literal struct.
+    // Populated parallel to gcrShifter during migration. clk_ptr
+    // reads the drive CPU clock as VICE bigint CLOCK. dnr = mynumber
+    // matches diskunit_context_t.mynumber.
+    const dnr = (this.mynumber - 8) | 0; // device 8..11 → dnr 0..3
+    this.drive = makeDrive_t({
+      drive: dnr,
+      mynumber: dnr,
+      clk_ptr: () => BigInt(this.cpu.cycles | 0),
+    });
+    rotation_init(0, dnr);
+    rotation_reset(this.drive);
 
     // Spec 153 / Sprint 114: 1:1 VICE byte-ready path.
     //
