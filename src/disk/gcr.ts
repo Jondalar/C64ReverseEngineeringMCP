@@ -1,5 +1,32 @@
 /**
- * GCR decoder for Commodore 1541.
+ * GCR decoder for Commodore 1541 — Spec 437 literal port of VICE gcr.c.
+ *
+ * VICE function map (line ranges from VICE 3.7.1 src/gcr.c):
+ *
+ *   VICE function               Lines      TS impl                Notes
+ *   --------------------------- --------   --------------------   -------
+ *   gcr_convert_4bytes_to_GCR   68-86      n/a (write-back only)
+ *   gcr_convert_GCR_to_4bytes   87-110     decodeGCRGroup         decode 4 bytes
+ *   gcr_convert_sector_to_GCR   112-168    n/a (write-back only)
+ *   gcr_find_sync               170-203    gcr_find_sync (export) bit-by-bit
+ *                                          findSyncMarkFromBit
+ *                                            (back-compat alias)
+ *   gcr_decode_block            205-232    gcr_decode_block       arbitrary bit pos
+ *                                            (export)
+ *   gcr_find_sector_header      234-261    gcr_find_sector_header literal scan
+ *                                            (export)
+ *   gcr_read_sector             263-292    gcr_read_sector        header + 500*8 bit data window
+ *                                            (export)
+ *   gcr_write_sector            294-346    out-of-scope (Spec 437)
+ *
+ * All functions are bit-level (arbitrary `p & 7` bit position),
+ * wrap around track end, and use the same 10-consecutive-ones sync
+ * detection as VICE.
+ *
+ * Legacy `*LikeVice` exports are kept as `@deprecated` aliases for
+ * back-compat with `g64-parser.ts` and `server-tools/disk-g64.ts`
+ * during the Sprint 430 transition; new callers should use the
+ * VICE-shaped names.
  */
 
 const GCR_DECODE: number[] = [
@@ -275,6 +302,52 @@ export interface GCRReadSectorResult {
   payload?: Uint8Array;
 }
 
+/**
+ * VICE gcr.c gcr_find_sync (lines 170-203) — bit-by-bit scan for 10
+ * consecutive 1-bits followed by a 0-bit. Wraps around the track.
+ * Returns the bit position AT the terminating 0 (i.e. just after the
+ * 10-ones run), encoded as a SyncMark (byteOffset/bitOffset/bitIndex).
+ *
+ * @param raw   GCR-encoded track bytes
+ * @param p     starting bit position (any value; modulo track size)
+ * @param s     max bits to scan before giving up
+ * @returns SyncMark or null when no sync found within `s` bits
+ */
+export function gcr_find_sync(raw: Uint8Array, p: number, s: number): SyncMark | null {
+  return findSyncMarkFromBit(raw, p, s);
+}
+
+/**
+ * VICE gcr.c gcr_decode_block (lines 205-232) — decode `num` GCR
+ * bytes from arbitrary bit position `p`. Wraps around track end.
+ * @returns decoded bytes (raw GCR — caller decodes 5-bit groups).
+ */
+export function gcr_decode_block(raw: Uint8Array, p: number, num: number): Uint8Array {
+  return readAlignedBytesFromBit(raw, p, num);
+}
+
+/**
+ * VICE gcr.c gcr_find_sector_header (lines 234-261). Scans for a
+ * sync mark, decodes 10 bytes at that position, accepts if
+ * `header[0] == 0x08` (GCR-encoded header id) and decoded sector
+ * matches the requested one. Returns null if no matching header
+ * found within one full revolution.
+ */
+export function gcr_find_sector_header(raw: Uint8Array, sector: number): GCRHeaderCandidate | null {
+  return findSectorHeaderLikeVice(raw, sector);
+}
+
+/**
+ * VICE gcr.c gcr_read_sector (lines 263-292). Finds the sector
+ * header sync, then the data sync within 500*8 bits of the header,
+ * then decodes 325 GCR bytes = 65 groups = 256 data bytes + block id
+ * + checksum + padding. Returns full read status + payload.
+ */
+export function gcr_read_sector(raw: Uint8Array, sector: number): GCRReadSectorResult {
+  return readSectorLikeVice(raw, sector);
+}
+
+/** @deprecated Use `gcr_find_sync(raw, startBit, searchBits)` instead. */
 export function findSyncMarkFromBit(data: Uint8Array, startBit = 0, searchBits = data.length * 8): SyncMark | null {
   const totalBits = data.length * 8;
   if (totalBits === 0 || searchBits <= 0) {
@@ -295,6 +368,7 @@ export function findSyncMarkFromBit(data: Uint8Array, startBit = 0, searchBits =
   return null;
 }
 
+/** @deprecated Use `gcr_find_sector_header` instead (returns single match). */
 export function scanSectorHeadersLikeVice(trackData: Uint8Array): GCRHeaderCandidate[] {
   const candidates: GCRHeaderCandidate[] = [];
   const seen = new Set<number>();
@@ -316,6 +390,7 @@ export function scanSectorHeadersLikeVice(trackData: Uint8Array): GCRHeaderCandi
   return candidates;
 }
 
+/** @deprecated Use `gcr_find_sector_header(raw, sector)` instead. */
 export function findSectorHeaderLikeVice(trackData: Uint8Array, sector: number): GCRHeaderCandidate | null {
   for (const candidate of scanSectorHeadersLikeVice(trackData)) {
     if (candidate.header.sector === (sector & 0xff)) {
@@ -325,6 +400,7 @@ export function findSectorHeaderLikeVice(trackData: Uint8Array, sector: number):
   return null;
 }
 
+/** @deprecated Use `gcr_read_sector(raw, sector)` instead. */
 export function readSectorLikeVice(trackData: Uint8Array, sector: number): GCRReadSectorResult {
   const headerCandidate = findSectorHeaderLikeVice(trackData, sector);
   if (!headerCandidate) {
