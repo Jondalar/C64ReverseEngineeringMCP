@@ -13,6 +13,8 @@ samples/*
 !samples/README.md
 !samples/vice-testprogs/
 !samples/vice-testprogs/**
+!samples/canaries/
+!samples/canaries/**
 docs/windows-powershell-setup.md
 resources/c64ref-rom-knowledge.json
 resources/roms/*.bin

@@ -1,0 +1,74 @@
+{
+  "$schema": "spec-430-canary-registry/v1",
+  "_doc": "Canary registry for Sprint 430 (literal VICE port). Read by scripts/spec-430-canary-gate.mjs. Each canary is captured headless, then diffed against a VICE baseline trace on the IEC/VIA contract surface ($DD00, $1800, ATN edge, drive clock). See specs/431-1541-port-phase-a-canary-freeze.md.",
+  "default": {
+    "mode": "true-drive",
+    "run_sec": 30,
+    "boot_type": "LOAD\"*\",8,1\r",
+    "useMicrocodedCpu": true
+  },
+  "canaries": [
+    {
+      "id": "motm",
+      "title": "Murder on the Mississippi",
+      "disk": "samples/motm.g64",
+      "run_sec": 30,
+      "boot_type": "LOAD\"*\",8,1\r",
+      "expected": "green",
+      "baseline": {
+        "hl": null,
+        "vice": null
+      }
+    },
+    {
+      "id": "mm-s1",
+      "title": "Maniac Mansion side 1",
+      "disk": "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64",
+      "run_sec": 30,
+      "boot_type": "LOAD\"*\",8,1\r",
+      "expected": "green",
+      "baseline": {
+        "hl": null,
+        "vice": null
+      }
+    },
+    {
+      "id": "im2",
+      "title": "Impossible Mission II",
+      "disk": "samples/impossible_mission_ii[epyx_1987](!).g64",
+      "run_sec": 30,
+      "boot_type": "LOAD\"*\",8,1\r",
+      "expected": "green",
+      "baseline": {
+        "hl": "samples/traces/v2-baseline/im2-headless-store-2026-05-12/trace.duckdb",
+        "vice": null,
+        "vice_note": "legacy baseline at v2-baseline/im2-vice-store-2026-05-12 captured with different boot window; needs recapture with spec-430 trace procedure (boot via LOAD\"*\",8,1 + microcoded CPU + same run_sec) for row-by-row diff to be meaningful."
+      }
+    },
+    {
+      "id": "scramble",
+      "title": "Scramble Infinity (Krill loader)",
+      "disk": "samples/scramble_infinity.d64",
+      "run_sec": 30,
+      "boot_type": "LOAD\"*\",8,1\r",
+      "expected": "green",
+      "baseline": {
+        "hl": "samples/traces/v2-baseline/scramble-head-headless-store-2026-05-11/trace.duckdb",
+        "vice": null
+      }
+    },
+    {
+      "id": "lnr-s1",
+      "title": "Last Ninja Remix side 1",
+      "disk": "samples/last_ninja_remix_s1[system3_1991].g64",
+      "run_sec": 60,
+      "boot_type": "LOAD\"*\",8,1\r",
+      "expected": "red",
+      "baseline": {
+        "hl": "samples/traces/v2-baseline/lnr-headless-store-2026-05-12/trace.duckdb",
+        "vice": "samples/traces/v2-baseline/lnr-vice-fulltrace-vice-store-2026-05-12/trace.duckdb",
+        "vice_note": "legacy baseline captured with different boot window; row-by-row diff returns row-1 mismatch by alignment, not by IEC/VIA divergence. Recapture before Phase B for meaningful diff. Today serves as red-oracle only (diff returns DIVERGED, satisfying expected=red)."
+      }
+    }
+  ]
+}
