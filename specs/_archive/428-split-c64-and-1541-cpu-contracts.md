@@ -1,6 +1,16 @@
 # Spec 428 — Split C64 and 1541 CPU execution contracts
 
-**Status:** PLAN 2026-05-12 (rollout in small testable slices)
+**Status:** SUPERSEDED-BY-444-PHASE-4 (2026-05-14). The
+"vice-whole-instruction" dispatch-mode kludge was a pre-rewrite
+Fehlversuch. Spec 444 Phase 4 purged the kludge: drive CPU runs
+cycle-stepped only (= 1:1 VICE drivecpu.c per-bus-cycle). Field
+`driveDispatchMode`, threading through integrated-session.ts +
+headless-machine-kernel.ts + start-v3-server.mjs, env var
+`C64RE_DRIVE_DISPATCH`, and `scripts/smoke-428-drive-whole-instruction.mjs`
+all deleted. This file lives in `specs/_archive/` as historical
+record — read-only, not source of truth for new work.
+
+**Original status (pre-supersede):** PLAN 2026-05-12 (rollout in small testable slices)
 **Branch:** `vic_bugs` → individual phase branches as we go
 **Rollout doctrine:** each phase is ONE commit, ONE test gate, ONE
 optional revert. No phase touches more than its phase scope. No

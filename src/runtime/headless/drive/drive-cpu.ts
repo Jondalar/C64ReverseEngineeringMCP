@@ -18,9 +18,10 @@
 //   cycleAccum        VICE cpu->cycle_accum (16.16 fixed-point)
 //   syncFactor16dot16 VICE cpu->sync_factor
 //
-// Spec 401 owns the inner cycle-stepped 6502 dispatch; Spec 428 owns the
-// optional "vice-whole-instruction" dispatch mode. Both run inside the
-// VICE-shaped catch-up wrapper.
+// Spec 401 owns the inner cycle-stepped 6502 dispatch (1:1 VICE 6510core
+// per-bus-cycle macro template). Spec 428 introduced a "whole-instruction"
+// dispatch kludge which was purged in Spec 444 Phase 4 — drive CPU now
+// runs cycle-stepped only, no opt-in mode flag.
 //
 // Doc: docs/vice-1541-arch.md §4 (drive memory map), §4.1 (physical
 //      layout), §4.2 (dispatch tables), §4.3 (ROM loading), §13 Phase
@@ -138,25 +139,6 @@ export interface DriveCpuOptions {
   // Sprint 96 part 6 (Bug 39): use cycle-stepped microcoded CPU with
   // sub-instruction bus access. Required for IEC bit-bang correctness.
   useMicrocodedCpu?: boolean;
-  /**
-   * Spec 428 Phase C — drive CPU dispatch mode (opt-in flag, default
-   * "cycle-stepped" preserves current behavior).
-   *
-   * - "cycle-stepped" (default): Spec 401 path. `executeCycle` per CPU
-   *   clock, `gcrShifter.tick(1)` per CPU clock. C64-shaped CLK_INC.
-   * - "vice-whole-instruction": Spec 428 Phase C path. Mirrors VICE
-   *   `drivecpu.c:drivecpu_execute()` — run one full instruction
-   *   (via `runOneInstruction`), then `gcrShifter.tick(N)` ONCE with
-   *   N = cycles consumed. Restores pre-Spec-401 KERNAL-serial loader
-   *   timing required by IM2 Epyx FastLoad.
-   *
-   * Phase D will flip the default once Phase C gate proves no
-   * baseline-game regression with flag ON.
-   *
-   * Doc: specs/428-split-c64-and-1541-cpu-contracts.md.
-   * VICE cite: src/drive/drivecpu.c:356 drivecpu_execute().
-   */
-  driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
   // Sprint 113 Phase 2: VICE-style alarm context for the drive CPU.
   // VIA1 + VIA2 register their T1/T2/SR alarms here. When provided,
   // DriveCpu drains pending alarms after each instruction in the
@@ -594,8 +576,6 @@ export class DriveCpu implements Drive1541Unit {
   public readonly cpu: Cpu6510 | Cpu65xxVice;
   public readonly bus: DriveBus;
   public readonly microcoded: boolean;
-  /** Spec 428 Phase C — drive dispatch mode flag. */
-  public readonly driveDispatchMode: "cycle-stepped" | "vice-whole-instruction";
   // Sprint 96 part 7: GCR shifter coupling for free-running tick.
   public readonly trackBuffer?: TrackBuffer;
   public readonly headPosition?: HeadPosition;
@@ -699,26 +679,24 @@ export class DriveCpu implements Drive1541Unit {
   private lastClk = 0;
   // Fixed-point accumulator — fractional drive cycles owed.
   private cycleAccum = 0;
-  // Sleep mode: drive is in known busy-wait loop, skip ahead to next
-  // bus state change. Cleared on bus state change.
-  private sleeping = false;
+  // Spec 444 Phase 4 — `sleeping` flag PURGED. Was output-affecting
+  // TS-EXTRA divergence from VICE (VICE drive always runs cycles when
+  // enabled; TS sleeping skipped inner loop → drive clock stalled).
+  // Doctrine: "MACH es GENAU so wie VICE". Removed.
 
   /**
    * Spec 444 — VICE `drivecpu_context_t.stop_clk` (drivetypes.h:83).
-   * Set at entry to `executeToClock` to the target drive clock the
-   * inner loop must reach this batch (= `cpu.cycles +
-   * (cycleAccum >> 16)`). Public for snapshot/diagnostic; the inner
-   * loop continues to use the cycleAccum check (TS equivalent of
-   * VICE's `while (*clk_ptr < stop_clk)` — see B.1 in
-   * docs/spec-444-drivecpu-mapping.md).
+   * ADDITIVE across calls per drivecpu.c:388. Inner loop terminates
+   * at `cycled.cycles >= stop_clk`. Phase 4 = VICE-literal loop shape.
    */
   public stop_clk = 0;
 
   /**
    * Spec 444 — VICE `drivecpu_context_t.last_exc_cycles`
-   * (drivetypes.h:81). Cycles executed in excess of the target
-   * last batch (instruction overrun). VICE saves in snapshot
-   * (drivecpu.c:557); TS tracks for VSF cross-load (Spec 451).
+   * (drivetypes.h:81). VICE sets to 0 only in drivecpu_reset_clk
+   * (drivecpu.c:189); not written during runtime. Phase 4: TS mirrors
+   * that semantic — field cleared on softReset/reset only, NOT updated
+   * by executeToClock. Used by VSF snapshot only (Spec 451).
    */
   public last_exc_cycles = 0;
 
@@ -771,9 +749,11 @@ export class DriveCpu implements Drive1541Unit {
   // Guards `executeToClock` / `runOneInstruction` against re-applying
   // the polled level after each instruction.
   private via1Attached = false;
-  // Idle-wakeup callback installed by IntegratedSession via IecBus.
-  // When iec bus state changes, we wake the drive.
-  public wakeUp(): void { this.sleeping = false; }
+  // Spec 444 Phase 4 — wakeUp() retained as VICE drivecpu_wake_up
+  // analog (called by Spec 414 enable()). With `sleeping` purged this
+  // is effectively a no-op stub; kept for VICE-name parity and for
+  // future callers that may want a wake-event hook.
+  public wakeUp(): void { /* no-op (sleeping flag purged Spec 444 Phase 4) */ }
 
   constructor(opts: DriveCpuOptions = {}) {
     // Spec 407 — record device number for Drive1541Unit shape.
@@ -800,9 +780,8 @@ export class DriveCpu implements Drive1541Unit {
 
     this.bus = new DriveBus(opts, clkRef);
     this.microcoded = opts.useMicrocodedCpu ?? false;
-    // Spec 428 Phase D — default flipped to VICE-faithful whole-instruction
-    // dispatch. Cycle-stepped remains opt-in via explicit option.
-    this.driveDispatchMode = opts.driveDispatchMode ?? "vice-whole-instruction";
+    // Spec 444 Phase 4 — Spec 428 dispatch-mode kludge purged. Drive CPU
+    // runs cycle-stepped only (= 1:1 VICE drivecpu.c per-bus-cycle).
     this.cpu = this.microcoded
       ? new Cpu65xxVice({ memBus: this.bus, alarmContext: opts.alarmContext ?? this.bus.alarmContext })
       : new Cpu6510(this.bus);
@@ -942,7 +921,6 @@ export class DriveCpu implements Drive1541Unit {
     this.cpu.reset();
     this.lastClk = 0;
     this.cycleAccum = 0;
-    this.sleeping = false;
   }
 
   // Spec 090 / Spec 409: configure sync ratio. PAL = 1.01477
@@ -1034,7 +1012,6 @@ export class DriveCpu implements Drive1541Unit {
     this.cycleAccum = 0;
     this.stop_clk = 0;
     this.last_exc_cycles = 0;
-    this.sleeping = false;
   }
 
   /**
@@ -1056,7 +1033,7 @@ export class DriveCpu implements Drive1541Unit {
    * VICE: src/drive/drivecpu.c:194 `drivecpu_reset()`,
    *       src/core/viacore.c:378-439 `viacore_reset` (SR preserved).
    */
-  softReset(pc?: number): void {
+  softReset(c64Clk: number, pc?: number): void {
     // VIA reset preserves SR (register 10) per viacore.c:357 — already
     // implemented in via6522-vice.ts (loop starts at register 11).
     this.bus.via1.reset();
@@ -1064,19 +1041,16 @@ export class DriveCpu implements Drive1541Unit {
     // CPU reset = clear interrupt latches + jump to reset vector. RAM
     // is NOT touched (= drivecpu_reset semantics).
     this.cpu.reset(pc);
-    // Spec 444 v2 — VICE drivecpu_reset_clk (drivecpu.c:186-191):
+    // Spec 444 Phase 4 — literal VICE drivecpu_reset_clk (drivecpu.c:186-191):
     //   last_clk = maincpu_clk;
     //   last_exc_cycles = 0;
     //   stop_clk = 0;
-    // VICE does NOT touch cycle_accum — fractional residual preserved.
-    // TS: lastClk left at current value (caller MUST call
-    // setSyncBaseline(currentC64Clk) after mid-run softReset to mirror
-    // VICE's `last_clk = maincpu_clk`; session-start callers leave it
-    // at 0 which matches c64 cycles at session start).
+    // c64Clk arg is REQUIRED (mid-run-lastClk contract enforced in
+    // code, not prose). cycle_accum INTENTIONALLY NOT cleared
+    // (VICE-literal — fractional residual preserved across reset).
+    this.lastClk = c64Clk >>> 0;
     this.last_exc_cycles = 0;
     this.stop_clk = 0;
-    // cycle_accum INTENTIONALLY NOT cleared (VICE-literal).
-    this.sleeping = false;
   }
 
   /**
@@ -1113,22 +1087,20 @@ export class DriveCpu implements Drive1541Unit {
    * Spec 414 — `drive_disable()` analog (Phase H step 32).
    *
    * Sets `enabled = false`. Subsequent `executeToClock` calls
-   * early-return; the drive CPU stops advancing. `sleeping = true`
-   * matches VICE `drivecpu_sleep`. The IEC bus continues to operate
-   * (= ATN edge from C64 still pulses CA1) but with no drive CPU
-   * advance, no VIA1 PB output is generated — matching VICE's
+   * early-return; the drive CPU stops advancing. The IEC bus continues
+   * to operate (= ATN edge from C64 still pulses CA1) but with no
+   * drive CPU advance, no VIA1 PB output is generated — matches VICE's
    * "iterate units, skip disabled" model.
    *
-   * Per drive.c:540 the order is `drv->enable = 0; ... drivecpu_sleep`.
-   * We follow the same order so any concurrent IEC callback sees the
-   * disabled flag before sleep is set.
+   * Spec 444 Phase 4: `sleeping = true` removed (flag purged).
+   * VICE drivecpu_sleep body is empty (drivecpu.c:266-269) so the
+   * TS-EXTRA flag was doctrine-violating and now gone.
    *
    * Doc: docs/vice-1541-arch.md §13 Phase H step 32, §17 OQ-414-1.
    * VICE: src/drive/drive.c:531-560 `drive_disable()`.
    */
   disable(): void {
     this.enabled = false;
-    this.sleeping = true;
   }
 
   // Sync drive clock baseline (called when c64Clk wraps or on cold reset).
@@ -1236,12 +1208,9 @@ export class DriveCpu implements Drive1541Unit {
       );
     }
 
-    if (this.sleeping) {
-      // Drive in known busy-wait. stop_clk continues to advance (so we
-      // catch up when wakeUp() fires) but CPU doesn't run.
-      this.lastClk = c64Clk;
-      return;
-    }
+    // Spec 444 Phase 4 — `sleeping` flag PURGED. VICE drive always runs
+    // cycles when enabled; no busy-wait skip. Was output-affecting
+    // TS-EXTRA divergence; removed per doctrine.
 
     const cycled = this.cpu as Cpu65xxVice;
     // Spec 444 — VIA2 IRQ now pushed chip-side via
@@ -1279,10 +1248,12 @@ export class DriveCpu implements Drive1541Unit {
     this.lastClk = c64Clk;
 
     // VICE drivecpu.c:444 epilogue — drivecpu_sleep (empty body in VICE).
-    // No-op; TS `sleeping` flag is set externally for busy-wait detection.
+    // Spec 444 Phase 4: TS sleeping flag purged; no-op.
 
-    // last_exc_cycles = drive cycles past stop_clk this batch.
-    this.last_exc_cycles = Math.max(0, cycled.cycles - this.stop_clk);
+    // Spec 444 Phase 4 — `last_exc_cycles` is NOT updated here. VICE
+    // writes it only in drivecpu_reset_clk (drivecpu.c:189). The
+    // `max(0, cycles - stop_clk)` formula I added in Phase 2b was
+    // invented — strict-literal port writes the field only from reset.
   }
 
   /**

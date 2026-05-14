@@ -90,7 +90,7 @@ check(
   drive.bus.ram[SENTINEL_RAM_OFFSET] === SENTINEL_RAM_VALUE,
 );
 
-drive.softReset();
+drive.softReset(0);
 
 check(
   "soft reset PRESERVED sentinel byte (RAM survives §13-H step 33)",
@@ -114,7 +114,7 @@ check(
 drive.bus.ram[SENTINEL_RAM_OFFSET] = SENTINEL_RAM_VALUE;
 drive.bus.via1.write(0x0a, 0x77);  // SR
 const srBefore = drive.bus.via1.sr;
-drive.softReset();
+drive.softReset(0);
 check(
   "soft reset preserved VIA1 SR (viacore_reset preserves register 10)",
   drive.bus.via1.sr === srBefore,

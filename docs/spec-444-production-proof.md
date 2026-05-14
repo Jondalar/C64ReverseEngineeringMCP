@@ -45,6 +45,39 @@ matrices (B.1-B.5) + Phase 2b deep-dive sections (E.1-E.3).
 - DEFER → Spec 451 (snapshot R/W, snap_module_name): 3
 - **BUG / load-bearing MISSING: 0**
 
+## Phase 4 — TS-EXTRA purge (2026-05-14, second user-review)
+
+User-review #2 found Phase 3 fixed the live path but left dead
+branches + invented formulas + output-affecting TS-EXTRA flags.
+Doctrine "MACH es GENAU so wie VICE" → all purged.
+
+### Phase 4 patches
+
+| Item | Disposition |
+|---|---|
+| `driveDispatchMode` field + ctor opt | DELETED (was Spec 428 pre-rewrite Fehlversuch) |
+| `driveDispatchMode` threading in `integrated-session.ts`, `headless-machine-kernel.ts` | DELETED |
+| `C64RE_DRIVE_DISPATCH` env var in `start-v3-server.mjs` | DELETED |
+| `scripts/smoke-428-drive-whole-instruction.mjs` | DELETED (smoke ran wrong post-Phase-3 anyway) |
+| `specs/428-split-c64-and-1541-cpu-contracts.md` | MOVED to `specs/_archive/`, status SUPERSEDED-BY-444-PHASE-4 |
+| `sleeping` flag in `DriveCpu` | DELETED — was output-affecting TS-EXTRA (drive clock stalled). VICE drivecpu_sleep body empty. |
+| `disable()` `this.sleeping = true` | DELETED (only `enabled = false` remains) |
+| executeToClock `if (this.sleeping)` branch | DELETED |
+| `last_exc_cycles = max(0, cycles - stop_clk)` invented formula | DELETED. VICE writes field ONLY in drivecpu_reset_clk (drivecpu.c:189). TS now matches: cleared on reset, untouched by executeToClock. |
+| `softReset(pc?: number)` signature with prose mid-run contract | TIGHTENED to `softReset(c64Clk: number, pc?: number)` — c64Clk REQUIRED; sets lastClk inline = literal VICE `last_clk = maincpu_clk`. Contract enforced in code. |
+
+### Phase 4 — cycle-accuracy VICE-baseline smoke (Acceptance #6)
+
+`tests/integration/drivecpu-vs-vice-baseline.test.mjs` (NEW):
+- Loads VICE im2 baseline trace `samples/traces/v2-baseline/im2-vice-store-2026-05-12/trace.duckdb`
+- Queries first 10000 `drive8` instructions ordered by master_clock
+- Anchors TS to row 0 (lastClk=0, cpu.cycles=0 = vice origin)
+- For each successive row: `executeToClock(master_clock - first_master_clock)` and asserts `cpu.cycles ≈ drive_clock - first_drive_clock` within ±2 cycles
+- **Result: 9999/9999 rows match within ±1 cycle** (max delta = 1 = instruction-overshoot at boundary)
+
+This pins literal VICE-shape behaviour: TS DriveCpu tracks VICE clock
+byte-für-byte over 10k drive instructions.
+
 ## Phase 3 review-fixes (2026-05-14, post-user-review)
 
 User-review found 5 doctrine violations after Phase 2b. All fixed

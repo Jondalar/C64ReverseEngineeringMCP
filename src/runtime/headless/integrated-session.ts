@@ -146,12 +146,6 @@ export interface IntegratedSessionOptions {
   // access). Independent from lockstep; true-drive uses microcoded
   // CPU with event/catch-up, debug-lockstep uses both.
   useMicrocodedCpu?: boolean;
-  /**
-   * Spec 428 Phase C — drive CPU dispatch mode (opt-in flag).
-   * - "cycle-stepped" (default): post-Spec-401 path.
-   * - "vice-whole-instruction": VICE drivecpu.c shape (= IM2 Epyx fix).
-   */
-  driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
   // Spec 093: cycle-stamped IEC edge trace (ring buffer in IecBus).
   traceIec?: boolean;
   traceIecCapacity?: number;
@@ -474,7 +468,6 @@ export class IntegratedSession {
       useMicrocodedCpu: this.useMicrocodedCpu,
       useCycleLockstep: this.useCycleLockstep,
       driveCyclesPerC64Cycle: this.driveCyclesPerC64Cycle,
-      driveDispatchMode: opts.driveDispatchMode,
     });
     this.maincpuAlarmContext = this.kernel.alarms.maincpu;
     this.drivecpuAlarmContext = this.kernel.alarms.drivecpu;

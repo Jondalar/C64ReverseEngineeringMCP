@@ -86,7 +86,7 @@ test("softReset preserves cycleAccum (VICE drivecpu_reset_clk semantics)", () =>
   // cycleAccum should hold the fractional residual after the run.
   // VICE drivecpu_reset_clk @ drivecpu.c:186-191 does NOT touch
   // cycle_accum — only last_clk, last_exc_cycles, stop_clk.
-  d.softReset();
+  d.softReset(500);
   assert.equal(d.stop_clk, 0, "stop_clk zeroed");
   assert.equal(d.last_exc_cycles, 0, "last_exc_cycles zeroed");
   // cycleAccum is private; we assert post-reset run still works.
