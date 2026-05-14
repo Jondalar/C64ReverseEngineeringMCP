@@ -81,6 +81,7 @@ rollups, zoomable time windows, and VICE/headless trace import.
 
 Relevant specs:
 
+- [../epic-headless-time-travel-trace-architecture.md](../epic-headless-time-travel-trace-architecture.md)
 - [../../specs/217-duckdb-trace-store.md](../../specs/217-duckdb-trace-store.md)
 - [../../specs/230-v2-llm-workbench-master.md](../../specs/230-v2-llm-workbench-master.md)
 - [../../specs/234-transaction-swimlane.md](../../specs/234-transaction-swimlane.md)

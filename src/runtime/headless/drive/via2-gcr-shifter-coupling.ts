@@ -69,9 +69,9 @@ export function makeGcrShifterCoupling(
   let lastLedOn = false;
 
   return {
-    // VIA2 PA = $1C01 — current latched GCR data byte from the shifter
-    // (legacy production path; shadowDrive.GCR_read flip pending A/B
-    // verify).
+    // VIA2 PA = $1C01 — current latched GCR data byte (legacy
+    // production path; consumer flip reverted pending consume-path
+    // debug — see Spec 441 step 4e-flip retry).
     readPa: () => shifter.dataByte,
     onPaOutputChanged: (_or, _ddr, _cause) => {
       // V3 backlog — write-back not modeled. Drop the output.

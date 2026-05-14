@@ -140,20 +140,30 @@ export class DriveCpuCycled implements CycleSteppable {
     // DriveCpu directly sets V on the microcoded CPU's reg_p (matches
     // VICE drivecpu_set_overflow which does `cpu_regs.p |= P_OVERFLOW`).
     // No SO-pin pulse shaping needed.
-    // Spec 153 / Sprint 114: 1:1 VICE GcrShifter tick path (legacy
-    // production primitive — to be replaced by rotation.ts once
-    // step 4b+4e A/B harness validates byte-ready equivalence).
+    // Spec 153 / Sprint 114: 1:1 VICE GcrShifter tick path
+    // (legacy production primitive). Spec 441 flip-test failed
+    // in consumer path; shifter retained until debug pinpoints
+    // the consume-side issue.
     if (this.drive.gcrShifter) {
       this.drive.gcrShifter.tick(1);
     } else if (this.drive.trackBuffer && this.drive.headPosition) {
       this.drive.trackBuffer.tickShifter(1, this.drive.headPosition.currentTrack);
     }
-    // Spec 441 step 4e-shadow — rotation.ts ticks in parallel. PCR
-    // bit 1 is now mirrored into drive.byte_ready_active via the
-    // proper VIA2 backend hook (via2d1541 storePcr); no per-cycle
-    // copy needed.
     {
       const { drive } = this.drive;
+      // Spec 441 step 4e-flip — clear attach delays after their
+      // window elapses. VICE handles this inside rotation_byte_read
+      // (rotation.c:1147-1167) which is called from VIA2 PA read.
+      // We do it inline per cycle so rotation_sync_found stops
+      // returning 0x80 (no-sync) once the disk is "settled".
+      if (drive.attach_clk !== 0n) {
+        const elapsed = drive.diskunit.clk_ptr() - drive.attach_clk;
+        if (elapsed >= 1_800_000n) drive.attach_clk = 0n;
+      }
+      if (drive.attach_detach_clk !== 0n) {
+        const elapsed = drive.diskunit.clk_ptr() - drive.attach_detach_clk;
+        if (elapsed >= 1_200_000n) drive.attach_detach_clk = 0n;
+      }
       rotation_rotate_disk(drive);
       // A/B verify (env-gated) — compare per-cycle rotation vs
       // shifter outputs. On first divergence: throw with full
@@ -171,6 +181,10 @@ export class DriveCpuCycled implements CycleSteppable {
           );
         }
       }
+      // Spec 441 step 4e-flip — fire-from-rotation reverted pending
+      // consumer-path debug. byte_ready_edge cleared to avoid stale
+      // accumulation; production V-flag/CA1 fires from shifter
+      // onByteReady (legacy path retained).
       drive.byte_ready_edge = 0;
     }
     if (this.drive.microcoded) {
