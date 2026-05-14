@@ -24,6 +24,8 @@
 import type { Via2GcrPortCoupling } from "../via/via2d1541.js";
 import type { GcrShifter } from "./gcr-shifter.js";
 import type { HeadPosition } from "./head-position.js";
+import { setDriveMotor, type Drive_t } from "./drive-t.js";
+import { rotation_speed_zone_set } from "./rotation.js";
 
 import {
   PB_STEP_LO,
@@ -46,6 +48,12 @@ export interface GcrShifterCouplingOptions {
   ledSink?: (on: boolean, clk: number) => void;
   /** Spec 424 — clock source used when stamping LED transitions. */
   clkRef?: () => number;
+  /**
+   * Spec 441 step 4c — shadow drive_t. Motor/density writes propagate
+   * here in addition to the GcrShifter, so rotation.ts has the state
+   * it needs once the cycle-wrapper flips (step 4e).
+   */
+  shadowDrive?: Drive_t;
 }
 
 /**
@@ -57,7 +65,7 @@ export interface GcrShifterCouplingOptions {
 export function makeGcrShifterCoupling(
   opts: GcrShifterCouplingOptions,
 ): Via2GcrPortCoupling {
-  const { shifter, headPosition, writeProtected = false, ledSink, clkRef } = opts;
+  const { shifter, headPosition, writeProtected = false, ledSink, clkRef, shadowDrive } = opts;
   let lastLedOn = false;
 
   return {
@@ -110,6 +118,8 @@ export function makeGcrShifterCoupling(
       // input. Cite: via2d.c:325-337 (BRA_MOTOR_ON branch).
       if ((ddrMask & PB_MOTOR) !== 0) {
         shifter.setMotor(motorOn);
+        // Spec 441 step 4c — shadow into drive.byte_ready_active.
+        if (shadowDrive) setDriveMotor(shadowDrive, motorOn);
       }
 
       // Density (PB5/PB6): only honoured when both bits are outputs.
@@ -120,8 +130,14 @@ export function makeGcrShifterCoupling(
           (PB_DENSITY_LO | PB_DENSITY_HI)) {
         const zone = ((orValue >> 5) & 0x03) as 0 | 1 | 2 | 3;
         shifter.setDensity(zone);
+        // Spec 441 step 4c — shadow into rotation_t.speed_zone via
+        // rotation_speed_zone_set(zone, dnr).
+        if (shadowDrive) {
+          rotation_speed_zone_set(zone, shadowDrive.diskunit.mynumber);
+        }
       } else {
         shifter.clearDensityOverride();
+        // No equivalent in VICE — speed zone stays at last-set value.
       }
 
       // Spec 424 — LED (PB3) reporting hook. PB3 is output (DDR=1)

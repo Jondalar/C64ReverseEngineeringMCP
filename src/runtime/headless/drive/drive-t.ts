@@ -249,3 +249,53 @@ export function makeDrive_t(opts: {
     true_emulation: 1,
   };
 }
+
+// ----------------------------------------------------------------------------
+// Helpers for state-binding alongside the (legacy) GcrShifter path.
+// Used during Spec 441 migration to keep drive_t fields in sync with the
+// existing kernel state machinery. Will become primary state once
+// gcr-shifter.ts is deleted (step 4f).
+// ----------------------------------------------------------------------------
+
+interface TrackByteSource {
+  getRawTrackBytes(track: number): Uint8Array | null;
+}
+
+/**
+ * VICE drive_set_half_track equivalent — re-bind drive.GCR_track_start_ptr
+ * and drive.GCR_current_track_size to the (integer-only) track currently
+ * under the head.
+ *
+ * Half-tracks (non-integer) clear the pointer → rotation_1541_simple
+ * treats this as "no image" (returns 0 bits — matches VICE read_next_bit
+ * with NULL GCR_track_start_ptr).
+ */
+export function bindDriveTrack(
+  drive: Drive_t,
+  parser: TrackByteSource,
+  halfTrack: number,
+): void {
+  drive.current_half_track = halfTrack;
+  const wholeTrack = (halfTrack & 1) === 0 ? (halfTrack >> 1) : -1;
+  const bytes = wholeTrack >= 1 ? parser.getRawTrackBytes(wholeTrack) : null;
+  drive.GCR_track_start_ptr = bytes;
+  drive.GCR_current_track_size = bytes ? bytes.length : 0;
+}
+
+/** Set/clear the BRA_MOTOR_ON bit in drive.byte_ready_active. */
+export function setDriveMotor(drive: Drive_t, on: boolean): void {
+  if (on) {
+    drive.byte_ready_active = drive.byte_ready_active | BRA_MOTOR_ON;
+  } else {
+    drive.byte_ready_active = drive.byte_ready_active & ~BRA_MOTOR_ON;
+  }
+}
+
+/** Set/clear the BRA_BYTE_READY bit (VIA2 PCR bit). */
+export function setDriveByteReadyActive(drive: Drive_t, on: boolean): void {
+  if (on) {
+    drive.byte_ready_active = drive.byte_ready_active | BRA_BYTE_READY;
+  } else {
+    drive.byte_ready_active = drive.byte_ready_active & ~BRA_BYTE_READY;
+  }
+}

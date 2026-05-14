@@ -65,7 +65,7 @@ import { Via2d1541, type Via2GcrPortCoupling } from "../via/via2d1541.js";
 import { makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
 import { makeGcrShifterCoupling } from "./via2-gcr-shifter-coupling.js";
 import type { GcrShifter } from "./gcr-shifter.js";
-import { type Drive_t, makeDrive_t } from "./drive-t.js";
+import { bindDriveTrack, type Drive_t, makeDrive_t } from "./drive-t.js";
 import { rotation_init, rotation_reset } from "./rotation.js";
 import { DriveLedMonitor } from "./led-monitor.js";
 import { loadDriveRom, DRIVE_ROM_BASE, DRIVE_ROM_SIZE, type LoadedDriveRom } from "./drive-rom.js";
@@ -128,6 +128,13 @@ export interface DriveCpuOptions {
   // legacy `gcr.trackBuffer.tickShifter()` is bypassed in DriveCpuCycled
   // when this is set; GcrShifter is ticked instead.
   gcrShifter?: GcrShifter;
+  /**
+   * Spec 441 step 4c — drive_t shadow target. Set by DriveCpu
+   * constructor before DriveBus instantiation; the VIA2 coupling
+   * uses it to mirror motor/density writes into drive.byte_ready_active
+   * + rotation_t. Internal — callers do not set this directly.
+   */
+  shadowDriveT?: Drive_t;
   // Sprint 96 part 6 (Bug 39): use cycle-stepped microcoded CPU with
   // sub-instruction bus access. Required for IEC bit-bang correctness.
   useMicrocodedCpu?: boolean;
@@ -326,6 +333,7 @@ export class DriveBus implements CpuMemory {
         writeProtected: opts.gcr.writeProtected,
         ledSink: (on, clk) => this.ledMonitor.noteTransition(on, clk),
         clkRef: clkRef ?? (() => 0),
+        shadowDrive: opts.shadowDriveT,
       });
     } else if (opts.gcr) {
       const paBackend = makeGcrVia2Pa(opts.gcr);
@@ -738,6 +746,20 @@ export class DriveCpu implements Drive1541Unit {
     // reads cpu.cycles once the cpu field is assigned below.
     let cpuRef: { cycles: number } = { cycles: 0 };
     const clkRef = () => cpuRef.cycles;
+
+    // Spec 441 step 4a — drive_t literal struct. Constructed BEFORE
+    // DriveBus so the VIA2 gcr-shifter coupling can shadow motor/
+    // density writes into drive.byte_ready_active + rotation_t.
+    const dnr = (this.mynumber - 8) | 0;
+    this.drive = makeDrive_t({
+      drive: dnr,
+      mynumber: dnr,
+      clk_ptr: () => BigInt(cpuRef.cycles | 0),
+    });
+    rotation_init(0, dnr);
+    rotation_reset(this.drive);
+    opts.shadowDriveT = this.drive;
+
     this.bus = new DriveBus(opts, clkRef);
     this.microcoded = opts.useMicrocodedCpu ?? false;
     // Spec 428 Phase D — default flipped to VICE-faithful whole-instruction
@@ -767,18 +789,20 @@ export class DriveCpu implements Drive1541Unit {
     this.headPosition = opts.gcr?.headPosition;
     this.gcrShifter = opts.gcrShifter;
 
-    // Spec 441 step 4a — drive_t literal struct.
-    // Populated parallel to gcrShifter during migration. clk_ptr
-    // reads the drive CPU clock as VICE bigint CLOCK. dnr = mynumber
-    // matches diskunit_context_t.mynumber.
-    const dnr = (this.mynumber - 8) | 0; // device 8..11 → dnr 0..3
-    this.drive = makeDrive_t({
-      drive: dnr,
-      mynumber: dnr,
-      clk_ptr: () => BigInt(this.cpu.cycles | 0),
-    });
-    rotation_init(0, dnr);
-    rotation_reset(this.drive);
+    // Spec 441 step 4c — wire head-step → drive.GCR_track_start_ptr +
+    // drive.current_half_track. Bind initial track now that
+    // headPosition/parser are assigned. rotation.ts gets track data
+    // from cycle 0 of the FIRST runFor call.
+    if (this.headPosition && opts.gcr?.trackBuffer?.source) {
+      const parser = opts.gcr.trackBuffer.source;
+      bindDriveTrack(this.drive, parser, this.headPosition.currentTrack * 2);
+      const prevOnStep = this.headPosition.onStep;
+      this.headPosition.onStep = (direction, halfTrack) => {
+        bindDriveTrack(this.drive, parser, halfTrack);
+        prevOnStep?.(direction, halfTrack);
+      };
+    }
+    this.drive.GCR_image_loaded = this.drive.GCR_track_start_ptr ? 1 : 0;
 
     // Spec 153 / Sprint 114: 1:1 VICE byte-ready path.
     //

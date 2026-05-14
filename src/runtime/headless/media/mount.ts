@@ -176,6 +176,25 @@ export async function mountMedia(
     // bit-stream transition. Mirrors real HW media-insert physics.
     session.gcrShifter?.notifyAttach(session.c64Cpu.cycles);
 
+    // Spec 441 step 4c — shadow into drive_t.attach_clk so
+    // rotation_byte_read sees the attach delay (rotation.c:1147-1153).
+    // VICE distinguishes "fresh attach" (attach_clk) from
+    // "swap = detach+attach" (attach_detach_clk). Mount-after-empty
+    // → attach_clk; mount-over-existing-disk → attach_detach_clk.
+    {
+      const driveT = (session.drive as { drive?: import("../drive/drive-t.js").Drive_t }).drive;
+      if (driveT) {
+        const wasMounted = driveT.GCR_track_start_ptr !== null;
+        const clk = BigInt(session.c64Cpu.cycles | 0);
+        if (wasMounted) {
+          driveT.attach_detach_clk = clk;
+        } else {
+          driveT.attach_clk = clk;
+        }
+        driveT.GCR_image_loaded = 1;
+      }
+    }
+
     // Spec 414 — Phase H step 32: re-arm drive enable after image
     // (re-)attach. VICE `drive_enable()` (drive.c:482-529) does:
     // (a) check `Drive%uTrueEmulation` resource — TS always-on,
@@ -240,6 +259,16 @@ export function unmountMedia(
   }
   session.gcrShifter?.notifyMediaChange(empty);
   session.gcrShifter?.notifyDetach(session.c64Cpu.cycles);
+  // Spec 441 step 4c — shadow into drive_t.detach_clk.
+  {
+    const driveT = (session.drive as { drive?: import("../drive/drive-t.js").Drive_t }).drive;
+    if (driveT) {
+      driveT.detach_clk = BigInt(session.c64Cpu.cycles | 0);
+      driveT.GCR_track_start_ptr = null;
+      driveT.GCR_current_track_size = 0;
+      driveT.GCR_image_loaded = 0;
+    }
+  }
   session.diskPath = "";
   return { slot, ejected: true };
 }
