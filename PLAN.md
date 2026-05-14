@@ -184,10 +184,8 @@ Doc: `docs/epic-1541-full-vice-port.md`.
 | **442** | viacore.c Claude-self re-audit | **DONE** (MYVIA gate + peek-raw fix + 13 conformance tests) |
 | **443** | VIA1 + VIA2 d1541 literal re-port | **DONE** (48-row audit + Bug-1083 + 23 conformance tests) |
 | **444** | drivecpu.c true literal | **DONE** (37-row audit + stop_clk/last_exc_cycles/is_jammed port + Via6522Vice.disable + VIA2 reset led + 6 conformance tests) |
-| 445 | gcr.c write-path | **NEXT** (recommended) |
-| 444 | drivecpu.c true literal | OPEN |
-| 445 | gcr.c write-path | OPEN |
-| 446 | drivesync.c full | OPEN |
+| **445** | gcr.c write-path + encode | **DONE** (8 commits — encode + write_sector + Sprint 430 read-path re-audit + BUG fix + runtime write-back smoke 4/4) |
+| 446 | drivesync.c full | **NEXT** (recommended) |
 | 447 | memiec.c + driverom.c | OPEN |
 | 448 | alarm.c literal port | OPEN |
 | 449 | fdc.c error codes | OPEN |

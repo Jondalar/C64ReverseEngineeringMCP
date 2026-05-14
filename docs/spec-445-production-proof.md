@@ -67,13 +67,13 @@ noted only where context required.
 | 2c read-path re-audit | 6 rows Claude-self verified: 5 MATCH, 1 BUG (find_sector_header lossy return) |
 | 2c-fix | disk_track_t struct + 4 `*_vice` fns + lossy-return fix + 2 BUG-fix verification tests |
 | 2c-cleanup | gcr_decode_block_vice shift-register form (structural-literal) + symmetric HEADER-path BUG test + inspection-tier doc-clarity |
+| 3 runtime write-back coupling | End-to-end smoke (4/4 PASS): write mode mutates track; motor-off / read-mode / no-image gates honoured. Spec 441's wire verified correct; no new code needed. |
 
 ## Ticketed-out (deferred)
 
 | Item | Target | Reason |
 |---|---|---|
 | `fdc_err_t` enum migration | Spec 449 | fdc.c + cbmdos.h literal port owner |
-| Runtime write-back coupling | Spec 445 Phase 3 (next) | drive PA write + write-mode + motor → track buffer mutation via gcr_write_sector |
 | `gcr_create_image` / `gcr_destroy_image` | OUT | TS GC + parser owns track allocation |
 | Disk save-back to .g64 file | OUT | IO concern, not GCR scope |
 
@@ -84,8 +84,9 @@ noted only where context required.
 | `npm run build` (full) | PASS |
 | `tests/unit/disk/gcr-encode.test.ts` | 11/11 PASS (incl. 65536-tuple round-trip + 4 hand-computed VICE pins) |
 | `tests/unit/disk/gcr-write-sector.test.ts` | 13/13 PASS (incl. 2 sector-encode hand-computed VICE pins + 2 BUG-fix verification) |
+| `tests/unit/drive/gcr-write-back-runtime.test.ts` (Phase 3 NEW) | 4/4 PASS (motor + mode + image gates) |
 | All other unit suites | unchanged: 139/139 PASS across VIA + drive |
-| **Total unit suite** | **163/163 PASS** |
+| **Total unit suite** | **167/167 PASS** |
 | `tests/integration/drivecpu-vs-vice-baseline.test.mjs` (Spec 444) | 9999/9999 within ±1 cycle (no regression) |
 | `npm run canary:spec-430` | **5/5 PASS** (post-cleanup) |
 
@@ -120,11 +121,7 @@ d6d8a98 Spec 445 Phase 2c-cleanup — shift-register form + symmetric BUG test +
 
 ## Open items for follow-on specs
 
-1. **Spec 445 Phase 3** (next, same spec) — runtime write-back
-   coupling: drive PA write + write-mode + motor → `gcr_write_sector`
-   call on the active track. Timing-independent of Spec 452
-   tick-order flip.
-2. **Spec 446** — drivesync.c PAL/NTSC switch logic.
-3. **Spec 449** — fdc.c + cbmdos.h literal port (consumes the
+1. **Spec 446** — drivesync.c PAL/NTSC switch logic.
+2. **Spec 449** — fdc.c + cbmdos.h literal port (consumes the
    INTERIM `fdc_err_t` from Spec 445).
-4. **Spec 452** — rotation tick BEFORE cpu per §14 invariant 1.
+3. **Spec 452** — rotation tick BEFORE cpu per §14 invariant 1.
