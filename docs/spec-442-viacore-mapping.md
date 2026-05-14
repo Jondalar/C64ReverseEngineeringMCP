@@ -172,3 +172,67 @@ Ticketed out:
 - `viacore_shutdown` — Spec 444 (or final cleanup)
 - `viacore_dump` — out of V1 scope (debug only)
 - `via_restore_int` — couples with snapshot path
+
+## G. viacore_signal / set_cb1 / set_cb2 audit (Phase 3)
+
+### viacore_signal (VICE:441-474) ↔ TS signal (`:413-452`)
+
+| VICE | TS | Verdict |
+|---|---|---|
+| 444-458 CA1: edgeBit == PCR-CA1; CA2-toggle release; ifr\|=CA1; update | `:416-429` | MATCH structural |
+| 452-456 `#ifdef MYVIA_NEED_LATCHING` PA-latch | `:425-427` (UNCONDITIONAL) | **DEVIATION — see decision below** |
+| 459-466 CA2 INPUT-mode edge → ifr\|=CA2 | `:431-443` | MATCH |
+| 467-469 CB1 → viacore_set_cb1 | `:445-446` `setCb1(edgeBit!==0)` | MATCH |
+| 470-472 CB2 → viacore_set_cb2 | `:448-449` `setCb2(edgeBit!==0)` | MATCH |
+
+### viacore_set_cb1 (VICE:1428-1501) ↔ TS setCb1 (`:455-488`)
+
+| VICE | TS | Verdict |
+|---|---|---|
+| 1433-1474 SR cb1_in_state-change handling, shift-state advance | `:456-473` | MATCH (shift sequence + cb2_in_state OR into VIA_SR + viacore_set_sr at FINISHED) |
+| 1482-1500 unconditional edge check, CB2-toggle release, ifr\|=CB1, update | `:475-487` | MATCH |
+| 1494-1498 `#ifdef MYVIA_NEED_LATCHING` PB-latch | `:484-486` (UNCONDITIONAL) | **DEVIATION — see decision below** |
+
+### viacore_set_cb2 (VICE:1503-1518) ↔ TS setCb2 (`:490-499`)
+
+VICE: cb2_is_input && state-change → cb2_in_state update; edge match → ifr|=CB2.
+TS: identical. **MATCH.**
+
+### Decision needed: MYVIA_NEED_LATCHING
+
+VICE `viacore.c:76` has `/* #define MYVIA_NEED_LATCHING */` — the
+macro is **commented out by default** for drive VIAs. All 9 PA/PB
+latch sites (`viacore.c:452,865,1050,1074,1102,1106,1125,1140,1231,1494`)
+are therefore inactive in the canonical VICE drive build.
+
+TS unconditionally runs the latch code at:
+- `via6522-vice.ts:425-427` (CA1 in `signal()`)
+- `via6522-vice.ts:484-486` (CB1 in `setCb1`)
+- likely also store/read paths — to verify
+
+This is a **systematic DEVIATION** from a literal VICE drive port.
+
+Two options under Epic 440 doctrine:
+- **A (literal-VICE)**: gate all 9 latch sites behind a build flag
+  `MYVIA_NEED_LATCHING = false` (default off). Matches VICE drive
+  bit-for-bit. Per [[feedback_vice_no_alternatives]] this is the
+  spec-conforming path.
+- **B (silicon-correct)**: keep TS as-is (always latch when
+  ACR bit is set). Real 6522 silicon does this; VICE just disabled
+  it for perf. Per [[feedback_truedrive_101]] silicon-goal this is
+  defensible.
+
+Per Epic 440 doctrine "eine source of truth, wenn VICE was nicht
+hat, TS hat das nicht" → **Option A is the spec answer**.
+
+**Status:** flagged for explicit user-ask before patching. Per
+[[feedback_1541_port_workflow]] step 7 ("no arch decisions without
+explicit rückfrage").
+
+### Phase 3 verdict summary
+
+- viacore_signal: 4/5 rows MATCH, 1 DEVIATION (MYVIA_NEED_LATCHING)
+- viacore_set_cb1: structural MATCH, same DEVIATION
+- viacore_set_cb2: MATCH
+- Action: defer MYVIA_NEED_LATCHING patch; document; ask user
+  before changing behaviour.
