@@ -92,7 +92,7 @@ the device wrappers against VICE post-441/442 changes.
 56c3579 Spec 443 Phase 1 — mapping skeleton
 c9c66d9 Spec 443 Phase 2 — VIA1/VIA2 deep-dive resolved
 9637b3a Spec 443 Phase 3 — device-level conformance tests (8/8)
-????    Spec 443 DONE — production-proof + PLAN/epic update (this commit)
+2e8fb78 Spec 443 DONE — production-proof + PLAN/epic update
 ```
 
 ## Doctrine compliance
