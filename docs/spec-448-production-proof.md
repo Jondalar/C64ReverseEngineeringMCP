@@ -48,6 +48,13 @@
 | RENAME-NEEDED → applied (camelCase → snake_case canonical) | 12 fns + 4 types |
 | **BUG / load-bearing MISSING** | **0** |
 
+### Ticketed-out
+
+| Item | Target | Reason |
+|---|---|---|
+| alarm-context snapshot R/W | OUT (V1) → covered by Spec 451 (VSF cross-load) | VICE `alarm.c` has no snapshot module; chip-side VSF serializes alarm state per-chip (CIA / VIA timer fields include their own pending alarm clks). No alarm-system snapshot work owed by this spec. |
+| `AlarmContextCycled` class wrapper | Removed in Spec 448.2 hygiene | FLACH-mandate consistency — VICE-equivalent is `PROCESS_ALARMS` macro (6510core.c:139-143), inline at CPU dispatch. Replaced by top-level `process_alarms(ctx, clk)` in `scheduler/cycle-wrappers.ts` + inline scheduler-adapter at callsites. |
+
 ### Sprint 148/149 INVALIDATION outcome
 
 - **Algorithm body**: VERIFIED MATCH vs VICE alarm.c/alarm.h. Sprint
@@ -140,6 +147,8 @@ Both paths covered by `alarm-dispatch.test.ts` cases 1 + 2.
 | `452f493` | Spec 448 charter update + mapping doc — Claude-self re-audit (Sprint 149 INVALIDATED) |
 | `52bf98f` | Spec 448 DONE — alarm.c literal re-port + 36-file fn-rename + tie-break smoke |
 | `9ad2e3f` | Spec 448.1 hygiene — type-alias migration (15 files) + dead-alias deletion |
+| `4f7be81` | Spec 448 + 448.1 doc hygiene — fill SHAs + close audit checkboxes |
+| `<this-commit>` | Spec 448.2 hygiene — `AlarmContextCycled` class → `process_alarms` flat fn + snapshot-deferral row |
 
 ## Sprint 148/149 verdicts INVALIDATED
 

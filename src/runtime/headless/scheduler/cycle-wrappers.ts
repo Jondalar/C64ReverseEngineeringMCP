@@ -6,9 +6,10 @@
 // ticks.
 //
 // Sprint 113 Phase 2 (Spec 146): the legacy CiaCycled wrapper is gone.
-// CIA1/CIA2 are now alarm-driven (Cia6526Vice); a single
-// AlarmContextCycled dispatches all maincpu alarms per cycle, mirroring
-// the VICE CPU loop's PROCESS_ALARMS macro for the lockstep path.
+// CIA1/CIA2 are now alarm-driven (Cia6526Vice); a single inline
+// adapter `process_alarms(ctx, clk)` dispatches all maincpu alarms per
+// cycle, mirroring the VICE CPU loop's PROCESS_ALARMS macro for the
+// lockstep path. (Spec 448.2 removed the `AlarmContextCycled` class.)
 //
 // Cpu6510Cycled tracks "cycles owed" — when 0, fetches+executes next
 // instruction (which adds N to owed). Each executeCycle() decrements
@@ -75,30 +76,25 @@ export class Cpu6510Cycled implements CycleSteppable {
 }
 
 /**
- * Sprint 113 Phase 2 (Spec 146) — AlarmContextCycled.
+ * Spec 448.2 — `process_alarms` top-level fn (FLACH-mandate).
  *
  * Drains every alarm in the given context whose `pending_clk` has
- * been reached or passed by the current CPU clock. This is the
- * scheduler-level analogue of VICE's PROCESS_ALARMS macro
- * (6510core.c:139-143) for paths where the CPU itself doesn't
- * dispatch alarms (legacy `Cpu6510` instruction-based core).
+ * been reached or passed by `clk`. Direct analogue of VICE's
+ * PROCESS_ALARMS macro (6510core.c:139-143). The previous
+ * `AlarmContextCycled` class wrapper was removed; the scheduler
+ * API expects a CycleSteppable, so callsites construct an inline
+ * adapter `{ executeCycle: () => process_alarms(ctx, clkPtr()) }`.
  */
-export class AlarmContextCycled implements CycleSteppable {
-  private static readonly DISPATCH_GUARD = 0x1000;
-  constructor(
-    public readonly context: alarm_context_t,
-    public readonly clkPtr: () => CLOCK,
-  ) {}
-  executeCycle(): void {
-    const clk = this.clkPtr();
-    let guard = 0;
-    while (clk >= alarm_context_next_pending_clk(this.context)) {
-      alarm_context_dispatch(this.context, clk);
-      if (++guard > AlarmContextCycled.DISPATCH_GUARD) {
-        throw new Error(
-          `AlarmContextCycled: dispatch guard tripped at clk=${clk} (ctx=${this.context.name})`,
-        );
-      }
+export const ALARM_DISPATCH_GUARD = 0x1000;
+
+export function process_alarms(context: alarm_context_t, clk: CLOCK): void {
+  let guard = 0;
+  while (clk >= alarm_context_next_pending_clk(context)) {
+    alarm_context_dispatch(context, clk);
+    if (++guard > ALARM_DISPATCH_GUARD) {
+      throw new Error(
+        `process_alarms: dispatch guard tripped at clk=${clk} (ctx=${context.name})`,
+      );
     }
   }
 }
@@ -220,11 +216,9 @@ export class DriveCpuCycled implements CycleSteppable {
 
 // ViaCycled — DELETED in Sprint 113 Phase 2 (Spec 147 migration).
 // VIA1 + VIA2 are now alarm-driven (Via1d1541 / Via2d1541). Per-cycle
-// tick() is replaced by AlarmContextCycled(drivecpuAlarmContext) in
+// tick() is replaced by process_alarms(drivecpuAlarmContext, clk) in
 // the driveComponents list — mirrors the same pattern as the CIA
-// migration (CiaCycled → AlarmContextCycled for maincpu). Kept as
-// exported no-op stub for 1-2 cycles to avoid import errors in
-// drive-session.ts during transition; will be removed in next sprint.
+// migration (CiaCycled → process_alarms for maincpu).
 
 // Convenience: keyboard cycle ticker. Doesn't need separate class but
 // kept for symmetry.

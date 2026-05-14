@@ -142,7 +142,7 @@ export interface DriveCpuOptions {
   // Sprint 113 Phase 2: VICE-style alarm context for the drive CPU.
   // VIA1 + VIA2 register their T1/T2/SR alarms here. When provided,
   // DriveCpu drains pending alarms after each instruction in the
-  // executeToClock path. In lockstep, AlarmContextCycled handles drain.
+  // executeToClock path. In lockstep, process_alarms handles drain.
   alarmContext?: alarm_context_t;
   // Sprint 113 Phase 2: live drive CPU clock pointer for VIA construction.
   // If not provided, DriveCpu supplies one automatically.

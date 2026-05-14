@@ -63,7 +63,7 @@ import {
   type BusAccessTraceProducer,
 } from "./trace/bus-access.js";
 import {
-  Cpu6510Cycled, AlarmContextCycled, VicCycled, SidCycled,
+  Cpu6510Cycled, process_alarms, VicCycled, SidCycled,
   DriveCpuCycled, KeyboardCycled,
 } from "./scheduler/cycle-wrappers.js";
 import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
@@ -587,24 +587,21 @@ export class IntegratedSession {
       }
       const c64Components = [
         cpuComponent,
-        // Sprint 113 Phase 2 (Spec 146): alarm-driven CIAs no longer
-        // need per-cycle ticks. Instead a single AlarmContextCycled
-        // dispatches all maincpu alarms (CIA1 + CIA2 timers, TOD, SDR)
-        // up to the current C64 clock each cycle. Mirrors the VICE
-        // CPU loop's PROCESS_ALARMS macro behaviour for the lockstep
-        // path where the CPU itself isn't responsible for dispatch.
-        new AlarmContextCycled(this.maincpuAlarmContext, () => this.c64Cpu.cycles),
+        // Spec 448.2 (was 146): alarm-driven CIAs (CIA1 + CIA2 timers,
+        // TOD, SDR) dispatched per cycle via `process_alarms`. Direct
+        // analogue of VICE's PROCESS_ALARMS macro for the lockstep path
+        // where the CPU itself isn't responsible for dispatch.
+        { executeCycle: () => process_alarms(this.maincpuAlarmContext, this.c64Cpu.cycles) },
         new VicCycled(this.vic),
         new SidCycled(this.sid),
         new KeyboardCycled(this.keyboard),
       ];
       const driveComponents = [
         new DriveCpuCycled(this.drive),
-        // Sprint 113 Phase 2 (Spec 147): VIA1 + VIA2 are alarm-driven
-        // (Via1d1541 / Via2d1541). Per-cycle tick() replaced by a single
-        // AlarmContextCycled that drains the drivecpu alarm context each
-        // cycle — mirrors the same pattern as CIA (Spec 146 migration).
-        new AlarmContextCycled(this.drivecpuAlarmContext, () => this.drive.cpu.cycles),
+        // Spec 448.2 (was 147): VIA1 + VIA2 alarm-driven (Via1d1541 /
+        // Via2d1541). Per-cycle drain via `process_alarms` — same
+        // pattern as CIA above.
+        { executeCycle: () => process_alarms(this.drivecpuAlarmContext, this.drive.cpu.cycles) },
       ];
       // Spec 280g: enable per-cycle bus stealing on the VIC chip.
       // Scheduler will query vic.getBusStallForCycle() before each CPU
