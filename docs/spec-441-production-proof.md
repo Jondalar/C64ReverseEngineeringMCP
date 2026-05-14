@@ -164,7 +164,57 @@ All 15 PASS.
   When session-vsf extends drive save-state, it should use those.
 - 4f Delete legacy — 82 grep hits to clean once snapshot path is
   fully retired and harness can be reduced.
-- Perf — Lorenz timeout suggests rotation_rotate_disk per cycle
-  is slower than gcrShifter.tick(1). BigInt math on attach_clk
-  comparison is the primary suspect. Profile + optimize before
-  4f.
+- Perf — addressed in section below.
+
+## Perf (Spec 441 perf-stabilization pass)
+
+### Profile result (Lorenz Disk1 60s, node --cpu-prof)
+
+Top hotspots in Lorenz Disk1 simulation:
+
+| Function | % CPU | Notes |
+|---|---|---|
+| `cpu65xx executeCycle` | 12.80% | 6510 microcoded core |
+| `VIC draw_sprites` | 11.86% | per-cycle sprite render |
+| `VIC draw_graphics` | 11.79% | per-cycle text/bitmap render |
+| `VIC vicii_cycle` | 10.64% | top-level VIC tick |
+| `VIC draw_sprites8` | 10.10% | 8-pixel sprite stripe |
+| `cpu65xx executeMicroOp` | 4.81% | sub-instruction microcode |
+| `VIC vicii_draw_cycle` | 4.55% | draw-cycle dispatch |
+| `VIC draw_graphics8` | 4.38% | 8-pixel graphics stripe |
+| `drive-cpu executeToClock` | **2.55%** | drive CPU dispatch |
+| `_rotation_1541_simple` | **0.22%** | Spec 441 rotation core |
+| `_rotation_do_wobble` | **0.05%** | wobble PRNG |
+| `rotation_rotate_disk` | **0.00%** | dispatcher (sub-µs) |
+| `fireByteReady` | **0.02%** | V flag + CA1 fire |
+| `via2-coupling onPbOutputChanged` | **0.00%** | motor/density |
+
+**Spec 441 rotation work = ~0.3% of total CPU time.** Hot path is
+VIC rendering (~50%) and 6510 core (~13%). The Lorenz timeout
+vs the pre-Spec-430 baseline (`[motm AB fastloader FIXED 2026-05-08]`
+memo: "100% PASS in 600s") is NOT located in rotation code per
+profile.
+
+### Defensive optimization applied
+
+Cycle-wrapper attach-clk decay path rewritten with single
+short-circuit `!== 0n` check on the fast path. Steady state
+(both fields 0n): two short-circuit BigInt comparisons; no
+`clk_ptr()` call; no BigInt subtraction. Active window: BigInt
+math only when at least one attach window is open.
+
+### Post-optimization verify
+
+| Suite | Result |
+|---|---|
+| `npm run canary:spec-430` (all 5) | 5/5 PASS |
+| Lorenz Disk1 600s (CPU shared with canary) | 83 tests started, 0 fails |
+| `tests/unit/drive/rotation.test.ts` | 15/15 PASS |
+
+### Conclusion
+
+Lorenz "100% PASS in 600s" recovery is OUT of Spec 441 scope —
+profile points to CPU / VIC code from Specs 430-437 or earlier.
+Track separately if user wants the 100%-pass guarantee back.
+Spec 441 rotation overhead is verified at <1% and is not a
+viable optimization target.
