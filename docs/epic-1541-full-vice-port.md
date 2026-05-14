@@ -55,8 +55,8 @@ am Ende validiert.
 | 6502 CPU (drive-side) | `src/6510core.c` + `mainc64cpu.c` | ~2000 | `Cpu6510` + `Cpu65xxVice` (Spec 428) | – | TEIL |
 | 6502 dispatcher | `drivecpu.c` | 737 | `drive-cpu.ts` | 444 | PARTIAL |
 | VIA 6522 core | `core/viacore.c` | 2243 | `via6522-vice.ts` 1341 LOC | 442 | AUDITED (Spec 442 DONE 2026-05-14) |
-| VIA1 device | `iec/via1d1541.c` | 420 | `via1d1541.ts` 383 LOC | 443 | PARTIAL |
-| VIA2 device | `iec/via2d.c` (file?) | ? | `via2d1541.ts` 197 LOC | 443 | NIE AUDITED |
+| VIA1 device | `iec/via1d1541.c` | 420 | `via1d1541.ts` 360 LOC | 443 | AUDITED (Spec 443 DONE 2026-05-14) |
+| VIA2 device | `iecieee/via2d.c` | 566 | `via2d1541.ts` 250 LOC + coupling 209 LOC | 443 | AUDITED (Spec 443 DONE 2026-05-14) |
 | GCR encode/decode | `gcr.c` | 357 | `gcr.ts` 530 LOC | 445 | LESE OK / WRITE FEHLT |
 | Disk rotation | `drive/rotation.c` | ~900 | `gcr-shifter.ts` 690 LOC | 441 | NIE AUDITED |
 | Drive memory map | `drive/iec/memiec.c` | 177 | `drive-cpu.ts` memory part | 447 | TEIL |
@@ -77,8 +77,8 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 | 1 | **440** | Epic charter + 7-step workflow | klein | DONE |
 | 2 | **441** | `rotation.c` literal port + p64 stubs + drive_t + VIA2 backend | groß | **DONE** (4f legacy delete deferred) |
 | 3 | **442** | `viacore.c` Claude-eigener line-by-line re-audit | groß | **DONE** (MYVIA gate + peek-raw fix + 13 conformance tests) |
-| 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel | **NEXT** |
-| 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel | OPEN |
+| 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel | **DONE** (48-row audit, 0 patches, 8 conformance tests) |
+| 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel | **NEXT** |
 | 6 | **445** | `gcr.c` write-path + encode | mittel | OPEN |
 | 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | OPEN |
 | 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | OPEN |
@@ -146,17 +146,47 @@ Docs: `docs/spec-441-production-proof.md` (final), -mapping,
 Docs: `docs/spec-442-viacore-mapping.md`,
        `docs/spec-442-production-proof.md`.
 
-### Spec 443 starting point
+### Spec 443 closeout (2026-05-14)
 
-`via1d1541.c` (420 LoC) + `via2d.c` device wrappers. Spec 441
-already ported via2d.c PA/PB/PCR/CA2/CB2 backend literal for the
-rotation flip. Spec 443 closes the loop by:
-- Auditing `via1d1541.c` (IRQ wiring → drive cpu, ATN backend
-  hooks, DDR formulae for PA/PB → IEC lines).
-- Verifying `via2d.c` backend signatures align with VICE (esp.
-  `storePcr` void-tightening from Spec 442 Phase 5 finding).
-- Adding device-level conformance tests (separate from viacore
-  core tests).
+`via1d1541.c` (420 LoC) + `via2d.c` (566 LoC) ↔ TS device wrappers
+audited line-by-line. **Audit-only spec** — 0 patches needed
+since paths already literal post-Spec-441/442.
+
+48-row mapping (`docs/spec-443-via-device-mapping.md`):
+- VIA1: 17 callbacks + 4 setup + 4 bus entries
+- VIA2: 14 callbacks + 5 setup/bus
+- DDR formulae: 4 rows
+
+Verdict tally:
+- 41 MATCH / 2 MATCH-with-extension / 2 MINOR-DEVIATION / 9 OMIT-OK
+- **0 BUG / 0 load-bearing MISSING**
+
+Phase 2 deep-dive (5 rows resolved):
+- `iec.drive_store_pb` bit-for-bit MATCH vs VICE store_prb 229-241
+- VIA1 attachIrqLine chipPrev guard MATCH-with-extension
+- VIA1 CA1 ATN edge MATCH (Spec 432 owned, post-441/442 verified)
+- VIA2 store_prb MATCH (Spec 441 owned)
+- VIA2 reset MINOR-DEVIATION (TS no-op vs VICE `led_status=1`,
+  UI-only, deferred to Spec 444)
+
+Tests: `tests/unit/via/via-device-conformance.test.ts` (8/8 PASS).
+Total VIA suite: 73/73 PASS across 8 files. Rotation 15/15, canary
+5/5 PASS.
+
+Docs: `docs/spec-443-via-device-mapping.md`,
+       `docs/spec-443-production-proof.md`.
+
+### Spec 444 starting point
+
+`drivecpu.c` (737 LoC) ↔ TS `drive-cpu.ts`. Spec 430 renamed fields
+(math-equivalent only). Spec 444 does true literal port:
+- `stop_clk` field + exec body
+- Alarm dispatch via PROCESS_ALARMS macro analog
+- `viacore_shutdown` / `viacore_disable` integration (Spec 442
+  ticketed)
+- VIA2 reset led_status=1 tightening (Spec 443 ticketed)
+- `storePcr` void-signature tightening (Spec 442/443 cosmetic finding)
+- `attach_irq_line` chip-side push registration
 
 ## Acceptance Epic-level
 

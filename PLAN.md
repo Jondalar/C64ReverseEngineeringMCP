@@ -182,7 +182,8 @@ Doc: `docs/epic-1541-full-vice-port.md`.
 | 440 | Epic charter + doctrine + 7-step workflow | DONE |
 | **441** | rotation.c + p64 stubs + drive_t + VIA2 backend port | **DONE** (4f legacy delete deferred — see below) |
 | **442** | viacore.c Claude-self re-audit | **DONE** (MYVIA gate + peek-raw fix + 13 conformance tests) |
-| 443 | VIA1 + VIA2 d1541 literal re-port | **NEXT** (recommended) |
+| **443** | VIA1 + VIA2 d1541 literal re-port | **DONE** (48-row audit, 0 patches needed, 8 new conformance tests) |
+| 444 | drivecpu.c true literal | **NEXT** (recommended) |
 | 444 | drivecpu.c true literal | OPEN |
 | 445 | gcr.c write-path | OPEN |
 | 446 | drivesync.c full | OPEN |
@@ -252,14 +253,44 @@ Docs:
   - `docs/spec-442-viacore-mapping.md` (audit matrix)
   - `docs/spec-442-production-proof.md` (final verdict)
 
-### Next recommended spec — 443 VIA1 + VIA2 d1541 device re-port
+### Spec 443 DONE summary (2026-05-14)
 
-`via1d1541.c` (420 LoC) + `via2d.c` device-level wrappers (PA/PB/
-PCR backends). Spec 441 already ported via2d.c PA/PB/PCR/CA2/CB2
-backend literal for the rotation flip; Spec 443 closes the loop by
-auditing via1d1541.c (IRQ wiring, ATN backend, DDR formulae) and
-verifying via2d.c backend signature alignment (storePcr void
-tightening from Spec 442 Phase 5 finding).
+`via1d1541.c` (420 LoC) + `via2d.c` (566 LoC) ↔ TS device wrappers
+line-by-line audited. 5 commits. Audit-only spec — 0 patches needed
+since paths already literal post-Spec-441/442.
+
+- 48-row mapping matrix in `docs/spec-443-via-device-mapping.md`:
+  - VIA1: 25 rows (17 callbacks + 4 setup + 4 bus entries)
+  - VIA2: 19 rows (14 callbacks + 5 setup/bus)
+  - DDR formulae: 4 rows
+- 5 open rows deep-dived in Phase 2: iec.drive_store_pb body
+  (bit-for-bit MATCH), VIA1 attachIrqLine chipPrev guard (MATCH),
+  VIA1 CA1 ATN edge (Spec 432 owned MATCH), VIA2 store_prb
+  (Spec 441 owned MATCH), VIA2 reset (MINOR-DEVIATION led_status=1
+  UI-only).
+- Tally: 41 MATCH / 2 MATCH-with-extension / 2 MINOR / 9 OMIT-OK /
+  **0 BUG / 0 load-bearing MISSING**.
+- Tests: new `tests/unit/via/via-device-conformance.test.ts` (8/8 PASS).
+  Total VIA suite: 73/73 PASS across 8 files. Rotation 15/15,
+  canary 5/5.
+- Ticketed out:
+  - undumps + restore_int + snapshot_read → Spec 451 (VSF)
+  - dump (debug) → OUT
+  - 1571 + parallel cable carve-outs → OUT (V1 = stock 1541 only)
+  - VIA2 reset led_status=1 tightening → low-priority,
+    bundle with Spec 444
+
+Docs: `docs/spec-443-via-device-mapping.md`,
+       `docs/spec-443-production-proof.md`.
+
+### Next recommended spec — 444 drivecpu.c true literal port
+
+`drivecpu.c` (737 LoC) ↔ TS `drive-cpu.ts`. Spec 430 renamed fields
+(math-equivalent only). Spec 444 does true literal port: stop_clk
+field, exec body, alarm dispatch, viacore_shutdown integration,
+attach_irq_line registration. Bundle: VIA2 reset led_status=1
+tightening + storePcr void-signature tightening from Spec 442/443
+findings.
 
 ## Step order (legacy 6-step view — for historical context)
 
