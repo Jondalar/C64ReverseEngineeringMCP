@@ -79,8 +79,8 @@ Total IN-V1 LoC (TS): ~70 in `fdc.ts` + re-export shim.
 
 | Commit | Subject |
 |---|---|
-| `<charter-commit>` | Spec 449 charter + Spec 448.2 SHA fix (charter under 1541-only mandate; fdc.c documented as IEEE-only OUT-V1) |
-| `<port-commit>` | Spec 449 DONE — fdc_err_t migration to canonical fdc.ts + 16 conformance tests |
+| `a502074` | Spec 449 charter + Spec 448.2 SHA fix (charter under 1541-only mandate; fdc.c documented as IEEE-only OUT-V1) |
+| `a8e31dd` | Spec 449 DONE — fdc_err_t migration to canonical fdc.ts + 16 conformance tests |
 
 ## Risk + scope
 
