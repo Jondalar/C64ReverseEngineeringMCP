@@ -59,8 +59,8 @@ am Ende validiert.
 | VIA2 device | `iecieee/via2d.c` | 566 | `via2d1541.ts` 250 LOC + coupling 209 LOC | 443 | AUDITED (Spec 443 DONE 2026-05-14) |
 | GCR encode/decode | `gcr.c` | 357 | `gcr.ts` ~860 LOC | 445 | AUDITED (Spec 445 DONE 2026-05-14) — encode + write + read-path re-audit + runtime write-back |
 | Disk rotation | `drive/rotation.c` | ~900 | `gcr-shifter.ts` 690 LOC | 441 + 452 | **AUDITED (Spec 441 DONE)** — primitive literal; tick-order PARTIAL (Spec 452 OPEN: rotation BEFORE cpu per §14 invariant 1 blocked by Krill regression) |
-| Drive memory map | `drive/iec/memiec.c` | 177 | `drive-cpu.ts` memory part | 447 | TEIL |
-| Drive ROM loader | `drive/driverom.c` | ~300 | `headless-machine-kernel.ts` ROM-load | 447 | TEIL |
+| Drive memory map | `drive/iec/memiec.c` | 281 | `drive-cpu.ts` DriveBus dispatch | 447 | AUDITED (Spec 447 DONE 2026-05-14) — 1541 V1 full dispatch + $80-$BF ROM mirror port |
+| Drive ROM loader | `drive/driverom.c` | 544 | `drive-rom.ts` + DriveCpu ctor | 447 | AUDITED (Spec 447 DONE 2026-05-14) — V1 load only; trap-patch + snapshot deferred |
 | Drive sync (host↔drive clock) | `drive/drivesync.c` | 117 | `drive-cpu.ts` syncFactor + drivesync_clock_frequency + setPalNtsc | 446 | AUDITED (Spec 446 DONE 2026-05-14) — PAL/NTSC switch mechanism PORTED; full NTSC validation = Spec 451 |
 | Alarm context | `alarm.c` + `alarm.h` | ~400 | `alarm/alarm-context.ts` | 448 | TEIL, NICHT LITERAL |
 | FDC error codes + state | `drive/fdc.c` + `cbmdos.h` | ~400 | partial enum in `gcr.ts` | 449 | TEIL |
@@ -81,7 +81,7 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 | 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel | **DONE** (37-row audit + struct port + 6 tests) |
 | 6 | **445** | `gcr.c` write-path + encode | mittel | **DONE** (8 commits, encode + write_sector + read-path re-audit BUG fix + runtime write-back smoke 4/4) |
 | 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | **DONE** (drivesync_clock_frequency + setPalNtsc + 17 conformance tests) |
-| 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | OPEN |
+| 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | **DONE** ($80-$BF ROM mirror port + 16 conformance tests; trap-patch + snapshot deferred) |
 | 9 | **448** | `alarm.c` literal port | groß | OPEN |
 | 10 | **449** | `fdc.c` + cbmdos error codes + state machine | mittel | OPEN |
 | 11 | **450** | Validation harness: full read+write+verify | mittel | OPEN |

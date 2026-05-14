@@ -491,33 +491,73 @@ export class DriveBus implements CpuMemory {
       this.peekTab[p] = via2Peek;
     }
 
-    // ROM $C000-$FFFF — canonical 16 KB DOS ROM (memiec.c:176).
-    // ROM is read-only: writes pass through to drive_store_free (open
-    // bus). VICE wires `store_tab = NULL` and the dispatch macro skips
-    // them; our 1:1 analog leaves storeTab[p] = storeFree (= no-op on
-    // ROM-backed RAM array, latch updated).
+    // Spec 447 — ROM $8000-$BFFF + $C000-$FFFF literal VICE memiec.c:167-176
+    // (1541 stock, drive_ram8/a_enabled = 0).
     //
-    // Note: stock 1541 split ROM image (901229-05 + 901227-03) is 16 KB
-    // loaded into the high half of trap_rom[]. The low half / mid half
-    // ($8000-$BFFF) are zero on stock; on 1541-II's 32 KB image they
-    // mirror the same content. We do not implement $8000-$BFFF here
-    // because:
-    //   1. Bundled ROM is 16 KB stock = $8000-$BFFF reads = 0 (open
-    //      bus is the same observable behaviour).
-    //   2. memiec.c:167-175 wires drive_read_rom only when ramX_enabled
-    //      is set — for stock split-ROM the trap_rom buffer is sparse.
-    // If a 1541-II 32 KB image is added in future, extend here to
-    // populate pages $80-$BF from `rom[0x0000..$3FFF]` (low+mid halves).
-    const romRead: DrivePageRead = (addr) => {
+    // VICE wires drive_read_rom for:
+    //   $80-$9F → trap_rom[0x0000..$1FFF]  (line 169, drive_ram8 disabled)
+    //   $A0-$BF → trap_rom[0x2000..$3FFF]  (line 174, drive_rama disabled)
+    //   $C0-$FF → trap_rom[$4000..$7FFF]  (line 176, canonical 16K DOS ROM)
+    //
+    // For a 1541 stock split-ROM (16K), trap_rom[0..$3FFF] is sparse =
+    // zero — drive_read_rom returns 0 there. Observable equivalent to
+    // open-bus on a 1541-II 32K image, $80-$BF mirrors valid ROM data.
+    //
+    // TS rom buffer is 16K (DRIVE_ROM_SIZE = 0x4000). For literal
+    // memiec.c shape, we dispatch all three windows; rom[] indexing
+    // wraps around the 16K (drive_read_rom modulo). Stock split-ROM
+    // returns 0 for $80-$BF, 1541-II would return mirror.
+    const romReadCanonical: DrivePageRead = (addr) => {
+      // $C000-$FFFF reads trap_rom[$4000-$7FFF]. With 16K rom buffer
+      // (= just the canonical half), this is rom[(addr - 0xC000)].
       const v = this.rom[(addr - DRIVE_ROM_BASE) & 0x3fff]!;
       this.lastBusValue = v;
       return v;
     };
-    const romPeek: DrivePagePeek = (addr) => this.rom[(addr - DRIVE_ROM_BASE) & 0x3fff]!;
+    const romPeekCanonical: DrivePagePeek = (addr) => this.rom[(addr - DRIVE_ROM_BASE) & 0x3fff]!;
+    // $8000-$BFFF: sparse on stock 16K split-ROM (returns 0).
+    // VICE pointer arithmetic: drive_read_rom with base = &trap_rom[0]
+    // for $80-$9F and &trap_rom[$2000] for $A0-$BF. With 16K buffer
+    // those bytes are zero-fill outside the canonical 16K. TS mirrors
+    // by reading rom[] at byte offset wrap; for stock buffer those
+    // offsets all return 0 (memmem outside loaded ROM is zero per
+    // Uint8Array init).
+    const romReadLow: DrivePageRead = (addr) => {
+      // Pages $80-$9F read trap_rom[$0000..$1FFF]. TS rom buffer is
+      // 16K = trap_rom[$4000..$7FFF] only; pages $80-$9F are stub.
+      // For 32K image this would read low half.
+      const offset = addr - 0x8000;
+      const v = offset < this.rom.length ? this.rom[offset]! : 0;
+      this.lastBusValue = v;
+      return v;
+    };
+    const romPeekLow: DrivePagePeek = (addr) => {
+      const offset = addr - 0x8000;
+      return offset < this.rom.length ? this.rom[offset]! : 0;
+    };
+    const romReadMid: DrivePageRead = (addr) => {
+      // Pages $A0-$BF read trap_rom[$2000..$3FFF]. Sparse on 16K.
+      const offset = (addr - 0xa000) + 0x2000;
+      const v = offset < this.rom.length ? this.rom[offset]! : 0;
+      this.lastBusValue = v;
+      return v;
+    };
+    const romPeekMid: DrivePagePeek = (addr) => {
+      const offset = (addr - 0xa000) + 0x2000;
+      return offset < this.rom.length ? this.rom[offset]! : 0;
+    };
+    for (let p = 0x80; p < 0xa0; p++) {
+      this.readTab[p] = romReadLow;
+      this.peekTab[p] = romPeekLow;
+    }
+    for (let p = 0xa0; p < 0xc0; p++) {
+      this.readTab[p] = romReadMid;
+      this.peekTab[p] = romPeekMid;
+    }
     for (let p = 0xc0; p < 0x100; p++) {
-      this.readTab[p] = romRead;
+      this.readTab[p] = romReadCanonical;
       // storeTab stays = storeFree (drive_store_free) — ROM is RO.
-      this.peekTab[p] = romPeek;
+      this.peekTab[p] = romPeekCanonical;
     }
   }
 
