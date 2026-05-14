@@ -153,14 +153,17 @@ export class DriveCpuCycled implements CycleSteppable {
       // window elapses. VICE handles this inside rotation_byte_read
       // (rotation.c:1147-1167) which is called from VIA2 PA read.
       // We do it inline per cycle so rotation_sync_found stops
-      // returning 0x80 (no-sync) once the disk is "settled".
-      if (drive.attach_clk !== 0n) {
-        const elapsed = drive.diskunit.clk_ptr() - drive.attach_clk;
-        if (elapsed >= 1_800_000n) drive.attach_clk = 0n;
-      }
-      if (drive.attach_detach_clk !== 0n) {
-        const elapsed = drive.diskunit.clk_ptr() - drive.attach_detach_clk;
-        if (elapsed >= 1_200_000n) drive.attach_detach_clk = 0n;
+      // returning 0x80 once the disk is "settled".
+      //
+      // Perf (Spec 441 perf): both fields are 0n in steady state.
+      // Single short-circuit `!== 0n` per cycle on the fast path
+      // (no clk_ptr call, no BigInt math) → measurable Lorenz speedup.
+      const ac = drive.attach_clk;
+      const adc = drive.attach_detach_clk;
+      if (ac !== 0n || adc !== 0n) {
+        const clk = drive.diskunit.clk_ptr();
+        if (ac !== 0n && (clk - ac) >= 1_800_000n) drive.attach_clk = 0n;
+        if (adc !== 0n && (clk - adc) >= 1_200_000n) drive.attach_detach_clk = 0n;
       }
       rotation_rotate_disk(drive);
       // A/B verify (env-gated) — compare per-cycle rotation vs
