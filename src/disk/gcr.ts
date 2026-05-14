@@ -136,6 +136,25 @@ export interface gcr_header_t {
   id1: number;
 }
 
+/**
+ * Spec 445 Phase 2c — VICE `disk_track_t` (src/gcr.h:51-54) literal.
+ *
+ * VICE uses an explicit track-size field; the data buffer may be
+ * over-allocated up to NUM_MAX_MEM_BYTES_TRACK = 65536 (gcr.h:42).
+ * Wrap-around detection uses `end = data + size`. The TS port mirrors
+ * the C struct: `data` = the raw GCR byte array (possibly over-
+ * allocated), `size` = the active track length used for wrap.
+ */
+export interface disk_track_t {
+  data: Uint8Array;
+  size: number;
+}
+
+/** Convenience: build a `disk_track_t` from a Uint8Array (size = length). */
+export function makeDiskTrack(data: Uint8Array, size?: number): disk_track_t {
+  return { data, size: size ?? data.length };
+}
+
 // ---------------------------------------------------------------------------
 // Spec 445 Phase 2b — gcr_convert_sector_to_GCR (gcr.c:112-168) literal.
 //
@@ -514,8 +533,47 @@ export interface GCRReadSectorResult {
  * @param s     max bits to scan before giving up
  * @returns SyncMark or null when no sync found within `s` bits
  */
+/**
+ * @deprecated Spec 445 Phase 2c — use `gcr_find_sync_vice` instead.
+ * This SyncMark-returning variant is retained for inspection-tier
+ * callers (decoded-track viewers, sector headers list) but the
+ * VICE-literal port is `gcr_find_sync_vice`.
+ */
 export function gcr_find_sync(raw: Uint8Array, p: number, s: number): SyncMark | null {
   return findSyncMarkFromBit(raw, p, s);
+}
+
+/**
+ * Spec 445 Phase 2c — VICE `gcr_find_sync` (gcr.c:170-203) literal.
+ *
+ * @param raw  disk_track_t (data + size) — VICE shape
+ * @param p    starting bit position
+ * @param s    max bits to scan
+ * @returns bit position (≥ 0) of FIRST 0 bit after ≥10 consecutive
+ *          1s, OR `-CBMDOS_FDC_ERR_SYNC` (= -3) if no sync found.
+ *
+ * VICE signature:
+ *   static int gcr_find_sync(const disk_track_t *raw, int p, int s);
+ */
+export function gcr_find_sync_vice(raw: disk_track_t, p: number, s: number): number {
+  if (!raw.data || !raw.size) return -CBMDOS_FDC_ERR_SYNC;
+  const totalBits = raw.size * 8;
+  let consecutiveOnes = 0;
+  let bitIndex = ((p % totalBits) + totalBits) % totalBits;
+  let scanned = 0;
+  while (scanned < s) {
+    if (getBit(raw.data, bitIndex)) {
+      consecutiveOnes += 1;
+    } else {
+      if (consecutiveOnes >= 10) {
+        return bitIndex;
+      }
+      consecutiveOnes = 0;
+    }
+    bitIndex = (bitIndex + 1) % totalBits;
+    scanned += 1;
+  }
+  return -CBMDOS_FDC_ERR_SYNC;
 }
 
 /**
@@ -533,6 +591,10 @@ export function gcr_find_sync(raw: Uint8Array, p: number, s: number): SyncMark |
  * @param num  number of GROUPS to decode (each group = 5 GCR → 4 raw)
  * @returns Uint8Array of length `num * 4` with decoded bytes
  */
+/**
+ * @deprecated Spec 445 Phase 2c — use `gcr_decode_block_vice` instead.
+ * Inspection-tier convenience signature.
+ */
 export function gcr_decode_block(raw: Uint8Array, p: number, num: number): Uint8Array {
   // Read num * 5 GCR bytes from bit position p, then decode group by group.
   const gcrBytes = readAlignedBytesFromBit(raw, p, num * 5);
@@ -545,14 +607,85 @@ export function gcr_decode_block(raw: Uint8Array, p: number, num: number): Uint8
 }
 
 /**
+ * Spec 445 Phase 2c — VICE `gcr_decode_block` (gcr.c:205-232) literal.
+ *
+ * Decode `num` GROUPS from bit position `p`, writing into `buf`.
+ * Uses `raw.size` for wrap-around.
+ *
+ * VICE signature:
+ *   static void gcr_decode_block(const disk_track_t *raw, int p,
+ *                                uint8_t *buf, int num);
+ */
+export function gcr_decode_block_vice(
+  raw: disk_track_t,
+  p: number,
+  buf: Uint8Array,
+  bufOffset: number,
+  num: number,
+): void {
+  const totalBits = raw.size * 8;
+  const startBit = ((p % totalBits) + totalBits) % totalBits;
+  const gcrBytes = new Uint8Array(num * 5);
+  for (let i = 0; i < num * 5; i++) {
+    let v = 0;
+    for (let b = 0; b < 8; b++) {
+      const bitPos = (startBit + i * 8 + b) % totalBits;
+      v = (v << 1) | getBit(raw.data, bitPos);
+    }
+    gcrBytes[i] = v;
+  }
+  for (let i = 0; i < num; i++) {
+    const group = decodeGCRGroupDetailed(gcrBytes, i * 5);
+    buf[bufOffset + i * 4 + 0] = group.bytes[0]!;
+    buf[bufOffset + i * 4 + 1] = group.bytes[1]!;
+    buf[bufOffset + i * 4 + 2] = group.bytes[2]!;
+    buf[bufOffset + i * 4 + 3] = group.bytes[3]!;
+  }
+}
+
+/**
  * VICE gcr.c gcr_find_sector_header (lines 234-261). Scans for a
  * sync mark, decodes 10 bytes at that position, accepts if
  * `header[0] == 0x08` (GCR-encoded header id) and decoded sector
  * matches the requested one. Returns null if no matching header
  * found within one full revolution.
  */
+/**
+ * @deprecated Spec 445 Phase 2c — use `gcr_find_sector_header_vice` for
+ * the VICE-literal port. This null-returning variant is retained for
+ * inspection-tier callers but collapses SYNC and HEADER error codes.
+ */
 export function gcr_find_sector_header(raw: Uint8Array, sector: number): GCRHeaderCandidate | null {
   return findSectorHeaderLikeVice(raw, sector);
+}
+
+/**
+ * Spec 445 Phase 2c — VICE `gcr_find_sector_header` (gcr.c:234-261) literal.
+ *
+ * @returns bit position (≥ 0) of the data immediately following the
+ *          matching sector's sync, OR negative fdc_err_t:
+ *          - `-CBMDOS_FDC_ERR_SYNC` (= -3) if track has no syncs at all
+ *          - `-CBMDOS_FDC_ERR_HEADER` (= -2) if syncs found but none match
+ *
+ * VICE signature:
+ *   static int gcr_find_sector_header(const disk_track_t *raw, uint8_t sector);
+ */
+export function gcr_find_sector_header_vice(raw: disk_track_t, sector: number): number {
+  const header = new Uint8Array(4);
+  let p = 0;
+  let p2 = -CBMDOS_FDC_ERR_SYNC;
+  const totalBits = raw.size * 8;
+  for (;;) {
+    p = gcr_find_sync_vice(raw, p, totalBits);
+    if (p2 === p) break;
+    if (p2 < 0) p2 = p;
+    gcr_decode_block_vice(raw, p, header, 0, 1);
+    if (header[0] === 0x08 && header[2] === (sector & 0xff)) {
+      return p;
+    }
+  }
+  if (p2 < 0) return p2;
+  return -CBMDOS_FDC_ERR_HEADER;
 }
 
 /**
@@ -561,8 +694,55 @@ export function gcr_find_sector_header(raw: Uint8Array, sector: number): GCRHead
  * then decodes 325 GCR bytes = 65 groups = 256 data bytes + block id
  * + checksum + padding. Returns full read status + payload.
  */
+/**
+ * @deprecated Spec 445 Phase 2c — use `gcr_read_sector_vice` for the
+ * VICE-literal port. This rich-object version is retained for
+ * inspection-tier callers.
+ */
 export function gcr_read_sector(raw: Uint8Array, sector: number): GCRReadSectorResult {
   return readSectorLikeVice(raw, sector);
+}
+
+/**
+ * Spec 445 Phase 2c — VICE `gcr_read_sector` (gcr.c:263-292) literal.
+ *
+ * Find sector header → find data sync → decode 65 GCR groups (260 bytes
+ * = id byte + 256 data + checksum + 2 zeros) → write 256 data bytes
+ * to `data[0..255]` → verify block id (0x07) + checksum.
+ *
+ * VICE signature:
+ *   fdc_err_t gcr_read_sector(const disk_track_t *raw, uint8_t *data,
+ *                             uint8_t sector);
+ *
+ * @returns fdc_err_t:
+ *   - CBMDOS_FDC_ERR_OK       success
+ *   - CBMDOS_FDC_ERR_HEADER   sector header not found
+ *   - CBMDOS_FDC_ERR_SYNC     no sync between header and data block
+ *   - CBMDOS_FDC_ERR_NOBLOCK  block id byte ≠ 0x07
+ *   - CBMDOS_FDC_ERR_DCHECK   checksum mismatch
+ */
+export function gcr_read_sector_vice(
+  raw: disk_track_t,
+  data: Uint8Array,
+  sector: number,
+): fdc_err_t {
+  let p = gcr_find_sector_header_vice(raw, sector);
+  if (p < 0) return -p;
+
+  p = gcr_find_sync_vice(raw, p, 500 * 8);
+  if (p < 0) return -p;
+
+  const buffer = new Uint8Array(260);
+  gcr_decode_block_vice(raw, p, buffer, 0, 65);
+
+  let b = buffer[257]!;
+  for (let i = 0; i < 256; i++) {
+    data[i] = buffer[i + 1]!;
+    b ^= data[i]!;
+  }
+
+  if (buffer[0] !== 0x07) return CBMDOS_FDC_ERR_NOBLOCK;
+  return (b & 0xff) ? CBMDOS_FDC_ERR_DCHECK : CBMDOS_FDC_ERR_OK;
 }
 
 /**
@@ -590,24 +770,17 @@ export function gcr_read_sector(raw: Uint8Array, sector: number): GCRReadSectorR
  *   - 343:     finalise last byte (preserve trailing bits after shift)
  */
 export function gcr_write_sector(
-  raw: Uint8Array,
+  raw: disk_track_t,
   data: Uint8Array,
   sector: number,
 ): fdc_err_t {
   // gcr.c:301 — find sector header.
-  const candidate = gcr_find_sector_header(raw, sector);
-  if (candidate === null) {
-    return CBMDOS_FDC_ERR_HEADER;
-  }
-  let p = candidate.sync.bitIndex;
+  let p = gcr_find_sector_header_vice(raw, sector);
+  if (p < 0) return -p;
 
   // gcr.c:306 — find next sync within 500*8 = 4000 bits.
-  // VICE returns negative error on no-sync; TS findSync returns null.
-  const syncAfter = gcr_find_sync(raw, p, 500 * 8);
-  if (syncAfter === null) {
-    return CBMDOS_FDC_ERR_SYNC;
-  }
-  p = syncAfter.bitIndex;
+  p = gcr_find_sync_vice(raw, p, 500 * 8);
+  if (p < 0) return -p;
 
   // gcr.c:311-314 — bit position decomposition.
   const shift = p & 7;
@@ -617,7 +790,7 @@ export function gcr_write_sector(
   // = 0xff00 / 2^shift. Low byte is the mask we want to AND with raw.
   // For shift = 0, mask = 0x00 (no bits preserved); for shift = 7,
   // mask = 0xfe (preserve top 7 bits).
-  let b = raw[offset]! & ((0xff00 >> shift) & 0xff);
+  let b = raw.data[offset]! & ((0xff00 >> shift) & 0xff);
 
   // gcr.c:316-323 — assemble 260-byte data-block buffer.
   const buffer = new Uint8Array(260);
@@ -632,7 +805,7 @@ export function gcr_write_sector(
   // gcr.c:327-342 — 65 × (4-byte → 5-byte GCR) write loop.
   const gcr = new Uint8Array(5);
   let bp = 0;
-  const end = raw.length;
+  const end = raw.size;
 
   for (let i = 0; i < 65; i++) {
     gcr_convert_4bytes_to_GCR(buffer, bp, gcr, 0);
@@ -640,11 +813,11 @@ export function gcr_write_sector(
     for (let j = 0; j < 5; j++) {
       if (shift) {
         // VICE: offset[0] = b | (gcr[j] >> shift); b = (gcr[j] << 8) >> shift;
-        raw[offset] = (b | (gcr[j]! >>> shift)) & 0xff;
+        raw.data[offset] = (b | (gcr[j]! >>> shift)) & 0xff;
         b = ((gcr[j]! << 8) >>> shift) & 0xff;
       } else {
         // VICE: offset[0] = gcr[j];
-        raw[offset] = gcr[j]!;
+        raw.data[offset] = gcr[j]!;
       }
       offset++;
       if (offset >= end) {
@@ -655,7 +828,7 @@ export function gcr_write_sector(
 
   // gcr.c:343 — finalise last byte: preserve bits AFTER the write position.
   // (0xff >> shift) masks the LOW (8 - shift) bits to keep; rest comes from b.
-  raw[offset] = (b | (raw[offset]! & (0xff >> shift))) & 0xff;
+  raw.data[offset] = (b | (raw.data[offset]! & (0xff >> shift))) & 0xff;
 
   return CBMDOS_FDC_ERR_OK;
 }

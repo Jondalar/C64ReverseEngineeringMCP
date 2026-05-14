@@ -16,11 +16,25 @@ import { strict as assert } from "node:assert";
 import {
   gcr_convert_sector_to_GCR,
   gcr_write_sector,
-  gcr_read_sector,
+  gcr_read_sector_vice,
+  makeDiskTrack,
   CBMDOS_FDC_ERR_OK,
   CBMDOS_FDC_ERR_HEADER,
   type gcr_header_t,
 } from "../../../src/disk/gcr.js";
+
+function readSector(raw: Uint8Array, sector: number): { status: string; payload?: Uint8Array } {
+  const data = new Uint8Array(256);
+  const err = gcr_read_sector_vice(makeDiskTrack(raw), data, sector);
+  switch (err) {
+    case CBMDOS_FDC_ERR_OK: return { status: "ok", payload: data };
+    case 2: return { status: "header_not_found" };
+    case 3: return { status: "sync_not_found" };
+    case 4: return { status: "no_block" };
+    case 5: return { status: "checksum_error" };
+    default: return { status: `err${err}` };
+  }
+}
 
 interface Case { name: string; run: () => void }
 const cases: Case[] = [];
@@ -62,7 +76,7 @@ test("convert_sector_to_GCR + read_sector round-trips all-zero data", () => {
   const data = new Uint8Array(256);  // all 0x00
   const header: gcr_header_t = { sector: 0, track: 18, id1: 0x41, id2: 0x42 };
   const raw = buildSectorTrack(data, header);
-  const result = gcr_read_sector(raw, 0);
+  const result = readSector(raw, 0);
   assert.equal(result.status, "ok", `read status = ${result.status}`);
   assert.ok(result.payload, "payload undefined");
   assert.deepEqual(Array.from(result.payload!), Array.from(data));
@@ -73,7 +87,7 @@ test("convert_sector_to_GCR + read_sector round-trips all-0xff data", () => {
   data.fill(0xff);
   const header: gcr_header_t = { sector: 1, track: 18, id1: 0x41, id2: 0x42 };
   const raw = buildSectorTrack(data, header);
-  const result = gcr_read_sector(raw, 1);
+  const result = readSector(raw, 1);
   assert.equal(result.status, "ok");
   assert.deepEqual(Array.from(result.payload!), Array.from(data));
 });
@@ -82,7 +96,7 @@ test("convert_sector_to_GCR + read_sector round-trips random sector 5", () => {
   const data = randomBuffer(0xdeadbeef);
   const header: gcr_header_t = { sector: 5, track: 1, id1: 0x44, id2: 0x33 };
   const raw = buildSectorTrack(data, header);
-  const result = gcr_read_sector(raw, 5);
+  const result = readSector(raw, 5);
   assert.equal(result.status, "ok");
   assert.deepEqual(Array.from(result.payload!), Array.from(data));
 });
@@ -92,7 +106,7 @@ test("convert_sector_to_GCR + read_sector round-trips counting pattern 0x00..0xf
   for (let i = 0; i < 256; i++) data[i] = i & 0xff;
   const header: gcr_header_t = { sector: 17, track: 35, id1: 0x11, id2: 0x22 };
   const raw = buildSectorTrack(data, header);
-  const result = gcr_read_sector(raw, 17);
+  const result = readSector(raw, 17);
   assert.equal(result.status, "ok");
   assert.deepEqual(Array.from(result.payload!), Array.from(data));
 });
@@ -107,10 +121,10 @@ test("gcr_write_sector overwrites existing data; read_sector returns new bytes",
   const raw = buildSectorTrack(original, header);
 
   const newData = randomBuffer(0x87654321);
-  const result = gcr_write_sector(raw, newData, 0);
+  const result = gcr_write_sector(makeDiskTrack(raw), newData, 0);
   assert.equal(result, CBMDOS_FDC_ERR_OK, `write status = ${result}`);
 
-  const read = gcr_read_sector(raw, 0);
+  const read = readSector(raw, 0);
   assert.equal(read.status, "ok");
   assert.deepEqual(Array.from(read.payload!), Array.from(newData));
 });
@@ -122,12 +136,33 @@ test("gcr_write_sector returns OK for valid sector with all-zero data", () => {
   const raw = buildSectorTrack(original, header);
 
   const newData = new Uint8Array(256);  // all zero
-  const result = gcr_write_sector(raw, newData, 7);
+  const result = gcr_write_sector(makeDiskTrack(raw), newData, 7);
   assert.equal(result, CBMDOS_FDC_ERR_OK);
 
-  const read = gcr_read_sector(raw, 7);
+  const read = readSector(raw, 7);
   assert.equal(read.status, "ok");
   assert.deepEqual(Array.from(read.payload!), Array.from(newData));
+});
+
+// Spec 445 Phase 2c — BUG fix verification: write_sector on a
+// sync-less track must return CBMDOS_FDC_ERR_SYNC (= 3), not
+// CBMDOS_FDC_ERR_HEADER (= 2). VICE gcr.c:294-346 distinguishes
+// "no syncs at all" (return -3) from "syncs found, no matching
+// sector" (return -2). Pre-fix, TS collapsed both to HEADER.
+test("gcr_write_sector returns SYNC error on track with NO syncs (Phase 2c BUG fix)", () => {
+  // All-zero track: no 10-consecutive-ones run → no syncs.
+  const raw = new Uint8Array(1024);
+  const data = new Uint8Array(256);
+  // Use enum value 3 (CBMDOS_FDC_ERR_SYNC) directly to avoid import bloat.
+  const result = gcr_write_sector(makeDiskTrack(raw), data, 0);
+  assert.equal(result, 3, `expected CBMDOS_FDC_ERR_SYNC (3), got ${result}`);
+});
+
+test("gcr_read_sector_vice returns SYNC on sync-less track (Phase 2c BUG fix)", () => {
+  const raw = new Uint8Array(1024);  // all zeros, no syncs
+  const data = new Uint8Array(256);
+  const result = gcr_read_sector_vice(makeDiskTrack(raw), data, 0);
+  assert.equal(result, 3, "expected CBMDOS_FDC_ERR_SYNC");
 });
 
 test("gcr_write_sector returns HEADER error for non-existent sector", () => {
@@ -136,7 +171,7 @@ test("gcr_write_sector returns HEADER error for non-existent sector", () => {
   const header: gcr_header_t = { sector: 0, track: 18, id1: 0x41, id2: 0x42 };
   const raw = buildSectorTrack(data, header);
 
-  const result = gcr_write_sector(raw, data, 42);
+  const result = gcr_write_sector(makeDiskTrack(raw), data, 42);
   assert.equal(result, CBMDOS_FDC_ERR_HEADER);
 });
 
@@ -154,16 +189,16 @@ test("gcr_write_sector preserves OTHER sectors when overwriting one", () => {
 
   // Overwrite sector 1.
   const newData1 = randomBuffer(0xcccc3333);
-  const result = gcr_write_sector(raw, newData1, 1);
+  const result = gcr_write_sector(makeDiskTrack(raw), newData1, 1);
   assert.equal(result, CBMDOS_FDC_ERR_OK);
 
   // Sector 0 unchanged.
-  const read0 = gcr_read_sector(raw, 0);
+  const read0 = readSector(raw, 0);
   assert.equal(read0.status, "ok");
   assert.deepEqual(Array.from(read0.payload!), Array.from(data0));
 
   // Sector 1 = new data.
-  const read1 = gcr_read_sector(raw, 1);
+  const read1 = readSector(raw, 1);
   assert.equal(read1.status, "ok");
   assert.deepEqual(Array.from(read1.payload!), Array.from(newData1));
 });

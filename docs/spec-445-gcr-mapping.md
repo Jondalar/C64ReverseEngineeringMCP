@@ -1,6 +1,6 @@
 # Spec 445 — gcr.c ↔ gcr.ts mapping
 
-**Status:** PROGRESS (Phase 2c — read-path Claude-self re-audit complete, 1 BUG found, 1 USER-FRAGE pending)
+**Status:** PROGRESS (Phase 2c-fix complete — disk_track_t ported, BUG fixed, 6 VICE-literal `*_vice` fns)
 **VICE source:** `src/gcr.c` (357 LoC) + `src/gcr.h` (73 LoC)
 **TS target:** `src/disk/gcr.ts` (588 LoC) + drive write-back coupling
 **Doctrine:** Claude-self, no subagents.
@@ -17,7 +17,7 @@ Verdict legend: MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK.
 | `NUM_MAX_MEM_BYTES_TRACK = 65536` | gcr.h:42 | needs row check | needs check |
 | `MAX_GCR_TRACKS = 168` | gcr.h:45 | needs row check | needs check |
 | `SECTOR_GCR_SIZE_WITH_HEADER = 335` | gcr.h:49 | needs row check | needs check |
-| `disk_track_t { data, size }` | gcr.h:51-54 | TS uses raw `Uint8Array` | DEVIATION (TS implicit; no wrapper struct) |
+| `disk_track_t { data, size }` | gcr.h:51-54 | `interface disk_track_t { data: Uint8Array; size: number }` + `makeDiskTrack(data, size?)` helper | **PORTED** (Phase 2c-fix) — VICE-literal struct; all 5 read/write fns take `disk_track_t` |
 | `gcr_t { tracks[MAX_GCR_TRACKS] }` | gcr.h:56-59 | parser owns track storage | OMIT-OK (parser-side, not gcr.ts) |
 | `gcr_header_t { sector, track, id2, id1 }` | gcr.h:61-63 | needs check | needs check |
 | `GCR_conv_data[16]` encode table | gcr.c:51-57 | `GCR_ENCODE` (`gcr.ts:43-50`) | **PORTED** (Phase 2a, commit 1cb3204) — bit-identical |
@@ -34,8 +34,8 @@ Verdict legend: MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK.
 | `gcr_convert_sector_to_GCR` | 112-168 | `gcr_convert_sector_to_GCR` (`gcr.ts` Phase 2b) | **PORTED** (Phase 2b) — literal port incl. all 9 CBMDOS_FDC_ERR_* error-injection branches; round-trip verified via gcr_read_sector |
 | `gcr_find_sync` | 170-203 | `gcr_find_sync` / `findSyncMarkFromBit` (`gcr.ts:512, 659`) | **MATCH** (Phase 2c) — VICE 10-bit window vs TS consecutive-ones counter: semantically equivalent (both return position of FIRST 0 bit after ≥10 consecutive 1s). VICE w starts 0; TS counter starts 0; both behave identically given fresh state. |
 | `gcr_decode_block` | 205-232 | `gcr_decode_block` (`gcr.ts:531`) | **MATCH** (Phase 2c) — Sprint 430 num-arg fix verified present (TS treats `num` as GROUPS = 5 GCR → 4 raw bytes, matches VICE). TS uses intermediate `readAlignedBytesFromBit` buffer; VICE uses in-place shift register. Output identical. |
-| `gcr_find_sector_header` | 234-261 | `gcr_find_sector_header` / `findSectorHeaderLikeVice` (`gcr.ts:549, 702`) | **BUG** (Phase 2c finding) — TS returns `null` for BOTH "no syncs at all" and "syncs found but no matching sector". VICE distinguishes: returns `-CBMDOS_FDC_ERR_SYNC = -3` for no-syncs vs `-CBMDOS_FDC_ERR_HEADER = -2` for no-match. **Lossy.** Propagates to `gcr_write_sector` returning `CBMDOS_FDC_ERR_HEADER` for both cases. **Fix required in Phase 2c.** |
-| `gcr_read_sector` | 263-292 | `gcr_read_sector` / `readSectorLikeVice` (`gcr.ts:559, 712`) | **MATCH-WITH-PROPAGATED-BUG** — semantic MATCH (header sync → data sync → decode 65 groups → chksum). Return shape differs (rich object vs int). Inherits the lossy error from `gcr_find_sector_header`: returns `header_not_found` for both "no syncs" and "no matching sector" cases. Fix follows the find_sector_header fix. |
+| `gcr_find_sector_header` | 234-261 | `gcr_find_sector_header_vice` (Phase 2c-fix port) | **MATCH (post-fix)** — Phase 2c-fix added `gcr_find_sector_header_vice(track, sector): number` returning bit-position (≥0) or negative fdc_err_t. VICE-literal: -SYNC for sync-less track, -HEADER for syncs-no-match. Legacy null-returning `gcr_find_sector_header` retained for inspection-tier callers. |
+| `gcr_read_sector` | 263-292 | `gcr_read_sector_vice(track, data, sector): fdc_err_t` (Phase 2c-fix port) | **MATCH** — Phase 2c-fix port literal-VICE: returns fdc_err_t (OK/HEADER/SYNC/NOBLOCK/DCHECK), data written to out-param. Legacy rich-object `gcr_read_sector` retained for inspection. |
 | `gcr_write_sector` | 294-346 | `gcr_write_sector` (`gcr.ts` Phase 2b) | **PORTED** (Phase 2b) — literal port incl. bit-aligned cross-byte-boundary writes via `b` carry; track wrap-around; read-back round-trip verified |
 | `gcr_create_image` | 348-351 | — | OMIT-OK (TS GC + parser owns) |
 | `gcr_destroy_image` | 353-357 | — | OMIT-OK (TS GC) |

@@ -1,16 +1,16 @@
 # Spec 430 — Sprint progress
 
-Sha: `01f41759ea`  ·  Generated: 2026-05-14T14:26:53.253Z
+Sha: `0ccd7ecc2b`  ·  Generated: 2026-05-14T15:02:29.611Z
 
 ## Canary verdicts
 
 | Canary | Expected | Status | Verdict | Divergence row | Report |
 |---|---|---|---|---|---|
-| motm | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/motm/diff-01f41759ea.json) |
-| mm-s1 | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/mm-s1/diff-01f41759ea.json) |
-| im2 | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/im2/diff-01f41759ea.json) |
-| scramble | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/scramble/diff-01f41759ea.json) |
-| lnr-s1 | red | diverged | PASS (red as expected) | 1 | [json](samples/traces/spec-430/lnr-s1/diff-01f41759ea.json) |
+| motm | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/motm/diff-0ccd7ecc2b.json) |
+| mm-s1 | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/mm-s1/diff-0ccd7ecc2b.json) |
+| im2 | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/im2/diff-0ccd7ecc2b.json) |
+| scramble | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/scramble/diff-0ccd7ecc2b.json) |
+| lnr-s1 | red | diverged | PASS (red as expected) | 1 | [json](samples/traces/spec-430/lnr-s1/diff-0ccd7ecc2b.json) |
 
 ## How to reproduce
 
