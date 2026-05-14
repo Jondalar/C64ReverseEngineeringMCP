@@ -1,6 +1,6 @@
 # Spec 445 — gcr.c ↔ gcr.ts mapping
 
-**Status:** PROGRESS (Phase 2a — encode core ported)
+**Status:** PROGRESS (Phase 2b — encode + write-sector ported; read-path re-audit remaining)
 **VICE source:** `src/gcr.c` (357 LoC) + `src/gcr.h` (73 LoC)
 **TS target:** `src/disk/gcr.ts` (588 LoC) + drive write-back coupling
 **Doctrine:** Claude-self, no subagents.
@@ -31,12 +31,12 @@ Verdict legend: MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK.
 |---|---|---|---|
 | `gcr_convert_4bytes_to_GCR` | 68-86 | `gcr_convert_4bytes_to_GCR` (`gcr.ts:69-91`) | **PORTED** (Phase 2a, commit 1cb3204) — bit-identical, verified by round-trip + VICE-pin tests |
 | `gcr_convert_GCR_to_4bytes` | 87-111 | `decodeGCRGroup` (`gcr.ts:112`) — needs line-by-line verify | needs check (Sprint 430 subagent flagged but not re-audited) |
-| `gcr_convert_sector_to_GCR` | 112-168 | **— MISSING** | **MISSING — Phase 2 port** (full sector encode w/ header + sync + gap + data) |
+| `gcr_convert_sector_to_GCR` | 112-168 | `gcr_convert_sector_to_GCR` (`gcr.ts` Phase 2b) | **PORTED** (Phase 2b) — literal port incl. all 9 CBMDOS_FDC_ERR_* error-injection branches; round-trip verified via gcr_read_sector |
 | `gcr_find_sync` | 170-203 | `gcr_find_sync` (`gcr.ts:336`) | needs row check |
 | `gcr_decode_block` | 205-232 | `gcr_decode_block` (`gcr.ts:355`) | needs row check (Sprint 430 num-arg fix applied; verify) |
 | `gcr_find_sector_header` | 234-261 | `gcr_find_sector_header` (`gcr.ts:373`) | needs row check |
 | `gcr_read_sector` | 263-292 | `gcr_read_sector` (`gcr.ts:383`) + `readSectorLikeVice` (`gcr.ts:441`) | needs row check |
-| `gcr_write_sector` | 294-346 | **— MISSING** | **MISSING — Phase 2 port** |
+| `gcr_write_sector` | 294-346 | `gcr_write_sector` (`gcr.ts` Phase 2b) | **PORTED** (Phase 2b) — literal port incl. bit-aligned cross-byte-boundary writes via `b` carry; track wrap-around; read-back round-trip verified |
 | `gcr_create_image` | 348-351 | — | OMIT-OK (TS GC + parser owns) |
 | `gcr_destroy_image` | 353-357 | — | OMIT-OK (TS GC) |
 
@@ -85,12 +85,21 @@ rows** (target 30+; will expand in Phase 2b/2c sub-row matrices).
 Phase 2a (commit 1cb3204):
 - GCR_ENCODE table PORTED (bit-identical to VICE GCR_conv_data[16]).
 - gcr_convert_4bytes_to_GCR PORTED (bit-identical, verified by
-  exhaustive round-trip + 2 hand-computed VICE pin tests).
+  exhaustive round-trip + 4 hand-computed VICE pin tests).
 
-Phase 2b/2c open: 3 MISSING ports (gcr_convert_sector_to_GCR,
-gcr_write_sector, runtime write-back coupling) + 6 re-audit rows.
+Phase 2b (commit pending):
+- `fdc_err_t` enum + 13 CBMDOS_FDC_ERR_* constants — INTERIM port
+  (Option B per user decision). Will move to Spec 449 when fdc.c
+  literal port lands.
+- `gcr_header_t` interface — VICE gcr.h:61-63 literal.
+- `gcr_convert_sector_to_GCR` PORTED — full sector layout encode
+  with all 9 CBMDOS error-injection branches.
+- `gcr_write_sector` PORTED — bit-aligned write into raw track buffer
+  with cross-byte-boundary support and track wrap-around.
 
-**BLOCKER:** `fdc_err_t` enum dependency for `gcr_write_sector` return
-type. Spec 449 owns `fdc.c` + `cbmdos.h` error codes. Phase 2b cannot
-proceed without clarification on options A/B/C (see charter "Depends on"
-section).
+Phase 2c/3 open:
+- Re-audit of 6 read-path rows (gcr_find_sync, gcr_decode_block,
+  gcr_find_sector_header, gcr_read_sector, decodeGCRGroup,
+  GCR_DECODE table) — Sprint 430 subagent verdicts unzuverlässig.
+- Runtime write-back coupling (drive PA write + write-mode + motor
+  → track buffer mutation).

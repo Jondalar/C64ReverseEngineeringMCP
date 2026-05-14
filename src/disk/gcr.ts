@@ -101,6 +101,137 @@ export function gcr_convert_4bytes_to_GCR(source: Uint8Array, sourceOffset: numb
   dest[dp] = tdest & 0xff;
 }
 
+// ---------------------------------------------------------------------------
+// Spec 445 Phase 2b — fdc_err_t enum + gcr_header_t (INTERIM).
+//
+// VICE source: src/cbmdos.h:104-119. **MOVES TO Spec 449** (fdc.c +
+// cbmdos.h literal port). Values verbatim from VICE; gates Phase 2b
+// gcr_convert_sector_to_GCR + gcr_write_sector port. See spec 445
+// "Open question" → option B accepted by user.
+// ---------------------------------------------------------------------------
+
+export const CBMDOS_FDC_ERR_OK      = 1;
+export const CBMDOS_FDC_ERR_HEADER  = 2;
+export const CBMDOS_FDC_ERR_SYNC    = 3;
+export const CBMDOS_FDC_ERR_NOBLOCK = 4;
+export const CBMDOS_FDC_ERR_DCHECK  = 5;
+export const CBMDOS_FDC_ERR_VERIFY  = 7;
+export const CBMDOS_FDC_ERR_WPROT   = 8;
+export const CBMDOS_FDC_ERR_HCHECK  = 9;
+export const CBMDOS_FDC_ERR_BLENGTH = 10;
+export const CBMDOS_FDC_ERR_ID      = 11;
+export const CBMDOS_FDC_ERR_FSPEED  = 12;
+export const CBMDOS_FDC_ERR_DRIVE   = 15;
+export const CBMDOS_FDC_ERR_DECODE  = 16;
+
+export type fdc_err_t = number;
+
+/**
+ * Spec 445 Phase 2b — VICE `gcr_header_t` (src/gcr.h:61-63).
+ */
+export interface gcr_header_t {
+  sector: number;
+  track: number;
+  id2: number;
+  id1: number;
+}
+
+// ---------------------------------------------------------------------------
+// Spec 445 Phase 2b — gcr_convert_sector_to_GCR (gcr.c:112-168) literal.
+//
+// Writes a full sector layout into `data` starting at `dataOffset`:
+//   sync (5 bytes) | header GCR (5) | header-id GCR (5) | gap |
+//   sync (`sync` bytes) | data block GCR (5 × 65 = 325 bytes)
+//
+// VICE function signature:
+//   void gcr_convert_sector_to_GCR(const uint8_t *buffer,
+//                                  uint8_t *data,
+//                                  const gcr_header_t *header,
+//                                  int gap, int sync,
+//                                  fdc_err_t error_code);
+//
+// `buffer` = 256-byte sector data. `data` = output track buffer
+// (caller-supplied, size ≥ 5 + 5 + 5 + gap + sync + 5*65). `header`
+// = sector/track/id1/id2. `gap` + `sync` = byte counts. `error_code`
+// selects which fault to inject (CBMDOS_FDC_ERR_*; OK = clean encode).
+// ---------------------------------------------------------------------------
+export function gcr_convert_sector_to_GCR(
+  buffer: Uint8Array,
+  bufferOffset: number,
+  data: Uint8Array,
+  dataOffset: number,
+  header: gcr_header_t,
+  gap: number,
+  sync: number,
+  error_code: fdc_err_t,
+): void {
+  // VICE local declarations.
+  const buf = new Uint8Array(4);
+  let chksum: number;
+  const idm = (error_code === CBMDOS_FDC_ERR_ID) ? 0xff : 0x00;
+
+  let dp = dataOffset;
+  let bp = bufferOffset;
+
+  // gcr.c:120-121 — sync (5 bytes).
+  const syncFill1 = (error_code === CBMDOS_FDC_ERR_SYNC) ? 0x55 : 0xff;
+  for (let k = 0; k < 5; k++) data[dp + k] = syncFill1;
+  dp += 5;
+
+  // gcr.c:123-130 — header GCR (5 bytes).
+  chksum = (error_code === CBMDOS_FDC_ERR_HCHECK) ? 0xff : 0x00;
+  chksum ^= header.sector ^ header.track ^ header.id2 ^ header.id1 ^ idm;
+  buf[0] = (error_code === CBMDOS_FDC_ERR_HEADER) ? 0xff : 0x08;
+  buf[1] = chksum & 0xff;
+  buf[2] = header.sector & 0xff;
+  buf[3] = header.track & 0xff;
+  gcr_convert_4bytes_to_GCR(buf, 0, data, dp);
+  dp += 5;
+
+  // gcr.c:132-136 — header-id GCR (5 bytes).
+  buf[0] = header.id2 & 0xff;
+  buf[1] = (header.id1 ^ idm) & 0xff;
+  buf[2] = 0x0f;
+  buf[3] = 0x0f;
+  gcr_convert_4bytes_to_GCR(buf, 0, data, dp);
+  dp += 5;
+
+  // gcr.c:138 — gap (caller-specified byte count; not initialised by
+  // VICE → preserves whatever's in `data` already).
+  dp += gap;
+
+  // gcr.c:140-141 — sync (caller-specified count).
+  const syncFill2 = (error_code === CBMDOS_FDC_ERR_SYNC) ? 0x55 : 0xff;
+  for (let k = 0; k < sync; k++) data[dp + k] = syncFill2;
+  dp += sync;
+
+  // gcr.c:143-155 — first data block (4 bytes: 0x07 prefix + buffer[0..2]).
+  chksum = (error_code === CBMDOS_FDC_ERR_DCHECK) ? 0xff : 0x00;
+  buf[0] = (error_code === CBMDOS_FDC_ERR_NOBLOCK) ? 0x00 : 0x07;
+  buf[1] = buffer[bp + 0]!;
+  buf[2] = buffer[bp + 1]!;
+  buf[3] = buffer[bp + 2]!;
+  chksum ^= buffer[bp + 0]! ^ buffer[bp + 1]! ^ buffer[bp + 2]!;
+  gcr_convert_4bytes_to_GCR(buf, 0, data, dp);
+  bp += 3;
+  dp += 5;
+
+  // gcr.c:157-162 — 63 × 4-byte blocks.
+  for (let i = 0; i < 63; i++) {
+    chksum ^= buffer[bp + 0]! ^ buffer[bp + 1]! ^ buffer[bp + 2]! ^ buffer[bp + 3]!;
+    gcr_convert_4bytes_to_GCR(buffer, bp, data, dp);
+    bp += 4;
+    dp += 5;
+  }
+
+  // gcr.c:164-167 — last block (1 byte data + chksum + 2 zeros).
+  buf[0] = buffer[bp]!;
+  buf[1] = (chksum ^ buffer[bp]!) & 0xff;
+  buf[2] = 0;
+  buf[3] = 0;
+  gcr_convert_4bytes_to_GCR(buf, 0, data, dp);
+}
+
 function getBit(data: Uint8Array, bitIndex: number): number {
   const totalBits = data.length * 8;
   const normalized = ((bitIndex % totalBits) + totalBits) % totalBits;
@@ -427,6 +558,101 @@ export function gcr_find_sector_header(raw: Uint8Array, sector: number): GCRHead
  */
 export function gcr_read_sector(raw: Uint8Array, sector: number): GCRReadSectorResult {
   return readSectorLikeVice(raw, sector);
+}
+
+/**
+ * Spec 445 Phase 2b — VICE `gcr_write_sector` (src/gcr.c:294-346) literal.
+ *
+ * Find sector header, advance past the inter-block sync, then encode
+ * `data` (256 bytes) into the data block at that bit position
+ * (bit-aligned, may straddle byte boundaries). Mutates `raw` in place.
+ *
+ * Returns `fdc_err_t`:
+ *   - CBMDOS_FDC_ERR_OK         success
+ *   - CBMDOS_FDC_ERR_HEADER     sector header not found
+ *   - CBMDOS_FDC_ERR_SYNC       no sync between header and data block
+ *
+ * VICE body line cites (gcr.c:294-346):
+ *   - 301-304: find sector header (`gcr_find_sector_header`)
+ *   - 306-309: advance past inter-block sync (`gcr_find_sync` window
+ *              500*8 = 4000 bits)
+ *   - 311-314: bit-position decomposition (shift = p & 7,
+ *              offset = data + p/8, b = preserved bits before shift)
+ *   - 316-323: assemble 260-byte data-block buffer
+ *              ([0x07] + data[256] + chksum + 2 zeros)
+ *   - 327-342: 65 × (4-byte encode → 5-byte GCR write, possibly
+ *              cross-byte-boundary via `b` carry)
+ *   - 343:     finalise last byte (preserve trailing bits after shift)
+ */
+export function gcr_write_sector(
+  raw: Uint8Array,
+  data: Uint8Array,
+  sector: number,
+): fdc_err_t {
+  // gcr.c:301 — find sector header.
+  const candidate = gcr_find_sector_header(raw, sector);
+  if (candidate === null) {
+    return CBMDOS_FDC_ERR_HEADER;
+  }
+  let p = candidate.sync.bitIndex;
+
+  // gcr.c:306 — find next sync within 500*8 = 4000 bits.
+  // VICE returns negative error on no-sync; TS findSync returns null.
+  const syncAfter = gcr_find_sync(raw, p, 500 * 8);
+  if (syncAfter === null) {
+    return CBMDOS_FDC_ERR_SYNC;
+  }
+  p = syncAfter.bitIndex;
+
+  // gcr.c:311-314 — bit position decomposition.
+  const shift = p & 7;
+  let offset = p >>> 3;
+  // VICE: b = offset[0] & (0xff00 >> shift) — preserves the high bits
+  // BEFORE the write position. With shift = 0..7, (0xff00 >> shift)
+  // = 0xff00 / 2^shift. Low byte is the mask we want to AND with raw.
+  // For shift = 0, mask = 0x00 (no bits preserved); for shift = 7,
+  // mask = 0xfe (preserve top 7 bits).
+  let b = raw[offset]! & ((0xff00 >> shift) & 0xff);
+
+  // gcr.c:316-323 — assemble 260-byte data-block buffer.
+  const buffer = new Uint8Array(260);
+  buffer[0] = 0x07;
+  for (let i = 0; i < 256; i++) buffer[i + 1] = data[i]!;
+  let chksum = buffer[1]!;
+  for (let i = 2; i < 257; i++) chksum ^= buffer[i]!;
+  buffer[257] = chksum & 0xff;
+  buffer[258] = 0;
+  buffer[259] = 0;
+
+  // gcr.c:327-342 — 65 × (4-byte → 5-byte GCR) write loop.
+  const gcr = new Uint8Array(5);
+  let bp = 0;
+  const end = raw.length;
+
+  for (let i = 0; i < 65; i++) {
+    gcr_convert_4bytes_to_GCR(buffer, bp, gcr, 0);
+    bp += 4;
+    for (let j = 0; j < 5; j++) {
+      if (shift) {
+        // VICE: offset[0] = b | (gcr[j] >> shift); b = (gcr[j] << 8) >> shift;
+        raw[offset] = (b | (gcr[j]! >>> shift)) & 0xff;
+        b = ((gcr[j]! << 8) >>> shift) & 0xff;
+      } else {
+        // VICE: offset[0] = gcr[j];
+        raw[offset] = gcr[j]!;
+      }
+      offset++;
+      if (offset >= end) {
+        offset = 0;  // wrap to track start (VICE: offset = raw->data)
+      }
+    }
+  }
+
+  // gcr.c:343 — finalise last byte: preserve bits AFTER the write position.
+  // (0xff >> shift) masks the LOW (8 - shift) bits to keep; rest comes from b.
+  raw[offset] = (b | (raw[offset]! & (0xff >> shift))) & 0xff;
+
+  return CBMDOS_FDC_ERR_OK;
 }
 
 /** @deprecated Use `gcr_find_sync(raw, startBit, searchBits)` instead. */
