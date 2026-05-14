@@ -1,6 +1,6 @@
 # Spec 443 — via1d1541.c + via2d.c ↔ TS device backends mapping
 
-**Status:** PROGRESS (Phase 1)
+**Status:** DONE (post-review patch applied 2026-05-14)
 **VICE sources:**
 - `drive/iec/via1d1541.c` (420 LoC) + `drive/iec/via1d1541.h`
 - `drive/iecieee/via2d.c` (566 LoC)
@@ -29,7 +29,7 @@ MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK.
 | `undump_pra` | 112-139 | — | OMIT-OK (VSF reload; Spec 451) |
 | `store_pra` | 141-179 | `backend.storePa: () => {}` (`:140-142`) | MATCH (stock 1541 has no parallel cable; VICE's parallel paths gated to `parallel_cable != NONE`) |
 | `undump_prb` | 181-210 | — | OMIT-OK (Spec 451) |
-| `store_prb` | 212-249 | `backend.storePb: opts.iecStorePb \|\| iec.drive_store_pb(byte, deviceId)` (`:127-131`) | needs row check (verify iec.drive_store_pb body matches VICE 229-242) |
+| `store_prb` | 212-249 | `backend.storePb: opts.iecStorePb \|\| iec.drive_store_pb(byte, deviceId)` (`:127-131`) | MATCH — bit-for-bit verified D.1 (iec.drive_store_pb body) |
 | `undump_pcr` | 251-263 | — | OMIT-OK (Spec 451) |
 | `store_pcr` | 265-268 (returns byte unchanged) | `backend.storePcr: (val) => val` (`:147`) | MATCH (cosmetic — see Spec 442 finding for storePcr signature) |
 | `undump_acr` | 270-272 (no-op) | — | OMIT-OK |
@@ -39,7 +39,7 @@ MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK.
 | `reset` | 286-288 (no-op) | `backend.reset: () => undefined` (`:180`) | MATCH |
 | `read_pra` (stock 1541) | 290-322, default case 315-318 | `backend.readPa: (pra & ddra) \| (0xff & ~ddra)` (`:135-139`) | MATCH (stock case) |
 | `read_pra` (1571/1570/1571CR) | 297-306 | — | OMIT-OK (1541-only V1, [[feedback_pal_first_ntsc_later]] analog) |
-| `read_pra` (parallel cable) | 308-314 | — | MISSING — V1 carve-out (no parallel cable, [[Spec 443]] scope) |
+| `read_pra` (parallel cable) | 308-314 | — | OUT — V1 carve-out (no parallel cable, Epic 440 V1 scope) |
 | `read_prb` | 337-362 | `backend.readPb: (PRB & DDRB) \| (((drv_port ^ 0x85) \| 0x1a \| driveId) & ~DDRB)` (`:115-121`) | MATCH |
 
 ### A.2 Setup / init (via1d1541_setup_context, via1d1541_init)
@@ -83,12 +83,12 @@ MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK.
 | `via2d_update_pcr` (helper, exported) | 170-178 | inlined into `storePcr` (`via2d1541.ts:130-146`) | MATCH (rotation_rotate_disk + read_write_mode = pcrval & 0x20 + byte_ready_active update) |
 | `store_pra` | 180-192 | `via2-gcr-shifter-coupling.ts:97-103` `onPaOutputChanged` | MATCH (rotation_rotate_disk + GCR_write_value + byte_ready_level=0) |
 | `undump_pra` | 194-197 (no-op) | — | OMIT-OK |
-| `store_prb` | 199-355 | `via2-gcr-shifter-coupling.ts:148-207` `onPbOutputChanged` | needs row check (stepper, motor, density, LED) |
+| `store_prb` | 199-355 | `via2-gcr-shifter-coupling.ts:148-225` `onPbOutputChanged` | MATCH — Phase 2 D.4 + Bug-1083 patch 2026-05-14; LED state-mirror to shadowDrive deferred MINOR (UI-only, Spec 451 VSF) |
 | `undump_prb` | 357-367 | — | OMIT-OK (Spec 451) |
 | `store_pcr` | 369-396 (OLDCODE `#if OLDCODE` block dead → returns byte unchanged) | `via2d1541.ts:130-146` `storePcr: (val) => { rotation_rotate_disk + read_write_mode + byte_ready_active; return val; }` | MATCH-effective (VICE OLDCODE = dead; storePcr returns byte; TS does the via2d_update_pcr work inline) |
 | `undump_pcr` / `undump_acr` | 398-409 | — | OMIT-OK |
 | `store_acr` / `store_sr` / `store_t2l` | 411-421 (no-ops) | `() => undefined` | MATCH |
-| `reset` | 423-461 | needs row check | needs row check (drive-side reset state) |
+| `reset` | 423-431 | `via2d1541.ts:179` `() => undefined` | MINOR-DEVIATION — TS no-op; VICE sets `drv->led_status = 1` + `drive_update_ui_status()`. UI-only side effect; first DOS PB write clears within ~100 cycles. Tightening deferred (low-priority, bundle with Spec 444). |
 | `read_pra` | 463-484 | `via2-gcr-shifter-coupling.ts:86-92` | MATCH (Spec 441 literal: req_ref_cycles + rotation_byte_read + byte_ready_level=0; DDRA merge handled by viacore) |
 | `read_prb` | 486-512 | `via2-gcr-shifter-coupling.ts:112-122` | MATCH (Spec 441 literal: req_ref_cycles + rotation_rotate_disk + sync \| wps \| 0x6f + byte_ready_level=0) |
 
@@ -178,27 +178,27 @@ proves the path is intact.
 
 **Verdict: MATCH** (Spec 432 owned + post-Spec-442 verified).
 
-### D.4 VIA2 store_prb (stepper/motor/density/LED)
+### D.4 VIA2 store_prb (stepper/motor/density/LED) — line-by-line
 
-Spec 441 step 4e-flip ported VICE `via2d.c:199-355` literal into
-`via2-gcr-shifter-coupling.ts:148-207` (`onPbOutputChanged`):
-- LED tracking (PB3) via ledSink — TS extension (VICE updates
-  `drv->led_status` + `led_active_ticks`); not load-bearing for
-  V1 emulation, observable via Spec 424.
-- Stepper coil decode (PB0/PB1) via `headPosition.applyStepBits`
-  gated on motorOn — MATCH (VICE 232-313, also gated on
-  `byte & 0x04`).
-- Motor on/off (PB2) → `setDriveMotor` + `rotation_begins` on edge
-  — MATCH (VICE 324-352, includes `rotation_begins(drv)` on motor-on
-  edge at line 330).
-- Speed zone (PB5/PB6) → `rotation_speed_zone_set` — MATCH
-  (VICE 321-323).
-- `byte_ready_edge` consumption → DriveCpu.fireByteReady (extracted
-  to consumer at scheduler-cycle wrapper, VICE 332-336
-  `drive_cpu_set_overflow(dc)` analog).
-- `byte_ready_level = 0` epilogue — MATCH (VICE 354).
+VICE `via2d.c:199-355` ↔ TS `via2-gcr-shifter-coupling.ts` `onPbOutputChanged`
+(post-Bug-1083 patch: 148-225).
 
-**Verdict: MATCH** (Spec 441 owned).
+| VICE | TS | Verdict |
+|---|---|---|
+| 210 `rotation_rotate_disk(drv)` prologue | `:152` | MATCH |
+| 212-217 LED `drv->led_status` + `led_active_ticks` + `led_last_change_clk` | `:212-217` ledSink (Spec 424) — does NOT mirror state to shadowDrive | MINOR-DEVIATION (UI-only; bundled with VSF compat into Spec 451) |
+| 228-252 Stepper `track_number`/`new`/`old`/`step_count` computation | `:159-167` (extracted to use BEFORE applyStepBits) | MATCH (Bug-1083 patch: now captures `oldStepperPosBefore` at start of call) |
+| 255-313 First `drive_move_head` (gated on `byte & 0x4`) | `:177` `headPosition.applyStepBits(..., motorOn)` | MATCH (gated on motorOn, single-step ±1 only, double-step ignored) |
+| 321-323 Density bits (PB5/PB6) → `rotation_speed_zone_set` | `:198-208` (gated on DDR both bits = output) | MATCH (TS `clearDensityOverride` on DDR-not-output is TS-extra, no VICE eqv; speed zone stays last value per VICE) |
+| 325-330 Motor on/off detect + `byte_ready_active` bit 2 + `drive_sound_update` + `rotation_begins` on motor-ON | `:184-194` | MATCH (drive_sound_update intentionally not ported — audio not emulated) |
+| 332-336 motor-OFF edge: consume `byte_ready_edge` + `drive_cpu_set_overflow` + clear | Spec 441 wired this to `DriveCpu.fireByteReady` at scheduler-cycle wrapper, NOT in store_prb | MINOR-DEVIATION (off-by-one cycle on edge consumption — TS consumes on next cycle, VICE on same cycle; canary 5/5 PASS proves not load-bearing) |
+| 340-351 **Bug-1083 block** (`#if 1`): motor-edge && `new_stepper_position != old_stepper_position` && `byte & 0x04` → second `drive_move_head(step_count, drv)` | `:213-225` (Bug-1083 patch 2026-05-14 — closure-local `lastPbOrValue` tracks poldpb; second `stepInward/stepOutward` fires on the same conditions) | MATCH (post-patch) |
+| 354 `drv->byte_ready_level = 0` epilogue | `:228` | MATCH |
+
+**Verdict: MATCH** for the load-bearing sub-paths.
+2 MINOR-DEVIATIONs documented: LED state-mirror (UI-only, Spec 451)
+and motor-OFF byte_ready_edge consumption (1-cycle off, canary-proven
+not load-bearing).
 
 ### D.5 VIA2 reset
 
@@ -222,18 +222,33 @@ critical path.
 
 ## E. Summary
 
-Phase 1 mapping: **48 rows**.
-Phase 2 deep-dive: 5 rows resolved (4 MATCH, 1 MINOR-DEVIATION).
+Phase 1 mapping: 48 rows. Phase 2 deep-dive: 5 rows resolved.
+Phase 3 review: VIA2 store_prb sub-row matrix expanded; **Bug-1083
+block ported** (`via2-gcr-shifter-coupling.ts:213-225`); LED state-mirror
++ motor-OFF edge consumption documented as MINOR.
 
-| Verdict | Count |
-|---|---|
-| MATCH | 41 |
-| MATCH-with-extension | 2 (VIA1 setInt chip-side push; VIA1 readPb 1571 carve-out documented) |
-| MINOR-DEVIATION | 2 (VIA2 reset led_status=1; storePcr signature returns BYTE) |
-| OMIT-OK | 9 (undumps, dumps, restore_int, 1571/parallel cable carve-outs) |
+| Verdict | Count | Notes |
+|---|---|---|
+| MATCH | 40 | All load-bearing paths |
+| MATCH-with-extension | 2 | VIA1 setInt chip-side push; VIA2 storePcr signature returns BYTE (cosmetic) |
+| MINOR-DEVIATION | 3 | VIA2 reset led_status=1 (UI); VIA2 LED state-mirror to shadowDrive (UI/VSF); VIA2 motor-OFF byte_ready_edge consumption (1-cycle off, canary-clean) |
+| OUT (V1 carve-out) | 3 | parallel cable (3 cases), 1571 read_pra path |
+| OMIT-OK | 6 | undumps × 4, dumps × 2, restore_int (Spec 451 VSF) |
 | BUG / MISSING (load-bearing) | **0** |
 
-Already MATCH-verified via Spec 441 rotation flip path: PA/PB read,
-PA/PB write, PCR/CA2/CB2 rotation hooks.
+Patches applied during Spec 443:
+- `via2-gcr-shifter-coupling.ts:67` add `lastPbOrValue` closure-local
+  state.
+- `via2-gcr-shifter-coupling.ts:155-167` capture pre-move stepper
+  state at call start.
+- `via2-gcr-shifter-coupling.ts:213-225` Bug-1083 second
+  `drive_move_head` call on motor-edge + stepper-change + motor-on.
+
+Tests:
+- New `tests/unit/via/via2-device-conformance.test.ts` (15/15 PASS)
+  including 4 Bug-1083 cases (positive + 3 negative).
+- Existing `tests/unit/via/via-device-conformance.test.ts` (8/8 PASS)
+  VIA1/IEC coverage.
+- All other VIA suites unchanged: 73/73 PASS prior + new 15 = 88.
 
 No load-bearing BUG / MISSING.

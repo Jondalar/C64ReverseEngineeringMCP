@@ -43,9 +43,20 @@
 
 ## Patches applied in Spec 443
 
-None — all paths already MATCH after Spec 441 (rotation flip) + Spec 442
-(MYVIA gate + peek-raw fix). Spec 443 was an audit-only spec verifying
-the device wrappers against VICE post-441/442 changes.
+**Post-review patch (2026-05-14)** — VIA2 store_prb Bug-1083 block
+ported per VICE via2d.c:340-351. Reference game: Primitive 7 Sins.
+
+- `src/runtime/headless/drive/via2-gcr-shifter-coupling.ts:67`
+  add `lastPbOrValue` closure-local state.
+- `:155-167` capture pre-move stepper position at call start so the
+  Bug-1083 block uses the SAME `old_stepper_position` VICE computes
+  at via2d.c:229,245 (BEFORE any drive_move_head fires).
+- `:213-225` Bug-1083 second `drive_move_head` call on motor-edge +
+  stepper-change + motor-on.
+
+All other paths already MATCH after Spec 441 (rotation flip) + Spec 442
+(MYVIA gate + peek-raw fix). Initial Spec 443 commits were audit-only;
+this patch closes the remaining VICE store_prb behavioural delta.
 
 ## Phase 2 deep-dive results (5 open rows)
 
@@ -73,7 +84,9 @@ the device wrappers against VICE post-441/442 changes.
 | Check | Result |
 |---|---|
 | `npm run build` (full) | PASS |
-| `tests/unit/via/via-device-conformance.test.ts` (new) | 8/8 PASS |
+| `tests/unit/via/via-device-conformance.test.ts` (VIA1/IEC) | 8/8 PASS |
+| `tests/unit/via/via2-device-conformance.test.ts` (NEW post-review, VIA2) | 15/15 PASS (incl. 4 Bug-1083 cases) |
+| `tests/unit/drive/gcr-shifter.test.ts` | 13/13 PASS |
 | `tests/unit/via/viacore-conformance.test.ts` | 13/13 PASS |
 | `tests/unit/via/via-register-rw.test.ts` | 19/19 PASS |
 | `tests/unit/via/via-ca-cb-handshake.test.ts` | 10/10 PASS |
@@ -81,7 +94,7 @@ the device wrappers against VICE post-441/442 changes.
 | `tests/unit/via/via-t1-pb7-toggle.test.ts` | 8/8 PASS |
 | `tests/unit/via/via-write-offset.test.ts` | 4/4 PASS |
 | `tests/unit/via/via-ila-ilb-latch.test.ts` | 5/5 PASS |
-| **Total VIA unit suite** | **73/73 PASS** across 8 files |
+| **Total VIA unit suite** | **88/88 PASS** across 9 files (post-review: +15 VIA2 device tests) |
 | `tests/unit/drive/rotation.test.ts` | 15/15 PASS |
 | `npm run canary:spec-430` | **5/5 PASS** (motm/mm-s1/im2/scramble smoke PASS, lnr-s1 red-as-expected) |
 

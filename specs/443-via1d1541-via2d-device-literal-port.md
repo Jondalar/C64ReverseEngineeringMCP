@@ -1,6 +1,6 @@
 # Spec 443 — `via1d1541.c` + `via2d.c` device-level literal re-port
 
-**Status:** OPEN
+**Status:** DONE (2026-05-14 post-review patch: Bug-1083 + VIA2 tests + doc consistency)
 **Priority:** HIGH
 **Parent:** Epic 440
 **Depends on:** Spec 441 (rotation + VIA2 backend flip), Spec 442 (viacore audit)

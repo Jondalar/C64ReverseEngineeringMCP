@@ -73,6 +73,10 @@ export function makeGcrShifterCoupling(
 ): Via2GcrPortCoupling {
   const { shifter, headPosition, writeProtected = false, ledSink, clkRef, shadowDrive } = opts;
   let lastLedOn = false;
+  // Spec 443 review — VICE store_prb tracks (poldpb ^ byte) for motor
+  // edge detection and the Bug-1083 second-move block (via2d.c:340-351).
+  // VICE reset sets via[VIA_PRB] = 0 → poldpb at first write = 0.
+  let lastPbOrValue = 0;
 
   return {
     // VIA2 PA = $1C01 — GCR data port. Spec 441 step 4e-flip: literal
@@ -151,6 +155,17 @@ export function makeGcrShifterCoupling(
       // Then LED + stepper + density + motor + byte_ready_level=0.
       if (shadowDrive) rotation_rotate_disk(shadowDrive);
 
+      // Spec 443 review — capture poldpb + pre-move stepper state so
+      // the VICE Bug-1083 block below uses the SAME old_stepper_position
+      // that VICE computes at via2d.c:229,245 (BEFORE any drive_move_head
+      // fires).
+      const poldpb = lastPbOrValue;
+      const trackNumberBefore = headPosition.currentHalfTrack - 2;
+      const oldStepperPosBefore = trackNumberBefore & 0x3;
+      const newStepperPos = orValue & 0x3;
+      let stepCount = (newStepperPos - oldStepperPosBefore) & 0x3;
+      if (stepCount === 3) stepCount = -1;
+
       // Spec 411 / vice-1541-arch.md §7.3 + §14 invariant 7 +
       // §17 OQ-411-1 — stepper is GATED on motor-on. VICE via2d.c:255
       // `if (byte & 0x4)` wraps drive_move_head. Pass motor latch to
@@ -202,8 +217,23 @@ export function makeGcrShifterCoupling(
         lastLedOn = ledOn;
         ledSink?.(ledOn, clkRef ? clkRef() : 0);
       }
+      // Spec 443 review — VICE via2d.c:340-351 Bug-1083 block
+      // (`#if 1` enabled). When the motor TRANSITIONS (any edge),
+      // AND the new stepper position differs from the old, AND the
+      // motor is now ON, fire a SECOND drive_move_head call.
+      // Reference: "Primitive 7 Sins" requires this extra step on
+      // motor-on edge with simultaneous stepper-phase change.
+      const motorEdge = ((poldpb ^ orValue) & PB_MOTOR) !== 0;
+      if (motorEdge && newStepperPos !== oldStepperPosBefore && motorOn) {
+        if (stepCount === 1) headPosition.stepInward();
+        else if (stepCount === -1) headPosition.stepOutward();
+      }
+
       // VICE via2d.c:354 store_prb epilogue: byte_ready_level = 0.
       if (shadowDrive) shadowDrive.byte_ready_level = 0;
+
+      // Spec 443 review — remember orValue for next call's poldpb.
+      lastPbOrValue = orValue & 0xff;
     },
   };
 }
