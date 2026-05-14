@@ -225,9 +225,23 @@ Two options under Epic 440 doctrine:
 Per Epic 440 doctrine "eine source of truth, wenn VICE was nicht
 hat, TS hat das nicht" → **Option A is the spec answer**.
 
-**Status:** flagged for explicit user-ask before patching. Per
-[[feedback_1541_port_workflow]] step 7 ("no arch decisions without
-explicit rückfrage").
+**Status (resolved 2026-05-14):** User chose A. Patch applied at
+`via6522-vice.ts:197-203` — `const MYVIA_NEED_LATCHING = false`
+gates all 7 functional sites (signal CA1 + setCb1 + 3 read paths
++ 2 peek paths). Dead-code-elimination by TS optimiser; behaviour
+matches VICE drive build bit-for-bit.
+
+Sites patched:
+- `signal()` CA1 → `:431` (ila write gate)
+- `setCb1` → `:496` (ilb write gate)
+- `read()` PRA → `:903` (ila read gate)
+- `read()` PRA_NHS → `:914` (ila read gate)
+- `read()` PRB → `:933` (ilb pin gate)
+- `peek()` PRA/PRA_NHS → `:1009` (ila early-return gate)
+- `peek()` PRB → `:1016` (ilb pin gate)
+
+ila/ilb fields kept in TS (snapshot compat). They stay 0 because
+no writer ever fires.
 
 ### Phase 3 verdict summary
 

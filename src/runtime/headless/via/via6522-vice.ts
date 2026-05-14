@@ -194,6 +194,14 @@ const isCb2ToggleMode = (pcr: number): boolean => (pcr & 0xe0) === 0x80;
 const isPaInputLatch = (acr: number): boolean => (acr & VIA_ACR_PA_LATCH) !== 0;
 const isPbInputLatch = (acr: number): boolean => (acr & VIA_ACR_PB_LATCH) !== 0;
 
+// Spec 442 — VICE viacore.c:76 has `/* #define MYVIA_NEED_LATCHING */`
+// commented out by default for drive VIAs. All 9 PA/PB-latch sites
+// (viacore.c:452,865,1050,1074,1102,1106,1125,1140,1231,1494) are
+// inactive in the canonical VICE drive build. TS mirrors that exactly:
+// flag = false → latch code dead, ila/ilb stay 0, reads always go to
+// backend.readPa/readPb. Per Epic 440 "MACH es GENAU so wie VICE".
+const MYVIA_NEED_LATCHING = false;
+
 const isSrShiftingOut = (acr: number): boolean => (acr & VIA_ACR_SR_OUT) !== 0;
 const isSrShiftOutByT2 = (acr: number): boolean => (acr & 0x1c) === 0x14;
 const isSrFreeRunning = (acr: number): boolean => (acr & 0x1c) === 0x10;
@@ -422,7 +430,7 @@ export class Via6522Vice {
           }
           this.ifr |= VIA_IM_CA1;
           this.updateIrq(this.clkRef());
-          if (isPaInputLatch(this.via[VIA_ACR]!)) {
+          if (MYVIA_NEED_LATCHING && isPaInputLatch(this.via[VIA_ACR]!)) {
             this.ila = u8(this.backend.readPa(VIA_PRA));
           }
         }
@@ -481,7 +489,7 @@ export class Via6522Vice {
       }
       this.ifr |= VIA_IM_CB1;
       this.updateIrq(this.clkRef());
-      if (isPbInputLatch(this.via[VIA_ACR]!)) {
+      if (MYVIA_NEED_LATCHING && isPbInputLatch(this.via[VIA_ACR]!)) {
         this.ilb = u8(this.backend.readPb());
       }
     }
@@ -889,7 +897,7 @@ export class Via6522Vice {
           this.updateIrq(rclk);
         }
         let byte: BYTE;
-        if (isPaInputLatch(this.via[VIA_ACR]!) && (tmpifr & VIA_IM_CA1)) {
+        if (MYVIA_NEED_LATCHING && isPaInputLatch(this.via[VIA_ACR]!) && (tmpifr & VIA_IM_CA1)) {
           byte = this.ila;
         } else {
           byte = u8(this.backend.readPa(a));
@@ -900,7 +908,7 @@ export class Via6522Vice {
       case VIA_PRA_NHS: {
         const tmpifr = this.ifr;
         let byte: BYTE;
-        if (isPaInputLatch(this.via[VIA_ACR]!) && (tmpifr & VIA_IM_CA1)) {
+        if (MYVIA_NEED_LATCHING && isPaInputLatch(this.via[VIA_ACR]!) && (tmpifr & VIA_IM_CA1)) {
           byte = this.ila;
         } else {
           byte = u8(this.backend.readPa(a));
@@ -919,7 +927,7 @@ export class Via6522Vice {
           this.updateIrq(rclk);
         }
         let pin: BYTE;
-        if (isPbInputLatch(this.via[VIA_ACR]!) && (tmpifr & VIA_IM_CB1)) {
+        if (MYVIA_NEED_LATCHING && isPbInputLatch(this.via[VIA_ACR]!) && (tmpifr & VIA_IM_CB1)) {
           pin = this.ilb;
         } else {
           pin = u8(this.backend.readPb());
@@ -995,14 +1003,14 @@ export class Via6522Vice {
     switch (a) {
       case VIA_PRA:
       case VIA_PRA_NHS: {
-        if (isPaInputLatch(this.via[VIA_ACR]!) && this.ifr & VIA_IM_CA1) {
+        if (MYVIA_NEED_LATCHING && isPaInputLatch(this.via[VIA_ACR]!) && this.ifr & VIA_IM_CA1) {
           return this.ila;
         }
         return u8(this.backend.readPa(a));
       }
       case VIA_PRB: {
         let pin: BYTE;
-        if (isPbInputLatch(this.via[VIA_ACR]!) && this.ifr & VIA_IM_CB1) {
+        if (MYVIA_NEED_LATCHING && isPbInputLatch(this.via[VIA_ACR]!) && this.ifr & VIA_IM_CB1) {
           pin = this.ilb;
         } else {
           pin = u8(this.backend.readPb());
