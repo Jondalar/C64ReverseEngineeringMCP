@@ -321,3 +321,65 @@ to `void`) but not load-bearing.
   (T1Zero/T2Zero/T2Underflow/T2Shift/Phi2Sr),
   `set_cb2_output_state`, `cache_cb12_io_status`, `peek` side-effect
   audit, snapshot, conformance test.
+
+## I. do_shiftregister + set_cb2_output_state + cache_cb12_io_status (Phase 6)
+
+### do_shiftregister (VICE:1697-1805) ↔ TS `doShiftRegister @ 1128-1167`
+
+| VICE | TS | Verdict |
+|---|---|---|
+| 1700 rclk = clk - offset | `:1129` | MATCH |
+| 1703 if shift_state < FINISHED | `:1130` (`>= FINISHED` early-return) | MATCH (inverted) |
+| 1729-1730 acr + shift_out flag | `:1131-1132` | MATCH |
+| 1732-1743 even state, !cb1_is_input → set_cb1(0) | `:1134-1138` | MATCH |
+| 1745-1760 shift_out → cb2=SR>>7, SR<<=1\|cb2, cb2_out_state, set_cb2 | `:1139-1144` | MATCH (offset `& 0xff` mask in TS — practical offset≤3, no impact) |
+| 1761-1769 odd state, !cb1_is_input → set_cb1(1) | `:1146-1149` | MATCH |
+| 1771-1775 !shift_out → SR<<=1\|cb2_in_state | `:1150-1154` | MATCH |
+| 1784 shift_state += 1 | `:1157` | MATCH |
+| 1786-1802 if FINISHED: FREE_RUN→START, else ifr\|=SR + irq + sr_underflow | `:1158-1166` | MATCH |
+
+**Minor:** TS `setCb2(cb2, offset & 0xff)` masks offset to 8 bits;
+VICE casts `(int)offset`. Practical offsets are 0-3 so no impact,
+but technically a truncation. Mark MINOR.
+
+### set_cb2_output_state (VICE:1350-1377) ↔ TS `setCb2OutputState @ 1170-1189`
+
+Line-by-line MATCH.
+
+### cache_cb12_io_status (VICE:1387-1418) ↔ TS `cacheCb12IoStatus @ 1192-1213`
+
+Line-by-line MATCH.
+
+## J. viacore_peek audit (Phase 7)
+
+VICE `viacore_peek @ 1218-1297` ↔ TS `peek @ 1000-1049`.
+
+| VICE | TS | Verdict |
+|---|---|---|
+| 1224-1241 PRA/PRA_NHS: latch-or-readPa, return byte | `:1004-1010` | MATCH (MYVIA-gated) |
+| 1243-1261 PRB: latch-or-readPb, DDRB-mux, T1_PB7 OR-in | `:1011-1026` | MATCH |
+| 1262-1264 DDRA/DDRB break → default via[addr] | TS default `:1046-1047` | MATCH |
+| 1268-1269 T1CL: viacore_t1 low (no flag clear) | `:1027-1028` | MATCH |
+| 1271-1272 T1CH: viacore_t1 high | `:1029-1030` | MATCH |
+| 1274-1276 T1LL/T1LH: break → via[addr] | TS default | MATCH |
+| 1278-1282 T2CL/T2CH: viacore_t2 low/high (no flag clear) | `:1031-1034` | MATCH |
+| 1284-1285 IFR: return raw `ifr` (no bit-7 synthesis) | `:1035-1039` was synthesising bit 7 → **PATCHED 2026-05-14** to raw `this.ifr` | MATCH (after fix) |
+| 1287-1288 IER: `ier \| 0x80` | `:1044-1045` | MATCH |
+| 1290-1293 PCR/ACR/SR: break → via[addr] | TS default | MATCH |
+| 1296 default: return via[addr] | `:1046-1047` | MATCH |
+
+**Side-effect note:** Both VICE peek and TS peek call `read_pra` /
+`read_prb` which in the 1541 drive context have side effects
+(rotation_byte_read clears byte_ready_level, etc.). VICE marks
+this `/* FIXME: side effects ? */` in source (lines 1237, 1252).
+TS shares the same defect → **MATCH-with-shared-defect**. Real
+side-effect-free "true peek" would need a separate backend
+callback. Out of Spec 442 scope (defer to debug-tier work).
+
+### Phase 6/7 verdict summary
+
+- `doShiftRegister`: MATCH (offset & 0xff = minor cosmetic)
+- `setCb2OutputState`: MATCH
+- `cacheCb12IoStatus`: MATCH
+- `peek`: 11/11 rows MATCH after IFR-raw fix; PRA/PRB share VICE's
+  documented FIXME re side-effects (intentional MATCH).

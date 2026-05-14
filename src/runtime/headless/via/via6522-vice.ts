@@ -1033,13 +1033,10 @@ export class Via6522Vice {
       case VIA_T2CH:
         return u8((this.viacoreT2(clk) >>> 8) & 0xff);
       case VIA_IFR: {
-        // VICE viacore.c read_via: bit 7 reflects (ifr & ier) != 0.
-        // Drive ROM IRQ handler at $FE6C uses bit 7 as IRQ-pending
-        // master flag; if always 0, handler short-circuits and never
-        // dispatches the actual sources (Spec 217 finding 2026-05-07).
-        let byte = this.ifr & 0x7f;
-        if ((this.ifr & this.ier & 0x7f) !== 0) byte |= 0x80;
-        return u8(byte);
+        // Spec 442 — viacore.c:1284-1285 viacore_peek returns raw ifr
+        // (no bit-7 synthesis). Synthesis happens only in viacore_read.
+        // Peek is debug/monitor-only; raw register state preferred.
+        return u8(this.ifr);
       }
       case VIA_IER:
         return u8(this.ier | 0x80);
