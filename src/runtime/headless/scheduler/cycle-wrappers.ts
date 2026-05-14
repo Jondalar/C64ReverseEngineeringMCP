@@ -31,6 +31,15 @@ import type { VicIIVice } from "../vic/vic-ii-vice.js";
 import type { Sid6581 } from "../sid/sid.js";
 import type { DriveCpu } from "../drive/drive-cpu.js";
 import { rotation_rotate_disk } from "../drive/rotation.js";
+import {
+  makeDiffSniffer,
+  installShifterSniffer,
+  compareAfterTick,
+  summarizeDivergence,
+  type DiffSniffer,
+} from "../drive/rotation-diff-harness.js";
+
+const ROTATION_DIFF_ENABLED = process.env.C64RE_ROTATION_DIFF === "1";
 
 export class Cpu6510Cycled implements CycleSteppable {
   // Cycles still owed for the current instruction. 0 = at boundary.
@@ -108,8 +117,21 @@ export class SidCycled implements CycleSteppable {
 
 export class DriveCpuCycled implements CycleSteppable {
   private cyclesOwed = 0;
+  private diffSniffer: DiffSniffer | null = null;
   constructor(public readonly drive: DriveCpu) {}
   executeCycle(): void {
+    // Spec 441 A/B verify — lazy-init shifter sniffer on first
+    // executeCycle. Env-gated to keep production path fast.
+    if (ROTATION_DIFF_ENABLED && !this.diffSniffer) {
+      this.diffSniffer = makeDiffSniffer();
+      if (this.drive.gcrShifter) {
+        installShifterSniffer(
+          this.diffSniffer,
+          this.drive.gcrShifter,
+          () => (this.drive.cpu as { cycles: number }).cycles,
+        );
+      }
+    }
     // Spec 153 / Sprint 114: 1:1 VICE GcrShifter tick path.
     //
     // When the standalone GcrShifter is wired, tick it BEFORE running
@@ -129,11 +151,26 @@ export class DriveCpuCycled implements CycleSteppable {
     // Spec 441 step 4e-shadow — rotation.ts ticks in parallel. PCR
     // bit 1 is now mirrored into drive.byte_ready_active via the
     // proper VIA2 backend hook (via2d1541 storePcr); no per-cycle
-    // copy needed. byte_ready_edge cleared so it doesn't leak past
-    // the shadow tick.
+    // copy needed.
     {
       const { drive } = this.drive;
       rotation_rotate_disk(drive);
+      // A/B verify (env-gated) — compare per-cycle rotation vs
+      // shifter outputs. On first divergence: throw with full
+      // context so canary halts at the failure point.
+      if (this.diffSniffer && this.drive.gcrShifter) {
+        const diverged = compareAfterTick(
+          this.diffSniffer,
+          drive,
+          this.drive.gcrShifter,
+          () => (this.drive.cpu as { cycles: number }).cycles,
+        );
+        if (diverged) {
+          throw new Error(
+            "[rotation-diff] " + summarizeDivergence(this.diffSniffer),
+          );
+        }
+      }
       drive.byte_ready_edge = 0;
     }
     if (this.drive.microcoded) {
