@@ -154,6 +154,11 @@ export interface gcr_header_t {
 // (caller-supplied, size ≥ 5 + 5 + 5 + gap + sync + 5*65). `header`
 // = sector/track/id1/id2. `gap` + `sync` = byte counts. `error_code`
 // selects which fault to inject (CBMDOS_FDC_ERR_*; OK = clean encode).
+//
+// NOTE: gap bytes are LEFT AS-IS per VICE (gcr.c:138 does
+// `data += gap` without initialisation). If a specific gap fill is
+// required (e.g. 0x55 sentinel), callers must pre-init the buffer
+// BEFORE invoking this function.
 // ---------------------------------------------------------------------------
 export function gcr_convert_sector_to_GCR(
   buffer: Uint8Array,

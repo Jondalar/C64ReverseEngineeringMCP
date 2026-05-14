@@ -124,7 +124,39 @@ Out of scope (other specs):
 - Do not implement disk save-back to G64 file (separate IO concern,
   out of scope).
 
-## Open question (USER-ASK, gates Phase 2b start)
+## Open question #2 (USER-ASK, gates Phase 2c-fix landing)
+
+VICE `disk_track_t { uint8_t *data; int size; }` (gcr.h:51-54): caller
+passes both a data pointer AND an explicit track size. Buffer may be
+over-allocated up to NUM_MAX_MEM_BYTES_TRACK = 65536 (gcr.h:42); the
+actual track length is in `size`. VICE inner loops use
+`end = raw->data + raw->size` to detect wrap-around.
+
+TS read-path + write-path currently use `raw.length` as the track size.
+This silently assumes caller passes an **exact-size** buffer. If
+production `g64-parser` ever reaches with an over-allocated buffer,
+sync-scan and write-wrap fire at the wrong position → silent corruption.
+
+Three options:
+
+- **A.** Port `disk_track_t` as literal TS type
+  `interface disk_track_t { data: Uint8Array; size: number; }`.
+  Update `gcr_find_sync`, `gcr_decode_block`, `gcr_find_sector_header`,
+  `gcr_read_sector`, `gcr_write_sector` signatures to take
+  `disk_track_t` instead of `Uint8Array`. Most VICE-literal; biggest
+  call-site churn.
+- **B.** Add `trackSize: number` explicit param to all 5 functions.
+  Less VICE-shape but no new type. Smaller churn.
+- **C.** Document precondition "caller must pass exact-size buffer";
+  add runtime assert in dev mode only. Zero call-site churn but
+  contract is prose-only.
+
+**Recommend: A** — literal VICE port, eliminates entire footgun class.
+Call-site churn is limited to ~5 functions × ~3 callers each = small.
+
+User decision required before Phase 2c-fix lands.
+
+## Open question #1 (resolved 2026-05-14 — option B)
 
 `gcr_write_sector` returns `fdc_err_t` (CBMDOS_FDC_ERR_OK, _SYNC,
 _HEADER, _DCHECK, _NOBLOCK). The enum lives in `cbmdos.h` which is

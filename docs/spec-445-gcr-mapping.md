@@ -1,6 +1,6 @@
 # Spec 445 — gcr.c ↔ gcr.ts mapping
 
-**Status:** PROGRESS (Phase 2b — encode + write-sector ported; read-path re-audit remaining)
+**Status:** PROGRESS (Phase 2c — read-path Claude-self re-audit complete, 1 BUG found, 1 USER-FRAGE pending)
 **VICE source:** `src/gcr.c` (357 LoC) + `src/gcr.h` (73 LoC)
 **TS target:** `src/disk/gcr.ts` (588 LoC) + drive write-back coupling
 **Doctrine:** Claude-self, no subagents.
@@ -21,7 +21,7 @@ Verdict legend: MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK.
 | `gcr_t { tracks[MAX_GCR_TRACKS] }` | gcr.h:56-59 | parser owns track storage | OMIT-OK (parser-side, not gcr.ts) |
 | `gcr_header_t { sector, track, id2, id1 }` | gcr.h:61-63 | needs check | needs check |
 | `GCR_conv_data[16]` encode table | gcr.c:51-57 | `GCR_ENCODE` (`gcr.ts:43-50`) | **PORTED** (Phase 2a, commit 1cb3204) — bit-identical |
-| `From_GCR_conv_data[32]` decode table | gcr.c:59-65 | `GCR_DECODE` or `decodeGCRNybble` table — needs verification | needs check |
+| `From_GCR_conv_data[32]` decode table | gcr.c:59-65 | `GCR_DECODE` (`gcr.ts:36-41`) | **MATCH** (Phase 2c) — bit-identical to VICE 32-entry table |
 
 ---
 
@@ -30,12 +30,12 @@ Verdict legend: MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK.
 | VICE function | VICE lines | TS counterpart | Verdict |
 |---|---|---|---|
 | `gcr_convert_4bytes_to_GCR` | 68-86 | `gcr_convert_4bytes_to_GCR` (`gcr.ts:69-91`) | **PORTED** (Phase 2a, commit 1cb3204) — bit-identical, verified by round-trip + VICE-pin tests |
-| `gcr_convert_GCR_to_4bytes` | 87-111 | `decodeGCRGroup` (`gcr.ts:112`) — needs line-by-line verify | needs check (Sprint 430 subagent flagged but not re-audited) |
+| `gcr_convert_GCR_to_4bytes` | 87-111 | `decodeGCRGroup` / `decodeGCRGroupDetailed` (`gcr.ts:255, 288`) | **MATCH** (Phase 2c) — VICE 24-bit shift register vs TS direct bit-extraction: both extract 8 × 5-bit nybbles from the 40-bit GCR stream at identical positions (39..35, 34..30, ..., 4..0). Sprint 430 subagent flag CLEARED. |
 | `gcr_convert_sector_to_GCR` | 112-168 | `gcr_convert_sector_to_GCR` (`gcr.ts` Phase 2b) | **PORTED** (Phase 2b) — literal port incl. all 9 CBMDOS_FDC_ERR_* error-injection branches; round-trip verified via gcr_read_sector |
-| `gcr_find_sync` | 170-203 | `gcr_find_sync` (`gcr.ts:336`) | needs row check |
-| `gcr_decode_block` | 205-232 | `gcr_decode_block` (`gcr.ts:355`) | needs row check (Sprint 430 num-arg fix applied; verify) |
-| `gcr_find_sector_header` | 234-261 | `gcr_find_sector_header` (`gcr.ts:373`) | needs row check |
-| `gcr_read_sector` | 263-292 | `gcr_read_sector` (`gcr.ts:383`) + `readSectorLikeVice` (`gcr.ts:441`) | needs row check |
+| `gcr_find_sync` | 170-203 | `gcr_find_sync` / `findSyncMarkFromBit` (`gcr.ts:512, 659`) | **MATCH** (Phase 2c) — VICE 10-bit window vs TS consecutive-ones counter: semantically equivalent (both return position of FIRST 0 bit after ≥10 consecutive 1s). VICE w starts 0; TS counter starts 0; both behave identically given fresh state. |
+| `gcr_decode_block` | 205-232 | `gcr_decode_block` (`gcr.ts:531`) | **MATCH** (Phase 2c) — Sprint 430 num-arg fix verified present (TS treats `num` as GROUPS = 5 GCR → 4 raw bytes, matches VICE). TS uses intermediate `readAlignedBytesFromBit` buffer; VICE uses in-place shift register. Output identical. |
+| `gcr_find_sector_header` | 234-261 | `gcr_find_sector_header` / `findSectorHeaderLikeVice` (`gcr.ts:549, 702`) | **BUG** (Phase 2c finding) — TS returns `null` for BOTH "no syncs at all" and "syncs found but no matching sector". VICE distinguishes: returns `-CBMDOS_FDC_ERR_SYNC = -3` for no-syncs vs `-CBMDOS_FDC_ERR_HEADER = -2` for no-match. **Lossy.** Propagates to `gcr_write_sector` returning `CBMDOS_FDC_ERR_HEADER` for both cases. **Fix required in Phase 2c.** |
+| `gcr_read_sector` | 263-292 | `gcr_read_sector` / `readSectorLikeVice` (`gcr.ts:559, 712`) | **MATCH-WITH-PROPAGATED-BUG** — semantic MATCH (header sync → data sync → decode 65 groups → chksum). Return shape differs (rich object vs int). Inherits the lossy error from `gcr_find_sector_header`: returns `header_not_found` for both "no syncs" and "no matching sector" cases. Fix follows the find_sector_header fix. |
 | `gcr_write_sector` | 294-346 | `gcr_write_sector` (`gcr.ts` Phase 2b) | **PORTED** (Phase 2b) — literal port incl. bit-aligned cross-byte-boundary writes via `b` carry; track wrap-around; read-back round-trip verified |
 | `gcr_create_image` | 348-351 | — | OMIT-OK (TS GC + parser owns) |
 | `gcr_destroy_image` | 353-357 | — | OMIT-OK (TS GC) |
@@ -97,9 +97,39 @@ Phase 2b (commit pending):
 - `gcr_write_sector` PORTED — bit-aligned write into raw track buffer
   with cross-byte-boundary support and track wrap-around.
 
-Phase 2c/3 open:
-- Re-audit of 6 read-path rows (gcr_find_sync, gcr_decode_block,
-  gcr_find_sector_header, gcr_read_sector, decodeGCRGroup,
-  GCR_DECODE table) — Sprint 430 subagent verdicts unzuverlässig.
+Phase 2c (Claude-self re-audit, no subagent):
+
+| Row | Verdict |
+|---|---|
+| `gcr_find_sync` | MATCH (semantically equivalent algorithm) |
+| `gcr_decode_block` | MATCH (Sprint 430 num-arg fix verified) |
+| `gcr_find_sector_header` | **BUG** — lossy SYNC/HEADER error collapse |
+| `gcr_read_sector` | MATCH-WITH-PROPAGATED-BUG (inherits find_sector_header) |
+| `decodeGCRGroup` (= `gcr_convert_GCR_to_4bytes`) | MATCH |
+| `GCR_DECODE` table (= `From_GCR_conv_data[32]`) | MATCH |
+
+**Phase 2c finding #1 (BUG):** `gcr_find_sector_header` returns
+`null` for both:
+- "no syncs at all on track" (VICE: `-CBMDOS_FDC_ERR_SYNC = -3`)
+- "syncs present but no matching sector" (VICE: `-CBMDOS_FDC_ERR_HEADER = -2`)
+
+`gcr_write_sector` in Phase 2b therefore returns `CBMDOS_FDC_ERR_HEADER`
+for both cases (line 593-596). Real divergence: VICE caller sees
+`CBMDOS_FDC_ERR_SYNC` for empty/sync-less tracks.
+
+**Fix planned (Phase 2c-fix):** new function
+`gcr_find_sector_header_vice(raw, sector)` returning
+`{ candidate: GCRHeaderCandidate } | { error: fdc_err_t }`.
+Existing null-returning `gcr_find_sector_header` retained for
+back-compat consumers; `gcr_write_sector` switched to the new
+discriminated function.
+
+**Phase 2c USER-FRAGE (gates fix landing):** `disk_track_t.size` vs
+`raw.length` latent footgun — VICE uses explicit track-size field
+(buffer can be over-allocated up to NUM_MAX_MEM_BYTES_TRACK = 65536).
+TS uses `raw.length` directly. Three options A/B/C — see Spec 445
+charter "Open question". User decision required.
+
+Phase 3 open:
 - Runtime write-back coupling (drive PA write + write-mode + motor
   → track buffer mutation).

@@ -169,6 +169,88 @@ test("gcr_write_sector preserves OTHER sectors when overwriting one", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Spec 445 Phase 2c — bilateral-bug defense
+//
+// 2 hand-computed VICE-pinned sector-encode outputs. Each computed
+// BY HAND from VICE GCR_conv_data[16] table (gcr.c:51-57); NOT by
+// running TS code. If TS encode and TS decode both agree on a
+// non-VICE pattern, Phase 2b roundtrip tests still pass — these
+// pin tests defend against that bilateral failure mode.
+// ---------------------------------------------------------------------------
+
+test("convert_sector_to_GCR pin: sector=0/track=0/id1=0/id2=0/data=zero", () => {
+  // Hand-computed expected bytes [0..14]:
+  //   [0..4]   = 0xff × 5  (sync block, error_code=OK)
+  //   [5..9]   = header GCR encode([0x08, chksum=0, sector=0, track=0])
+  //              chksum = 0 ^ 0 ^ 0 ^ 0 ^ 0 = 0
+  //              nybbles: 0,8,0,0,0,0,0,0 → GCR_conv_data:
+  //                       0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a
+  //              5-bit stream: 01010 01001 01010 01010 01010 01010 01010 01010
+  //              packed 8-bit: 01010010 01010100 10100101 00101001 01001010
+  //              hex:          0x52     0x54     0xa5     0x29     0x4a
+  //   [10..14] = id GCR encode([id2=0, id1=0, 0x0f, 0x0f])
+  //              nybbles: 0,0,0,0,0,f,0,f → 0x0a,0x0a,0x0a,0x0a,0x0a,0x15,0x0a,0x15
+  //              5-bit: 01010 01010 01010 01010 01010 10101 01010 10101
+  //              packed: 01010010 10010100 10100101 01010101 01010101
+  //              hex:    0x52     0x94     0xa5     0x55     0x55
+  const data = new Uint8Array(256);  // all zero
+  const header: gcr_header_t = { sector: 0, track: 0, id1: 0, id2: 0 };
+  const raw = new Uint8Array(1024);
+  raw.fill(0);  // explicit zero; we assert exact byte values, no sentinel.
+  gcr_convert_sector_to_GCR(data, 0, raw, 0, header, 0, 0, CBMDOS_FDC_ERR_OK);
+  // Sync block (5 bytes, filled 0xff per error_code != ERR_SYNC).
+  for (let i = 0; i < 5; i++) {
+    assert.equal(raw[i], 0xff, `sync byte ${i}`);
+  }
+  // Header GCR (5 bytes).
+  assert.deepEqual(
+    Array.from(raw.slice(5, 10)),
+    [0x52, 0x54, 0xa5, 0x29, 0x4a],
+    "header GCR mismatch",
+  );
+  // ID GCR (5 bytes).
+  assert.deepEqual(
+    Array.from(raw.slice(10, 15)),
+    [0x52, 0x94, 0xa5, 0x55, 0x55],
+    "id GCR mismatch",
+  );
+});
+
+test("convert_sector_to_GCR pin: sector=0/track=18/id1=0x41/id2=0x42", () => {
+  // Hand-computed expected bytes [0..14]:
+  //   [0..4]   = 0xff × 5
+  //   [5..9]   = header GCR encode([0x08, chksum, sector=0, track=18])
+  //              chksum = 0 ^ 18 ^ 0x42 ^ 0x41 ^ 0 = 0x12^0x42^0x41
+  //                     = 0x50 ^ 0x41 = 0x11
+  //              encode([0x08, 0x11, 0x00, 0x12]):
+  //              nybbles: 0,8,1,1,0,0,1,2 → 0x0a,0x09,0x0b,0x0b,0x0a,0x0a,0x0b,0x12
+  //              5-bit: 01010 01001 01011 01011 01010 01010 01011 10010
+  //              packed: 01010010 01010110 10110101 00101001 01110010
+  //              hex:    0x52     0x56     0xb5     0x29     0x72
+  //   [10..14] = id GCR encode([id2=0x42, id1=0x41, 0x0f, 0x0f])
+  //              nybbles: 4,2,4,1,0,f,0,f → 0x0e,0x12,0x0e,0x0b,0x0a,0x15,0x0a,0x15
+  //              5-bit: 01110 10010 01110 01011 01010 10101 01010 10101
+  //              packed: 01110100 10011100 10110101 01010101 01010101
+  //              hex:    0x74     0x9c     0xb5     0x55     0x55
+  const data = new Uint8Array(256);
+  const header: gcr_header_t = { sector: 0, track: 18, id1: 0x41, id2: 0x42 };
+  const raw = new Uint8Array(1024);
+  raw.fill(0);
+  gcr_convert_sector_to_GCR(data, 0, raw, 0, header, 0, 0, CBMDOS_FDC_ERR_OK);
+  for (let i = 0; i < 5; i++) assert.equal(raw[i], 0xff, `sync byte ${i}`);
+  assert.deepEqual(
+    Array.from(raw.slice(5, 10)),
+    [0x52, 0x56, 0xb5, 0x29, 0x72],
+    "header GCR mismatch",
+  );
+  assert.deepEqual(
+    Array.from(raw.slice(10, 15)),
+    [0x74, 0x9c, 0xb5, 0x55, 0x55],
+    "id GCR mismatch",
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Suite runner
 // ---------------------------------------------------------------------------
 let pass = 0, fail = 0;
