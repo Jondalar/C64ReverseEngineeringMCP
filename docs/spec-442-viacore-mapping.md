@@ -250,3 +250,74 @@ no writer ever fires.
 - viacore_set_cb2: MATCH
 - Action: defer MYVIA_NEED_LATCHING patch; document; ask user
   before changing behaviour.
+
+## H. viacore_store / viacore_read audit (Phase 5)
+
+### viacore_store (VICE:637-1024, 387 lines) ↔ TS store (`:601-870`)
+
+| VICE | TS | Verdict |
+|---|---|---|
+| 641-646 RMW recurse | `:602-607` | MATCH |
+| 649 rclk = clk - write_offset | `:609` | MATCH |
+| 660-662 run_pending_alarms on PRB/T1*/T2*/SR/ACR/PCR/IFR/IER | `:612-614` | MATCH |
+| 666-696 PRA + fall-through PRA_NHS + DDRA | `:619-660` | MATCH (TS explicit per-case bodies replace C fall-through) |
+| 698-725 PRB + fall-through DDRB | `:662-696` | MATCH |
+| 727-737 VIA_SR: via[a]=byte, setup_shifting, clear IM_SR + irq, store_sr | `:698-707` | MATCH |
+| 741-745 T1CL/T1LL: write T1LL, update_t1_latch | `:709-714` | MATCH |
+| 747-768 T1CH: write T1LH, update, t1reload=rclk+1+tal+FULL2, t1zero=rclk+1+tal, alarm_set, t1_pb7=0, clear T1, irq | `:716-727` | MATCH |
+| 770-783 T1LH: write addr, update, clear T1, irq | `:729-735` | MATCH |
+| 785-797 T2LL: write T2LL, store_t2l | `:737-741` | MATCH |
+| 799-827 T2CH: write T2LH, t2cl/t2ch, schedule_t2_zero_alarm(rclk+1) if !PB6-count, clear T2, irq, t2_irq_allowed=true | `:743-754` | MATCH |
+| 831-839 IFR: ifr&=~byte + irq | `:756-760` | MATCH |
+| 841-850 IER: IM_IRQ ? ier\|= : ier&=~ + irq | `:762-770` | MATCH |
+| 857-862 ACR PB7 toggle rising-edge → t1_pb7=0x80 | `:775-777` | MATCH |
+| 865-883 ACR MYVIA latch on PA/PB-latch ACR-bit rising edge | — | OMIT-OK (MYVIA=false, behaviourally inactive) |
+| 889-925 ACR T2 mode change (timer↔pulse-count) | `:783-794` | MATCH |
+| 928-966 ACR SR mode switch (DISABLED/T2/PHI2/CB1) | `:797-827` | MATCH |
+| 968-980 ACR restart t2 alarms post-switch | `:829-838` | MATCH |
+| 982-984 ACR via[a]=byte + cache_cb12_io_status + store_acr | `:840-842` | MATCH |
+| 996-1006 PCR CA2 LOW/HIGH/else → ca2_out_state | `:847-853` | MATCH |
+| 1007 set_ca2 | `:854` | MATCH |
+| 1010-1013 PCR SR-DISABLED gate → setCb2OutputState | `:856-858` | MATCH |
+| 1015 store_pcr (returns void) | `:860-861` (returns BYTE, used to overwrite v) | MINOR-DEVIATION |
+| 1017-1018 via[addr]=byte + cache_cb12_io_status | `:862-863` | MATCH |
+| 1021-1022 default: via[addr]=byte | `:867-869` | MATCH |
+
+**store_pcr signature divergence (`viacore.c:1015` void vs
+`via6522-vice.ts:160` returns BYTE):** Audit of both backends
+(`via1d1541.ts:147` `storePcr: (val) => val`, `via2d1541.ts:130-146`
+also `return val`) — **no backend mutates the byte**. Behavior
+identical to VICE void-signature. Cosmetic divergence only.
+**Verdict: MATCH-effective.** Could be tightened (change interface
+to `void`) but not load-bearing.
+
+### viacore_read (VICE:1046-1213, 168 lines) ↔ TS read (`:872-997`)
+
+| VICE | TS | Verdict |
+|---|---|---|
+| 1055-1059 addr&0xf + read_clk write + rclk = clk | `:873-874` (no read_clk) | MATCH-OK |
+| 1068-1070 run_pending_alarms on PRB/T1*/T2*/SR/IFR/IER | `:877-879` | MATCH |
+| 1073-1122 PRA + goto-pra_nhs body (clear CA1+CA2, handshake/pulse, irq, latch/readPa, last_read) | `:882-907` | MATCH |
+| 1098-1122 PRA_NHS (shared via goto) | `:908-918` (duplicated body) | MATCH (no goto in TS — body inlined twice) |
+| 1124-1156 PRB (clear CB1+CB2, irq, pin=latch/readPb, byte=DDRB-mux, T1_PB7 OR-in t1_pb7, last_read) | `:920-944` | MATCH |
+| 1160-1164 T1CL: clear T1 + irq + low byte | `:946-950` | MATCH |
+| 1166-1168 T1CH: high byte (no flag clear) | `:951-953` | MATCH |
+| — (default for T1LL/T1LH falls to `via[addr]`) | `:954-959` explicit cases returning via[T1LL]/via[T1LH] | MATCH (functionally identical to default) |
+| 1170-1175 T2CL: clear T2 + irq + low | `:961-965` | MATCH |
+| 1177-1179 T2CH: high (no flag clear) | `:966-968` | MATCH |
+| 1181-1190 SR: setup_shifting, clear IM_SR + irq, last_read=via[SR] | `:970-978` | MATCH |
+| 1194-1203 IFR: t=ifr, if (ifr&ier) t\|=0x80 | `:980-985` (extra defensive `& 0x7f` mask of lower bits) | MATCH-effective (ifr bit 7 always 0 in practice) |
+| 1205-1208 IER: ier \| 0x80 | `:986-989` | MATCH |
+| 1211-1213 default: last_read = via[addr] | `:991-995` | MATCH |
+
+### Phase 5 verdict summary
+
+- `viacore_store`: 21/22 rows MATCH, 1 MINOR (storePcr cosmetic
+  signature; behaviorally MATCH)
+- `viacore_read`: 12/12 rows MATCH (modulo MYVIA-gating from
+  Phase 4 + 1 defensive mask in IFR read = no behavioural diff)
+- No new BUG / MISSING from this phase.
+- Remaining open: `do_shiftregister`, alarm-handlers
+  (T1Zero/T2Zero/T2Underflow/T2Shift/Phi2Sr),
+  `set_cb2_output_state`, `cache_cb12_io_status`, `peek` side-effect
+  audit, snapshot, conformance test.
