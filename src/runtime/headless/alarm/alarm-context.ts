@@ -373,42 +373,6 @@ export function alarm_log_too_many_alarms(): void {
   console.warn("alarm_set(): Too many alarms set!");
 }
 
-// ---------------------------------------------------------------------------
-// Spec 448 transition aliases — camelCase exports retained as
-// @deprecated re-exports during caller migration. Remove in a
-// follow-up commit once all 45 callers migrate to snake_case.
-// ---------------------------------------------------------------------------
-
-/** @deprecated Spec 448 — use `alarm_t` instead. */
-export type Alarm = alarm_t;
-/** @deprecated Spec 448 — use `alarm_context_t` instead. */
-export type AlarmContext = alarm_context_t;
-/** @deprecated Spec 448 — use `alarm_callback_t` instead. */
-export type AlarmCallback = alarm_callback_t;
-/** @deprecated Spec 448 — use `pending_alarms_t` instead. */
-export type PendingAlarm = pending_alarms_t;
-
-/** @deprecated Spec 448 — use `alarm_context_new` instead. */
-export const alarmContextNew = alarm_context_new;
-/** @deprecated Spec 448 — use `alarm_context_init` instead. */
-export const alarmContextInit = alarm_context_init;
-/** @deprecated Spec 448 — use `alarm_context_destroy` instead. */
-export const alarmContextDestroy = alarm_context_destroy;
-/** @deprecated Spec 448 — use `alarm_context_time_warp` instead. */
-export const alarmContextTimeWarp = alarm_context_time_warp;
-/** @deprecated Spec 448 — use `alarm_new` instead. */
-export const alarmNew = alarm_new;
-/** @deprecated Spec 448 — use `alarm_destroy` instead. */
-export const alarmDestroy = alarm_destroy;
-/** @deprecated Spec 448 — use `alarm_unset` instead. */
-export const alarmUnset = alarm_unset;
-/** @deprecated Spec 448 — use `alarm_log_too_many_alarms` instead. */
-export const alarmLogTooManyAlarms = alarm_log_too_many_alarms;
-/** @deprecated Spec 448 — use `alarm_context_next_pending_clk` instead. */
-export const alarmContextNextPendingClk = alarm_context_next_pending_clk;
-/** @deprecated Spec 448 — use `alarm_context_update_next_pending` instead. */
-export const alarmContextUpdateNextPending = alarm_context_update_next_pending;
-/** @deprecated Spec 448 — use `alarm_context_dispatch` instead. */
-export const alarmContextDispatch = alarm_context_dispatch;
-/** @deprecated Spec 448 — use `alarm_set` instead. */
-export const alarmSet = alarm_set;
+// Spec 448.1 (2026-05-14): camelCase @deprecated transition aliases
+// (type + function) removed — all callers migrated to VICE-verbatim
+// snake_case. Module surface is now 100% FLACH-MANDATE.

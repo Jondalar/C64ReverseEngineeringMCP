@@ -17,8 +17,8 @@ import {
   alarm_new,
   alarm_set,
   alarm_unset,
-  type Alarm,
-  type AlarmContext,
+  type alarm_t,
+  type alarm_context_t,
 } from "../../../src/runtime/headless/alarm/alarm-context.js";
 
 interface Case {
@@ -242,7 +242,7 @@ test("re-entrant: callback that calls alarm_set to reschedule itself works", () 
 // --------------------------------------------------------------------------
 test("256-pending capacity: 257th set is dropped with warning, no crash", () => {
   const ctx = alarm_context_new("test");
-  const alarms: Alarm[] = [];
+  const alarms: alarm_t[] = [];
   for (let i = 0; i < ALARM_CONTEXT_MAX_PENDING_ALARMS; i++) {
     alarms.push(alarm_new(ctx, `a${i}`, () => {}, null));
   }
@@ -508,4 +508,4 @@ console.log(`\nalarm-context: ${pass}/${cases.length} pass, ${fail} fail`);
 process.exit(fail > 0 ? 1 : 0);
 
 // Reference unused exports to silence `noUnusedLocals` if it's ever on.
-void ({} as AlarmContext);
+void ({} as alarm_context_t);

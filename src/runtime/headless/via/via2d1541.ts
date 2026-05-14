@@ -17,7 +17,7 @@
 // VIA2 register R/W path will see a self-consistent VIA whose port
 // pins read as "idle drive, no disk activity".
 
-import type { AlarmContext } from "../alarm/alarm-context.js";
+import type { alarm_context_t } from "../alarm/alarm-context.js";
 import { type BYTE, type CLOCK } from "../util/uint.js";
 import { rotation_rotate_disk } from "../drive/rotation.js";
 import type {
@@ -55,7 +55,7 @@ export interface Via2GcrPortCoupling {
 }
 
 export interface Via2d1541Options {
-  alarmContext: AlarmContext;
+  alarmContext: alarm_context_t;
   /** Live drive CPU clock pointer. */
   clkRef: () => CLOCK;
   /** IRQ propagation to drive CPU. */

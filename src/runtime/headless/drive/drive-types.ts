@@ -48,7 +48,7 @@
 
 import type { Cpu6510 } from "../cpu6510.js";
 import type { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
-import type { AlarmContext } from "../alarm/alarm-context.js";
+import type { alarm_context_t } from "../alarm/alarm-context.js";
 import type { Via1d1541 } from "../via/via1d1541.js";
 import type { Via2d1541 } from "../via/via2d1541.js";
 import type { TrackBuffer, HeadPosition } from "./head-position.js";
@@ -184,7 +184,7 @@ export interface Drive1541Unit {
    * Doc §13 step 1; VICE `drivecpu.c:356` `drivecpu_execute()` drains
    * this context.
    */
-  readonly alarmContext: AlarmContext;
+  readonly alarmContext: alarm_context_t;
 
   /**
    * 1 MHz drive (`clock_frequency = 1` for 1541; `= 2` for 1571 HS

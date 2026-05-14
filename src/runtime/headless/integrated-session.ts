@@ -68,7 +68,7 @@ import {
 } from "./scheduler/cycle-wrappers.js";
 import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
 import {
-  type AlarmContext,
+  type alarm_context_t,
 } from "./alarm/alarm-context.js";
 import { HeadlessMachineKernel } from "./kernel/headless-machine-kernel.js";
 
@@ -340,8 +340,8 @@ export class IntegratedSession {
   // owned by `this.kernel.alarms`. Used by Cpu65xxVice instances when
   // useMicrocodedCpu=true; chip ports (CIA / VIA / VIC / SID) register
   // alarms against these references.
-  public readonly maincpuAlarmContext: AlarmContext;
-  public readonly drivecpuAlarmContext: AlarmContext;
+  public readonly maincpuAlarmContext: alarm_context_t;
+  public readonly drivecpuAlarmContext: alarm_context_t;
   // Spec 142: shared trace registry. Always present; channels default
   // to "off" until caller configures.
   // Spec 205-A c1: trace registry now lives on the kernel. Session

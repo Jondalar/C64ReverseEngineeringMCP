@@ -12,7 +12,7 @@
 //
 // Spec 428 doctrine: drive CPU does NOT follow x64sc CLK_INC. Drive has
 // no BA-low stall, no shared VIC bus, no $00/$01 port. Drive owns its
-// own AlarmContext + InterruptCpuStatus.
+// own alarm_context_t + InterruptCpuStatus.
 
 import type { InterruptCpuStatus } from "./interrupt-cpu-status.js";
 import type { CpuMemory } from "../cpu6510.js";

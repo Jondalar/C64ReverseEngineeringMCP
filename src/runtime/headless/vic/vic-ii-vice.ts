@@ -71,8 +71,8 @@ import {
   alarm_set,
   alarm_unset,
   CLOCK_MAX,
-  type Alarm,
-  type AlarmContext,
+  type alarm_t,
+  type alarm_context_t,
 } from "../alarm/alarm-context.js";
 import { u8, u16, u32, type BYTE, type WORD, type CLOCK } from "../util/uint.js";
 import { getBusOwner } from "./bus-owner-table.js";
@@ -238,7 +238,7 @@ export interface VicIIViceOptions {
   /** Backend wiring (CPU pause / IRQ line / memory bus). */
   backend: VicBackend;
   /** Maincpu alarm context (Spec 149). */
-  alarmContext: AlarmContext;
+  alarmContext: alarm_context_t;
   /** Function returning the current CPU clock (VICE: maincpu_clk). */
   clkPtr: () => CLOCK;
   /** Optional name for alarm channels / debug. */
@@ -378,11 +378,11 @@ export class VicIIVice {
   // ---- alarms (Spec 149 foundation) -----------------------------------
   /** VICE: vicii.raster_irq_alarm — fires at vicii_irq_set_raster_line
    *  computed clk. Callback = vicii_irq_alarm_handler. */
-  public readonly raster_irq_alarm: Alarm;
+  public readonly raster_irq_alarm: alarm_t;
 
   // ---- backend + clock provider ---------------------------------------
   public readonly backend: VicBackend;
-  public readonly alarmContext: AlarmContext;
+  public readonly alarmContext: alarm_context_t;
   public readonly clkPtr: () => CLOCK;
   public readonly name: string;
 

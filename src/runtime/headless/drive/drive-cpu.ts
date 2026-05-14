@@ -60,7 +60,7 @@
 
 import { Cpu6510, type CpuMemory } from "../cpu6510.js";
 import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
-import { alarm_context_new, type AlarmContext } from "../alarm/alarm-context.js";
+import { alarm_context_new, type alarm_context_t } from "../alarm/alarm-context.js";
 import { Via1d1541 } from "../via/via1d1541.js";
 import { Via2d1541, type Via2GcrPortCoupling } from "../via/via2d1541.js";
 import { makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
@@ -143,7 +143,7 @@ export interface DriveCpuOptions {
   // VIA1 + VIA2 register their T1/T2/SR alarms here. When provided,
   // DriveCpu drains pending alarms after each instruction in the
   // executeToClock path. In lockstep, AlarmContextCycled handles drain.
-  alarmContext?: AlarmContext;
+  alarmContext?: alarm_context_t;
   // Sprint 113 Phase 2: live drive CPU clock pointer for VIA construction.
   // If not provided, DriveCpu supplies one automatically.
   clkRef?: () => number;
@@ -192,7 +192,7 @@ export class DriveBus implements CpuMemory {
   public readonly romSource: LoadedDriveRom["source"];
   public readonly romPath?: string;
   /** Alarm context used by VIA1 + VIA2. May be caller-supplied or local. */
-  public readonly alarmContext: AlarmContext;
+  public readonly alarmContext: alarm_context_t;
 
   /**
    * Per-page dispatch tables. 256 entries, indexed by `addr >> 8`.
@@ -709,7 +709,7 @@ export class DriveCpu implements Drive1541Unit {
    * Alias of `bus.alarmContext`. Doc §13 step 1.
    * VICE: `drivecpu.c:356` `drivecpu_execute()`.
    */
-  public get alarmContext(): AlarmContext { return this.bus.alarmContext; }
+  public get alarmContext(): alarm_context_t { return this.bus.alarmContext; }
   // ───────────────────────────────────────────────────────────────────
 
   // Spec 090 / Spec 409 Phase C: 16.16 fixed-point sync_factor.

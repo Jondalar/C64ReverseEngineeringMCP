@@ -20,7 +20,7 @@ import type { KernelStatus, KernelMode } from "./kernel-status.js";
 import type { KernelTraceController } from "./kernel-trace.js";
 import { KernelTraceControllerImpl } from "./kernel-trace.js";
 import { TraceRegistry } from "../trace/channels.js";
-import type { AlarmContext } from "../alarm/alarm-context.js";
+import type { alarm_context_t } from "../alarm/alarm-context.js";
 import { InterruptCpuStatus } from "../cpu/interrupt-cpu-status.js";
 import { alarm_context_new } from "../alarm/alarm-context.js";
 import { Cpu6510 } from "../cpu6510.js";
@@ -68,8 +68,8 @@ export interface HeadlessMachineKernelDeps {
 }
 
 export interface KernelAlarmContexts {
-  readonly maincpu: AlarmContext;
-  readonly drivecpu: AlarmContext;
+  readonly maincpu: alarm_context_t;
+  readonly drivecpu: alarm_context_t;
 }
 
 export class HeadlessMachineKernel implements MachineKernel {

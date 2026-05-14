@@ -53,7 +53,7 @@ import { u8, u16, u32, clkAdd, clkDelta } from "../util/uint.js"; // u32 used by
 import {
   alarm_context_dispatch,
   alarm_context_next_pending_clk,
-  type AlarmContext,
+  type alarm_context_t,
 } from "../alarm/alarm-context.js";
 import {
   InterruptCpuStatus,
@@ -130,7 +130,7 @@ export interface Cpu65xxOptions {
    * A safety cap protects the inner loop against pathological alarms
    * that re-arm themselves at clk <= now and would otherwise spin.
    */
-  alarmContext?: AlarmContext;
+  alarmContext?: alarm_context_t;
   /**
    * Spec 309 Phase C — optional external InterruptCpuStatus.
    * When provided, the CPU shares this status object with the caller
@@ -345,7 +345,7 @@ export class Cpu65xxVice implements CycleSteppable {
   public readonly memory: CpuMemory;
   public readonly ioPortHook?: IoPort6510Hook;
   /** Optional VICE-style alarm context. See Cpu65xxOptions.alarmContext. */
-  public readonly alarmContext?: AlarmContext;
+  public readonly alarmContext?: alarm_context_t;
   /** Spec 425 — C64 VIC-II cycle hook (= VICE CLK_INC's vicii_cycle call). */
   private c64ViciiCycle?: () => 0 | 1;
 

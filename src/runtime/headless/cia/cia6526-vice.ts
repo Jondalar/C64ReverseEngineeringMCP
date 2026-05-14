@@ -44,8 +44,8 @@ import {
   alarm_new,
   alarm_set,
   alarm_unset,
-  type Alarm,
-  type AlarmContext,
+  type alarm_t,
+  type alarm_context_t,
 } from "../alarm/alarm-context.js";
 import { u8, u32, type BYTE, type CLOCK } from "../util/uint.js";
 import { Ciat } from "./ciat.js";
@@ -219,7 +219,7 @@ export interface Cia6526ViceOptions {
   /** Backend wiring (CIA1 keyboard / CIA2 IEC etc.). */
   backend: CiaBackend;
   /** Maincpu alarm context (Spec 149). */
-  alarmContext: AlarmContext;
+  alarmContext: alarm_context_t;
   /** Function returning the current CPU clock (VICE: `clk_ptr`). */
   clkPtr: () => CLOCK;
   /** VICE: rmw_flag — set during RMW so store_internal runs twice. */
@@ -331,11 +331,11 @@ export class Cia6526Vice {
   public model: number;
 
   // ---- alarms (Spec 149 foundation) -----------------------------------
-  public readonly ta_alarm: Alarm;
-  public readonly tb_alarm: Alarm;
-  public readonly tod_alarm: Alarm;
-  public readonly sdr_alarm: Alarm;
-  public readonly idle_alarm: Alarm;
+  public readonly ta_alarm: alarm_t;
+  public readonly tb_alarm: alarm_t;
+  public readonly tod_alarm: alarm_t;
+  public readonly sdr_alarm: alarm_t;
+  public readonly idle_alarm: alarm_t;
 
   // ---- timers (existing ciat.ts) --------------------------------------
   public readonly ta: Ciat;
@@ -350,7 +350,7 @@ export class Cia6526Vice {
 
   // ---- backend + clock provider ---------------------------------------
   public readonly backend: CiaBackend;
-  public readonly alarmContext: AlarmContext;
+  public readonly alarmContext: alarm_context_t;
   public readonly clkPtr: () => CLOCK;
   public readonly rmwFlagPtr: () => number;
   public readonly name: string;

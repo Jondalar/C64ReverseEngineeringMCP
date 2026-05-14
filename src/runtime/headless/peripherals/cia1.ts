@@ -15,7 +15,7 @@
 // Phase C adds a scriptable input queue.
 
 import { Cia6526Vice, type CiaBackend } from "../cia/cia6526-vice.js";
-import type { AlarmContext } from "../alarm/alarm-context.js";
+import type { alarm_context_t } from "../alarm/alarm-context.js";
 import type { CLOCK } from "../util/uint.js";
 import type { HeadlessMemoryBus } from "../memory-bus.js";
 import { KeyboardMatrix, joystickActiveLowMask, type JoystickState } from "./keyboard.js";
@@ -32,7 +32,7 @@ export interface InstalledCia1 {
 
 export interface InstallCia1Options {
   /** Maincpu alarm context. CIA1 alarms register here. */
-  alarmContext: AlarmContext;
+  alarmContext: alarm_context_t;
   /** CPU clock provider — usually `() => session.c64Cpu.cycles`. */
   clkPtr: () => CLOCK;
   /** VICE: C64SC/SCPU64 use CIA write_offset=0; default core uses 1. */

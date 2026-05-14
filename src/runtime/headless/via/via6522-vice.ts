@@ -28,8 +28,8 @@ import {
   alarm_new,
   alarm_set,
   alarm_unset,
-  type Alarm,
-  type AlarmContext,
+  type alarm_t,
+  type alarm_context_t,
 } from "../alarm/alarm-context.js";
 import { u8, u16, type BYTE, type CLOCK } from "../util/uint.js";
 
@@ -225,7 +225,7 @@ void isCb2Output;
 // ---------------------------------------------------------------------------
 export interface Via6522ViceOptions {
   /** Owning alarm context. Used for all VIA alarms (T1, T2, SR). */
-  alarmContext: AlarmContext;
+  alarmContext: alarm_context_t;
   /** Backend supplying port I/O + IRQ propagation. */
   backend: ViaBackend;
   /** Live drive/main CPU clock pointer (function so caller can re-read). */
@@ -300,16 +300,16 @@ export class Via6522Vice {
   public enabled: boolean = true;
 
   // ---- Alarms (VICE viacore_init lines 1873-1889) -----------------------
-  private readonly t1_zero_alarm: Alarm;
-  private readonly t2_zero_alarm: Alarm;
-  private readonly t2_underflow_alarm: Alarm;
-  private readonly t2_shift_alarm: Alarm;
-  private readonly phi2_sr_alarm: Alarm;
+  private readonly t1_zero_alarm: alarm_t;
+  private readonly t2_zero_alarm: alarm_t;
+  private readonly t2_underflow_alarm: alarm_t;
+  private readonly t2_shift_alarm: alarm_t;
+  private readonly phi2_sr_alarm: alarm_t;
 
   // ---- Construction context --------------------------------------------
   private readonly backend: ViaBackend;
   private readonly clkRef: () => CLOCK;
-  private readonly alarmContext: AlarmContext;
+  private readonly alarmContext: alarm_context_t;
   private readonly writeOffset: number;
   private readonly rmwFlagRef: () => boolean;
   private readonly rmwFlagSet: (v: boolean) => void;

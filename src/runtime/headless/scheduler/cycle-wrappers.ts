@@ -24,7 +24,7 @@ import type { Cpu6510 } from "../cpu6510.js";
 import {
   alarm_context_dispatch,
   alarm_context_next_pending_clk,
-  type AlarmContext,
+  type alarm_context_t,
 } from "../alarm/alarm-context.js";
 import type { CLOCK } from "../util/uint.js";
 import type { VicIIVice } from "../vic/vic-ii-vice.js";
@@ -86,7 +86,7 @@ export class Cpu6510Cycled implements CycleSteppable {
 export class AlarmContextCycled implements CycleSteppable {
   private static readonly DISPATCH_GUARD = 0x1000;
   constructor(
-    public readonly context: AlarmContext,
+    public readonly context: alarm_context_t,
     public readonly clkPtr: () => CLOCK,
   ) {}
   executeCycle(): void {

@@ -40,7 +40,7 @@
 //     are @deprecated test-only and not invoked from production.
 //   - Production callers go through signalAtnEdge (edge-tag) only.
 
-import type { AlarmContext } from "../alarm/alarm-context.js";
+import type { alarm_context_t } from "../alarm/alarm-context.js";
 import type { IecBusCore } from "../iec/iec-bus-core.js";
 import { u8, type BYTE, type CLOCK } from "../util/uint.js";
 import type { InterruptCpuStatus, IntNum } from "../cpu/interrupt-cpu-status.js";
@@ -53,7 +53,7 @@ import {
 } from "./via6522-vice.js";
 
 export interface Via1d1541Options {
-  alarmContext: AlarmContext;
+  alarmContext: alarm_context_t;
   iec: IecBusCore;
   /** 8..11 — drive number; encoded into PB bits 5-6 on read. */
   deviceId: number;
