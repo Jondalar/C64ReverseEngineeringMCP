@@ -165,6 +165,19 @@ test("gcr_read_sector_vice returns SYNC on sync-less track (Phase 2c BUG fix)", 
   assert.equal(result, 3, "expected CBMDOS_FDC_ERR_SYNC");
 });
 
+// Symmetric Phase 2c BUG-fix test: pin HEADER vs SYNC distinction.
+// Track HAS syncs (sector 0 exists), but caller asks for sector 42.
+// VICE: gcr_find_sector_header returns -CBMDOS_FDC_ERR_HEADER (-2).
+// Pre-Phase-2c-fix TS conflated both errors; post-fix distinguishes.
+test("gcr_read_sector_vice returns HEADER (not SYNC) for syncs-present-but-no-match", () => {
+  const data = new Uint8Array(256);
+  const header: gcr_header_t = { sector: 0, track: 18, id1: 0x41, id2: 0x42 };
+  const raw = buildSectorTrack(data, header);  // track HAS a sync (for sector 0)
+  const out = new Uint8Array(256);
+  const result = gcr_read_sector_vice(makeDiskTrack(raw), out, 42);
+  assert.equal(result, 2, "expected CBMDOS_FDC_ERR_HEADER (2), not SYNC (3)");
+});
+
 test("gcr_write_sector returns HEADER error for non-existent sector", () => {
   // Build a track containing sector 0, then ask to write sector 42.
   const data = new Uint8Array(256);

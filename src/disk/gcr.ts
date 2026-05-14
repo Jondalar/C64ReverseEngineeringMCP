@@ -534,10 +534,13 @@ export interface GCRReadSectorResult {
  * @returns SyncMark or null when no sync found within `s` bits
  */
 /**
- * @deprecated Spec 445 Phase 2c — use `gcr_find_sync_vice` instead.
- * This SyncMark-returning variant is retained for inspection-tier
- * callers (decoded-track viewers, sector headers list) but the
- * VICE-literal port is `gcr_find_sync_vice`.
+ * **Inspection-tier API** (NOT for production drive emulation).
+ *
+ * SyncMark-returning variant used by `g64-parser` and disk-viewer
+ * tooling to surface bit/byte offsets in rich form. Production-tier
+ * VICE-literal port is `gcr_find_sync_vice` (gcr.c:170-203). The two
+ * functions co-exist by design: production uses fdc_err_t shape,
+ * inspection uses rich objects.
  */
 export function gcr_find_sync(raw: Uint8Array, p: number, s: number): SyncMark | null {
   return findSyncMarkFromBit(raw, p, s);
@@ -592,8 +595,9 @@ export function gcr_find_sync_vice(raw: disk_track_t, p: number, s: number): num
  * @returns Uint8Array of length `num * 4` with decoded bytes
  */
 /**
- * @deprecated Spec 445 Phase 2c — use `gcr_decode_block_vice` instead.
- * Inspection-tier convenience signature.
+ * **Inspection-tier API.** Convenience: returns decoded bytes as a
+ * fresh Uint8Array (used by disk-layout viewers). Production-tier
+ * literal port is `gcr_decode_block_vice` (out-param shape).
  */
 export function gcr_decode_block(raw: Uint8Array, p: number, num: number): Uint8Array {
   // Read num * 5 GCR bytes from bit position p, then decode group by group.
@@ -623,19 +627,50 @@ export function gcr_decode_block_vice(
   bufOffset: number,
   num: number,
 ): void {
-  const totalBits = raw.size * 8;
-  const startBit = ((p % totalBits) + totalBits) % totalBits;
-  const gcrBytes = new Uint8Array(num * 5);
-  for (let i = 0; i < num * 5; i++) {
-    let v = 0;
-    for (let b = 0; b < 8; b++) {
-      const bitPos = (startBit + i * 8 + b) % totalBits;
-      v = (v << 1) | getBit(raw.data, bitPos);
-    }
-    gcrBytes[i] = v;
-  }
+  // Literal VICE shift-register form (gcr.c:205-232):
+  //   shift = p & 7;
+  //   offset = raw->data + (p >> 3);
+  //   b = offset[0] << shift;
+  //   for (i = 0; i < num; i++, buf += 4) {
+  //     for (j = 0; j < 5; j++) {
+  //       offset++;
+  //       if (offset >= end) offset = raw->data;
+  //       if (shift) {
+  //         gcr[j] = b | ((offset[0] << shift) >> 8);
+  //         b = offset[0] << shift;
+  //       } else {
+  //         gcr[j] = b;
+  //         b = offset[0];
+  //       }
+  //     }
+  //     gcr_convert_GCR_to_4bytes(gcr, buf);
+  //   }
+  const data = raw.data;
+  const end = raw.size;
+  const shift = p & 7;
+  let offset = p >>> 3;
+  // VICE: `b = offset[0] << shift` — keeps the 8+shift-bit pre-shifted byte
+  // in `b`. The next byte is OR-merged via `(offset[0] << shift) >> 8` to
+  // produce a fully shifted bit-aligned byte for gcr[j].
+  let b = (data[offset]! << shift) & 0xffff;
+  const gcr = new Uint8Array(5);
+
   for (let i = 0; i < num; i++) {
-    const group = decodeGCRGroupDetailed(gcrBytes, i * 5);
+    for (let j = 0; j < 5; j++) {
+      offset += 1;
+      if (offset >= end) offset = 0;
+      if (shift) {
+        // gcr[j] = top 8 of `b` (= last byte's tail in high bits) OR'd
+        // with the next byte's leading `shift` bits (= (offset[0] << shift) >> 8).
+        const next = (data[offset]! << shift) & 0xffff;
+        gcr[j] = (b | (next >>> 8)) & 0xff;
+        b = next;
+      } else {
+        gcr[j] = b & 0xff;
+        b = data[offset]!;
+      }
+    }
+    const group = decodeGCRGroupDetailed(gcr, 0);
     buf[bufOffset + i * 4 + 0] = group.bytes[0]!;
     buf[bufOffset + i * 4 + 1] = group.bytes[1]!;
     buf[bufOffset + i * 4 + 2] = group.bytes[2]!;
@@ -651,9 +686,14 @@ export function gcr_decode_block_vice(
  * found within one full revolution.
  */
 /**
- * @deprecated Spec 445 Phase 2c — use `gcr_find_sector_header_vice` for
- * the VICE-literal port. This null-returning variant is retained for
- * inspection-tier callers but collapses SYNC and HEADER error codes.
+ * **Inspection-tier API.** Null-returning, returns rich
+ * GCRHeaderCandidate (sync mark + decoded header fields). Used by
+ * g64-parser / disk-layout viewer. Production-tier VICE-literal
+ * port is `gcr_find_sector_header_vice` (fdc_err_t shape).
+ *
+ * NOTE: this inspection variant CANNOT distinguish "no syncs at all"
+ * from "syncs found but no matching sector" — both return null.
+ * Use `gcr_find_sector_header_vice` if that distinction matters.
  */
 export function gcr_find_sector_header(raw: Uint8Array, sector: number): GCRHeaderCandidate | null {
   return findSectorHeaderLikeVice(raw, sector);
@@ -695,9 +735,10 @@ export function gcr_find_sector_header_vice(raw: disk_track_t, sector: number): 
  * + checksum + padding. Returns full read status + payload.
  */
 /**
- * @deprecated Spec 445 Phase 2c — use `gcr_read_sector_vice` for the
- * VICE-literal port. This rich-object version is retained for
- * inspection-tier callers.
+ * **Inspection-tier API.** Returns rich GCRReadSectorResult
+ * (status enum + payload + decoded header + sync positions). Used
+ * by g64-parser / disk-layout viewer. Production-tier VICE-literal
+ * port is `gcr_read_sector_vice` (out-param + fdc_err_t shape).
  */
 export function gcr_read_sector(raw: Uint8Array, sector: number): GCRReadSectorResult {
   return readSectorLikeVice(raw, sector);
