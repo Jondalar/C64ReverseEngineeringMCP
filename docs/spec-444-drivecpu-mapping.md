@@ -23,14 +23,14 @@ Verdict legend: MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK / OUT.
 | `alarm_context_s *alarm_context` | — | `alarmContext: AlarmContext` (DriveBus + DriveCpu both expose) | MATCH |
 | `monitor_interface_s *monitor_interface` | — | — | OMIT-OK (no monitor UI in V1) |
 | `CLOCK last_clk` | — | `lastClk = 0` (`:699`) | MATCH (number vs CLOCK) |
-| `CLOCK last_exc_cycles` | — | — | MISSING — needs row check |
-| `CLOCK stop_clk` | — | — | **MISSING** — Spec 430 left out; key field for `drive_cpu_execute` early-exit |
+| `CLOCK last_exc_cycles` | — | `last_exc_cycles: number = 0` (Phase 2b patch) — tracked at end of `executeToClock` as `max(0, consumed - target)` | PORTED (Spec 444 Phase 2b) |
+| `CLOCK stop_clk` | — | `stop_clk: number = 0` (Phase 2b patch) — set at entry of `executeToClock` to `cpu.cycles + (cycleAccum >>> 16)` | PORTED (Spec 444 Phase 2b) |
 | `CLOCK cycle_accum` | — | `cycleAccum = 0` (`:701`) | MATCH (semantic equivalent) |
 | `uint8_t *d_bank_base` | NULL | — | OMIT-OK (TS uses readTab/storeTab dispatch instead of d_bank_*) |
 | `unsigned int d_bank_start, d_bank_limit` | — | — | OMIT-OK (TS dispatch) |
 | `unsigned int last_opcode_info` | — | — | MISSING (watchpoints, low-priority) |
 | `unsigned int last_opcode_addr` | — | — | MISSING (watchpoints, low-priority) |
-| `int is_jammed` | — | — | MISSING — needs row check (drivecpu_jam at line 462) |
+| `int is_jammed` | — | `is_jammed: number = 0` (Phase 2b patch) — field present, V1 has no dispatcher (stock 1541 DOS never executes JAM opcode) | PORTED-FIELD-ONLY (Spec 444 Phase 2b) — dispatcher deferred (drivecpu_jam OMIT-OK for V1; would need monitor hook + ROM trap, all OMIT-OK in current scope) |
 | `mos6510_regs_t cpu_regs` | — | `cpu.regs` (Cpu6510 / Cpu65xxVice) | MATCH-DEVIATION (lives on cpu object) |
 | `R65C02_regs_t cpu_R65C02_regs` | — | — | OUT (1541 only uses 6502 not 65C02) |
 | `uint8_t *pageone` | NULL | implicit in cpu memory map / RAM[0x0100..0x01ff] | OMIT-OK |
@@ -216,11 +216,106 @@ DEVIATION-OK for the static-array → per-instance refactor.
    sets `shadowDrive.led_status = 1` when attached. Low-priority but
    cheap fix.
 
-## E. Summary
+## E. Phase 2b deep-dive results
 
-Phase 1 mapping: 20 struct rows + 17 function rows = **37 rows**.
+### E.1 `drive_cpu_execute` (VICE:356-445) ↔ `executeToClock` (`:1152-1245`)
 
-Open deep-dive (Phase 2): 8 high-priority rows + 4 bundled cleanups.
+VICE structure:
+1. `drivecpu_wake_up(drv)` — clock-skip if stale (255-264)
+2. `cycles = clk_value - cpu->last_clk` (377-381)
+3. Chunk into 10000-cycle batches; `cycle_accum += sync_factor*tcycles;
+   stop_clk += accum >> 16; accum &= 0xffff` (383-390)
+4. Inner loop `while (*drv->clk_ptr < cpu->stop_clk)` runs one
+   `6510core` instruction per iteration (393-441)
+5. `cpu->last_clk = clk_value` (443)
+6. `drivecpu_sleep(drv)` (444 — empty in VICE)
 
-Will commit in incremental phases per [[feedback_1541_port_workflow]]
-7-step.
+TS structure:
+1. enabled gate (`:1159-1162`) — Spec 414 extension
+2. `c64Delta = c64Clk - lastClk; lastClk = c64Clk` (`:1163-1165`)
+3. sleeping path: accumulate but skip run (`:1166-1171`) — TS-EXTRA
+4. `cycleAccum += syncFactor16dot16 * c64Delta` (`:1173`)
+5. **stop_clk = cpu.cycles + (cycleAccum >>> 16)** (Phase 2b new)
+6. Inner loop `while (cycleAccum >= 0x10000)` consumes one drive cycle
+   per iteration (`:1221-1244`)
+7. **last_exc_cycles = max(0, consumed - target)** (Phase 2b new)
+
+**Verdict: PORTED-WRAPPER** — TS uses cycleAccum-based loop condition
+instead of stop_clk-based; equivalent end-state. stop_clk + last_exc_cycles
+now mirror VICE field semantics for snapshot/diagnostic.
+
+**Sub-deviations** (documented, not load-bearing):
+- VICE chunks main delta into 10000-cycle batches; TS feeds whole
+  delta in one pass. No observable behavioural diff.
+- TS sleeping branch (TS-EXTRA) accumulates but doesn't run; VICE
+  has no sleeping (always runs); canary 5/5 PASS under TS-EXTRA.
+- TS `vice-whole-instruction` mode is a Spec 428 fallback path,
+  retained for non-microcoded back-compat; default = cycle-stepped
+  matches VICE 6510core per-bus-cycle semantics.
+
+### E.2 `cpu_reset` + `drivecpu_reset` + `drivecpu_reset_clk`
+
+VICE:
+- `cpu_reset` (drivecpu.c:165): preserve_monitor + `clk_ptr=6`
+  + `rotation_reset(both)` + `machine_drive_reset` + restore monitor.
+- `drivecpu_reset_clk` (186-191): `last_clk=maincpu_clk;
+  last_exc_cycles=0; stop_clk=0`.
+- `drivecpu_reset` (194-211): `clk_ptr=0; drivecpu_reset_clk;
+  interrupt_cpu_status_reset; interrupt_trigger_reset(clk_ptr)`.
+
+TS `softReset(pc)` (`:1022-1033`):
+- `bus.via1.reset() + bus.via2.reset()` — clears VIAs (= viacore_reset)
+- `cpu.reset(pc)` — interrupt status reset + jump to PC vector
+- `lastClk = 0; cycleAccum = 0; sleeping = false`
+
+| VICE step | TS step | Verdict |
+|---|---|---|
+| `clk_ptr = 0` | `cpu.reset` sets cycles=0 | MATCH |
+| `last_clk = maincpu_clk` | `lastClk = 0` | DEVIATION — VICE pegs to maincpu_clk so next executeToClock delta is from-now; TS pegs to 0 so first executeToClock(c64Clk) sees delta=c64Clk. In integrated session this is fine because softReset is called at session start (c64 cycles=0). For mid-run softReset, would over-run drive once. Documented, not currently load-bearing. |
+| `last_exc_cycles = 0` | Phase 2b: implicit (field starts 0; updated by inner loop) | MATCH-IMPLICIT |
+| `stop_clk = 0` | Phase 2b: implicit (field starts 0; updated at executeToClock entry) | MATCH-IMPLICIT |
+| `interrupt_cpu_status_reset` | `cpu.reset(pc)` clears intStatus | MATCH-WRAPPER |
+| `interrupt_trigger_reset` | `cpu.reset(pc)` jumps to PC directly (or $FFFC if pc undefined) | DEVIATION (sync vs async — see B.2) |
+| (none) | `cycleAccum = 0` | TS-EXTRA — VICE preserves cycle_accum across reset; documented MINOR. |
+
+### E.3 `drivecpu_jam` (VICE:462-539)
+
+VICE body: prints message, calls `drive_jam()` for user prompt, then
+dispatches one of: JAM_RESET_CPU (reg_pc=0xeaa0 + machine reset),
+JAM_POWER_CYCLE, JAM_MONITOR (monitor startup), or default (CLK++ stall).
+
+TS: no JAM dispatcher. `is_jammed` field added for snapshot compat.
+
+**Verdict: OMIT-OK** — stock 1541 DOS code never executes JAM opcodes
+($02/$12/$22/$32/$42/$52/$62/$72/$92/$B2/$D2/$F2). If a future spec
+needs JAM dispatcher: hook into `Cpu65xxVice.executeCycle` at opcode
+decode + set `is_jammed = 1` + stall (= VICE default branch CLK++).
+
+## F. Summary
+
+Phase 1 mapping: 20 struct rows + 17 function rows = 37 rows.
+Phase 1b expanded: 4 ticketed items resolved (B.1-B.5 sub-row matrices).
+Phase 2a bundled cleanups: 3 of 4 actioned (disable, LED, storePcr=already-MATCH);
+shutdown OMIT-OK.
+Phase 2b deep-dive: stop_clk + last_exc_cycles + is_jammed PORTED;
+drive_cpu_execute and drivecpu_reset audited line-by-line.
+
+| Verdict | Count |
+|---|---|
+| MATCH / MATCH-WRAPPER / PORTED | 22 |
+| MATCH-DEVIATION (constructor pattern + struct shape) | 6 |
+| DEVIATION-DOCUMENTED (sync vs async reset, lastClk peg) | 3 |
+| MINOR-DEVIATION (wake_up stale-skip, cycle_accum reset, JAM dispatcher) | 3 |
+| OMIT-OK (monitor, DMA, banking, debug, identification, JAM, shutdown) | 9 |
+| DEFER → Spec 451 (snapshot R/W, snap_module_name) | 3 |
+| BUG / load-bearing MISSING | **0** |
+
+Tests:
+- Existing VIA suite 91/91 PASS (no regression)
+- New `tests/unit/drive/drivecpu-conformance.test.ts` 6/6 PASS
+  (stop_clk + last_exc_cycles + is_jammed + softReset roundtrip)
+- Drive suite total: rotation 15/15 + gcr-shifter 13/13 +
+  drivecpu-conformance 6/6 = 34/34
+- Canary 5/5 PASS (post-Phase-2b)
+
+No load-bearing BUG / MISSING.

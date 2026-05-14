@@ -703,6 +703,35 @@ export class DriveCpu implements Drive1541Unit {
   // bus state change. Cleared on bus state change.
   private sleeping = false;
 
+  /**
+   * Spec 444 — VICE `drivecpu_context_t.stop_clk` (drivetypes.h:83).
+   * Set at entry to `executeToClock` to the target drive clock the
+   * inner loop must reach this batch (= `cpu.cycles +
+   * (cycleAccum >> 16)`). Public for snapshot/diagnostic; the inner
+   * loop continues to use the cycleAccum check (TS equivalent of
+   * VICE's `while (*clk_ptr < stop_clk)` — see B.1 in
+   * docs/spec-444-drivecpu-mapping.md).
+   */
+  public stop_clk = 0;
+
+  /**
+   * Spec 444 — VICE `drivecpu_context_t.last_exc_cycles`
+   * (drivetypes.h:81). Cycles executed in excess of the target
+   * last batch (instruction overrun). VICE saves in snapshot
+   * (drivecpu.c:557); TS tracks for VSF cross-load (Spec 451).
+   */
+  public last_exc_cycles = 0;
+
+  /**
+   * Spec 444 — VICE `drivecpu_context_t.is_jammed` (drivetypes.h:97).
+   * Set when CPU hits a JAM opcode (illegal $02/$12/$22/...).
+   * For V1 (stock 1541 DOS code never executes a JAM), the field
+   * exists for snapshot compat but no dispatcher acts on it.
+   * If a future VICE-faithful JAM dispatcher is added, this is the
+   * field to set/test.
+   */
+  public is_jammed = 0;
+
   // ───────────────────────────────────────────────────────────────────
   // Spec 414 — Phase H step 32 (enable/disable hooks).
   //
@@ -1171,6 +1200,12 @@ export class DriveCpu implements Drive1541Unit {
     }
     // Accumulate fractional drive cycles owed.
     this.cycleAccum += this.syncFactor16dot16 * c64Delta;
+    // Spec 444 — VICE `cpu->stop_clk += cpu->cycle_accum >> 16` at
+    // drivecpu.c:388. Set stop_clk to "where the inner loop must
+    // arrive" before stepping. The TS inner loop uses cycleAccum
+    // directly; stop_clk is kept up to date for snapshot/diagnostic.
+    const driveCpuClkAtEntry = (this.cpu as { cycles: number }).cycles;
+    this.stop_clk = driveCpuClkAtEntry + (this.cycleAccum >>> 16);
     if (!this.microcoded) {
       throw new Error(
         "DriveCpu.executeToClock: legacy whole-instruction Cpu6510 path " +
@@ -1218,6 +1253,10 @@ export class DriveCpu implements Drive1541Unit {
       return;
     }
     // Spec 401 default cycle-stepped path.
+    // Spec 444 — record drive clock at entry to compute last_exc_cycles
+    // (= drive cycles executed beyond stop_clk; the inner loop may run
+    // one extra cycle past the target if an instruction straddles).
+    const cycleStartForExcTracking = driveCpuClkAtEntry;
     while (this.cycleAccum >= 0x10000) {
       if (cycled.isAtInstructionBoundary() && this.intNumVia2Irq) {
         // VIA2 IRQ polling — replaced by spec 411 chip-side push.
@@ -1242,6 +1281,13 @@ export class DriveCpu implements Drive1541Unit {
       }
       this.cycleAccum -= 0x10000;
     }
+    // Spec 444 — last_exc_cycles = drive cycles past stop_clk this batch.
+    // VICE drivecpu.c:443 keeps last_clk = clk_value AFTER inner loop;
+    // last_exc_cycles is computed from cycle_accum residual.
+    const driveCpuClkAtExit = (this.cpu as { cycles: number }).cycles;
+    const consumed = driveCpuClkAtExit - cycleStartForExcTracking;
+    const target = this.stop_clk - cycleStartForExcTracking;
+    this.last_exc_cycles = Math.max(0, consumed - target);
   }
 
   // Spec 401 / OQ-400-Q4 — `step()` and `runOneInstruction` now drive
