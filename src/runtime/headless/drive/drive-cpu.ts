@@ -989,6 +989,48 @@ export class DriveCpu implements Drive1541Unit {
   }
 
   /**
+   * Spec 446 — VICE `drivesync_clock_frequency(unit, type)` literal port
+   * (drivesync.c:86-117). Returns the drive's clock frequency multiplier
+   * for a given drive type. 1541-family = 1; 1551/1581/4000/CMDHD = 2;
+   * IEEE drives (2031, 2040, 3040, 4040, 1001, 8050, 8250, 9000) = 1.
+   *
+   * V1 only emulates 1541 (= type DRIVE_TYPE_1541). The full dispatch
+   * table is ported literal for VICE-shape parity; other types are
+   * unreachable in the current runtime but the function returns the
+   * correct value if called.
+   */
+  static drivesync_clock_frequency(driveType: number): 1 | 2 {
+    // VICE drive type constants (drive.h:121-145). 1541 family = 1.
+    switch (driveType) {
+      case 1540: case 1541: case 1542: case 1570:
+      case 1571: case 1573:  // DRIVE_TYPE_1540/1541/1541II/1570/1571/1571CR
+        return 1;
+      case 1551: case 1581: case 2000: case 4000: case 4844:
+        // DRIVE_TYPE_1551/1581/2000/4000/CMDHD
+        return 2;
+      case 2031: case 2040: case 3040: case 4040:
+      case 1001: case 8050: case 8250: case 9000:
+        return 1;
+      default:
+        return 1;
+    }
+  }
+
+  /**
+   * Spec 446 — convenience helper for PAL/NTSC sync switch.
+   * Internally calls `driveSetMachineParameter(C64_PAL_CYCLES_PER_SEC)`
+   * or `(C64_NTSC_CYCLES_PER_SEC)` per VICE drivesync.c:57.
+   *
+   * Use this when the C64 video mode changes mid-session (rare). Most
+   * callers should set machine parameter once at construction.
+   */
+  setPalNtsc(mode: "pal" | "ntsc"): void {
+    const cyclesPerSec =
+      mode === "ntsc" ? C64_NTSC_CYCLES_PER_SEC : C64_PAL_CYCLES_PER_SEC;
+    this.driveSetMachineParameter(cyclesPerSec);
+  }
+
+  /**
    * Spec 414 — hard reset (= drive_init / power-on).
    *
    * Clears drive RAM ($0000-$07FF), resets VIA1+VIA2, resets CPU at

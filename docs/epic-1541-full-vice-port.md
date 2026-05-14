@@ -61,7 +61,7 @@ am Ende validiert.
 | Disk rotation | `drive/rotation.c` | ~900 | `gcr-shifter.ts` 690 LOC | 441 + 452 | **AUDITED (Spec 441 DONE)** — primitive literal; tick-order PARTIAL (Spec 452 OPEN: rotation BEFORE cpu per §14 invariant 1 blocked by Krill regression) |
 | Drive memory map | `drive/iec/memiec.c` | 177 | `drive-cpu.ts` memory part | 447 | TEIL |
 | Drive ROM loader | `drive/driverom.c` | ~300 | `headless-machine-kernel.ts` ROM-load | 447 | TEIL |
-| Drive sync (host↔drive clock) | `drive/drivesync.c` | ~350 | `drive-cpu.ts` `syncFactor` | 446 | NUR PAL-CONST |
+| Drive sync (host↔drive clock) | `drive/drivesync.c` | 117 | `drive-cpu.ts` syncFactor + drivesync_clock_frequency + setPalNtsc | 446 | AUDITED (Spec 446 DONE 2026-05-14) — PAL/NTSC switch mechanism PORTED; full NTSC validation = Spec 451 |
 | Alarm context | `alarm.c` + `alarm.h` | ~400 | `alarm/alarm-context.ts` | 448 | TEIL, NICHT LITERAL |
 | FDC error codes + state | `drive/fdc.c` + `cbmdos.h` | ~400 | partial enum in `gcr.ts` | 449 | TEIL |
 | IEC bus core | `iecbus/iecbus.c` | 570 | `iec-bus.ts` + `iec-bus-core.ts` 700 LOC | 430 | DONE (Sprint 430) |
@@ -80,7 +80,7 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 | 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel | **DONE** (48-row audit + Bug-1083 + 23 conformance tests) |
 | 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel | **DONE** (37-row audit + struct port + 6 tests) |
 | 6 | **445** | `gcr.c` write-path + encode | mittel | **DONE** (8 commits, encode + write_sector + read-path re-audit BUG fix + runtime write-back smoke 4/4) |
-| 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | **NEXT** |
+| 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | **DONE** (drivesync_clock_frequency + setPalNtsc + 17 conformance tests) |
 | 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | OPEN |
 | 9 | **448** | `alarm.c` literal port | groß | OPEN |
 | 10 | **449** | `fdc.c` + cbmdos error codes + state machine | mittel | OPEN |
