@@ -1,15 +1,25 @@
-// Spec 147 — VIA ILA / ILB input-latching unit tests (Phase 1).
+// Spec 442 — VIA ILA / ILB input-latching unit tests (revised).
 //
 // VICE source: src/core/viacore.c
-//   - lines 117-118  IS_PA_INPUT_LATCH / IS_PB_INPUT_LATCH macros
+//   - line  76    `/* #define MYVIA_NEED_LATCHING */` — commented out
+//                 by default for drive VIAs.
 //   - lines 452-456  CA1 active edge: latch ILA when ACR PA_LATCH set
+//                    (UNREACHABLE in drive build)
 //   - lines 1494-1498 CB1 active edge: latch ILB when ACR PB_LATCH set
-//   - lines 1106-1120 PRA read returns ILA when latch enabled & IFR_CA1 set
-//   - lines 1140-1148 PRB read returns ILB when latch enabled & IFR_CB1 set
+//                    (UNREACHABLE in drive build)
+//   - lines 1106-1120 PRA read returns ILA when latch enabled
+//                    (UNREACHABLE in drive build)
+//   - lines 1140-1148 PRB read returns ILB when latch enabled
+//                    (UNREACHABLE in drive build)
 //
-// Note: VICE wraps these latch paths under #ifdef MYVIA_NEED_LATCHING in
-// the .c file. Our port enables them unconditionally — spec 147 makes
-// latching mandatory for fastloader fidelity.
+// Per Epic 440 doctrine + Spec 442 Phase 4 patch, TS mirrors the VICE
+// drive build exactly: `const MYVIA_NEED_LATCHING = false` gates all
+// 7 latch sites. Behaviour: ila/ilb stay 0; reads always return the
+// live pin via backend.readPa/readPb regardless of ACR PA/PB-LATCH bits.
+//
+// These tests assert the literal-VICE-drive behaviour. The earlier
+// Spec 147 tests asserted unconditional latching (silicon-correct but
+// not VICE-faithful); they are now updated to the VICE-faithful path.
 //
 // Run via:
 //   npx tsx tests/unit/via/via-ila-ilb-latch.test.ts
@@ -67,21 +77,21 @@ function makeHarness() {
   return { via, state, advance: (n: number) => { clk += n; } };
 }
 
-// VICE viacore.c lines 452-456 — when ACR_PA_LATCH set, CA1 active edge
-// captures live PA pin into ILA.
-test("CA1 active edge captures PA pin into ILA when PA_LATCH enabled", () => {
+// Spec 442 — MYVIA=false means CA1 edge does NOT write ILA even when
+// ACR PA_LATCH set. ILA stays 0.
+test("CA1 active edge does NOT capture PA into ILA (MYVIA=false)", () => {
   const h = makeHarness();
   h.via.store(VIA_PCR, VIA_PCR_CA1_POS_ACTIVE_EDGE);
   h.via.store(VIA_ACR, VIA_ACR_PA_LATCH);
   h.via.store(VIA_DDRA, 0);  // input
   h.state.paPin = 0xa5;
   h.via.signal("ca1", "rise");
-  assert.equal(h.via.ila, 0xa5);
+  assert.equal(h.via.ila, 0);  // ILA never written
 });
 
-// VICE viacore.c lines 1106-1120 — PRA read returns ILA when
-// PA_LATCH enabled & IFR_CA1 still set.
-test("PRA read returns ILA when latching enabled and CA1 IFR pending", () => {
+// Spec 442 — PRA read returns LIVE pin regardless of ACR PA_LATCH +
+// CA1 IFR state (MYVIA=false).
+test("PRA read returns live pin even with PA_LATCH set + CA1 pending", () => {
   const h = makeHarness();
   h.via.store(VIA_PCR, VIA_PCR_CA1_POS_ACTIVE_EDGE);
   h.via.store(VIA_ACR, VIA_ACR_PA_LATCH);
@@ -89,32 +99,27 @@ test("PRA read returns ILA when latching enabled and CA1 IFR pending", () => {
   h.state.paPin = 0x77;
   h.via.signal("ca1", "rise");
   assert.equal(h.via.ifr & VIA_IM_CA1, VIA_IM_CA1);
-  // Now change live pin AFTER the latched edge.
+  // Pin change AFTER the edge — read must show live value.
   h.state.paPin = 0x11;
-  // First read: still latched 0x77 (IFR_CA1 still set when entering read).
-  const r = h.via.read(VIA_PRA);
-  assert.equal(r, 0x77);
-  // VICE: PRA read CLEARS IFR_CA1; subsequent read returns live pin.
+  assert.equal(h.via.read(VIA_PRA), 0x11);
   h.state.paPin = 0x22;
-  const r2 = h.via.read(VIA_PRA);
-  assert.equal(r2, 0x22);
+  assert.equal(h.via.read(VIA_PRA), 0x22);
 });
 
-// VICE viacore.c lines 1494-1498 — CB1 active edge captures PB pin
-// into ILB when PB_LATCH set.
-test("CB1 active edge captures PB pin into ILB when PB_LATCH enabled", () => {
+// Spec 442 — CB1 edge does NOT write ILB (MYVIA=false).
+test("CB1 active edge does NOT capture PB into ILB (MYVIA=false)", () => {
   const h = makeHarness();
   h.via.store(VIA_PCR, VIA_PCR_CB1_POS_ACTIVE_EDGE);
   h.via.store(VIA_ACR, VIA_ACR_PB_LATCH);
   h.via.store(VIA_DDRB, 0);
   h.state.pbPin = 0x99;
   h.via.signal("cb1", "rise");
-  assert.equal(h.via.ilb, 0x99);
+  assert.equal(h.via.ilb, 0);
 });
 
-// VICE viacore.c lines 1140-1148 — PRB read returns ILB+ORB merge when
-// PB_LATCH enabled & IFR_CB1 pending.
-test("PRB read returns ILB-merged when latching enabled and CB1 IFR pending", () => {
+// Spec 442 — PRB read returns live-pin mux regardless of ACR PB_LATCH
+// + CB1 IFR (MYVIA=false). All inputs → read = live pin.
+test("PRB read returns live pin even with PB_LATCH set + CB1 pending", () => {
   const h = makeHarness();
   h.via.store(VIA_PCR, VIA_PCR_CB1_POS_ACTIVE_EDGE);
   h.via.store(VIA_ACR, VIA_ACR_PB_LATCH);
@@ -123,15 +128,14 @@ test("PRB read returns ILB-merged when latching enabled and CB1 IFR pending", ()
   h.via.signal("cb1", "rise");
   assert.equal(h.via.ifr & VIA_IM_CB1, VIA_IM_CB1);
   h.state.pbPin = 0x99;
-  const r = h.via.read(VIA_PRB);
-  assert.equal(r, 0x55);  // latched, not live
+  assert.equal(h.via.read(VIA_PRB), 0x99);
 });
 
-// VICE viacore.c lines 1080-1094 — PRA read with latch DISABLED returns
-// live pin always.
+// Spec 442 — PRA read with no ACR PA_LATCH still returns live pin
+// (control case — also matches MYVIA-on behaviour).
 test("PRA read returns live pin when PA_LATCH disabled", () => {
   const h = makeHarness();
-  h.via.store(VIA_ACR, 0);  // no PA latch
+  h.via.store(VIA_ACR, 0);
   h.via.store(VIA_DDRA, 0);
   h.state.paPin = 0x10;
   assert.equal(h.via.read(VIA_PRA), 0x10);
