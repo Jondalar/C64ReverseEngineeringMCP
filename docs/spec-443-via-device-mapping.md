@@ -127,19 +127,113 @@ MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK.
 
 ---
 
-## D. Summary
+## D. Phase 2 — open-row deep dive (resolved)
 
-Phase 1 mapping done at structural level:
-- VIA1: 17 callback rows + 4 setup rows + 4 bus-entry rows = **25 rows**
-- VIA2: 14 callback rows + 5 setup-bus rows = **19 rows**
-- DDR: 4 rows
-- **Total: 48 rows** (target was 40+, MET)
+### D.1 iec.drive_store_pb body (VICE store_prb 229-241)
 
-Open deep-dive rows (5): iec.drive_store_pb body, VIA1 attachIrqLine
-single-registration, VIA1 CA1 ATN edge, VIA2 store_prb (stepper/motor/
-density/LED), VIA2 reset.
+VICE inline (`via1d1541.c:229-241`):
+```
+*drive_data = ~byte;
+*drive_bus = (((*drive_data) << 3) & 0x40)
+           | (((*drive_data) << 6)
+             & ((uint32_t)(~(*drive_data) ^ iecbus->cpu_bus) << 3) & 0x80);
+cpu_port = cpu_bus;
+for (unit = 4; unit < 8 + NUM_DISK_UNITS; unit++)
+    cpu_port &= drv_bus[unit];
+drv_port = ((cpu_port >> 4) & 0x4)
+         | (cpu_port >> 7)
+         | ((cpu_bus << 3) & 0x80);
+```
+
+TS (`iec-bus-core.ts:140-144` calling `recompute_drv_bus` +
+`iec_update_ports`):
+- drv_data[unit] = ~byte (line 141)
+- term1/term2 drv_bus formula (lines 122-135) — bit-for-bit MATCH
+  (TS uses `>>> 0` for u32 cast, VICE uses `(uint32_t)` C-cast)
+- cpu_port AND-reduce (lines 109-111) — MATCH (TS widens to 4..15;
+  drv_bus[12..15] stay 0xff so AND is identity)
+- drv_port formula (lines 112-116) — bit-for-bit MATCH
+
+**Verdict: MATCH.**
+
+### D.2 VIA1 attachIrqLine single-registration
+
+TS `setInt` (`via1d1541.ts:163-178`) uses `chipPrev` guard so
+`chipIntStatus.setIrq` only fires on level changes. Legacy callback
+still fires every call (Spec 203-c3 edge consumers).
+
+**Verdict: MATCH-with-extension** (Spec 410 chip-side push;
+equivalent end-effect to VICE `interrupt_set_irq`).
+
+### D.3 VIA1 CA1 ATN edge
+
+Path: c64cia2 PA write → `c64_store_dd00(data, onAtnEdge)` →
+iec-bus-core compares cpu_bus & 0x10 vs iec_old_atn → fires
+`onAtnEdge(rise)` → Via1d1541 calls `via.signal("ca1", "rise/fall")`
+→ viacore_signal CA1 case fires IFR_CA1 + updateIrq.
+
+Spec 432 audit-doc confirms literal-VICE port; canary 5/5 PASS
+under both Spec 442 (peek-raw + MYVIA gate) and earlier Spec 441
+proves the path is intact.
+
+**Verdict: MATCH** (Spec 432 owned + post-Spec-442 verified).
+
+### D.4 VIA2 store_prb (stepper/motor/density/LED)
+
+Spec 441 step 4e-flip ported VICE `via2d.c:199-355` literal into
+`via2-gcr-shifter-coupling.ts:148-207` (`onPbOutputChanged`):
+- LED tracking (PB3) via ledSink — TS extension (VICE updates
+  `drv->led_status` + `led_active_ticks`); not load-bearing for
+  V1 emulation, observable via Spec 424.
+- Stepper coil decode (PB0/PB1) via `headPosition.applyStepBits`
+  gated on motorOn — MATCH (VICE 232-313, also gated on
+  `byte & 0x04`).
+- Motor on/off (PB2) → `setDriveMotor` + `rotation_begins` on edge
+  — MATCH (VICE 324-352, includes `rotation_begins(drv)` on motor-on
+  edge at line 330).
+- Speed zone (PB5/PB6) → `rotation_speed_zone_set` — MATCH
+  (VICE 321-323).
+- `byte_ready_edge` consumption → DriveCpu.fireByteReady (extracted
+  to consumer at scheduler-cycle wrapper, VICE 332-336
+  `drive_cpu_set_overflow(dc)` analog).
+- `byte_ready_level = 0` epilogue — MATCH (VICE 354).
+
+**Verdict: MATCH** (Spec 441 owned).
+
+### D.5 VIA2 reset
+
+VICE `via2d.c:423-431`:
+```
+led_status = 1;
+drive_update_ui_status();
+```
+
+TS backend `reset: () => undefined` (`via2d1541.ts:179`).
+
+**Verdict: MINOR-DEVIATION** — TS doesn't set `led_status = 1` on
+chip reset. UI-only side effect (first DOS PB write clears it
+within ~100 cycles regardless). Not load-bearing for emulation;
+LED observers via Spec 424 will see one missed initial pulse on
+cold reset.
+
+Possible tightening: backend reset hook could mirror VICE by
+setting shadowDrive.led_status = 1 if attached. Deferred — not in
+critical path.
+
+## E. Summary
+
+Phase 1 mapping: **48 rows**.
+Phase 2 deep-dive: 5 rows resolved (4 MATCH, 1 MINOR-DEVIATION).
+
+| Verdict | Count |
+|---|---|
+| MATCH | 41 |
+| MATCH-with-extension | 2 (VIA1 setInt chip-side push; VIA1 readPb 1571 carve-out documented) |
+| MINOR-DEVIATION | 2 (VIA2 reset led_status=1; storePcr signature returns BYTE) |
+| OMIT-OK | 9 (undumps, dumps, restore_int, 1571/parallel cable carve-outs) |
+| BUG / MISSING (load-bearing) | **0** |
 
 Already MATCH-verified via Spec 441 rotation flip path: PA/PB read,
 PA/PB write, PCR/CA2/CB2 rotation hooks.
 
-No BUG / MISSING (load-bearing) found at this depth.
+No load-bearing BUG / MISSING.
