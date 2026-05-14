@@ -164,16 +164,70 @@ divergences (GCR_DECODE table `0xff` vs VICE `0`; `gcr_decode_block`
 export semantic). Sprint 430 should be considered PARTIAL. The
 full-1541 work is captured in **Epic 440** (Specs 440-451) below.
 
-## Epic 440 status (2026-05-13)
+## Epic 440 status (2026-05-14)
 
-Branch: TBD (start new branch when Spec 440 charter is committed).
+Branch: `1541-literal-vice`.
 **Doctrine:** No subagent audits. Claude reads VICE source itself
 for every audit verdict. 12 sequential specs (440 → 451). Full chip
 + function 1:1 port; write-path + rotation audit + alarm system +
-drivesync + memory map + ROM loader + fdc — all OPEN.
+drivesync + memory map + ROM loader + fdc.
 
 Goal: end-to-end byte-identical 1541 vs VICE for read+write+timing.
 Doc: `docs/epic-1541-full-vice-port.md`.
+
+### Per-spec status
+
+| Spec | Module | Status |
+|---|---|---|
+| 440 | Epic charter + doctrine + 7-step workflow | DONE |
+| **441** | rotation.c + p64 stubs + drive_t + VIA2 backend port | **DONE** (4f legacy delete deferred — see below) |
+| 442 | viacore.c Claude-self re-audit | **NEXT** (recommended) |
+| 443 | VIA1 + VIA2 d1541 literal re-port | OPEN |
+| 444 | drivecpu.c true literal | OPEN |
+| 445 | gcr.c write-path | OPEN |
+| 446 | drivesync.c full | OPEN |
+| 447 | memiec.c + driverom.c | OPEN |
+| 448 | alarm.c literal port | OPEN |
+| 449 | fdc.c error codes | OPEN |
+| 450 | Validation harness | OPEN |
+| 451 | NTSC regression check | OPEN |
+
+### Spec 441 DONE summary (2026-05-14)
+
+- `rotation.ts` is the production primitive for 1541 disk-side
+  bit-stream. All VIA2 PA/PB/PCR/CA2/CB2 backend hooks route
+  through rotation_byte_read / rotation_rotate_disk per VICE
+  via2d.c literal port. Drive byte-ready edges consumed via
+  DriveCpu.fireByteReady (VICE drivecpu_set_overflow analog).
+- `drive_t` literal mirror in `drive-t.ts` (50 fields). `rotation_t`
+  module-internal in `rotation.ts`.
+- P64 helpers throwing-stub; mount-gate refuses .p64 disks with
+  marker.
+- Tests: `tests/unit/drive/rotation.test.ts` (15/15 PASS).
+  Canary gate 5/5 PASS. A/B harness `C64RE_ROTATION_DIFF=1`
+  motm 20M instructions 0 divergence. Lorenz Disk1 600s: 83
+  tests, 0 fails.
+- Perf: rotation overhead ~0.3% CPU (profile-verified). Lorenz
+  timeout NOT in Spec 441 code; out of scope.
+- 4f (delete gcr-shifter + 82 grep hits) DEFERRED — gcrShifter
+  still needed for the A/B harness, mount notification sinks,
+  and test-only PA/PB fallback. Wiring chores rather than
+  correctness work; cleanup spec after 442.
+
+Docs:
+  - `docs/spec-441-mapping.md`
+  - `docs/spec-441-flip-result.md`
+  - `docs/spec-441-production-proof.md` (FINAL)
+  - `docs/spec-441-step-4-migration-plan.md`
+  - `docs/spec-441-overnight-halt.md`
+
+### Next recommended spec — 442 viacore re-audit
+
+`viacore.c` (2243 LoC) gegen `via6522-vice.ts` (1341 LoC) line-by-
+line. Spec 434 has a subagent-produced audit doc (`spec-434-viacore-audit.md`)
+that is **invalidated** under epic-440 doctrine — needs Claude-
+self re-audit per [[feedback_1541_port_workflow]]. Target: 60+
+row matrix superseding the 33-row subagent doc.
 
 ## Step order (legacy 6-step view — for historical context)
 

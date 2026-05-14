@@ -1,11 +1,35 @@
-# Spec 441 step 4g — production proof + tests
+# Spec 441 — production proof + tests + perf (FINAL)
 
 Date: 2026-05-14  
-Commit: `34bccc7` (FLIP) + `<this commit>` (tests).
+Status: **DONE** (4f legacy delete deferred — see "Deferred" below).  
+Branch: `1541-literal-vice`.  
+Key commits:
+  - `34bccc7` — FLIP works: VICE-literal VIA2 backend port
+  - `d797f40` — flip-result progress
+  - `8123dc4` — snapshot status + production-proof + rotation tests
+  - `<perf>` — fast-path attach-clk guard
+  - `<this>` — final docs.
+
+## Source of truth
+
+**`rotation.ts` is the production primitive for the 1541 disk-side
+bit-stream.** All VIA2 PA/PB/PCR/CA2/CB2 backend hooks read and
+write `drive_t` fields and call `rotation_byte_read` /
+`rotation_rotate_disk` per VICE `via2d.c`. Drive byte-ready
+edges (`drive.byte_ready_edge`) consumed in the cycle wrapper
+via `DriveCpu.fireByteReady` (VICE `drivecpu_set_overflow`
+analog).
+
+`drive_t` is the literal mirror of VICE `drive_t` (50 fields,
+file `src/runtime/headless/drive/drive-t.ts`). `rotation_t`
+mirror is module-internal in `rotation.ts`. P64 image format
+helpers are throwing stubs gated by `isP64Image` mount-time
+detection ([[feedback_p64_stubs_ok]]).
 
 This doc traces the SINGLE production rotation path through the
-headless 1541 + lists the regression-test coverage. Satisfies the
-Spec 441 step 4g acceptance.
+headless 1541 + lists the regression-test coverage. Satisfies
+the Spec 441 acceptance (4a + 4b + 4c + 4d + 4e + 4g; 4f
+deferred).
 
 ## Single production path (file:line cited)
 
@@ -123,10 +147,30 @@ Mirrors VICE `via2d.c:72 set_ca2` and `via2d.c:95 set_cb2`.
 | `drive.GCR_read` | 5 (rotation.ts producer + via2-coupling consumer) | active |
 | `drive.byte_ready_edge` | 6 (cycle-wrapper consumer + rotation.ts producers) | active |
 
-`gcrShifter` retained ONLY for:
-1. C64RE_ROTATION_DIFF env harness (cycle-wrapper line 121)
-2. Mount/attach notifyMediaChange hooks (kernel)
-3. test-only fallback when shadowDrive null
+## gcrShifter remaining roles
+
+`gcrShifter` (`src/runtime/headless/drive/gcr-shifter.ts`) is no
+longer on the production rotation path. It survives in the tree
+solely for:
+
+1. **A/B verify harness** — `C64RE_ROTATION_DIFF=1` env-gated
+   parallel tick in `cycle-wrappers.ts:147-149`. Used by
+   `rotation-diff-harness.ts` to cross-check rotation.ts output
+   per cycle. Production runs (env unset) never tick the
+   shifter.
+2. **Mount / attach notification sink** — `mount.ts` continues
+   to invoke `gcrShifter.notifyAttach` / `notifyDetach` /
+   `notifyMediaChange` as a no-op sink. drive_t fields are
+   updated authoritatively in the same call sites.
+3. **Test-only PA/PB read fallback** — `via2-gcr-shifter-coupling.ts`
+   `readPa` / `readPb` falls back to `shifter.dataByte` /
+   `shifter.syncBit` only when `shadowDrive` is null. Reserved
+   for unit tests that construct VIA2 in isolation without a
+   Drive_t.
+
+When `C64RE_ROTATION_DIFF` is unset (= production):
+gcrShifter has no observable effect on simulation output. The
+bit-stream primitive is rotation.ts end-to-end.
 
 ## Tests
 
@@ -151,20 +195,36 @@ All 15 PASS.
 | Suite | Status |
 |---|---|
 | `npm run canary:spec-430` | 5/5 PASS (motm + im2 to game code; lnr-s1 RED-as-expected) |
-| `C64RE_ROTATION_DIFF=1 npm run canary:spec-430:trace --canary motm` | 20M instructions, 0 divergence |
+| `C64RE_ROTATION_DIFF=1` motm capture | 20M instructions, 0 divergence |
 | `node tests/unit/drive/rotation.test.ts` | 15/15 PASS |
-| `npm run test:lorenz:disk1` | 50+ tests OK, 0 fails, INCONCLUSIVE at 600s (perf, not correctness) |
+| `npm run test:lorenz:disk1` (600s) | **83 tests started, 0 fails**, INCONCLUSIVE at 600s (perf cap — out of Spec 441 scope, see Perf below) |
 
-## Open work
+## Deferred — 4f legacy delete
 
-- 4d Snapshot migration — gcrShifter.snapshot/restore is dead code
-  in current codebase (no callers in session-vsf.ts or save-load-tests.ts).
-  Migration EFFECTIVELY DONE: rotation_table_get/set already exists
-  in rotation.ts and reads/writes drive_t.snap_* fields directly.
-  When session-vsf extends drive save-state, it should use those.
-- 4f Delete legacy — 82 grep hits to clean once snapshot path is
-  fully retired and harness can be reduced.
-- Perf — addressed in section below.
+The 82 `gcrShifter` / `GcrShifter` / `gcr-shifter` references in
+`src/` are NOT deleted in this spec, even though `rotation.ts`
+is the production primitive. Reasons:
+
+1. **A/B harness still active.** The `C64RE_ROTATION_DIFF=1`
+   path requires gcrShifter for divergence detection. Deleting
+   it loses the only sanity check against rotation.ts drift.
+2. **Mount notification sink.** Removing gcrShifter requires
+   re-routing `notifyAttach` / `notifyDetach` / `notifyMediaChange`
+   call sites in `mount.ts` to drive_t equivalents. Already
+   partially done (drive.attach_clk etc) but the sink calls
+   themselves remain.
+3. **Test fallback.** Unit tests that construct VIA2 without
+   a kernel use the shifter-fallback PA/PB reads. Deleting
+   gcrShifter requires a stub Drive_t in every such test.
+
+These are all wiring chores, not correctness work. Deferring to
+a follow-up cleanup spec after Spec 442 (viacore re-audit) so
+this branch stays scoped to "rotation production port".
+
+`gcrShifter.snapshot` / `restore` is dead code today (no
+production caller in `session-vsf.ts` or `save-load-tests.ts`);
+the future save-state extension should use `rotation_table_get` /
+`rotation_table_set` directly against drive_t.
 
 ## Perf (Spec 441 perf-stabilization pass)
 

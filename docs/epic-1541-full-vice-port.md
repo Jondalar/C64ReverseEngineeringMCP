@@ -72,24 +72,54 @@ am Ende validiert.
 
 Sequenziell zwingend ([[feedback_sequential_specs]]).
 
-| # | Spec | Inhalt | Erwartete größe |
-|---|------|--------|------------------|
-| 1 | **440** | Epic charter (dieses doc + matrix). Status-baseline | klein |
-| 2 | **441** | `rotation.c` literal port + audit `gcr-shifter.ts` | mittel |
-| 3 | **442** | `viacore.c` Claude-eigener line-by-line re-audit | groß |
-| 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel |
-| 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel |
-| 6 | **445** | `gcr.c` write-path + encode (`gcr_write_sector`, `gcr_convert_4bytes_to_GCR`, `gcr_convert_sector_to_GCR`) | mittel |
-| 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein |
-| 8 | **447** | `memiec.c` + `driverom.c` literal | mittel |
-| 9 | **448** | `alarm.c` literal port (alarm_context_t, alarm_t, schedule) | groß |
-| 10 | **449** | `fdc.c` + cbmdos error codes + state machine | mittel |
-| 11 | **450** | Validation harness: full read+write+verify roundtrip vs VICE | mittel |
-| 12 | **451** | NTSC sync regression check (PAL-first done) | klein |
+| # | Spec | Inhalt | Größe | Status |
+|---|------|--------|-------|--------|
+| 1 | **440** | Epic charter + 7-step workflow | klein | DONE |
+| 2 | **441** | `rotation.c` literal port + p64 stubs + drive_t + VIA2 backend | groß | **DONE** (4f legacy delete deferred) |
+| 3 | **442** | `viacore.c` Claude-eigener line-by-line re-audit | groß | **NEXT** |
+| 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel | OPEN |
+| 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel | OPEN |
+| 6 | **445** | `gcr.c` write-path + encode | mittel | OPEN |
+| 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | OPEN |
+| 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | OPEN |
+| 9 | **448** | `alarm.c` literal port | groß | OPEN |
+| 10 | **449** | `fdc.c` + cbmdos error codes + state machine | mittel | OPEN |
+| 11 | **450** | Validation harness: full read+write+verify | mittel | OPEN |
+| 12 | **451** | NTSC sync regression check | klein | OPEN |
 
 Phasen müssen einzeln durchlaufen → spec → audit-doc → fixes → gate.
 Kein Sprint hat ein Subagent-audit als acceptance. Claude muss
 selbst nachprüfen.
+
+### Spec 441 closeout (2026-05-14)
+
+- `rotation.ts` ist production primitive für 1541 disk-side
+  bit-stream. VIA2 backend port literal gegen VICE via2d.c
+  (read_pra, read_prb, store_pra, store_prb, store_pcr/via2d_update_pcr,
+  set_ca2, set_cb2) committed.
+- `drive_t` literal 50-felder-mirror in `drive-t.ts`. `rotation_t`
+  module-internal in `rotation.ts`.
+- p64 helpers throwing-stub + mount-gate (`isP64Image`).
+- A/B harness `C64RE_ROTATION_DIFF=1` zero divergence über 20M
+  motm instructions.
+- Tests 15/15 PASS, Canary 5/5, Lorenz Disk1 83 tests 0 fails
+  @ 600s.
+- Perf: rotation overhead 0.3% CPU. Lorenz timeout out of
+  Spec-441 scope.
+- 4f (delete gcr-shifter + 82 grep hits) DEFERRED — A/B harness +
+  mount notification sinks + test-only PA/PB fallback need
+  re-wiring before deletion is safe. Cleanup spec after 442.
+
+Docs: `docs/spec-441-production-proof.md` (final), -mapping,
+-flip-result, -step-4-migration-plan, -overnight-halt.
+
+### Spec 442 starting point
+
+`viacore.c` (2243 LoC) gegen `via6522-vice.ts` (1341 LoC) line-
+by-line. Spec 434 audit doc (`spec-434-viacore-audit.md`) is
+**invalidated** under epic-440 doctrine (subagent-produced) —
+needs Claude-self re-audit per [[feedback_1541_port_workflow]].
+Target: 60+ row matrix superseding the 33-row subagent doc.
 
 ## Acceptance Epic-level
 
