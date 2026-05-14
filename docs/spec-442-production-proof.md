@@ -95,10 +95,10 @@ f3be04b Spec 442 charter
 a7d7e5b Spec 442 Phase 2 — reset/set_sr/read_clk verified
 0f55072 Spec 442 Phase 3 — signal/set_cb1/set_cb2 audit
 cd1d872 Spec 442 Phase 4 — MYVIA_NEED_LATCHING gate
-????    Spec 442 Phase 5 — store/read audit
-????    Spec 442 Phase 6+7 — shift_register / cache_cb12 / peek
-????    Spec 442 Phase 8 — viacore-conformance + revised ila/ilb tests
-????    Spec 442 Phase 9 — production-proof + PLAN/epic update (this)
+83bbf39 Spec 442 Phase 5 — store/read audit
+4388318 Spec 442 Phase 6+7 — shift_register / cache_cb12 / peek
+5983745 Spec 442 Phase 8 — viacore-conformance + revised ila/ilb tests
+040a051 Spec 442 Phase 9 — production-proof + PLAN/epic update
 ```
 
 ## Doctrine compliance

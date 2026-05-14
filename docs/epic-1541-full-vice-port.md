@@ -54,7 +54,7 @@ am Ende validiert.
 |-------|------------|-----|--------------------|------|--------|
 | 6502 CPU (drive-side) | `src/6510core.c` + `mainc64cpu.c` | ~2000 | `Cpu6510` + `Cpu65xxVice` (Spec 428) | – | TEIL |
 | 6502 dispatcher | `drivecpu.c` | 737 | `drive-cpu.ts` | 444 | PARTIAL |
-| VIA 6522 core | `core/viacore.c` | 2243 | `via6522-vice.ts` 1341 LOC | 442 | UNGEPRÜFT-PER-CLAUDE |
+| VIA 6522 core | `core/viacore.c` | 2243 | `via6522-vice.ts` 1341 LOC | 442 | AUDITED (Spec 442 DONE 2026-05-14) |
 | VIA1 device | `iec/via1d1541.c` | 420 | `via1d1541.ts` 383 LOC | 443 | PARTIAL |
 | VIA2 device | `iec/via2d.c` (file?) | ? | `via2d1541.ts` 197 LOC | 443 | NIE AUDITED |
 | GCR encode/decode | `gcr.c` | 357 | `gcr.ts` 530 LOC | 445 | LESE OK / WRITE FEHLT |
