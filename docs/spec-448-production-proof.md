@@ -58,9 +58,11 @@
   was doc-rot from a stale design note.
 - **Naming**: Sprint 149 used camelCase exports
   (`alarmSet`, `alarmContextDispatch` …). Renamed to VICE-verbatim
-  snake_case (`alarm_set`, `alarm_context_dispatch` …). `@deprecated`
-  camelCase aliases retained for transition — removable in follow-up
-  once back-compat window closes.
+  snake_case (`alarm_set`, `alarm_context_dispatch` …) in Spec 448
+  (commit `52bf98f`). `@deprecated` camelCase fn + type aliases were
+  retained for transition, then **removed in Spec 448.1**
+  (commit `9ad2e3f`) after all 15 type-callers migrated. Module
+  surface is now 100% VICE-verbatim snake_case.
 
 ## Mass-rename callers
 
@@ -87,6 +89,26 @@ Note: `alarmContext` (no API-fn suffix) appearing in option-bag /
 member-field names is preserved — TS field-naming convention, not
 VICE API surface.
 
+### Spec 448.1 type-alias migration (commit `9ad2e3f`)
+
+15 files migrated camelCase type imports → snake_case
+(`Alarm → alarm_t`, `AlarmContext → alarm_context_t`,
+`AlarmCallback → alarm_callback_t`, `PendingAlarm → pending_alarms_t`):
+
+```
+src/runtime/headless/{integrated-session,vic/vic-ii-vice,
+  cpu/{drive-cpu-contract,cpu65xx-vice},
+  via/{via6522-vice,via1d1541,via2d1541},
+  peripherals/{cia1,cia2}, scheduler/cycle-wrappers,
+  drive/{drive-cpu,drive-types}, cia/cia6526-vice,
+  kernel/headless-machine-kernel}.ts
+tests/unit/alarm/alarm-context.test.ts
+```
+
+The 13 `@deprecated` camelCase fn re-exports + 4 type aliases at
+the bottom of `alarm-context.ts` (lines 382-414 in commit `52bf98f`)
+were deleted — zero remaining callers post-migration.
+
 ## Verification table
 
 | Gate | Result |
@@ -96,6 +118,7 @@ VICE API surface.
 | `npx tsx tests/unit/alarm/alarm-dispatch.test.ts` (NEW tie-breaking smoke) | **11/11 PASS** |
 | `node tests/integration/drivecpu-vs-vice-baseline.test.mjs` (Spec 444 cycle-diff) | **9999/9999 within ±2; max abs delta = 1** |
 | `npm run canary:spec-430` (5 baselines) | **5/5 PASS** (motm/mm-s1/im2/scramble PASS, lnr-s1 red-as-expected) |
+| Spec 448.1 hygiene rerun (build + alarm + cycle-diff + canary) | **all PASS** (no regression from type-alias migration / dead-alias purge) |
 
 **CRITICAL**: Spec 444 cycle-diff is the timing-backbone regression
 gate — alarm dispatch order directly drives drive CPU cycle counting.
@@ -114,10 +137,9 @@ Both paths covered by `alarm-dispatch.test.ts` cases 1 + 2.
 
 | Commit | Subject |
 |---|---|
-| `<this-commit-sha>` | Spec 448 DONE — alarm.c literal re-port + 36-file mass-rename + tie-break smoke |
-
-Prior commits in scope:
-- `452f493` Spec 448 charter update + mapping doc — Claude-self re-audit (Sprint 149 INVALIDATED)
+| `452f493` | Spec 448 charter update + mapping doc — Claude-self re-audit (Sprint 149 INVALIDATED) |
+| `52bf98f` | Spec 448 DONE — alarm.c literal re-port + 36-file fn-rename + tie-break smoke |
+| `9ad2e3f` | Spec 448.1 hygiene — type-alias migration (15 files) + dead-alias deletion |
 
 ## Sprint 148/149 verdicts INVALIDATED
 

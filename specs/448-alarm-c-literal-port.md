@@ -30,7 +30,10 @@ Today: TS class with custom queue. Must become literal port:
 
 ## Audit + port
 
-`docs/spec-448-alarm-audit.md`.
+[docs/spec-448-alarm-mapping.md](../docs/spec-448-alarm-mapping.md)
+(Claude-self line-by-line audit, 18 entry-point rows). Hygiene
+follow-up Spec 448.1 (commit `9ad2e3f`) migrated the remaining
+type-alias surface — see production-proof for full SHA list.
 
 ## Acceptance
 

@@ -1,6 +1,6 @@
 # Spec 448 — alarm.c + alarm.h ↔ alarm-context.ts mapping (Claude-self re-audit)
 
-**Status:** PROGRESS — Phase 2 audit complete (algorithm verified MATCH; rename + header-rot fixes pending)
+**Status:** DONE (2026-05-14). Audit produced 0 algorithm bugs; all RENAME-NEEDED rows below resolved by commits `52bf98f` (Spec 448, surface + 36 caller fn-rename) + `9ad2e3f` (Spec 448.1, type-alias migration + dead-alias purge). Table line numbers below reflect PRE-rename TS state preserved for audit-trail; current snake_case state lives in `src/runtime/headless/alarm/alarm-context.ts`.
 **VICE sources:**
 - `src/alarm.c` (212 LoC)
 - `src/alarm.h` (187 LoC)
@@ -193,11 +193,11 @@ OR: Mass rename in single commit (cleaner). Estimated ~30-50 call sites.
 
 ## G. Acceptance check
 
-- [x] Mapping doc committed (this file)
-- [ ] Header doc-rot fixed (Phase 3)
-- [ ] Snake_case rename for 12 fns + 4 types (Phase 3)
-- [ ] Caller migration (Phase 5)
-- [ ] Tie-breaking smoke test (Phase 4)
-- [ ] Spec 444 cycle-diff unchanged (Phase 6)
-- [ ] canary:spec-430 5/5 (Phase 6)
-- [ ] Production-proof doc with SHAs (Phase 6)
+- [x] Mapping doc committed (this file, commit `452f493`)
+- [x] Header doc-rot fixed — "min-heap" claim + Sprint 149/401 cites purged (commit `52bf98f`)
+- [x] Snake_case rename for 12 fns + 4 types (commit `52bf98f` fns, commit `9ad2e3f` types)
+- [x] Caller migration — 36 fn callers (`52bf98f`) + 15 type callers (`9ad2e3f`); dead `@deprecated` aliases purged in `9ad2e3f`
+- [x] Tie-breaking smoke test — `tests/unit/alarm/alarm-dispatch.test.ts` 11/11 PASS (commit `52bf98f`)
+- [x] Spec 444 cycle-diff unchanged — 9999/9999 within ±2, max abs delta = 1
+- [x] canary:spec-430 5/5 PASS (re-run after both 448 + 448.1)
+- [x] Production-proof doc with SHAs — `docs/spec-448-production-proof.md`
