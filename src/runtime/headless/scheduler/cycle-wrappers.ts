@@ -30,6 +30,7 @@ import type { CLOCK } from "../util/uint.js";
 import type { VicIIVice } from "../vic/vic-ii-vice.js";
 import type { Sid6581 } from "../sid/sid.js";
 import type { DriveCpu } from "../drive/drive-cpu.js";
+import { rotation_rotate_disk } from "../drive/rotation.js";
 
 export class Cpu6510Cycled implements CycleSteppable {
   // Cycles still owed for the current instruction. 0 = at boundary.
@@ -123,6 +124,18 @@ export class DriveCpuCycled implements CycleSteppable {
       // Sprint 96 part 7 legacy path: TrackBuffer-inline shifter.
       // Used when no GcrShifter is wired (back-compat).
       this.drive.trackBuffer.tickShifter(1, this.drive.headPosition.currentTrack);
+    }
+    // Spec 441 step 4e-shadow — also tick rotation.ts in parallel so
+    // drive_t state advances "warm" alongside the production
+    // gcrShifter. Consumer reads remain on gcrShifter (production
+    // path) until step 4e-flip wires consumers to drive_t. Clear
+    // byte_ready_edge after each tick to prevent stale flag
+    // accumulation; the production V-flag/CA1-IFR plumbing runs via
+    // gcrShifter.onByteReady (see drive-cpu.ts:835).
+    {
+      const { drive } = this.drive;
+      rotation_rotate_disk(drive);
+      drive.byte_ready_edge = 0;
     }
     if (this.drive.microcoded) {
       // Microcoded path (Sprint 96 part 6): per-cycle bus access.
