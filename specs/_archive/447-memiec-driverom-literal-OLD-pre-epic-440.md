@@ -1,8 +1,11 @@
 # Spec 447 — `memiec.c` + `driverom.c` literal port (ARCHIVED PRE-EPIC-440 STUB)
 
 **Status:** SUPERSEDED — pre-Epic-440 stub. Production charter is
-`specs/447-memiec-driverom.md` (new in Spec 447 charter commit).
-Read-only archive.
+`specs/447-memiec-driverom.md` (commit 03a7692). Read-only archive.
+
+**Stale LoC values in this archived stub (corrected in production charter):**
+- memiec.c: stub says "177 LoC" → actual 281 LoC
+- driverom.c: stub says "~300 LoC" → actual 544 LoC
 
 **Original status:** OPEN  
 **Priority:** MEDIUM  

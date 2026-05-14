@@ -499,14 +499,20 @@ export class DriveBus implements CpuMemory {
     //   $A0-$BF → trap_rom[0x2000..$3FFF]  (line 174, drive_rama disabled)
     //   $C0-$FF → trap_rom[$4000..$7FFF]  (line 176, canonical 16K DOS ROM)
     //
-    // For a 1541 stock split-ROM (16K), trap_rom[0..$3FFF] is sparse =
-    // zero — drive_read_rom returns 0 there. Observable equivalent to
-    // open-bus on a 1541-II 32K image, $80-$BF mirrors valid ROM data.
+    // For a 1541 stock split-ROM (16K), VICE iecrom.c:175-178 memcpy-
+    // duplicates the 16K data into the LOW half of the 32K trap_rom
+    // buffer too — so trap_rom[0..$3FFF] = trap_rom[$4000..$7FFF] = the
+    // canonical 16K ROM bytes. Result: $80-$BF reads return the same
+    // bytes as $C0-$FF on stock 1541.
     //
-    // TS rom buffer is 16K (DRIVE_ROM_SIZE = 0x4000). For literal
-    // memiec.c shape, we dispatch all three windows; rom[] indexing
-    // wraps around the 16K (drive_read_rom modulo). Stock split-ROM
-    // returns 0 for $80-$BF, 1541-II would return mirror.
+    // TS rom buffer is the 16K canonical (= VICE trap_rom[$4000..$7FFF])
+    // — for stock 1541 the mirror is achieved by reading rom[0..$1FFF]
+    // for $80-$9F and rom[$2000..$3FFF] for $A0-$BF. Returns the same
+    // bytes as the $C0-$FF window. 4 mirror-equivalence tests pin it.
+    //
+    // For 1541-II 32K images (not in V1 scope), TS rom buffer would
+    // need to expand to 32K so $80-$BF reads the lower half + $C0-$FF
+    // reads the upper half. Spec 447 ticketed.
     const romReadCanonical: DrivePageRead = (addr) => {
       // $C000-$FFFF reads trap_rom[$4000-$7FFF]. With 16K rom buffer
       // (= just the canonical half), this is rom[(addr - 0xC000)].
@@ -515,17 +521,19 @@ export class DriveBus implements CpuMemory {
       return v;
     };
     const romPeekCanonical: DrivePagePeek = (addr) => this.rom[(addr - DRIVE_ROM_BASE) & 0x3fff]!;
-    // $8000-$BFFF: sparse on stock 16K split-ROM (returns 0).
-    // VICE pointer arithmetic: drive_read_rom with base = &trap_rom[0]
-    // for $80-$9F and &trap_rom[$2000] for $A0-$BF. With 16K buffer
-    // those bytes are zero-fill outside the canonical 16K. TS mirrors
-    // by reading rom[] at byte offset wrap; for stock buffer those
-    // offsets all return 0 (memmem outside loaded ROM is zero per
-    // Uint8Array init).
+    // $8000-$BFFF: stock 1541 16K split-ROM mirrors the canonical
+    // $C000-$FFFF data. VICE iecrom.c:175-178 memcpy-duplicates the
+    // 16K ROM into BOTH halves of the 32K trap_rom buffer; then
+    // memiec.c:169 reads trap_rom[0..$1FFF] for $80-$9F and
+    // memiec.c:174 reads trap_rom[$2000..$3FFF] for $A0-$BF.
+    //
+    // TS rom buffer = 16K canonical (= VICE trap_rom[$4000..$7FFF]).
+    // Reading rom[0..$1FFF] returns the first 8K of canonical ROM =
+    // identical bytes to what VICE trap_rom[0..$1FFF] holds after
+    // the iecrom.c mirror. Same for the $A0-$BF window. Verified by
+    // 4 mirror-equivalence tests in memiec-conformance.test.ts.
     const romReadLow: DrivePageRead = (addr) => {
-      // Pages $80-$9F read trap_rom[$0000..$1FFF]. TS rom buffer is
-      // 16K = trap_rom[$4000..$7FFF] only; pages $80-$9F are stub.
-      // For 32K image this would read low half.
+      // $80-$9F → rom[0..$1FFF] (first 8K of canonical mirror).
       const offset = addr - 0x8000;
       const v = offset < this.rom.length ? this.rom[offset]! : 0;
       this.lastBusValue = v;
@@ -536,7 +544,7 @@ export class DriveBus implements CpuMemory {
       return offset < this.rom.length ? this.rom[offset]! : 0;
     };
     const romReadMid: DrivePageRead = (addr) => {
-      // Pages $A0-$BF read trap_rom[$2000..$3FFF]. Sparse on 16K.
+      // $A0-$BF → rom[$2000..$3FFF] (second 8K of canonical mirror).
       const offset = (addr - 0xa000) + 0x2000;
       const v = offset < this.rom.length ? this.rom[offset]! : 0;
       this.lastBusValue = v;

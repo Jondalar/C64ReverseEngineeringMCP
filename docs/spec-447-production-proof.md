@@ -28,11 +28,32 @@
 | MATCH / MATCH-INLINED | 22 (1541 dispatch ranges + static helpers) |
 | PORTED-LITERAL (Spec 447 patch) | 2 (ROM mirrors $80-$9F + $A0-$BF) |
 | MATCH-IMPLICIT | 2 (driverom_load + driverom_init) |
+| **DEVIATION-DOCUMENTED** | 1 (trap_rom buffer shape: VICE 32K + trap-opcode patches → TS 16K canonical + offset-arithmetic; load-bearing for Spec 451 VSF byte-identical snapshot) |
 | OUT V1 | 5 (RAM expansion flags, non-1541 cases, DS1216 RTC) |
 | DEFER → Spec 451 | 2 (driverom snapshot R/W) |
-| TS-EXTRA-NOT-PORTED | 1 (driverom_initialize_traps optimization) |
+| TS-EXTRA-NOT-PORTED | 1 (driverom_initialize_traps optimization; same Spec 451 implication as trap_rom row) |
 | OMIT (UI) | 1 (driverom_test_load) |
 | **BUG / load-bearing MISSING** | **0** |
+
+### `trap_rom` buffer shape DEVIATION
+
+VICE: 32K `uint8_t trap_rom[DRIVE_ROM_SIZE_EXPANDED]` per disk unit.
+For stock 1541 16K split-ROM, iecrom.c:175-178 memcpy-duplicates the
+data into both halves (`rom[0..0x3FFF] = rom[0x4000..0x7FFF]` =
+canonical 16K). Then driverom.c:238 `memcpy(trap_rom, rom, 32K)` +
+driverom_initialize_traps patches TRAP_OPCODE bytes (e.g. at
+$EC9B-$8000 = trap_rom[$6C9B] for idle-loop skip).
+
+TS: 16K canonical `DriveBus.rom`. `$80-$BF` mirror achieved via
+offset-arithmetic (`romReadLow`/`romReadMid`) reading from the same
+canonical 16K. No trap-opcode patches (TS executes wait-loop natively).
+
+**V1 1541 observable difference: zero** (Spec 447 mirror-equivalence
+tests verify byte-identical reads at $80-$BF vs $C0-$FF).
+**Spec 451 VSF byte-identical snapshot: load-bearing** — VICE snapshot
+captures 32K trap_rom WITH trap-opcode patches; TS would need to
+either emit the 32K shape + patches for snapshot, OR Spec 451 accepts
+runtime-state match (not byte-identical buffer).
 
 ## Spec 447 patches
 
@@ -70,9 +91,11 @@
 | memiec.c cases for 1571/1571CR/1581/2000/4000/CMDHD | OUT V1 | Non-1541 drives per Spec 440 |
 | DS1216 RTC (drive_read_rom_ds1216) | OUT V1 | 4000-series only |
 | `driverom_test_load` | OMIT | UI/monitor only |
-| `driverom_initialize_traps` (idle trap-patch) | TS-EXTRA-NOT-PORTED | Optimization; TS executes wait-loop natively (correct, slower). Could revisit if perf gates require. |
+| `driverom_initialize_traps` (idle trap-patch) | Spec 451 (if byte-identical) / OPTIONAL otherwise | TS executes wait-loop natively (correct, slower). For VSF byte-identical snapshot, TS must emit the TRAP_OPCODE patches at the same trap_rom offsets VICE does. |
+| `trap_rom` buffer 32K shape (V1 = 16K canonical + arithmetic) | Spec 451 | VSF snapshot captures full 32K buffer; TS would need 32K shape + iecrom.c mirror semantics + trap-opcode patches. V1 1541 observable diff = 0 today. |
 | `driverom_snapshot_write/read` | Spec 451 | VSF cross-load |
-| 1541-II 32K ROM image support | OUT V1 | Stock 16K split-ROM only; 32K image would need DRIVE_ROM_SIZE expansion |
+| 1541-II 32K ROM image support | OUT V1 | Stock 16K split-ROM only; 32K image would need DRIVE_ROM_SIZE expansion + dispatch refactor |
+| `drive_read_zero` / `drive_store_zero` / `drive_peek_zero` separate handler | LOW (zero-page-explicit port) | TS unifies zero-page with RAM read; VICE separates for 6510 zero-page fast-path. Observable V1 diff = 0. |
 
 ## Verification
 
@@ -88,8 +111,9 @@
 ## Commits
 
 ```
-????    Spec 447 charter — memiec.c + driverom.c literal port (+ archive duplicate)
-????    Spec 447 DONE — $80-$BF ROM mirror port + 16 memiec-conformance tests + mapping + production-proof (this)
+03a7692 Spec 447 charter — memiec.c + driverom.c literal port (+ archive duplicate)
+d809445 Spec 447 DONE — $80-$BF ROM mirror port + 16 memiec-conformance tests + mapping + production-proof
+????    Spec 447 hygiene — code-comment fixes + trap_rom DEVIATION row + Spec 451 implications + charter LoC update (this)
 ```
 
 ## Doctrine compliance
