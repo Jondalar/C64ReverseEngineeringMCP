@@ -182,8 +182,9 @@ Doc: `docs/epic-1541-full-vice-port.md`.
 | 440 | Epic charter + doctrine + 7-step workflow | DONE |
 | **441** | rotation.c + p64 stubs + drive_t + VIA2 backend port | **DONE** (4f legacy delete deferred — see below) |
 | **442** | viacore.c Claude-self re-audit | **DONE** (MYVIA gate + peek-raw fix + 13 conformance tests) |
-| **443** | VIA1 + VIA2 d1541 literal re-port | **DONE** (48-row audit, 0 patches needed, 8 new conformance tests) |
-| 444 | drivecpu.c true literal | **NEXT** (recommended) |
+| **443** | VIA1 + VIA2 d1541 literal re-port | **DONE** (48-row audit + Bug-1083 + 23 conformance tests) |
+| **444** | drivecpu.c true literal | **DONE** (37-row audit + stop_clk/last_exc_cycles/is_jammed port + Via6522Vice.disable + VIA2 reset led + 6 conformance tests) |
+| 445 | gcr.c write-path | **NEXT** (recommended) |
 | 444 | drivecpu.c true literal | OPEN |
 | 445 | gcr.c write-path | OPEN |
 | 446 | drivesync.c full | OPEN |
@@ -283,14 +284,45 @@ since paths already literal post-Spec-441/442.
 Docs: `docs/spec-443-via-device-mapping.md`,
        `docs/spec-443-production-proof.md`.
 
-### Next recommended spec — 444 drivecpu.c true literal port
+### Spec 444 DONE summary (2026-05-14)
 
-`drivecpu.c` (737 LoC) ↔ TS `drive-cpu.ts`. Spec 430 renamed fields
-(math-equivalent only). Spec 444 does true literal port: stop_clk
-field, exec body, alarm dispatch, viacore_shutdown integration,
-attach_irq_line registration. Bundle: VIA2 reset led_status=1
-tightening + storePcr void-signature tightening from Spec 442/443
-findings.
+`drivecpu.c` (737 LoC) ↔ `drive-cpu.ts` (1356 LoC) audited.
+6 commits. Charter + Phase 1 + 1b (4 rows explicit per
+review-doctrine) + 2a (bundled 442/443 cleanups) + 2b (struct
+port + execute audit).
+
+- 37-row mapping + 5 sub-row matrices (B.1-B.5) + 3 deep-dive
+  sections (E.1-E.3).
+- Patches:
+  - `Via6522Vice.disable()` + `enabled` field (viacore.c:364-372
+    literal). reset() restores enabled=true.
+  - VIA2 backend reset mirrors `led_status=1` to shadowDrive
+    (via2d.c:423-431 literal).
+  - storePcr "void tightening" CORRECTED — VICE returns uint8_t,
+    not void. No patch needed (Spec 442 mapping error fixed).
+  - `DriveCpu.stop_clk` + `last_exc_cycles` + `is_jammed` fields
+    (drivetypes.h:81,83,97 literal). Wired in executeToClock.
+- Verdict tally: 22 MATCH / 6 MATCH-DEVIATION / 3 DEVIATION-DOCUMENTED /
+  3 MINOR / 9 OMIT-OK / 3 DEFER→Spec 451 / **0 BUG / 0 load-bearing
+  MISSING**.
+- Tests: new `tests/unit/drive/drivecpu-conformance.test.ts` (6/6).
+  Total VIA 91/91 + drive 34/34 PASS. Canary 5/5.
+- Ticketed: snapshot R/W → Spec 451; drivecpu_jam dispatcher,
+  wake_up stale-skip, drivecpu_shutdown, trigger_reset async,
+  monitor, banking → OUT V1 or LOW-priority.
+
+Docs: `docs/spec-444-drivecpu-mapping.md`,
+       `docs/spec-444-production-proof.md`.
+
+### Next recommended spec — 445 gcr.c write-path + encode
+
+`gcr.c` (357 LoC) write-path port. Spec 430 already audited the
+LESE-pfad (Table-invalid-marker + gcr_decode_block semantic
+post-Spec correction). Spec 445 closes the loop:
+- `gcr_encode_block` literal port (4-byte → 5-GCR-byte encode)
+- Write-path coupling (drive writes raw byte → GCR encode → track
+  bitstream)
+- Write-disk path (rotation_rotate_disk write side)
 
 ## Step order (legacy 6-step view — for historical context)
 

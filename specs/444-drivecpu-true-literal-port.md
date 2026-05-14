@@ -1,6 +1,6 @@
 # Spec 444 — `drivecpu.c` true literal port + bundled cleanups
 
-**Status:** OPEN
+**Status:** DONE (2026-05-14 — 6 commits, mapping + bundled cleanups + struct port + 6 conformance tests)
 **Priority:** HIGH
 **Parent:** Epic 440
 **Depends on:** Spec 441 (rotation), Spec 442 (viacore), Spec 443 (devices)

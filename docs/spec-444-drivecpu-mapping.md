@@ -1,6 +1,6 @@
 # Spec 444 — drivecpu.c ↔ drive-cpu.ts mapping
 
-**Status:** PROGRESS (Phase 1)
+**Status:** DONE (2026-05-14 — Phase 1 + 1b + 2a + 2b complete)
 **VICE sources:**
 - `drive/drivecpu.c` (737 LoC)
 - `drive/drivecpu.h` (62 LoC)

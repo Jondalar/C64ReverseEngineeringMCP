@@ -53,7 +53,7 @@ am Ende validiert.
 | Modul | VICE source | LoC | Heutiger TS-stand | Spec | Status |
 |-------|------------|-----|--------------------|------|--------|
 | 6502 CPU (drive-side) | `src/6510core.c` + `mainc64cpu.c` | ~2000 | `Cpu6510` + `Cpu65xxVice` (Spec 428) | – | TEIL |
-| 6502 dispatcher | `drivecpu.c` | 737 | `drive-cpu.ts` | 444 | PARTIAL |
+| 6502 dispatcher | `drivecpu.c` | 737 | `drive-cpu.ts` 1356 LOC | 444 | AUDITED (Spec 444 DONE 2026-05-14) |
 | VIA 6522 core | `core/viacore.c` | 2243 | `via6522-vice.ts` 1341 LOC | 442 | AUDITED (Spec 442 DONE 2026-05-14) |
 | VIA1 device | `iec/via1d1541.c` | 420 | `via1d1541.ts` 360 LOC | 443 | AUDITED (Spec 443 DONE 2026-05-14) |
 | VIA2 device | `iecieee/via2d.c` | 566 | `via2d1541.ts` 250 LOC + coupling 209 LOC | 443 | AUDITED (Spec 443 DONE 2026-05-14) |
@@ -77,9 +77,9 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 | 1 | **440** | Epic charter + 7-step workflow | klein | DONE |
 | 2 | **441** | `rotation.c` literal port + p64 stubs + drive_t + VIA2 backend | groß | **DONE** (4f legacy delete deferred) |
 | 3 | **442** | `viacore.c` Claude-eigener line-by-line re-audit | groß | **DONE** (MYVIA gate + peek-raw fix + 13 conformance tests) |
-| 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel | **DONE** (48-row audit, 0 patches, 8 conformance tests) |
-| 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel | **NEXT** |
-| 6 | **445** | `gcr.c` write-path + encode | mittel | OPEN |
+| 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel | **DONE** (48-row audit + Bug-1083 + 23 conformance tests) |
+| 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel | **DONE** (37-row audit + struct port + 6 tests) |
+| 6 | **445** | `gcr.c` write-path + encode | mittel | **NEXT** |
 | 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | OPEN |
 | 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | OPEN |
 | 9 | **448** | `alarm.c` literal port | groß | OPEN |
@@ -145,6 +145,67 @@ Docs: `docs/spec-441-production-proof.md` (final), -mapping,
 
 Docs: `docs/spec-442-viacore-mapping.md`,
        `docs/spec-442-production-proof.md`.
+
+### Spec 444 closeout (2026-05-14)
+
+`drivecpu.c` (737 LoC) ↔ `drive-cpu.ts` (1356 LoC) line-by-line.
+6 commits. Charter + Phase 1 + Phase 1b (4 rows explicit per review
+doctrine — user-flagged "no audit-subagent fail-mode") + Phase 2a
+(bundled 442/443 cleanups) + Phase 2b (struct + execute audit).
+
+37-row mapping (`docs/spec-444-drivecpu-mapping.md`) + 5 sub-row
+matrices (B.1-B.5) + 3 deep-dive sections (E.1 execute, E.2 reset,
+E.3 jam).
+
+Patches:
+- `via6522-vice.ts:295-303, 416-436` — `Via6522Vice.disable()` +
+  `enabled` field (viacore.c:364-372 literal). `reset()` restores
+  enabled=true (viacore.c:438).
+- `via2d1541.ts:179-187` — VIA2 backend reset mirrors
+  `led_status=1` to shadowDrive (via2d.c:423-431 literal).
+- `drive-cpu.ts:706-739` — 3 new struct fields: `stop_clk`,
+  `last_exc_cycles`, `is_jammed` (drivetypes.h:81,83,97 literal).
+- `drive-cpu.ts:1173-1182, 1244-1252` — `executeToClock` wires
+  `stop_clk` at entry + `last_exc_cycles` at exit.
+
+Findings:
+- storePcr "void tightening" CORRECTED: VICE returns uint8_t too.
+  Spec 442 mapping was wrong. No patch needed.
+
+Verdict tally:
+- 22 MATCH / 6 MATCH-DEVIATION / 3 DEVIATION-DOCUMENTED
+- 3 MINOR-DEVIATION (wake_up stale-skip, cycle_accum reset, JAM)
+- 9 OMIT-OK (monitor, DMA, banking, debug, JAM, shutdown, etc.)
+- 3 DEFER → Spec 451 (snapshot R/W + snap_module_name)
+- **0 BUG / 0 load-bearing MISSING**
+
+Tests:
+- `tests/unit/drive/drivecpu-conformance.test.ts` (NEW) — 6/6 PASS
+  (stop_clk + last_exc_cycles + is_jammed + softReset roundtrip)
+- VIA suite +3 (viacore-conf disable/reset, via2-device-conf
+  reset led) → 91/91 PASS across 9 files
+- Drive suite total 34/34 (15 rotation + 13 gcr-shifter + 6 drivecpu)
+- Canary 5/5 PASS
+
+Ticketed:
+- snapshot R/W + snap_module_name → Spec 451 (VSF cross-load)
+- drivecpu_jam dispatcher → OUT (V1 DOS never JAMs)
+- drivecpu_wake_up stale-clock-skip → LOW (not load-bearing V1)
+- drivecpu_shutdown explicit teardown → OUT (TS GC handles)
+- drivecpu_trigger_reset async via IK_RESET → OUT (V1 not load-bearing)
+- monitor_interface, identification_string, d_bank_*, DMA → OUT V1
+
+Docs: `docs/spec-444-drivecpu-mapping.md`,
+       `docs/spec-444-production-proof.md`.
+
+### Spec 445 starting point
+
+`gcr.c` (357 LoC) write-path + encode. Spec 430 already audited the
+LESE-pfad (table invalid-marker + gcr_decode_block semantic). Spec 445:
+- `gcr_encode_block` literal port (4 bytes → 5 GCR bytes)
+- Write-path coupling (drive writes raw byte → GCR encode → track
+  bitstream → rotation_rotate_disk write side)
+- TS `gcr.ts` (530 LOC) line-by-line vs VICE.
 
 ### Spec 443 closeout (2026-05-14)
 
