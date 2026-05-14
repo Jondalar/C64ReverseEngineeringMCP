@@ -292,6 +292,13 @@ export class Via6522Vice {
   /** Last byte returned by viacore_read (used by RMW path). */
   public last_read: BYTE = 0;
 
+  /**
+   * Spec 444 — VICE via_context_t.enabled (set to true at end of
+   * viacore_reset, false in viacore_disable). Allows
+   * snapshot/disable lifecycle to mirror VICE.
+   */
+  public enabled: boolean = true;
+
   // ---- Alarms (VICE viacore_init lines 1873-1889) -----------------------
   private readonly t1_zero_alarm: Alarm;
   private readonly t2_zero_alarm: Alarm;
@@ -400,6 +407,28 @@ export class Via6522Vice {
 
     this.backend.reset();
     this.cacheCb12IoStatus();
+
+    // Spec 444 — VICE viacore_reset:438 sets `enabled = true` at end.
+    this.enabled = true;
+  }
+
+  /**
+   * Spec 444 — literal port of VICE viacore_disable
+   * (src/core/viacore.c:364-372).
+   *   alarm_unset(t1_zero_alarm);
+   *   alarm_unset(t2_zero_alarm);
+   *   alarm_unset(t2_underflow_alarm);
+   *   alarm_unset(t2_shift_alarm);
+   *   alarm_unset(phi2_sr_alarm);
+   *   enabled = false;
+   */
+  disable(): void {
+    alarmUnset(this.t1_zero_alarm);
+    alarmUnset(this.t2_zero_alarm);
+    alarmUnset(this.t2_underflow_alarm);
+    alarmUnset(this.t2_shift_alarm);
+    alarmUnset(this.phi2_sr_alarm);
+    this.enabled = false;
   }
 
   // ---- IRQ propagation (viacore.c update_myviairq, lines 203-214) ------

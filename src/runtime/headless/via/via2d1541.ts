@@ -176,7 +176,14 @@ export class Via2d1541 {
         }
       },
       setInt: (value, clk) => opts.setIrq(value, clk),
-      reset: () => undefined,
+      // Spec 444 — VICE via2d.c:423-431 reset:
+      //   drv->led_status = 1;
+      //   drive_update_ui_status();   // UI hook, not emulation-relevant
+      reset: () => {
+        if (opts.shadowDrive) {
+          opts.shadowDrive.led_status = 1;
+        }
+      },
     };
 
     this.via = new Via6522Vice({

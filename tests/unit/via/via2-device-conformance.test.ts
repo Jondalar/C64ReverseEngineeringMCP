@@ -269,6 +269,17 @@ test("Via2d1541 storePcr: byte_ready_active bit 1 mirrors pcrval bit 1", () => {
   assert.equal(h.shadow.byte_ready_active & 0x02, 0x00, "bit 1 cleared");
 });
 
+// ----------------------------------------------------------------------------
+// Spec 444 — VIA2 reset mirrors led_status = 1 to shadowDrive
+// (VICE via2d.c:423-431).
+//
+test("Via2d1541 reset sets shadowDrive.led_status = 1 (via2d.c:429)", () => {
+  const h = makeVia2();
+  h.shadow.led_status = 0;
+  h.via2.via.reset();   // triggers backend.reset
+  assert.equal(h.shadow.led_status, 1);
+});
+
 // ---------------------------------------------------------------------------
 // Suite runner.
 // ---------------------------------------------------------------------------

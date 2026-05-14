@@ -212,6 +212,24 @@ test("IFR write clears flags via mask (viacore.c:832)", () => {
 });
 
 // ----------------------------------------------------------------------------
+// Spec 444 — viacore_disable / enabled (viacore.c:364-372).
+//
+test("disable() sets enabled = false (viacore.c:371)", () => {
+  const h = makeHarness();
+  assert.equal(h.via.enabled, true, "enabled defaults true");
+  h.via.disable();
+  assert.equal(h.via.enabled, false);
+});
+
+test("reset() restores enabled = true (viacore.c:438)", () => {
+  const h = makeHarness();
+  h.via.disable();
+  assert.equal(h.via.enabled, false);
+  h.via.reset();
+  assert.equal(h.via.enabled, true);
+});
+
+// ----------------------------------------------------------------------------
 // Suite runner.
 // ----------------------------------------------------------------------------
 let pass = 0, fail = 0;

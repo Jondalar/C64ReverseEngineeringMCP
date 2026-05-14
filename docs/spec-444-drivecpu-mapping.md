@@ -82,16 +82,27 @@ Verdict legend: MATCH / DEVIATION / BUG / MISSING / TS-EXTRA / OMIT-OK / OUT.
 
 ## D. Bundled cleanups (from Spec 442/443)
 
-1. `Via6522Vice.disable()` + `enabled: boolean` field + literal
-   `viacore_disable()` port. Spec 442 ticketed.
-2. `viacore_shutdown` (alarm unset). Spec 442 ticketed. Coupled with
-   `drivecpu_shutdown`.
-3. `ViaBackend.storePcr` signature `void` tightening. Spec 442/443
-   cosmetic finding. Both backends (via1d1541, via2d1541) already
-   return val unchanged → can tighten to void without behavioural
-   change.
-4. VIA2 backend `reset` callback mirrors `drv->led_status = 1` to
-   shadowDrive. Spec 443 MINOR. Low-priority cosmetic.
+1. **`Via6522Vice.disable()` + `enabled: boolean` field** + literal
+   `viacore_disable()` port. Spec 442 ticketed. VICE viacore.c:364-372:
+   alarm_unset × 5 + `enabled = false`. Small port.
+
+2. **`viacore_shutdown`**. Spec 442 ticketed. VICE viacore.c:1895-1903
+   only does `lib_free` calls (releases C-allocated strings). TS has
+   GC + the strings live as JS string options, no manual free needed.
+   **Resolution: OMIT-OK** (documented; no port needed).
+
+3. ~~`ViaBackend.storePcr` signature `void` tightening~~. **CORRECTION:**
+   VICE viacore.h:211 actually declares
+   `uint8_t (*store_pcr)(struct via_context_s *, uint8_t, uint16_t);`
+   — VICE returns `uint8_t`. TS returns `BYTE`. **MATCH.** Spec 442
+   mapping incorrectly flagged this as DEVIATION. **Resolution: NO PATCH
+   NEEDED** (already MATCH).
+
+4. **VIA2 backend `reset` mirror `drv->led_status = 1`**. Spec 443
+   MINOR. VICE via2d.c:423-431 sets `drv->led_status = 1; drive_update_ui_status();`.
+   TS backend reset is `() => undefined`. Apply: TS backend reset
+   sets `shadowDrive.led_status = 1` when attached. Low-priority but
+   cheap fix.
 
 ## E. Summary
 
