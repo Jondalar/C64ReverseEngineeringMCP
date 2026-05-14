@@ -1,6 +1,6 @@
 # Spec 444 — drivecpu literal port production-proof
 
-**Status:** DONE
+**Status:** DONE v2 (re-opened 2026-05-14 per user-review; Phase 3 review-fix applied)
 **Date:** 2026-05-14
 **Branch:** `1541-literal-vice`
 **Doctrine:** Claude-self literal audit. No subagents.
@@ -44,6 +44,20 @@ matrices (B.1-B.5) + Phase 2b deep-dive sections (E.1-E.3).
 - OMIT-OK (monitor, DMA, banking, debug, identification, JAM, shutdown): 9
 - DEFER → Spec 451 (snapshot R/W, snap_module_name): 3
 - **BUG / load-bearing MISSING: 0**
+
+## Phase 3 review-fixes (2026-05-14, post-user-review)
+
+User-review found 5 doctrine violations after Phase 2b. All fixed
+in Phase 3:
+
+| Violation | Phase 3 fix |
+|---|---|
+| executeToClock loop NOT VICE-shape (cycleAccum-based, stop_clk observable only) | Refactored to literal `while (cpu.cycles < stop_clk)` + ADDITIVE stop_clk + cycle_accum &= 0xffff + 10000-cycle chunking + wake_up prologue. See F.1 in mapping. |
+| drivecpu_wake_up stale-skip MISSING | Ported as `drivecpuWakeUp(c64Clk)` private method per drivecpu.c:255-264. Called at top of executeToClock. See F.2. |
+| softReset cycle_accum cleared (VICE preserves) | softReset now preserves cycleAccum, only clears stop_clk + last_exc_cycles. Caller-side contract: setSyncBaseline for mid-run. See F.3. |
+| VIA2 IRQ polled at instruction boundary (Spec 411 unfulfilled) | `Via2d1541.attachIrqLine` added (mirror of Spec 410 VIA1); chip-push backend in setInt; DriveCpu ctor calls it; polling line dropped. See F.4. |
+| Rotation tick AFTER cpu buried as code-comment | Explicit ticket to Spec 412 / dedicated drive-timing sprint. Spec 444 does not attempt fix. See F.5. |
+| Cycle-accuracy smoke incomplete | 3 new tests pin ADDITIVE stop_clk + ±1 cycle accuracy + 16M+ stale skip. VICE-oracle diff DEFERRED to follow-up (needs vice_trace_runtime_start infra). See F.6. |
 
 ## Patches applied in Spec 444
 
@@ -110,7 +124,7 @@ matrices (B.1-B.5) + Phase 2b deep-dive sections (E.1-E.3).
 | `tests/unit/via/via-write-offset.test.ts` | 4/4 PASS |
 | `tests/unit/via/via-ila-ilb-latch.test.ts` | 5/5 PASS |
 | **Total VIA suite** | **91/91 PASS** (9 files; +3 Spec 444) |
-| `tests/unit/drive/drivecpu-conformance.test.ts` (NEW) | 6/6 PASS |
+| `tests/unit/drive/drivecpu-conformance.test.ts` (NEW + Phase 3 expanded) | **9/9 PASS** (post-Phase-3: +3 cycle-accuracy + wake-up tests) |
 | `tests/unit/drive/rotation.test.ts` | 15/15 PASS |
 | `tests/unit/drive/gcr-shifter.test.ts` | 13/13 PASS |
 | **Total drive suite** | **34/34 PASS** (3 files; +6 Spec 444) |

@@ -20,6 +20,10 @@
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import { type BYTE, type CLOCK } from "../util/uint.js";
 import { rotation_rotate_disk } from "../drive/rotation.js";
+import type {
+  InterruptCpuStatus,
+  IntNum,
+} from "../cpu/interrupt-cpu-status.js";
 import {
   Via6522Vice,
   VIA_DDRB,
@@ -92,6 +96,17 @@ export interface Via2d1541Options {
  */
 export class Via2d1541 {
   public readonly via: Via6522Vice;
+
+  // Spec 444 v2 — VIA2 chip-side IRQ push (analog of Spec 410 VIA1).
+  // VICE: src/drive/iecieee/via2d.c:113 `set_int()` calls
+  //   `interrupt_set_irq(dc->cpu->int_status, int_num, value, rclk)`.
+  // When `attachIrqLine` has been called, viacore's `update_myviairq`
+  // pushes directly into the drive CPU's `InterruptCpuStatus`; the
+  // legacy per-instruction polling bridge in DriveCpu.executeToClock
+  // is dropped.
+  private chipIntStatus?: InterruptCpuStatus;
+  private chipIntNum?: IntNum;
+  private chipPrev = false;
 
   constructor(opts: Via2d1541Options) {
     // Sprint 113 Phase 2: GCR coupling bridges the old ViaPortBackend
@@ -175,7 +190,20 @@ export class Via2d1541 {
           drv.read_write_mode = next << 5;
         }
       },
-      setInt: (value, clk) => opts.setIrq(value, clk),
+      // Spec 444 v2 — chip-side IRQ push. Mirrors VIA1 (via1d1541.ts:163).
+      // When chipIntStatus attached, push level changes directly into
+      // InterruptCpuStatus (VICE drivecpu_int_status); the legacy
+      // callback still fires for Spec 203-c3 edge consumers.
+      setInt: (value, clk) => {
+        if (this.chipIntStatus && this.chipIntNum) {
+          const asserted = value !== 0;
+          if (asserted !== this.chipPrev) {
+            this.chipPrev = asserted;
+            this.chipIntStatus.setIrq(this.chipIntNum, asserted, clk);
+          }
+        }
+        opts.setIrq(value, clk);
+      },
       // Spec 444 — VICE via2d.c:423-431 reset:
       //   drv->led_status = 1;
       //   drive_update_ui_status();   // UI hook, not emulation-relevant
@@ -254,4 +282,25 @@ export class Via2d1541 {
   public set pcr(v: number) { this.via.pcr = v; }
   public get sr(): number { return this.via.sr; }
   public set sr(v: number) { this.via.sr = v; }
+
+  /**
+   * Spec 444 v2 — VIA2 chip-side IRQ push (mirror of Spec 410 VIA1).
+   *
+   * VICE source: src/drive/iecieee/via2d.c:113-122 `set_int()` calls
+   *   `interrupt_set_irq(dc->cpu->int_status, int_num, value, rclk)`.
+   *
+   * Called by `DriveCpu` after constructing the drive 6502 — passes the
+   * drive's `InterruptCpuStatus`. The VIA core's `update_myviairq`
+   * pushes IRQ level transitions directly into `cpuIntStatus`; the
+   * 2-cycle INTERRUPT_DELAY is honoured per `interrupt_set_irq`.
+   * Legacy `executeToClock` polling bridge dropped once attached.
+   */
+  attachIrqLine(cpuIntStatus: InterruptCpuStatus, label = "via2-irq"): void {
+    this.chipIntStatus = cpuIntStatus;
+    this.chipIntNum = cpuIntStatus.newIntNum(label);
+    // Seed level: viacore's current (ifr & ier & 0x7f) != 0 state.
+    const asserted = this.via.irqAsserted();
+    this.chipPrev = asserted;
+    this.chipIntStatus.setIrq(this.chipIntNum, asserted, 0);
+  }
 }

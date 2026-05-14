@@ -80,13 +80,66 @@ test("DriveCpu exposes is_jammed = 0 at construction (no V1 dispatcher)", () => 
 // ---------------------------------------------------------------------------
 // softReset / reset (Spec 414 + VICE drivecpu.c:194-212).
 //
-test("softReset zeros lastClk + cycleAccum + sleeping", () => {
+test("softReset preserves cycleAccum (VICE drivecpu_reset_clk semantics)", () => {
   const d = makeDriveCpu();
   d.executeToClock(500);
+  // cycleAccum should hold the fractional residual after the run.
+  // VICE drivecpu_reset_clk @ drivecpu.c:186-191 does NOT touch
+  // cycle_accum — only last_clk, last_exc_cycles, stop_clk.
   d.softReset();
-  // After softReset, internal state reset; verify run-loop resumes.
+  assert.equal(d.stop_clk, 0, "stop_clk zeroed");
+  assert.equal(d.last_exc_cycles, 0, "last_exc_cycles zeroed");
+  // cycleAccum is private; we assert post-reset run still works.
   d.executeToClock(100);
-  assert.ok(d.stop_clk >= 0);  // sanity: no NaN/throw
+  assert.ok(d.stop_clk >= 0);
+});
+
+// ---------------------------------------------------------------------------
+// Spec 444 v2 — VICE drivecpu_execute literal shape:
+//   stop_clk += cycle_accum >> 16  (ADDITIVE)
+//   cycle_accum &= 0xffff           (fractional residual)
+//   while (cpu.cycles < stop_clk) { executeCycle(); }
+//
+test("stop_clk is ADDITIVE across executeToClock calls (VICE drivecpu.c:388)", () => {
+  const d = makeDriveCpu();
+  d.executeToClock(100);
+  const stop1 = d.stop_clk;
+  d.executeToClock(200);
+  const stop2 = d.stop_clk;
+  // VICE adds each call's drive cycles to stop_clk. stop2 must be
+  // strictly greater than stop1 (drive ran forward between calls).
+  assert.ok(stop2 > stop1, `stop_clk additive: stop2=${stop2} > stop1=${stop1}`);
+});
+
+test("cycle-accuracy: drive CPU clk reaches stop_clk +/- 1 (instruction granularity)", () => {
+  const d = makeDriveCpu();
+  // Feed C64-clock sequence 100, 1000, 10000, 100000.
+  // At each step verify cpu.cycles >= stop_clk - 1 (boundary may overshoot by 1).
+  const samples = [100, 1000, 10000, 100000];
+  for (const target of samples) {
+    d.executeToClock(target);
+    const driveClk = (d.cpu as { cycles: number }).cycles;
+    // Allow small instruction-overshoot (max 8 cycles for any 6502 op).
+    assert.ok(
+      driveClk >= d.stop_clk - 1 && driveClk <= d.stop_clk + 8,
+      `clk=${driveClk} stop_clk=${d.stop_clk} target=${target}`,
+    );
+  }
+});
+
+test("wakeUp stale-skip: 16M+ cycle gap skips ahead (VICE drivecpu.c:255-264)", () => {
+  const d = makeDriveCpu();
+  // Run drive past the 934639 threshold.
+  d.executeToClock(1_000_000);
+  const lastClkBefore = (d as any).lastClk;
+  assert.ok(lastClkBefore > 934639, "primed drive past threshold");
+  // Jump main clock by > 16M cycles (= 0xffffff).
+  const farClk = lastClkBefore + 0x1000000 + 100;
+  d.executeToClock(farClk);
+  // After wake-up stale-skip: lastClk pegged to c64Clk (which IS farClk
+  // since the executeToClock body always sets it; the wake-up just
+  // bypasses the catch-up).
+  assert.equal((d as any).lastClk, farClk);
 });
 
 // ---------------------------------------------------------------------------

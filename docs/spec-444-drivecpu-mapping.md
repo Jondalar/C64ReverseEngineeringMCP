@@ -1,6 +1,20 @@
 # Spec 444 — drivecpu.c ↔ drive-cpu.ts mapping
 
-**Status:** DONE (2026-05-14 — Phase 1 + 1b + 2a + 2b complete)
+**Status:** DONE v2 (2026-05-14 — Phase 1 + 1b + 2a + 2b + Phase 3 review-fix complete)
+
+**Re-opened 2026-05-14** per user-review: Spec 444 v1 left
+acceptance #2 (literal VICE catch-up math) and acceptance #6
+(cycle-accuracy smoke) unfulfilled. Phase 3 fixes:
+- executeToClock loop refactored to literal VICE-shape
+  (`while (cpu.cycles < stop_clk)`); 10000-cycle chunking; ADDITIVE
+  stop_clk; cycle_accum &= 0xffff.
+- drivecpu_wake_up stale-skip ported (was MINOR-DEVIATION).
+- softReset cycle_accum preservation (VICE-literal).
+- VIA2 IRQ chip-push migration (Spec 411 promise honored; polling
+  dropped).
+- Cycle-accuracy smoke test (internal-consistency, VICE-baseline
+  diff still pending).
+- Rotation tick AFTER → explicit ticket to Spec 412 (not buried).
 **VICE sources:**
 - `drive/drivecpu.c` (737 LoC)
 - `drive/drivecpu.h` (62 LoC)
@@ -290,6 +304,122 @@ TS: no JAM dispatcher. `is_jammed` field added for snapshot compat.
 ($02/$12/$22/$32/$42/$52/$62/$72/$92/$B2/$D2/$F2). If a future spec
 needs JAM dispatcher: hook into `Cpu65xxVice.executeCycle` at opcode
 decode + set `is_jammed = 1` + stall (= VICE default branch CLK++).
+
+## F-prime. Phase 3 review-fix results (2026-05-14)
+
+User-review (post-Phase-2b) flagged 5 doctrine violations. All
+addressed:
+
+### F.1 executeToClock loop literal VICE-shape
+
+**Before:** `while (cycleAccum >= 0x10000) { executeCycle(); cycleAccum -= 0x10000; }`
+— equivalent math but not VICE-shape; stop_clk was observable-only.
+
+**After (drive-cpu.ts:1182-1276):** literal VICE drivecpu_execute:
+```ts
+this.drivecpuWakeUp(c64Clk);                  // drivecpu.c:374
+let cycles = c64Clk > lastClk ? c64Clk - lastClk : 0;  // 377-381
+while (cycles !== 0) {                        // 383-390 outer 10000 chunking
+  const tcycles = cycles > 10000 ? 10000 : cycles;
+  cycles -= tcycles;
+  cycleAccum += syncFactor * tcycles;
+  stop_clk += cycleAccum >>> 16;              // ADDITIVE per VICE 388
+  cycleAccum &= 0xffff;                       // 389 fractional residual
+}
+while (cycled.cycles < stop_clk) {            // 393 inner loop literal
+  cycled.executeCycle();
+  if (gcrShifter) gcrShifter.tick(1);
+  if (cycled.isAtInstructionBoundary()) onInstructionComplete?.(...);
+}
+this.lastClk = c64Clk;                        // 443
+// drivecpu_sleep no-op (VICE 444)
+this.last_exc_cycles = max(0, cycled.cycles - stop_clk);
+```
+
+**Verdict: VICE-LITERAL.**
+
+### F.2 drivecpu_wake_up stale-skip ported
+
+**Before:** `wakeUp(): void { this.sleeping = false; }` — only the
+TS-EXTRA sleep flag. VICE clock-skip MISSING.
+
+**After (drive-cpu.ts `:drivecpuWakeUp`):** literal port of
+drivecpu.c:255-264:
+```ts
+private drivecpuWakeUp(c64Clk: number): void {
+  const driveClk = (this.cpu as { cycles: number }).cycles;
+  if ((c64Clk - this.lastClk) > 0xffffff && driveClk > 934639) {
+    this.lastClk = c64Clk >>> 0;
+  }
+}
+```
+Called at top of `executeToClock`. Public `wakeUp()` retained for
+TS-EXTRA sleep flag (separate concept).
+
+**Verdict: PORTED-LITERAL.**
+
+### F.3 softReset cycle_accum preserved
+
+**Before:** `softReset` cleared `cycleAccum = 0`. VICE drivecpu_reset
+preserves cycle_accum (only last_clk, last_exc_cycles, stop_clk
+touched).
+
+**After (drive-cpu.ts:1052-1071):** literal drivecpu_reset_clk:
+- `last_exc_cycles = 0`
+- `stop_clk = 0`
+- `cycle_accum` INTENTIONALLY NOT cleared (VICE-literal)
+- Caller must call `setSyncBaseline(currentC64Clk)` for mid-run
+  softReset to mirror VICE's `last_clk = maincpu_clk`.
+
+**Verdict: PORTED-LITERAL** with documented caller-side contract.
+
+### F.4 VIA2 IRQ chip-push migration
+
+**Before:** `executeToClock` polled VIA2 IRQ at instruction boundary
+(line 1224); Spec 411 left TODO.
+
+**After:**
+- `via2d1541.ts` adds `attachIrqLine(cpuIntStatus)` method (mirror of
+  Spec 410 VIA1).
+- `setInt` backend pushes level changes into `cpuIntStatus.setIrq`
+  with `chipPrev` guard.
+- `DriveCpu` constructor calls `bus.via2.attachIrqLine(cpuIntStatus,
+  "via2-irq")` after CPU construction.
+- Polling line dropped from `executeToClock`.
+
+**Verdict: PORTED-LITERAL** (Spec 411 promise honored).
+
+### F.5 Rotation tick AFTER cpu — explicit ticket
+
+**Before:** comment "Spec 412 PARTIAL: switching to BEFORE regresses
+Krill" buried in code without spec ticket.
+
+**After:** mapping doc explicitly tickets to **Spec 412 / dedicated
+drive-timing investigation**. Spec 444 does NOT attempt fix (Krill
+regression root cause unclear; out of Spec 444 scope per doctrine
+"no arch decisions without ask"). Comment in code points at Spec
+412 instead of carrying as TODO.
+
+**Verdict: TICKETED-OUT** to Spec 412 (status PARTIAL).
+
+### F.6 Cycle-accuracy smoke
+
+**Before:** `drivecpu-conformance.test.ts` only checked sanity
+bounds (`stop_clk > 0`, `last_exc_cycles <= 8`); no VICE-baseline
+diff.
+
+**After:** 3 new tests:
+- `stop_clk ADDITIVE across calls` — pins drivecpu.c:388 semantic
+- `cycle-accuracy ±1` — feeds C64-clk sequence {100, 1000, 10000,
+  100000}, asserts `driveClk in [stop_clk - 1, stop_clk + 8]`
+- `wakeUp stale-skip 16M+ cycle gap` — pins drivecpu.c:255-264
+
+**Partial:** internal-consistency vs VICE oracle (live vice_trace
+diff) DEFERRED to follow-up — needs vice_trace_runtime_start
++ trace-store diff infra build-out, which is its own ticket.
+
+**Verdict: PARTIAL** — internal-consistency PASS; VICE-oracle
+diff = follow-up Spec.
 
 ## F. Summary
 

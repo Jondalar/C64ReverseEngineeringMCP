@@ -1,6 +1,6 @@
 # Spec 444 — `drivecpu.c` true literal port + bundled cleanups
 
-**Status:** DONE (2026-05-14 — 6 commits, mapping + bundled cleanups + struct port + 6 conformance tests)
+**Status:** DONE v2 (2026-05-14 — Phase 3 review-fix: VICE-shape loop + wake_up port + softReset cycle_accum preserve + VIA2 IRQ chip-push + cycle-accuracy smoke)
 **Priority:** HIGH
 **Parent:** Epic 440
 **Depends on:** Spec 441 (rotation), Spec 442 (viacore), Spec 443 (devices)
