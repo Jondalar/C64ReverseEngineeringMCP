@@ -458,13 +458,16 @@ function _rotation_1541_gcr(dptr: Drive_t, ref_cycles_in: number): void {
         rptr.filter_last_state = rptr.filter_state;
         rptr.ue7_counter = rptr.ue7_dcba;
         rptr.uf4_counter = 0;
-        rptr.fr_randcount = ((_RANDOM_nextUInt(rptr) >>> 16) % 31) + 289;
+        rptr.fr_randcount = (((_RANDOM_nextUInt(rptr) >>> 16) % 31) + 289) >>> 0;
       } else {
-        rptr.fr_randcount -= todo;
+        // VICE `uint32_t fr_randcount` wraps on underflow. JS subtraction
+        // produces negative numbers — force u32 wrap to preserve VICE
+        // semantics (the > 0 / < todo guards and the == 0 trigger).
+        rptr.fr_randcount = (rptr.fr_randcount - todo) >>> 0;
         if (rptr.fr_randcount === 0) {
           rptr.ue7_counter = rptr.ue7_dcba;
           rptr.uf4_counter = 0;
-          rptr.fr_randcount = ((_RANDOM_nextUInt(rptr) >>> 16) % 367) + 33;
+          rptr.fr_randcount = (((_RANDOM_nextUInt(rptr) >>> 16) % 367) + 33) >>> 0;
         }
       }
 
@@ -704,13 +707,14 @@ function _rotation_1541_p64(dptr: Drive_t, ref_cycles_in: number): void {
         rptr.filter_last_state = rptr.filter_state;
         rptr.uf4_counter = 0;
         rptr.ue7_counter = rptr.ue7_dcba;
-        rptr.fr_randcount = ((_RANDOM_nextUInt(rptr) >>> 16) % 31) + 289;
+        rptr.fr_randcount = (((_RANDOM_nextUInt(rptr) >>> 16) % 31) + 289) >>> 0;
       } else {
-        rptr.fr_randcount -= ToDo;
+        // VICE `uint32_t fr_randcount` wraps on underflow. Force u32.
+        rptr.fr_randcount = (rptr.fr_randcount - ToDo) >>> 0;
         if (rptr.fr_randcount === 0) {
           rptr.uf4_counter = 0;
           rptr.ue7_counter = rptr.ue7_dcba;
-          rptr.fr_randcount = ((_RANDOM_nextUInt(rptr) >>> 16) % 367) + 33;
+          rptr.fr_randcount = (((_RANDOM_nextUInt(rptr) >>> 16) % 367) + 33) >>> 0;
         }
       }
 
@@ -739,7 +743,11 @@ function _rotation_1541_p64(dptr: Drive_t, ref_cycles_in: number): void {
         }
       }
 
-      DeltaPositionToNextPulse -= ToDo;
+      // VICE `CLOCK DeltaPositionToNextPulse` (uint64) wraps on underflow.
+      // The ToDo<=1 path can set ToDo=1 even when DeltaPositionToNextPulse=0
+      // (pulse at head). u32 wrap via `>>> 0` keeps the `<= 1` and `!`
+      // checks on subsequent iterations consistent with VICE semantics.
+      DeltaPositionToNextPulse = (DeltaPositionToNextPulse - ToDo) >>> 0;
       rptr.PulseHeadPosition += ToDo;
       if (rptr.PulseHeadPosition >= P64PulseSamplesPerRotation) {
         rptr.PulseHeadPosition -= P64PulseSamplesPerRotation;
