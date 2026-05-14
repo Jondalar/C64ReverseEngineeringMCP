@@ -299,3 +299,47 @@ export function setDriveByteReadyActive(drive: Drive_t, on: boolean): void {
     drive.byte_ready_active = drive.byte_ready_active & ~BRA_BYTE_READY;
   }
 }
+
+/**
+ * VICE drive-writeprotect.c `drive_writeprotect_sense` literal port.
+ *
+ * Returns 0x10 (= WP cleared = writable / no disk) or 0x00 (= WP set
+ * = read-only). Drive_t.attach_clk / detach_clk / attach_detach_clk
+ * windows take precedence so DOS can detect disk-insert via PB4
+ * transitions.
+ */
+export function drive_writeprotect_sense(dptr: Drive_t): number {
+  const clk = dptr.diskunit.clk_ptr();
+
+  if (dptr.detach_clk !== 0n) {
+    if (clk - dptr.detach_clk < BigInt(DRIVE_DETACH_DELAY)) {
+      return 0x00;
+    }
+    dptr.detach_clk = 0n;
+  }
+  if (dptr.attach_detach_clk !== 0n) {
+    if (clk - dptr.attach_detach_clk < BigInt(DRIVE_ATTACH_DETACH_DELAY)) {
+      return 0x10;
+    }
+    dptr.attach_detach_clk = 0n;
+  }
+  if (dptr.attach_clk !== 0n) {
+    if (clk - dptr.attach_clk < BigInt(DRIVE_ATTACH_DELAY)) {
+      return 0x00;
+    }
+    dptr.attach_clk = 0n;
+  }
+
+  if (dptr.GCR_image_loaded === 0 && dptr.P64_image_loaded === 0) {
+    return 0x10; // no disk → WP cleared
+  }
+  if (dptr.P64_image_loaded && dptr.p64 && dptr.p64.WriteProtected) {
+    return 0x00;
+  }
+  return dptr.read_only ? 0x00 : 0x10;
+}
+
+/**
+ * VICE drive.h `BUS_READ_DELAY` — 14 R cycles bus delay on VIA2 PA/PB read.
+ */
+export const BUS_READ_DELAY = 14;

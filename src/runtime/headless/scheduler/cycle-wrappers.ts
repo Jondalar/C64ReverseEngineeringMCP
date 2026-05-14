@@ -140,14 +140,12 @@ export class DriveCpuCycled implements CycleSteppable {
     // DriveCpu directly sets V on the microcoded CPU's reg_p (matches
     // VICE drivecpu_set_overflow which does `cpu_regs.p |= P_OVERFLOW`).
     // No SO-pin pulse shaping needed.
-    // Spec 153 / Sprint 114: 1:1 VICE GcrShifter tick path
-    // (legacy production primitive). Spec 441 flip-test failed
-    // in consumer path; shifter retained until debug pinpoints
-    // the consume-side issue.
-    if (this.drive.gcrShifter) {
+    // Spec 441 step 4e-flip retry — VIA2 backend now does literal
+    // VICE rotation_byte_read / rotation_rotate_disk + byte_ready_level
+    // clear + req_ref_cycles + WPS. gcrShifter ticks ONLY for harness
+    // diff comparison (C64RE_ROTATION_DIFF=1).
+    if (ROTATION_DIFF_ENABLED && this.drive.gcrShifter) {
       this.drive.gcrShifter.tick(1);
-    } else if (this.drive.trackBuffer && this.drive.headPosition) {
-      this.drive.trackBuffer.tickShifter(1, this.drive.headPosition.currentTrack);
     }
     {
       const { drive } = this.drive;
@@ -181,11 +179,14 @@ export class DriveCpuCycled implements CycleSteppable {
           );
         }
       }
-      // Spec 441 step 4e-flip — fire-from-rotation reverted pending
-      // consumer-path debug. byte_ready_edge cleared to avoid stale
-      // accumulation; production V-flag/CA1 fires from shifter
-      // onByteReady (legacy path retained).
-      drive.byte_ready_edge = 0;
+      // Spec 441 step 4e-flip — consume drive.byte_ready_edge. When
+      // rotation_1541_simple latches a byte at byte boundary, fire
+      // VICE drivecpu_set_overflow analog (V flag + CA1 falling
+      // edge + onSoEdge trace).
+      if (drive.byte_ready_edge) {
+        drive.byte_ready_edge = 0;
+        this.drive.fireByteReady?.();
+      }
     }
     if (this.drive.microcoded) {
       // Microcoded path (Sprint 96 part 6): per-cycle bus access.

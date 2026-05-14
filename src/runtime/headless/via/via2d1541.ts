@@ -19,6 +19,7 @@
 
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import { type BYTE, type CLOCK } from "../util/uint.js";
+import { rotation_rotate_disk } from "../drive/rotation.js";
 import {
   Via6522Vice,
   VIA_DDRB,
@@ -127,18 +128,53 @@ export class Via2d1541 {
       storeT2L: () => undefined,
       storeAcr: () => undefined,
       storePcr: (val: BYTE) => {
-        // Spec 441 step 4e — VIA2 PCR bit 1 = CA2 control = VICE
-        // BRA_BYTE_READY. Mirror into drive.byte_ready_active so
-        // rotation_1541_simple's gate matches VICE via2d_update_pcr.
+        // Spec 441 step 4e — VICE via2d.c:165 via2d_update_pcr literal
+        // port. Called on every PCR write.
+        //   rotation_rotate_disk(dptr);
+        //   dptr->read_write_mode = pcrval & 0x20;
+        //   dptr->byte_ready_active =
+        //       (bra & ~BRA_BYTE_READY) | (pcrval & PCR_BYTE_READY);
         if (opts.shadowDrive) {
-          const bit = val & 0x02;
-          opts.shadowDrive.byte_ready_active =
-            (opts.shadowDrive.byte_ready_active & ~0x02) | bit;
+          // Defer the heavy rotation work — avoid require-cycle imports.
+          const drv = opts.shadowDrive;
+          rotation_rotate_disk(drv);
+          drv.read_write_mode = val & 0x20;
+          drv.byte_ready_active =
+            (drv.byte_ready_active & ~0x02) | (val & 0x02);
         }
         return val;
       },
-      setCa2: () => undefined,
-      setCb2: () => undefined,
+      // VICE via2d.c:72 set_ca2 — only fires on PCR CA2 control
+      // transitions in the chip core. Here `state` = the post-change
+      // CA2 output state. VICE compares to (drv->byte_ready_active>>1)&1.
+      //   if change: rotation_rotate_disk; update bit; if edge: V flag.
+      setCa2: (state: number) => {
+        if (!opts.shadowDrive) return;
+        const drv = opts.shadowDrive;
+        const curr = (drv.byte_ready_active >> 1) & 1;
+        const next = state & 1;
+        if (next !== curr) {
+          rotation_rotate_disk(drv);
+          drv.byte_ready_active = (drv.byte_ready_active & ~0x02) | (next << 1);
+          // VICE via2d.c:86 — on CA2 transition with pending edge,
+          // drive_cpu_set_overflow consumes the edge. Plumbing for
+          // this lives in DriveCpu.fireByteReady; the consumer is
+          // wired separately when consumers are flipped to drive_t.
+          // (No-op until step 4e-flip is re-enabled.)
+        }
+      },
+      // VICE via2d.c:95 set_cb2 — read/write mode toggle (bit 5 of
+      // PCR CB2 control). VICE: drv->read_write_mode = state << 5.
+      setCb2: (state: number) => {
+        if (!opts.shadowDrive) return;
+        const drv = opts.shadowDrive;
+        const curr = (drv.read_write_mode >> 5) & 1;
+        const next = state & 1;
+        if (next !== curr) {
+          rotation_rotate_disk(drv);
+          drv.read_write_mode = next << 5;
+        }
+      },
       setInt: (value, clk) => opts.setIrq(value, clk),
       reset: () => undefined,
     };

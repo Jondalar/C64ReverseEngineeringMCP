@@ -24,8 +24,14 @@
 import type { Via2GcrPortCoupling } from "../via/via2d1541.js";
 import type { GcrShifter } from "./gcr-shifter.js";
 import type { HeadPosition } from "./head-position.js";
-import { setDriveMotor, type Drive_t } from "./drive-t.js";
-import { rotation_speed_zone_set } from "./rotation.js";
+import { setDriveMotor, drive_writeprotect_sense, BUS_READ_DELAY, type Drive_t } from "./drive-t.js";
+import {
+  rotation_begins,
+  rotation_byte_read,
+  rotation_rotate_disk,
+  rotation_speed_zone_set,
+  rotation_sync_found,
+} from "./rotation.js";
 
 import {
   PB_STEP_LO,
@@ -69,18 +75,53 @@ export function makeGcrShifterCoupling(
   let lastLedOn = false;
 
   return {
-    // VIA2 PA = $1C01 — current latched GCR data byte (legacy
-    // production path; consumer flip reverted pending consume-path
-    // debug — see Spec 441 step 4e-flip retry).
-    readPa: () => shifter.dataByte,
-    onPaOutputChanged: (_or, _ddr, _cause) => {
-      // V3 backlog — write-back not modeled. Drop the output.
+    // VIA2 PA = $1C01 — GCR data port. Spec 441 step 4e-flip: literal
+    // port of VICE via2d.c:463 read_pra:
+    //   req_ref_cycles = BUS_READ_DELAY;
+    //   rotation_byte_read(drive);
+    //   byte = (drive->GCR_read & ~DDRA) | (PRA & DDRA);
+    //   byte_ready_level = 0;
+    // DDRA-merging is also done by Via6522Vice on PA read; backend
+    // returns the raw GCR_read since the chip core handles the mask.
+    readPa: () => {
+      if (!shadowDrive) return shifter.dataByte;
+      shadowDrive.req_ref_cycles = BUS_READ_DELAY;
+      rotation_byte_read(shadowDrive);
+      shadowDrive.byte_ready_level = 0;
+      return shadowDrive.GCR_read;
+    },
+    // VIA2 PA write — VICE via2d.c:184 store_pra:
+    //   rotation_rotate_disk(drive);
+    //   drive->GCR_write_value = byte;
+    //   drive->byte_ready_level = 0;
+    onPaOutputChanged: (orValue, _ddr, _cause) => {
+      if (shadowDrive) {
+        rotation_rotate_disk(shadowDrive);
+        shadowDrive.GCR_write_value = orValue & 0xff;
+        shadowDrive.byte_ready_level = 0;
+      }
     },
 
-    // VIA2 PB = $1C00 — compose pin layout per VICE via2d.c.
+    // VIA2 PB = $1C00 — compose pin layout per VICE via2d.c:488
+    // read_prb:
+    //   req_ref_cycles = BUS_READ_DELAY;
+    //   rotation_rotate_disk(drive);
+    //   byte = (rotation_sync_found(drive) | drive_writeprotect_sense
+    //           | 0x6f) & ~DDRB | (PRB & DDRB);
+    //   byte_ready_level = 0;
     readPb: () => {
+      if (shadowDrive) {
+        shadowDrive.req_ref_cycles = BUS_READ_DELAY;
+        rotation_rotate_disk(shadowDrive);
+        const syncByte = rotation_sync_found(shadowDrive);
+        const wps = drive_writeprotect_sense(shadowDrive);
+        shadowDrive.byte_ready_level = 0;
+        // Return the raw input-pin composition. Via6522Vice does
+        // the DDRB / PRB merge.
+        return (syncByte | wps | 0x6f) & 0xff;
+      }
+      // Legacy shifter fallback when no drive_t.
       let bits = DEFAULT_VIA2_PB_INPUT;
-      // PB7 = SYNC# (active LOW). Pulled from shifter (legacy).
       if (shifter.syncBit === 0) bits &= ~PB_SYNC;
       // PB4 = WPS — VICE drive_writeprotect_sense semantics.
       // Returns 0x10 (WP set) for no-disk + attached writable,
@@ -105,6 +146,11 @@ export function makeGcrShifterCoupling(
       return bits;
     },
     onPbOutputChanged: (orValue, ddrMask) => {
+      // VICE via2d.c:201 store_prb prologue:
+      //   rotation_rotate_disk(drv);
+      // Then LED + stepper + density + motor + byte_ready_level=0.
+      if (shadowDrive) rotation_rotate_disk(shadowDrive);
+
       // Spec 411 / vice-1541-arch.md §7.3 + §14 invariant 7 +
       // §17 OQ-411-1 — stepper is GATED on motor-on. VICE via2d.c:255
       // `if (byte & 0x4)` wraps drive_move_head. Pass motor latch to
@@ -116,10 +162,17 @@ export function makeGcrShifterCoupling(
       // Motor (PB2): only when configured as output (DDR=1). Mirrors
       // VICE drive_set_motor sampling: motor latch ignored if pin is
       // input. Cite: via2d.c:325-337 (BRA_MOTOR_ON branch).
+      // VICE additionally calls rotation_begins(drv) on motor-on
+      // edge so rotation_last_clk gets re-anchored (via2d.c:340).
       if ((ddrMask & PB_MOTOR) !== 0) {
+        const wasMotorOn = shadowDrive
+          ? ((shadowDrive.byte_ready_active & 0x04) !== 0)
+          : false;
         shifter.setMotor(motorOn);
-        // Spec 441 step 4c — shadow into drive.byte_ready_active.
-        if (shadowDrive) setDriveMotor(shadowDrive, motorOn);
+        if (shadowDrive) {
+          setDriveMotor(shadowDrive, motorOn);
+          if (motorOn && !wasMotorOn) rotation_begins(shadowDrive);
+        }
       }
 
       // Density (PB5/PB6): only honoured when both bits are outputs.
@@ -149,6 +202,8 @@ export function makeGcrShifterCoupling(
         lastLedOn = ledOn;
         ledSink?.(ledOn, clkRef ? clkRef() : 0);
       }
+      // VICE via2d.c:354 store_prb epilogue: byte_ready_level = 0.
+      if (shadowDrive) shadowDrive.byte_ready_level = 0;
     },
   };
 }

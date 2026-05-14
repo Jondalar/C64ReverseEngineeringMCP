@@ -454,68 +454,51 @@ a persistent music IRQ, and an optional raster-split scroller:
 The first UI version should be able to render this as a two-lane zoomed
 trace around startup and IRQ activity:
 
-```mermaid
-flowchart LR
-  subgraph T0["startup"]
-    direction TB
-    C0["CPU $0810: SEI"]
-    C1["CPU: STA $D011 = $0B"]
-    V1["VIC: DEN=0, screen blank"]
-    C2["CPU: STA $D020/$D021 = $00"]
-    V2["VIC: border/bg black"]
-    C3["CPU: STA $D015 = $00"]
-    V3["VIC: sprites off"]
-    C4["CPU: STA $01 = $35"]
-    C5["CPU: STA $DD00 = bank 1"]
-    V5["VIC: bank $4000-$7FFF"]
-    C6["CPU: JSR MUSIC_init $E000"]
-    C7["CPU: STA $FFFE/$FFFF = irq_dispatch"]
-    C8["CPU: STA $D012 = $F8; STA $D01A = $01"]
-    V8["VIC: raster IRQ enabled at $F8"]
-    C9["CPU: CLI"]
-  end
+Mermaid is not a good fit for this specific view. The intended UI is a
+vertical swimlane table: time moves top-to-bottom, columns are independent
+lanes, and related events align on the same cycle/raster row.
 
-  subgraph T1["normal IRQ"]
-    direction TB
-    V10["VIC: raster reaches $F8"]
-    C10["CPU IRQ1: vector $FFFE/$FFFF"]
-    C11["CPU: STA $D019 = $FF"]
-    V11["VIC: IRQ acknowledged"]
-    C12["CPU: JSR MUSIC_player $E003"]
-    C13["CPU: RTI"]
-  end
+```text
+Cycle / Raster      NON-IRQ lane                                         IRQ1 lane                         VIC lane
+-----------------   --------------------------------------------------   -------------------------------   -----------------------------------------
+00000000            $0810 SEI                                            -                                 -
+00000003            $0811 LDA #$0B     A=$0B X=.. Y=.. SP=.. P=nv-bdIzc  -                                 -
+00000005            $0813 STA $D011                                      -                                 $D011 <- $0B, DEN=0, text, blank
+00000008            $0816 STA $D020                                      -                                 border <- $00
+0000000B            $0819 STA $D021                                      -                                 bg <- $00
+0000000E            $081C STA $D015                                      -                                 sprites off
+000000xx            ... CIA IRQ mask/ack                                 IRQ sources masked                -
+000000xx            STA $01 = $35                                        -                                 PLA/banking state changes
+000000xx            STA $DD00 = bank 1                                   -                                 VIC bank = $4000-$7FFF
+000000xx            JSR $E000                                            -                                 -
+000000xx            STA $FFFE/$FFFF = irq_dispatch                       IRQ vector installed              -
+000000xx            STA $D012 = $F8                                      IRQ target raster = $F8            raster compare line <- $F8
+000000xx            STA $D01A = $01                                      raster IRQ enabled                IRQ enable <- raster
+000000xx            CLI                                                  IRQs live                         -
+000000xx            dispatch / splash_phase main loop                    -                                 -
 
-  subgraph T2["top split IRQ"]
-    direction TB
-    C20["CPU: scroller_enable; STA $D012 = $EE"]
-    V20["VIC: raster reaches $EE"]
-    C21["CPU IRQ1/top: STA $D019 = $FF"]
-    C22["CPU: STA $D011 = $1B"]
-    V22["VIC: text mode rows 23-24"]
-    C23["CPU: STA $D018 = $16"]
-    V23["VIC: screen $4400, charset $5800"]
-    C24["CPU: STA $D016 = scroll_xpos"]
-    V24["VIC: xscroll active"]
-    C25["CPU: STA $D012 = $FB; irq_state=1; RTI"]
-  end
+frame N / $F8       interrupted mainline PC shown as resume target        vector fetch -> irq_dispatch      raster=$F8
+frame N / $F8       -                                                    STA $D019 = $FF                   $D019 ack
+frame N / $F8       -                                                    PHA/TXA/PHA/TYA/PHA               -
+frame N / $F8       -                                                    JSR $E003                         SID/music activity elsewhere
+frame N / $F8       resumes after RTI                                    RTI                               -
 
-  subgraph T3["bottom split IRQ"]
-    direction TB
-    V30["VIC: raster reaches $FB"]
-    C30["CPU IRQ1/bottom: STA $D019 = $FF"]
-    C31["CPU: STA $D011 = $3B"]
-    V31["VIC: bitmap mode restored"]
-    C32["CPU: STA $D018 = $18"]
-    V32["VIC: screen $4400, bitmap $6000"]
-    C33["CPU: STA $D016 = $18"]
-    C34["CPU: JSR MUSIC_player; JSR scroller_tick"]
-    C35["CPU: STA $D012 = $EE; irq_state=0; RTI"]
-  end
+frame M / $EE       mainline paused                                      IRQ1 enter top                    raster=$EE
+frame M / $EE       -                                                    STA $D019 = $FF                   $D019 ack
+frame M / $EE       -                                                    STA $D011 = $1B                   text mode, DEN=1
+frame M / $EE       -                                                    STA $D018 = $16                   screen=$4400 charset=$5800
+frame M / $EE       -                                                    STA $D016 = scroll_xpos           XSCROLL=scroll_xpos
+frame M / $EE       -                                                    STA $D012 = $FB                   raster compare line <- $FB
+frame M / $EE       mainline resumes                                     RTI                               -
 
-  C0 --> C1 --> V1 --> C2 --> V2 --> C3 --> V3 --> C4 --> C5 --> V5 --> C6 --> C7 --> C8 --> V8 --> C9
-  C9 --> V10 --> C10 --> C11 --> V11 --> C12 --> C13
-  C13 --> C20 --> V20 --> C21 --> C22 --> V22 --> C23 --> V23 --> C24 --> V24 --> C25
-  C25 --> V30 --> C30 --> C31 --> V31 --> C32 --> V32 --> C33 --> C34 --> C35
+frame M / $FB       mainline paused                                      IRQ1 enter bottom                 raster=$FB
+frame M / $FB       -                                                    STA $D019 = $FF                   $D019 ack
+frame M / $FB       -                                                    STA $D011 = $3B                   BMM=1, DEN=1
+frame M / $FB       -                                                    STA $D018 = $18                   screen=$4400 bitmap=$6000
+frame M / $FB       -                                                    STA $D016 = $18                   MCM=1 CSEL=1
+frame M / $FB       -                                                    JSR $E003; JSR scroller_tick      music + scroll update
+frame M / $FB       -                                                    STA $D012 = $EE                   raster compare line <- $EE
+frame M / $FB       mainline resumes                                     RTI                               -
 ```
 
 ```text
