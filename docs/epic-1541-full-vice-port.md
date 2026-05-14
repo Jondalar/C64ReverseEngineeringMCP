@@ -63,7 +63,7 @@ am Ende validiert.
 | Drive ROM loader | `drive/driverom.c` | 544 | `drive-rom.ts` + DriveCpu ctor | 447 | AUDITED (Spec 447 DONE 2026-05-14) — V1 load only; trap-patch + snapshot deferred |
 | Drive sync (host↔drive clock) | `drive/drivesync.c` | 117 | `drive-cpu.ts` syncFactor + drivesync_clock_frequency + setPalNtsc | 446 | AUDITED (Spec 446 DONE 2026-05-14) — PAL/NTSC switch mechanism PORTED; full NTSC validation = Spec 451 |
 | Alarm context | `alarm.c` + `alarm.h` | ~400 | `alarm/alarm-context.ts` | 448 + 448.1 | AUDITED (Spec 448 DONE 2026-05-14, hygiene 448.1) — literal C-style re-port; 100% VICE-verbatim snake_case surface; tie-break smoke 11/11; cycle-diff 9999/9999 ±1; Sprint 148/149 verdicts INVALIDATED |
-| FDC error codes + state | `drive/fdc.c` + `cbmdos.h` | ~400 | partial enum in `gcr.ts` | 449 | TEIL |
+| FDC error codes (1541 V1) | `cbmdos.h:104-119` | 16 (enum + typedef) | `drive/fdc.ts` (NEW, ~70 LoC + 16 conformance) | 449 | **AUDITED (Spec 449 DONE 2026-05-14)** — fdc_err_t literal port; INTERIM in gcr.ts → canonical drive/fdc.ts. Full fdc.c (IEEE-only, 1253 LoC) + full cbmdos.c (DOS-channel, 747 LoC) ticketed OUT-V1 per layout, not as scope-cut. |
 | IEC bus core | `iecbus/iecbus.c` | 570 | `iec-bus.ts` + `iec-bus-core.ts` 700 LOC | 430 | DONE (Sprint 430) |
 | Parallel cable | `drive/iec/glue1571.c` + parallel | ? | ❌ | 450 | OUT (V1) |
 | Multi-drive | per-unit context | – | unit 8 only | 451 | OUT (V1) |
@@ -83,7 +83,7 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 | 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | **DONE** (drivesync_clock_frequency + setPalNtsc + 17 conformance tests) |
 | 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | **DONE** ($80-$BF ROM mirror port + 16 conformance tests; trap-patch + snapshot deferred) |
 | 9 | **448 + 448.1** | `alarm.c` literal port + hygiene | groß | **DONE** (literal C-style re-port; 36 fn + 15 type-alias callers migrated; dead aliases purged; 11/11 dispatch smoke; cycle-diff 9999/9999 ±1; 148/149 INVALIDATED) |
-| 10 | **449** | `fdc.c` + cbmdos error codes + state machine | mittel | OPEN |
+| 10 | **449** | `fdc.c` + cbmdos error codes (1541-only V1) | klein | **DONE** (fdc_err_t literal port to canonical drive/fdc.ts; 16/16 conformance; fdc.c full + cbmdos.c full ticketed OUT-V1 per VICE layout) |
 | 11 | **450** | Validation harness: full read+write+verify | mittel | OPEN |
 | 12 | **451** | NTSC sync regression check | klein | OPEN |
 | 13 | **452** | Drive-cycle tick-order: rotation BEFORE cpu per §14 invariant 1 (Krill root-cause + flip) | mittel | OPEN |

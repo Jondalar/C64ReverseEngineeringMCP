@@ -1,9 +1,11 @@
 # Spec 449 — `fdc.c` + `cbmdos.h` literal port (1541-only mandate)
 
-**Status:** OPEN
+**Status:** DONE (2026-05-14)
 **Priority:** HIGH
 **Parent:** Epic 440
 **Depends on:** Spec 445 (INTERIM `fdc_err_t` in `gcr.ts`)
+**Proof:** [docs/spec-449-production-proof.md](../docs/spec-449-production-proof.md)
+**Mapping:** [docs/spec-449-fdc-cbmdos-mapping.md](../docs/spec-449-fdc-cbmdos-mapping.md)
 **Doctrine:** 1541-only V1 scope ([[feedback_vice_no_alternatives]]).
 Port literal-VICE WHERE 1541 actually calls it. Document everything
 else as OUT V1 with explicit reason — never "weil kann nicht

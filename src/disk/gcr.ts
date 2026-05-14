@@ -102,29 +102,45 @@ export function gcr_convert_4bytes_to_GCR(source: Uint8Array, sourceOffset: numb
 }
 
 // ---------------------------------------------------------------------------
-// Spec 445 Phase 2b — fdc_err_t enum + gcr_header_t (INTERIM).
-//
-// VICE source: src/cbmdos.h:104-119. **MOVES TO Spec 449** (fdc.c +
-// cbmdos.h literal port). Values verbatim from VICE; gates Phase 2b
-// gcr_convert_sector_to_GCR + gcr_write_sector port. See spec 445
-// "Open question" → option B accepted by user.
+// Spec 449 — fdc_err_t enum migrated to canonical home in
+// `src/runtime/headless/drive/fdc.ts`. The previous INTERIM block
+// (Spec 445 Phase 2b) lived here; re-exported below so existing
+// `src/disk/gcr.ts` consumers continue to work unchanged.
 // ---------------------------------------------------------------------------
 
-export const CBMDOS_FDC_ERR_OK      = 1;
-export const CBMDOS_FDC_ERR_HEADER  = 2;
-export const CBMDOS_FDC_ERR_SYNC    = 3;
-export const CBMDOS_FDC_ERR_NOBLOCK = 4;
-export const CBMDOS_FDC_ERR_DCHECK  = 5;
-export const CBMDOS_FDC_ERR_VERIFY  = 7;
-export const CBMDOS_FDC_ERR_WPROT   = 8;
-export const CBMDOS_FDC_ERR_HCHECK  = 9;
-export const CBMDOS_FDC_ERR_BLENGTH = 10;
-export const CBMDOS_FDC_ERR_ID      = 11;
-export const CBMDOS_FDC_ERR_FSPEED  = 12;
-export const CBMDOS_FDC_ERR_DRIVE   = 15;
-export const CBMDOS_FDC_ERR_DECODE  = 16;
+import {
+  CBMDOS_FDC_ERR_OK,
+  CBMDOS_FDC_ERR_HEADER,
+  CBMDOS_FDC_ERR_SYNC,
+  CBMDOS_FDC_ERR_NOBLOCK,
+  CBMDOS_FDC_ERR_DCHECK,
+  CBMDOS_FDC_ERR_VERIFY,
+  CBMDOS_FDC_ERR_WPROT,
+  CBMDOS_FDC_ERR_HCHECK,
+  CBMDOS_FDC_ERR_BLENGTH,
+  CBMDOS_FDC_ERR_ID,
+  CBMDOS_FDC_ERR_FSPEED,
+  CBMDOS_FDC_ERR_DRIVE,
+  CBMDOS_FDC_ERR_DECODE,
+  type fdc_err_t,
+} from "../runtime/headless/drive/fdc.js";
 
-export type fdc_err_t = number;
+export {
+  CBMDOS_FDC_ERR_OK,
+  CBMDOS_FDC_ERR_HEADER,
+  CBMDOS_FDC_ERR_SYNC,
+  CBMDOS_FDC_ERR_NOBLOCK,
+  CBMDOS_FDC_ERR_DCHECK,
+  CBMDOS_FDC_ERR_VERIFY,
+  CBMDOS_FDC_ERR_WPROT,
+  CBMDOS_FDC_ERR_HCHECK,
+  CBMDOS_FDC_ERR_BLENGTH,
+  CBMDOS_FDC_ERR_ID,
+  CBMDOS_FDC_ERR_FSPEED,
+  CBMDOS_FDC_ERR_DRIVE,
+  CBMDOS_FDC_ERR_DECODE,
+  type fdc_err_t,
+};
 
 /**
  * Spec 445 Phase 2b — VICE `gcr_header_t` (src/gcr.h:61-63).

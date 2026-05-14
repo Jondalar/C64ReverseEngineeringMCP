@@ -188,8 +188,8 @@ Doc: `docs/epic-1541-full-vice-port.md`.
 | **446** | drivesync.c PAL/NTSC switch | **DONE** (drivesync_clock_frequency + setPalNtsc + 17 conformance tests) |
 | **447** | memiec.c + driverom.c | **DONE** ($80-$BF ROM mirror port + 16 memiec-conformance tests) |
 | **448 + 448.1** | alarm.c literal port + hygiene | **DONE** (literal C-style re-port; 36 fn + 15 type callers migrated to snake_case; dead aliases purged; 11/11 tie-break smoke; Spec 444 cycle-diff 9999/9999 ±1; 148/149 INVALIDATED) |
-| 449 | fdc.c error codes | **NEXT** (recommended) |
-| 450 | Validation harness | OPEN |
+| **449** | fdc.c + cbmdos.h | **DONE** (1541-only V1 scope: fdc_err_t migrated INTERIM gcr.ts → canonical drive/fdc.ts; 16/16 conformance; fdc.c full + cbmdos.c full ticketed OUT-V1 per layout) |
+| 450 | Validation harness | **NEXT** (recommended) |
 | 451 | NTSC regression check | OPEN |
 
 ### Spec 441 DONE summary (2026-05-14)
