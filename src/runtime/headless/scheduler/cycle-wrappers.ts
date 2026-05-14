@@ -118,20 +118,19 @@ export class DriveCpuCycled implements CycleSteppable {
     // DriveCpu directly sets V on the microcoded CPU's reg_p (matches
     // VICE drivecpu_set_overflow which does `cpu_regs.p |= P_OVERFLOW`).
     // No SO-pin pulse shaping needed.
+    // Spec 153 / Sprint 114: 1:1 VICE GcrShifter tick path (legacy
+    // production primitive — to be replaced by rotation.ts once
+    // step 4b+4e A/B harness validates byte-ready equivalence).
     if (this.drive.gcrShifter) {
       this.drive.gcrShifter.tick(1);
     } else if (this.drive.trackBuffer && this.drive.headPosition) {
-      // Sprint 96 part 7 legacy path: TrackBuffer-inline shifter.
-      // Used when no GcrShifter is wired (back-compat).
       this.drive.trackBuffer.tickShifter(1, this.drive.headPosition.currentTrack);
     }
-    // Spec 441 step 4e-shadow — also tick rotation.ts in parallel so
-    // drive_t state advances "warm" alongside the production
-    // gcrShifter. Consumer reads remain on gcrShifter (production
-    // path) until step 4e-flip wires consumers to drive_t. Clear
-    // byte_ready_edge after each tick to prevent stale flag
-    // accumulation; the production V-flag/CA1-IFR plumbing runs via
-    // gcrShifter.onByteReady (see drive-cpu.ts:835).
+    // Spec 441 step 4e-shadow — rotation.ts ticks in parallel. PCR
+    // bit 1 is now mirrored into drive.byte_ready_active via the
+    // proper VIA2 backend hook (via2d1541 storePcr); no per-cycle
+    // copy needed. byte_ready_edge cleared so it doesn't leak past
+    // the shadow tick.
     {
       const { drive } = this.drive;
       rotation_rotate_disk(drive);

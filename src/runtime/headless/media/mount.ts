@@ -140,6 +140,19 @@ export async function mountMedia(
 
     // Reload G64/D64 data into the shared TrackBuffer.
     let rawData: Uint8Array = new Uint8Array(readFileSync(path));
+    // Spec 441 step 4 — P64 mount-gate. P64 image-format helpers
+    // (P64PulseStream*, P64Image*) are throwing stubs today
+    // (feedback_p64_stubs_ok). Detect via "PSV\0" + 0x1A header
+    // and refuse the mount with a clear marker, so the runtime
+    // never reaches the stubs mid-execution.
+    const { isP64Image } = await import("../../../disk/p64.js");
+    if (isP64Image(rawData)) {
+      throw new Error(
+        `[mount] .p64 image not supported yet — Spec 441-P64 follow-up needed. ` +
+        `File: ${path}. P64PulseStream + P64Image helpers are throwing ` +
+        `stubs; mount refused at gate to prevent stub hits mid-execution.`,
+      );
+    }
     // D64 images need to be pre-encoded to G64 byte stream (same as kernel build).
     if (mediaType === "d64") {
       rawData = buildG64({ d64: rawData });

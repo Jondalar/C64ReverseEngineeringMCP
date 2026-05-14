@@ -69,8 +69,9 @@ export function makeGcrShifterCoupling(
   let lastLedOn = false;
 
   return {
-    // VIA2 PA = $1C01 — current latched GCR data byte from the shifter.
-    // Read-only V2; storePa is V3 (write-back).
+    // VIA2 PA = $1C01 — current latched GCR data byte from the shifter
+    // (legacy production path; shadowDrive.GCR_read flip pending A/B
+    // verify).
     readPa: () => shifter.dataByte,
     onPaOutputChanged: (_or, _ddr, _cause) => {
       // V3 backlog — write-back not modeled. Drop the output.
@@ -79,8 +80,7 @@ export function makeGcrShifterCoupling(
     // VIA2 PB = $1C00 — compose pin layout per VICE via2d.c.
     readPb: () => {
       let bits = DEFAULT_VIA2_PB_INPUT;
-      // PB7 = SYNC# (active LOW). Pulled live from shifter.
-      // syncBit returns 0 when sync detected, 1 otherwise.
+      // PB7 = SYNC# (active LOW). Pulled from shifter (legacy).
       if (shifter.syncBit === 0) bits &= ~PB_SYNC;
       // PB4 = WPS — VICE drive_writeprotect_sense semantics.
       // Returns 0x10 (WP set) for no-disk + attached writable,

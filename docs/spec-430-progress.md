@@ -1,12 +1,12 @@
 # Spec 430 — Sprint progress
 
-Sha: `d27f4fae7d`  ·  Generated: 2026-05-14T07:51:50.679Z
+Sha: `2f1621f4dd`  ·  Generated: 2026-05-14T08:18:55.493Z
 
 ## Canary verdicts
 
 | Canary | Expected | Status | Verdict | Divergence row | Report |
 |---|---|---|---|---|---|
-| motm | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/motm/diff-d27f4fae7d.json) |
+| motm | green | smoke-only | PASS (smoke-only — no VICE baseline) | — | [json](samples/traces/spec-430/motm/diff-2f1621f4dd.json) |
 
 ## How to reproduce
 

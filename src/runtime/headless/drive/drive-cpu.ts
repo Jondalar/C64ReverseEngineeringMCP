@@ -352,6 +352,7 @@ export class DriveBus implements CpuMemory {
       clkRef: resolvedClkRef,
       setIrq: via2SetIrq,
       gcr: gcrCoupling,
+      shadowDrive: opts.shadowDriveT,
     });
 
     // Spec 408 — build per-page dispatch tables (§13 step 4).

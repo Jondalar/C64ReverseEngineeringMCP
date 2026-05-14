@@ -67,6 +67,13 @@ export interface Via2d1541Options {
    * the idle stub is used (PA=0xff, PB=WPS-only, no side effects).
    */
   gcr?: Via2GcrPortCoupling;
+
+  /**
+   * Spec 441 step 4e — drive_t for byte-ready PCR gate update. When
+   * provided, PCR writes mirror bit 1 (CA2 control = BRA_BYTE_READY)
+   * into drive.byte_ready_active. VICE: via2d.c via2d_update_pcr.
+   */
+  shadowDrive?: import("../drive/drive-t.js").Drive_t;
 }
 
 /**
@@ -119,7 +126,17 @@ export class Via2d1541 {
       storeSr: () => undefined,
       storeT2L: () => undefined,
       storeAcr: () => undefined,
-      storePcr: (val: BYTE) => val,
+      storePcr: (val: BYTE) => {
+        // Spec 441 step 4e — VIA2 PCR bit 1 = CA2 control = VICE
+        // BRA_BYTE_READY. Mirror into drive.byte_ready_active so
+        // rotation_1541_simple's gate matches VICE via2d_update_pcr.
+        if (opts.shadowDrive) {
+          const bit = val & 0x02;
+          opts.shadowDrive.byte_ready_active =
+            (opts.shadowDrive.byte_ready_active & ~0x02) | bit;
+        }
+        return val;
+      },
       setCa2: () => undefined,
       setCb2: () => undefined,
       setInt: (value, clk) => opts.setIrq(value, clk),
