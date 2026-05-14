@@ -148,7 +148,7 @@ Both paths covered by `alarm-dispatch.test.ts` cases 1 + 2.
 | `52bf98f` | Spec 448 DONE — alarm.c literal re-port + 36-file fn-rename + tie-break smoke |
 | `9ad2e3f` | Spec 448.1 hygiene — type-alias migration (15 files) + dead-alias deletion |
 | `4f7be81` | Spec 448 + 448.1 doc hygiene — fill SHAs + close audit checkboxes |
-| `<this-commit>` | Spec 448.2 hygiene — `AlarmContextCycled` class → `process_alarms` flat fn + snapshot-deferral row |
+| `32e6e23` | Spec 448.2 hygiene — `AlarmContextCycled` class → `process_alarms` flat fn + snapshot-deferral row |
 
 ## Sprint 148/149 verdicts INVALIDATED
 
