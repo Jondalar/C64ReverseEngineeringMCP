@@ -124,7 +124,7 @@ matrices (B.1-B.5) + Phase 2b deep-dive sections (E.1-E.3).
 5b1ff87 Spec 444 Phase 1b — 4 missing rows explicit (review-doctrine)
 6c3c4d6 Spec 444 Phase 2a — bundled cleanups from Spec 442/443
 2bed9c8 Spec 444 Phase 2b — drivecpu_context_t fields + execute audit
-????    Spec 444 DONE — production-proof + PLAN/epic update (this commit)
+0b1e46b Spec 444 DONE — production-proof + PLAN/epic update
 ```
 
 ## Doctrine compliance
