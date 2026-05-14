@@ -1,25 +1,28 @@
 /**
- * GCR decoder for Commodore 1541 — Spec 437 literal port of VICE gcr.c.
+ * GCR decoder/encoder for Commodore 1541 — Spec 430/437 read-path +
+ * Spec 445 write-path literal port of VICE gcr.c.
  *
  * VICE function map (line ranges from VICE 3.7.1 src/gcr.c):
  *
- *   VICE function               Lines      TS impl                Notes
- *   --------------------------- --------   --------------------   -------
- *   gcr_convert_4bytes_to_GCR   68-86      n/a (write-back only)
- *   gcr_convert_GCR_to_4bytes   87-110     decodeGCRGroup         decode 4 bytes
- *   gcr_convert_sector_to_GCR   112-168    n/a (write-back only)
- *   gcr_find_sync               170-203    gcr_find_sync (export) bit-by-bit
+ *   VICE function               Lines      TS impl                       Spec
+ *   --------------------------- --------   ----------------------------- ----
+ *   GCR_conv_data[16] table     51-57      GCR_ENCODE                    445 Phase 2a
+ *   From_GCR_conv_data[32] tbl  59-65      GCR_DECODE                    430
+ *   gcr_convert_4bytes_to_GCR   68-86      gcr_convert_4bytes_to_GCR     445 Phase 2a
+ *   gcr_convert_GCR_to_4bytes   87-110     decodeGCRGroup                430
+ *   gcr_convert_sector_to_GCR   112-168    — MISSING                     445 Phase 2b
+ *   gcr_find_sync               170-203    gcr_find_sync (export)        430
  *                                          findSyncMarkFromBit
  *                                            (back-compat alias)
- *   gcr_decode_block            205-232    gcr_decode_block       arbitrary bit pos
+ *   gcr_decode_block            205-232    gcr_decode_block              430 (num-arg fix)
  *                                            (export)
- *   gcr_find_sector_header      234-261    gcr_find_sector_header literal scan
+ *   gcr_find_sector_header      234-261    gcr_find_sector_header        430
  *                                            (export)
- *   gcr_read_sector             263-292    gcr_read_sector        header + 500*8 bit data window
+ *   gcr_read_sector             263-292    gcr_read_sector               430
  *                                            (export)
- *   gcr_write_sector            294-346    out-of-scope (Spec 437)
+ *   gcr_write_sector            294-346    — MISSING                     445 Phase 2b
  *
- * All functions are bit-level (arbitrary `p & 7` bit position),
+ * All read functions are bit-level (arbitrary `p & 7` bit position),
  * wrap around track end, and use the same 10-consecutive-ones sync
  * detection as VICE.
  *

@@ -4,7 +4,19 @@
 **Priority:** HIGH
 **Parent:** Epic 440
 **Depends on:** Spec 441 (rotation), Spec 442 (viacore), Spec 443 (devices),
-                Spec 444 (drivecpu)
+                Spec 444 (drivecpu).
+
+**Verkettet mit Spec 452** (rotation tick BEFORE cpu — currently AFTER,
+Krill regression blocker). Spec 445 Phase 3 runtime write-back coupling
+must be timing-independent of Spec 452's eventual tick-order flip, OR
+explicit re-test when Spec 452 lands. Phase 3 design: write-byte
+latch happens on byte-ready edge regardless of tick-order; verify in
+both PRE- and POST-Spec-452 states.
+
+**Blocked on:** `fdc_err_t` enum (CBMDOS_FDC_ERR_*) for
+`gcr_write_sector` return type. Spec 449 (fdc.c + cbmdos.h error codes)
+owns the enum. Phase 2b cannot land without resolution — see
+"Open question (USER-ASK)" section below.
 **Doctrine:** Claude-self literal audit. No subagents
 ([[feedback_1541_port_workflow]] + [[feedback_vice_no_alternatives]]).
 
@@ -111,6 +123,29 @@ Out of scope (other specs):
 - Do not start Spec 446 before 445 DONE.
 - Do not implement disk save-back to G64 file (separate IO concern,
   out of scope).
+
+## Open question (USER-ASK, gates Phase 2b start)
+
+`gcr_write_sector` returns `fdc_err_t` (CBMDOS_FDC_ERR_OK, _SYNC,
+_HEADER, _DCHECK, _NOBLOCK). The enum lives in `cbmdos.h` which is
+Spec 449 scope.
+
+Three options for Spec 445 Phase 2b:
+
+- **A. Spec 449 ZUERST.** Resort epic order: 445 nach 449 (full enum
+  available before port). Risk: blocks Spec 445 for 1+ sprint.
+- **B. Interim enum in Spec 445.** Port `fdc_err_t` constants/values
+  inline now with explicit "moves to Spec 449" note. Risk: small
+  duplicate-code window until Spec 449 lands.
+- **C. Numeric int wrapper.** `gcr_write_sector` returns `number`
+  (CBMDOS_FDC_ERR_* values as raw ints) until Spec 449 brings the
+  enum. Risk: lossy type information; callers must remember magic
+  numbers.
+
+**Recommend: B** — minimal sprint disruption, clear cleanup path,
+preserves VICE-literal type semantics in TS.
+
+User decision required before Phase 2b code lands.
 
 ## Workflow gates
 
