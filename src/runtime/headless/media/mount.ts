@@ -16,6 +16,7 @@ import type { HeadlessCartridgeMapperType } from "../types.js";
 import { addRecent } from "./recent-files.js";
 import type { MediaType } from "./fs-browser.js";
 import { createNoDiskParser } from "../disk/no-disk-parser.js";
+import { bindDriveTrack } from "../drive/drive-t.js";
 
 export type DriveSlot = 8 | 9;
 
@@ -192,6 +193,11 @@ export async function mountMedia(
           driveT.attach_clk = clk;
         }
         driveT.GCR_image_loaded = 1;
+        // Rebind drive_t.GCR_track_start_ptr to the new parser at
+        // current head position. Without this, rotation_1541_simple
+        // sees a null track pointer and never advances the bit stream
+        // → drive ROM never sees SYNC, never boots.
+        bindDriveTrack(driveT, newParser, session.headPosition.currentTrack * 2);
       }
     }
 

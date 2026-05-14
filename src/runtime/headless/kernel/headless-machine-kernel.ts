@@ -536,7 +536,20 @@ export class HeadlessMachineKernel implements MachineKernel {
     };
 
     // Spec 205-A c9: head step + motor + density transitions.
+    // Spec 441 step 4c — also rebind drive_t.GCR_track_start_ptr on
+    // every step so rotation_1541_simple sees the new track's bytes.
     this.headPosition.onStep = (direction, halfTrack) => {
+      // Drive_t track rebind (production path post Spec 441 step 4e).
+      const driveT = this.drive.drive;
+      if (driveT && this.parser) {
+        // Lazy import-free call to bindDriveTrack equivalent — direct
+        // field writes mirror drive-t.ts bindDriveTrack body.
+        driveT.current_half_track = halfTrack;
+        const wholeTrack = (halfTrack & 1) === 0 ? (halfTrack >> 1) : -1;
+        const bytes = wholeTrack >= 1 ? this.parser.getRawTrackBytes(wholeTrack) : null;
+        driveT.GCR_track_start_ptr = bytes;
+        driveT.GCR_current_track_size = bytes ? bytes.length : 0;
+      }
       if (!this.traceRegistry.isEnabled("gcr")) return;
       const driveClk = (this.drive.cpu as { cycles: number }).cycles;
       this.traceCtrl.publish("gcr", driveClk, {

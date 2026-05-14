@@ -611,6 +611,14 @@ export class DriveCpu implements Drive1541Unit {
   // the migration completes.
   public readonly drive: Drive_t;
 
+  /**
+   * Spec 441 step 4e — byte-ready firing callback. Same body as the
+   * legacy gcrShifter.onByteReady (PCR gate, CA1 falling-edge signal,
+   * V flag set, onSoEdge trace). Called from cycle-wrappers after
+   * rotation_rotate_disk when drive.byte_ready_edge transitions to 1.
+   */
+  public fireByteReady?: () => void;
+
   // ───────────────────────────────────────────────────────────────────
   // Spec 407 — Drive1541Unit (= `diskunit_context_t`) shape.
   //
@@ -832,41 +840,24 @@ export class DriveCpu implements Drive1541Unit {
       const cpuLegacy = this.microcoded ? null : (this.cpu as Cpu6510);
       const onSoEdge = opts.onSoEdge;
       const cpuClk = () => (this.cpu as { cycles: number }).cycles;
-      this.gcrShifter.onByteReady = (_byte: number) => {
-        // VICE 1:1 — byte-ready is GATED by VIA2 PCR bit 1 (BRA_BYTE_READY).
-        // Drive ROM enables/disables this via PCR write; when disabled
-        // (e.g. during IEC bit-bang serial transfer, or before drive ROM
-        // initializes PCR) the GCR shifter keeps spinning but byte-ready
-        // edges are suppressed — neither CA1 nor V flag fire. See:
-        //   vice/src/drive/iecieee/via2d.c L170-178 (via2d_update_pcr)
-        //   vice/src/drive/drive.h          L283   BRA_BYTE_READY 0x02
-        //   vice/src/drive/rotation.c       L1060  gate before edge=1
+      // VICE 1:1 byte-ready fire — gated by VIA2 PCR bit 1
+      // (BRA_BYTE_READY). When the gate is closed, neither CA1 IFR
+      // nor V flag fires. Otherwise: signal CA1 falling edge, set V
+      // directly (drivecpu_set_overflow drivecpu.c:219-223), emit
+      // onSoEdge for the trace ring.
+      const fireByteReady = (): void => {
         const pcr = via2.via.pcr & 0xff;
         if ((pcr & 0x02) === 0) return;
-
-        // VIA2 CA1 falling edge — chip core handles PA latch + IFR set
-        // per VICE viacore_signal (PCR polarity-gated).
         via2.via.signal("ca1", "fall");
-
-        // V-flag direct set — VICE drivecpu_set_overflow (drivecpu.c:219-223)
-        // directly does `cpu_regs.p |= P_OVERFLOW`. There's no SO-pin pulse
-        // shaping in VICE for the drive 6502; byte-ready latches V immediately
-        // and CLV (or BVC consume) clears it. We previously routed through
-        // setSoLine(0)+pulse-back-to-1 but the same-cycle re-raise meant the
-        // CPU's edge detector never saw a 1→0 transition and V was never set
-        // (root cause of $F3BE BVC deadlock). Match VICE: set V directly.
         if (cpuMicro) {
           cpuMicro.reg_p = (cpuMicro.reg_p | 0x40) & 0xff;
         } else if (cpuLegacy) {
           cpuLegacy.flags |= 0x40;
         }
-        // Spec 203-c3: SO line edge — fire after V flag set so consumers
-        // see the post-edge state. Pulse-shaped as asserted=true here;
-        // VICE-style same-cycle release means the level visible to the
-        // CPU is one-cycle. For event-ring purposes the asserted edge
-        // is what matters.
         onSoEdge?.(true, cpuClk());
       };
+      this.gcrShifter.onByteReady = fireByteReady;
+      this.fireByteReady = fireByteReady;
     } else if (this.trackBuffer) {
       // Sprint 96 part 8 (legacy path): wire TrackBuffer byte-ready →
       // CPU V flag directly. Used when no GcrShifter is supplied — V2
