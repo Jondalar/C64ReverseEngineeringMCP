@@ -1,6 +1,10 @@
-# Spec 447 — `memiec.c` + `driverom.c` literal port
+# Spec 447 — `memiec.c` + `driverom.c` literal port (ARCHIVED PRE-EPIC-440 STUB)
 
-**Status:** OPEN  
+**Status:** SUPERSEDED — pre-Epic-440 stub. Production charter is
+`specs/447-memiec-driverom.md` (new in Spec 447 charter commit).
+Read-only archive.
+
+**Original status:** OPEN  
 **Priority:** MEDIUM  
 **Parent:** Epic 440  
 **Depends on:** Spec 446
