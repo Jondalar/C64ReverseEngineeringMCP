@@ -3,7 +3,7 @@
 // VICE-faithful unit tests need: a mock backend that records calls,
 // a maincpu alarm context, and a CPU-clock pointer the test owns.
 
-import { alarmContextNew } from "../../../src/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import { Cia6526Vice, type CiaBackend } from "../../../src/runtime/headless/cia/cia6526-vice.js";
 
 export interface BackendEvents {
@@ -54,7 +54,7 @@ export function makeTestCia(opts?: {
   clk: { v: number };
 } {
   const clk = { v: opts?.startClk ?? 1000 };
-  const ctx = alarmContextNew("test_maincpu");
+  const ctx = alarm_context_new("test_maincpu");
   const { backend, events, portA, portB } = makeMockBackend({ paPins: opts?.paPins, pbPins: opts?.pbPins });
   const cia = new Cia6526Vice({
     backend,

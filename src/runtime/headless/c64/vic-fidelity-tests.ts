@@ -8,10 +8,10 @@
 // minimal inline setup matching cia-fidelity-tests.ts pattern.
 
 import { VicIIVice, type VicBackend } from "../vic/vic-ii-vice.js";
-import { alarmContextNew } from "../alarm/alarm-context.js";
+import { alarm_context_new } from "../alarm/alarm-context.js";
 
 function makeVicForFidelity(): VicIIVice {
-  const ctx = alarmContextNew("fidelity_maincpu");
+  const ctx = alarm_context_new("fidelity_maincpu");
   let clk = 0;
   const backend: VicBackend = {
     stealCpuCycles: (_count, _clk) => {},

@@ -49,7 +49,7 @@ import {
   CIA_IRQ_ACK1, CIA_IRQ_ACK0, CIA_IRQ_RAISE1, CIA_IRQ_RAISE0,
   CIA_IRQ_READ0, CIA_IRQ_READ1, CIA_IRQ_READ2,
 } from "../dist/runtime/headless/cia/cia6526-vice.js";
-import { alarmContextNew, alarmContextDispatch, alarmContextNextPendingClk }
+import { alarm_context_new, alarm_context_dispatch, alarm_context_next_pending_clk }
   from "../dist/runtime/headless/alarm/alarm-context.js";
 
 const results = [];
@@ -67,7 +67,7 @@ function makeCia({ powerFreq = 50, ticksPerSec = 985248, writeOffset = 1 } = {})
     irqEdges: [],        // {clk, val}
     paStored: [],        // {paOut, oldPa}
   };
-  const ctx = alarmContextNew("smoke-403-maincpu");
+  const ctx = alarm_context_new("smoke-403-maincpu");
   const cia = new Cia6526Vice({
     backend: {
       storePa: (out, old) => state.paStored.push({ paOut: out, oldPa: old }),
@@ -93,8 +93,8 @@ function makeCia({ powerFreq = 50, ticksPerSec = 985248, writeOffset = 1 } = {})
     for (let i = 0; i < n; i++) {
       state.clk += 1;
       // Drain all alarms whose deadline <= clk.
-      while (state.clk >= alarmContextNextPendingClk(ctx)) {
-        alarmContextDispatch(ctx, state.clk);
+      while (state.clk >= alarm_context_next_pending_clk(ctx)) {
+        alarm_context_dispatch(ctx, state.clk);
       }
     }
   };
@@ -432,7 +432,7 @@ function makeCia({ powerFreq = 50, ticksPerSec = 985248, writeOffset = 1 } = {})
   // Inline-construct minimal CIA1 / CIA2 backends to observe the
   // setIntClk pathway. (We don't go through the full peripheral
   // installers because they pull in MemoryBus / IecBus / etc.)
-  const ctx1 = alarmContextNew("ctx-cia1");
+  const ctx1 = alarm_context_new("ctx-cia1");
   const cia1IntNum = mockIntStatus.newIntNum("CIA1");
   const cia1 = new Cia6526Vice({
     backend: {
@@ -449,7 +449,7 @@ function makeCia({ powerFreq = 50, ticksPerSec = 985248, writeOffset = 1 } = {})
   });
   cia1.reset();
 
-  const ctx2 = alarmContextNew("ctx-cia2");
+  const ctx2 = alarm_context_new("ctx-cia2");
   const cia2IntNum = mockIntStatus.newIntNum("CIA2");
   const cia2 = new Cia6526Vice({
     backend: {

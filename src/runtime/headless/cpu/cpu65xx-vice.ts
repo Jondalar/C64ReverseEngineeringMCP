@@ -51,8 +51,8 @@ import type { IoPort6510Hook } from "./io-port-6510.js";
 import type { BYTE, WORD, CLOCK } from "../util/uint.js";
 import { u8, u16, u32, clkAdd, clkDelta } from "../util/uint.js"; // u32 used by cycles setter
 import {
-  alarmContextDispatch,
-  alarmContextNextPendingClk,
+  alarm_context_dispatch,
+  alarm_context_next_pending_clk,
   type AlarmContext,
 } from "../alarm/alarm-context.js";
 import {
@@ -637,8 +637,8 @@ export class Cpu65xxVice implements CycleSteppable {
     if (!this.alarmContext) return;
     const ctx = this.alarmContext;
     let guard = 0;
-    while (this.clk >= alarmContextNextPendingClk(ctx)) {
-      alarmContextDispatch(ctx, this.clk);
+    while (this.clk >= alarm_context_next_pending_clk(ctx)) {
+      alarm_context_dispatch(ctx, this.clk);
       if (++guard > 0x1000) {
         throw new Error(
           `Cpu65xxVice: alarm-dispatch guard tripped at clk=${this.clk} (ctx=${ctx.name})`,

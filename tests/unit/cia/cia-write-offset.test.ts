@@ -16,10 +16,10 @@
 
 import { strict as assert } from "node:assert";
 import {
-  alarmContextNew,
-  alarmNew,
-  alarmSet,
-  alarmUnset,
+  alarm_context_new,
+  alarm_new,
+  alarm_set,
+  alarm_unset,
 } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import { Cia6526Vice, CIA_TAL, CIA_TAH } from "../../../src/runtime/headless/cia/cia6526-vice.js";
 import { makeMockBackend, makeTestCia } from "./cia-test-helpers.js";
@@ -59,14 +59,14 @@ test("write of CIA_TAL+CIA_TAH at clk N+1 sees rclk=N for ciat", () => {
 // state. We construct an alarm context with a sentinel alarm and ensure
 // the CIA store path triggers it.
 test("write dispatches pending alarms at clk - write_offset before mutating", () => {
-  const ctx = alarmContextNew("test_maincpu");
+  const ctx = alarm_context_new("test_maincpu");
   const events: number[] = [];
   // Sentinel alarm at clk=999 that records the dispatch order.
-  const sentinel = alarmNew(ctx, "sentinel", (offset, _data) => {
+  const sentinel = alarm_new(ctx, "sentinel", (offset, _data) => {
     events.push(offset);
-    alarmUnset(sentinel); // one-shot: cleanly drop from pending queue
+    alarm_unset(sentinel); // one-shot: cleanly drop from pending queue
   }, null);
-  alarmSet(sentinel, 999);
+  alarm_set(sentinel, 999);
 
   const clk = { v: 1001 }; // clk = 1001, rclk = 1000, run alarms with clk<1000
   const { backend } = makeMockBackend();

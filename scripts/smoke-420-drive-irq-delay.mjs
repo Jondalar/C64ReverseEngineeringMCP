@@ -44,7 +44,7 @@ import { Cpu65xxVice } from "../dist/runtime/headless/cpu/cpu65xx-vice.js";
 import { DriveCpu } from "../dist/runtime/headless/drive/drive-cpu.js";
 import { IecBus } from "../dist/runtime/headless/iec/iec-bus.js";
 import { Via1d1541 } from "../dist/runtime/headless/via/via1d1541.js";
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../dist/runtime/headless/alarm/alarm-context.js";
 import {
   InterruptCpuStatus, IK_IRQ, INTERRUPT_DELAY,
 } from "../dist/runtime/headless/cpu/interrupt-cpu-status.js";
@@ -84,7 +84,7 @@ const PA_ATN_ASSERTED  = CIA2_PA_ATN_OUT;       // = 0x08
 // (= shared 2-cycle delay).
 // ─────────────────────────────────────────────────────────────────────
 {
-  const ctx = alarmContextNew("smoke-420-gate");
+  const ctx = alarm_context_new("smoke-420-gate");
   const cpuIntStatus = new InterruptCpuStatus();
   cpuIntStatus.lastOpcodeInfoGetter = () => 0;
 
@@ -166,7 +166,7 @@ const PA_ATN_ASSERTED  = CIA2_PA_ATN_OUT;       // = 0x08
     write: (a, v) => { ram[a & 0xffff] = v & 0xff; },
     peek: (a) => ram[a & 0xffff],
   };
-  const ctx = alarmContextNew("smoke-420-entry");
+  const ctx = alarm_context_new("smoke-420-entry");
   const cpu = new Cpu65xxVice({ memBus: bus, alarmContext: ctx });
   cpu.reset();
   // Run until first instruction boundary so reset vector has been

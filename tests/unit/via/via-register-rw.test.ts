@@ -6,7 +6,7 @@
 
 import { strict as assert } from "node:assert";
 import {
-  alarmContextNew,
+  alarm_context_new,
 } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import {
   Via6522Vice,
@@ -65,7 +65,7 @@ function makeBackend(): BackendStub {
 }
 
 function makeVia() {
-  const ctx = alarmContextNew("test");
+  const ctx = alarm_context_new("test");
   let clk = 100;
   const backend = makeBackend();
   const via = new Via6522Vice({

@@ -27,10 +27,10 @@
 // smoke-cia-fidelity (22/22).
 
 import {
-  alarmContextNew,
-  alarmNew,
-  alarmSet,
-  alarmUnset,
+  alarm_context_new,
+  alarm_new,
+  alarm_set,
+  alarm_unset,
 } from "../dist/runtime/headless/alarm/alarm-context.js";
 import { Cpu65xxVice } from "../dist/runtime/headless/cpu/cpu65xx-vice.js";
 
@@ -56,7 +56,7 @@ function check(label, cond, detail) {
 // alarm fires inside tick() BEFORE the clk++ on that cycle, so the
 // callback observes cpuClk == 50.
 {
-  const ctx = alarmContextNew("smoke-401-target");
+  const ctx = alarm_context_new("smoke-401-target");
   const mem = makeRam();
   // PC=$0200 is a NOP infinite loop ($EA $EA ... = NOP, NOP, ...).
   // NOP = 2 cycles each (opcode fetch + implied dummy).
@@ -71,9 +71,9 @@ function check(label, cond, detail) {
   const fireLog = []; // {offset, cpuClkAtFire}
   let alarmRef = null;
   let cpuRef = null;
-  const alarm = alarmNew(ctx, "test-alarm", (offset, _data) => {
+  const alarm = alarm_new(ctx, "test-alarm", (offset, _data) => {
     fireLog.push({ offset, cpuClkAtFire: cpuRef ? cpuRef.clk : -1 });
-    if (alarmRef) alarmUnset(alarmRef);
+    if (alarmRef) alarm_unset(alarmRef);
   }, null);
   alarmRef = alarm;
 
@@ -83,7 +83,7 @@ function check(label, cond, detail) {
   cpu.flags = 0x20; // I clear
 
   const TARGET = 50;
-  alarmSet(alarm, TARGET);
+  alarm_set(alarm, TARGET);
 
   // Run enough cycles to comfortably pass TARGET. With per-cycle
   // alarm drain (Cpu65xxVice.perCycleAlarmDrain=true) the dispatch
@@ -138,16 +138,16 @@ function check(label, cond, detail) {
 // VICE: an alarm scheduled with clk < current maincpu_clk fires on the
 // next CLK_INC (drain loop fires it). This must hold in our port too.
 {
-  const ctx = alarmContextNew("smoke-401-past");
+  const ctx = alarm_context_new("smoke-401-past");
   const mem = makeRam();
   for (let i = 0x0200; i < 0x0300; i++) mem.ram[i] = 0xea;
   mem.ram[0xfffc] = 0x00; mem.ram[0xfffd] = 0x02;
   const fireLog = [];
   let pastAlarmRef = null;
   let pastCpuRef = null;
-  const alarm = alarmNew(ctx, "past-alarm", (offset, _data) => {
+  const alarm = alarm_new(ctx, "past-alarm", (offset, _data) => {
     fireLog.push({ offset, cpuClkAtFire: pastCpuRef ? pastCpuRef.clk : -1 });
-    if (pastAlarmRef) alarmUnset(pastAlarmRef);
+    if (pastAlarmRef) alarm_unset(pastAlarmRef);
   }, null);
   pastAlarmRef = alarm;
 
@@ -163,7 +163,7 @@ function check(label, cond, detail) {
   // on the next CLK_INC. The offset == clkAtSchedule - 5 - assertClk
   // and the cpu clk at fire reflects when the next drain ran.
   const PAST = clkAtSchedule - 5;
-  alarmSet(alarm, PAST);
+  alarm_set(alarm, PAST);
 
   // One more cycle should drain it (per-cycle drain) or the next opcode
   // boundary (boundary drain). Either way, ≤ 2 more cycles.

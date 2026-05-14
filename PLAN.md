@@ -187,10 +187,8 @@ Doc: `docs/epic-1541-full-vice-port.md`.
 | **445** | gcr.c write-path + encode | **DONE** (8 commits — encode + write_sector + Sprint 430 read-path re-audit + BUG fix + runtime write-back smoke 4/4) |
 | **446** | drivesync.c PAL/NTSC switch | **DONE** (drivesync_clock_frequency + setPalNtsc + 17 conformance tests) |
 | **447** | memiec.c + driverom.c | **DONE** ($80-$BF ROM mirror port + 16 memiec-conformance tests) |
-| 448 | alarm.c literal port | **NEXT** (recommended) |
-| 447 | memiec.c + driverom.c | OPEN |
-| 448 | alarm.c literal port | OPEN |
-| 449 | fdc.c error codes | OPEN |
+| **448** | alarm.c literal port | **DONE** (literal C-style re-port; 36-file mass-rename camelCase→snake_case; 11/11 tie-break smoke; Spec 444 cycle-diff 9999/9999 ±1; 148/149 INVALIDATED) |
+| 449 | fdc.c error codes | **NEXT** (recommended) |
 | 450 | Validation harness | OPEN |
 | 451 | NTSC regression check | OPEN |
 

@@ -71,7 +71,7 @@
 
 import { IecBus } from "../dist/runtime/headless/iec/iec-bus.js";
 import { Via1d1541 } from "../dist/runtime/headless/via/via1d1541.js";
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../dist/runtime/headless/alarm/alarm-context.js";
 import {
   InterruptCpuStatus, IK_IRQ, INTERRUPT_DELAY,
 } from "../dist/runtime/headless/cpu/interrupt-cpu-status.js";
@@ -107,7 +107,7 @@ const PA_ATN_ASSERTED = CIA2_PA_ATN_OUT;       // = 0x08
 // baseline.
 function makeRig({ pcr = 0x01, enableIer = true } = {}) {
   const iec = new IecBus();
-  const ctx = alarmContextNew("smoke-419-atn");
+  const ctx = alarm_context_new("smoke-419-atn");
   const cpuIntStatus = new InterruptCpuStatus();
   // Stub opcode-info getter so checkIrqDelay's DELAYS / ENABLES paths
   // don't touch undefined.

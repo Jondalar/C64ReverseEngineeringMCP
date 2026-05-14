@@ -19,7 +19,7 @@
 import { Cpu6510 } from "../cpu6510.js";
 import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
 import { DriveBus } from "./drive-cpu.js";
-import { alarmContextDispatch } from "../alarm/alarm-context.js";
+import { alarm_context_dispatch } from "../alarm/alarm-context.js";
 import { OPCODE_TABLE } from "../../../exomizer-ts/generated-opcodes.js";
 import { UNDOC_TABLE } from "../cpu/undoc-table.js";
 
@@ -66,7 +66,7 @@ function drainAlarms(bus: DriveBus, cpuClk: number): void {
   const ctx = bus.alarmContext;
   let guard = 0;
   while (cpuClk >= ctx.next_pending_alarm_clk) {
-    alarmContextDispatch(ctx, cpuClk);
+    alarm_context_dispatch(ctx, cpuClk);
     if (++guard > 0x1000) break;
   }
 }

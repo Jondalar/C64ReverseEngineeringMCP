@@ -22,7 +22,7 @@
 // Spec 411 acceptance: rotation byte boundary → CA1 pulse + SO V flag
 // set on next 6502 instruction.
 
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../dist/runtime/headless/alarm/alarm-context.js";
 import { Via2d1541 } from "../dist/runtime/headless/via/via2d1541.js";
 import {
   VIA_PCR, VIA_IER, VIA_IFR, VIA_IM_CA1,
@@ -37,7 +37,7 @@ function check(label, cond, detail) {
 // these tests — we drive CA1 directly via `via.signal("ca1","fall")`
 // (= VICE viacore_signal(VIA_SIG_CA1, VIA_SIG_FALL)).
 function makeRig() {
-  const ctx = alarmContextNew("smoke-411-byte-ready");
+  const ctx = alarm_context_new("smoke-411-byte-ready");
   // Minimal idle GCR coupling — PA returns 0xff, PB returns 0x10,
   // no side effects. Matches the spec-147 idle-stub default but
   // explicit here so test stays independent of default backend.

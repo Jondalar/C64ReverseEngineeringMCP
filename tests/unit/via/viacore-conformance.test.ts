@@ -18,7 +18,7 @@
 
 import { strict as assert } from "node:assert";
 import {
-  alarmContextNew,
+  alarm_context_new,
 } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import {
   Via6522Vice,
@@ -48,7 +48,7 @@ const cases: Case[] = [];
 function test(name: string, run: () => void): void { cases.push({ name, run }); }
 
 function makeHarness() {
-  const ctx = alarmContextNew("test");
+  const ctx = alarm_context_new("test");
   let clk = 100;
   const state = { paPin: 0x55, pbPin: 0xaa, irq: 0 };
   const backend: ViaBackend = {

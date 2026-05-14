@@ -14,7 +14,7 @@ import { HeadlessMemoryBus } from "../memory-bus.js";
 import { DriveCpu } from "./drive-cpu.js";
 import { IecBus } from "../iec/iec-bus.js";
 import { attachCia2ToIecBus } from "../iec/cia2-stub.js";
-import { alarmContextDispatch } from "../alarm/alarm-context.js";
+import { alarm_context_dispatch } from "../alarm/alarm-context.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -85,7 +85,7 @@ export class DriveSession {
     const cpuClk = this.drive.cpu.cycles;
     let guard = 0;
     while (cpuClk >= ctx.next_pending_alarm_clk) {
-      alarmContextDispatch(ctx, cpuClk);
+      alarm_context_dispatch(ctx, cpuClk);
       if (++guard > 0x1000) break;
     }
     if (this.driveCycleAccumulator > 0) {

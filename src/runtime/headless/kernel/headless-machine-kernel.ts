@@ -22,7 +22,7 @@ import { KernelTraceControllerImpl } from "./kernel-trace.js";
 import { TraceRegistry } from "../trace/channels.js";
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import { InterruptCpuStatus } from "../cpu/interrupt-cpu-status.js";
-import { alarmContextNew } from "../alarm/alarm-context.js";
+import { alarm_context_new } from "../alarm/alarm-context.js";
 import { Cpu6510 } from "../cpu6510.js";
 import { HeadlessMemoryBus } from "../memory-bus.js";
 import { loadAllC64Roms, type LoadedC64RomSet } from "../c64-rom.js";
@@ -144,8 +144,8 @@ export class HeadlessMachineKernel implements MachineKernel {
     this.video = deps.video;
     const isPal = this.video === "PAL";
     this.alarms = {
-      maincpu: alarmContextNew("maincpu"),
-      drivecpu: alarmContextNew("drivecpu"),
+      maincpu: alarm_context_new("maincpu"),
+      drivecpu: alarm_context_new("drivecpu"),
     };
 
     // Spec 200-c4: disk image + parser. D64 sources are pre-encoded to

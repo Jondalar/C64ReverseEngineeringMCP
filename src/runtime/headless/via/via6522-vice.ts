@@ -6,7 +6,7 @@
 // alarm system from src/runtime/headless/alarm/alarm-context.ts as the
 // scheduling primitive — every alarm in VICE viacore.c (t1_zero,
 // t2_zero, t2_underflow, t2_shift, phi2_sr) is registered here with
-// alarmNew and (re)scheduled via alarmSet / alarmUnset directly from
+// alarm_new and (re)scheduled via alarm_set / alarm_unset directly from
 // register handlers, matching VICE 1:1.
 //
 // Hybrid naming: internal struct fields use VICE names verbatim
@@ -24,10 +24,10 @@
 // pre-existing `drive/via6522.ts` until Phase 2.
 
 import {
-  alarmContextDispatch,
-  alarmNew,
-  alarmSet,
-  alarmUnset,
+  alarm_context_dispatch,
+  alarm_new,
+  alarm_set,
+  alarm_unset,
   type Alarm,
   type AlarmContext,
 } from "../alarm/alarm-context.js";
@@ -325,31 +325,31 @@ export class Via6522Vice {
     this.clkBump = opts.clkBump ?? (() => undefined);
 
     // VICE viacore_init lines 1873-1889 — alarm registration.
-    this.t1_zero_alarm = alarmNew(
+    this.t1_zero_alarm = alarm_new(
       this.alarmContext,
       `${opts.myname}T1zero`,
       (offset) => this.onT1ZeroAlarm(offset),
       this,
     );
-    this.t2_zero_alarm = alarmNew(
+    this.t2_zero_alarm = alarm_new(
       this.alarmContext,
       `${opts.myname}T2zero`,
       (offset) => this.onT2ZeroAlarm(offset),
       this,
     );
-    this.t2_underflow_alarm = alarmNew(
+    this.t2_underflow_alarm = alarm_new(
       this.alarmContext,
       `${opts.myname}T2uflow`,
       (offset) => this.onT2UnderflowAlarm(offset),
       this,
     );
-    this.t2_shift_alarm = alarmNew(
+    this.t2_shift_alarm = alarm_new(
       this.alarmContext,
       `${opts.myname}T2SR`,
       (offset) => this.onT2ShiftAlarm(offset),
       this,
     );
-    this.phi2_sr_alarm = alarmNew(
+    this.phi2_sr_alarm = alarm_new(
       this.alarmContext,
       `${opts.myname}SR`,
       (offset) => this.onPhi2SrAlarm(offset),
@@ -388,11 +388,11 @@ export class Via6522Vice {
     this.t1zero = 0;
     this.t2xx00 = false;
 
-    alarmUnset(this.t1_zero_alarm);
-    alarmUnset(this.t2_zero_alarm);
-    alarmUnset(this.t2_underflow_alarm);
-    alarmUnset(this.t2_shift_alarm);
-    alarmUnset(this.phi2_sr_alarm);
+    alarm_unset(this.t1_zero_alarm);
+    alarm_unset(this.t2_zero_alarm);
+    alarm_unset(this.t2_underflow_alarm);
+    alarm_unset(this.t2_shift_alarm);
+    alarm_unset(this.phi2_sr_alarm);
 
     this.updateIrq(clk);
 
@@ -423,11 +423,11 @@ export class Via6522Vice {
    *   enabled = false;
    */
   disable(): void {
-    alarmUnset(this.t1_zero_alarm);
-    alarmUnset(this.t2_zero_alarm);
-    alarmUnset(this.t2_underflow_alarm);
-    alarmUnset(this.t2_shift_alarm);
-    alarmUnset(this.phi2_sr_alarm);
+    alarm_unset(this.t1_zero_alarm);
+    alarm_unset(this.t2_zero_alarm);
+    alarm_unset(this.t2_underflow_alarm);
+    alarm_unset(this.t2_shift_alarm);
+    alarm_unset(this.phi2_sr_alarm);
     this.enabled = false;
   }
 
@@ -586,8 +586,8 @@ export class Via6522Vice {
   private scheduleT2ZeroAlarm(rclk: CLOCK): void {
     this.t2zero = (rclk + this.t2cl) >>> 0;
     this.t2xx00 = true;
-    alarmUnset(this.t2_underflow_alarm);
-    alarmSet(this.t2_zero_alarm, this.t2zero);
+    alarm_unset(this.t2_underflow_alarm);
+    alarm_set(this.t2_zero_alarm, this.t2zero);
   }
 
   // ---- setup_shifting (lines 575-632) ----------------------------------
@@ -609,7 +609,7 @@ export class Via6522Vice {
       case VIA_ACR_SR_OUT_PHI2:
         if (this.shift_state === FINISHED_SHIFTING) {
           this.shift_state = START_SHIFTING;
-          alarmSet(this.phi2_sr_alarm, (rclk + 1) >>> 0);
+          alarm_set(this.phi2_sr_alarm, (rclk + 1) >>> 0);
         }
         break;
       case VIA_ACR_SR_OUT_FREE_T2:
@@ -622,7 +622,7 @@ export class Via6522Vice {
   private runPendingAlarms(clk: CLOCK, offset: number): void {
     const ctx = this.alarmContext;
     while (clk > ctx.next_pending_alarm_clk) {
-      alarmContextDispatch(ctx, (clk + offset) >>> 0);
+      alarm_context_dispatch(ctx, (clk + offset) >>> 0);
     }
   }
 
@@ -748,7 +748,7 @@ export class Via6522Vice {
         // Load counter with latch value (next cycle observes it).
         this.t1reload = (rclk + 1 + this.tal + FULL_CYCLE_2) >>> 0;
         this.t1zero = (rclk + 1 + this.tal) >>> 0;
-        alarmSet(this.t1_zero_alarm, this.t1zero);
+        alarm_set(this.t1_zero_alarm, this.t1zero);
         this.t1_pb7 = 0;
         this.ifr &= ~VIA_IM_T1;
         this.updateIrq(rclk);
@@ -814,7 +814,7 @@ export class Via6522Vice {
             const stop = (this.viacoreT2(rclk) - 1) & 0xffff;
             this.t2cl = u8(stop & 0xff);
             this.t2ch = u8((stop >>> 8) & 0xff);
-            alarmUnset(this.t2_zero_alarm);
+            alarm_unset(this.t2_zero_alarm);
             this.t2xx00 = false;
           } else {
             restartT2Alarms = true;
@@ -825,7 +825,7 @@ export class Via6522Vice {
         // SR mode change (lines 928-966).
         switch (v & VIA_ACR_SR_CONTROL) {
           case VIA_ACR_SR_DISABLED:
-            alarmUnset(this.phi2_sr_alarm);
+            alarm_unset(this.phi2_sr_alarm);
             if (this.ifr & VIA_IM_SR) {
               this.ifr &= ~VIA_IM_SR;
               this.updateIrq(rclk);
@@ -835,7 +835,7 @@ export class Via6522Vice {
           case VIA_ACR_SR_IN_T2:
           case VIA_ACR_SR_OUT_T2:
           case VIA_ACR_SR_OUT_FREE_T2:
-            alarmUnset(this.phi2_sr_alarm);
+            alarm_unset(this.phi2_sr_alarm);
             if (
               !isSrT2Controlled(oldAcr) &&
               isT2Timer(v)
@@ -846,12 +846,12 @@ export class Via6522Vice {
           case VIA_ACR_SR_IN_PHI2:
           case VIA_ACR_SR_OUT_PHI2:
             if (this.phi2_sr_alarm.pending_idx < 0) {
-              alarmSet(this.phi2_sr_alarm, (rclk + SR_PHI2_FIRST_OFFSET) >>> 0);
+              alarm_set(this.phi2_sr_alarm, (rclk + SR_PHI2_FIRST_OFFSET) >>> 0);
             }
             break;
           case VIA_ACR_SR_IN_CB1:
           case VIA_ACR_SR_OUT_CB1:
-            alarmUnset(this.phi2_sr_alarm);
+            alarm_unset(this.phi2_sr_alarm);
             break;
         }
 
@@ -1081,12 +1081,12 @@ export class Via6522Vice {
     const rclk = (this.clkRef() - offset) >>> 0;
     if (!(this.via[VIA_ACR]! & VIA_ACR_T1_FREE_RUN)) {
       // One-shot: cancel further alarms.
-      alarmUnset(this.t1_zero_alarm);
+      alarm_unset(this.t1_zero_alarm);
       this.t1zero = 0;
     } else {
       const fullCycle = this.tal + FULL_CYCLE_2;
       this.t1zero = (this.t1zero + fullCycle) >>> 0;
-      alarmSet(this.t1_zero_alarm, this.t1zero);
+      alarm_set(this.t1_zero_alarm, this.t1zero);
     }
     this.t1_pb7 ^= 0x80;
     this.ifr |= VIA_IM_T1;
@@ -1102,8 +1102,8 @@ export class Via6522Vice {
       this.updateIrq(rclk);
       this.t2_irq_allowed = false;
     }
-    alarmUnset(this.t2_zero_alarm);
-    alarmSet(this.t2_underflow_alarm, (rclk + 1) >>> 0);
+    alarm_unset(this.t2_zero_alarm);
+    alarm_set(this.t2_underflow_alarm, (rclk + 1) >>> 0);
   }
 
   /** viacore_t2_underflow_alarm (lines 1593-1652). */
@@ -1116,11 +1116,11 @@ export class Via6522Vice {
       // 8-bit timer mode (SR controlled).
       this.t2cl = u8(this.via[VIA_T2LL]!);
       nextAlarm = this.via[VIA_T2LL]! + FULL_CYCLE_2;
-      alarmSet(this.t2_shift_alarm, (rclk + 1) >>> 0);
+      alarm_set(this.t2_shift_alarm, (rclk + 1) >>> 0);
     } else if (isSrFreeRunning(acr)) {
       this.t2cl = u8(this.via[VIA_T2LL]!);
       nextAlarm = this.via[VIA_T2LL]! + FULL_CYCLE_2;
-      alarmSet(this.t2_shift_alarm, (rclk + 1) >>> 0);
+      alarm_set(this.t2_shift_alarm, (rclk + 1) >>> 0);
     } else {
       this.t2cl = 0xff;
       nextAlarm = this.t2ch !== 0xff ? 256 : 0;
@@ -1129,25 +1129,25 @@ export class Via6522Vice {
     if (nextAlarm) {
       this.t2zero = (this.t2zero + nextAlarm) >>> 0;
       this.t2xx00 = true;
-      alarmSet(this.t2_zero_alarm, this.t2zero);
+      alarm_set(this.t2_zero_alarm, this.t2zero);
     } else {
-      alarmUnset(this.t2_zero_alarm);
+      alarm_unset(this.t2_zero_alarm);
       this.t2xx00 = false;
     }
-    alarmUnset(this.t2_underflow_alarm);
+    alarm_unset(this.t2_underflow_alarm);
   }
 
   /** viacore_t2_shift_alarm (lines 1680-1695). */
   private onT2ShiftAlarm(offset: CLOCK): void {
     this.doShiftRegister(offset);
-    alarmUnset(this.t2_shift_alarm);
+    alarm_unset(this.t2_shift_alarm);
   }
 
   /** viacore_phi2_sr_alarm (lines 1808-1827). */
   private onPhi2SrAlarm(offset: CLOCK): void {
     const rclk = (this.clkRef() - offset) >>> 0;
     this.doShiftRegister(offset);
-    alarmSet(this.phi2_sr_alarm, (rclk + SR_PHI2_NEXT_OFFSET) >>> 0);
+    alarm_set(this.phi2_sr_alarm, (rclk + SR_PHI2_NEXT_OFFSET) >>> 0);
   }
 
   /** do_shiftregister (lines 1697-1805). */

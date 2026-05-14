@@ -62,7 +62,7 @@ am Ende validiert.
 | Drive memory map | `drive/iec/memiec.c` | 281 | `drive-cpu.ts` DriveBus dispatch | 447 | AUDITED (Spec 447 DONE 2026-05-14) — 1541 V1 full dispatch + $80-$BF ROM mirror port |
 | Drive ROM loader | `drive/driverom.c` | 544 | `drive-rom.ts` + DriveCpu ctor | 447 | AUDITED (Spec 447 DONE 2026-05-14) — V1 load only; trap-patch + snapshot deferred |
 | Drive sync (host↔drive clock) | `drive/drivesync.c` | 117 | `drive-cpu.ts` syncFactor + drivesync_clock_frequency + setPalNtsc | 446 | AUDITED (Spec 446 DONE 2026-05-14) — PAL/NTSC switch mechanism PORTED; full NTSC validation = Spec 451 |
-| Alarm context | `alarm.c` + `alarm.h` | ~400 | `alarm/alarm-context.ts` | 448 | TEIL, NICHT LITERAL |
+| Alarm context | `alarm.c` + `alarm.h` | ~400 | `alarm/alarm-context.ts` | 448 | AUDITED (Spec 448 DONE 2026-05-14) — literal C-style re-port; snake_case canonical; tie-break smoke 11/11; cycle-diff 9999/9999 ±1; Sprint 148/149 verdicts INVALIDATED |
 | FDC error codes + state | `drive/fdc.c` + `cbmdos.h` | ~400 | partial enum in `gcr.ts` | 449 | TEIL |
 | IEC bus core | `iecbus/iecbus.c` | 570 | `iec-bus.ts` + `iec-bus-core.ts` 700 LOC | 430 | DONE (Sprint 430) |
 | Parallel cable | `drive/iec/glue1571.c` + parallel | ? | ❌ | 450 | OUT (V1) |
@@ -82,7 +82,7 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 | 6 | **445** | `gcr.c` write-path + encode | mittel | **DONE** (8 commits, encode + write_sector + read-path re-audit BUG fix + runtime write-back smoke 4/4) |
 | 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | **DONE** (drivesync_clock_frequency + setPalNtsc + 17 conformance tests) |
 | 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | **DONE** ($80-$BF ROM mirror port + 16 conformance tests; trap-patch + snapshot deferred) |
-| 9 | **448** | `alarm.c` literal port | groß | OPEN |
+| 9 | **448** | `alarm.c` literal port | groß | **DONE** (literal C-style re-port; 36-file mass-rename camelCase→snake_case; 11/11 dispatch smoke; Spec 444 cycle-diff 9999/9999 ±1; 148/149 INVALIDATED) |
 | 10 | **449** | `fdc.c` + cbmdos error codes + state machine | mittel | OPEN |
 | 11 | **450** | Validation harness: full read+write+verify | mittel | OPEN |
 | 12 | **451** | NTSC sync regression check | klein | OPEN |

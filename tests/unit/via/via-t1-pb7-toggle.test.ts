@@ -11,9 +11,9 @@
 
 import { strict as assert } from "node:assert";
 import {
-  alarmContextDispatch,
-  alarmContextNew,
-  alarmContextNextPendingClk,
+  alarm_context_dispatch,
+  alarm_context_new,
+  alarm_context_next_pending_clk,
   CLOCK_MAX,
 } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import {
@@ -35,7 +35,7 @@ const cases: Case[] = [];
 function test(name: string, run: () => void): void { cases.push({ name, run }); }
 
 function harness() {
-  const ctx = alarmContextNew("test");
+  const ctx = alarm_context_new("test");
   let clk = 100;
   const stored: Array<{ clk: number; v: number }> = [];
   let irq = 0;
@@ -61,9 +61,9 @@ function harness() {
     writeOffset: 0,
   });
   function dispatchAll(): void {
-    while (clk >= alarmContextNextPendingClk(ctx) &&
-           alarmContextNextPendingClk(ctx) !== CLOCK_MAX) {
-      alarmContextDispatch(ctx, clk);
+    while (clk >= alarm_context_next_pending_clk(ctx) &&
+           alarm_context_next_pending_clk(ctx) !== CLOCK_MAX) {
+      alarm_context_dispatch(ctx, clk);
     }
   }
   return {

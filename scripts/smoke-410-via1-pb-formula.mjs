@@ -19,7 +19,7 @@
 //      Per OQ-410-1 (doc §17): unit 0/dev 8 → driveid=$00,
 //      unit 1/dev 9 → $20, unit 2/dev 10 → $40, unit 3/dev 11 → $60.
 
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../dist/runtime/headless/alarm/alarm-context.js";
 import { Via1d1541 } from "../dist/runtime/headless/via/via1d1541.js";
 import { IecBusCore } from "../dist/runtime/headless/iec/iec-bus-core.js";
 import { VIA_PRB, VIA_DDRB } from "../dist/runtime/headless/via/via6522-vice.js";
@@ -31,7 +31,7 @@ function check(label, cond, detail) {
 
 function makeVia(deviceId) {
   const iec = new IecBusCore();
-  const ctx = alarmContextNew(`smoke-410-pb-dev${deviceId}`);
+  const ctx = alarm_context_new(`smoke-410-pb-dev${deviceId}`);
   const via = new Via1d1541({
     alarmContext: ctx,
     iec,

@@ -15,8 +15,8 @@
 
 import { strict as assert } from "node:assert";
 import {
-  alarmContextNew,
-  alarmContextNextPendingClk,
+  alarm_context_new,
+  alarm_context_next_pending_clk,
 } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import {
   Via6522Vice,
@@ -30,7 +30,7 @@ const cases: Case[] = [];
 function test(name: string, run: () => void): void { cases.push({ name, run }); }
 
 function harness(writeOffset: number) {
-  const ctx = alarmContextNew("test");
+  const ctx = alarm_context_new("test");
   let clk = 100;
   const backend: ViaBackend = {
     readPa: () => 0xff, readPb: () => 0xff,
@@ -59,7 +59,7 @@ test("T1CH alarm scheduled at (rclk + 1 + tal) where rclk = clk - write_offset",
   const h = harness(1);
   h.via.store(VIA_T1LL, 0x04);
   h.via.store(VIA_T1CH, 0x00);   // tal=4
-  assert.equal(alarmContextNextPendingClk(h.ctx), 104);
+  assert.equal(alarm_context_next_pending_clk(h.ctx), 104);
 });
 
 // With write_offset = 0 and same params, alarm should land 1 cycle
@@ -68,11 +68,11 @@ test("write_offset=0 vs write_offset=1 — alarm scheduling differs by 1", () =>
   const h0 = harness(0);
   h0.via.store(VIA_T1LL, 0x04);
   h0.via.store(VIA_T1CH, 0x00);
-  const a0 = alarmContextNextPendingClk(h0.ctx);
+  const a0 = alarm_context_next_pending_clk(h0.ctx);
   const h1 = harness(1);
   h1.via.store(VIA_T1LL, 0x04);
   h1.via.store(VIA_T1CH, 0x00);
-  const a1 = alarmContextNextPendingClk(h1.ctx);
+  const a1 = alarm_context_next_pending_clk(h1.ctx);
   assert.equal(a0 - a1, 1);
 });
 

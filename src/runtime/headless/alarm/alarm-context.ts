@@ -1,135 +1,125 @@
-// Spec 149 — Alarm system 1:1 VICE port (FOUNDATION).
+// Spec 448 — alarm.c + alarm.h literal port (Claude-self re-audit
+// 2026-05-14). Sprint 148/149 verdicts INVALIDATED under Epic-440
+// doctrine; this is the canonical literal port.
 //
-// Spec 401 audit (= docs/vice-c64-arch.md §12 Phase A step 2): the
-// public API + on-disk shape already match VICE alarm.h/alarm.c
-// (min-heap-by-clock, alarm_set / alarm_unset / alarm_context_dispatch /
-// alarm_context_next_pending_clk). The CPU's per-cycle CLK_INC tick
-// (cpu/cpu65xx-vice.ts:tick) calls into this module; no changes were
-// required for spec 401. Drain ordering is owned by the CPU (= drain
-// BEFORE clk++ per §11 step 1.a, §13 invariant 1).
+// Source: VICE 3.7.1 src/alarm.h (187 LoC) + src/alarm.c (212 LoC).
 //
-// Source: VICE 3.7.1 src/alarm.h (187 LOC) + src/alarm.c (212 LOC).
-// This is a faithful translation of the VICE alarm primitive: a per-
-// context unsorted "pending alarms" array (cap 256) with a cached
-// next-pending head. Chip code (CIA / VIA / CPU / VIC) ported in later
-// steps will call into this module using the VICE-equivalent function
-// names verbatim, so the API surface here is greppable against
-// alarm.c. Hybrid naming: internal struct fields keep VICE names
-// (snake_case, e.g. `pending_idx`, `num_pending_alarms`) so chip ports
-// can mechanically transcribe `alarm->pending_idx = -1;` etc. Public
-// function exports use camelCase TS conventions (alarmSet,
-// alarmContextDispatch...).
+// Data structure: per-context UNSORTED `pending_alarms[256]` array
+// with cached `next_pending_alarm_clk` + `next_pending_alarm_idx`.
+// NOT a min-heap — VICE prefers cache invalidation + linear rescan
+// over heap maintenance for the small N (≤ 256) and rare reschedule
+// cost. Sprint 149 header-comment falsely claimed "min-heap"; that
+// claim is purged here.
 //
-// Scope: alarm primitives + unit tests only. Chip integration (CIA
-// timer underflow, VIA T1/T2, VIC raster, TOD, SDR) lands in
-// subsequent steps. The CPU dispatch loop wiring is also out of scope
-// for this foundation step.
+// Tie-breaking: when multiple alarms have the same clk,
+// `alarm_context_update_next_pending` (alarm.h:110-129) uses `<=`
+// in the comparator, so the LAST entry in array order wins as the
+// cached head. Registration order is preserved by `alarm_set`
+// appending to `pending_alarms[num_pending_alarms]`.
 //
-// Width semantics: CLOCK is uint32 in VICE; we model that explicitly
-// via the `CLOCK` alias and `u32` helper from `../util/uint.ts`. Note
-// that VICE pending-alarm comparison is done with raw `<=` against
-// CLOCK_MAX = 0xFFFFFFFF — i.e. larger numeric value = later in time.
-// In TS-number land this still holds for unsigned uint32 quantities,
-// so the comparators below mirror VICE 1:1 without any wrap handling
-// (matches VICE semantics: the CPU loop is expected to never let
-// pending clks exceed UINT32_MAX without an explicit time-warp).
+// FLACH-MANDATE compliance:
+//   - Top-level function exports (alarm_set, alarm_unset, ...) — no
+//     class wrappers, no method-this. C-style port.
+//   - VICE-verbatim snake_case identifiers for all public names.
+//   - Interfaces named literally: alarm_t, alarm_context_t,
+//     alarm_callback_t, pending_alarms_t.
+//
+// Width semantics: CLOCK is uint32 in VICE; modelled via `CLOCK`
+// alias + `u32` wrap helper. Comparison uses raw `<=` against
+// `CLOCK_MAX = 0xFFFFFFFF`. Larger numeric = later in time.
 
 import { u32, type CLOCK } from "../util/uint.js";
 
 // ---------------------------------------------------------------------------
-// Constants — alarm.h lines 33, types.h CLOCK_MAX = ~(CLOCK)0.
+// Constants — alarm.h:33, types.h CLOCK_MAX.
 // ---------------------------------------------------------------------------
 
-/** alarm.h line 33: `#define ALARM_CONTEXT_MAX_PENDING_ALARMS 0x100`. */
+/** alarm.h:33 `#define ALARM_CONTEXT_MAX_PENDING_ALARMS 0x100`. */
 export const ALARM_CONTEXT_MAX_PENDING_ALARMS = 0x100;
 
-/** types.h: `#define CLOCK_MAX (~((CLOCK)0))` — uint32 max. */
+/** types.h `#define CLOCK_MAX (~((CLOCK)0))` — uint32 max. */
 export const CLOCK_MAX: CLOCK = 0xffffffff >>> 0;
 
 // ---------------------------------------------------------------------------
-// Types — alarm.h lines 35-88.
+// Types — alarm.h:35-88. snake_case verbatim per FLACH-MANDATE.
 // ---------------------------------------------------------------------------
 
-/** alarm.h line 35: `typedef void (*alarm_callback_t)(CLOCK offset, void *data);`. */
-export type AlarmCallback = (offset: CLOCK, data: unknown) => void;
+/** alarm.h:35 `typedef void (*alarm_callback_t)(CLOCK offset, void *data);`. */
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export type alarm_callback_t = (offset: CLOCK, data: unknown) => void;
 
 /**
- * alarm.h lines 38-58 — `struct alarm_s` / `alarm_t`.
+ * alarm.h:38-58 — `struct alarm_s` / `alarm_t`.
  *
- * Field names match VICE verbatim. `pending_idx === -1` means "not
- * pending" (matches VICE init in alarm_init).
+ * `pending_idx === -1` means "not pending" (alarm_init initial state).
  */
-export interface Alarm {
-  /** Descriptive name. alarm.h line 40. */
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export interface alarm_t {
+  /** alarm.h:40 descriptive name. */
   name: string;
-  /** Owning context. alarm.h line 43. */
-  context: AlarmContext;
-  /** Callback. alarm.h line 46. */
-  callback: AlarmCallback;
-  /** Index into context.pending_alarms; < 0 means not pending. alarm.h line 50. */
+  /** alarm.h:43 owning context (back-reference). */
+  context: alarm_context_t;
+  /** alarm.h:46 callback fired by alarm_context_dispatch. */
+  callback: alarm_callback_t;
+  /** alarm.h:50 index into context.pending_alarms; < 0 = not pending. */
   pending_idx: number;
-  /** Opaque user data passed to callback. alarm.h line 53. */
+  /** alarm.h:53 opaque user data passed to callback. */
   data: unknown;
-  /** Doubly-linked list pointers in context.alarms. alarm.h line 56. */
-  next: Alarm | null;
-  prev: Alarm | null;
+  /** alarm.h:56 doubly-linked list pointers in context.alarms. */
+  next: alarm_t | null;
+  prev: alarm_t | null;
 }
 
-/** alarm.h lines 60-67 — `struct pending_alarms_s`. */
-export interface PendingAlarm {
-  alarm: Alarm;
+/** alarm.h:60-67 `struct pending_alarms_s` / `pending_alarms_t`. */
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export interface pending_alarms_t {
+  alarm: alarm_t;
   clk: CLOCK;
 }
 
-/** alarm.h lines 70-88 — `struct alarm_context_s`. */
-export interface AlarmContext {
-  /** Descriptive name. alarm.h line 72. */
+/** alarm.h:70-88 `struct alarm_context_s` / `alarm_context_t`. */
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export interface alarm_context_t {
+  /** alarm.h:72 descriptive name. */
   name: string;
-  /** Head of doubly-linked alarm list (all registered alarms). alarm.h line 75. */
-  alarms: Alarm | null;
-  /** Pending alarm array (statically sized in VICE; we size-fix at 256). alarm.h line 79. */
-  pending_alarms: PendingAlarm[];
-  /** Number of valid entries in pending_alarms[0..num_pending_alarms-1]. alarm.h line 80. */
+  /** alarm.h:75 head of doubly-linked alarm registration list. */
+  alarms: alarm_t | null;
+  /** alarm.h:79 fixed-size (256) unsorted pending array. */
+  pending_alarms: pending_alarms_t[];
+  /** alarm.h:80 number of valid entries in `pending_alarms[0..num-1]`. */
   num_pending_alarms: number;
-  /** Cached next-fire clk (CLOCK_MAX when none). alarm.h line 83. */
+  /** alarm.h:83 cached next-fire clk (CLOCK_MAX when none pending). */
   next_pending_alarm_clk: CLOCK;
-  /** Cached pending_alarms[] index of the next-fire alarm (-1 when none). alarm.h line 86. */
+  /** alarm.h:86 cached pending-array idx of next-fire alarm (-1 when none). */
   next_pending_alarm_idx: number;
 }
 
 // ---------------------------------------------------------------------------
-// Context lifecycle — alarm.c lines 39-77.
+// Context lifecycle — alarm.c:39-77.
 // ---------------------------------------------------------------------------
 
 /**
- * alarm.c lines 39-47 — `alarm_context_t *alarm_context_new(const char *name)`.
- *
- * In VICE this allocates the context struct then calls
- * alarm_context_init. In TS we collapse the two: the constructor
- * initialises a fresh AlarmContext.
+ * alarm.c:39-47 `alarm_context_t *alarm_context_new(const char *name)`.
+ * Allocates + initialises.
  */
-export function alarmContextNew(name: string): AlarmContext {
-  const context: AlarmContext = {
-    name: "", // overwritten by alarmContextInit
+export function alarm_context_new(name: string): alarm_context_t {
+  const context: alarm_context_t = {
+    name: "",
     alarms: null,
     pending_alarms: new Array(ALARM_CONTEXT_MAX_PENDING_ALARMS),
     num_pending_alarms: 0,
     next_pending_alarm_clk: CLOCK_MAX,
     next_pending_alarm_idx: -1,
   };
-  alarmContextInit(context, name);
+  alarm_context_init(context, name);
   return context;
 }
 
 /**
- * alarm.c lines 49-57 — `alarm_context_init`.
- *
- * VICE leaves `next_pending_alarm_idx` uninitialised here (-1 is the
- * convention used by alarm_unset / alarm_init); we set it explicitly
- * for determinism. Pending array is zeroed implicitly by JS array
- * allocation (slots are `undefined` until `alarm_set` writes them).
+ * alarm.c:49-57 `alarm_context_init`. VICE leaves next_pending_alarm_idx
+ * uninitialised; TS sets explicitly to -1 for determinism.
  */
-export function alarmContextInit(context: AlarmContext, name: string): void {
+export function alarm_context_init(context: alarm_context_t, name: string): void {
   context.name = name;
   context.alarms = null;
   context.num_pending_alarms = 0;
@@ -138,82 +128,64 @@ export function alarmContextInit(context: AlarmContext, name: string): void {
 }
 
 /**
- * alarm.c lines 59-77 — `alarm_context_destroy`.
- *
- * Walks the per-context alarm list and destroys each. In TS we don't
- * have manual frees; we just unlink everything to break references so
- * the GC can collect.
+ * alarm.c:59-77 `alarm_context_destroy`. Walks alarm list and destroys
+ * each. TS has GC; we unlink to break references.
  */
-export function alarmContextDestroy(context: AlarmContext): void {
+export function alarm_context_destroy(context: alarm_context_t): void {
   let ap = context.alarms;
   while (ap !== null) {
-    const apNext: Alarm | null = ap.next;
-    alarmDestroy(ap);
-    ap = apNext;
+    const ap_next: alarm_t | null = ap.next;
+    alarm_destroy(ap);
+    ap = ap_next;
   }
   context.alarms = null;
   context.num_pending_alarms = 0;
   context.next_pending_alarm_clk = CLOCK_MAX;
   context.next_pending_alarm_idx = -1;
-  // We leave context.name in place; mirrors lib_free in VICE which is
-  // a no-op for our purposes. Caller drops the reference.
 }
 
 /**
- * alarm.c lines 79-101 — `alarm_context_time_warp`.
- *
- * Shifts every pending alarm's clk by `warp_amount` in the given
- * direction. Direction 0 → no-op (matches VICE early-return). Positive
- * → add, negative → subtract. We fold through `u32` so wrap matches
- * VICE uint32 semantics.
+ * alarm.c:79-101 `alarm_context_time_warp`. Shifts every pending
+ * alarm's clk by `warp_amount` in the given direction (0 → no-op).
  */
-export function alarmContextTimeWarp(
-  context: AlarmContext,
-  warpAmount: CLOCK,
-  warpDirection: number,
+export function alarm_context_time_warp(
+  context: alarm_context_t,
+  warp_amount: CLOCK,
+  warp_direction: number,
 ): void {
-  if (warpDirection === 0) {
-    return;
-  }
+  if (warp_direction === 0) return;
 
   for (let i = 0; i < context.num_pending_alarms; i++) {
     const slot = context.pending_alarms[i]!;
-    if (warpDirection > 0) {
-      slot.clk = u32(slot.clk + warpAmount);
+    if (warp_direction > 0) {
+      slot.clk = u32(slot.clk + warp_amount);
     } else {
-      slot.clk = u32(slot.clk - warpAmount);
+      slot.clk = u32(slot.clk - warp_amount);
     }
   }
 
-  if (warpDirection > 0) {
-    context.next_pending_alarm_clk = u32(
-      context.next_pending_alarm_clk + warpAmount,
-    );
+  if (warp_direction > 0) {
+    context.next_pending_alarm_clk = u32(context.next_pending_alarm_clk + warp_amount);
   } else {
-    context.next_pending_alarm_clk = u32(
-      context.next_pending_alarm_clk - warpAmount,
-    );
+    context.next_pending_alarm_clk = u32(context.next_pending_alarm_clk - warp_amount);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Alarm lifecycle — alarm.c lines 105-165.
+// Alarm lifecycle — alarm.c:105-165.
 // ---------------------------------------------------------------------------
 
 /**
- * alarm.c lines 105-125 — `alarm_init` (static helper) + 127-137
- * `alarm_new`.
- *
- * Allocates an Alarm, links it at the HEAD of context.alarms (matches
- * VICE prepend), sets pending_idx = -1.
+ * alarm.c:105-125 `alarm_init` (static) + alarm.c:127-137 `alarm_new`.
+ * Prepends to context.alarms (matches VICE), sets pending_idx = -1.
  */
-export function alarmNew(
-  context: AlarmContext,
+export function alarm_new(
+  context: alarm_context_t,
   name: string,
-  callback: AlarmCallback,
+  callback: alarm_callback_t,
   data: unknown,
-): Alarm {
-  const alarm: Alarm = {
+): alarm_t {
+  const alarm: alarm_t = {
     name,
     context,
     callback,
@@ -223,7 +195,7 @@ export function alarmNew(
     prev: null,
   };
 
-  // alarm.c lines 116-124 — prepend to context.alarms.
+  // alarm.c:116-124 prepend.
   if (context.alarms === null) {
     context.alarms = alarm;
     alarm.next = null;
@@ -238,17 +210,13 @@ export function alarmNew(
 }
 
 /**
- * alarm.c lines 139-165 — `alarm_destroy`.
- *
- * Unsets the alarm if pending, then unlinks from context.alarms.
- * Mirrors VICE behavior of being a no-op on null input.
+ * alarm.c:139-165 `alarm_destroy`. Unsets if pending, unlinks from
+ * context.alarms. No-op on null input (matches VICE).
  */
-export function alarmDestroy(alarm: Alarm | null | undefined): void {
-  if (alarm == null) {
-    return;
-  }
+export function alarm_destroy(alarm: alarm_t | null | undefined): void {
+  if (alarm == null) return;
 
-  alarmUnset(alarm);
+  alarm_unset(alarm);
 
   const context = alarm.context;
 
@@ -256,56 +224,44 @@ export function alarmDestroy(alarm: Alarm | null | undefined): void {
     context.alarms = alarm.next;
   }
 
-  if (alarm.next !== null) {
-    alarm.next.prev = alarm.prev;
-  }
-  if (alarm.prev !== null) {
-    alarm.prev.next = alarm.next;
-  }
+  if (alarm.next !== null) alarm.next.prev = alarm.prev;
+  if (alarm.prev !== null) alarm.prev.next = alarm.next;
 
-  // Help GC.
   alarm.next = null;
   alarm.prev = null;
 }
 
 /**
- * alarm.c lines 167-207 — `alarm_unset`.
- *
- * Removes the alarm from pending_alarms by swap-with-last (preserves
- * packed array). Updates next_pending cache: if the alarm being
- * removed was the cached head, full slow-path re-scan; if the swap
- * displaces the cached head, just patch the cached idx.
+ * alarm.c:167-207 `alarm_unset`. Removes from pending_alarms by
+ * swap-with-last (packed array). Updates next_pending cache:
+ *   - If removed alarm was cached head: full slow-path rescan.
+ *   - If swap displaces cached head: patch cached idx.
+ *   - Else: untouched (cached head still valid).
  */
-export function alarmUnset(alarm: Alarm): void {
+export function alarm_unset(alarm: alarm_t): void {
   const idx = alarm.pending_idx;
-
-  if (idx < 0) {
-    return; // Not pending.
-  }
+  if (idx < 0) return; // Not pending.
   const context = alarm.context;
 
   if (context.num_pending_alarms > 1) {
     const last = --context.num_pending_alarms;
 
     if (last !== idx) {
-      // alarm.c lines 184-193 — copy last → idx, fix moved alarm's
-      // pending_idx.
-      const slotIdx = context.pending_alarms[idx]!;
-      const slotLast = context.pending_alarms[last]!;
-      slotIdx.alarm = slotLast.alarm;
-      slotIdx.clk = slotLast.clk;
-      slotIdx.alarm.pending_idx = idx;
+      // alarm.c:184-193 copy last → idx, fix moved.pending_idx.
+      const slot_idx = context.pending_alarms[idx]!;
+      const slot_last = context.pending_alarms[last]!;
+      slot_idx.alarm = slot_last.alarm;
+      slot_idx.clk = slot_last.clk;
+      slot_idx.alarm.pending_idx = idx;
     }
 
     if (context.next_pending_alarm_idx === idx) {
-      alarmContextUpdateNextPending(context);
+      alarm_context_update_next_pending(context);
     } else if (context.next_pending_alarm_idx === last) {
-      // The cached head was the entry we just moved; patch the cached
-      // index to its new home.
       context.next_pending_alarm_idx = idx;
     }
   } else {
-    // alarm.c lines 200-204 — last pending alarm removed; reset.
+    // alarm.c:200-204 last-removed reset.
     context.num_pending_alarms = 0;
     context.next_pending_alarm_clk = CLOCK_MAX;
     context.next_pending_alarm_idx = -1;
@@ -315,74 +271,55 @@ export function alarmUnset(alarm: Alarm): void {
 }
 
 // ---------------------------------------------------------------------------
-// Inline functions — alarm.h lines 105-185.
+// Inline functions — alarm.h:105-185.
 // ---------------------------------------------------------------------------
 
-/**
- * alarm.h lines 105-108 — `alarm_context_next_pending_clk`.
- *
- * Cached peek. Returns CLOCK_MAX when no alarms pending.
- */
-export function alarmContextNextPendingClk(context: AlarmContext): CLOCK {
+/** alarm.h:105-108 `alarm_context_next_pending_clk` cached peek. */
+export function alarm_context_next_pending_clk(context: alarm_context_t): CLOCK {
   return context.next_pending_alarm_clk;
 }
 
 /**
- * alarm.h lines 110-129 — `alarm_context_update_next_pending`.
- *
- * Slow-path linear scan over pending_alarms[0..num_pending_alarms-1].
- * Note VICE uses `<=` (not `<`) when comparing — so among multiple
- * entries with the SAME clk, the LAST one in array order wins as the
- * cached head. Matches VICE 1:1.
+ * alarm.h:110-129 `alarm_context_update_next_pending`. Slow-path
+ * linear scan over `pending_alarms[0..num_pending_alarms-1]`. Uses
+ * `<=` comparator so LAST entry in array order wins for same-clk
+ * ties. Matches VICE 1:1.
  */
-export function alarmContextUpdateNextPending(context: AlarmContext): void {
-  let nextPendingAlarmClk: CLOCK = CLOCK_MAX;
-  let nextPendingAlarmIdx: number = context.next_pending_alarm_idx;
+export function alarm_context_update_next_pending(context: alarm_context_t): void {
+  let next_pending_alarm_clk: CLOCK = CLOCK_MAX;
+  let next_pending_alarm_idx: number = context.next_pending_alarm_idx;
 
   for (let i = 0; i < context.num_pending_alarms; i++) {
-    const pendingClk = context.pending_alarms[i]!.clk;
-
-    if (pendingClk <= nextPendingAlarmClk) {
-      nextPendingAlarmClk = pendingClk;
-      nextPendingAlarmIdx = i;
+    const pending_clk = context.pending_alarms[i]!.clk;
+    if (pending_clk <= next_pending_alarm_clk) {
+      next_pending_alarm_clk = pending_clk;
+      next_pending_alarm_idx = i;
     }
   }
 
-  context.next_pending_alarm_clk = nextPendingAlarmClk;
-  context.next_pending_alarm_idx = nextPendingAlarmIdx;
+  context.next_pending_alarm_clk = next_pending_alarm_clk;
+  context.next_pending_alarm_idx = next_pending_alarm_idx;
 }
 
 /**
- * alarm.h lines 131-144 — `alarm_context_dispatch`.
+ * alarm.h:131-144 `alarm_context_dispatch`. Fires ONE alarm — the
+ * cached next-pending entry — passing `offset = cpu_clk - clk` +
+ * alarm data. Does NOT remove or re-cache — callback is expected to
+ * call alarm_set (reschedule) or alarm_unset (one-shot).
  *
- * Fires ONE alarm — the cached next-pending entry — passing
- * `offset = cpu_clk - clk` and the alarm's data. Does NOT remove the
- * alarm; the callback is expected to call alarmSet (reschedule) or
- * alarmUnset (one-shot) itself. After the callback returns, callers
- * (typically the CPU loop) will call this again until
- * alarmContextNextPendingClk(context) > current clk.
- *
- * CRITICAL: VICE does NOT update next_pending after dispatch — that's
- * the callback's responsibility (since it must alarmSet/alarmUnset
- * which both maintain the cache). We mirror that 1:1. If the callback
- * neither reschedules nor unsets, the cache becomes stale; the next
- * dispatch will re-fire the same alarm.
- *
- * Throws if called with no pending alarms — matches VICE which would
- * deref an invalid index. Callers are expected to peek-check first.
+ * TS-EXTRA-ACCEPTABLE: defensive throw on invalid index (VICE would
+ * deref garbage; TS throws clear error).
  */
-export function alarmContextDispatch(
-  context: AlarmContext,
-  cpuClk: CLOCK,
+export function alarm_context_dispatch(
+  context: alarm_context_t,
+  cpu_clk: CLOCK,
 ): void {
-  const offset: CLOCK = u32(cpuClk - context.next_pending_alarm_clk);
+  const offset: CLOCK = u32(cpu_clk - context.next_pending_alarm_clk);
   const idx = context.next_pending_alarm_idx;
   const slot = context.pending_alarms[idx];
   if (slot === undefined) {
-    // Defensive: VICE would crash here; we throw a clear error so
-    // misuse is caught immediately rather than producing silent UB.
     throw new Error(
-      `alarmContextDispatch: no pending alarm (idx=${idx}, num_pending=${context.num_pending_alarms})`,
+      `alarm_context_dispatch: no pending alarm (idx=${idx}, num_pending=${context.num_pending_alarms})`,
     );
   }
   const alarm = slot.alarm;
@@ -390,61 +327,88 @@ export function alarmContextDispatch(
 }
 
 /**
- * alarm.h lines 146-185 — `alarm_set`.
- *
- * Schedule (or reschedule) an alarm to fire at `cpu_clk`.
- *
- *  - If not currently pending (pending_idx < 0): append to
- *    pending_alarms; if the new clk is earlier than the cached head,
- *    update the cache cheaply.
- *  - If already pending: overwrite the slot's clk; if the new clk is
- *    earlier than the cached head, OR the alarm being modified IS the
- *    cached head, run the slow-path rescan to re-find the head.
- *
- * Capacity overflow (256 already pending) calls
- * alarm_log_too_many_alarms and returns without scheduling — matches
- * VICE.
+ * alarm.h:146-185 `alarm_set`. Schedule / reschedule alarm at cpu_clk.
+ *   - Not pending (pending_idx < 0): append to pending_alarms;
+ *     update cache if new clk < cached.
+ *   - Already pending: overwrite slot's clk; rescan cache if new clk
+ *     earlier OR alarm IS the cached head.
+ * Capacity overflow → alarm_log_too_many_alarms + return.
  */
-export function alarmSet(alarm: Alarm, cpuClk: CLOCK): void {
+export function alarm_set(alarm: alarm_t, cpu_clk: CLOCK): void {
   const context = alarm.context;
   const idx = alarm.pending_idx;
 
   if (idx < 0) {
-    // Not pending yet: add.
-    const newIdx = context.num_pending_alarms;
-    if (newIdx >= ALARM_CONTEXT_MAX_PENDING_ALARMS) {
-      alarmLogTooManyAlarms();
+    const new_idx = context.num_pending_alarms;
+    if (new_idx >= ALARM_CONTEXT_MAX_PENDING_ALARMS) {
+      alarm_log_too_many_alarms();
       return;
     }
 
-    context.pending_alarms[newIdx] = { alarm, clk: cpuClk };
+    context.pending_alarms[new_idx] = { alarm, clk: cpu_clk };
     context.num_pending_alarms++;
 
-    if (cpuClk < context.next_pending_alarm_clk) {
-      context.next_pending_alarm_clk = cpuClk;
-      context.next_pending_alarm_idx = newIdx;
+    if (cpu_clk < context.next_pending_alarm_clk) {
+      context.next_pending_alarm_clk = cpu_clk;
+      context.next_pending_alarm_idx = new_idx;
     }
 
-    alarm.pending_idx = newIdx;
+    alarm.pending_idx = new_idx;
   } else {
-    // Already pending: modify.
-    context.pending_alarms[idx]!.clk = cpuClk;
+    context.pending_alarms[idx]!.clk = cpu_clk;
     if (
-      context.next_pending_alarm_clk > cpuClk ||
+      context.next_pending_alarm_clk > cpu_clk ||
       idx === context.next_pending_alarm_idx
     ) {
-      alarmContextUpdateNextPending(context);
+      alarm_context_update_next_pending(context);
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// alarm.c line 209-212 — `alarm_log_too_many_alarms`.
-//
-// VICE logs via log_error(LOG_DEFAULT, ...). We use console.warn
-// (per spec 149: "use a TS console.warn"). Exported so chip code /
-// tests can spy on it via mocking if needed in later steps.
-// ---------------------------------------------------------------------------
-export function alarmLogTooManyAlarms(): void {
+/**
+ * alarm.c:209-212 `alarm_log_too_many_alarms`. VICE log_error; TS
+ * console.warn. TS-EXTRA-ACCEPTABLE.
+ */
+export function alarm_log_too_many_alarms(): void {
   console.warn("alarm_set(): Too many alarms set!");
 }
+
+// ---------------------------------------------------------------------------
+// Spec 448 transition aliases — camelCase exports retained as
+// @deprecated re-exports during caller migration. Remove in a
+// follow-up commit once all 45 callers migrate to snake_case.
+// ---------------------------------------------------------------------------
+
+/** @deprecated Spec 448 — use `alarm_t` instead. */
+export type Alarm = alarm_t;
+/** @deprecated Spec 448 — use `alarm_context_t` instead. */
+export type AlarmContext = alarm_context_t;
+/** @deprecated Spec 448 — use `alarm_callback_t` instead. */
+export type AlarmCallback = alarm_callback_t;
+/** @deprecated Spec 448 — use `pending_alarms_t` instead. */
+export type PendingAlarm = pending_alarms_t;
+
+/** @deprecated Spec 448 — use `alarm_context_new` instead. */
+export const alarmContextNew = alarm_context_new;
+/** @deprecated Spec 448 — use `alarm_context_init` instead. */
+export const alarmContextInit = alarm_context_init;
+/** @deprecated Spec 448 — use `alarm_context_destroy` instead. */
+export const alarmContextDestroy = alarm_context_destroy;
+/** @deprecated Spec 448 — use `alarm_context_time_warp` instead. */
+export const alarmContextTimeWarp = alarm_context_time_warp;
+/** @deprecated Spec 448 — use `alarm_new` instead. */
+export const alarmNew = alarm_new;
+/** @deprecated Spec 448 — use `alarm_destroy` instead. */
+export const alarmDestroy = alarm_destroy;
+/** @deprecated Spec 448 — use `alarm_unset` instead. */
+export const alarmUnset = alarm_unset;
+/** @deprecated Spec 448 — use `alarm_log_too_many_alarms` instead. */
+export const alarmLogTooManyAlarms = alarm_log_too_many_alarms;
+/** @deprecated Spec 448 — use `alarm_context_next_pending_clk` instead. */
+export const alarmContextNextPendingClk = alarm_context_next_pending_clk;
+/** @deprecated Spec 448 — use `alarm_context_update_next_pending` instead. */
+export const alarmContextUpdateNextPending = alarm_context_update_next_pending;
+/** @deprecated Spec 448 — use `alarm_context_dispatch` instead. */
+export const alarmContextDispatch = alarm_context_dispatch;
+/** @deprecated Spec 448 — use `alarm_set` instead. */
+export const alarmSet = alarm_set;

@@ -49,7 +49,7 @@
 
 import { IecBus } from "../dist/runtime/headless/iec/iec-bus.js";
 import { Via1d1541 } from "../dist/runtime/headless/via/via1d1541.js";
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../dist/runtime/headless/alarm/alarm-context.js";
 import {
   VIA_PRB, VIA_DDRB,
 } from "../dist/runtime/headless/via/via6522-vice.js";
@@ -68,7 +68,7 @@ const hex = (v, w = 2) => "$" + ((v ?? 0) & 0xff).toString(16).padStart(w, "0");
 // ─────────────────────────────────────────────────────────────────────
 {
   const bus = new IecBus();
-  const ctx = alarmContextNew("smoke-421-fwd-baseline");
+  const ctx = alarm_context_new("smoke-421-fwd-baseline");
   let driveClk = 0;
   const via = new Via1d1541({
     alarmContext: ctx, iec: bus.core, deviceId: 8,
@@ -129,7 +129,7 @@ const hex = (v, w = 2) => "$" + ((v ?? 0) & 0xff).toString(16).padStart(w, "0");
 // ─────────────────────────────────────────────────────────────────────
 {
   const bus = new IecBus();
-  const ctx = alarmContextNew("smoke-421-fwd-data");
+  const ctx = alarm_context_new("smoke-421-fwd-data");
   let driveClk = 0;
   const via = new Via1d1541({
     alarmContext: ctx, iec: bus.core, deviceId: 8,
@@ -186,7 +186,7 @@ const hex = (v, w = 2) => "$" + ((v ?? 0) & 0xff).toString(16).padStart(w, "0");
 // ─────────────────────────────────────────────────────────────────────
 {
   const bus = new IecBus();
-  const ctx = alarmContextNew("smoke-421-no-flush");
+  const ctx = alarm_context_new("smoke-421-no-flush");
   let driveClk = 0;
   const via = new Via1d1541({
     alarmContext: ctx, iec: bus.core, deviceId: 8,
@@ -240,7 +240,7 @@ const hex = (v, w = 2) => "$" + ((v ?? 0) & 0xff).toString(16).padStart(w, "0");
 // ─────────────────────────────────────────────────────────────────────
 {
   const bus = new IecBus();
-  const ctx = alarmContextNew("smoke-421-rev-data");
+  const ctx = alarm_context_new("smoke-421-rev-data");
   let driveClk = 0;
   const via = new Via1d1541({
     alarmContext: ctx, iec: bus.core, deviceId: 8,
@@ -326,7 +326,7 @@ const hex = (v, w = 2) => "$" + ((v ?? 0) & 0xff).toString(16).padStart(w, "0");
 // ─────────────────────────────────────────────────────────────────────
 {
   const bus = new IecBus();
-  const ctx = alarmContextNew("smoke-421-rev-ddrb");
+  const ctx = alarm_context_new("smoke-421-rev-ddrb");
   let driveClk = 0;
   const via = new Via1d1541({
     alarmContext: ctx, iec: bus.core, deviceId: 8,
@@ -376,7 +376,7 @@ const hex = (v, w = 2) => "$" + ((v ?? 0) & 0xff).toString(16).padStart(w, "0");
   ];
   for (const c of cases) {
     const bus = new IecBus();
-    const ctx = alarmContextNew(`smoke-421-driveid-${c.unit}`);
+    const ctx = alarm_context_new(`smoke-421-driveid-${c.unit}`);
     let driveClk = 0;
     const via = new Via1d1541({
       alarmContext: ctx, iec: bus.core, deviceId: c.unit,
@@ -405,7 +405,7 @@ const hex = (v, w = 2) => "$" + ((v ?? 0) & 0xff).toString(16).padStart(w, "0");
 // ─────────────────────────────────────────────────────────────────────
 {
   const bus = new IecBus();
-  const ctx = alarmContextNew("smoke-421-roundtrip");
+  const ctx = alarm_context_new("smoke-421-roundtrip");
   let driveClk = 0;
   const via = new Via1d1541({
     alarmContext: ctx, iec: bus.core, deviceId: 8,

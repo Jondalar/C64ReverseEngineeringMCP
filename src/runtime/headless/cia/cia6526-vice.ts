@@ -39,11 +39,11 @@
 // uses CIA1+CIA2 on maincpu only — drive uses VIA, see Spec 147).
 
 import {
-  alarmContextDispatch,
-  alarmContextNextPendingClk,
-  alarmNew,
-  alarmSet,
-  alarmUnset,
+  alarm_context_dispatch,
+  alarm_context_next_pending_clk,
+  alarm_new,
+  alarm_set,
+  alarm_unset,
   type Alarm,
   type AlarmContext,
 } from "../alarm/alarm-context.js";
@@ -371,15 +371,15 @@ export class Cia6526Vice {
     this.sdr = makeSdrState();
 
     // VICE: ciacore_init (ciacore.c lines 2066-2127). Allocate alarms.
-    this.ta_alarm = alarmNew(this.alarmContext, `${this.name}_TA`,
+    this.ta_alarm = alarm_new(this.alarmContext, `${this.name}_TA`,
       (offset, data) => this.ciacoreInttaEntry(offset, data), this);
-    this.tb_alarm = alarmNew(this.alarmContext, `${this.name}_TB`,
+    this.tb_alarm = alarm_new(this.alarmContext, `${this.name}_TB`,
       (offset, data) => this.ciacoreInttbEntry(offset, data), this);
-    this.tod_alarm = alarmNew(this.alarmContext, `${this.name}_TOD`,
+    this.tod_alarm = alarm_new(this.alarmContext, `${this.name}_TOD`,
       (offset, data) => this.ciacoreInttodEntry(offset, data), this);
-    this.sdr_alarm = alarmNew(this.alarmContext, `${this.name}_SDR`,
+    this.sdr_alarm = alarm_new(this.alarmContext, `${this.name}_SDR`,
       (offset, data) => this.ciacoreIntsdrEntry(offset, data), this);
-    this.idle_alarm = alarmNew(this.alarmContext, `${this.name}_IDLE`,
+    this.idle_alarm = alarm_new(this.alarmContext, `${this.name}_IDLE`,
       (offset, data) => this.ciacoreIdle(offset, data), this);
   }
 
@@ -401,7 +401,7 @@ export class Cia6526Vice {
     sdrReset(this.sdr);
 
     todReset(this.tod, this.c_cia, clk);
-    alarmSet(this.tod_alarm, this.tod.todclk);
+    alarm_set(this.tod_alarm, this.tod.todclk);
 
     this.irqflags = 0;
     this.ack_irqflags = 0;
@@ -420,10 +420,10 @@ export class Cia6526Vice {
     this.backend.doResetCia?.();
 
     // VICE: idle alarm fence at clk + CIA_MAX_IDLE_CYCLES.
-    alarmSet(this.idle_alarm, u32(clk + CIA_MAX_IDLE_CYCLES));
-    alarmUnset(this.ta_alarm);
-    alarmUnset(this.tb_alarm);
-    alarmUnset(this.sdr_alarm);
+    alarm_set(this.idle_alarm, u32(clk + CIA_MAX_IDLE_CYCLES));
+    alarm_unset(this.ta_alarm);
+    alarm_unset(this.tb_alarm);
+    alarm_unset(this.sdr_alarm);
     this.ta_alarmclk = 0xffffffff >>> 0;
     this.tb_alarmclk = 0xffffffff >>> 0;
 
@@ -434,11 +434,11 @@ export class Cia6526Vice {
 
   /** VICE: ciacore_disable (ciacore.c lines 604-612). */
   disable(): void {
-    alarmUnset(this.idle_alarm);
-    alarmUnset(this.ta_alarm);
-    alarmUnset(this.tb_alarm);
-    alarmUnset(this.tod_alarm);
-    alarmUnset(this.sdr_alarm);
+    alarm_unset(this.idle_alarm);
+    alarm_unset(this.ta_alarm);
+    alarm_unset(this.tb_alarm);
+    alarm_unset(this.tod_alarm);
+    alarm_unset(this.sdr_alarm);
   }
 
   // -------------------------------------------------------------------------
@@ -672,7 +672,7 @@ export class Cia6526Vice {
     const r = setSdrExternal(this.sdr, this.c_cia, CIA_SDR, this.c_cia[CIA_CRA]!, data);
     if (r.signalIrq) {
       this.ciacoreAsyncInterrupt(CIA_IM_SDR);
-      alarmUnset(this.sdr_alarm);
+      alarm_unset(this.sdr_alarm);
     }
   }
 
@@ -783,8 +783,8 @@ export class Cia6526Vice {
   tick(_cycles: number): void {
     const clk = this.clkPtr();
     let guard = 0;
-    while (clk >= alarmContextNextPendingClk(this.alarmContext)) {
-      alarmContextDispatch(this.alarmContext, clk);
+    while (clk >= alarm_context_next_pending_clk(this.alarmContext)) {
+      alarm_context_dispatch(this.alarmContext, clk);
       if (++guard > 0x1000) {
         throw new Error(
           `Cia6526Vice.tick: alarm-dispatch guard tripped at clk=${clk} (ctx=${this.alarmContext.name})`,
@@ -923,10 +923,10 @@ export class Cia6526Vice {
   private runPendingAlarms(clk: CLOCK, offset: number): void {
     const realClk = this.clkPtr();
     while (
-      clk > alarmContextNextPendingClk(this.alarmContext) &&
-      realClk >= alarmContextNextPendingClk(this.alarmContext)
+      clk > alarm_context_next_pending_clk(this.alarmContext) &&
+      realClk >= alarm_context_next_pending_clk(this.alarmContext)
     ) {
-      alarmContextDispatch(this.alarmContext, u32(clk + offset));
+      alarm_context_dispatch(this.alarmContext, u32(clk + offset));
     }
   }
 
@@ -1015,7 +1015,7 @@ export class Cia6526Vice {
         this.mySetInt(1, u32(rclk + 1));
       } else if (delay & CIA_IRQ_RAISE1) {
         // Lorenz imr.prg edge case.
-        alarmSet(this.idle_alarm, u32(rclk + 1));
+        alarm_set(this.idle_alarm, u32(rclk + 1));
       }
     }
   }
@@ -1130,16 +1130,16 @@ export class Cia6526Vice {
     if (t === this.ta) {
       this.ta_alarmclk = tmp;
       if (tmp !== CLOCK_MAX) {
-        alarmSet(this.ta_alarm, tmp);
+        alarm_set(this.ta_alarm, tmp);
       } else {
-        alarmUnset(this.ta_alarm);
+        alarm_unset(this.ta_alarm);
       }
     } else {
       this.tb_alarmclk = tmp;
       if (tmp !== CLOCK_MAX) {
-        alarmSet(this.tb_alarm, tmp);
+        alarm_set(this.tb_alarm, tmp);
       } else {
-        alarmUnset(this.tb_alarm);
+        alarm_unset(this.tb_alarm);
       }
     }
   }
@@ -1148,10 +1148,10 @@ export class Cia6526Vice {
   private ciatAckAlarm(t: Ciat, _rclk: CLOCK): void {
     if (t === this.ta) {
       this.ta_alarmclk = 0xffffffff >>> 0;
-      alarmUnset(this.ta_alarm);
+      alarm_unset(this.ta_alarm);
     } else {
       this.tb_alarmclk = 0xffffffff >>> 0;
-      alarmUnset(this.tb_alarm);
+      alarm_unset(this.tb_alarm);
     }
   }
 
@@ -1181,7 +1181,7 @@ export class Cia6526Vice {
           event = CIA_SDR_NOGGLE_CNT1;
         }
         scheduleSdrFeed(this.sdr, event);
-        alarmSet(this.sdr_alarm, rclk);
+        alarm_set(this.sdr_alarm, rclk);
       }
     }
 
@@ -1239,9 +1239,9 @@ export class Cia6526Vice {
     if (result.setSdrIrq) this.ciaSetIrqFlag(rclk, CIA_IM_SDR);
 
     if (result.reschedule) {
-      alarmSet(this.sdr_alarm, u32(rclk + 1));
+      alarm_set(this.sdr_alarm, u32(rclk + 1));
     } else {
-      alarmUnset(this.sdr_alarm);
+      alarm_unset(this.sdr_alarm);
     }
 
     this.ciaIfrCatchup(rclk);
@@ -1254,7 +1254,7 @@ export class Cia6526Vice {
   private ciacoreInttodEntry(offset: CLOCK, _data: unknown): void {
     const rclk = u32(this.clkPtr() - offset);
     const alarmFired = todTickCallback(this.tod, this.c_cia, this.c_cia[CIA_CRA]!, rclk);
-    alarmSet(this.tod_alarm, this.tod.todclk);
+    alarm_set(this.tod_alarm, this.tod.todclk);
     if (alarmFired) {
       this.ciaSetIrqFlag(rclk, CIA_IM_TOD);
     }
@@ -1269,7 +1269,7 @@ export class Cia6526Vice {
     const rclk = u32(this.clkPtr() - offset);
     this.ciaUpdateTa(rclk);
     this.ciaUpdateTb(rclk);
-    alarmSet(this.idle_alarm, u32(rclk + CIA_MAX_IDLE_CYCLES));
+    alarm_set(this.idle_alarm, u32(rclk + CIA_MAX_IDLE_CYCLES));
     this.ciaIfrCatchup(rclk);
     if (this.ifr_clock === rclk) {
       this.ciaIfrCurrent(rclk, "cur_nxt");
@@ -1281,8 +1281,8 @@ export class Cia6526Vice {
     const rclk = this.clkPtr();
     this.ciaSetIrqFlag(rclk, flag);
     // Idle-alarm front-load if not scheduled near future.
-    // (We don't have alarm_clk(); just set it — alarmSet refreshes.)
-    alarmSet(this.idle_alarm, u32(rclk + 1));
+    // (We don't have alarm_clk(); just set it — alarm_set refreshes.)
+    alarm_set(this.idle_alarm, u32(rclk + 1));
   }
 
   // ---- store_internal -------------------------------------------------
@@ -1362,7 +1362,7 @@ export class Cia6526Vice {
       case CIA_SDR:
         if ((this.c_cia[CIA_CRA]! & CIA_CRA_SPMODE) === CIA_CRA_SPMODE_OUT) {
           scheduleSdrFeed(this.sdr, CIA_SDR_SET1);
-          alarmSet(this.sdr_alarm, rclk);
+          alarm_set(this.sdr_alarm, rclk);
         }
         this.c_cia[addr] = v;
         return;
@@ -1417,7 +1417,7 @@ export class Cia6526Vice {
 
         if ((v ^ this.c_cia[CIA_CRA]!) & CIA_CRA_SPMODE) {
           const r = strangeExtraSdrFlags(this.sdr, v);
-          if (r.schedule) alarmSet(this.sdr_alarm, rclk);
+          if (r.schedule) alarm_set(this.sdr_alarm, rclk);
           this.sdr.sr_bits = 0;
           this.sdr.sdr_valid = false;
           this.sdr.sdr_delay = u32(this.sdr.sdr_delay & ~(ALL_SDR_TOGGLE_CNT | ALL_SDR_NOGGLE_CNT));

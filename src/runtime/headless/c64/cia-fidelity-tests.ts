@@ -29,7 +29,7 @@ import {
   CIA_TOD_10TH, CIA_TOD_SEC, CIA_TOD_MIN, CIA_TOD_HR,
   type CiaBackend,
 } from "../cia/cia6526-vice.js";
-import { alarmContextNew } from "../alarm/alarm-context.js";
+import { alarm_context_new } from "../alarm/alarm-context.js";
 
 export interface CheckResult { label: string; pass: boolean; detail?: string }
 function check(label: string, cond: boolean, detail?: string): CheckResult {
@@ -57,7 +57,7 @@ function makeCia(): Cia6526Vice {
     pulsePc: () => {},
     setIntClk: () => {},
   };
-  const ctx = alarmContextNew("fidelity_maincpu");
+  const ctx = alarm_context_new("fidelity_maincpu");
   const cia = new Cia6526Vice({
     backend: stub, alarmContext: ctx, clkPtr: () => clk.v,
     name: "FIDELITY_CIA",

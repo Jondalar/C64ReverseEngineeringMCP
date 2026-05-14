@@ -66,10 +66,10 @@
 // `../util/uint.ts`.
 
 import {
-  alarmContextNextPendingClk,
-  alarmNew,
-  alarmSet,
-  alarmUnset,
+  alarm_context_next_pending_clk,
+  alarm_new,
+  alarm_set,
+  alarm_unset,
   CLOCK_MAX,
   type Alarm,
   type AlarmContext,
@@ -410,7 +410,7 @@ export class VicIIVice {
     if (opts.ntsc) this.setNtsc();
 
     // VICE: vicii_irq_init (vicii-irq.c line 267) — alloc raster_irq alarm.
-    this.raster_irq_alarm = alarmNew(
+    this.raster_irq_alarm = alarm_new(
       this.alarmContext,
       `${this.name}_RasterIrq`,
       (offset, _data) => this.rasterIrqAlarmHandler(offset),
@@ -469,7 +469,7 @@ export class VicIIVice {
     this.frameLineLogs.length = 0;
 
     // VICE line 480: alarm_set(raster_irq_alarm, 1).
-    alarmSet(this.raster_irq_alarm, 1);
+    alarm_set(this.raster_irq_alarm, 1);
 
     // Initial backend pulse (IRQ line low).
     this.backend.setIrqLine(false, this.clkPtr());
@@ -1128,10 +1128,10 @@ export class VicIIVice {
       if (line === 0) fireClk = u32(fireClk + 1);
 
       this.raster_irq_clk = fireClk;
-      alarmSet(this.raster_irq_alarm, fireClk);
+      alarm_set(this.raster_irq_alarm, fireClk);
     } else {
       this.raster_irq_clk = CLOCK_MAX;
-      alarmUnset(this.raster_irq_alarm);
+      alarm_unset(this.raster_irq_alarm);
     }
 
     this.raster_irq_line = line;
@@ -1142,7 +1142,7 @@ export class VicIIVice {
     this.viciiIrqRasterSet();
     // VICE: vicii_irq_next_frame — re-arm alarm for next frame.
     this.raster_irq_clk = u32(this.raster_irq_clk + this.screen_height * this.cycles_per_line);
-    alarmSet(this.raster_irq_alarm, this.raster_irq_clk);
+    alarm_set(this.raster_irq_alarm, this.raster_irq_clk);
   }
 
   /**

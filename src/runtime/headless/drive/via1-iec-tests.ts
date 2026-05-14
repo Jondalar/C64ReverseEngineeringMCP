@@ -8,7 +8,7 @@
 // Via1d1541 (alarm-driven VICE-faithful core). Register-offset names
 // updated to VICE-style (VIA_PRB / VIA_DDRB / VIA_IER / VIA_IFR).
 
-import { alarmContextNew } from "../alarm/alarm-context.js";
+import { alarm_context_new } from "../alarm/alarm-context.js";
 import { Via1d1541 } from "../via/via1d1541.js";
 import { VIA_DDRB, VIA_PRB, VIA_PCR, VIA_IER, VIA_IFR, VIA_IM_CA1 } from "../via/via6522-vice.js";
 import { IecBus, CIA2_PA_ATN_OUT, CIA2_PA_CLK_OUT, CIA2_PA_DATA_OUT } from "../iec/iec-bus.js";
@@ -30,7 +30,7 @@ function check(label: string, cond: boolean, detail?: string): CheckResult {
 
 /** Build a test Via1d1541 attached to the given IecBus. */
 function makeTestVia(bus: IecBus, deviceId = 8): Via1d1541 {
-  const ctx = alarmContextNew("test-via1");
+  const ctx = alarm_context_new("test-via1");
   let cpuClk = 0;
   const via = new Via1d1541({
     alarmContext: ctx,

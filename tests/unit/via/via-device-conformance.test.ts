@@ -21,7 +21,7 @@
 
 import { strict as assert } from "node:assert";
 import {
-  alarmContextNew,
+  alarm_context_new,
 } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import { IecBusCore } from "../../../src/runtime/headless/iec/iec-bus-core.js";
 import { Via1d1541 } from "../../../src/runtime/headless/via/via1d1541.js";
@@ -37,7 +37,7 @@ const cases: Case[] = [];
 function test(name: string, run: () => void): void { cases.push({ name, run }); }
 
 function makeVia1(deviceId = 8) {
-  const ctx = alarmContextNew("test");
+  const ctx = alarm_context_new("test");
   const iec = new IecBusCore();
   let clk = 100;
   let irqValue = 0;

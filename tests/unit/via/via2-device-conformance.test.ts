@@ -12,7 +12,7 @@
 
 import { strict as assert } from "node:assert";
 import {
-  alarmContextNew,
+  alarm_context_new,
 } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import {
   makeDrive_t,
@@ -235,7 +235,7 @@ test("Bug-1083 NO motor edge: no second move (only applyStepBits)", () => {
 // Via2d1541 storePcr / setCa2 / setCb2 — VICE via2d.c:72-93 + 95-111 + 170-178
 // ---------------------------------------------------------------------------
 function makeVia2() {
-  const ctx = alarmContextNew("test");
+  const ctx = alarm_context_new("test");
   let clk = 100n;
   const shadow = makeDrive_t({ drive: 0, mynumber: 0, clk_ptr: () => clk });
   shadow.GCR_image_loaded = 1;

@@ -60,7 +60,7 @@
 
 import { Cpu6510, type CpuMemory } from "../cpu6510.js";
 import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
-import { alarmContextNew, type AlarmContext } from "../alarm/alarm-context.js";
+import { alarm_context_new, type AlarmContext } from "../alarm/alarm-context.js";
 import { Via1d1541 } from "../via/via1d1541.js";
 import { Via2d1541, type Via2GcrPortCoupling } from "../via/via2d1541.js";
 import { makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.js";
@@ -233,7 +233,7 @@ export class DriveBus implements CpuMemory {
   constructor(opts: DriveCpuOptions = {}, clkRef?: () => number) {
     // Alarm context: caller-supplied (IntegratedSession passes its
     // drivecpuAlarmContext) or local (standalone test / drive-session.ts).
-    this.alarmContext = opts.alarmContext ?? alarmContextNew("drivecpu-local");
+    this.alarmContext = opts.alarmContext ?? alarm_context_new("drivecpu-local");
 
     if (opts.romBytes) {
       if (opts.romBytes.length !== DRIVE_ROM_SIZE) {

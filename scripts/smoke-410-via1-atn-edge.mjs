@@ -24,7 +24,7 @@
 //   - Chip-side push path is used (Via1d1541.attachIrqLine), not the
 //     drive-cpu polling bridge.
 
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../dist/runtime/headless/alarm/alarm-context.js";
 import { Via1d1541 } from "../dist/runtime/headless/via/via1d1541.js";
 import { IecBusCore } from "../dist/runtime/headless/iec/iec-bus-core.js";
 import { InterruptCpuStatus, IK_IRQ, INTERRUPT_DELAY }
@@ -42,7 +42,7 @@ function check(label, cond, detail) {
 // a fresh InterruptCpuStatus (= the drive cpu's `int_status` analog).
 function makeRig() {
   const iec = new IecBusCore();
-  const ctx = alarmContextNew("smoke-410-atn");
+  const ctx = alarm_context_new("smoke-410-atn");
   const cpuIntStatus = new InterruptCpuStatus();
   const via = new Via1d1541({
     alarmContext: ctx,

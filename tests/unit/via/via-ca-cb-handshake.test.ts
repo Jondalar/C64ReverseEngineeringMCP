@@ -13,7 +13,7 @@
 
 import { strict as assert } from "node:assert";
 import {
-  alarmContextNew,
+  alarm_context_new,
 } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import {
   Via6522Vice,
@@ -39,7 +39,7 @@ const cases: Case[] = [];
 function test(name: string, run: () => void): void { cases.push({ name, run }); }
 
 function harness() {
-  const ctx = alarmContextNew("test");
+  const ctx = alarm_context_new("test");
   let clk = 100;
   const ca2: number[] = [];
   const cb2: Array<{ s: number; offset: number }> = [];

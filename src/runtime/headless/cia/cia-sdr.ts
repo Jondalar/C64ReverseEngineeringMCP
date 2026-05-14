@@ -375,6 +375,6 @@ export function setCntExternal(
 }
 
 // CLOCK is unused at this layer (the CIA core converts result.reschedule
-// into an alarmSet(rclk+1) call). We re-export the type for tests that
+// into an alarm_set(rclk+1) call). We re-export the type for tests that
 // want to match VICE function signatures.
 export type { CLOCK };

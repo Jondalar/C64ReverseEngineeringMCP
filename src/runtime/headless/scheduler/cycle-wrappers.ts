@@ -22,8 +22,8 @@
 import type { CycleSteppable } from "./cycle-steppable.js";
 import type { Cpu6510 } from "../cpu6510.js";
 import {
-  alarmContextDispatch,
-  alarmContextNextPendingClk,
+  alarm_context_dispatch,
+  alarm_context_next_pending_clk,
   type AlarmContext,
 } from "../alarm/alarm-context.js";
 import type { CLOCK } from "../util/uint.js";
@@ -92,8 +92,8 @@ export class AlarmContextCycled implements CycleSteppable {
   executeCycle(): void {
     const clk = this.clkPtr();
     let guard = 0;
-    while (clk >= alarmContextNextPendingClk(this.context)) {
-      alarmContextDispatch(this.context, clk);
+    while (clk >= alarm_context_next_pending_clk(this.context)) {
+      alarm_context_dispatch(this.context, clk);
       if (++guard > AlarmContextCycled.DISPATCH_GUARD) {
         throw new Error(
           `AlarmContextCycled: dispatch guard tripped at clk=${clk} (ctx=${this.context.name})`,

@@ -1,9 +1,10 @@
 # Spec 448 — `alarm.c` literal port
 
-**Status:** OPEN  
+**Status:** DONE (2026-05-14)  
 **Priority:** HIGH  
 **Parent:** Epic 440  
 **Depends on:** Spec 447  
+**Proof:** [docs/spec-448-production-proof.md](../docs/spec-448-production-proof.md)  
 **Doctrine:** The alarm system is the timing backbone for VIA1/VIA2
 timers, rotation, and CPU events. Current TS `alarm/alarm-context.ts`
 is abstract — needs literal port to match VICE.

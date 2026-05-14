@@ -1,6 +1,6 @@
 // Spec 150 — VIC-II test scaffolding (mirror of cia-test-helpers.ts).
 
-import { alarmContextNew } from "../../../src/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import { VicIIVice, type VicBackend } from "../../../src/runtime/headless/vic/vic-ii-vice.js";
 
 export interface VicBackendEvents {
@@ -25,7 +25,7 @@ export function makeTestVic(opts?: { startClk?: number; ntsc?: boolean }): {
   clk: { v: number };
 } {
   const clk = { v: opts?.startClk ?? 0 };
-  const ctx = alarmContextNew("test_maincpu");
+  const ctx = alarm_context_new("test_maincpu");
   const { backend, events } = makeMockVicBackend();
   const vic = new VicIIVice({
     backend,

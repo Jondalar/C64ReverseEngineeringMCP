@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { Cia6526Vice, ICR_TA, CIA_CRA, CIA_TALO, CIA_TAHI, CIA_ICR } from "../dist/runtime/headless/cia/cia6526-vice.js";
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../dist/runtime/headless/alarm/alarm-context.js";
 
 // Sprint 113 Phase 2 (Spec 146): Cia6526Vice is alarm-driven. Smoke
 // helper owns the simulated CPU clock and bumps it before tick(N) so
@@ -29,7 +29,7 @@ function makeSmokeCia() {
   };
   const cia = new Cia6526Vice({
     backend: stub,
-    alarmContext: alarmContextNew("smoke_maincpu"),
+    alarmContext: alarm_context_new("smoke_maincpu"),
     clkPtr: () => clk.v,
     name: "SMOKE_CIA",
   });

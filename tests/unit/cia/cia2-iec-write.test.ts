@@ -4,7 +4,7 @@
 //   npx tsx tests/unit/cia/cia2-iec-write.test.ts
 
 import { strict as assert } from "node:assert";
-import { alarmContextNew } from "../../../src/runtime/headless/alarm/alarm-context.js";
+import { alarm_context_new } from "../../../src/runtime/headless/alarm/alarm-context.js";
 import { HeadlessMemoryBus } from "../../../src/runtime/headless/memory-bus.js";
 import { installCia2 } from "../../../src/runtime/headless/peripherals/cia2.js";
 
@@ -19,7 +19,7 @@ function harness(writeOffset: number) {
   const writes: Array<{ paOut: number; ddr: number; effectiveClock?: number }> = [];
   let pins = 0xc0;
   const installed = installCia2(bus, {
-    alarmContext: alarmContextNew("test_cia2"),
+    alarmContext: alarm_context_new("test_cia2"),
     clkPtr: () => clk.v,
     writeOffset,
     iecWrite: (paOut, ddr, effectiveClock) => {
