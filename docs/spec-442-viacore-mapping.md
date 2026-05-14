@@ -40,8 +40,8 @@ Verdict legend:
 | `uint8_t shift_state` | `shift_state: number = FINISHED_SHIFTING` (`:279`) | MATCH |
 | `alarm_s *t1_zero_alarm, *t2_zero_alarm, *t2_underflow_alarm, *t2_shift_alarm, *phi2_sr_alarm` | five `private readonly` Alarms (`:288-292`) | MATCH |
 | `signed int log` | — | TS-EXTRA-NEGATIVE (omit) | logging path optional; not load-bearing |
-| `CLOCK read_clk` | **— MISSING** | **MISSING** | VICE uses `read_clk` to detect same-clk re-read in RMW-on-PRB/PRA paths. TS has `clkRef` + `writeOffset` but no `read_clk` snapshot. **Possible BUG** — VIA1 IRQ-ack timing tests would catch |
-| `int read_offset` | **— MISSING** | **MISSING** | Pair with `read_clk` |
+| `CLOCK read_clk` | **— MISSING** | MISSING-OK | grep `read_clk` in viacore.c: only WRITTEN (`viacore.c:403,1057,1833`), never READ inside the module. Externally-observable read-trace metadata. Not load-bearing for drive emulation. **OK to omit** — re-add if Spec 451 VSF cross-load requires it |
+| `int read_offset` | **— MISSING** | MISSING-OK | Pair with `read_clk`, same reasoning |
 | `uint8_t last_read` | `last_read: BYTE = 0` (`:285`) | MATCH |
 | `bool t2_irq_allowed` | `t2_irq_allowed: boolean` (`:282`) | MATCH |
 | `int irq_line; unsigned int int_num` | passed via `backend.setInt(rclk, line)` — externalized | DEVIATION | TS routes int via backend callback. Semantically identical for VIA1/VIA2 because both wire to drive-cpu IRQ. **OK** |
@@ -68,7 +68,7 @@ Verdict legend:
 | `viacore_t1_zero_alarm @ 1306-1349` | `onT1ZeroAlarm @ 1046` | needs row check | T1 IRQ + PB7 toggle + reload |
 | `set_cb2_output_state @ 1350-1386` | `setCb2OutputState @ 1162` | needs row check | PCR CB2 modes (handshake/pulse/manual) |
 | `viacore_cache_cb12_io_status @ 1387-1522` | `cacheCb12IoStatus @ 1184` | needs row check | tracks I/O direction + CB2-input pull-up |
-| `viacore_set_sr @ 1523-1553` | `set sr(v)` setter (`:1237`)? | likely DEVIATION | VICE has full re-shift restart logic; TS setter only writes the array byte. **Check** |
+| `viacore_set_sr @ 1523-1535` | `viacoreSetSr() @ 502-511` | MATCH | full literal port. `set sr(v)` setter (`:1237`) is a convenience helper for `via[VIA_SR]` byte, separate concept |
 | `viacore_t2_zero_alarm @ 1554-1592` | `onT2ZeroAlarm @ 1063` | needs row check | T2 reaches 0000 |
 | `viacore_t2_underflow_alarm @ 1593-1679` | `onT2UnderflowAlarm @ 1076` | needs row check | T2 reaches FFFF (8-bit underflow) |
 | `viacore_t2_shift_alarm @ 1680-1696` | `onT2ShiftAlarm @ 1107` | needs row check | clock SR by T2 |
@@ -85,34 +85,38 @@ Verdict legend:
 
 ---
 
-## C. viacore_reset reset-value audit (line-by-line)
+## C. viacore_reset audit — VERIFIED MATCH (corrected)
 
-VICE `viacore_reset @ 378-440`:
+VICE `viacore_reset @ 378-439` vs TS `reset() @ 354-395`,
+line-by-line:
 
-```
-via[i] = 0  for i in 0..15           except via[3]/via[2] DDRs stay 0 ok
-ifr = 0; ier = 0
-t1reload = 0; t2zero = 0; t1zero = 0; t2xx00 = false
-tal = 0xffff (T1 latch reset)
-t2cl = 0xff; t2ch = 0xff (T2 starts at FFFF)
-t1_pb7 = 0x80
-shift_state = FINISHED_SHIFTING
-ila = 0; ilb = 0
-ca2_out_state = true; cb1_in_state = true; cb1_out_state = true;
-cb2_in_state = true; cb2_out_state = true
-cb1_is_input = true; cb2_is_input = true
-last_read = 0
-t2_irq_allowed = false
-oldpa = 0xff; oldpb = 0xff   ← VICE has 0xFF here
-backend reset()
-alarms unset()
-```
+| VICE line | TS line | Field | Verdict |
+|---|---|---|---|
+| 383-385 | 356 | `via[0..3] = 0` (PRA/PRB/DDRA/DDRB) | MATCH |
+| 387-391 | — | `#if 0` (timers stay) | MATCH (both skip) |
+| 393-395 | 358 | `via[11..15] = 0` (ACR/PCR/IFR/IER/PRA_NHS); SR (10) preserved | MATCH |
+| 397 | 360 | `tal = 0xffff` | MATCH |
+| 398-399 | 361-362 | `t2cl = 0xff; t2ch = 0xff` | MATCH |
+| 400-401 | 363-365 | `t1reload = clk; t2zero = clk` | MATCH |
+| 403 | — | `read_clk = 0` | OMITTED (justified MISSING-OK) |
+| 405-406 | 367-368 | `ier = 0; ifr = 0` | MATCH |
+| 408 | 369 | `t1_pb7 = 0x80` | MATCH |
+| 410 | 371 | `shift_state = FINISHED_SHIFTING` | MATCH |
+| 411 | 372 | `t2_irq_allowed = false` | MATCH |
+| 414 | 373 | `t1zero = 0` | MATCH |
+| 415 | 374 | `t2xx00 = false` | MATCH |
+| 416-420 | 376-380 | alarm_unset × 5 | MATCH |
+| 421 | 382 | `update_myviairq` / `updateIrq(clk)` | MATCH |
+| 423-424 | 384-385 | `oldpa = 0; oldpb = 0` | MATCH (initial Spec-442 bug-suspicion was wrong — VICE writes 0, not 0xFF) |
+| 426-428 | 387-389 | `ca2_out_state = true; cb1_out_state = true; cb2_out_state = true` | MATCH |
+| 429-430 | 390-391 | `set_ca2(true); set_cb2(true, 0)` | MATCH |
+| 432-434 | 393 | backend reset (if assigned) | MATCH |
+| 436 | 394 | `cacheCb12IoStatus` | MATCH |
+| 438 | — | `enabled = true` | OMITTED (no `enabled` field; see Section B "viacore_disable") |
+| — | — | `cb1_in_state / cb2_in_state` NOT touched by reset in either | MATCH (defaults from constructor stick) |
 
-TS `reset() @ 354`:
-- Need to read in detail (next phase)
-- Specifically check `oldpa/oldpb` reset value — TS init is `= 0`
-  but field defaults don't apply at `reset()`. **Possible BUG** if
-  TS reset writes 0 instead of 0xff.
+**Reset() verdict: MATCH** modulo `enabled` flag (ticketed) and
+`read_clk` (justified omit).
 
 ---
 
@@ -139,21 +143,29 @@ Priority order (highest first):
 
 ## E. Action items (TS-side, Spec 442 scope)
 
-- [ ] Add `read_clk: CLOCK`, `read_offset: number` fields to
-      `Via6522Vice` (or prove they are not needed via test).
+Phase-2 results:
+- [x] `reset()` value-by-value verified — MATCH
+- [x] `viacoreSetSr` verified — MATCH (method, not setter)
+- [x] `read_clk/read_offset` verified write-only in VICE →
+      OMIT-OK
+- [x] `oldpa/oldpb` reset value confirmed `= 0` in both VICE
+      and TS
+
+Still open (Spec 442 scope):
 - [ ] Add `enabled: boolean` + `disable()` method (literal port
-      of `viacore_disable`).
-- [ ] Audit & fix `reset()` value-by-value against viacore.c.
-- [ ] Audit & fix `set sr(v)` setter vs `viacore_set_sr` (full
-      re-shift restart logic).
-- [ ] Implement `loadSnapshot()` (literal port of
-      `viacore_snapshot_read_module`).
-- [ ] Verify snapshot module name matches VICE
-      `my_module_name` for VSF cross-load compat.
-- [ ] Confirm `oldpa/oldpb` reset value is `0xff` not `0`.
-- [ ] Per-row expansion of "needs row-by-row check" rows.
-- [ ] `tests/unit/via/viacore-conformance.test.ts` for the 8
-      acceptance checks in Spec 442.
+      of `viacore_disable`) — low priority, no current caller
+- [ ] Per-row expansion of remaining "needs row-by-row check"
+      rows: `viacore_store` / `viacore_read` / `viacore_signal` /
+      `do_shiftregister` / `onT1ZeroAlarm` / `onT2*Alarm` /
+      `peek()` / `set_cb2_output_state` / `viacore_cache_cb12_io_status`
+- [ ] `tests/unit/via/viacore-conformance.test.ts` (8 cases per
+      spec-442 acceptance)
+
+Ticketed out:
+- `loadSnapshot()` → Spec 451 (VSF cross-load)
+- `viacore_shutdown` → Spec 444 (process-exit cleanup, not load-
+  bearing for V1)
+- `viacore_dump` → out of V1 (debug-only)
 
 ## F. Tickets out (to follow-on specs)
 
