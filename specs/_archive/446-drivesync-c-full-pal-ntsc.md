@@ -1,7 +1,12 @@
-# Spec 446 — `drivesync.c` full PAL/NTSC switch
+# Spec 446 — `drivesync.c` full PAL/NTSC switch (ARCHIVED)
 
-**Status:** OPEN  
-**Priority:** MEDIUM  
+**Status:** SUPERSEDED-BY-058bc45 — replaced by
+`specs/446-drivesync-pal-ntsc.md` charter (commit 058bc45). This
+older charter file existed in main pre-Epic-440 rewrite. Spec 446
+DONE 2026-05-14 (commit 5819f56). Read-only archive.
+
+**Original status (pre-supersede):** OPEN
+**Original priority:** MEDIUM
 **Parent:** Epic 440  
 **Depends on:** Spec 445  
 **Doctrine:** Sprint 430 hat nur `sync_factor` PAL-konstante.

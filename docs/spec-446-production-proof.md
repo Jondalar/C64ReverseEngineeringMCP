@@ -47,6 +47,14 @@
   + `clock_frequency * sync_factor` multiplier applied.
 - PAL sync_factor = 66517 (0x103D5), NTSC = 64079 (0xFA4F).
   Hand-computed from VICE formula in tests for bilateral-bug defense.
+- **`drivesync_clock_frequency` result NOT instance-wired.**
+  `DriveCpu.clockFrequency` is hardcoded `1` (1541-only V1 const).
+  The new static `drivesync_clock_frequency(driveType)` returns the
+  correct table value but its output is not consumed anywhere — pure
+  utility. For V1 1541-only this is observable-equivalent
+  (clockFrequency = 1 either way). Multi-drive future port (Spec 451)
+  must wire `instance.clockFrequency =
+  DriveCpu.drivesync_clock_frequency(type)` in the constructor.
 - No regression in canary or integration cycle-diff (Spec 444).
 
 ## Ticketed-out (deferred)
@@ -55,7 +63,9 @@
 |---|---|---|
 | `drivesync_set_1571` | OUT V1 | 1571 not in Spec 440 V1 scope |
 | `drivesync_set_4000` | OUT V1 | 4000-series not in V1 |
-| Multi-drive `sync_factor` fan-out | Spec 451 (multi-drive) | V1 = single 1541 |
+| Multi-drive `sync_factor` fan-out | Spec 451 (multi-drive) | V1 = single 1541 (single instance carries the value) |
+| `drivesync_clock_frequency` wire-up to instance | Spec 451 (multi-drive) | static utility unconsumed; multi-drive needs ctor to set `instance.clockFrequency` from dispatch table |
+| Function split (drive_sync_cpu_set_factor + drivesync_factor inlined into driveSetMachineParameter) | Spec 451 (multi-drive) | VICE drivesync.c keeps three separate fns for the `for(dnr=0; dnr<NUM_DISK_UNITS; dnr++)` fan-out loop in `drive_set_machine_parameter`. Single-drive V1 = semantic MATCH; multi-drive port must split back into three methods to reproduce the loop. |
 | NTSC regression validation | Spec 451 | full-game NTSC test |
 
 ## Verification
@@ -72,8 +82,9 @@
 ## Commits
 
 ```
-????    Spec 446 charter — drivesync.c PAL/NTSC switch literal port
-????    Spec 446 — drivesync_clock_frequency + setPalNtsc + 17 tests + production-proof (this)
+058bc45 Spec 446 charter — drivesync.c PAL/NTSC switch literal port
+5819f56 Spec 446 DONE — drivesync_clock_frequency + setPalNtsc + 17 tests
+????    Spec 446 doc-hygiene — fill SHAs + archive duplicate charter + wire-up findings (this)
 ```
 
 ## Doctrine compliance
