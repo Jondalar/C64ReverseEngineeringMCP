@@ -76,8 +76,8 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 |---|------|--------|-------|--------|
 | 1 | **440** | Epic charter + 7-step workflow | klein | DONE |
 | 2 | **441** | `rotation.c` literal port + p64 stubs + drive_t + VIA2 backend | groß | **DONE** (4f legacy delete deferred) |
-| 3 | **442** | `viacore.c` Claude-eigener line-by-line re-audit | groß | **NEXT** |
-| 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel | OPEN |
+| 3 | **442** | `viacore.c` Claude-eigener line-by-line re-audit | groß | **DONE** (MYVIA gate + peek-raw fix + 13 conformance tests) |
+| 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel | **NEXT** |
 | 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel | OPEN |
 | 6 | **445** | `gcr.c` write-path + encode | mittel | OPEN |
 | 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | OPEN |
@@ -113,13 +113,50 @@ selbst nachprüfen.
 Docs: `docs/spec-441-production-proof.md` (final), -mapping,
 -flip-result, -step-4-migration-plan, -overnight-halt.
 
-### Spec 442 starting point
+### Spec 442 closeout (2026-05-14)
 
-`viacore.c` (2243 LoC) gegen `via6522-vice.ts` (1341 LoC) line-
-by-line. Spec 434 audit doc (`spec-434-viacore-audit.md`) is
-**invalidated** under epic-440 doctrine (subagent-produced) —
-needs Claude-self re-audit per [[feedback_1541_port_workflow]].
-Target: 60+ row matrix superseding the 33-row subagent doc.
+- `viacore.c` (2243 LoC) ↔ `via6522-vice.ts` (1341 LoC) line-by-
+  line audited by Claude (no subagent). 220+ row mapping matrix
+  across struct fields + functions (`docs/spec-442-viacore-mapping.md`).
+  Supersedes invalidated Spec 434.
+- Patches:
+  - `via6522-vice.ts:197-203` — `const MYVIA_NEED_LATCHING = false`
+    gates 7 latch sites (CA1/CB1 ila/ilb writes + PRA/PRA_NHS/PRB
+    read/peek paths). Matches VICE drive build (`viacore.c:76`
+    `/* #define MYVIA_NEED_LATCHING */` default-off).
+  - `via6522-vice.ts:1035-1039` — `viacore_peek` IFR returns raw
+    `ifr` (no bit-7 synthesis). Matches `viacore.c:1284-1285`.
+    Bit-7 synthesis lives in `viacore_read` only.
+- Tests:
+  - `tests/unit/via/viacore-conformance.test.ts` (13/13 PASS) —
+    13 spec-cited assertions including peek-no-clear, peek-raw-IFR,
+    MYVIA-gate, viacoreSetSr burst hack, T2_irq_allowed, CA2
+    polarity match, IER bit-7 store, IFR clear-on-mask.
+  - `tests/unit/via/via-ila-ilb-latch.test.ts` rewritten to
+    assert literal-VICE-drive (MYVIA=false). 5/5 PASS.
+  - Total VIA suite 65/65 PASS across 7 files.
+- Regression: rotation 15/15, canary 5/5 PASS.
+- Ticketed out:
+  - `viacore_disable` + `enabled` flag → Spec 444
+  - `viacore_shutdown` → Spec 444
+  - `viacore_snapshot_read_module` → Spec 451 (VSF cross-load)
+  - `viacore_dump` → OUT (debug)
+  - `read_clk` / `read_offset` → OMIT (write-only)
+
+Docs: `docs/spec-442-viacore-mapping.md`,
+       `docs/spec-442-production-proof.md`.
+
+### Spec 443 starting point
+
+`via1d1541.c` (420 LoC) + `via2d.c` device wrappers. Spec 441
+already ported via2d.c PA/PB/PCR/CA2/CB2 backend literal for the
+rotation flip. Spec 443 closes the loop by:
+- Auditing `via1d1541.c` (IRQ wiring → drive cpu, ATN backend
+  hooks, DDR formulae for PA/PB → IEC lines).
+- Verifying `via2d.c` backend signatures align with VICE (esp.
+  `storePcr` void-tightening from Spec 442 Phase 5 finding).
+- Adding device-level conformance tests (separate from viacore
+  core tests).
 
 ## Acceptance Epic-level
 

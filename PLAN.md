@@ -181,8 +181,8 @@ Doc: `docs/epic-1541-full-vice-port.md`.
 |---|---|---|
 | 440 | Epic charter + doctrine + 7-step workflow | DONE |
 | **441** | rotation.c + p64 stubs + drive_t + VIA2 backend port | **DONE** (4f legacy delete deferred — see below) |
-| 442 | viacore.c Claude-self re-audit | **NEXT** (recommended) |
-| 443 | VIA1 + VIA2 d1541 literal re-port | OPEN |
+| **442** | viacore.c Claude-self re-audit | **DONE** (MYVIA gate + peek-raw fix + 13 conformance tests) |
+| 443 | VIA1 + VIA2 d1541 literal re-port | **NEXT** (recommended) |
 | 444 | drivecpu.c true literal | OPEN |
 | 445 | gcr.c write-path | OPEN |
 | 446 | drivesync.c full | OPEN |
@@ -221,13 +221,45 @@ Docs:
   - `docs/spec-441-step-4-migration-plan.md`
   - `docs/spec-441-overnight-halt.md`
 
-### Next recommended spec — 442 viacore re-audit
+### Spec 442 DONE summary (2026-05-14)
 
-`viacore.c` (2243 LoC) gegen `via6522-vice.ts` (1341 LoC) line-by-
-line. Spec 434 has a subagent-produced audit doc (`spec-434-viacore-audit.md`)
-that is **invalidated** under epic-440 doctrine — needs Claude-
-self re-audit per [[feedback_1541_port_workflow]]. Target: 60+
-row matrix superseding the 33-row subagent doc.
+`viacore.c` (2243 LoC) ↔ `via6522-vice.ts` (1341 LoC) line-by-line
+audited by Claude (no subagent). 9 commits.
+
+- Mapping doc `docs/spec-442-viacore-mapping.md` (220+ rows across
+  sections A-J): every via_context_t struct field + every viacore.c
+  function (public + static) cited with VICE-line ↔ TS-line ↔
+  verdict.
+- Patches applied:
+  - **MYVIA_NEED_LATCHING = false** flag (`via6522-vice.ts:197-203`)
+    gating 7 latch sites — matches VICE drive build (`viacore.c:76`
+    `/* #define MYVIA_NEED_LATCHING */` commented out).
+  - **viacore_peek IFR** returns raw `ifr` (was synthesising bit 7;
+    bit-7 synthesis is read-only behaviour per `viacore.c:1284-1285`).
+- Tests: `tests/unit/via/viacore-conformance.test.ts` (13/13 PASS) +
+  rewritten `tests/unit/via/via-ila-ilb-latch.test.ts` (5/5 PASS).
+  Total VIA unit suite: 65/65 PASS across 7 files. Rotation 15/15
+  PASS. Canary 5/5 PASS.
+- Ticketed out to follow-on specs:
+  - `viacore_disable` / `enabled` flag / `viacore_shutdown` → Spec 444
+  - `viacore_snapshot_read_module` → Spec 451 (VSF cross-load)
+  - `viacore_dump` → OUT (debug-only)
+  - `read_clk` / `read_offset` → OMIT (write-only in VICE viacore.c)
+- Spec 434 subagent-produced audit doc invalidated and superseded
+  by Spec 442 mapping.
+
+Docs:
+  - `docs/spec-442-viacore-mapping.md` (audit matrix)
+  - `docs/spec-442-production-proof.md` (final verdict)
+
+### Next recommended spec — 443 VIA1 + VIA2 d1541 device re-port
+
+`via1d1541.c` (420 LoC) + `via2d.c` device-level wrappers (PA/PB/
+PCR backends). Spec 441 already ported via2d.c PA/PB/PCR/CA2/CB2
+backend literal for the rotation flip; Spec 443 closes the loop by
+auditing via1d1541.c (IRQ wiring, ATN backend, DDR formulae) and
+verifying via2d.c backend signature alignment (storePcr void
+tightening from Spec 442 Phase 5 finding).
 
 ## Step order (legacy 6-step view — for historical context)
 
