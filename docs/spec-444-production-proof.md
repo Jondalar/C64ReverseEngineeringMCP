@@ -51,7 +51,7 @@ those intermediates are NOT current production code.
 | `drivecpu_jam` dispatcher | **OMIT-OK** (V1 stock DOS never JAMs); `is_jammed` field exists for snapshot compat. |
 | `drivecpu_snapshot_write/read_module` + `snap_module_name` | **DEFER → Spec 451** (VSF cross-load). |
 | `drive_generic_dma`, banking, monitor, identification_string, R65C02_regs | **OUT (V1)** — DMA not in 1541, banking uses TS dispatch tables, no monitor UI, logging-only string, 6502 not 65C02. |
-| Rotation tick AFTER cpu | **TICKETED → Spec 412** (PARTIAL). BEFORE pattern regresses Krill loader; root cause out of Spec 444 scope. Documented in `drive-cpu.ts:1240` comment + Spec 412 status. |
+| Rotation tick AFTER cpu | **TICKETED → Spec 452** (OPEN). BEFORE pattern regresses Krill loader; root cause out of Spec 444 scope. Documented in `drive-cpu.ts:1232` comment + Spec 452. |
 
 ## Verdict tally (post-Phase-4)
 
@@ -63,7 +63,7 @@ those intermediates are NOT current production code.
 | OMIT-OK | 6 (shutdown, jam dispatcher, dump, identification, banking, R65C02) |
 | OUT (V1) | 3 (DMA, monitor, parallel cable carve-outs from Spec 443) |
 | DEFER → Spec 451 | 3 (snapshot R/W, snap_module_name, restore_int) |
-| TICKETED → Spec 412 | 1 (rotation tick AFTER cpu) |
+| TICKETED → Spec 452 | 1 (rotation tick AFTER cpu) |
 | PURGED in Phase 4 | 1 (driveDispatchMode kludge family) |
 | **BUG / load-bearing MISSING** | **0** |
 
@@ -132,8 +132,9 @@ intermediates are committed history only.
 
 ## Open items for follow-on specs
 
-1. **Spec 412** — rotation tick BEFORE cpu (currently AFTER, Krill
-   regression blocker). Dedicated drive-timing spec.
+1. **Spec 452** — rotation tick BEFORE cpu (currently AFTER, Krill
+   regression blocker). Dedicated drive-timing spec inside Epic 440
+   (pre-rewrite Spec 412 is archived; not a valid live reference).
 2. **Spec 445** — gcr.c write-path + encode (next sequential spec).
 3. **Spec 451** — VSF cross-load: drivecpu_snapshot_write/read_module,
    snap_module_name, restore_int.

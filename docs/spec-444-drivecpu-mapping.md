@@ -14,7 +14,8 @@ acceptance #2 (literal VICE catch-up math) and acceptance #6
   dropped).
 - Cycle-accuracy smoke test (internal-consistency, VICE-baseline
   diff still pending).
-- Rotation tick AFTER → explicit ticket to Spec 412 (not buried).
+- Rotation tick AFTER → explicit ticket to Spec 452 (not buried;
+  pre-rewrite Spec 412 archived, not a valid live reference).
 **VICE sources:**
 - `drive/drivecpu.c` (737 LoC)
 - `drive/drivecpu.h` (62 LoC)
@@ -392,15 +393,17 @@ touched).
 ### F.5 Rotation tick AFTER cpu — explicit ticket
 
 **Before:** comment "Spec 412 PARTIAL: switching to BEFORE regresses
-Krill" buried in code without spec ticket.
+Krill" buried in code without spec ticket. (Spec 412 was on the
+pre-rewrite `vice-arch-port` branch; not a valid live reference
+under the strict `1541-literal-vice` rewrite doctrine.)
 
-**After:** mapping doc explicitly tickets to **Spec 412 / dedicated
-drive-timing investigation**. Spec 444 does NOT attempt fix (Krill
-regression root cause unclear; out of Spec 444 scope per doctrine
-"no arch decisions without ask"). Comment in code points at Spec
-412 instead of carrying as TODO.
+**After:** mapping doc explicitly tickets to **Spec 452 — Drive-cycle
+tick-order: rotation BEFORE cpu** (new spec inside Epic 440). Spec 444
+does NOT attempt fix (Krill regression root cause unclear; out of
+Spec 444 scope per doctrine "no arch decisions without ask"). Comment
+in code points at Spec 452 instead of carrying as TODO.
 
-**Verdict: TICKETED-OUT** to Spec 412 (status PARTIAL).
+**Verdict: TICKETED-OUT** to Spec 452 (OPEN).
 
 ### F.6 Cycle-accuracy smoke
 

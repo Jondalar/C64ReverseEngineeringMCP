@@ -58,7 +58,7 @@ am Ende validiert.
 | VIA1 device | `iec/via1d1541.c` | 420 | `via1d1541.ts` 360 LOC | 443 | AUDITED (Spec 443 DONE 2026-05-14) |
 | VIA2 device | `iecieee/via2d.c` | 566 | `via2d1541.ts` 250 LOC + coupling 209 LOC | 443 | AUDITED (Spec 443 DONE 2026-05-14) |
 | GCR encode/decode | `gcr.c` | 357 | `gcr.ts` 530 LOC | 445 | LESE OK / WRITE FEHLT |
-| Disk rotation | `drive/rotation.c` | ~900 | `gcr-shifter.ts` 690 LOC | 441 | NIE AUDITED |
+| Disk rotation | `drive/rotation.c` | ~900 | `gcr-shifter.ts` 690 LOC | 441 + 452 | **AUDITED (Spec 441 DONE)** — primitive literal; tick-order PARTIAL (Spec 452 OPEN: rotation BEFORE cpu per §14 invariant 1 blocked by Krill regression) |
 | Drive memory map | `drive/iec/memiec.c` | 177 | `drive-cpu.ts` memory part | 447 | TEIL |
 | Drive ROM loader | `drive/driverom.c` | ~300 | `headless-machine-kernel.ts` ROM-load | 447 | TEIL |
 | Drive sync (host↔drive clock) | `drive/drivesync.c` | ~350 | `drive-cpu.ts` `syncFactor` | 446 | NUR PAL-CONST |
@@ -86,6 +86,7 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 | 10 | **449** | `fdc.c` + cbmdos error codes + state machine | mittel | OPEN |
 | 11 | **450** | Validation harness: full read+write+verify | mittel | OPEN |
 | 12 | **451** | NTSC sync regression check | klein | OPEN |
+| 13 | **452** | Drive-cycle tick-order: rotation BEFORE cpu per §14 invariant 1 (Krill root-cause + flip) | mittel | OPEN |
 
 Phasen müssen einzeln durchlaufen → spec → audit-doc → fixes → gate.
 Kein Sprint hat ein Subagent-audit als acceptance. Claude muss

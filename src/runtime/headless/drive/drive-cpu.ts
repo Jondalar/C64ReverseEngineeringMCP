@@ -1229,9 +1229,11 @@ export class DriveCpu implements Drive1541Unit {
     // by ≤ 1 cycle at most (instruction granularity); captured in
     // last_exc_cycles.
     while (cycled.cycles < this.stop_clk) {
-      // Spec 412 PARTIAL — rotation tick AFTER cpu (current). Doc §14
-      // invariant 1 requires BEFORE; switching regresses Krill loader.
-      // Ticketed to Spec 412 / dedicated drive-timing sprint.
+      // Spec 452 OPEN — rotation tick AFTER cpu (current). Doc §14
+      // invariant 1 requires BEFORE; flipping wedges Scramble Infinity
+      // Krill loader at PC=$eeb1 (KERNAL LOAD). A different TS timing
+      // divergence elsewhere in the drive path is masked by AFTER;
+      // root-cause hunt + flip is Spec 452 scope.
       cycled.executeCycle();
       if (this.gcrShifter) this.gcrShifter.tick(1);
       if (cycled.isAtInstructionBoundary()) {
@@ -1297,9 +1299,9 @@ export class DriveCpu implements Drive1541Unit {
     // Tick at least once, then until back at boundary. Per-bus-cycle
     // path matches VICE 6510core.c addressing-mode decomposition.
     //
-    // Spec 412 PARTIAL: rotation AFTER cpu (= pre-412 pattern); BEFORE
-    // pattern regresses Krill loader. See spec 412 status / drive-cpu.ts
-    // executeToClock for context.
+    // Spec 452 OPEN: rotation AFTER cpu; BEFORE pattern regresses Krill
+    // loader (Scramble Infinity, PC=$eeb1 KERNAL LOAD). See Spec 452 /
+    // drive-cpu.ts executeToClock for context.
     cycled.executeCycle();
     if (this.gcrShifter) this.gcrShifter.tick(1);
     while (!cycled.isAtInstructionBoundary()) {
