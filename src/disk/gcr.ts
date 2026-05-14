@@ -40,13 +40,19 @@ const GCR_DECODE: number[] = [
   0, 9, 10, 11, 0, 13, 14, 0,
 ];
 
+// VICE `GCR_conv_data[16]` — src/gcr.c:51-57. Encode table: 4-bit
+// nybble → 5-bit GCR symbol.
+const GCR_ENCODE: number[] = [
+  0x0a, 0x0b, 0x12, 0x13,
+  0x0e, 0x0f, 0x16, 0x17,
+  0x09, 0x19, 0x1a, 0x1b,
+  0x0d, 0x1d, 0x1e, 0x15,
+];
+
 // Valid 5-bit GCR nybble set (VICE GCR_conv_data[16] inverse). Used by
 // diagnostic helpers that want to flag invalid GCR without changing the
 // VICE-faithful byte output.
-const VALID_GCR_NYBBLES = new Set<number>([
-  0x0a, 0x0b, 0x12, 0x13, 0x0e, 0x0f, 0x16, 0x17,
-  0x09, 0x19, 0x1a, 0x1b, 0x0d, 0x1d, 0x1e, 0x15,
-]);
+const VALID_GCR_NYBBLES = new Set<number>(GCR_ENCODE);
 
 export function decodeGCRNybble(gcr5: number): number {
   return GCR_DECODE[gcr5 & 0x1f];
@@ -54,6 +60,42 @@ export function decodeGCRNybble(gcr5: number): number {
 
 export function isValidGcrNybble(gcr5: number): boolean {
   return VALID_GCR_NYBBLES.has(gcr5 & 0x1f);
+}
+
+/**
+ * Spec 445 — VICE `gcr_convert_4bytes_to_GCR` (src/gcr.c:68-86) literal.
+ *
+ * Encode 4 raw bytes into 5 GCR-encoded bytes:
+ *   - Each input byte = 2 nybbles (high + low)
+ *   - Each nybble → 5-bit GCR symbol via GCR_ENCODE table
+ *   - 8 nybbles × 5 bits = 40 bits packed into 5 bytes
+ *
+ * VICE body (lines 73-84):
+ *   for (i = 2; i < 10; i += 2, source++, dest++) {
+ *     tdest <<= 5;
+ *     tdest |= GCR_conv_data[(*source) >> 4];
+ *     tdest <<= 5;
+ *     tdest |= GCR_conv_data[(*source) & 0x0f];
+ *     *dest = (uint8_t)(tdest >> i);
+ *   }
+ *   *dest = (uint8_t)tdest;
+ *
+ * Note: VICE uses `register unsigned int tdest = 0` and relies on
+ * "at least 16 bits for overflow shifting". TS uses plain `number`
+ * (53-bit float) which is comfortably wider.
+ */
+export function gcr_convert_4bytes_to_GCR(source: Uint8Array, sourceOffset: number, dest: Uint8Array, destOffset: number): void {
+  let tdest = 0;
+  let sp = sourceOffset;
+  let dp = destOffset;
+  for (let i = 2; i < 10; i += 2) {
+    tdest = ((tdest << 5) | GCR_ENCODE[(source[sp]! >> 4) & 0x0f]) >>> 0;
+    tdest = ((tdest << 5) | GCR_ENCODE[source[sp]! & 0x0f]) >>> 0;
+    dest[dp] = (tdest >>> i) & 0xff;
+    sp += 1;
+    dp += 1;
+  }
+  dest[dp] = tdest & 0xff;
 }
 
 function getBit(data: Uint8Array, bitIndex: number): number {
