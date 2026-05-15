@@ -75,6 +75,31 @@ export class D64Parser implements DiskImage {
     return this.data.slice(offset, offset + 256);
   }
 
+  /**
+   * Spec 450 — overwrite a single 256-byte sector in-place.
+   * Returns true on success, false if the address is invalid or
+   * the source buffer is the wrong size.
+   *
+   * Note: the D64 format has no on-disk GCR layer; sectors are
+   * stored as packed 256-byte blocks per track. Errors-byte map
+   * (for 175531 / 197376 byte variants) is NOT updated by this
+   * helper — callers that need a fresh error map must zero it
+   * separately. For 1541 V1 write tests the error map stays at
+   * default (no errors) which matches a freshly-formatted image.
+   */
+  setSector(track: number, sector: number, bytes: Uint8Array): boolean {
+    if (bytes.length !== 256) return false;
+    const offset = D64Parser.getOffset(track, sector);
+    if (offset < 0 || offset + 256 > this.data.length) return false;
+    this.data.set(bytes, offset);
+    return true;
+  }
+
+  /** Spec 450 — full underlying image bytes (for sha256 / file dump). */
+  toBuffer(): Uint8Array {
+    return this.data.slice();
+  }
+
   getDirectory(): DiskDirectory {
     return parseDirectory((t, s) => this.getSector(t, s));
   }
