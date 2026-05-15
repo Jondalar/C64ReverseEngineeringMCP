@@ -81,24 +81,64 @@ canary, referenced from this proof for traceability.
 
 B5, C8, C9 all share the same observable: the drive
 `trackBuffer.isModified()` returns false after a SAVE / FORMAT /
-N0: command sequence. Possible causes (un-investigated):
+N0: command sequence.
 
-1. BASIC not at READY when `RUN\r` is typed → command lost.
-2. KERNAL OPEN 15,8,15 + PRINT# `N:NAME,ID` not propagating to
-   drive over IEC bus for the FORMAT case.
-3. KERNAL SAVE not engaging drive ROM write-side handler for the
-   SAVE case.
-4. Possible regression family adjacent to
-   `project_mm_motm_regression_2026_05_06` (MM LOAD"*" file-lookup
-   issue, motm DATA-release issue). Different write-path symptom
-   but worth eliminating.
+### Quick code-audit (2026-05-15, no trace capture)
 
-**Resolution plan:** dedicated follow-up spec (Spec 450.x) under
-[[feedback_trace_into_duckdb]] doctrine — capture both TS-side
-and VICE-side cpu_step + drive_step + iec_step traces for an
-identical SAVE workflow, DuckDB-diff for first divergence point.
-Same methodology that proved Sprint 430 motm AB fastloader root
-cause.
+1. ✅ `src/runtime/headless/traps/kernal-fileio.ts:130` —
+   `trapSave` is a `SAVE (no-op stub)`. **But the trap only fires
+   when `enableKernalFileIoTraps === true`.**
+2. ✅ `session-modes.ts:87-96` — `true-drive` mode resolves
+   `enableKernalFileIoTraps: false` + `enableKernalSerialTraps:
+   false` + `enableKernalIoTraps: false`. All trap paths OFF.
+3. ✅ Our 450 scenarios use `mode: "true-drive"` (see
+   `integrated-runner.ts`). Trap layer cannot be the cause.
+4. ✅ B6 diskid PASSES — drive engages, ROM runs, IEC bus works
+   in the read direction. Means drive isn't fundamentally broken
+   in the integrated session.
+5. → write-specific path is suspect: drive ROM either doesn't
+   pick up the SAVE/FORMAT command from IEC, OR drive writes
+   land somewhere other than `trackBuffer` (so
+   `trackBuffer.isModified()` stays false).
+
+### What 450.x should NOT do first
+
+Trace capture is **not** the right starting point under the
+1:1-VICE doctrine. All component ports (KERNAL ROM, drive ROM,
+IEC bus 430, VIA1/2 442/443, GCR 445, alarm 448, drivecpu 444)
+are audited 1:1. If a write fails, the cause is in either:
+
+- a TS-side glue/wiring layer (composition between the ported
+  components) that was never literal-VICE in the first place, or
+- an unexamined TS-EXTRA shortcut bypassing the real path.
+
+Both are findable by **reading the code**. Capture only helps
+when reading-the-code stalls.
+
+### Spec 450.x — code-audit-first plan
+
+Audit order (each step is short — stop as soon as the divergence
+is found):
+
+1. `IntegratedSessionOptions.writeProtected` default + how it
+   propagates through `kernel` → drive VIA2 PB_WPS pin. Confirm
+   our scenarios mount writable.
+2. `via2-gcr-shifter-coupling.ts` → `shifter` → `trackBuffer`
+   write-back chain. Find where drive-side writes are supposed
+   to mark trackBuffer dirty. Verify chain is intact at runtime
+   (no missing wire).
+3. IEC bus LISTEN+OPEN+second-addr handling on drive side
+   (channel 0 = SAVE, channel 15 = command). Confirm drive ROM
+   actually receives the LISTEN frame and processes the channel.
+4. KERNAL ROM SAVE routine — confirm it's actually executing
+   the serial-bus path (vs. hitting a fallback / no-op somewhere
+   else in our trap surface that we missed in step 1).
+
+**Capture-as-fallback** is only invoked if all four audits pass
+and the bug is still invisible — at which point bilateral cpu_step
+trace + DuckDB-diff is the right next move (per
+[[feedback_trace_into_duckdb]]). Charter explicitly forbids the
+capture-as-default approach for this debug.
 
 ## Verification
 
