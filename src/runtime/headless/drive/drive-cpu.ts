@@ -18,10 +18,9 @@
 //   cycleAccum        VICE cpu->cycle_accum (16.16 fixed-point)
 //   syncFactor16dot16 VICE cpu->sync_factor
 //
-// Spec 401 owns the inner cycle-stepped 6502 dispatch (1:1 VICE 6510core
-// per-bus-cycle macro template). Spec 428 introduced a "whole-instruction"
-// dispatch kludge which was purged in Spec 444 Phase 4 — drive CPU now
-// runs cycle-stepped only, no opt-in mode flag.
+// Spec 401 owns the inner cycle-stepped 6502 dispatch; Spec 428 owns the
+// optional "vice-whole-instruction" dispatch mode. Both run inside the
+// VICE-shaped catch-up wrapper.
 //
 // Doc: docs/vice-1541-arch.md §4 (drive memory map), §4.1 (physical
 //      layout), §4.2 (dispatch tables), §4.3 (ROM loading), §13 Phase
@@ -139,10 +138,29 @@ export interface DriveCpuOptions {
   // Sprint 96 part 6 (Bug 39): use cycle-stepped microcoded CPU with
   // sub-instruction bus access. Required for IEC bit-bang correctness.
   useMicrocodedCpu?: boolean;
+  /**
+   * Spec 428 Phase C — drive CPU dispatch mode (opt-in flag, default
+   * "cycle-stepped" preserves current behavior).
+   *
+   * - "cycle-stepped" (default): Spec 401 path. `executeCycle` per CPU
+   *   clock, `gcrShifter.tick(1)` per CPU clock. C64-shaped CLK_INC.
+   * - "vice-whole-instruction": Spec 428 Phase C path. Mirrors VICE
+   *   `drivecpu.c:drivecpu_execute()` — run one full instruction
+   *   (via `runOneInstruction`), then `gcrShifter.tick(N)` ONCE with
+   *   N = cycles consumed. Restores pre-Spec-401 KERNAL-serial loader
+   *   timing required by IM2 Epyx FastLoad.
+   *
+   * Phase D will flip the default once Phase C gate proves no
+   * baseline-game regression with flag ON.
+   *
+   * Doc: specs/428-split-c64-and-1541-cpu-contracts.md.
+   * VICE cite: src/drive/drivecpu.c:356 drivecpu_execute().
+   */
+  driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
   // Sprint 113 Phase 2: VICE-style alarm context for the drive CPU.
   // VIA1 + VIA2 register their T1/T2/SR alarms here. When provided,
   // DriveCpu drains pending alarms after each instruction in the
-  // executeToClock path. In lockstep, process_alarms handles drain.
+  // executeToClock path. In lockstep, AlarmContextCycled handles drain.
   alarmContext?: alarm_context_t;
   // Sprint 113 Phase 2: live drive CPU clock pointer for VIA construction.
   // If not provided, DriveCpu supplies one automatically.
@@ -491,81 +509,33 @@ export class DriveBus implements CpuMemory {
       this.peekTab[p] = via2Peek;
     }
 
-    // Spec 447 — ROM $8000-$BFFF + $C000-$FFFF literal VICE memiec.c:167-176
-    // (1541 stock, drive_ram8/a_enabled = 0).
+    // ROM $C000-$FFFF — canonical 16 KB DOS ROM (memiec.c:176).
+    // ROM is read-only: writes pass through to drive_store_free (open
+    // bus). VICE wires `store_tab = NULL` and the dispatch macro skips
+    // them; our 1:1 analog leaves storeTab[p] = storeFree (= no-op on
+    // ROM-backed RAM array, latch updated).
     //
-    // VICE wires drive_read_rom for:
-    //   $80-$9F → trap_rom[0x0000..$1FFF]  (line 169, drive_ram8 disabled)
-    //   $A0-$BF → trap_rom[0x2000..$3FFF]  (line 174, drive_rama disabled)
-    //   $C0-$FF → trap_rom[$4000..$7FFF]  (line 176, canonical 16K DOS ROM)
-    //
-    // For a 1541 stock split-ROM (16K), VICE iecrom.c:175-178 memcpy-
-    // duplicates the 16K data into the LOW half of the 32K trap_rom
-    // buffer too — so trap_rom[0..$3FFF] = trap_rom[$4000..$7FFF] = the
-    // canonical 16K ROM bytes. Result: $80-$BF reads return the same
-    // bytes as $C0-$FF on stock 1541.
-    //
-    // TS rom buffer is the 16K canonical (= VICE trap_rom[$4000..$7FFF])
-    // — for stock 1541 the mirror is achieved by reading rom[0..$1FFF]
-    // for $80-$9F and rom[$2000..$3FFF] for $A0-$BF. Returns the same
-    // bytes as the $C0-$FF window. 4 mirror-equivalence tests pin it.
-    //
-    // For 1541-II 32K images (not in V1 scope), TS rom buffer would
-    // need to expand to 32K so $80-$BF reads the lower half + $C0-$FF
-    // reads the upper half. Spec 447 ticketed.
-    const romReadCanonical: DrivePageRead = (addr) => {
-      // $C000-$FFFF reads trap_rom[$4000-$7FFF]. With 16K rom buffer
-      // (= just the canonical half), this is rom[(addr - 0xC000)].
+    // Note: stock 1541 split ROM image (901229-05 + 901227-03) is 16 KB
+    // loaded into the high half of trap_rom[]. The low half / mid half
+    // ($8000-$BFFF) are zero on stock; on 1541-II's 32 KB image they
+    // mirror the same content. We do not implement $8000-$BFFF here
+    // because:
+    //   1. Bundled ROM is 16 KB stock = $8000-$BFFF reads = 0 (open
+    //      bus is the same observable behaviour).
+    //   2. memiec.c:167-175 wires drive_read_rom only when ramX_enabled
+    //      is set — for stock split-ROM the trap_rom buffer is sparse.
+    // If a 1541-II 32 KB image is added in future, extend here to
+    // populate pages $80-$BF from `rom[0x0000..$3FFF]` (low+mid halves).
+    const romRead: DrivePageRead = (addr) => {
       const v = this.rom[(addr - DRIVE_ROM_BASE) & 0x3fff]!;
       this.lastBusValue = v;
       return v;
     };
-    const romPeekCanonical: DrivePagePeek = (addr) => this.rom[(addr - DRIVE_ROM_BASE) & 0x3fff]!;
-    // $8000-$BFFF: stock 1541 16K split-ROM mirrors the canonical
-    // $C000-$FFFF data. VICE iecrom.c:175-178 memcpy-duplicates the
-    // 16K ROM into BOTH halves of the 32K trap_rom buffer; then
-    // memiec.c:169 reads trap_rom[0..$1FFF] for $80-$9F and
-    // memiec.c:174 reads trap_rom[$2000..$3FFF] for $A0-$BF.
-    //
-    // TS rom buffer = 16K canonical (= VICE trap_rom[$4000..$7FFF]).
-    // Reading rom[0..$1FFF] returns the first 8K of canonical ROM =
-    // identical bytes to what VICE trap_rom[0..$1FFF] holds after
-    // the iecrom.c mirror. Same for the $A0-$BF window. Verified by
-    // 4 mirror-equivalence tests in memiec-conformance.test.ts.
-    const romReadLow: DrivePageRead = (addr) => {
-      // $80-$9F → rom[0..$1FFF] (first 8K of canonical mirror).
-      const offset = addr - 0x8000;
-      const v = offset < this.rom.length ? this.rom[offset]! : 0;
-      this.lastBusValue = v;
-      return v;
-    };
-    const romPeekLow: DrivePagePeek = (addr) => {
-      const offset = addr - 0x8000;
-      return offset < this.rom.length ? this.rom[offset]! : 0;
-    };
-    const romReadMid: DrivePageRead = (addr) => {
-      // $A0-$BF → rom[$2000..$3FFF] (second 8K of canonical mirror).
-      const offset = (addr - 0xa000) + 0x2000;
-      const v = offset < this.rom.length ? this.rom[offset]! : 0;
-      this.lastBusValue = v;
-      return v;
-    };
-    const romPeekMid: DrivePagePeek = (addr) => {
-      const offset = (addr - 0xa000) + 0x2000;
-      return offset < this.rom.length ? this.rom[offset]! : 0;
-    };
-    for (let p = 0x80; p < 0xa0; p++) {
-      this.readTab[p] = romReadLow;
-      this.peekTab[p] = romPeekLow;
-    }
-    for (let p = 0xa0; p < 0xc0; p++) {
-      this.readTab[p] = romReadMid;
-      this.peekTab[p] = romPeekMid;
-    }
+    const romPeek: DrivePagePeek = (addr) => this.rom[(addr - DRIVE_ROM_BASE) & 0x3fff]!;
     for (let p = 0xc0; p < 0x100; p++) {
-      this.readTab[p] = romReadCanonical;
+      this.readTab[p] = romRead;
       // storeTab stays = storeFree (drive_store_free) — ROM is RO.
-      this.peekTab[p] = romPeekCanonical;
+      this.peekTab[p] = romPeek;
     }
   }
 
@@ -624,23 +594,8 @@ export class DriveCpu implements Drive1541Unit {
   public readonly cpu: Cpu6510 | Cpu65xxVice;
   public readonly bus: DriveBus;
   public readonly microcoded: boolean;
-
-  /**
-   * Spec 450.x — flush pending dirty-track marker into the bound
-   * TrackBuffer. Call before `persistTrackBuffer` so the current
-   * track's writes are committed (the onStep callback already
-   * flushes on step-away). Idempotent. No-op if no trackBuffer or
-   * dirty flag is clear.
-   */
-  public flushDirtyCurrentTrack(): void {
-    if (!this.trackBuffer) return;
-    if (this.drive.GCR_dirty_track !== 1) return;
-    const half = this.drive.current_half_track;
-    const whole = (half & 1) === 0 ? (half >> 1) : -1;
-    if (whole >= 1) this.trackBuffer.markModifiedFromDrive(whole);
-    this.drive.GCR_dirty_track = 0;
-  }
-
+  /** Spec 428 Phase C — drive dispatch mode flag. */
+  public readonly driveDispatchMode: "cycle-stepped" | "vice-whole-instruction";
   // Sprint 96 part 7: GCR shifter coupling for free-running tick.
   public readonly trackBuffer?: TrackBuffer;
   public readonly headPosition?: HeadPosition;
@@ -744,24 +699,26 @@ export class DriveCpu implements Drive1541Unit {
   private lastClk = 0;
   // Fixed-point accumulator — fractional drive cycles owed.
   private cycleAccum = 0;
-  // Spec 444 Phase 4 — `sleeping` flag PURGED. Was output-affecting
-  // TS-EXTRA divergence from VICE (VICE drive always runs cycles when
-  // enabled; TS sleeping skipped inner loop → drive clock stalled).
-  // Doctrine: "MACH es GENAU so wie VICE". Removed.
+  // Sleep mode: drive is in known busy-wait loop, skip ahead to next
+  // bus state change. Cleared on bus state change.
+  private sleeping = false;
 
   /**
    * Spec 444 — VICE `drivecpu_context_t.stop_clk` (drivetypes.h:83).
-   * ADDITIVE across calls per drivecpu.c:388. Inner loop terminates
-   * at `cycled.cycles >= stop_clk`. Phase 4 = VICE-literal loop shape.
+   * Set at entry to `executeToClock` to the target drive clock the
+   * inner loop must reach this batch (= `cpu.cycles +
+   * (cycleAccum >> 16)`). Public for snapshot/diagnostic; the inner
+   * loop continues to use the cycleAccum check (TS equivalent of
+   * VICE's `while (*clk_ptr < stop_clk)` — see B.1 in
+   * docs/spec-444-drivecpu-mapping.md).
    */
   public stop_clk = 0;
 
   /**
    * Spec 444 — VICE `drivecpu_context_t.last_exc_cycles`
-   * (drivetypes.h:81). VICE sets to 0 only in drivecpu_reset_clk
-   * (drivecpu.c:189); not written during runtime. Phase 4: TS mirrors
-   * that semantic — field cleared on softReset/reset only, NOT updated
-   * by executeToClock. Used by VSF snapshot only (Spec 451).
+   * (drivetypes.h:81). Cycles executed in excess of the target
+   * last batch (instruction overrun). VICE saves in snapshot
+   * (drivecpu.c:557); TS tracks for VSF cross-load (Spec 451).
    */
   public last_exc_cycles = 0;
 
@@ -814,11 +771,9 @@ export class DriveCpu implements Drive1541Unit {
   // Guards `executeToClock` / `runOneInstruction` against re-applying
   // the polled level after each instruction.
   private via1Attached = false;
-  // Spec 444 Phase 4 — wakeUp() retained as VICE drivecpu_wake_up
-  // analog (called by Spec 414 enable()). With `sleeping` purged this
-  // is effectively a no-op stub; kept for VICE-name parity and for
-  // future callers that may want a wake-event hook.
-  public wakeUp(): void { /* no-op (sleeping flag purged Spec 444 Phase 4) */ }
+  // Idle-wakeup callback installed by IntegratedSession via IecBus.
+  // When iec bus state changes, we wake the drive.
+  public wakeUp(): void { this.sleeping = false; }
 
   constructor(opts: DriveCpuOptions = {}) {
     // Spec 407 — record device number for Drive1541Unit shape.
@@ -845,8 +800,9 @@ export class DriveCpu implements Drive1541Unit {
 
     this.bus = new DriveBus(opts, clkRef);
     this.microcoded = opts.useMicrocodedCpu ?? false;
-    // Spec 444 Phase 4 — Spec 428 dispatch-mode kludge purged. Drive CPU
-    // runs cycle-stepped only (= 1:1 VICE drivecpu.c per-bus-cycle).
+    // Spec 428 Phase D — default flipped to VICE-faithful whole-instruction
+    // dispatch. Cycle-stepped remains opt-in via explicit option.
+    this.driveDispatchMode = opts.driveDispatchMode ?? "vice-whole-instruction";
     this.cpu = this.microcoded
       ? new Cpu65xxVice({ memBus: this.bus, alarmContext: opts.alarmContext ?? this.bus.alarmContext })
       : new Cpu6510(this.bus);
@@ -866,9 +822,6 @@ export class DriveCpu implements Drive1541Unit {
       const cycled = this.cpu as Cpu65xxVice;
       this.bus.via1.attachIrqLine(cycled.cpuIntStatus, "via1-irq");
       this.via1Attached = true;
-      // Spec 444 v2 — VIA2 chip-side IRQ push. Drops the executeToClock
-      // per-instruction polling line (was Spec 411 TODO).
-      this.bus.via2.attachIrqLine(cycled.cpuIntStatus, "via2-irq");
     }
     this.trackBuffer = opts.gcr?.trackBuffer;
     this.headPosition = opts.gcr?.headPosition;
@@ -878,36 +831,12 @@ export class DriveCpu implements Drive1541Unit {
     // drive.current_half_track. Bind initial track now that
     // headPosition/parser are assigned. rotation.ts gets track data
     // from cycle 0 of the FIRST runFor call.
-    //
-    // Spec 450.x bugfix: bind the SHARED Uint8Array that TrackBuffer
-    // already holds (via getOrLoadTrack), NOT a fresh
-    // `parser.getRawTrackBytes` copy. With the copy, drive writes
-    // landed in a detached buffer and were lost — RED_OK family in
-    // Spec 450 (B5/C8/C9). VICE C-level uses a pointer; TS uses a
-    // shared Uint8Array reference.
-    if (this.headPosition && opts.gcr?.trackBuffer) {
-      const tb = opts.gcr.trackBuffer;
-      const drive = this.drive;
-      const bindShared = (halfTrack: number): void => {
-        const wholeTrack = (halfTrack & 1) === 0 ? (halfTrack >> 1) : -1;
-        const bytes = wholeTrack >= 1 ? tb.getOrLoadTrack(wholeTrack) : null;
-        drive.current_half_track = halfTrack;
-        drive.GCR_track_start_ptr = bytes;
-        drive.GCR_current_track_size = bytes ? bytes.length : 0;
-      };
-      bindShared(this.headPosition.currentTrack * 2);
+    if (this.headPosition && opts.gcr?.trackBuffer?.source) {
+      const parser = opts.gcr.trackBuffer.source;
+      bindDriveTrack(this.drive, parser, this.headPosition.currentTrack * 2);
       const prevOnStep = this.headPosition.onStep;
       this.headPosition.onStep = (direction, halfTrack) => {
-        // Spec 450.x: if leaving a written track, mark it modified
-        // so persistTrackBuffer serialises. Mirrors VICE's implicit
-        // "current track has unflushed writes" state.
-        if (drive.GCR_dirty_track === 1) {
-          const prevHalf = drive.current_half_track;
-          const prevWhole = (prevHalf & 1) === 0 ? (prevHalf >> 1) : -1;
-          if (prevWhole >= 1) tb.markModifiedFromDrive(prevWhole);
-          drive.GCR_dirty_track = 0;
-        }
-        bindShared(halfTrack);
+        bindDriveTrack(this.drive, parser, halfTrack);
         prevOnStep?.(direction, halfTrack);
       };
     }
@@ -1010,6 +939,7 @@ export class DriveCpu implements Drive1541Unit {
     this.cpu.reset();
     this.lastClk = 0;
     this.cycleAccum = 0;
+    this.sleeping = false;
   }
 
   // Spec 090 / Spec 409: configure sync ratio. PAL = 1.01477
@@ -1078,48 +1008,6 @@ export class DriveCpu implements Drive1541Unit {
   }
 
   /**
-   * Spec 446 — VICE `drivesync_clock_frequency(unit, type)` literal port
-   * (drivesync.c:86-117). Returns the drive's clock frequency multiplier
-   * for a given drive type. 1541-family = 1; 1551/1581/4000/CMDHD = 2;
-   * IEEE drives (2031, 2040, 3040, 4040, 1001, 8050, 8250, 9000) = 1.
-   *
-   * V1 only emulates 1541 (= type DRIVE_TYPE_1541). The full dispatch
-   * table is ported literal for VICE-shape parity; other types are
-   * unreachable in the current runtime but the function returns the
-   * correct value if called.
-   */
-  static drivesync_clock_frequency(driveType: number): 1 | 2 {
-    // VICE drive type constants (drive.h:121-145). 1541 family = 1.
-    switch (driveType) {
-      case 1540: case 1541: case 1542: case 1570:
-      case 1571: case 1573:  // DRIVE_TYPE_1540/1541/1541II/1570/1571/1571CR
-        return 1;
-      case 1551: case 1581: case 2000: case 4000: case 4844:
-        // DRIVE_TYPE_1551/1581/2000/4000/CMDHD
-        return 2;
-      case 2031: case 2040: case 3040: case 4040:
-      case 1001: case 8050: case 8250: case 9000:
-        return 1;
-      default:
-        return 1;
-    }
-  }
-
-  /**
-   * Spec 446 — convenience helper for PAL/NTSC sync switch.
-   * Internally calls `driveSetMachineParameter(C64_PAL_CYCLES_PER_SEC)`
-   * or `(C64_NTSC_CYCLES_PER_SEC)` per VICE drivesync.c:57.
-   *
-   * Use this when the C64 video mode changes mid-session (rare). Most
-   * callers should set machine parameter once at construction.
-   */
-  setPalNtsc(mode: "pal" | "ntsc"): void {
-    const cyclesPerSec =
-      mode === "ntsc" ? C64_NTSC_CYCLES_PER_SEC : C64_PAL_CYCLES_PER_SEC;
-    this.driveSetMachineParameter(cyclesPerSec);
-  }
-
-  /**
    * Spec 414 — hard reset (= drive_init / power-on).
    *
    * Clears drive RAM ($0000-$07FF), resets VIA1+VIA2, resets CPU at
@@ -1136,13 +1024,9 @@ export class DriveCpu implements Drive1541Unit {
   reset(pc?: number): void {
     this.bus.reset();
     this.cpu.reset(pc);
-    // Hard reset (power-cycle): full state clear including cycleAccum.
-    // Differs from VICE softReset semantics (drivecpu_reset preserves
-    // cycle_accum). Hard reset = power-on, no fractional residual.
     this.lastClk = 0;
     this.cycleAccum = 0;
-    this.stop_clk = 0;
-    this.last_exc_cycles = 0;
+    this.sleeping = false;
   }
 
   /**
@@ -1164,7 +1048,7 @@ export class DriveCpu implements Drive1541Unit {
    * VICE: src/drive/drivecpu.c:194 `drivecpu_reset()`,
    *       src/core/viacore.c:378-439 `viacore_reset` (SR preserved).
    */
-  softReset(c64Clk: number, pc?: number): void {
+  softReset(pc?: number): void {
     // VIA reset preserves SR (register 10) per viacore.c:357 — already
     // implemented in via6522-vice.ts (loop starts at register 11).
     this.bus.via1.reset();
@@ -1172,16 +1056,9 @@ export class DriveCpu implements Drive1541Unit {
     // CPU reset = clear interrupt latches + jump to reset vector. RAM
     // is NOT touched (= drivecpu_reset semantics).
     this.cpu.reset(pc);
-    // Spec 444 Phase 4 — literal VICE drivecpu_reset_clk (drivecpu.c:186-191):
-    //   last_clk = maincpu_clk;
-    //   last_exc_cycles = 0;
-    //   stop_clk = 0;
-    // c64Clk arg is REQUIRED (mid-run-lastClk contract enforced in
-    // code, not prose). cycle_accum INTENTIONALLY NOT cleared
-    // (VICE-literal — fractional residual preserved across reset).
-    this.lastClk = c64Clk >>> 0;
-    this.last_exc_cycles = 0;
-    this.stop_clk = 0;
+    this.lastClk = 0;
+    this.cycleAccum = 0;
+    this.sleeping = false;
   }
 
   /**
@@ -1218,20 +1095,22 @@ export class DriveCpu implements Drive1541Unit {
    * Spec 414 — `drive_disable()` analog (Phase H step 32).
    *
    * Sets `enabled = false`. Subsequent `executeToClock` calls
-   * early-return; the drive CPU stops advancing. The IEC bus continues
-   * to operate (= ATN edge from C64 still pulses CA1) but with no
-   * drive CPU advance, no VIA1 PB output is generated — matches VICE's
+   * early-return; the drive CPU stops advancing. `sleeping = true`
+   * matches VICE `drivecpu_sleep`. The IEC bus continues to operate
+   * (= ATN edge from C64 still pulses CA1) but with no drive CPU
+   * advance, no VIA1 PB output is generated — matching VICE's
    * "iterate units, skip disabled" model.
    *
-   * Spec 444 Phase 4: `sleeping = true` removed (flag purged).
-   * VICE drivecpu_sleep body is empty (drivecpu.c:266-269) so the
-   * TS-EXTRA flag was doctrine-violating and now gone.
+   * Per drive.c:540 the order is `drv->enable = 0; ... drivecpu_sleep`.
+   * We follow the same order so any concurrent IEC callback sees the
+   * disabled flag before sleep is set.
    *
    * Doc: docs/vice-1541-arch.md §13 Phase H step 32, §17 OQ-414-1.
    * VICE: src/drive/drive.c:531-560 `drive_disable()`.
    */
   disable(): void {
     this.enabled = false;
+    this.sleeping = true;
   }
 
   // Sync drive clock baseline (called when c64Clk wraps or on cold reset).
@@ -1300,37 +1179,33 @@ export class DriveCpu implements Drive1541Unit {
    * src/6510core.c (per-bus-cycle macro template).
    */
   executeToClock(c64Clk: number, _cycleStepped: boolean = false): void {
-    // Spec 414 — disabled drive does not advance.
+    // Spec 414 — disabled drive does not advance. The IEC bus still
+    // operates (ATN edge → pulseCa1 still fires) but with no drive
+    // CPU progress, VIA1 PB output never updates — matches VICE's
+    // "iterate units, skip disabled" model (`via1d1541.c:200`,
+    // OQ-414-1). Advance the host-clock baseline so the next
+    // re-enable doesn't replay a huge backlog of host cycles.
     if (!this.enabled) {
       this.lastClk = c64Clk >>> 0;
       return;
     }
     if (c64Clk <= this.lastClk) return;
-
-    // Spec 444 v2 — VICE drivecpu_execute (drivecpu.c:356-445) literal
-    // shape. Prologue: wake_up; outer chunked accum-into-stop_clk math;
-    // inner `while (drive_clk < stop_clk)` loop; epilogue: last_clk
-    // update + sleep no-op.
-
-    // VICE drivecpu.c:374 prologue — wake_up stale-clock-skip.
-    this.drivecpuWakeUp(c64Clk);
-
-    // VICE drivecpu.c:377-381 — compute cycles delta.
-    let cycles: number;
-    if (c64Clk > this.lastClk) cycles = c64Clk - this.lastClk;
-    else cycles = 0;
-
-    // VICE drivecpu.c:383-390 — chunk into 10000-cycle batches, accumulate
-    // cycle_accum, extract integer drive cycles into stop_clk (ADDITIVE),
-    // keep fractional residual in cycle_accum.
-    while (cycles !== 0) {
-      const tcycles = cycles > 10000 ? 10000 : cycles;
-      cycles -= tcycles;
-      this.cycleAccum = (this.cycleAccum + this.syncFactor16dot16 * tcycles) >>> 0;
-      this.stop_clk = (this.stop_clk + (this.cycleAccum >>> 16)) >>> 0;
-      this.cycleAccum &= 0xffff;
+    const c64Delta = c64Clk - this.lastClk;
+    this.lastClk = c64Clk;
+    if (this.sleeping) {
+      // Drive in known busy-wait; defer cycles until wakeUp().
+      // Accumulate the C64 delta for later replay.
+      this.cycleAccum += this.syncFactor16dot16 * c64Delta;
+      return;
     }
-
+    // Accumulate fractional drive cycles owed.
+    this.cycleAccum += this.syncFactor16dot16 * c64Delta;
+    // Spec 444 — VICE `cpu->stop_clk += cpu->cycle_accum >> 16` at
+    // drivecpu.c:388. Set stop_clk to "where the inner loop must
+    // arrive" before stepping. The TS inner loop uses cycleAccum
+    // directly; stop_clk is kept up to date for snapshot/diagnostic.
+    const driveCpuClkAtEntry = (this.cpu as { cycles: number }).cycles;
+    this.stop_clk = driveCpuClkAtEntry + (this.cycleAccum >>> 16);
     if (!this.microcoded) {
       throw new Error(
         "DriveCpu.executeToClock: legacy whole-instruction Cpu6510 path " +
@@ -1338,33 +1213,62 @@ export class DriveCpu implements Drive1541Unit {
         "useMicrocodedCpu: true.",
       );
     }
-
-    // Spec 444 Phase 4 — `sleeping` flag PURGED. VICE drive always runs
-    // cycles when enabled; no busy-wait skip. Was output-affecting
-    // TS-EXTRA divergence; removed per doctrine.
-
     const cycled = this.cpu as Cpu65xxVice;
-    // Spec 444 — VIA2 IRQ now pushed chip-side via
-    // `Via2d1541.attachIrqLine` (analog of Spec 410 VIA1). The polling
-    // line at the per-instruction boundary is dropped. If `intNumVia2Irq`
-    // is still being lazily initialised (legacy callers), keep the IntNum
-    // allocation so other paths that still poll work, but the inner
-    // loop no longer pushes from here.
+    // Spec 410 — VIA1 polling bridge dropped (chip-side push via
+    // `Via1d1541.attachIrqLine`). VIA2 still polled at instruction
+    // boundary until spec 411 migrates it.
     if (!this.intNumVia2Irq && cycled.cpuIntStatus) {
       this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
     }
-
-    // VICE drivecpu.c:393 inner loop — literal `while (*clk_ptr < stop_clk)`.
-    // Each iteration advances drive CPU by one bus cycle (6510core macro
-    // template). When clk reaches stop_clk, loop exits — drive may overshoot
-    // by ≤ 1 cycle at most (instruction granularity); captured in
-    // last_exc_cycles.
-    while (cycled.cycles < this.stop_clk) {
-      // Spec 452 OPEN — rotation tick AFTER cpu (current). Doc §14
-      // invariant 1 requires BEFORE; flipping wedges Scramble Infinity
-      // Krill loader at PC=$eeb1 (KERNAL LOAD). A different TS timing
-      // divergence elsewhere in the drive path is masked by AFTER;
-      // root-cause hunt + flip is Spec 452 scope.
+    if (this.driveDispatchMode === "vice-whole-instruction") {
+      // Spec 428 Phase C — VICE drivecpu.c:356 drivecpu_execute() shape.
+      // Run one full instruction at a time, tick GCR once per instruction
+      // with N = cycles consumed. Restores pre-Spec-401 KERNAL-serial
+      // loader timing (= IM2 Epyx FastLoad path).
+      // Phase E will move GCR tick to opcode-template hook sites; Phase C
+      // approximates with one-tick-per-instruction.
+      while (this.cycleAccum >= 0x10000) {
+        const before = cycled.cycles;
+        // VIA2 IRQ polling at instruction boundary (= same as cycle-stepped).
+        if (this.intNumVia2Irq) {
+          cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
+        }
+        // Tick CPU for one full instruction.
+        cycled.executeCycle();
+        while (!cycled.isAtInstructionBoundary()) {
+          cycled.executeCycle();
+        }
+        const consumed = cycled.cycles - before;
+        if (this.gcrShifter && consumed > 0) {
+          this.gcrShifter.tick(consumed);
+        }
+        this.onInstructionComplete?.(
+          cycled.pc & 0xffff, 0, 0, 0,
+          cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
+          cycled.reg_sp ?? 0, cycled.reg_p ?? 0,
+          cycled.cycles,
+        );
+        this.cycleAccum -= consumed * 0x10000;
+      }
+      return;
+    }
+    // Spec 401 default cycle-stepped path.
+    // Spec 444 — record drive clock at entry to compute last_exc_cycles
+    // (= drive cycles executed beyond stop_clk; the inner loop may run
+    // one extra cycle past the target if an instruction straddles).
+    const cycleStartForExcTracking = driveCpuClkAtEntry;
+    while (this.cycleAccum >= 0x10000) {
+      if (cycled.isAtInstructionBoundary() && this.intNumVia2Irq) {
+        // VIA2 IRQ polling — replaced by spec 411 chip-side push.
+        cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
+      }
+      // Spec 412 PARTIAL: doc §14 invariant 1 says rotation tick BEFORE
+      // cpu. Switching to BEFORE regresses Krill loader (Scramble Infinity
+      // stuck at $eeb1 KERNAL LOAD). Pre-existing TS timing divergence
+      // somewhere else gates Krill on post-cpu rotation. Keep AFTER for
+      // now; deferred to dedicated drive-timing investigation sprint.
+      // doc/code: docs/vice-1541-arch.md §14 invariant 1 (target) vs
+      // current (= AFTER). Spec 412 status PARTIAL.
       cycled.executeCycle();
       if (this.gcrShifter) this.gcrShifter.tick(1);
       if (cycled.isAtInstructionBoundary()) {
@@ -1375,32 +1279,15 @@ export class DriveCpu implements Drive1541Unit {
           cycled.cycles,
         );
       }
+      this.cycleAccum -= 0x10000;
     }
-
-    // VICE drivecpu.c:443 epilogue — last_clk = clk_value.
-    this.lastClk = c64Clk;
-
-    // VICE drivecpu.c:444 epilogue — drivecpu_sleep (empty body in VICE).
-    // Spec 444 Phase 4: TS sleeping flag purged; no-op.
-
-    // Spec 444 Phase 4 — `last_exc_cycles` is NOT updated here. VICE
-    // writes it only in drivecpu_reset_clk (drivecpu.c:189). The
-    // `max(0, cycles - stop_clk)` formula I added in Phase 2b was
-    // invented — strict-literal port writes the field only from reset.
-  }
-
-  /**
-   * Spec 444 v2 — VICE drivecpu_wake_up (drivecpu.c:255-264).
-   *
-   * If main CPU has run > 16M cycles since last sync AND drive has
-   * run > 934639 cycles, skip ahead (drop the backlog). Prevents
-   * massive over-run after long idle.
-   */
-  private drivecpuWakeUp(c64Clk: number): void {
-    const driveClk = (this.cpu as { cycles: number }).cycles;
-    if ((c64Clk - this.lastClk) > 0xffffff && driveClk > 934639) {
-      this.lastClk = c64Clk >>> 0;
-    }
+    // Spec 444 — last_exc_cycles = drive cycles past stop_clk this batch.
+    // VICE drivecpu.c:443 keeps last_clk = clk_value AFTER inner loop;
+    // last_exc_cycles is computed from cycle_accum residual.
+    const driveCpuClkAtExit = (this.cpu as { cycles: number }).cycles;
+    const consumed = driveCpuClkAtExit - cycleStartForExcTracking;
+    const target = this.stop_clk - cycleStartForExcTracking;
+    this.last_exc_cycles = Math.max(0, consumed - target);
   }
 
   // Spec 401 / OQ-400-Q4 — `step()` and `runOneInstruction` now drive
@@ -1424,15 +1311,19 @@ export class DriveCpu implements Drive1541Unit {
     const cycled = this.cpu as Cpu65xxVice;
     const before = cycled.cycles;
     // Spec 410 — VIA1 polling bridge dropped (chip-side push from
-    // `Via1d1541.attachIrqLine`). Spec 444 v2 — VIA2 polling bridge
-    // dropped (chip-side push from `Via2d1541.attachIrqLine`); both
-    // IRQ lines feed the drive intStatus async.
+    // `Via1d1541.attachIrqLine`). VIA2 stays polled (spec 411 follows).
+    if (!this.intNumVia2Irq && cycled.cpuIntStatus) {
+      this.intNumVia2Irq = cycled.cpuIntStatus.newIntNum("via2-irq");
+    }
+    if (this.intNumVia2Irq) {
+      cycled.cpuIntStatus.setIrq(this.intNumVia2Irq, this.bus.via2.irqAsserted(cycled.cycles), cycled.cycles);
+    }
     // Tick at least once, then until back at boundary. Per-bus-cycle
     // path matches VICE 6510core.c addressing-mode decomposition.
     //
-    // Spec 452 OPEN: rotation AFTER cpu; BEFORE pattern regresses Krill
-    // loader (Scramble Infinity, PC=$eeb1 KERNAL LOAD). See Spec 452 /
-    // drive-cpu.ts executeToClock for context.
+    // Spec 412 PARTIAL: rotation AFTER cpu (= pre-412 pattern); BEFORE
+    // pattern regresses Krill loader. See spec 412 status / drive-cpu.ts
+    // executeToClock for context.
     cycled.executeCycle();
     if (this.gcrShifter) this.gcrShifter.tick(1);
     while (!cycled.isAtInstructionBoundary()) {
