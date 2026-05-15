@@ -42,8 +42,12 @@ export interface ScenarioModule {
   readonly redAsExpected?: boolean;
   /** Run the workflow; harness handles hash + compare + result emit. */
   run(ctx: ScenarioContext): Promise<{
-    /** Path to the TS-produced post-state image. */
-    tsPostStatePath: string;
+    /**
+     * Path to the TS-produced post-state image. Optional for pure-
+     * function self-consistency scenarios that don't produce a disk
+     * image (e.g. error-code-only checks at gcr.ts level).
+     */
+    tsPostStatePath?: string;
     /** Path to the VICE-produced baseline (committed under samples/baselines/spec-450-write/). */
     viceBaselinePath?: string;
     /** If the scenario is purely self-consistency (no VICE compare), set this and skip baseline. */
@@ -80,11 +84,20 @@ export async function runScenario(mod: ScenarioModule, repoRoot: string): Promis
 
   try {
     const out = await mod.run(ctx);
-    const tsHash = await sha256OfFile(out.tsPostStatePath);
 
     if (out.selfConsistencyOnly) {
+      const tsHash = out.tsPostStatePath ? await sha256OfFile(out.tsPostStatePath) : undefined;
       return { name: mod.name, layer: mod.layer, status: "PASS", tsHash, details: out.details };
     }
+
+    if (!out.tsPostStatePath) {
+      return {
+        name: mod.name, layer: mod.layer, status: "FAIL",
+        message: "bilateral scenario must produce a tsPostStatePath",
+        details: out.details,
+      };
+    }
+    const tsHash = await sha256OfFile(out.tsPostStatePath);
 
     if (!out.viceBaselinePath) {
       return {
