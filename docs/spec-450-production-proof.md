@@ -120,12 +120,10 @@ cause.
 | `2e27d4f` | Commit 2/8 — Scenarios A1 + A4 (sector-level self-consistency); D64 write-back foundation |
 | `8d18f5a` | Commit 3/8 — Scenario A3 + harness path-optional fix |
 | `7e85f21` | Commit 4/8 — integrated-runner helper + B0 smoke probe |
-| `<this-commit>` Commit 5/8 sed | Spec 450 Commit 5/8 — Scenario B5 format-prg (red-as-expected probe) |
-| `<commit-6>` | Spec 450 Commit 6/8 — B6 diskid + B7 iecdelay |
-| `<commit-7>` | Spec 450 Commit 7/8 — C8 + C9 |
-| `<commit-8>` | Spec 450 Commit 8/8 — production-proof + PLAN/epic updates |
-
-(SHAs filled by hygiene follow-up commit.)
+| `f7fb11b` | Commit 5/8 — Scenario B5 format-prg (red-as-expected probe) |
+| `fb7fa46` | Commit 6/8 — B6 diskid + B7 iecdelay |
+| `f150962` | Commit 7/8 — C8 + C9 |
+| `0a5c855` | Commit 8/8 — production-proof + PLAN/epic updates |
 
 ## Out-of-scope / future
 
