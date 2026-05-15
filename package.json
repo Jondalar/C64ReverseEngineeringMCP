@@ -48,6 +48,7 @@
     "canary:spec-430": "npm run build:mcp && node scripts/spec-430-canary-gate.mjs",
     "canary:spec-430:trace": "npm run build:mcp && node scripts/spec-430-canary-trace.mjs",
     "canary:spec-430:diff": "node scripts/spec-430-diff.mjs",
+    "canary:spec-450-write": "npm run build:mcp && npx tsx tests/integration/spec-450/run-all.test.ts",
     "probe:motm": "npm run build:mcp && node scripts/probe-motm.mjs",
     "trace:eof": "npm run build:mcp && node scripts/trace-eof.mjs",
     "trace:eof:vice": "npm run build:mcp && node scripts/trace-eof-vice.mjs",

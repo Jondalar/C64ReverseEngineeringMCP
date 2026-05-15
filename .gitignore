@@ -29,3 +29,9 @@ samples/screenshots/*
 !samples/golden-master/**
 !samples/fastloader-tests/
 !samples/fastloader-tests/**
+!samples/baselines/
+!samples/baselines/**
+
+# Spec 450 — validation-harness scratch outputs (post-state .d64/.g64
+# rebuilt per test run). Baselines live under samples/baselines/.
+tmp/spec-450/
