@@ -28,9 +28,30 @@ mandate ([[feedback_vice_no_alternatives]]).
 | Verdict | Count |
 |---|---|
 | MATCH (enum value pin) | 13 values |
-| MATCH (typedef shape) | 1 (`fdc_err_t`) |
+| DEVIATION-ACCEPTABLE (typedef shape: TS structural `type = number` vs VICE nominal `typedef enum`) | 1 (`fdc_err_t`) |
 | OUT-V1 (ticketed) | ~14 cbmdos.h surface items + entire fdc.c + entire cbmdos.c |
 | **BUG / load-bearing MISSING** | **0** |
+
+### VICE 1541 gcr.c emit subset (audit cross-check)
+
+VICE `src/gcr.c` (the 1541 GCR encode/decode layer) emits only a
+subset of `fdc_err_t`:
+
+| Emitted by VICE 1541 gcr.c | Not emitted by 1541 gcr.c (other layers) |
+|---|---|
+| OK, SYNC, NOBLOCK, HEADER, DCHECK, HCHECK, ID | VERIFY, WPROT, BLENGTH, FSPEED, DRIVE, DECODE |
+
+All 13 ported per VICE-no-alternatives doctrine — cherry-picking
+the 7-value subset would misrepresent the cbmdos.h surface. The
+unused-by-1541-gcr 6 values may still be returned by other 1541
+drive layers (write-verify path, drive controller status, GCR
+decode helper); preserving them keeps the surface complete.
+
+VICE callers also use the negative-value convention
+`-CBMDOS_FDC_ERR_SYNC` for soft-error / try-again signalling in
+some early-exit paths (e.g. `p2 = -CBMDOS_FDC_ERR_SYNC;` in
+gcr.c). TS port preserves this transparently — the values are
+bare `number` so caller can negate freely.
 
 ### Charter correction
 

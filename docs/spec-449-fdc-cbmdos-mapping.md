@@ -17,8 +17,8 @@ Verdict legend: MATCH / OUT-V1 / DEVIATION / TS-EXTRA-ACCEPTABLE.
 
 | VICE entry | Lines | TS counterpart | Verdict |
 |---|---|---|---|
-| `enum fdc_err_e` (13 values) | cbmdos.h:104-118 | `enum fdc_err_t` + 13 `CBMDOS_FDC_ERR_*` consts (fdc.ts) | **MATCH** (byte-identical values, snake_case verbatim) |
-| `typedef enum fdc_err_e fdc_err_t` | cbmdos.h:119 | `export type fdc_err_t = number` + matching enum | MATCH (TS lacks distinct enum-typedef pairing; modelled as numeric type + const-block) |
+| `enum fdc_err_e` (13 values) | cbmdos.h:104-118 | 13 `export const CBMDOS_FDC_ERR_* = N;` in fdc.ts (NOT a TS-`enum` keyword block) | **MATCH** (byte-identical values, snake_case verbatim) |
+| `typedef enum fdc_err_e fdc_err_t` | cbmdos.h:119 | `export type fdc_err_t = number` | **DEVIATION-ACCEPTABLE** — TS `type = number` is structural; VICE `typedef enum` is nominal. Unobservable in practice (C `enum` is int-compatible; both accept any int literal). Caller-side `-CBMDOS_FDC_ERR_SYNC` negative-value soft-error convention (VICE gcr.c) supported on both sides. |
 
 ### A.1 fdc_err_t value pins
 
@@ -99,8 +99,13 @@ Total IN-V1: ~20 LoC TS.
 | 3 | Two value gaps (at 6, 13-14) in VICE enum — preserved verbatim, no 1541 observable effect. | MATCH |
 | 4 | Rest of cbmdos.h + cbmdos.c is DOS-channel infrastructure not exercised by 1541 V1 KERNAL load path. | OUT-V1 (ticketed) |
 | 5 | fdc.c is WD17xx-style FDC chip state machine for IEEE drives (8050/8250/1001/etc). 1541 doesn't have an FDC chip. | OUT-V1 (per layout, not scope-cut) |
+| 6 | TS `type fdc_err_t = number` is structural alias; VICE `typedef enum` is nominal. C is int-compatible so behavioural identical, but strictly TS-EXTRA-ACCEPTABLE not literal MATCH. | DEVIATION-ACCEPTABLE |
+| 7 | VICE 1541 gcr.c (src/gcr.c) emits only subset {OK, SYNC, NOBLOCK, HEADER, DCHECK, HCHECK, ID} — remaining 6 values (VERIFY, WPROT, BLENGTH, FSPEED, DRIVE, DECODE) emit from other layers (write-verify, drive controller, GCR decoder). All 13 ported per VICE-no-alternatives doctrine; cherry-picking subset would misrepresent the cbmdos.h surface. | INFO |
+| 8 | VICE callers use negative-value convention `-CBMDOS_FDC_ERR_SYNC` for soft-error / try-again signalling (e.g. `p2 = -CBMDOS_FDC_ERR_SYNC` in gcr.c). TS port preserves this since values are bare `number`; caller can negate transparently. | INFO (caller-side, not enum-side) |
 
-**No load-bearing algorithm BUGs found.**
+**No load-bearing algorithm BUGs found.** Two DEVIATION-ACCEPTABLE
+tags (TS structural type, defensive nominal-vs-structural difference)
+documented for honesty; both unobservable in practice.
 
 ---
 
