@@ -189,7 +189,8 @@ Doc: `docs/epic-1541-full-vice-port.md`.
 | **447** | memiec.c + driverom.c | **DONE** ($80-$BF ROM mirror port + 16 memiec-conformance tests) |
 | **448 + 448.1** | alarm.c literal port + hygiene | **DONE** (literal C-style re-port; 36 fn + 15 type callers migrated to snake_case; dead aliases purged; 11/11 tie-break smoke; Spec 444 cycle-diff 9999/9999 ±1; 148/149 INVALIDATED) |
 | **449** | fdc.c + cbmdos.h | **DONE** (1541-only V1 scope: fdc_err_t migrated INTERIM gcr.ts → canonical drive/fdc.ts; 16/16 conformance; fdc.c full + cbmdos.c full ticketed OUT-V1 per layout) |
-| 450 | Validation harness | **NEXT** (recommended) |
+| **450** | Validation harness | **DONE-with-CAVEATS** (8 commits; 6/9 PASS + 3 RED_OK; harness foundation ships; SAVE/FORMAT root-cause family deferred to Spec 450.x; Lorenz Disk1 delegated to existing canary; A2 WPROT delegated to g64-fidelity-tests) |
+| 450.x | RED_OK root-cause (B5/C8/C9 SAVE family) | **NEXT** (recommended) |
 | 451 | NTSC regression check | OPEN |
 
 ### Spec 441 DONE summary (2026-05-14)

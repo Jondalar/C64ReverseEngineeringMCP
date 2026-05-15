@@ -1,6 +1,10 @@
 # Spec 450 — Full read+write+verify validation harness (1541 V1)
 
-**Status:** OPEN (charter signed off 2026-05-15; Phase 2 mapping + build in progress)
+**Status:** DONE-with-CAVEATS (2026-05-15). 6/9 PASS + 3 RED_OK + 0 FAIL.
+**Proof:** [docs/spec-450-production-proof.md](../docs/spec-450-production-proof.md)
+**Follow-up:** Spec 450.x — root-cause RED_OK SAVE/FORMAT family
+(B5 / C8 / C9 same root cause; see proof "RED_OK root-cause family"
+section). V1-ship gate is PARTIAL until 450.x flips RED_OK to PASS.
 **Priority:** HIGH (V1 silikon-equivalent gate)
 **Parent:** Epic 440
 **Depends on:** Specs 441-449 (all DONE)

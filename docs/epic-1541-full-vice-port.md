@@ -84,7 +84,7 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 | 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | **DONE** ($80-$BF ROM mirror port + 16 conformance tests; trap-patch + snapshot deferred) |
 | 9 | **448 + 448.1** | `alarm.c` literal port + hygiene | groß | **DONE** (literal C-style re-port; 36 fn + 15 type-alias callers migrated; dead aliases purged; 11/11 dispatch smoke; cycle-diff 9999/9999 ±1; 148/149 INVALIDATED) |
 | 10 | **449** | `fdc.c` + cbmdos error codes (1541-only V1) | klein | **DONE** (fdc_err_t literal port to canonical drive/fdc.ts; 16/16 conformance; fdc.c full + cbmdos.c full ticketed OUT-V1 per VICE layout) |
-| 11 | **450** | Validation harness: full read+write+verify | mittel | OPEN |
+| 11 | **450** | Validation harness: full read+write+verify | mittel | **DONE-with-CAVEATS** (harness + 6/9 PASS + 3 RED_OK SAVE/FORMAT family deferred to Spec 450.x; A2 WPROT + C10 Lorenz delegated to existing coverage) |
 | 12 | **451** | NTSC sync regression check | klein | OPEN |
 | 13 | **452** | Drive-cycle tick-order: rotation BEFORE cpu per §14 invariant 1 (Krill root-cause + flip) | mittel | OPEN |
 
