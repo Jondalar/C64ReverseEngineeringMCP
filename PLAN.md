@@ -183,7 +183,7 @@ Doc: `docs/epic-1541-full-vice-port.md`.
 | **441** | rotation.c + p64 stubs + drive_t + VIA2 backend port | **DONE** (4f legacy delete deferred — see below) |
 | **442** | viacore.c Claude-self re-audit | **DONE** (MYVIA gate + peek-raw fix + 13 conformance tests) |
 | **443** | VIA1 + VIA2 d1541 literal re-port | **DONE** (48-row audit + Bug-1083 + 23 conformance tests) |
-| **444** | drivecpu.c true literal | **DONE** (37-row audit + stop_clk/last_exc_cycles/is_jammed port + Via6522Vice.disable + VIA2 reset led + 6 conformance tests) |
+| **444 + 444.x** | drivecpu.c true literal | **PARTIAL** (v2 9e2edd8 broke LOAD on all disks; hotfix revert `80af949` restored v1 math-equivalent; cycle-diff 8805/9999 ±6 documented; Spec 444.x owns literal-shape with caller-contract audit) |
 | **445** | gcr.c write-path + encode | **DONE** (8 commits — encode + write_sector + Sprint 430 read-path re-audit + BUG fix + runtime write-back smoke 4/4) |
 | **446** | drivesync.c PAL/NTSC switch | **DONE** (drivesync_clock_frequency + setPalNtsc + 17 conformance tests) |
 | **447** | memiec.c + driverom.c | **DONE** ($80-$BF ROM mirror port + 16 memiec-conformance tests) |

@@ -78,7 +78,7 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 | 2 | **441** | `rotation.c` literal port + p64 stubs + drive_t + VIA2 backend | groß | **DONE** (4f legacy delete deferred) |
 | 3 | **442** | `viacore.c` Claude-eigener line-by-line re-audit | groß | **DONE** (MYVIA gate + peek-raw fix + 13 conformance tests) |
 | 4 | **443** | `via1d1541.c` + `via2d1541.c` literal re-port | mittel | **DONE** (48-row audit + Bug-1083 + 23 conformance tests) |
-| 5 | **444** | `drivecpu.c` true literal port (stop_clk field, exec body) | mittel | **DONE** (37-row audit + struct port + 6 tests) |
+| 5 | **444 + 444.x** | `drivecpu.c` true literal port | mittel | **PARTIAL** (v2 9e2edd8 broke LOAD; hotfix revert `80af949` restored math-equivalent v1; Spec 444.x owns literal-shape with caller audit) |
 | 6 | **445** | `gcr.c` write-path + encode | mittel | **DONE** (8 commits, encode + write_sector + read-path re-audit BUG fix + runtime write-back smoke 4/4) |
 | 7 | **446** | `drivesync.c` PAL/NTSC switch logic full | klein | **DONE** (drivesync_clock_frequency + setPalNtsc + 17 conformance tests) |
 | 8 | **447** | `memiec.c` + `driverom.c` literal | mittel | **DONE** ($80-$BF ROM mirror port + 16 conformance tests; trap-patch + snapshot deferred) |
@@ -91,6 +91,31 @@ Sequenziell zwingend ([[feedback_sequential_specs]]).
 Phasen müssen einzeln durchlaufen → spec → audit-doc → fixes → gate.
 Kein Sprint hat ein Subagent-audit als acceptance. Claude muss
 selbst nachprüfen.
+
+## ACCEPTANCE GATE UPDATE 2026-05-15
+
+**Game-gate ist MANDATORY vor jedem spec DONE marker.**
+
+Required green pre-DONE:
+- `node scripts/test-mm-screenshots.mjs`
+  → assertion: PC progresses past KERNAL READY ($E5CD region)
+  → assertion: screen RAM contains game data (NOT "ERROR" / "READY")
+- `node scripts/test-motm-screenshots.mjs` (analog)
+- `node scripts/test-scramble-screenshots.mjs` (analog)
+
+Cycle-counts (Spec 444 integration) + unit tests + canary smoke-only
+are **NOT sufficient acceptance.**
+
+**Background**: Commit `9e2edd8` (Spec 444 v2) achieved perfect
+9999/9999 cycle-diff but broke LOAD on all disks. Discovered only
+via screenshot-gate 4 days later. Cycle-perfection without LOAD =
+doctrine violation against [[feedback_drive_harder]] ("reach MM
+title screen via real cycle-perfect emulation"). Test scripts
+(`scripts/test-*-screenshots.mjs`) existed since 2026-05-11 but
+were ignored through specs 442-449.
+
+Production-proofs MUST paste screenshot test output as evidence,
+not just claim "tests pass".
 
 ### Spec 441 closeout (2026-05-14)
 

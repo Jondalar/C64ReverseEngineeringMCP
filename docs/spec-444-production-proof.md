@@ -1,6 +1,29 @@
 # Spec 444 — drivecpu literal port production-proof
 
-**Status:** DONE (2026-05-14)
+**Status:** PARTIAL (2026-05-14 v2 DONE rolled back to v1 cd9ad49 state by hotfix `80af949` on 2026-05-15; follow-up Spec 444.x owed)
+
+## Hotfix revert 2026-05-15
+
+Spec 444 v2 (commit `9e2edd8` Phase 3 review-fix) achieved
+9999/9999 ±2 cycle-diff but **broke LOAD"*",8,1 on ALL disks**.
+Bisect 2026-05-15 isolated `9e2edd8` as bad commit. Hotfix revert
+`80af949` restored cd9ad49 state for `drive-cpu.ts` + `via2d1541.ts`
+only.
+
+**Tradeoff measured:**
+| State | mm-screenshot | Spec 444 cycle-diff |
+|---|---|---|
+| `cd9ad49` (v1 DONE — current after revert) | **GREEN** (PC=$065b game code at t=60s+) | 8805/9999 ±2, 1194 divergent, max ±6 |
+| `9e2edd8` (v2 review-fix) | **RED** (PC stuck $e5cd KERNAL READY) | 9999/9999 ±2 perfect |
+
+Per [[feedback_drive_harder]]: title-screen-reach is primary gate.
+Cycle-diff is means-to-end. Revert chosen.
+
+Tests 2A (VIA2 polling restored alone) and 2C (executeToClock loop
+reverted alone) BOTH still RED — sub-changes combine.
+
+Follow-up Spec 444.x ([spec](../specs/444.x-drivecpu-literal-shape-with-caller-audit.md))
+owns literal-shape re-port with caller-contract audit.
 **Branch:** `1541-literal-vice`
 **Doctrine:** Claude-self literal audit. No subagents.
 [[feedback_1541_port_workflow]] + [[feedback_vice_no_alternatives]].
