@@ -66,7 +66,7 @@ import { makeGcrVia2Pa, makeGcrVia2Pb, type Via2GcrCoupling } from "./via2-gcr.j
 import { makeGcrShifterCoupling } from "./via2-gcr-shifter-coupling.js";
 import type { GcrShifter } from "./gcr-shifter.js";
 import { bindDriveTrack, type Drive_t, makeDrive_t } from "./drive-t.js";
-import { rotation_init, rotation_reset } from "./rotation.js";
+import { rotation_init, rotation_reset, rotation_rotate_disk } from "./rotation.js";
 import { DriveLedMonitor } from "./led-monitor.js";
 import { loadDriveRom, DRIVE_ROM_BASE, DRIVE_ROM_SIZE, type LoadedDriveRom } from "./drive-rom.js";
 import { IecBusCore } from "../iec/iec-bus-core.js";
@@ -796,7 +796,13 @@ export class DriveCpu implements Drive1541Unit {
     });
     rotation_init(0, dnr);
     rotation_reset(this.drive);
-    opts.shadowDriveT = this.drive;
+    // Spec 441 step 4e-flip complete (2026-05-16) — shadow drive_t
+    // is now properly consumed via per-instruction `byte_ready_edge`
+    // check in executeToClock inner loop (mirrors VICE 6510core.c
+    // drivecpu_byte_ready macro). Env-var to disable for bisect.
+    if (process.env.C64RE_DISABLE_ROTATION_SHADOW !== "1") {
+      opts.shadowDriveT = this.drive;
+    }
 
     this.bus = new DriveBus(opts, clkRef);
     this.microcoded = opts.useMicrocodedCpu ?? false;
@@ -1272,6 +1278,17 @@ export class DriveCpu implements Drive1541Unit {
       cycled.executeCycle();
       if (this.gcrShifter) this.gcrShifter.tick(1);
       if (cycled.isAtInstructionBoundary()) {
+        // Spec 441 step 4e-flip — VICE 6510core drivecpu_rotate +
+        // drivecpu_byte_ready macro consumer. rotation_rotate_disk
+        // updates drive.byte_ready_edge; if set, fire SO/V flag and
+        // clear edge. Mirrors VICE drivecpu.c:423-433 hook chain.
+        if (this.drive.GCR_image_loaded !== 0) {
+          rotation_rotate_disk(this.drive);
+          if (this.drive.byte_ready_edge) {
+            this.fireByteReady?.();
+            this.drive.byte_ready_edge = 0;
+          }
+        }
         this.onInstructionComplete?.(
           cycled.pc & 0xffff, 0, 0, 0,
           cycled.reg_a ?? 0, cycled.reg_x ?? 0, cycled.reg_y ?? 0,
