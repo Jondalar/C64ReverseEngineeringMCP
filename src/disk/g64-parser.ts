@@ -26,6 +26,10 @@ import {
   renderGCRTrackAscii,
   scanSectorHeadersLikeVice,
 } from "./gcr.js";
+import {
+  MAX_GCR_TRACKS,
+  disk_image_raw_track_size_g64,
+} from "./disk-image-zones.js";
 
 const G64_SIGNATURE = "GCR-1541";
 const G71_SIGNATURE = "GCR-1571";
@@ -181,9 +185,19 @@ export class G64Parser implements DiskImage {
   private readonly speedZoneOffsets: number[] = [];
   private readonly sectorCache = new Map<string, Uint8Array | null>();
 
+  // Spec 447.5 Fix #4 (Option A — user choice 2026-05-15) — literal
+  // VICE `fsimage_read_gcr_image` semantics: pre-load all 168
+  // half-tracks at parser construction. Each slot is a real
+  // canonical-sized Uint8Array (loaded from the file when
+  // trackOffsets[slot] != 0, 0x55-filled when offset == 0 and slot
+  // is within trackCount, 0x00-filled for slots beyond trackCount).
+  // Indexed by `slotIndex` (0..167).
+  private readonly preloadedTracks: Uint8Array[] = [];
+
   constructor(data: Uint8Array) {
     this.data = data;
     this.parseHeader();
+    this.preloadAllTracks();
   }
 
   static isG64(data: Uint8Array): boolean {
@@ -201,6 +215,14 @@ export class G64Parser implements DiskImage {
     this.version = this.data[HEADER_VERSION];
     this.trackCount = this.data[HEADER_TRACK_COUNT];
     this.maxTrackSize = this.data[HEADER_TRACK_SIZE] | (this.data[HEADER_TRACK_SIZE + 1] << 8);
+
+    // Spec 447.5 — VICE fsimage-gcr.c:98-102 validates num_half_tracks
+    // against MAX_GCR_TRACKS. Port: throw on overflow.
+    if (this.trackCount > MAX_GCR_TRACKS) {
+      throw new Error(
+        `G64 track count ${this.trackCount} exceeds MAX_GCR_TRACKS=${MAX_GCR_TRACKS}`,
+      );
+    }
 
     for (let i = 0; i < this.trackCount; i++) {
       const offsetPos = HEADER_TRACK_OFFSETS + i * 4;
@@ -222,13 +244,83 @@ export class G64Parser implements DiskImage {
     }
   }
 
+  /**
+   * Spec 447.5 Fix #4 (Option A) — literal `fsimage_read_gcr_image`
+   * (VICE fsimage-gcr.c:53-75). Loops all `MAX_GCR_TRACKS` half-track
+   * slots, allocates a canonical-sized buffer for each, and fills it
+   * according to VICE semantics:
+   *
+   *   - slot < trackCount && offset != 0 — read track bytes from file
+   *     (validated against maxTrackSize per Fix #3).
+   *   - slot < trackCount && offset == 0 — allocate `disk_image_raw_track_size_g64`
+   *     bytes, memset(0x55) (Fix #1).
+   *   - slot >= trackCount — allocate canonical-sized buffer,
+   *     memset(0x00). VICE uses 0x00 here, distinct from the
+   *     0x55-canonical empty-track buffer.
+   *
+   * After this loop, `preloadedTracks[slot]` is non-null for every
+   * slot in `0..MAX_GCR_TRACKS-1`. Drive emulation never needs to
+   * branch on a null pointer.
+   */
+  private preloadAllTracks(): void {
+    for (let slot = 0; slot < MAX_GCR_TRACKS; slot++) {
+      const halfTrack = slot + 2; // VICE half_track = slot + 2 (1-based half-track count)
+      const wholeTrack = halfTrack >> 1;
+
+      if (slot < this.trackCount) {
+        const offset = this.trackOffsets[slot] ?? 0;
+        if (offset !== 0) {
+          // Existing track — read track_len + bytes from file.
+          if (offset + 2 > this.data.length) {
+            throw new Error(
+              `G64 track ${wholeTrack} (slot ${slot}) offset ${offset} exceeds file size ${this.data.length}`,
+            );
+          }
+          const trackLen = this.data[offset]! | (this.data[offset + 1]! << 8);
+          // Spec 447.5 Fix #3 — VICE fsimage-gcr.c:154-159 validation.
+          if (trackLen < 1 || trackLen > this.maxTrackSize) {
+            throw new Error(
+              `G64 track ${wholeTrack} (slot ${slot}) length ${trackLen} not in [1, ${this.maxTrackSize}]`,
+            );
+          }
+          if (offset + 2 + trackLen > this.data.length) {
+            throw new Error(
+              `G64 track ${wholeTrack} (slot ${slot}) extends past file (offset=${offset}, len=${trackLen}, file=${this.data.length})`,
+            );
+          }
+          this.preloadedTracks.push(
+            new Uint8Array(this.data.slice(offset + 2, offset + 2 + trackLen)),
+          );
+        } else {
+          // Spec 447.5 Fix #1 — empty half-track in file (offset==0).
+          // VICE fsimage-gcr.c:168-172 allocates canonical-size + 0x55 fill.
+          const size = disk_image_raw_track_size_g64(wholeTrack);
+          const buf = new Uint8Array(size);
+          buf.fill(0x55);
+          this.preloadedTracks.push(buf);
+        }
+      } else {
+        // Beyond trackCount — VICE fsimage-gcr.c:67-72 zero-fills.
+        const size = disk_image_raw_track_size_g64(wholeTrack);
+        const buf = new Uint8Array(size);
+        // memset 0 (Uint8Array default)
+        this.preloadedTracks.push(buf);
+      }
+    }
+  }
+
   private trackToSlotIndex(trackNum: number): number {
     const slotIndex = Math.round((trackNum - 1) * 2);
     const normalizedTrack = 1 + (slotIndex / 2);
     if (Math.abs(normalizedTrack - trackNum) > 0.001) {
       throw new Error(`G64 track must be specified in 0.5 increments (for example 18 or 18.5). Received: ${trackNum}`);
     }
-    if (slotIndex < 0 || slotIndex >= this.trackOffsets.length) {
+    // Spec 447.5 Fix #4 — Option A preloads all MAX_GCR_TRACKS slots,
+    // so callers may query any slot in [0, MAX_GCR_TRACKS-1] even if
+    // the file's declared trackCount is smaller. Slots beyond
+    // trackCount contain zero-filled canonical buffers per VICE
+    // fsimage_read_gcr_image semantics.
+    if (slotIndex < 0 || slotIndex >= MAX_GCR_TRACKS) {
       throw new Error(`Track ${trackNum} is outside the G64 image range.`);
     }
     return slotIndex;
@@ -261,18 +353,14 @@ export class G64Parser implements DiskImage {
     return { raw };
   }
 
+  // Spec 447.5 — serves preloaded buffer (Option A). Returns null
+  // only when slotIndex is out of bounds (= track > 84). For any
+  // valid 1541 / 1571 slot, returns a real Uint8Array — non-empty
+  // tracks contain GCR data from the file, empty tracks contain
+  // 0x55-fill (literal VICE fsimage_gcr_read_half_track semantics).
   private getRawTrackBySlotIndex(slotIndex: number): Uint8Array | null {
-    const offset = this.trackOffsets[slotIndex];
-    if (offset === 0) {
-      return null;
-    }
-
-    const actualSize = this.data[offset] | (this.data[offset + 1] << 8);
-    if (offset + 2 + actualSize > this.data.length) {
-      return null;
-    }
-
-    return this.data.slice(offset + 2, offset + 2 + actualSize);
+    if (slotIndex < 0 || slotIndex >= MAX_GCR_TRACKS) return null;
+    return this.preloadedTracks[slotIndex] ?? null;
   }
 
   private getRawTrack(trackNum: number): Uint8Array | null {
@@ -280,11 +368,19 @@ export class G64Parser implements DiskImage {
   }
 
   // Spec 062 Sprint 62: public accessor for the drive emulator's
-  // track-buffer needs the raw GCR byte stream. Returns a copy
-  // (callers may mutate without corrupting the parser's internal data).
+  // track-buffer needs the raw GCR byte stream.
+  //
+  // Spec 447.5: returns the SHARED preloaded Uint8Array (no copy).
+  // Drive writes via `_write_next_bit` mutate the underlying buffer
+  // directly; this matches VICE pointer semantics where
+  // `dptr->GCR_track_start_ptr` aliases the in-memory track buffer
+  // owned by `disk_image_t->gcr->tracks[half_track].data`.
+  //
+  // Spec 450.x: shared reference is REQUIRED for drive write-back to
+  // propagate into the persist path. The prior `new Uint8Array(raw)`
+  // copy detached drive writes from the track buffer and lost them.
   getRawTrackBytes(trackNum: number): Uint8Array | null {
-    const raw = this.getRawTrack(trackNum);
-    return raw ? new Uint8Array(raw) : null;
+    return this.getRawTrack(trackNum);
   }
 
   // Spec 062 Sprint 62: returns the original underlying file bytes

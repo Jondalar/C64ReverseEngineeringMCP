@@ -61,7 +61,18 @@ export class DiskProvider {
     if (!parser) {
       throw new Error(`Unsupported disk image: ${imagePath}`);
     }
-    const directory = parser.getDirectory();
+    // Spec 447.5 — VICE does NOT parse the directory at image mount.
+    // Pre-parse here is TS-EXTRA convenience; copy-protected disks
+    // (Pawn, etc.) intentionally use non-standard track-18 encodings
+    // and `parser.getDirectory()` throws on them. Degrade gracefully:
+    // file-IO trap fallback uses empty listing, real KERNAL serial
+    // path (true-drive mode) doesn't consult this provider at all.
+    let directory;
+    try {
+      directory = parser.getDirectory();
+    } catch (err) {
+      directory = { files: [], name: "?", id: "?" };
+    }
     return new DiskProvider(imagePath, parser, directory.files, directory.name, directory.id);
   }
 
