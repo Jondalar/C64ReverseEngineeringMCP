@@ -28,6 +28,8 @@ export interface IntegratedScenarioOpts {
   diskPath: string;
   /** Cycles to spin after resetCold for KERNAL ROM boot (~5_000_000 typical). */
   bootCycles: number;
+  /** Optional PRG file path to load directly into RAM after boot. */
+  loadPrgPath?: string;
   /** Optional BASIC command string to type after boot (e.g. 'LOAD"FORMAT",8\r'). */
   command?: string;
   /** Cycles to spin after `command` (e.g. wait for LOAD to complete). */
@@ -67,6 +69,10 @@ export async function runIntegratedScenario(
 
   session.resetCold("pal-default");
   session.runFor(opts.bootCycles, { cycleBudget: opts.bootCycles });
+
+  if (opts.loadPrgPath) {
+    session.loadPrgIntoRam(opts.loadPrgPath);
+  }
 
   if (opts.command) {
     session.typeText(opts.command);
