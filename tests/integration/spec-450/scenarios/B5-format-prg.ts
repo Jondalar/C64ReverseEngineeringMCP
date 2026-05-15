@@ -27,23 +27,16 @@ import { runIntegratedScenario } from "../integrated-runner.ts";
 import { sha256OfBytes } from "../../../../src/runtime/headless/validation/disk-image-hash.ts";
 import type { ScenarioModule } from "../harness.ts";
 
-// First-attempt finding: with bootCycles=5M, loadPrgIntoRam + RUN +
-// postCommandCycles=200M, the drive trackBuffer reports
-// no-modifications. Either:
-//   (a) BASIC isn't at READY when "RUN\r" is typed → command lost
-//   (b) format.prg's OPEN 15,8,15:"N:..." doesn't propagate to drive
-//   (c) drive ROM FORMAT handler not engaging (possibly known
-//       regression family per [[project_mm_motm_regression_2026_05_06]])
-//
-// Marking redAsExpected=true until root-caused in follow-up commit.
-// Self-consistency throw becomes RED_OK; harness reports it without
-// failing the suite. The TS integrated-session SAVE/FORMAT workflow
-// debug is its own multi-step effort.
+// Spec 450.x root-cause + fix landed: drive_t.GCR_track_start_ptr
+// now points at the SHARED Uint8Array TrackBuffer holds (rather
+// than a detached parser copy). Drive writes propagate into
+// trackBuffer.tracks; flushDirtyCurrentTrack marks dirty tracks
+// at persist time. format-prg flips from RED_OK to PASS.
+// redAsExpected dropped.
 
 const mod: ScenarioModule = {
   name: "format-prg",
   layer: "B",
-  redAsExpected: true,
   async run(ctx) {
     const inputD64 = await ctx.prepareWritableCopy(
       "samples/synthetic/blank.d64",

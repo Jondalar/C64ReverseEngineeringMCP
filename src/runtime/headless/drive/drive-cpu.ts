@@ -624,6 +624,23 @@ export class DriveCpu implements Drive1541Unit {
   public readonly cpu: Cpu6510 | Cpu65xxVice;
   public readonly bus: DriveBus;
   public readonly microcoded: boolean;
+
+  /**
+   * Spec 450.x — flush pending dirty-track marker into the bound
+   * TrackBuffer. Call before `persistTrackBuffer` so the current
+   * track's writes are committed (the onStep callback already
+   * flushes on step-away). Idempotent. No-op if no trackBuffer or
+   * dirty flag is clear.
+   */
+  public flushDirtyCurrentTrack(): void {
+    if (!this.trackBuffer) return;
+    if (this.drive.GCR_dirty_track !== 1) return;
+    const half = this.drive.current_half_track;
+    const whole = (half & 1) === 0 ? (half >> 1) : -1;
+    if (whole >= 1) this.trackBuffer.markModifiedFromDrive(whole);
+    this.drive.GCR_dirty_track = 0;
+  }
+
   // Sprint 96 part 7: GCR shifter coupling for free-running tick.
   public readonly trackBuffer?: TrackBuffer;
   public readonly headPosition?: HeadPosition;
@@ -861,12 +878,36 @@ export class DriveCpu implements Drive1541Unit {
     // drive.current_half_track. Bind initial track now that
     // headPosition/parser are assigned. rotation.ts gets track data
     // from cycle 0 of the FIRST runFor call.
-    if (this.headPosition && opts.gcr?.trackBuffer?.source) {
-      const parser = opts.gcr.trackBuffer.source;
-      bindDriveTrack(this.drive, parser, this.headPosition.currentTrack * 2);
+    //
+    // Spec 450.x bugfix: bind the SHARED Uint8Array that TrackBuffer
+    // already holds (via getOrLoadTrack), NOT a fresh
+    // `parser.getRawTrackBytes` copy. With the copy, drive writes
+    // landed in a detached buffer and were lost — RED_OK family in
+    // Spec 450 (B5/C8/C9). VICE C-level uses a pointer; TS uses a
+    // shared Uint8Array reference.
+    if (this.headPosition && opts.gcr?.trackBuffer) {
+      const tb = opts.gcr.trackBuffer;
+      const drive = this.drive;
+      const bindShared = (halfTrack: number): void => {
+        const wholeTrack = (halfTrack & 1) === 0 ? (halfTrack >> 1) : -1;
+        const bytes = wholeTrack >= 1 ? tb.getOrLoadTrack(wholeTrack) : null;
+        drive.current_half_track = halfTrack;
+        drive.GCR_track_start_ptr = bytes;
+        drive.GCR_current_track_size = bytes ? bytes.length : 0;
+      };
+      bindShared(this.headPosition.currentTrack * 2);
       const prevOnStep = this.headPosition.onStep;
       this.headPosition.onStep = (direction, halfTrack) => {
-        bindDriveTrack(this.drive, parser, halfTrack);
+        // Spec 450.x: if leaving a written track, mark it modified
+        // so persistTrackBuffer serialises. Mirrors VICE's implicit
+        // "current track has unflushed writes" state.
+        if (drive.GCR_dirty_track === 1) {
+          const prevHalf = drive.current_half_track;
+          const prevWhole = (prevHalf & 1) === 0 ? (prevHalf >> 1) : -1;
+          if (prevWhole >= 1) tb.markModifiedFromDrive(prevWhole);
+          drive.GCR_dirty_track = 0;
+        }
+        bindShared(halfTrack);
         prevOnStep?.(direction, halfTrack);
       };
     }

@@ -85,6 +85,12 @@ export async function runIntegratedScenario(
     session.runFor(c, { cycleBudget: c });
   }
 
+  // Spec 450.x — flush the drive's pending dirty-track marker
+  // before persist. onStep already flushes when the head moves;
+  // this catches the final track the drive wrote to without
+  // stepping away (the common SAVE / FORMAT terminal state).
+  session.drive.flushDirtyCurrentTrack();
+
   const persist = persistTrackBuffer(
     session.parser, session.trackBuffer,
     opts.diskPath, opts.postStatePath,

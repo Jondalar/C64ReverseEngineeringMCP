@@ -365,4 +365,23 @@ export class TrackBuffer {
     }
     return this.tracks.get(track) ?? null;
   }
+
+  // Spec 450.x — public accessor for the drive_t binding. The drive's
+  // GCR_track_start_ptr must point at the SAME Uint8Array TrackBuffer
+  // holds, so VICE `_write_next_bit` mutations land in the buffer the
+  // persistTrackBuffer path serialises. Returns a SHARED reference,
+  // not a copy. See spec-450-production-proof.md RED_OK section.
+  getOrLoadTrack(track: number): Uint8Array | null {
+    return this.ensureTrack(track);
+  }
+
+  // Spec 450.x — drive write-back signal. When the drive emulator
+  // observes its own `GCR_dirty_track` flag flipping from 0 → 1
+  // (e.g. on step-away from a written track, or on persist flush),
+  // it marks the affected track as modified so persistTrackBuffer
+  // serialises it. Mirrors the implicit "buffer is dirty" state
+  // VICE tracks via dptr->GCR_dirty_track.
+  markModifiedFromDrive(track: number): void {
+    this.modified.add(track);
+  }
 }
