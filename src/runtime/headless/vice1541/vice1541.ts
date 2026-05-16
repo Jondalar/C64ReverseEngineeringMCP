@@ -1,16 +1,24 @@
-// Spec 611 phase 611.2 — VICE1541 idle construction.
+// Spec 611 phase 611.3 — VICE1541 drive bring-up.
 //
-// Constructor now builds an idle DiskUnitContext + DriveContext per
-// docs/vice-1541-arch.md §2.1 + §13 A. `iecLineSample()` returns the
-// idle-bus shape (all lines released; VICE polarity convention
-// `1` = released per Spec 611 §3a).
+// Constructor: allocate DiskUnitContext + DriveContext per
+// docs/vice-1541-arch.md §2.1 + §13 A; instantiate the drive 6502 /
+// memory bus / VIA stubs / ROM via Vice1541DriveCpu; run driveInit()
+// to write the post-init values (byte_ready_level=1, etc.); cold-reset
+// the drive CPU so its PC points at the ROM reset vector.
 //
-// All other methods still throw — each phase replaces one throw with
-// real behaviour:
-//   - catchUpTo / flush / reset / debugProbe → phase 611.3 (drivecpu)
-//   - iecLineDrive                            → phase 611.4 (VIA1)
-//   - attachDisk / detachDisk / setWriteProtect → phase 611.7 (image)
-//   - snapshot / restore                      → phase 611.8
+// Implemented in 611.3:
+//   - constructor (allocation + driveInit() + Vice1541DriveCpu wiring)
+//   - catchUpTo()  → Vice1541DriveCpu.driveCpuExecute()
+//   - flush()      → no-op (push-mode model; IEC line flush lands in 611.4)
+//   - reset()      → Vice1541DriveCpu.reset() + driveInit() re-apply
+//   - debugProbe() → { drive_pc, head_halftrack, led }
+//   - iecLineSample() still returns idle bus (no VIA-derived pulls yet;
+//     wired in 611.4)
+//
+// Still throwing in 611.3 (each phase replaces one):
+//   - iecLineDrive                                → phase 611.4
+//   - attachDisk / detachDisk / setWriteProtect    → phase 611.7
+//   - snapshot / restore                           → phase 611.8
 
 import type {
   Drive1541,
@@ -24,34 +32,44 @@ import {
   type DiskUnitContext,
 } from "./diskunit.js";
 import { createAllocatedDriveContext } from "./drive-context.js";
+import { driveInit } from "./drive-init.js";
+import { Vice1541DriveCpu } from "./drivecpu.js";
 
 function phaseError(phase: string, what: string): Error {
   return new Error(
     `[VICE1541] ${what} not implemented yet (Spec 611 phase ${phase}). ` +
-      `611.2 only builds the idle data-context shape; real behaviour ` +
-      `lands incrementally per specs/611-new-vice1541-side-by-side.md §5.`,
+      `Real behaviour lands incrementally per ` +
+      `specs/611-new-vice1541-side-by-side.md §5.`,
   );
 }
 
 export class Vice1541 implements Drive1541 {
   /** Owning diskunit context (unit 0; 1541 single-drive). */
   readonly diskunit: DiskUnitContext;
+  /** Drive CPU + memory bus + sync_factor bookkeeping. */
+  readonly driveCpu: Vice1541DriveCpu;
 
   constructor() {
-    // Per docs/vice-1541-arch.md §13 A step 1-2: allocate diskunit,
-    // attach drives[0] as the 1541's only physical drive, wire the
-    // back-pointer. 1541 leaves slot 1 unused and `cia1571 = NULL`.
+    // Step 1 — allocate diskunit + drive_t shape per §13 A.
     this.diskunit = createAllocatedDiskUnitContext(0);
     const drive0 = createAllocatedDriveContext(0);
     drive0.diskunit = this.diskunit;
     this.diskunit.drives[0] = drive0;
+
+    // Step 2 — drive CPU + memory bus + VIA stubs + ROM.
+    this.driveCpu = new Vice1541DriveCpu(this.diskunit);
+
+    // Step 3 — drive_init() per VICE drive.c:239-261.
+    driveInit(this.diskunit);
+
+    // Step 4 — cold reset so PC points at the ROM reset vector.
+    this.driveCpu.reset("cold");
   }
 
   /**
-   * Phase 611.2: drive idle — all IEC lines released.
-   * VICE polarity per Spec 611 §3a: `true` = released, `false` = pulled.
-   * On a fresh session with no drive activity, the drive does not
-   * pull DATA, CLK, or ATNA — it lets all lines float (released).
+   * Phase 611.3: drive still doesn't sample VIA-derived pulls; VIA1
+   * IEC behaviour lands in 611.4. Idle bus stays correct for the
+   * pre-VIA1-port window.
    */
   iecLineSample(): Drive1541IecSample {
     return {
@@ -65,12 +83,21 @@ export class Vice1541 implements Drive1541 {
     throw phaseError("611.4", "iecLineDrive");
   }
 
-  catchUpTo(_c64Clock: number): number {
-    throw phaseError("611.3", "catchUpTo");
+  /**
+   * Push-mode catch-up. Runs the drive 6502 forward until its clock
+   * matches the supplied host (C64) clock.
+   */
+  catchUpTo(c64Clock: number): number {
+    return this.driveCpu.driveCpuExecute(c64Clock);
   }
 
+  /**
+   * Push-mode flush. In phase 611.3 there is no IEC edge queue yet —
+   * VIA1 + the bus producer are absent — so flush is a no-op. Phase
+   * 611.4 will replace this with the real edge flush.
+   */
   flush(): void {
-    throw phaseError("611.3", "flush");
+    // Intentionally empty in 611.3.
   }
 
   attachDisk(_media: Drive1541Media): void {
@@ -85,8 +112,19 @@ export class Vice1541 implements Drive1541 {
     throw phaseError("611.7", "setWriteProtect");
   }
 
-  reset(_kind: "cold" | "warm"): void {
-    throw phaseError("611.3", "reset");
+  reset(kind: "cold" | "warm" = "cold"): void {
+    this.driveCpu.reset(kind);
+    // drive_init() re-applies the post-init values after the reset
+    // clears them. (VICE distinguishes drivecpu_reset() from
+    // drive_init(); both run on a cold start.)
+    driveInit(this.diskunit);
+    // Cold-reset also re-establishes the PC at the ROM reset vector.
+    if (kind === "cold") {
+      const lo = this.driveCpu.mem.read(0xfffc);
+      const hi = this.driveCpu.mem.read(0xfffd);
+      const vec = ((hi & 0xff) << 8) | (lo & 0xff);
+      this.driveCpu.cpu.reset(vec);
+    }
   }
 
   snapshot(): Uint8Array {
@@ -98,6 +136,11 @@ export class Vice1541 implements Drive1541 {
   }
 
   debugProbe(): Drive1541DebugProbe {
-    throw phaseError("611.3", "debugProbe");
+    const drive = this.diskunit.drives[0];
+    return {
+      drive_pc: this.driveCpu.pc & 0xffff,
+      head_halftrack: drive ? drive.currentHalfTrack & 0xff : 0,
+      led: drive ? drive.ledStatus & 0xff : 0,
+    };
   }
 }
