@@ -23,7 +23,9 @@ session.renderToPng("/tmp/mm-01-loaded.png");
 console.log("  /tmp/mm-01-loaded.png after LOAD (~60s)");
 
 session.typeText("RUN\r");
-for (const sec of [10, 30, 60, 90, 120, 180]) {
+// Option (a) PNG-stability cut: MM character-select reached by t120 label
+// (PC=$61d game-code); drop the t180 step.
+for (const sec of [10, 30, 60, 90, 120]) {
   session.runFor(sec * 1_000_000, { cycleBudget: sec * 1_000_000 });
   const path = `/tmp/mm-t${sec.toString().padStart(3,"0")}s.png`;
   session.renderToPng(path);

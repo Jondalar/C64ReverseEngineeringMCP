@@ -23,7 +23,8 @@ session.renderToPng("/tmp/scr-01-loaded.png");
 console.log("  /tmp/scr-01-loaded.png after LOAD (~60s)");
 
 session.typeText("RUN\r");
-for (const sec of [10, 30, 60, 90, 120, 180]) {
+// Option (a) PNG-stability cut: Scramble title plateaus t090=t120; drop t180.
+for (const sec of [10, 30, 60, 90, 120]) {
   session.runFor(sec * 1_000_000, { cycleBudget: sec * 1_000_000 });
   const path = `/tmp/scr-t${sec.toString().padStart(3,"0")}s.png`;
   session.renderToPng(path);

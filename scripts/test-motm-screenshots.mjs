@@ -11,7 +11,9 @@ session.typeText('LOAD"*",8,1\r');
 session.runFor(60_000_000, { cycleBudget: 60_000_000 });
 session.typeText("RUN\r");
 let total = 0;
-for (const sec of [30, 30, 30, 30, 30, 30, 30, 30]) {
+// Option (a) PNG-stability cut: motm frames animated each second but PC
+// stable in $b7bd main-loop region after ~150s; drop t180/t210/t240.
+for (const sec of [30, 30, 30, 30, 30]) {
   session.runFor(sec * 1_000_000, { cycleBudget: sec * 1_000_000 });
   total += sec;
   const path = `/tmp/motm-long-t${total.toString().padStart(3,"0")}s.png`;

@@ -30,7 +30,10 @@ session.renderToPng("/tmp/pawn-01-loaded.png");
 console.log("  /tmp/pawn-01-loaded.png after LOAD (~60s)");
 
 session.typeText("RUN\r");
-for (const sec of [10, 30, 60, 90, 120, 180]) {
+// Option (a) PNG-stability cut: Pawn is RED-expected stuck in KERNAL LOAD
+// (?FILE NOT FOUND) — frames identical from t010. Keep through t060 for
+// stable-PC confirmation, drop t090/t120/t180.
+for (const sec of [10, 30, 60]) {
   session.runFor(sec * 1_000_000, { cycleBudget: sec * 1_000_000 });
   const path = `/tmp/pawn-t${sec.toString().padStart(3, "0")}s.png`;
   session.renderToPng(path);
