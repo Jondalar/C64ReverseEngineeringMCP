@@ -117,10 +117,14 @@ Specifically:
 ## 2. Module structure
 
 ```
-src/runtime/headless/legacy1541/
-    (existing drive / drive-side VIA / drive-side IEC files moved
-     here, no source change beyond import paths and the trivial
-     compile-fix class above)
+src/runtime/headless/drive/      <- LEGACY1541 stays here in 611.0
+src/runtime/headless/iec/        <- LEGACY1541 IEC side stays here in 611.0
+src/runtime/headless/via/        <- LEGACY1541 VIA side stays here in 611.0
+    (existing drive / drive-side VIA / drive-side IEC files are declared
+     LEGACY1541 in-place. No physical move in 611.0: a pure move with
+     re-export shims was proven not behavior-neutral by the full runtime
+     proof gate, so moving legacy code is deferred until VICE1541 has
+     replaced it as default.)
     cpu.ts, via1d.ts, via2d.ts, rotation.ts, gcr.ts,
     drive-image-d64.ts, drive-image-g64.ts, drive-snapshot.ts, ...
 
@@ -142,7 +146,7 @@ src/runtime/headless/vice1541/
 
 src/runtime/headless/drive1541/
     drive1541.ts          <- shared Drive1541 interface (§3)
-    drive1541-factory.ts  <- selects legacy1541 vs vice1541 based on config
+    drive1541-factory.ts  <- selects legacy vs vice based on config
 ```
 
 The factory is the **only** module the C64 side imports from
@@ -398,7 +402,7 @@ rejected at review.
 
 | Phase | Title                                       | Scope                                                                                                                                  | Gate (what the phase tip can prove)                                                                                                                                                                                                  |
 |-------|---------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 611.0 | Move LEGACY1541 + introduce factory         | Move existing drive / VIA-drive-side / IEC-drive-side into `legacy1541/`. Add `drive1541/` factory + Drive1541 interface. C64 side imports factory only. No new behaviour. | Full `npm run runtime:proof` (no `--reuse-artifacts`) matches Spec 601 baseline exactly: 5/7 GREEN, Pawn + LNR RED. Zero deltas.                                                                                                     |
+| 611.0 | Declare LEGACY1541 + introduce factory      | Keep existing drive / VIA-drive-side / IEC-drive-side in place as LEGACY1541. Add `drive1541/` factory + Drive1541 interface + `drive1541?: "legacy" \| "vice"` config. Default remains `legacy`; requested `vice` throws clearly until 611.1+. No physical move, no behavior change. | Full `npm run runtime:proof` (no `--reuse-artifacts`) matches Spec 601 baseline exactly: 5/7 GREEN, Pawn + LNR RED. Zero deltas.                                                                                                     |
 | 611.1 | Scaffold VICE1541 (stubs)                   | Create empty `vice1541/*` modules implementing Drive1541, all methods `throw new Error("not implemented")`. Factory wires `"vice"` to the throwing module. | Default `legacy` path still 5/7 GREEN (full re-run). `--drive1541=vice` explicitly throws on instantiation. Smoke confirms factory wiring; no LOAD gate.                                                                              |
 | 611.2 | Port: diskunit + drive-context shape        | `diskunit.ts` + `drive-context.ts` per `docs/vice-1541-arch.md` §3 + §13 A.                                                             | `--drive1541=vice` constructs without throw. `iecLineSample()` returns the idle-bus shape on a fresh session (no disk). No drive-CPU step yet. No LOAD gate.                                                                          |
 | 611.3 | Port: drivecpu + drivesync                  | `drivecpu.ts` push-mode dispatch + alarms; `drivesync.ts` attach-clk decay. Per `docs/vice-1541-arch.md` §13 B + §13 C.                 | Drive ROM boots to its idle loop under `catchUpTo()` from a cold reset. Drive PC reach matches VICE binmon trace (`samples/traces/v2-baseline/*/drive-ram` + cpuhistory comparison). **No C64-side LOAD gate. No game gate.**         |

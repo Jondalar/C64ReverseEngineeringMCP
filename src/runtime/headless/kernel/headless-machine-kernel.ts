@@ -51,6 +51,11 @@ import { EventCatchupStrategy } from "./event-catchup-strategy.js";
 import { LockstepStrategy } from "./lockstep-strategy.js";
 import type { SyncStrategy } from "./sync-strategy.js";
 import { vicii_set_vbank as litViciiSetVbank } from "../vic/literal/vicii.js";
+import type { Drive1541Implementation } from "../drive1541/drive1541.js";
+import {
+  assertDrive1541ImplementationAvailable,
+  resolveDrive1541Implementation,
+} from "../drive1541/drive1541-factory.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
@@ -67,6 +72,8 @@ export interface HeadlessMachineKernelDeps {
   driveCyclesPerC64Cycle: number;
   /** Spec 428 Phase C — drive dispatch mode flag. */
   driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
+  /** Spec 611 — side-by-side 1541 implementation selector. */
+  drive1541?: Drive1541Implementation;
 }
 
 export interface KernelAlarmContexts {
@@ -140,10 +147,13 @@ export class HeadlessMachineKernel implements MachineKernel {
   readonly headPosition: HeadPosition;
   readonly gcrShifter: GcrShifter;
   readonly drive: DriveCpu;
+  readonly drive1541Implementation: Drive1541Implementation;
 
   constructor(deps: HeadlessMachineKernelDeps) {
     this.session = deps.session;
     this.video = deps.video;
+    this.drive1541Implementation = resolveDrive1541Implementation(deps.drive1541);
+    assertDrive1541ImplementationAvailable(this.drive1541Implementation);
     const isPal = this.video === "PAL";
     this.alarms = {
       maincpu: alarmContextNew("maincpu"),

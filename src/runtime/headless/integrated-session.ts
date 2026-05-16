@@ -71,6 +71,7 @@ import {
   type AlarmContext,
 } from "./alarm/alarm-context.js";
 import { HeadlessMachineKernel } from "./kernel/headless-machine-kernel.js";
+import type { Drive1541Implementation } from "./drive1541/drive1541.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -152,6 +153,9 @@ export interface IntegratedSessionOptions {
    * - "vice-whole-instruction": VICE drivecpu.c shape (= IM2 Epyx fix).
    */
   driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
+  // Spec 611: side-by-side 1541 rebuild. Default remains "legacy" until
+  // VICE1541 passes the runtime proof gates.
+  drive1541?: Drive1541Implementation;
   // Spec 093: cycle-stamped IEC edge trace (ring buffer in IecBus).
   traceIec?: boolean;
   traceIecCapacity?: number;
@@ -475,6 +479,7 @@ export class IntegratedSession {
       useCycleLockstep: this.useCycleLockstep,
       driveCyclesPerC64Cycle: this.driveCyclesPerC64Cycle,
       driveDispatchMode: opts.driveDispatchMode,
+      drive1541: opts.drive1541,
     });
     this.maincpuAlarmContext = this.kernel.alarms.maincpu;
     this.drivecpuAlarmContext = this.kernel.alarms.drivecpu;
