@@ -165,9 +165,10 @@ export class HeadlessMachineKernel implements MachineKernel {
     this.video = deps.video;
     this.drive1541Implementation = resolveDrive1541Implementation(deps.drive1541);
     assertDrive1541ImplementationAvailable(this.drive1541Implementation);
-    if (this.drive1541Implementation === "vice") {
-      this.drive1541 = createDrive1541("vice");
-    }
+    // Spec 611 phase 611.7e.3 — defer drive1541 instantiation to the
+    // end of the constructor (after `this.drive` + `this.iecBus` are
+    // wired). The legacy adapter needs both refs; the vice path needs
+    // nothing but we instantiate uniformly here for parity.
     const isPal = this.video === "PAL";
     this.alarms = {
       maincpu: alarmContextNew("maincpu"),
@@ -622,6 +623,21 @@ export class HeadlessMachineKernel implements MachineKernel {
     // microcoded mode, the swap path re-installs through
     // `installCpuInterruptHooks`.
     this.installCpuInterruptHooks();
+
+    // Spec 611 phase 611.7e.3 — expose the active Drive1541 surface.
+    // For "legacy": Legacy1541Adapter wraps the just-constructed
+    // DriveCpu + IecBus (read-only view; legacy runtime path is
+    // unchanged). For "vice": fresh Vice1541 instance alongside the
+    // legacy DriveCpu (sidecar; runtime IEC routing still goes
+    // through legacy until 611.7f gate-lift). Default = legacy.
+    if (this.drive1541Implementation === "legacy") {
+      this.drive1541 = createDrive1541("legacy", {
+        drive: this.drive,
+        iecBus: this.iecBus,
+      });
+    } else {
+      this.drive1541 = createDrive1541("vice");
+    }
   }
 
   /**
