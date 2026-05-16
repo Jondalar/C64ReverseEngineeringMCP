@@ -9,9 +9,20 @@
 
 import type { DiskUnitContext } from "./diskunit.js";
 
-/** BYTE-READY-active flags (drive.h BRA_*). */
-export const BRA_BYTE_READY = 0x01;
-export const BRA_MOTOR_ON = 0x02;
+/**
+ * BYTE-READY-active flags (drive.h BRA_*). Source-verified against
+ * `/Users/alex/Development/C64/Tools/vice/vice/src/drive/drive.h`
+ * lines 283-285.
+ *
+ * Bit values are *chosen to match the corresponding VIA2 register
+ * positions* in VICE — do not renumber:
+ *   BRA_BYTE_READY = 0x02 — bit in the VIA2 PCR register
+ *   BRA_MOTOR_ON   = 0x04 — bit in the VIA2 PB  register
+ *   BRA_LED        = 0x08
+ */
+export const BRA_BYTE_READY = 0x02;
+export const BRA_MOTOR_ON = 0x04;
+export const BRA_LED = 0x08;
 
 /** Read/write mode for the head (drive.h). */
 export const RW_MODE_WRITE = 0;
@@ -73,11 +84,31 @@ export interface DriveContext {
 }
 
 /**
- * Build an idle DriveContext for slot `driveSlot` (1541 uses slot 0).
- * Caller is responsible for wiring `.diskunit` back-pointer after
- * inserting into a `DiskUnitContext.drives[driveSlot]`.
+ * Build an **allocation-before-init** DriveContext for slot `driveSlot`
+ * (1541 uses slot 0). This corresponds to VICE's drive_t **after**
+ * `lib_calloc()` but **before** `drive_init()` has run — every field
+ * defaults to its zeroed / minimal-correct value.
+ *
+ * VICE's `drive_init()` (src/drive/drive.c:239-261) then writes the
+ * post-init values:
+ *   byte_ready_level = 1
+ *   byte_ready_edge  = 1
+ *   GCR_write_value  = 0x55
+ *   read_write_mode  = 1                       (read mode)
+ *   drive_set_half_track(36, 0, drive)         (i.e. currentHalfTrack = 36, side 0)
+ *
+ * Those post-init writes are NOT performed here. They land in the
+ * phase that ports `drive_init()` (currently scheduled with the
+ * drivecpu bring-up — Spec 611 phase 611.3). Until then,
+ * `createAllocatedDriveContext()` is the source-of-truth pre-init
+ * shape and any caller that needs the post-init values must run the
+ * init step explicitly.
+ *
+ * Caller is also responsible for wiring `.diskunit` back-pointer
+ * after inserting the returned object into
+ * `DiskUnitContext.drives[driveSlot]`.
  */
-export function createIdleDriveContext(driveSlot = 0): DriveContext {
+export function createAllocatedDriveContext(driveSlot = 0): DriveContext {
   return {
     drive: driveSlot,
     diskunit: null,

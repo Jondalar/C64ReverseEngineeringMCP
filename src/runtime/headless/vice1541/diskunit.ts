@@ -76,13 +76,19 @@ export interface DiskUnitContext {
 }
 
 /**
- * Build an idle DiskUnitContext for unit 0 / 1541 / no disk attached.
+ * Build an **allocation-before-init** DiskUnitContext for unit `unit`
+ * (1541 / no disk attached). This corresponds to VICE's
+ * `diskunit_context_t` **after** `lib_calloc()` but **before**
+ * `drive_init()` / `machine_drive_init()` have run. Field values are
+ * the zeroed / minimal-correct defaults; post-init writes (drive
+ * traps, RAM size, ROM patch, alarm wiring, sub-contexts) land in
+ * the phase that ports the bring-up step (Spec 611 phase 611.3+).
  *
  * 611.2 acceptance ("Factory constructs vice module without throw")
- * relies on this returning a fully-initialised shape — no field is
- * left undefined.
+ * relies on this returning a fully-shaped object — every field is
+ * present, no field is undefined.
  */
-export function createIdleDiskUnitContext(unit = 0): DiskUnitContext {
+export function createAllocatedDiskUnitContext(unit = 0): DiskUnitContext {
   return {
     mynumber: unit,
     clkPtr: { value: 0 },

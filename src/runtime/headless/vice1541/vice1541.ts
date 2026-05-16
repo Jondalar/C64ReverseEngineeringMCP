@@ -20,10 +20,10 @@ import type {
   Drive1541Media,
 } from "../drive1541/drive1541.js";
 import {
-  createIdleDiskUnitContext,
+  createAllocatedDiskUnitContext,
   type DiskUnitContext,
 } from "./diskunit.js";
-import { createIdleDriveContext } from "./drive-context.js";
+import { createAllocatedDriveContext } from "./drive-context.js";
 
 function phaseError(phase: string, what: string): Error {
   return new Error(
@@ -41,8 +41,8 @@ export class Vice1541 implements Drive1541 {
     // Per docs/vice-1541-arch.md §13 A step 1-2: allocate diskunit,
     // attach drives[0] as the 1541's only physical drive, wire the
     // back-pointer. 1541 leaves slot 1 unused and `cia1571 = NULL`.
-    this.diskunit = createIdleDiskUnitContext(0);
-    const drive0 = createIdleDriveContext(0);
+    this.diskunit = createAllocatedDiskUnitContext(0);
+    const drive0 = createAllocatedDriveContext(0);
     drive0.diskunit = this.diskunit;
     this.diskunit.drives[0] = drive0;
   }

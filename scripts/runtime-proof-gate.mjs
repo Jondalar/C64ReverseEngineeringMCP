@@ -90,6 +90,7 @@ const flags = {
   updateDoc: args.includes("--update-baseline-doc"),
   acceptNew: args.includes("--accept-new-state"),
   only: null,
+  drive1541: "legacy",
 };
 const onlyIdx = args.indexOf("--only");
 if (onlyIdx >= 0) {
@@ -98,6 +99,35 @@ if (onlyIdx >= 0) {
     console.error("--only requires a game key");
     process.exit(2);
   }
+}
+const driveIdx = args.indexOf("--drive1541");
+if (driveIdx >= 0) {
+  flags.drive1541 = args[driveIdx + 1];
+}
+
+// Spec 611 §5 + §7 false-green guard.
+//
+// Phases 611.0–611.6 build VICE1541 incrementally but the C64 / IEC /
+// disk runtime path still flows through LEGACY1541. Running real
+// per-game LOAD gates with --drive1541=vice in that window would
+// produce PASS results that are LEGACY1541's PASS, not VICE1541's —
+// a false "VICE1541 passes runtime proof" claim.
+//
+// Until the phase that wires the Drive1541 surface end-to-end (per
+// Spec 611 §5 row 611.7 "first real disk-read phase"), this gate
+// refuses --drive1541=vice (and --drive1541=both). Remove this guard
+// in the same commit that lands 611.7's end-to-end wiring AND its
+// substep (a) D64 directory match.
+if (flags.drive1541 !== "legacy") {
+  console.error(
+    `[runtime-proof-gate] refusing --drive1541=${flags.drive1541}: ` +
+      `LOAD / game gates against VICE1541 are forbidden until Spec 611 ` +
+      `phase 611.7 wires the Drive1541 surface end-to-end. Currently the ` +
+      `C64 / IEC / disk runtime path still flows through LEGACY1541, so a ` +
+      `pass here would be a false-green for VICE1541. See ` +
+      `specs/611-new-vice1541-side-by-side.md §5 + §7 for the rule.`,
+  );
+  process.exit(2);
 }
 
 if (flags.list) {
