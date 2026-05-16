@@ -118,6 +118,16 @@ const origLast = d64.subarray(lastOff, lastOff + 256);
 check("(j) decoded T35S(last) sector matches D64 source bytes",
   rc3 === CBMDOS_FDC_ERR_OK && bytesEq(decLast, origLast));
 
+// VICE fsimage-dxx.c:285-304 trackoffset wraparound: first SYNC of
+// track 1 must NOT be at byte offset 0 (the `#if 0` branch — perfectly
+// aligned — is disabled in VICE; the active path skews the track).
+// We verify by checking that track 1's first 5 bytes are NOT all 0xff
+// (which would be the SYNC mark if no skew was applied).
+const t1Head = tracks[1].data.slice(0, 5);
+const t1HeadAllFF = [...t1Head].every((b) => b === 0xff);
+check("(k) VICE trackoffset skew applied: T1 byte 0 is NOT the SYNC start (skew non-zero)",
+  !t1HeadAllFF, `T1 first 5 bytes: [${[...t1Head].map((v) => v.toString(16)).join(",")}]`);
+
 console.log("");
 const failed = results.filter((r) => !r.ok).length;
 if (failed > 0) {

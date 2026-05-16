@@ -92,32 +92,33 @@ export function probeD64(bytes: Uint8Array): D64ImageInfo {
 }
 
 /**
- * Encode a single D64 track to a GCR track buffer per VICE
- * fsimage-gcr.c semantics: for each sector in the track, emit
- * `gcr_convert_sector_to_GCR(buffer, dest, header, gap=header_gap_d64,
- * sync=sync_size_d64)` which writes 5 SYNC + 5 header + 5 ID + gap +
- * 5 SYNC + 325 data block bytes per sector. Inter-sector gap is the
- * per-zone `gap_size_d64`. Total track length is bounded by
- * raw_track_size_d64; any remaining bytes are 0x55 padding (VICE pads
- * with 0x55 = "no sync" filler).
+ * Encode one D64 track into a *temporary* GCR buffer (no wraparound
+ * yet — the final-buffer skew copy happens in `encodeD64ToGcrTracks`).
+ *
+ * Per-sector layout matches VICE `fsimage-dxx.c:262-284`:
+ *   - `gcr_convert_sector_to_GCR()` writes
+ *     `SECTOR_GCR_SIZE_WITH_HEADER + headergap + synclen*2 + …`
+ *     bytes (= 354 bytes with `headergap=9`, `synclen=5`).
+ *   - Plus `gap` (per-zone inter-sector gap) AFTER each sector.
+ *
+ * Returns { data, bytesWritten } so the caller can compute
+ * trackoffset like VICE does: `(ptr - tempgcr) - gap`.
  */
-export function encodeD64Track(
+function encodeD64TrackTemp(
   d64Bytes: Uint8Array,
   track: number,
   diskId: { id1: number; id2: number },
-): DiskTrack {
+): { data: Uint8Array; bytesWritten: number; gap: number; rawSize: number } {
   const sectorCount = sectorsPerTrackD64(track);
   const rawSize = rawTrackSizeD64(track);
   const gap = gapSizeD64(track);
   const data = new Uint8Array(rawSize);
-  data.fill(0x55); // VICE fills unused bytes with 0x55.
+  data.fill(0x55);
 
-  // Bytes per sector in the encoded GCR stream:
-  //   5 SYNC + 5 header(GCR) + 5 ID(GCR) + header_gap + 5 SYNC +
-  //   1 marker + 64 × 5 GCR data blocks + epilogue
-  //   = 5 + 5 + 5 + 9 + 5 + 325 = 354 bytes per VICE.
-  //   Plus per-zone inter-sector gap.
-  const bytesPerSectorBlock = 5 + 5 + 5 + HEADER_GAP_D64 + 5 + 325; // = 354
+  // VICE per-sector write: SECTOR_GCR_SIZE_WITH_HEADER (335) +
+  // headergap (9) + synclen*2 (10) = 354 bytes. Plus inter-sector
+  // `gap` after each sector.
+  const perSectorEncoded = 335 + HEADER_GAP_D64 + SYNC_SIZE_D64 * 2; // = 354
   let off = 0;
   for (let s = 0; s < sectorCount; s++) {
     const sectorOff = d64SectorByteOffset(track, s);
@@ -128,12 +129,7 @@ export function encodeD64Track(
       id2: diskId.id2,
       id1: diskId.id1,
     };
-    // Bounds check: don't overflow the raw track buffer.
-    if (off + bytesPerSectorBlock + gap > rawSize) {
-      // VICE quietly truncates excess; this shouldn't trigger with stock
-      // D64 sizes but guard anyway.
-      break;
-    }
+    if (off + perSectorEncoded + gap > rawSize) break;
     gcr_convert_sector_to_GCR(
       sectorBuf,
       0,
@@ -144,26 +140,54 @@ export function encodeD64Track(
       SYNC_SIZE_D64,
       CBMDOS_FDC_ERR_OK,
     );
-    off += bytesPerSectorBlock + gap;
+    off += perSectorEncoded + gap;
   }
-  return { data, size: rawSize };
+  return { data, bytesWritten: off, gap, rawSize };
 }
 
 /**
  * Encode the entire D64 image into per-track GCR buffers (1-indexed
  * tracks, slot 0 unused for symmetry with VICE's `tracks[1..N]`).
+ *
+ * VICE `fsimage-dxx.c:285-304` track-offset / wraparound copy:
+ *
+ *   trackoffset += (ptr - tempgcr) - gap;       // bytes written less last gap
+ *   trackoffset += (track_size * 100) / 270;     // step-time bytes
+ *   trackoffset %= track_size;
+ *   memset(final, 0x55, track_size);
+ *   memcpy(final + trackoffset, tempgcr, track_size - trackoffset);
+ *   memcpy(final, tempgcr + (track_size - trackoffset), trackoffset);
+ *
+ * `trackoffset` is accumulated *across tracks*. Final buffer is the
+ * temporary buffer rotated forward by `trackoffset` bytes (with
+ * wraparound). This matches the physical disk's per-track skew
+ * approximation called out in the VICE comment block.
  */
 export function encodeD64ToGcrTracks(d64Bytes: Uint8Array): DiskTrack[] {
   const info = probeD64(d64Bytes);
   const diskId = readD64DiskId(d64Bytes);
   const tracks: DiskTrack[] = [{ data: null, size: 0 }];
+
+  let trackoffset = 0;
   for (let t = 1; t <= info.trackCount; t++) {
     if (rawTrackSizeD64(t) > NUM_MAX_BYTES_TRACK) {
       throw new Error(
         `[VICE1541] D64 track ${t} raw_size ${rawTrackSizeD64(t)} > ${NUM_MAX_BYTES_TRACK}`,
       );
     }
-    tracks.push(encodeD64Track(d64Bytes, t, diskId));
+    const temp = encodeD64TrackTemp(d64Bytes, t, diskId);
+    trackoffset += temp.bytesWritten - temp.gap; // less the trailing gap of last sector
+    trackoffset += Math.floor((temp.rawSize * 100) / 270);
+    trackoffset = trackoffset % temp.rawSize;
+
+    const final = new Uint8Array(temp.rawSize);
+    final.fill(0x55);
+    // Copy `tempgcr` rotated forward by `trackoffset` bytes:
+    //   final[trackoffset .. rawSize-1]  = tempgcr[0 .. rawSize-trackoffset-1]
+    //   final[0 .. trackoffset-1]        = tempgcr[rawSize-trackoffset .. rawSize-1]
+    final.set(temp.data.subarray(0, temp.rawSize - trackoffset), trackoffset);
+    final.set(temp.data.subarray(temp.rawSize - trackoffset), 0);
+    tracks.push({ data: final, size: temp.rawSize });
   }
   return tracks;
 }
