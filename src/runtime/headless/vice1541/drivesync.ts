@@ -10,16 +10,27 @@
 // `sync_factor` and accumulates fractional drive cycles on each
 // `drivecpu_execute()` call.
 //
+// VICE drivesync.c:57 formula (source-verified):
+//   sync_factor = floor(65536.0 * (1000000.0 / cycles_per_sec))
+// where `cycles_per_sec` is the host (C64) clock and the literal
+// `1000000.0` is the 1541 drive's nominal frequency.
+//
+// Meaning: sync_factor scales **host cycles to drive cycles**. The
+// drivecpu_execute() loop multiplies (hostClk_delta * sync_factor)
+// >> 16 to obtain how many drive cycles must run for the given host
+// time slice. PAL host runs slower than the 1541's 1 MHz, so the
+// drive must run *more* cycles per host cycle (sync_factor > 1.0).
+//
 // Stock 1541 attached to PAL C64:
-//   host_freq  = 985 248 Hz (PAL C64 clock)
-//   drive_freq = 1 000 000 Hz (nominal 1 MHz; clock_frequency = 1)
-//   sync_factor = (1.0 / (drive_freq / host_freq)) * 0x10000
-//               = (host_freq / drive_freq) * 0x10000
-//               ≈ 0.985248 * 0x10000 ≈ 0xfc36
+//   host_freq  = 985 248 Hz
+//   drive_freq = 1 000 000 Hz
+//   sync_factor = floor(65536 * (1_000_000 / 985_248)) ≈ 66518 ≈ $103D6
+//   ⇒ 2_000_000 host cycles → ≈ 2_029_952 drive cycles.
 //
 // Stock 1541 attached to NTSC C64:
 //   host_freq  = 1 022 727 Hz
-//   sync_factor ≈ 1.022727 * 0x10000 ≈ 0x105d3
+//   sync_factor = floor(65536 * (1_000_000 / 1_022_727)) ≈ 64108 ≈ $fa6c
+//   ⇒ 2_000_000 host cycles → ≈ 1_956_136 drive cycles.
 //
 // 611.3 stays PAL-only; NTSC values added when needed.
 
@@ -34,14 +45,17 @@ export const DRIVE_HZ_1541 = 1_000_000;
 export const SYNC_FACTOR_SCALE = 0x10000;
 
 /**
- * Compute `sync_factor` per VICE drivesync.c.
- * Returns the integer 16.16 representation of `host_freq / drive_freq`.
+ * Compute `sync_factor` per VICE drivesync.c:57 — verbatim:
+ *   sync_factor = floor(65536.0 * (drive_freq / host_freq))
+ *
+ * Returns the integer 16.16 representation. Use this value to scale
+ * host cycles → drive cycles: `driveCycles = (hostCycles * sync_factor) >> 16`.
  */
 export function computeSyncFactor(
   hostHz: number,
   driveHz: number = DRIVE_HZ_1541,
 ): number {
-  return Math.round((hostHz / driveHz) * SYNC_FACTOR_SCALE);
+  return Math.floor(SYNC_FACTOR_SCALE * (driveHz / hostHz));
 }
 
 /**

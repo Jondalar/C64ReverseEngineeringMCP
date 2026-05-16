@@ -1,10 +1,18 @@
-// Spec 611 phase 611.3 smoke — VICE1541 drive bring-up + ROM boot.
+// Spec 611 phase 611.3 smoke — VICE1541 drive bring-up + ROM-region
+// early-init only.
 //
 // Replaces scripts/smoke-611-2-vice-idle.mjs (which asserted
 // catchUpTo() throws — that behaviour was specific to 611.2 and is
 // superseded once 611.3 lands drivecpu push-mode).
 //
-// Phase 611.3 gate per Spec 611 §5 + §6:
+// **Scope narrowing (per Codex review 14:35 UTC):** this smoke asserts
+// ROM-region / early-init reach only. Reaching the canonical idle-poll
+// loop requires VIA1 CA1 (ATN edge) handling, which is the 611.4
+// responsibility. 611.3 establishes that drive_init() + Vice1541DriveCpu
+// boot the 6502 from the reset vector and execute into the ROM region
+// without throwing.
+//
+// Phase 611.3 gate per Spec 611 §5 + §6 (revised scope):
 //   - synthetic VICE1541 gate only; no LOAD, no game, no
 //     --drive1541=vice anywhere.
 //   - drive_init() post-init values written (byte_ready_level=1,
@@ -12,7 +20,10 @@
 //     drive_set_half_track(36, 0)).
 //   - drive ROM loaded (bundled).
 //   - catchUpTo(N) runs without throwing.
+//   - sync_factor matches VICE drivesync.c:57 — drive cycles > host
+//     cycles on PAL (host slower than 1 MHz drive).
 //   - drive PC reaches the ROM region (>= $C000) after enough cycles.
+//     (Canonical idle-poll PC oracle is a 611.4 follow-up.)
 //   - iecLineSample() still returns idle bus (VIA1 wiring is 611.4).
 //   - phase-marked throws still active for iecLineDrive / attachDisk /
 //     snapshot.
@@ -78,6 +89,15 @@ if (drive1541) {
 }
 check("(i) catchUpTo(2_000_000) does not throw", executeThrew === null, executeThrew ? `threw: ${executeThrew.message}` : null);
 check("(j) catchUpTo returned a positive cycle count", cyclesRan !== null && cyclesRan > 0, cyclesRan === null ? "null" : `${cyclesRan} drive cycles`);
+// PAL sync_factor: drive > host (host PAL = 985_248 Hz, drive = 1_000_000 Hz).
+// 2_000_000 host cycles ⇒ ≈ 2_029_952 drive cycles. Accept ±0.5% jitter.
+const expectedDrive = Math.floor(2_000_000 * (1_000_000 / 985_248));
+const driveDelta = cyclesRan === null ? null : Math.abs(cyclesRan - expectedDrive);
+check(
+  "(j.1) drive cycles > host cycles per PAL sync_factor (±0.5%)",
+  cyclesRan !== null && cyclesRan > 2_000_000 && driveDelta !== null && driveDelta < expectedDrive * 0.005,
+  cyclesRan === null ? "null" : `expected≈${expectedDrive}, got ${cyclesRan} (delta ${driveDelta})`,
+);
 check("(k) drive PC reached ROM region (>= $C000)", postPc !== null && postPc >= 0xc000, postPc === null ? "null" : `initial=$${(initialPc ?? 0).toString(16)} post=$${postPc.toString(16)}`);
 
 // debugProbe shape
