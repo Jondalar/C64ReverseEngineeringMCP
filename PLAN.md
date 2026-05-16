@@ -1,5 +1,40 @@
 # PLAN — vice-arch-port branch
 
+> **Runtime-Proof-Gate Reset 2026-05-16.**
+>
+> Tag `runtime-green-2026-05-16` at master HEAD commit `87b4957`
+> ("Merge vic_bugs: Specs 425-429 = CLK_INC + VIC bank + IM2 fix +
+> LED VICE 1:1") is the frozen runtime baseline.
+> Branch `codex/1541-runtime-gates`
+> is the active gate-work branch. Branch `quarantine/1541-literal-vice`
+> holds the burned 440-series implementation attempt as research /
+> material lager only — **not** a merge candidate.
+>
+> **Specs 440-452 are superseded as implementation plan.** They
+> remain research notes only. No DONE status from 440-452 is
+> accepted unless re-validated by Runtime Proof Gates from
+> `samples/screenshots/proof/`. See:
+>
+> - `specs/600-runtime-proof-gates.md` — gate doctrine.
+> - `specs/601-baseline-truth-table.md` — game-by-game baseline.
+> - `specs/610-1541-parity-rebuild-charter.md` — replacement plan
+>   (Specs 611-615).
+>
+> **Unit green != runtime green. Mapping green != runtime green.**
+> Smoke without screenshot / state assertion is not a gate.
+>
+> **Spec 611 (rotation re-port, first sub-spec of Spec 610) may not
+> start until the runtime proof baseline at tag
+> `runtime-green-2026-05-16` (= `87b4957`) is reproducible from
+> `docs/runtime-proof-baseline-2026-05-16.md` (5/7 GREEN, Pawn + LNR
+> RED expected, all four Tier-2 gates green/cosmetic-drift).** A
+> unified `scripts/runtime-proof-gate.mjs` gate-runner is the
+> precondition; until it exists and reproduces this baseline,
+> 611-615 stay closed.
+
+> **440-series status table below is HISTORICAL — quarantine /
+> research material only, not the current roadmap.**
+
 Branch `vice-arch-port` reboots the headless runtime port against three
 new VICE source-of-truth deep-dives. All prior specs (220–360 series)
 are archived under `specs/_archive/`. This file is the live roadmap.
@@ -109,7 +144,11 @@ Every step must end with:
 | 422 | IEC Phase G: Burst mode (optional) | iec §15 G (17) |
 | 423 | IEC Phase H: Validation | iec §15 H (18–21) |
 
-## vice-arch-port status (2026-05-12)
+## vice-arch-port status (2026-05-12) — HISTORICAL
+
+> Snapshot as of 2026-05-12. Superseded by the Runtime-Proof-Gate
+> reset 2026-05-16. The status below stays for historical record
+> and is **not** the current roadmap.
 
 Spec series 401–423 GREEN (modulo PARTIAL: 401 OQ-401-3 deferred,
 412 rotation tick order swap deferred). Spec 423 = final validation
@@ -119,6 +158,22 @@ under `samples/golden-master/spec-423/`. motm canary GREEN
 (PC=$B7BF main loop), Krill canary GREEN (PC=$93D4 game code).
 Branch ready for merge or post-arch-port pickup (write support,
 datasette, cartridges, NTSC, JiffyDOS, multi-drive).
+
+## Epic 440 status (2026-05-16) — SUPERSEDED / QUARANTINE
+
+Specs 440-452 are superseded as implementation plan. They remain
+research notes only. No DONE status from 440-452 is accepted unless
+revalidated by runtime proof gates from `samples/screenshots/proof/`.
+
+The `1541-literal-vice` branch (tip `8d8346e`) has been moved to
+`quarantine/1541-literal-vice` and is **closed for further work**.
+Commits there may be cherry-picked with `-n` into
+`codex/1541-runtime-gates`, one at a time, and each cherry-pick
+must pass the full 7-game Runtime Proof Gate run before it lands.
+
+The replacement plan is `specs/610-1541-parity-rebuild-charter.md`
+(Specs 611-615). All 440-452 DONE/PARTIAL tables remain in the spec
+files for historical context; they are no longer the roadmap.
 
 ## Step order (legacy 6-step view — for historical context)
 
