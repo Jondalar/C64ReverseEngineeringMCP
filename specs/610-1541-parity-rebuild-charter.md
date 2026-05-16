@@ -38,16 +38,19 @@ Each sub-spec lives at `specs/61X-...md` and is opened only when
 the previous one is DONE under the rules above. Scope is delimited
 so the Runtime Proof Gate impact is localised and traceable.
 
-| Spec | Title                            | Scope                                                                              | Runtime Proof Gate scope                                |
-|------|----------------------------------|------------------------------------------------------------------------------------|---------------------------------------------------------|
-| 611  | rotation retry                   | Re-port `rotation.c` byte-by-byte; integrate without hybrid; per-cycle hook in drivecpu. | All 5 currently-green games stay green; LNR moves toward green if rotation was implicated. |
-| 612  | VIA2 byte-ready                  | Re-port `via2d.c` PA/PB ports + BYTE-READY → SO trick. No GcrShifter parallel state. | All 5 currently-green games stay green; motm stays green at `$b7bf`. |
-| 613  | drivecpu timing                  | Re-port `drivecpu.c` push-mode dispatch, alarms, drivesync coupling, attach-clk decay. | All 5 currently-green games stay green; load-directory SHA-drift closes. |
-| 614  | GCR read/write                   | Re-port `gcr.c` + read-path + write-path; track buffer model.                       | All 5 stay green; Pawn `LOAD"*"` becomes green (wildcard hits real GCR data). |
-| 615  | SAVE / FORMAT write path         | Disk-image write-back; D64/G64 persistence; OPEN15/SAVE/SCRATCH/FORMAT.             | New SAVE / FORMAT Runtime Proof Gates pass; baseline 5/7 stays green. |
+| Spec | Title                                          | Scope                                                                                                                                                          | Runtime Proof Gate scope                                                                                                |
+|------|------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| 611  | VICE-derived 1541, side-by-side build          | As defined in `specs/611-new-vice1541-side-by-side.md`. Builds new `drive1541-vice` next to legacy; legacy frozen; factory + Drive1541 interface; phases 611.0–611.9. | Per-phase gates in `specs/611-...md` §5 + §6. Master default stays `legacy` and 5/7 GREEN through 611.0–611.8.            |
+| 612  | (superseded by Spec 611 phases)                | Originally "VIA2 byte-ready"; the VIA2 port is now phase 611.5 inside the VICE module. This row stays for back-reference only. | n/a                                                                                                                       |
+| 613  | (superseded by Spec 611 phases)                | Originally "drivecpu timing"; now phase 611.3.                                                                                                                  | n/a                                                                                                                       |
+| 614  | (superseded by Spec 611 phases)                | Originally "GCR read/write"; now phase 611.7.                                                                                                                   | n/a                                                                                                                       |
+| 615  | SAVE / FORMAT write path                       | Disk-image write-back; D64/G64 persistence; OPEN15 / SAVE / SCRATCH / FORMAT. Straddles drive + C64 KERNAL — own spec + own branch once Spec 611 lands.        | New SAVE / FORMAT Runtime Proof Gates pass; baseline 5/7 stays green; vice module default in place from 611.9.            |
 
-Sub-specs may be sub-divided (`611a`, `611b`, ...) per the
-"one cherry-pick, one gate run" rule.
+The earlier "one cherry-pick, one gate run" model (612-614 as
+separate rounds against legacy) is replaced by the side-by-side
+build in Spec 611. Sub-spec sub-division (`611a`, `611b`, ...) is
+not used; phases live inside `specs/611-new-vice1541-side-by-side.md`
+§5.
 
 ## Process per sub-spec
 
