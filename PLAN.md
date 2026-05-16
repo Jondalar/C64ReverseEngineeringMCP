@@ -22,6 +22,15 @@
 >
 > **Unit green != runtime green. Mapping green != runtime green.**
 > Smoke without screenshot / state assertion is not a gate.
+>
+> **Spec 611 (rotation re-port, first sub-spec of Spec 610) may not
+> start until the runtime proof baseline at tag
+> `runtime-green-2026-05-16` (= `87b4957`) is reproducible from
+> `docs/runtime-proof-baseline-2026-05-16.md` (5/7 GREEN, Pawn + LNR
+> RED expected, all four Tier-2 gates green/cosmetic-drift).** A
+> unified `scripts/runtime-proof-gate.mjs` gate-runner is the
+> precondition; until it exists and reproduces this baseline,
+> 611-615 stay closed.
 
 > **440-series status table below is HISTORICAL — quarantine /
 > research material only, not the current roadmap.**
