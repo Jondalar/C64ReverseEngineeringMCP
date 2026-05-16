@@ -32,9 +32,12 @@ import {
   type DiskUnitContext,
 } from "./diskunit.js";
 import { createAllocatedDriveContext } from "./drive-context.js";
-import { driveInit } from "./drive-init.js";
+import { driveInit, driveSetHalfTrack } from "./drive-init.js";
 import { Vice1541DriveCpu } from "./drivecpu.js";
 import { rotation_init, rotation_reset } from "./rotation.js";
+import { encodeD64ToGcrTracks, probeD64 } from "./drive-image-d64.js";
+import { g64ToGcrTracks, parseG64Image } from "./drive-image-g64.js";
+import { MAX_GCR_TRACKS, type GcrImage } from "./gcr.js";
 
 function phaseError(phase: string, what: string): Error {
   return new Error(
@@ -114,16 +117,65 @@ export class Vice1541 implements Drive1541 {
     // Intentionally empty in 611.3.
   }
 
-  attachDisk(_media: Drive1541Media): void {
-    throw phaseError("611.7", "attachDisk");
+  /**
+   * Phase 611.7d: parse media → VICE-shaped 168-slot gcr_t.tracks[] →
+   * wire to drive_t.gcr + GCR_image_loaded + attach_clk. Re-point
+   * head via driveSetHalfTrack so rotation_1541_simple reads real
+   * GCR bytes from the current track.
+   */
+  attachDisk(media: Drive1541Media): void {
+    const drive = this.diskunit.drives[0];
+    if (!drive) throw new Error("[VICE1541] attachDisk: drive slot 0 unallocated");
+
+    let tracks: Array<{ data: Uint8Array | null; size: number }>;
+    if (media.kind === "d64") {
+      probeD64(media.bytes); // throws on bad size
+      tracks = encodeD64ToGcrTracks(media.bytes);
+    } else if (media.kind === "g64") {
+      const img = parseG64Image(media.bytes);
+      tracks = g64ToGcrTracks(img);
+    } else {
+      // P64 = throwing stub per Spec 611 §2 P64 policy.
+      throw new Error(
+        "[VICE1541] attachDisk(p64): P64 image format not implemented (Spec 611 §2 P64 stub).",
+      );
+    }
+
+    if (tracks.length !== MAX_GCR_TRACKS) {
+      throw new Error(
+        `[VICE1541] attachDisk: tracks array length ${tracks.length} ≠ MAX_GCR_TRACKS ${MAX_GCR_TRACKS}`,
+      );
+    }
+
+    const gcr: GcrImage = { tracks };
+    drive.gcr = gcr;
+    drive.gcrImageLoaded = 1;
+    drive.readOnly = media.readOnly ? 1 : 0;
+    // VICE attach_clk decay: drive sees no data until DRIVE_ATTACH_DELAY
+    // drive cycles have elapsed from the attach.
+    drive.attachClk = this.diskunit.clkPtr.value;
+    drive.attachDetachClk = 0;
+    // Re-point head: triggers gcrTrackStartPtr / gcrCurrentTrackSize update.
+    driveSetHalfTrack(drive, drive.currentHalfTrack, drive.side);
   }
 
   detachDisk(): void {
-    throw phaseError("611.7", "detachDisk");
+    const drive = this.diskunit.drives[0];
+    if (!drive) return;
+    drive.gcr = null;
+    drive.gcrImageLoaded = 0;
+    drive.complicatedImageLoaded = 0;
+    drive.p64ImageLoaded = 0;
+    drive.gcrTrackStartPtr = null;
+    drive.gcrCurrentTrackSize = 0;
+    drive.attachDetachClk = this.diskunit.clkPtr.value;
+    drive.attachClk = 0;
   }
 
-  setWriteProtect(_on: boolean): void {
-    throw phaseError("611.7", "setWriteProtect");
+  setWriteProtect(on: boolean): void {
+    const drive = this.diskunit.drives[0];
+    if (!drive) return;
+    drive.readOnly = on ? 1 : 0;
   }
 
   reset(kind: "cold" | "warm" = "cold"): void {

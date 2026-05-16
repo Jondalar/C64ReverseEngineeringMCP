@@ -12,6 +12,7 @@
 import {
   CBMDOS_FDC_ERR_OK,
   gcr_convert_sector_to_GCR,
+  MAX_GCR_TRACKS,
   NUM_MAX_BYTES_TRACK,
   type DiskTrack,
   type GcrHeader,
@@ -166,7 +167,10 @@ function encodeD64TrackTemp(
 export function encodeD64ToGcrTracks(d64Bytes: Uint8Array): DiskTrack[] {
   const info = probeD64(d64Bytes);
   const diskId = readD64DiskId(d64Bytes);
-  const tracks: DiskTrack[] = [{ data: null, size: 0 }];
+  // VICE-shaped 168-slot array per gcr_t.tracks[]. Slot i = VICE
+  // half_track (i + 2). drive.c:721 reads tracks[current_half_track - 2].
+  const tracks: DiskTrack[] = [];
+  for (let i = 0; i < MAX_GCR_TRACKS; i++) tracks.push({ data: null, size: 0 });
 
   let trackoffset = 0;
   for (let t = 1; t <= info.trackCount; t++) {
@@ -176,18 +180,31 @@ export function encodeD64ToGcrTracks(d64Bytes: Uint8Array): DiskTrack[] {
       );
     }
     const temp = encodeD64TrackTemp(d64Bytes, t, diskId);
-    trackoffset += temp.bytesWritten - temp.gap; // less the trailing gap of last sector
+    trackoffset += temp.bytesWritten - temp.gap;
     trackoffset += Math.floor((temp.rawSize * 100) / 270);
     trackoffset = trackoffset % temp.rawSize;
 
     const final = new Uint8Array(temp.rawSize);
     final.fill(0x55);
-    // Copy `tempgcr` rotated forward by `trackoffset` bytes:
-    //   final[trackoffset .. rawSize-1]  = tempgcr[0 .. rawSize-trackoffset-1]
-    //   final[0 .. trackoffset-1]        = tempgcr[rawSize-trackoffset .. rawSize-1]
     final.set(temp.data.subarray(0, temp.rawSize - trackoffset), trackoffset);
     final.set(temp.data.subarray(temp.rawSize - trackoffset), 0);
-    tracks.push({ data: final, size: temp.rawSize });
+
+    // Physical track t → VICE half_track = 2*t → slot = 2t - 2.
+    const slot = 2 * t - 2;
+    tracks[slot] = { data: final, size: temp.rawSize };
+
+    // Intermediate half-track (slot 2t-1) gets a canonical 0x55 fill —
+    // VICE's empty-half-track convention (matches G64 empty-half-track
+    // 0x55 fill per fsimage-gcr.c:170-173). Drive can step onto an
+    // intermediate half-track on a D64-format disk and must see a
+    // defined no-sync surface.
+    const interSlot = slot + 1;
+    if (interSlot < MAX_GCR_TRACKS) {
+      const interSize = rawTrackSizeD64(t);
+      const interBuf = new Uint8Array(interSize);
+      interBuf.fill(0x55);
+      tracks[interSlot] = { data: interBuf, size: interSize };
+    }
   }
   return tracks;
 }

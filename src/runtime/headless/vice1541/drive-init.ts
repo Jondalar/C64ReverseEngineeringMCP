@@ -61,11 +61,17 @@ export function driveInit(diskunit: DiskUnitContext): void {
  * Port of VICE `drive_set_half_track(num, side, drive)`
  * (src/drive/drive.c:689-).
  *
- * Phase 611.3 covers only the *positional* effect (write the new
- * current_half_track + side). The wider VICE function also recalculates
- * GCR track pointers, rotation cycle counters, and image-attach
- * effects — those land with phases 611.6 (rotation) and 611.7 (GCR +
- * image formats).
+ * Phase 611.3 covered the positional effect (write the new
+ * current_half_track + side). Phase 611.7d adds the GCR track pointer
+ * recalc per VICE drive.c:721:
+ *
+ *     dptr->GCR_track_start_ptr =
+ *         dptr->gcr->tracks[dptr->current_half_track - 2 + side*tmp].data;
+ *
+ * For 1541 (single-side), `side = 0` so the per-half-track buffer is
+ * `gcr->tracks[current_half_track - 2]`. With no image attached
+ * (gcr === null), gcrTrackStartPtr stays null and rotation_1541_simple
+ * falls back to byte=0.
  */
 export function driveSetHalfTrack(
   drive: DriveContext,
@@ -74,5 +80,17 @@ export function driveSetHalfTrack(
 ): void {
   drive.currentHalfTrack = halfTrack;
   drive.side = side;
-  // GCR track recalc / rotation reset deferred to 611.6 + 611.7.
+  // GCR pointer recalc per VICE drive.c:721 (1541 single-side path).
+  if (drive.gcr !== null) {
+    const idx = halfTrack - 2;
+    const slot = drive.gcr.tracks[idx];
+    if (slot && slot.data) {
+      drive.gcrTrackStartPtr = slot.data;
+      drive.gcrCurrentTrackSize = slot.size;
+    } else {
+      drive.gcrTrackStartPtr = null;
+      drive.gcrCurrentTrackSize = 0;
+    }
+  }
+  // Rotation accumulator reset deferred to rotation_set_track if needed.
 }

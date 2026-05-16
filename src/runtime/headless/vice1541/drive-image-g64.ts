@@ -44,8 +44,10 @@ export interface G64Header {
 }
 
 export interface G64ParsedTrack {
-  /** Original per-half-track table index (1-based, half-track number). */
-  halfTrack: number;
+  /** VICE half-track number = array slot index + 2. Per VICE
+   *  fsimage-gcr.c:66 call site `read_half_track(image, i + 2, ...)`.
+   *  drive.c:721 then accesses `tracks[current_half_track - 2]`. */
+  viceHalfTrack: number;
   /** Byte length of stored track GCR data (= raw->size in VICE). */
   byteLength: number;
   /** Bit length implied by VICE's bit-walk model: equal to bytes*8;
@@ -148,7 +150,7 @@ export function parseG64Image(bytes: Uint8Array): G64Image {
       const data = new Uint8Array(rawSize);
       data.fill(0x55);
       tracks[i] = {
-        halfTrack: i + 1,
+        viceHalfTrack: i + 2,
         byteLength: rawSize,
         bitLength: rawSize * 8,
         speedZoneRaw: speedRaw,
@@ -178,7 +180,7 @@ export function parseG64Image(bytes: Uint8Array): G64Image {
     const data = new Uint8Array(byteLength);
     data.set(bytes.subarray(trackOffset + 2, trackOffset + 2 + byteLength));
     tracks[i] = {
-      halfTrack: i + 1,
+      viceHalfTrack: i + 2,
       byteLength,
       bitLength: byteLength * 8,
       speedZoneRaw: speedRaw,

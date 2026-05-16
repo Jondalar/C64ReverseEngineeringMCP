@@ -67,24 +67,28 @@ check("(d) disk ID read from T18S0 bytes 0xa2/0xa3",
   `id1=$${id.id1.toString(16)} id2=$${id.id2.toString(16)}`);
 
 const tracks = encodeD64ToGcrTracks(d64);
-check("(e) encodeD64ToGcrTracks returns 36 entries (1-indexed; slot 0 unused)",
-  tracks.length === 36 && tracks[0]?.data === null);
+// VICE-shaped 168-slot gcr_t.tracks[]. Slot i = VICE half_track (i+2).
+// Physical track t → slot (2t - 2).
+check("(e) encodeD64ToGcrTracks returns 168 VICE-shaped slots",
+  tracks.length === 168);
 
-// All track buffers are bounded by NUM_MAX_BYTES_TRACK.
+// Full-track buffers are bounded by NUM_MAX_BYTES_TRACK; intermediate
+// half-tracks get canonical raw_track_size_d64 (0x55 fill).
 let allBounded = true;
 const boundDetail = [];
 for (let t = 1; t <= 35; t++) {
-  const size = tracks[t].size;
+  const slot = 2 * t - 2;
+  const size = tracks[slot].size;
   const expected = rawTrackSizeD64(t);
-  if (size !== expected) { allBounded = false; boundDetail.push(`t${t}: size=${size}≠${expected}`); }
+  if (size !== expected) { allBounded = false; boundDetail.push(`t${t} (slot ${slot}): size=${size}≠${expected}`); }
   if (size > NUM_MAX_BYTES_TRACK) { allBounded = false; boundDetail.push(`t${t}: exceeds NUM_MAX_BYTES_TRACK`); }
 }
-check("(f) every track buffer = exact raw_track_size_d64 and ≤ NUM_MAX_BYTES_TRACK",
+check("(f) every full-track buffer = raw_track_size_d64 and ≤ NUM_MAX_BYTES_TRACK",
   allBounded, boundDetail.slice(0, 3).join("; "));
 
-// Deterministic directory-sector read: T18S0 via gcr_read_sector
+// Deterministic directory-sector read: T18 = slot 34 via gcr_read_sector
 // returns CBMDOS_FDC_ERR_OK and matches the original D64 bytes.
-const t18 = tracks[18];
+const t18 = tracks[2 * 18 - 2];
 const decoded = new Uint8Array(256);
 const rc = gcr_read_sector(t18, decoded, 0);
 check("(g) gcr_read_sector(T18S0) = CBMDOS_FDC_ERR_OK",
@@ -102,17 +106,17 @@ check("(h) decoded T18S0 sector matches D64 source bytes (round-trip)",
   bytesEq(decoded, origT18S0),
   `decoded first 8: [${[...decoded.slice(0, 8)].map((v) => v.toString(16)).join(",")}] orig first 8: [${[...origT18S0.slice(0, 8)].map((v) => v.toString(16)).join(",")}]`);
 
-// Also verify T1S0 (first sector first track) round-trip.
+// Also verify T1S0 (first sector first track = slot 0) round-trip.
 const decT1S0 = new Uint8Array(256);
-const rc2 = gcr_read_sector(tracks[1], decT1S0, 0);
+const rc2 = gcr_read_sector(tracks[0], decT1S0, 0);
 const origT1S0 = d64.subarray(0, 256);
 check("(i) decoded T1S0 sector matches D64 source bytes",
   rc2 === CBMDOS_FDC_ERR_OK && bytesEq(decT1S0, origT1S0));
 
-// Last sector of last track (T35Sn-1) for boundary safety.
+// Last sector of last track (T35Sn-1, slot 68) for boundary safety.
 const lastN = sectorsPerTrackD64(35);
 const decLast = new Uint8Array(256);
-const rc3 = gcr_read_sector(tracks[35], decLast, lastN - 1);
+const rc3 = gcr_read_sector(tracks[2 * 35 - 2], decLast, lastN - 1);
 const lastOff = (() => { let s = 0; for (let t = 1; t < 35; t++) s += sectorsPerTrackD64(t); return (s + lastN - 1) * 256; })();
 const origLast = d64.subarray(lastOff, lastOff + 256);
 check("(j) decoded T35S(last) sector matches D64 source bytes",
@@ -123,7 +127,7 @@ check("(j) decoded T35S(last) sector matches D64 source bytes",
 // aligned — is disabled in VICE; the active path skews the track).
 // We verify by checking that track 1's first 5 bytes are NOT all 0xff
 // (which would be the SYNC mark if no skew was applied).
-const t1Head = tracks[1].data.slice(0, 5);
+const t1Head = tracks[0].data.slice(0, 5);
 const t1HeadAllFF = [...t1Head].every((b) => b === 0xff);
 check("(k) VICE trackoffset skew applied: T1 byte 0 is NOT the SYNC start (skew non-zero)",
   !t1HeadAllFF, `T1 first 5 bytes: [${[...t1Head].map((v) => v.toString(16)).join(",")}]`);

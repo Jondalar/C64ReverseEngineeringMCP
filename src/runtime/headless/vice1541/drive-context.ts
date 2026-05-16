@@ -8,6 +8,7 @@
 // reserved for phase 611.8.
 
 import type { DiskUnitContext } from "./diskunit.js";
+import type { GcrImage } from "./gcr.js";
 
 /**
  * BYTE-READY-active flags (drive.h BRA_*). Source-verified against
@@ -67,8 +68,10 @@ export interface DriveContext {
   detachClk: number;
   attachDetachClk: number;
 
-  image: null;                         // disk_image_s → phase 611.7
-  gcr: null;                           // gcr_s → phase 611.7
+  image: null;                         // disk_image_s — minimal in 611.7d
+  /** VICE drive_t.gcr — pointer to gcr_t image with 168 per-half-track
+   *  buffers. Wired by Vice1541.attachDisk() in 611.7d. */
+  gcr: GcrImage | null;
   // P64 intentionally omitted — Spec 611 §2 P64 throwing-stub policy.
 
   /** VICE drive_t flag: GCR image attached. 0 = no track. */
