@@ -67,20 +67,28 @@ export class Vice1541 implements Drive1541 {
   }
 
   /**
-   * Phase 611.3: drive still doesn't sample VIA-derived pulls; VIA1
-   * IEC behaviour lands in 611.4. Idle bus stays correct for the
-   * pre-VIA1-port window.
+   * Phase 611.4: derive drive-side pulls from the live IEC bus model.
+   * `*_pull` is the inverse of `*Released` (released = not pulling).
    */
   iecLineSample(): Drive1541IecSample {
+    const bus = this.driveCpu.iecBus;
     return {
-      drv_data_pull: false,
-      drv_clk_pull: false,
-      drv_atna_pull: false,
+      drv_data_pull: !bus.drvDataReleased,
+      drv_clk_pull: !bus.drvClkReleased,
+      drv_atna_pull: !bus.drvAtnaReleased,
     };
   }
 
-  iecLineDrive(_c64Side: Drive1541IecInput): void {
-    throw phaseError("611.4", "iecLineDrive");
+  /**
+   * Phase 611.4: write the C64-driven IEC lines into the drive's IEC
+   * bus model and signal the VIA1 CA1 (ATN) edge handler if ATN flips.
+   */
+  iecLineDrive(c64Side: Drive1541IecInput): void {
+    this.driveCpu.setC64IecLines(
+      c64Side.bus_atn,
+      c64Side.bus_clk,
+      c64Side.bus_data,
+    );
   }
 
   /**

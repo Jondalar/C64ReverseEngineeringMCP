@@ -31,6 +31,7 @@ import {
 } from "../alarm/alarm-context.js";
 import type { CpuMemory } from "../cpu6510.js";
 import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
+import { InterruptCpuStatus } from "../cpu/interrupt-cpu-status.js";
 import type { DiskUnitContext } from "./diskunit.js";
 import {
   loadVice1541Rom,
@@ -43,7 +44,9 @@ import {
   resetAttachClk,
   SYNC_FACTOR_SCALE,
 } from "./drivesync.js";
-import { createVia1dStub, type Via1dStub } from "./via1d-stub.js";
+import { Vice1541IecBus } from "./iec-bus.js";
+import { createVia1d, signalVia1Ca1 } from "./via1d.js";
+import type { Via6522 } from "./via6522.js";
 import { createVia2dStub, type Via2dStub } from "./via2d-stub.js";
 
 /** Drive RAM size used by stock 1541 (2 KB at $0000-$07FF). */
@@ -79,7 +82,7 @@ class Vice1541DriveMemBus implements CpuMemory {
   constructor(
     public readonly ram: Uint8Array,
     public readonly rom: Uint8Array,
-    public readonly via1: Via1dStub,
+    public readonly via1: Via6522,
     public readonly via2: Via2dStub,
   ) {
     if (ram.length !== DRIVE_RAM_BYTES) {
@@ -147,12 +150,17 @@ class Vice1541DriveMemBus implements CpuMemory {
  */
 export class Vice1541DriveCpu {
   readonly cpu: Cpu65xxVice;
+  readonly cpuIntStatus: InterruptCpuStatus;
   readonly mem: Vice1541DriveMemBus;
-  readonly via1: Via1dStub;
+  readonly via1: Via6522;
   readonly via2: Via2dStub;
+  readonly iecBus: Vice1541IecBus;
   readonly alarms: AlarmContext;
   readonly diskunit: DiskUnitContext;
   readonly romSource: string;
+  /** Last ATN-released state we observed from the C64 side — used to
+   *  detect edges and forward them to VIA1 CA1. */
+  private lastAtnReleased: boolean = true;
 
   /** 16.16 host→drive cycle ratio per VICE drivesync.c. */
   syncFactor: number;
@@ -165,30 +173,50 @@ export class Vice1541DriveCpu {
 
   constructor(diskunit: DiskUnitContext, opts?: { hostHz?: number }) {
     this.diskunit = diskunit;
-    this.via1 = createVia1dStub(diskunit);
+    this.iecBus = new Vice1541IecBus();
+    this.cpuIntStatus = new InterruptCpuStatus();
+    this.alarms = alarmContextNew("drivecpu-vice1541");
+
+    // VIA1 (IEC interface) — real implementation per Spec 611 phase 611.4.
+    this.via1 = createVia1d({
+      bus: this.iecBus,
+      cpuIntStatus: this.cpuIntStatus,
+      clkPtr: diskunit.clkPtr,
+    });
+    // VIA2 (disk controller) stays as register-storage stub until 611.5.
     this.via2 = createVia2dStub(diskunit);
 
     const loaded = loadVice1541Rom();
     this.romSource = loaded.source;
-    // Copy ROM bytes into diskunit.rom for canonical-context access,
-    // and use the same backing for the memory bus.
     diskunit.rom.set(loaded.bytes, 0);
     const rom = diskunit.rom.subarray(0, VICE1541_ROM_SIZE);
 
-    // Use diskunit.drvRam as the backing for drive memory bus (first
-    // 2 KB on stock 1541).
     const ram = diskunit.drvRam.subarray(0, DRIVE_RAM_BYTES);
     this.mem = new Vice1541DriveMemBus(ram, rom, this.via1, this.via2);
 
-    this.alarms = alarmContextNew("drivecpu-vice1541");
     this.cpu = new Cpu65xxVice({
       memBus: this.mem,
       alarmContext: this.alarms,
+      cpuIntStatus: this.cpuIntStatus,
       // No ioPortHook (no $00/$01 capacitor on a 1541).
       // No c64ViciiCycle (no VIC-II BA stall on a 1541).
     });
 
     this.syncFactor = computeSyncFactor(opts?.hostHz ?? C64_HZ_PAL);
+  }
+
+  /**
+   * Drive C64-side IEC line state into the drive. Detects ATN edges
+   * and forwards them to VIA1 CA1. Called by Vice1541.iecLineDrive().
+   */
+  setC64IecLines(busAtnReleased: boolean, busClkReleased: boolean, busDataReleased: boolean): void {
+    this.iecBus.c64AtnReleased = busAtnReleased;
+    this.iecBus.c64ClkReleased = busClkReleased;
+    this.iecBus.c64DataReleased = busDataReleased;
+    if (busAtnReleased !== this.lastAtnReleased) {
+      signalVia1Ca1(this.via1, busAtnReleased);
+      this.lastAtnReleased = busAtnReleased;
+    }
   }
 
   /**
@@ -202,6 +230,8 @@ export class Vice1541DriveCpu {
     this.cpu.reset(vec);
     this.via1.reset();
     this.via2.reset();
+    this.iecBus.reset();
+    this.lastAtnReleased = true;
     this.lastHostClk = 0;
     this.stopClk = 0;
     this.cycleAccum = 0;
