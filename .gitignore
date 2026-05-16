@@ -27,3 +27,4 @@ samples/screenshots/*
 !samples/golden-master/**
 !samples/fastloader-tests/
 !samples/fastloader-tests/**
+tmp/

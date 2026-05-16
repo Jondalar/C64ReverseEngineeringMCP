@@ -2,6 +2,59 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Runtime Proof Gates (Mandatory 2026-05-16)
+
+**Single source of truth for "is this green":** the Runtime Proof
+Gates defined in `specs/600-runtime-proof-gates.md` and the
+oracle PNGs under `samples/screenshots/proof/`.
+
+- Tag `runtime-green-2026-05-16` (= commit `7bfba28` "Spec 424 LED")
+  is the frozen runtime baseline.
+- Branch `codex/1541-runtime-gates` is the active gate-work branch.
+- Branch `quarantine/1541-literal-vice` is **quarantined material
+  lager**. Do not advance. Do not merge. Only cherry-pick `-n` and
+  only after the change passes the Runtime Proof Gates.
+
+**Specs 440-452 are superseded.** No DONE status from 440-452 is
+accepted unless re-validated by a Runtime Proof Gate run. They are
+research notes only. See `specs/610-1541-parity-rebuild-charter.md`
+for the replacement plan.
+
+**Unit green != runtime green. Mapping green != runtime green.**
+
+The 7-game gate set (motm, MM s1, IM2, LNR s1, Scramble, Pawn s1,
+Polarbear) + SAVE/FORMAT gates are the acceptance bar for every
+spec that touches the C64-side renderer, the IEC bus, the 1541
+drive, or the disk image layer.
+
+## VICE Traces — Secondary, On-Demand Only (2026-05-16)
+
+VICE-binmon traces are **not** the primary merge gate. The primary
+gate is the Runtime Proof Gate stack above.
+
+Capture a VICE trace **only** when:
+
+1. a runtime proof gate fails, OR
+2. a change touches timing-sensitive 1541 code, OR
+3. first-divergence evidence is needed before patching, OR
+4. a spec claims cycle/signal parity with VICE.
+
+Do not generate huge VICE traces proactively for every task. Do not
+substitute a trace for a runtime proof. Use traces to explain WHY
+a proof gate failed.
+
+Trace workflow when needed:
+
+- Capture VICE and headless with the same scenario / input.
+- Store both in DuckDB via `vice_trace_runtime_start` +
+  `trace_store_*` (see "Traces (Mandatory 2026-05-12)" below).
+- Compare boundary lanes first: `c64_pc`, `drive_pc`, `$dd00`
+  reads/writes, IEC `cpu_bus`/`cpu_port`/`drv_port`, VIA1 `$1800`
+  reads/writes, VIA2 `$1c00`/`$1c01` reads/writes, `byte_ready_edge`,
+  `GCR_read`, `head_halftrack`.
+- Report only the first divergence and the ~20 events around it.
+- No patch lands before first divergence is identified.
+
 ## Working Process (Mandatory)
 
 Branch `vice-arch-port` operates under the arch-port doctrine — all
