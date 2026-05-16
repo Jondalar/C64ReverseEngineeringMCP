@@ -104,10 +104,16 @@ export function rotation_init(freq: 0 | 1, dnr: number): void {
   };
 }
 
-/** VICE rotation_reset() (rotation.c:111-130). Only resets rotation
- *  state + req_ref_cycles. Does NOT clear byte_ready_level / edge /
- *  GCR_read — those stay set by drive_init() or the drive's own
- *  storeline path. */
+/** VICE rotation_reset() (rotation.c:111-130). Verbatim:
+ *    rotation[dnr].last_read_data = 0;
+ *    rotation[dnr].last_write_data = 0;
+ *    rotation[dnr].bit_counter = 0;
+ *    rotation[dnr].accum = 0;
+ *    rotation[dnr].seed = RANDOM_nextUInt(&rotation[dnr]);
+ *    rotation[dnr].xorShift32 = 0x1234abcd;
+ *    rotation[dnr].rotation_last_clk = *clk_ptr;
+ *    drive->req_ref_cycles = 0;
+ *  Does NOT clear drive byte_ready_level / edge / GCR_read. */
 export function rotation_reset(drive: DriveContext): void {
   const dnr = drive.diskunit?.mynumber ?? 0;
   if (!rotation[dnr]) rotation_init(drive.diskunit?.clockFrequency === 2 ? 1 : 0, dnr);
@@ -117,6 +123,7 @@ export function rotation_reset(drive: DriveContext): void {
   r.bit_counter = 0;
   r.accum = 0;
   r.xorShift32 = 0x1234abcd;
+  r.rotation_last_clk = drive.diskunit?.clkPtr.value ?? 0;
   drive.reqRefCycles = 0;
 }
 
@@ -223,6 +230,11 @@ function rotation_1541_simple(drive: DriveContext): void {
     drive.gcrHeadOffset = off;
     r.last_read_data = (last_read_data >> 7) & 0x3ff;
     r.bit_counter = bit_counter;
+    // VICE rotation.c:1072-1074 — fall-back GCR_read when the read
+    // walk left it zero (can only happen on a half-track or
+    // unformatted track, i.e. no data). 0x11 is "good enough"
+    // (won't match SYNC, won't match any GCR header byte).
+    if (!drive.gcrRead) drive.gcrRead = 0x11;
   } else {
     // Write mode — VICE writes through write_next_bit; in 611.6 no
     // image is attached so write path is a tracked no-op that still
@@ -273,9 +285,10 @@ export function rotation_sync_found(diskunit: DiskUnitContext): number {
   return r.last_read_data === 0x3ff ? 0 : 0x80;
 }
 
-/** VICE DRIVE_ATTACH_DELAY (drive.h). */
-const DRIVE_ATTACH_DELAY = 1_000_000;
-const DRIVE_ATTACH_DETACH_DELAY = 1_000_000;
+/** VICE drive.h:190 — `#define DRIVE_ATTACH_DELAY (3 * 600000)`. */
+const DRIVE_ATTACH_DELAY = 1_800_000;
+/** VICE drive.h:197 — `#define DRIVE_ATTACH_DETACH_DELAY (3 * 400000)`. */
+const DRIVE_ATTACH_DETACH_DELAY = 1_200_000;
 
 /** VICE rotation_byte_read() (rotation.c:1145-1170). */
 export function rotation_byte_read(diskunit: DiskUnitContext): number {

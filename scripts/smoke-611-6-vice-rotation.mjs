@@ -133,9 +133,17 @@ if (drive1541 && via2 && drv) {
   check("(l.1) drive clkPtr advanced", after > startClk, `start=${startClk} after=${after}`);
 }
 
-// rotation_byte_read returns 0 with no disk attached.
+// rotation_byte_read returns 0x11 after first simple-rotation read
+// when GCR_read would otherwise stay zero (VICE rotation.c:1072-1074
+// fallback for half/unformatted tracks).
+// Pre-condition: motor on + read mode + enough bits walked for the
+// read loop to complete one cycle. The 16×80 loop above advanced
+// enough cycles; calling rotation_byte_read once more triggers the
+// fallback if gcrRead remained 0.
+if (drv) drv.gcrRead = 0; // force the fall-back path
 const byte = rot.rotation_byte_read(drive1541.diskunit);
-check("(m) rotation_byte_read returns 0 with no GCR image loaded", byte === 0);
+check("(m) rotation_byte_read fallback: GCR_read = 0x11 with no image loaded (VICE rotation.c:1072)",
+  byte === 0x11, `byte=$${byte.toString(16)}`);
 
 // rotation_sync_found returns 0x80 with no SYNC (all-zero bytes).
 const syncResult = rot.rotation_sync_found(drive1541.diskunit);
