@@ -71,6 +71,13 @@ export interface DriveContext {
   gcr: null;                           // gcr_s → phase 611.7
   // P64 intentionally omitted — Spec 611 §2 P64 throwing-stub policy.
 
+  /** VICE drive_t flag: GCR image attached. 0 = no track. */
+  gcrImageLoaded: number;
+  /** VICE drive_t flag: needs complex rotation path (gcr/p64 cycle). */
+  complicatedImageLoaded: number;
+  /** VICE drive_t flag: P64 image attached (always 0 — P64 stub). */
+  p64ImageLoaded: number;
+
   rpm: number;                         // 30000 nominal
   wobbleFactor: number;
   wobbleFrequency: number;
@@ -148,6 +155,9 @@ export function createAllocatedDriveContext(driveSlot = 0): DriveContext {
 
     image: null,
     gcr: null,
+    gcrImageLoaded: 0,
+    complicatedImageLoaded: 0,
+    p64ImageLoaded: 0,
 
     rpm: NOMINAL_RPM,
     wobbleFactor: 0,

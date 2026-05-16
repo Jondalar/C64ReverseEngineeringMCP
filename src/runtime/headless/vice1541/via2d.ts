@@ -39,7 +39,7 @@ import {
   rotation_rotate_disk,
   rotation_speed_zone_set,
   rotation_sync_found,
-} from "./rotation-stub.js";
+} from "./rotation.js";
 import {
   Via6522,
   VIA_SIG_FALL,
@@ -121,7 +121,7 @@ export function createVia2d(opts: Via2dOptions): Via6522 {
 
       // Density bits (PB.5/PB.6) → speed zone.
       const zone = (driven >> 5) & 0x03;
-      rotation_speed_zone_set(zone, diskunit);
+      rotation_speed_zone_set(zone, diskunit.mynumber);
 
       // VICE via2d.c:348 — clear byte_ready_level at end of store_prb.
       d.byteReadyLevel = 0;

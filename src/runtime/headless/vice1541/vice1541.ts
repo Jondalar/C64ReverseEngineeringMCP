@@ -34,6 +34,7 @@ import {
 import { createAllocatedDriveContext } from "./drive-context.js";
 import { driveInit } from "./drive-init.js";
 import { Vice1541DriveCpu } from "./drivecpu.js";
+import { rotation_init, rotation_reset } from "./rotation.js";
 
 function phaseError(phase: string, what: string): Error {
   return new Error(
@@ -61,6 +62,11 @@ export class Vice1541 implements Drive1541 {
 
     // Step 3 — drive_init() per VICE drive.c:239-261.
     driveInit(this.diskunit);
+
+    // Step 3.5 — rotation_init/reset per VICE rotation.c:93/111.
+    // Phase 611.6: 1541 runs at 1 MHz (frequency = 0 = 1x).
+    rotation_init(0, this.diskunit.mynumber);
+    if (drive0) rotation_reset(drive0);
 
     // Step 4 — cold reset so PC points at the ROM reset vector.
     this.driveCpu.reset("cold");
