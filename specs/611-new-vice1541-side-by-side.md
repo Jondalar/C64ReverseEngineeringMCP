@@ -355,13 +355,46 @@ Each phase is its own commit on `codex/611-vice1541-side-by-side`.
 A phase is DONE only when its gate (§6) passes. Phases are
 sequential — no phase n+1 work before phase n is DONE.
 
-**Gate realism rule:** a phase's gate is what the implementation at
-its tip can *actually* prove. C64-side LOAD gates (Tier-2 oracles,
-game-screenshot oracles) require the **full disk pipeline**:
-VIA2 + rotation + GCR + image-format + drivecpu timing all in
-place. Phases before that point use **drive-internal** gates only
-(drive PC reach, idle-bus shape, VIA register trace match against
-VICE binmon trace, drive-side cycle count match against VICE).
+**Gate realism rule:** a phase's gate is what the implementation
+at its tip can *actually* prove. C64-side LOAD gates (Tier-2
+oracles, game-screenshot oracles) require the **full disk
+pipeline**: VIA2 + BYTE-READY/SO + rotation + GCR + image-format +
+drivecpu timing all in place. Phases before that point use
+**drive-internal** gates only.
+
+### Allowed early-phase gate types (611.0 – 611.6)
+
+- Factory correctly returns the requested implementation (legacy
+  vs vice); LEGACY1541 default selection still produces the Spec
+  601 baseline (5/7 GREEN).
+- LEGACY1541 path stays runtime-proof-green (master invariant).
+- VICE1541 cold reset reaches the expected drive-ROM idle PC
+  (matched against VICE binmon trace; cycle ± tolerance window).
+- IEC line polarity and ATN edge propagation match the §3a
+  contract; toggling ATN from a synthetic C64-side test harness
+  produces the VICE-trace expected `iecLineSample()` deltas.
+- VIA register reads / writes match the VICE contract under a
+  synthetic per-register exerciser (no real disk needed).
+- BYTE-READY pulse + SO line behaviour match VICE trace under a
+  synthetic static GCR buffer exerciser.
+- Rotation + GCR may be exercised against synthetic track data as
+  a **component check**. Not acceptance for the spec, not a
+  substitute for a real disk gate.
+
+### Forbidden early-phase gate types (611.0 – 611.6)
+
+- Any real D64 / G64 LOAD gate.
+- Any C64-side Tier-2 oracle gate (`smoke-423-*.mjs`).
+- Any game-screenshot gate (`scripts/test-*-screenshots.mjs`).
+- Any "VICE1541 passes runtime proof" claim.
+- LEGACY1541 fallback from `vice1541/**` code paths to make an
+  early LOAD gate look green.
+- Synthetic high-level shortcuts (e.g. a fake directory reader
+  that bypasses the drive CPU / GCR pipeline).
+
+These gates are reserved for 611.7+ once the full disk-read
+pipeline exists. Any pre-611.7 commit claiming one of them is
+rejected at review.
 
 | Phase | Title                                       | Scope                                                                                                                                  | Gate (what the phase tip can prove)                                                                                                                                                                                                  |
 |-------|---------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -458,6 +491,100 @@ The following are explicit non-goals and will be reverted on sight:
    not from any surviving 440-series TS.
 10. **No simultaneous 611 + 612-615 work.** 612-615 stay closed
     until 611 lands DONE per §6.
+11. **No LEGACY1541 fallback inside `vice1541/**`** to make an
+    early LOAD gate pass. If a VICE1541 method cannot serve a
+    request honestly, it throws — it does not delegate to
+    LEGACY1541 behind the factory boundary.
+12. **No fake high-level shortcuts** (synthetic directory reader,
+    canned LOAD response, hard-coded file table) to simulate disk
+    behaviour before the GCR + image-format pipeline is in place.
+13. **No "VICE1541 passes runtime proof" claim** until the gate
+    runs through the real VICE1541 path end-to-end: drive ROM →
+    real VIA1/VIA2 → real rotation → real GCR → real disk-image
+    parser → C64-side LOAD success → game in the expected scene.
+
+## 8. Agent-assisted mechanical porting
+
+VICE source files may be ported by agents (Codex subagents, Claude
+Code agents, or similar) as a **first-pass mechanical translation**.
+Agents are scoped helpers, not implementers. Agent output is never
+DONE on its own; only an integration commit on this branch with
+the matching §5 phase gate green is DONE.
+
+### Principle
+
+Agents produce first-pass mechanical ports of isolated VICE source
+files. They do not integrate, fix behaviour, touch legacy, or
+change tests. They produce raw `vice1541/*` module code plus a
+PORT_NOTES block. Claude integrates the output sequentially in the
+Spec 611 phase order.
+
+### Allowed agent tasks
+
+- One VICE `.c` / `.h` source area per agent invocation
+  (e.g. `via1d1541.c` + `via1d1541.h` as one task; not
+  `via1d1541.c` mixed with `via2d1541.c`).
+- Output only unintegrated `src/runtime/headless/vice1541/*`
+  module code plus a short PORT_NOTES block (markdown) at the top
+  of the file or as a sibling `.md`.
+- Cite exact VICE source file path(s) and function names in
+  PORT_NOTES (`vice/src/drive/iec/via1d1541.c:212-337` style).
+- Preserve VICE naming where helpful (`set_atn`, `byte_ready`,
+  `bus_clk` etc.) so cross-referencing the source stays trivial.
+  Adapt to TypeScript camelCase only where the VICE name is
+  ambiguous in TS context.
+- Mark unresolved macros / typedefs / cross-module symbols
+  explicitly as `TODO_PORT: <what is missing>` comments — do not
+  invent abstractions to fill the gap. PORT_NOTES lists every
+  `TODO_PORT` the agent left behind.
+
+### Forbidden for agents
+
+- No edits to `src/runtime/headless/legacy1541/**`.
+- No edits to `src/runtime/headless/drive1541/**` (factory +
+  interface stay with Claude).
+- No edits to `src/runtime/headless/integrated-session-manager.ts`
+  or any other C64-side / runtime-orchestrator file.
+- No edits to `scripts/runtime-proof-gate.mjs` or any other gate /
+  test script.
+- No changes to test expectations, golden masters, oracle PNGs.
+- No "make it pass" fixes that drift from the VICE source to
+  satisfy a downstream caller.
+- No architecture decisions (interface shape, factory wiring,
+  config flag naming, phase boundaries).
+- No cross-module coupling guesses (e.g. wiring VIA1 to drivecpu's
+  IRQ pin without explicit VICE source backing). If two modules
+  must connect, leave a `TODO_PORT` and stop.
+
+### Integration rule
+
+Claude integrates agent outputs sequentially in Spec 611 phase
+order. Each integration commit MUST cite, in the commit message:
+
+- Source VICE file(s) ported (full path + line range).
+- Agent output used (which raw `vice1541/*` artifact, what
+  PORT_NOTES it carried).
+- Unresolved `TODO_PORT` items remaining after integration, with
+  the resolution plan (deferred to a later phase / resolved
+  in-line / raised as an Open Question on this spec).
+- Phase gate result: paste the §5 / §6 gate output verbatim
+  (full re-run, never `--reuse-artifacts`).
+
+Integration may reject agent output entirely if the mechanical
+port is unfaithful to the VICE source. Rejection is recorded in
+the integration commit (or in a `vice1541/REJECTED-PORTS.md` log
+if a structured trail is useful), with a one-line reason and the
+PORT_NOTES anchor.
+
+### Acceptance
+
+- Agent output is **not DONE**. It is raw material.
+- Only integrated phase commits that pass the §5 phase gate (per
+  §6 evidence block rules) are DONE.
+- A phase MAY be implemented end-to-end by Claude with no agent
+  help; agent assistance is an option, not a requirement.
+- A phase MUST NOT be implemented end-to-end by agents alone;
+  integration is always a Claude commit on this branch.
 
 ## Open questions
 
