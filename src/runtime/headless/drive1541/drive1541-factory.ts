@@ -1,5 +1,9 @@
 import type { Drive1541, Drive1541Implementation } from "./drive1541.js";
 import { Vice1541 } from "../vice1541/vice1541.js";
+import {
+  Legacy1541Adapter,
+  type Legacy1541AdapterDeps,
+} from "./legacy1541-adapter.js";
 
 export function resolveDrive1541Implementation(
   requested?: Drive1541Implementation,
@@ -28,21 +32,33 @@ export function assertDrive1541ImplementationAvailable(
 }
 
 /**
- * Instantiate the selected Drive1541 implementation. Phase 611.2 only
- * supports `"vice"` here; the LEGACY1541 adapter behind this entrypoint
- * lands in a later phase (C64 side still wires the legacy DriveCpu
- * directly until then).
+ * Instantiate the selected Drive1541 implementation. Phase 611.7e.2:
+ *   - `"vice"` → fresh Vice1541 instance.
+ *   - `"legacy"` → Legacy1541Adapter wrapping existing
+ *     LEGACY1541 DriveCpu + IecBus (read-only adapter; LEGACY1541
+ *     runtime path unchanged).
+ *
+ * Caller must supply `legacyDeps` when requesting "legacy" — the
+ * adapter is READ-ONLY over the existing legacy stack, so it needs
+ * pre-built references to `drive` and `iecBus`.
  */
 export function createDrive1541(
   implementation: Drive1541Implementation,
+  legacyDeps?: Legacy1541AdapterDeps,
 ): Drive1541 {
   if (implementation === "vice") {
     return new Vice1541();
   }
-  throw new Error(
-    `[drive1541] LEGACY1541 adapter via createDrive1541 is not built ` +
-      `yet (Spec 611 — landed in a later phase). The C64 side wires the ` +
-      `existing legacy DriveCpu directly for "legacy"; use this entrypoint ` +
-      `only with drive1541: "vice".`,
-  );
+  if (implementation === "legacy") {
+    if (!legacyDeps) {
+      throw new Error(
+        `[drive1541] createDrive1541("legacy") requires legacyDeps ` +
+          `{ drive, iecBus } — the LEGACY1541 adapter is a read-only ` +
+          `view over the existing stack. Pass the kernel's drive + ` +
+          `iecBus.`,
+      );
+    }
+    return new Legacy1541Adapter(legacyDeps);
+  }
+  throw new Error(`[drive1541] unsupported implementation: ${String(implementation)}`);
 }
