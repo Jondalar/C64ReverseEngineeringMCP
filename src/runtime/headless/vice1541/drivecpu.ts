@@ -194,6 +194,11 @@ export class Vice1541DriveCpu {
       cpuIntStatus: this.cpuIntStatus,
       clkPtr: diskunit.clkPtr,
       setSoLine: (level) => this.cpu.setSoLine(level),
+      setOverflowFlag: () => {
+        // VICE drivecpu_set_overflow(): direct P_OVERFLOW set on
+        // drive CPU. Mirrors src/drive/drivecpu.c:219-223.
+        this.cpu.reg_p = (this.cpu.reg_p | 0x40) & 0xff;
+      },
     });
 
     const loaded = loadVice1541Rom();

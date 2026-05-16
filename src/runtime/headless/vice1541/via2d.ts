@@ -1,6 +1,6 @@
 // Spec 611 phase 611.5 — 1541 VIA2 (disk-controller side).
 //
-// VICE source:  src/drive/iec/via2d1541.c + src/core/viacore.c
+// VICE source:  src/drive/iecieee/via2d.c + src/core/viacore.c
 // Doc anchor:   docs/vice-1541-arch.md §7 + §13 E
 //
 // Replaces vice1541/via2d-stub.ts.
@@ -32,11 +32,13 @@ import type { DiskUnitContext } from "./diskunit.js";
 import { BRA_BYTE_READY, BRA_LED, BRA_MOTOR_ON, type DriveContext } from "./drive-context.js";
 import { driveSetHalfTrack } from "./drive-init.js";
 import {
+  BUS_READ_DELAY,
   drive_writeprotect_sense,
   rotation_begins,
   rotation_byte_read,
   rotation_rotate_disk,
   rotation_speed_zone_set,
+  rotation_sync_found,
 } from "./rotation-stub.js";
 import {
   Via6522,
@@ -49,9 +51,12 @@ export interface Via2dOptions {
   diskunit: DiskUnitContext;
   cpuIntStatus: InterruptCpuStatus;
   clkPtr: { value: number };
-  /** Called on BYTE-READY edge so the drive CPU SO pin can pulse the
-   *  V-flag (1→0 edge sets V per Cpu65xxVice). */
+  /** Called on BYTE-READY rotation pulse so the drive CPU SO pin can
+   *  pulse the V-flag (1→0 edge sets V per Cpu65xxVice). */
   setSoLine: (level: 0 | 1) => void;
+  /** Called by set_ca2 for VICE's direct `cpu->set_overflow(cpu)` path
+   *  (via2d.c:76). Sets V flag synchronously, not via SO toggle. */
+  setOverflowFlag: () => void;
 }
 
 /**
@@ -59,7 +64,7 @@ export interface Via2dOptions {
  * diskunit, drive InterruptCpuStatus, and drive CPU SO setter.
  */
 export function createVia2d(opts: Via2dOptions): Via6522 {
-  const { diskunit, cpuIntStatus, clkPtr, setSoLine } = opts;
+  const { diskunit, cpuIntStatus, clkPtr, setSoLine, setOverflowFlag } = opts;
   const intNum: IntNum = cpuIntStatus.newIntNum("via2d1541");
 
   const drv = (): DriveContext | null => diskunit.drives[0] ?? null;
@@ -123,16 +128,27 @@ export function createVia2d(opts: Via2dOptions): Via6522 {
     },
 
     readPb: () => {
-      // VICE via2d.c read_prb: PB read returns output latch with
-      // PB.4 (WPS) replaced by drive_writeprotect_sense().
+      // VICE via2d.c:486-511 read_prb (verbatim shape):
+      //   drive->req_ref_cycles = BUS_READ_DELAY;
+      //   rotation_rotate_disk(drive);
+      //   byte = ((rotation_sync_found(drive)
+      //          | drive_writeprotect_sense(drive)
+      //          | 0x6f) & ~DDRB) | (PRB & DDRB);
+      //   drive->byte_ready_level = 0;
+      //
+      // sync_found returns 0 or SYNC mask (bit 7, 0x80).
+      // wps_sense returns true (= not protected) ⇒ bit 4 (0x10).
+      // 0x6f = bits 0/1/2/3/5/6 (= all OUT-side defaults high).
+      // Backend returns the unmasked `tmp`; `Via6522.read(VIA_PRB)`
+      // does the (PRB & DDRB) | (tmp & ~DDRB) fold.
       const d = drv();
-      const wpsHigh = drive_writeprotect_sense(d);
-      // Unused bits read 1 (input-side default per VICE viacore).
-      const inputBits = (~via2.ddrb) & 0xff;
-      // Compose: bits driven from PB output latch; WPS bit forced from
-      // drive sensor; other input bits = 1.
-      const composed = (inputBits & ~0x10) | (wpsHigh ? 0x10 : 0x00);
-      return composed & 0xff;
+      if (d) d.reqRefCycles = BUS_READ_DELAY;
+      rotation_rotate_disk(diskunit);
+      const sync = rotation_sync_found(diskunit) ? 0x80 : 0x00;
+      const wps = drive_writeprotect_sense(d) ? 0x10 : 0x00;
+      const tmp = (sync | wps | 0x6f) & 0xff;
+      if (d) d.byteReadyLevel = 0;
+      return tmp;
     },
 
     storePa: (driven) => {
@@ -146,19 +162,18 @@ export function createVia2d(opts: Via2dOptions): Via6522 {
 
     readPa: () => {
       // VICE via2d.c:463-483 — read_pra:
-      //   req_ref_cycles = BUS_READ_DELAY;
+      //   req_ref_cycles = BUS_READ_DELAY;     (= 14 per rotation.h:35)
       //   rotation_byte_read(drive);
       //   byte = drive->GCR_read;
       //   byte = (byte & ~ddra) | (pra & ddra);
       //   byte_ready_level = 0;
       const d = drv();
       if (!d) return 0;
-      d.reqRefCycles = 5; // VICE BUS_READ_DELAY ≈ 5 drive cycles
+      d.reqRefCycles = BUS_READ_DELAY;
       rotation_byte_read(diskunit);
       const byte = d.gcrRead & 0xff;
-      // Note: PRA fold (PRA & DDRA) is performed by Via6522.read(PRA)
-      // — we return the input-bit value; the via core handles the
-      // output-bit overlay.
+      // PRA fold (PRA & DDRA) is performed by Via6522.read(PRA);
+      // we return the input-bit value, via core handles the output overlay.
       d.byteReadyLevel = 0;
       return byte;
     },
@@ -169,16 +184,32 @@ export function createVia2d(opts: Via2dOptions): Via6522 {
 
     // VICE via2d.c:72-93 set_ca2: toggles BRA_BYTE_READY bit in
     // byte_ready_active. When BRA_BYTE_READY is set AND byte_ready_edge
-    // is already set, VICE fires the SO overflow immediately.
+    // is already set, VICE fires the SO overflow immediately and
+    // clears byte_ready_edge.
+    //
+    // Edge-order note: Cpu65xxVice detects a 1→0 transition at the
+    // start of `executeCycle()`. So to make the V-flag actually fire,
+    // the final line state must be LOW. Use release-then-fall
+    // (`setSoLine(1)` → `setSoLine(0)`), same pattern as
+    // pulseByteReady().
     setCa2: (state) => {
+      // VICE via2d.c:72-93 set_ca2 (verbatim shape):
+      //   if (state) {
+      //       drive->byte_ready_active |= BRA_BYTE_READY;
+      //       if (drive->byte_ready_edge) {
+      //           drive->cpu->set_overflow(drive->cpu);  // direct V flag
+      //           drive->byte_ready_edge = 0;
+      //       }
+      //   } else {
+      //       drive->byte_ready_active &= ~BRA_BYTE_READY;
+      //   }
       const d = drv();
       if (!d) return;
       if (state) {
         d.byteReadyActive |= BRA_BYTE_READY;
         if (d.byteReadyEdge) {
-          // SO pulse 1→0 → V flag at next executeCycle.
-          setSoLine(0);
-          setSoLine(1);
+          setOverflowFlag();
+          d.byteReadyEdge = 0;
         }
       } else {
         d.byteReadyActive &= ~BRA_BYTE_READY;

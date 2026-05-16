@@ -93,14 +93,33 @@ check("(k.1) VIA2 store_prb clears byteReadyLevel (VICE :348)",
 check("(k.2) HT=36, stepper-pos=(36-2)&3=2 matches PB.0/PB.1=10 ⇒ no movement",
   drv?.currentHalfTrack === 36);
 
-// VIA2 PB.4 WPS read = 1 (no disk = not protected); drive.readOnly = 0
+// VIA2 PB read VICE-shape: per via2d.c:486-511 / Codex 15:09 review.
+//   reqRefCycles = BUS_READ_DELAY (14)
+//   rotation_rotate_disk called
+//   byte = (sync | wps | 0x6f) & ~DDRB | (PRB & DDRB)
+//   byteReadyLevel cleared
+const rot = await import("../dist/runtime/headless/vice1541/rotation-stub.js");
 if (via2) {
-  via2.write(0x02 /*VIA_DDRB*/, 0x00); // all PB input for WPS read
+  via2.write(0x02 /*VIA_DDRB*/, 0x00); // all PB input
 }
+if (drv) drv.byteReadyLevel = 1; // pre-set so we can verify clear
+rot.__resetRotationStubCounters();
 const via2PbRead = via2?.read(0x00 /*VIA_PRB*/) ?? -1;
 check("(l) VIA2 PB.4 (WPS) reads 1 when drive.readOnly = 0",
   via2PbRead !== -1 && (via2PbRead & 0x10) !== 0,
   `pbRead=$${via2PbRead.toString(16)}`);
+check("(l.1) VIA2 PB read sets reqRefCycles = 14 (BUS_READ_DELAY)",
+  drv?.reqRefCycles === 14, `reqRefCycles=${drv?.reqRefCycles}`);
+check("(l.2) VIA2 PB read calls rotation_rotate_disk",
+  rot.__rotationCounters.rotate_disk >= 1,
+  `rotate_disk=${rot.__rotationCounters.rotate_disk}`);
+check("(l.3) VIA2 PB read calls rotation_sync_found",
+  rot.__rotationCounters.sync_found >= 1,
+  `sync_found=${rot.__rotationCounters.sync_found}`);
+check("(l.4) VIA2 PB read clears byteReadyLevel",
+  drv?.byteReadyLevel === 0, `byteReadyLevel=${drv?.byteReadyLevel}`);
+check("(l.5) VIA2 PB read base byte = sync | wps | 0x6f = 0x7f (sync=0, wps=0x10)",
+  via2PbRead === 0x7f, `pbRead=$${via2PbRead.toString(16)} (expected $7f)`);
 
 // VIA2 stepper VICE formula: HT=36, oldPos=(36-2)&3=2, newPos=3 (step inward).
 // step_count = (3 - 2) & 3 = 1; gated on motor (PB.2). DDRB all output, motor on.
@@ -158,6 +177,22 @@ cpu?.executeCycle(); // SO 1→0 edge detected at next executeCycle's start
 const vFlag = (cpu?.reg_p ?? 0) & 0x40;
 check("(p) pulseByteReady() raises SO edge → drive V flag set",
   vFlag !== 0, `reg_p=$${(cpu?.reg_p ?? 0).toString(16)} (V=${vFlag !== 0})`);
+
+// VIA2 setCa2 SO pulse fires V flag AND clears byteReadyEdge.
+// VICE via2d.c:72-93: when BRA_BYTE_READY rises with byte_ready_edge
+// already set, fire SO + clear byteReadyEdge.
+if (cpu && drv && via2) {
+  cpu.reg_p &= ~0x40;
+  drv.byteReadyEdge = 1; // arm the edge
+  drv.byteReadyActive &= ~0x02; // clear BRA_BYTE_READY so PCR write triggers a transition
+  // PCR CA2 manual-high (0x0E) → setCa2(1)
+  via2.write(0x0c /*VIA_PCR*/, 0x0e);
+  cpu.executeCycle();
+}
+const vFlagCa2 = (cpu?.reg_p ?? 0) & 0x40;
+check("(p.1) setCa2(1) with byteReadyEdge=1 fires SO → V set + edge cleared",
+  vFlagCa2 !== 0 && drv?.byteReadyEdge === 0,
+  `vFlag=${vFlagCa2 !== 0} byteReadyEdge=${drv?.byteReadyEdge}`);
 
 // Throws that must persist
 function expectThrow(method, phaseMarker, args = []) {
