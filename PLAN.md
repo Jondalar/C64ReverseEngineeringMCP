@@ -23,14 +23,32 @@
 > **Unit green != runtime green. Mapping green != runtime green.**
 > Smoke without screenshot / state assertion is not a gate.
 >
-> **Spec 611 (rotation re-port, first sub-spec of Spec 610) may not
-> start until the runtime proof baseline at tag
-> `runtime-green-2026-05-16` (= `87b4957`) is reproducible from
-> `docs/runtime-proof-baseline-2026-05-16.md` (5/7 GREEN, Pawn + LNR
-> RED expected, all four Tier-2 gates green/cosmetic-drift).** A
-> unified `scripts/runtime-proof-gate.mjs` gate-runner is the
-> precondition; until it exists and reproduces this baseline,
-> 611-615 stay closed.
+> ## 1541 work doctrine (active)
+>
+> **Spec 611 = VICE1541 side-by-side rebuild; LEGACY1541 frozen.**
+> See `specs/611-new-vice1541-side-by-side.md`. The current
+> TypeScript 1541 (LEGACY1541) is the runtime-green-2026-05-16
+> baseline and stays the factory default until VICE1541 passes
+> every applicable Runtime Proof Gate in Spec 601. LEGACY1541 is
+> frozen for the duration of the rebuild — trivial compile fixes
+> only, no behaviour patches, no in-place rotation/VIA/IEC
+> "rescue" edits.
+>
+> VICE1541 is built next to LEGACY1541 in `src/runtime/headless/vice1541/`,
+> ported file-by-file from `vice/src/drive/**` per Spec 610 §"Process
+> per sub-spec". The C64 side selects implementation via
+> `drive1541?: "legacy" | "vice"` (env var
+> `C64RE_DRIVE1541=vice|legacy`). The runtime-proof-gate runner
+> learns `--drive1541=legacy|vice|both`.
+>
+> Former sub-specs 612 (VIA2 byte-ready), 613 (drivecpu timing),
+> and 614 (GCR read/write) are superseded by Spec 611 phases
+> 611.5 / 611.3 / 611.7 respectively. Spec 615 (SAVE / FORMAT
+> write-back) opens only after Spec 611 phase 611.9 lands.
+>
+> `npm run runtime:proof` is the merge gate; `--reuse-artifacts`
+> is a local quick-check only — never acceptance after runtime
+> source changes.
 
 > **440-series status table below is HISTORICAL — quarantine /
 > research material only, not the current roadmap.**
