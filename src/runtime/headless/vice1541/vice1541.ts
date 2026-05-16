@@ -1,12 +1,16 @@
-// Spec 611 phase 611.1 — VICE1541 stub.
+// Spec 611 phase 611.2 — VICE1541 idle construction.
 //
-// Every method (and the constructor itself) throws a clear "not
-// implemented" error citing Spec 611.1. Real implementation lands
-// incrementally in phases 611.2–611.8 per
-// `specs/611-new-vice1541-side-by-side.md` §5.
+// Constructor now builds an idle DiskUnitContext + DriveContext per
+// docs/vice-1541-arch.md §2.1 + §13 A. `iecLineSample()` returns the
+// idle-bus shape (all lines released; VICE polarity convention
+// `1` = released per Spec 611 §3a).
 //
-// Until then, instantiating Vice1541 MUST fail — the factory wiring
-// is the only thing under test in 611.1.
+// All other methods still throw — each phase replaces one throw with
+// real behaviour:
+//   - catchUpTo / flush / reset / debugProbe → phase 611.3 (drivecpu)
+//   - iecLineDrive                            → phase 611.4 (VIA1)
+//   - attachDisk / detachDisk / setWriteProtect → phase 611.7 (image)
+//   - snapshot / restore                      → phase 611.8
 
 import type {
   Drive1541,
@@ -15,58 +19,85 @@ import type {
   Drive1541IecSample,
   Drive1541Media,
 } from "../drive1541/drive1541.js";
+import {
+  createIdleDiskUnitContext,
+  type DiskUnitContext,
+} from "./diskunit.js";
+import { createIdleDriveContext } from "./drive-context.js";
 
-const STUB_ERROR =
-  "[VICE1541] not implemented yet (Spec 611 phase 611.1 scaffold). " +
-  "Real implementation lands incrementally in phases 611.2–611.8. " +
-  "Use drive1541: \"legacy\" until VICE1541 passes the runtime proof gates.";
+function phaseError(phase: string, what: string): Error {
+  return new Error(
+    `[VICE1541] ${what} not implemented yet (Spec 611 phase ${phase}). ` +
+      `611.2 only builds the idle data-context shape; real behaviour ` +
+      `lands incrementally per specs/611-new-vice1541-side-by-side.md §5.`,
+  );
+}
 
 export class Vice1541 implements Drive1541 {
+  /** Owning diskunit context (unit 0; 1541 single-drive). */
+  readonly diskunit: DiskUnitContext;
+
   constructor() {
-    throw new Error(STUB_ERROR);
+    // Per docs/vice-1541-arch.md §13 A step 1-2: allocate diskunit,
+    // attach drives[0] as the 1541's only physical drive, wire the
+    // back-pointer. 1541 leaves slot 1 unused and `cia1571 = NULL`.
+    this.diskunit = createIdleDiskUnitContext(0);
+    const drive0 = createIdleDriveContext(0);
+    drive0.diskunit = this.diskunit;
+    this.diskunit.drives[0] = drive0;
   }
 
+  /**
+   * Phase 611.2: drive idle — all IEC lines released.
+   * VICE polarity per Spec 611 §3a: `true` = released, `false` = pulled.
+   * On a fresh session with no drive activity, the drive does not
+   * pull DATA, CLK, or ATNA — it lets all lines float (released).
+   */
   iecLineSample(): Drive1541IecSample {
-    throw new Error(STUB_ERROR);
+    return {
+      drv_data_pull: false,
+      drv_clk_pull: false,
+      drv_atna_pull: false,
+    };
   }
 
   iecLineDrive(_c64Side: Drive1541IecInput): void {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.4", "iecLineDrive");
   }
 
   catchUpTo(_c64Clock: number): number {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.3", "catchUpTo");
   }
 
   flush(): void {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.3", "flush");
   }
 
   attachDisk(_media: Drive1541Media): void {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.7", "attachDisk");
   }
 
   detachDisk(): void {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.7", "detachDisk");
   }
 
   setWriteProtect(_on: boolean): void {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.7", "setWriteProtect");
   }
 
   reset(_kind: "cold" | "warm"): void {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.3", "reset");
   }
 
   snapshot(): Uint8Array {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.8", "snapshot");
   }
 
   restore(_blob: Uint8Array): void {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.8", "restore");
   }
 
   debugProbe(): Drive1541DebugProbe {
-    throw new Error(STUB_ERROR);
+    throw phaseError("611.3", "debugProbe");
   }
 }

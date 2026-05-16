@@ -51,9 +51,13 @@ import { EventCatchupStrategy } from "./event-catchup-strategy.js";
 import { LockstepStrategy } from "./lockstep-strategy.js";
 import type { SyncStrategy } from "./sync-strategy.js";
 import { vicii_set_vbank as litViciiSetVbank } from "../vic/literal/vicii.js";
-import type { Drive1541Implementation } from "../drive1541/drive1541.js";
+import type {
+  Drive1541,
+  Drive1541Implementation,
+} from "../drive1541/drive1541.js";
 import {
   assertDrive1541ImplementationAvailable,
+  createDrive1541,
   resolveDrive1541Implementation,
 } from "../drive1541/drive1541-factory.js";
 
@@ -148,12 +152,22 @@ export class HeadlessMachineKernel implements MachineKernel {
   readonly gcrShifter: GcrShifter;
   readonly drive: DriveCpu;
   readonly drive1541Implementation: Drive1541Implementation;
+  /**
+   * Spec 611 phase 611.2 — when `drive1541: "vice"` is selected the kernel
+   * instantiates VICE1541 alongside the legacy DriveCpu (factory-wiring
+   * evidence). The C64 side keeps reading the legacy drive for real work
+   * until the Drive1541 surface is fully wired in later phases.
+   */
+  readonly drive1541?: Drive1541;
 
   constructor(deps: HeadlessMachineKernelDeps) {
     this.session = deps.session;
     this.video = deps.video;
     this.drive1541Implementation = resolveDrive1541Implementation(deps.drive1541);
     assertDrive1541ImplementationAvailable(this.drive1541Implementation);
+    if (this.drive1541Implementation === "vice") {
+      this.drive1541 = createDrive1541("vice");
+    }
     const isPal = this.video === "PAL";
     this.alarms = {
       maincpu: alarmContextNew("maincpu"),

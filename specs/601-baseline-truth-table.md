@@ -55,7 +55,12 @@ gate script, expected baseline result.
 
 The aggregator treats these PC values as stuck (= not in game code):
 
-- `$E5CD`, `$E5CF`, `$E5D4` — KERNAL BASIC READY main loop
+- `$E5CD..$E5D4` (whole 8-byte range) — KERNAL BASIC READY wait loop.
+  Earlier truth-table revisions enumerated only `$E5CD`, `$E5CF`,
+  `$E5D4`; the range extension (`$E5CE`, `$E5D0`, `$E5D1`, `$E5D2`,
+  `$E5D3`) was added 2026-05-16 after the Pawn polling-budget cut
+  (t180 → t060) surfaced PC=`$E5D1` — same loop, different sample
+  point.
 - `$F6BF`, `$A483` — KERNAL LOAD / SAVE stalls
 - `$F6C5`, `$F6DA` — KERNAL LOAD region (LNR / Pawn red)
 - `$EEA9`, `$EEAF`, `$EEB2`, `$ED5A`, `$ED5D` — KERNAL serial RX

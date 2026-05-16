@@ -38,8 +38,12 @@ const CACHE_FILE = resolve(CACHE_DIR, "last-run.json");
 const BASELINE_DOC = resolve("docs/runtime-proof-baseline-2026-05-16.md");
 
 // Spec 601 § "Stuck-PC vocabulary". Integers, lowercase-hex normalized.
+// Range $e5cd..$e5d4 covers the entire KERNAL BASIC READY wait loop;
+// the prior enumeration ($e5cd / $e5cf / $e5d4) missed $e5d0..$e5d3
+// which are also in the loop (observed: Pawn cut surfaced PC=$e5d1).
 const STUCK_PCS = new Set([
-  0xe5cd, 0xe5cf, 0xe5d4,                      // KERNAL READY / BASIC main loop
+  0xe5cd, 0xe5ce, 0xe5cf, 0xe5d0,
+  0xe5d1, 0xe5d2, 0xe5d3, 0xe5d4,              // KERNAL READY / BASIC main loop
   0xf6bf, 0xa483,                              // KERNAL LOAD / SAVE stalls
   0xf6c5, 0xf6da,                              // KERNAL LOAD region (LNR / Pawn red)
   0xeea9, 0xeeaf, 0xeeb2, 0xed5a, 0xed5d,      // KERNAL serial RX (fastloader RX stall)
