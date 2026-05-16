@@ -628,8 +628,7 @@ export class HeadlessMachineKernel implements MachineKernel {
     // For "legacy": Legacy1541Adapter wraps the just-constructed
     // DriveCpu + IecBus (read-only view; legacy runtime path is
     // unchanged). For "vice": fresh Vice1541 instance alongside the
-    // legacy DriveCpu (sidecar; runtime IEC routing still goes
-    // through legacy until 611.7f gate-lift). Default = legacy.
+    // legacy DriveCpu (sidecar). Default = legacy.
     if (this.drive1541Implementation === "legacy") {
       this.drive1541 = createDrive1541("legacy", {
         drive: this.drive,
@@ -637,7 +636,84 @@ export class HeadlessMachineKernel implements MachineKernel {
       });
     } else {
       this.drive1541 = createDrive1541("vice");
+      // Spec 611 phase 611.7e.4 — narrow C64-IEC ↔ Vice1541 bridge.
+      // Routes the C64-side $DD00 write/read path through Vice1541
+      // when `drive1541="vice"` is selected. Wraps the EXISTING
+      // IecBus public surface — does NOT mutate IecBusCore formulas,
+      // CIA2 PA inversion/DDR handling, setC64Output()/
+      // buildC64InputBits() semantics, pushFlush order, or ATN edge
+      // polarity (Codex 19:16 review constraint). The wrap chains
+      // pre/post hooks; legacy bus internals stay intact.
+      this.installVice1541Bridge(this.drive1541);
     }
+  }
+
+  /**
+   * Spec 611 phase 611.7e.4 — narrow bridge: when drive1541="vice",
+   *   - C64 $DD00 write (= IecBus.setC64Output) mirrors to
+   *     Vice1541.iecLineDrive() so the new drive sees the C64 line
+   *     state.
+   *   - C64 $DD00 read (= IecBus.buildC64InputBits) substitutes
+   *     drv_data[8] from Vice1541.iecLineSample() so the C64 sees
+   *     the vice drive's pulls.
+   *   - IecBus.pushFlush.{one,all} re-targets to Vice1541.catchUpTo
+   *     instead of legacy catchUpDrive. No silent legacy fallback.
+   *
+   * IecBus public methods are *wrapped* not *replaced*; the original
+   * legacy semantics still execute (legacy DriveCpu still ticks per
+   * the pushFlush.original — but VICE drv_data[8] overlay makes its
+   * contribution invisible to the C64 read). This keeps IecBus core
+   * formulas unchanged while re-routing the device end.
+   */
+  private installVice1541Bridge(vice: Drive1541): void {
+    const iec = this.iecBus;
+    const core = (iec as unknown as { core: { drv_data: Record<number, number> } }).core;
+
+    // 1. pushFlush re-target.
+    iec.pushFlush = {
+      one: (unit, clk, _cs) => {
+        if (unit !== 8) return; // single-1541 baseline
+        vice.catchUpTo(clk);
+        vice.flush();
+      },
+      all: (clk, _cs) => {
+        vice.catchUpTo(clk);
+        vice.flush();
+      },
+    };
+
+    // 2. $DD00 write — wrap setC64Output post-hook.
+    const origSetC64Output = iec.setC64Output.bind(iec);
+    iec.setC64Output = (cia2Pa, ddrMask, effClk, cs) => {
+      origSetC64Output(cia2Pa, ddrMask, effClk, cs);
+      // After IecBus updates its cpu_bus state, mirror the resulting
+      // bus lines to Vice1541. iec.atnLine/clkLine/dataLine are the
+      // post-update line state (true = released = HIGH per Spec 611 §3a).
+      vice.iecLineDrive({
+        bus_atn: iec.atnLine,
+        bus_clk: iec.clkLine,
+        bus_data: iec.dataLine,
+      });
+    };
+
+    // 3. $DD00 read — wrap buildC64InputBits pre-hook to overlay
+    //    Vice1541's drv contribution into IecBus's drv_data[8] before
+    //    the legacy formula runs.
+    const origBuildC64InputBits = iec.buildC64InputBits.bind(iec);
+    iec.buildC64InputBits = (effClk, cs) => {
+      const sample = vice.iecLineSample();
+      // VICE drv_data[8] convention: bit 1 = data, bit 3 = clk,
+      // bit 4 = atna; 1 = released, 0 = pulled. Preserve the
+      // remaining bits (driveid 0xe5 mask: 0b1110_0101) that the
+      // legacy formula expects from the drive side.
+      const dd8 =
+        (sample.drv_data_pull ? 0 : 0x02) |
+        (sample.drv_clk_pull ? 0 : 0x08) |
+        (sample.drv_atna_pull ? 0 : 0x10) |
+        0xe5; // preserve non-IEC bits (driveid stays high)
+      core.drv_data[8] = dd8 & 0xff;
+      return origBuildC64InputBits(effClk, cs);
+    };
   }
 
   /**
