@@ -117,6 +117,32 @@ for (let i = 0; i < rawFromFile.length && rawEq; i++) {
 check("(i) first non-null track: parsed data === raw file bytes (verbatim, no copy/transform)",
   rawEq, `firstNonNullIdx=${firstNonNullIdx} byteLength=${firstTrack.byteLength}`);
 
+// (j) VICE empty-half-track handling (fsimage-gcr.c:170-173):
+// offset-0 G64 entries get a canonical 0x55-filled raw track. For motm
+// many half-tracks are offset-0 (the intermediate ones). Find one and
+// verify: not null, canonical raw-track size, all bytes 0x55.
+import { rawTrackSizeD64 } from "../dist/runtime/headless/vice1541/drive-image-d64.js";
+
+const trackOffsetTable2 = 12;
+let emptyIdx = -1;
+for (let i = 0; i < header.numHalfTracks; i++) {
+  const off = ((g64[trackOffsetTable2 + i * 4] ?? 0) |
+               ((g64[trackOffsetTable2 + i * 4 + 1] ?? 0) << 8) |
+               ((g64[trackOffsetTable2 + i * 4 + 2] ?? 0) << 16) |
+               ((g64[trackOffsetTable2 + i * 4 + 3] ?? 0) << 24)) >>> 0;
+  if (off === 0) { emptyIdx = i; break; }
+}
+if (emptyIdx >= 0) {
+  const t = img.tracks[emptyIdx];
+  const expectedSize = rawTrackSizeD64(((emptyIdx + 2) >> 1));
+  const all55 = t !== null && [...t.data].every((b) => b === 0x55);
+  check(`(j) empty half-track (idx ${emptyIdx}) → non-null, canonical size ${expectedSize}, all 0x55`,
+    t !== null && t.byteLength === expectedSize && all55,
+    `byteLength=${t?.byteLength} expected=${expectedSize} all55=${all55}`);
+} else {
+  check("(j) empty half-track handling tested", false, "no offset-0 half-track found in motm.g64 to test");
+}
+
 console.log("");
 const failed = results.filter((r) => !r.ok).length;
 if (failed > 0) {

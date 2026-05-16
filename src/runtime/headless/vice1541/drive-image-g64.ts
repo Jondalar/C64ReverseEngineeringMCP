@@ -28,6 +28,7 @@ import {
   type DiskTrack,
   MAX_GCR_TRACKS,
 } from "./gcr.js";
+import { rawTrackSizeD64 } from "./drive-image-d64.js";
 
 export const G64_MAGIC_1541 = new Uint8Array([
   0x47, 0x43, 0x52, 0x2d, 0x31, 0x35, 0x34, 0x31, 0x00,
@@ -110,12 +111,18 @@ export function parseG64Header(bytes: Uint8Array): G64Header {
 }
 
 /**
- * Parse a G64 image. Preserves pre-encoded track bytes verbatim — no
- * gap normalization, no sector reconstruction, no byte alignment.
+ * Parse a G64 image. Preserves pre-encoded track bytes verbatim for
+ * non-zero offsets. For offset-0 half-tracks, allocates a canonical
+ * raw-track-size 0x55-filled buffer per VICE
+ * `fsimage_gcr_read_half_track()` (fsimage-gcr.c:170-173):
+ *   raw->size = disk_image_raw_track_size(image->type, half_track / 2);
+ *   raw->data = lib_malloc(raw->size);
+ *   memset(raw->data, 0x55, raw->size);
  *
- * Returns 168 slots (MAX_GCR_TRACKS). For typical 1541 G64 only the
- * first 84 will have non-null entries (half-tracks 1..84); higher
- * slots stay null (1571 tracks 85+).
+ * Returns 168 slots (MAX_GCR_TRACKS). G64 table index `i` corresponds
+ * to VICE `half_track = i + 2` / physical track `(i + 2) / 2`.
+ * Stock 1541 G64 fills the first 84 slots (half-tracks 1..84); the
+ * rest stay null (above 1541 disk extent).
  */
 export function parseG64Image(bytes: Uint8Array): G64Image {
   const header = parseG64Header(bytes);
@@ -129,7 +136,26 @@ export function parseG64Image(bytes: Uint8Array): G64Image {
   for (let i = 0; i < N; i++) {
     const trackOffset = readU32LE(bytes, trackOffsetTable + i * 4);
     const speedRaw = readU32LE(bytes, speedOffsetTable + i * 4);
-    if (trackOffset === 0) continue; // no data on this half-track
+    // VICE half_track passed in is (i + 2). Physical track for the
+    // raw-size lookup is `half_track / 2 = (i + 2) >> 1`.
+    const physicalTrack = (i + 2) >> 1;
+
+    if (trackOffset === 0) {
+      // VICE fsimage-gcr.c:170-173 — allocate canonical raw track with
+      // 0x55 fill so the head sees a defined no-sync surface when it
+      // steps onto an empty half-track.
+      const rawSize = rawTrackSizeD64(physicalTrack);
+      const data = new Uint8Array(rawSize);
+      data.fill(0x55);
+      tracks[i] = {
+        halfTrack: i + 1,
+        byteLength: rawSize,
+        bitLength: rawSize * 8,
+        speedZoneRaw: speedRaw,
+        data,
+      };
+      continue;
+    }
 
     // Per VICE fsimage_gcr_read_half_track: 2-byte LE track_len, then raw bytes.
     if (trackOffset + 2 > bytes.length) {
