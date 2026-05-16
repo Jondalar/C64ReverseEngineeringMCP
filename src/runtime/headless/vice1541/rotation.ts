@@ -255,7 +255,7 @@ function rotation_1541_simple(drive: DriveContext): void {
   }
 }
 
-/** VICE rotation_rotate_disk(). */
+/** VICE rotation_rotate_disk() (rotation.c:1106-1124). */
 export function rotation_rotate_disk(diskunit: DiskUnitContext): void {
   __rotationCounters.rotate_disk++;
   const drive = diskunit.drives[0];
@@ -264,8 +264,21 @@ export function rotation_rotate_disk(diskunit: DiskUnitContext): void {
     drive.reqRefCycles = 0;
     return;
   }
-  // No wobble in 611.6. complicatedImageLoaded stays 0 until 611.7.
-  // p64ImageLoaded stays 0 (stub).
+  // VICE: dptr->complicated_image_loaded → rotation_1541_gcr_cycle
+  // (P64 path → rotation_1541_p64_cycle). The complex GCR engine is
+  // NOT ported in 611.6/611.7d (lands when needed, ~570 LOC of VICE
+  // rotation.c:572-617 + supporting helpers). Per Codex 17:39 review
+  // the G64 attach path must NOT silently fall back to the simple
+  // engine — fail loudly here so the missing port is visible.
+  if (drive.complicatedImageLoaded) {
+    throw new Error(
+      "[VICE1541] rotation_1541_gcr_cycle not implemented yet " +
+        "(Spec 611 phase 611.7+ — needed by G64/G71/P64 image types). " +
+        "Drive uses complicated_image_loaded=1; simple engine is not a " +
+        "valid substitute. Land the complex engine before depending on " +
+        "G64 rotation in this phase.",
+    );
+  }
   rotation_1541_simple(drive);
 }
 

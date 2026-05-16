@@ -85,26 +85,55 @@ check("(k) drive_writeprotect_sense returns false (protected) after WP set",
 drive1541.setWriteProtect(false);
 check("(l) setWriteProtect(false): drive.readOnly = 0", drv.readOnly === 0);
 
-// --- detachDisk ---
+// --- detachDisk (VICE-shape per driveimage.c:271-283) ---
+const preDetachClk = drive1541.diskunit.clkPtr.value;
+drive1541.setWriteProtect(true); // verify readOnly resets on detach
 drive1541.detachDisk();
-check("(m) detachDisk: drive.gcr = null", drv.gcr === null);
+check("(m) detachDisk: drive.gcr object PRESERVED (VICE keeps gcr_t)",
+  drv.gcr !== null);
+check("(m.1) detachDisk: every drive.gcr.tracks[i] cleared to {data:null,size:0}",
+  drv.gcr.tracks.every((t) => t.data === null && t.size === 0));
 check("(n) detachDisk: gcrImageLoaded = 0", drv.gcrImageLoaded === 0);
-check("(o) detachDisk: gcrTrackStartPtr = null", drv.gcrTrackStartPtr === null);
-check("(p) detachDisk: attachDetachClk set", drv.attachDetachClk > 0);
+check("(n.1) detachDisk: complicatedImageLoaded = 0", drv.complicatedImageLoaded === 0);
+check("(n.2) detachDisk: readOnly reset to 0 (VICE drive_image_detach)", drv.readOnly === 0);
+check("(o) detachDisk: gcrTrackStartPtr = null (driveSetHalfTrack post-clear)",
+  drv.gcrTrackStartPtr === null);
+check("(p) detachDisk: detachClk = current clk (NOT attachDetachClk)",
+  drv.detachClk === preDetachClk && drv.attachDetachClk === 0,
+  `detachClk=${drv.detachClk} attachDetachClk=${drv.attachDetachClk}`);
 
-// --- G64 attach ---
-// Reset HT to 36 (the via2 motor-on PB write earlier may have stepped
-// the head via the VICE stepper formula; for this synthetic test we
-// want the well-known directory half-track).
-drv.currentHalfTrack = 36;
+// --- attach-after-detach: VICE drive_image_attach derives
+//     attach_detach_clk from prior detach_clk ---
+drv.currentHalfTrack = 36; // reset HT for predictable slot
 const g64 = new Uint8Array(readFileSync(G64_PATH));
 drive1541.attachDisk({ kind: "g64", bytes: g64, readOnly: false });
-check("(q) attachDisk(G64): drive.gcr non-null", drv.gcr !== null);
+check("(q) attachDisk(G64): drive.gcr non-null",
+  drv.gcr !== null && drv.gcr.tracks.some((t) => t.data !== null));
+check("(q.1) attachDisk(G64) sets complicatedImageLoaded = 1 (VICE driveimage.c:222-224)",
+  drv.complicatedImageLoaded === 1);
+check("(q.2) attach-after-detach derives attachDetachClk from prior detachClk",
+  drv.attachDetachClk === preDetachClk && drv.detachClk === 0,
+  `attachDetachClk=${drv.attachDetachClk} detachClk=${drv.detachClk}`);
 const t18SlotG64 = drv.gcr.tracks[drv.currentHalfTrack - 2];
 check("(r) attachDisk(G64): current half-track slot has motm data",
   t18SlotG64.data !== null && t18SlotG64.size > 6000);
 check("(s) attachDisk(G64): gcrTrackStartPtr === gcr.tracks[currentHalfTrack-2].data",
   drv.gcrTrackStartPtr === t18SlotG64.data);
+
+// --- G64 rotation path MUST throw loudly (complex engine unported) ---
+// rotation_byte_read first walks the attachClk + attachDetachClk
+// decay windows; only when both are 0 does it call rotation_rotate_disk.
+// Bypass the windows by clearing them so we reach the complex-engine
+// dispatch immediately.
+drv.attachClk = 0;
+drv.attachDetachClk = 0;
+let g64RotThrew = null;
+try {
+  rotation_byte_read(drive1541.diskunit);
+} catch (e) { g64RotThrew = e; }
+check("(s.1) rotation under complicatedImageLoaded=1 throws (complex engine not ported)",
+  g64RotThrew !== null && /complicated|gcr_cycle|611\.7/.test(String(g64RotThrew.message)),
+  g64RotThrew ? g64RotThrew.message.slice(0, 80) : "no throw");
 
 // --- P64 throw ---
 let p64Threw = null;

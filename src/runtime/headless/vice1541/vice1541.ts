@@ -120,20 +120,36 @@ export class Vice1541 implements Drive1541 {
   /**
    * Phase 611.7d: parse media → VICE-shaped 168-slot gcr_t.tracks[] →
    * wire to drive_t.gcr + GCR_image_loaded + attach_clk. Re-point
-   * head via driveSetHalfTrack so rotation_1541_simple reads real
-   * GCR bytes from the current track.
+   * head via driveSetHalfTrack.
+   *
+   * VICE `driveimage.c:222-224` sets `complicated_image_loaded = 1`
+   * for G64/G71/P64 image types (= image format carries pre-encoded
+   * GCR with arbitrary gap/sync placement). D64 stays at 0 because
+   * encodeD64ToGcrTracks produces VICE-canonical sector-aligned
+   * tracks the simple engine can walk. Per Codex 17:39 review the
+   * G64 path must NOT silently use the simple engine; the missing
+   * `rotation_1541_gcr_cycle` port is enforced as a loud throw in
+   * `rotation_rotate_disk` when complicatedImageLoaded is set.
+   *
+   * VICE `drive_image_attach()` derives `attach_detach_clk` from
+   * `detach_clk > 0` (= the drive was just detached, so honour the
+   * detach decay window). We preserve the same shape: if a prior
+   * detach set `detachClk`, that becomes `attachDetachClk` now.
    */
   attachDisk(media: Drive1541Media): void {
     const drive = this.diskunit.drives[0];
     if (!drive) throw new Error("[VICE1541] attachDisk: drive slot 0 unallocated");
 
     let tracks: Array<{ data: Uint8Array | null; size: number }>;
+    let isComplicated = 0;
     if (media.kind === "d64") {
       probeD64(media.bytes); // throws on bad size
       tracks = encodeD64ToGcrTracks(media.bytes);
+      isComplicated = 0;
     } else if (media.kind === "g64") {
       const img = parseG64Image(media.bytes);
       tracks = g64ToGcrTracks(img);
+      isComplicated = 1;
     } else {
       // P64 = throwing stub per Spec 611 §2 P64 policy.
       throw new Error(
@@ -147,29 +163,55 @@ export class Vice1541 implements Drive1541 {
       );
     }
 
+    const nowClk = this.diskunit.clkPtr.value;
     const gcr: GcrImage = { tracks };
     drive.gcr = gcr;
     drive.gcrImageLoaded = 1;
+    drive.complicatedImageLoaded = isComplicated;
+    drive.p64ImageLoaded = 0;
     drive.readOnly = media.readOnly ? 1 : 0;
-    // VICE attach_clk decay: drive sees no data until DRIVE_ATTACH_DELAY
-    // drive cycles have elapsed from the attach.
-    drive.attachClk = this.diskunit.clkPtr.value;
-    drive.attachDetachClk = 0;
+    drive.attachClk = nowClk;
+    // VICE drive_image_attach: when a prior detach is still in its
+    // decay window, the attach picks it up as attach_detach_clk.
+    if (drive.detachClk > 0) {
+      drive.attachDetachClk = drive.detachClk;
+      drive.detachClk = 0;
+    } else {
+      drive.attachDetachClk = 0;
+    }
     // Re-point head: triggers gcrTrackStartPtr / gcrCurrentTrackSize update.
     driveSetHalfTrack(drive, drive.currentHalfTrack, drive.side);
   }
 
+  /**
+   * Phase 611.7d detach per VICE `drive_image_detach()`
+   * (driveimage.c:271-283):
+   *   - Clear each `drive->gcr->tracks[i]` (data → null, size → 0);
+   *     do NOT drop the gcr_t object itself.
+   *   - Set `detach_clk = current_clk`.
+   *   - Clear `GCR_image_loaded` + `P64_image_loaded` (+ complicated).
+   *   - Reset `read_only = 0`.
+   *   - Clear `image`.
+   *   - Call `drive_set_half_track()` to re-point gcrTrackStartPtr.
+   */
   detachDisk(): void {
     const drive = this.diskunit.drives[0];
     if (!drive) return;
-    drive.gcr = null;
+    if (drive.gcr) {
+      for (let i = 0; i < drive.gcr.tracks.length; i++) {
+        drive.gcr.tracks[i] = { data: null, size: 0 };
+      }
+    }
     drive.gcrImageLoaded = 0;
     drive.complicatedImageLoaded = 0;
     drive.p64ImageLoaded = 0;
-    drive.gcrTrackStartPtr = null;
-    drive.gcrCurrentTrackSize = 0;
-    drive.attachDetachClk = this.diskunit.clkPtr.value;
+    drive.readOnly = 0;
+    drive.image = null;
+    drive.detachClk = this.diskunit.clkPtr.value;
     drive.attachClk = 0;
+    // VICE calls drive_set_half_track after the state clear so
+    // gcrTrackStartPtr re-points to the now-empty slot (null).
+    driveSetHalfTrack(drive, drive.currentHalfTrack, drive.side);
   }
 
   setWriteProtect(on: boolean): void {
