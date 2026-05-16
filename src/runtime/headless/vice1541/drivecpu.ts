@@ -47,7 +47,7 @@ import {
 import { Vice1541IecBus } from "./iec-bus.js";
 import { createVia1d, signalVia1Ca1 } from "./via1d.js";
 import type { Via6522 } from "./via6522.js";
-import { createVia2dStub, type Via2dStub } from "./via2d-stub.js";
+import { createVia2d, pulseByteReady } from "./via2d.js";
 
 /** Drive RAM size used by stock 1541 (2 KB at $0000-$07FF). */
 export const DRIVE_RAM_BYTES = 0x0800;
@@ -83,7 +83,7 @@ class Vice1541DriveMemBus implements CpuMemory {
     public readonly ram: Uint8Array,
     public readonly rom: Uint8Array,
     public readonly via1: Via6522,
-    public readonly via2: Via2dStub,
+    public readonly via2: Via6522,
   ) {
     if (ram.length !== DRIVE_RAM_BYTES) {
       throw new Error(
@@ -153,7 +153,7 @@ export class Vice1541DriveCpu {
   readonly cpuIntStatus: InterruptCpuStatus;
   readonly mem: Vice1541DriveMemBus;
   readonly via1: Via6522;
-  readonly via2: Via2dStub;
+  readonly via2: Via6522;
   readonly iecBus: Vice1541IecBus;
   readonly alarms: AlarmContext;
   readonly diskunit: DiskUnitContext;
@@ -184,8 +184,17 @@ export class Vice1541DriveCpu {
       clkPtr: diskunit.clkPtr,
       mynumber: diskunit.mynumber,
     });
-    // VIA2 (disk controller) stays as register-storage stub until 611.5.
-    this.via2 = createVia2dStub(diskunit);
+    // VIA2 (disk controller) — real implementation per Spec 611 phase 611.5.
+    // Rotation is still absent (lands in 611.6); the VIA2 BYTE-READY CA1
+    // edge is driven synthetically via `pulseByteReady()` from the
+    // 611.5 smoke. The cpu SO line wires through here so the V-flag
+    // fast-path fires when rotation eventually drives it for real.
+    this.via2 = createVia2d({
+      diskunit,
+      cpuIntStatus: this.cpuIntStatus,
+      clkPtr: diskunit.clkPtr,
+      setSoLine: (level) => this.cpu.setSoLine(level),
+    });
 
     const loaded = loadVice1541Rom();
     this.romSource = loaded.source;
@@ -204,6 +213,15 @@ export class Vice1541DriveCpu {
     });
 
     this.syncFactor = computeSyncFactor(opts?.hostHz ?? C64_HZ_PAL);
+  }
+
+  /**
+   * Synthetic BYTE-READY pulse helper for 611.5 testing. Real
+   * BYTE-READY pulses land with 611.6 rotation; this helper lets
+   * the smoke verify VIA2 CA1 → IFR + drive CPU SO V-flag wiring.
+   */
+  pulseByteReady(): void {
+    pulseByteReady(this.via2, (level) => this.cpu.setSoLine(level));
   }
 
   /**
