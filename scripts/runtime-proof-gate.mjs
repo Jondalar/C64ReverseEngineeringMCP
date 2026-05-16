@@ -100,10 +100,29 @@ if (onlyIdx >= 0) {
     process.exit(2);
   }
 }
-const driveIdx = args.indexOf("--drive1541");
-if (driveIdx >= 0) {
-  flags.drive1541 = args[driveIdx + 1];
+// Resolve --drive1541 / C64RE_DRIVE1541 selector. Accepts:
+//   --drive1541 vice            (space-separated)
+//   --drive1541=vice            (equals form)
+//   C64RE_DRIVE1541=vice        (env var)
+//   ... and the same for "both" / "legacy". Programmatic CLI form
+//   wins over the env var.
+function readDrive1541Selector(argv, env) {
+  for (const a of argv) {
+    if (a.startsWith("--drive1541=")) {
+      return a.slice("--drive1541=".length);
+    }
+  }
+  const i = argv.indexOf("--drive1541");
+  if (i >= 0 && i + 1 < argv.length) {
+    return argv[i + 1];
+  }
+  const e = env.C64RE_DRIVE1541;
+  if (e === "vice" || e === "both" || e === "legacy") {
+    return e;
+  }
+  return "legacy";
 }
+flags.drive1541 = readDrive1541Selector(args, process.env);
 
 // Spec 611 §5 + §7 false-green guard.
 //

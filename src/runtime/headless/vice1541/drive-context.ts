@@ -84,25 +84,35 @@ export interface DriveContext {
 }
 
 /**
- * Build an **allocation-before-init** DriveContext for slot `driveSlot`
- * (1541 uses slot 0). This corresponds to VICE's drive_t **after**
- * `lib_calloc()` but **before** `drive_init()` has run — every field
- * defaults to its zeroed / minimal-correct value.
+ * Build an **allocation + resource-default** DriveContext for slot
+ * `driveSlot` (1541 uses slot 0). This corresponds to VICE's drive_t
+ * **after** `lib_calloc()` but **before** `drive_init()` has run.
  *
- * VICE's `drive_init()` (src/drive/drive.c:239-261) then writes the
- * post-init values:
- *   byte_ready_level = 1
- *   byte_ready_edge  = 1
- *   GCR_write_value  = 0x55
- *   read_write_mode  = 1                       (read mode)
- *   drive_set_half_track(36, 0, drive)         (i.e. currentHalfTrack = 36, side 0)
+ * Strict calloc semantics would zero everything, but two kinds of
+ * fields are non-zero here on purpose:
  *
- * Those post-init writes are NOT performed here. They land in the
- * phase that ports `drive_init()` (currently scheduled with the
- * drivecpu bring-up — Spec 611 phase 611.3). Until then,
- * `createAllocatedDriveContext()` is the source-of-truth pre-init
- * shape and any caller that needs the post-init values must run the
- * init step explicitly.
+ *   1. **TypeScript-required resource defaults.** TS interfaces cannot
+ *      hold `undefined` numeric fields; the calloc-equivalent is the
+ *      minimal-correct constant default for the field type. The
+ *      following are *not* drive_init() writes — they are resource
+ *      defaults established by the surrounding code (drive type table,
+ *      resource registration) at object-allocation time and would be
+ *      present in VICE's struct before `drive_init()` runs anyway:
+ *        rpm            = 30000  (NOMINAL_RPM; from drive type table)
+ *        readWriteMode  = 1      (RW_MODE_READ; head defaults to read)
+ *        trueEmulation  = 1      (TDE on; matches VICE TRUE_DRIVE_EMU=1)
+ *
+ *   2. **drive_init() post-init writes are NOT performed here.** VICE's
+ *      `drive_init()` (src/drive/drive.c:239-261) then writes:
+ *        byte_ready_level = 1
+ *        byte_ready_edge  = 1
+ *        GCR_write_value  = 0x55
+ *        drive_set_half_track(36, 0, drive)   (currentHalfTrack = 36)
+ *      Those land in the phase that ports `drive_init()` — currently
+ *      scheduled with the drivecpu bring-up (Spec 611 phase 611.3).
+ *      Until then, `createAllocatedDriveContext()` is the source-of-
+ *      truth pre-init shape; any caller that needs the post-init
+ *      values must run the init step explicitly.
  *
  * Caller is also responsible for wiring `.diskunit` back-pointer
  * after inserting the returned object into
