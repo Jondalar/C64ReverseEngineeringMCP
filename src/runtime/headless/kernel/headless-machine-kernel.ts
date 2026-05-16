@@ -649,71 +649,101 @@ export class HeadlessMachineKernel implements MachineKernel {
   }
 
   /**
-   * Spec 611 phase 611.7e.4 — narrow bridge: when drive1541="vice",
-   *   - C64 $DD00 write (= IecBus.setC64Output) mirrors to
-   *     Vice1541.iecLineDrive() so the new drive sees the C64 line
-   *     state.
-   *   - C64 $DD00 read (= IecBus.buildC64InputBits) substitutes
-   *     drv_data[8] from Vice1541.iecLineSample() so the C64 sees
-   *     the vice drive's pulls.
-   *   - IecBus.pushFlush.{one,all} re-targets to Vice1541.catchUpTo
-   *     instead of legacy catchUpDrive. No silent legacy fallback.
+   * Spec 611 phase 611.7e.4 — narrow bridge per Codex 19:52 + 22:20
+   * reviews. When `drive1541="vice"`:
    *
-   * IecBus public methods are *wrapped* not *replaced*; the original
-   * legacy semantics still execute (legacy DriveCpu still ticks per
-   * the pushFlush.original — but VICE drv_data[8] overlay makes its
-   * contribution invisible to the C64 read). This keeps IecBus core
-   * formulas unchanged while re-routing the device end.
+   *   1. `IecBus.setC64Output` POST-hook mirrors the **C64-side
+   *      intent** (from `core.cpu_bus` bits, NOT combined-bus
+   *      getters) to `Vice1541.iecLineDrive(...)`. Combined-bus
+   *      lines include drive pulls and would feed back into the
+   *      C64-side contribution.
+   *   2. `IecBus.pushFlush.{one,all}` re-targets:
+   *        a. `vice.catchUpTo(clk)`
+   *        b. `vice.flush()`
+   *        c. overlay `core.drv_data[8]` from `vice.iecLineSample()`
+   *        d. `core.recompute_drv_bus(8)`
+   *        e. `core.iec_update_ports()`
+   *      This is where the drv-side overlay lives (per Codex review)
+   *      — after vice catch-up/flush so the sample is fresh, and the
+   *      cpu_port recompute makes the `$DD00` read return the
+   *      correct combined value.
+   *      No silent legacy fallback (legacy DriveCpu still ticks via
+   *      its own scheduler, but no longer drives the bus from the
+   *      C64's view).
+   *
+   * IecBusCore formulas + CIA2 PA inversion/DDR + setC64Output/
+   * buildC64InputBits semantics + pushFlush invocation order + ATN
+   * edge polarity — ALL unchanged.
    */
   private installVice1541Bridge(vice: Drive1541): void {
     const iec = this.iecBus;
-    const core = (iec as unknown as { core: { drv_data: Record<number, number> } }).core;
+    const core = (iec as unknown as {
+      core: {
+        cpu_bus: number;
+        drv_data: Record<number, number>;
+        recompute_drv_bus(unit: number): void;
+        iec_update_ports(): void;
+      };
+    }).core;
 
-    // 1. pushFlush re-target.
+    // Encode Vice1541.iecLineSample() into VICE drv_data[8] byte
+    // form: bit 1 = data, bit 3 = clk, bit 4 = atna; 1 = released,
+    // 0 = pulled. 0xe5 overlay preserves non-IEC bits (driveid stays
+    // high). Used by the pushFlush wrapper below.
+    function viceSampleToDrvData8(): number {
+      const s = vice.iecLineSample();
+      return (
+        (s.drv_data_pull ? 0 : 0x02) |
+        (s.drv_clk_pull ? 0 : 0x08) |
+        (s.drv_atna_pull ? 0 : 0x10) |
+        0xe5
+      ) & 0xff;
+    }
+
+    // 1. pushFlush re-target: vice.catchUpTo + flush + overlay +
+    //    recompute. Codex 19:52: "the clean place is likely inside
+    //    the new pushFlush.one/all wrapper after the vice
+    //    catch-up/flush. That preserves the existing IecBus formulas
+    //    while updating the cached bus state at the right time."
     iec.pushFlush = {
       one: (unit, clk, _cs) => {
         if (unit !== 8) return; // single-1541 baseline
         vice.catchUpTo(clk);
         vice.flush();
+        core.drv_data[8] = viceSampleToDrvData8();
+        core.recompute_drv_bus(8);
+        core.iec_update_ports();
       },
       all: (clk, _cs) => {
         vice.catchUpTo(clk);
         vice.flush();
+        core.drv_data[8] = viceSampleToDrvData8();
+        core.recompute_drv_bus(8);
+        core.iec_update_ports();
       },
     };
 
-    // 2. $DD00 write — wrap setC64Output post-hook.
+    // 2. $DD00 write — wrap setC64Output post-hook. Pass C64-side
+    //    INTENT from core.cpu_bus, NOT combined-bus getters.
+    //    Per VICE iec_update_cpu_bus (c64iec.c) + Codex 19:52:
+    //      cpu_bus bit 4 (0x10) = ATN released  (1 = C64 not asserting)
+    //      cpu_bus bit 6 (0x40) = CLK released
+    //      cpu_bus bit 7 (0x80) = DATA released
     const origSetC64Output = iec.setC64Output.bind(iec);
     iec.setC64Output = (cia2Pa, ddrMask, effClk, cs) => {
       origSetC64Output(cia2Pa, ddrMask, effClk, cs);
-      // After IecBus updates its cpu_bus state, mirror the resulting
-      // bus lines to Vice1541. iec.atnLine/clkLine/dataLine are the
-      // post-update line state (true = released = HIGH per Spec 611 §3a).
       vice.iecLineDrive({
-        bus_atn: iec.atnLine,
-        bus_clk: iec.clkLine,
-        bus_data: iec.dataLine,
+        bus_atn: (core.cpu_bus & 0x10) !== 0,
+        bus_clk: (core.cpu_bus & 0x40) !== 0,
+        bus_data: (core.cpu_bus & 0x80) !== 0,
       });
     };
 
-    // 3. $DD00 read — wrap buildC64InputBits pre-hook to overlay
-    //    Vice1541's drv contribution into IecBus's drv_data[8] before
-    //    the legacy formula runs.
-    const origBuildC64InputBits = iec.buildC64InputBits.bind(iec);
-    iec.buildC64InputBits = (effClk, cs) => {
-      const sample = vice.iecLineSample();
-      // VICE drv_data[8] convention: bit 1 = data, bit 3 = clk,
-      // bit 4 = atna; 1 = released, 0 = pulled. Preserve the
-      // remaining bits (driveid 0xe5 mask: 0b1110_0101) that the
-      // legacy formula expects from the drive side.
-      const dd8 =
-        (sample.drv_data_pull ? 0 : 0x02) |
-        (sample.drv_clk_pull ? 0 : 0x08) |
-        (sample.drv_atna_pull ? 0 : 0x10) |
-        0xe5; // preserve non-IEC bits (driveid stays high)
-      core.drv_data[8] = dd8 & 0xff;
-      return origBuildC64InputBits(effClk, cs);
-    };
+    // 3. buildC64InputBits wrapper REMOVED. Per Codex 19:52 the
+    //    overlay must happen inside pushFlush (after vice catch-up/
+    //    flush). buildC64InputBits triggers pushFlush.all, which now
+    //    performs the overlay + recompute, so the original method's
+    //    subsequent reads of core.cpu_port already reflect Vice1541.
   }
 
   /**

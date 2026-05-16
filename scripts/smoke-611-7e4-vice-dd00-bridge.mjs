@@ -65,17 +65,33 @@ function check(label, ok, detail) {
 
   drivenCall = null;
   iec.setC64Output(0x08, 0x3f, 1, true); // bit 3 set → assert ATN only
-  // Note: ATN asserted triggers ATN-AND-gate → DATA pulled low via
-  // the drive's ATNA default. So vice sees bus_data=false too. CLK
-  // stays released. This is the correct VICE-shape interaction —
-  // verifies the bridge passes the COMBINED bus state, not just the
-  // raw C64 OUT bits.
-  check("(c) setC64Output(ATN bit set) → vice.iecLineDrive(bus_atn=false, bus_data=false via ATN-AND-gate)",
+  // Per Codex 19:52: bridge must pass C64-side INTENT from core.cpu_bus,
+  // NOT combined bus state. So bus_data MUST stay true (= C64 released)
+  // even though ATN-AND-gate would pull combined data low. ATN+CLK only.
+  check("(c) setC64Output(ATN-only) → vice.iecLineDrive(bus_atn=false, bus_clk=true, bus_data=true) [C64 INTENT only, no combined-bus feedback]",
     drivenCall !== null
     && drivenCall.bus_atn === false
     && drivenCall.bus_clk === true
-    && drivenCall.bus_data === false,
+    && drivenCall.bus_data === true,
     drivenCall ? JSON.stringify(drivenCall) : "no call");
+
+  // (c.1) No-feedback proof per Codex 19:52: force vice drive DATA/CLK
+  // pull low, then C64 release-all $DD00. Vice's c64DataReleased /
+  // c64ClkReleased must stay true (no combined feedback into intent).
+  const viceIecForFeedback = vice.driveCpu.iecBus;
+  viceIecForFeedback.drvDataReleased = false; // drive pulls DATA
+  viceIecForFeedback.drvClkReleased = false;  // drive pulls CLK
+  drivenCall = null;
+  iec.setC64Output(0x00, 0x3f, 2, true); // C64 releases everything
+  check("(c.1) C64 release-all with vice drive pulling DATA/CLK → C64-side bus_data/bus_clk STILL true (no combined feedback)",
+    drivenCall !== null
+    && drivenCall.bus_clk === true
+    && drivenCall.bus_data === true,
+    drivenCall ? JSON.stringify(drivenCall) : "no call");
+  check("(c.2) vice c64DataReleased + c64ClkReleased stay true after the release-all setC64Output",
+    viceIecForFeedback.c64DataReleased === true
+    && viceIecForFeedback.c64ClkReleased === true,
+    `c64DataReleased=${viceIecForFeedback.c64DataReleased} c64ClkReleased=${viceIecForFeedback.c64ClkReleased}`);
 
   // --- $DD00 READ bridge: vice.iecLineSample overlays drv_data[8] ---
   // Force Vice1541's IEC bus state to a known config (drive pulling DATA),
@@ -91,16 +107,42 @@ function check(label, ok, detail) {
     sample.drv_data_pull === true && sample.drv_clk_pull === false && sample.drv_atna_pull === false,
     JSON.stringify(sample));
 
-  // Now read input bits via the wrapped buildC64InputBits.
-  // The wrapper writes drv_data[8] from sample BEFORE calling original.
-  iec.buildC64InputBits(2, true);
+  // Per Codex 19:52: overlay must happen inside pushFlush AFTER
+  // vice catch-up/flush + recompute. buildC64InputBits triggers
+  // pushFlush.all internally — the returned `cpu_port` value must
+  // reflect vice's drive pulls (post-recompute), not just the
+  // drv_data[8] assignment.
+  //
+  // To prove the overlay isolated from catch-up side effects,
+  // stub vice.catchUpTo + vice.flush as no-ops so the manually-
+  // forced viceIec state persists through pushFlush.
+  const origCatchE = vice.catchUpTo.bind(vice);
+  const origFlushE = vice.flush.bind(vice);
+  vice.catchUpTo = () => 0;
+  vice.flush = () => {};
+  const inputBits = iec.buildC64InputBits(2, true);
   const core = iec.core;
   const dd8 = core.drv_data[8];
-  // Expected drv_data[8]: data pulled (bit 1 = 0), clk released (bit 3 = 1),
-  // atna released (bit 4 = 1), plus 0xe5 overlay.
-  // dd8 = 0 (data pulled) | 0x08 (clk released) | 0x10 (atna released) | 0xe5 = 0xfd.
-  check("(e) buildC64InputBits overlays drv_data[8] from Vice1541 (= $fd: data pulled, clk+atna released)",
+  // After pushFlush.all: vice sample (drvDataReleased=false,
+  // drvClkReleased=true, drvAtnaReleased=true) overlays to dd8 = 0 |
+  // 0x08 | 0x10 | 0xe5 = $fd. recompute_drv_bus(8) + iec_update_ports
+  // update cpu_port so buildC64InputBits returns vice-derived bits.
+  check("(e) pushFlush overlays drv_data[8] from Vice1541 (=$fd: data pulled, clk+atna released)",
     dd8 === 0xfd, `dd8=$${dd8.toString(16)}`);
+  // Returned value = core.cpu_port (VICE convention: bit 7 = DATA,
+  // bit 6 = CLK, bit 4 = ATN; 1 = released, 0 = pulled). With vice
+  // drive pulling DATA → cpu_port bit 7 = 0.
+  check("(e.1) RETURNED $DD00 cpu_port reflects vice DATA pull (bit 7 cleared)",
+    (inputBits & 0x80) === 0,
+    `inputBits=$${inputBits.toString(16)} (bit 7 = DATA; vice forced data-pull)`);
+  // Release vice drive pulls + re-read. Bit 7 should set.
+  viceIec.drvDataReleased = true;
+  const inputBits2 = iec.buildC64InputBits(3, true);
+  check("(e.2) After vice releases DATA, RETURNED cpu_port bit 7 sets",
+    (inputBits2 & 0x80) !== 0,
+    `inputBits2=$${inputBits2.toString(16)}`);
+  vice.catchUpTo = origCatchE;
+  vice.flush = origFlushE;
 
   // --- pushFlush.one re-targets to vice.catchUpTo ---
   let catchCall = null;
