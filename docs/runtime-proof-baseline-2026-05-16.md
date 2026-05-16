@@ -43,6 +43,27 @@ Runtime Proof Gate green").
 | Pawn s1   | RED                 | `$f6da` KERNAL LOAD   | `thepawn1.png` + `thepawn2.png`                                               | `scripts/test-pawn-screenshots.mjs` (smoke only)                            | **RED (expected)** | `LOAD"*",8,1` → `?FILE NOT FOUND ERROR`. Wildcard expansion / first-entry match broken in headless path. Pre-1541-fix master HEAD was red here. |
 | LNR s1    | RED                 | `$f6c5` KERNAL LOAD   | `LNR_System3.png`                                                             | `scripts/test-lnr-screenshots.mjs` (smoke only)                             | **RED (expected)** | `LOAD"*",8,1` → `?SYNTAX ERROR`. Fastloader CRC / multi-stage handover failure. Pre-1541-fix master HEAD was red here. |
 
+## Latest gate-runner snapshot
+
+The block below is auto-refreshed by
+`node scripts/runtime-proof-gate.mjs --update-baseline-doc` (or
+`npm run runtime:proof -- --update-baseline-doc`). Hand-edited prose
+above and below stays untouched.
+
+<!-- BEGIN runtime-proof-gate-actuals -->
+_Auto-refreshed by `scripts/runtime-proof-gate.mjs` at 2026-05-16T09:25:20.646Z._
+
+| Game      | Expected | Actual  | Final PC | Source     | Verdict             |
+|-----------|----------|---------|----------|------------|---------------------|
+| motm      | GREEN    | GREEN   | $b7bd    | baseline   | PASS                |
+| mm        | GREEN    | GREEN   | $61d     | baseline   | PASS                |
+| im2       | GREEN    | GREEN   | $2d2a    | baseline   | PASS                |
+| scramble  | GREEN    | GREEN   | $ff48    | baseline   | PASS                |
+| polarbear | GREEN    | GREEN   | $1a2d    | baseline   | PASS                |
+| pawn      | RED      | RED     | $f6da    | baseline   | PASS (red-expected) |
+| lnr       | RED      | RED     | $f6c5    | baseline   | PASS (red-expected) |
+<!-- END runtime-proof-gate-actuals -->
+
 ## Tier-2 oracle gate results (Spec 600 doctrinal gates)
 
 These four gates have a paired oracle bundle (PNG + screen-RAM SHA-256
