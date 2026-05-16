@@ -2,7 +2,7 @@
 
 **Status:** ACTIVE (2026-05-16)
 **Branch:** `codex/1541-runtime-gates`
-**Baseline:** `runtime-green-2026-05-16` → commit `7bfba28`
+**Baseline:** `runtime-green-2026-05-16` → master HEAD `87b4957` (Merge vic_bugs: Specs 425-429)
 **Replaces:** Epic 440 (Specs 440-452, now superseded / quarantine).
 
 ## Goal

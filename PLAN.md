@@ -2,8 +2,10 @@
 
 > **Runtime-Proof-Gate Reset 2026-05-16.**
 >
-> Tag `runtime-green-2026-05-16` at commit `7bfba28` ("Spec 424 LED")
-> is the frozen runtime baseline. Branch `codex/1541-runtime-gates`
+> Tag `runtime-green-2026-05-16` at master HEAD commit `87b4957`
+> ("Merge vic_bugs: Specs 425-429 = CLK_INC + VIC bank + IM2 fix +
+> LED VICE 1:1") is the frozen runtime baseline.
+> Branch `codex/1541-runtime-gates`
 > is the active gate-work branch. Branch `quarantine/1541-literal-vice`
 > holds the burned 440-series implementation attempt as research /
 > material lager only — **not** a merge candidate.

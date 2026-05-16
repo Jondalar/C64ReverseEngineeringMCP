@@ -8,8 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Gates defined in `specs/600-runtime-proof-gates.md` and the
 oracle PNGs under `samples/screenshots/proof/`.
 
-- Tag `runtime-green-2026-05-16` (= commit `7bfba28` "Spec 424 LED")
-  is the frozen runtime baseline.
+- Tag `runtime-green-2026-05-16` (= master HEAD commit `87b4957`,
+  "Merge vic_bugs: Specs 425-429 = CLK_INC + VIC bank + IM2 fix +
+  LED VICE 1:1") is the frozen runtime baseline.
 - Branch `codex/1541-runtime-gates` is the active gate-work branch.
 - Branch `quarantine/1541-literal-vice` is **quarantined material
   lager**. Do not advance. Do not merge. Only cherry-pick `-n` and

@@ -1,8 +1,11 @@
 # Spec 601 — Baseline Truth Table
 
 **Status:** ACTIVE (2026-05-16)
-**Baseline:** `runtime-green-2026-05-16` → commit `7bfba28`
-("Spec 424 refined — Drive LED VICE 1:1 PWM model")
+**Baseline:** `runtime-green-2026-05-16` → master HEAD `87b4957`
+("Merge vic_bugs: Specs 425-429 = CLK_INC + VIC bank + IM2 fix +
+LED VICE 1:1"). The pre-merge tip `7bfba28` ("Spec 424 LED") is the
+historical pre-merge commit; the merged 425-429 set (CLK_INC + VIC
+bank + **IM2 fix** + LED 1:1) is required for IM2 to be green.
 **Replaces:** `docs/runtime-gates-truth-table.md` informal snapshot.
 
 ## Goal

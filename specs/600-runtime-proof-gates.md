@@ -2,7 +2,7 @@
 
 **Status:** ACTIVE (2026-05-16)
 **Branch:** `codex/1541-runtime-gates`
-**Baseline:** `runtime-green-2026-05-16` → commit `7bfba28`
+**Baseline:** `runtime-green-2026-05-16` → master HEAD `87b4957` (Merge vic_bugs: Specs 425-429)
 **Doc:** `docs/runtime-gates.md` (oracle inventory + script audit)
 **Truth table:** `docs/runtime-gates-truth-table.md`
 
