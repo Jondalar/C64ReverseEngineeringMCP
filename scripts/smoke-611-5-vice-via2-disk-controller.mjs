@@ -73,46 +73,67 @@ check("(h) VIA1 PRB DDRB=0 PRB=0 bus-released ⇒ bits 1/3/4 high",
 
 check("(i) via2 is a Via6522 instance", via2 !== null && typeof via2.signalCa1 === "function");
 
-// VIA2 PB write — motor + LED + stepper
+// VIA2 PB write — motor + LED + VICE-shaped stepper from HT=36.
 if (via2 && drv) {
   via2.write(0x02 /*VIA_DDRB*/, 0xff); // all PB output for the test
-  // motor on (PB.2), LED on (PB.3), stepper phase 00 (PB.0/PB.1=00)
   drv.byteReadyActive = 0; drv.ledStatus = 0;
-  via2.write(0x00 /*VIA_PRB*/, 0b0000_1100); // bits 2+3
+  // Reset to HT=36 baseline (drive_init default).
+  drv.currentHalfTrack = 36;
+  // motor on (PB.2) + LED on (PB.3) + density 00 + stepper bits = (HT-2)&3 = 34&3 = 2
+  // Write motor+LED with stepper position matching current HT first → no movement
+  via2.write(0x00 /*VIA_PRB*/, 0b0000_1110); // bits 1+2+3 = phase 10 (stepper=2), motor, LED
 }
 check("(j) VIA2 PB.2 motor → drive.byteReadyActive has BRA_MOTOR_ON (0x04)",
   drv && (drv.byteReadyActive & 0x04) !== 0,
   drv ? `byteReadyActive=$${drv.byteReadyActive.toString(16)}` : "no drv");
-check("(k) VIA2 PB.3 LED → drive.ledStatus === 1",
-  drv?.ledStatus === 1, drv ? String(drv.ledStatus) : "no drv");
+check("(k) VIA2 PB.3 LED → drive.ledStatus === 1 + BRA_LED",
+  drv?.ledStatus === 1 && (drv.byteReadyActive & 0x08) !== 0);
+check("(k.1) VIA2 store_prb clears byteReadyLevel (VICE :348)",
+  drv?.byteReadyLevel === 0, `byteReadyLevel=${drv?.byteReadyLevel}`);
+check("(k.2) HT=36, stepper-pos=(36-2)&3=2 matches PB.0/PB.1=10 ⇒ no movement",
+  drv?.currentHalfTrack === 36);
 
 // VIA2 PB.4 WPS read = 1 (no disk = not protected); drive.readOnly = 0
 if (via2) {
   via2.write(0x02 /*VIA_DDRB*/, 0x00); // all PB input for WPS read
-  via2.write(0x00 /*VIA_PRB*/, 0x00);
 }
 const via2PbRead = via2?.read(0x00 /*VIA_PRB*/) ?? -1;
 check("(l) VIA2 PB.4 (WPS) reads 1 when drive.readOnly = 0",
   via2PbRead !== -1 && (via2PbRead & 0x10) !== 0,
   `pbRead=$${via2PbRead.toString(16)}`);
 
-// VIA2 stepper PB.0/PB.1 phase transition → currentHalfTrack changes.
-// Set DDRB output, drive phase 00 → 01 (Gray-code +1 = step inward).
+// VIA2 stepper VICE formula: HT=36, oldPos=(36-2)&3=2, newPos=3 (step inward).
+// step_count = (3 - 2) & 3 = 1; gated on motor (PB.2). DDRB all output, motor on.
 const ht0 = drv?.currentHalfTrack ?? -1;
 if (via2 && drv) {
   via2.write(0x02 /*VIA_DDRB*/, 0xff);
-  via2.write(0x00 /*VIA_PRB*/, 0x00); // phase 00 baseline
-  via2.write(0x00 /*VIA_PRB*/, 0x01); // phase 01 → +1 half-track
+  // motor on + stepper newPos=3 → +1 inward
+  via2.write(0x00 /*VIA_PRB*/, 0b0000_0111); // bits 0+1+2 (stepper=3, motor)
 }
 const htAfter1 = drv?.currentHalfTrack ?? -1;
-check("(m) stepper 00→01 increments currentHalfTrack by 1",
+check("(m) VICE stepper +1: HT 36→37 with motor on, newPos=3",
   htAfter1 === ht0 + 1, `before=${ht0} after=${htAfter1}`);
 
-// Reverse step 01 → 00 → step outward (-1).
-if (via2 && drv) via2.write(0x00 /*VIA_PRB*/, 0x00);
+// Reverse: HT=37, oldPos=(37-2)&3=35&3=3. To step -1, newPos=(3-1)&3=2 → stepper=10.
+if (via2 && drv) {
+  via2.write(0x00 /*VIA_PRB*/, 0b0000_0110); // stepper=10 → step_count=(2-3)&3=3 → -1
+}
 const htAfter2 = drv?.currentHalfTrack ?? -1;
-check("(n) stepper 01→00 decrements currentHalfTrack by 1",
+check("(n) VICE stepper -1: HT 37→36 with motor on, oldPos=3 newPos=2",
   htAfter2 === htAfter1 - 1, `before=${htAfter1} after=${htAfter2}`);
+
+// Motor gate: stepper writes WITHOUT motor (PB.2 clear) must NOT move HT.
+const htM0 = drv?.currentHalfTrack ?? -1;
+if (via2 && drv) {
+  // First clear motor; transitions to motor-off, but no stepper change yet
+  via2.write(0x00 /*VIA_PRB*/, 0b0000_0000); // motor off, stepper=0
+  drv.byteReadyActive = 0; // clean state for next check
+  // Now try to step: stepper change without motor → must be gated
+  via2.write(0x00 /*VIA_PRB*/, 0b0000_0011); // stepper=3, motor=0
+}
+const htM1 = drv?.currentHalfTrack ?? -1;
+check("(n.1) motor gate: stepper move with motor-off does NOT change HT",
+  htM1 === htM0, `before=${htM0} after=${htM1}`);
 
 // BYTE-READY pulse → VIA2 IFR.CA1 sets (PCR-adaptive) AND drive CPU V flag.
 const driveCpu = session?.kernel?.drive1541?.driveCpu;

@@ -56,7 +56,7 @@ export type Via6522IrqHook = (asserted: boolean) => void;
 export interface Via6522Backend {
   /** Optional hook called on PRB write (drive PB → IEC bus drv_data). */
   storePb?: (value: BYTE) => void;
-  /** Optional hook for PRA write (unused on 1541 VIA1). */
+  /** Optional hook for PRA write. */
   storePa?: (value: BYTE) => void;
   /** Optional read PB hook for backend-driven bits (returns raw byte;
    *  6522 then masks with DDRB and folds in PRB-out bits per VICE). */
@@ -65,6 +65,12 @@ export interface Via6522Backend {
   readPa?: () => BYTE;
   /** Called when IRQ output state changes (drives cpuIntStatus.setIrq). */
   setIrq: Via6522IrqHook;
+  /** Optional hook fired when CA2 output state changes per PCR config.
+   *  VIA2 1541 uses this to drive BYTE_READY-active. */
+  setCa2?: (state: 0 | 1) => void;
+  /** Optional hook fired when CB2 output state changes per PCR config.
+   *  VIA2 1541 uses this to drive read/write mode. */
+  setCb2?: (state: 0 | 1) => void;
 }
 
 export interface Via6522Options {
@@ -218,7 +224,27 @@ export class Via6522 {
         return;
       }
       case VIA_ACR: { this.acr = v; return; }
-      case VIA_PCR: { this.pcr = v; return; }
+      case VIA_PCR: {
+        this.pcr = v;
+        // VICE viacore.c via_update_ca2_output() / cb2 — when PCR is
+        // configured for "manual" output mode the CA2/CB2 output state
+        // tracks PCR bits directly. Modes:
+        //   PCR bits 1-3 = CA2 control:
+        //     110 (= 0x0c) = manual output low
+        //     111 (= 0x0e) = manual output high
+        //     others       = handshake / pulse modes (not exercised by
+        //                    VIA2 1541; left as no-op for 611.5).
+        //   PCR bits 5-7 = CB2 control (same encoding, shifted).
+        const ca2Mode = (v & 0x0e);
+        if (ca2Mode === 0x0c) this.ca2OutState = 0;
+        else if (ca2Mode === 0x0e) this.ca2OutState = 1;
+        this.backend.setCa2?.(this.ca2OutState);
+        const cb2Mode = (v & 0xe0) >> 4;
+        if (cb2Mode === 0x0c) this.cb2OutState = 0;
+        else if (cb2Mode === 0x0e) this.cb2OutState = 1;
+        this.backend.setCb2?.(this.cb2OutState);
+        return;
+      }
       case VIA_IFR: {
         // Writing 1 clears the bit per VICE viacore.c.
         this.ifr &= ~(v & 0x7f);
