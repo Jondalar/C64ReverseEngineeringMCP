@@ -171,13 +171,16 @@ export class Vice1541 implements Drive1541 {
     drive.p64ImageLoaded = 0;
     drive.readOnly = media.readOnly ? 1 : 0;
     drive.attachClk = nowClk;
-    // VICE drive_image_attach: when a prior detach is still in its
-    // decay window, the attach picks it up as attach_detach_clk.
+    // VICE driveimage.c:186-188 verbatim:
+    //   drive->attach_clk = diskunit_clk[dnr];
+    //   if (drive->detach_clk > (CLOCK)0) {
+    //       drive->attach_detach_clk = diskunit_clk[dnr];
+    //   }
+    // Value assigned is CURRENT clock (= nowClk), not the prior
+    // detachClk. VICE never clears detach_clk in attach; only the
+    // condition uses it.
     if (drive.detachClk > 0) {
-      drive.attachDetachClk = drive.detachClk;
-      drive.detachClk = 0;
-    } else {
-      drive.attachDetachClk = 0;
+      drive.attachDetachClk = nowClk;
     }
     // Re-point head: triggers gcrTrackStartPtr / gcrCurrentTrackSize update.
     driveSetHalfTrack(drive, drive.currentHalfTrack, drive.side);

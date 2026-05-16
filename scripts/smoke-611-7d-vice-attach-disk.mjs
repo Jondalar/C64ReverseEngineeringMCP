@@ -102,18 +102,29 @@ check("(p) detachDisk: detachClk = current clk (NOT attachDetachClk)",
   drv.detachClk === preDetachClk && drv.attachDetachClk === 0,
   `detachClk=${drv.detachClk} attachDetachClk=${drv.attachDetachClk}`);
 
-// --- attach-after-detach: VICE drive_image_attach derives
-//     attach_detach_clk from prior detach_clk ---
+// --- attach-after-detach: VICE driveimage.c:186-188 sets
+//     attach_detach_clk = diskunit_clk (= current attach clock),
+//     NOT the old detach clock. Condition uses detach_clk > 0,
+//     VALUE is current clk. VICE does NOT clear detach_clk in attach. ---
 drv.currentHalfTrack = 36; // reset HT for predictable slot
+// Advance clock between detach and attach so attach != detach time.
+const attachNow = preDetachClk + 5_000_000;
+drive1541.diskunit.clkPtr.value = attachNow;
 const g64 = new Uint8Array(readFileSync(G64_PATH));
 drive1541.attachDisk({ kind: "g64", bytes: g64, readOnly: false });
 check("(q) attachDisk(G64): drive.gcr non-null",
   drv.gcr !== null && drv.gcr.tracks.some((t) => t.data !== null));
 check("(q.1) attachDisk(G64) sets complicatedImageLoaded = 1 (VICE driveimage.c:222-224)",
   drv.complicatedImageLoaded === 1);
-check("(q.2) attach-after-detach derives attachDetachClk from prior detachClk",
-  drv.attachDetachClk === preDetachClk && drv.detachClk === 0,
-  `attachDetachClk=${drv.attachDetachClk} detachClk=${drv.detachClk}`);
+check("(q.2) attachClk = current clock (= attachNow), not detach clock",
+  drv.attachClk === attachNow,
+  `attachClk=${drv.attachClk} attachNow=${attachNow}`);
+check("(q.3) attachDetachClk = current attach clock per VICE driveimage.c:188 (NOT prior detachClk)",
+  drv.attachDetachClk === attachNow && drv.attachDetachClk !== preDetachClk,
+  `attachDetachClk=${drv.attachDetachClk} attachNow=${attachNow} preDetachClk=${preDetachClk}`);
+check("(q.4) VICE never clears detach_clk in attach — detachClk preserved",
+  drv.detachClk === preDetachClk,
+  `detachClk=${drv.detachClk} preDetachClk=${preDetachClk}`);
 const t18SlotG64 = drv.gcr.tracks[drv.currentHalfTrack - 2];
 check("(r) attachDisk(G64): current half-track slot has motm data",
   t18SlotG64.data !== null && t18SlotG64.size > 6000);
