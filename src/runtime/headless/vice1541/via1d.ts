@@ -52,20 +52,27 @@ function storePb(bus: Vice1541IecBus, driven: number): void {
 }
 
 /**
- * VIA1 PB read formula per VICE read_prb (via1d1541.c).
+ * VIA1 PB read formula per VICE `via1d1541.c:337-355` (verbatim):
  *
- *   byte = ((PRB & 0x1A) | drv_port) ^ 0x85
+ *   tmp  = (drv_port ^ 0x85) | 0x1a | driveid;
+ *   byte = (PRB & DDRB) | (tmp & ~DDRB);
  *
- * - `0x1A` mask = bits 1, 3, 4 → preserve the drive's *own* output
- *   bits (DATA_OUT / CLK_OUT / ATNA) so the CPU sees what it drove.
- * - OR with `drv_port` folds in the bus-combined input bits (bit 0
- *   DATA_IN, bit 2 CLK_IN, bit 7 ATN_IN — set when released).
- * - XOR with `0x85` (bits 0, 2, 7) inverts those input bits so the
- *   drive code reads them in the active-low form the 1541 firmware
- *   expects.
+ * The backend returns `tmp` here; the DDR fold lives in
+ * `Via6522.read(VIA_PRB)`. This matters when DDRB configures any of
+ * bits 1/3/4 (DATA_OUT / CLK_OUT / ATNA) as **input**: VICE forces
+ * those input-side defaults *high* via the `| 0x1a` mask, regardless
+ * of the PRB latch. An earlier draft pre-folded PRB into the input
+ * value, which leaked the PRB latch through bits 1/3/4 when they
+ * were configured as input — Codex 14:51 UTC review caught it.
+ *
+ * `driveid` encodes the unit number into bits 5/6 of the PB read (so
+ * the 1541 firmware can read its own device number). Single-1541 on
+ * device 8 ⇒ driveid = 0; device 9 ⇒ 0x20; device 10 ⇒ 0x40;
+ * device 11 ⇒ 0x60. We compute it from the diskunit's `mynumber`
+ * convention (mynumber = unit - 8).
  */
-function readPb(prb: number, bus: Vice1541IecBus): number {
-  return (((prb & 0x1a) | bus.driveDrvPort()) ^ 0x85) & 0xff;
+function readPb(bus: Vice1541IecBus, driveid: number): number {
+  return (((bus.driveDrvPort() ^ 0x85) | 0x1a | driveid) & 0xff);
 }
 
 export interface Via1dOptions {
@@ -74,6 +81,8 @@ export interface Via1dOptions {
   cpuIntStatus: InterruptCpuStatus;
   /** Read-side clock provider so `setIrq` can stamp a release clock. */
   clkPtr: { value: number };
+  /** VICE diskunit `mynumber` (= device-number minus 8). */
+  mynumber?: number;
 }
 
 /**
@@ -84,10 +93,12 @@ export interface Via1dOptions {
 export function createVia1d(opts: Via1dOptions): Via6522 {
   const { bus, cpuIntStatus, clkPtr } = opts;
   const intNum: IntNum = cpuIntStatus.newIntNum("via1d1541");
+  // driveid = mynumber bits packed into PB.5/PB.6 (covers devices 8..11).
+  const driveid = ((opts.mynumber ?? 0) & 0x03) << 5;
 
   const backend: Via6522Backend = {
     storePb: (driven) => storePb(bus, driven),
-    readPb: () => readPb(via1.prb, bus),
+    readPb: () => readPb(bus, driveid),
     setIrq: (asserted) => {
       cpuIntStatus.setIrq(intNum, asserted, clkPtr.value);
     },

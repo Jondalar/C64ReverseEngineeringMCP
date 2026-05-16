@@ -182,6 +182,7 @@ export class Vice1541DriveCpu {
       bus: this.iecBus,
       cpuIntStatus: this.cpuIntStatus,
       clkPtr: diskunit.clkPtr,
+      mynumber: diskunit.mynumber,
     });
     // VIA2 (disk controller) stays as register-storage stub until 611.5.
     this.via2 = createVia2dStub(diskunit);

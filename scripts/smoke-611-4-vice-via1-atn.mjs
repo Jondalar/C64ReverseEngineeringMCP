@@ -73,6 +73,23 @@ const cpuIntStatus = driveCpu?.cpuIntStatus ?? null;
 
 check("(j) via1 is a Via6522 instance", via1 !== null && typeof via1.signalCa1 === "function");
 
+// Codex 14:51 UTC review row — VIA1 PRB read with DDRB=0, PRB=0, bus
+// fully released must yield bits 1/3/4 high per VICE's
+// `tmp = (drv_port ^ 0x85) | 0x1a | driveid` (then DDR-folded). The
+// pre-Codex-fix formula left bits 1/3/4 low here because it pre-folded
+// PRB before XOR.
+if (via1 && drive1541) {
+  drive1541.iecLineDrive({ bus_atn: true, bus_clk: true, bus_data: true }); // all released
+  via1.ddrb = 0x00;
+  via1.prb = 0x00;
+}
+const prbRead = via1?.read(0x00 /*VIA_PRB*/) ?? -1;
+check(
+  "(j.1) DDRB=0,PRB=0,bus-released ⇒ PB read bits 1/3/4 high (VICE | 0x1a)",
+  prbRead !== -1 && (prbRead & 0x1a) === 0x1a,
+  `prbRead=$${prbRead.toString(16)} (expected bits 1/3/4 set ⇒ 0x1a in low nibble; current device=8 driveid=0 ⇒ full byte 0x1a)`,
+);
+
 // iecLineDrive no-throw
 let driveThrew = null;
 try { drive1541?.iecLineDrive({ bus_atn: true, bus_clk: true, bus_data: true }); } catch (e) { driveThrew = e; }
