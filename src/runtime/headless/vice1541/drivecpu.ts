@@ -178,11 +178,13 @@ export class Vice1541DriveCpu {
     this.alarms = alarmContextNew("drivecpu-vice1541");
 
     // VIA1 (IEC interface) — real implementation per Spec 611 phase 611.4.
+    // Spec 611 phase 611.7g — pass drive cpu AlarmContext for T1 alarm.
     this.via1 = createVia1d({
       bus: this.iecBus,
       cpuIntStatus: this.cpuIntStatus,
       clkPtr: diskunit.clkPtr,
       mynumber: diskunit.mynumber,
+      alarmContext: this.alarms,
     });
     // VIA2 (disk controller) — real implementation per Spec 611 phase 611.5.
     // Rotation is still absent (lands in 611.6); the VIA2 BYTE-READY CA1
@@ -199,6 +201,7 @@ export class Vice1541DriveCpu {
         // drive CPU. Mirrors src/drive/drivecpu.c:219-223.
         this.cpu.reg_p = (this.cpu.reg_p | 0x40) & 0xff;
       },
+      alarmContext: this.alarms,
     });
 
     const loaded = loadVice1541Rom();
@@ -310,13 +313,12 @@ export class Vice1541DriveCpu {
         // CPU jammed or doing nothing — bail rather than spin.
         break;
       }
-      // Spec 611 phase 611.7f.10 (Codex 10:10 + 10:16) — service VIA
-      // timers at drive-clock time. T1 underflow must set IFR_T1 +
-      // raise IRQ independent of any register read. Both VIA1 and
-      // VIA2 share the chip core; both need servicing.
+      // Spec 611 phase 611.7g — alarm-based T1 (Codex 12:25) replaces
+      // the 611.7f.10 per-instruction serviceTimers polling. T1 zero
+      // alarm is dispatched by Cpu65xxVice's per-cycle alarm loop at
+      // the exact drive clock, matching VICE viacore_t1_zero_alarm.
+      // Keep clkPtr sync for code that polls clkPtr directly.
       this.diskunit.clkPtr.value = this.cpu.clk;
-      this.via1.serviceTimers(this.cpu.clk);
-      this.via2.serviceTimers(this.cpu.clk);
       if (++safety > EXECUTE_SAFETY_CAP) break;
     }
     this.diskunit.clkPtr.value = this.cpu.clk;

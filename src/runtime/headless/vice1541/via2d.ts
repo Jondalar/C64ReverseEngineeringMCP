@@ -57,6 +57,8 @@ export interface Via2dOptions {
   /** Called by set_ca2 for VICE's direct `cpu->set_overflow(cpu)` path
    *  (via2d.c:76). Sets V flag synchronously, not via SO toggle. */
   setOverflowFlag: () => void;
+  /** Spec 611 phase 611.7g — drive cpu AlarmContext for T1 alarm. */
+  alarmContext?: import("../alarm/alarm-context.js").AlarmContext;
 }
 
 /**
@@ -225,8 +227,11 @@ export function createVia2d(opts: Via2dOptions): Via6522 {
   };
 
   // Spec 611 phase 611.7f.9 — pass clkPtr so VIA2 T1 timer also has a
-  // clock reference (1541 ROM may use T1 on either VIA).
-  const via2 = new Via6522({ backend, label: "via2d1541", clkPtr });
+  // clock reference. Spec 611 phase 611.7g — pass alarmContext for
+  // VICE-canonical alarm-based T1.
+  const via2 = new Via6522({
+    backend, label: "via2d1541", clkPtr, alarmContext: opts.alarmContext,
+  });
   return via2;
 }
 

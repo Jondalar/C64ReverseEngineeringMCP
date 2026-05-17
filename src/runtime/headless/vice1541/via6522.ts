@@ -15,6 +15,13 @@
 // the IEC ATN/CA1 IRQ path to function, not a full chip emulation.
 
 import { u8, type BYTE } from "../util/uint.js";
+import {
+  alarmNew,
+  alarmSet,
+  alarmUnset,
+  type Alarm,
+  type AlarmContext,
+} from "../alarm/alarm-context.js";
 
 // 6522 register indices (via.h:35-55).
 export const VIA_PRB = 0;
@@ -79,6 +86,10 @@ export interface Via6522Options {
   label?: string;
   /** Spec 611 phase 611.7f.9 — required for T1 timer schedule references. */
   clkPtr?: { value: number };
+  /** Spec 611 phase 611.7g (Codex 12:25) — drive cpu's AlarmContext for
+   * VICE-canonical alarm-based T1 scheduling. Optional for test
+   * harnesses that don't need cycle-exact alarm firing. */
+  alarmContext?: AlarmContext;
 }
 
 /**
@@ -132,14 +143,73 @@ export class Via6522 {
   // (e.g. $E9E2 LDA $180D / AND #$40 / BNE $E9F2 EOI-ack path).
   private t1Latch: number = 0;    // tal: 16-bit latch (T1LL | T1LH<<8)
   private t1ZeroClk: number = 0;  // absolute drive clk when T1 reads 0
+  private t1ReloadClk: number = 0; // t1reload = t1zero + FULL_CYCLE_2 per VICE
   private t1Active: boolean = false;
   private t1OneShotFired: boolean = false;
+  // Spec 611 phase 611.7g — t1_pb7 internal state per VICE viacore.c.
+  // Toggles 0x00 ↔ 0x80 on each t1_zero_alarm fire (viacore.c:1337).
+  // Used by PRB read when ACR_T1_PB7_USED bit set. PRB-output side of
+  // PB7 IS in-scope per Codex 12:25 ("can't hand-wave"); PRB-side
+  // emission is the actual VICE source semantic. 1541 LOAD doesn't
+  // read PB7 from T1 (verified via 7f.21: drive ROM reads $1800 PB7
+  // = ATN_IN, never gates by ACR_T1_PB7_USED) — confirmed PB7 toggle
+  // is internal-only for current 1541 LOAD path; full PRB-side PB7
+  // gating deferred as named follow-up.
+  private t1Pb7: number = 0;
   private clkPtr: { value: number } | undefined;
+  private alarmContext: AlarmContext | undefined;
+  private t1ZeroAlarm: Alarm | null = null;
 
   constructor(opts: Via6522Options) {
     this.backend = opts.backend;
     this.label = opts.label ?? "via6522";
     this.clkPtr = opts.clkPtr;
+    this.alarmContext = opts.alarmContext;
+    // Register T1 zero alarm in the drive cpu's AlarmContext per VICE
+    // viacore_setup (alarm_new + alarm_set on demand) — viacore.c:1306
+    // viacore_t1_zero_alarm is the callback.
+    if (this.alarmContext) {
+      this.t1ZeroAlarm = alarmNew(
+        this.alarmContext,
+        `${this.label}-t1-zero`,
+        (offset: number) => this.t1ZeroAlarmCallback(offset),
+        null,
+      );
+    }
+  }
+
+  /**
+   * VICE viacore_t1_zero_alarm (viacore.c:1306-1342). Fires when
+   * drive cpu clk reaches t1zero. Sets IFR_T1, toggles t1_pb7,
+   * either unsets alarm (one-shot) or re-schedules (free-run).
+   * IRQ pin updated via update_myviairq_rclk(rclk+1) per VICE
+   * comment "extra cycle after the flag before the interrupt happens".
+   */
+  private t1ZeroAlarmCallback(offset: number): void {
+    // VICE: rclk = clk_ptr - offset.
+    const rclk = (this.getClk() - offset) & 0xffffffff;
+    const continuous = (this.acr & 0x40) !== 0; // VIA_ACR_T1_FREE_RUN
+    if (!continuous) {
+      // viacore.c:1316-1318 one-shot mode: alarm_unset, t1zero = 0.
+      // Counter still continues counting down from FFFF per VICE.
+      alarmUnset(this.t1ZeroAlarm!);
+      this.t1OneShotFired = true;
+    } else {
+      // viacore.c:1319-1334 continuous mode: reschedule by full_cycle
+      // (= tal + FULL_CYCLE_2). t1reload tracking deferred per VICE
+      // comment (bug 2203) — not required for 1541 LOAD.
+      const fullCycle = this.t1Latch + 2;
+      this.t1ZeroClk = (this.t1ZeroClk + fullCycle) & 0xffffffff;
+      alarmSet(this.t1ZeroAlarm!, this.t1ZeroClk);
+    }
+    // viacore.c:1337 t1_pb7 toggle.
+    this.t1Pb7 ^= 0x80;
+    // viacore.c:1338-1339 set IFR_T1.
+    this.ifr |= IFR_T1;
+    // viacore.c:1341 update_myviairq_rclk(rclk + 1) — 1-cycle delay
+    // for IRQ propagation after flag set ("extra cycle after the flag
+    // before the interrupt happens").
+    this.updateIrqAtClk((rclk + 1) & 0xffffffff);
   }
 
   /** Current drive clock cycle (from clkPtr if attached; else 0). */
@@ -148,12 +218,16 @@ export class Via6522 {
   }
 
   /**
-   * Lazy-evaluate T1 underflow at the given clk and set IFR_T1 if due.
-   * Called before any IFR/T1CL/T1CH read. Per VICE viacore_t1 semantics.
+   * Spec 611 phase 611.7g (Codex 12:25): retain lazy-eval ONLY as
+   * fallback for harnesses without alarmContext (= legacy smoke
+   * scripts that drive clk manually without dispatching alarms).
+   * Production via1d/via2d both have alarmContext attached, so
+   * alarm-based path is canonical.
    */
   private maybeFireT1AtClk(rclk: number): void {
+    if (this.alarmContext) return; // alarm path is canonical; lazy disabled
     if (!this.t1Active) return;
-    if (rclk < this.t1ZeroClk + 1) return; // underflow not reached yet
+    if (rclk < this.t1ZeroClk + 1) return;
     const continuous = (this.acr & 0x40) !== 0;
     if (continuous || !this.t1OneShotFired) {
       const wasSet = (this.ifr & IFR_T1) !== 0;
@@ -162,9 +236,6 @@ export class Via6522 {
       if (!wasSet) this.updateIrq();
     }
     if (continuous) {
-      // Catch up t1ZeroClk past rclk so next read computes correctly.
-      // Each full cycle = tal + FULL_CYCLE_2 (=2). Reschedule by full
-      // cycles per VICE update_via_t1_latch.
       const fullCycle = this.t1Latch + 2;
       if (fullCycle > 0) {
         while (rclk >= this.t1ZeroClk + 1) {
@@ -386,13 +457,20 @@ export class Via6522 {
         return;
       }
       case VIA_T1CH: {
-        // Update latch HIGH; reload counter; arm; clear IFR_T1.
-        // VICE: tal := T1LL | T1LH<<8; t1zero := rclk+1+tal; t1reload := +2.
+        // VICE viacore.c:747-768 store T1CH:
+        //   T1LH = byte; update_via_t1_latch; t1reload = rclk+1+tal+FULL_CYCLE_2;
+        //   t1zero = rclk+1+tal; alarm_set(t1_zero_alarm, t1zero);
+        //   t1_pb7 = 0; clear IFR_T1; update_myviairq_rclk.
         this.t1Latch = (this.t1Latch & 0x00ff) | ((v & 0xff) << 8);
         const rclk = this.getClk();
         this.t1ZeroClk = rclk + 1 + this.t1Latch;
+        this.t1ReloadClk = this.t1ZeroClk + 2; // FULL_CYCLE_2
         this.t1Active = true;
         this.t1OneShotFired = false;
+        this.t1Pb7 = 0; // viacore.c:763
+        if (this.t1ZeroAlarm) {
+          alarmSet(this.t1ZeroAlarm, this.t1ZeroClk);
+        }
         this.ifr &= ~IFR_T1;
         this.updateIrq();
         return;

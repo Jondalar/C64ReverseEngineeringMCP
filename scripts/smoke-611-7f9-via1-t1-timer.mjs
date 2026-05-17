@@ -88,71 +88,20 @@ clkPtr.value = 134; // counter = 0
 check("After T1CH re-arm at clk=117, at clk=134 (zero) IFR_T1 not yet",
   (via1.read(0x0d) & 0x40) === 0);
 
-clkPtr.value = 135; // underflow tick (FFFF) — IFR_T1 sets now
-const ifrAt135 = via1.read(0x0d) & 0xff;
-check("At clk=t1ZeroClk+1 (135) IFR_T1 set",
-  (ifrAt135 & 0x40) !== 0,
-  `IFR=$${ifrAt135.toString(16)}`);
+// === Contracts 4-7 SUPERSEDED by 7g1 alarm path ===
+// Lazy-eval-on-register-read removed; alarm-based path is canonical
+// per Codex 12:25. See scripts/smoke-611-7g1-via-t1-alarm.mjs.
 
-// === Contract 5: T1CL read clears IFR_T1 ===
-via1.read(0x04); // T1CL read
-const ifrAfterT1CL = via1.read(0x0d) & 0x40;
-check("T1CL read clears IFR_T1", ifrAfterT1CL === 0);
-
-// === Contract 6: one-shot does NOT re-fire ===
-// Same setup, no rewrite of T1CH.
-clkPtr.value = 200; // way past underflow; one-shot already fired
-const ifrAt200 = via1.read(0x0d) & 0x40;
-check("One-shot mode: after T1CL clear + clk advance, IFR_T1 stays clear",
-  ifrAt200 === 0);
-
-// === Contract 7: free-run mode (ACR & 0x40) re-fires ===
-via1.reset();
-clkPtr.value = 0;
-via1.write(0x0b, 0x40); // ACR = $40 = T1 free-run mode
-via1.write(0x04, 0x09); // T1LL = $09 → tal = 9
-via1.write(0x05, 0x00); // T1CH = $00 → latch = 9, t1ZeroClk = 0+1+9 = 10
-// Underflow at clk=11. Cycle = 9 + 2 = 11 cycles per period.
-clkPtr.value = 11;
-const ifrFr1 = via1.read(0x0d) & 0x40;
-check("Free-run: first underflow at clk=11 sets IFR_T1", ifrFr1 !== 0);
-via1.read(0x04); // T1CL read clears IFR
-// Wait full cycle (11 cycles). Next underflow at 11+11 = 22.
-clkPtr.value = 22;
-const ifrFr2 = via1.read(0x0d) & 0x40;
-check("Free-run: second underflow at clk=22 sets IFR_T1 again", ifrFr2 !== 0);
-
-// === Contract 7.5 (Codex 10:16): IFR_T1 sets via serviceTimers() without
-//     any IFR / T1 register read ===
-via1.reset();
-clkPtr.value = 0;
-via1.write(0x04, 0x05); // T1LL = 5
-via1.write(0x05, 0x00); // T1CH = 0 → t1ZeroClk = 0+1+5 = 6; underflow at clk=7
-
-// Advance clk past underflow WITHOUT reading any VIA register.
-clkPtr.value = 50;
-check("Pre-service: raw ifr stays 0 even though clk past underflow",
-  (via1.rawIfr & 0x40) === 0,
-  `rawIfr=$${via1.rawIfr.toString(16)}`);
-// Now service timers explicitly (= drive CPU instruction-boundary hook).
-via1.serviceTimers(clkPtr.value);
-check("Post-serviceTimers: raw ifr has IFR_T1 set WITHOUT any IFR/T1 read",
-  (via1.rawIfr & 0x40) !== 0,
-  `rawIfr=$${via1.rawIfr.toString(16)}`);
-// Also enable IER bit 6 + 7 and verify backend IRQ asserts.
-via1.write(0x0e, 0xc0); // IER = $C0 = enable bit 6 (T1) + set-bit
-// Arm fresh T1, advance, serviceTimers; check irqAsserted goes true.
-let lastIrqState = false;
-via1.backend.setIrq = (asserted) => { lastIrqState = asserted; };
-via1.write(0x04, 0x03); // T1LL = 3
-via1.write(0x05, 0x00); // T1CH = 0 → t1ZeroClk = 50+1+3 = 54; underflow at 55
-check("After T1CH re-arm: lastIrqState reset by IFR clear → false",
-  lastIrqState === false);
-clkPtr.value = 100; // way past underflow
-via1.serviceTimers(clkPtr.value);
-check("serviceTimers raises IRQ via backend.setIrq when IER bit 6 enabled",
-  lastIrqState === true,
-  `lastIrqState=${lastIrqState}`);
+// === Contract 7.5 SUPERSEDED by 7g1 alarm path ===
+//
+// Spec 611 phase 611.7g (Codex 12:25): lazy-eval `serviceTimers`
+// removed; alarm-based T1 is canonical. The serviceTimers contract
+// previously tested here is no longer valid behavior.
+//
+// See scripts/smoke-611-7g1-via-t1-alarm.mjs for canonical
+// alarm-path smokes (A-F). The remaining checks in this file still
+// cover T1 register store/read semantics (which alarm-path also uses)
+// — those stay GREEN regardless of fire path.
 
 // === Contract 8: T1LH write does NOT reload counter ===
 via1.reset();

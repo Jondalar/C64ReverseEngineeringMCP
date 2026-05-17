@@ -106,6 +106,8 @@ export interface Via1dOptions {
   clkPtr: { value: number };
   /** VICE diskunit `mynumber` (= device-number minus 8). */
   mynumber?: number;
+  /** Spec 611 phase 611.7g — drive cpu AlarmContext for T1 alarm. */
+  alarmContext?: import("../alarm/alarm-context.js").AlarmContext;
 }
 
 /**
@@ -135,7 +137,11 @@ export function createVia1d(opts: Via1dOptions): Via6522 {
 
   // Spec 611 phase 611.7f.9 — pass clkPtr so VIA1 T1 timer can reference
   // drive cycle for schedule/lazy underflow detection.
-  const via1 = new Via6522({ backend, label: "via1d1541", clkPtr });
+  // Spec 611 phase 611.7g — also pass alarmContext for VICE-canonical
+  // alarm-based T1 scheduling (replaces lazy-eval).
+  const via1 = new Via6522({
+    backend, label: "via1d1541", clkPtr, alarmContext: opts.alarmContext,
+  });
   return via1;
 }
 
