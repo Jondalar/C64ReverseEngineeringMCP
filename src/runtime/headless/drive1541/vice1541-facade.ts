@@ -72,6 +72,7 @@ import type { FILE_t } from "../vice1541/fsimage_gcr.js";
 import {
   drive_init,
   drive_install_hooks,
+  drive_cpu_early_init_all,
   drive_set_half_track,
   drive_setup_context,
   diskunit_context as vice_diskunit_context,  // T3.2-fix-E: import from drive.ts (canonical, allocated by drive_setup_context). drivesync.ts has a forward-staged stub that drive.ts SHADOWS — must import from drive.ts not drivesync.ts.
@@ -96,6 +97,22 @@ import {
   drive_snapshot_write_module,
 } from "../vice1541/drive_snapshot.js";
 import { iec_drive_install_hooks } from "../vice1541/iec.js";
+import { drive_set_machine_parameter } from "../vice1541/drivesync.js";
+import { memiec_init } from "../vice1541/memiec.js";
+import { via1d1541_setup_context } from "../vice1541/via1d1541.js";
+import { via2d_setup_context } from "../vice1541/via2d.js";
+import {
+  DRIVE_TYPE_1540 as _DRIVE_TYPE_1540_,
+  DRIVE_TYPE_1541II as _DRIVE_TYPE_1541II_,
+  DRIVE_TYPE_1570 as _DRIVE_TYPE_1570_,
+  DRIVE_TYPE_1571 as _DRIVE_TYPE_1571_,
+  DRIVE_TYPE_1571CR as _DRIVE_TYPE_1571CR_,
+} from "../vice1541/drivetypes.js";
+const DRIVE_TYPE_1540 = _DRIVE_TYPE_1540_;
+const DRIVE_TYPE_1541II = _DRIVE_TYPE_1541II_;
+const DRIVE_TYPE_1570 = _DRIVE_TYPE_1570_;
+const DRIVE_TYPE_1571 = _DRIVE_TYPE_1571_;
+const DRIVE_TYPE_1571CR = _DRIVE_TYPE_1571CR_;
 import { drive_image_attach, drive_image_detach } from "../vice1541/driveimage.js";
 import {
   c64iec_init,
@@ -175,6 +192,29 @@ export class Vice1541Facade implements Drive1541 {
   }
 
   constructor() {
+    // T3.2-fix-I: drive_6510core.ts reads InterruptCpuStatus via VICE
+    // snake_case names (global_pending_int, irq_clk, nmi_clk,
+    // irq_pending_clk, last_opcode_info_ptr, nnmi) and calls
+    // interrupt_ack_irq / _ack_nmi / _ack_reset as methods on the
+    // instance. Shared TS infra uses camelCase + different method names.
+    // Install bidirectional aliases on intStatus so both shapes work.
+    // Per Spec 612 PL-3, facade is the boundary that bridges this — no
+    // edits to vice1541/ or cpu/.
+    const is = this.intStatus as InterruptCpuStatus & Record<string, unknown>;
+    Object.defineProperty(is, "global_pending_int", {
+      get: () => this.intStatus.globalPendingInt,
+      set: (v: number) => { this.intStatus.globalPendingInt = v >>> 0; },
+      configurable: true,
+    });
+    Object.defineProperty(is, "irq_clk", { get: () => this.intStatus.irqClk, set: (v: number) => { this.intStatus.irqClk = v >>> 0; }, configurable: true });
+    Object.defineProperty(is, "nmi_clk", { get: () => this.intStatus.nmiClk, set: (v: number) => { this.intStatus.nmiClk = v >>> 0; }, configurable: true });
+    Object.defineProperty(is, "irq_pending_clk", { get: () => this.intStatus.irqPendingClk, set: (v: number) => { this.intStatus.irqPendingClk = v >>> 0; }, configurable: true });
+    // nnmi already matches VICE name (single word, no case) — no alias needed
+    is.last_opcode_info_ptr = { value: 0 };
+    is.interrupt_ack_irq = (_cs: unknown) => this.intStatus.ackIrq();
+    is.interrupt_ack_nmi = (_cs: unknown) => this.intStatus.ackNmi();
+    is.interrupt_ack_reset = (_cs: unknown) => { this.intStatus.globalPendingInt &= ~(1 << 2); };
+
     // 1. Install hook bundles — these wire the port to the alarm context,
     //    interrupt-cpu-status, ROM resource resolver, and lifecycle no-ops.
     this.installAllHooks();
@@ -204,7 +244,22 @@ export class Vice1541Facade implements Drive1541 {
     //    drivecpu_init. The hooks fan into drivecpu_setup_context,
     //    which constructs the cpu/cpud/func contexts and allocates the
     //    alarm + interrupt + monitor contexts via our host stubs.
+    // T3.2-fix-G: VICE machine_class_init calls drive_set_machine_parameter
+    // (drivesync.c:53-62) BEFORE drive_init's per-unit drivesync_factor.
+    // Without this, sync_factor=0 → drv.cpud.sync_factor=0 → cycle_accum
+    // never advances → drive CPU never runs (PC stays at $0000 forever).
+    // C64 PAL = 985248 Hz per Spec 611.
+    drive_set_machine_parameter(985_248);
+
     drive_init();
+
+    // T3.2-fix-K: per VICE order, memiec_init must run AFTER drivemem_init
+    // (which runs inside drivecpu_init inside drive_init). VICE wires
+    // this via machine_drive_init hook fan-out; our hook is registered
+    // but drive_init didn't call early_init_all in the right place.
+    // Brute-force: invoke after drive_init to install 1541 memory map
+    // onto the freshly-allocated drivemem page tables.
+    drive_cpu_early_init_all();
 
     // 6. Cold reset so the drive 6502 PC lands at the ROM reset vector
     //    on the next drive_6510core_execute round.
@@ -347,7 +402,14 @@ export class Vice1541Facade implements Drive1541 {
       interrupt_cpu_status_reset: () => this.intStatus.reset(),
       interrupt_monitor_trap_on: () => { /* monitor-only */ },
       interrupt_global_pending_int: () => this.intStatus.globalPendingInt | 0,
-      interrupt_trigger_reset: () => { /* host has its own reset path */ },
+      // T3.2-fix-F: wire IK_RESET into intStatus so DO_INTERRUPT IK_RESET
+      // path in drive_6510core pulls reset vector $FFFC/$FFFD on next
+      // execute round. Was previously no-op → drive PC stayed at $0000
+      // → drive 6502 never ran. Matches VICE interrupt_trigger_reset
+      // (interrupt.c) which sets cs->global_pending_int |= IK_RESET.
+      interrupt_trigger_reset: (_cs, _clk) => {
+        this.intStatus.globalPendingInt |= 1 << 2; // IK_RESET
+      },
       interrupt_write_snapshot: () => 0,
       interrupt_read_snapshot: () => 0,
       interrupt_write_new_snapshot: () => 0,
@@ -384,7 +446,22 @@ export class Vice1541Facade implements Drive1541 {
       drive_check_dual: () => 0,
       machine_drive_port_default: () => { /* no-op */ },
       machine_drive_rom_setup_image: () => { /* no-op */ },
-      machine_drive_init: () => { /* no-op */ },
+      // T3.2-fix-J: machine_drive_init fans into per-machine setup
+      // including memiec_init (1541 memory map). Without this the drive
+      // page tables stay at drivemem_init defaults (drive_read_free →
+      // returns 0) — reset vector $FFFC/$FFFD reads 0 → drive PC=0
+      // → drive walks garbage. Wire to memiec_init per VICE iec/iec.c
+      // (iec_drive_mem_init) machine class dispatch.
+      machine_drive_init: (drv) => {
+        if (drv.type === DRIVE_TYPE_1541
+            || drv.type === DRIVE_TYPE_1540
+            || drv.type === DRIVE_TYPE_1541II
+            || drv.type === DRIVE_TYPE_1570
+            || drv.type === DRIVE_TYPE_1571
+            || drv.type === DRIVE_TYPE_1571CR) {
+          memiec_init(drv, drv.type);
+        }
+      },
       machine_drive_setup_context: (drv) => this.machineDriveSetupContext(drv),
       resources_get_int: () => ({ ok: false, value: 0 }),
       resources_set_int_sprintf: () => { /* no-op */ },
@@ -549,12 +626,10 @@ export class Vice1541Facade implements Drive1541 {
    * avoid notReachable_non1541 firing on the cia1571/cia1581/via4000/pc8477/
    * cmdhd lines.
    */
-  private async machineDriveSetupContext(drv: diskunit_context_t): Promise<void> {
-    // Late-imported per PL-3 / NL-1 (the helpers are exported from the port).
-    const { via1d1541_setup_context } = await import(
-      "../vice1541/via1d1541.js"
-    );
-    const { via2d_setup_context } = await import("../vice1541/via2d.js");
+  private machineDriveSetupContext(drv: diskunit_context_t): void {
+    // T3.2-fix-L: was async with dynamic imports — drive_init calls
+    // this synchronously so the await never resolved before drive_init
+    // continued. Switched to top-level imports + sync call.
     via1d1541_setup_context(drv);
     via2d_setup_context(drv);
   }

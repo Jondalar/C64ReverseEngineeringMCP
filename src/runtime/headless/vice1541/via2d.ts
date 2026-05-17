@@ -141,18 +141,17 @@ export interface drivevia2_context_t {
 // each body with `return drive_writeprotect_sense(d)` etc. (the imports
 // from `./drive.js` become valid then).
 
-// PORT OF: vice/src/drive/drive-writeprotect.c (drive_writeprotect_sense — extern decl)
-// Spec 612 T1.7 — drive.ts not yet ported. PL-7: throw rather than
-// returning a silent default.
+// T3.2-fix-N: drive.ts (T2.10) is now ported — replace stub with real
+// impls. Cast the bool/number return shape across.
+import {
+  drive_writeprotect_sense as _drive_writeprotect_sense,
+  drive_move_head as _drive_move_head,
+} from "./drive.js";
 function drive_writeprotect_sense(d: drive_t | null): boolean {
-  // PORT-STUB: drive.ts (T2.10) — VICE returns 0 (writable) or 0x10
-  // (write-protected). Until ported, swallow the call gracefully when
-  // drive is null (matches a pre-mount unattached drive), throw when a
-  // drive is present so a real mount path surfaces the missing port.
   if (!d) return false;
-  throw new Error(
-    "PORT-STUB: drive_writeprotect_sense pending drive.ts port (Spec 612 T2.10).",
-  );
+  // drive.ts returns boolean (per Spec 612 T1.4 / T2.10 — drive.c returns
+  // 1 if writeable, 0 if write-protected; TS port returns true if writeable).
+  return _drive_writeprotect_sense(d) as unknown as boolean;
 }
 
 // PORT OF: vice/src/drive/drive.c (drive_cpu_set_overflow — extern decl)
@@ -165,13 +164,9 @@ function drive_cpu_set_overflow(_dc: diskunit_context_t): void {
 }
 
 // PORT OF: vice/src/drive/drive.c (drive_move_head — extern decl)
-function drive_move_head(_step: number, _d: drive_t): void {
-  // PORT-STUB: drive.ts (T2.10). VICE drive_move_head moves the head by
-  // `step` half-tracks, clamped to [0, drv->max_half_track - 1], and
-  // updates GCR_track_start_ptr / GCR_current_track_size accordingly.
-  throw new Error(
-    "PORT-STUB: drive_move_head pending drive.ts port (Spec 612 T2.10).",
-  );
+// T3.2-fix-N2: wire to drive.ts port (was stub).
+function drive_move_head(step: number, d: drive_t): void {
+  _drive_move_head(step, d);
 }
 
 // PORT OF: vice/src/drive/drive-sound.c (drive_sound_update — extern decl)

@@ -80,6 +80,10 @@ import type {
 } from "./drivetypes.js";
 
 import { OPINFO_NUMBER } from "./drivetypes.js";
+import {
+  alarmContextNextPendingClk as _alarm_context_next_pending_clk,
+  alarmContextDispatch as _alarm_context_dispatch,
+} from "../alarm/alarm-context.js";
 
 // =============================================================================
 // SECTION A — Constants ported from vice/src/mos6510.h:52-59 (P_* flag bits)
@@ -584,9 +588,12 @@ export function drive_6510core_execute(
   function PROCESS_ALARMS(): void {
     const ac = cpu.alarm_context;
     if (!ac) return;
-    const af = alarmf(ac);
-    while (clk_ptr.value >= af.alarm_context_next_pending_clk(ac)) {
-      af.alarm_context_dispatch(ac, clk_ptr.value);
+    // T3.2-fix-H: call free functions from alarm-context.ts directly
+    // (NL-2 snake_case wrappers). Was: af.alarm_context_next_pending_clk
+    // accessed as method via cast — fails because alarmContextNew()
+    // returns interface AlarmContext, not an object with method bindings.
+    while (clk_ptr.value >= _alarm_context_next_pending_clk(ac as never)) {
+      _alarm_context_dispatch(ac as never, clk_ptr.value);
     }
     // CPU_DELAY_CLK is a no-op for DRIVE_CPU.
     // Wrapper around alarm_dispatch parameter (caller-provided dispatch hook

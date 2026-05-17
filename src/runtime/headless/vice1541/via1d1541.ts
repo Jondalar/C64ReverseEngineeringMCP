@@ -158,14 +158,12 @@ interface iecbus_t {
 // All three are PORT-STUB until the matching .ts file lands. PL-7 spirit:
 // throw rather than silently returning — keeps wiring honest.
 
-// PORT OF: vice/src/iecbus.h:87 (iecbus_drive_port — extern decl)
+// T3.2-fix-M: iecbus.ts (Spec 612 T2.11) is now ported — replace stub
+// with real import. Was returning null which routed store_prb through
+// the iec_drive_write fallback (PORT-STUB throw).
+import { iecbus_drive_port as _iecbus_drive_port } from "./iecbus.js";
 function iecbus_drive_port(): iecbus_t | null {
-  // T2.10 LO-14 — iecbus.ts will replace this stub. Returning null routes
-  // both store_prb and read_prb through the iec_drive_write / iec_drive_read
-  // single-drive fallback, which itself is PORT-STUB. For now this returns
-  // null so the structural branch shape matches VICE; the fallback below
-  // throws if reached.
-  return null;
+  return _iecbus_drive_port() as unknown as iecbus_t;
 }
 
 // PORT OF: vice/src/drive/iec/iecdrive.h (iec_drive_write — extern)
