@@ -1,6 +1,7 @@
 # Spec 611 — VICE1541 side-by-side build (LEGACY1541 stays default)
 
-**Status:** ACTIVE (2026-05-16). **Replaces** the prior Spec 611
+**Status:** ACTIVE (2026-05-16), operational strategy updated
+2026-05-17. **Replaces** the prior Spec 611
 "rotation retry" direction defined in `specs/610-1541-parity-rebuild-charter.md`.
 **Branch:** `codex/611-vice1541-side-by-side`
 **Baseline:** `runtime-green-2026-05-16` = master `87b4957`.
@@ -8,6 +9,13 @@
 **Truth table:** `specs/601-baseline-truth-table.md`.
 **Charter:** `specs/610-1541-parity-rebuild-charter.md`.
 **Doc anchors:** `docs/vice-1541-arch.md`, `docs/vice-iec-arc42.md`.
+**Operational override (2026-05-17):** the side-by-side architecture,
+LEGACY1541 freeze, Drive1541 boundary, and Runtime Proof Gate doctrine
+remain binding. The fine-grained 611.x / 611.7g micro-phase strategy is
+retired. Remaining VICE1541 source modules are to be ported as a full
+source-shaped batch, then integrated, then judged first by KERNAL
+`LOAD"$",8`.
+
 **Precedent:** the CPU split (`useMicrocodedCpu: true`) and the
 VIC literal-port (`vicRenderer: "literal-port"`). Same pattern.
 
@@ -117,14 +125,13 @@ Specifically:
 ## 2. Module structure
 
 ```
-src/runtime/headless/drive/      <- LEGACY1541 stays here in 611.0
-src/runtime/headless/iec/        <- LEGACY1541 IEC side stays here in 611.0
-src/runtime/headless/via/        <- LEGACY1541 VIA side stays here in 611.0
+src/runtime/headless/drive/      <- LEGACY1541 stays here during the VICE1541 batch
+src/runtime/headless/iec/        <- LEGACY1541 IEC side stays here during the VICE1541 batch
+src/runtime/headless/via/        <- LEGACY1541 VIA side stays here during the VICE1541 batch
     (existing drive / drive-side VIA / drive-side IEC files are declared
-     LEGACY1541 in-place. No physical move in 611.0: a pure move with
-     re-export shims was proven not behavior-neutral by the full runtime
-     proof gate, so moving legacy code is deferred until VICE1541 has
-     replaced it as default.)
+     LEGACY1541 in-place. A pure move with re-export shims was proven
+     not behavior-neutral by the full runtime proof gate, so moving
+     legacy code is deferred until VICE1541 has replaced it as default.)
     cpu.ts, via1d.ts, via2d.ts, rotation.ts, gcr.ts,
     drive-image-d64.ts, drive-image-g64.ts, drive-snapshot.ts, ...
 
@@ -347,26 +354,109 @@ interface SessionConfig {
   reports two columns. Default stays `legacy` so existing master
   runs are unaffected.
 - The factory MUST throw a clear error when the requested
-  implementation cannot be constructed (e.g. VICE1541 not yet built
-  past a given phase). It MUST NOT silently fall back to LEGACY1541.
+  implementation cannot be constructed. It MUST NOT silently fall back
+  to LEGACY1541.
 - Environment variable `C64RE_DRIVE1541=vice|legacy` overrides the
   default for ad-hoc runs. Programmatic `drive1541` field overrides
   the env var.
 
-## 5. Migration phases
+## 5. Full-port batch plan
 
-Each phase is its own commit on `codex/611-vice1541-side-by-side`.
-A phase is DONE only when its gate (§6) passes. Phases are
-sequential — no phase n+1 work before phase n is DONE.
+The previous fine-grained 611.x / 611.7g phase strategy is retired as
+the operating plan. It remains historical context for work already
+landed on this branch, but it must not drive new implementation work.
 
-**Gate realism rule:** a phase's gate is what the implementation
-at its tip can *actually* prove. C64-side LOAD gates (Tier-2
-oracles, game-screenshot oracles) require the **full disk
-pipeline**: VIA2 + BYTE-READY/SO + rotation + GCR + image-format +
-drivecpu timing all in place. Phases before that point use
-**drive-internal** gates only.
+Going forward, Spec 611 is a source-port batch:
 
-### Allowed early-phase gate types (611.0 – 611.6)
+1. Inventory the active VICE1541 path and classify every runtime-needed
+   VICE 1541 source area as complete, partial, absent, or out of scope.
+2. Port all missing runtime-relevant VICE1541 source modules in one
+   coherent batch before judging KERNAL LOAD.
+3. Integrate the batch into the active `--drive1541=vice` runtime path.
+4. Run `npm run build:mcp`, relevant 1541/VIA/IEC smokes, then KERNAL
+   `LOAD"$",8` / load-directory.
+5. If KERNAL LOAD is red, fix missing or divergent VICE source ownership.
+   Do not add symptom patches.
+
+Required source areas include:
+
+- `viacore` state, register access, alarms, init/setup/reset/disable,
+- `via1d1541.c` IEC interface side,
+- `via2d1541.c` disk-controller side and BYTE-READY/SO,
+- `drivecpu.c`, `drive.c`, `drivesync.c`,
+- serial IEC bus integration needed by the `Drive1541` boundary,
+- `diskunit_context_t`, `drive_t`, attach/detach lifecycle,
+- rotation, GCR, D64/G64 image and track state,
+- runtime-needed context / shutdown / snapshot pieces.
+
+Porting rules:
+
+- VICE source is the authority. LEGACY1541 is never behavioural
+  authority.
+- Preserve VICE state ownership, flags, register arrays, alarms,
+  callbacks, timing windows, reset/init/setup defaults, and cross-module
+  call order.
+- Do not invent simplified TypeScript semantics to make an isolated
+  smoke pass.
+- Do not add runtime throws for "later" when VICE source for the path is
+  available.
+- Do not add high-level shortcuts, canned directory responses, fake LOAD
+  handlers, or hybrid legacy delegates.
+- Do not chase the current `PC=$e5d1` symptom directly. The symptom is
+  only a later gate result.
+
+Integration rules:
+
+- The VICE1541 path must actually call the ported modules.
+- Bridge, placeholder, and legacy-derived code paths are removed or
+  isolated so they cannot affect `--drive1541=vice`.
+- Dead ported code sitting beside an active placeholder is rejected.
+- The `Drive1541` interface remains the only C64-visible boundary.
+
+First acceptance target after integration:
+
+- `LOAD"$",8` / load-directory gate against D64,
+- directory bytes match the golden master,
+- observed PC trail is reported,
+- no LEGACY1541 fallback occurs inside `vice1541/**`.
+
+Only after KERNAL directory LOAD is green under `--drive1541=vice` do the
+follow-on gates run: motm G64 boot, Spec 423 Tier-2 bundle, Spec 601
+GREEN-expected games under `--drive1541=vice`, snapshot / restore, then
+the default flip to VICE1541.
+
+### Gideon 6502 follow-on stress material
+
+The 1541 Ultimate 6502 sources under
+`/Users/alex/Development/1541ultimate/software/6502` are useful as
+post-LOAD stress material, not as replacement acceptance for KERNAL
+`LOAD"$",8`.
+
+Relevant files:
+
+- `iec_test.tas`: C64-side command-channel loader that uses
+  `OPEN 1,8,15`, `M-W`, and `M-E` to upload and execute drive code.
+  Useful after KERNAL LOAD is green to stress command channel, CHKOUT /
+  CLRCHN, IEC writes, and drive-code upload.
+- `ulticopy.tas`: drive-side code at `$0400` that directly exercises
+  VIA1 IEC (`$1800/$1801`), VIA2 disk control (`$1c00/$1c01/$1c03`),
+  motor, stepper, density, SYNC wait, BYTE-READY via `CLV/BVC`, GCR
+  header matching, and sector data reads. This is a strong post-LOAD
+  VIA2 / rotation / GCR stress target.
+- `warp_rom.tas`: cartridge wrapper that uploads similar drive-side
+  copy code through standard KERNAL calls. Useful as an integration
+  stress target once command-channel upload and disk read are stable.
+- `viatest.tas` / `viatest2.tas`: small VIA-oriented programs. The
+  first documents expected bytes `45 00 4B A7`; these can become focused
+  VIA register / timer / shift-register smokes.
+
+Ordering rule: do not use these Gideon programs to bypass or redefine
+Spec 611 acceptance. First get the integrated VICE1541 path through
+KERNAL `LOAD"$",8`. Then promote the relevant Gideon sources into
+explicit follow-on smokes or stress gates, with generated PRG/CRT/D64
+artifacts tracked separately from the source-port batch.
+
+### Retired historical early-phase gate types (do not use for new work)
 
 - Factory correctly returns the requested implementation (legacy
   vs vice); LEGACY1541 default selection still produces the Spec
@@ -385,8 +475,11 @@ drivecpu timing all in place. Phases before that point use
   a **component check**. Not acceptance for the spec, not a
   substitute for a real disk gate.
 
-### Forbidden early-phase gate types (611.0 – 611.6)
+### Retired historical forbidden early-phase gate types
 
+- The entries below documented the old micro-phase plan. They are kept
+  only to explain prior commits and must not be used as the next work
+  breakdown.
 - Any real D64 / G64 LOAD gate.
 - Any C64-side Tier-2 oracle gate (`smoke-423-*.mjs`).
 - Any game-screenshot gate (`scripts/test-*-screenshots.mjs`).
@@ -396,11 +489,11 @@ drivecpu timing all in place. Phases before that point use
 - Synthetic high-level shortcuts (e.g. a fake directory reader
   that bypasses the drive CPU / GCR pipeline).
 
-These gates are reserved for 611.7+ once the full disk-read
-pipeline exists. Any pre-611.7 commit claiming one of them is
-rejected at review.
+These gates were reserved for 611.7+ under the retired micro-phase plan.
+Under the current batch plan, real D64 KERNAL LOAD is run only after the
+full source-module batch is integrated.
 
-| Phase | Title                                       | Scope                                                                                                                                  | Gate (what the phase tip can prove)                                                                                                                                                                                                  |
+| Retired phase | Title                                       | Historical scope                                                                                                                        | Historical gate                                                                                                                                                                                                                       |
 |-------|---------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 611.0 | Declare LEGACY1541 + introduce factory      | Keep existing drive / VIA-drive-side / IEC-drive-side in place as LEGACY1541. Add `drive1541/` factory + Drive1541 interface + `drive1541?: "legacy" \| "vice"` config. Default remains `legacy`; requested `vice` throws clearly until 611.1+. No physical move, no behavior change. | Full `npm run runtime:proof` (no `--reuse-artifacts`) matches Spec 601 baseline exactly: 5/7 GREEN, Pawn + LNR RED. Zero deltas.                                                                                                     |
 | 611.1 | Scaffold VICE1541 (stubs)                   | Create empty `vice1541/*` modules implementing Drive1541, all methods `throw new Error("not implemented")`. Factory wires `"vice"` to the throwing module. | Default `legacy` path still 5/7 GREEN (full re-run). `--drive1541=vice` explicitly throws on instantiation. Smoke confirms factory wiring; no LOAD gate.                                                                              |
@@ -413,51 +506,46 @@ rejected at review.
 | 611.8 | Snapshot                                    | `drive-snapshot.ts` per `docs/vice-1541-arch.md` §13 H. Format opaque to C64 side.                                                      | `--drive1541=vice` snapshot → restore → continue gives identical Spec 601 outcome on the 5 GREEN games. LEGACY1541 default path still 5/7 GREEN (regression check).                                                                   |
 | 611.9 | Default flip + LEGACY1541 demotion          | Change default to `"vice"`. LEGACY1541 stays compilable + selectable behind `"legacy"` for one release.                                  | `npm run runtime:proof` (default = vice now) green on all 5 GREEN games. `--drive1541=legacy` still green (regression check).                                                                                                         |
 
-Phases stay inside `codex/611-vice1541-side-by-side`. Later
-sub-specs (612-615 per Spec 610) become candidates only when they
-fall **outside** the VICE1541 module proper (e.g. SAVE / FORMAT
-write-back may straddle drive + C64 KERNAL — own spec, own branch).
-The earlier 612 / 613 / 614 charters are absorbed into phases
-611.5 / 611.3 / 611.7 respectively.
+The retired phase table above is not the current implementation plan.
+Later sub-specs (612-615 per Spec 610) become candidates only when they
+fall **outside** the VICE1541 module proper. SAVE / FORMAT write-back
+remains post-611 because it straddles drive + C64 KERNAL. The earlier
+612 / 613 / 614 charters are absorbed into the full VICE1541 batch.
 
 ## 6. Runtime-proof-gate requirements
 
 Acceptance is **runtime-proof-gate only**. Unit tests, mapping
 audits, and cycle-diff counters are useful but **never acceptance**.
 
-For every phase commit on this branch:
+For the full-port batch and each integration checkpoint on this branch:
 
 1. **Master invariant — full re-run, not `--reuse-artifacts`.**
-   After ANY runtime source change in this branch, the gate run
-   that proves the phase MUST be a full `npm run runtime:proof`
-   (no `--reuse-artifacts`). `--reuse-artifacts` is a local
-   quick-check only; cached or baked-baseline results MUST NOT be
-   cited as acceptance once `src/**` has changed.
+   After ANY runtime source change in this branch, the gate run that
+   proves acceptance MUST be a full `npm run runtime:proof` (no
+   `--reuse-artifacts`). `--reuse-artifacts` is a local quick-check
+   only; cached or baked-baseline results MUST NOT be cited as
+   acceptance once `src/**` has changed.
 2. **Default LEGACY1541 stays green.** A full
    `npm run runtime:proof` (factory default `legacy`) MUST exit 0
    with the Spec 601 baseline (5/7 GREEN, Pawn + LNR RED). Master
    invariant is non-negotiable.
-3. **Phase-scoped gate.** The phase-specific gate listed in §5
-   MUST exit 0 with `--drive1541=vice` (or its scoped equivalent
-   for drive-internal phases 611.2–611.6: drive PC reach / idle bus
-   shape / VICE binmon trace match). No C64-side LOAD gate is
-   claimed before 611.7.
+3. **Batch acceptance gate.** The integrated VICE1541 batch MUST first
+   pass KERNAL `LOAD"$",8` / load-directory with `--drive1541=vice`.
+   Smokes and unit tests are supporting evidence only.
 4. **Evidence in the commit message.** Paste the
    `RESULT: gate GREEN (n/n match Spec 601 baseline)` line plus
-   the per-game row table from the full re-run. For drive-internal
-   phases, paste the trace-compare summary (`trace_store_query`
-   first-divergence cycle + cycle count) and the drive PC reach
-   line.
-5. **Red regression on LEGACY1541 default = phase rejected.** If
+   the per-game row table from the full re-run when applicable. For
+   the first LOAD acceptance commit, paste the load-directory gate result
+   and observed PC trail.
+5. **Red regression on LEGACY1541 default = batch rejected.** If
    any GREEN-expected game flips to RED under `--drive1541=legacy`
-   at a phase boundary, the phase is rejected. Branch reverts the
-   offending commit and the porting step is re-done from the VICE
-   source. **No fix-forward.**
-6. **Red regression on VICE1541 path = phase rejected.** Same
-   rule under `--drive1541=vice` once 611.7+ has a LOAD gate.
+   at an integration boundary, that boundary is rejected. Rework from
+   VICE source. **No fix-forward by legacy-derived patches.**
+6. **Red regression on VICE1541 path = batch rejected.** Same rule under
+   `--drive1541=vice` once the integrated LOAD gate exists.
 7. **Pawn / LNR stay RED-expected** throughout. A VICE1541-path
    GREEN on either requires `--accept-new-state` AND a Spec 601
-   truth-table update committed in the same phase.
+   truth-table update committed in the same acceptance batch.
 8. `samples/screenshots/proof/` PNGs stay the visual oracle. No
    new oracles authored inside this spec (gap list in
    `docs/runtime-gates.md` is a separate workstream).
@@ -476,16 +564,17 @@ The following are explicit non-goals and will be reverted on sight:
    a legacy VIA into a VICE rotation. No "use legacy GCR but new
    drivecpu". One implementation per session, full stop.
 4. **No "unit tests green" as acceptance.** Per Spec 600 + §6 above.
-   A phase is DONE only when its Runtime Proof Gate row passes.
+   The batch is DONE only when its Runtime Proof Gate row passes.
    Smokes that only assert no-crash are NOT acceptance.
 5. **No `--reuse-artifacts` cited as acceptance after runtime
    source changes.** §6 rule 1 is binding. Cached / baked-baseline
    results may not stand in for a fresh full re-run.
-6. **No premature LOAD / game gates.** Phases 611.2–611.6 do not
-   claim Tier-2 / game gates. §5 gate-realism rule binds.
+6. **No return to micro-slices.** Do not continue the implementation as
+   `611.7g.N` or other fine-grained behaviour reconstruction slices.
+   Port the missing VICE source modules as a coherent batch, then
+   integrate and test.
 7. **No code changes before the side-by-side architecture is
-   written.** This spec IS the architecture write-up. Phase 611.0
-   is the first code change permitted under this direction.
+   written.** This spec IS the architecture write-up.
 8. **No re-export of VICE1541 internals to the C64 side.** The
    `Drive1541` interface in §3 is the only surface. `debugProbe()`
    is the only escape hatch and is non-gate-bearing.
@@ -506,37 +595,30 @@ The following are explicit non-goals and will be reverted on sight:
     runs through the real VICE1541 path end-to-end: drive ROM →
     real VIA1/VIA2 → real rotation → real GCR → real disk-image
     parser → C64-side LOAD success → game in the expected scene.
-14. **No `--drive1541=vice` (or `=both`) end-to-end game gate**
-    while phases 611.0–611.6 are the tip. In those phases VICE1541
-    is a **sidecar** — instantiated alongside LEGACY1541 but not
-    wired into the C64 / IEC / disk runtime path. A per-game PASS
-    under `--drive1541=vice` would be LEGACY1541's PASS, not
-    VICE1541's. The `scripts/runtime-proof-gate.mjs` runner refuses
-    `--drive1541=vice` / `--drive1541=both` until the same commit
-    that lands phase 611.7's end-to-end Drive1541 wiring lifts the
-    guard.
+14. **No dead source ports.** A VICE module port that is not used by the
+    active `--drive1541=vice` path after integration is not acceptance.
 
 ## 8. Agent-assisted mechanical porting
 
 VICE source files may be ported by agents (Codex subagents, Claude
 Code agents, or similar) as a **first-pass mechanical translation**.
 Agents are scoped helpers, not implementers. Agent output is never
-DONE on its own; only an integration commit on this branch with
-the matching §5 phase gate green is DONE.
+DONE on its own; only the integrated full-port batch on this branch with
+the matching §5 / §6 gates green is DONE.
 
 ### Principle
 
-Agents produce first-pass mechanical ports of isolated VICE source
-files. They do not integrate, fix behaviour, touch legacy, or
-change tests. They produce raw `vice1541/*` module code plus a
-PORT_NOTES block. Claude integrates the output sequentially in the
-Spec 611 phase order.
+Agents produce first-pass mechanical ports of VICE source files or
+source areas. They do not fix behaviour from symptoms, touch legacy, or
+change tests. They produce raw `vice1541/*` module code plus a PORT_NOTES
+block. Integration happens into the single full-port batch, not into a
+new sequence of micro-phases.
 
 ### Allowed agent tasks
 
-- One VICE `.c` / `.h` source area per agent invocation
-  (e.g. `via1d1541.c` + `via1d1541.h` as one task; not
-  `via1d1541.c` mixed with `via2d1541.c`).
+- One coherent VICE source area per agent invocation when parallelizing
+  is useful (e.g. `via1d1541.c` + `via1d1541.h` as one task). Multiple
+  agent outputs may be produced for the same full-port batch.
 - Output only unintegrated `src/runtime/headless/vice1541/*`
   module code plus a short PORT_NOTES block (markdown) at the top
   of the file or as a sibling `.md`.
@@ -571,17 +653,18 @@ Spec 611 phase order.
 
 ### Integration rule
 
-Claude integrates agent outputs sequentially in Spec 611 phase
-order. Each integration commit MUST cite, in the commit message:
+Claude integrates agent outputs into the full-port batch. Each
+integration checkpoint MUST cite, in the commit message:
 
 - Source VICE file(s) ported (full path + line range).
 - Agent output used (which raw `vice1541/*` artifact, what
   PORT_NOTES it carried).
-- Unresolved `TODO_PORT` items remaining after integration, with
-  the resolution plan (deferred to a later phase / resolved
-  in-line / raised as an Open Question on this spec).
-- Phase gate result: paste the §5 / §6 gate output verbatim
-  (full re-run, never `--reuse-artifacts`).
+- Unresolved `TODO_PORT` items remaining after integration, with the
+  resolution plan (resolved in-line / explicitly out of scope for 611 /
+  raised as an Open Question on this spec).
+- Gate result when available: paste the §5 / §6 gate output verbatim
+  (full re-run, never `--reuse-artifacts`). Before the integrated LOAD
+  gate exists, mark the checkpoint explicitly as not DONE.
 
 Integration may reject agent output entirely if the mechanical
 port is unfaithful to the VICE source. Rejection is recorded in
@@ -592,19 +675,19 @@ PORT_NOTES anchor.
 ### Acceptance
 
 - Agent output is **not DONE**. It is raw material.
-- Only integrated phase commits that pass the §5 phase gate (per
-  §6 evidence block rules) are DONE.
-- A phase MAY be implemented end-to-end by Claude with no agent
-  help; agent assistance is an option, not a requirement.
-- A phase MUST NOT be implemented end-to-end by agents alone;
-  integration is always a Claude commit on this branch.
+- Only the integrated full-port batch that passes the §5 / §6 gates is
+  DONE.
+- The batch MAY be implemented end-to-end by Claude with no agent help;
+  agent assistance is an option, not a requirement.
+- The batch MUST NOT be implemented end-to-end by agents alone;
+  integration is always a Claude-owned commit on this branch.
 
 ## Open questions
 
 OQ-1. **Test session lifecycle of VICE1541 under `--drive1541=both`.**
 Each game would run twice. CI budget for the 7-game set
 (~6 min × 2 × 7 ≈ 85 min headless) is acceptable but may justify
-parallelisation. Decision deferred to phase 611.9.
+parallelisation. Decision deferred to the VICE1541 default-flip work.
 
 OQ-2. **Burst-mode IEC.** Out of scope for 611 (per
 `docs/vice-iec-arc42.md` §15 G "optional"). Tracked separately
@@ -630,7 +713,7 @@ of instances later.
 - NTSC drive timing. PAL 6569 only for this spec; NTSC 6567 is a
   follow-up spec.
 
-## Acceptance for this spec (the document, not the phases)
+## Acceptance for this spec (the document, not the batch)
 
 This spec is DONE when:
 

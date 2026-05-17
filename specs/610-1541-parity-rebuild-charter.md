@@ -40,19 +40,28 @@ so the Runtime Proof Gate impact is localised and traceable.
 
 | Spec | Title                                          | Scope                                                                                                                                                          | Runtime Proof Gate scope                                                                                                |
 |------|------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| 611  | VICE-derived 1541, side-by-side build          | As defined in `specs/611-new-vice1541-side-by-side.md`. Builds new `drive1541-vice` next to legacy; legacy frozen; factory + Drive1541 interface; phases 611.0–611.9. | Per-phase gates in `specs/611-...md` §5 + §6. Master default stays `legacy` and 5/7 GREEN through 611.0–611.8.            |
-| 612  | (superseded by Spec 611 phases)                | Originally "VIA2 byte-ready"; the VIA2 port is now phase 611.5 inside the VICE module. This row stays for back-reference only. | n/a                                                                                                                       |
-| 613  | (superseded by Spec 611 phases)                | Originally "drivecpu timing"; now phase 611.3.                                                                                                                  | n/a                                                                                                                       |
-| 614  | (superseded by Spec 611 phases)                | Originally "GCR read/write"; now phase 611.7.                                                                                                                   | n/a                                                                                                                       |
-| 615  | SAVE / FORMAT write path                       | Disk-image write-back; D64/G64 persistence; OPEN15 / SAVE / SCRATCH / FORMAT. Straddles drive + C64 KERNAL — own spec + own branch once Spec 611 lands.        | New SAVE / FORMAT Runtime Proof Gates pass; baseline 5/7 stays green; vice module default in place from 611.9.            |
+| 611  | VICE-derived 1541, side-by-side full-port batch | As defined in `specs/611-new-vice1541-side-by-side.md`. Builds new `drive1541-vice` next to legacy; legacy frozen; factory + Drive1541 interface; missing VICE1541 source modules are ported as one integrated batch before KERNAL LOAD is judged. | Full-port / integration gates in `specs/611-...md` §5 + §6. Master default stays `legacy` and 5/7 GREEN until the VICE1541 default flip. |
+| 612  | (superseded by Spec 611 batch)                 | Originally "VIA2 byte-ready"; now part of the full VICE1541 source-module batch. This row stays for back-reference only. | n/a                                                                                                                       |
+| 613  | (superseded by Spec 611 batch)                 | Originally "drivecpu timing"; now part of the full VICE1541 source-module batch. | n/a                                                                                                                       |
+| 614  | (superseded by Spec 611 batch)                 | Originally "GCR read/write"; now part of the full VICE1541 source-module batch. | n/a                                                                                                                       |
+| 615  | SAVE / FORMAT write path                       | Disk-image write-back; D64/G64 persistence; OPEN15 / SAVE / SCRATCH / FORMAT. Straddles drive + C64 KERNAL — own spec + own branch once Spec 611 lands.        | New SAVE / FORMAT Runtime Proof Gates pass; baseline 5/7 stays green; vice module default in place after Spec 611 default flip. |
 
 The earlier "one cherry-pick, one gate run" model (612-614 as
 separate rounds against legacy) is replaced by the side-by-side
 build in Spec 611. Sub-spec sub-division (`611a`, `611b`, ...) is
-not used; phases live inside `specs/611-new-vice1541-side-by-side.md`
-§5.
+not used. The fine-grained 611.x / 611.7g migration phases are no
+longer the operating plan; Spec 611 now requires a full VICE1541
+source-module port batch, then integration, then KERNAL LOAD.
 
 ## Process per sub-spec
+
+Spec 611 is the explicit exception to the old "small slice then gate"
+mechanics below. It keeps the Runtime Proof Gate doctrine, legacy
+freeze, and side-by-side factory boundary, but it does not accept
+further micro-slices as the implementation strategy. For Spec 611,
+port the remaining VICE1541 source modules as a complete source-shaped
+batch first; integrate that batch; then run KERNAL LOAD and the runtime
+gates.
 
 1. Write the sub-spec under `specs/61Xx.md`. Cite the doc anchor
    in `docs/vice-1541-arch.md` § that the change targets, plus the
@@ -84,8 +93,10 @@ not used; phases live inside `specs/611-new-vice1541-side-by-side.md`
 - Doctrinal changes to Specs 600-601 (this spec consumes them).
 - Re-opening Epic 440 as an implementation plan. The whole 440
   numbering stays quarantined.
-- Speculative or "preventive" porting of 1541-literal-vice code
-  that no Runtime Proof Gate failure currently demands.
+- Porting from `quarantine/1541-literal-vice` as authority. Spec 611
+  ports from current VICE source. The full VICE1541 source-module batch
+  is in scope even before a specific Runtime Proof Gate failure points
+  at each individual module, because the 1541 is an integrated subsystem.
 
 ## Notes
 
