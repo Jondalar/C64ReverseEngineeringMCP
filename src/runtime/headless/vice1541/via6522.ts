@@ -352,15 +352,21 @@ export class Via6522 {
           // when used as 1541 IEC.
           return u8((driven & this.ddrb) | (input & ~this.ddrb));
         }
-        // PRA / PRA_NHS — input from backend if any, else PRA latch.
+        // VICE viacore_read case VIA_PRA (viacore.c:1073-1095) applies
+        // handshake/IFR/IRQ block FIRST, then `goto via_pra_nhs` falls
+        // through to read the actual PA voltage. Run side effects before
+        // sampling the backend so CA2/IRQ edges propagate ahead of the
+        // sample (matters when backend.readPa reads bus state composed
+        // with CA2).
+        if (r === VIA_PRA) {
+          this.applyPraSideEffects();
+        }
+        // VIA_PRA_NHS: no side effects (per VICE viacore.c:1098-1101
+        // VIA_PRA_NHS read path comment "WARNING: this pin reads voltage
+        // of output pins, not the ORA value" — no handshake, no IFR clear).
         const driven = this.pra & this.ddra;
         const input = this.backend.readPa ? this.backend.readPa() : 0xff;
         const value = u8((driven & this.ddra) | (input & ~this.ddra));
-        if (r === VIA_PRA) {
-          // PRA read with handshake clears IFR_CA1 + IFR_CA2 per VICE.
-          this.ifr &= ~(IFR_CA1 | IFR_CA2);
-          this.updateIrq();
-        }
         return value;
       }
       case VIA_DDRB: return this.ddrb;
@@ -424,15 +430,26 @@ export class Via6522 {
         return;
       }
       case VIA_PRA: {
-        // Symmetric VICE shape for PA: byte = PRA | ~DDRA.
+        // VICE viacore_store case VIA_PRA (viacore.c:666-694) applies
+        // handshake/IFR/IRQ block FIRST, then falls through to PRA_NHS
+        // store path which writes the latch + calls store_pra(byte).
+        // Order matters on IEC: CA2 toggle (via setCa2) + IRQ edge MUST
+        // be observable before downstream sees the new PA byte.
+        this.applyPraSideEffects();
         this.pra = v;
         const driven = (this.pra | ~this.ddra) & 0xff;
         this.backend.storePa?.(driven);
-        this.ifr &= ~(IFR_CA1 | IFR_CA2);
-        this.updateIrq();
         return;
       }
-      case VIA_PRA_NHS: { this.pra = v; return; }
+      case VIA_PRA_NHS: {
+        // VICE viacore.c:686-689 store path: PRA_NHS only updates the PRA_NHS
+        // latch + (via fall-through) drives PA output. No IFR clear, no CA2
+        // handshake.
+        this.pra = v;
+        const driven = (this.pra | ~this.ddra) & 0xff;
+        this.backend.storePa?.(driven);
+        return;
+      }
       case VIA_DDRB: {
         this.ddrb = v;
         const driven = (this.prb | ~this.ddrb) & 0xff;
@@ -560,6 +577,59 @@ export class Via6522 {
       }
       this.ifr |= IFR_CA1;
       this.updateIrqAtClk(clk);
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.5 — viacore_store/read VIA_PRA CA2 handshake.
+   *
+   * VICE source:
+   *   src/core/viacore.c:666-683 viacore_store case VIA_PRA
+   *   src/core/viacore.c:1073-1095 viacore_read case VIA_PRA
+   *   macros viacore.c:106-109
+   *     IS_CA2_INDINPUT()   = (PCR & 0x0a) == 0x02
+   *     IS_CA2_HANDSHAKE()  = (PCR & 0x0c) == 0x08
+   *     IS_CA2_PULSE_MODE() = (PCR & 0x0e) == 0x0a
+   *
+   * Clock-owner note (Codex 13:34 constraint):
+   * Drive CPU VIA register dispatch (drivecpu.ts read6502/write6502)
+   * does NOT carry a per-access clock. The polled clkPtr / getClk()
+   * is the live drive cpu.clk at register-access time → correct stamp
+   * source for update_myviairq_rclk equivalent. No Via6522.read/write
+   * API churn in this unit. updateIrqAtClk(undefined) falls back to
+   * polled clk per 7g.4.
+   *
+   * Pulse-mode timing matches current VICE (back-to-back setCa2(0)
+   * then setCa2(1)); VICE comment "should be a clock later" is left
+   * for a future timing fix (out of scope).
+   */
+  private applyPraSideEffects(): void {
+    // viacore.c:667 / 1077 — unconditional IFR_CA1 clear.
+    this.ifr &= ~IFR_CA1;
+    // viacore.c:668-670 / 1078-1082 — clear IFR_CA2 unless IS_CA2_INDINPUT.
+    if ((this.pcr & 0x0a) !== 0x02) {
+      this.ifr &= ~IFR_CA2;
+    }
+    // viacore.c:671-680 / 1083-1091 — IS_CA2_HANDSHAKE side effect.
+    if ((this.pcr & 0x0c) === VIA_PCR_CA2_HANDSHAKE_OUTPUT) {
+      this.ca2OutState = 0;
+      this.backend.setCa2?.(this.ca2OutState);
+      if ((this.pcr & 0x0e) === 0x0a) {
+        // IS_CA2_PULSE_MODE: immediate raise back to 1.
+        this.ca2OutState = 1;
+        this.backend.setCa2?.(this.ca2OutState);
+      }
+    }
+    // viacore.c:681-683 / 1092-1094 — IRQ re-eval only if CA1/CA2
+    // interrupts enabled. Use updateIrqAtClk (no arg → polled clkPtr).
+    if (this.ier & (IFR_CA1 | IFR_CA2)) {
+      this.updateIrqAtClk();
+    } else {
+      // VICE does not call update_myviairq here, but IFR_ANY summary
+      // bit still needs recomputing in case CA1/CA2 were the last
+      // pending bits. Use updateIrq (no edge push to backend if no
+      // IRQ-out change).
+      this.updateIrq();
     }
   }
 
