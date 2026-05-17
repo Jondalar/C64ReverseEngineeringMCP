@@ -38,14 +38,7 @@ import { rotation_init, rotation_reset } from "./rotation.js";
 import { encodeD64ToGcrTracks, probeD64 } from "./drive-image-d64.js";
 import { g64ToGcrTracks, parseG64Image } from "./drive-image-g64.js";
 import { MAX_GCR_TRACKS, type GcrImage } from "./gcr.js";
-
-function phaseError(phase: string, what: string): Error {
-  return new Error(
-    `[VICE1541] ${what} not implemented yet (Spec 611 phase ${phase}). ` +
-      `Real behaviour lands incrementally per ` +
-      `specs/611-new-vice1541-side-by-side.md §5.`,
-  );
-}
+import { vice1541Restore, vice1541Snapshot } from "./drive-snapshot.js";
 
 export class Vice1541 implements Drive1541 {
   /** Owning diskunit context (unit 0; 1541 single-drive). */
@@ -249,11 +242,11 @@ export class Vice1541 implements Drive1541 {
   }
 
   snapshot(): Uint8Array {
-    throw phaseError("611.8", "snapshot");
+    return vice1541Snapshot(this);
   }
 
-  restore(_blob: Uint8Array): void {
-    throw phaseError("611.8", "restore");
+  restore(blob: Uint8Array): void {
+    vice1541Restore(this, blob);
   }
 
   debugProbe(): Drive1541DebugProbe {

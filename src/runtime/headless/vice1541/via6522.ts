@@ -1,18 +1,67 @@
-// Spec 611 phase 611.4 — minimal 6522 VIA core for VICE1541.
+// Spec 611 phase 611.4 — 6522 VIA core for VICE1541.
 //
 // VICE source:  src/core/viacore.c + src/via.h
 // Doc anchor:   docs/vice-1541-arch.md §6 + §6.6
 //               docs/vice-iec-arc42.md §5.5
 //
-// Scope-limited: registers, IFR/IER, PCR (CA1 edge polarity), CA1
-// signal/edge handling, IRQ-out computation. Timers (T1/T2), shift
-// register, CA2/CB2 output modes, CB1 are out of scope for 611.4
-// (the 1541 IEC path does not exercise them; they land when needed
-// by 611.5 or later).
+// PORT_NOTES (Spec 611 phase 611.7g.8 — slices 8, 8a, 10, 11; plus E + F).
+// Newly ported (this turn) on top of pre-existing T1/T2 timer + CA1 +
+// CA2/CB2 handshake-output infrastructure (slices 611.4..611.7g.7):
 //
-// Not a 1:1 port of viacore.c (~1985 LOC). This is the "smallest
-// explicit placeholder" per Codex 14:03 UTC: enough behaviour for
-// the IEC ATN/CA1 IRQ path to function, not a full chip emulation.
+//   A. Shift register (SR) engine.
+//      VICE viacore.c:567-632 setup_shifting / VIA_ACR_SR_CONTROL switch
+//                    :727-737  store VIA_SR (clears IFR_SR, setup_shifting)
+//                    :1181-1190 read  VIA_SR (clears IFR_SR, setup_shifting)
+//                    :1603-1624 t2_underflow_alarm SR-T2 + SR-FREE branches
+//                                (latch reload + t2_shift_alarm arming)
+//                    :1654-1695 viacore_t2_shift_alarm callback
+//                    :1697-1805 do_shiftregister even/odd shift body
+//                    :1807-1827 viacore_phi2_sr_alarm
+//                    :1428-1501 viacore_set_cb1 (input-side, with shift)
+//                    :1387-1418 viacore_cache_cb12_io_status
+//                    :1523-1535 viacore_set_sr (burst-mode SR-IN hack)
+//   B. PB7 overlay on PRB read/write.
+//      VICE viacore.c:720-722 store_prb branch ((ACR & T1_PB7_USED) overlay)
+//                    :1152-1154 read VIA_PRB ((ACR & T1_PB7_USED) overlay)
+//                    :857-862  ACR write rising-edge t1_pb7 = 0x80
+//   C. ACR-write transition side effects.
+//      VICE viacore.c:854-986  case VIA_ACR (T2 mode toggle, SR mode
+//                              transition, t2_zero_alarm restart, phi2
+//                              alarm arm/disarm).
+//   D. viacore_init / viacore_reset / viacore_setup_context defaults.
+//      VICE viacore.c:378-439 viacore_reset (ca2/cb1/cb2_out_state = true,
+//                              shift_state = FINISHED_SHIFTING, t1_pb7 = 0x80,
+//                              tal = 0xffff, t2cl/t2ch = 0xff, etc.)
+//                    :1829-1859 viacore_setup_context (write_offset = 1,
+//                              cb1_in_state/cb2_in_state = true,
+//                              t2_irq_allowed = false, sr_underflow/set_cb1
+//                              = NULL on the VICE side).
+//   E. viacore_signal SIG_CB1 -> viacore_set_cb1 (CB1 input + SR clock).
+//      VICE viacore.c:467-468 + 1428-1501.
+//   F. viacore_signal SIG_CA2 / SIG_CB2 input edges.
+//      VICE viacore.c:459-466 SIG_CA2 input + IRQ on edge.
+//      VICE viacore.c:470-471 + 1503-1518 SIG_CB2 / viacore_set_cb2.
+//
+// Backend interface additions (justified per VICE source):
+//   Via6522Backend.setCb1?(state: 0|1)
+//     Mirrors VICE via_context->set_cb1 (via.h:221, viacore.c:1735-1736
+//     1764-1765). Optional — VICE setup leaves set_cb1 = NULL on the VIA2
+//     side when SR is unused. Drive integration (via1d.ts/via2d.ts) may
+//     wire it in a follow-up turn; CB1 still works as input via signalCb1.
+//   Via6522Backend.setSr?(value: BYTE)
+//     Mirrors VICE via_context->store_sr (via.h:213, viacore.c:736). VICE
+//     1541 drive stub is no-op but the hook must exist to satisfy the
+//     viacore_store VIA_SR path (737). Optional in this port.
+//
+// Deferred branches that ARE strictly unreachable by the 1541 LOAD path
+// (named, not "TODO"):
+//   - MYVIA_NEED_LATCHING port (viacore.c:76 commented out globally) —
+//     PA/PB input-latch logic. VICE does not compile this for 1541, so
+//     omitting it is source-parity.
+//   - viacore_snapshot_*, viacore_dump, viacore_peek — diagnostic-only
+//     surfaces, not part of register-access semantics.
+//   - viacore_shutdown (lib_free on heap-allocated VICE alarm names) —
+//     TS GC owns lifetime; no analogue needed.
 
 import { u8, type BYTE } from "../util/uint.js";
 import {
@@ -68,6 +117,37 @@ export const PCR_CA1_POS = 0x01;
 //   IS_CA2_TOGGLE_MODE()  = (PCR & 0x0e) == 0x08
 export const VIA_PCR_CA2_HANDSHAKE_OUTPUT = 0x08;
 
+// Spec 611 phase 611.7g.8/8a/10/11 — VICE via.h:68-93 ACR sub-fields.
+export const VIA_ACR_T1_CONTROL = 0xc0;
+export const VIA_ACR_T1_PB7_USED = 0x80;
+export const VIA_ACR_T1_FREE_RUN = 0x40;
+export const VIA_ACR_T2_CONTROL = 0x20;
+export const VIA_ACR_T2_COUNTPB6 = 0x20;
+export const VIA_ACR_T2_TIMER = 0x00;
+export const VIA_ACR_SR_CONTROL = 0x1c;
+export const VIA_ACR_SR_OUT = 0x10;
+export const VIA_ACR_SR_DISABLED = 0x00;
+export const VIA_ACR_SR_IN_T2 = 0x04;
+export const VIA_ACR_SR_IN_PHI2 = 0x08;
+export const VIA_ACR_SR_IN_CB1 = 0x0c;
+export const VIA_ACR_SR_OUT_FREE_T2 = 0x10;
+export const VIA_ACR_SR_OUT_T2 = 0x14;
+export const VIA_ACR_SR_OUT_PHI2 = 0x18;
+export const VIA_ACR_SR_OUT_CB1 = 0x1c;
+
+// VICE via.h:127-130 / 109-112 PCR CA1/CB1 edge select.
+export const VIA_PCR_CB1_CONTROL = 0x10;
+export const VIA_PCR_CB1_POS_ACTIVE_EDGE = 0x10;
+
+// VICE viacore.c:286-287 — phi2 shift-alarm scheduling offsets.
+const SR_PHI2_FIRST_OFFSET = 3;
+const SR_PHI2_NEXT_OFFSET = 1;
+
+// VICE viacore.c:172-173 / via.h:172-173 (struct via_context_s) —
+// shift-state sentinel constants.
+const START_SHIFTING = 0;
+const FINISHED_SHIFTING = 16;
+
 export type Via6522IrqHook = (asserted: boolean) => void;
 
 export interface Via6522Backend {
@@ -88,6 +168,18 @@ export interface Via6522Backend {
   /** Optional hook fired when CB2 output state changes per PCR config.
    *  VIA2 1541 uses this to drive read/write mode. */
   setCb2?: (state: 0 | 1) => void;
+  /** Optional hook fired when CB1 output state changes (SR clock-out).
+   *  Mirrors VICE via_context->set_cb1 (via.h:221). VICE 1541 setup
+   *  leaves this NULL unless the drive ROM exercises SR-out-CB1 modes
+   *  — wire from drive backend in a follow-up turn if needed. */
+  setCb1?: (state: 0 | 1) => void;
+  /** Optional hook fired on SR store (viacore.c:736 store_sr). VICE
+   *  1541 drive stub is a no-op; included for completeness. */
+  setSr?: (value: BYTE) => void;
+  /** Optional hook invoked from do_shiftregister on SR underflow (8
+   *  bits complete). VICE: via_context->sr_underflow (via.h:214 +
+   *  viacore.c:1799-1801). 1541 leaves this NULL. */
+  srUnderflow?: () => void;
 }
 
 export interface Via6522Options {
@@ -133,9 +225,25 @@ export class Via6522 {
   // CA1/CB1 last-observed input level (0 = low, 1 = high).
   ca1State: 0 | 1 = 1;
   cb1State: 0 | 1 = 1;
-  // CA2/CB2 output latches (unused for 611.4).
+  // CA2/CB2 output latches.
   ca2OutState: 0 | 1 = 1;
   cb2OutState: 0 | 1 = 1;
+
+  // Spec 611 phase 611.7g.8/8a/10/11 — CB1/CB2 input edge tracking.
+  // VICE via.h:165-168 cb1_in_state / cb2_in_state. Sampled by
+  // viacore_set_cb1/cb2 to detect edges.
+  cb1InState: 0 | 1 = 1;
+  cb2InState: 0 | 1 = 1;
+  // VICE via.h:166 cb1_out_state (SR clock output state).
+  cb1OutState: 0 | 1 = 1;
+
+  // VICE via.h:169-170 cb1_is_input / cb2_is_input cache fields.
+  // Computed by viacore_cache_cb12_io_status (viacore.c:1387-1418).
+  cb1IsInput: boolean = true;
+  cb2IsInput: boolean = true;
+
+  // VICE via.h:171 shift_state (0..16, FINISHED_SHIFTING sentinel).
+  shiftState: number = FINISHED_SHIFTING;
 
   /** Last reported IRQ-out state (for change-detect). */
   private lastIrqOut: boolean = false;
@@ -207,6 +315,10 @@ export class Via6522 {
   private t2IrqAllowed: boolean = false;
   private t2ZeroAlarm: Alarm | null = null;
   private t2UnderflowAlarm: Alarm | null = null;
+  // Spec 611 phase 611.7g.10 — SR-supporting alarms.
+  // VICE via.h:177-178 t2_shift_alarm + phi2_sr_alarm.
+  private t2ShiftAlarm: Alarm | null = null;
+  private phi2SrAlarm: Alarm | null = null;
 
   constructor(opts: Via6522Options) {
     this.backend = opts.backend;
@@ -238,7 +350,29 @@ export class Via6522 {
         (offset: number) => this.t2UnderflowAlarmCallback(offset),
         null,
       );
+      // Spec 611 phase 611.7g.10 — SR-related alarms per
+      // viacore.c:1885-1890 viacore_init pattern.
+      this.t2ShiftAlarm = alarmNew(
+        this.alarmContext,
+        `${this.label}-t2-sr`,
+        (offset: number) => this.t2ShiftAlarmCallback(offset),
+        null,
+      );
+      this.phi2SrAlarm = alarmNew(
+        this.alarmContext,
+        `${this.label}-sr`,
+        (offset: number) => this.phi2SrAlarmCallback(offset),
+        null,
+      );
     }
+    // Spec 611 phase 611.7g.11 — viacore_setup_context defaults
+    // (viacore.c:1829-1859). VICE state on power-up before reset:
+    //   cb1_in_state = true; cb2_in_state = true;
+    //   t2_irq_allowed = false;
+    //   sr_underflow = NULL; set_cb1 = NULL;  (handled at backend layer)
+    this.cb1InState = 1;
+    this.cb2InState = 1;
+    this.t2IrqAllowed = false;
   }
 
   /**
@@ -329,21 +463,32 @@ export class Via6522 {
    *   alarm_unset(t2_underflow_alarm);
    */
   private t2UnderflowAlarmCallback(offset: number): void {
-    void offset;
-    // 7g.7 ports the 16-bit timer-mode else-branch of
-    // viacore_t2_underflow_alarm (viacore.c:1625-1648). The SR-T2
-    // branches (viacore.c:1603-1624, `(ACR & 0x0c) == 0x04` and
-    // IS_SR_FREE_RUNNING) are deferred to slice 7g.10 (shift-register
-    // core). Reaching them in 7g.7 would mean an SR-T2 mode was
-    // entered while a timer-mode T2 alarm was already armed — that
-    // is prevented at the scheduling boundary by
-    // scheduleT2ZeroAlarm() which refuses to arm when SR-T2 is
-    // active. 1541 ROM does not exercise SR-T2 in the LOAD path
-    // (see inventory 16:53 + Codex 17:55 corrections).
-    //
-    // VICE 16-bit timer-mode else-branch:
-    this.t2cl = 0xff;
-    const nextAlarm = (this.t2ch !== 0xff) ? 256 : 0;
+    // Spec 611 phase 611.7g.10 — full port now that SR engine is in scope.
+    // VICE source: src/core/viacore.c:1593-1652.
+    const rclk = (this.getLiveClk() - offset) & 0xffffffff;
+    let nextAlarm = 0;
+    if ((this.acr & 0x0c) === 0x04) {
+      // viacore.c:1603-1613 — SR-T2 mode: reload t2cl from latch, schedule
+      // t2_shift_alarm + 1 cycle, next zero alarm at t2 low period.
+      this.t2cl = this.t2lLatch;
+      nextAlarm = (this.t2lLatch + 2) & 0xffff; // FULL_CYCLE_2
+      if (this.t2ShiftAlarm) {
+        alarmSet(this.t2ShiftAlarm, (rclk + 1) >>> 0);
+      }
+    } else if ((this.acr & 0x1c) === VIA_ACR_SR_OUT_FREE_T2) {
+      // viacore.c:1614-1624 — SR-free-running: same as SR-T2 but never
+      // stops shifting.
+      this.t2cl = this.t2lLatch;
+      nextAlarm = (this.t2lLatch + 2) & 0xffff;
+      if (this.t2ShiftAlarm) {
+        alarmSet(this.t2ShiftAlarm, (rclk + 1) >>> 0);
+      }
+    } else {
+      // viacore.c:1625-1634 — 16-bit timer-mode else-branch.
+      this.t2cl = 0xff;
+      nextAlarm = (this.t2ch !== 0xff) ? 256 : 0;
+    }
+    // viacore.c:1637-1649 — set next zero alarm OR turn off.
     if (nextAlarm) {
       this.t2zero = (this.t2zero + nextAlarm) >>> 0;
       this.t2xx00 = true;
@@ -356,29 +501,15 @@ export class Via6522 {
   }
 
   /**
-   * Spec 611 phase 611.7g.7 — schedule_t2_zero_alarm port.
+   * Spec 611 phase 611.7g.7 / 7g.10 — schedule_t2_zero_alarm port.
    * VICE source: src/core/viacore.c:557-566.
    *
-   * SR-controlled-T2 gate: when ACR puts T2 under SR control, VICE's
-   * underflow callback takes the SR-T2 branches at viacore.c:1603-1624
-   * (latch reload + shift-register pulse setup), which are deferred
-   * to slice 7g.10. Both SR-controlled modes are covered:
-   *   - VIA_ACR_SR_IN_T2 / SR_OUT_T2: (ACR & 0x0c) == 0x04
-   *     (viacore.c:1603, underflow if-branch)
-   *   - VIA_ACR_SR_OUT_FREE_T2 (free-running output): IS_SR_FREE_RUNNING()
-   *     = (ACR & 0x1c) == 0x10  (viacore.c:122 + 1614 else-if-branch)
-   * Refuse to schedule timer-mode T2 alarms while either is active —
-   * the underflow callback's SR-T2 branches are then unreachable. ACR
-   * transition side effects (ACR write entering/exiting these modes
-   * while a timer-mode T2 alarm is pending) belong to slice 7g.8.
+   * As of slice 7g.10 the SR-T2 / SR-free-T2 branches in the underflow
+   * callback are ported — so the gate previously here (refusing to arm
+   * timer-mode T2 alarms while SR-T2 was active) is no longer needed.
+   * VICE schedules unconditionally; we now match.
    */
   private scheduleT2ZeroAlarm(rclk: number): void {
-    // SR-T2 mode (viacore.c:1603) OR SR-FREE-RUNNING (viacore.c:122).
-    // Either case: timer-mode T2 alarm scheduling is the wrong path,
-    // because the underflow callback would take a deferred branch.
-    if ((this.acr & 0x0c) === 0x04 || (this.acr & 0x1c) === 0x10) {
-      return;
-    }
     this.t2zero = (rclk + this.t2cl) >>> 0;
     this.t2xx00 = true;
     if (this.t2UnderflowAlarm) alarmUnset(this.t2UnderflowAlarm);
@@ -476,40 +607,59 @@ export class Via6522 {
     return this.ifr & 0xff;
   }
 
-  /** Reset to viacore defaults. VICE viacore_reset(). */
+  /** Reset to viacore defaults. VICE viacore_reset() (viacore.c:378-439). */
   reset(): void {
+    // VICE viacore.c:383-385 — port data/ddr cleared (via[0..3] = 0).
     this.pra = 0;
     this.prb = 0;
     this.ddra = 0;
     this.ddrb = 0;
+    // VICE viacore.c:393-395 — via[11..15] cleared (ACR, PCR, IFR, IER,
+    // PRA_NHS = 0). Shift register (via[10]) intentionally NOT cleared
+    // per Rockwell ("omit shift register" comment viacore.c:392).
     this.pcr = 0;
     this.acr = 0;
     this.ifr = 0;
     this.ier = 0;
-    this.sr = 0;
     // Spec 611 phase 611.7f.9 + 611.7g.2 (Codex 12:37 fix) — T1 reset.
     // Unset pending alarm + clear all T1 internal state.
-    this.t1Latch = 0;
+    this.t1Latch = 0xffff; // VICE viacore.c:397 tal = 0xffff.
     this.t1ZeroClk = 0;
-    this.t1ReloadClk = 0;
+    // VICE viacore.c:400 t1reload = *clk_ptr (current drive clk).
+    this.t1ReloadClk = this.getClk();
     this.t1Active = false;
     this.t1OneShotFired = false;
-    this.t1Pb7 = 0;
+    // Spec 611 phase 611.7g.11 / VICE viacore.c:408 — t1_pb7 = 0x80 on reset
+    // (NOT 0x00). This is the PB7 idle-high default.
+    this.t1Pb7 = 0x80;
     if (this.t1ZeroAlarm) alarmUnset(this.t1ZeroAlarm);
-    // Spec 611 phase 611.7g.7 — T2 reset alarm-unset only
-    // (VICE viacore.c:367-368 viacore_disable + 417-418 viacore_reset).
-    // Codex 18:04 #2: those cited lines unset alarms only — they do
-    // NOT clear t2cl/t2ch/t2lLatch/t2zero/t2xx00/t2IrqAllowed. Full
-    // VICE reset/setup field defaults are owned by slice 7g.11
-    // (viacore_init + viacore_setup_context). Narrowed here to
-    // alarm-unset only to avoid claiming source ownership for
-    // field defaults this slice does not port.
+    // Spec 611 phase 611.7g.11 — VICE viacore.c:398-401, 410-411 T2 reset
+    // field defaults: t2cl = t2ch = 0xff; t2zero = *clk_ptr;
+    // shift_state = FINISHED_SHIFTING; t2_irq_allowed = false.
+    this.t2cl = 0xff;
+    this.t2ch = 0xff;
+    this.t2zero = this.getClk();
+    this.t2xx00 = false;   // VICE viacore.c:415
+    this.t2IrqAllowed = false;
+    this.shiftState = FINISHED_SHIFTING;
+    // VICE viacore.c:416-420 — unset all five timer/SR alarms.
     if (this.t2ZeroAlarm) alarmUnset(this.t2ZeroAlarm);
     if (this.t2UnderflowAlarm) alarmUnset(this.t2UnderflowAlarm);
+    if (this.t2ShiftAlarm) alarmUnset(this.t2ShiftAlarm);
+    if (this.phi2SrAlarm) alarmUnset(this.phi2SrAlarm);
+    // VICE viacore.c:423-424 — oldpa/oldpb = 0. We don't track those
+    // separately; backend storePa/storePb receive the driven byte on
+    // every write.
     this.ca1State = 1;
     this.cb1State = 1;
+    // VICE viacore.c:426-430 — ca2/cb1/cb2_out_state = true (idle high).
     this.ca2OutState = 1;
+    this.cb1OutState = 1;
     this.cb2OutState = 1;
+    this.backend.setCa2?.(this.ca2OutState);
+    this.backend.setCb2?.(this.cb2OutState);
+    // VICE viacore.c:436 — viacore_cache_cb12_io_status.
+    this.cacheCb12IoStatus();
     this.updateIrq();
   }
 
@@ -586,6 +736,200 @@ export class Via6522 {
     return reg === VIA_PRB || (reg >= VIA_T1CL && reg <= VIA_IER);
   }
 
+  /**
+   * Spec 611 phase 611.7g.10 — viacore_cache_cb12_io_status port.
+   * VICE source: src/core/viacore.c:1387-1418.
+   *
+   * Re-computes cb1_is_input / cb2_is_input from current ACR + PCR, and
+   * if shifting is idle and CB1 is output, drives CB1 idle-high (1).
+   * Must be called on every ACR or PCR write per VICE comment.
+   */
+  private cacheCb12IoStatus(): void {
+    const acr = this.acr;
+    const pcr = this.pcr;
+    // viacore.c:1392-1394 cb1_drives_shifting.
+    const cb1DrivesShifting =
+      ((acr & VIA_ACR_SR_CONTROL & 0x0c) === VIA_ACR_SR_IN_CB1) ||
+      ((acr & VIA_ACR_SR_CONTROL) === VIA_ACR_SR_DISABLED);
+    // viacore.c:1396-1398 sr_is_input.
+    const srIsInput =
+      ((acr & VIA_ACR_SR_OUT) === 0) &&
+      ((acr & VIA_ACR_SR_CONTROL) !== VIA_ACR_SR_DISABLED);
+    // viacore.c:1400-1401 cb2_is_input (PCR view).
+    const cb2IsInputPcr = (pcr & 0x80) === 0; // VIA_PCR_CB2_I_OR_O = 0x80
+    this.cb1IsInput = cb1DrivesShifting;
+    this.cb2IsInput = srIsInput || cb2IsInputPcr;
+    // viacore.c:1412-1417 — when shifting idle + CB1 output, drive 1.
+    if (
+      this.backend.setCb1 &&
+      !this.cb1IsInput &&
+      this.shiftState === FINISHED_SHIFTING
+    ) {
+      this.cb1OutState = 1;
+      this.backend.setCb1(1);
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.10 — setup_shifting port.
+   * VICE source: src/core/viacore.c:575-632.
+   *
+   * Called on SR register read/write to potentially arm the shift
+   * pipeline based on the current ACR.SR mode.
+   */
+  private setupShifting(rclk: number): void {
+    switch (this.acr & VIA_ACR_SR_CONTROL) {
+      case VIA_ACR_SR_DISABLED:
+        // viacore.c:580-589 — disabled: do not change state.
+        break;
+      case VIA_ACR_SR_IN_T2:
+      case VIA_ACR_SR_OUT_T2:
+      case VIA_ACR_SR_IN_CB1:
+      case VIA_ACR_SR_OUT_CB1: {
+        // viacore.c:590-612 — wait for T2 / CB1 to drive shifting.
+        if (this.shiftState === FINISHED_SHIFTING) {
+          this.shiftState = START_SHIFTING;
+        }
+        break;
+      }
+      case VIA_ACR_SR_IN_PHI2:
+      case VIA_ACR_SR_OUT_PHI2: {
+        // viacore.c:613-624 — phi2 alarm-driven shifting.
+        if (this.shiftState === FINISHED_SHIFTING) {
+          this.shiftState = START_SHIFTING;
+          if (this.phi2SrAlarm) {
+            alarmSet(this.phi2SrAlarm, (rclk + 1) >>> 0);
+          }
+        }
+        break;
+      }
+      case VIA_ACR_SR_OUT_FREE_T2: {
+        // viacore.c:626-630 — free-running output: keep state & 0x0F.
+        this.shiftState &= 0x0f;
+        break;
+      }
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.10 — do_shiftregister port.
+   * VICE source: src/core/viacore.c:1697-1805.
+   *
+   * Even step: drive CB1 low (when CB1 is an output) + shift out (if
+   * shifting out) by rotating SR left through CB2 bit 7.
+   * Odd step: drive CB1 high + shift in (if shifting in) by sampling
+   * cb2_in_state.
+   * When 8 bits are complete: set IFR_SR (unless free-running mode),
+   * invoke sr_underflow callback.
+   */
+  private doShiftRegister(offset: number): void {
+    const rclk = (this.getLiveClk() - offset) & 0xffffffff;
+    if (this.shiftState >= FINISHED_SHIFTING) return;
+    const acr = this.acr;
+    const shiftOut = (acr & VIA_ACR_SR_OUT) !== 0;
+    if ((this.shiftState & 1) === 0) {
+      // viacore.c:1732-1760 — even state.
+      if (!this.cb1IsInput) {
+        this.cb1OutState = 0;
+        this.backend.setCb1?.(0);
+      }
+      if (shiftOut) {
+        // viacore.c:1745-1759 — shift out (rotate left).
+        const cb2 = (this.sr >> 7) & 1;
+        this.sr = ((this.sr << 1) | cb2) & 0xff;
+        this.cb2OutState = cb2 as 0 | 1;
+        this.backend.setCb2?.(this.cb2OutState);
+      }
+    } else {
+      // viacore.c:1761-1776 — odd state.
+      if (!this.cb1IsInput) {
+        this.cb1OutState = 1;
+        this.backend.setCb1?.(1);
+      }
+      if (!shiftOut) {
+        // viacore.c:1771-1775 — shift in (left shift, sample cb2_in_state).
+        this.sr = ((this.sr << 1) | (this.cb2InState & 1)) & 0xff;
+      }
+    }
+    this.shiftState += 1;
+    // viacore.c:1786-1803 — finished?
+    if (this.shiftState === FINISHED_SHIFTING) {
+      if ((acr & 0x1c) === VIA_ACR_SR_OUT_FREE_T2) {
+        // IS_SR_FREE_RUNNING — restart, no IRQ.
+        this.shiftState = START_SHIFTING;
+      } else {
+        this.ifr |= IFR_SR;
+        this.updateIrqAtClk(rclk);
+        this.backend.srUnderflow?.();
+      }
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.10 — viacore_t2_shift_alarm callback.
+   * VICE source: src/core/viacore.c:1680-1695.
+   */
+  private t2ShiftAlarmCallback(offset: number): void {
+    this.doShiftRegister(offset);
+    if (this.t2ShiftAlarm) alarmUnset(this.t2ShiftAlarm);
+  }
+
+  /**
+   * Spec 611 phase 611.7g.10 — viacore_phi2_sr_alarm callback.
+   * VICE source: src/core/viacore.c:1808-1827.
+   */
+  private phi2SrAlarmCallback(offset: number): void {
+    const rclk = (this.getLiveClk() - offset) & 0xffffffff;
+    this.doShiftRegister(offset);
+    // viacore.c:1826 — re-arm 1 cycle later.
+    if (this.phi2SrAlarm) {
+      alarmSet(this.phi2SrAlarm, (rclk + SR_PHI2_NEXT_OFFSET) >>> 0);
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.8 — set_cb2_output_state port.
+   * VICE source: src/core/viacore.c:1350-1377.
+   *
+   * Called from ACR-write SR-disabled branch and PCR write (when SR
+   * doesn't override CB2). Drives CB2 from PCR mode bits.
+   */
+  private applyPcrCb2OutputState(): void {
+    const mode = this.pcr & 0xe0; // VIA_PCR_CB2_CONTROL
+    // viacore.c:1354-1360 — input mode: keep input, drive 1.
+    if ((mode & 0x80) === 0) {
+      this.cb2OutState = 1;
+      this.backend.setCb2?.(1);
+      return;
+    }
+    // viacore.c:1362-1375 — output modes.
+    switch (mode) {
+      case 0xc0: // VIA_PCR_CB2_LOW_OUTPUT
+        this.cb2OutState = 0;
+        break;
+      case 0xe0: // VIA_PCR_CB2_HIGH_OUTPUT
+      case 0xa0: // VIA_PCR_CB2_PULSE_OUTPUT
+      case 0x80: // VIA_PCR_CB2_HANDSHAKE_OUTPUT
+      default:
+        this.cb2OutState = 1;
+        break;
+    }
+    this.backend.setCb2?.(this.cb2OutState);
+  }
+
+  /**
+   * Spec 611 phase 611.7g.8a — PB7 overlay for PRB output byte.
+   * VICE source: src/core/viacore.c:720-722 (store_prb), :1152-1154
+   * (read VIA_PRB). When ACR & T1_PB7_USED is set, the PB7 bit of the
+   * driven/read PRB byte is taken from t1_pb7 instead of PRB[7].
+   */
+  private overlayPb7(byte: number): number {
+    if (this.acr & VIA_ACR_T1_PB7_USED) {
+      return ((byte & 0x7f) | (this.t1Pb7 & 0x80)) & 0xff;
+    }
+    return byte & 0xff;
+  }
+
   read(reg: number): BYTE {
     const r = reg & 0x0f;
     // VICE viacore_read head (viacore.c:1068-1070).
@@ -601,14 +945,17 @@ export class Via6522 {
           // CB1/CB2 IFR clear + IRQ re-eval FIRST, then samples PB:
           //   byte = read_prb(via)
           //   byte = (byte & ~DDRB) | (PRB & DDRB)
-          //   [if ACR & T1_PB7_USED: byte = (byte & 0x7f) | t1_pb7]  ← 7g.8a
+          //   if ACR & T1_PB7_USED: byte = (byte & 0x7f) | t1_pb7  (7g.8a)
           // Asymmetric vs PRA: NO CB2 handshake side effect on read
           // (VICE comment lines 1138-1139: "this port reads the ORB
           // for output pins, not the voltage on the pins").
           this.applyPrbReadSideEffects();
           const driven = this.prb & this.ddrb;
           const input = this.backend.readPb ? this.backend.readPb() : 0xff;
-          return u8((driven & this.ddrb) | (input & ~this.ddrb));
+          let value = (driven & this.ddrb) | (input & ~this.ddrb);
+          // Spec 611 phase 611.7g.8a — VICE viacore.c:1152-1154 PB7 overlay.
+          value = this.overlayPb7(value);
+          return u8(value);
         }
         // VICE viacore_read case VIA_PRA (viacore.c:1073-1095) applies
         // handshake/IFR/IRQ block FIRST, then `goto via_pra_nhs` falls
@@ -659,7 +1006,17 @@ export class Via6522 {
         const rclk = this.getClk();
         return (this.viacoreT2(rclk) >> 8) & 0xff;
       }
-      case VIA_SR: return this.sr;
+      case VIA_SR: {
+        // Spec 611 phase 611.7g.10 — viacore_read VIA_SR.
+        // VICE source: src/core/viacore.c:1181-1190.
+        const rclk = this.getClk();
+        this.setupShifting(rclk);
+        if (this.ifr & IFR_SR) {
+          this.ifr &= ~IFR_SR;
+          this.updateIrqAtClk(rclk);
+        }
+        return this.sr;
+      }
       case VIA_ACR: return this.acr;
       case VIA_PCR: return this.pcr;
       case VIA_IFR: {
@@ -689,15 +1046,16 @@ export class Via6522 {
       case VIA_PRB: {
         // VICE viacore_store case VIA_PRB (viacore.c:698-715) applies
         // CB1/CB2 handshake + IFR/IRQ block FIRST, then falls through
-        // to PRB latch+store path (viacore.c:717-724):
+        // to PRB latch+store path (viacore.c:717-725):
         //   byte = (via[VIA_PRB] | ~via[VIA_DDRB])
-        //   [if ACR & T1_PB7_USED: byte = (byte & 0x7f) | t1_pb7]  ← 7g.8a
+        //   if ACR & T1_PB7_USED: byte = (byte & 0x7f) | t1_pb7  (7g.8a)
         //   store_prb(byte, oldpb, addr)
-        // T1/PB7 overlay deferred to slice 7g.8a per Codex 16:58/16:59.
         this.applyPrbWriteSideEffects();
         this.prb = v;
-        const driven = (this.prb | ~this.ddrb) & 0xff;
-        this.backend.storePb?.(driven);
+        // Spec 611 phase 611.7g.8a — VICE viacore.c:720-722 PB7 overlay
+        // on store_prb driven byte.
+        const driven = this.overlayPb7((this.prb | ~this.ddrb) & 0xff);
+        this.backend.storePb?.(driven & 0xff);
         return;
       }
       case VIA_PRA: {
@@ -722,9 +1080,10 @@ export class Via6522 {
         return;
       }
       case VIA_DDRB: {
+        // VICE viacore.c:717-725 store path (DDRB falls into same store_prb).
         this.ddrb = v;
-        const driven = (this.prb | ~this.ddrb) & 0xff;
-        this.backend.storePb?.(driven);
+        const driven = this.overlayPb7((this.prb | ~this.ddrb) & 0xff);
+        this.backend.storePb?.(driven & 0xff);
         return;
       }
       case VIA_DDRA: {
@@ -733,26 +1092,124 @@ export class Via6522 {
         this.backend.storePa?.(driven);
         return;
       }
-      case VIA_ACR: { this.acr = v; return; }
+      case VIA_ACR: {
+        // Spec 611 phase 611.7g.8 — viacore_store case VIA_ACR.
+        // VICE source: src/core/viacore.c:854-986.
+        const rclk = this.getClk();
+        const oldAcr = this.acr;
+        // viacore.c:856-862 — PB7 enable rising edge: t1_pb7 = 0x80.
+        if (((oldAcr ^ v) & VIA_ACR_T1_PB7_USED) !== 0) {
+          if (v & VIA_ACR_T1_PB7_USED) {
+            this.t1Pb7 = 0x80;
+          }
+        }
+        // viacore.c:885-986 — T2 mode toggle + SR mode transitions.
+        let t2StartupDelay = 0;
+        let restartT2Alarms = false;
+        // viacore.c:889-925 — T2 timer/pulse-count toggle (bit 5).
+        if (((oldAcr ^ v) & VIA_ACR_T2_CONTROL) !== 0) {
+          if (v & VIA_ACR_T2_COUNTPB6) {
+            // viacore.c:890-909 — enter pulse-counting mode.
+            const stop = (this.viacoreT2(rclk) - 1) & 0xffff;
+            this.t2cl = stop & 0xff;
+            this.t2ch = (stop >> 8) & 0xff;
+            if (this.t2ZeroAlarm) alarmUnset(this.t2ZeroAlarm);
+            this.t2xx00 = false;
+          } else {
+            // viacore.c:910-924 — leave pulse-counting (re-enter timer mode).
+            restartT2Alarms = true;
+            t2StartupDelay = 1;
+          }
+        }
+        // viacore.c:927-966 — SR mode (bits 4-2) transitions.
+        switch (v & VIA_ACR_SR_CONTROL) {
+          case VIA_ACR_SR_DISABLED: {
+            // viacore.c:929-940 — disable: drop phi2 alarm, clear IFR_SR,
+            // restore CB2 PCR-driven output.
+            if (this.phi2SrAlarm) alarmUnset(this.phi2SrAlarm);
+            if (this.ifr & IFR_SR) {
+              this.ifr &= ~IFR_SR;
+              this.updateIrqAtClk(rclk);
+            }
+            // viacore.c:938-939 set_cb2_output_state(pcr, write_offset)
+            // — restore CB2 from PCR mode (subset used by 1541: handshake
+            // / low / high / input; SR no longer steers it).
+            this.applyPcrCb2OutputState();
+            break;
+          }
+          case VIA_ACR_SR_IN_T2:
+          case VIA_ACR_SR_OUT_T2:
+          case VIA_ACR_SR_OUT_FREE_T2: {
+            // viacore.c:941-956 — SR-T2 / SR-free-T2: drop phi2 alarm;
+            // may need to re-arm t2_zero_alarm if old SR was not
+            // T2-controlled and new T2 is timer mode (not PB6 count).
+            if (this.phi2SrAlarm) alarmUnset(this.phi2SrAlarm);
+            const oldIsSrT2 =
+              ((oldAcr & 0x0c) === 0x04) || ((oldAcr & 0x1c) === 0x10);
+            const newIsT2Timer = (v & VIA_ACR_T2_CONTROL) === VIA_ACR_T2_TIMER;
+            if (!oldIsSrT2 && newIsT2Timer) {
+              restartT2Alarms = true;
+            }
+            break;
+          }
+          case VIA_ACR_SR_IN_PHI2:
+          case VIA_ACR_SR_OUT_PHI2: {
+            // viacore.c:957-961 — phi2 mode: arm phi2_sr_alarm if not pending.
+            if (this.phi2SrAlarm && this.phi2SrAlarm.pending_idx < 0) {
+              alarmSet(this.phi2SrAlarm, (rclk + SR_PHI2_FIRST_OFFSET) >>> 0);
+            }
+            break;
+          }
+          case VIA_ACR_SR_IN_CB1:
+          case VIA_ACR_SR_OUT_CB1: {
+            // viacore.c:962-965 — CB1-driven: drop phi2 alarm; shifting
+            // happens via viacore_set_cb1.
+            if (this.phi2SrAlarm) alarmUnset(this.phi2SrAlarm);
+            break;
+          }
+        }
+        // viacore.c:968-980 — if restart_t2_alarms and neither T2 alarm
+        // pending, re-load t2cl/t2ch from live counter + schedule.
+        const t2ZeroPending = !!(this.t2ZeroAlarm && this.t2ZeroAlarm.pending_idx >= 0);
+        const t2UnderflowPending = !!(this.t2UnderflowAlarm && this.t2UnderflowAlarm.pending_idx >= 0);
+        if (restartT2Alarms && !t2ZeroPending && !t2UnderflowPending) {
+          const current = this.viacoreT2(rclk);
+          this.t2cl = current & 0xff;
+          this.t2ch = (current >> 8) & 0xff;
+          // Apply ACR FIRST so scheduleT2ZeroAlarm's SR-T2 gate sees new ACR.
+          this.acr = v;
+          this.scheduleT2ZeroAlarm((rclk + t2StartupDelay) >>> 0);
+          this.cacheCb12IoStatus();
+          return;
+        }
+        // viacore.c:982-983 — commit ACR + refresh CB1/CB2 IO cache.
+        this.acr = v;
+        this.cacheCb12IoStatus();
+        return;
+      }
       case VIA_PCR: {
-        this.pcr = v;
-        // VICE viacore.c via_update_ca2_output() / cb2 — when PCR is
-        // configured for "manual" output mode the CA2/CB2 output state
-        // tracks PCR bits directly. Modes:
-        //   PCR bits 1-3 = CA2 control:
-        //     110 (= 0x0c) = manual output low
-        //     111 (= 0x0e) = manual output high
-        //     others       = handshake / pulse modes (not exercised by
-        //                    VIA2 1541; left as no-op for 611.5).
-        //   PCR bits 5-7 = CB2 control (same encoding, shifted).
-        const ca2Mode = (v & 0x0e);
-        if (ca2Mode === 0x0c) this.ca2OutState = 0;
-        else if (ca2Mode === 0x0e) this.ca2OutState = 1;
+        // VICE source: src/core/viacore.c:988-1019 case VIA_PCR.
+        // viacore.c:996-1006 — CA2 output state from PCR bits 1-3.
+        if ((v & 0x0e) === 0x0c) {
+          // VIA_PCR_CA2_LOW_OUTPUT
+          this.ca2OutState = 0;
+        } else if ((v & 0x0e) === 0x0e) {
+          // VIA_PCR_CA2_HIGH_OUTPUT
+          this.ca2OutState = 1;
+        } else {
+          // toggle / pulse / input — VICE comment: "FIXME: is this
+          // correct if handshake is already active?" Drives 1.
+          this.ca2OutState = 1;
+        }
         this.backend.setCa2?.(this.ca2OutState);
-        const cb2Mode = (v & 0xe0) >> 4;
-        if (cb2Mode === 0x0c) this.cb2OutState = 0;
-        else if (cb2Mode === 0x0e) this.cb2OutState = 1;
-        this.backend.setCb2?.(this.cb2OutState);
+        // Update pcr BEFORE applyPcrCb2OutputState reads it.
+        this.pcr = v;
+        // viacore.c:1009-1013 — when SR is disabled, PCR drives CB2.
+        if ((this.acr & VIA_ACR_SR_CONTROL) === VIA_ACR_SR_DISABLED) {
+          this.applyPcrCb2OutputState();
+        }
+        // viacore.c:1018 — refresh CB1/CB2 IO cache after PCR change.
+        this.cacheCb12IoStatus();
         return;
       }
       case VIA_IFR: {
@@ -827,7 +1284,19 @@ export class Via6522 {
         this.t2IrqAllowed = true;
         return;
       }
-      case VIA_SR: { this.sr = v; return; }
+      case VIA_SR: {
+        // Spec 611 phase 611.7g.10 — viacore_store VIA_SR.
+        // VICE source: src/core/viacore.c:727-737.
+        this.sr = v;
+        const rclk = this.getClk();
+        this.setupShifting(rclk);
+        if (this.ifr & IFR_SR) {
+          this.ifr &= ~IFR_SR;
+          this.updateIrqAtClk(rclk);
+        }
+        this.backend.setSr?.(v);
+        return;
+      }
       default: return;
     }
   }
@@ -869,6 +1338,137 @@ export class Via6522 {
       }
       this.ifr |= IFR_CA1;
       this.updateIrqAtClk(clk);
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.8 (slice F) — viacore_signal SIG_CA2 port.
+   * VICE source: src/core/viacore.c:459-466.
+   *   if ((PCR & VIA_PCR_CA2_I_OR_O) == VIA_PCR_CA2_INPUT) {
+   *     ifr |= (((edge << 2) ^ PCR) & 0x04) ? 0 : VIA_IM_CA2;
+   *     update_myviairq();
+   *   }
+   *
+   * VICE_PCR_CA2_I_OR_O = 0x08, VIA_PCR_CA2_INPUT = 0x00.
+   * Polarity bit (0x04): 0 = neg active edge, 1 = pos active edge.
+   */
+  signalCa2(edge: 0 | 1, clk?: number): void {
+    // viacore.c:460 — only when CA2 is in input mode.
+    if ((this.pcr & 0x08) === 0) {
+      // viacore.c:461-463 — IRQ when ((edge<<2) XOR PCR) & 0x04 == 0,
+      // i.e. when edge matches PCR's CA2 polarity bit.
+      const polarity = (this.pcr & 0x04) >> 2;
+      if ((edge & 1) === polarity) {
+        this.ifr |= IFR_CA2;
+        this.updateIrqAtClk(clk);
+      }
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.8 (slice E) — viacore_signal SIG_CB1 wrapper.
+   * VICE source: src/core/viacore.c:467-468 (SIG_CB1 -> viacore_set_cb1).
+   * Body lives in `setCb1Input` below (ported from viacore_set_cb1
+   * viacore.c:1428-1501).
+   */
+  signalCb1(edge: 0 | 1, clk?: number): void {
+    this.setCb1Input(edge !== 0, clk);
+  }
+
+  /**
+   * Spec 611 phase 611.7g.8 (slice F) — viacore_signal SIG_CB2 wrapper.
+   * VICE source: src/core/viacore.c:470-471 (SIG_CB2 -> viacore_set_cb2).
+   * Body lives in `setCb2Input` below (ported from viacore_set_cb2
+   * viacore.c:1503-1518).
+   */
+  signalCb2(edge: 0 | 1, clk?: number): void {
+    this.setCb2Input(edge !== 0, clk);
+  }
+
+  /**
+   * Spec 611 phase 611.7g.8 (slice E) — viacore_set_cb1 port.
+   * VICE source: src/core/viacore.c:1428-1501.
+   *
+   * Handles CB1 as input: when CB1 is configured as the SR shift clock
+   * (cb1_is_input + non-disabled SR mode), shifts SR on the active edge.
+   * Always also evaluates CB1 IRQ + CB2-toggle handshake per PCR.
+   */
+  private setCb1Input(data: boolean, clk?: number): void {
+    if (data !== !!this.cb1InState) {
+      // viacore.c:1434-1474 — edge happened; if CB1 drives shifting, do shift.
+      if (this.cb1IsInput) {
+        // viacore.c:1436-1438 — first falling edge resets shift_state to start.
+        if (!data && this.shiftState === FINISHED_SHIFTING) {
+          this.shiftState = START_SHIFTING;
+        }
+        this.shiftState += 1;
+        if (data) {
+          // viacore.c:1443-1451 — rising edge: shift SR in.
+          this.sr = ((this.sr << 1) | (this.cb2InState & 1)) & 0xff;
+          if (this.shiftState === FINISHED_SHIFTING) {
+            // viacore.c:1449 — set IFR_SR via viacore_set_sr.
+            this.setSrBurst(this.sr, clk);
+            this.shiftState = START_SHIFTING;
+          }
+        }
+      }
+      this.cb1InState = data ? 1 : 0;
+    }
+    // viacore.c:1482-1500 — unconditional CB1 IRQ + CB2-toggle handshake
+    // per PCR (comment notes "doing unconditionally seems wrong, but
+    // breaks SpeedDOS+").
+    const pcr = this.pcr;
+    const edge = (pcr & VIA_PCR_CB1_CONTROL) === VIA_PCR_CB1_POS_ACTIVE_EDGE;
+    if (data === edge) {
+      // viacore.c:1487-1490 — CB2 toggle-mode handshake on CB1 edge.
+      if ((pcr & 0xe0) === 0x80 && this.cb2OutState === 0) {
+        // IS_CB2_TOGGLE_MODE() == ((PCR & 0xe0) == 0x80)
+        this.cb2OutState = 1;
+        this.backend.setCb2?.(1);
+      }
+      this.ifr |= IFR_CB1;
+      this.updateIrqAtClk(clk);
+    }
+    this.cb1State = data ? 1 : 0;
+  }
+
+  /**
+   * Spec 611 phase 611.7g.8 (slice F) — viacore_set_cb2 port.
+   * VICE source: src/core/viacore.c:1503-1518.
+   *
+   * Handles CB2 as input: tracks edges, raises IFR_CB2 on the active
+   * edge per PCR. NOT to be confused with CB2 OUTPUT-side (driven from
+   * SR / handshake / PCR mode bits) — that is separate.
+   */
+  private setCb2Input(data: boolean, clk?: number): void {
+    if (this.cb2IsInput && data !== !!this.cb2InState) {
+      this.cb2InState = data ? 1 : 0;
+      // viacore.c:1510 — VIA_PCR_CB2_INPUT_POS_ACTIVE_EDGE = 0x40.
+      const edge = (this.pcr & 0x40) !== 0;
+      if (data === edge) {
+        this.ifr |= IFR_CB2;
+        this.updateIrqAtClk(clk);
+      }
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.10 — viacore_set_sr burst-mode hack.
+   * VICE source: src/core/viacore.c:1523-1535.
+   *
+   * Used by external fastloader code paths (c64fastiec etc.) to inject
+   * a byte into the SR while in SR-IN mode (any non-disabled SR-in
+   * mode satisfies the guard). On 1541 this is unused but the path is
+   * kept source-faithful for completeness.
+   */
+  private setSrBurst(value: BYTE, clk?: number): void {
+    // viacore.c:1525-1526 — guard: SR is shift-in (ACR.SR_OUT bit 0)
+    // AND SR mode is not DISABLED (ACR & 0x0c != 0).
+    if ((this.acr & VIA_ACR_SR_OUT) === 0 && (this.acr & 0x0c) !== 0) {
+      this.sr = value & 0xff;
+      this.ifr |= IFR_SR;
+      this.updateIrqAtClk(clk);
+      this.shiftState = FINISHED_SHIFTING;
     }
   }
 

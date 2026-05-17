@@ -82,6 +82,10 @@ export interface DriveContext {
   p64ImageLoaded: number;
 
   rpm: number;                         // 30000 nominal
+  /** VICE drive_t.wobble_sin_count (drive.h:366) — radians, float.
+   *  Used by rotation_do_wobble (rotation.c:308). Added in 611.7g
+   *  port of GCR rotation engine. */
+  wobbleSinCount: number;
   wobbleFactor: number;
   wobbleFrequency: number;
   wobbleAmplitude: number;
@@ -163,6 +167,7 @@ export function createAllocatedDriveContext(driveSlot = 0): DriveContext {
     p64ImageLoaded: 0,
 
     rpm: NOMINAL_RPM,
+    wobbleSinCount: 0,
     wobbleFactor: 0,
     wobbleFrequency: 0,
     wobbleAmplitude: 0,
