@@ -1,5 +1,7 @@
 import type { Drive1541, Drive1541Implementation } from "./drive1541.js";
-import { Vice1541 } from "../_quarantine_vice1541_v4/vice1541.js";
+// Spec 612 T3.1 — replace quarantine import with new snake_case port facade.
+// Vice1541Facade lives OUTSIDE `vice1541/` per Spec 612 §2 PL-3.
+import { Vice1541Facade } from "./vice1541-facade.js";
 import {
   Legacy1541Adapter,
   type Legacy1541AdapterDeps,
@@ -47,7 +49,7 @@ export function createDrive1541(
   legacyDeps?: Legacy1541AdapterDeps,
 ): Drive1541 {
   if (implementation === "vice") {
-    return new Vice1541();
+    return new Vice1541Facade();
   }
   if (implementation === "legacy") {
     if (!legacyDeps) {

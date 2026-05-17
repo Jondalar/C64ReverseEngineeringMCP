@@ -60,6 +60,10 @@ import {
   createDrive1541,
   resolveDrive1541Implementation,
 } from "../drive1541/drive1541-factory.js";
+// Spec 612 T3.1 — drv_data[8] live read source for the Vice1541 bridge.
+// The new snake_case port owns the canonical iecbus singleton; the
+// bridge reads from it (NOT from legacy core closure refs).
+import { iecbus_drive_port as vice_iecbus_drive_port } from "../vice1541/iecbus.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
@@ -649,31 +653,28 @@ export class HeadlessMachineKernel implements MachineKernel {
   }
 
   /**
-   * Spec 611 phase 611.7e.4 — narrow bridge per Codex 19:52 + 22:20
-   * reviews. When `drive1541="vice"`:
+   * Spec 611 phase 611.7e.4 + Spec 612 T3.1 — narrow bridge that wires
+   * the C64-side IEC view through Vice1541. When `drive1541="vice"`:
    *
    *   1. `IecBus.setC64Output` POST-hook mirrors the **C64-side
    *      intent** (from `core.cpu_bus` bits, NOT combined-bus
    *      getters) to `Vice1541.iecLineDrive(...)`. Combined-bus
    *      lines include drive pulls and would feed back into the
    *      C64-side contribution.
+   *
    *   2. `IecBus.pushFlush.{one,all}` re-targets:
    *        a. `vice.catchUpTo(clk)`
    *        b. `vice.flush()`
-   *        c. overlay `core.drv_data[8]` from `vice.iecLineSample()`
+   *        c. overlay `core.drv_data[8]` from the **new** vice1541
+   *           iecbus.ts singleton (`iecbus_drive_port()`), NOT the
+   *           legacy core closure refs (Spec 612 T3.1 acceptance)
    *        d. `core.recompute_drv_bus(8)`
    *        e. `core.iec_update_ports()`
-   *      This is where the drv-side overlay lives (per Codex review)
-   *      — after vice catch-up/flush so the sample is fresh, and the
-   *      cpu_port recompute makes the `$DD00` read return the
-   *      correct combined value.
-   *      No silent legacy fallback (legacy DriveCpu still ticks via
-   *      its own scheduler, but no longer drives the bus from the
-   *      C64's view).
    *
-   * IecBusCore formulas + CIA2 PA inversion/DDR + setC64Output/
-   * buildC64InputBits semantics + pushFlush invocation order + ATN
-   * edge polarity — ALL unchanged.
+   * The overlay still goes into the legacy `IecBus.core` so the
+   * C64-side `$DD00` read still returns the combined value through
+   * the established formulas. ATN edge polarity, CIA2 PA inversion,
+   * pushFlush invocation order — ALL unchanged.
    */
   private installVice1541Bridge(vice: Drive1541): void {
     const iec = this.iecBus;
@@ -685,6 +686,15 @@ export class HeadlessMachineKernel implements MachineKernel {
         iec_update_ports(): void;
       };
     }).core;
+
+    // Spec 612 T3.1 — read drv_data[8] from the new vice1541 iecbus.ts
+    // singleton via vice_iecbus_drive_port (top-of-file import). The
+    // canonical iecbus.iecbus state is the source of truth for the
+    // drive-side overlay; the facade and the bridge both read it.
+    const drvData8Live = (): number => {
+      const bus = vice_iecbus_drive_port();
+      return (bus.drv_data[8] ?? 0xff) & 0xff;
+    };
 
     // Encode Vice1541.iecLineSample() into VICE drv_data[8] byte
     // form: bit 1 = data, bit 3 = clk, bit 4 = atna; 1 = released,
@@ -701,23 +711,35 @@ export class HeadlessMachineKernel implements MachineKernel {
     }
 
     // 1. pushFlush re-target: vice.catchUpTo + flush + overlay +
-    //    recompute. Codex 19:52: "the clean place is likely inside
-    //    the new pushFlush.one/all wrapper after the vice
-    //    catch-up/flush. That preserves the existing IecBus formulas
-    //    while updating the cached bus state at the right time."
+    //    recompute. Spec 612 T3.1: overlay sources from
+    //    vice1541/iecbus.ts (drvData8Live), NOT legacy core refs.
+    //    Fall back to facade encoding when the singleton lookup
+    //    fails (e.g. test fixtures that don't import the port).
     iec.pushFlush = {
       one: (unit, clk, _cs) => {
         if (unit !== 8) return; // single-1541 baseline
         vice.catchUpTo(clk);
         vice.flush();
-        core.drv_data[8] = viceSampleToDrvData8();
+        let live: number;
+        try {
+          live = drvData8Live();
+        } catch {
+          live = viceSampleToDrvData8();
+        }
+        core.drv_data[8] = live;
         core.recompute_drv_bus(8);
         core.iec_update_ports();
       },
       all: (clk, _cs) => {
         vice.catchUpTo(clk);
         vice.flush();
-        core.drv_data[8] = viceSampleToDrvData8();
+        let live: number;
+        try {
+          live = drvData8Live();
+        } catch {
+          live = viceSampleToDrvData8();
+        }
+        core.drv_data[8] = live;
         core.recompute_drv_bus(8);
         core.iec_update_ports();
       },
@@ -725,20 +747,13 @@ export class HeadlessMachineKernel implements MachineKernel {
 
     // 2. $DD00 write — wrap setC64Output post-hook. Pass C64-side
     //    INTENT from core.cpu_bus, NOT combined-bus getters.
-    //    Per VICE iec_update_cpu_bus (c64iec.c) + Codex 19:52:
+    //    Per VICE iec_update_cpu_bus (c64iec.c):
     //      cpu_bus bit 4 (0x10) = ATN released  (1 = C64 not asserting)
     //      cpu_bus bit 6 (0x40) = CLK released
     //      cpu_bus bit 7 (0x80) = DATA released
     const origSetC64Output = iec.setC64Output.bind(iec);
     iec.setC64Output = (cia2Pa, ddrMask, effClk, cs) => {
       origSetC64Output(cia2Pa, ddrMask, effClk, cs);
-      // Spec 611 phase 611.7f.24 — pass effClk through to vice's
-      // iecLineDrive so CA1 IRQ stamp matches the canonical write-time
-      // host clk (matching legacy pulseCa1(level, stamp) semantics).
-      // Without this, vice's setIrq uses post-catchUpTo drive clk
-      // which can be 1-6 cycles ahead of write-time → IRQ accepted
-      // late on drive cpu → cumulative SP drift → wrong step plan →
-      // wrong HT → sync fails → ?FILE NOT FOUND.
       vice.iecLineDrive({
         bus_atn: (core.cpu_bus & 0x10) !== 0,
         bus_clk: (core.cpu_bus & 0x40) !== 0,
@@ -746,9 +761,7 @@ export class HeadlessMachineKernel implements MachineKernel {
       }, effClk);
     };
 
-    // 3. buildC64InputBits wrapper REMOVED. Per Codex 19:52 the
-    //    overlay must happen inside pushFlush (after vice catch-up/
-    //    flush). buildC64InputBits triggers pushFlush.all, which now
+    // 3. buildC64InputBits wrapper not needed — pushFlush.all (above)
     //    performs the overlay + recompute, so the original method's
     //    subsequent reads of core.cpu_port already reflect Vice1541.
   }
