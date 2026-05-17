@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "build:mcp": "tsc -p tsconfig.json",
     "build:pipeline": "tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
+    "check:1541-fidelity": "node scripts/check-1541-port-fidelity.mjs",
     "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
     "bootstrap:workspace": "npm run build:mcp && node scripts/bootstrap-existing-re-workspace.mjs",
     "test:project-knowledge": "npm run build:mcp && node scripts/project-knowledge-smoke.mjs",
