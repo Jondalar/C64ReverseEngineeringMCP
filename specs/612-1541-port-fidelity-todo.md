@@ -20,7 +20,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ## Phase 0 — Enforcement infrastructure (build first)
 
 ### T0.1 — Fidelity check script
-**Status:** OPEN
+**Status:** DONE 2026-05-17 3fb8454
 **Agent:** Sonnet (mechanical)
 **File:** `scripts/check-1541-port-fidelity.mjs` (new)
 **Spec ref:** §6 FC-1..FC-6
@@ -55,7 +55,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T0.3 — Doctrine block in CLAUDE.md
-**Status:** OPEN
+**Status:** DONE 2026-05-17 fcd79ff
 **Agent:** Opus (judgment — wording matters for future sessions)
 **File:** `CLAUDE.md` (project root)
 
@@ -73,7 +73,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ## Phase 1 — Quarantine + salvage
 
 ### T1.1 — Quarantine current vice1541/
-**Status:** OPEN
+**Status:** DONE 2026-05-17 fcd79ff
 **Agent:** Sonnet
 **Action:** `git mv src/runtime/headless/vice1541 src/runtime/headless/_quarantine_vice1541_v4`
 
@@ -88,7 +88,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T1.2 — Create empty new vice1541/ + drivetypes.ts skeleton
-**Status:** OPEN
+**Status:** DONE 2026-05-17 c99fc87
 **Agent:** Sonnet
 **File:** `src/runtime/headless/vice1541/drivetypes.ts` (new)
 **VICE source:** `vice/src/drive/drivetypes.h` + `vice/src/drive/drive.h`
@@ -107,7 +107,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T1.3 — Salvage gcr.ts
-**Status:** OPEN
+**Status:** DONE 2026-05-17 d5ce15d
 **Agent:** Sonnet
 **Source:** `_quarantine_vice1541_v4/gcr.ts`
 **Target:** `src/runtime/headless/vice1541/gcr.ts`
@@ -125,7 +125,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T1.4 — Salvage rotation.ts
-**Status:** OPEN
+**Status:** DONE 2026-05-17 1d9a73a
 **Agent:** Sonnet
 **Source:** `_quarantine_vice1541_v4/rotation.ts`
 **Target:** `src/runtime/headless/vice1541/rotation.ts`
@@ -145,7 +145,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T1.5 — Salvage viacore.ts (consolidate VIA core)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 1790a76
 **Agent:** Sonnet
 **Source:** `_quarantine_vice1541_v4/via6522.ts` (1939 LOC, lazy-T1 fallback) AND `src/runtime/headless/via/via6522-vice.ts` (1341 LOC, write_offset configurable)
 **Target:** `src/runtime/headless/vice1541/viacore.ts`
@@ -167,7 +167,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T1.6 — Salvage via1d1541.ts
-**Status:** OPEN
+**Status:** DONE 2026-05-17 69a0f5f
 **Agent:** Sonnet
 **Source:** `_quarantine_vice1541_v4/via1d.ts` + `via/via1d1541.ts`
 **Target:** `src/runtime/headless/vice1541/via1d1541.ts`
@@ -186,7 +186,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T1.7 — Salvage via2d.ts
-**Status:** OPEN
+**Status:** DONE 2026-05-17 0f3d116
 **Agent:** Sonnet
 **Source:** `_quarantine_vice1541_v4/via2d.ts`
 **Target:** `src/runtime/headless/vice1541/via2d.ts`
@@ -209,7 +209,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ## Phase 2 — Layer rewrites (audit-flagged divergents)
 
 ### T2.1 — drivemem.ts (function-pointer table)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 fd7bef0
 **Agent:** Opus (novel layout decision: how to model function-pointer-table in TS)
 **Target:** `src/runtime/headless/vice1541/drivemem.ts` (new)
 **VICE:** `vice/src/drive/drivemem.c` + `drivemem.h`
@@ -229,7 +229,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.2 — memiec.ts (drive-1541 memory map)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 4225383
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/memiec.ts` (new)
 **VICE:** `vice/src/drive/iec/memiec.c`
@@ -245,7 +245,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.3 — drive_6510core.ts (drive-specific 6510 core)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 d609783
 **Agent:** Opus (this is the biggest single port)
 **Target:** `src/runtime/headless/vice1541/drive_6510core.ts` (new)
 **VICE:** `vice/src/6510core.c` (with `#define DRIVE_CPU` paths only)
@@ -266,7 +266,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.4 — drivecpu.ts (with JAM dispatch + trap handler)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 8c67abf
 **Agent:** Opus
 **Target:** `src/runtime/headless/vice1541/drivecpu.ts` (new)
 **VICE:** `vice/src/drive/drivecpu.c`
@@ -286,7 +286,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.5 — drivesync.ts (full port)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 4f6c5e3
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/drivesync.ts` (new)
 **VICE:** `vice/src/drive/drivesync.c`
@@ -303,7 +303,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.6 — fsimage_dxx.ts (D64 GCR encode)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 80b5ab3
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/fsimage_dxx.ts` (new)
 **VICE:** `vice/src/diskimage/fsimage-dxx.c`
@@ -319,7 +319,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.7 — fsimage_gcr.ts (G64 parse/serialise)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 5d12ef5
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/fsimage_gcr.ts` (new)
 **VICE:** `vice/src/diskimage/fsimage-gcr.c`
@@ -335,7 +335,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.8 — driveimage.ts (with writeback)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 b91ff59
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/driveimage.ts` (new)
 **VICE:** `vice/src/drive/driveimage.c`
@@ -352,7 +352,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.9 — driverom.ts (with traps)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 5afbcf2
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/driverom.ts` (new)
 **VICE:** `vice/src/drive/driverom.c`
@@ -386,7 +386,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.11 — iecbus.ts (with conf2/conf3 + multi-drive)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 375da96
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/iecbus.ts` (new)
 **VICE:** `vice/src/iecbus/iecbus.c` + `iecbus.h`
@@ -405,7 +405,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.12 — c64iec.ts (replaces cia2-stub)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 13e4086
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/c64iec.ts` (new)
 **VICE:** `vice/src/c64/c64iec.c` + relevant slice of `vice/src/c64/c64cia2.c`
