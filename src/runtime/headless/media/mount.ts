@@ -193,7 +193,17 @@ export async function mountMedia(
     // Doc: docs/vice-1541-arch.md §2.4 (image attach), §13 Phase H
     //      step 32, §17 OQ-414-1.
     // VICE: src/drive/drive.c:482-529 `drive_enable`.
-    session.drive.enable(session.c64Cpu.cycles);
+    // Spec 612 T3.2-fix-O: skip legacy drive enable when drive1541=vice.
+    // Legacy ghost drive ticks in parallel and writes legacy iec-bus
+    // setDriveOutput → updates core.drv_data[8] → conflicts with bridge's
+    // vice-state overlay. Per user direction: legacy quiet in vice mode.
+    {
+      const kAny = session.kernel as unknown as { drive1541Implementation?: string };
+      if (kAny.drive1541Implementation !== "vice"
+          || process.env.C64RE_KEEP_LEGACY_DRIVE_IN_VICE_MODE === "1") {
+        session.drive.enable(session.c64Cpu.cycles);
+      }
+    }
 
     // Spec 611 phase 611.7f.1 — dual-attach for `drive1541="vice"`.
     // Default legacy mount path above is unchanged. When the active
