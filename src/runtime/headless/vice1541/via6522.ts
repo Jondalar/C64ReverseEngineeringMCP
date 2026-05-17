@@ -416,13 +416,30 @@ export class Via6522 {
    * VICE `viacore_signal(via, line, edge)` for CA1.
    * `edge` = VIA_SIG_FALL or VIA_SIG_RISE (last observed edge, not direction).
    * Sets IFR_CA1 only if the edge matches PCR & 0x01 polarity config.
+   *
+   * Spec 611 phase 611.7f.24 — optional `clk` for backend.setIrq
+   * timestamp. Defaults to clkPtr.value (polled drive clk) when not
+   * provided. Used to pin IRQ stamp to write-time host clk so drive
+   * cpu sees the IRQ "already pending" rather than future-stamped.
    */
-  signalCa1(edge: 0 | 1): void {
+  signalCa1(edge: 0 | 1, clk?: number): void {
     this.ca1State = edge;
     const wantedPolarity = (this.pcr & PCR_CA1_POS) ? VIA_SIG_RISE : VIA_SIG_FALL;
     if (edge === wantedPolarity) {
       this.ifr |= IFR_CA1;
-      this.updateIrq();
+      this.updateIrqAtClk(clk);
+    }
+  }
+
+  private updateIrqAtClk(clk?: number): void {
+    const pending = (this.ifr & this.ier & 0x7f) !== 0;
+    if (pending) this.ifr |= IFR_ANY;
+    else this.ifr &= ~IFR_ANY;
+    if (pending !== this.lastIrqOut) {
+      this.lastIrqOut = pending;
+      const b = this.backend as Via6522Backend & { setIrqAt?: (a: boolean, c?: number) => void };
+      if (typeof b.setIrqAt === "function") b.setIrqAt(pending, clk);
+      else this.backend.setIrq(pending);
     }
   }
 

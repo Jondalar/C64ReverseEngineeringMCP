@@ -91,12 +91,22 @@ export class Vice1541 implements Drive1541 {
   /**
    * Phase 611.4: write the C64-driven IEC lines into the drive's IEC
    * bus model and signal the VIA1 CA1 (ATN) edge handler if ATN flips.
+   *
+   * Spec 611 phase 611.7f.24 — optional `clk` (host clk at C64 write
+   * moment). Used so the CA1 IRQ stamp matches the canonical
+   * write-time rather than post-catchUpTo drive clk (= overrun by 1-6
+   * cycles → IRQ accepted 4 cycles late → cumulative SP drift → wrong
+   * step plan → wrong HT → sync fails → ?FILE NOT FOUND).
+   *
+   * Legacy passes the host-clk timestamp through `pulseCa1(level, stamp)`
+   * for the same reason (see iec/iec-bus.ts:326-327).
    */
-  iecLineDrive(c64Side: Drive1541IecInput): void {
+  iecLineDrive(c64Side: Drive1541IecInput, clk?: number): void {
     this.driveCpu.setC64IecLines(
       c64Side.bus_atn,
       c64Side.bus_clk,
       c64Side.bus_data,
+      clk,
     );
   }
 

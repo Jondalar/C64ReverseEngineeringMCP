@@ -232,13 +232,17 @@ export class Vice1541DriveCpu {
   /**
    * Drive C64-side IEC line state into the drive. Detects ATN edges
    * and forwards them to VIA1 CA1. Called by Vice1541.iecLineDrive().
+   *
+   * Spec 611 phase 611.7f.24 — optional `clk` (host clk at C64 write
+   * moment) used for CA1 IRQ stamp via signalVia1Ca1(clk). Falls back
+   * to clkPtr.value if not provided. See vice1541.ts for rationale.
    */
-  setC64IecLines(busAtnReleased: boolean, busClkReleased: boolean, busDataReleased: boolean): void {
+  setC64IecLines(busAtnReleased: boolean, busClkReleased: boolean, busDataReleased: boolean, clk?: number): void {
     this.iecBus.c64AtnReleased = busAtnReleased;
     this.iecBus.c64ClkReleased = busClkReleased;
     this.iecBus.c64DataReleased = busDataReleased;
     if (busAtnReleased !== this.lastAtnReleased) {
-      signalVia1Ca1(this.via1, busAtnReleased);
+      signalVia1Ca1(this.via1, busAtnReleased, clk);
       this.lastAtnReleased = busAtnReleased;
     }
   }

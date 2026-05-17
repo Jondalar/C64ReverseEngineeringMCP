@@ -119,11 +119,17 @@ export function createVia1d(opts: Via1dOptions): Via6522 {
   // driveid = mynumber bits packed into PB.5/PB.6 (covers devices 8..11).
   const driveid = ((opts.mynumber ?? 0) & 0x03) << 5;
 
-  const backend: Via6522Backend = {
+  const backend: Via6522Backend & { setIrqAt?: (a: boolean, c?: number) => void } = {
     storePb: (driven) => storePb(bus, driven),
     readPb: () => readPb(bus, driveid),
     setIrq: (asserted) => {
       cpuIntStatus.setIrq(intNum, asserted, clkPtr.value);
+    },
+    // Spec 611 phase 611.7f.24 — stamp IRQ with host-write clk when
+    // supplied (= bridge's effClk). Falls back to clkPtr.value for
+    // internal-source IRQs (e.g. T1 underflow during drive cpu run).
+    setIrqAt: (asserted, clk) => {
+      cpuIntStatus.setIrq(intNum, asserted, clk ?? clkPtr.value);
     },
   };
 
@@ -157,6 +163,9 @@ export function createVia1d(opts: Via1dOptions): Via6522 {
  * Spec 611 phase 611.7f.4 fix: align with VICE source — assert maps
  * to RISE, release maps to FALL (the VICE TAG semantics).
  */
-export function signalVia1Ca1(via1: Via6522, atnReleased: boolean): void {
-  via1.signalCa1(atnReleased ? VIA_SIG_FALL : VIA_SIG_RISE);
+export function signalVia1Ca1(via1: Via6522, atnReleased: boolean, clk?: number): void {
+  // Spec 611 phase 611.7f.24 — propagate optional clk through to
+  // backend.setIrq for canonical write-time stamp (matches legacy
+  // pulseCa1's `stamp` argument).
+  via1.signalCa1(atnReleased ? VIA_SIG_FALL : VIA_SIG_RISE, clk);
 }

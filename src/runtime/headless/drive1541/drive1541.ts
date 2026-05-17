@@ -26,7 +26,10 @@ export interface Drive1541DebugProbe {
 
 export interface Drive1541 {
   iecLineSample(): Drive1541IecSample;
-  iecLineDrive(c64Side: Drive1541IecInput): void;
+  // Spec 611 phase 611.7f.24 — optional `clk` arg for IRQ stamp.
+  // Bridge passes the host write clk so CA1 setIrq timestamp matches
+  // the canonical write-time, not post-catchUpTo overrun drive clk.
+  iecLineDrive(c64Side: Drive1541IecInput, clk?: number): void;
   catchUpTo(c64Clock: number): number;
   flush(): void;
   attachDisk(media: Drive1541Media): void;

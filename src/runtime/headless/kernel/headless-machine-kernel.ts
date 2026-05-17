@@ -732,11 +732,18 @@ export class HeadlessMachineKernel implements MachineKernel {
     const origSetC64Output = iec.setC64Output.bind(iec);
     iec.setC64Output = (cia2Pa, ddrMask, effClk, cs) => {
       origSetC64Output(cia2Pa, ddrMask, effClk, cs);
+      // Spec 611 phase 611.7f.24 — pass effClk through to vice's
+      // iecLineDrive so CA1 IRQ stamp matches the canonical write-time
+      // host clk (matching legacy pulseCa1(level, stamp) semantics).
+      // Without this, vice's setIrq uses post-catchUpTo drive clk
+      // which can be 1-6 cycles ahead of write-time → IRQ accepted
+      // late on drive cpu → cumulative SP drift → wrong step plan →
+      // wrong HT → sync fails → ?FILE NOT FOUND.
       vice.iecLineDrive({
         bus_atn: (core.cpu_bus & 0x10) !== 0,
         bus_clk: (core.cpu_bus & 0x40) !== 0,
         bus_data: (core.cpu_bus & 0x80) !== 0,
-      });
+      }, effClk);
     };
 
     // 3. buildC64InputBits wrapper REMOVED. Per Codex 19:52 the
