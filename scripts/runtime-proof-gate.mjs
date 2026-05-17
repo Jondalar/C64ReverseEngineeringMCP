@@ -137,16 +137,32 @@ flags.drive1541 = readDrive1541Selector(args, process.env);
 // refuses --drive1541=vice (and --drive1541=both). Remove this guard
 // in the same commit that lands 611.7's end-to-end wiring AND its
 // substep (a) D64 directory match.
+// Spec 611 phase 611.7f.2 — narrow per-scenario whitelist for
+// --drive1541=vice. The blanket refusal above is now scoped to
+// "no scenario explicitly whitelisted for the vice path".
+// Allowed combinations:
+//   --drive1541=vice --only load-directory
+// Everything else (bare --drive1541=vice, or --drive1541=vice with
+// any other --only) still exits 2.
+//
+// Whitelist is intentionally minimal: 611.7f covers substep (a)
+// LOAD"$",8 only. Substeps (b)-(d) extend this set in 611.7g/h/i.
+const VICE_SCENARIO_WHITELIST = new Set([
+  "load-directory",
+]);
 if (flags.drive1541 !== "legacy") {
-  console.error(
-    `[runtime-proof-gate] refusing --drive1541=${flags.drive1541}: ` +
-      `LOAD / game gates against VICE1541 are forbidden until Spec 611 ` +
-      `phase 611.7 wires the Drive1541 surface end-to-end. Currently the ` +
-      `C64 / IEC / disk runtime path still flows through LEGACY1541, so a ` +
-      `pass here would be a false-green for VICE1541. See ` +
-      `specs/611-new-vice1541-side-by-side.md §5 + §7 for the rule.`,
-  );
-  process.exit(2);
+  const allowed = flags.only && VICE_SCENARIO_WHITELIST.has(flags.only);
+  if (!allowed) {
+    console.error(
+      `[runtime-proof-gate] refusing --drive1541=${flags.drive1541}` +
+        (flags.only ? ` --only ${flags.only}` : "") +
+        `: only whitelisted vice scenarios are permitted before ` +
+        `Spec 611 phase 611.9 default flip. Current whitelist: ` +
+        `[${[...VICE_SCENARIO_WHITELIST].join(", ")}]. See ` +
+        `specs/611-new-vice1541-side-by-side.md §5 + §7.`,
+    );
+    process.exit(2);
+  }
 }
 
 if (flags.list) {
