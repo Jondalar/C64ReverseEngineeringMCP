@@ -306,6 +306,13 @@ export class Vice1541DriveCpu {
         // CPU jammed or doing nothing — bail rather than spin.
         break;
       }
+      // Spec 611 phase 611.7f.10 (Codex 10:10 + 10:16) — service VIA
+      // timers at drive-clock time. T1 underflow must set IFR_T1 +
+      // raise IRQ independent of any register read. Both VIA1 and
+      // VIA2 share the chip core; both need servicing.
+      this.diskunit.clkPtr.value = this.cpu.clk;
+      this.via1.serviceTimers(this.cpu.clk);
+      this.via2.serviceTimers(this.cpu.clk);
       if (++safety > EXECUTE_SAFETY_CAP) break;
     }
     this.diskunit.clkPtr.value = this.cpu.clk;

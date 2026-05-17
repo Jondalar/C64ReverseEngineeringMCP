@@ -122,6 +122,38 @@ clkPtr.value = 22;
 const ifrFr2 = via1.read(0x0d) & 0x40;
 check("Free-run: second underflow at clk=22 sets IFR_T1 again", ifrFr2 !== 0);
 
+// === Contract 7.5 (Codex 10:16): IFR_T1 sets via serviceTimers() without
+//     any IFR / T1 register read ===
+via1.reset();
+clkPtr.value = 0;
+via1.write(0x04, 0x05); // T1LL = 5
+via1.write(0x05, 0x00); // T1CH = 0 → t1ZeroClk = 0+1+5 = 6; underflow at clk=7
+
+// Advance clk past underflow WITHOUT reading any VIA register.
+clkPtr.value = 50;
+check("Pre-service: raw ifr stays 0 even though clk past underflow",
+  (via1.rawIfr & 0x40) === 0,
+  `rawIfr=$${via1.rawIfr.toString(16)}`);
+// Now service timers explicitly (= drive CPU instruction-boundary hook).
+via1.serviceTimers(clkPtr.value);
+check("Post-serviceTimers: raw ifr has IFR_T1 set WITHOUT any IFR/T1 read",
+  (via1.rawIfr & 0x40) !== 0,
+  `rawIfr=$${via1.rawIfr.toString(16)}`);
+// Also enable IER bit 6 + 7 and verify backend IRQ asserts.
+via1.write(0x0e, 0xc0); // IER = $C0 = enable bit 6 (T1) + set-bit
+// Arm fresh T1, advance, serviceTimers; check irqAsserted goes true.
+let lastIrqState = false;
+via1.backend.setIrq = (asserted) => { lastIrqState = asserted; };
+via1.write(0x04, 0x03); // T1LL = 3
+via1.write(0x05, 0x00); // T1CH = 0 → t1ZeroClk = 50+1+3 = 54; underflow at 55
+check("After T1CH re-arm: lastIrqState reset by IFR clear → false",
+  lastIrqState === false);
+clkPtr.value = 100; // way past underflow
+via1.serviceTimers(clkPtr.value);
+check("serviceTimers raises IRQ via backend.setIrq when IER bit 6 enabled",
+  lastIrqState === true,
+  `lastIrqState=${lastIrqState}`);
+
 // === Contract 8: T1LH write does NOT reload counter ===
 via1.reset();
 clkPtr.value = 0;

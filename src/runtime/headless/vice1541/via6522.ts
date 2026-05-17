@@ -179,6 +179,32 @@ export class Via6522 {
     return (this.t1ZeroClk - rclk) & 0xffff;
   }
 
+  /**
+   * Public timer service entry-point. Per Codex 10:10 / 10:16: T1
+   * underflow must set IFR_T1 and update IRQ state at drive-clock time
+   * independent of any register read. Lazy-on-read evaluation alone is
+   * insufficient — drive ROM may set IER bit 6 + run code that doesn't
+   * read $180D for many cycles, and IRQ should still raise.
+   *
+   * Called by the drive CPU execution loop after each instruction
+   * (drivecpu.ts driveCpuExecute) for BOTH VIA1 and VIA2 (shared chip
+   * core; either may use T1 in future drive ROM paths).
+   *
+   * Idempotent: calling multiple times at the same clk only fires IRQ
+   * once per underflow (one-shot or per-cycle in free-run).
+   */
+  serviceTimers(clk?: number): void {
+    this.maybeFireT1AtClk(clk ?? this.getClk());
+  }
+
+  /**
+   * Test helper for Codex 10:16 smoke contract: peek raw IFR without
+   * triggering any side-effect path. Public for diagnostic / smoke use.
+   */
+  get rawIfr(): number {
+    return this.ifr & 0xff;
+  }
+
   /** Reset to viacore defaults. VICE viacore_reset(). */
   reset(): void {
     this.pra = 0;
