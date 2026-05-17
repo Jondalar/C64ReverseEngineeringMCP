@@ -457,7 +457,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ## Phase 3 — Integration
 
 ### T3.1 — Wire new vice1541 behind Drive1541 facade
-**Status:** OPEN
+**Status:** DONE 2026-05-17 9eac070 (blockers in T3.2-fixes)
 **Agent:** Opus
 **Files:** `src/runtime/headless/drive1541/drive1541-factory.ts`, `src/runtime/headless/kernel/headless-machine-kernel.ts`
 
