@@ -437,7 +437,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.14 — drive_snapshot.ts (VSF chunks)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 6f3a61e
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/drive_snapshot.ts` (new)
 **VICE:** `vice/src/drive/drive-snapshot.c`
