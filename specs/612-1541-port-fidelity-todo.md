@@ -534,6 +534,46 @@ Same stall on `drive1541` default (LEGACY1541). Therefore the regression is in *
 
 ---
 
+### T3.5 — Drive crash to VIA mirror $1848 — NEW 2026-05-18
+**Status:** OPEN — root cause partially diagnosed
+
+**Symptom:** Drive PC walks `$FE67 IRQ-entry → PHA-sequence → RTI → $01BA (RAM stack page) → BRK-chain through zero RAM → $0329 → $0B5E → $1272 → $181C → $1848` and stays at $1848 (VIA1 mirror) forever. CPU there fetches the same byte from $1848 (a VIA register-mirror address) as "opcode" repeatedly.
+
+This causes:
+- Drive never executes its DOS code (parse LOAD"$", read BAM, build directory).
+- TALK-frame returns 0 bytes to c64.
+- c64 KERNAL completes LOAD command with empty result (no directory). PC reaches $E5CD (LOAD return-from-routine). $0801=$00 $00 (BASIC end-of-program), $90=$00 (no error).
+
+**Trace evidence (probe_load6.mjs):**
+```
+50-cycle samples on samples/synthetic/blank.d64 + drive1541="vice":
+  fe71 fe7f fe67 fe6b fe76 fe80 1ba fe68 fe69 fe6f fe7f fe82 329
+  fe69 fe6f fe7a fe83 457 fe69 fe71 fe80 fe84 fe67 fe6a fe79 fe80
+  fe84 fe67 fe6b fe79 fe82 fe84 fe67 b5e 1272 181c 1848
+SP wraps FA → FF in single transition → 6-pop = 3 PLA + RTI.
+```
+
+**Likely root cause:** IRQ entry pushes a corrupt `reg_pc` once. Subsequent RTI restores to that bad PC. Then BRK chain through 0-RAM walks PC forward 2 bytes per BRK. Eventually enters VIA mirror region where opcode fetch returns the same byte (a VIA register read) → infinite loop.
+
+Where the bad PC originates: opcode fetch from invalid memory page (e.g. drivemem page table has a slot that returns wrong byte for an opcode-fetch). OR the drive PC was already corrupt when first IRQ fired (drive 6502 reg_pc init state vs reset-vector race).
+
+**c64 KERNAL DOES reach LOAD-completion** with current smoke fix (Spec 612 T3.4) — IEC bridge wiring is correct end-to-end. The remaining gap is drive-side execution fidelity.
+
+**Acceptance:**
+- [ ] Drive PC settles in 1541 ROM area ($C000-$FFFF) during LOAD"$",8 handling.
+- [ ] $0801+ contains real directory bytes (BAM header + entries + BLOCKS FREE line).
+- [ ] golden master compare passes hasBlocksFree=true + hasQuotedHeader=true.
+
+**Investigation steps:**
+1. Single-step drive 6510core from reset-vector — confirm PC = $EAA0, executes ROM init.
+2. Instrument drivemem page table read: which `read_func_ptr[i](drv, addr)` returned the byte that became the bad opcode?
+3. Compare drive PC trail against VICE binmon trace of same scenario.
+4. Verify drive 6510core IRQ entry saves `reg_pc` correctly (not pre-incremented or wrong source).
+
+**Depends on:** VICE binmon side-by-side trace capability with cycle-aligned diff.
+
+---
+
 ### T3.3 — Flip default to "vice" (Spec 611.9)
 **Status:** DEFERRED — see Spec 611 §5 phase 611.9.
 
