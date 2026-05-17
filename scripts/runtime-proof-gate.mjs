@@ -29,7 +29,7 @@
 //   --accept-new-state      tolerate unexpected GREEN on a RED-expected game
 //                           (does NOT mutate Spec 601; only suppresses exit-fail)
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -163,6 +163,43 @@ if (flags.drive1541 !== "legacy") {
     );
     process.exit(2);
   }
+}
+
+// Spec 611 phase 611.7f.3 — SCENARIOS dispatch.
+//
+// Whitelisted vice scenarios are NOT in the Spec 601 GAMES truth-table
+// (they prove first-LOAD-path bring-up, not classified game state).
+// Each scenario routes to a dedicated smoke script. Gate exit code
+// follows the smoke: 0 = GREEN, non-0 = RED. Per Codex 01:37: hard
+// stop on failure, no patch-around.
+const SCENARIOS = {
+  "load-directory": {
+    script: "scripts/smoke-611-7f-vice-load-directory.mjs",
+    requires: { drive1541: "vice" },
+    spec: "611 §5 substep (a)",
+  },
+};
+if (flags.only && SCENARIOS[flags.only]) {
+  const sc = SCENARIOS[flags.only];
+  if (sc.requires?.drive1541 && flags.drive1541 !== sc.requires.drive1541) {
+    console.error(
+      `[runtime-proof-gate] scenario '${flags.only}' requires ` +
+        `--drive1541=${sc.requires.drive1541}, got --drive1541=${flags.drive1541}.`,
+    );
+    process.exit(2);
+  }
+  console.log(`[runtime-proof-gate] scenario dispatch: --only ${flags.only}`);
+  console.log(`  spec:   Spec ${sc.spec}`);
+  console.log(`  script: ${sc.script}`);
+  console.log(`  drive:  ${flags.drive1541}`);
+  console.log("");
+  const r = spawnSync("node", [sc.script], { stdio: "inherit" });
+  console.log("");
+  console.log("================= RUNTIME PROOF GATE =================");
+  console.log(`Scenario:  ${flags.only}`);
+  console.log(`Drive1541: ${flags.drive1541}`);
+  console.log(`Result:    ${r.status === 0 ? "GREEN" : "RED"} (smoke exit ${r.status})`);
+  process.exit(r.status === 0 ? 0 : 1);
 }
 
 if (flags.list) {
