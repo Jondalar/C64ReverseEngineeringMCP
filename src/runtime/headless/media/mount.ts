@@ -138,7 +138,8 @@ export async function mountMedia(
     sectors = files.length;
 
     // Reload G64/D64 data into the shared TrackBuffer.
-    let rawData: Uint8Array = new Uint8Array(readFileSync(path));
+    const originalBytes: Uint8Array = new Uint8Array(readFileSync(path));
+    let rawData: Uint8Array = originalBytes;
     // D64 images need to be pre-encoded to G64 byte stream (same as kernel build).
     if (mediaType === "d64") {
       rawData = buildG64({ d64: rawData });
@@ -193,6 +194,32 @@ export async function mountMedia(
     //      step 32, §17 OQ-414-1.
     // VICE: src/drive/drive.c:482-529 `drive_enable`.
     session.drive.enable(session.c64Cpu.cycles);
+
+    // Spec 611 phase 611.7f.1 — dual-attach for `drive1541="vice"`.
+    // Default legacy mount path above is unchanged. When the active
+    // Drive1541 is Vice1541, ALSO attach the disk to vice so the
+    // DD00/pushFlush bridge can serve real LOAD scenarios. Per Codex
+    // 01:37 review: dual-attach is a transitional non-invasive mount
+    // strategy — legacy default behavior must remain unchanged AND
+    // vice must serve the LOAD proof, not LEGACY1541 silent fallback.
+    const kernelAny = session.kernel as unknown as {
+      drive1541Implementation?: string;
+      drive1541?: {
+        attachDisk?: (m: { kind: "d64" | "g64" | "p64"; bytes: Uint8Array; readOnly: boolean }) => void;
+      };
+    };
+    if (
+      kernelAny.drive1541Implementation === "vice"
+      && kernelAny.drive1541
+      && typeof kernelAny.drive1541.attachDisk === "function"
+      && (mediaType === "d64" || mediaType === "g64")
+    ) {
+      kernelAny.drive1541.attachDisk({
+        kind: mediaType,
+        bytes: originalBytes, // pre-buildG64; vice does its own encode for d64
+        readOnly: false,
+      });
+    }
 
     // Update the kernel's diskProvider so KERNAL file traps see new files.
     (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
