@@ -58,7 +58,12 @@ export const DRIVE_RAM_BYTES = 0x0800;
  * The port keeps the cap purely to surface runaway loops loudly as
  * a thrown error rather than silently dropping cycles (audit D13).
  */
-const EXECUTE_SAFETY_CAP = 2_000_000;
+// VICE has NO safety cap on drivecpu_execute. Raised from 2M → 50M
+// because the bridge layer calls catchUpTo() lazily on IEC reads
+// (not per host cycle), so a single call may legitimately catch up
+// multi-second host gaps (e.g. 8s @ 1MHz = 8M drive cycles).
+// 50M = ~50 host-seconds — still finite for runaway-loop detection.
+const EXECUTE_SAFETY_CAP = 50_000_000;
 
 /**
  * Drive memory bus per docs/vice-1541-arch.md §4.1 + §4.2.
@@ -132,16 +137,21 @@ class Vice1541DriveMemBus implements CpuMemory {
     if (a >= 0x2000 && a < 0x2800) return this.ram[a - 0x2000] ?? 0;
     if (a >= 0x4000 && a < 0x4800) return this.ram[a - 0x4000] ?? 0;
     if (a >= 0x6000 && a < 0x6800) return this.ram[a - 0x6000] ?? 0;
-    // VIA1 + mirrors (4 regions of 1 KB each within the lower 32 KB)
-    if (a >= 0x1800 && a < 0x1c00) return this.via1.read(a & 0x0f);
-    if (a >= 0x3800 && a < 0x3c00) return this.via1.read(a & 0x0f);
-    if (a >= 0x5800 && a < 0x5c00) return this.via1.read(a & 0x0f);
-    if (a >= 0x7800 && a < 0x7c00) return this.via1.read(a & 0x0f);
-    // VIA2 + mirrors
-    if (a >= 0x1c00 && a < 0x2000) return this.via2.read(a & 0x0f);
-    if (a >= 0x3c00 && a < 0x4000) return this.via2.read(a & 0x0f);
-    if (a >= 0x5c00 && a < 0x6000) return this.via2.read(a & 0x0f);
-    if (a >= 0x7c00 && a < 0x8000) return this.via2.read(a & 0x0f);
+    // VIA1 + mirrors — VICE via1d1541.c:68-71 via1d1541_read explicitly
+    // updates `cpu_last_data` on every VIA read:
+    //   return ctxptr->cpu->cpu_last_data = viacore_read(...);
+    // Cross-file audit r3 follow-up: previous "only open-bus updates"
+    // was incomplete; VIA wrappers DO update cpu_last_data.
+    if (a >= 0x1800 && a < 0x1c00) return this.cpuLastData = this.via1.read(a & 0x0f);
+    if (a >= 0x3800 && a < 0x3c00) return this.cpuLastData = this.via1.read(a & 0x0f);
+    if (a >= 0x5800 && a < 0x5c00) return this.cpuLastData = this.via1.read(a & 0x0f);
+    if (a >= 0x7800 && a < 0x7c00) return this.cpuLastData = this.via1.read(a & 0x0f);
+    // VIA2 + mirrors — VICE via2d.c equivalent wrapper updates
+    // cpu_last_data identically.
+    if (a >= 0x1c00 && a < 0x2000) return this.cpuLastData = this.via2.read(a & 0x0f);
+    if (a >= 0x3c00 && a < 0x4000) return this.cpuLastData = this.via2.read(a & 0x0f);
+    if (a >= 0x5c00 && a < 0x6000) return this.cpuLastData = this.via2.read(a & 0x0f);
+    if (a >= 0x7c00 && a < 0x8000) return this.cpuLastData = this.via2.read(a & 0x0f);
     // ROM canonical $C000-$FFFF — VICE drivemem.c installs the ROM
     // reader without `cpu_last_data` side-effect; do not update here.
     if (a >= VICE1541_ROM_BASE) return this.rom[a - VICE1541_ROM_BASE] ?? 0;
@@ -173,14 +183,19 @@ class Vice1541DriveMemBus implements CpuMemory {
     if (a >= 0x2000 && a < 0x2800) { this.ram[a - 0x2000] = v; return; }
     if (a >= 0x4000 && a < 0x4800) { this.ram[a - 0x4000] = v; return; }
     if (a >= 0x6000 && a < 0x6800) { this.ram[a - 0x6000] = v; return; }
-    if (a >= 0x1800 && a < 0x1c00) { this.via1.write(a & 0x0f, v); return; }
-    if (a >= 0x3800 && a < 0x3c00) { this.via1.write(a & 0x0f, v); return; }
-    if (a >= 0x5800 && a < 0x5c00) { this.via1.write(a & 0x0f, v); return; }
-    if (a >= 0x7800 && a < 0x7c00) { this.via1.write(a & 0x0f, v); return; }
-    if (a >= 0x1c00 && a < 0x2000) { this.via2.write(a & 0x0f, v); return; }
-    if (a >= 0x3c00 && a < 0x4000) { this.via2.write(a & 0x0f, v); return; }
-    if (a >= 0x5c00 && a < 0x6000) { this.via2.write(a & 0x0f, v); return; }
-    if (a >= 0x7c00 && a < 0x8000) { this.via2.write(a & 0x0f, v); return; }
+    // VIA1 + mirrors — VICE via1d1541.c:62-66 via1d1541_store latches
+    // cpu_last_data BEFORE viacore_store:
+    //   ctxptr->cpu->cpu_last_data = data;
+    //   viacore_store(..., addr, data);
+    if (a >= 0x1800 && a < 0x1c00) { this.cpuLastData = v; this.via1.write(a & 0x0f, v); return; }
+    if (a >= 0x3800 && a < 0x3c00) { this.cpuLastData = v; this.via1.write(a & 0x0f, v); return; }
+    if (a >= 0x5800 && a < 0x5c00) { this.cpuLastData = v; this.via1.write(a & 0x0f, v); return; }
+    if (a >= 0x7800 && a < 0x7c00) { this.cpuLastData = v; this.via1.write(a & 0x0f, v); return; }
+    // VIA2 + mirrors — VICE via2d.c equivalent wrapper latches identically.
+    if (a >= 0x1c00 && a < 0x2000) { this.cpuLastData = v; this.via2.write(a & 0x0f, v); return; }
+    if (a >= 0x3c00 && a < 0x4000) { this.cpuLastData = v; this.via2.write(a & 0x0f, v); return; }
+    if (a >= 0x5c00 && a < 0x6000) { this.cpuLastData = v; this.via2.write(a & 0x0f, v); return; }
+    if (a >= 0x7c00 && a < 0x8000) { this.cpuLastData = v; this.via2.write(a & 0x0f, v); return; }
     // ROM region $8000-$FFFF — writes ignored, and per VICE per-page
     // store function (drivemem.c) `cpu_last_data` is NOT updated for
     // ROM stores. Audit r3 #32.
