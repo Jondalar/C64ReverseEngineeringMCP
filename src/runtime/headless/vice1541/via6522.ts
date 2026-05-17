@@ -177,6 +177,37 @@ export class Via6522 {
   private alarmContext: AlarmContext | undefined;
   private t1ZeroAlarm: Alarm | null = null;
 
+  // Spec 611 phase 611.7g.7 — T2 state.
+  // Source: VICE viacore.c:311-331 (viacore_t2 helper),
+  //         557-566 (schedule_t2_zero_alarm),
+  //         785-827 (T2LL/T2CH writes),
+  //         1170-1179 (T2CL/CH reads),
+  //         1554-1652 (t2_zero / t2_underflow alarm callbacks).
+  // State field meaning (1:1 with VICE struct):
+  //   t2cl       = active T2 low counter byte (VICE: via_context->t2cl)
+  //   t2ch       = active T2 high counter byte (VICE: via_context->t2ch)
+  //   t2lLatch   = TS substitute for VICE's `via[VIA_T2LL]` register byte
+  //                (this class has no VICE-style `via[]` register array,
+  //                so the addr-0x8 latch register lives here as a named
+  //                field). Written by store(addr=0x8); read NOT exposed
+  //                (latch invisible to register reads — those sample the
+  //                live counter). NOT a new VICE state field, strictly
+  //                the addr-0x8 latch register VICE keeps in via[VIA_T2LL].
+  //   t2zero     = absolute drive clk when T2 next reaches xx00
+  //                (VICE: via_context->t2zero)
+  //   t2xx00     = true if t2zero is the next xx00 boundary
+  //                (VICE: via_context->t2xx00)
+  //   t2IrqAllowed = one-shot IRQ gate; cleared after each T2 IRQ until
+  //                next T2CH write re-arms (VICE: via_context->t2_irq_allowed)
+  private t2cl: number = 0;
+  private t2ch: number = 0;
+  private t2lLatch: number = 0;
+  private t2zero: number = 0;
+  private t2xx00: boolean = false;
+  private t2IrqAllowed: boolean = false;
+  private t2ZeroAlarm: Alarm | null = null;
+  private t2UnderflowAlarm: Alarm | null = null;
+
   constructor(opts: Via6522Options) {
     this.backend = opts.backend;
     this.label = opts.label ?? "via6522";
@@ -191,6 +222,20 @@ export class Via6522 {
         this.alarmContext,
         `${this.label}-t1-zero`,
         (offset: number) => this.t1ZeroAlarmCallback(offset),
+        null,
+      );
+      // Spec 611 phase 611.7g.7 — register T2 alarms per
+      // viacore.c:1306-1307 viacore_setup pattern.
+      this.t2ZeroAlarm = alarmNew(
+        this.alarmContext,
+        `${this.label}-t2-zero`,
+        (offset: number) => this.t2ZeroAlarmCallback(offset),
+        null,
+      );
+      this.t2UnderflowAlarm = alarmNew(
+        this.alarmContext,
+        `${this.label}-t2-underflow`,
+        (offset: number) => this.t2UnderflowAlarmCallback(offset),
         null,
       );
     }
@@ -230,6 +275,130 @@ export class Via6522 {
     // for IRQ propagation after flag set ("extra cycle after the flag
     // before the interrupt happens").
     this.updateIrqAtClk((rclk + 1) & 0xffffffff);
+  }
+
+  /**
+   * Spec 611 phase 611.7g.7 — viacore_t2_zero_alarm port.
+   *
+   * VICE source: src/core/viacore.c:1554-1586.
+   *   rclk = *clk_ptr - offset;
+   *   t2ch--;
+   *   if (t2ch == 0xff && t2_irq_allowed) {
+   *     ifr |= VIA_IM_T2; update_myviairq_rclk(rclk);
+   *     t2_irq_allowed = false;
+   *   }
+   *   alarm_unset(t2_zero_alarm);
+   *   alarm_set(t2_underflow_alarm, rclk + 1);
+   */
+  private t2ZeroAlarmCallback(offset: number): void {
+    const rclk = (this.getLiveClk() - offset) & 0xffffffff;
+    this.t2ch = (this.t2ch - 1) & 0xff;
+    if (this.t2ch === 0xff && this.t2IrqAllowed) {
+      this.ifr |= IFR_T2;
+      this.updateIrqAtClk(rclk);
+      this.t2IrqAllowed = false;
+    }
+    if (this.t2ZeroAlarm) alarmUnset(this.t2ZeroAlarm);
+    if (this.t2UnderflowAlarm) alarmSet(this.t2UnderflowAlarm, (rclk + 1) >>> 0);
+  }
+
+  /**
+   * Spec 611 phase 611.7g.7 — viacore_t2_underflow_alarm port (16-bit
+   * timer-mode branch only). VICE source: src/core/viacore.c:1593-1652.
+   *
+   * Deferred upper branches (slice 7g.10):
+   *   - VIA_ACR_SR_IN_T2 / OUT_T2 (`(ACR & 0x0c) == 0x04`):
+   *     viacore.c:1603-1613 — reloads t2cl from latch + arms t2_shift_alarm.
+   *   - IS_SR_FREE_RUNNING (`(ACR & 0x1c) == 0x10`, VIA_ACR_SR_OUT_FREE_T2):
+   *     viacore.c:1614-1624 — same plus free-running shift.
+   * Both SR-T2 paths are explicit non-scope. They are NEVER reached
+   * by this callback because scheduleT2ZeroAlarm refuses to arm the
+   * timer-mode T2 alarms when either SR-T2 mode is active (gate at
+   * the scheduling boundary, not in the callback).
+   *
+   * 16-bit timer-mode (the else branch, viacore.c:1625-1648):
+   *   t2cl = 0xff;
+   *   next_alarm = (t2ch != 0xff) ? 256 : 0;
+   *   if (next_alarm) {
+   *     t2zero += next_alarm; t2xx00 = true;
+   *     alarm_set(t2_zero_alarm, t2zero);
+   *   } else {
+   *     alarm_unset(t2_zero_alarm);
+   *     t2xx00 = false;
+   *   }
+   *   alarm_unset(t2_underflow_alarm);
+   */
+  private t2UnderflowAlarmCallback(offset: number): void {
+    void offset;
+    // 7g.7 ports the 16-bit timer-mode else-branch of
+    // viacore_t2_underflow_alarm (viacore.c:1625-1648). The SR-T2
+    // branches (viacore.c:1603-1624, `(ACR & 0x0c) == 0x04` and
+    // IS_SR_FREE_RUNNING) are deferred to slice 7g.10 (shift-register
+    // core). Reaching them in 7g.7 would mean an SR-T2 mode was
+    // entered while a timer-mode T2 alarm was already armed — that
+    // is prevented at the scheduling boundary by
+    // scheduleT2ZeroAlarm() which refuses to arm when SR-T2 is
+    // active. 1541 ROM does not exercise SR-T2 in the LOAD path
+    // (see inventory 16:53 + Codex 17:55 corrections).
+    //
+    // VICE 16-bit timer-mode else-branch:
+    this.t2cl = 0xff;
+    const nextAlarm = (this.t2ch !== 0xff) ? 256 : 0;
+    if (nextAlarm) {
+      this.t2zero = (this.t2zero + nextAlarm) >>> 0;
+      this.t2xx00 = true;
+      if (this.t2ZeroAlarm) alarmSet(this.t2ZeroAlarm, this.t2zero);
+    } else {
+      if (this.t2ZeroAlarm) alarmUnset(this.t2ZeroAlarm);
+      this.t2xx00 = false;
+    }
+    if (this.t2UnderflowAlarm) alarmUnset(this.t2UnderflowAlarm);
+  }
+
+  /**
+   * Spec 611 phase 611.7g.7 — schedule_t2_zero_alarm port.
+   * VICE source: src/core/viacore.c:557-566.
+   *
+   * SR-controlled-T2 gate: when ACR puts T2 under SR control, VICE's
+   * underflow callback takes the SR-T2 branches at viacore.c:1603-1624
+   * (latch reload + shift-register pulse setup), which are deferred
+   * to slice 7g.10. Both SR-controlled modes are covered:
+   *   - VIA_ACR_SR_IN_T2 / SR_OUT_T2: (ACR & 0x0c) == 0x04
+   *     (viacore.c:1603, underflow if-branch)
+   *   - VIA_ACR_SR_OUT_FREE_T2 (free-running output): IS_SR_FREE_RUNNING()
+   *     = (ACR & 0x1c) == 0x10  (viacore.c:122 + 1614 else-if-branch)
+   * Refuse to schedule timer-mode T2 alarms while either is active —
+   * the underflow callback's SR-T2 branches are then unreachable. ACR
+   * transition side effects (ACR write entering/exiting these modes
+   * while a timer-mode T2 alarm is pending) belong to slice 7g.8.
+   */
+  private scheduleT2ZeroAlarm(rclk: number): void {
+    // SR-T2 mode (viacore.c:1603) OR SR-FREE-RUNNING (viacore.c:122).
+    // Either case: timer-mode T2 alarm scheduling is the wrong path,
+    // because the underflow callback would take a deferred branch.
+    if ((this.acr & 0x0c) === 0x04 || (this.acr & 0x1c) === 0x10) {
+      return;
+    }
+    this.t2zero = (rclk + this.t2cl) >>> 0;
+    this.t2xx00 = true;
+    if (this.t2UnderflowAlarm) alarmUnset(this.t2UnderflowAlarm);
+    if (this.t2ZeroAlarm) alarmSet(this.t2ZeroAlarm, this.t2zero);
+  }
+
+  /**
+   * Spec 611 phase 611.7g.7 — viacore_t2 live-counter helper.
+   * VICE source: src/core/viacore.c:311-331.
+   */
+  private viacoreT2(rclk: number): number {
+    // ACR.5 = VIA_ACR_T2_COUNTPB6 (pulse-counted PB6 mode).
+    if (this.acr & 0x20) {
+      return ((this.t2ch << 8) | this.t2cl) & 0xffff;
+    }
+    let t2 = (this.t2zero - rclk) & 0xffff;
+    if (this.t2xx00) {
+      t2 = ((this.t2ch << 8) | (t2 & 0xff)) & 0xffff;
+    }
+    return t2;
   }
 
   /** Current drive clock cycle for register reads / writes (T1CH t1zero
@@ -327,6 +496,16 @@ export class Via6522 {
     this.t1OneShotFired = false;
     this.t1Pb7 = 0;
     if (this.t1ZeroAlarm) alarmUnset(this.t1ZeroAlarm);
+    // Spec 611 phase 611.7g.7 — T2 reset alarm-unset only
+    // (VICE viacore.c:367-368 viacore_disable + 417-418 viacore_reset).
+    // Codex 18:04 #2: those cited lines unset alarms only — they do
+    // NOT clear t2cl/t2ch/t2lLatch/t2zero/t2xx00/t2IrqAllowed. Full
+    // VICE reset/setup field defaults are owned by slice 7g.11
+    // (viacore_init + viacore_setup_context). Narrowed here to
+    // alarm-unset only to avoid claiming source ownership for
+    // field defaults this slice does not port.
+    if (this.t2ZeroAlarm) alarmUnset(this.t2ZeroAlarm);
+    if (this.t2UnderflowAlarm) alarmUnset(this.t2UnderflowAlarm);
     this.ca1State = 1;
     this.cb1State = 1;
     this.ca2OutState = 1;
@@ -469,11 +648,17 @@ export class Via6522 {
       case VIA_T1LL: return this.t1Latch & 0xff;
       case VIA_T1LH: return (this.t1Latch >> 8) & 0xff;
       case VIA_T2CL: {
+        // VICE viacore.c:1170-1176 — clear IFR_T2 + return live counter low.
+        const rclk = this.getClk();
         this.ifr &= ~IFR_T2;
-        this.updateIrq();
-        return 0xff;
+        this.updateIrqAtClk(rclk);
+        return this.viacoreT2(rclk) & 0xff;
       }
-      case VIA_T2CH: return 0xff;
+      case VIA_T2CH: {
+        // VICE viacore.c:1177-1179 — return live counter high. NO IFR clear.
+        const rclk = this.getClk();
+        return (this.viacoreT2(rclk) >> 8) & 0xff;
+      }
       case VIA_SR: return this.sr;
       case VIA_ACR: return this.acr;
       case VIA_PCR: return this.pcr;
@@ -619,8 +804,29 @@ export class Via6522 {
         this.updateIrq();
         return;
       }
-      case VIA_T2CL: return;
-      case VIA_T2CH: { this.ifr &= ~IFR_T2; this.updateIrq(); return; }
+      case VIA_T2CL: {
+        // VICE viacore.c:785-797 — addr 0x8 write = T2 LOW LATCH (VIA_T2LL).
+        // Stores into latch only; no counter, no IFR, no alarm action.
+        // (Shift-register SR-out-T2 reload triggered separately by SR
+        // write — deferred to 7g.10.)
+        this.t2lLatch = v;
+        return;
+      }
+      case VIA_T2CH: {
+        // VICE viacore.c:799-827 — T2 HIGH counter/latch write arms T2.
+        const rclk = this.getClk();
+        this.t2cl = this.t2lLatch;
+        this.t2ch = v;
+        // viacore.c:806-820 — schedule only in timer mode (NOT pulse-counted PB6).
+        if (!(this.acr & 0x20)) {
+          this.scheduleT2ZeroAlarm((rclk + 1) >>> 0);
+        }
+        this.ifr &= ~IFR_T2;
+        this.updateIrqAtClk(rclk);
+        // viacore.c:826 — each write to T2H allows one interrupt.
+        this.t2IrqAllowed = true;
+        return;
+      }
       case VIA_SR: { this.sr = v; return; }
       default: return;
     }
