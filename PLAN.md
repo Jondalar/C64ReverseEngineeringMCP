@@ -23,9 +23,24 @@
 > **Unit green != runtime green. Mapping green != runtime green.**
 > Smoke without screenshot / state assertion is not a gate.
 >
-> ## 1541 work doctrine (active)
+> ## 1541 work doctrine (active 2026-05-17)
 >
-> **Spec 611 = VICE1541 side-by-side rebuild; LEGACY1541 frozen.**
+> **Spec 612 = port fidelity rules + rebuild from quarantine.**
+> See `specs/612-1541-port-fidelity-rules.md` + `specs/612-1541-port-fidelity-todo.md`.
+> Active branch: `codex/612-vice-side-by-side`.
+>
+> Branch `codex/611-vice1541-side-by-side` is **STALE 2026-05-17**.
+> 611-branch port batch + audit-loop findings = drift evidence
+> cited in Spec 612 §0. Code on 611 branch violates Spec 612 NL/PL
+> rules (camelCase, class wrapping, parallel ports, flat-blob
+> snapshot, shared CPU core, invented helpers). Spec 612 quarantines
+> current `vice1541/` and rebuilds bottom-up per §4 Layer Order.
+>
+> Specs 600/601/610/611 doctrine unchanged. Spec 611 §5 full-port
+> batch directive is superseded by Spec 612 §4 layer-by-layer rebuild
+> with per-layer micro-tests + CI fidelity-check gate.
+>
+> **Spec 611 = (historical) VICE1541 side-by-side rebuild; LEGACY1541 frozen.**
 > See `specs/611-new-vice1541-side-by-side.md`. The current
 > TypeScript 1541 (LEGACY1541) is the runtime-green-2026-05-16
 > baseline and stays the factory default until VICE1541 passes
