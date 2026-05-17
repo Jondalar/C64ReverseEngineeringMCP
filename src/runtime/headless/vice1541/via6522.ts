@@ -343,13 +343,17 @@ export class Via6522 {
       case VIA_PRA_NHS:
       case VIA_PRA: {
         if (r === VIA_PRB) {
-          // PB read: output bits from PRB & DDRB; input bits from backend
-          // (1541-specific formula lives in the backend).
+          // VICE viacore_read case VIA_PRB (viacore.c:1124-1160) applies
+          // CB1/CB2 IFR clear + IRQ re-eval FIRST, then samples PB:
+          //   byte = read_prb(via)
+          //   byte = (byte & ~DDRB) | (PRB & DDRB)
+          //   [if ACR & T1_PB7_USED: byte = (byte & 0x7f) | t1_pb7]  ← 7g.8a
+          // Asymmetric vs PRA: NO CB2 handshake side effect on read
+          // (VICE comment lines 1138-1139: "this port reads the ORB
+          // for output pins, not the voltage on the pins").
+          this.applyPrbReadSideEffects();
           const driven = this.prb & this.ddrb;
           const input = this.backend.readPb ? this.backend.readPb() : 0xff;
-          // Acknowledge CA1 read by clearing IFR_CA1 (VICE viacore.c).
-          // Real 6522 clears CA1 IFR bit on PRA read; we mirror for PB read
-          // when used as 1541 IEC.
           return u8((driven & this.ddrb) | (input & ~this.ddrb));
         }
         // VICE viacore_read case VIA_PRA (viacore.c:1073-1095) applies
@@ -418,12 +422,14 @@ export class Via6522 {
     const v = u8(value);
     switch (r) {
       case VIA_PRB: {
-        // Spec 611 phase 611.7f.16 — match VICE viacore.c:716-723:
+        // VICE viacore_store case VIA_PRB (viacore.c:698-715) applies
+        // CB1/CB2 handshake + IFR/IRQ block FIRST, then falls through
+        // to PRB latch+store path (viacore.c:717-724):
         //   byte = (via[VIA_PRB] | ~via[VIA_DDRB])
+        //   [if ACR & T1_PB7_USED: byte = (byte & 0x7f) | t1_pb7]  ← 7g.8a
         //   store_prb(byte, oldpb, addr)
-        // Output bits = PRB latch; input bits = 1 (float-high pullup).
-        // Pre-7f.16 used `PRB & DDRB` which sent 0 for input bits, causing
-        // drive-state divergence vs legacy/VICE at $FA78 stepper routine.
+        // T1/PB7 overlay deferred to slice 7g.8a per Codex 16:58/16:59.
+        this.applyPrbWriteSideEffects();
         this.prb = v;
         const driven = (this.prb | ~this.ddrb) & 0xff;
         this.backend.storePb?.(driven);
@@ -629,6 +635,81 @@ export class Via6522 {
       // bit still needs recomputing in case CA1/CA2 were the last
       // pending bits. Use updateIrq (no edge push to backend if no
       // IRQ-out change).
+      this.updateIrq();
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.6 — viacore_store VIA_PRB CB2 handshake.
+   *
+   * VICE source: src/core/viacore.c:698-715
+   *   ifr &= ~VIA_IM_CB1;
+   *   if ((PCR & 0xa0) != 0x20) ifr &= ~VIA_IM_CB2;
+   *   if (IS_CB2_HANDSHAKE())   { cb2_out_state = 0; set_cb2(0, write_offset);
+   *                               if (IS_CB2_PULSE_MODE()) {
+   *                                 cb2_out_state = 1; set_cb2(1, 0);
+   *                               } }
+   *   if (ier & (VIA_IM_CB1 | VIA_IM_CB2)) update_myviairq_rclk(rclk);
+   *
+   * Macros viacore.c:111-115:
+   *   IS_CB2_OUTPUT()     = (PCR & 0xc0) == 0xc0
+   *   IS_CB2_HANDSHAKE()  = (PCR & 0xc0) == 0x80
+   *   IS_CB2_PULSE_MODE() = (PCR & 0xe0) == 0xa0
+   *   IS_CB2_TOGGLE_MODE()= (PCR & 0xe0) == 0x80
+   *
+   * Clock-owner: polled clkPtr / getClk() per 7g.4/7g.5 — no
+   * Via6522.write API churn. updateIrqAtClk(undefined) falls back to
+   * polled clk.
+   *
+   * Pulse-mode: matches current VICE (back-to-back setCb2(0,offset)
+   * then setCb2(1,0)). T1/PB7 PRB-output overlay deferred to 7g.8a.
+   */
+  private applyPrbWriteSideEffects(): void {
+    // viacore.c:699 — unconditional IFR_CB1 clear.
+    this.ifr &= ~IFR_CB1;
+    // viacore.c:700-702 — clear IFR_CB2 unless CB2-input-independent IRQ
+    // ((PCR & 0xa0) != 0x20).
+    if ((this.pcr & 0xa0) !== 0x20) {
+      this.ifr &= ~IFR_CB2;
+    }
+    // viacore.c:703-711 — IS_CB2_HANDSHAKE side effect.
+    if ((this.pcr & 0xc0) === 0x80) {
+      this.cb2OutState = 0;
+      this.backend.setCb2?.(this.cb2OutState);
+      if ((this.pcr & 0xe0) === 0xa0) {
+        // IS_CB2_PULSE_MODE: immediate raise back to 1.
+        this.cb2OutState = 1;
+        this.backend.setCb2?.(this.cb2OutState);
+      }
+    }
+    // viacore.c:712-714 — IRQ re-eval only if CB1/CB2 IRQs enabled.
+    if (this.ier & (IFR_CB1 | IFR_CB2)) {
+      this.updateIrqAtClk();
+    } else {
+      this.updateIrq();
+    }
+  }
+
+  /**
+   * Spec 611 phase 611.7g.6 — viacore_read VIA_PRB CB1/CB2 side effects.
+   *
+   * VICE source: src/core/viacore.c:1124-1136
+   *   ifr &= ~VIA_IM_CB1;
+   *   if ((PCR & 0xa0) != 0x20) ifr &= ~VIA_IM_CB2;
+   *   if (ier & (VIA_IM_CB1 | VIA_IM_CB2)) update_myviairq_rclk(rclk);
+   *
+   * ASYMMETRIC vs PRA read: NO set_cb2() call here. VICE comment
+   * line 1138-1139: PRB read returns ORB latch for output pins
+   * (not pin voltage), and the CB2 handshake-low only fires on write.
+   */
+  private applyPrbReadSideEffects(): void {
+    this.ifr &= ~IFR_CB1;
+    if ((this.pcr & 0xa0) !== 0x20) {
+      this.ifr &= ~IFR_CB2;
+    }
+    if (this.ier & (IFR_CB1 | IFR_CB2)) {
+      this.updateIrqAtClk();
+    } else {
       this.updateIrq();
     }
   }
