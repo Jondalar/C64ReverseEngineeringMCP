@@ -108,6 +108,8 @@ export interface Via1dOptions {
   mynumber?: number;
   /** Spec 611 phase 611.7g — drive cpu AlarmContext for T1 alarm. */
   alarmContext?: import("../alarm/alarm-context.js").AlarmContext;
+  /** Spec 611 phase 611.7g.2 — live drive-cpu clk ref for alarm callback. */
+  clkRef?: () => number;
 }
 
 /**
@@ -140,7 +142,9 @@ export function createVia1d(opts: Via1dOptions): Via6522 {
   // Spec 611 phase 611.7g — also pass alarmContext for VICE-canonical
   // alarm-based T1 scheduling (replaces lazy-eval).
   const via1 = new Via6522({
-    backend, label: "via1d1541", clkPtr, alarmContext: opts.alarmContext,
+    backend, label: "via1d1541", clkPtr,
+    alarmContext: opts.alarmContext,
+    clkRef: opts.clkRef,
   });
   return via1;
 }

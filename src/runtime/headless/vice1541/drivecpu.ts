@@ -179,12 +179,17 @@ export class Vice1541DriveCpu {
 
     // VIA1 (IEC interface) — real implementation per Spec 611 phase 611.4.
     // Spec 611 phase 611.7g — pass drive cpu AlarmContext for T1 alarm.
+    // Spec 611 phase 611.7g.2 — pass live clkRef so alarm callback can
+    // read cpu.clk directly (clkPtr.value is only synced AFTER
+    // executeCycle returns, but Cpu65xxVice dispatches alarms INSIDE
+    // the cycle loop — stale clkPtr would re-introduce IRQ timestamp skew).
     this.via1 = createVia1d({
       bus: this.iecBus,
       cpuIntStatus: this.cpuIntStatus,
       clkPtr: diskunit.clkPtr,
       mynumber: diskunit.mynumber,
       alarmContext: this.alarms,
+      clkRef: () => this.cpu.clk,
     });
     // VIA2 (disk controller) — real implementation per Spec 611 phase 611.5.
     // Rotation is still absent (lands in 611.6); the VIA2 BYTE-READY CA1
@@ -202,6 +207,7 @@ export class Vice1541DriveCpu {
         this.cpu.reg_p = (this.cpu.reg_p | 0x40) & 0xff;
       },
       alarmContext: this.alarms,
+      clkRef: () => this.cpu.clk,
     });
 
     const loaded = loadVice1541Rom();

@@ -90,6 +90,12 @@ export interface Via6522Options {
    * VICE-canonical alarm-based T1 scheduling. Optional for test
    * harnesses that don't need cycle-exact alarm firing. */
   alarmContext?: AlarmContext;
+  /** Spec 611 phase 611.7g.2 (Codex 12:37) — live drive-cpu clock
+   * reference. Used by t1ZeroAlarmCallback to compute rclk from the
+   * CURRENT cpu.clk during alarm dispatch (which happens INSIDE
+   * Cpu65xxVice's per-cycle loop, BEFORE clkPtr.value is synced).
+   * Falls back to clkPtr.value if not provided. */
+  clkRef?: () => number;
 }
 
 /**
@@ -157,6 +163,7 @@ export class Via6522 {
   // gating deferred as named follow-up.
   private t1Pb7: number = 0;
   private clkPtr: { value: number } | undefined;
+  private clkRef: (() => number) | undefined;
   private alarmContext: AlarmContext | undefined;
   private t1ZeroAlarm: Alarm | null = null;
 
@@ -164,6 +171,7 @@ export class Via6522 {
     this.backend = opts.backend;
     this.label = opts.label ?? "via6522";
     this.clkPtr = opts.clkPtr;
+    this.clkRef = opts.clkRef;
     this.alarmContext = opts.alarmContext;
     // Register T1 zero alarm in the drive cpu's AlarmContext per VICE
     // viacore_setup (alarm_new + alarm_set on demand) — viacore.c:1306
@@ -186,13 +194,15 @@ export class Via6522 {
    * comment "extra cycle after the flag before the interrupt happens".
    */
   private t1ZeroAlarmCallback(offset: number): void {
-    // VICE: rclk = clk_ptr - offset.
-    const rclk = (this.getClk() - offset) & 0xffffffff;
+    // VICE: rclk = clk_ptr - offset. Use LIVE cpu.clk (Codex 12:37):
+    // alarm fires inside Cpu65xxVice per-cycle loop; clkPtr lags.
+    const rclk = (this.getLiveClk() - offset) & 0xffffffff;
     const continuous = (this.acr & 0x40) !== 0; // VIA_ACR_T1_FREE_RUN
     if (!continuous) {
-      // viacore.c:1316-1318 one-shot mode: alarm_unset, t1zero = 0.
+      // viacore.c:1316-1318 one-shot mode: alarm_unset + t1zero = 0.
       // Counter still continues counting down from FFFF per VICE.
       alarmUnset(this.t1ZeroAlarm!);
+      this.t1ZeroClk = 0; // (Codex 12:37 fix) VICE: via_context->t1zero = 0
       this.t1OneShotFired = true;
     } else {
       // viacore.c:1319-1334 continuous mode: reschedule by full_cycle
@@ -212,9 +222,20 @@ export class Via6522 {
     this.updateIrqAtClk((rclk + 1) & 0xffffffff);
   }
 
-  /** Current drive clock cycle (from clkPtr if attached; else 0). */
+  /** Current drive clock cycle for register reads / writes (T1CH t1zero
+   *  computation, counter read, etc.). Uses clkPtr.value because
+   *  register access happens AT instruction boundary, where clkPtr is
+   *  in sync with cpu.clk. */
   private getClk(): number {
     return this.clkPtr?.value ?? 0;
+  }
+
+  /** Live drive-cpu clock for ALARM dispatch only. Per Codex 12:37:
+   *  alarm callbacks fire INSIDE Cpu65xxVice's per-cycle loop, where
+   *  cpu.clk has advanced but clkPtr.value has NOT yet been synced.
+   *  Reading clkPtr there would re-introduce the IRQ timestamp skew. */
+  private getLiveClk(): number {
+    return this.clkRef ? this.clkRef() : (this.clkPtr?.value ?? 0);
   }
 
   /**
@@ -287,11 +308,15 @@ export class Via6522 {
     this.ifr = 0;
     this.ier = 0;
     this.sr = 0;
-    // Spec 611 phase 611.7f.9 — T1 reset
+    // Spec 611 phase 611.7f.9 + 611.7g.2 (Codex 12:37 fix) — T1 reset.
+    // Unset pending alarm + clear all T1 internal state.
     this.t1Latch = 0;
     this.t1ZeroClk = 0;
+    this.t1ReloadClk = 0;
     this.t1Active = false;
     this.t1OneShotFired = false;
+    this.t1Pb7 = 0;
+    if (this.t1ZeroAlarm) alarmUnset(this.t1ZeroAlarm);
     this.ca1State = 1;
     this.cb1State = 1;
     this.ca2OutState = 1;

@@ -35,11 +35,14 @@ const via1 = drv.via1;
 const clkPtr = vice.diskunit.clkPtr;
 const alarms = drv.alarms;
 
-// Helper: advance clkPtr + dispatch any due alarms (mimic cpu loop).
+// Helper: advance both clkPtr AND drv.cpu.clk + dispatch alarms (mimic
+// cpu loop). cpu.clk must advance because the via6522 clkRef returns
+// drv.cpu.clk for VICE-canonical live-clock semantics (Codex 12:37).
 function advanceTo(target) {
   while (clkPtr.value < target) {
-    clkPtr.value = clkPtr.value + 1;
-    // Dispatch any alarms whose deadline is now reached.
+    const next = clkPtr.value + 1;
+    clkPtr.value = next;
+    drv.cpu.clk = next;
     while (clkPtr.value >= alarmContextNextPendingClk(alarms)) {
       alarmContextDispatch(alarms, clkPtr.value);
     }
@@ -48,7 +51,7 @@ function advanceTo(target) {
 
 // === Smoke A — alarm fires at exact t1zero clk ===
 via1.reset();
-clkPtr.value = 100;
+clkPtr.value = drv.cpu.clk =100;
 via1.write(0x06, 0x01); // T1LL = $01 → low latch
 via1.write(0x05, 0x00); // T1CH = $00 → high latch = 0, tal = $0001
 // Per VICE: t1zero = rclk+1+tal = 100+1+1 = 102. Alarm scheduled there.
@@ -63,7 +66,7 @@ check("(A.2) Alarm fires at clk=102 (= rclk+1+tal): IFR_T1 set",
 
 // === Smoke B — IRQ raised at canonical clk via backend ===
 via1.reset();
-clkPtr.value = 200;
+clkPtr.value = drv.cpu.clk =200;
 let lastIrqAt = null;
 via1.backend.setIrq = (asserted) => { lastIrqAt = { asserted, clk: clkPtr.value }; };
 const origSetIrqAt = via1.backend.setIrqAt;
@@ -92,7 +95,7 @@ check("(C.1) One-shot: no NEW setIrqAt assertion after first fire",
 
 // === Smoke D — free-run re-fires at (tal+2) cadence ===
 via1.reset();
-clkPtr.value = 1000;
+clkPtr.value = drv.cpu.clk =1000;
 via1.write(0x0b, 0x40); // ACR = $40 = VIA_ACR_T1_FREE_RUN
 via1.write(0x0e, 0xc0); // IER T1 enable
 via1.write(0x06, 0x09); // T1LL = 9 → tal=9
@@ -119,7 +122,7 @@ check("(D.2) Free-run re-fires at +full_cycle (tal+2=11 later)",
 
 // === Smoke E — T1LH write clears IFR_T1 (Synertek per VICE :778) ===
 via1.reset();
-clkPtr.value = 2000;
+clkPtr.value = drv.cpu.clk =2000;
 via1.write(0x06, 0x05); via1.write(0x05, 0x00); // arm
 advanceTo(2006);
 check("(E.1) IFR_T1 set after fire", (via1.rawIfr & 0x40) !== 0);
@@ -129,7 +132,7 @@ check("(E.2) T1LH write clears IFR_T1", (via1.rawIfr & 0x40) === 0,
 
 // === Smoke F — T1CL read clears IFR_T1 + doesn't reschedule ===
 via1.reset();
-clkPtr.value = 3000;
+clkPtr.value = drv.cpu.clk =3000;
 via1.write(0x06, 0x05); via1.write(0x05, 0x00); // arm
 advanceTo(3006);
 check("(F.1) IFR_T1 set after fire", (via1.rawIfr & 0x40) !== 0);
@@ -139,6 +142,80 @@ check("(F.2) T1CL read clears IFR_T1", (via1.rawIfr & 0x40) === 0);
 advanceTo(3100);
 check("(F.3) One-shot stays cleared after T1CL clear (no reschedule)",
   (via1.rawIfr & 0x40) === 0);
+
+// === Smoke G — REAL Cpu65xxVice alarm dispatch path (Codex 12:37 fix) ===
+// Codex blocking issue #4: previous smokes manually advance clkPtr.value,
+// bypassing Cpu65xxVice's per-cycle alarm dispatch. This smoke runs actual
+// drive cpu instructions and asserts T1 IRQ fires at canonical clk via the
+// real alarm-context dispatcher path.
+
+const viceG = new Vice1541();
+const drvG = viceG.driveCpu;
+const via1G = drvG.via1;
+
+// Set up a tiny RAM program: SEI (start with interrupts disabled to avoid
+// drive ROM IRQ noise), loop NOP forever. Run from $0500 in drive RAM.
+const ram = viceG.diskunit.drvRam;
+ram[0x0500 - 0x0000] = 0x78; // SEI
+ram[0x0501 - 0x0000] = 0xea; // NOP
+ram[0x0502 - 0x0000] = 0xea; // NOP
+ram[0x0503 - 0x0000] = 0x4c; // JMP $0501
+ram[0x0504 - 0x0000] = 0x01;
+ram[0x0505 - 0x0000] = 0x05;
+// Point drive cpu PC to $0500.
+drvG.cpu.reg_pc = 0x0500;
+
+// Arm T1 via real VIA1 write (bypassing cpu — this is the SETUP).
+// At drive clk = baseline, write T1LL=5, T1CH=0. t1zero = clk+1+5.
+const armClk = drvG.cpu.clk;
+via1G.write(0x06, 0x05); // T1LL = 5
+via1G.write(0x05, 0x00); // T1CH = 0
+const expectedT1Zero = armClk + 1 + 5;
+
+// Spy IRQ fires.
+let irqFires = 0;
+const origSet = via1G.backend.setIrq;
+via1G.backend.setIrq = (a) => {
+  if (a) irqFires++;
+  return origSet?.(a);
+};
+
+// Drive cpu runs cycles. Cpu65xxVice's drainAlarms (line 636) fires
+// any pending alarm whose deadline is reached.
+// Run enough cycles to cross t1zero.
+const stepGoal = expectedT1Zero + 50;
+let safety = 0;
+while (drvG.cpu.clk < stepGoal && safety < 10000) {
+  drvG.cpu.executeCycle();
+  safety++;
+}
+
+check("(G.1) Real Cpu65xxVice alarm dispatch fires IFR_T1",
+  (via1G.rawIfr & 0x40) !== 0,
+  `IFR=$${via1G.rawIfr.toString(16)} after ${safety} cycles, cpu.clk=${drvG.cpu.clk}`);
+
+const finalClk = drvG.cpu.clk;
+check(`(G.2) IFR_T1 was set BEFORE cpu.clk reached ${stepGoal}`,
+  finalClk <= stepGoal,
+  `finalClk=${finalClk}`);
+
+// === Smoke H — reset() unsets pending alarm (Codex 12:37 fix #3) ===
+const viceH = new Vice1541();
+const drvH = viceH.driveCpu;
+const via1H = drvH.via1;
+const clkH = viceH.diskunit.clkPtr;
+
+clkH.value = drvH.cpu.clk; // sync
+via1H.write(0x06, 0xff);
+via1H.write(0x05, 0xff); // arm long T1
+const armedT1Zero = drvH.cpu.clk + 1 + 0xffff;
+// Reset should unset the alarm.
+via1H.reset();
+check("(H.1) After reset, IFR_T1 clear",
+  (via1H.rawIfr & 0x40) === 0);
+check("(H.2) After reset, t1Latch is 0 (= reset state)",
+  via1H.read(0x06) === 0 && via1H.read(0x07) === 0,
+  `T1LL=$${via1H.read(0x06).toString(16)} T1LH=$${via1H.read(0x07).toString(16)}`);
 
 const failed = checks.filter((c) => !c.ok).length;
 console.log("");
