@@ -537,6 +537,10 @@ Same stall on `drive1541` default (LEGACY1541). Therefore the regression is in *
 ### T3.5 — Drive crash to VIA mirror $1848 — NEW 2026-05-18
 **Status:** OPEN — root cause partially diagnosed
 
+**Correction 2026-05-18 (later):** Earlier session note claimed "LOAD reaches $E5CD" was a workaround success. **That was a false positive** — caused by keyboard typing at 80_000 cycle hold/gap dropping the leading "L" in "LOAD", which produced `?SYNTAX ERROR` and a BASIC error-return that lands at PC=$E5CD coincidentally (close to LOAD-completion PC). With slower typing (250_000) the "L" is preserved, "LOAD\"$\",8" + "SEARCHING FOR $" appear on screen, and the c64 stalls at $ED5A/$EEAC (debpia loop in CIOUT) — same outcome as the original smoke. `$0801=$00 $00` (empty BASIC program) confirms no directory bytes delivered in EITHER timing.
+
+The real situation: LOAD"$",8 does NOT produce a valid result in `drive1541=vice`. The structural port + bridge are correct, but the drive's IEC TALK frame never delivers bytes because the drive 6502 crashes to $1848 (VIA mirror infinite-fetch).
+
 **Symptom:** Drive PC walks `$FE67 IRQ-entry → PHA-sequence → RTI → $01BA (RAM stack page) → BRK-chain through zero RAM → $0329 → $0B5E → $1272 → $181C → $1848` and stays at $1848 (VIA1 mirror) forever. CPU there fetches the same byte from $1848 (a VIA register-mirror address) as "opcode" repeatedly.
 
 This causes:
