@@ -74,7 +74,7 @@ import {
   drive_install_hooks,
   drive_set_half_track,
   drive_setup_context,
-  diskunit_context as vice_diskunit_context,
+  diskunit_context as vice_diskunit_context,  // T3.2-fix-E: import from drive.ts (canonical, allocated by drive_setup_context). drivesync.ts has a forward-staged stub that drive.ts SHADOWS — must import from drive.ts not drivesync.ts.
   UI_JAM_NONE,
 } from "../vice1541/drive.js";
 import {
@@ -84,7 +84,12 @@ import {
   drivecpu_trigger_reset,
   diskunit_clk_refs,
 } from "../vice1541/drivecpu.js";
-import { driverom_install_hooks } from "../vice1541/driverom.js";
+import {
+  driverom_install_hooks,
+  driverom_load,
+  DRIVE_ROM1541_NAME,
+  DRIVE_ROM1541_SIZE,
+} from "../vice1541/driverom.js";
 import {
   drive_snapshot_install_hooks,
   drive_snapshot_read_module,
@@ -155,6 +160,12 @@ export class Vice1541Facade implements Drive1541 {
     if (!u) throw new Error("[Vice1541Facade] diskunit_context[0] missing");
     return u;
   }
+
+  /** Public read-only view for smoke / debug. Spec 612 §3 keeps the
+   *  Drive1541 boundary; this getter exposes the underlying
+   *  diskunit_context_t (snake_case VICE fields) for test scripts.
+   *  Not part of the Drive1541 interface. */
+  get diskunit(): diskunit_context_t { return this.unit; }
 
   /** Convenience: the single drive_t in slot 0. */
   private get drive(): drive_t {
@@ -549,18 +560,55 @@ export class Vice1541Facade implements Drive1541 {
   }
 
   /**
-   * machine_drive_rom_load — VICE's c64-glue fan-out asks driverom_load to
-   * pull every supported drive ROM. The facade only needs 1541 so we invoke
-   * driverom_load for the 1541 type and accept failure quietly when the
-   * bundled ROM is absent (the smoke proof gate will surface the failure
-   * loud via its own ROM-presence check).
+   * machine_drive_rom_load — VICE's c64-glue fan-out (machine-drive.c) calls
+   * `iecrom_load_1541()` which in turn calls `driverom_load("DosName1541",
+   * drive_rom1541, ...)`. The TS port has no `iecrom.c` body (iecrom is a
+   * hook-only stub per Spec 612 §10), so the facade owns the fan-out: it
+   * calls `driverom_load` directly with the 1541 resource key, targeting
+   * the per-unit `rom` buffer at offset 0x4000 (the canonical 1541 region
+   * — see drivemem/memiec.ts mapping where $C000-$FFFF → trap_rom[$4000-
+   * $7FFF]). On success, `driverom_load` iterates `diskunit_context[]` for
+   * matching `type === DRIVE_TYPE_1541` and runs `driverom_initialize_traps`
+   * itself (driverom.ts:486), so the $EC9B trap-opcode patches land
+   * automatically. PL-7: on missing ROM the function returns -1; the
+   * facade rethrows so construction fails loud instead of leaving the
+   * drive booting from zero-filled ROM.
    */
   private machineDriveRomLoad(): void {
-    // Use the per-unit ROM cell directly — driverom_load needs a buffer.
-    // We synthesise a temporary buffer; the real per-unit ROM is filled
-    // by drive_init's setup_image hook fan-out (no-op in the facade).
-    // For 612 T3.1 the proof bar is "construction completes"; downstream
-    // ROM-presence test is covered by T3.2 smoke.
+    const unit = this.unit;
+    // 1541 ROM region inside the 32 KiB per-unit unit.rom buffer is
+    // [0x4000, 0x8000) (see driverom_select_rom_region for DRIVE_TYPE_1541).
+    const rom_region = unit.rom.subarray(0x4000);
+    if (rom_region.length !== DRIVE_ROM1541_SIZE) {
+      throw new Error(
+        `[Vice1541Facade] unit.rom subarray for 1541 region wrong size: ` +
+          `got ${rom_region.length}, expected ${DRIVE_ROM1541_SIZE} (0x4000).`,
+      );
+    }
+    const loaded = { value: 0 };
+    const size = { value: 0 };
+    const rc = driverom_load(
+      "DosName1541" /* resource key — c64iec.ts whitelist resolves to DRIVE_ROM1541_NAME */,
+      rom_region,
+      loaded,
+      DRIVE_ROM1541_SIZE /* min */,
+      DRIVE_ROM1541_SIZE /* max — bundled ROM is exactly 16 KiB */,
+      "1541" /* name (log label) */,
+      DRIVE_TYPE_1541,
+      size,
+    );
+    if (rc < 0 || loaded.value !== 1 || size.value !== DRIVE_ROM1541_SIZE) {
+      throw new Error(
+        `[Vice1541Facade] driverom_load failed for 1541: rc=${rc} ` +
+          `loaded=${loaded.value} size=${size.value} ` +
+          `(expected resource '${DRIVE_ROM1541_NAME}' under resources/roms/, ` +
+          `alias '1541.bin'). PL-7: no silent zero-fill fallback — install ` +
+          `the bundled 1541 ROM and retry.`,
+      );
+    }
+    // driverom_load already invoked driverom_initialize_traps(unit) for
+    // every diskunit of matching type via its per-unit loop, so trap_rom
+    // is now a $EC9B-patched mirror of unit.rom. No further action here.
   }
 
   /** resources_get_string — VICE's resource-string lookup. Only the
@@ -595,16 +643,19 @@ export class Vice1541Facade implements Drive1541 {
  * fsimage_gcr.ts SECTION C.
  */
 function makeDiskImage(media: Drive1541Media): disk_image_t {
-  const fd: FILE_t = {
-    buf: media.bytes,
-    length: media.bytes.length,
-    cursor: 0,
-  };
+  // Spec 612 T3.2-fix-D — fsimage_dxx.ts uses raw Uint8Array as fd
+  // (util_fpread signature `(fd: Uint8Array, ...)`), fsimage_gcr.ts
+  // uses FILE_t object `{buf, length, cursor}`. Different per-format
+  // shapes inside the port. Build the matching shape per media.kind.
+  // Future cleanup: unify fsimage_dxx.ts to use FILE_t too.
+  const fd: Uint8Array | FILE_t = media.kind === "d64"
+    ? media.bytes
+    : { buf: media.bytes, length: media.bytes.length, cursor: 0 };
   const fsimage: fsimage_t = {
-    fd,
+    fd: fd as unknown as never,
     name: null,
     error_info: { map: null, dirty: 0, len: 0 },
-  };
+  } as fsimage_t;
   let type: number;
   let max_half_tracks: number;
   let tracks: number;

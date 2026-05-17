@@ -137,6 +137,25 @@ export let iecbus_callback_write: ((data: number, clock: number) => void) | null
 /** PORT OF: vice/src/iecbus/iecbus.c:59 */
 export let iecbus_update_ports: (() => void) | null = null;
 
+/**
+ * PORT OF: vice/src/iecbus/iecbus.c:59 (iecbus_update_ports global pointer)
+ *
+ * VICE's `iecbus_update_ports` is a `void (*)(void)` module-mutable extern
+ * assigned by machine-specific iec.c (c64iec.c:174 — `iecbus_update_ports
+ * = iec_update_ports;`). In a C build the importer simply writes the
+ * symbol at link time. TS ESM forbids cross-module mutation of an
+ * exported `let` from the importer side ("Cannot assign to read only
+ * property of object '[object Module]'"). NL-5 / PL-5 spec exception:
+ * the assignment must therefore be funnelled through a module-local
+ * setter that mutates the underlying `let`. The function is exported
+ * with a snake_case-faithful name (`install_iecbus_update_ports`) per
+ * NL-2; c64iec.ts (PORT OF: vice/src/c64/c64iec.c:173-176 `c64iec_init`)
+ * calls this in place of the direct-mutation idiom.
+ */
+export function install_iecbus_update_ports(fn: (() => void) | null): void {
+  iecbus_update_ports = fn;
+}
+
 /** PORT OF: vice/src/iecbus/iecbus.c:61 (`iecbus_t iecbus;`) */
 export const iecbus: iecbus_t = {
   drv_bus: new Uint8Array(IECBUS_NUM),
@@ -844,12 +863,11 @@ export function iecbus_dump(): string {
 // VICE's link-time arrangement (the symbol is defined in drive.c and
 // referenced by iecbus.c without a header dependency cycle).
 //
-// Imported lazily via a module reference because top-level circular
-// imports between iecbus / drivesync are avoided by drivesync.ts owning
-// the array but not calling back into iecbus.ts.
-import * as _drivesync from "./drivesync.js";
+// T3.2-fix-E: drive.ts is canonical owner; drivesync.ts stub array
+// is never populated by drive_setup_context. Switched.
+import * as _drive from "./drive.js";
 function _diskunit_get(dnr: number): diskunit_context_t | null {
-  return _drivesync.diskunit_context[dnr] ?? null;
+  return _drive.diskunit_context[dnr] ?? null;
 }
 
 // CMDHD via10 accessor — `cmdhd_context_t` is forward-declared opaque in

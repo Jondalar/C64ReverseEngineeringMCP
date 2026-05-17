@@ -60,6 +60,7 @@ import {
   iecbus,
   iecbus_callback_read as _iecbus_callback_read,
   iecbus_callback_write as _iecbus_callback_write,
+  install_iecbus_update_ports as _install_iecbus_update_ports,
   type iecbus_t,
 } from "./iecbus.js";
 // Re-export the IECBUS_NUM constant for downstream callers that pivot
@@ -531,19 +532,17 @@ function iecbus_cpu_undump_local(data: number): void {
 // PORT OF: vice/src/c64/c64iec.c:173-176 (c64iec_init — install hook)
 // =============================================================================
 // `iecbus_update_ports` in iecbus.ts is exported as a mutable `let` but
-// TS forbids cross-module mutation of an exported binding from the
-// importer side. The install path uses a function in iecbus.ts; here we
-// reach back via a CommonJS-style module reference. Honours PL-10
-// (import remains within `./iecbus.js`).
+// TS/ESM forbids cross-module mutation of an exported binding from the
+// importer side ("Cannot assign to read only property of object '[object
+// Module]'"). VICE's C build resolves the assignment at link time;
+// `iecbus.ts` mirrors that link-time write through the exported setter
+// `install_iecbus_update_ports`, which mutates the module-local `let` in
+// the file that owns it (PORT OF: vice/src/iecbus/iecbus.c:59 globals).
+// Documented spec exception per PL-5 / NL-5; PL-10 satisfied because the
+// import remains within `./iecbus.js`.
 
-import * as _iecbus_mod from "./iecbus.js";
 function install_iecbus_update_ports(fn: () => void): void {
-  // The exported `let` in iecbus.ts is read-only when imported. Re-assign
-  // via the module namespace mutation. ESM technically forbids this; the
-  // headless build uses CommonJS interop where this works. Documented
-  // exception per PL-5.
-  (_iecbus_mod as unknown as { iecbus_update_ports: (() => void) | null })
-    .iecbus_update_ports = fn;
+  _install_iecbus_update_ports(fn);
 }
 
 // =============================================================================

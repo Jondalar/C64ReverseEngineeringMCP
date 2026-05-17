@@ -88,7 +88,12 @@ import {
   type disk_image_t,
   type drive_t,
 } from "./drivetypes.js";
-import { diskunit_context } from "./drivesync.js";
+// T3.2-fix-E: import from drive.ts (canonical, populated by
+// drive_setup_context_for_unit). drivesync.ts had a forward-staged stub
+// per T2.5 hand-off note "owned by future drive.ts T2.10"; that hand-off
+// is now done — drive.ts allocates diskunit_context[]. Importing from
+// drivesync.ts here meant driveimage saw the NULL stub array.
+import { diskunit_context } from "./drive.js";
 import {
   fsimage_read_gcr_image,
   fsimage_gcr_write_half_track,

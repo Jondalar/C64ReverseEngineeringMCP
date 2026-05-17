@@ -114,7 +114,9 @@ if (mountResult.errors && mountResult.errors.length > 0) {
 }
 
 const driveSlot = vice.diskunit?.drives?.[0];
-const gcrLoaded = driveSlot ? driveSlot.gcrImageLoaded : 0;
+// Spec 612 NL-3 snake_case verbatim VICE field name (was camelCase
+// `gcrImageLoaded` under quarantine port).
+const gcrLoaded = driveSlot ? (driveSlot.GCR_image_loaded ?? driveSlot.gcrImageLoaded ?? 0) : 0;
 if (gcrLoaded !== 1) {
   hardFail("mount",
     `vice drive.gcrImageLoaded=${gcrLoaded} after mount; expected 1 (disk not attached into VICE1541)`);

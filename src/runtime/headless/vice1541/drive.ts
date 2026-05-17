@@ -105,6 +105,7 @@ import {
   drivecpu_shutdown,
   drivecpu_sleep,
   drivecpu_wake_up,
+  diskunit_clk_refs,
 } from "./drivecpu.js";
 import {
   drive_image_attach,
@@ -1708,14 +1709,14 @@ function log_verbose(_log: number, _msg: string): void {
 // `drv.clk_ptr.value` reads/writes the same cell drive_6510core /
 // viacore_setup_context see. PL-5: this is a lookup over the existing
 // drivecpu-owned global, not a new helper.
+// Spec 612 T3.2-fix-C: replaced CommonJS require() with ESM top-level
+// import (added to import block above). ESM handles circular imports
+// by deferring binding resolution to first access — `diskunit_clk_refs`
+// is undefined during drivecpu.ts evaluation but populated by the time
+// `clockRefForUnit` is called from drive_setup_context_for_unit at
+// facade construction. Avoids ERR_AMBIGUOUS_MODULE_SYNTAX (require +
+// TLA in same file).
 function clockRefForUnit(unr: number): ClockRef {
-  // Late import to avoid bootstrap circularity (drivecpu.ts imports
-  // rotation/drivemem which transitively don't pull drive.ts).
-  // diskunit_clk_refs is the ClockRef[] exported from drivecpu.ts.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { diskunit_clk_refs } = require("./drivecpu.js") as {
-    diskunit_clk_refs: ClockRef[];
-  };
   return diskunit_clk_refs[unr]!;
 }
 
