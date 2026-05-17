@@ -77,6 +77,8 @@ export interface Via6522Options {
   backend: Via6522Backend;
   /** VICE-style label for diagnostics ("via1d1541" etc.). */
   label?: string;
+  /** Spec 611 phase 611.7f.9 — required for T1 timer schedule references. */
+  clkPtr?: { value: number };
 }
 
 /**
@@ -111,9 +113,70 @@ export class Via6522 {
   /** Last reported IRQ-out state (for change-detect). */
   private lastIrqOut: boolean = false;
 
+  // === Spec 611 phase 611.7f.9 — VIA1 T1 timer state ===
+  // VICE viacore.c lines 224-263 + 740-769 (store T1CL/T1CH/T1LH).
+  //
+  // Per-VICE model in viacore.c:
+  //   T1CH write: tal = (T1LL | T1LH<<8); t1zero = rclk+1+tal;
+  //               t1reload = rclk+1+tal+FULL_CYCLE_2 (=+2); clear IFR_T1.
+  //   counter at rclk = (t1zero - rclk) & 0xffff (1:1 derivation from
+  //     viacore_t1: rclk < t1reload returns t1reload - rclk - 2 =
+  //     t1zero - rclk).
+  //   IRQ fires when rclk >= t1zero + 1 (= when counter first shows FFFF).
+  //   One-shot mode: IRQ fires once until T1CH rewritten.
+  //   Free-run (ACR & 0x40): on each underflow, reload from latch +
+  //     reschedule t1zero forward by (tal + 2).
+  //
+  // Lazy evaluation: T1 state is updated on demand at IFR/T1CL/T1CH read.
+  // No per-drive-cycle tick required. Drive ROM polls $180D explicitly
+  // (e.g. $E9E2 LDA $180D / AND #$40 / BNE $E9F2 EOI-ack path).
+  private t1Latch: number = 0;    // tal: 16-bit latch (T1LL | T1LH<<8)
+  private t1ZeroClk: number = 0;  // absolute drive clk when T1 reads 0
+  private t1Active: boolean = false;
+  private t1OneShotFired: boolean = false;
+  private clkPtr: { value: number } | undefined;
+
   constructor(opts: Via6522Options) {
     this.backend = opts.backend;
     this.label = opts.label ?? "via6522";
+    this.clkPtr = opts.clkPtr;
+  }
+
+  /** Current drive clock cycle (from clkPtr if attached; else 0). */
+  private getClk(): number {
+    return this.clkPtr?.value ?? 0;
+  }
+
+  /**
+   * Lazy-evaluate T1 underflow at the given clk and set IFR_T1 if due.
+   * Called before any IFR/T1CL/T1CH read. Per VICE viacore_t1 semantics.
+   */
+  private maybeFireT1AtClk(rclk: number): void {
+    if (!this.t1Active) return;
+    if (rclk < this.t1ZeroClk + 1) return; // underflow not reached yet
+    const continuous = (this.acr & 0x40) !== 0;
+    if (continuous || !this.t1OneShotFired) {
+      const wasSet = (this.ifr & IFR_T1) !== 0;
+      this.ifr |= IFR_T1;
+      if (!continuous) this.t1OneShotFired = true;
+      if (!wasSet) this.updateIrq();
+    }
+    if (continuous) {
+      // Catch up t1ZeroClk past rclk so next read computes correctly.
+      // Each full cycle = tal + FULL_CYCLE_2 (=2). Reschedule by full
+      // cycles per VICE update_via_t1_latch.
+      const fullCycle = this.t1Latch + 2;
+      if (fullCycle > 0) {
+        while (rclk >= this.t1ZeroClk + 1) {
+          this.t1ZeroClk += fullCycle;
+        }
+      }
+    }
+  }
+
+  /** VICE viacore_t1: counter value at given clk. */
+  private viacoreT1(rclk: number): number {
+    return (this.t1ZeroClk - rclk) & 0xffff;
   }
 
   /** Reset to viacore defaults. VICE viacore_reset(). */
@@ -127,6 +190,11 @@ export class Via6522 {
     this.ifr = 0;
     this.ier = 0;
     this.sr = 0;
+    // Spec 611 phase 611.7f.9 — T1 reset
+    this.t1Latch = 0;
+    this.t1ZeroClk = 0;
+    this.t1Active = false;
+    this.t1OneShotFired = false;
     this.ca1State = 1;
     this.cb1State = 1;
     this.ca2OutState = 1;
@@ -168,15 +236,23 @@ export class Via6522 {
       case VIA_DDRB: return this.ddrb;
       case VIA_DDRA: return this.ddra;
       case VIA_T1CL: {
-        // VICE viacore.c clears IFR_T1 on T1CL read; we honour for IRQ
-        // hygiene even though T1 itself is not running in 611.4.
+        // Spec 611 phase 611.7f.9 — return live counter LOW + clear IFR_T1.
+        // VICE viacore.c read_via path: T1CL read returns viacore_t1 low byte.
+        const rclk = this.getClk();
+        this.maybeFireT1AtClk(rclk);
+        const counter = this.viacoreT1(rclk);
         this.ifr &= ~IFR_T1;
         this.updateIrq();
-        return 0xff;
+        return counter & 0xff;
       }
-      case VIA_T1CH: return 0xff;
-      case VIA_T1LL: return 0xff;
-      case VIA_T1LH: return 0xff;
+      case VIA_T1CH: {
+        // VICE: T1CH read returns viacore_t1 HIGH byte. Does NOT clear IFR_T1.
+        const rclk = this.getClk();
+        this.maybeFireT1AtClk(rclk);
+        return (this.viacoreT1(rclk) >> 8) & 0xff;
+      }
+      case VIA_T1LL: return this.t1Latch & 0xff;
+      case VIA_T1LH: return (this.t1Latch >> 8) & 0xff;
       case VIA_T2CL: {
         this.ifr &= ~IFR_T2;
         this.updateIrq();
@@ -186,7 +262,16 @@ export class Via6522 {
       case VIA_SR: return this.sr;
       case VIA_ACR: return this.acr;
       case VIA_PCR: return this.pcr;
-      case VIA_IFR: return this.ifr;
+      case VIA_IFR: {
+        // Spec 611 phase 611.7f.9 — lazy-evaluate T1 underflow at this clk
+        // so drive ROM IFR poll (e.g. $E9E2 LDA $180D / AND #$40) sees
+        // IFR_T1 set as soon as the timer has underflowed.
+        this.maybeFireT1AtClk(this.getClk());
+        // VICE viacore.c viacore_read VIA_IFR: returns ifr | 0x80 if any
+        // (ifr & ier & 0x7f) bit is set. Honor that "IFR_ANY summary" bit.
+        const pending = (this.ifr & this.ier & 0x7f) !== 0;
+        return (this.ifr & 0x7f) | (pending ? 0x80 : 0);
+      }
       case VIA_IER: return this.ier | 0x80;
       default: return 0;
     }
@@ -259,8 +344,34 @@ export class Via6522 {
         return;
       }
       // T1/T2/SR: stored only; no timer behavior in 611.4 minimum.
-      case VIA_T1CL: case VIA_T1LL: return;
-      case VIA_T1CH: case VIA_T1LH: { this.ifr &= ~IFR_T1; this.updateIrq(); return; }
+      // === Spec 611 phase 611.7f.9 — VIA1 T1 timer writes ===
+      // Per VICE viacore.c lines 741-783.
+      case VIA_T1CL:
+      case VIA_T1LL: {
+        // Update latch LOW. Does not affect counter or IFR.
+        this.t1Latch = (this.t1Latch & 0xff00) | (v & 0xff);
+        return;
+      }
+      case VIA_T1CH: {
+        // Update latch HIGH; reload counter; arm; clear IFR_T1.
+        // VICE: tal := T1LL | T1LH<<8; t1zero := rclk+1+tal; t1reload := +2.
+        this.t1Latch = (this.t1Latch & 0x00ff) | ((v & 0xff) << 8);
+        const rclk = this.getClk();
+        this.t1ZeroClk = rclk + 1 + this.t1Latch;
+        this.t1Active = true;
+        this.t1OneShotFired = false;
+        this.ifr &= ~IFR_T1;
+        this.updateIrq();
+        return;
+      }
+      case VIA_T1LH: {
+        // Update latch HIGH only; do NOT reload counter. Clears IFR_T1
+        // per VICE viacore.c lines 770-783 (Synertek behavior confirmed).
+        this.t1Latch = (this.t1Latch & 0x00ff) | ((v & 0xff) << 8);
+        this.ifr &= ~IFR_T1;
+        this.updateIrq();
+        return;
+      }
       case VIA_T2CL: return;
       case VIA_T2CH: { this.ifr &= ~IFR_T2; this.updateIrq(); return; }
       case VIA_SR: { this.sr = v; return; }

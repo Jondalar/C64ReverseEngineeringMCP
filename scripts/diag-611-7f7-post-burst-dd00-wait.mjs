@@ -97,9 +97,14 @@ iecBus.buildC64InputBits = (effClk, cs) => {
       returnedDd00: result & 0xff,
       dataIn: (result & 0x80) ? "rel(1)" : "PULL(0)",
       clkIn: (result & 0x40) ? "rel(1)" : "PULL(0)",
+      cpuBus: core.cpu_bus & 0xff,
       cpuPort: core.cpu_port & 0xff,
       drvData8: core.drv_data[8] & 0xff,
       drvBus8: core.drv_bus[8] & 0xff,
+      // Spec 611 phase 611.7f.9 — also peek drv_bus[9..11] for clobber check.
+      drvBus9: core.drv_bus[9] & 0xff,
+      drvBus10: core.drv_bus[10] & 0xff,
+      drvBus11: core.drv_bus[11] & 0xff,
       pre,
       viceData: !sample.drv_data_pull ? "rel" : "pull",
       viceClk: !sample.drv_clk_pull ? "rel" : "pull",
@@ -177,10 +182,12 @@ for (const e of events) {
     console.log(
       `+${e.dt.toString().padStart(5)} ` +
       `c64=$${e.c64Pc.toString(16).padStart(4,"0")} ` +
-      `RD $DD00 → $${e.returnedDd00.toString(16).padStart(2,"0")} ` +
-      `(DATA=${e.dataIn} CLK=${e.clkIn})  ` +
+      `RD$DD00→$${e.returnedDd00.toString(16).padStart(2,"0")} ` +
+      `cpu_bus=$${e.cpuBus.toString(16).padStart(2,"0")} ` +
       `cpu_port=$${e.cpuPort.toString(16).padStart(2,"0")} ` +
       `drv_data[8]=$${e.drvData8.toString(16).padStart(2,"0")} ` +
+      `drv_bus[8]=$${e.drvBus8.toString(16).padStart(2,"0")} ` +
+      `bus[9/10/11]=$${e.drvBus9.toString(16)}/$${e.drvBus10.toString(16)}/$${e.drvBus11.toString(16)} ` +
       `vice(D=${e.viceData} C=${e.viceClk} A=${e.viceAtna}) ` +
       `drv=$${e.drvPc.toString(16).padStart(4,"0")}${changeFlag}`,
     );

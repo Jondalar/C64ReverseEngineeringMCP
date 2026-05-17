@@ -224,7 +224,9 @@ export function createVia2d(opts: Via2dOptions): Via6522 {
     },
   };
 
-  const via2 = new Via6522({ backend, label: "via2d1541" });
+  // Spec 611 phase 611.7f.9 — pass clkPtr so VIA2 T1 timer also has a
+  // clock reference (1541 ROM may use T1 on either VIA).
+  const via2 = new Via6522({ backend, label: "via2d1541", clkPtr });
   return via2;
 }
 

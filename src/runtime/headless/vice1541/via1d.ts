@@ -127,7 +127,9 @@ export function createVia1d(opts: Via1dOptions): Via6522 {
     },
   };
 
-  const via1 = new Via6522({ backend, label: "via1d1541" });
+  // Spec 611 phase 611.7f.9 — pass clkPtr so VIA1 T1 timer can reference
+  // drive cycle for schedule/lazy underflow detection.
+  const via1 = new Via6522({ backend, label: "via1d1541", clkPtr });
   return via1;
 }
 
