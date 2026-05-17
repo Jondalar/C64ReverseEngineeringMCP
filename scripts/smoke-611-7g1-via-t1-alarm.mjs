@@ -172,17 +172,20 @@ via1G.write(0x06, 0x05); // T1LL = 5
 via1G.write(0x05, 0x00); // T1CH = 0
 const expectedT1Zero = armClk + 1 + 5;
 
-// Spy IRQ fires.
-let irqFires = 0;
-const origSet = via1G.backend.setIrq;
-via1G.backend.setIrq = (a) => {
-  if (a) irqFires++;
-  return origSet?.(a);
+// Spy IRQ fires (Codex 12:59 fix #1: setIrqAt not setIrq + assert
+// timestamp at expectedT1Zero + 1).
+let irqAssertions = []; // {asserted, clk}
+const origSetAtG = via1G.backend.setIrqAt;
+via1G.backend.setIrqAt = (asserted, clk) => {
+  irqAssertions.push({ asserted, clk: clk ?? drvG.cpu.clk });
+  return origSetAtG?.(asserted, clk);
 };
+// Need IER bit 6 + 7 enabled so updateIrq treats T1 IFR as
+// IRQ-pending → backend.setIrqAt fires asserted=true.
+via1G.write(0x0e, 0xc0);
 
 // Drive cpu runs cycles. Cpu65xxVice's drainAlarms (line 636) fires
 // any pending alarm whose deadline is reached.
-// Run enough cycles to cross t1zero.
 const stepGoal = expectedT1Zero + 50;
 let safety = 0;
 while (drvG.cpu.clk < stepGoal && safety < 10000) {
@@ -194,10 +197,10 @@ check("(G.1) Real Cpu65xxVice alarm dispatch fires IFR_T1",
   (via1G.rawIfr & 0x40) !== 0,
   `IFR=$${via1G.rawIfr.toString(16)} after ${safety} cycles, cpu.clk=${drvG.cpu.clk}`);
 
-const finalClk = drvG.cpu.clk;
-check(`(G.2) IFR_T1 was set BEFORE cpu.clk reached ${stepGoal}`,
-  finalClk <= stepGoal,
-  `finalClk=${finalClk}`);
+const firstAssert = irqAssertions.find((e) => e.asserted === true);
+check(`(G.2) setIrqAt(asserted=true) fired at clk=${expectedT1Zero + 1} (= t1zero+1)`,
+  firstAssert !== undefined && firstAssert.clk === expectedT1Zero + 1,
+  `firstAssert=${JSON.stringify(firstAssert)} expected clk=${expectedT1Zero + 1}`);
 
 // === Smoke H — reset() unsets pending alarm (Codex 12:37 fix #3) ===
 const viceH = new Vice1541();
@@ -206,16 +209,42 @@ const via1H = drvH.via1;
 const clkH = viceH.diskunit.clkPtr;
 
 clkH.value = drvH.cpu.clk; // sync
-via1H.write(0x06, 0xff);
-via1H.write(0x05, 0xff); // arm long T1
-const armedT1Zero = drvH.cpu.clk + 1 + 0xffff;
+// Spy setIrqAt to catch any post-reset alarm fires.
+let hAssertions = [];
+const origSetAtH = via1H.backend.setIrqAt;
+via1H.backend.setIrqAt = (a, c) => {
+  hAssertions.push({ a, c: c ?? drvH.cpu.clk });
+  return origSetAtH?.(a, c);
+};
+via1H.write(0x06, 0x10);
+via1H.write(0x05, 0x00); // arm short T1 (tal = $0010 = 16 cycles)
+const armedT1Zero = drvH.cpu.clk + 1 + 0x10;
 // Reset should unset the alarm.
 via1H.reset();
+const hAssertionsAfterReset = hAssertions.slice();
 check("(H.1) After reset, IFR_T1 clear",
   (via1H.rawIfr & 0x40) === 0);
 check("(H.2) After reset, t1Latch is 0 (= reset state)",
   via1H.read(0x06) === 0 && via1H.read(0x07) === 0,
   `T1LL=$${via1H.read(0x06).toString(16)} T1LH=$${via1H.read(0x07).toString(16)}`);
+
+// Codex 12:59 fix #2: run/dispatch past armedT1Zero + 1 and assert
+// IFR_T1 stays clear AND no IRQ callback fires (= alarm was actually
+// removed from queue, not just state cleared).
+let safetyH = 0;
+const hStepGoal = armedT1Zero + 50;
+hAssertions = []; // clear; we want POST-reset assertions only
+while (drvH.cpu.clk < hStepGoal && safetyH < 10000) {
+  drvH.cpu.executeCycle();
+  safetyH++;
+}
+check(`(H.3) Reset removed pending alarm: IFR_T1 stays clear after running past armedT1Zero+1 (=${armedT1Zero + 1})`,
+  (via1H.rawIfr & 0x40) === 0,
+  `IFR=$${via1H.rawIfr.toString(16)} cpu.clk=${drvH.cpu.clk}`);
+const anyAssertedPostReset = hAssertions.some((e) => e.a === true);
+check("(H.4) No setIrqAt(asserted=true) call after reset (alarm did not fire post-reset)",
+  !anyAssertedPostReset,
+  `hAssertions=${JSON.stringify(hAssertions)}`);
 
 const failed = checks.filter((c) => !c.ok).length;
 console.log("");
