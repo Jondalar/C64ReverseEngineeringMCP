@@ -369,7 +369,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.10 — drive.ts (drive_init etc.)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 7ec2914
 **Agent:** Opus (lifecycle ordering is subtle)
 **Target:** `src/runtime/headless/vice1541/drive.ts` (new)
 **VICE:** `vice/src/drive/drive.c`
