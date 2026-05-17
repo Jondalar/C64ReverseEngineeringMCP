@@ -19,6 +19,8 @@ import {
   alarmNew,
   alarmSet,
   alarmUnset,
+  alarmContextDispatch,
+  alarmContextNextPendingClk,
   type Alarm,
   type AlarmContext,
 } from "../alarm/alarm-context.js";
@@ -336,8 +338,81 @@ export class Via6522 {
    * Public read for the drive-memory dispatch ($1800-$180F + mirrors).
    * Register-only — does not advance any timers in 611.4 minimum.
    */
+  /**
+   * Spec 611 phase 611.7g.6r — viacore run_pending_alarms at register access.
+   *
+   * VICE source:
+   *   src/core/viacore.c:517-530 run_pending_alarms (inline static)
+   *     while (clk > alarm_context_next_pending_clk(alarm_context)) {
+   *         alarm_context_dispatch(alarm_context, clk + offset);
+   *     }
+   *   src/core/viacore.c:660-662 viacore_store head (gated dispatch)
+   *   src/core/viacore.c:1068-1070 viacore_read head (gated dispatch)
+   *
+   * Boundary semantics: VICE uses strict `>` (NOT `>=`). An alarm
+   * scheduled for cycle N fires AFTER all CPU accesses for cycle N
+   * (= during cycle N+1). Differs from CPU end-of-step drain which
+   * uses `>=` because that runs at end-of-tick / start-of-next-tick.
+   *
+   * Gated registers: VIA_PRB, VIA_T1CL..VIA_IER. NOT VIA_PRA,
+   * VIA_PRA_NHS, VIA_DDRA, VIA_DDRB (per VICE source — those have
+   * no T1/T2/IRQ alarm coupling).
+   *
+   * Clock-owner: rclk = this.getClk() = polled drive cpu.clk at
+   * the precise register-access moment. write_offset=0 is the
+   * active source-correct mapping for TS (see owner block below).
+   *
+   * write_offset owner (Codex 17:20 #2 — active owner, not interim):
+   *   VICE viacore.c:1841 sets `via_context->write_offset = 1` for
+   *   the 1541 6502 because VICE stores happen AFTER `*clk_ptr++`
+   *   (line 645 + 649). In TS, Cpu65xxVice tick() does `drainAlarms
+   *   → bumpDelays → clk++` BEFORE the instruction body runs, so
+   *   this.clk IS the register-access cycle when via.write is
+   *   called. No `-1` compensation needed. Source-correct mapping
+   *   for TS = write_offset=0. THIS IS THE ACTIVE write_offset
+   *   OWNER for VICE1541 register-access alarm catch-up.
+   *
+   * Deferred callback-offset owners (NOT this helper's
+   * responsibility — named per Codex 17:20 #3):
+   *   - viacore.c:705 (via_context->set_cb2)(ctx, state, write_offset)
+   *     → TS backend.setCb2 currently takes (state: 0|1) only.
+   *     When set_cb2 callbacks begin consuming the cycle-relative
+   *     offset for downstream edge timing, that's a separate slice
+   *     in the via*d backend (slice 7g.9 CB2 input edge + CB2
+   *     callback offset propagation).
+   *   - viacore.c:939 set_ca2_output_state(... write_offset) —
+   *     slice 7g.8 CA2 output state with offset.
+   *   - viacore.c:1012 set_cb2_output_state(byte, write_offset) —
+   *     slice 7g.8 PCR write CB2 output mode with offset.
+   * These callbacks pass write_offset through; the run_pending
+   * helper is fully source-shaped here.
+   */
+  private runPendingAlarmsAt(rclk: number, offset: number = 0): void {
+    const ctx = this.alarmContext;
+    if (!ctx) return;
+    // VICE viacore.c:517-530 run_pending_alarms verbatim:
+    //   while (clk > alarm_context_next_pending_clk(ctx)) {
+    //       alarm_context_dispatch(ctx, clk + offset);
+    //   }
+    while (rclk > alarmContextNextPendingClk(ctx)) {
+      alarmContextDispatch(ctx, (rclk + offset) >>> 0);
+    }
+  }
+
+  /**
+   * Register-set gate from VICE viacore.c:660 + 1068:
+   *   addr == VIA_PRB || (addr >= VIA_T1CL && addr <= VIA_IER)
+   */
+  private static needsAlarmCatchUp(reg: number): boolean {
+    return reg === VIA_PRB || (reg >= VIA_T1CL && reg <= VIA_IER);
+  }
+
   read(reg: number): BYTE {
     const r = reg & 0x0f;
+    // VICE viacore_read head (viacore.c:1068-1070).
+    if (Via6522.needsAlarmCatchUp(r)) {
+      this.runPendingAlarmsAt(this.getClk(), 0);
+    }
     switch (r) {
       case VIA_PRB:
       case VIA_PRA_NHS:
@@ -420,6 +495,11 @@ export class Via6522 {
   write(reg: number, value: number): void {
     const r = reg & 0x0f;
     const v = u8(value);
+    // VICE viacore_store head (viacore.c:660-662). write_offset=0
+    // for TS — see runPendingAlarmsAt jsdoc for derivation.
+    if (Via6522.needsAlarmCatchUp(r)) {
+      this.runPendingAlarmsAt(this.getClk(), 0);
+    }
     switch (r) {
       case VIA_PRB: {
         // VICE viacore_store case VIA_PRB (viacore.c:698-715) applies
