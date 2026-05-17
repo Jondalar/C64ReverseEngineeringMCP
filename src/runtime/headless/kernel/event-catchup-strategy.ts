@@ -20,12 +20,24 @@ export interface EventCatchupStrategyDeps {
   drive: DriveCpu;
   c64Clock: () => CLOCK;
   stepC64Instruction: () => void;
+  /** Spec 612 T3.6 — when drive1541=vice, also tick vice-side drive in
+   *  lockstep with legacy. Without this the vice drive only runs on
+   *  $DD00 bus events (push-flush hook) and starves between events,
+   *  preventing the drive 6502 from reaching the LOAD-handling code. */
+  additionalCatchUp?: (targetClock: CLOCK) => void;
 }
 
 export class EventCatchupStrategy implements SyncStrategy {
   readonly mode = "true-drive" as const;
 
   constructor(private readonly deps: EventCatchupStrategyDeps) {}
+
+  /** Spec 612 T3.6 — install the vice catch-up callback after the kernel
+   *  finishes constructing the Vice1541 instance (which happens after
+   *  this strategy is built). */
+  setAdditionalCatchUp(fn: (targetClock: CLOCK) => void): void {
+    this.deps.additionalCatchUp = fn;
+  }
 
   runCycles(n: number): SyncRunResult {
     const before = this.deps.c64Clock();
@@ -50,5 +62,10 @@ export class EventCatchupStrategy implements SyncStrategy {
     // is private to the kernel — only this strategy calls it.
     // audit-ok: kernel-internal sync-strategy drive catch-up
     this.deps.drive.executeToClock(targetClock, cycleStepped);
+    // Spec 612 T3.6 — vice-side per-instruction tick. Legacy.executeToClock
+    // above is a no-op when legacy drive is "quiet" in vice mode (Spec 612
+    // T3.2-fix-O); the vice drive otherwise starves between push-flush
+    // bus events.
+    this.deps.additionalCatchUp?.(targetClock);
   }
 }

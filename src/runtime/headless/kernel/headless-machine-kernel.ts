@@ -649,6 +649,16 @@ export class HeadlessMachineKernel implements MachineKernel {
       // polarity (Codex 19:16 review constraint). The wrap chains
       // pre/post hooks; legacy bus internals stay intact.
       this.installVice1541Bridge(this.drive1541);
+      // Spec 612 T3.6 — per-instruction vice drive tick. Without this
+      // the vice drive only advances on $DD00 pushFlush events; in
+      // legacy-quiet mode (Spec 612 T3.2-fix-O) the drive 6502 then
+      // starves between events (~166 drive cycles per 10K c64 cycles
+      // measured). Wire EventCatchupStrategy.catchUpDrive to ALSO call
+      // vice.catchUpTo so the drive runs lockstep with the c64.
+      const viceForTick = this.drive1541;
+      this.eventCatchup.setAdditionalCatchUp((targetClock) => {
+        viceForTick.catchUpTo(targetClock);
+      });
     }
   }
 
