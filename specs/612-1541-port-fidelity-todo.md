@@ -472,7 +472,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T3.2 — Delete _quarantine_vice1541_v4
-**Status:** OPEN
+**Status:** OPEN (blocked — see T3.4)
 **Agent:** Sonnet
 **Action:** `git rm -r src/runtime/headless/_quarantine_vice1541_v4`
 
@@ -482,6 +482,55 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 - [ ] T0.1 fidelity check PASS on whole `vice1541/`.
 
 **Depends on:** T3.1 + every Phase 2 task.
+
+---
+
+### T3.4 — IEC LOAD"$",8 stall (BOTH legacy + vice modes affected) — NEW 2026-05-18
+**Status:** OPEN — root cause identified, fix pending
+
+**Symptom:** `LOAD"$",8` on `samples/synthetic/blank.d64` stalls at c64.PC=$EEB2 (debpia RTS / waiting for DATA-release in $ED5A loop). Reproduces in BOTH:
+- `drive1541="vice"` (Spec 612 path)
+- LEGACY1541 default mode
+
+`scripts/smoke-611-7f-vice-load-directory.mjs` fails at "load-completion" stage in both. Direct `kernel.mountMedia(8, {...})` path REACHES $E5CF because the KERNAL FILEIO trap hijacks LOAD and bypasses IEC entirely.
+
+**Root cause analysis (2026-05-18):**
+
+c64 KERNAL byte sequence at the stall (via `bus.read()`):
+```
+$ED50: JSR $EEA9 (debpia); BCC $ED50  ; loop while DATA pulled
+$ED55: JSR $EEA9;          BCS $ED55  ; loop while DATA released
+$ED5A: JSR $EEA9;          BCC $ED5A  ; loop while DATA pulled
+$ED5F: JSR $EE8E ...
+$EEA9: LDA $DD00; CMP $DD00; BNE $EEA9 ; debpia debounce
+$EEB1: ASL A   ; bit 7 (DATA_IN) → C
+$EEB2: RTS
+```
+
+c64 waits at $ED5A for DATA RELEASE (BCC = wait C=0 = bit 7 was 0 = DATA pulled — loop continues while pulled). Bus state captured: `cpu_bus=$10`, `cpu_port=$00`, `drv_data[8]=$18`, `drv_bus[8]=$40`. cpu_port.7=0 means DATA pulled. Drive's contribution (drv_bus[8].7=0) AND-s with c64's cpu_bus.7=0 to keep cpu_port.7 at 0 → c64 reads DATA_IN=0 forever.
+
+Drive PC walks `$FE67 (IRQ entry) → $FE7F (PLA sequence) → RTI → $01BA (RAM stack page) → $0329 → $0B5E → $1272 → $181C → $1848` and stays there. Drive crashed: RTI pulled corrupt PCL/PCH from stack, jumped to RAM page, executed all-0 RAM as BRK chain, eventually walked off into VIA I/O mirror region. SP wraps around (FA→FF on a single transition = 6 stack pops via 3 PLA + RTI).
+
+Drive PC progression (50-cycle samples, first 500K c64 cycles):
+```
+fe71 fe71 fe7f fe67 fe6b fe76 fe80 1ba fe68 fe69 fe6f fe7f fe82 329 fe69 ...
+fe71 fe80 fe84 fe67 fe6a fe79 fe80 fe84 fe67 fe6b fe79 fe82 fe84 fe67 b5e 1272 181c 1848
+```
+
+**This means**: drive ATN handler IRQ enters with `reg_pc` already pointing at $01BA (or similar RAM/stack-page address), so the IRQ-save pushes the bad PC. RTI pops it back. Drive walks. Eventually settles at $1848 in I/O mirror where VIA register reads always return same byte → CPU loops fetching same "opcode" forever.
+
+**The genuine bug NOT in vice1541 port:**
+
+Same stall on `drive1541` default (LEGACY1541). Therefore the regression is in **c64-side IEC LOAD path** (likely CIA2 PA push-flush wiring, kernel FILEIO trap toggle, or IEC bus setDriveOutput) on branch `codex/611-vice1541-side-by-side`. Spec 612 work did not introduce it.
+
+**Fix scope:** OUT-OF-SCOPE for Spec 612 vice1541 territory. Belongs in Spec 613 (IEC handshake cycle parity) or a separate runtime-regression-fix branch off `master` (where `runtime-green-2026-05-16` tag confirms LOAD"$",8 works in legacy mode).
+
+**Acceptance:**
+- [ ] `scripts/smoke-611-7f-vice-load-directory.mjs` reaches stage "(4) LOAD completed to expected PC $e5cf" in `drive1541="vice"` mode.
+- [ ] LOAD completion confirmed against VICE binmon trace first-divergence diff on bus + drive PC (Spec 600 doctrine).
+- [ ] Same smoke passes against legacy 1541 first (control), THEN vice.
+
+**Depends on:** Master/branch IEC LOAD baseline restored. Then close-loop verify vice1541/ matches.
 
 ---
 
