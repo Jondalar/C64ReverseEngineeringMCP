@@ -124,26 +124,21 @@ if (gcrLoaded !== 1) {
 check("(1) disk mounted into VICE1541 (gcrImageLoaded=1)", true);
 
 // === Phase 3: boot to READY ===
-// Spec 612 T3.4 (2026-05-18): use session.kernel.runCycles instead
-// of session.runFor. Both ultimately call stepC64Instruction, but
-// runFor's instruction-count loop loses bridge state in the
-// vice1541 path under mount.ts dual-attach (legacy + vice). Probe
-// reproducer: same flow w/ kernel.runCycles → LOAD reaches $e5cd;
-// w/ runFor → stalls at $eeb2 (debpia loop). c64-kern unchanged.
-const PAL_HZ = 985_248;
-session.kernel.runCycles(2 * PAL_HZ);
+session.resetCold("pal-default");
+session.runFor(2_000_000);
 
 // === Phase 4: LOAD"$",8 + LIST under bridge ===
 trackLegacyDuringLoad = true;
 session.typeText('LOAD"$",8\r', 80_000, 80_000);
+const PAL_HZ = 985_248;
 {
   const target = session.c64Cpu.cycles + 12 * PAL_HZ;
-  while (session.c64Cpu.cycles < target) session.kernel.runCycles(200_000);
+  while (session.c64Cpu.cycles < target) session.runFor(200_000);
 }
 session.typeText("LIST\r", 80_000, 80_000);
 {
   const target = session.c64Cpu.cycles + 2 * PAL_HZ;
-  while (session.c64Cpu.cycles < target) session.kernel.runCycles(200_000);
+  while (session.c64Cpu.cycles < target) session.runFor(200_000);
 }
 trackLegacyDuringLoad = false;
 
