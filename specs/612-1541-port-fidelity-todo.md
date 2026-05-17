@@ -422,7 +422,7 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 ---
 
 ### T2.13 — iec.ts (drive-side helpers)
-**Status:** OPEN
+**Status:** DONE 2026-05-17 e4d0246
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/iec.ts` (new)
 **VICE:** `vice/src/drive/iec/iec.c`
