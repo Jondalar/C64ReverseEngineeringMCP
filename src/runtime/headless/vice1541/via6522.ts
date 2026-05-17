@@ -58,6 +58,14 @@ export const VIA_SIG_RISE = 1;
 // PCR bit 0 = CA1 edge select. 0 = negative (falling) edge IRQ; 1 = positive.
 export const PCR_CA1_POS = 0x01;
 
+// Spec 611 phase 611.7g.4 — VICE viacore.c CA2-mode macros (via.h + viacore.c):
+//   VIA_PCR_CA2_CONTROL = 0x0E (PCR bits 1-3)
+//   VIA_PCR_CA2_HANDSHAKE_OUTPUT = 0x08
+// VICE viacore.c:107-109:
+//   IS_CA2_HANDSHAKE()    = (PCR & 0x0c) == 0x08
+//   IS_CA2_TOGGLE_MODE()  = (PCR & 0x0e) == 0x08
+export const VIA_PCR_CA2_HANDSHAKE_OUTPUT = 0x08;
+
 export type Via6522IrqHook = (asserted: boolean) => void;
 
 export interface Via6522Backend {
@@ -516,19 +524,40 @@ export class Via6522 {
   }
 
   /**
-   * VICE `viacore_signal(via, line, edge)` for CA1.
-   * `edge` = VIA_SIG_FALL or VIA_SIG_RISE (last observed edge, not direction).
-   * Sets IFR_CA1 only if the edge matches PCR & 0x01 polarity config.
+   * VICE viacore_signal SIG_CA1 verbatim (viacore.c:441-457):
+   *   if ((edge ? 1 : 0) == (PCR & VIA_PCR_CA1_CONTROL)) {
+   *     if (IS_CA2_TOGGLE_MODE() && !ca2_out_state) {
+   *       ca2_out_state = true; set_ca2(ca2_out_state);
+   *     }
+   *     ifr |= VIA_IM_CA1;
+   *     update_myviairq();
+   *     // [MYVIA_NEED_LATCHING block — undefined for 1541 per
+   *     //  viacore.c:76 `#define MYVIA_NEED_LATCHING` commented out]
+   *   }
    *
-   * Spec 611 phase 611.7f.24 — optional `clk` for backend.setIrq
-   * timestamp. Defaults to clkPtr.value (polled drive clk) when not
-   * provided. Used to pin IRQ stamp to write-time host clk so drive
-   * cpu sees the IRQ "already pending" rather than future-stamped.
+   * Spec 611 phase 611.7g.4 (Codex 13:10): port CA2-toggle handshake
+   * side effect. PA input latch deferred per MYVIA_NEED_LATCHING
+   * resolution (undefined globally in VICE, including 1541 build).
+   *
+   * Clock-owner note (Codex 13:10 #2): `clk?` param retained as
+   * bridge-interim. VICE update_myviairq() uses `*clk_ptr` which in
+   * VICE = live host cpu clock at write moment. In our bridge,
+   * polled clkPtr.value LEADS the write moment by 1-7 cycles after
+   * catchUpTo overrun. Explicit clk = write-time effClk matches VICE
+   * semantics exactly; polled = "future" stamp. Bridge effClk plumbing
+   * = source-parity-current; marked bridge-interim until the bridge
+   * itself is replaced by canonical VICE IEC bus port.
    */
   signalCa1(edge: 0 | 1, clk?: number): void {
     this.ca1State = edge;
     const wantedPolarity = (this.pcr & PCR_CA1_POS) ? VIA_SIG_RISE : VIA_SIG_FALL;
     if (edge === wantedPolarity) {
+      // viacore.c:446-449 — CA2 toggle-mode auto-handshake on CA1 edge.
+      if ((this.pcr & 0x0e) === VIA_PCR_CA2_HANDSHAKE_OUTPUT
+          && this.ca2OutState === 0) {
+        this.ca2OutState = 1;
+        this.backend.setCa2?.(this.ca2OutState);
+      }
       this.ifr |= IFR_CA1;
       this.updateIrqAtClk(clk);
     }
@@ -541,7 +570,11 @@ export class Via6522 {
     if (pending !== this.lastIrqOut) {
       this.lastIrqOut = pending;
       const b = this.backend as Via6522Backend & { setIrqAt?: (a: boolean, c?: number) => void };
-      if (typeof b.setIrqAt === "function") b.setIrqAt(pending, clk);
+      // VICE viacore.c:203-213 update_myviairq() uses *clk_ptr when no
+      // rclk passed. Fall back to polled clkPtr when caller omits clk so
+      // the backend always receives a real stamp.
+      const stamp = (typeof clk === 'number') ? clk : this.getClk();
+      if (typeof b.setIrqAt === "function") b.setIrqAt(pending, stamp);
       else this.backend.setIrq(pending);
     }
   }
