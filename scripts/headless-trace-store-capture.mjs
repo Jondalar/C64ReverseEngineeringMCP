@@ -78,6 +78,7 @@ console.log(`  type     : ${typeText.slice(0, 40)}${typeText.length > 40 ? "…"
 console.log(`  out      : ${outRoot}`);
 
 const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
+const { mountMedia } = await import(`${repoRoot}/dist/runtime/headless/media/mount.js`);
 const { openStore, closeStore, exportParquet, DuckDbTraceSink } =
   await import(`${repoRoot}/dist/runtime/trace-store/duckdb-store.js`);
 const { TraceStoreProducer } = await import(`${repoRoot}/dist/runtime/trace-store/producer.js`);
@@ -134,19 +135,33 @@ const producer = new TraceStoreProducer({
 // iteration count, snowballing into the motm fastloader stall.
 const useMicrocodedCpu = args.microcoded === true;
 const useCycleLockstep = args.lockstep === true;
+const drive1541 = args.drive1541 ?? "legacy"; // "legacy" | "vice"
+const vicRenderer = args["vic-renderer"]; // optional "literal-port"
 console.log(`  microcoded: ${useMicrocodedCpu}`);
 console.log(`  lockstep  : ${useCycleLockstep}`);
+console.log(`  drive1541 : ${drive1541}`);
 
-const { session } = startIntegratedSession({
-  diskPath,
+// For drive1541="vice" the dual-attach path is required: start
+// session WITHOUT diskPath (so legacy parser doesn't preempt mount),
+// then mountMedia AFTER start — that path attaches to vice1541's
+// drive too. For "legacy" the ctor diskPath is the proven path.
+const useDualAttach = drive1541 === "vice";
+const sessionOpts = {
   mode: traceMode,
   useMicrocodedCpu,
   useCycleLockstep,
+  drive1541,
+  ...(vicRenderer ? { vicRenderer } : {}),
   enableBusAccessTrace: true,
   // Empty PC ranges = no filter = capture all $DD00 and $1800 events.
   busAccessPcRangesC64: [],
   busAccessPcRangesDrive: [],
-});
+};
+if (!useDualAttach) sessionOpts.diskPath = diskPath;
+const { session } = startIntegratedSession(sessionOpts);
+if (useDualAttach) {
+  await mountMedia(session, 8, diskPath);
+}
 session.resetCold("pal-default");
 
 // Enable channels in ring mode (cheap, observer fires regardless via

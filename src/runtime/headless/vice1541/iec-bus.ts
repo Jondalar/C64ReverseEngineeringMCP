@@ -36,12 +36,10 @@ export interface C64BusContrib {
  * contribution. Combined line state = wired-AND of both (open
  * collector — line is high iff every driver releases it).
  *
- * Phase 611.4 does not model the ATNA-AND-gate fully (see VICE
- * `iec_update_ports` in iecbus.c). The simplification: combined
- * `bus_data_combined = c64DataReleased && drvDataReleased && drvAtnaReleased`
- * captures the dominant case (ATN auto-pull through ATNA) for the
- * 1541-only setup. Refined in 611.5+ if the simplification breaks
- * the synthetic ATN/CA1 acceptance.
+ * ATNA-AND gate formula matches VICE c64iec.c:147 (audit D3):
+ *   drv_bus.bit7 = data.bit1 AND ((~data.bit4) XOR cpu_bus.bit4)
+ *                = DATA_released AND (NOT ATNA_released XOR ATN_released)
+ * Drive auto-pulls DATA whenever ATN_released != ATNA_released.
  */
 export class Vice1541IecBus {
   // C64-side state — written by Vice1541.iecLineDrive().
@@ -62,10 +60,13 @@ export class Vice1541IecBus {
 
   /** Combined DATA-line state (wired-AND, includes ATNA-AND gate). */
   busData(): boolean {
-    // Per VICE iec_update_ports: drive DATA is logical-ANDed with the
-    // drive's ATNA, so the drive auto-pulls DATA whenever its ATNA
-    // says "I haven't acknowledged ATN yet" (or whenever ATN is low).
-    const drvDataEffective = this.drvDataReleased || (this.busAtn() && this.drvAtnaReleased);
+    // VICE c64iec.c:147 (audit D3): drive DATA contribution =
+    //   data.bit1 AND ((~data.bit4) XOR cpu_bus.bit4)
+    // = DATA_released AND (NOT ATNA_released XOR ATN_released)
+    // Equivalently in released-form: DATA_released AND (ATNA_released == ATN_released)
+    // i.e. drive auto-pulls DATA whenever ATN_released != ATNA_released.
+    const drvDataEffective =
+      this.drvDataReleased && !(this.drvAtnaReleased !== this.busAtn());
     return this.c64DataReleased && drvDataEffective;
   }
 

@@ -157,26 +157,22 @@ export interface RotationT {
   xorShift32: number;
 }
 
-/** Observable counters — kept for 611.5/611.6 smoke parity. */
-export const __rotationCounters = {
-  rotate_disk: 0,
-  begins: 0,
-  speed_zone_set: 0,
-  byte_read: 0,
-  sync_found: 0,
-};
-export function __resetRotationStubCounters(): void {
-  __rotationCounters.rotate_disk = 0;
-  __rotationCounters.begins = 0;
-  __rotationCounters.speed_zone_set = 0;
-  __rotationCounters.byte_read = 0;
-  __rotationCounters.sync_found = 0;
-}
-
-/** Per-diskunit rotation slot. Single-drive 1541 = unit 0 only. */
+/**
+ * Per-diskunit rotation slot. VICE rotation.c:86 —
+ * `static rotation_t rotation[NUM_DISK_UNITS];` is statically zero-
+ * initialised at program load. In TS we lazily allocate a zero-filled
+ * slot here; `rotation_init` then touches only the 14 fields VICE
+ * touches, leaving every other field at its prior value (which is 0
+ * on first allocation, matching VICE's static zero-init).
+ */
 const rotation: RotationT[] = [];
 
-function freshRotationT(freq: 0 | 1): RotationT {
+/**
+ * Allocate a zero-filled `rotation_t` slot. Mirrors VICE's static
+ * zero-init at program start — does NOT set `xorShift32` to the
+ * 0x1234abcd seed (that happens in `rotation_reset`).
+ */
+function zeroRotationSlot(): RotationT {
   return {
     accum: 0,
     rotation_last_clk: 0,
@@ -184,7 +180,7 @@ function freshRotationT(freq: 0 | 1): RotationT {
     last_write_data: 0,
     bit_counter: 0,
     zero_count: 0,
-    frequency: freq,
+    frequency: 0,
     speed_zone: 0,
     ue7_dcba: 0,
     ue7_counter: 0,
@@ -199,21 +195,59 @@ function freshRotationT(freq: 0 | 1): RotationT {
     ref_advance: 0,
     PulseHeadPosition: 0,
     seed: 0,
-    xorShift32: 0x1234abcd,
+    xorShift32: 0,
   };
 }
 
-/** VICE rotation_init() (rotation.c:93-109). */
-export function rotation_init(freq: 0 | 1, dnr: number): void {
-  rotation[dnr] = freshRotationT(freq);
+/**
+ * VICE rotation_init() (rotation.c:93-109).
+ *
+ * VICE writes the 14 listed fields and leaves every other field of the
+ * statically zero-initialised slot alone. This port mirrors that: if
+ * the slot does not yet exist (first call after module load), it is
+ * allocated zero-filled — matching VICE's static zero-init — and then
+ * the 14 fields are written in-place. Subsequent calls leave fields
+ * VICE does not touch (e.g. `last_read_data`, `rotation_last_clk`,
+ * `speed_zone`, `ue7_dcba`) at whatever prior value they held.
+ */
+export function rotation_init(freq: number, dnr: number): void {
+  if (!rotation[dnr]) rotation[dnr] = zeroRotationSlot();
+  const r = rotation[dnr]!;
+  // VICE rotation.c:95-108 (audit D1, D44, D45)
+  // VICE rotation.c:95 — `rotation[dnr].frequency = freq;` (raw int).
+  // Audit D1 fix: do NOT mask `freq & 1` — VICE propagates the raw
+  // value, and downstream `<< (frequency ? 3 : 4)` only tests
+  // truthiness, but other consumers (e.g. rot_speed_bps index) MUST
+  // see the unmasked value if a caller ever passes a non-{0,1} int.
+  r.frequency = freq as 0 | 1;
+  r.accum = 0;
+  r.ue7_counter = 0;
+  r.uf4_counter = 0;
+  r.fr_randcount = 0;
+  r.xorShift32 = 0x1234abcd;
+  r.filter_counter = 0;
+  r.filter_state = 0;
+  r.filter_last_state = 0;
+  r.write_flux = 0;
+  r.PulseHeadPosition = 0;
+  r.so_delay = 0;
+  r.cycle_index = 0;
+  r.ref_advance = 0;
 }
 
 /**
  * Spec 611 phase 611.8 — snapshot/restore accessors for the per-drive
- * rotation_t slot. VICE drive-snapshot.c serialises every snap_* field
- * (drive-snapshot.c:241-260) — drive-snapshot.ts ferries the whole
- * RotationT object via these helpers rather than reaching into module
- * privates.
+ * rotation_t slot.
+ *
+ * VICE serialises a per-field set into `drive_t.snap_*` (rotation.c:
+ * 145-220 `rotation_table_get` / `rotation_table_set`). The TS port
+ * ferries the whole `RotationT` object to drive-snapshot.ts instead
+ * of reaching into module privates, so the on-the-wire field set
+ * diverges from VICE's `snap_*` schema. See audit D29.
+ *
+ * Note also VICE rotation.c:210 has a known bug
+ * (`filter_last_state = snap_filter_state`); not reproduced because
+ * the per-field copy itself is not reimplemented.
  */
 export function rotation_get_state(dnr: number): RotationT | undefined {
   return rotation[dnr];
@@ -224,10 +258,156 @@ export function rotation_set_state(dnr: number, state: RotationT): void {
   rotation[dnr] = state;
 }
 
-/** VICE rotation_reset() (rotation.c:111-137). */
+/* ===========================================================================
+ * VICE rotation.c:145-220 — rotation_table_get / rotation_table_set.
+ *
+ * Audit D7: per-field `snap_*` copy alternative. The default snapshot
+ * path in this port uses object-reference swap via
+ * `rotation_get_state` / `rotation_set_state` above (custom schema,
+ * NOT VSF-compatible). For VSF compatibility we additionally ship a
+ * literal port of VICE's per-field copy pattern that mirrors VICE's
+ * `rotation_table_get` / `rotation_table_set` byte-for-byte, INCLUDING
+ * the VICE bug at rotation.c:210
+ *   `rotation[dnr].filter_last_state = drive->snap_filter_state;`
+ * — assigning from `snap_filter_state` (NOT `snap_filter_last_state`).
+ * The bug is reproduced verbatim per the "MACH es GENAU so wie VICE"
+ * directive (memory: feedback_vice_no_alternatives).
+ *
+ * `DriveContext` does not yet carry `snap_*` fields (phase 611.8
+ * reserved comment in drive-context.ts). To avoid editing files
+ * outside rotation.ts in this pass, the per-field functions accept a
+ * caller-supplied `RotationSnapFields` mirror; a follow-up phase that
+ * lands `snap_*` on `DriveContext` will wire `drive` directly.
+ * =========================================================================*/
+
+/**
+ * Mirror of the `snap_*` rotation fields VICE stores on `drive_t`
+ * (drive.h). Layout matches rotation.c:158-179 so per-field copy is
+ * literal.
+ */
+export interface RotationSnapFields {
+  snap_accum: number;
+  snap_rotation_last_clk: number;
+  snap_last_read_data: number;
+  snap_last_write_data: number;
+  snap_bit_counter: number;
+  snap_zero_count: number;
+  snap_seed: number;
+  snap_speed_zone: number;
+  snap_ue7_dcba: number;
+  snap_ue7_counter: number;
+  snap_uf4_counter: number;
+  snap_fr_randcount: number;
+  snap_filter_counter: number;
+  snap_filter_state: number;
+  snap_filter_last_state: number;
+  snap_write_flux: number;
+  snap_PulseHeadPosition: number;
+  snap_xorShift32: number;
+  snap_so_delay: number;
+  snap_cycle_index: number;
+  snap_ref_advance: number;
+  snap_req_ref_cycles: number;
+}
+
+/**
+ * VICE rotation.c:145-182 — rotation_table_get(), per-field copy from
+ * `rotation[dnr]` and `drive->req_ref_cycles` into the caller-supplied
+ * `snap_*` mirror. Loops over `NUM_DISK_UNITS` and `j=0..1` in VICE; in
+ * this port the caller passes (dnr, snap, reqRefCycles) for a single
+ * drive at a time.
+ */
+export function rotation_table_get(
+  dnr: number,
+  snap: RotationSnapFields,
+  reqRefCycles: number,
+  rotation_table_ptr: number[],
+): void {
+  const r = rotation[dnr]!;
+  // VICE rotation.c:151
+  rotation_table_ptr[dnr] = r.speed_zone;
+  // VICE rotation.c:158-179
+  snap.snap_accum = r.accum >>> 0;
+  snap.snap_rotation_last_clk = r.rotation_last_clk;
+  snap.snap_last_read_data = r.last_read_data;
+  snap.snap_last_write_data = r.last_write_data;
+  snap.snap_bit_counter = r.bit_counter;
+  snap.snap_zero_count = r.zero_count;
+  snap.snap_seed = r.seed;
+  snap.snap_speed_zone = r.speed_zone;
+  snap.snap_ue7_dcba = r.ue7_dcba;
+  snap.snap_ue7_counter = r.ue7_counter;
+  snap.snap_uf4_counter = r.uf4_counter;
+  snap.snap_fr_randcount = r.fr_randcount;
+  snap.snap_filter_counter = r.filter_counter;
+  snap.snap_filter_state = r.filter_state;
+  snap.snap_filter_last_state = r.filter_last_state;
+  snap.snap_write_flux = r.write_flux;
+  snap.snap_PulseHeadPosition = r.PulseHeadPosition;
+  snap.snap_xorShift32 = r.xorShift32;
+  snap.snap_so_delay = r.so_delay;
+  snap.snap_cycle_index = r.cycle_index;
+  snap.snap_ref_advance = r.ref_advance;
+  snap.snap_req_ref_cycles = reqRefCycles;
+}
+
+/**
+ * VICE rotation.c:184-220 — rotation_table_set(). Returns the new
+ * `req_ref_cycles` value the caller should write back onto the
+ * `drive_t` (VICE writes it through `drive->req_ref_cycles`).
+ *
+ * Reproduces the VICE rotation.c:210 bug verbatim: assigns
+ * `filter_last_state` from `snap_filter_state` (NOT
+ * `snap_filter_last_state`). DO NOT "fix" this divergence — see
+ * D7 docstring above.
+ */
+export function rotation_table_set(
+  dnr: number,
+  snap: RotationSnapFields,
+  rotation_table_ptr: number[],
+): number {
+  const r = rotation[dnr]!;
+  // VICE rotation.c:194
+  r.speed_zone = rotation_table_ptr[dnr]!;
+  // VICE rotation.c:196-217
+  r.accum = (snap.snap_accum >>> 0);
+  r.rotation_last_clk = snap.snap_rotation_last_clk;
+  r.last_read_data = snap.snap_last_read_data;
+  r.last_write_data = snap.snap_last_write_data;
+  r.bit_counter = snap.snap_bit_counter;
+  r.zero_count = snap.snap_zero_count;
+  r.seed = snap.snap_seed;
+  r.speed_zone = snap.snap_speed_zone;
+  r.ue7_dcba = snap.snap_ue7_dcba;
+  r.ue7_counter = snap.snap_ue7_counter;
+  r.uf4_counter = snap.snap_uf4_counter;
+  r.fr_randcount = snap.snap_fr_randcount;
+  r.filter_counter = snap.snap_filter_counter;
+  r.filter_state = snap.snap_filter_state;
+  // VICE rotation.c:210 BUG (verbatim): snap_filter_state, NOT
+  // snap_filter_last_state.
+  r.filter_last_state = snap.snap_filter_state;
+  r.write_flux = snap.snap_write_flux;
+  r.PulseHeadPosition = snap.snap_PulseHeadPosition;
+  r.xorShift32 = snap.snap_xorShift32;
+  r.so_delay = snap.snap_so_delay;
+  r.cycle_index = snap.snap_cycle_index;
+  r.ref_advance = snap.snap_ref_advance;
+  return snap.snap_req_ref_cycles;
+}
+
+/**
+ * VICE rotation_reset() (rotation.c:111-137).
+ *
+ * VICE does NOT call `rotation_init` here and does NOT touch
+ * `frequency`, `speed_zone`, `ue7_dcba`, or `zero_count`. Those are
+ * assumed to have been set by prior `rotation_init` /
+ * `rotation_speed_zone_set` calls (or to be 0 from static init).
+ * Audit D3 — the previous `clockFrequency === 2 ⇒ frequency = 1`
+ * mapping has no VICE precedent and is removed.
+ */
 export function rotation_reset(drive: DriveContext): void {
-  const dnr = drive.diskunit?.mynumber ?? 0;
-  if (!rotation[dnr]) rotation_init(drive.diskunit?.clockFrequency === 2 ? 1 : 0, dnr);
+  const dnr = drive.diskunit!.mynumber;
   const r = rotation[dnr]!;
   // VICE rotation.c:117-134
   r.last_read_data = 0;
@@ -236,7 +416,7 @@ export function rotation_reset(drive: DriveContext): void {
   r.accum = 0;
   r.seed = 0;
   r.xorShift32 = 0x1234abcd;
-  r.rotation_last_clk = drive.diskunit?.clkPtr.value ?? 0;
+  r.rotation_last_clk = drive.diskunit!.clkPtr.value;
   r.ue7_counter = 0;
   r.uf4_counter = 0;
   r.fr_randcount = 0;
@@ -253,27 +433,32 @@ export function rotation_reset(drive: DriveContext): void {
 
 /** VICE rotation_speed_zone_set() (rotation.c:139-143). */
 export function rotation_speed_zone_set(zone: number, dnr: number): void {
-  if (!rotation[dnr]) rotation_init(0, dnr);
+  // VICE assumes the slot exists (statically allocated). Audit D6 —
+  // the previous defensive init-on-demand path is removed.
   const r = rotation[dnr]!;
   r.speed_zone = zone;
   r.ue7_dcba = zone & 3;
-  __rotationCounters.speed_zone_set++;
 }
 
 /** VICE rotation_overflow_callback() (rotation.c:222-225). */
 export function rotation_overflow_callback(sub: number, dnr: number): void {
-  const r = rotation[dnr];
-  if (r) r.rotation_last_clk -= sub;
+  // VICE assumes the slot exists. Audit D9 — null guard removed.
+  rotation[dnr]!.rotation_last_clk -= sub;
 }
 
-/** VICE rotation_begins() (rotation.c:295-305). */
+/**
+ * VICE rotation_begins() (rotation.c:295-305).
+ *
+ * In VICE the signature is `void rotation_begins(drive_t *dptr)` and
+ * `dnr = dptr->diskunit->mynumber`; here we accept a `DiskUnitContext`
+ * and use it directly. Functionally equivalent for single-drive 1541.
+ * Audit D13 — defensive init-on-demand removed.
+ */
 export function rotation_begins(diskunit: DiskUnitContext): void {
   const dnr = diskunit.mynumber;
-  if (!rotation[dnr]) rotation_init(0, dnr);
   const r = rotation[dnr]!;
   r.rotation_last_clk = diskunit.clkPtr.value;
   r.cycle_index = 0;
-  __rotationCounters.begins++;
 }
 
 /* ===========================================================================
@@ -383,22 +568,37 @@ function RANDOM_nextUInt(rptr: RotationT): number {
  * update happens later inside rotation_1541_*_cycle / rotation_1541_simple.
  * =========================================================================*/
 function rotation_do_wobble(dptr: DriveContext): void {
-  const diskunit = dptr.diskunit;
-  if (!diskunit) return;
+  // VICE assumes diskunit + slot are valid. Audit D15 — defensive
+  // slot guard removed (VICE would null-deref instead).
+  const diskunit = dptr.diskunit!;
   const dnr = diskunit.mynumber;
-  const r = rotation[dnr];
-  if (!r) return;
+  const r = rotation[dnr]!;
 
   const cpu_cycles = diskunit.clkPtr.value - r.rotation_last_clk;
+  // VICE rotation.c:327 — `dptr->wobble_sin_count += dptr->wobble_frequency
+  //   * ((((uint64_t)cpu_cycles) * (2.0f * M_PI)) / 1000000000.0f);`
+  //
+  // Audit D22/D23 fix: although `2.0f` is float, `M_PI` is `double`, so
+  // `(2.0f * M_PI)` promotes to `double`, the uint64*double product is
+  // `double`, and `/ 1000000000.0f` keeps it `double`. The whole RHS is
+  // computed in double precision in VICE and only narrowed to float on
+  // store into `wobble_sin_count`. Use plain double-precision math here.
   const TWO_PI = 2 * Math.PI;
-
   dptr.wobbleSinCount += dptr.wobbleFrequency * ((cpu_cycles * TWO_PI) / 1_000_000_000.0);
   if (dptr.wobbleSinCount > TWO_PI) {
     dptr.wobbleSinCount -= TWO_PI;
   }
-  // (int) cast in C truncates toward zero.
+  // VICE rotation.c:331 — `(int)(0.5f + ((sinf(...) * ((float)amp * 32.0f))
+  //   / 3.0f))`. `(int)` cast in C truncates toward zero; `Math.trunc`
+  // matches. Audit D22/D23: only `sinf()` itself is single-precision;
+  // the surrounding constants (0.5f, 32.0f, 3.0f) are float but combine
+  // with `float` operands so the chain stays float. JS doesn't have a
+  // sinf, so wrap only the sin call with `Math.fround`; let the rest run
+  // in double precision (no observable difference vs float for the small
+  // magnitudes here).
+  const sinF = Math.fround(Math.sin(dptr.wobbleSinCount));
   dptr.wobbleFactor = Math.trunc(
-    0.5 + ((Math.sin(dptr.wobbleSinCount) * (dptr.wobbleAmplitude * 32.0)) / 3.0),
+    0.5 + (sinF * (dptr.wobbleAmplitude * 32.0)) / 3.0,
   );
 }
 
@@ -408,11 +608,12 @@ function rotation_do_wobble(dptr: DriveContext): void {
  * 1541 circuit simulation for GCR-based images (.g64).
  * =========================================================================*/
 function rotation_1541_gcr(dptr: DriveContext, ref_cycles_in: number): void {
-  const diskunit = dptr.diskunit;
-  if (!diskunit) return;
+  // Audit D39 fix: removed silent early-return on missing diskunit/slot.
+  // VICE rotation.c:339-349 assumes both exist and would null-deref if
+  // not. "MACH es GENAU so wie VICE."
+  const diskunit = dptr.diskunit!;
   const dnr = diskunit.mynumber;
-  const rptr = rotation[dnr];
-  if (!rptr) return;
+  const rptr = rotation[dnr]!;
 
   let ref_cycles = ref_cycles_in;
 
@@ -602,11 +803,12 @@ function rotation_1541_gcr(dptr: DriveContext, ref_cycles_in: number): void {
  * rotation_1541_gcr().
  * =========================================================================*/
 function rotation_1541_gcr_cycle(dptr: DriveContext): void {
-  const diskunit = dptr.diskunit;
-  if (!diskunit) return;
+  // Audit D39 fix: removed silent early-return on missing diskunit/slot.
+  // VICE rotation.c:572-610 assumes both exist and would null-deref if
+  // not. "MACH es GENAU so wie VICE."
+  const diskunit = dptr.diskunit!;
   const dnr = diskunit.mynumber;
-  const rptr = rotation[dnr];
-  if (!rptr) return;
+  const rptr = rotation[dnr]!;
 
   // VICE rotation.c:577
   const one_rotation = rptr.frequency ? 400_000 : 200_000;
@@ -620,8 +822,11 @@ function rotation_1541_gcr_cycle(dptr: DriveContext): void {
     cpu_cycles -= one_rotation;
   }
 
-  // VICE rotation.c:590 — ref_cycles = cpu_cycles << (frequency ? 3 : 4)
-  let ref_cycles = (cpu_cycles * (rptr.frequency ? 8 : 16)) | 0;
+  // VICE rotation.c:590 — `ref_cycles = cpu_cycles << (rptr->frequency ? 3 : 4)`
+  // on CLOCK (uint64_t). Audit D9 fix: removed `| 0` int32 truncation so
+  // sustained large `cpu_cycles` accumulators do not silently wrap to
+  // negative within JS-safe integer range.
+  let ref_cycles = cpu_cycles * (rptr.frequency ? 8 : 16);
 
   // VICE rotation.c:593-596
   let ref_advance_cycles = dptr.reqRefCycles;
@@ -648,10 +853,11 @@ function rotation_1541_gcr_cycle(dptr: DriveContext): void {
  *  from dxx files." Used when complicated_image_loaded == 0.
  * =========================================================================*/
 function rotation_1541_simple(drive: DriveContext): void {
-  const diskunit = drive.diskunit;
-  if (!diskunit) return;
+  // VICE assumes the slot exists. Audit D36 family — defensive init-
+  // on-demand removed; only the `rpm || 30_000` divide-by-zero guard
+  // remains (audit D36).
+  const diskunit = drive.diskunit!;
   const dnr = diskunit.mynumber;
-  if (!rotation[dnr]) rotation_init(0, dnr);
   const r = rotation[dnr]!;
 
   drive.reqRefCycles = 0;
@@ -662,10 +868,18 @@ function rotation_1541_simple(drive: DriveContext): void {
 
   // VICE rotation.c:1008-1011
   let tmp = 1_000_000;
-  tmp += Math.floor((drive.wobbleFactor * 1_000_000) / 3_200_000);
+  // VICE rotation.c:1008 (audit D35) — `tmp += ((long)dptr->wobble_factor
+  // * 1000000L) / 3200000L;`. C `long` division truncates toward zero
+  // for negative `wobble_factor`; `Math.trunc` matches that. Previous
+  // `Math.floor` rounded toward -infinity (off-by-one on negative
+  // wobble).
+  tmp += Math.trunc((drive.wobbleFactor * 1_000_000) / 3_200_000);
   tmp *= 30_000;
-  const rpm = drive.rpm || 30_000;
-  const rpmscale = Math.floor(tmp / rpm);
+  // Audit D12 fix: removed `drive.rpm || 30_000` zero-guard. VICE
+  // rotation.c:1010-1011 divides by `dptr->rpm` directly with no guard,
+  // would divide-by-zero on zero rpm. "MACH es GENAU so wie VICE" — no
+  // alternatives rule.
+  const rpmscale = Math.floor(tmp / drive.rpm);
 
   let bits_moved = 0;
   while (delta > 0) {
@@ -677,18 +891,34 @@ function rotation_1541_simple(drive: DriveContext): void {
   }
 
   if (drive.readWriteMode) {
+    // VICE rotation.c:1021-1074 — READ path.
+    //
+    // Bit placement (audit D32/D33): VICE ORs `byte & 0x80` (value
+    // 0 or 0x80) into `last_read_data` AFTER `last_read_data <<= 1`,
+    // so the new bit lands at bit 7 of `last_read_data`. The SYNC
+    // mask `0x1ff80` then covers the last 10 such samples in bits
+    // 7..16, and `last_read_data >> 7` extracts the most-recent
+    // assembled byte. Do NOT insert the new bit at bit 0.
     let off = drive.gcrHeadOffset;
-    let last_read_data = r.last_read_data << 7;
+    // VICE rotation.c:1023 — `unsigned int last_read_data = rptr->last_read_data << 7;`
+    let last_read_data = (r.last_read_data << 7) >>> 0;
     let bit_counter = r.bit_counter;
     let byte: number;
+    // VICE rotation.c:1027-1031
     if (drive.gcrImageLoaded === 0 || drive.gcrTrackStartPtr === null) {
       byte = 0;
     } else {
-      byte = (drive.gcrTrackStartPtr[off >> 3] ?? 0) << (off & 7);
+      // VICE rotation.c:1030 — `byte = ...[off>>3] << (off & 7);` (no
+      // width mask — `byte` is `unsigned int`, high bits preserved).
+      byte = ((drive.gcrTrackStartPtr[off >> 3] ?? 0) << (off & 7)) >>> 0;
     }
 
     while (bits_moved-- !== 0) {
-      byte = (byte << 1) & 0xff;
+      // VICE rotation.c:1034 — `byte <<= 1; off++;` (no 0xff mask;
+      // `byte` is `unsigned int`. Width-preserving here keeps the
+      // bit being shifted out available for the next `& 0x80` test
+      // until the next reload.)
+      byte = (byte << 1) >>> 0;
       off++;
       if (!(off & 7)) {
         if ((off >> 3) >= drive.gcrCurrentTrackSize) {
@@ -701,14 +931,18 @@ function rotation_1541_simple(drive: DriveContext): void {
         }
       }
 
-      last_read_data = (last_read_data << 1) & 0x1ffff;
-      last_read_data |= (byte & 0x80) ? 1 : 0;
+      // VICE rotation.c:1047-1049
+      last_read_data = (last_read_data << 1) >>> 0;
+      // Audit D32 — OR raw `byte & 0x80` (0 or 128), NOT a 0/1 LSB.
+      last_read_data = (last_read_data | (byte & 0x80)) >>> 0;
       r.last_write_data = (r.last_write_data << 1) & 0xff;
 
+      // VICE rotation.c:1052 — sync test on bits 7..16.
       if ((~last_read_data) & 0x1ff80) {
         if (++bit_counter === 8) {
           bit_counter = 0;
-          drive.gcrRead = (last_read_data >> 7) & 0xff;
+          // VICE rotation.c:1055 — `GCR_read = (uint8_t)(last_read_data >> 7);`
+          drive.gcrRead = (last_read_data >>> 7) & 0xff;
           r.last_write_data = drive.gcrRead;
           if ((drive.byteReadyActive & BRA_BYTE_READY) !== 0) {
             drive.byteReadyEdge = 1;
@@ -720,14 +954,25 @@ function rotation_1541_simple(drive: DriveContext): void {
       }
     }
 
+    // VICE rotation.c:1069-1074
     drive.gcrHeadOffset = off;
-    r.last_read_data = (last_read_data >> 7) & 0x3ff;
+    // Audit D33 — write-back extracts bits 7..16 of the wider
+    // `last_read_data` accumulator.
+    r.last_read_data = (last_read_data >>> 7) & 0x3ff;
     r.bit_counter = bit_counter;
     if (!drive.gcrRead) drive.gcrRead = 0x11;
   } else {
+    // VICE rotation.c:1075-1099 — WRITE path.
     while (bits_moved-- !== 0) {
       r.last_read_data = (r.last_read_data << 1) & 0x3fe;
       if ((r.last_read_data & 0xf) === 0) r.last_read_data |= 1;
+      // VICE rotation.c:1085 (audit D47 PORTING BUG fix) — emit the
+      // current bit to the GCR track BEFORE shifting last_write_data.
+      // Without this call the simple-engine WRITE path drops every
+      // bit until complicatedImageLoaded flips the next rotation
+      // onto the GCR engine.
+      write_next_bit(drive, r.last_write_data & 0x80);
+      // VICE rotation.c:1086 — `rptr->last_write_data <<= 1;`
       r.last_write_data = (r.last_write_data << 1) & 0xff;
       if (++r.bit_counter === 8) {
         r.bit_counter = 0;
@@ -738,6 +983,10 @@ function rotation_1541_simple(drive: DriveContext): void {
         }
       }
     }
+    // VICE rotation.c:1098 (audit D35) — set complicated_image_loaded
+    // unconditionally after any simple-engine write, forcing future
+    // rotations onto the GCR engine.
+    drive.complicatedImageLoaded = 1;
   }
 }
 
@@ -745,9 +994,10 @@ function rotation_1541_simple(drive: DriveContext): void {
  * VICE rotation.c:1106-1125 — rotation_rotate_disk().
  * =========================================================================*/
 export function rotation_rotate_disk(diskunit: DiskUnitContext): void {
-  __rotationCounters.rotate_disk++;
-  const drive = diskunit.drives[0];
-  if (!drive) return;
+  // Signature wrap (audit D38): VICE takes `drive_t *dptr` directly;
+  // here we take the diskunit and reach into `drives[0]` (single-
+  // drive 1541 assumption).
+  const drive = diskunit.drives[0]!;
   if ((drive.byteReadyActive & BRA_MOTOR_ON) === 0) {
     drive.reqRefCycles = 0;
     return;
@@ -774,13 +1024,11 @@ export function rotation_rotate_disk(diskunit: DiskUnitContext): void {
  * VICE rotation.c:1134-1143 — rotation_sync_found().
  * =========================================================================*/
 export function rotation_sync_found(diskunit: DiskUnitContext): number {
-  __rotationCounters.sync_found++;
-  const drive = diskunit.drives[0];
-  if (!drive) return 0x80;
+  // Signature wrap (audit D39): VICE takes `drive_t *dptr` directly.
+  const drive = diskunit.drives[0]!;
   if (drive.readWriteMode === 0 || drive.attachClk !== 0) return 0x80;
   const dnr = diskunit.mynumber;
-  const r = rotation[dnr];
-  if (!r) return 0x80;
+  const r = rotation[dnr]!;
   return r.last_read_data === 0x3ff ? 0 : 0x80;
 }
 
@@ -793,9 +1041,11 @@ const DRIVE_ATTACH_DETACH_DELAY = 1_200_000;
  * VICE rotation.c:1145-1165 — rotation_byte_read().
  * =========================================================================*/
 export function rotation_byte_read(diskunit: DiskUnitContext): number {
-  __rotationCounters.byte_read++;
-  const drive = diskunit.drives[0];
-  if (!drive) return 0;
+  // Signature wrap (audit D40): VICE signature is
+  // `void rotation_byte_read(drive_t *dptr)` and writes to
+  // `dptr->GCR_read`; this TS shim additionally returns the assembled
+  // byte for convenience at the call site.
+  const drive = diskunit.drives[0]!;
   const clk = diskunit.clkPtr.value;
 
   if (drive.attachClk !== 0) {
@@ -817,10 +1067,22 @@ export function rotation_byte_read(diskunit: DiskUnitContext): number {
   return drive.gcrRead & 0xff;
 }
 
+// Audit D43 — `__rotationCounters` observability struct removed
+// (invented, not in VICE rotation.c). Smoke scripts that referenced
+// it (scripts/smoke-611-6-vice-rotation.mjs etc.) need to migrate
+// to direct field inspection.
+//
+// SKIPPED (audit D43 partial): `drive_writeprotect_sense` is kept
+// here pending a drive.c port. It lives in VICE drive-writeprotect.c
+// (`drive_writeprotect_sense` returns 1 when the line is HIGH, i.e.
+// not write protected). via2d.ts imports it from this module; moving
+// the import target requires editing via2d.ts, which is out of scope
+// for this pure-fix pass (rotation.ts only).
+// TODO: relocate to a drive-writeprotect.ts port; update via2d.ts.
 /**
- * VICE `drive_writeprotect_sense()` (drive.c). Returns `true` for "not
- * write protected" (line high). With no disk in a 1541, the WPS
- * sensor sits high.
+ * VICE `drive_writeprotect_sense()` (drive-writeprotect.c). Returns
+ * `true` for "not write protected" (sensor line high). With no disk
+ * in a 1541, the WPS sensor sits high.
  */
 export function drive_writeprotect_sense(drive: DriveContext | null): boolean {
   if (!drive) return true;

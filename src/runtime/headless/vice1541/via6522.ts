@@ -151,10 +151,15 @@ const FINISHED_SHIFTING = 16;
 export type Via6522IrqHook = (asserted: boolean) => void;
 
 export interface Via6522Backend {
-  /** Optional hook called on PRB write (drive PB → IEC bus drv_data). */
-  storePb?: (value: BYTE) => void;
-  /** Optional hook for PRA write. */
-  storePa?: (value: BYTE) => void;
+  /** Optional hook called on PRB write (drive PB → IEC bus drv_data).
+   *  VICE viacore.c:723 store_prb(ctx, byte, oldpb, addr) — extended
+   *  signature (audit D26): `(byte, oldByte, addr)`. Downstream callers
+   *  in via1d.ts / via2d.ts must accept the new signature. */
+  storePb?: (value: BYTE, oldValue: BYTE, addr: number) => void;
+  /** Optional hook for PRA write. VICE viacore.c:694 store_pra(ctx,
+   *  byte, oldpa, addr) — extended signature (audit D25/D24):
+   *  `(byte, oldByte, addr)`. */
+  storePa?: (value: BYTE, oldValue: BYTE, addr: number) => void;
   /** Optional read PB hook for backend-driven bits (returns raw byte;
    *  6522 then masks with DDRB and folds in PRB-out bits per VICE). */
   readPb?: () => BYTE;
@@ -166,8 +171,10 @@ export interface Via6522Backend {
    *  VIA2 1541 uses this to drive BYTE_READY-active. */
   setCa2?: (state: 0 | 1) => void;
   /** Optional hook fired when CB2 output state changes per PCR config.
-   *  VIA2 1541 uses this to drive read/write mode. */
-  setCb2?: (state: 0 | 1) => void;
+   *  VIA2 1541 uses this to drive read/write mode. VICE viacore.c:430
+   *  set_cb2(ctx, state, offset) — extended signature (audit
+   *  D7/D11/D20/D28/D44/D50/D73): `(state, offset)`. */
+  setCb2?: (state: 0 | 1, offset: number) => void;
   /** Optional hook fired when CB1 output state changes (SR clock-out).
    *  Mirrors VICE via_context->set_cb1 (via.h:221). VICE 1541 setup
    *  leaves this NULL unless the drive ROM exercises SR-out-CB1 modes
@@ -180,6 +187,22 @@ export interface Via6522Backend {
    *  bits complete). VICE: via_context->sr_underflow (via.h:214 +
    *  viacore.c:1799-1801). 1541 leaves this NULL. */
   srUnderflow?: () => void;
+  /** Optional hook fired from viacore_store T2LL path. VICE
+   *  viacore.c:796 store_t2l(ctx, byte) (audit D34). 1541 drive
+   *  stub is a no-op; included for source-parity. */
+  storeT2l?: (value: BYTE) => void;
+  /** Optional hook fired from viacore_store ACR commit path. VICE
+   *  viacore.c:984 store_acr(ctx, byte) (audit D47). 1541 drive
+   *  stub is a no-op; included for source-parity. */
+  storeAcr?: (value: BYTE) => void;
+  /** Optional hook fired from viacore_store PCR commit path. VICE
+   *  viacore.c:1015 store_pcr(ctx, byte, addr) (audit D48). 1541
+   *  drive stub is a no-op; included for source-parity. */
+  storePcr?: (value: BYTE, addr: number) => void;
+  /** Optional external-device reset hook. VICE viacore.c:432-434
+   *  if (reset) reset(ctx) (audit D8). NULL for 1541 VIA1/VIA2 in
+   *  VICE; included for source-parity. */
+  reset?: () => void;
 }
 
 export interface Via6522Options {
@@ -248,6 +271,33 @@ export class Via6522 {
   /** Last reported IRQ-out state (for change-detect). */
   private lastIrqOut: boolean = false;
 
+  /**
+   * VICE via_context->last_read (via.h:152) — last byte returned from any
+   * register read. Stamped on every read arm; used by the RMW replay path
+   * (audit D21 / VICE viacore.c:641-646). Also stamped on default-arm
+   * reads (audit D53-D62). Init 0xff to match VICE power-on bus float.
+   */
+  private lastRead: BYTE = 0xff;
+
+  /**
+   * VICE via_context->oldpa / oldpb (via.h:153-154) — last byte passed to
+   * store_pra / store_prb backend hooks. Tracked here so the extended
+   * backend signature `(byte, oldByte, addr)` (audit D24/D25/D26) can
+   * carry source-correct values. VICE viacore.c:694-695 / 723-724.
+   */
+  private oldpa: BYTE = 0;
+  private oldpb: BYTE = 0;
+
+  /**
+   * VICE via_context->rmw_flag (via.h:233) — pointer to host CPU rmw
+   * flag. On the second cycle of a 6502 read-modify-write (INC/DEC/ASL
+   * etc.) the CPU stores `last_read` back before the new value. VICE
+   * viacore.c:641-646. In TS the host CPU sets this via `setRmwFlag(1)`
+   * immediately before the second (write-back) store; viacore_store
+   * recursively replays the store with last_read at clk-1 then proceeds.
+   */
+  private rmwFlag: 0 | 1 = 0;
+
   // === Spec 611 phase 611.7f.9 — VIA1 T1 timer state ===
   // VICE viacore.c lines 224-263 + 740-769 (store T1CL/T1CH/T1LH).
   //
@@ -265,11 +315,26 @@ export class Via6522 {
   // Lazy evaluation: T1 state is updated on demand at IFR/T1CL/T1CH read.
   // No per-drive-cycle tick required. Drive ROM polls $180D explicitly
   // (e.g. $E9E2 LDA $180D / AND #$40 / BNE $E9F2 EOI-ack path).
-  private t1Latch: number = 0;    // tal: 16-bit latch (T1LL | T1LH<<8)
-  private t1ZeroClk: number = 0;  // absolute drive clk when T1 reads 0
-  private t1ReloadClk: number = 0; // t1reload = t1zero + FULL_CYCLE_2 per VICE
-  private t1Active: boolean = false;
-  private t1OneShotFired: boolean = false;
+  // Audit D116 — VICE keeps via[VIA_T1LL]+via[VIA_T1LH] (latch register
+  // bytes) SEPARATE from tal (the active "active timer latch" value used
+  // for chase + reload). update_via_t1_latch uses OLD tal to chase
+  // t1reload, THEN refreshes tal from the via[] latch bytes (viacore.c:
+  // 340-360). Mirroring that here requires distinct fields.
+  //
+  //   t1Latch = via[VIA_T1LL] | (via[VIA_T1LH] << 8)  — register bytes
+  //                                                     (set by store)
+  //   tal     = via_context->tal                       — used for chase
+  //                                                     + alarm scheduling
+  private t1Latch: number = 0;    // via[VIA_T1LL] | via[VIA_T1LH]<<8
+  private tal: number = 0;        // VICE via_context->tal (chase/reload)
+  private t1ZeroClk: number = 0;  // absolute drive clk when T1 reads 0 (VICE t1zero)
+  private t1ReloadClk: number = 0; // t1reload = t1zero + FULL_CYCLE_2 (VICE t1reload)
+  // Audit D112: VICE has no `t1Active` / `t1OneShotFired` fields. T1 firing
+  // is gated by alarm scheduling alone in VICE. The lazy-fallback path
+  // (maybeFireT1AtClk, used only when alarmContext is absent for test
+  // harnesses) now uses `t1ZeroClk` + `lazyT1FiredFor` as in-band markers
+  // instead of an invented active boolean.
+  private lazyT1FiredFor: number = 0; // last t1ZeroClk for which lazy fired
   // Spec 611 phase 611.7g — t1_pb7 internal state per VICE viacore.c.
   // Toggles 0x00 ↔ 0x80 on each t1_zero_alarm fire (viacore.c:1337).
   // Used by PRB read when ACR_T1_PB7_USED bit set. PRB-output side of
@@ -370,6 +435,20 @@ export class Via6522 {
     //   cb1_in_state = true; cb2_in_state = true;
     //   t2_irq_allowed = false;
     //   sr_underflow = NULL; set_cb1 = NULL;  (handled at backend layer)
+    // Audit D81 — VICE viacore.c:1832-1845 viacore_setup_context also
+    // pre-loads the register-array slots before viacore_reset is called:
+    //   via[VIA_T1CL=4] = via[VIA_T1LL=6] = 0xff;
+    //   via[VIA_T1CH=5] = via[VIA_T1LH=7] = 223;
+    //   via[VIA_T2CL=8] = via[VIA_T2CH=9] = 0xff;
+    // TS has no via[] register array — store equivalent state: t1Latch
+    // composed of (T1LL=0xff | T1LH=223<<8) = 0xdfff, t2lLatch = 0xff,
+    // t2cl/t2ch = 0xff. write_offset = 1 in VICE; TS uses 0 per
+    // runPendingAlarmsAt owner-block (Cpu65xxVice tick ordering).
+    this.t1Latch = 0xff | (223 << 8); // = 0xdfff per VICE defaults
+    this.tal = this.t1Latch; // VICE setup_context implicit (via.h via[])
+    this.t2lLatch = 0xff;
+    this.t2cl = 0xff;
+    this.t2ch = 0xff;
     this.cb1InState = 1;
     this.cb2InState = 1;
     this.t2IrqAllowed = false;
@@ -392,12 +471,13 @@ export class Via6522 {
       // Counter still continues counting down from FFFF per VICE.
       alarmUnset(this.t1ZeroAlarm!);
       this.t1ZeroClk = 0; // (Codex 12:37 fix) VICE: via_context->t1zero = 0
-      this.t1OneShotFired = true;
     } else {
       // viacore.c:1319-1334 continuous mode: reschedule by full_cycle
       // (= tal + FULL_CYCLE_2). t1reload tracking deferred per VICE
       // comment (bug 2203) — not required for 1541 LOAD.
-      const fullCycle = this.t1Latch + 2;
+      // Audit D116 — VICE uses via_context->tal (active timer latch),
+      // NOT the new via[VIA_T1L*] register bytes.
+      const fullCycle = this.tal + 2;
       this.t1ZeroClk = (this.t1ZeroClk + fullCycle) & 0xffffffff;
       alarmSet(this.t1ZeroAlarm!, this.t1ZeroClk);
     }
@@ -557,17 +637,23 @@ export class Via6522 {
    */
   private maybeFireT1AtClk(rclk: number): void {
     if (this.alarmContext) return; // alarm path is canonical; lazy disabled
-    if (!this.t1Active) return;
+    // Audit D112 — `t1Active` removed. VICE uses alarm scheduling; the
+    // lazy fallback now gates on t1ZeroClk being non-zero (which only
+    // happens after a T1CH write or while continuous). lazyT1FiredFor
+    // tracks the last t1ZeroClk we fired for so one-shot mode doesn't
+    // re-fire on subsequent polls.
+    if (this.t1ZeroClk === 0) return;
     if (rclk < this.t1ZeroClk + 1) return;
     const continuous = (this.acr & 0x40) !== 0;
-    if (continuous || !this.t1OneShotFired) {
+    if (continuous || this.lazyT1FiredFor !== this.t1ZeroClk) {
       const wasSet = (this.ifr & IFR_T1) !== 0;
       this.ifr |= IFR_T1;
-      if (!continuous) this.t1OneShotFired = true;
-      if (!wasSet) this.updateIrq();
+      if (!continuous) this.lazyT1FiredFor = this.t1ZeroClk;
+      if (!wasSet) this.updateIrqAtClk(rclk);
     }
     if (continuous) {
-      const fullCycle = this.t1Latch + 2;
+      // Audit D116 — VICE uses via_context->tal here, not the latch bytes.
+      const fullCycle = this.tal + 2;
       if (fullCycle > 0) {
         while (rclk >= this.t1ZeroClk + 1) {
           this.t1ZeroClk += fullCycle;
@@ -576,9 +662,63 @@ export class Via6522 {
     }
   }
 
-  /** VICE viacore_t1: counter value at given clk. */
+  /**
+   * VICE viacore_t1: counter value at given clk.
+   * VICE source: src/core/viacore.c:265-284 (audit D89/D113).
+   *
+   *   if (rclk < t1reload) {
+   *       res = t1reload - rclk - FULL_CYCLE_2;        // == t1zero - rclk
+   *   } else {
+   *       full_cycle = tal + FULL_CYCLE_2;
+   *       partial_cycle = (rclk - t1reload) % full_cycle;
+   *       return tal - partial_cycle;
+   *   }
+   *
+   * The else branch handles the case where the alarm has fired but
+   * t1ZeroClk has not yet been advanced (free-run or one-shot post-zero).
+   */
   private viacoreT1(rclk: number): number {
-    return (this.t1ZeroClk - rclk) & 0xffff;
+    if (rclk < this.t1ReloadClk) {
+      return (this.t1ReloadClk - rclk - 2) & 0xffff;
+    }
+    // Audit D116 — VICE uses via_context->tal here (viacore.c:278-282).
+    const fullCycle = this.tal + 2;
+    if (fullCycle <= 0) return 0;
+    const partial = (rclk - this.t1ReloadClk) % fullCycle;
+    return (this.tal - partial) & 0xffff;
+  }
+
+  /**
+   * VICE update_via_t1_latch (viacore.c:340-361) — audit D88.
+   *
+   * Two responsibilities:
+   *   1) If rclk has overrun t1reload (CPU went past at least one T1
+   *      cycle without the alarm firing), advance t1reload forward by
+   *      `nuf * full_cycle` so the next read/alarm computation is
+   *      anchored to the current cycle frame.
+   *   2) Refresh `tal` from the T1LL/T1LH latch register.
+   *
+   * Called from store T1CL/T1LL/T1CH/T1LH so a latch write while the
+   * timer is running re-anchors t1reload to the right frame.
+   */
+  private updateViaT1Latch(rclk: number): void {
+    // Audit D116 — VICE viacore.c:340-360. Chase t1reload using OLD `tal`
+    // (the active timer latch value), THEN refresh tal from the via[]
+    // latch register bytes (= this.t1Latch in TS). Critical: callers
+    // mutate this.t1Latch BEFORE calling this (mirroring VICE's `via[
+    // VIA_T1L*] = byte; update_via_t1_latch(rclk);` order), so chase
+    // MUST use the cached `this.tal` field, not the new t1Latch.
+    if (rclk >= this.t1ReloadClk) {
+      const fullCycle = this.tal + 2;
+      if (fullCycle > 0) {
+        const timePastLastReload = rclk - this.t1ReloadClk;
+        // VICE viacore.c:349: nuf = 1 + (time_past_last_reload / full_cycle)
+        const nuf = 1 + Math.floor(timePastLastReload / fullCycle);
+        this.t1ReloadClk = (this.t1ReloadClk + nuf * fullCycle) >>> 0;
+      }
+    }
+    // VICE viacore.c:358-359: tal = via[VIA_T1LL] | (via[VIA_T1LH] << 8).
+    this.tal = this.t1Latch & 0xffff;
   }
 
   /**
@@ -624,11 +764,12 @@ export class Via6522 {
     // Spec 611 phase 611.7f.9 + 611.7g.2 (Codex 12:37 fix) — T1 reset.
     // Unset pending alarm + clear all T1 internal state.
     this.t1Latch = 0xffff; // VICE viacore.c:397 tal = 0xffff.
+    this.tal = 0xffff;     // VICE viacore.c:397 via_context->tal = 0xffff.
     this.t1ZeroClk = 0;
     // VICE viacore.c:400 t1reload = *clk_ptr (current drive clk).
     this.t1ReloadClk = this.getClk();
-    this.t1Active = false;
-    this.t1OneShotFired = false;
+    // Audit D112: lazy-fire tracking reset (no t1Active boolean to clear).
+    this.lazyT1FiredFor = 0;
     // Spec 611 phase 611.7g.11 / VICE viacore.c:408 — t1_pb7 = 0x80 on reset
     // (NOT 0x00). This is the PB7 idle-high default.
     this.t1Pb7 = 0x80;
@@ -647,20 +788,28 @@ export class Via6522 {
     if (this.t2UnderflowAlarm) alarmUnset(this.t2UnderflowAlarm);
     if (this.t2ShiftAlarm) alarmUnset(this.t2ShiftAlarm);
     if (this.phi2SrAlarm) alarmUnset(this.phi2SrAlarm);
-    // VICE viacore.c:423-424 — oldpa/oldpb = 0. We don't track those
-    // separately; backend storePa/storePb receive the driven byte on
-    // every write.
-    this.ca1State = 1;
-    this.cb1State = 1;
+    // VICE viacore.c:423-424 — oldpa/oldpb = 0.
+    this.oldpa = 0;
+    this.oldpb = 0;
+    // Audit D10 — VICE viacore_reset does NOT touch cb1_in_state /
+    // ca1_in_state equivalents (those are only set in viacore_setup_context
+    // viacore.c:1853-1854). TS previously wrote ca1State=1/cb1State=1 here;
+    // removed for source-parity.
     // VICE viacore.c:426-430 — ca2/cb1/cb2_out_state = true (idle high).
     this.ca2OutState = 1;
     this.cb1OutState = 1;
     this.cb2OutState = 1;
     this.backend.setCa2?.(this.ca2OutState);
-    this.backend.setCb2?.(this.cb2OutState);
+    // Audit D11 — VICE viacore.c:430 passes offset=0 explicitly to
+    // set_cb2 from reset. Extended TS signature now carries it.
+    this.backend.setCb2?.(this.cb2OutState, 0);
+    // Audit D8 — VICE viacore.c:432-434 invokes external reset callback
+    // when registered. NULL for 1541 VIA1/VIA2 in VICE but the hook
+    // exists; included for source-parity.
+    this.backend.reset?.();
     // VICE viacore.c:436 — viacore_cache_cb12_io_status.
     this.cacheCb12IoStatus();
-    this.updateIrq();
+    this.updateIrqAtClk(this.getClk());
   }
 
   /**
@@ -838,7 +987,8 @@ export class Via6522 {
         const cb2 = (this.sr >> 7) & 1;
         this.sr = ((this.sr << 1) | cb2) & 0xff;
         this.cb2OutState = cb2 as 0 | 1;
-        this.backend.setCb2?.(this.cb2OutState);
+        // Audit D73 — VICE viacore.c:1758 passes (int)offset.
+        this.backend.setCb2?.(this.cb2OutState, offset | 0);
       }
     } else {
       // viacore.c:1761-1776 — odd state.
@@ -893,13 +1043,24 @@ export class Via6522 {
    *
    * Called from ACR-write SR-disabled branch and PCR write (when SR
    * doesn't override CB2). Drives CB2 from PCR mode bits.
+   *
+   * Audit D44 / D50 — VICE set_cb2_output_state(ctx, mode, offset) takes
+   * an offset parameter and forwards it to set_cb2. Extended signature
+   * for source-parity.
    */
-  private applyPcrCb2OutputState(): void {
-    const mode = this.pcr & 0xe0; // VIA_PCR_CB2_CONTROL
+  private applyPcrCb2OutputState(offset: number = 0, pcrOverride?: number): void {
+    // Audit D56 — VICE viacore.c:1012 calls set_cb2_output_state(byte,
+    // write_offset) with the NEW PCR byte directly as the `pcr`
+    // parameter, while via[VIA_PCR] still holds the OLD value
+    // (assignment at line 1017 happens AFTER store_pcr). Accept an
+    // override so PCR-write path can pass the new byte without first
+    // mutating this.pcr.
+    const src = (typeof pcrOverride === 'number') ? pcrOverride : this.pcr;
+    const mode = src & 0xe0; // VIA_PCR_CB2_CONTROL
     // viacore.c:1354-1360 — input mode: keep input, drive 1.
     if ((mode & 0x80) === 0) {
       this.cb2OutState = 1;
-      this.backend.setCb2?.(1);
+      this.backend.setCb2?.(1, offset | 0);
       return;
     }
     // viacore.c:1362-1375 — output modes.
@@ -914,7 +1075,7 @@ export class Via6522 {
         this.cb2OutState = 1;
         break;
     }
-    this.backend.setCb2?.(this.cb2OutState);
+    this.backend.setCb2?.(this.cb2OutState, offset | 0);
   }
 
   /**
@@ -955,7 +1116,9 @@ export class Via6522 {
           let value = (driven & this.ddrb) | (input & ~this.ddrb);
           // Spec 611 phase 611.7g.8a — VICE viacore.c:1152-1154 PB7 overlay.
           value = this.overlayPb7(value);
-          return u8(value);
+          // Audit D54 — VICE viacore.c:1155 last_read = byte.
+          this.lastRead = u8(value);
+          return this.lastRead;
         }
         // VICE viacore_read case VIA_PRA (viacore.c:1073-1095) applies
         // handshake/IFR/IRQ block FIRST, then `goto via_pra_nhs` falls
@@ -969,9 +1132,13 @@ export class Via6522 {
         // VIA_PRA_NHS: no side effects (per VICE viacore.c:1098-1101
         // VIA_PRA_NHS read path comment "WARNING: this pin reads voltage
         // of output pins, not the ORA value" — no handshake, no IFR clear).
-        const driven = this.pra & this.ddra;
-        const input = this.backend.readPa ? this.backend.readPa() : 0xff;
-        const value = u8((driven & this.ddra) | (input & ~this.ddra));
+        // Audit D63 — VICE viacore.c:1114 returns the RAW read_pra
+        // callback byte. Composition of (pra & ddra) | (input & ~ddra)
+        // is the BACKEND's responsibility (drivevia*.c read_pra does it
+        // itself). Do not double-compose here.
+        const value = u8(this.backend.readPa ? this.backend.readPa() : 0xff);
+        // Audit D53 — VICE viacore.c:1121 last_read = byte.
+        this.lastRead = value;
         return value;
       }
       case VIA_DDRB: return this.ddrb;
@@ -983,14 +1150,19 @@ export class Via6522 {
         this.maybeFireT1AtClk(rclk);
         const counter = this.viacoreT1(rclk);
         this.ifr &= ~IFR_T1;
-        this.updateIrq();
-        return counter & 0xff;
+        // Audit D55 — VICE viacore.c:1162 uses update_myviairq_rclk(rclk).
+        this.updateIrqAtClk(rclk);
+        // Audit D56 — VICE viacore.c:1163 last_read = (uint8_t)(...) & 0xff.
+        this.lastRead = counter & 0xff;
+        return this.lastRead;
       }
       case VIA_T1CH: {
         // VICE: T1CH read returns viacore_t1 HIGH byte. Does NOT clear IFR_T1.
         const rclk = this.getClk();
         this.maybeFireT1AtClk(rclk);
-        return (this.viacoreT1(rclk) >> 8) & 0xff;
+        // Audit D57 — VICE viacore.c:1167 last_read = (viacore_t1 >> 8) & 0xff.
+        this.lastRead = (this.viacoreT1(rclk) >> 8) & 0xff;
+        return this.lastRead;
       }
       case VIA_T1LL: return this.t1Latch & 0xff;
       case VIA_T1LH: return (this.t1Latch >> 8) & 0xff;
@@ -999,12 +1171,14 @@ export class Via6522 {
         const rclk = this.getClk();
         this.ifr &= ~IFR_T2;
         this.updateIrqAtClk(rclk);
-        return this.viacoreT2(rclk) & 0xff;
+        this.lastRead = this.viacoreT2(rclk) & 0xff;
+        return this.lastRead;
       }
       case VIA_T2CH: {
         // VICE viacore.c:1177-1179 — return live counter high. NO IFR clear.
         const rclk = this.getClk();
-        return (this.viacoreT2(rclk) >> 8) & 0xff;
+        this.lastRead = (this.viacoreT2(rclk) >> 8) & 0xff;
+        return this.lastRead;
       }
       case VIA_SR: {
         // Spec 611 phase 611.7g.10 — viacore_read VIA_SR.
@@ -1015,6 +1189,8 @@ export class Via6522 {
           this.ifr &= ~IFR_SR;
           this.updateIrqAtClk(rclk);
         }
+        // Audit D59 — VICE viacore.c:1189-1190 last_read = via[VIA_SR].
+        this.lastRead = this.sr;
         return this.sr;
       }
       case VIA_ACR: return this.acr;
@@ -1024,19 +1200,65 @@ export class Via6522 {
         // so drive ROM IFR poll (e.g. $E9E2 LDA $180D / AND #$40) sees
         // IFR_T1 set as soon as the timer has underflowed.
         this.maybeFireT1AtClk(this.getClk());
-        // VICE viacore.c viacore_read VIA_IFR: returns ifr | 0x80 if any
-        // (ifr & ier & 0x7f) bit is set. Honor that "IFR_ANY summary" bit.
-        const pending = (this.ifr & this.ier & 0x7f) !== 0;
-        return (this.ifr & 0x7f) | (pending ? 0x80 : 0);
+        // Audit D73 — VICE viacore.c:1194-1203 verbatim:
+        //   t = ifr;
+        //   if (ifr & ier) t |= 0x80;
+        //   return t;
+        // VICE NEVER stores bit 7 in via_context->ifr (Audit D123); the
+        // summary is composed only here. TS this.ifr now mirrors that
+        // (only bits 0-6 ever set), so no mask needed on the low side.
+        let value = this.ifr & 0xff;
+        if ((this.ifr & this.ier) !== 0) value |= 0x80;
+        // Audit D61 — VICE viacore.c:1200 last_read = t.
+        this.lastRead = value & 0xff;
+        return value;
       }
-      case VIA_IER: return this.ier | 0x80;
-      default: return 0;
+      case VIA_IER: {
+        // Audit D62 — VICE viacore.c:1207 last_read = ier | 0x80.
+        this.lastRead = (this.ier | 0x80) & 0xff;
+        return this.lastRead;
+      }
+      // Audit D63 — VICE viacore.c:1211-1213 default returns via[addr]
+      // and stamps last_read. The switch covers all 16 register
+      // addresses, so this arm is unreachable, but mirror VICE shape:
+      // return last_read (the closest TS analogue of via[addr]).
+      default: return this.lastRead;
     }
+  }
+
+  /**
+   * VICE via_context->rmw_flag setter (via.h:233 + viacore.c:641-646
+   * audit D21). The host 6502 sets this to 1 just before the second
+   * (write-back) store cycle of an INC/DEC/ASL/LSR/ROL/ROR/TRB/TSB
+   * instruction. viacore_store consumes the flag, replays the store
+   * with `last_read` at clk-1, then proceeds with the new value.
+   */
+  setRmwFlag(value: 0 | 1): void {
+    this.rmwFlag = value;
   }
 
   write(reg: number, value: number): void {
     const r = reg & 0x0f;
     const v = u8(value);
+    // Audit D21 — VICE viacore.c:641-646 RMW replay:
+    //   if (rmw_flag) {
+    //       (*clk_ptr)--;
+    //       rmw_flag = 0;
+    //       viacore_store(ctx, addr, last_read);
+    //       (*clk_ptr)++;
+    //   }
+    // TS clkPtr is owned by Cpu65xxVice; decrement/increment manually
+    // around the recursive store so the inner call sees rclk-1.
+    if (this.rmwFlag) {
+      this.rmwFlag = 0;
+      if (this.clkPtr) {
+        this.clkPtr.value = (this.clkPtr.value - 1) >>> 0;
+        this.write(reg, this.lastRead);
+        this.clkPtr.value = (this.clkPtr.value + 1) >>> 0;
+      } else {
+        this.write(reg, this.lastRead);
+      }
+    }
     // VICE viacore_store head (viacore.c:660-662). write_offset=0
     // for TS — see runPendingAlarmsAt jsdoc for derivation.
     if (Via6522.needsAlarmCatchUp(r)) {
@@ -1054,8 +1276,13 @@ export class Via6522 {
         this.prb = v;
         // Spec 611 phase 611.7g.8a — VICE viacore.c:720-722 PB7 overlay
         // on store_prb driven byte.
-        const driven = this.overlayPb7((this.prb | ~this.ddrb) & 0xff);
-        this.backend.storePb?.(driven & 0xff);
+        const driven = this.overlayPb7((this.prb | ~this.ddrb) & 0xff) & 0xff;
+        // Audit D26 — VICE viacore.c:723-724 store_prb(byte, oldpb, addr)
+        // + oldpb = byte. Extended signature now carries oldpb + addr.
+        // TODO(downstream): via1d.ts / via2d.ts storePb callers must
+        // accept the new `(byte, oldByte, addr)` signature.
+        this.backend.storePb?.(driven, this.oldpb, VIA_PRB);
+        this.oldpb = driven;
         return;
       }
       case VIA_PRA: {
@@ -1067,29 +1294,42 @@ export class Via6522 {
         this.applyPraSideEffects();
         this.pra = v;
         const driven = (this.pra | ~this.ddra) & 0xff;
-        this.backend.storePa?.(driven);
+        // Audit D25 — VICE viacore.c:694-695 store_pra(byte, oldpa, addr)
+        // + oldpa = byte. VICE viacore.c:688 reassigns addr=VIA_PRA on the
+        // fall-through from PRA_NHS, so the callback always sees VIA_PRA
+        // here.
+        // TODO(downstream): via1d.ts / via2d.ts storePa callers must
+        // accept the new `(byte, oldByte, addr)` signature.
+        this.backend.storePa?.(driven, this.oldpa, VIA_PRA);
+        this.oldpa = driven;
         return;
       }
       case VIA_PRA_NHS: {
         // VICE viacore.c:686-689 store path: PRA_NHS only updates the PRA_NHS
         // latch + (via fall-through) drives PA output. No IFR clear, no CA2
-        // handshake.
+        // handshake. Audit D24 — VICE viacore.c:688 forces addr = VIA_PRA
+        // BEFORE calling store_pra, so the callback sees VIA_PRA even on
+        // PRA_NHS writes. Mirror that here.
         this.pra = v;
         const driven = (this.pra | ~this.ddra) & 0xff;
-        this.backend.storePa?.(driven);
+        this.backend.storePa?.(driven, this.oldpa, VIA_PRA);
+        this.oldpa = driven;
         return;
       }
       case VIA_DDRB: {
         // VICE viacore.c:717-725 store path (DDRB falls into same store_prb).
         this.ddrb = v;
-        const driven = this.overlayPb7((this.prb | ~this.ddrb) & 0xff);
-        this.backend.storePb?.(driven & 0xff);
+        const driven = this.overlayPb7((this.prb | ~this.ddrb) & 0xff) & 0xff;
+        // VICE viacore.c:723 passes addr=VIA_DDRB on DDRB store.
+        this.backend.storePb?.(driven, this.oldpb, VIA_DDRB);
+        this.oldpb = driven;
         return;
       }
       case VIA_DDRA: {
         this.ddra = v;
         const driven = (this.pra | ~this.ddra) & 0xff;
-        this.backend.storePa?.(driven);
+        this.backend.storePa?.(driven, this.oldpa, VIA_DDRA);
+        this.oldpa = driven;
         return;
       }
       case VIA_ACR: {
@@ -1170,21 +1410,25 @@ export class Via6522 {
         }
         // viacore.c:968-980 — if restart_t2_alarms and neither T2 alarm
         // pending, re-load t2cl/t2ch from live counter + schedule.
+        // Audit D46 — VICE commits via[VIA_ACR]=byte ONCE at line 982
+        // (AFTER schedule_t2_zero_alarm). The TS "Apply ACR FIRST" was
+        // a source-divergence: it caused viacoreT2 inside scheduleT2ZeroAlarm
+        // to see the new ACR.5 bit instead of the old one. Now we commit
+        // ACR after the schedule call, matching VICE.
         const t2ZeroPending = !!(this.t2ZeroAlarm && this.t2ZeroAlarm.pending_idx >= 0);
         const t2UnderflowPending = !!(this.t2UnderflowAlarm && this.t2UnderflowAlarm.pending_idx >= 0);
         if (restartT2Alarms && !t2ZeroPending && !t2UnderflowPending) {
           const current = this.viacoreT2(rclk);
           this.t2cl = current & 0xff;
           this.t2ch = (current >> 8) & 0xff;
-          // Apply ACR FIRST so scheduleT2ZeroAlarm's SR-T2 gate sees new ACR.
-          this.acr = v;
           this.scheduleT2ZeroAlarm((rclk + t2StartupDelay) >>> 0);
-          this.cacheCb12IoStatus();
-          return;
         }
-        // viacore.c:982-983 — commit ACR + refresh CB1/CB2 IO cache.
+        // viacore.c:982-984 — commit ACR + refresh CB1/CB2 IO cache + store_acr.
         this.acr = v;
         this.cacheCb12IoStatus();
+        // Audit D47 — VICE viacore.c:984 store_acr(ctx, byte). 1541 stub
+        // is a no-op but the hook must exist.
+        this.backend.storeAcr?.(v);
         return;
       }
       case VIA_PCR: {
@@ -1202,12 +1446,23 @@ export class Via6522 {
           this.ca2OutState = 1;
         }
         this.backend.setCa2?.(this.ca2OutState);
-        // Update pcr BEFORE applyPcrCb2OutputState reads it.
-        this.pcr = v;
-        // viacore.c:1009-1013 — when SR is disabled, PCR drives CB2.
+        // Audit D56 — VICE order (viacore.c:1010-1018):
+        //   set_cb2_output_state(byte, write_offset)  // new pcr arg
+        //   store_pcr(byte, addr)                     // via[PCR] OLD
+        //   via[VIA_PCR] = byte                       // commit
+        //   viacore_cache_cb12_io_status()
+        // viacore.c:1010-1013 — when SR is disabled, PCR drives CB2.
+        // Pass the new byte through pcrOverride so applyPcrCb2OutputState
+        // sees the NEW PCR while this.pcr still holds OLD.
         if ((this.acr & VIA_ACR_SR_CONTROL) === VIA_ACR_SR_DISABLED) {
-          this.applyPcrCb2OutputState();
+          this.applyPcrCb2OutputState(0, v);
         }
+        // Audit D48 — VICE viacore.c:1015 store_pcr(ctx, byte, addr).
+        // Called BEFORE the via[VIA_PCR] = byte commit (line 1017), so
+        // the backend hook in VICE sees via[VIA_PCR] holding OLD.
+        this.backend.storePcr?.(v, VIA_PCR);
+        // Audit D56 — commit pcr AFTER store_pcr (VICE viacore.c:1017).
+        this.pcr = v;
         // viacore.c:1018 — refresh CB1/CB2 IO cache after PCR change.
         this.cacheCb12IoStatus();
         return;
@@ -1215,14 +1470,16 @@ export class Via6522 {
       case VIA_IFR: {
         // Writing 1 clears the bit per VICE viacore.c.
         this.ifr &= ~(v & 0x7f);
-        this.updateIrq();
+        // Audit D38 — VICE viacore.c:833 update_myviairq_rclk(rclk).
+        this.updateIrqAtClk(this.getClk());
         return;
       }
       case VIA_IER: {
         // Bit 7 = set/clear flag; bits 0-6 = mask of bits to set or clear.
         if (v & 0x80) this.ier |= v & 0x7f;
         else this.ier &= ~(v & 0x7f);
-        this.updateIrq();
+        // Audit D40 — VICE viacore.c:849 update_myviairq_rclk(rclk).
+        this.updateIrqAtClk(this.getClk());
         return;
       }
       // T1/T2/SR: stored only; no timer behavior in 611.4 minimum.
@@ -1230,35 +1487,55 @@ export class Via6522 {
       // Per VICE viacore.c lines 741-783.
       case VIA_T1CL:
       case VIA_T1LL: {
-        // Update latch LOW. Does not affect counter or IFR.
+        // Audit D30 / D111 — VICE viacore.c:741-745:
+        //   via[VIA_T1LL] = byte;
+        //   update_via_t1_latch(rclk);
+        // The latch update chases t1reload forward when CPU has overrun.
         this.t1Latch = (this.t1Latch & 0xff00) | (v & 0xff);
+        this.updateViaT1Latch(this.getClk());
         return;
       }
       case VIA_T1CH: {
         // VICE viacore.c:747-768 store T1CH:
-        //   T1LH = byte; update_via_t1_latch; t1reload = rclk+1+tal+FULL_CYCLE_2;
-        //   t1zero = rclk+1+tal; alarm_set(t1_zero_alarm, t1zero);
-        //   t1_pb7 = 0; clear IFR_T1; update_myviairq_rclk.
+        //   via[VIA_T1LH] = byte;
+        //   update_via_t1_latch(rclk);              <-- audit D31
+        //   t1reload = rclk+1 + tal + FULL_CYCLE_2;
+        //   t1zero   = rclk+1 + tal;
+        //   alarm_set(t1_zero_alarm, t1zero);
+        //   t1_pb7 = 0;
+        //   ifr &= ~IFR_T1;
+        //   update_myviairq_rclk(rclk);
         this.t1Latch = (this.t1Latch & 0x00ff) | ((v & 0xff) << 8);
         const rclk = this.getClk();
-        this.t1ZeroClk = rclk + 1 + this.t1Latch;
-        this.t1ReloadClk = this.t1ZeroClk + 2; // FULL_CYCLE_2
-        this.t1Active = true;
-        this.t1OneShotFired = false;
+        // Audit D31 — must call update_via_t1_latch BEFORE computing
+        // t1zero/t1reload so that `tal` used below reflects any forward
+        // chase of t1reload from a stale frame.
+        this.updateViaT1Latch(rclk);
+        // Audit D116 — VICE viacore.c:757-758 uses via_context->tal
+        // (refreshed inside update_via_t1_latch).
+        this.t1ZeroClk = (rclk + 1 + this.tal) >>> 0;
+        this.t1ReloadClk = (this.t1ZeroClk + 2) >>> 0; // FULL_CYCLE_2
+        // Audit D112: no t1Active/t1OneShotFired writes; reset lazy mark.
+        this.lazyT1FiredFor = 0;
         this.t1Pb7 = 0; // viacore.c:763
         if (this.t1ZeroAlarm) {
           alarmSet(this.t1ZeroAlarm, this.t1ZeroClk);
         }
         this.ifr &= ~IFR_T1;
-        this.updateIrq();
+        // Audit D33-symmetric — VICE viacore.c:767 update_myviairq_rclk(rclk).
+        this.updateIrqAtClk(rclk);
         return;
       }
       case VIA_T1LH: {
         // Update latch HIGH only; do NOT reload counter. Clears IFR_T1
         // per VICE viacore.c lines 770-783 (Synertek behavior confirmed).
+        // Audit D30 / D88 — VICE also calls update_via_t1_latch here.
         this.t1Latch = (this.t1Latch & 0x00ff) | ((v & 0xff) << 8);
+        const rclk = this.getClk();
+        this.updateViaT1Latch(rclk);
         this.ifr &= ~IFR_T1;
-        this.updateIrq();
+        // Audit D33 — VICE viacore.c:782 update_myviairq_rclk(rclk).
+        this.updateIrqAtClk(rclk);
         return;
       }
       case VIA_T2CL: {
@@ -1267,6 +1544,9 @@ export class Via6522 {
         // (Shift-register SR-out-T2 reload triggered separately by SR
         // write — deferred to 7g.10.)
         this.t2lLatch = v;
+        // Audit D34 — VICE viacore.c:796 store_t2l(ctx, byte). 1541 stub
+        // is a no-op but the hook must exist.
+        this.backend.storeT2l?.(v);
         return;
       }
       case VIA_T2CH: {
@@ -1410,6 +1690,30 @@ export class Via6522 {
             this.setSrBurst(this.sr, clk);
             this.shiftState = START_SHIFTING;
           }
+        } else {
+          // Audit D116 — VICE viacore.c:1452-1471 comment block restored
+          // verbatim for source-parity / future-port guidance:
+          //
+          //   TODO: the case of
+          //   VIA_ACR_SR_OUT_CB1      0x1C
+          //   mode 7 Shift out under control of an External Pulse
+          //   which happens on the falling edge of CB1.
+          //   (maybe keep separate cb1_drives_shifting flag?)
+          //   From http://forum.6502.org/viewtopic.php?f=4&t=7241&start=15#p94001
+          //   The CB1 pad also works as the shift clock from/to the outerworld
+          //   when enabling "10) shift register", and that's why we have _another_
+          //   (conceptually different) edge detector sensing the CB1 pad,
+          //   gated with PHI0=1 AND PHI2=1.
+          //
+          //   If ACR4=0, the shift register shifts in, and the detector scans
+          //     for CB1 rising edge.
+          //   If ACR4=1, the shift register shifts out, and the detector scans
+          //     for CB1 falling edge.
+          //
+          //   Low_active signal SR_CB1_DET# generated by the detector tells
+          //   "22) shift register control" to shift/count the next Bit.
+          //
+          // If shifting OUT, do it here.
         }
       }
       this.cb1InState = data ? 1 : 0;
@@ -1424,7 +1728,8 @@ export class Via6522 {
       if ((pcr & 0xe0) === 0x80 && this.cb2OutState === 0) {
         // IS_CB2_TOGGLE_MODE() == ((PCR & 0xe0) == 0x80)
         this.cb2OutState = 1;
-        this.backend.setCb2?.(1);
+        // Audit D11 — VICE viacore.c:1489 passes offset=0 explicitly.
+        this.backend.setCb2?.(1, 0);
       }
       this.ifr |= IFR_CB1;
       this.updateIrqAtClk(clk);
@@ -1512,16 +1817,12 @@ export class Via6522 {
         this.backend.setCa2?.(this.ca2OutState);
       }
     }
-    // viacore.c:681-683 / 1092-1094 — IRQ re-eval only if CA1/CA2
-    // interrupts enabled. Use updateIrqAtClk (no arg → polled clkPtr).
+    // viacore.c:681-683 / 1092-1094 — IRQ re-eval ONLY if CA1/CA2
+    // interrupts enabled. Audit D27/D62 — VICE gates this strictly on
+    // `ier & (VIA_IM_CA1 | VIA_IM_CA2)`; the else branch was a TS-only
+    // "recompute summary" that issued spurious setIrq edges.
     if (this.ier & (IFR_CA1 | IFR_CA2)) {
-      this.updateIrqAtClk();
-    } else {
-      // VICE does not call update_myviairq here, but IFR_ANY summary
-      // bit still needs recomputing in case CA1/CA2 were the last
-      // pending bits. Use updateIrq (no edge push to backend if no
-      // IRQ-out change).
-      this.updateIrq();
+      this.updateIrqAtClk(this.getClk());
     }
   }
 
@@ -1559,20 +1860,23 @@ export class Via6522 {
       this.ifr &= ~IFR_CB2;
     }
     // viacore.c:703-711 — IS_CB2_HANDSHAKE side effect.
+    // Audit D28 — VICE viacore.c:705 set_cb2(state, write_offset),
+    // viacore.c:709 set_cb2(state, 0). TS write_offset=0 per the
+    // runPendingAlarmsAt owner-block; pass 0 in both calls.
     if ((this.pcr & 0xc0) === 0x80) {
       this.cb2OutState = 0;
-      this.backend.setCb2?.(this.cb2OutState);
+      this.backend.setCb2?.(this.cb2OutState, 0);
       if ((this.pcr & 0xe0) === 0xa0) {
         // IS_CB2_PULSE_MODE: immediate raise back to 1.
         this.cb2OutState = 1;
-        this.backend.setCb2?.(this.cb2OutState);
+        this.backend.setCb2?.(this.cb2OutState, 0);
       }
     }
-    // viacore.c:712-714 — IRQ re-eval only if CB1/CB2 IRQs enabled.
+    // viacore.c:712-714 — IRQ re-eval ONLY if CB1/CB2 IRQs enabled.
+    // Audit D33/D67 — VICE gates strictly; remove the TS-only else
+    // branch that called updateIrqAtClk unconditionally (spurious edge).
     if (this.ier & (IFR_CB1 | IFR_CB2)) {
-      this.updateIrqAtClk();
-    } else {
-      this.updateIrq();
+      this.updateIrqAtClk(this.getClk());
     }
   }
 
@@ -1593,17 +1897,31 @@ export class Via6522 {
     if ((this.pcr & 0xa0) !== 0x20) {
       this.ifr &= ~IFR_CB2;
     }
+    // Audit D33/D67 — VICE gates strictly on `ier & (CB1|CB2)`; remove
+    // the TS-only else branch.
     if (this.ier & (IFR_CB1 | IFR_CB2)) {
-      this.updateIrqAtClk();
-    } else {
-      this.updateIrq();
+      this.updateIrqAtClk(this.getClk());
     }
   }
 
+  /**
+   * VICE update_myviairq_rclk (viacore.c:203-209) + update_myviairq
+   * (viacore.c:211-214). Folded into a single method here — when `clk`
+   * is omitted, fall back to polled clkPtr (= VICE's `*clk_ptr` path).
+   *
+   * Audit D73/D123 — VICE NEVER stores the IFR_ANY summary bit (bit 7)
+   * into via_context->ifr. The summary is composed only at IFR-read
+   * time (viacore.c:1194-1203 `t = ifr; if (ifr & ier) t |= 0x80;`).
+   * Previously TS stored bit 7 into this.ifr and masked it on read;
+   * removed for source-parity so this.ifr always reflects only the
+   * seven flag bits.
+   *
+   * Audit D124 — VICE has two inline variants but the second is a
+   * trivial wrapper around the first (uses *clk_ptr). TS dead-code
+   * `updateIrq()` removed; this single method serves both.
+   */
   private updateIrqAtClk(clk?: number): void {
     const pending = (this.ifr & this.ier & 0x7f) !== 0;
-    if (pending) this.ifr |= IFR_ANY;
-    else this.ifr &= ~IFR_ANY;
     if (pending !== this.lastIrqOut) {
       this.lastIrqOut = pending;
       const b = this.backend as Via6522Backend & { setIrqAt?: (a: boolean, c?: number) => void };
@@ -1613,20 +1931,6 @@ export class Via6522 {
       const stamp = (typeof clk === 'number') ? clk : this.getClk();
       if (typeof b.setIrqAt === "function") b.setIrqAt(pending, stamp);
       else this.backend.setIrq(pending);
-    }
-  }
-
-  /**
-   * Recompute IFR_ANY summary bit + push IRQ-out edge to backend.
-   * VICE update_myviairq_rclk().
-   */
-  private updateIrq(): void {
-    const pending = (this.ifr & this.ier & 0x7f) !== 0;
-    if (pending) this.ifr |= IFR_ANY;
-    else this.ifr &= ~IFR_ANY;
-    if (pending !== this.lastIrqOut) {
-      this.lastIrqOut = pending;
-      this.backend.setIrq(pending);
     }
   }
 

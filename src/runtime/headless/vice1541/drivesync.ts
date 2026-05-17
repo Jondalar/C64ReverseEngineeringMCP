@@ -68,7 +68,16 @@ export function computeSyncFactor(
  * here. We expose just enough of the API surface for those phases to
  * land later without renaming.
  */
-export const ATTACH_DETACH_DELAY_CYCLES = 320_000; // ≈ 320 ms at 1 MHz
+/**
+ * VICE `DRIVE_ATTACH_DETACH_DELAY` from src/drive/drive.h:197 —
+ * `(3 * 400000) == 1_200_000` drive cycles. Used by
+ * `rotation_rotate_disk` (rotation.c:1156) and
+ * `drive-writeprotect.c:50` to gate sensing of media changes /
+ * write-protect-tab transitions until the mechanical settle time
+ * passes. Audit D28: previous value of 320_000 had no VICE
+ * counterpart; aligning with `DRIVE_ATTACH_DETACH_DELAY` exactly.
+ */
+export const ATTACH_DETACH_DELAY_CYCLES = 3 * 400_000;
 
 export interface AttachClkState {
   attachClk: number;
