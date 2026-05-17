@@ -36,7 +36,7 @@ import {
   gcr_decode_block,
   gcr_find_sync,
   NUM_MAX_BYTES_TRACK,
-} from "../dist/runtime/headless/vice1541/gcr.js";
+} from "../dist/runtime/headless/_quarantine_vice1541_v4/gcr.js";
 
 const results = [];
 function check(label, ok, detail) {

@@ -56,6 +56,48 @@ Trace workflow when needed:
 - Report only the first divergence and the ~20 events around it.
 - No patch lands before first divergence is identified.
 
+## 1541 Port Fidelity Doctrine (Spec 612, Mandatory 2026-05-17)
+
+All work under `src/runtime/headless/vice1541/**` follows
+`specs/612-1541-port-fidelity-rules.md`. Four prior port attempts
+drifted because every C indirection (function-pointer table,
+`#include`, struct back-pointer, alarm context, snapshot chunks) was
+"cleaned up" into a TS class / closure / discriminated union. The
+new abstraction read better but boundary behaviour diverged. Unit
+tests asserted the abstraction, not VICE.
+
+**Naming Law (§1 NL-1..NL-5)**:
+- One C file → one TS file, same basename (`viacore.c` → `viacore.ts`).
+- One C function → one TS function, **same name verbatim, snake_case preserved** (`viacore_store`, not `viacoreStore`).
+- One C struct → one TS interface, **field names verbatim snake_case** (`drive_t::GCR_track_start_ptr`, not `gcrTrackStartPtr`).
+- One C macro → one TS const, same name.
+- One C module-level global → one TS module-level `let`/`const`, same name.
+
+**Prohibition List (§2 PL-1..PL-10)**:
+
+| # | Rule |
+|---|------|
+| PL-1 | No TS class wrapping a VICE struct. Functions take struct as first arg. |
+| PL-2 | No discriminated unions where VICE uses int/enum + branch. |
+| PL-3 | No "cleaner" abstractions inside `vice1541/` (no Factory/Manager/Builder). |
+| PL-4 | No shared CPU core between C64 and drive. Drive gets own `drive_6510core.ts`. |
+| PL-5 | No NOT-IN-VICE helper functions inside `vice1541/`. Bridge code lives outside. |
+| PL-6 | No CPU/clock indirection shortcuts. `clk_ptr` = `{ value: number }` ref. |
+| PL-7 | No silent fallbacks where VICE returns an error. |
+| PL-8 | No init-order changes. Match `drive_init` / `drive_setup_context` exactly. |
+| PL-9 | No snapshot format invention. Write VICE-format chunks, not flat blobs. |
+| PL-10 | No duplicate ports of the same C file. |
+
+**Every commit touching `src/runtime/headless/vice1541/**` MUST cite
+Spec 612 rule numbers in the commit message.** Example:
+`Spec 612 T1.5 (NL-2, PL-1, PL-10) — viacore.ts consolidation`.
+
+**CI gate**: `npm run check:1541-fidelity` runs §6 FC-1..FC-6 on every
+PR touching `vice1541/**` or `specs/612-*`. Any FAIL blocks merge.
+
+Cross-link: `specs/612-1541-port-fidelity-rules.md` (rules) +
+`specs/612-1541-port-fidelity-todo.md` (rebuild task list).
+
 ## Working Process (Mandatory)
 
 Branch `vice-arch-port` operates under the arch-port doctrine — all

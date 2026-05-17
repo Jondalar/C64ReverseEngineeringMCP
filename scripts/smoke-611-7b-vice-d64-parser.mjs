@@ -16,12 +16,12 @@ import {
   readD64DiskId,
   rawTrackSizeD64,
   sectorsPerTrackD64,
-} from "../dist/runtime/headless/vice1541/drive-image-d64.js";
+} from "../dist/runtime/headless/_quarantine_vice1541_v4/drive-image-d64.js";
 import {
   CBMDOS_FDC_ERR_OK,
   gcr_read_sector,
   NUM_MAX_BYTES_TRACK,
-} from "../dist/runtime/headless/vice1541/gcr.js";
+} from "../dist/runtime/headless/_quarantine_vice1541_v4/gcr.js";
 
 const D64_PATH = resolve("samples/synthetic/blank.d64");
 console.log(`D64 fixture: ${D64_PATH}`);

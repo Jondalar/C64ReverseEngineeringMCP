@@ -6,7 +6,7 @@
 //              + macros viacore.c:111-115
 //                IS_CB2_HANDSHAKE()  = (PCR & 0xc0) == 0x80
 //                IS_CB2_PULSE_MODE() = (PCR & 0xe0) == 0xa0
-// TS target:   src/runtime/headless/vice1541/via6522.ts
+// TS target:   src/runtime/headless/_quarantine_vice1541_v4/via6522.ts
 //              write(VIA_PRB) → applyPrbWriteSideEffects → latch → storePb
 //              read(VIA_PRB)  → applyPrbReadSideEffects  → sample
 // Replaces:    PRB write/read had NO IFR_CB1/CB2 clear, NO CB2 handshake,
@@ -40,7 +40,7 @@ import assert from 'node:assert/strict';
 import {
   Via6522, IFR_CB1, IFR_CB2,
   VIA_PRB, VIA_PCR, VIA_DDRB, VIA_IER,
-} from '../dist/runtime/headless/vice1541/via6522.js';
+} from '../dist/runtime/headless/_quarantine_vice1541_v4/via6522.js';
 import { alarmContextNew } from '../dist/runtime/headless/alarm/alarm-context.js';
 
 const IER_CB1 = IFR_CB1;

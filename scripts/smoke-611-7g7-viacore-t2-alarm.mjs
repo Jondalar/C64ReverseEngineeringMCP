@@ -55,7 +55,7 @@ import assert from 'node:assert/strict';
 import {
   Via6522, IFR_T2,
   VIA_T2CL, VIA_T2CH, VIA_IFR, VIA_IER, VIA_ACR,
-} from '../dist/runtime/headless/vice1541/via6522.js';
+} from '../dist/runtime/headless/_quarantine_vice1541_v4/via6522.js';
 import { alarmContextNew } from '../dist/runtime/headless/alarm/alarm-context.js';
 
 function makeVia({ clkPtr } = {}) {

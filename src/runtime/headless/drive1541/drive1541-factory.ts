@@ -1,5 +1,5 @@
 import type { Drive1541, Drive1541Implementation } from "./drive1541.js";
-import { Vice1541 } from "../vice1541/vice1541.js";
+import { Vice1541 } from "../_quarantine_vice1541_v4/vice1541.js";
 import {
   Legacy1541Adapter,
   type Legacy1541AdapterDeps,

@@ -3,7 +3,7 @@
 //
 // VICE source:  src/core/viacore.c:441-457 viacore_signal (CA1 path)
 //               + 203-213 update_myviairq
-// TS target:    src/runtime/headless/vice1541/via6522.ts signalCa1
+// TS target:    src/runtime/headless/_quarantine_vice1541_v4/via6522.ts signalCa1
 //               + private updateIrqAtClk(clk?)
 // Replaces:     hand-rolled signalCa1 missing VICE CA2 toggle-mode
 //               raise on CA1 active edge, plus undefined-clk IRQ
@@ -30,7 +30,7 @@
 // Gate: runtime-proof-gate --drive1541=vice --only load-directory
 import assert from 'node:assert/strict';
 import { Via6522, IFR_CA1, IFR_CA2, VIA_PRA, VIA_PCR, VIA_DDRA, VIA_IER }
-  from '../dist/runtime/headless/vice1541/via6522.js';
+  from '../dist/runtime/headless/_quarantine_vice1541_v4/via6522.js';
 // IER bits mirror IFR bits in 6522.
 const IER_CA1 = IFR_CA1;
 import { alarmContextNew } from '../dist/runtime/headless/alarm/alarm-context.js';

@@ -25,7 +25,7 @@
 //
 // Exit 0 = PASS, 1 = FAIL.
 
-import { Vice1541 } from "../dist/runtime/headless/vice1541/vice1541.js";
+import { Vice1541 } from "../dist/runtime/headless/_quarantine_vice1541_v4/vice1541.js";
 
 const checks = [];
 function check(label, ok, detail) {

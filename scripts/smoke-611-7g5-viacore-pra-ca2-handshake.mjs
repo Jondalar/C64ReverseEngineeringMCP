@@ -7,7 +7,7 @@
 //                IS_CA2_INDINPUT()   = (PCR & 0x0a) == 0x02
 //                IS_CA2_HANDSHAKE()  = (PCR & 0x0c) == 0x08
 //                IS_CA2_PULSE_MODE() = (PCR & 0x0e) == 0x0a
-// TS target:   src/runtime/headless/vice1541/via6522.ts
+// TS target:   src/runtime/headless/_quarantine_vice1541_v4/via6522.ts
 //              write(VIA_PRA, v) + read(VIA_PRA) → applyPraSideEffects()
 // Replaces:    hand-rolled `ifr &= ~(IFR_CA1 | IFR_CA2)` (unconditional
 //              CA2 clear) + missing CA2 handshake side effects.
@@ -54,7 +54,7 @@ import assert from 'node:assert/strict';
 import {
   Via6522, IFR_CA1, IFR_CA2,
   VIA_PRA, VIA_PRA_NHS, VIA_PCR, VIA_DDRA, VIA_IER,
-} from '../dist/runtime/headless/vice1541/via6522.js';
+} from '../dist/runtime/headless/_quarantine_vice1541_v4/via6522.js';
 import { alarmContextNew } from '../dist/runtime/headless/alarm/alarm-context.js';
 
 const IER_CA1 = IFR_CA1;

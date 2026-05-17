@@ -16,8 +16,8 @@ import {
   g64ToGcrTracks,
   parseG64Header,
   parseG64Image,
-} from "../dist/runtime/headless/vice1541/drive-image-g64.js";
-import { MAX_GCR_TRACKS } from "../dist/runtime/headless/vice1541/gcr.js";
+} from "../dist/runtime/headless/_quarantine_vice1541_v4/drive-image-g64.js";
+import { MAX_GCR_TRACKS } from "../dist/runtime/headless/_quarantine_vice1541_v4/gcr.js";
 
 const G64_PATH = resolve("samples/motm.g64");
 console.log(`G64 fixture: ${G64_PATH}`);
@@ -121,7 +121,7 @@ check("(i) first non-null track: parsed data === raw file bytes (verbatim, no co
 // offset-0 G64 entries get a canonical 0x55-filled raw track. For motm
 // many half-tracks are offset-0 (the intermediate ones). Find one and
 // verify: not null, canonical raw-track size, all bytes 0x55.
-import { rawTrackSizeD64 } from "../dist/runtime/headless/vice1541/drive-image-d64.js";
+import { rawTrackSizeD64 } from "../dist/runtime/headless/_quarantine_vice1541_v4/drive-image-d64.js";
 
 const trackOffsetTable2 = 12;
 let emptyIdx = -1;

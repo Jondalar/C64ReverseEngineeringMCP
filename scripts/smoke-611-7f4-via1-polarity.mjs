@@ -25,7 +25,7 @@
 //
 // Exit 0 = PASS, 1 = FAIL.
 
-import { Vice1541 } from "../dist/runtime/headless/vice1541/vice1541.js";
+import { Vice1541 } from "../dist/runtime/headless/_quarantine_vice1541_v4/vice1541.js";
 
 const checks = [];
 function check(label, ok, detail) {
@@ -90,7 +90,7 @@ const ifrBefore = via1.read(0x0d) & 0x02; // IFR_CA1 = bit 1
 
 // Import edge tags
 const { signalVia1Ca1 } = await import(
-  "../dist/runtime/headless/vice1541/via1d.js"
+  "../dist/runtime/headless/_quarantine_vice1541_v4/via1d.js"
 );
 
 // ATN-RELEASE (atnReleased=true) → tag 0 (FALL) → PCR wants tag 1 → NO latch.
