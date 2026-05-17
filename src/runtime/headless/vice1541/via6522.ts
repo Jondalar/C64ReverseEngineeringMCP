@@ -308,14 +308,21 @@ export class Via6522 {
     const v = u8(value);
     switch (r) {
       case VIA_PRB: {
+        // Spec 611 phase 611.7f.16 — match VICE viacore.c:716-723:
+        //   byte = (via[VIA_PRB] | ~via[VIA_DDRB])
+        //   store_prb(byte, oldpb, addr)
+        // Output bits = PRB latch; input bits = 1 (float-high pullup).
+        // Pre-7f.16 used `PRB & DDRB` which sent 0 for input bits, causing
+        // drive-state divergence vs legacy/VICE at $FA78 stepper routine.
         this.prb = v;
-        const driven = this.prb & this.ddrb;
+        const driven = (this.prb | ~this.ddrb) & 0xff;
         this.backend.storePb?.(driven);
         return;
       }
       case VIA_PRA: {
+        // Symmetric VICE shape for PA: byte = PRA | ~DDRA.
         this.pra = v;
-        const driven = this.pra & this.ddra;
+        const driven = (this.pra | ~this.ddra) & 0xff;
         this.backend.storePa?.(driven);
         this.ifr &= ~(IFR_CA1 | IFR_CA2);
         this.updateIrq();
@@ -324,13 +331,13 @@ export class Via6522 {
       case VIA_PRA_NHS: { this.pra = v; return; }
       case VIA_DDRB: {
         this.ddrb = v;
-        const driven = this.prb & this.ddrb;
+        const driven = (this.prb | ~this.ddrb) & 0xff;
         this.backend.storePb?.(driven);
         return;
       }
       case VIA_DDRA: {
         this.ddra = v;
-        const driven = this.pra & this.ddra;
+        const driven = (this.pra | ~this.ddra) & 0xff;
         this.backend.storePa?.(driven);
         return;
       }
