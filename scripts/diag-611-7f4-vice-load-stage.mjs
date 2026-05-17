@@ -59,6 +59,60 @@ driveCpu.setC64IecLines = (a, c, d) => {
   return origSetC64IecLines(a, c, d);
 };
 
+// Spy VIA1 PRB writes.
+let prbWrites = 0;
+const prbWriteHistory = [];
+const origVia1Write = via1.write.bind(via1);
+via1.write = (reg, value) => {
+  if ((reg & 0x0f) === 0x00) {
+    prbWrites++;
+    if (prbWriteHistory.length < 32) {
+      prbWriteHistory.push({
+        t: session.c64Cpu.cycles,
+        drvClk: driveCpu.cpu.clk,
+        drvPc: driveCpu.pc & 0xffff,
+        prb: value & 0xff,
+      });
+    }
+  }
+  return origVia1Write(reg, value);
+};
+
+// Spy CA1 IFR latches (= IRQ fires from ATN edge).
+let ca1Latches = 0;
+const origSignalCa1 = via1.signalCa1.bind(via1);
+via1.signalCa1 = (edge) => {
+  const ifrBefore = via1.ifr;
+  origSignalCa1(edge);
+  if ((via1.ifr & 0x02) && !(ifrBefore & 0x02)) {
+    ca1Latches++;
+  }
+};
+
+// Drive PC histogram — count instructions per PC bucket during LOAD.
+// Capture every instruction so we can find caller of $EA60.
+const pcHisto = new Map();
+let sampleEnabled = false;
+const origExecuteCycle = driveCpu.cpu.executeCycle.bind(driveCpu.cpu);
+driveCpu.cpu.executeCycle = function () {
+  if (sampleEnabled) {
+    const pc = this.reg_pc & 0xffff;
+    pcHisto.set(pc, (pcHisto.get(pc) ?? 0) + 1);
+  }
+  return origExecuteCycle();
+};
+
+// Sample drive RAM $79, $7A, $7D (the ATN-state flags from $E85B/$E8D7).
+function ramFlags() {
+  return {
+    z79: driveCpu.mem.read(0x79) & 0xff,
+    z7a: driveCpu.mem.read(0x7a) & 0xff,
+    z7d: driveCpu.mem.read(0x7d) & 0xff,
+    z77: driveCpu.mem.read(0x77) & 0xff,
+    z78: driveCpu.mem.read(0x78) & 0xff,
+  };
+}
+
 // Snapshot of VIA1 PRA/PRB/PCR. Read internals via property access
 // when public not present.
 function viaSnap(via) {
@@ -136,6 +190,8 @@ function snap(label) {
   console.log(`  VIA1 PRA=$${(typeof via1S.pra==="number"?via1S.pra.toString(16):via1S.pra).padStart(2,"0")} PRB=$${(typeof via1S.prb==="number"?via1S.prb.toString(16):via1S.prb).padStart(2,"0")} PCR=$${(typeof via1S.pcr==="number"?via1S.pcr.toString(16):via1S.pcr).padStart(2,"0")} IFR=$${(typeof via1S.ifr==="number"?via1S.ifr.toString(16):via1S.ifr).padStart(2,"0")} IER=$${(typeof via1S.ier==="number"?via1S.ier.toString(16):via1S.ier).padStart(2,"0")}`);
   console.log(`  VIA2 PRA=$${(typeof via2S.pra==="number"?via2S.pra.toString(16):via2S.pra).padStart(2,"0")} PRB=$${(typeof via2S.prb==="number"?via2S.prb.toString(16):via2S.prb).padStart(2,"0")}`);
   console.log(`  ATN edges in: ${atnEdgesIn}, head HT=${drive.currentHalfTrack}`);
+  const f = ramFlags();
+  console.log(`  drv-RAM: $77=$${f.z77.toString(16).padStart(2,"0")} $78=$${f.z78.toString(16).padStart(2,"0")} $79=$${f.z79.toString(16).padStart(2,"0")} $7a=$${f.z7a.toString(16).padStart(2,"0")} $7d=$${f.z7d.toString(16).padStart(2,"0")}`);
 }
 
 console.log(`\n=== Stage A: boot to READY ===\n`);
@@ -143,6 +199,7 @@ session.runFor(2_000_000);
 snap("post-boot");
 
 console.log(`\n=== Stage B: type LOAD"$",8 ===\n`);
+sampleEnabled = true; // begin PC histogram capture
 session.typeText('LOAD"$",8\r', 80_000, 80_000);
 
 const PAL_HZ = 985_248;
@@ -165,6 +222,22 @@ snap("post-LIST");
 
 console.log(`\n=== Summary ===`);
 console.log(`atnEdgesIn (whole LOAD window): ${atnEdgesIn}`);
+console.log(`ca1Latches (= IFR_CA1 set from edge):  ${ca1Latches}`);
+console.log(`prbWrites (= drive ROM wrote VIA1 PB): ${prbWrites}`);
 console.log(`drive cycles ran: ${driveCpu.cpu.clk}`);
 console.log(`drive final PC: $${(driveCpu.pc & 0xffff).toString(16)}`);
 console.log(`drive iecBus pulls: data=${!viceIec.drvDataReleased?1:0} clk=${!viceIec.drvClkReleased?1:0} atna=${!viceIec.drvAtnaReleased?1:0}`);
+
+console.log(`\n=== First ${Math.min(32, prbWriteHistory.length)} PRB writes ===`);
+for (const e of prbWriteHistory) {
+  console.log(`  t=${e.t} drvClk=${e.drvClk} drvPc=$${e.drvPc.toString(16).padStart(4,"0")} PRB=$${e.prb.toString(16).padStart(2,"0")}`);
+}
+
+console.log(`\n=== Top 30 drive PC buckets (whole LOAD window) ===`);
+const sorted = [...pcHisto.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30);
+const totalSamples = [...pcHisto.values()].reduce((a, b) => a + b, 0);
+for (const [pc, n] of sorted) {
+  const pct = (100 * n / totalSamples).toFixed(1);
+  console.log(`  $${pc.toString(16).padStart(4,"0")}  ${n}  (${pct}%)`);
+}
+console.log(`(total samples: ${totalSamples}; unique PCs: ${pcHisto.size})`);
