@@ -569,12 +569,26 @@ export class HeadlessMachineKernel implements MachineKernel {
       });
     });
 
+    // Spec 612 PL-11 (2026-05-19): legacy gcr trace callbacks read
+    // `this.drive.cpu.cycles` for timestamps. In vice mode the
+    // legacy DriveCpu is quiet AND the legacy gcrShifter (which fires
+    // these callbacks) doesn't tick. The callbacks should never fire
+    // in vice mode. Helper below throws if reached — fail-fast.
+    const gcrLegacyDriveClk = (): number => {
+      if (this.drive1541Implementation === "vice") {
+        throw new Error(
+          "[kernel] gcr trace publish reached in vice mode — Spec 612 PL-11: legacy gcrShifter / drive.cpu.cycles read while vice drive owns gcr pipeline",
+        );
+      }
+      return (this.drive.cpu as { cycles: number }).cycles;
+    };
+
     // Spec 205-A c6: bridge GCR shifter byte-ready + SYNC# edges into
     // the "gcr" trace channel. Uses the dedicated trace observer pair
     // so DriveCpu's onByteReady (V-flag + VIA2 CA1) is untouched.
     this.gcrShifter.traceByteReady = (byte) => {
       if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      const driveClk = gcrLegacyDriveClk();
       this.traceCtrl.publish("gcr", driveClk, {
         kind: "byte_ready",
         byte: byte & 0xff,
@@ -583,7 +597,7 @@ export class HeadlessMachineKernel implements MachineKernel {
     };
     this.gcrShifter.traceSyncDetected = (active) => {
       if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      const driveClk = gcrLegacyDriveClk();
       this.traceCtrl.publish("gcr", driveClk, {
         kind: "sync",
         active,
@@ -594,7 +608,7 @@ export class HeadlessMachineKernel implements MachineKernel {
     // Spec 205-A c9: head step + motor + density transitions.
     this.headPosition.onStep = (direction, halfTrack) => {
       if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      const driveClk = gcrLegacyDriveClk();
       this.traceCtrl.publish("gcr", driveClk, {
         kind: "head_step",
         direction,
@@ -604,7 +618,7 @@ export class HeadlessMachineKernel implements MachineKernel {
     };
     this.gcrShifter.onMotor = (on) => {
       if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      const driveClk = gcrLegacyDriveClk();
       this.traceCtrl.publish("gcr", driveClk, {
         kind: "motor",
         on,
@@ -612,7 +626,7 @@ export class HeadlessMachineKernel implements MachineKernel {
     };
     this.gcrShifter.onDensity = (zone) => {
       if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = (this.drive.cpu as { cycles: number }).cycles;
+      const driveClk = gcrLegacyDriveClk();
       this.traceCtrl.publish("gcr", driveClk, {
         kind: "density",
         zone: zone === undefined ? null : zone,
@@ -853,7 +867,17 @@ export class HeadlessMachineKernel implements MachineKernel {
     const driveHook = (_vectorAddress: number, clk: number) => {
       this.markIrqServiced("drive-cpu", "irq", clk);
     };
-    (this.drive.cpu as { onInterruptServiced?: typeof driveHook }).onInterruptServiced = driveHook;
+    // Spec 612 PL-11 (2026-05-19): in vice mode the legacy DriveCpu is
+    // quiet — assigning hooks to it would install on a never-firing
+    // object AND leave the vice drive's cpu (which DOES fire IRQs)
+    // un-hooked. Skip the legacy assign; mis-wire follow-up = install
+    // on vice drive cpu via diskunit.cpu hook. Not in PL-11 scope —
+    // tracked as separate bug.
+    if (this.drive1541Implementation === "vice") {
+      // legacy hook deliberately skipped — see PL-11 doctrine.
+    } else {
+      (this.drive.cpu as { onInterruptServiced?: typeof driveHook }).onInterruptServiced = driveHook;
+    }
 
     // Spec 205-A c4 + Spec 217: instruction-complete edges → "cpu"
     // trace channel. Hook receives full register state at boundary so
@@ -877,7 +901,13 @@ export class HeadlessMachineKernel implements MachineKernel {
     const driveInstrHook: InstrHook = (prevPc, opcode, b1, b2, a, x, y, sp, p, clk) => {
       this.publishCpuInstruction("drive", prevPc, opcode, b1, b2, a, x, y, sp, p, clk);
     };
-    (this.drive.cpu as { onInstructionComplete?: InstrHook }).onInstructionComplete = driveInstrHook;
+    // Spec 612 PL-11 (2026-05-19): see installCpuInterruptHooks comment
+    // above — legacy DriveCpu quiet in vice mode; skip the assign.
+    if (this.drive1541Implementation === "vice") {
+      // legacy hook deliberately skipped.
+    } else {
+      (this.drive.cpu as { onInstructionComplete?: InstrHook }).onInstructionComplete = driveInstrHook;
+    }
   }
 
   /**
@@ -947,6 +977,18 @@ export class HeadlessMachineKernel implements MachineKernel {
     if (device !== 8) {
       throw new Error(
         `[kernel] driveClock(${device}) — only device 8 mounted in this session`,
+      );
+    }
+    // Spec 612 PL-11 (2026-05-19): in vice mode the legacy DriveCpu is
+    // quiet; its `.cycles` is stale. Public callers (MCP runtime_status,
+    // headless_drive_status, etc.) must NOT receive that stale clock.
+    // No supported migration target yet — vice1541 has its own clk_ptr
+    // on diskunit_context[0], but the public surface accepts a `device`
+    // arg; refactor to take the unit ref + read clk_ptr there is the
+    // follow-up. Throw to make the shadow-read fail fast.
+    if (this.drive1541Implementation === "vice") {
+      throw new Error(
+        `[kernel] driveClock(${device}) — Spec 612 PL-11: legacy DriveCpu read in vice mode (caller must use kernel.drive1541.unit.clk_ptr.value)`,
       );
     }
     return this.drive.cpu.cycles;
