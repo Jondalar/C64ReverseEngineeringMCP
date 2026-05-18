@@ -14,65 +14,125 @@ Spec 614 closed the C64 ↔ Drive serial byte-handshake and the per-cycle schedu
 - ✅ Drive command parser interprets `$` / `*` filename requests.
 - ❌ Drive cannot read directory sectors. `LOAD"$",8` and `LOAD"*",8,1` both return `?FILE NOT FOUND`.
 
-Drive ROM reaches the disk-sector-read stage, then fails to find any sector header / sync mark / matching ID on the GCR bitstream. No file matches the search → error returned. Confirmed against `samples/POLARBEAR.d64` (real disk with directory).
+### 2026-05-18 Codex audit refines diagnose
 
-The bug therefore sits in one or more of:
+Initial hypothesis "GCR codec broken" is **NOT supported by evidence**. Codex audit run against VICE found:
 
-- `src/runtime/headless/vice1541/rotation.ts` — bitstream rotation / `gcr_read` / sync edge detection.
-- `src/runtime/headless/vice1541/gcr.ts` — 4-byte ↔ GCR codec, `gcr_find_sync`, `gcr_decode_block`, `gcr_convert_sector_to_GCR`.
-- `src/runtime/headless/vice1541/fsimage_dxx.ts` — D64 → in-memory GCR encode at attach (`gcr_convert_sector_to_GCR` driver, per-track skew, header / data block formatting).
-- `src/runtime/headless/vice1541/fsimage_gcr.ts` — G64 parse + writeback half-track buffers.
-- `src/runtime/headless/vice1541/driveimage.ts` — `drive_image_attach` glue, half-track repoint, `complicated_image_loaded` wiring.
+- `fsimage_read_dxx_image()` + `gcr_read_sector()` decode POLARBEAR.d64 directly. Track 18 / sectors 0 + 1 return `CBMDOS_FDC_ERR_OK`. → **GCR sectors in the image are decodable. `gcr.ts` + `fsimage_dxx.ts` encode/decode are functional.**
+- For D64, VICE does NOT use the complicated G64 rotation path. D64 → `complicated_image_loaded = 0` → runtime read goes through `rotation_1541_simple()`, **NOT** `gcr_read_sector()`. The static test path (works) and the runtime path (broken) are **different code paths**.
+- Drive head sits at halftrack 37 / GCR slot 35 after boot. Directory track 18 = halftrack 36 / slot 34. Off-by-one. NOT just a single HT-fix — symptom of broader stepper / attach init wrong.
+- **Shadow `drive_set_half_track` lives in `driveimage.ts`** as a local minimal version while the full port exists in `drive.ts`. Same bug-class as the `drive_cpu_set_overflow` shadow fixed in commit `5744cd6` (Spec 612 FC-7 P0). Third occurrence of the shadow-stub pattern in `vice1541/`-internal scope.
+- `fsimage_dxx.ts` stubs `drive_get_disk_drive_type → 0` while real impl exists in `drive.ts:844`. Shadow. Probably not the LOAD$ blocker but PL-10 violation.
 
-## 2. Suspect priority (initial — refine after RFL)
+### Real bug location
+
+The bug sits between **head/track selection, VIA2 stepper/motor writes, `rotation_1541_simple` byte stream, and byte-ready / overflow flag interaction** — NOT in the GCR codec. Relevant files (in priority order — see §2):
+
+- `src/runtime/headless/vice1541/rotation.ts` — `rotation_1541_simple` runtime byte stream.
+- `src/runtime/headless/vice1541/via2d.ts` — VIA2 PB stepper / motor / speed-zone writes.
+- `src/runtime/headless/vice1541/drive.ts` — `drive_set_half_track` full port.
+- `src/runtime/headless/vice1541/driveimage.ts` — `drive_image_attach` call-chain + local shadow `drive_set_half_track` to be removed.
+
+VICE references:
+
+- `vice/src/drive/rotation.c` (`rotation_1541_simple`, `rotation_rotate_disk` D64 branch)
+- `vice/src/drive/iecieee/via2d.c` (stepper / motor / SO)
+- `vice/src/drive/drive.c` (`drive_set_half_track`, `drive_move_head`)
+- `vice/src/drive/driveimage.c` (`drive_image_attach` invokes `drive_set_half_track` from drive.c)
+
+## 2. Suspect priority (2026-05-18 update per Codex audit)
 
 | Prio | File | Why |
 |---|---|---|
-| P0 | `fsimage_dxx.ts` — `gcr_convert_sector_to_GCR` driver loop + per-track skew + header / sync / gap byte sequence | Wrong encode → drive sees garbage on disk. Most likely failure mode given POLARBEAR.d64 also fails (real disk, would work on VICE). |
-| P0 | `gcr.ts` — `gcr_convert_4bytes_to_GCR`, `gcr_convert_sector_to_GCR`, `From_GCR_conv_data`, `GCR_conv_data` tables | Tables verbatim? Bit-pack order? 5-bit nibble mapping? |
-| P1 | `rotation.ts` — `rotation_byte_read`, `rotation_sync_found`, `read_next_bit`, byte-ready edge generation | If the encode is right but rotation produces wrong byte boundaries, drive sees scrambled bytes. |
-| P1 | `rotation.ts` — fidelity gap (audit found 17 of ~20 VICE rotation.c functions exported) | Missing `rotation_do_wobble`, `rotation_1541_gcr` separation, `rotation_1541_simple`, `rotation_1541_simple_cycle`? Confirm + port if missing. |
-| P2 | `driveimage.ts` — `drive_image_attach` GCR wiring | If `drv.gcr` is the wrong allocation or repointed wrong, drive reads the wrong buffer. |
-| P2 | `fsimage_gcr.ts` — G64 parse | G64 not on the LOAD"$",8 path against POLARBEAR.d64 (D64). Only matters for separate G64 LOAD tests. |
+| **P0** | `rotation.ts` — `rotation_1541_simple` D64 runtime byte stream | Runtime path for D64 (`complicated_image_loaded=0`). NOT exercised by the codex-verified static `gcr_read_sector` test. Suspect #1. |
+| **P0** | `driveimage.ts` shadow `drive_set_half_track` — local minimal stub | Real impl in `drive.ts:1xxx`. `drive_image_attach` likely calls the local shadow instead of the full version → wrong halftrack repoint / GCR_track_start_ptr / GCR_current_track_size after attach. PL-10 violation, identical pattern to the via2d.ts `drive_cpu_set_overflow` shadow already fixed. |
+| **P0** | `drive_image_attach` call-chain — `current_half_track` / `side` / `GCR_track_start_ptr` / `GCR_current_track_size` init | Off-by-one HT37 vs expected HT36 = init bug. Check VICE driveimage.c sequence verbatim. |
+| **P1** | `via2d.ts` — VIA2 PB stepper / motor / speed-zone writes | If stepper writes are wrong, head ends up at wrong HT. Codex flagged this layer. |
+| **P1** | `rotation.ts` — `byte_ready_edge` / `byte_ready_level` / overflow (SO) flag interaction | Drive ROM uses BVS/BVC on SO to detect byte-ready. Wrong edge timing → drive misses bytes during the simple-rotation runtime path. |
+| **P2** | `fsimage_dxx.ts` shadow `drive_get_disk_drive_type → 0` | Probably not LOAD$ blocker but same PL-10 pattern, fix opportunistically. |
+| **CLEARED** | `gcr.ts`, `fsimage_dxx.ts` encode path | Codex audit verified `gcr_read_sector` works on POLARBEAR.d64. Do NOT spend RFL cycles here. |
 
-## 3. Investigation plan
+## 3. Investigation plan (2026-05-18 — Codex-refined)
 
-### 3.1. RFL gate — Spec 613 §2
+GCR-codec RFL is SKIPPED — Codex audit cleared `gcr.ts` + `fsimage_dxx.ts` encode path by direct call to `gcr_read_sector` on POLARBEAR.d64. Focus is the D64 **runtime** read path.
 
-Before any trace / step-debug:
+### 3.1. Shadow-stub sweep (FIRST — same bug-class struck 3× now)
 
-1. Read `vice/src/gcr.c` end-to-end. Diff against `src/runtime/headless/vice1541/gcr.ts`. Special attention:
-   - `GCR_conv_data` + `From_GCR_conv_data` tables byte-for-byte equal.
-   - `gcr_convert_4bytes_to_GCR` bit-pack order (4×8 bit → 5×8 bit GCR).
-   - `gcr_convert_sector_to_GCR` per-block sequence: 5 sync bytes, header block (5 raw bytes encoded → 10 GCR), header gap, 5 sync bytes, data block (260 raw → 325 GCR), data gap.
-2. Read `vice/src/diskimage/fsimage-dxx.c` `fsimage_dxx_write_half_track` + the read path that loads sectors into the GCR buffer at mount. Diff against `fsimage_dxx.ts`.
-3. Read `vice/src/drive/rotation.c` `rotation_byte_read`, `rotation_sync_found`, `rotation_1541_gcr`, `rotation_1541_gcr_cycle`. Diff against `rotation.ts`. Note: the audit at base commit `7f3f151` showed only 17 exports — VICE rotation.c has more non-static functions. Identify the missing ones.
+Re-run the PL-10 / FC-7 audit but with scope `src/runtime/headless/vice1541/*.ts` (intra-directory shadows), not just the kernel-side scope from 2026-05-18.
 
-State results in chat as:
+Look for: same function name (snake_case) exported from ≥2 vice1541 files where ≥1 body is a stub / minimal / return-only.
+
+Already-known hits (port + remove):
+- `driveimage.ts` `drive_set_half_track` — minimal shadow; real impl `drive.ts`.
+- `fsimage_dxx.ts` `drive_get_disk_drive_type` — returns 0 shadow; real impl `drive.ts:844`.
+
+Action per hit:
+- Remove shadow.
+- Import from the file that owns the full port.
+- Verify caller-site (`drive_image_attach` etc.) gets the full impl.
+- Commit each fix separately, cite Spec 612 PL-10 + amendment FC-7.
+
+### 3.2. RFL gates — runtime D64 path (Spec 613 §2)
+
+After 3.1. Order:
+
+1. **`drive.ts` `drive_set_half_track` + `drive_move_head`** vs `vice/src/drive/drive.c`.
+   - Halftrack invariants: `current_half_track`, `max_half_track`, `GCR_track_start_ptr`, `GCR_current_track_size`.
+   - Compare against VICE drive.c verbatim. Does TS set ALL the same fields in the same order?
+
+2. **`driveimage.ts` `drive_image_attach`** vs `vice/src/drive/driveimage.c`.
+   - Sequence: log → P64/GCR alloc → `drive_set_half_track(36, 0, drv)` at line ~? → `complicated_image_loaded` set.
+   - For D64: must set `complicated_image_loaded = 0` (Codex finding — drives simple-rotation path).
+
+3. **`rotation.ts` `rotation_1541_simple`** + `rotation_1541_simple_cycle` (or `rotation_rotate_disk` D64 branch) vs `vice/src/drive/rotation.c`.
+   - **AUDIT FINDING**: base commit `7f3f151` exports 17 rotation fns but missing `rotation_do_wobble`, `rotation_1541_gcr` (separate from `rotate_disk`), `rotation_1541_simple`. If `rotation_1541_simple` is absent or stubbed, that IS the LOAD$ blocker by construction (Codex finding: D64 runtime uses this fn).
+   - Read VICE `rotation_rotate_disk` D64 branch (the `complicated_image_loaded=0` path). Diff TS.
+   - Read VICE `read_next_bit` / `write_next_bit` byte-ready edge generation. Diff TS.
+
+4. **`via2d.ts` PB stepper / motor / speed-zone writes** vs `vice/src/drive/iecieee/via2d.c` `store_prb`.
+   - Stepper bits 0-1 → `drive_move_head` invocation.
+   - Motor bit 2 → `drv.byte_ready_active` toggle.
+   - LED bit 3.
+   - Speed-zone bits 5-6 → `rotation_speed_zone_set`.
+   - SO pin (CA2 set-overflow) — Codex flag.
+
+State per file:
 ```
-[RFL-CHECK <ts-file>:<focus>]
+[RFL-CHECK src/runtime/headless/vice1541/<file>:<focus>]
   read: [x] diff: [x] macros: [x]
-  conclusion: <one sentence>
-  trace reason: <why reading insufficient>  (or "n/a — bug found")
+  findings:
+    - <bullet>
+  verdict: clean | suspect | bug-found
 ```
 
-### 3.2. Step-debug (Spec `feedback_step_debug_for_stalls.md`)
+### 3.3. Step-debug (Spec `feedback_step_debug_for_stalls.md`)
 
-After RFL, step the drive ROM through the first sector-read attempt against POLARBEAR.d64:
+After 3.1 + 3.2. Concrete scenario for LOAD"$",8 on POLARBEAR.d64:
 
-1. `runtime_monitor_breakpoint_add { pc: <drive_rom_sector_read_entry>, side: "drive" }` (VICE: `$F50A` `LED_OFF` / `$F510` `JOB_LOOP` / `$F556` controller dispatch — pick the entry that fires before the first half-track sync hunt).
-2. `runtime_until` + `runtime_step_into × N` watching:
-   - drive `$1C01` reads (latched GCR byte from `gcr_read`)
-   - drive head halftrack
-   - drive ROM PC walk through header-search loop
-   - first-divergence point where drive ROM bails out (no sync / header CRC fail / ID mismatch)
-3. Dump the in-memory GCR track buffer at the current halftrack. Compare a few bytes against what `gcr_convert_sector_to_GCR` SHOULD produce for the corresponding D64 sector. Manual VICE-side spot check on the same disk image.
+1. Boot + mount POLARBEAR.d64. State head halftrack BEFORE issuing LOAD.
+   - Expected after attach: HT 36 (= track 18 × 2).
+   - Codex observed: HT 37.
+   - → Confirm with `runtime_monitor_memory` / drive ctx dump.
 
-### 3.3. First-divergence (only if step-debug inconclusive)
+2. Issue LOAD"$",8. Set breakpoint at drive sector-read entry.
+   - Likely `$F510` (job loop) or `$F556` (controller dispatch).
+   - `runtime_monitor_breakpoint_add { pc: 0xF510, side: "drive" }`.
 
-Spec 613.T1 (`vice1541_first_divergence`) is not yet built. Fallback: ad-hoc lockstep — capture VICE drive `cpuhistory` for the same POLARBEAR.d64 LOAD"$",8 scenario into the trace store, and our drive `cpuhistory`. SQL-join on drive `cycle`, find first PC divergence inside the sector-read region. One record, no buckets (Spec 613 §5+§6).
+3. Step drive ROM through:
+   - First read from `$1C01` (GCR byte latch).
+   - Header-search loop.
+   - Identify first PC where drive bails out.
 
-VICE side-by-side trace capture only if step-debug + RFL fail to localise.
+4. At bail-out:
+   - Dump `drv.current_half_track`, `drv.GCR_track_start_ptr` (which buffer?), `drv.GCR_current_track_size`.
+   - Compare to what VICE would have.
+   - Identify whether bug is HT-positioning, byte-stream content, or byte-ready timing.
+
+5. Hypothesis-then-fix per finding. NO trace until step-debug exhausted.
+
+### 3.4. First-divergence (only if 3.1-3.3 inconclusive)
+
+Spec 613.T1 (`vice1541_first_divergence`) not yet built. Fallback: ad-hoc DuckDB SQL-join on drive `cycle` between VICE trace + our trace. ONE record (first divergence + window), not buckets (Spec 613 §5+§6). Routes through `vice_trace_runtime_start` + `trace_store_*` (memory `feedback_trace_into_duckdb.md`). NO new `scripts/diag-*.mjs`.
 
 ## 4. Acceptance
 
@@ -110,18 +170,24 @@ The base commit `7f3f151` carries **20 `scripts/diag-614-*.mjs`** files. These a
 - Spec 612 plumbing (T2.10 / T2.13 / T2.14 / T0.2 / T3.1) — those land on `codex/612-vice-side-by-side` in parallel.
 - New diag scripts — see §5.
 
-## 7. Tasks
+## 7. Tasks (2026-05-18 — Codex-refined)
 
 | ID | Task | Agent | Depends |
 |---|---|---|---|
 | 615.0 | Cleanup `scripts/diag-614-*.mjs` (quarantine or delete) | Sonnet | none |
-| 615.1 | RFL gate on `gcr.ts` vs `vice/src/gcr.c` | Sonnet | 615.0 |
-| 615.2 | RFL gate on `fsimage_dxx.ts` D64-encode path vs `vice/src/diskimage/fsimage-dxx.c` | Sonnet | 615.0 |
-| 615.3 | RFL gate on `rotation.ts` vs `vice/src/drive/rotation.c` (identify missing exports vs VICE non-static fn list) | Sonnet | 615.0 |
-| 615.4 | Step-debug LOAD"$",8 against POLARBEAR.d64 — first drive-side divergence | Opus | 615.1-3 |
-| 615.5 | Apply fix (file + scope determined by 615.4) | Opus | 615.4 |
-| 615.6 | Verify acceptance §4 #1–#5 | Sonnet | 615.5 |
-| 615.7 | Memory update + commit messages cite rule numbers + spec phase | Sonnet | 615.6 |
+| 615.1 | Shadow-stub sweep intra-`vice1541/`: list all same-name multi-file exports where ≥1 is stub. Tab + verdict per hit. NO fix yet. | Sonnet | 615.0 |
+| 615.2 | Fix `driveimage.ts` shadow `drive_set_half_track` (remove, import from `drive.ts`) | Sonnet | 615.1 |
+| 615.3 | Fix `fsimage_dxx.ts` shadow `drive_get_disk_drive_type` (remove, import from `drive.ts:844`) | Sonnet | 615.1 |
+| 615.4 | Fix all OTHER shadows found in 615.1 (one commit per fix) | Sonnet | 615.1 |
+| 615.5 | RFL gate `drive.ts` `drive_set_half_track` + `drive_move_head` vs `vice/src/drive/drive.c` | Sonnet | 615.2 |
+| 615.6 | RFL gate `driveimage.ts` `drive_image_attach` vs `vice/src/drive/driveimage.c` (D64 path; verify `complicated_image_loaded=0`) | Sonnet | 615.2 |
+| 615.7 | RFL gate `rotation.ts` `rotation_1541_simple` + identify missing fns (`rotation_do_wobble`, `rotation_1541_gcr` split, `rotation_1541_simple_cycle`) vs `vice/src/drive/rotation.c` | Sonnet | 615.5 |
+| 615.8 | Port missing rotation fns if 615.7 finds gaps | Sonnet | 615.7 |
+| 615.9 | RFL gate `via2d.ts` `store_prb` stepper/motor/speed-zone/SO vs `vice/src/drive/iecieee/via2d.c` | Sonnet | 615.7 |
+| 615.10 | Step-debug LOAD"$",8 against POLARBEAR.d64. Identify drive bail-out PC + HT/byte state at bail | Opus | 615.5-615.9 |
+| 615.11 | Apply minimal fix (scope from 615.10) | Opus | 615.10 |
+| 615.12 | Verify acceptance §4 #1–#5 | Sonnet | 615.11 |
+| 615.13 | Memory update + commit messages cite rule numbers + spec phase | Sonnet | 615.12 |
 
 ## 8. References
 
