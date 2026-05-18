@@ -93,7 +93,7 @@ import {
 // per T2.5 hand-off note "owned by future drive.ts T2.10"; that hand-off
 // is now done — drive.ts allocates diskunit_context[]. Importing from
 // drivesync.ts here meant driveimage saw the NULL stub array.
-import { diskunit_context } from "./drive.js";
+import { diskunit_context, drive_set_half_track } from "./drive.js";
 import {
   fsimage_read_gcr_image,
   fsimage_gcr_write_half_track,
@@ -202,35 +202,13 @@ function disk_image_write_p64_image(_image: disk_image_t): number {
 }
 
 // PORT OF: vice/src/drive/drive.c:689 (drive_set_half_track)
-// Lifecycle helper pending drive.ts (Spec 612 layer 13). The exhaustive
-// stepper + GCR pointer recalculation lives in drive.c; here we keep the
-// minimum invariants drive_image_attach / drive_image_detach rely on:
-// `current_half_track` is already passed in by the caller, and the GCR
-// pointer/size are rewired from the freshly attached / detached image so
-// the next rotation tick sees the correct buffer. The full ported body
-// supersedes this stub when drive.ts lands.
-function drive_set_half_track(num: number, _side: number, dptr: drive_t): void {
-  // Mirror the only fields drive_image_attach / drive_image_detach
-  // observe: head position + GCR backing pointer.
-  if (num < 2) num = 2;
-  if (num > 84) num = 84;
-  dptr.current_half_track = num;
-
-  if (dptr.image !== null && dptr.image.gcr !== null) {
-    const idx = num - 2;
-    if (idx >= 0 && idx < MAX_GCR_TRACKS) {
-      const track = dptr.image.gcr.tracks[idx];
-      dptr.GCR_track_start_ptr = track?.data ?? null;
-      dptr.GCR_current_track_size = track?.size ?? 0;
-    } else {
-      dptr.GCR_track_start_ptr = null;
-      dptr.GCR_current_track_size = 0;
-    }
-  } else {
-    dptr.GCR_track_start_ptr = null;
-    dptr.GCR_current_track_size = 0;
-  }
-}
+// Spec 615.2 (2026-05-18) — local minimal shadow REMOVED.
+// Now imported from drive.ts (real port). The shadow's clamp 2..84 +
+// per-half_track GCR_track_start_ptr/size set was a subset of the
+// full VICE body (no diskunit.type dispatch, no D71/D81 side handling,
+// no GCR_image_loaded coherency). drive_image_attach / detach now
+// pick up the full impl. Same pattern as Spec 612 FC-7 P0 (commit
+// 5744cd6: drive_cpu_set_overflow shadow in via2d.ts).
 
 // PORT OF: vice/src/drive/drive.c:749 (drive_gcr_data_writeback)
 // Lifecycle helper pending drive.ts (Spec 612 layer 13). The full VICE
