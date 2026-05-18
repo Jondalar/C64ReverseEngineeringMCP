@@ -282,12 +282,14 @@ function disk_image_check_sector(image: disk_image_t, track: number, sector: num
   return fsimage_check_sector(image, track, sector);
 }
 
-// PORT OF: vice/src/drive/drive.c (drive_get_disk_drive_type) — stub
-// returning DRIVE_TYPE_NONE until drive.ts (§4 LO layer 13) lands. The
-// 1571 special-side path stays dormant for the stock 1541 D64 case.
-function drive_get_disk_drive_type(_device: number): number {
-  return 0;
-}
+// PORT OF: vice/src/drive/drive.c:447-454 (drive_get_disk_drive_type).
+// Spec 615.3 (2026-05-18) — local `return 0` shadow REMOVED.
+// drive.ts:844 has the real port. Local stub returned DRIVE_TYPE_NONE
+// unconditionally — caller fsimage_read_dxx_image at line 464 then
+// took the default D64 path even for D71 (which needs the side-swap
+// branch). Same shadow-stub pattern as Spec 615.2 (drive_set_half_track)
+// and Spec 612 FC-7 P0 (drive_cpu_set_overflow, commit 5744cd6).
+import { drive_get_disk_drive_type } from "./drive.js";
 
 // VICE I/O / mem helpers — in-memory translations (no real FILE I/O).
 
