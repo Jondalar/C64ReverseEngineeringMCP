@@ -261,6 +261,22 @@ export class Vice1541Facade implements Drive1541 {
     // onto the freshly-allocated drivemem page tables.
     drive_cpu_early_init_all();
 
+    // Spec 612 T3.10 — allocate intNum slots for VIA1 + VIA2 so
+    // viacore's set_int (which calls cs.setIrq(intNum, value, rclk))
+    // actually mutates intStatus.pendingInt + globalPendingInt.
+    // Without this, ctx.int_num stays 0 + intStatus.pendingInt is
+    // empty → setIrq early-returns at length-check → drive 6510core
+    // never sees IRQ for CA1/T1 → ATN handler never runs → drive
+    // can't ack LISTEN frame → c64 stalls in CIOUT debpia loop.
+    // VICE: src/interrupt.c:107 interrupt_cpu_status_int_new.
+    const isAny = this.intStatus as unknown as {
+      newIntNum(name: string): { id: number; name: string };
+    };
+    const via1IntNum = isAny.newIntNum("via1d1541");
+    const via2IntNum = isAny.newIntNum("via2d");
+    this.unit.via1d1541!.int_num = via1IntNum.id;
+    this.unit.via2!.int_num = via2IntNum.id;
+
     // 6. Cold reset so the drive 6502 PC lands at the ROM reset vector
     //    on the next drive_6510core_execute round.
     drivecpu_reset(this.unit);

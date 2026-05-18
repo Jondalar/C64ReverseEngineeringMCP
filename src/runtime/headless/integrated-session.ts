@@ -847,6 +847,16 @@ export class IntegratedSession {
     this.c64Cpu.reset();
     this.drive.reset();
     this.drive.setSyncBaseline(this.c64Cpu.cycles);
+    // Spec 612 T3.9 — when drive1541=vice, also reset the vice drive.
+    // Without this the vice drive holds last_clk from before resetCold;
+    // c64 cycles reset to 0 → first catchUpTo(0) sees clk_value < last_clk
+    // → cycles=0 (clamped) → vice never advances during boot → drive
+    // 6502 doesn't reach ROM init. Per-instruction tick (T3.6) then
+    // accumulates inconsistent state. Fix: reset vice in lockstep.
+    const kernelAny = this.kernel as unknown as { drive1541?: { reset?: (kind?: "cold" | "warm") => void } };
+    if (kernelAny.drive1541?.reset && this.kernel.drive1541Implementation === "vice") {
+      kernelAny.drive1541.reset("cold");
+    }
     // Spec 145 v3+: re-sync drive VIA1 CA1 pin baseline AFTER
     // drive.reset() resets the VIA's lastCa1Pin to true.
     this.iecBus.syncDriveCa1Baseline();
