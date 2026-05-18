@@ -287,16 +287,20 @@ export class Vice1541Facade implements Drive1541 {
     // bus model's installed write callback (iecbus_cpu_write_conf1 in
     // our single-drive setup). VICE bit layout (c64cia2.c:150-163):
     //   bit 3 = ATN out,  bit 4 = CLK out,  bit 5 = DATA out
-    // The values we receive are RELEASED flags; CIA2 stores the INVERTED
-    // byte that `~byte` turns back into release-positive bits, so:
-    //   atn_released = true  → CIA2 PA bit 3 = 0
-    //   atn_released = false → CIA2 PA bit 3 = 1
-    // (matches store_ciapa's `tmp = ~byte` semantics — write_conf1
-    // receives the inverted-positive `tmp`.)
+    // VICE store_ciapa does `tmp = ~byte` then calls
+    // iecbus_callback_write(tmp). So `tmp` is the INVERTED-POSITIVE PA
+    // (release = 1, pull = 0):
+    //   atn_released = true  → c64 PA bit 3 = 0 → tmp bit 3 = 1
+    //   atn_released = false → c64 PA bit 3 = 1 → tmp bit 3 = 0
+    // Then iec_update_cpu_bus($tmp): cpu_bus.4 = tmp.3 (HIGH = released).
+    // Spec 612 T3.7 fix 2026-05-18 — earlier code had this inverted
+    // (encoded "released" as 0 instead of 1); ATN edges never reached
+    // via1d1541 CA1, drive never received LISTEN frame, c64 stalled in
+    // CIOUT debpia loop.
     const tmp =
-      (c64Side.bus_atn ? 0 : 0x08) |
-      (c64Side.bus_clk ? 0 : 0x10) |
-      (c64Side.bus_data ? 0 : 0x20) |
+      (c64Side.bus_atn ? 0x08 : 0) |
+      (c64Side.bus_clk ? 0x10 : 0) |
+      (c64Side.bus_data ? 0x20 : 0) |
       0x40; // bit 6 = CLK pulse input — irrelevant to write path
     // Use the installed conf1 write callback so iecbus.ts performs the
     // CA1 edge dispatch + drv_bus[8] recompute for us. The current
