@@ -467,8 +467,24 @@ export class HeadlessMachineKernel implements MachineKernel {
     this.iecBus.attachDriveRam(this.drive.bus.ram);
     // Spec 140 v3: 1:1 VICE port. No mode flag — VICE is THE behavior.
     // Spec 141 v2: drive clock source for ATN edge IRQ stamping.
+    //
+    // Codex P0 follow-up (2026-05-19): in `drive1541="vice"` mode the
+    // legacy DriveCpu is quiet (Spec 612 T3.2-fix-O) so its `cpu.cycles`
+    // field lags the c64 master clock by ~hundreds of K cycles. Feeding
+    // that stale legacy clock into `pushFlush.all/one` corrupts the
+    // vice1541 drivecpu's `last_clk` (drivecpu_execute sets last_clk
+    // = clk_value unconditionally at exit). Next per-c64-cycle
+    // afterCycleSync then computes `cycles = c64_clock - stale_last_clk
+    // = ~367K`, drive runs 367K cycles in one call → drive clock runs
+    // away by 18000× normal rate.
+    //
+    // Fix: in vice mode driveClockSource returns the c64 master clock
+    // (same domain the scheduler uses for tickToClock). In legacy mode
+    // it stays the legacy drive cycles (= the real drive clock there).
     this.iecBus.driveClockSource = () =>
-      (this.drive.cpu as { cycles: number }).cycles;
+      this.drive1541Implementation === "vice"
+        ? (this.c64Cpu as { cycles: number }).cycles
+        : (this.drive.cpu as { cycles: number }).cycles;
     // Spec 418 — push-flush invariant per docs/vice-iec-arc42.md
     // §15 Phase C steps 7-9 + §5.11 call-site enumeration.
     //
