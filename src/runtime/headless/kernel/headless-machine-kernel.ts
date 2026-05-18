@@ -794,9 +794,16 @@ export class HeadlessMachineKernel implements MachineKernel {
     //      cpu_bus bit 6 (0x40) = CLK released
     //      cpu_bus bit 7 (0x80) = DATA released
     //
-    //    Spec 614.4: still required. vice.iecLineDrive triggers the
-    //    drive's CA1 IRQ on ATN edge (viacore_signal). Drive sees the
-    //    edge on the NEXT scheduler cycle when afterCycleSync ticks it.
+    //    Codex P0 item 3 (2026-05-19): post-hook fires
+    //    `vice.iecLineDrive(..., effClk)` with the c64-side write
+    //    instant (= maincpu_clk + write_offset per c64cia2.c:162).
+    //    Vice1541Facade.iecLineDrive (item 1) now uses that effClk
+    //    when dispatching `_maybe_call_iecbus_callback_write` →
+    //    `iecbus_cpu_write_conf1(tmp, effClk)` →
+    //    `drive_cpu_execute_one(unit, effClk)` (un-stubbed via
+    //    Spec 614.5 commit ef88f17). Drive now catches up to the
+    //    exact write instant BEFORE iec_update_cpu_bus + ATN-edge
+    //    viacore_signal(CA1) mutate state — matches VICE order.
     const origSetC64Output = iec.setC64Output.bind(iec);
     iec.setC64Output = (cia2Pa, ddrMask, effClk, cs) => {
       origSetC64Output(cia2Pa, ddrMask, effClk, cs);
@@ -807,9 +814,10 @@ export class HeadlessMachineKernel implements MachineKernel {
       }, effClk);
     };
 
-    // 3. buildC64InputBits wrapper not needed — pushFlush.all (above)
-    //    performs the overlay + recompute, so the original method's
-    //    subsequent reads of core.cpu_port already reflect Vice1541.
+    // 3. buildC64InputBits wrapper not needed — pushFlush.all (item 2)
+    //    performs the drive catch-up + overlay + recompute, so the
+    //    original method's subsequent reads of core.cpu_port already
+    //    reflect Vice1541 state at the c64-side read instant.
     //    Spec 614.3 per-cycle overlay also keeps it fresh between
     //    pushFlush events.
   }
