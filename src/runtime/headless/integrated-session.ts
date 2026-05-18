@@ -675,24 +675,17 @@ export class IntegratedSession {
         // drive), the original setSyncBaseline hook is preserved.
         afterCycleSync:
           opts.drive1541 === "vice"
-            ? (_schedC64Cycle, _driveCycle) => {
-                // Codex P0 follow-up #2 (2026-05-19): use c64Cpu.cycles,
-                // NOT the scheduler-internal cycleCount. The scheduler
-                // increments its own counter from 0 while c64Cpu.cycles
-                // may already be non-zero (kernel-ctor work, prior
-                // session phases). pushFlush paths pass c64.cycles
-                // directly. If afterCycleSync passed scheduler.cycleCount
-                // here, the two paths would alternate between two
-                // different clock domains, regressing drivecpu's
-                // last_clk every other call → drive clock runaway.
-                const d1541 = this.kernel.drive1541;
-                if (d1541) d1541.tickToClock(this.c64Cpu.cycles);
-                // Spec 614.3 — overlay vice drive state into legacy
-                // core every c64 cycle so $DD00 reads between writes
-                // see current drive lines (not just on $DD00 writes
-                // via pushFlush).
-                this.kernel.viceCycleOverlay?.();
-              }
+            // Codex P0 follow-up #3 (2026-05-19) — pure VICE event-
+            // catch-up. Drive ticks ONLY on $DD00 R/W via
+            // `pushFlush.one/all` → `vice.tickToClock(clk)`. Per-cycle
+            // afterCycleSync tick (Spec 614.3) was an over-engineering
+            // — VICE's `drive_cpu_execute_one` is event-driven from
+            // `iecbus_cpu_*_conf1`, NOT per c64 cycle. The c64-side
+            // CLK_INC happens per cycle (alarms + maincpu_clk++ +
+            // vicii_cycle) but the drive is not in that loop.
+            // No-op here keeps useCycleLockstep for c64-side timing
+            // while letting pushFlush events alone drive the 1541.
+            ? undefined
             : (opts.probeMode === "A" || opts.probeMode === "B"
                 ? (c64Cycle, _driveCycle) => this.drive.setSyncBaseline(c64Cycle)
                 : undefined),
