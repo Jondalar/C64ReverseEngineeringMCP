@@ -99,8 +99,8 @@ import {
 import { iec_drive_install_hooks } from "../vice1541/iec.js";
 import { drive_set_machine_parameter } from "../vice1541/drivesync.js";
 import { memiec_init } from "../vice1541/memiec.js";
-import { via1d1541_setup_context } from "../vice1541/via1d1541.js";
-import { via2d_setup_context } from "../vice1541/via2d.js";
+import { via1d1541_setup_context, via1d1541_init } from "../vice1541/via1d1541.js";
+import { via2d_setup_context, via2d_init } from "../vice1541/via2d.js";
 import {
   DRIVE_TYPE_1540 as _DRIVE_TYPE_1540_,
   DRIVE_TYPE_1541II as _DRIVE_TYPE_1541II_,
@@ -499,6 +499,18 @@ export class Vice1541Facade implements Drive1541 {
             || drv.type === DRIVE_TYPE_1571
             || drv.type === DRIVE_TYPE_1571CR) {
           memiec_init(drv, drv.type);
+          // Codex P0 follow-up #4 (2026-05-19): per VICE iec_drive_init
+          // (src/drive/iec/iec.c:72-84) the 1541-family init also runs
+          // via1d1541_init + via2d_init. These call viacore_init which
+          // CREATES the T1/T2 alarm objects (via alarmNew). Without this
+          // step, via1.t1_zero_alarm stays null — when drive ROM sets
+          // T1 latch ($1804/$1805), the alarmSet call hits a null guard
+          // and silently no-ops. T1 timer NEVER underflows in software.
+          // Drive's $E9E5 AND #$40 (poll T1 IFR bit) never escapes.
+          // The non-1541 hooks (cia1571_init etc) stay throw-stubs since
+          // iec_drive_init() itself can't be called (would hit those).
+          via1d1541_init(drv);
+          via2d_init(drv);
         }
       },
       machine_drive_setup_context: (drv) => this.machineDriveSetupContext(drv),
