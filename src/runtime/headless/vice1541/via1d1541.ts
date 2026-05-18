@@ -166,6 +166,7 @@ import {
   iec_drive_read as _iec_drive_read,
   iec_drive_write as _iec_drive_write,
 } from "./c64iec.js";
+import { drivesync_set_1571 as _drivesync_set_1571 } from "./drivesync.js";
 function iecbus_drive_port(): iecbus_t | null {
   return _iecbus_drive_port() as unknown as iecbus_t;
 }
@@ -194,13 +195,12 @@ function iec_fast_drive_direction(_direction: number, _dnr: number): void {
   // Called from store_pra 1571 branch — not reached for 1541 single-drive.
 }
 
-// PORT OF: vice/src/drive/drivesync.h (drivesync_set_1571)
-function drivesync_set_1571(_dc: diskunit_context_t, _byte: number): void {
-  // 1571 dual-frequency mode toggle — out of scope per §10. Reachable only
-  // from the 1571/1571CR branches below; 1541 path never enters here.
-  throw new Error(
-    "PORT-STUB: drivesync_set_1571 — out of scope per Spec 612 §10 (1571).",
-  );
+// PORT OF: vice/src/drive/drivesync.h (drivesync_set_1571 — extern).
+// Spec 615.4d (2026-05-18) — throw shadow REMOVED. drivesync.ts:133
+// has the real port. Reachable only from the 1571/1571CR branches
+// of via1d1541 store_pra; the 1541 path never enters. PL-10 cleanup.
+function drivesync_set_1571(dc: diskunit_context_t, byte: number): void {
+  _drivesync_set_1571(dc, byte);
 }
 
 // PORT OF: vice/src/drive/iec1571/glue1571.h (glue1571_side_set)
