@@ -154,6 +154,7 @@ import {
   drive_writeprotect_sense as _drive_writeprotect_sense,
   drive_move_head as _drive_move_head,
   drive_cpu_set_overflow as _drive_cpu_set_overflow,
+  drive_update_ui_status as _drive_update_ui_status,
 } from "./drive.js";
 function drive_writeprotect_sense(d: drive_t | null): boolean {
   if (!d) return false;
@@ -183,10 +184,12 @@ function drive_sound_update(_event: number, _dnr: number): void {
   // surface is visible).
 }
 
-// PORT OF: vice/src/drive/drive.c (drive_update_ui_status — extern decl)
+// PORT OF: vice/src/drive/drive.c:456-479 (drive_update_ui_status).
+// Spec 615.4a (2026-05-18) — empty shadow REMOVED. drive.ts:1450 has the
+// real port (LED + track update walk over diskunit_context). Same
+// shadow-stub pattern as Spec 615.2 + 615.3 + Spec 612 FC-7 P0.
 function drive_update_ui_status(): void {
-  // PORT-STUB: drive.ts (T2.10) — UI pump (LED state, half-track). Silent
-  // no-op until drive.ts lands; observation-only, no behavioural impact.
+  _drive_update_ui_status();
 }
 
 // PORT OF: vice/src/drive/drive.h (DRIVE_SOUND_MOTOR_ON / DRIVE_SOUND_MOTOR_OFF)
