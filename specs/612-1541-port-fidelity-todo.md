@@ -17,6 +17,16 @@ Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in
 
 ---
 
+## Cross-spec link 2026-05-18
+
+**Spec 613** (`specs/613-c64-iec-load-regression.md`) — the underlying c64 IEC `LOAD"$",8` regression that blocks Spec 612 from satisfying the original goal-hook condition. Reproduces on `master`, on `runtime-green-2026-05-16` tag, AND on this branch — confirmed NOT introduced by Spec 612 work.
+
+User authorized 2026-05-18: "Ja fix 613" — c64-kern changes ALLOWED for Spec 613 (separate branch off master).
+
+Spec 612 scope is the structural VICE port + bridge wiring; that work is complete. T3.4/T3.5/T3.7/T3.8 diagnostic findings converge into Spec 613.
+
+---
+
 ## Phase 0 — Enforcement infrastructure (build first)
 
 ### T0.1 — Fidelity check script
