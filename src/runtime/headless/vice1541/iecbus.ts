@@ -63,6 +63,11 @@ import { viacore_signal } from "./viacore.js";
 // rule via `void` reads of the namespace below.
 import * as via1d1541_mod from "./via1d1541.js";
 import * as via2d_mod from "./via2d.js";
+// Spec 614.5 — wire drive_cpu_execute_one/all through to the real
+// drivecpu_execute (T2.4) so iecbus_cpu_write_conf1 advances the drive
+// to the exact c64 clock BEFORE iec_update_cpu_bus, matching VICE
+// iecbus.c:255 dispatch order.
+import { drivecpu_execute } from "./drivecpu.js";
 void via1d1541_mod;
 void via2d_mod;
 
@@ -223,17 +228,31 @@ function default_iec_update_ports(): void {
 }
 
 // PORT OF: vice/src/drive/drive.h (drive_cpu_execute_one extern)
-// Pending drivecpu.ts (T2.4) / drive.ts (T2.10).
-function drive_cpu_execute_one(_unit: diskunit_context_t, _clock: number): void {
-  // Intentional no-op stub. The conf1/conf2 write paths must call this
-  // before mutating drv_data so the drive CPU catches up. Until drivecpu.ts
-  // lands the bridge layer steps the drive externally — silent here matches
-  // the missing-link case.
+//
+// Spec 614.5 — wired through to `drivecpu_execute` (T2.4 / Spec 612).
+// VICE iecbus.c:255 calls this BEFORE `iec_update_cpu_bus(data)` so
+// the drive is at exactly the c64 clock when the iecbus mutation
+// happens — ATN-edge CA1 signal then fires with drive already-synced.
+//
+// Until Spec 614.3 (CycleSchedulerVice) the per-cycle scheduler ticks
+// the drive AFTER each c64 cycle via afterCycleSync. That misses the
+// sub-cycle clock at which c64's $DD00 STA writes (3rd/4th cycle of
+// the instruction): drive at that moment lags by up to instr_cycles.
+// The drive's CA1 IRQ entry timing then differs from VICE by the
+// same amount — and the byte-receive bit-bang at $E9xx misses edges.
+//
+// drivecpu_execute is idempotent (returns early when clock <= last_clk),
+// so duplicating the per-cycle catch-up here is safe and matches VICE.
+function drive_cpu_execute_one(unit: diskunit_context_t, clock: number): void {
+  drivecpu_execute(unit, clock >>> 0);
 }
 
 // PORT OF: vice/src/drive/drive.h (drive_cpu_execute_all extern)
-function drive_cpu_execute_all(_clock: number): void {
-  // See drive_cpu_execute_one above.
+// VICE iterates over all enabled units; we have one. Spec 614.5
+// activation matches VICE.
+function drive_cpu_execute_all(clock: number): void {
+  const unit = _diskunit_get(0);
+  if (unit !== null) drivecpu_execute(unit, clock >>> 0);
 }
 
 // PORT OF: vice/src/serial/serial-iec-device.h (serial_iec_device_exec extern)
