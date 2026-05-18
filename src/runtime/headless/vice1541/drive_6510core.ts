@@ -377,7 +377,16 @@ export function drive_6510core_execute(
   let reg_x = regs.xr & 0xff;
   let reg_y = regs.yr & 0xff;
   let reg_sp = regs.sp & 0xff;
-  let reg_p = regs.flags & 0xff;
+  // Spec 612 T3.11 — VICE LOCAL_SET_STATUS masks P_ZERO + P_SIGN from
+  // reg_p (6510core.c:212). flag_n + flag_z are the authoritative
+  // shadow vars for those bits. Without this mask, stale P_ZERO bits
+  // in regs.flags leak into reg_p; LOCAL_STATUS() then OR's them back
+  // into the next save → Z flag always reads as set on next instruction
+  // boundary. Empirical: AND #$02 produces A=$02 + flag_z=2 (Z clear)
+  // correctly inside the instruction, but next instruction loaded
+  // regs.flags with P_ZERO=1 (stale from earlier ROM init code),
+  // so BEQ at $FE71 always took, drive never entered $E853 ATN handler.
+  let reg_p = (regs.flags & ~(P_ZERO | P_SIGN)) & 0xff;
   let reg_pc = regs.pc & 0xffff;
   // VICE keeps flag_n and flag_z as scratch shadow vars (see 6510core.c:210-
   // 222) so LOCAL_SET_NZ can stamp them in one go without touching reg_p.
