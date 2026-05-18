@@ -143,9 +143,17 @@ export interface drivevia2_context_t {
 
 // T3.2-fix-N: drive.ts (T2.10) is now ported — replace stub with real
 // impls. Cast the bool/number return shape across.
+//
+// Spec 612 amendment FC-7 (P0): drive_cpu_set_overflow was a no-op
+// shadow here, despite drive.ts:1553 / drivecpu.ts:572 carrying the
+// real impl. VICE via2d.c calls this on the VIA2 CA1 byte-ready edge
+// → drive 6502 SO pin → V flag set. Drive ROM byte-receive uses
+// BVS/BVC; without the V flag the drive bounces in $EC disk-byte-
+// wait loop. Now imports real impl from drive.ts.
 import {
   drive_writeprotect_sense as _drive_writeprotect_sense,
   drive_move_head as _drive_move_head,
+  drive_cpu_set_overflow as _drive_cpu_set_overflow,
 } from "./drive.js";
 function drive_writeprotect_sense(d: drive_t | null): boolean {
   if (!d) return false;
@@ -154,13 +162,11 @@ function drive_writeprotect_sense(d: drive_t | null): boolean {
   return _drive_writeprotect_sense(d) as unknown as boolean;
 }
 
-// PORT OF: vice/src/drive/drive.c (drive_cpu_set_overflow — extern decl)
-function drive_cpu_set_overflow(_dc: diskunit_context_t): void {
-  // PORT-STUB: drive.ts (T2.10) — VICE pulses the drive CPU's V flag via
-  // dc->cpu->set_overflow(cpu). Until drivecpu.ts lands (T2.4), this is
-  // a no-op shim; SO pulses are routed through the kernel facade.
-  // No throw: VIA2 reset path fires this even when no drive is mounted,
-  // so a throw would break the LO-3 viacore micro-test.
+// PORT OF: vice/src/drive/drive.c:1014-1022 (drive_cpu_set_overflow).
+// Real impl lives in drive.ts:1553 — this is a thin re-export to
+// preserve via2d.c's call-site shape.
+function drive_cpu_set_overflow(dc: diskunit_context_t): void {
+  _drive_cpu_set_overflow(dc);
 }
 
 // PORT OF: vice/src/drive/drive.c (drive_move_head — extern decl)
