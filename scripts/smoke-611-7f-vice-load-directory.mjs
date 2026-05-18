@@ -83,14 +83,20 @@ if (k.drive1541Implementation !== "vice") {
     `drive1541Implementation=${k.drive1541Implementation}, expected vice`);
 }
 
-// Spy: track vice.catchUpTo + flush invocations across the LOAD window.
+// Spy: track bridge activity across the LOAD window.
+//
+// Spec 614.4 (§3.3) update: pushFlush.catchUpTo/flush stripped — drive
+// is at clk every c64 cycle via the CycleSchedulerVice afterCycleSync
+// (Spec 614.3). The canonical "bridge active" signal is now
+// `vice.iecLineDrive` — it fires on every $DD00 write and dispatches
+// the ATN-edge → drive CA1 IRQ. tickToClock fires per c64 cycle.
 const vice = k.drive1541;
-let viceCatchUpCalls = 0;
-let viceFlushCalls = 0;
-const origCatch = vice.catchUpTo.bind(vice);
-const origFlush = vice.flush.bind(vice);
-vice.catchUpTo = (clk) => { viceCatchUpCalls++; return origCatch(clk); };
-vice.flush = () => { viceFlushCalls++; return origFlush(); };
+let viceIecLineDriveCalls = 0;
+let viceTickToClockCalls = 0;
+const origIecDrive = vice.iecLineDrive.bind(vice);
+const origTickToClock = vice.tickToClock.bind(vice);
+vice.iecLineDrive = (...args) => { viceIecLineDriveCalls++; return origIecDrive(...args); };
+vice.tickToClock = (clk) => { viceTickToClockCalls++; return origTickToClock(clk); };
 
 // Spy: legacy.catchUpDrive must NOT serve the vice scenario.
 // kernel still constructs LEGACY1541 for backward-compat (Spec 611 §2);
@@ -143,11 +149,11 @@ session.typeText("LIST\r", 80_000, 80_000);
 trackLegacyDuringLoad = false;
 
 // === Phase 5: bridge-active proof ===
-if (viceCatchUpCalls === 0 || viceFlushCalls === 0) {
+if (viceIecLineDriveCalls === 0 || viceTickToClockCalls === 0) {
   hardFail("bridge",
-    `vice.catchUpTo=${viceCatchUpCalls}, vice.flush=${viceFlushCalls}; bridge did not fire`);
+    `vice.iecLineDrive=${viceIecLineDriveCalls}, vice.tickToClock=${viceTickToClockCalls}; bridge did not fire (Spec 614.4 contract: $DD00 writes drive iecLineDrive; CycleSchedulerVice ticks tickToClock per c64 cycle)`);
 }
-check(`(2) DD00/pushFlush bridge fired vice.catchUpTo×${viceCatchUpCalls} + flush×${viceFlushCalls}`, true);
+check(`(2) bridge fired vice.iecLineDrive×${viceIecLineDriveCalls} + tickToClock×${viceTickToClockCalls}`, true);
 if (legacyCatchUpCallsDuringLoad > 0) {
   hardFail("bridge",
     `legacy.catchUpDrive invoked ${legacyCatchUpCallsDuringLoad}× during LOAD window — legacy fallback served vice scenario`);
@@ -229,5 +235,5 @@ for (const c of checks) console.log(`  PASS  ${c.label}`);
 console.log("");
 console.log(`GREEN: ${checks.length}/${checks.length} checks passed.`);
 console.log(`disk=${diskPath.replace(repoRoot + "/", "")}`);
-console.log(`drive1541=vice; bridge: catchUpTo×${viceCatchUpCalls}, flush×${viceFlushCalls}`);
+console.log(`drive1541=vice; bridge: iecLineDrive×${viceIecLineDriveCalls}, tickToClock×${viceTickToClockCalls}`);
 process.exit(0);

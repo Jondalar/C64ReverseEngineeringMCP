@@ -753,19 +753,34 @@ export class HeadlessMachineKernel implements MachineKernel {
     // from $DD00 between writes see stale drive state.
     this.viceCycleOverlay = overlayFromVice;
 
-    // 1. pushFlush re-target: vice.catchUpTo + flush + overlay +
-    //    recompute. Spec 612 T3.1: overlay sources from
-    //    vice1541/iecbus.ts (drvData8Live).
+    // 1. Spec 614.4 (§3.3) — pushFlush stripped in vice mode.
+    //    Drive is already at clk via per-c64-cycle tickToClock
+    //    (Spec 614.3 afterCycleSync). vice.catchUpTo(clk) here was
+    //    redundant (drivecpu_execute returns immediately when
+    //    clk_value <= cpu.last_clk). vice.flush() is a no-op in the
+    //    push-mode model (no pending edges held back).
+    //
+    //    Overlay still runs — it's the data step (legacy core's
+    //    drv_data[8] mirror, recompute_drv_bus, iec_update_ports).
+    //    Per-cycle overlay via afterCycleSync covers most cases,
+    //    but pushFlush events also fire BEFORE c64 reads $DD00 within
+    //    a single c64 instruction — keep the overlay step on
+    //    pushFlush so the c64-side read formulas in
+    //    `buildC64InputBits` see the freshest drive lines that the
+    //    bridge's setC64Output post-hook just wrote to vice state.
+    //
+    //    VICE cite: src/maincpu.c — iecbus_callback_write does:
+    //      drive_cpu_execute_one(unit, clk)  ← we drop (per-cycle tick covers it)
+    //      iec_update_cpu_bus(byte)          ← already done by origSetC64Output
+    //      viacore_signal(via1d1541, CA1, edge) ← done by vice.iecLineDrive below
+    //      drv_bus[8] = recompute_formula(...)   ← overlayFromVice's recompute_drv_bus
+    //      iec_update_ports()                 ← overlayFromVice's iec_update_ports
     iec.pushFlush = {
-      one: (unit, clk, _cs) => {
+      one: (unit, _clk, _cs) => {
         if (unit !== 8) return; // single-1541 baseline
-        vice.catchUpTo(clk);
-        vice.flush();
         overlayFromVice();
       },
-      all: (clk, _cs) => {
-        vice.catchUpTo(clk);
-        vice.flush();
+      all: (_clk, _cs) => {
         overlayFromVice();
       },
     };
@@ -776,6 +791,10 @@ export class HeadlessMachineKernel implements MachineKernel {
     //      cpu_bus bit 4 (0x10) = ATN released  (1 = C64 not asserting)
     //      cpu_bus bit 6 (0x40) = CLK released
     //      cpu_bus bit 7 (0x80) = DATA released
+    //
+    //    Spec 614.4: still required. vice.iecLineDrive triggers the
+    //    drive's CA1 IRQ on ATN edge (viacore_signal). Drive sees the
+    //    edge on the NEXT scheduler cycle when afterCycleSync ticks it.
     const origSetC64Output = iec.setC64Output.bind(iec);
     iec.setC64Output = (cia2Pa, ddrMask, effClk, cs) => {
       origSetC64Output(cia2Pa, ddrMask, effClk, cs);
@@ -789,6 +808,8 @@ export class HeadlessMachineKernel implements MachineKernel {
     // 3. buildC64InputBits wrapper not needed — pushFlush.all (above)
     //    performs the overlay + recompute, so the original method's
     //    subsequent reads of core.cpu_port already reflect Vice1541.
+    //    Spec 614.3 per-cycle overlay also keeps it fresh between
+    //    pushFlush events.
   }
 
   /**
