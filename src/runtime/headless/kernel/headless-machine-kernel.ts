@@ -157,6 +157,17 @@ export class HeadlessMachineKernel implements MachineKernel {
   readonly drive: DriveCpu;
   readonly drive1541Implementation: Drive1541Implementation;
   /**
+   * Spec 614.3 — per-c64-cycle overlay from vice iecbus → legacy core,
+   * installed by `installVice1541Bridge` in vice mode. Called by the
+   * scheduler's `afterCycleSync` AFTER `drive1541.tickToClock(c64Cycle)`
+   * so the C64-side $DD00 read formulas (which read from legacy
+   * `core.cpu_port`) reflect the current vice drive state. Without
+   * this per-cycle overlay, legacy `core.drv_port` is stale between
+   * $DD00 writes (pushFlush only fires on writes), causing the c64
+   * to read mis-aligned drive state during bit-bang.
+   */
+  viceCycleOverlay?: () => void;
+  /**
    * Spec 611 phase 611.2 — when `drive1541: "vice"` is selected the kernel
    * instantiates VICE1541 alongside the legacy DriveCpu (factory-wiring
    * evidence). The C64 side keeps reading the legacy drive for real work
@@ -720,38 +731,42 @@ export class HeadlessMachineKernel implements MachineKernel {
       ) & 0xff;
     }
 
+    // Spec 614.3 — per-cycle overlay extracted as a shared helper.
+    // Sources drv_data[8] from the vice1541 iecbus.ts singleton; fall
+    // back to facade encoding when the singleton lookup fails (test
+    // fixtures that don't import the port).
+    const overlayFromVice = (): void => {
+      let live: number;
+      try {
+        live = drvData8Live();
+      } catch {
+        live = viceSampleToDrvData8();
+      }
+      core.drv_data[8] = live;
+      core.recompute_drv_bus(8);
+      core.iec_update_ports();
+    };
+
+    // Spec 614.3 — expose the overlay so the scheduler can invoke it
+    // every c64 cycle. Without per-cycle overlay, legacy core.drv_port
+    // is only refreshed on $DD00 writes (via pushFlush below); reads
+    // from $DD00 between writes see stale drive state.
+    this.viceCycleOverlay = overlayFromVice;
+
     // 1. pushFlush re-target: vice.catchUpTo + flush + overlay +
     //    recompute. Spec 612 T3.1: overlay sources from
-    //    vice1541/iecbus.ts (drvData8Live), NOT legacy core refs.
-    //    Fall back to facade encoding when the singleton lookup
-    //    fails (e.g. test fixtures that don't import the port).
+    //    vice1541/iecbus.ts (drvData8Live).
     iec.pushFlush = {
       one: (unit, clk, _cs) => {
         if (unit !== 8) return; // single-1541 baseline
         vice.catchUpTo(clk);
         vice.flush();
-        let live: number;
-        try {
-          live = drvData8Live();
-        } catch {
-          live = viceSampleToDrvData8();
-        }
-        core.drv_data[8] = live;
-        core.recompute_drv_bus(8);
-        core.iec_update_ports();
+        overlayFromVice();
       },
       all: (clk, _cs) => {
         vice.catchUpTo(clk);
         vice.flush();
-        let live: number;
-        try {
-          live = drvData8Live();
-        } catch {
-          live = viceSampleToDrvData8();
-        }
-        core.drv_data[8] = live;
-        core.recompute_drv_bus(8);
-        core.iec_update_ports();
+        overlayFromVice();
       },
     };
 

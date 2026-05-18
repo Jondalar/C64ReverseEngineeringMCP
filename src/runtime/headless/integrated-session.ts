@@ -461,6 +461,22 @@ export class IntegratedSession {
     this.useCycleLockstep = opts.useCycleLockstep ?? false;
     this.useMicrocodedCpu = opts.useMicrocodedCpu ?? false;
 
+    // Spec 614.3 — CycleSchedulerVice: drive1541="vice" requires a
+    // per-c64-cycle scheduler. Forces useCycleLockstep on so the
+    // CycleLockstepSchedulerImpl path is built; the cycle-by-cycle
+    // drive tick is wired through `afterCycleSync` below (Spec 614 §3.3).
+    // Legacy drive ticking inside the scheduler is suppressed by the
+    // `disableLockstepDriveTick` flag — the vice drive runs through
+    // drive1541.tickToClock(c64Cycle) per cycle instead. Without this,
+    // the drive's $E9C0-$E9C3 debpia stable-read of $1800 spans
+    // ~7 drive cycles in which the c64's per-cycle CLK toggles get
+    // bunched into per-instruction bulk catch-up (Spec 614 §1 mismatch
+    // 3 — "stable-read failure mode"), causing CMP-fail loops in the
+    // byte-receive routine ($E9CD-$E9D5). Per-cycle drive tick fixes it.
+    if (opts.drive1541 === "vice") {
+      this.useCycleLockstep = true;
+    }
+
     // Spec 200-c2 + c3 + c4: kernel created up-front. Kernel constructor
     // owns alarm contexts, C64-side chips (iecBus, c64Bus, romSet,
     // c64Cpu, cia1, cia2, vic, sid, framebuffer), AND drive-side state
@@ -639,20 +655,38 @@ export class IntegratedSession {
         // delta. Required so IRQ service / branch page-cross / illegal
         // burn don't desync drive timing during IEC bit-bang.
         cpuCycleCounter: () => (cpuComponent as any).cycles,
-        // Spec 138 probe options.
+        // Spec 138 probe options. Spec 614.3 overrides for vice drive
+        // (see afterCycleSync below): drive1541="vice" forces
+        // disableLockstepDriveTick on (legacy DriveCpu stays quiet in
+        // vice mode per Spec 612 T3.2-fix-O; per-cycle drive tick
+        // happens through drive1541.tickToClock).
         tickDriveFirst: opts.probeMode === "B",
-        disableLockstepDriveTick: opts.probeMode === "C",
-        // In probe variants A/B (lockstep + flush), the lockstep loop
-        // ticks drive each cycle. We MUST update drive.lastSyncC64Clk
-        // here so the IEC-flush hook sees drive-already-current and
-        // becomes a no-op. Without this, flush re-ticks all cycles
-        // since lastSyncC64Clk=0, causing massive over-tick.
-        // For variant C, we DO want flush to do real work, so skip
-        // the sync (drive will accumulate naturally per flush call).
+        disableLockstepDriveTick:
+          opts.drive1541 === "vice" ? true : opts.probeMode === "C",
+        // Spec 614.3 §3.3 — per-c64-cycle drive tick wiring. In vice
+        // mode, every c64 cycle the scheduler advances the vice1541
+        // drive to the current c64 clk. This is the core fix for
+        // Spec 614 §1 mismatch 1 (atomicity granularity) and §1
+        // mismatch 3 (stable-read failure of drive ROM $E9C0-$E9C3
+        // debpia). VICE equiv: drive_cpu_execute_one called per c64
+        // cycle by maincpu_mainloop (src/maincpu.c).
+        //
+        // For probe variants A/B (legacy lockstep + flush, no vice
+        // drive), the original setSyncBaseline hook is preserved.
         afterCycleSync:
-          opts.probeMode === "A" || opts.probeMode === "B"
-            ? (c64Cycle, _driveCycle) => this.drive.setSyncBaseline(c64Cycle)
-            : undefined,
+          opts.drive1541 === "vice"
+            ? (c64Cycle, _driveCycle) => {
+                const d1541 = this.kernel.drive1541;
+                if (d1541) d1541.tickToClock(c64Cycle);
+                // Spec 614.3 — overlay vice drive state into legacy
+                // core every c64 cycle so $DD00 reads between writes
+                // see current drive lines (not just on $DD00 writes
+                // via pushFlush).
+                this.kernel.viceCycleOverlay?.();
+              }
+            : (opts.probeMode === "A" || opts.probeMode === "B"
+                ? (c64Cycle, _driveCycle) => this.drive.setSyncBaseline(c64Cycle)
+                : undefined),
         // Spec 280g per-cycle bus stealing wiring.
         // Spec 302: when useLiteralPortVicStall on, sample literal
         // port ba_low (captured in onCycle hook from prior
