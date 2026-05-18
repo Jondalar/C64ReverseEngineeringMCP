@@ -340,6 +340,19 @@ export class Vice1541Facade implements Drive1541 {
     return diskunit_clk_refs[0]!.value >>> 0;
   }
 
+  /**
+   * Spec 614 §3.2 — per-clock tick entry for the CycleSchedulerVice
+   * rebuild. Delegates to `drivecpu_execute(unit, target_clk)` —
+   * the same VICE primitive `catchUpTo` already wraps. Separate
+   * named entry so the scheduler binds against a void contract
+   * matching `drive_cpu_execute_one(unit, clk)` from VICE
+   * src/drive/drivecpu.c, and so the legacy adapter can stub
+   * independently of the vice catchUpTo path.
+   */
+  tickToClock(target_clk: number): void {
+    drivecpu_execute(this.unit, target_clk >>> 0);
+  }
+
   flush(): void {
     // Push-mode model: drivecpu_execute is synchronous — no pending
     // edges held back. Equivalent of VICE's drive_cpu_execute_all.

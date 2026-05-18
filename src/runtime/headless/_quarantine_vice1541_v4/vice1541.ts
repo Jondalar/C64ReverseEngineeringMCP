@@ -112,6 +112,17 @@ export class Vice1541 implements Drive1541 {
   }
 
   /**
+   * Spec 614 §3.2 — Drive1541.tickToClock stub. This class is in
+   * `_quarantine_vice1541_v4/` (CLAUDE.md "quarantine/1541-literal-vice").
+   * Surface added only to keep the interface contract satisfied so
+   * `tsc` builds the live `src/runtime/headless/drive1541/`
+   * Vice1541Facade. Not exercised at runtime.
+   */
+  tickToClock(target_clk: number): void {
+    this.driveCpu.driveCpuExecute(target_clk);
+  }
+
+  /**
    * Push-mode flush. In phase 611.3 there is no IEC edge queue yet —
    * VIA1 + the bus producer are absent — so flush is a no-op. Phase
    * 611.4 will replace this with the real edge flush.

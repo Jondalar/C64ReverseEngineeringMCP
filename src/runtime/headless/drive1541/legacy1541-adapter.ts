@@ -90,6 +90,18 @@ export class Legacy1541Adapter implements Drive1541 {
     throw adapterStub("catchUpTo");
   }
 
+  /**
+   * Spec 614 §3.2 — `tickToClock` not used in legacy mode. The
+   * CycleSchedulerVice is only installed when
+   * drive1541Implementation === "vice"; legacy mode keeps
+   * EventCatchupStrategy. Stub throws for symmetry with the rest
+   * of this adapter (legacy path drives `DriveCpu` directly, not
+   * via Drive1541).
+   */
+  tickToClock(_target_clk: number): void {
+    throw adapterStub("tickToClock");
+  }
+
   flush(): void {
     throw adapterStub("flush");
   }
