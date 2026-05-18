@@ -1,4 +1,10 @@
-// Spec 615 §4 #3: 6-game vice-mode acceptance.
+// Spec 615 §4 #3 + #4: 7-game vice-mode acceptance.
+// Doubles as runtime:proof-equivalent measurement — `npm run runtime:proof`
+// refuses bare `--drive1541=vice` (whitelist limited to `--only load-directory`
+// per Spec 611 phase 611.9 "default flip" gate, not yet lifted). This
+// 7-game test gives the same coverage as the runtime:proof baseline truth
+// table (specs/601-baseline-truth-table.md) but with drive1541="vice".
+// Baseline target: ≥ 5/7 GREEN (LEGACY1541 reference per Spec 601).
 // Pass criterion per game: after the canonical LOAD + RUN sequence and
 // a stabilization window, the c64 PC must be OUTSIDE the KERNAL LOAD
 // region ($E1xx-$E5xx, $F4xx-$F6xx) AND outside the BASIC READY zone
@@ -32,6 +38,7 @@ const GAMES: Game[] = [
   { name: "LNR s1",   disk: "samples/last_ninja_remix_s1[system3_1991].g64",                         command: 'LOAD"*",8,1\rRUN\r', settleSec: 90 },
   { name: "Scramble", disk: "samples/scramble_infinity.d64",                                          command: 'LOAD"*",8,1\rRUN\r', settleSec: 60 },
   { name: "Pawn s1",  disk: "samples/the_pawn_s1.g64",                                                command: 'LOAD"*",8,1\rRUN\r', settleSec: 60 },
+  { name: "Polarbear", disk: "samples/POLARBEAR.d64",                                                  command: 'LOAD"-*",8,1\rRUN\r', settleSec: 60 },
 ];
 
 function inKernalLoadOrBasic(pc: number): boolean {
@@ -104,7 +111,7 @@ for (const g of GAMES) {
   stopIntegratedSession(sessionId);
 }
 
-console.log("\nSpec 615 §4 #3 — 6-game vice-mode results");
+console.log("\nSpec 615 §4 #3 + #4 — 7-game vice-mode results (runtime:proof-equivalent)");
 console.log("=".repeat(80));
 let passed = 0;
 for (const r of results) {
