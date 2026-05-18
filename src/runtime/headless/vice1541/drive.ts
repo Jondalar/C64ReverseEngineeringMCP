@@ -110,6 +110,7 @@ import {
 import {
   drive_image_attach,
   drive_image_init,
+  disk_image_write_half_track,
 } from "./driveimage.js";
 import {
   driverom_init,
@@ -1726,20 +1727,11 @@ function clockRefForUnit(unr: number): ClockRef {
 // lands, drive.ts owns the GCR-image branch (the only one drive.c
 // actually flushes). The D64 branch routes through the writeback in
 // driveimage.ts via the GCR_dirty_track flag wire-up that lives there.
-function disk_image_write_half_track(
-  _image: unknown,
-  _half_track: number,
-  _raw: { data: Uint8Array | null; size: number },
-): number {
-  // Diskimage layer ports in T2.6 / T2.7 / T2.14 — once those land, this
-  // body is replaced by:
-  //   import { disk_image_write_half_track } from "./diskimage.js";
-  // For T2.10 the dirty-track flag gets cleared by the caller (per VICE
-  // contract); the actual byte-flush is a no-op until the diskimage layer
-  // wires in. driveimage.ts already exercises the writeback path through
-  // its own private helper, so detach-time GCR writeback works today.
-  return 0;
-}
+// Spec 615.4e (2026-05-18) — local NO-OP shadow REMOVED. driveimage.ts
+// now exports disk_image_write_half_track (the real format-dispatch
+// switch over G64/G71/D64/etc). Imported above. drive_gcr_data_writeback
+// (line 1230) calls real impl → dirty tracks actually flushed instead
+// of silent return-0. Spec 612 PL-10 + FC-7.
 
 // PORT OF: vice/src/diskimage/diskimage.c:737-740 (disk_image_write_p64_image)
 // P64 stub per Spec 612 §10 + feedback_p64_stubs_ok.md.

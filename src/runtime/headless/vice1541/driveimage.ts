@@ -221,9 +221,11 @@ function disk_image_write_p64_image(_image: disk_image_t): number {
 // Same pattern as Spec 615.2/3/4a + Spec 612 FC-7 P0 (commit 5744cd6).
 
 // PORT OF: vice/src/diskimage/diskimage.c (disk_image_write_half_track).
-// Pending diskimage.ts — dispatches to fsimage_*_write_half_track per
-// image.type, mirroring disk_image_read_image's switch.
-function disk_image_write_half_track(
+// Spec 615.4e (2026-05-18) — exported so drive.ts can import + delete
+// its local NO-OP shadow (drive.ts:1729). Pending diskimage.ts split
+// per Spec 612 layer 6-7 work; for now driveimage.ts owns the
+// dispatch. Spec 612 PL-10.
+export function disk_image_write_half_track(
   image: disk_image_t,
   half_track: number,
   raw: { data: Uint8Array | null; size: number },
