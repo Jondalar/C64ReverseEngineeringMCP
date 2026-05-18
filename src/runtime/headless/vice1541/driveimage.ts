@@ -93,7 +93,7 @@ import {
 // per T2.5 hand-off note "owned by future drive.ts T2.10"; that hand-off
 // is now done — drive.ts allocates diskunit_context[]. Importing from
 // drivesync.ts here meant driveimage saw the NULL stub array.
-import { diskunit_context, drive_set_half_track } from "./drive.js";
+import { diskunit_context, drive_set_half_track, drive_gcr_data_writeback } from "./drive.js";
 import {
   fsimage_read_gcr_image,
   fsimage_gcr_write_half_track,
@@ -212,31 +212,13 @@ function disk_image_write_p64_image(_image: disk_image_t): number {
 
 // PORT OF: vice/src/drive/drive.c:749 (drive_gcr_data_writeback)
 // Lifecycle helper pending drive.ts (Spec 612 layer 13). The full VICE
-// body walks every dirty half-track and re-encodes via
-// disk_image_write_half_track. The minimum behaviour needed by
-// drive_image_detach is: if the loaded image is GCR-backed and any tracks
-// are dirty, flush them back through disk_image_write_track. The full
-// ported body supersedes this when drive.ts lands; the call site in
-// drive_image_detach stays.
-function drive_gcr_data_writeback(drive: drive_t): void {
-  if (drive.image === null) return;
-  if (drive.image.gcr === null) return;
-  if (drive.GCR_image_loaded === 0) return;
-  if (drive.read_only !== 0) return;
-  if (drive.GCR_dirty_track === 0) return;
-
-  // VICE walks every track; until drive.ts owns the full state machine,
-  // flush the currently-loaded track. The dirty-flag is cleared by the
-  // writeback path so subsequent calls are idempotent.
-  const idx = drive.current_half_track - 2;
-  if (idx >= 0 && idx < MAX_GCR_TRACKS) {
-    const track = drive.image.gcr.tracks[idx];
-    if (track !== undefined) {
-      disk_image_write_half_track(drive.image, drive.current_half_track, track);
-    }
-  }
-  drive.GCR_dirty_track = 0;
-}
+// PORT OF: vice/src/drive/drive.c:749 (drive_gcr_data_writeback).
+// Spec 615.4b (2026-05-18) — simplified shadow REMOVED. drive.ts:1230
+// has the real port (full VICE walk: iterates every half-track,
+// re-encodes via disk_image_write_half_track per-track based on
+// dirty bit). Local shadow only flushed current_half_track, leaving
+// other dirty tracks unwritten on detach. Spec 612 PL-10 + FC-7.
+// Same pattern as Spec 615.2/3/4a + Spec 612 FC-7 P0 (commit 5744cd6).
 
 // PORT OF: vice/src/diskimage/diskimage.c (disk_image_write_half_track).
 // Pending diskimage.ts — dispatches to fsimage_*_write_half_track per
