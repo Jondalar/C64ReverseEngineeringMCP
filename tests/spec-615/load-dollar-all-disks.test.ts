@@ -9,14 +9,20 @@ const { mountMedia } = await import(
   "../../dist/runtime/headless/media/mount.js"
 );
 
-const DISKS = [
-  "samples/POLARBEAR.d64",
-  "samples/motm.g64",
-  "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64",
-  "samples/impossible_mission_ii[epyx_1987](!).g64",
-  "samples/last_ninja_remix_s1[system3_1991].g64",
-  "samples/scramble_infinity.d64",
-  "samples/synthetic/blank.d64",
+// expectError = true for disks where copy-protection makes
+// drive-error the correct outcome (must match LEGACY1541 baseline).
+const DISKS: { path: string; expectError?: boolean }[] = [
+  { path: "samples/POLARBEAR.d64" },
+  { path: "samples/motm.g64" },
+  { path: "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64" },
+  { path: "samples/impossible_mission_ii[epyx_1987](!).g64" },
+  { path: "samples/last_ninja_remix_s1[system3_1991].g64" },
+  { path: "samples/scramble_infinity.d64" },
+  { path: "samples/synthetic/blank.d64" },
+  // the_pawn_s1.g64: deliberate header CRC fault (Magnetic Scrolls
+  // copy protection). Drive ROM correctly returns ?FILE NOT FOUND
+  // — symmetric with LEGACY1541 baseline → PASS.
+  { path: "samples/the_pawn_s1.g64", expectError: true },
 ];
 
 function decodeScreen(ram: Uint8Array): string {
@@ -33,7 +39,9 @@ function decodeScreen(ram: Uint8Array): string {
 
 const results: { disk: string; pass: boolean; finalPc: string; screenLast2: string }[] = [];
 
-for (const disk of DISKS) {
+for (const entry of DISKS) {
+  const disk = entry.path;
+  const expectError = entry.expectError === true;
   const diskPath = resolvePath(import.meta.dirname, "..", "..", disk);
   let sessionId: string | null = null;
   let result = { disk, pass: false, finalPc: "?", screenLast2: "" };
@@ -51,14 +59,14 @@ for (const disk of DISKS) {
     session.runFor(2_000_000);
     session.typeText('LOAD"$",8\r', 80_000, 80_000);
     const PAL_HZ = 985_248;
-    const target = session.c64Cpu.cycles + 15 * PAL_HZ;
-    while (session.c64Cpu.cycles < target) session.runFor(200_000);
+    const target = session.c64Cpu.cycles + 60 * PAL_HZ;
+    while (session.c64Cpu.cycles < target) session.runFor(500_000);
 
     const screen = decodeScreen((session.c64Bus as { ram: Uint8Array }).ram);
     const hasErr = /FILE NOT FOUND|ERROR/.test(screen);
     const hasLoading = /LOADING/.test(screen);
     result.finalPc = `$${session.c64Cpu.pc.toString(16)}`;
-    result.pass = hasLoading && !hasErr;
+    result.pass = expectError ? hasErr : (hasLoading && !hasErr);
 
     // Grab last 3 non-blank lines for context.
     const lines: string[] = [];

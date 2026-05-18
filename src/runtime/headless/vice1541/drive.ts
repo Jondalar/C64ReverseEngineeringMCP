@@ -659,6 +659,28 @@ export function drive_shutdown(): void {
     // VICE: lib_free(unit); diskunit_context[unr] = NULL;
     diskunit_context[unr] = null;
   }
+
+  // PORT NOTE (Spec 615 P0 multi-session lifecycle): VICE keeps
+  // `rom_loaded` + `drive_init_was_called` set across drive_shutdown
+  // because VICE's machine lifecycle = process lifetime — drive_init
+  // is called exactly once. The headless port re-instantiates the
+  // facade per session in the same node process, so drive_shutdown
+  // must restore module state to pre-init for the next drive_init to
+  // re-run loop blocks 1-5 (especially loop block 4 which allocates
+  // drive.gcr via gcr_create_image and positions head at HT 36).
+  // Without this, second-session drives keep drive.gcr === null →
+  // mountMedia's driveimage_attach writes to a null GCR image →
+  // LOAD"$",8 fails on every disk except the first. PL-5 deviation
+  // ack'd: this matches VICE's "fresh-boot" semantic, not a new
+  // helper.
+  rom_loaded = 0;
+  drive_init_was_called = 0;
+  jam_action = MACHINE_JAM_ACTION_DIALOG;
+  for (let u = 0; u < NUM_DISK_UNITS; u++) {
+    drive_led_color[u] = 0;
+    is_jammed[u] = false;
+    jam_reason[u] = null;
+  }
 }
 
 // =============================================================================

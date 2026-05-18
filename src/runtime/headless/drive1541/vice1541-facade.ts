@@ -71,6 +71,7 @@ import {
 import type { FILE_t } from "../vice1541/fsimage_gcr.js";
 import {
   drive_init,
+  drive_shutdown,
   drive_install_hooks,
   drive_cpu_early_init_all,
   drive_set_half_track,
@@ -214,6 +215,17 @@ export class Vice1541Facade implements Drive1541 {
     is.interrupt_ack_irq = (_cs: unknown) => this.intStatus.ackIrq();
     is.interrupt_ack_nmi = (_cs: unknown) => this.intStatus.ackNmi();
     is.interrupt_ack_reset = (_cs: unknown) => { this.intStatus.globalPendingInt &= ~(1 << 2); };
+
+    // Spec 615 P0 (multi-session lifecycle): tear down any prior
+    // vice1541 module state before re-init. First ctor: drive_shutdown
+    // early-returns on drive_init_was_called=0 (no-op). Second+ ctor:
+    // frees prior diskunit_context entries + drives, then resets
+    // rom_loaded + drive_init_was_called to 0 so the drive_init below
+    // re-runs the full PL-8 init order (especially loop block 4 which
+    // allocates drive.gcr — without this, second-session drives keep
+    // drive.gcr === null and mountMedia fails on every disk after the
+    // first).
+    drive_shutdown();
 
     // 1. Install hook bundles — these wire the port to the alarm context,
     //    interrupt-cpu-status, ROM resource resolver, and lifecycle no-ops.
