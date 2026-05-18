@@ -540,6 +540,28 @@ export class Cpu65xxVice implements CycleSteppable {
     }
   }
 
+  /**
+   * Spec 614.1 (§3.1) — per-cycle scheduler entry for the
+   * CycleSchedulerVice rebuild (Spec 614 §3.3). Advances the c64
+   * CPU by exactly one master clock cycle.
+   *
+   * Currently a thin alias over `executeCycle()` because the
+   * microcoded engine is already cycle-stepped (see class header
+   * §"Implementation strategy"). Kept as a named entry so the
+   * Spec 614.3 scheduler binds against an API whose name matches
+   * the VICE-side primitive (maincpu_mainloop's per-cycle dispatch
+   * in mainc64cpu.c). Renaming or replacing `executeCycle` later
+   * does not ripple into the scheduler.
+   *
+   * Pairs with `isAtInstructionBoundary()` for the drive-side
+   * scheduler's instruction-boundary alarm dispatch (Spec 614 §3.2).
+   *
+   * VICE cite: src/mainc64cpu.c — per-cycle body of maincpu_mainloop.
+   */
+  tickOne(): void {
+    this.executeCycle();
+  }
+
   // -------- Spec 401 / OQ-401-3: unified DO_INTERRUPT path --------
   /**
    * doInterrupt — port of VICE DO_INTERRUPT macro (6510dtvcore.c:354-407).
