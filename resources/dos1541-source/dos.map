@@ -1,0 +1,38 @@
+Modules list:
+-------------
+dos.o:
+    S0000             Offs=000000  Size=000101  Align=00001  Fill=0000
+    S0200             Offs=000000  Size=000100  Align=00001  Fill=0000
+    S1800             Offs=000000  Size=000010  Align=00001  Fill=0000
+    S1C00             Offs=000000  Size=00000F  Align=00001  Fill=0000
+    SC000             Offs=000000  Size=003F79  Align=00001  Fill=0000
+    SFFE6             Offs=000000  Size=000014  Align=00001  Fill=0000
+    SFFFA             Offs=000000  Size=000006  Align=00001  Fill=0000
+
+
+Segment list:
+-------------
+Name                   Start     End    Size  Align
+----------------------------------------------------
+S0000                 000000  000100  000101  00001
+S0200                 000200  0002FF  000100  00001
+S1800                 001800  00180F  000010  00001
+S1C00                 001C00  001C0E  00000F  00001
+SC000                 00C000  00FF78  003F79  00001
+SFFE6                 00FFE6  00FFF9  000014  00001
+SFFFA                 00FFFA  00FFFF  000006  00001
+
+
+Exports list by name:
+---------------------
+
+
+
+Exports list by value:
+----------------------
+
+
+
+Imports list:
+-------------
+

@@ -960,22 +960,29 @@ export function drive_6510core_execute(
   function CLV(): void { INC_PC(1); LOCAL_SET_OVERFLOW(0); }
 
   // CMP / CPX / CPY (6510core.c:1067-1098).
+  // Spec 615.14 (2026-05-18): VICE C uses `unsigned int tmp`; the comparison
+  // `tmp < 0x100` then distinguishes negative (large uint, FALSE) from
+  // positive-small (TRUE). JS subtraction yields a SIGNED number — negative
+  // results pass `< 0x100` falsely → carry stuck at 1. Force uint32 via
+  // `>>> 0`. Identified via 1541 DOS ROM trace: cmdset's CPY #$2A (Y=1)
+  // computed C=1 instead of C=0 → BCC mis-branched → longln error → drive
+  // returned err 50 to c64 instead of opening directory.
   function CMP(value: number, clk_inc: number, pc_inc: number): void {
-    const tmp = reg_a - (value & 0xff);
+    const tmp = (reg_a - (value & 0xff)) >>> 0;
     LOCAL_SET_CARRY(tmp < 0x100 ? 1 : 0);
     LOCAL_SET_NZ(tmp & 0xff);
     CLK_ADD(clk_inc);
     INC_PC(pc_inc);
   }
   function CPX(value: number, clk_inc: number, pc_inc: number): void {
-    const tmp = reg_x - (value & 0xff);
+    const tmp = (reg_x - (value & 0xff)) >>> 0;
     LOCAL_SET_CARRY(tmp < 0x100 ? 1 : 0);
     LOCAL_SET_NZ(tmp & 0xff);
     CLK_ADD(clk_inc);
     INC_PC(pc_inc);
   }
   function CPY(value: number, clk_inc: number, pc_inc: number): void {
-    const tmp = reg_y - (value & 0xff);
+    const tmp = (reg_y - (value & 0xff)) >>> 0;
     LOCAL_SET_CARRY(tmp < 0x100 ? 1 : 0);
     LOCAL_SET_NZ(tmp & 0xff);
     CLK_ADD(clk_inc);
