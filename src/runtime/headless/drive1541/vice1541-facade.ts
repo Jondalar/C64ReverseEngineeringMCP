@@ -298,7 +298,7 @@ export class Vice1541Facade implements Drive1541 {
     };
   }
 
-  iecLineDrive(c64Side: Drive1541IecInput, _clk?: number): void {
+  iecLineDrive(c64Side: Drive1541IecInput, clk?: number): void {
     // Compose the VICE-shaped CIA2 PA byte and push it through the IEC
     // bus model's installed write callback (iecbus_cpu_write_conf1 in
     // our single-drive setup). VICE bit layout (c64cia2.c:150-163):
@@ -318,20 +318,26 @@ export class Vice1541Facade implements Drive1541 {
       (c64Side.bus_clk ? 0x10 : 0) |
       (c64Side.bus_data ? 0x20 : 0) |
       0x40; // bit 6 = CLK pulse input — irrelevant to write path
-    // Use the installed conf1 write callback so iecbus.ts performs the
-    // CA1 edge dispatch + drv_bus[8] recompute for us. The current
-    // diskunit_clk[0] value is the canonical "drive clk" — keep it.
-    // Importing iecbus_callback_write would lose the late-binding
-    // assignment iecbus_status_set + calculate_callback_index do, so
-    // we reach via the module namespace.
-    const clk = diskunit_clk_refs[0]!.value;
+    // Codex P0 item 1 (2026-05-19): use the CALLER-SUPPLIED `clk`
+    // (= effClk passed from the bridge's setC64Output post-hook, which
+    // is `maincpu_clk + write_offset` per VICE c64cia2.c:162). The
+    // previous code read `diskunit_clk_refs[0].value` — the drive's
+    // own clock, which lags the c64 by the per-cycle drive-tick
+    // bookkeeping. Using the drive clock would advance the drive UP
+    // TO its own current clock (no-op), missing the c64-side write
+    // moment. VICE iecbus_callback_write fires drive_cpu_execute_one
+    // with the c64 clock so the drive catches up to the c64 write
+    // instant BEFORE iec_update_cpu_bus mutates state. Fall back to
+    // diskunit_clk_refs[0].value only when the bridge omitted the
+    // arg (legacy tests).
+    const effClk = (clk !== undefined ? (clk >>> 0) : diskunit_clk_refs[0]!.value);
     // iecbus.iec_update_cpu_bus + write_conf1 dispatched dynamically.
     // The c64iec.ts `iec_drive_write` callback writes drv_bus[8 + dnr]
     // for the drive-side path; we use the c64-side path instead — the
     // bridge models the C64 writing to $DD00.
     // Late-binding through ./iecbus.js module namespace per c64iec.ts
     // precedent (see install_iecbus_update_ports).
-    void _maybe_call_iecbus_callback_write(tmp, clk);
+    void _maybe_call_iecbus_callback_write(tmp, effClk);
   }
 
   catchUpTo(c64Clock: number): number {
