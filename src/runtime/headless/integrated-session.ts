@@ -675,9 +675,18 @@ export class IntegratedSession {
         // drive), the original setSyncBaseline hook is preserved.
         afterCycleSync:
           opts.drive1541 === "vice"
-            ? (c64Cycle, _driveCycle) => {
+            ? (_schedC64Cycle, _driveCycle) => {
+                // Codex P0 follow-up #2 (2026-05-19): use c64Cpu.cycles,
+                // NOT the scheduler-internal cycleCount. The scheduler
+                // increments its own counter from 0 while c64Cpu.cycles
+                // may already be non-zero (kernel-ctor work, prior
+                // session phases). pushFlush paths pass c64.cycles
+                // directly. If afterCycleSync passed scheduler.cycleCount
+                // here, the two paths would alternate between two
+                // different clock domains, regressing drivecpu's
+                // last_clk every other call → drive clock runaway.
                 const d1541 = this.kernel.drive1541;
-                if (d1541) d1541.tickToClock(c64Cycle);
+                if (d1541) d1541.tickToClock(this.c64Cpu.cycles);
                 // Spec 614.3 — overlay vice drive state into legacy
                 // core every c64 cycle so $DD00 reads between writes
                 // see current drive lines (not just on $DD00 writes
