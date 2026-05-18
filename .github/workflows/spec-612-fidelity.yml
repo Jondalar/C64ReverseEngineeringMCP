@@ -1,0 +1,41 @@
+name: spec-612-fidelity
+
+# Spec 612 §6 (T0.2) — CI gate for the 1541 port.
+# Runs `npm run check:1541-fidelity` (scripts/check-1541-port-fidelity.mjs)
+# on every PR that touches the vice1541/ port surface or Spec 612 docs.
+# Exit 1 from the script (any FC-1..FC-6 FAIL) fails this job.
+# Branch protection on master must require this check to block merge.
+
+on:
+  pull_request:
+    paths:
+      - "src/runtime/headless/vice1541/**"
+      - "specs/612-*"
+      - "scripts/check-1541-port-fidelity.mjs"
+      - ".github/workflows/spec-612-fidelity.yml"
+  push:
+    branches-ignore:
+      - master
+    paths:
+      - "src/runtime/headless/vice1541/**"
+      - "specs/612-*"
+      - "scripts/check-1541-port-fidelity.mjs"
+      - ".github/workflows/spec-612-fidelity.yml"
+
+concurrency:
+  group: spec-612-fidelity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fidelity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Run Spec 612 §6 fidelity check
+        run: npm run check:1541-fidelity

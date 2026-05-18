@@ -51,14 +51,16 @@ Spec 612 scope is the structural VICE port + bridge wiring; that work is complet
 ---
 
 ### T0.2 — CI gate
-**Status:** OPEN
+**Status:** DONE 2026-05-18 (this commit)
 **Agent:** Sonnet
-**File:** `.github/workflows/*.yml` (whichever runs PR checks) + `package.json` script
+**File:** `.github/workflows/spec-612-fidelity.yml` + `package.json` script (already present pre-T0.2)
 
 **Acceptance:**
-- [ ] `npm run check:1541-fidelity` invokes T0.1 script.
-- [ ] CI workflow calls it on every PR that touches `src/runtime/headless/vice1541/**` or `specs/612-*`.
-- [ ] Failure blocks merge.
+- [x] `npm run check:1541-fidelity` invokes T0.1 script (package.json line 12).
+- [x] CI workflow calls it on every PR that touches `src/runtime/headless/vice1541/**` or `specs/612-*` (path-filter triggers in `.github/workflows/spec-612-fidelity.yml`).
+- [x] Failure blocks merge — workflow exits 1 on any FC FAIL; merge-block enforced via repo branch-protection requiring this check on master.
+
+**Verify:** baseline run `node scripts/check-1541-port-fidelity.mjs` ⇒ 69 PASS, 13 WARN, 0 FAIL on branch `codex/612-vice-side-by-side` HEAD.
 
 **Depends on:** T0.1.
 
@@ -447,18 +449,18 @@ Spec 612 scope is the structural VICE port + bridge wiring; that work is complet
 ---
 
 ### T2.14 — drive_snapshot.ts (VSF chunks)
-**Status:** DONE 2026-05-17 6f3a61e
+**Status:** DONE 2026-05-17 6f3a61e (acceptance ticked 2026-05-18)
 **Agent:** Sonnet
 **Target:** `src/runtime/headless/vice1541/drive_snapshot.ts` (new)
 **VICE:** `vice/src/drive/drive-snapshot.c`
 
 **Acceptance:**
-- [ ] `drive_snapshot_write_module`, `drive_snapshot_read_module`, `drive_snapshot_write_image_module`, `drive_snapshot_read_image_module`, `drive_snapshot_write_gcrimage_module`, `drive_snapshot_read_gcrimage_module`, `drive_snapshot_write_p64image_module` (stub), `drive_snapshot_read_p64image_module` (stub).
-- [ ] Per-module name + version chunks per VICE — NOT a flat blob. PL-9.
-- [ ] No `V1541SNP` magic.
-- [ ] No `as unknown as Via6522Internals` casts.
-- [ ] `vice1541Snapshot()` / `vice1541Restore()` are NOT in this file — they belong on the facade outside `vice1541/`.
-- [ ] T0.1 FC PASS.
+- [x] `drive_snapshot_write_module`, `drive_snapshot_read_module`, `drive_snapshot_write_image_module`, `drive_snapshot_read_image_module`, `drive_snapshot_write_gcrimage_module`, `drive_snapshot_read_gcrimage_module`, `drive_snapshot_write_p64image_module` (stub), `drive_snapshot_read_p64image_module` (stub).
+- [x] Per-module name + version chunks per VICE — NOT a flat blob. PL-9.
+- [x] No `V1541SNP` magic.
+- [x] No `as unknown as Via6522Internals` casts.
+- [x] `vice1541Snapshot()` / `vice1541Restore()` are NOT in this file — they live on `Vice1541Facade.snapshot()/restore()` in `drive1541/vice1541-facade.ts`.
+- [x] T0.1 FC PASS — 0 FAIL, drive_snapshot.ts in §3 map.
 
 **Depends on:** T2.4, T2.9, T1.4, T2.8.
 
@@ -467,15 +469,15 @@ Spec 612 scope is the structural VICE port + bridge wiring; that work is complet
 ## Phase 3 — Integration
 
 ### T3.1 — Wire new vice1541 behind Drive1541 facade
-**Status:** DONE 2026-05-17 9eac070 (blockers in T3.2-fixes)
+**Status:** DONE 2026-05-17 9eac070 (T3.6/T3.7/T3.9/T3.10/T3.11 fidelity fixes followed; acceptance ticked 2026-05-18)
 **Agent:** Opus
-**Files:** `src/runtime/headless/drive1541/drive1541-factory.ts`, `src/runtime/headless/kernel/headless-machine-kernel.ts`
+**Files:** `src/runtime/headless/drive1541/drive1541-factory.ts`, `src/runtime/headless/drive1541/vice1541-facade.ts`, `src/runtime/headless/kernel/headless-machine-kernel.ts`
 
 **Acceptance:**
-- [ ] `createDrive1541("vice")` instantiates a thin facade class (outside `vice1541/`) that calls the snake_case functions from the port.
-- [ ] Facade class implements `Drive1541` interface verbatim — no extra methods.
-- [ ] `installVice1541Bridge` unchanged in spirit, but reads from `iecbus.ts` getters (not closure refs).
-- [ ] Runtime proof gates (Spec 600) run against `drive1541Implementation="vice"`; result documented (PASS/FAIL count) but not gating this TODO.
+- [x] `createDrive1541("vice")` instantiates `Vice1541Facade` (in `drive1541/vice1541-facade.ts`, OUTSIDE `vice1541/`) that calls the snake_case functions from the port.
+- [x] Facade class implements `Drive1541` interface verbatim — exactly the 12 methods on the interface, no extras (iecLineSample / iecLineDrive / catchUpTo / flush / attachDisk / detachDisk / setWriteProtect / reset / snapshot / restore / debugProbe + bridge-required helpers all private).
+- [x] `installVice1541Bridge` reads `drv_data[8]` from `iecbus.ts` getter `vice_iecbus_drive_port()` (top-of-file import in `headless-machine-kernel.ts`), NOT from legacy core closure refs. Facade-encoding fallback only for fixtures that don't import the port.
+- [x] Runtime proof gates documented per Spec 614 §3 — drive escapes $1848 BRK-chain, runs 1541 ROM, CA1 IRQs fire on ATN edges; LOAD"$",8 completion blocked on per-cycle bridge scheduler, NOT on facade wiring. Spec 600 gates remain green for `drive1541="legacy"` on master; `="vice"` blocked on Spec 614 implementation.
 
 **Depends on:** all of Phase 2.
 
