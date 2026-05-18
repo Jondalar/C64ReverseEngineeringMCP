@@ -80,6 +80,14 @@ This spec freezes the doctrine that prevents the 5th attempt from drifting.
 **PL-10.** No duplicate ports of the same C file.
 - If `vice1541/viacore.ts` exists, `via/via6522-vice.ts` is deleted (or vice versa). Pre-merge gate enforces uniqueness.
 
+**PL-11.** No legacy shadow reads in vice mode.
+- (Added 2026-05-18 by Spec 614 Codex P0 follow-up.) When `drive1541="vice"` the legacy DriveCpu / legacy GcrShifter / legacy headPosition are quiet. Reading their `.cycles`, `.cpu.cycles`, `.led_status` etc. at runtime returns stale data. Kernel/bridge code must guard these reads with `if (this.drive1541Implementation === "vice") throw …` OR migrate to the vice-side state source (e.g. `kernel.drive1541.unit.clk_ptr.value`, `iecbus.iecbus.drv_data[unit]`). Init-time one-shot reads are exempt.
+
+**PL-12.** No "lifecycle helper pending X" shadows. (Added 2026-05-18 by Spec 615.)
+- During multi-phase port work it is tempting to write a local minimal version of a function whose full port "lands later" in another file. **Forbidden.** Pattern struck 10× in `vice1541/`-intra scope (Spec 615.1 sweep): each shadow silently overrode the real impl once that landed, causing subtle behavioural divergence.
+- If the real impl is not yet available, the local function MUST be an explicit fail-fast `throw new Error("PORT-STUB: not implemented per Spec 612 / pending <real-location>")`. No partial-behaviour shims. No "minimum invariants" minimal versions. The caller fails loudly so the missing port is unambiguous.
+- When the real impl lands, the shadow MUST be deleted (not commented out) and the caller switched to `import { X } from "./real.js"`. CI gate FC-10 (§6) catches placeholders during PR.
+
 ## 3. File Mapping Table (FM)
 
 The authoritative TS↔C map for the 1541 rebuild. **A TS file in `vice1541/` MUST appear in this table.** A TS file not in the table is a violation (delete or move to the kernel boundary).
@@ -174,6 +182,23 @@ Script: `scripts/check-1541-port-fidelity.mjs`. Runs in CI on every PR touching 
 **FC-5 — Line-count ratio.** For each ported file, `wc -l ts / wc -l c` must be in `[0.7, 1.6]`. Outside → WARN.
 
 **FC-6 — No duplicate port.** No two TS files map to the same C file. PL-10.
+
+**FC-7 — Function-body audit.** (Added 2026-05-18 by Spec 614 FC-7 P0; pre-existing implementation in `scripts/audit-vice1541-stubs.mjs`.) Scan `vice1541/**/*.ts` for function bodies that are: `EMPTY {}`, `RETURN_VOID (return;)`, `RETURN_FALSY (return 0/false/null)`. Each hit must either match a verifiable VICE C source no-op (DEBUG-gated, 1581/Plus4-only branch, etc.) OR be flagged. Hidden stubs sitting under a "lifecycle helper pending …" comment are violations of PL-12.
+
+**FC-8 — Shadow-stub detection.** (Added 2026-05-18 by Spec 615.1.) Same function name `^(export )?function NAME` appearing in ≥2 `vice1541/*.ts` files where ≥1 body is `EMPTY` / `return 0` / `return null` / `throw new Error(...PORT-STUB...)` and ≥1 other body is real (substantive port) → FAIL. The minimal/throw body is the shadow; remove it and `import` from the file owning the real impl. Inverse case (shadow in the "owning" file, real impl in a different file) → FAIL too.
+
+**FC-9 — Cross-layer write-after-init audit.** Reserved for kernel + bridge code, not vice1541-intra. Kept in this list as a forward marker.
+
+**FC-10 — Placeholder grep.** (Added 2026-05-18 by Spec 615.5b.) Grep `vice1541/**/*.ts` comments for any of:
+- `/pending\s+(spec\s+612|drive\.ts|diskimage\.ts|log\.ts|drivesync\.ts)/i`
+- `/placeholder\s+(until|pending|stub)/i`
+- `/lifecycle helper pending/i`
+List every hit on PR. Each must be one of:
+  (a) accompanied by a PL-12-conformant fail-fast `throw new Error("PORT-STUB: ...")` body,
+  (b) annotated with a tracked task ID (e.g. `Spec 612 T2.10`), AND
+  (c) verified by `npm run check:1541-fidelity` against the FC-7/FC-8 sweep.
+
+Uncategorised placeholders fail the gate. This catches future T2.X-handoff drift before the same shadow-stub bug class recurs.
 
 Failures are listed as `FAIL <ts-file>: <rule> — <detail>` and exit 1.
 
