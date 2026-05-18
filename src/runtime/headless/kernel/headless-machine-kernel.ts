@@ -753,34 +753,36 @@ export class HeadlessMachineKernel implements MachineKernel {
     // from $DD00 between writes see stale drive state.
     this.viceCycleOverlay = overlayFromVice;
 
-    // 1. Spec 614.4 (§3.3) — pushFlush stripped in vice mode.
-    //    Drive is already at clk via per-c64-cycle tickToClock
-    //    (Spec 614.3 afterCycleSync). vice.catchUpTo(clk) here was
-    //    redundant (drivecpu_execute returns immediately when
-    //    clk_value <= cpu.last_clk). vice.flush() is a no-op in the
-    //    push-mode model (no pending edges held back).
+    // 1. Codex P0 item 2 (2026-05-19) — pushFlush restores per-event
+    //    drive catch-up BEFORE the overlay. Spec 614.4 had stripped
+    //    `vice.catchUpTo(clk)` on the (wrong) assumption that the
+    //    Spec 614.3 per-c64-cycle tick covered all events. But VICE's
+    //    `iecbus_cpu_read_conf1` (iecbus.c:227) and
+    //    `iecbus_cpu_write_conf1` (iecbus.c:255) BOTH call
+    //    `drive_cpu_execute_one/all(clock)` AT THE EXACT C64-SIDE
+    //    READ/WRITE INSTANT — sub-cycle resolution within a single
+    //    c64 instruction. The afterCycleSync per-c64-cycle tick only
+    //    advances drive at c64-cycle boundaries, missing the precise
+    //    sub-cycle alignment for $DD00 R/W timing.
     //
-    //    Overlay still runs — it's the data step (legacy core's
-    //    drv_data[8] mirror, recompute_drv_bus, iec_update_ports).
-    //    Per-cycle overlay via afterCycleSync covers most cases,
-    //    but pushFlush events also fire BEFORE c64 reads $DD00 within
-    //    a single c64 instruction — keep the overlay step on
-    //    pushFlush so the c64-side read formulas in
-    //    `buildC64InputBits` see the freshest drive lines that the
-    //    bridge's setC64Output post-hook just wrote to vice state.
+    //    With drive caught up to the exact event clock, the overlay +
+    //    ATN-edge CA1 signal that follow happen with state and IRQs
+    //    aligned to VICE. Without it, ATN-edge CA1 fires at a stale
+    //    drive clock and the drive's bit-bang routine misses edges.
     //
-    //    VICE cite: src/maincpu.c — iecbus_callback_write does:
-    //      drive_cpu_execute_one(unit, clk)  ← we drop (per-cycle tick covers it)
-    //      iec_update_cpu_bus(byte)          ← already done by origSetC64Output
-    //      viacore_signal(via1d1541, CA1, edge) ← done by vice.iecLineDrive below
-    //      drv_bus[8] = recompute_formula(...)   ← overlayFromVice's recompute_drv_bus
-    //      iec_update_ports()                 ← overlayFromVice's iec_update_ports
+    //    Spec 614.4 strip was REGRESSION, not improvement. Restoring.
+    //
+    //    VICE cite: src/iecbus/iecbus.c:227 (iecbus_cpu_read_conf1) +
+    //    iecbus.c:255 (iecbus_cpu_write_conf1) — drive_cpu_execute_*
+    //    is the FIRST call before iec_update_cpu_bus / overlay.
     iec.pushFlush = {
-      one: (unit, _clk, _cs) => {
+      one: (unit, clk, _cs) => {
         if (unit !== 8) return; // single-1541 baseline
+        vice.tickToClock(clk >>> 0);  // = drive_cpu_execute_one(unit, clk)
         overlayFromVice();
       },
-      all: (_clk, _cs) => {
+      all: (clk, _cs) => {
+        vice.tickToClock(clk >>> 0);  // = drive_cpu_execute_all(clk)
         overlayFromVice();
       },
     };
