@@ -578,6 +578,55 @@ Where the bad PC originates: opcode fetch from invalid memory page (e.g. driveme
 
 ---
 
+### T3.8 — Drive walks to RAM mirror $0800 via JMP ($0030) — NEW 2026-05-18
+**Status:** OPEN — narrower than T3.5 after T3.6+T3.7 fixes landed
+
+**Symptom after T3.6 + T3.7:** Drive 6510 now runs 1:1 with c64 and receives CA1 IRQ on ATN edges (via1.ifr=$02 confirmed). Drive PC reaches T1 IRQ job dispatcher at $F2B0-$F379. At $F379 (`JMP ($0030)`) drive jumps through ZP $30/$31 = $00/$08 → PC = $0800 → walks into RAM mirror (drive_ram[$00] via &0x7FF) → BRK chain again.
+
+**Code path leading to JMP ($0030):**
+```
+$F35F: LDX $3D
+$F361: LDA $45        ; A = $45 = (job code byte) & $78
+$F363: CMP #$40       ; if A == $40 (READ job)
+$F365: BEQ $F37C
+$F367: CMP #$60       ; if A == $60 (M-E job)
+$F369: BEQ $F36E
+$F36B: JMP $F3B1      ; normal job execution
+$F36E: LDA $3F        ; (reached only if A == $60)
+$F370: CLC; ADC #$03  ; A = $3F + $03
+$F373: STA $31        ; $31 = $08 (because $3F=5)
+$F375: LDA #$00
+$F377: STA $30        ; $30 = $00
+$F379: JMP ($0030)    ; → $0800
+```
+
+The drive sees ZP $45 = $60 (M-EXECUTE command) when no M-E has been issued by c64. $45 is set at $F39D from `LDA $0000,Y AND #$78 STA $45`. So job code at $0000+Y has bit pattern matching $60 (with bit 7 set ⇒ original byte was $E0-$EF).
+
+But ZP probe at idle (no disk, no c64 commands) showed:
+```
+ZP $00-$0F: 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+ZP $30-$3F: 00 08 00 00 00 00 00 00 00 08 00 00 00 00 ff 00
+ZP $40-$50: 00 00 00 00 00 00 00 07 00 be 00 00 00 00 00 00
+```
+
+ZP $01 = $01 (suspicious — should be 0 after init).  
+ZP $30/$31 = $00/$08 (pre-set to $0800 jump target).  
+ZP $3F = $00, $4F = $00.  
+Stack page: SP = $BE after 3sec idle (started at $FF) → ~65 push leaks during idle.
+
+**Hypothesis (NOT verified — needs VICE trace):** Drive's init or T1 IRQ handler has a state-tracking bug where it writes $E0-$EF to some ZP byte that the job-dispatch loop reads. Or the IRQ handler's PHA-sequence has an extra push without matching pull. Stack drift over time eventually causes RTI to wrong PC.
+
+OR: VIA T1 timer is firing too fast, causing IRQ re-entry before previous handler completes RTI. Some pushes accumulate.
+
+**Verification path:**
+1. Run idle drive (no disk, no c64 commands) for 100ms simulated and confirm SP returns to $FF (idle should be net-zero stack). If SP drifts, the IRQ handler leaks.
+2. Compare drive PC trail against VICE binmon trace of same scenario — expect drive idle main loop, NOT walking RAM.
+3. Check VIA2 T1 latch value — should be 1000+ cycles per fire (~1 KHz).
+
+**Depends on:** T3.7. Out-of-session scope without trace tooling — speculation forbidden per `feedback_read_vice_first`.
+
+---
+
 ### T3.3 — Flip default to "vice" (Spec 611.9)
 **Status:** DEFERRED — see Spec 611 §5 phase 611.9.
 
