@@ -162,24 +162,30 @@ interface iecbus_t {
 // with real import. Was returning null which routed store_prb through
 // the iec_drive_write fallback (PORT-STUB throw).
 import { iecbus_drive_port as _iecbus_drive_port } from "./iecbus.js";
+import {
+  iec_drive_read as _iec_drive_read,
+  iec_drive_write as _iec_drive_write,
+} from "./c64iec.js";
 function iecbus_drive_port(): iecbus_t | null {
   return _iecbus_drive_port() as unknown as iecbus_t;
 }
 
-// PORT OF: vice/src/drive/iec/iecdrive.h (iec_drive_write — extern)
-function iec_drive_write(_data: number, _dnr: number): void {
-  throw new Error(
-    "PORT-STUB: iec_drive_write — pending Spec 612 T2.10 iec.ts (LO-14). " +
-      "Called via via1d1541 store_prb / undump_prb when iecbus == null.",
-  );
+// PORT OF: vice/src/drive/iec/iecdrive.h (iec_drive_write — extern).
+// Spec 615.4c (2026-05-18) — throw shadow REMOVED. c64iec.ts:220 has
+// the real port. Caller via1d1541 store_prb / undump_prb takes this
+// path when `iecbus == null` (= no IEC bus installed). In 1541 mode
+// iecbus is always set via vice1541-facade install_iecbus_update_ports;
+// the fallback is dead in the LOAD$ scenario but the PL-10 violation
+// remained. Spec 612 PL-10 + FC-7.
+function iec_drive_write(data: number, dnr: number): void {
+  _iec_drive_write(data, dnr);
 }
 
-// PORT OF: vice/src/drive/iec/iecdrive.h (iec_drive_read — extern)
-function iec_drive_read(_dnr: number): number {
-  throw new Error(
-    "PORT-STUB: iec_drive_read — pending Spec 612 T2.10 iec.ts (LO-14). " +
-      "Called via via1d1541 read_prb when iecbus == null.",
-  );
+// PORT OF: vice/src/drive/iec/iecdrive.h (iec_drive_read — extern).
+// Spec 615.4c (2026-05-18) — throw shadow REMOVED. See iec_drive_write
+// above. c64iec.ts:235 has the real port.
+function iec_drive_read(dnr: number): number {
+  return _iec_drive_read(dnr);
 }
 
 // PORT OF: vice/src/iecbus/iecbus.c (iec_fast_drive_direction)
