@@ -133,9 +133,27 @@ export async function mountMedia(
     const { buildG64 } = await import("../../../disk/g64-builder.js");
     const { readFileSync } = await import("node:fs");
 
-    const newProvider = DiskProvider.fromImagePath(path);
-    const files = newProvider.listFiles();
-    sectors = files.length;
+    // Spec 615 P0 (Pawn copy protection): the legacy DiskProvider runs a
+    // CBM-DOS validation pass (BAM read, dir walk) that rejects disks
+    // with intentionally bad BAM/header bytes — exactly the copy-
+    // protection trick on `the_pawn_s1.g64`. Real VICE doesn't reject
+    // those: the drive ROM reads raw GCR bits and the DOS code itself
+    // decides what to do. In vice-mode the legacy provider is bridge-
+    // only metadata (sector count, file list for KERNAL traps); a parse
+    // failure must NOT block the vice1541 attachDisk path that drives
+    // the actual emulation. In legacy mode the failure stays fatal.
+    const kModeAny = session.kernel as unknown as { drive1541Implementation?: string };
+    const isViceMode = kModeAny.drive1541Implementation === "vice";
+
+    let newProvider: ReturnType<typeof DiskProvider.fromImagePath> | null = null;
+    try {
+      newProvider = DiskProvider.fromImagePath(path);
+      const files = newProvider.listFiles();
+      sectors = files.length;
+    } catch (e) {
+      if (!isViceMode) throw e;
+      errors.push(`legacy disk parse warning (non-fatal in vice mode): ${(e as Error).message}`);
+    }
 
     // Reload G64/D64 data into the shared TrackBuffer.
     const originalBytes: Uint8Array = new Uint8Array(readFileSync(path));
@@ -232,9 +250,15 @@ export async function mountMedia(
     }
 
     // Update the kernel's diskProvider so KERNAL file traps see new files.
-    (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
-    (session.kernel as unknown as { diskProvider: unknown }).diskProvider = newProvider;
-    (session.kernalFileIo as unknown as { diskProvider?: unknown }).diskProvider = newProvider;
+    // Guard: newProvider may be null if the legacy parser rejected the
+    // image in vice mode (copy-protection BAM). In vice mode the drive
+    // ROM serves LOAD directly via IEC, not the KERNAL trap, so a null
+    // provider is functionally harmless — keep previous slot value.
+    if (newProvider !== null) {
+      (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
+      (session.kernel as unknown as { diskProvider: unknown }).diskProvider = newProvider;
+      (session.kernalFileIo as unknown as { diskProvider?: unknown }).diskProvider = newProvider;
+    }
     // Update parser aliases on session + kernel. Currently dead aliases
     // (no consumer outside ctor) but kept consistent with direct-boot
     // path so future readers see the live image, not the NoDisk sentinel.

@@ -9,8 +9,10 @@ const { mountMedia } = await import(
   "../../dist/runtime/headless/media/mount.js"
 );
 
-// expectError = true for disks where copy-protection makes
-// drive-error the correct outcome (must match LEGACY1541 baseline).
+// Spec 615 §4 #1: all disks must LOAD"$",8 successfully under
+// VICE1541. Pawn has deliberate bad-CRC / header / BAM copy
+// protection bytes, but real VICE loads it — so VICE1541 port
+// must too. LEGACY1541 symmetry is NOT success.
 const DISKS: { path: string; expectError?: boolean }[] = [
   { path: "samples/POLARBEAR.d64" },
   { path: "samples/motm.g64" },
@@ -19,10 +21,7 @@ const DISKS: { path: string; expectError?: boolean }[] = [
   { path: "samples/last_ninja_remix_s1[system3_1991].g64" },
   { path: "samples/scramble_infinity.d64" },
   { path: "samples/synthetic/blank.d64" },
-  // the_pawn_s1.g64: deliberate header CRC fault (Magnetic Scrolls
-  // copy protection). Drive ROM correctly returns ?FILE NOT FOUND
-  // — symmetric with LEGACY1541 baseline → PASS.
-  { path: "samples/the_pawn_s1.g64", expectError: true },
+  { path: "samples/the_pawn_s1.g64" },
 ];
 
 function decodeScreen(ram: Uint8Array): string {
