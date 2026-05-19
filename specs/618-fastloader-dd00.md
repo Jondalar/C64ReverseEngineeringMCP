@@ -1,7 +1,7 @@
 # Spec 618 — Fastloader via $DD00 (Parallel-Cable / Bit-Banged IEC)
 
 **Status:** DRAFT (2026-05-19)
-**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/613-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`
+**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`
 **Base commit:** post-616-DONE (TBD).
 **Branch:** `codex/618-fastloader-dd00` (stacked on 616 — independent of 617).
 
@@ -69,7 +69,7 @@ VICE reference:
 - `vice/src/drive/iecieee/via1d1541.c` — `via1d1541_store` / `via1d1541_read`.
 - `vice/src/drive/iec/iec.c` — `iec_drive_write` (PB → bus lines) / `iec_drive_read` (bus lines → PB).
 
-## 4. RFL gates (Spec 613 §2)
+## 4. RFL gates (Spec 620 §2)
 
 Reuses Spec 616 work for c64iec.c + iec.c + iecbus.c. Additional gates:
 
@@ -141,7 +141,7 @@ Spec is DONE when ALL of:
 | 618.5 | RFL gate CIA2 PA propagation timing (next-cycle vs immediate) | Sonnet | 618.0 |
 | 618.6 | Step-debug per §5 — identify first diverging cycle on $DD00 / $1800 lanes | Opus | 618.1-618.5 |
 | 618.7 | Apply minimal fix | Opus | 618.6 |
-| 618.8 | Differential test (Spec 613 §3) for fixed function | Sonnet | 618.7 |
+| 618.8 | Differential test (Spec 620 §3) for fixed function | Sonnet | 618.7 |
 | 618.9 | motm + MM screenshot tests in vice mode | Sonnet | 618.7 |
 | 618.10 | runtime:proof + fidelity check | Sonnet | 618.9 |
 | 618.11 | Memory update + close spec | Sonnet | 618.10 |
@@ -150,7 +150,7 @@ Spec is DONE when ALL of:
 
 - `specs/611-new-vice1541-side-by-side.md`
 - `specs/612-1541-port-fidelity-rules.md`
-- `specs/613-port-bug-forensic-doctrine.md`
+- `specs/620-port-bug-forensic-doctrine.md`
 - `specs/615-gcr-decode-fidelity.md`
 - `specs/616-kernal-load-fidelity.md`
 - `specs/422-fastiec-jiffydos-stub-policy.md` (if exists — fastloader policy demarcation)

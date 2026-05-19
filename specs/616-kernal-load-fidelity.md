@@ -1,7 +1,7 @@
 # Spec 616 — KERNAL Load Fidelity
 
 **Status:** DRAFT (2026-05-19)
-**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/613-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`, `specs/615-gcr-decode-fidelity.md`
+**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`, `specs/615-gcr-decode-fidelity.md`
 **Base commit:** post-615-DONE on `codex/615-gcr-decode-fidelity` (TBD when 615 closes).
 **Branch:** `codex/616-kernal-load-fidelity` (stacked on 615).
 
@@ -41,7 +41,7 @@ Relevant VICE C64 KERNAL routines (read from `vice/src/c64/c64rom.c` symbol tabl
 - `$ED40` SECOND waits for DATA-line response from drive.
 - `$EEB1` CIOUT bit-clock loop.
 
-Step-debug at one of these PCs = first task (Spec 613 §2 RFL applies before any trace).
+Step-debug at one of these PCs = first task (Spec 620 §2 RFL applies before any trace).
 
 ## 3. Drive-side LOAD response
 
@@ -60,7 +60,7 @@ Relevant 1541 DOS ROM ($C000-$FFFF) routines:
 
 Drive ROM uses `BVC/BVS` against SO (set-overflow) flag for byte-ready detection per VIA2 CA1 edge → SO pin chain.
 
-## 4. RFL gates (Spec 613 §2 — read C first, before any trace)
+## 4. RFL gates (Spec 620 §2 — read C first, before any trace)
 
 Order:
 
@@ -149,7 +149,7 @@ Spec is DONE when ALL of:
 | 616.6 | Re-check via2d.ts SO/CA1 edge path | Sonnet | 616.1 |
 | 616.7 | Step-debug per §5 — identify diverging side at stall | Opus | 616.2-616.6 |
 | 616.8 | Apply minimal fix (scope from 616.7) | Opus | 616.7 |
-| 616.9 | Differential test for fixed function (per Spec 613 §3, `tests/vice1541-diff/`) | Sonnet | 616.8 |
+| 616.9 | Differential test for fixed function (per Spec 620 §3, `tests/vice1541-diff/`) | Sonnet | 616.8 |
 | 616.10 | 6-game screenshot tests in vice mode | Sonnet | 616.8 |
 | 616.11 | runtime:proof + fidelity check | Sonnet | 616.10 |
 | 616.12 | Memory update + close spec | Sonnet | 616.11 |
@@ -158,7 +158,7 @@ Spec is DONE when ALL of:
 
 - `specs/611-new-vice1541-side-by-side.md`
 - `specs/612-1541-port-fidelity-rules.md` — NL / PL / FC
-- `specs/613-port-bug-forensic-doctrine.md` — RFL gate + 10 conversion-bug families
+- `specs/620-port-bug-forensic-doctrine.md` — RFL gate + 10 conversion-bug families
 - `specs/614-drive-per-cycle-scheduling.md`
 - `specs/615-gcr-decode-fidelity.md` — disk read path (D64/G64) closed
 - `specs/617-kernal-save-fidelity.md` — successor

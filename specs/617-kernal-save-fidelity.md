@@ -1,7 +1,7 @@
 # Spec 617 — KERNAL Save Fidelity
 
 **Status:** DRAFT (2026-05-19)
-**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/613-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`
+**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`
 **Base commit:** post-616-DONE (TBD).
 **Branch:** `codex/617-kernal-save-fidelity` (stacked on 616).
 
@@ -50,7 +50,7 @@ SAVE differs from LOAD in:
 
 GCR encode happens in drive ROM (`$F78F` GCR_ENCODE table) AND in `vice/src/drive/gcr.c` `gcr_convert_sector_to_GCR`. TS port lives in `src/runtime/headless/vice1541/gcr.ts` + `fsimage_dxx.ts`.
 
-## 4. RFL gates (Spec 613 §2)
+## 4. RFL gates (Spec 620 §2)
 
 Order:
 
@@ -128,7 +128,7 @@ Spec is DONE when ALL of:
 | 617.4 | RFL gate via2d.ts PB R/W direction + byte_ready_active write side vs vice/src/drive/iecieee/via2d.c | Sonnet | 617.0 |
 | 617.5 | Step-debug at first failure point (scenario §5) | Opus | 617.1-617.4 |
 | 617.6 | Apply minimal fix | Opus | 617.5 |
-| 617.7 | Differential test: TS-encoded sector bytes == VICE-encoded sector bytes (per Spec 613 §3) | Sonnet | 617.6 |
+| 617.7 | Differential test: TS-encoded sector bytes == VICE-encoded sector bytes (per Spec 620 §3) | Sonnet | 617.6 |
 | 617.8 | Round-trip test: SAVE → LOAD → byte-identical | Sonnet | 617.6 |
 | 617.9 | Image-diff test: TS-saved vs VICE-saved blank-image | Sonnet | 617.6 |
 | 617.10 | runtime:proof + fidelity check | Sonnet | 617.9 |
@@ -140,5 +140,5 @@ Spec is DONE when ALL of:
 - `specs/616-kernal-load-fidelity.md` — read direction
 - `specs/611-new-vice1541-side-by-side.md`
 - `specs/612-1541-port-fidelity-rules.md`
-- `specs/613-port-bug-forensic-doctrine.md`
+- `specs/620-port-bug-forensic-doctrine.md`
 - Memory: `feedback_step_debug_for_stalls.md`, `feedback_port_reading_first.md`, `feedback_c_to_ts_diff_test.md`.

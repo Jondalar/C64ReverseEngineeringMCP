@@ -1,7 +1,7 @@
 # Spec 615 — GCR Decode Fidelity
 
 **Status:** OPEN (2026-05-18)
-**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/613-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`
+**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`
 **Base commit:** `7f3f151` on `codex/614-drive-cycle-scheduler` (tag `spec-614-scheduler-architectural-closure`).
 **Branch:** `codex/615-gcr-decode-fidelity` (stacked on `codex/614-drive-cycle-scheduler`).
 
@@ -75,7 +75,7 @@ Action per hit:
 - Verify caller-site (`drive_image_attach` etc.) gets the full impl.
 - Commit each fix separately, cite Spec 612 PL-10 + amendment FC-7.
 
-### 3.2. RFL gates — runtime D64 path (Spec 613 §2)
+### 3.2. RFL gates — runtime D64 path (Spec 620 §2)
 
 After 3.1. Order:
 
@@ -135,7 +135,7 @@ After 3.1 + 3.2. Concrete scenario for LOAD"$",8 on POLARBEAR.d64:
 
 ### 3.4. First-divergence (only if 3.1-3.3 inconclusive)
 
-Spec 613.T1 (`vice1541_first_divergence`) not yet built. Fallback: ad-hoc DuckDB SQL-join on drive `cycle` between VICE trace + our trace. ONE record (first divergence + window), not buckets (Spec 613 §5+§6). Routes through `vice_trace_runtime_start` + `trace_store_*` (memory `feedback_trace_into_duckdb.md`). NO new `scripts/diag-*.mjs`.
+Spec 620.T1 (`vice1541_first_divergence`) not yet built. Fallback: ad-hoc DuckDB SQL-join on drive `cycle` between VICE trace + our trace. ONE record (first divergence + window), not buckets (Spec 620 §5+§6). Routes through `vice_trace_runtime_start` + `trace_store_*` (memory `feedback_trace_into_duckdb.md`). NO new `scripts/diag-*.mjs`.
 
 ## 4. Acceptance
 
@@ -196,7 +196,7 @@ The base commit `7f3f151` carries **20 `scripts/diag-614-*.mjs`** files. These a
 
 - `specs/611-new-vice1541-side-by-side.md` — side-by-side architecture.
 - `specs/612-1541-port-fidelity-rules.md` — NL / PL / FC rules (esp. PL-11, FC-7 amendments).
-- `specs/613-port-bug-forensic-doctrine.md` — RFL gate, taxonomy, first-divergence shape.
+- `specs/620-port-bug-forensic-doctrine.md` — RFL gate, taxonomy, first-divergence shape.
 - `specs/614-drive-per-cycle-scheduling.md` — base / dependency.
 - Memory: `feedback_port_reading_first.md`, `feedback_step_debug_for_stalls.md`, `feedback_trace_into_duckdb.md`, `feedback_trace_step_not_stats.md`, `feedback_c_to_ts_diff_test.md`, `feedback_screenshot_gate_mandatory.md`, `feedback_game_screenshot_test_set.md`, `feedback_vice_no_alternatives.md`.
 

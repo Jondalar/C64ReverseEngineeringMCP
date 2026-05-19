@@ -98,6 +98,55 @@ PR touching `vice1541/**` or `specs/612-*`. Any FAIL blocks merge.
 Cross-link: `specs/612-1541-port-fidelity-rules.md` (rules) +
 `specs/612-1541-port-fidelity-todo.md` (rebuild task list).
 
+## Port-Bug Forensic Doctrine (Spec 620, Mandatory 2026-05-18)
+
+**Bugs suspected in `src/runtime/headless/vice1541/**` are 99%
+C→TS conversion errors, not algorithmic divergence.** The
+2026-05-17/18 overnight session burned ~8h on a C64-core hypothesis
+when the actual bug was in the port. Don't repeat it.
+
+**Reading-First Law (Spec 620 §2, RFL):** before ANY trace,
+profile, or step-debug call targeting `vice1541/**`, complete three
+steps and state them in chat:
+
+1. Read the matching VICE C function end-to-end.
+2. Diff line-by-line against the TS port (`git diff --no-index`
+   or side-by-side editor).
+3. Expand every `.h` macro referenced and verify TS captured it.
+
+State as:
+```
+[RFL-CHECK src/runtime/headless/vice1541/<file>:<function>]
+  read: [x] diff: [x] macros: [x]
+  conclusion: <one sentence>
+  trace reason: <why reading insufficient>   (or "n/a — fixed in code")
+```
+
+Only after all three pass AND the bug is still mysterious → trace.
+
+**Trace shape for port-divergence (Spec 620 §5+§6):** divergence
+hunts use `vice1541_first_divergence(scenario, lanes, max_cycles)`
+— ONE record (first mismatch cycle + ±5 cycle window). NOT
+statistics. NOT hotspots. NOT top-PC buckets. Profiling-tagged
+tools (`vice_trace_hotspots`, `trace_store_top_pcs`, etc.) answer
+"where is CPU time spent", NOT "where does my port diverge".
+
+**Differential testing (Spec 620 §3):** every function ported into
+`vice1541/` ships with `tests/vice1541-diff/<function>.diff.test.ts`
+calling the actual compiled VICE C function (via WASM at
+`tools/vice-wasm/` or ffi) AND the TS port, asserting byte-equal
+mutated state on fuzzed inputs. `npm run test:diff` blocks PR
+merge on failure.
+
+The 10 C→TS conversion-bug families (Spec 620 §1): missing mask
+after arithmetic, signed/unsigned mixup, sign-extension lost,
+pre/post-increment ordering, macro expansion lost, file-scope
+`static` dropped, wrong `#ifdef` arm, operator-precedence guess,
+array-as-pointer-decay, implicit type widen. Walk this table BEFORE
+hypothesising algorithmic divergence.
+
+Cross-link: `specs/620-port-bug-forensic-doctrine.md`.
+
 ## Working Process (Mandatory)
 
 Branch `vice-arch-port` operates under the arch-port doctrine — all
