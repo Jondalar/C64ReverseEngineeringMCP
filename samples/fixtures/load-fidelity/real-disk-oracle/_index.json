@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "generated": "2026-05-19",
+  "entries": [
+    {
+      "disk": "samples/POLARBEAR.d64",
+      "shortName": "polarbear",
+      "prgName": "polar bear",
+      "loadAddr": "0x0326",
+      "bodyLen": 183,
+      "sectorCount": 1,
+      "bodySha256": "30c0e997139250f3d9c33568c9c0996967e9d7d178ae18540c1dd7863aa63fa8",
+      "bodyPath": "real-disk-oracle/polarbear.body.bin"
+    },
+    {
+      "disk": "samples/motm.g64",
+      "shortName": "motm",
+      "prgName": "murder",
+      "loadAddr": "0x02DC",
+      "bodyLen": 40,
+      "sectorCount": 1,
+      "bodySha256": "d56d32295858995989661437ae69b77cc4d3dad7a6845833d2f84a6be6d35838",
+      "bodyPath": "real-disk-oracle/motm.body.bin"
+    },
+    {
+      "disk": "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64",
+      "shortName": "mm-s1",
+      "prgName": "boot",
+      "loadAddr": "0x02A7",
+      "bodyLen": 93,
+      "sectorCount": 1,
+      "bodySha256": "ebcac0fee32701fcb803023c2ebf5276ae08260583acbf722e1343708dd25204",
+      "bodyPath": "real-disk-oracle/mm-s1.body.bin"
+    },
+    {
+      "disk": "samples/impossible_mission_ii[epyx_1987](!).g64",
+      "shortName": "im2",
+      "prgName": "boot imp ii",
+      "loadAddr": "0x02A7",
+      "bodyLen": 109,
+      "sectorCount": 1,
+      "bodySha256": "1b8727f39dc8641dde9f50f001f947a788336b0f97e0ade93da6fa4d25f8a0da",
+      "bodyPath": "real-disk-oracle/im2.body.bin",
+      "note": "directory sector has intentionally corrupted checksum (copy protection); read ignoring GCR data checksum"
+    },
+    {
+      "disk": "samples/last_ninja_remix_s1[system3_1991].g64",
+      "shortName": "lnr-s1",
+      "prgName": "boot",
+      "loadAddr": "0x0801",
+      "bodyLen": 35990,
+      "sectorCount": 142,
+      "bodySha256": "2c3a32acc40c86ebd7cf325240d0a83bfc7c0deb6afd422cefe08d9172d015ee",
+      "bodyPath": "real-disk-oracle/lnr-s1.body.bin",
+      "note": "directory sector has intentionally corrupted checksum (copy protection); read ignoring GCR data checksum"
+    },
+    {
+      "disk": "samples/scramble_infinity.d64",
+      "shortName": "scramble",
+      "prgName": "scramble",
+      "loadAddr": "0x0801",
+      "bodyLen": 7747,
+      "sectorCount": 31,
+      "bodySha256": "c115deacd79409548d7639cd0d68158c682f7516b18b16fcea3dad43b7688072",
+      "bodyPath": "real-disk-oracle/scramble.body.bin",
+      "note": "dir reports 1 sectors but sector chain has 31"
+    },
+    {
+      "disk": "samples/the_pawn_s1.g64",
+      "shortName": "pawn-s1",
+      "prgName": "pawn",
+      "loadAddr": "0x02C0",
+      "bodyLen": 12896,
+      "sectorCount": 51,
+      "bodySha256": "9a82c60a336fc080c898e6a52a3a0ad86446d9bb50940fd656209967e698fbb4",
+      "bodyPath": "real-disk-oracle/pawn-s1.body.bin",
+      "note": "directory sector has intentionally corrupted checksum (copy protection); read ignoring GCR data checksum"
+    }
+  ]
+}

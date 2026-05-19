@@ -104,15 +104,17 @@ Lives under `samples/fixtures/load-fidelity/`. Built by `scripts/build-load-fide
 
 For each game disk in the canonical set:
 
-| Disk | First PRG name | Sectors | Notes |
-|---|---|---|---|
-| POLARBEAR.d64 | TBD (extract via Task 616.2) | small | small autoloader confirmed working |
-| motm.g64 | small autoloader confirmed working |  |  |
-| MM s1 | small autoloader confirmed working |  |  |
-| IM2 | TBD | TBD | |
-| LNR s1 | **LARGE PRG suspected failure** | large | LNR multi-block bug hint |
-| Scramble.d64 | TBD | TBD | mid-LOAD stall hint |
-| Pawn s1 | TBD | TBD | |
+| Disk | First PRG name | Load addr | Body bytes | Sectors | Notes |
+|---|---|---|---|---|---|
+| POLARBEAR.d64 | `polar bear` | `$0326` | 183 | 1 | small autoloader confirmed working |
+| motm.g64 | `murder` | `$02DC` | 40 | 1 | small autoloader confirmed working |
+| MM s1 | `boot` | `$02A7` | 93 | 1 | small autoloader confirmed working |
+| IM2 | `boot imp ii` | `$02A7` | 109 | 1 | copy-protection: all track-18 sector checksums intentionally corrupted; dir readable ignoring checksum |
+| LNR s1 | `boot` | `$0801` | 35990 | 142 | **LARGE PRG — suspected multi-block LOAD bug**; copy-protection on dir sector |
+| Scramble.d64 | `scramble` | `$0801` | 7747 | 31 | mid-LOAD stall hint; dir reports 1 sector (D64 dir size field unreliable) |
+| Pawn s1 | `pawn` | `$02C0` | 12896 | 51 | copy-protection: all track-18 sector checksums intentionally corrupted |
+
+Oracle bytes: `samples/fixtures/load-fidelity/real-disk-oracle/` — `_index.json` + per-disk `.body.bin` files (Task 616.2 output).
 
 Real-disk test reads sector chain from D64, derives expected PRG bytes, then runs `LOAD"<actual-name>",8,1` in headless + diff.
 

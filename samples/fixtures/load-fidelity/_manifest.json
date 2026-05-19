@@ -1,0 +1,59 @@
+{
+  "generated": "2026-05-19T16:54:04.389Z",
+  "fixtures": [
+    {
+      "filename": "lf-001-1block.d64",
+      "payloadBytes": 254,
+      "sectors": 1,
+      "note": "1 sector minimum PRG"
+    },
+    {
+      "filename": "lf-002-5block.d64",
+      "payloadBytes": 1270,
+      "sectors": 5,
+      "note": "5 sectors small multi-block"
+    },
+    {
+      "filename": "lf-003-30block.d64",
+      "payloadBytes": 7620,
+      "sectors": 30,
+      "note": "30 sectors mid-size"
+    },
+    {
+      "filename": "lf-004-100block.d64",
+      "payloadBytes": 25400,
+      "sectors": 100,
+      "note": "100 sectors large"
+    },
+    {
+      "filename": "lf-005-200block.d64",
+      "payloadBytes": 50800,
+      "sectors": 200,
+      "note": "200 sectors very large"
+    },
+    {
+      "filename": "lf-006-max.d64",
+      "payloadBytes": 167640,
+      "sectors": 660,
+      "note": "660 sectors max disk capacity"
+    },
+    {
+      "filename": "lf-007-eoi-edge.d64",
+      "payloadBytes": 1270,
+      "sectors": 5,
+      "note": "5 full sectors, EOI edge (last sector full-block)"
+    },
+    {
+      "filename": "lf-008-short-tail.d64",
+      "payloadBytes": 1271,
+      "sectors": 6,
+      "note": "6 sectors, short tail (last sector = 1 byte)"
+    },
+    {
+      "filename": "lf-009-cross-track.d64",
+      "payloadBytes": 6350,
+      "sectors": 25,
+      "note": "25 sectors spanning track 17→19 boundary"
+    }
+  ]
+}
