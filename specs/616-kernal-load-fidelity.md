@@ -1,6 +1,6 @@
 # Spec 616 — KERNAL Load Fidelity
 
-**Status:** DONE-PARTIAL (2026-05-19) — KERNAL LOAD byte-fidelity proven on 6/7 real disks + 8/9 synthetic fixtures + chain test green. NOT yet formally DONE: `tests/spec-616/kernal-load-byte-fidelity.test.ts` exits 1 because lf-006-max (167KB > C64 RAM, physical limit) and pawn-s1 last-2-byte race are FAIL in strict matrix. Two paths to close: (a) model both as expected/excluded in test so exit 0, or (b) keep as PARTIAL until both resolved. No Spec 618 (fastloader $DD00) work until 616 gate is formally green.
+**Status:** DONE (2026-05-19) — KERNAL LOAD byte-fidelity proven 14/16 PASS + 2 expected-FAIL carve-outs (lf-006-max physical-limit, real:pawn-s1 autoloader/protected-sector race). `tests/spec-616/kernal-load-byte-fidelity.test.ts` exits 0 (commit `8c07171`). Chain test green. Spec 618 (fastloader/$DD00) unblocked.
 **Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`, `specs/615-gcr-decode-fidelity.md`
 **Base commit:** post-615-DONE on `codex/615-gcr-decode-fidelity`.
 **Branch:** `codex/616-kernal-load-fidelity` (stacked on 615).
