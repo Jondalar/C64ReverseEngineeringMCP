@@ -7,34 +7,40 @@
 
 ## 1. Why this spec exists
 
-Spec 615 closed `LOAD"$",8` directory-listing across all 8 test disks. Spec 615 §4 #3 6-game vice-mode test (commit `f4d9a54`, 2026-05-18) executed `LOAD"*",8,1 + RUN` and reports:
+Spec 615 closed `LOAD"$",8` directory-listing across all 8 test disks. KERNAL `LOAD"<name>",8,1` (single-stage + multi-stage chain) is **broken for multiple games** in `drive1541Implementation="vice"` mode.
 
-```
-PASS  motm     PC=$43c7   in-game (full game render)
-PASS  MM s1    PC=$ee70   in-game
-PASS  IM2      PC=$ad5a   in-game (stage-2 LOADING screen)
-PASS  LNR s1   PC=$ee63   in-game (stage-2 LOADING screen)
-PASS  Pawn s1  PC=$1953   MAGNETIC SCROLLS title rendered
-FAIL  Scramble PC=$e5d1   stuck in KERNAL LOAD region
-```
+**Initial 6-game test (commit `f4d9a54`, 2026-05-18) reported 5/6 PASS.** That report is **misleading** — the test's pass criterion is "C64 PC outside KERNAL LOAD region (`$E1xx-$E5xx`, `$F4xx-$F6xx`) and BASIC (`$A000-$A48F`) after a short settle window". This catches the moment a game first reaches its own code but misses **subsequent re-entry into KERNAL LOAD** by multi-stage loaders.
 
-**5/6 PASS.** LOAD,8,1 works in vice mode for 5 of 6 games. **Scramble specifically** stalls at `PC=$e5d1` — inside the KERNAL ACPTR / IECIN polling region (`$ED58`..`$EE85` range, with `$E5xx` being part of related KERNAL helpers). This is a **localised** bug, NOT a universal LOAD,8,1 regression.
+**User-observed runtime evidence 2026-05-18 overnight (supersedes `f4d9a54` PASS claims):**
+
+| Game | f4d9a54 verdict | Real behaviour | Stall point |
+|---|---|---|---|
+| Scramble | FAIL | stalls stage-1 | C64 PC=$e5d1 (IECIN region) |
+| MM s1 | PASS (false) | runs stage-1, hangs in stage-2/3 loader chain | TBD via §5 step-debug |
+| LNR s1 | PASS (false) | runs stage-1, hangs in stage-2/3 loader chain | TBD |
+| motm | PASS | status unconfirmed long-run | TBD |
+| IM2 | PASS | status unconfirmed long-run | TBD |
+| Pawn s1 | PASS | status unconfirmed long-run | TBD |
 
 Symptom shape:
-- ✅ ATN turnaround, LISTEN, OPEN, TALK, CIOUT command frame all reach drive (5/6 games complete this).
-- ✅ Drive parses filename, opens file, returns first bytes (5/6 games).
-- ❌ Scramble.d64: C64 polls at `$e5d1` indefinitely. Drive side state unknown — must capture in §5 step-debug.
+- ✅ ATN turnaround, LISTEN, OPEN, TALK, CIOUT command frame reach drive (most games).
+- ✅ Drive parses filename, opens file, returns first bytes (most games).
+- ✅ First-stage PRG file transfers (5/6 games — except Scramble).
+- ❌ **Multi-stage loader chains** (MM, LNR confirmed; others suspected) re-enter KERNAL LOAD for subsequent files and hang there.
+- ❌ Scramble stalls in the very first transfer at C64 `$e5d1`.
 
-Spec 615's root cause was a legacy-provider host-side validation throw. This spec assumes the GCR + sector read path is sound and focuses on the **specific KERNAL serial byte-handshake edge case** that Scramble triggers but the other 5 games don't.
+Spec 615's root cause was legacy-provider host-side validation throw. This spec focuses on the **KERNAL serial byte-handshake state machine** (C64 + drive) for both the first-LOAD case (Scramble) and the chained-LOAD case (MM/LNR).
 
 **Hypothesis space (walk via Spec 620 §1 conversion-bug families before tracing):**
 
-1. Scramble's loader does ATN/EOI handshake in non-standard order → reveals a polarity or edge-direction bug that the standard games avoid.
-2. Scramble's filename has a special character / length that triggers a parse edge case in drive command interpreter.
-3. Scramble's first PRG block is short and ends on EOI immediately after first byte — `byte+EOI on same transfer` is a less-traveled KERNAL code path.
-4. Spec 621 P0 dedupe hits (`interrupt_check_*`, `iecbus_drive_port`) may be the actual root cause — duplicate ports cause divergent IRQ/SO dispatch that bites only at Scramble's specific timing.
+1. State-leak across LOAD invocations: ATN level, IRQ-pending, or `byte_ready_active` not reset between chained LOADs. First LOAD works → second LOAD inherits stale state → stall. Explains MM+LNR but not Scramble.
+2. EOI / last-byte handshake wrong: LOAD ends on EOI; if EOI generation has off-by-one cycle bug, stage 1 ends but stage 2 starts with wrong line state.
+3. Spec 621 P0 PL-10 dedupe hits (`interrupt_check_{nmi,irq}_delay`, `iecbus_drive_port`) — duplicate ports cause divergent IRQ/SO dispatch. Cumulative skew that bites over long-running LOAD chains. Top suspect.
+4. Scramble-specific edge case at PC=$e5d1 — could be unrelated to MM/LNR root cause (= two bugs not one).
 
-Item 4 is the highest-prior suspect because Spec 621 P0 is a known PL-10 violation directly in the drive's LOAD path. **Spec 621 P0 fixes MUST land before this spec starts step-debugging** — otherwise step-debug data may chase a downstream symptom.
+Items 1 + 3 are highest priority. **Spec 621 P0 fixes (621.1 + 621.2) MUST land before this spec starts step-debugging** — duplicate-port skew is the kind of cumulative bug that's invisible in single-frame snapshots and only shows in long-running chains.
+
+**Test infrastructure caveat:** the `tests/spec-615/seven-game-vice-mode.test.ts` settle-window pass criterion is insufficient. **Spec 616 includes a task (616.A) to extend the test** to a long-run + multi-snapshot harness that catches re-entry into KERNAL LOAD region across the entire game's load sequence — not just first settle.
 
 ## 2. KERNAL LOAD code path (C64 side)
 
@@ -118,41 +124,60 @@ State per file:
 
 ## 5. Step-debug recipe (Spec `feedback_step_debug_for_stalls.md`)
 
-Pre-checklist gate per memory:
-- [x] konkrete PC wo stall? **C64 `$e5d1`** (from Spec 615 §4 #3, commit f4d9a54).
-- [ ] konkrete polled memory addr? (likely `$DD00` C64 — disasm `$e5c0`..`$e5e0` to confirm.)
-- [x] <30s runtime reachable? Scramble.d64 boots + `LOAD"*",8,1` reaches stall well under 30s (5/6 games reach in-game within seconds).
+**Two scenarios** — debug both. They may share a root cause (Spec 621 P0) or be independent.
 
-ALL 3 = yes → step-debug ONLY. No trace.
+### 5A. Scenario A — Scramble.d64 stage-1 stall (PC=$e5d1)
 
-**Scenario: Scramble.d64 LOAD,8,1 stall**
-
-Reproducer = `tests/spec-615/seven-game-vice-mode.test.ts` Scramble case (already exists).
+Pre-checklist:
+- [x] PC wo stall: C64 `$e5d1` (KERNAL IECIN region).
+- [ ] polled mem addr — disasm `$e5c0`..`$e5e0` to confirm.
+- [x] <30s reachable: Scramble stall within seconds of `LOAD"*",8,1`.
 
 Recipe:
-
-1. Mount `samples/Scramble.d64`. Boot to READY. Issue `LOAD"*",8,1` (autostart sequence per existing test).
-2. `runtime_until { cycles: 3_000_000 }` (5/6 games settle by 2M; Scramble stall well within budget).
-3. `runtime_monitor_registers` both sides. **Expected C64 PC = $e5d1** (per f4d9a54 evidence). Drive PC = open question.
-4. `runtime_monitor_disasm { pc: 0xe5c0, count: 30, side: "c64" }` — see polling instruction at `$e5d1`. Identify polled address (LDA $DD00 most likely, but could be BIT $D012 for IRQ delay or LDA on zp pointer).
+1. Mount `samples/Scramble.d64`. Boot to READY. `LOAD"*",8,1`.
+2. `runtime_until { cycles: 3_000_000 }`.
+3. `runtime_monitor_registers` both sides. Confirm C64 PC=$e5d1.
+4. `runtime_monitor_disasm { pc: 0xe5c0, count: 30, side: "c64" }` — identify polling instruction at $e5d1.
 5. `runtime_monitor_disasm { pc: <drive_pc>, count: 20, side: "drive" }`.
-6. `runtime_monitor_memory { addr: 0xdd00, len: 1, side: "c64" }` — current bus state from C64 perspective.
-7. `runtime_monitor_memory { addr: 0x1800, len: 4, side: "drive" }` — VIA1d1541 PA/PB/DDR.
-8. Walk Spec 620 §1 conversion-bug families top-to-bottom against the polled-side function.
-9. If §1 walk inconclusive → `runtime_step_into × 20` per side from stall PC. Look for divergence vs VICE binmon if needed.
-10. **Critical contrast:** identify what differs in Scramble's loader vs (e.g.) MM s1 loader, which uses the SAME KERNAL LOAD path but PASSES. The contrast = the bug trigger.
+6. `runtime_monitor_memory { addr: 0xdd00, len: 1, side: "c64" }` + `{ addr: 0x1800, len: 4, side: "drive" }`.
+7. Walk Spec 620 §1 conversion-bug families against the source function for the polled-side instruction.
+
+### 5B. Scenario B — MM s1 / LNR s1 multi-stage LOAD chain stall
+
+Pre-checklist:
+- [ ] PC wo stall — UNKNOWN. Confirm with `runtime_monitor_registers` after long-run.
+- [ ] polled mem addr — UNKNOWN, derive from disasm at stall PC.
+- [ ] <30s reachable — MM stage-2/3 stall may take longer; budget up to 30s wall-clock = ~30M c64 cycles.
+
+Recipe (run BOTH MM s1 and LNR s1 — likely shared root cause):
+1. Mount `samples/mm_s1.g64` (or canonical MM disk). Full boot + LOAD"*",8 + RUN.
+2. `runtime_until { cycles: 30_000_000, breakAt: { c64Pc: 0xe5d1 } }` — break on KERNAL IECIN re-entry. If hit = same path as Scramble; if not hit = different stall.
+3. `runtime_monitor_registers` both sides at stop. Note BOTH PCs.
+4. Determine: is C64 in KERNAL LOAD region ($E1xx-$E5xx / $EE13 ACPTR / $EEB1 CIOUT / $ED36 ISOUR / $ED58 IECIN / $F4xx-$F6xx)? If yes = LOAD-chain stall confirmed.
+5. Disasm both sides around stall. Identify polled address.
+6. Walk Spec 620 §1 conversion-bug families.
+7. **State-leak check (specific to 5B):** capture state right AFTER first successful LOAD completes (~5M cycles post boot for MM), THEN trigger second LOAD by stepping ROM, compare with same point in VICE.
+
+### 5C. Cross-scenario tactical guidance
+
+- 5A might be a different bug from 5B. Don't conflate fixes.
+- If Spec 621 P0 (621.1 + 621.2) lands and either 5A OR 5B disappears → that was the root cause, mark Spec 616 accordingly.
+- If both 5A and 5B remain → likely two independent bugs. Open 616.A (Scramble stage-1) + 616.B (LOAD-chain state leak) as parallel sub-tasks.
+- **Long-run test infrastructure (Task 616.A) is a hard prerequisite** for 5B reproducer. Current `seven-game-vice-mode.test.ts` settle-window is too short; needs multi-snapshot or PC-region-watchdog.
 
 ## 6. Acceptance
 
 Spec is DONE when ALL of:
 
-1. **Scramble.d64 specifically** — `LOAD"*",8,1 + RUN` reaches in-game PC (outside KERNAL `$E1xx-$E5xx` + `$F4xx-$F6xx` + BASIC `$A000-$A48F`) within the settle window of `tests/spec-615/seven-game-vice-mode.test.ts`.
-2. 6/6 vice-mode test set GREEN (motm, MM s1, IM2, LNR s1, Scramble, Pawn) — currently 5/6 per commit `f4d9a54`. Only Scramble missing.
-3. No regression on the 5 already-passing games (motm/MM/IM2/LNR/Pawn).
-4. `npm run runtime:proof` ≥ 6/7 GREEN in vice mode (currently 6/7 per `4bad0e0`; bug fix must not drop this).
+1. **Long-run test (Task 616.A) green** for 6-game set: each game runs ≥ 30M c64 cycles (or until canonical visual milestone reached) WITHOUT re-entry into KERNAL LOAD region (`$E1xx-$E5xx`, `$F4xx-$F6xx`) AFTER reaching in-game code for the first time.
+2. **Scramble.d64 specifically** — first `LOAD"*",8,1` completes, stage-1 transfer reaches in-game PC.
+3. **MM s1 + LNR s1 specifically** — full multi-stage loader chain runs through to in-game (title screen / playable state confirmed by long-run snapshot diff against oracle PNGs at `samples/screenshots/proof/`).
+4. `npm run runtime:proof` ≥ 6/7 GREEN in vice mode (currently 6/7 per `4bad0e0`; bug fix must not drop this — though existing 6/7 may itself be inflated by the same settle-window weakness — see §6 note below).
 5. `npm run check:1541-fidelity` 0 FAIL (gated on Spec 621.4/621.5 landing first).
 6. No new `scripts/diag-*.mjs` files (per `feedback_trace_into_duckdb.md`).
 7. Differential test for any newly-fixed function lands in `tests/vice1541-diff/` (per Spec 620 §3, gated on Spec 621.6/621.7 harness).
+
+**§6 note:** the runtime:proof 6/7 baseline (`4bad0e0`) was measured with the same short-settle test infrastructure as `f4d9a54`. After Task 616.A lands the long-run test, **re-measure the runtime:proof baseline**. The 6/7 number may not survive the stricter criterion — adjust acceptance bar 4 if so, but be honest about it.
 
 ## 7. Out of scope
 
@@ -165,24 +190,27 @@ Spec is DONE when ALL of:
 
 ## 8. Tasks
 
-**Hard pre-requisite:** Spec 621 §2 P0 fixes (621.1 + 621.2) **MUST LAND BEFORE 616.0 starts**. Reasoning: the duplicate `interrupt_check_{nmi,irq}_delay` (drivecpu vs drive_6510core) and shadow `iecbus_drive_port` (c64iec vs iecbus) both sit directly in the LOAD-path code. Step-debugging on top of unresolved PL-10 violations risks chasing downstream symptoms instead of the root cause.
+**Hard pre-requisite:** Spec 621 §2 P0 fixes (621.1 + 621.2) **MUST LAND BEFORE 616.B starts**. Reasoning: the duplicate `interrupt_check_{nmi,irq}_delay` + shadow `iecbus_drive_port` cause cumulative IRQ/SO dispatch skew — exactly the bug shape that bites multi-stage LOAD chains. Top suspect for the MM/LNR symptom user observed overnight.
 
-| ID | Task | Agent | Depends |
-|---|---|---|---|
-| 616.0 | Reproduce Scramble stall via `tests/spec-615/seven-game-vice-mode.test.ts`. Confirm C64 PC=$e5d1. Identify drive PC + polled_addr. | Opus | 621.1 + 621.2 DONE |
-| 616.1 | Pre-checklist confirmation in chat (3 gates, last one stays). | Opus | 616.0 |
-| 616.2 | Disasm $e5c0..$e5e0 — identify which KERNAL polling instruction sits at $e5d1. Walk Spec 620 §1 conversion-bug families against the source function. | Opus | 616.1 |
-| 616.3 | If §1 walk inconclusive → RFL gate c64iec.ts vs `vice/src/c64/c64iec.c` (polarity, edge direction, CIA2 PA write timing). | Sonnet | 616.2 |
-| 616.4 | If §1 walk inconclusive → RFL gate iec.ts vs `vice/src/drive/iec/iec.c` (drive-side polarity, `iec_drive_write/read`). | Sonnet | 616.2 |
-| 616.5 | If §1 walk inconclusive → RFL gate iecbus.ts vs `vice/src/drive/iecbus.c` (ATN propagation, bus-AND arbitration). | Sonnet | 616.2 |
-| 616.6 | If §1 walk inconclusive → RFL gate via1d1541.ts vs `vice/src/drive/iecieee/via1d1541.c` (PA/PB/CA1 ATN-edge IRQ). | Sonnet | 616.2 |
-| 616.7 | Contrast analysis: what does Scramble's loader send that MM s1 (or other PASS game) doesn't? Identify trigger pattern. | Opus | 616.2 |
-| 616.8 | Step-debug per §5 — identify diverging side at stall (only if 616.2..616.7 inconclusive). | Opus | 616.2-616.7 |
-| 616.9 | Apply minimal fix (scope from 616.7 or 616.8). | Opus | 616.7 \| 616.8 |
-| 616.10 | Differential test for fixed function (per Spec 620 §3, `tests/vice1541-diff/`). Gated on Spec 621.6 + 621.7 harness. | Sonnet | 616.9 |
-| 616.11 | Re-run 6-game vice-mode test → 6/6 GREEN. No regression on 5 already-passing. | Sonnet | 616.9 |
-| 616.12 | runtime:proof + fidelity check no regression. | Sonnet | 616.11 |
-| 616.13 | Memory update + close spec. | Sonnet | 616.12 |
+| ID | Task | Priority | Agent | Depends |
+|---|---|---|---|---|
+| 616.A | **Extend `tests/spec-615/seven-game-vice-mode.test.ts`** — long-run (≥ 30M cycles per game) + multi-snapshot. Detect KERNAL LOAD re-entry AFTER first in-game PC reached. Re-run, replace `f4d9a54` PASS verdicts with honest results. | P0 | Sonnet | none |
+| 616.0a | (Scenario A — Scramble) Reproduce stage-1 stall, confirm C64 PC=$e5d1. Identify drive PC + polled addr. | P0 | Opus | 621.1+621.2 OR independent |
+| 616.0b | (Scenario B — MM s1 / LNR s1) Reproduce LOAD-chain stall via 616.A long-run. Identify stall PC, polled addr, side that stops writing. | P0 | Opus | 621.1+621.2 + 616.A |
+| 616.1 | Disasm $e5c0..$e5e0 for Scramble stall. Walk Spec 620 §1 conversion-bug families. | P0 | Opus | 616.0a |
+| 616.2 | Disasm both sides at MM/LNR stall. Walk Spec 620 §1. | P0 | Opus | 616.0b |
+| 616.3 | RFL gate c64iec.ts vs `vice/src/c64/c64iec.c` (polarity, edge direction, CIA2 PA timing). | P1 | Sonnet | 616.1 \| 616.2 |
+| 616.4 | RFL gate iec.ts vs `vice/src/drive/iec/iec.c` (drive-side polarity, `iec_drive_write/read`). | P1 | Sonnet | 616.1 \| 616.2 |
+| 616.5 | RFL gate iecbus.ts vs `vice/src/drive/iecbus.c` (ATN propagation, bus-AND arbitration, state reset between LOADs). | P1 | Sonnet | 616.1 \| 616.2 |
+| 616.6 | RFL gate via1d1541.ts vs `vice/src/drive/iecieee/via1d1541.c` (PA/PB/CA1 ATN-edge IRQ + state reset). | P1 | Sonnet | 616.1 \| 616.2 |
+| 616.7 | Contrast analysis: what does Scramble send stage-1 that MM/LNR don't? What does MM/LNR stage-2 chain do that stage-1 doesn't? | P1 | Opus | 616.1 + 616.2 |
+| 616.8 | State-leak audit: which state variables get RESET between LOAD invocations in VICE? Diff against TS port. Specific watch: ATN level, IRQ-pending, byte_ready_active, drive command interpreter state. | P1 | Opus | 616.5 + 616.6 |
+| 616.9 | Step-debug per §5 (only if 616.1-616.8 inconclusive). | P1 | Opus | 616.1-616.8 |
+| 616.10 | Apply minimal fix per scenario. **5A and 5B may need separate fixes.** | P0 | Opus | 616.7 \| 616.8 \| 616.9 |
+| 616.11 | Differential test for fixed function (per Spec 620 §3). Gated on Spec 621.6 + 621.7 harness. | P1 | Sonnet | 616.10 |
+| 616.12 | Re-run 616.A long-run test → 6/6 GREEN. | P0 | Sonnet | 616.10 |
+| 616.13 | runtime:proof + fidelity check no regression. Re-measure runtime:proof baseline under 616.A criterion. | P0 | Sonnet | 616.12 |
+| 616.14 | Memory update + close spec. | P0 | Sonnet | 616.13 |
 
 ## 9. References
 
