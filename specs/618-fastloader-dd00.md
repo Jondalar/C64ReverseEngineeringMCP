@@ -1,9 +1,9 @@
 # Spec 618 — Fastloader via $DD00 (Parallel-Cable / Bit-Banged IEC)
 
-**Status:** DRAFT (2026-05-19)
-**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`
-**Base commit:** post-616-DONE (TBD).
-**Branch:** `codex/618-fastloader-dd00` (stacked on 616 — independent of 617).
+**Status:** DEFERRED (2026-05-19, user mandate) — DO NOT START before Spec 616 AND Spec 617 are DONE. KERNAL LOAD + SAVE byte fidelity must be proven before any fastloader work.
+**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`, `specs/617-kernal-save-fidelity.md`
+**Base commit:** post-617-DONE (TBD).
+**Branch:** `codex/618-fastloader-dd00` (stacked on 617).
 
 ## 1. Why this spec exists
 

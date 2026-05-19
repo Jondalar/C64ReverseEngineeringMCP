@@ -1,56 +1,53 @@
 # Spec 616 — KERNAL Load Fidelity
 
-**Status:** DRAFT (2026-05-19)
+**Status:** DRAFT (2026-05-19, reframed per user mandate 2026-05-19)
 **Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`, `specs/615-gcr-decode-fidelity.md`
-**Base commit:** post-615-DONE on `codex/615-gcr-decode-fidelity` (TBD when 615 closes).
+**Base commit:** post-615-DONE on `codex/615-gcr-decode-fidelity`.
 **Branch:** `codex/616-kernal-load-fidelity` (stacked on 615).
 
 ## 1. Why this spec exists
 
-Spec 615 closed `LOAD"$",8` directory-listing across all 8 test disks. KERNAL `LOAD"<name>",8,1` (single-stage + multi-stage chain) is **broken for multiple games** in `drive1541Implementation="vice"` mode.
+`LOAD"$",8` (directory) is green per Spec 615. The next deliverable is **normal KERNAL LOAD of PRG files is complete and byte-correct** under `drive1541Implementation="vice"`.
 
-**Initial 6-game test (commit `f4d9a54`, 2026-05-18) reported 5/6 PASS.** That report is **misleading** — the test's pass criterion is "C64 PC outside KERNAL LOAD region (`$E1xx-$E5xx`, `$F4xx-$F6xx`) and BASIC (`$A000-$A48F`) after a short settle window". This catches the moment a game first reaches its own code but misses **subsequent re-entry into KERNAL LOAD** by multi-stage loaders.
+**Primary target: KERNAL LOAD byte fidelity.** This is NOT a game-debugging spec. Game-start success is a downstream concern that depends on LOAD fidelity but is influenced by many other factors (sprite init, CIA, VIC, IRQ vectors etc.). Spec 616 isolates the LOAD path and proves it correct against an explicit byte-equality oracle across a range of PRG sizes and load patterns.
 
-**User-observed runtime evidence 2026-05-18 overnight (supersedes `f4d9a54` PASS claims):**
+**Current evidence (informs scope, does NOT define acceptance):**
 
-| Game | f4d9a54 verdict | Real behaviour | Stall point |
-|---|---|---|---|
-| Scramble | FAIL | stalls stage-1 | C64 PC=$e5d1 (IECIN region) |
-| MM s1 | PASS (false) | runs stage-1, hangs in stage-2/3 loader chain | TBD via §5 step-debug |
-| LNR s1 | PASS (false) | runs stage-1, hangs in stage-2/3 loader chain | TBD |
-| motm | PASS | status unconfirmed long-run | TBD |
-| IM2 | PASS | status unconfirmed long-run | TBD |
-| Pawn s1 | PASS | status unconfirmed long-run | TBD |
+- motm / MM s1 / Polarbear first-stage autoloaders complete → **small KERNAL LOADs work for some games**.
+- LNR s1 large-file failure → **KERNAL LOAD size / multi-block sector chain bug suspected**.
+- Scramble mid-load stall at C64 PC=$e5d1 → **mid-LOAD EOI / IEC handshake bug suspected**.
 
-Symptom shape:
-- ✅ ATN turnaround, LISTEN, OPEN, TALK, CIOUT command frame reach drive (most games).
-- ✅ Drive parses filename, opens file, returns first bytes (most games).
-- ✅ First-stage PRG file transfers (5/6 games — except Scramble).
-- ❌ **Multi-stage loader chains** (MM, LNR confirmed; others suspected) re-enter KERNAL LOAD for subsequent files and hang there.
-- ❌ Scramble stalls in the very first transfer at C64 `$e5d1`.
+These are bug-hints, not acceptance criteria. Acceptance is byte-equality across a deterministic fixture matrix (§5).
 
-Spec 615's root cause was legacy-provider host-side validation throw. This spec focuses on the **KERNAL serial byte-handshake state machine** (C64 + drive) for both the first-LOAD case (Scramble) and the chained-LOAD case (MM/LNR).
+## 2. Scope
 
-**Hypothesis space (walk via Spec 620 §1 conversion-bug families before tracing):**
+**In scope:**
+- KERNAL `LOAD"<name>",8,1` (load PRG to address from PRG header).
+- KERNAL `LOAD"<name>",8` (BASIC autoload variant).
+- Single-stage LOAD (one PRG file, completes with READY).
+- Two-stage KERNAL chain (stage-1 PRG calls KERNAL LOAD vector `$FFD5` for stage-2 PRG).
+- PRG sizes from 1 sector up to disk-capacity.
+- Both real test disks AND synthetic D64 fixtures with known PRG contents.
 
-1. State-leak across LOAD invocations: ATN level, IRQ-pending, or `byte_ready_active` not reset between chained LOADs. First LOAD works → second LOAD inherits stale state → stall. Explains MM+LNR but not Scramble.
-2. EOI / last-byte handshake wrong: LOAD ends on EOI; if EOI generation has off-by-one cycle bug, stage 1 ends but stage 2 starts with wrong line state.
-3. Spec 621 P0 PL-10 dedupe hits (`interrupt_check_{nmi,irq}_delay`, `iecbus_drive_port`) — duplicate ports cause divergent IRQ/SO dispatch. Cumulative skew that bites over long-running LOAD chains. Top suspect.
-4. Scramble-specific edge case at PC=$e5d1 — could be unrelated to MM/LNR root cause (= two bugs not one).
+**Out of scope (explicit — see §10):**
+- Fastloader / $DD00 / parallel-cable bypassing KERNAL.
+- KERNAL `SAVE"<name>",8` — that's Spec 617 (which follows 616).
+- Game runtime correctness post-LOAD (sprite render, IRQ wiring, etc.).
+- Halftrack copy protection / non-standard sector formats.
+- Multi-disk swap chains.
+- JiffyDOS / burst-mode (Spec 422 stub).
+- 1571 / 1581 (separate specs).
 
-Items 1 + 3 are highest priority. **Spec 621 P0 fixes (621.1 + 621.2) MUST land before this spec starts step-debugging** — duplicate-port skew is the kind of cumulative bug that's invisible in single-frame snapshots and only shows in long-running chains.
+## 3. KERNAL LOAD code path (C64 side)
 
-**Test infrastructure caveat:** the `tests/spec-615/seven-game-vice-mode.test.ts` settle-window pass criterion is insufficient. **Spec 616 includes a task (616.A) to extend the test** to a long-run + multi-snapshot harness that catches re-entry into KERNAL LOAD region across the entire game's load sequence — not just first settle.
-
-## 2. KERNAL LOAD code path (C64 side)
-
-Relevant VICE C64 KERNAL routines (read from `vice/src/c64/c64rom.c` symbol table or `vice/src/c64/cart/c64memrom.c`):
+Relevant VICE C64 KERNAL routines:
 
 | Addr | Symbol | Role |
 |---|---|---|
-| `$F4A5` | LOAD | High-level entry from BASIC SYS or USR. |
-| `$F50A` | LUKING | "SEARCHING FOR <name>" message + filename send. |
-| `$F533` | LOADING | "LOADING" message + main byte-read loop. |
+| `$FFD5` | LOAD vector | Public KERNAL LOAD entry. |
+| `$F4A5` | LOAD | High-level entry from BASIC SYS / USR / `$FFD5`. |
+| `$F50A` | LUKING | "SEARCHING FOR <name>" + filename send. |
+| `$F533` | LOADING | "LOADING" + main byte-read loop. |
 | `$EE13` | ACPTR | Read one byte from IEC bus. |
 | `$EEB1` | CIOUT | Send one byte to IEC bus. |
 | `$ED40` | SECOND | Send secondary address + ATN release. |
@@ -62,17 +59,13 @@ Relevant VICE C64 KERNAL routines (read from `vice/src/c64/c64rom.c` symbol tabl
 | `$EE85` | ISOURA | Inner serial-out ATN variant. |
 | `$ED58` | IECIN | Inner serial-in byte handshake. |
 
-**Polling locations** that hang on stall:
+**Post-LOAD invariants** (verified by §6 oracle):
+- Loaded RAM bytes at `$<load-addr>..$<load-addr + payload_len - 1>` match the file payload bytes.
+- ZP `$AE/$AF` = end-of-load address.
+- ZP `$90` = ST status byte = 0 (or EOI bit if last byte was the terminator).
+- C64 PC outside KERNAL LOAD region (returned to BASIC `$A483` READY or to caller via RTS).
 
-- `$EE13` ACPTR waits for DATA-line release at start, then for CLK toggles per bit.
-- `$ED40` SECOND waits for DATA-line response from drive.
-- `$EEB1` CIOUT bit-clock loop.
-
-Step-debug at one of these PCs = first task (Spec 620 §2 RFL applies before any trace).
-
-## 3. Drive-side LOAD response
-
-Relevant 1541 DOS ROM ($C000-$FFFF) routines:
+## 4. Drive-side LOAD response
 
 | Addr | Symbol | Role |
 |---|---|---|
@@ -85,140 +78,168 @@ Relevant 1541 DOS ROM ($C000-$FFFF) routines:
 | `$E9C9` | ATN_SERVICE | ATN-IRQ handler. |
 | `$EAA0` | LISTEN_HANDSHAKE | Bit-clock RX at drive. |
 
-Drive ROM uses `BVC/BVS` against SO (set-overflow) flag for byte-ready detection per VIA2 CA1 edge → SO pin chain.
+Drive ROM uses `BVC/BVS` against SO (set-overflow) for byte-ready per VIA2 CA1 → SO chain.
 
-## 4. RFL gates (Spec 620 §2 — read C first, before any trace)
+## 5. Test matrix
 
-Order:
+### 5.1 Synthetic D64 fixtures (deterministic)
 
-1. **`vice/src/c64/c64iec.c`** — C64-side IEC bus glue (DATA/CLK/ATN levels).
-   - Diff against `src/runtime/headless/vice1541/c64iec.ts` (if ported) or `src/runtime/headless/iecbus*.ts`.
-   - Polarity, edge direction, timing of CIA2 PA writes → bus lines.
+Lives under `samples/fixtures/load-fidelity/`. Built by `scripts/build-load-fidelity-fixtures.mjs` (Task 616.1). Each D64 contains one PRG with known content (pseudo-random bytes seeded by size — reproducible).
 
-2. **`vice/src/drive/iec/iec.c`** — drive-side IEC glue.
-   - Diff against `src/runtime/headless/vice1541/iec.ts`.
-   - Check `iec_drive_write` / `iec_drive_read` polarity.
+| Fixture | PRG size | Sectors | Notes |
+|---|---|---|---|
+| `lf-001-1block.d64` | 254 bytes payload + 2 header | 1 | minimum PRG |
+| `lf-002-5block.d64` | ~1270 bytes | 5 | small multi-sector |
+| `lf-003-30block.d64` | ~7.6 KB | 30 | mid-size |
+| `lf-004-100block.d64` | ~25 KB | 100 | large |
+| `lf-005-200block.d64` | ~50 KB | 200 | very large |
+| `lf-006-max.d64` | ~158 KB | 660 (max disk) | max disk capacity |
+| `lf-007-eoi-edge.d64` | exactly 254 × N bytes | N | last sector is full-block — EOI on byte 256, not mid-sector. Edge case for ACPTR EOI handling. |
+| `lf-008-short-tail.d64` | (254 × N) + 1 byte | N+1 | last sector has 1 valid byte. Edge case for short-tail detection. |
+| `lf-009-cross-track.d64` | sized to span track boundary | mid-size | tests inter-track stepper between LOAD sectors. |
 
-3. **`vice/src/drive/iecbus.c`** — central bus state machine.
-   - Diff against `src/runtime/headless/vice1541/iecbus.ts`.
-   - ATN propagation, multi-drive arbitration, conf2/conf3 paths.
+**Filename:** all fixtures use the same internal PRG name: `TEST` (CBM ASCII, no extension). Tested with both `LOAD"TEST",8,1` (explicit) and `LOAD"*",8,1` (first-PRG-on-disk).
 
-4. **VIA1d1541 ($1800 register block)** — drive serial port.
-   - Read `vice/src/drive/iecieee/via1d1541.c` end-to-end.
-   - Diff against `src/runtime/headless/vice1541/via1d1541.ts`.
-   - PA = DATA/CLK out, PB = ATN-in/DATA-in/CLK-in, CA1 = ATN-edge IRQ.
+### 5.2 Real-disk first-PRG extraction
 
-5. **`vice/src/drive/iec/cia1571.c`** (NOT — 1541 only) — skip.
+For each game disk in the canonical set:
 
-6. **VIA2d ($1C00 register block)** — head/motor/SO.
-   - Already RFL-clean per Spec 615 §3.2 step 4. Re-check only SO/CA1 edge path.
+| Disk | First PRG name | Sectors | Notes |
+|---|---|---|---|
+| POLARBEAR.d64 | TBD (extract via Task 616.2) | small | small autoloader confirmed working |
+| motm.g64 | small autoloader confirmed working |  |  |
+| MM s1 | small autoloader confirmed working |  |  |
+| IM2 | TBD | TBD | |
+| LNR s1 | **LARGE PRG suspected failure** | large | LNR multi-block bug hint |
+| Scramble.d64 | TBD | TBD | mid-LOAD stall hint |
+| Pawn s1 | TBD | TBD | |
 
-State per file:
+Real-disk test reads sector chain from D64, derives expected PRG bytes, then runs `LOAD"<actual-name>",8,1` in headless + diff.
 
+### 5.3 Two-stage KERNAL chain fixture
+
+`samples/fixtures/load-fidelity/lf-chain.d64`:
+
+- **Stage-1** PRG `STAGE1`: ML program at `$0801`, small (~50 bytes). Body = sets filename to `STAGE2`, secondary to 1, then `JSR $FFD5` (KERNAL LOAD vector). On completion → RTS to BASIC.
+- **Stage-2** PRG `STAGE2`: 30-block PRG (~7.6 KB). Known pseudo-random content.
+
+Test: `LOAD"STAGE1",8,1 : SYS<start>` → STAGE1 calls KERNAL LOAD for STAGE2 → verify STAGE2 bytes in RAM at its load address.
+
+This is the "real" two-stage chain — uses KERNAL only, no fastloader, no $DD00.
+
+## 6. Byte-equality oracle
+
+**Per LOAD invocation:**
+
+1. Parse the PRG file from the D64:
+   - Walk directory entry → first track/sector pointer.
+   - Walk sector chain: sector header has `(next_track, next_sector)`; data = up to 254 payload bytes per sector; last sector marked by `next_track = 0` and `next_sector = N` where `N+1` = bytes in last sector.
+   - Concatenate payload bytes.
+   - First 2 bytes = load address (little-endian). Remaining = body.
+2. After `LOAD"<name>",8,1` completes (detected by C64 PC reaching `$A480..$A48F` BASIC READY OR caller RTS):
+   - Read C64 RAM `$<load_addr>..$<load_addr + body_len - 1>`.
+   - Compare byte-for-byte against parsed file body.
+   - Any mismatch = FAIL with `(offset, expected, got)` reported.
+3. Verify post-LOAD ZP invariants:
+   - `$AE/$AF` == `load_addr + body_len`.
+   - `$90` ST status == 0 (or `0x40` EOI bit).
+4. Verify no stall: total cycles from issuing LOAD until completion < 10 × VICE-baseline cycles (with VICE-baseline measured once per fixture via reference run — Task 616.3).
+
+`tests/spec-616/kernal-load-byte-fidelity.test.ts` (Task 616.4) implements this for every fixture in §5.1 + §5.2 + §5.3.
+
+## 7. RFL gates (Spec 620 §2 — read C first, before any trace)
+
+Order — only walked if §5.4 byte-equality test fails:
+
+1. `vice/src/c64/c64iec.c` vs `src/runtime/headless/vice1541/c64iec.ts` — C64-side IEC.
+2. `vice/src/drive/iec/iec.c` vs `vice1541/iec.ts` — drive-side IEC glue.
+3. `vice/src/drive/iecbus.c` vs `vice1541/iecbus.ts` — bus state machine.
+4. `vice/src/drive/iecieee/via1d1541.c` vs `vice1541/via1d1541.ts` — VIA1d serial port.
+5. `vice/src/c64/c64rom.c` LOAD path symbols vs C64 emulation — KERNAL LOAD itself (if the bug is C64-side, not drive).
+
+State per RFL-gate:
 ```
 [RFL-CHECK <file>:<function>]
   read: [x] diff: [x] macros: [x]
   conclusion: <one sentence>
-  trace reason: <why reading insufficient> | n/a — fixed in code
 ```
 
-## 5. Step-debug recipe (Spec `feedback_step_debug_for_stalls.md`)
+## 8. Step-debug fallback
 
-**Two scenarios** — debug both. They may share a root cause (Spec 621 P0) or be independent.
+Only invoked if §5 test fails AND §7 RFL walks inconclusive AND Spec 620 §1 conversion-bug walk on suspect function inconclusive.
 
-### 5A. Scenario A — Scramble.d64 stage-1 stall (PC=$e5d1)
+Recipe per failing fixture:
 
-Pre-checklist:
-- [x] PC wo stall: C64 `$e5d1` (KERNAL IECIN region).
-- [ ] polled mem addr — disasm `$e5c0`..`$e5e0` to confirm.
-- [x] <30s reachable: Scramble stall within seconds of `LOAD"*",8,1`.
+1. Load minimum-failing fixture (smallest size that fails) — narrowest reproducer.
+2. `runtime_until` to expected-completion cycle + 50%. Capture both PCs at stall.
+3. Disasm both sides ±20 lines around stall.
+4. Identify polled address (LDA `$DD00` / `$1800` / BIT `$D012` / etc.).
+5. Dump bus state: `$DD00` C64 + `$1800` `$1801` `$1802` `$1803` drive.
+6. Walk Spec 620 §1 conversion-bug families on the polled-side function.
+7. `runtime_step_into × 20` per side, log branch taken each iteration.
+8. Identify side that stops writing — bug location.
 
-Recipe:
-1. Mount `samples/Scramble.d64`. Boot to READY. `LOAD"*",8,1`.
-2. `runtime_until { cycles: 3_000_000 }`.
-3. `runtime_monitor_registers` both sides. Confirm C64 PC=$e5d1.
-4. `runtime_monitor_disasm { pc: 0xe5c0, count: 30, side: "c64" }` — identify polling instruction at $e5d1.
-5. `runtime_monitor_disasm { pc: <drive_pc>, count: 20, side: "drive" }`.
-6. `runtime_monitor_memory { addr: 0xdd00, len: 1, side: "c64" }` + `{ addr: 0x1800, len: 4, side: "drive" }`.
-7. Walk Spec 620 §1 conversion-bug families against the source function for the polled-side instruction.
+**Hard rule:** NO `runFor` > 5 seconds. NO `vice_trace_*` aggregations. Per `feedback_step_debug_for_stalls.md` enforcement.
 
-### 5B. Scenario B — MM s1 / LNR s1 multi-stage LOAD chain stall
-
-Pre-checklist:
-- [ ] PC wo stall — UNKNOWN. Confirm with `runtime_monitor_registers` after long-run.
-- [ ] polled mem addr — UNKNOWN, derive from disasm at stall PC.
-- [ ] <30s reachable — MM stage-2/3 stall may take longer; budget up to 30s wall-clock = ~30M c64 cycles.
-
-Recipe (run BOTH MM s1 and LNR s1 — likely shared root cause):
-1. Mount `samples/mm_s1.g64` (or canonical MM disk). Full boot + LOAD"*",8 + RUN.
-2. `runtime_until { cycles: 30_000_000, breakAt: { c64Pc: 0xe5d1 } }` — break on KERNAL IECIN re-entry. If hit = same path as Scramble; if not hit = different stall.
-3. `runtime_monitor_registers` both sides at stop. Note BOTH PCs.
-4. Determine: is C64 in KERNAL LOAD region ($E1xx-$E5xx / $EE13 ACPTR / $EEB1 CIOUT / $ED36 ISOUR / $ED58 IECIN / $F4xx-$F6xx)? If yes = LOAD-chain stall confirmed.
-5. Disasm both sides around stall. Identify polled address.
-6. Walk Spec 620 §1 conversion-bug families.
-7. **State-leak check (specific to 5B):** capture state right AFTER first successful LOAD completes (~5M cycles post boot for MM), THEN trigger second LOAD by stepping ROM, compare with same point in VICE.
-
-### 5C. Cross-scenario tactical guidance
-
-- 5A might be a different bug from 5B. Don't conflate fixes.
-- If Spec 621 P0 (621.1 + 621.2) lands and either 5A OR 5B disappears → that was the root cause, mark Spec 616 accordingly.
-- If both 5A and 5B remain → likely two independent bugs. Open 616.A (Scramble stage-1) + 616.B (LOAD-chain state leak) as parallel sub-tasks.
-- **Long-run test infrastructure (Task 616.A) is a hard prerequisite** for 5B reproducer. Current `seven-game-vice-mode.test.ts` settle-window is too short; needs multi-snapshot or PC-region-watchdog.
-
-## 6. Acceptance
+## 9. Acceptance
 
 Spec is DONE when ALL of:
 
-1. **Long-run test (Task 616.A) green** for 6-game set: each game runs ≥ 30M c64 cycles (or until canonical visual milestone reached) WITHOUT re-entry into KERNAL LOAD region (`$E1xx-$E5xx`, `$F4xx-$F6xx`) AFTER reaching in-game code for the first time.
-2. **Scramble.d64 specifically** — first `LOAD"*",8,1` completes, stage-1 transfer reaches in-game PC.
-3. **MM s1 + LNR s1 specifically** — full multi-stage loader chain runs through to in-game (title screen / playable state confirmed by long-run snapshot diff against oracle PNGs at `samples/screenshots/proof/`).
-4. `npm run runtime:proof` ≥ 6/7 GREEN in vice mode (currently 6/7 per `4bad0e0`; bug fix must not drop this — though existing 6/7 may itself be inflated by the same settle-window weakness — see §6 note below).
-5. `npm run check:1541-fidelity` 0 FAIL (gated on Spec 621.4/621.5 landing first).
-6. No new `scripts/diag-*.mjs` files (per `feedback_trace_into_duckdb.md`).
-7. Differential test for any newly-fixed function lands in `tests/vice1541-diff/` (per Spec 620 §3, gated on Spec 621.6/621.7 harness).
+1. **Fixture matrix byte-equal:** all 9 fixtures from §5.1 pass byte-equality oracle in `drive1541Implementation="vice"` mode. No `(offset, expected, got)` mismatches anywhere.
+2. **Real-disk first-PRG byte-equal:** all 7 real game disks pass byte-equality for their first PRG (filename TBD per disk during Task 616.2).
+3. **Two-stage chain:** `lf-chain.d64` (STAGE1 → STAGE2 via `$FFD5`) — STAGE2 byte-equal in RAM after the chained LOAD completes.
+4. **No stalls:** every test completes in < 10 × VICE-baseline cycles.
+5. **Post-LOAD invariants verified:** `$AE/$AF` end pointer correct, `$90` ST status correct.
+6. `npm run check:1541-fidelity` 0 FAIL (gated on Spec 621.4/621.5).
+7. No new `scripts/diag-*.mjs` (per `feedback_trace_into_duckdb.md`).
+8. Differential test per Spec 620 §3 for any newly-fixed function lands in `tests/vice1541-diff/`. Gated on Spec 621.6/621.7 harness.
 
-**§6 note:** the runtime:proof 6/7 baseline (`4bad0e0`) was measured with the same short-settle test infrastructure as `f4d9a54`. After Task 616.A lands the long-run test, **re-measure the runtime:proof baseline**. The 6/7 number may not survive the stricter criterion — adjust acceptance bar 4 if so, but be honest about it.
+**Explicitly NOT in acceptance:**
+- Game-runtime success post-LOAD.
+- Long-run snapshot diff against oracle PNGs (Spec 600 runtime proof gates measure that separately).
+- Fastloader / $DD00 paths.
 
-## 7. Out of scope
+## 10. Out of scope
 
-- LOAD"$",8 directory listing (Spec 615 — DONE).
-- SAVE path (Spec 617).
-- Fastloader $DD00 parallel-cable path (Spec 618).
-- JiffyDOS / burst-mode (per Spec 422 stub policy).
-- G64-specific copy-protection (pawn extra-tracks etc).
-- NTSC (PAL first per `feedback_pal_first_ntsc_later.md`).
+- Game-runtime correctness post-LOAD (separate concern).
+- Fastloader $DD00 (Spec 618 — **DEFERRED until 616 + 617 DONE**).
+- KERNAL SAVE (Spec 617 — **follows 616, prerequisite for 618**).
+- Halftrack copy protection.
+- Multi-disk swap chains.
+- JiffyDOS / burst-mode.
+- 1571 / 1581 / CMDHD / 2000 / 4000.
+- NTSC.
 
-## 8. Tasks
-
-**Hard pre-requisite:** Spec 621 §2 P0 fixes (621.1 + 621.2) **MUST LAND BEFORE 616.B starts**. Reasoning: the duplicate `interrupt_check_{nmi,irq}_delay` + shadow `iecbus_drive_port` cause cumulative IRQ/SO dispatch skew — exactly the bug shape that bites multi-stage LOAD chains. Top suspect for the MM/LNR symptom user observed overnight.
+## 11. Tasks
 
 | ID | Task | Priority | Agent | Depends |
 |---|---|---|---|---|
-| 616.A | **Extend `tests/spec-615/seven-game-vice-mode.test.ts`** — long-run (≥ 30M cycles per game) + multi-snapshot. Detect KERNAL LOAD re-entry AFTER first in-game PC reached. Re-run, replace `f4d9a54` PASS verdicts with honest results. | P0 | Sonnet | none |
-| 616.0a | (Scenario A — Scramble) Reproduce stage-1 stall, confirm C64 PC=$e5d1. Identify drive PC + polled addr. | P0 | Opus | 621.1+621.2 OR independent |
-| 616.0b | (Scenario B — MM s1 / LNR s1) Reproduce LOAD-chain stall via 616.A long-run. Identify stall PC, polled addr, side that stops writing. | P0 | Opus | 621.1+621.2 + 616.A |
-| 616.1 | Disasm $e5c0..$e5e0 for Scramble stall. Walk Spec 620 §1 conversion-bug families. | P0 | Opus | 616.0a |
-| 616.2 | Disasm both sides at MM/LNR stall. Walk Spec 620 §1. | P0 | Opus | 616.0b |
-| 616.3 | RFL gate c64iec.ts vs `vice/src/c64/c64iec.c` (polarity, edge direction, CIA2 PA timing). | P1 | Sonnet | 616.1 \| 616.2 |
-| 616.4 | RFL gate iec.ts vs `vice/src/drive/iec/iec.c` (drive-side polarity, `iec_drive_write/read`). | P1 | Sonnet | 616.1 \| 616.2 |
-| 616.5 | RFL gate iecbus.ts vs `vice/src/drive/iecbus.c` (ATN propagation, bus-AND arbitration, state reset between LOADs). | P1 | Sonnet | 616.1 \| 616.2 |
-| 616.6 | RFL gate via1d1541.ts vs `vice/src/drive/iecieee/via1d1541.c` (PA/PB/CA1 ATN-edge IRQ + state reset). | P1 | Sonnet | 616.1 \| 616.2 |
-| 616.7 | Contrast analysis: what does Scramble send stage-1 that MM/LNR don't? What does MM/LNR stage-2 chain do that stage-1 doesn't? | P1 | Opus | 616.1 + 616.2 |
-| 616.8 | State-leak audit: which state variables get RESET between LOAD invocations in VICE? Diff against TS port. Specific watch: ATN level, IRQ-pending, byte_ready_active, drive command interpreter state. | P1 | Opus | 616.5 + 616.6 |
-| 616.9 | Step-debug per §5 (only if 616.1-616.8 inconclusive). | P1 | Opus | 616.1-616.8 |
-| 616.10 | Apply minimal fix per scenario. **5A and 5B may need separate fixes.** | P0 | Opus | 616.7 \| 616.8 \| 616.9 |
-| 616.11 | Differential test for fixed function (per Spec 620 §3). Gated on Spec 621.6 + 621.7 harness. | P1 | Sonnet | 616.10 |
-| 616.12 | Re-run 616.A long-run test → 6/6 GREEN. | P0 | Sonnet | 616.10 |
-| 616.13 | runtime:proof + fidelity check no regression. Re-measure runtime:proof baseline under 616.A criterion. | P0 | Sonnet | 616.12 |
-| 616.14 | Memory update + close spec. | P0 | Sonnet | 616.13 |
+| 616.1 | Build `scripts/build-load-fidelity-fixtures.mjs` — generates D64 files with known PRG content per §5.1 size matrix. Pseudo-random body seeded by size for reproducibility. | P0 | Sonnet | none |
+| 616.2 | Extract first-PRG metadata from each real test disk (POLARBEAR, motm, MM s1, IM2, LNR s1, Scramble, Pawn). Fill TBDs in §5.2 table. Compute oracle bytes for each. | P0 | Sonnet | none |
+| 616.3 | Capture VICE-baseline LOAD cycle counts for each fixture (§9 timing oracle). Stored as `samples/fixtures/load-fidelity/_baseline_cycles.json`. | P0 | Sonnet | 616.1 + 616.2 |
+| 616.4 | Build `tests/spec-616/kernal-load-byte-fidelity.test.ts` — fixture-matrix byte-equality harness per §6. | P0 | Sonnet | 616.1 + 616.2 + 616.3 |
+| 616.5 | Build `samples/fixtures/load-fidelity/lf-chain.d64` two-stage fixture (STAGE1 ML stub calling `$FFD5` for STAGE2). | P1 | Sonnet | 616.1 |
+| 616.6 | Extend 616.4 with chain-test for `lf-chain.d64`. | P1 | Sonnet | 616.4 + 616.5 |
+| 616.7 | Run 616.4 initial. Capture failure matrix — which sizes fail, which real disks fail, first-mismatch byte-offset per failure. **Report-only**, no fix yet. | P0 | Opus | 616.4 |
+| 616.8 | Per failure cluster in 616.7: walk Spec 620 §1 conversion-bug families on the suspect function (derived from failure pattern — e.g. byte-offset multiple of 254 = sector boundary; mid-byte mismatch = bit-shift; size-correlated = chain pointer). | P0 | Opus | 616.7 |
+| 616.9 | If 616.8 inconclusive per failure: RFL gates per §7. | P1 | Sonnet | 616.8 |
+| 616.10 | If 616.9 inconclusive: step-debug per §8 with minimum-failing fixture. | P1 | Opus | 616.9 |
+| 616.11 | Apply minimal fix(es). Multiple failures may need multiple fixes — track separately. | P0 | Opus | 616.8 \| 616.9 \| 616.10 |
+| 616.12 | Differential test per Spec 620 §3 for fixed function(s). Gated on Spec 621.6 + 621.7 harness. | P1 | Sonnet | 616.11 |
+| 616.13 | Re-run 616.4 full matrix → all green. Re-run 616.6 chain test. | P0 | Sonnet | 616.11 |
+| 616.14 | `npm run check:1541-fidelity` no regression. `npm run runtime:proof` no regression. | P0 | Sonnet | 616.13 |
+| 616.15 | Memory update + close spec. Hand-off to Spec 617 (SAVE round-trip). | P0 | Sonnet | 616.14 |
 
-## 9. References
+**Pre-requisite:** Spec 621 §2 P0 fixes (621.1 + 621.2) — duplicate `interrupt_check_{nmi,irq}_delay` + shadow `iecbus_drive_port` — **strongly recommended to land before 616.7** so the initial failure matrix isn't polluted by known PL-10 violations. Not a hard block: if 621 P0 takes too long, 616.7 can still run; just expect to re-run after 621 P0 lands.
+
+## 12. References
 
 - `specs/611-new-vice1541-side-by-side.md`
 - `specs/612-1541-port-fidelity-rules.md` — NL / PL / FC
-- `specs/620-port-bug-forensic-doctrine.md` — RFL gate + 10 conversion-bug families
+- `specs/620-port-bug-forensic-doctrine.md` — RFL gate + 10 conversion-bug families + DTH
 - `specs/614-drive-per-cycle-scheduling.md`
 - `specs/615-gcr-decode-fidelity.md` — disk read path (D64/G64) closed
-- `specs/617-kernal-save-fidelity.md` — successor
-- `specs/618-fastloader-dd00.md` — orthogonal layer
-- Memory: `feedback_step_debug_for_stalls.md`, `feedback_port_reading_first.md`, `feedback_trace_step_not_stats.md`, `feedback_c_to_ts_diff_test.md`, `feedback_screenshot_gate_mandatory.md`, `feedback_game_screenshot_test_set.md`.
+- `specs/617-kernal-save-fidelity.md` — successor, gated on 616 DONE
+- `specs/618-fastloader-dd00.md` — DEFERRED until 616 + 617 DONE
+- `specs/621-port-hygiene-backlog.md` — P0 PL-10 dedupes
+- Memory: `feedback_step_debug_for_stalls.md`, `feedback_port_reading_first.md`, `feedback_trace_step_not_stats.md`, `feedback_c_to_ts_diff_test.md`.
