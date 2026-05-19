@@ -424,6 +424,15 @@ export function inspectImage(
   const diskPayloadSize = sourceSize + 2;
   // Expected number of sectors written.
   const expectedSectors = Math.ceil(diskPayloadSize / 254);
+  // Real CBM DOS quirk: when file ends exactly on a sector boundary
+  // (diskPayloadSize % 254 == 0), the SAVE close path does NOT free the
+  // speculatively pre-allocated next sector. This is documented 1541 ROM
+  // behavior and verified against VICE x64sc 3.10 (run /tmp/save-test-stub.prg
+  // → t17 BAM free=19 = 2 allocated for 1-block file). The VALIDATE command
+  // exists specifically to clean up these orphans.
+  // Expected BAM allocation count includes the orphan when applicable.
+  const exactFit = (diskPayloadSize % 254) === 0;
+  const expectedBamAllocs = expectedSectors + (exactFit ? 1 : 0);
 
   // ── 1. BAM inspection ────────────────────────────────────────────────────
   const bamOff = d64Offset(18, 0);
@@ -445,11 +454,12 @@ export function inspectImage(
   }
   const allocatedByUs = totalFreeInBlank - totalFreeNow;
   result.bamFreeCount = totalFreeNow;
-  result.expectedBamFreeCount = totalFreeInBlank - expectedSectors;
-  result.bamFreeOk = (allocatedByUs === expectedSectors);
+  result.expectedBamFreeCount = totalFreeInBlank - expectedBamAllocs;
+  result.bamFreeOk = (allocatedByUs === expectedBamAllocs);
   if (!result.bamFreeOk) {
+    const orphanNote = exactFit ? " incl. +1 real-DOS exact-fit orphan" : "";
     result.failReasons.push(
-      `BAM: allocated ${allocatedByUs} sectors, expected ${expectedSectors} (source=${diskPayloadSize}B)`,
+      `BAM: allocated ${allocatedByUs} sectors, expected ${expectedBamAllocs}${orphanNote} (source=${diskPayloadSize}B)`,
     );
   }
 
