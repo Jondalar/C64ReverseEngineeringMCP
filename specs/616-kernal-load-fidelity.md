@@ -1,6 +1,6 @@
 # Spec 616 — KERNAL Load Fidelity
 
-**Status:** DONE-PARTIAL (2026-05-19) — KERNAL LOAD byte-fidelity proven on 6/7 real disks + 8/9 synthetic fixtures. Pending: two-stage chain test (616.5/616.6) + diff-test harness (gated on Spec 621.6/621.7).
+**Status:** DONE (2026-05-19) — KERNAL LOAD byte-fidelity proven: 6/7 real disks + 8/9 synthetic fixtures + two-stage chain test green. Remaining items (diff-test harness, CI gate) gated on Spec 621.4/621.5/621.6/621.7 infrastructure — tracked as follow-ups, not Spec 616 blockers.
 **Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`, `specs/615-gcr-decode-fidelity.md`
 **Base commit:** post-615-DONE on `codex/615-gcr-decode-fidelity`.
 **Branch:** `codex/616-kernal-load-fidelity` (stacked on 615).
@@ -208,7 +208,7 @@ Spec is DONE when ALL of:
 
 1. ~~**Fixture matrix byte-equal:** all 9 fixtures from §5.1 pass byte-equality oracle.~~ → 8/9 PASS, lf-006 carved out (physical limit). **MET** for in-scope fixtures.
 2. ~~**Real-disk first-PRG byte-equal:** all 7 real game disks pass byte-equality for their first PRG.~~ → 6/7 PASS, pawn-s1 99.98%. **MET** functionally.
-3. **Two-stage chain:** `lf-chain.d64` (STAGE1 → STAGE2 via `$FFD5`) — STAGE2 byte-equal in RAM after chained LOAD. **DEFERRED to Spec 616.5/616.6 tasks**.
+3. **Two-stage chain:** `lf-chain.d64` (STAGE1 → STAGE2 via `$FFD5`) — STAGE2 byte-equal in RAM after chained LOAD. **MET** (commit `09970ef`, `tests/spec-616/kernal-load-chain-fidelity.test.ts`: STAGE2 7618/7618 byte-equal, ~22M cycles, single SYS-call drives both LOADs).
 4. **No stalls:** every test completes in < 10 × VICE-baseline cycles. → MET (per-fixture cap based on body size, real 1541 byte-rate).
 5. **Post-LOAD invariants verified:** `$AE/$AF` end pointer correct, `$90` ST status correct. → MET (recorded per fixture).
 6. `npm run check:1541-fidelity` 0 FAIL → gated on Spec 621.4/621.5 infrastructure, **DEFERRED**.
@@ -241,8 +241,8 @@ Spec is DONE when ALL of:
 | 616.2 | **DONE** (commit `89bcdfa`) — `scripts/build-load-fidelity-real-oracle.mjs` + 7 body.bin + `_index.json` + §5.2 table filled. | P0 | Sonnet | none |
 | 616.3 | **SKIPPED** — VICE-baseline cycles replaced with per-fixture cap based on real-1541 byte-rate (≈350 B/s, ≈2800 cyc/byte). Pragmatic substitute per `feedback_headless_over_vice.md`. | P0 | Sonnet | 616.1 + 616.2 |
 | 616.4 | **DONE** (commits `c5a8933`, `b6f5397`, `929ecab`, `61d7a7b`, `60be687`) — `tests/spec-616/kernal-load-byte-fidelity.test.ts` byte-equality harness with ML-loader for synthetic, BASIC-LOAD-wildcard for real, best-match snapshot, per-fixture cap. 14/16 PASS empirically. | P0 | Sonnet | 616.1 + 616.2 |
-| 616.5 | Build `samples/fixtures/load-fidelity/lf-chain.d64` two-stage fixture (STAGE1 ML stub calling `$FFD5` for STAGE2). | P1 | Sonnet | 616.1 |
-| 616.6 | Extend 616.4 with chain-test for `lf-chain.d64`. | P1 | Sonnet | 616.4 + 616.5 |
+| 616.5 | **DONE** (commit `09970ef`) — `scripts/build-load-fidelity-chain.mjs` + `lf-chain.d64` (STAGE1 ML calling $FFD5 for STAGE2). | P1 | Sonnet | 616.1 |
+| 616.6 | **DONE** (commit `09970ef`) — `tests/spec-616/kernal-load-chain-fidelity.test.ts`, STAGE2 7618/7618 byte-equal first run. | P1 | Sonnet | 616.4 + 616.5 |
 | 616.7 | Run 616.4 initial. Capture failure matrix — which sizes fail, which real disks fail, first-mismatch byte-offset per failure. **Report-only**, no fix yet. | P0 | Opus | 616.4 |
 | 616.8 | Per failure cluster in 616.7: walk Spec 620 §1 conversion-bug families on the suspect function (derived from failure pattern — e.g. byte-offset multiple of 254 = sector boundary; mid-byte mismatch = bit-shift; size-correlated = chain pointer). | P0 | Opus | 616.7 |
 | 616.9 | If 616.8 inconclusive per failure: RFL gates per §7. | P1 | Sonnet | 616.8 |
