@@ -1,6 +1,6 @@
 # Spec 612 — 1541 Port Fidelity Rules
 
-**Status:** ACTIVE (2026-05-17)
+**Status:** ACTIVE (2026-05-17, resync 2026-05-19, FC-7+PL-11 amended — see FC-11 + PL-13 below)
 **Branch:** any branch touching `src/runtime/headless/vice1541/**`
 **Replaces row 612 in:** `specs/610-1541-parity-rebuild-charter.md` ("(superseded by Spec 611 phases)" — that row is reclaimed by this spec).
 **Scope:** the VICE1541 rebuild under `src/runtime/headless/vice1541/**` (and any future `vice1541-v5/` quarantine path). Does **not** apply to LEGACY1541 (`src/runtime/headless/drive/**`).
