@@ -1,0 +1,69 @@
+{
+  "generated": "2026-05-19T19:31:28.162Z",
+  "loadAddr": 2304,
+  "fixtures": [
+    {
+      "filename": "sf-001-1block.src.bin",
+      "sourceSize": 252,
+      "loadAddr": "0x0900",
+      "sectors": 1,
+      "note": "1 sector min SAVE (252 src bytes → 254 on disk with 2-byte header)"
+    },
+    {
+      "filename": "sf-002-5block.src.bin",
+      "sourceSize": 1268,
+      "loadAddr": "0x0900",
+      "sectors": 5,
+      "note": "5 sectors small multi-block"
+    },
+    {
+      "filename": "sf-003-30block.src.bin",
+      "sourceSize": 7618,
+      "loadAddr": "0x0900",
+      "sectors": 30,
+      "note": "30 sectors mid-size"
+    },
+    {
+      "filename": "sf-004-100block.src.bin",
+      "sourceSize": 25398,
+      "loadAddr": "0x0900",
+      "sectors": 100,
+      "note": "100 sectors large"
+    },
+    {
+      "filename": "sf-005-200block.src.bin",
+      "sourceSize": 50798,
+      "loadAddr": "0x0900",
+      "sectors": 200,
+      "note": "200 sectors very large"
+    },
+    {
+      "filename": "sf-006-max.src.bin",
+      "sourceSize": 50000,
+      "loadAddr": "0x0900",
+      "sectors": 197,
+      "note": "max-RAM carve-out: 50000 src bytes (~197 sectors). Real disk max ~660 sectors exceeds C64 RAM; test capped at $0900+50000=$CC50 (below $D000 I/O)."
+    },
+    {
+      "filename": "sf-007-full-block.src.bin",
+      "sourceSize": 1268,
+      "loadAddr": "0x0900",
+      "sectors": 5,
+      "note": "5 full sectors, last sector full-block (next_sector=255) — EOI edge"
+    },
+    {
+      "filename": "sf-008-short-tail.src.bin",
+      "sourceSize": 1269,
+      "loadAddr": "0x0900",
+      "sectors": 6,
+      "note": "6 sectors, short tail (last sector = 1 byte)"
+    },
+    {
+      "filename": "sf-009-cross-track.src.bin",
+      "sourceSize": 6348,
+      "loadAddr": "0x0900",
+      "sectors": 25,
+      "note": "spans tracks 17→19 (skip t18): 25 sectors, 6348 src bytes"
+    }
+  ]
+}
