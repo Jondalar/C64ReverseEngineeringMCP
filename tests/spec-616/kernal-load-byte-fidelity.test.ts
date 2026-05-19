@@ -359,8 +359,15 @@ async function runFixture(f: Fixture): Promise<FidelityResult> {
     let chunkCount = 0;
     let bestMatch = 0;
     let bestMatchRam: Uint8Array | null = null;
+    let nearEndPhase = false;
+    let nearEndChunks = 0;
     while (session.c64Cpu.cycles < absCap) {
-      session.runFor(CHUNK_CYCLES);
+      // Use smaller chunks once $AE/$AF approaches expected end — final
+      // bytes can be overwritten by autoloader self-modification within
+      // a single 250k-cycle chunk, so we need finer granularity to catch
+      // the all-bytes-arrived moment.
+      const stepCycles = nearEndPhase ? 20_000 : CHUNK_CYCLES;
+      session.runFor(stepCycles);
       chunkCount++;
       const pc = session.c64Cpu.pc;
 
@@ -374,6 +381,19 @@ async function runFixture(f: Fixture): Promise<FidelityResult> {
       }
 
       const aeafNow = (ramView[0xaf]! << 8) | ramView[0xae]!;
+      // Switch to fine-grain when $AE/$AF gets within 64 bytes of target.
+      if (!nearEndPhase && kernalLoadEntered && aeafNow !== 0 && aeafNow >= aeafExpected - 64 && aeafNow <= aeafExpected + 8) {
+        nearEndPhase = true;
+      }
+      if (nearEndPhase) {
+        nearEndChunks++;
+        // After 100 fine-grain chunks (~2M cycles total in fine phase),
+        // bail — load region is stable or autoloader is going wild.
+        if (nearEndChunks > 100) {
+          completed = true;
+          break;
+        }
+      }
       if (kernalLoadEntered && aeafNow !== 0) {
         // Bytes are arriving. Compute match count for this chunk's snapshot.
         let m = 0;
