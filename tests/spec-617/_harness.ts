@@ -326,6 +326,26 @@ export async function runSaveFixture(fixture: SaveFixture): Promise<SaveResult> 
     const elapsedCycles = session.c64Cpu.cycles - startCycle;
     const st = ram[0x90] ?? 0xff;
 
+    // Force writeback of all dirty GCR tracks. In real VICE this fires
+    // via machine_drive_flush / drive_image_detach / LED callbacks — none
+    // of those run automatically in the headless facade after SAVE. Without
+    // this call the in-memory D64 image (`fsimage.fd`) doesn't reflect any
+    // sector writes that happened during SAVE.
+    try {
+      const drive1541 = (session.kernel as { drive1541?: { unit?: { drives?: any[] } } }).drive1541;
+      const drives = drive1541?.unit?.drives;
+      if (drives) {
+        const { drive_gcr_data_writeback } = await import(
+          "../../dist/runtime/headless/vice1541/drive.js"
+        );
+        for (const d of drives) {
+          if (d) drive_gcr_data_writeback(d);
+        }
+      }
+    } catch (e) {
+      // Non-fatal — harness will still extract whatever's in fsimage.fd.
+    }
+
     // Extract the modified D64 bytes from the vice1541 in-memory fsimage.
     const d64Bytes = extractD64BytesFromSession(session);
 
