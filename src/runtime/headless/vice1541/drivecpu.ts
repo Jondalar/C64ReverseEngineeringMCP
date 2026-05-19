@@ -89,9 +89,8 @@ import {
   JAM_RESET_CPU,
   JAM_POWER_CYCLE,
   JAM_MONITOR,
-  interrupt_check_nmi_delay as _core_interrupt_check_nmi_delay,
-  interrupt_check_irq_delay as _core_interrupt_check_irq_delay,
 } from "./drive_6510core.js";
+
 import {
   drivemem_init,
   drivemem_bank_read,
@@ -1178,31 +1177,22 @@ export function drivecpu_snapshot_read_module(
 // drivetypes directly.
 export type { drive_t };
 
-// PORT OF: vice/src/drive/drivecpu.c:303-325 (interrupt_check_nmi_delay).
-//   inline static int interrupt_check_nmi_delay(interrupt_cpu_status_t *cs,
-//                                               CLOCK cpu_clk);
-// VICE keeps this inline-static in drivecpu.c; the TS port hoists the body
-// into drive_6510core.ts (so the CPU core dispatch loop can call it without
-// a circular import) and re-exports the symbol here so grep + the fidelity
-// check find the VICE name in the drivecpu.ts translation unit.
+// Spec 621.1 — PORT OF: vice/src/drive/drivecpu.c:303-325 + 327-351
+// (interrupt_check_nmi_delay + interrupt_check_irq_delay).
 //
-// PORT OF: vice/src/drive/drivecpu.c:303-325 (interrupt_check_nmi_delay).
-export function interrupt_check_nmi_delay(
-  cs: interrupt_cpu_status_t,
-  cpu_clk: number,
-): number {
-  return _core_interrupt_check_nmi_delay(cs, cpu_clk);
-}
-
-// PORT OF: vice/src/drive/drivecpu.c:327-351 (interrupt_check_irq_delay).
-//   inline static int interrupt_check_irq_delay(interrupt_cpu_status_t *cs,
-//                                               CLOCK cpu_clk);
-// Same hoist-and-re-export rationale as interrupt_check_nmi_delay above.
+// VICE keeps both inline-static in drivecpu.c; the TS port locates the
+// bodies in `drive_6510core.ts` because the CPU-core dispatch loop calls
+// them on every step (a forward import into drivecpu.ts would create a
+// circular cycle). Per Spec 612 §1 NL-1 the canonical VICE name must
+// resolve via `drivecpu.ts` (the translation unit that VICE C exports
+// from), so the symbols are re-exported here as a single ES re-export.
 //
-// PORT OF: vice/src/drive/drivecpu.c:327-351 (interrupt_check_irq_delay).
-export function interrupt_check_irq_delay(
-  cs: interrupt_cpu_status_t,
-  cpu_clk: number,
-): number {
-  return _core_interrupt_check_irq_delay(cs, cpu_clk);
-}
+// Pre-fix: this file shipped a `export function interrupt_check_*_delay`
+// wrapper that called `_core_*` — that triggered FC-11 duplicate-port
+// FAIL (PL-10) because both files looked like definition sites to a
+// `^export function` grep. Re-export form below has ONE definition site
+// (drive_6510core.ts) and FC-11 scan ignores `export { … } from "…"`.
+export {
+  interrupt_check_nmi_delay,
+  interrupt_check_irq_delay,
+} from "./drive_6510core.js";
