@@ -189,6 +189,16 @@ Script: `scripts/check-1541-port-fidelity.mjs`. Runs in CI on every PR touching 
 
 **FC-9 — Cross-layer write-after-init audit.** Reserved for kernel + bridge code, not vice1541-intra. Kept in this list as a forward marker.
 
+**FC-11 — Cross-module shadow scan.** (Added 2026-05-19 by Spec 615 §4 #6 — the "FC-7 amendment" requested in post-mortem L1.) FC-7 + FC-8 scope `vice1541/**/*.ts` only. Spec 615 §9 root cause (`src/runtime/headless/media/mount.ts` host-side CBM-DOS validation throw blocked `drive1541.attachDisk`) shows the shadow rule must extend cross-module. Scan:
+
+- Path: `src/runtime/headless/**/*.ts` AND `src/disk/**/*.ts` AND `src/workspace-ui/**/*.ts` (every layer on the LOAD critical path).
+- Pattern: aggregate `^export (function|const|class) <name>` across all files. For every name with count ≥ 2, classify each occurrence as `full-impl`, `stub` (empty/return-falsy/throw "PORT-STUB"), or `legitimate-facade` (interface-method on a class wrapping the real one).
+- FAIL when ≥1 occurrence is `stub` AND ≥1 is `full-impl` (a cross-module shadow stub).
+- FAIL when ≥2 are `full-impl` AND none is `legitimate-facade` (cross-module duplicate port).
+- Additional rule (lesson L1 of Spec 615 §9): if a non-`vice1541/` module performs host-side validation that the drive ROM is supposed to perform (e.g. BAM walk, header checksum, disk-ID match), that validation must NOT run on the LOAD critical path in vice mode. Either gate by `drive1541Implementation === "vice"` and skip, or isolate the validation in its own try/catch and never re-throw upward.
+
+The cross-module rule extends but does NOT replace FC-7 + FC-8 — those stay scoped to `vice1541/**/*.ts` for tight per-port discipline.
+
 **FC-10 — Placeholder grep.** (Added 2026-05-18 by Spec 615.5b.) Grep `vice1541/**/*.ts` comments for any of:
 - `/pending\s+(spec\s+612|drive\.ts|diskimage\.ts|log\.ts|drivesync\.ts)/i`
 - `/placeholder\s+(until|pending|stub)/i`
