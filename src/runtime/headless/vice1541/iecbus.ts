@@ -819,20 +819,12 @@ export function iecbus_device_write(unit: number, data: number): number {
   }
 }
 
-// =============================================================================
-// PORT OF: vice/src/c64/c64iec.c:157-160 (iecbus_drive_port)
-// =============================================================================
-// Machine-specific in VICE (lives in c64iec.c, plus4iec.c, vic20iec.c etc.).
-// Returns a pointer to the active `iecbus` struct so drive-side code
-// (via1d1541, via4000, cia1581d, cmdhd, iec.c) can latch onto it during
-// `_setup_context()`. Pending c64iec.ts (T2.12); the implementation is
-// pure-return-pointer so it lands here too — c64iec.ts will re-export it
-// for symmetry but the canonical storage is on this module.
-
-// PORT OF: vice/src/c64/c64iec.c:157-160 (iecbus_drive_port)
-export function iecbus_drive_port(): iecbus_t {
-  return iecbus;
-}
+// Spec 621.2 / PL-10 / FC-11 — `iecbus_drive_port` is machine-specific
+// in VICE (defined per-machine in c64iec.c / plus4iec.c / petiec.c /
+// cbm2iec.c / c64dtviec.c — see `vice/src/iecbus.h:87` declaration). For
+// the C64 TS port the canonical definition lives in `c64iec.ts`. This
+// file previously carried a placeholder body from before c64iec.ts
+// existed (T2.12) — removed. Consumers import from `c64iec.js`.
 
 // =============================================================================
 // PORT OF: vice/src/iecbus/iecbus.c (iecbus_dump — NOT-IN-VICE shim)

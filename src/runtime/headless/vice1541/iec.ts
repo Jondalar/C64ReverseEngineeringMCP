@@ -87,10 +87,9 @@ import {
   viacore_snapshot_write_module,
 } from "./viacore.js";
 
-import {
-  iecbus_drive_port,
-  type iecbus_t,
-} from "./iecbus.js";
+import { type iecbus_t } from "./iecbus.js";
+// Spec 621.2 — iecbus_drive_port is machine-specific (c64iec.c canonical).
+import { iecbus_drive_port } from "./c64iec.js";
 
 // =============================================================================
 // SECTION 1 — Module-level state (NL-5: static C globals → module `let`)

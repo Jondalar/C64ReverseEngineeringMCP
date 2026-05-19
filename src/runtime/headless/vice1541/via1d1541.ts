@@ -161,7 +161,8 @@ interface iecbus_t {
 // T3.2-fix-M: iecbus.ts (Spec 612 T2.11) is now ported — replace stub
 // with real import. Was returning null which routed store_prb through
 // the iec_drive_write fallback (PORT-STUB throw).
-import { iecbus_drive_port as _iecbus_drive_port } from "./iecbus.js";
+// Spec 621.2 — iecbus_drive_port is machine-specific (c64iec.c canonical).
+import { iecbus_drive_port as _iecbus_drive_port } from "./c64iec.js";
 import {
   iec_drive_read as _iec_drive_read,
   iec_drive_write as _iec_drive_write,

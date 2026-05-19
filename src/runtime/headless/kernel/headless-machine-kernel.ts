@@ -63,7 +63,9 @@ import {
 // Spec 612 T3.1 — drv_data[8] live read source for the Vice1541 bridge.
 // The new snake_case port owns the canonical iecbus singleton; the
 // bridge reads from it (NOT from legacy core closure refs).
-import { iecbus_drive_port as vice_iecbus_drive_port } from "../vice1541/iecbus.js";
+// Spec 621.2 — iecbus_drive_port is machine-specific in VICE
+// (c64iec.c canonical for C64). Moved off iecbus.ts.
+import { iecbus_drive_port as vice_iecbus_drive_port } from "../vice1541/c64iec.js";
 
 export interface HeadlessMachineKernelDeps {
   session: IntegratedSession;
