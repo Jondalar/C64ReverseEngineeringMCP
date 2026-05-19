@@ -310,10 +310,11 @@ interface FidelityResult {
 // ── Run one fixture ──────────────────────────────────────────────────────────
 
 const CHUNK_CYCLES = 250_000;
-// Real 1541 KERNAL LOAD ≈ 400 B/s. PAL ~985kHz. To load 35990 bytes (lnr-s1) needs ~88M cycles.
-// To load 50800 bytes (lf-005) needs ~125M. lf-006 max (167640) = ~415M — that one we accept
-// as best-effort partial. 250M covers all real disks + most fixtures.
-const ABS_CAP_CYCLES = 250_000_000;
+// Real 1541 KERNAL LOAD ≈ 350 B/s. PAL ~985kHz → ~2800 cyc/byte.
+// Per-fixture cap = bodyLen × 3500 (with headroom) + 5M overhead, min 30M.
+function capForBodyLen(bodyLen: number): number {
+  return Math.max(30_000_000, bodyLen * 3500 + 5_000_000);
+}
 
 async function runFixture(f: Fixture): Promise<FidelityResult> {
   const expected = expectedBody(f);
@@ -329,24 +330,72 @@ async function runFixture(f: Fixture): Promise<FidelityResult> {
     await mountMedia(session, 8, f.diskPath);
     session.resetCold("pal-default");
     session.runFor(2_000_000);
+    const ramView = (session.c64Bus as { ram: Uint8Array }).ram;
 
-    // Build LOAD command. Real disks often have dir entries padded with
-    // spaces around the filename (e.g. "   POLAR BEAR   " not "POLAR BEAR$A0$A0").
-    // The CBM DOS matcher needs byte-position match, so the user-visible name
-    // doesn't actually find the file. Use "*" wildcard (first PRG entry) for
-    // real disks — matches what game autoload would do anyway.
-    const cbmName = f.kind === "real" ? "*" : f.prgName;
-    const loadCmd = `LOAD"${cbmName}",8,1\r`;
-    session.typeText(loadCmd, 80_000, 80_000);
+    // Synthetic fixtures: invoke LOAD via ML stub at $033C (cassette buffer)
+    // bypassing BASIC's LOAD parser entirely. This avoids the post-LOAD
+    // link-pointer relink that BASIC v2 runs against $0801+ in IMMEDIATE
+    // mode — relink walks pseudo-randomly through the loaded random body
+    // rewriting bytes that look like line-link pointers, generating false
+    // mismatches. SYS to ML loader → KERNAL $FFD5 directly → no relink.
+    //
+    // Real disks: use LOAD"*",8,1 via BASIC (matches game autoload flow,
+    // and game autoloaders are observed empirically — relink is part of
+    // the LOAD environment they ship under).
+    if (f.kind === "synthetic") {
+      // Filename "TEST" stored at $0380.
+      const FILENAME_ADDR = 0x0380;
+      const FILENAME_BYTES = [0x54, 0x45, 0x53, 0x54]; // "TEST"
+      const fnLen = FILENAME_BYTES.length;
+      for (let i = 0; i < fnLen; i++) {
+        ramView[FILENAME_ADDR + i] = FILENAME_BYTES[i]!;
+      }
+      // ML loader at $033C:
+      //   A9 <len>     LDA #fnLen
+      //   A2 <lo>      LDX #<filename lo>
+      //   A0 <hi>      LDY #<filename hi>
+      //   20 BD FF     JSR $FFBD  ; SETNAM
+      //   A9 01        LDA #$01    ; logical file
+      //   A2 08        LDX #$08    ; device 8
+      //   A0 01        LDY #$01    ; secondary 1 = use file header addr
+      //   20 BA FF     JSR $FFBA  ; SETLFS
+      //   A9 00        LDA #$00    ; LOAD (not VERIFY)
+      //   A2 00        LDX #$00
+      //   A0 00        LDY #$00
+      //   20 D5 FF     JSR $FFD5  ; LOAD
+      //   60           RTS
+      const ML = [
+        0xa9, fnLen,
+        0xa2, FILENAME_ADDR & 0xff, // LDX absolute? No — LDX immediate. Need actual lo/hi bytes.
+        0xa0, (FILENAME_ADDR >> 8) & 0xff,
+        0x20, 0xbd, 0xff,
+        0xa9, 0x01,
+        0xa2, 0x08,
+        0xa0, 0x01,
+        0x20, 0xba, 0xff,
+        0xa9, 0x00,
+        0xa2, 0x00,
+        0xa0, 0x00,
+        0x20, 0xd5, 0xff,
+        0x60,
+      ];
+      const ML_ADDR = 0x033c;
+      for (let i = 0; i < ML.length; i++) {
+        ramView[ML_ADDR + i] = ML[i]!;
+      }
+      session.typeText(`SYS ${ML_ADDR}\r`, 80_000, 80_000);
+    } else {
+      // Real disks via BASIC LOAD wildcard.
+      session.typeText('LOAD"*",8,1\r', 80_000, 80_000);
+    }
 
     const startCycle = session.c64Cpu.cycles;
-    const absCap = startCycle + ABS_CAP_CYCLES;
+    const absCap = startCycle + capForBodyLen(f.bodyLen);
 
     // Track when LOAD entered KERNAL (for completion detection gate)
     let kernalLoadEntered = false;
     let completed = false;
     let timedOut = false;
-    const ramView = (session.c64Bus as { ram: Uint8Array }).ram;
     const aeafExpected = (f.loadAddr + f.bodyLen) & 0xffff;
 
     // Run in chunks. Per chunk: check $AE/$AF advancement, then take a
