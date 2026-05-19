@@ -88,6 +88,13 @@ This spec freezes the doctrine that prevents the 5th attempt from drifting.
 - If the real impl is not yet available, the local function MUST be an explicit fail-fast `throw new Error("PORT-STUB: not implemented per Spec 612 / pending <real-location>")`. No partial-behaviour shims. No "minimum invariants" minimal versions. The caller fails loudly so the missing port is unambiguous.
 - When the real impl lands, the shadow MUST be deleted (not commented out) and the caller switched to `import { X } from "./real.js"`. CI gate FC-10 (§6) catches placeholders during PR.
 
+**PL-13.** No cross-module shadow stubs. (Added 2026-05-19 by Spec 615 §4 #6 + §9 post-mortem L1 — the "PL-11 amendment" requested in close-out task list.)
+- Function-name X exported from module A AND module B (or const, or class with same surface) where one body is a full impl and the other is a stub / minimal / `return;` / `throw new Error("PORT-STUB...")` is **forbidden**, even when the modules live in different subdirectories (`src/runtime/headless/drive1541/`, `src/runtime/headless/vice1541/`, `src/runtime/headless/media/`, `src/runtime/headless/providers.ts`, `src/disk/**`, `src/workspace-ui/**`).
+- The cross-module rule extends PL-10 (no duplicate ports of the same C file) and PL-11 (no legacy shadow reads in vice mode). PL-10 covers vice1541-internal duplicates; PL-11 covers legacy/vice-mode read-path divergence; PL-13 covers the cross-module shadow stub class.
+- The exception is a `legitimate-facade`: a class implementing an interface where the body delegates to the canonical impl (no behaviour added/changed). Mark the body site with `// FACADE: delegates to <full-impl-location>` so the FC-11 scan classifies it correctly.
+- The driving incident (Spec 615 §9): `src/runtime/headless/media/mount.ts` ran legacy `DiskProvider.fromImagePath` host-side BAM validation — a shadow of the drive ROM's CBM-DOS BAM walk — and threw on Pawn's copy-protected BAM, blocking `drive1541.attachDisk` from ever running. Active runtime port (vice1541) was already correct. The shadow was outside `vice1541/` so PL-10 and PL-11 did not catch it.
+- Enforcement: CI gate FC-11 (§6) scans cross-module exports for this pattern on every PR.
+
 ## 3. File Mapping Table (FM)
 
 The authoritative TS↔C map for the 1541 rebuild. **A TS file in `vice1541/` MUST appear in this table.** A TS file not in the table is a violation (delete or move to the kernel boundary).
