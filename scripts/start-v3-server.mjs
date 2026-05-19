@@ -26,10 +26,18 @@ const driveDispatchMode = process.env.C64RE_DRIVE_DISPATCH === "cycle-stepped"
   ? "cycle-stepped"
   : "vice-whole-instruction";
 console.log(`[v3] driveDispatchMode = ${driveDispatchMode}`);
+// Spec 615.16 — default to vice1541 in V3 UI server. Legacy
+// DiskProvider rejects copy-protected disks (pawn, etc.); vice1541
+// passes the GCR bytes straight to the drive ROM. Override with
+// C64RE_DRIVE1541=legacy if you specifically want legacy mode.
+const drive1541 =
+  process.env.C64RE_DRIVE1541 === "legacy" ? "legacy" : "vice";
+console.log(`[v3] drive1541 = ${drive1541}`);
 const { sessionId } = startIntegratedSession({
   mode: "true-drive",
   useMicrocodedCpu: true,
   driveDispatchMode,
+  drive1541,
 });
 console.log(`[v3] session id: ${sessionId}`);
 
