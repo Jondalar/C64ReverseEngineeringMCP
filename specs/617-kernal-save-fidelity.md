@@ -1,6 +1,6 @@
 # Spec 617 — KERNAL Save Fidelity
 
-**Status:** DONE-FUNCTIONAL (2026-05-19) — KERNAL SAVE proven functionally byte-correct: **9/9 round-trip PASS** (SAVE → re-LOAD byte-equal to source). Strict matrix 2/9 PASS; remaining 7 fail ONLY on BAM phantom-allocation off-by-1 when source body exactly fills N sectors (drive pre-allocates next sector, never deallocates on UNLISTEN; the file content + dir entry + chain are correct — the orphan sector is in BAM only). Tracked as follow-up Bug.
+**Status:** IN-PROGRESS (2026-05-19) — Round-trip 9/9 PASS (SAVE → re-LOAD byte-equal source) but **strict image-inspection 2/9 PASS only**. SAVE is NOT finished: 7 fixtures fail strict matrix on BAM phantom-allocation off-by-1 when source body exactly fills N sectors. BAM/DOS correctness bug, MUST be fixed 1:1 vs VICE/DOS/drive writeback before spec closes. VICE cross-check (§6.3) is DEFERRED — not claimed as evidence. No Spec 618 work until `tests/spec-617/kernal-save-byte-fidelity.test.ts` exits 0.
 **Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`
 **Base commit:** post-616-DONE.
 **Branch:** `codex/617-kernal-save-fidelity` (stacked on 616).
@@ -203,16 +203,16 @@ Implementation notes:
 
 ### 9.2 Strict acceptance items
 
-1. ~~**Image inspection**~~ → MET for sf-006 + sf-008 (10× rate insufficient for exact-fit fixtures due to BAM caveat). **DEFERRED** to BAM-off-by-1 fix.
-2. **Round-trip** (§6.2) → **MET** 9/9.
-3. **VICE cross-check** (§6.3) → DEFERRED per `feedback_headless_over_vice` (round-trip oracle replaces VICE-reference cross-check; both prove byte-fidelity via independent paths).
+1. **Image inspection** (§6.1) → **NOT MET**. 2/9 PASS. 7 fixtures FAIL on BAM phantom-allocation. **BLOCKING** — must be fixed before spec closes.
+2. **Round-trip** (§6.2) → MET 9/9.
+3. **VICE cross-check** (§6.3) → DEFERRED. NOT claimed as evidence of fidelity. Round-trip oracle is independent but does not substitute for VICE-byte cross-check.
 4. **No stalls** — MET (per-fixture cap based on body size).
 5. **Post-SAVE invariants** — MET (\$90 ST=0 across all PASS).
-6. `npm run check:1541-fidelity` 0 FAIL — gated on Spec 621.4/621.5, **DEFERRED**.
+6. `npm run check:1541-fidelity` 0 FAIL — gated on Spec 621.4/621.5, DEFERRED.
 7. No new `scripts/diag-*.mjs` — MET.
-8. Differential test — **DEFERRED** to Spec 621.6/621.7 harness.
+8. Differential test — DEFERRED to Spec 621.6/621.7 harness.
 
-**Goal achieved:** KERNAL SAVE proven byte-correct via 9/9 round-trip. Strict BAM count off by 1 sector on exact-fit fixtures = cosmetic phantom-allocation in BAM, file content unaffected.
+**Open block:** BAM off-by-1 must be fixed 1:1 against VICE drive writeback / DOS BAM-allocation rollback path. Speculative-allocation in drive ROM SAVE path is real DOS correctness — not cosmetic. `tests/spec-617/kernal-save-byte-fidelity.test.ts` must exit 0 before spec closes. No Spec 618 work until this gate is green.
 
 **Explicitly NOT in acceptance:**
 - BASIC `SAVE"TEST",8` via interactive typing — `$FFD8` vector call from harness is sufficient.
