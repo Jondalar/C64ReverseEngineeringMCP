@@ -1,6 +1,6 @@
-# Spec 616 — VICE / Headless KPI Trace Contract
+# Spec 619 — VICE / Headless KPI Trace Contract
 
-**Status:** DRAFT (2026-05-16)  
+**Status:** DRAFT (2026-05-16, renumbered 616→619 on 2026-05-19 — 616/617/618 reserved for KERNAL Load Fidelity / KERNAL Save Fidelity / Fastloader via $DD00)  
 **Scope:** Diagnostic trace contract only. No runtime implementation in
 this spec.  
 **Related:** Spec 600/601 runtime proof gates, Spec 610/611 VICE1541
