@@ -265,6 +265,11 @@ export async function runSaveFixture(fixture: SaveFixture): Promise<SaveResult> 
     const end_hi = (endAddr >> 8) & 0xff;
     const ML_ADDR = 0x033c;
     const ML: number[] = [
+      // Hide BASIC ROM so SAVE reads RAM at $A000-$BFFF (large fixtures
+      // overflow $A000; default $01=$37 shadows BASIC ROM there).
+      // KERNAL ROM stays mapped at $E000-$FFFF (HIRAM=1) so $FFD8 works.
+      0xa9, 0x36,                // LDA #$36   (HIRAM=1 LORAM=0 CHAREN=1)
+      0x85, 0x01,                // STA $01
       0xa9, FILENAME_LEN,
       0xa2, FILENAME_ADDR & 0xff,
       0xa0, (FILENAME_ADDR >> 8) & 0xff,
@@ -277,6 +282,9 @@ export async function runSaveFixture(fixture: SaveFixture): Promise<SaveResult> 
       0xa2, end_lo,
       0xa0, end_hi,
       0x20, 0xd8, 0xff,          // JSR $FFD8 SAVE
+      // Restore BASIC ROM visibility for BASIC READY loop.
+      0xa9, 0x37,
+      0x85, 0x01,
       0x60,                      // RTS
     ];
     for (let i = 0; i < ML.length; i++) {
