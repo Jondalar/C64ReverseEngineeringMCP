@@ -702,6 +702,12 @@ export class HeadlessMachineKernel implements MachineKernel {
       this.eventCatchup.setAdditionalCatchUp((targetClock) => {
         viceForTick.catchUpTo(targetClock);
       });
+      // Perf 2026-05-20 — by default DON'T tick the co-resident legacy
+      // DriveCpu in vice mode (it's overlaid away → ~2x speed waste).
+      // Opt back in for regression bisects via C64RE_VICE_LEGACY_DRIVE=1.
+      this.eventCatchup.setForceLegacyDriveTick(
+        process.env.C64RE_VICE_LEGACY_DRIVE === "1",
+      );
     }
   }
 
