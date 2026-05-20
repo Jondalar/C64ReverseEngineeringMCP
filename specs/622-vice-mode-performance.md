@@ -91,7 +91,16 @@ drive core + dispatch, not an architecture change.
 Ranked by leverage × safety. Each must be measured + pixel-diff-verified
 independently.
 
-### 4.0 STRUCTURAL — stop forcing useCycleLockstep in vice mode (highest leverage, VICE-shaped)
+### 4.0 STRUCTURAL — stop forcing useCycleLockstep in vice mode (highest leverage, VICE-shaped) — **IMPLEMENTED 2026-05-20 (commit `2d9e4de`)**
+
+**Result: throughput 0.50× → 0.82× realtime (+64%). Byte-identical: motm
+gold fastloader swimlane 73728-byte overlap / 0 mismatches; lnr-s1 KERNAL
+load 35990 bytes complete (ST=$40); motm reaches its menu. Same cycle-
+progress as lockstep (same byte count in 45s) → VIC output unchanged.
+Proof-gate oracles use the legacy drive, unaffected by this vice-only
+change.** The force was removed (integrated-session.ts); useCycleLockstep
+is now opt-driven (default false → EventCatchupStrategy) for vice mode too.
+
 
 **Finding (2026-05-20).** `drive1541="vice"` force-sets
 `useCycleLockstep=true` (integrated-session.ts:477), switching the WHOLE
