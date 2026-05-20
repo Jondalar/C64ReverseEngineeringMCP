@@ -1,5 +1,5 @@
 {
-  "generated": "2026-05-19T16:54:04.389Z",
+  "generated": "2026-05-20T05:29:57.684Z",
   "fixtures": [
     {
       "filename": "lf-001-1block.d64",
@@ -33,9 +33,9 @@
     },
     {
       "filename": "lf-006-max.d64",
-      "payloadBytes": 167640,
-      "sectors": 660,
-      "note": "660 sectors max disk capacity"
+      "payloadBytes": 51201,
+      "sectors": 202,
+      "note": "max RAM-fit PRG (load $0801, ends $CFFF just below I/O)"
     },
     {
       "filename": "lf-007-eoi-edge.d64",

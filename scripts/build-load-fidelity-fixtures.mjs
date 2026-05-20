@@ -259,9 +259,16 @@ const fixtures = [
   },
   {
     filename: "lf-006-max.d64",
-    payloadBytes: payloadForSectors(660),    // 167642 bytes (660 data sectors)
-    startTrack: 1,                           // must start at t1 to fit 660 sectors
-    note: "660 sectors max disk capacity",
+    // Largest single-LOAD PRG that fits contiguous C64 RAM. Load addr
+    // $0801, body ends at $CFFF — the last byte before the $D000 I/O
+    // page (a 16-bit load past $CFFF would either hit I/O registers or
+    // wrap the $AE/$AF end pointer). body = $CFFF - $0801 + 1 = 51199.
+    // This is the true max-RAM-fit boundary, NOT max-disk-capacity
+    // (disk holds 660 sectors / 167KB but C64 RAM can't hold that in
+    // one LOAD). 51199 bytes = 202 sectors, started at track 1.
+    payloadBytes: 0xcfff - 0x0801 + 1 + 2, // 51199 body + 2-byte header
+    startTrack: 1,
+    note: "max RAM-fit PRG (load $0801, ends $CFFF just below I/O)",
   },
   {
     filename: "lf-007-eoi-edge.d64",

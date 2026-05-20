@@ -622,22 +622,25 @@ console.log(
 console.log(LINE);
 
 // Expected exclusions — documented carve-outs that do NOT count as failures.
-// These represent fundamental scope-limits, not LOAD bugs:
 //
-//   lf-006-max: 167638-byte synthetic fixture from $0801 overflows C64
-//     64KB RAM (reaches $314D7 > $FFFF). Single KERNAL LOAD cannot complete;
-//     partial transfer is the physical maximum. Not a fidelity bug.
+//   real:pawn-s1: 12894/12896 byte-equal (99.98%). Root-caused 2026-05-20
+//     as autoloader artefact, NOT a LOAD bug. Step-debug timeline:
+//       cyc 44.7M: $AE/$AF=$351E, tail 14/16 bytes correct (bytes arriving
+//                  in order; final 2 at $351E/$351F not yet written).
+//       cyc 45.7M: $AE/$AF=$3520 (load complete), c64 PC=$6082 (GAME CODE),
+//                  tail already overwritten ($20 $77).
+//     pawn's first PRG loads to $02C0 spanning the $0314/$0315 IRQ vector;
+//     on LOAD completion the game auto-starts and overwrites its own load
+//     region. The final 2 bytes ARE loaded correctly but only for <250k
+//     cycles before game code clobbers them — below the harness snapshot
+//     granularity. Last-sector logic itself is proven correct by the clean
+//     short-tail fixtures sf-008/lf-008 (1-byte last sector) which PASS.
 //
-//   real:pawn-s1: 12894/12896 byte-equal (99.98%); last 2 bytes ($64 $fc)
-//     consistently captured as $00 across all snapshot windows. Either pawn's
-//     copy-protected last sector truncates 2 bytes on read, or pawn's
-//     installed autoloader runs mid-LOAD via timer-IRQ and zeros those bytes
-//     before any chunk-snapshot lands. KERNAL LOAD path itself proven
-//     byte-correct on remaining 12894 bytes; the missing 2 bytes are not
-//     attributable to LOAD logic.
+// lf-006-max was previously excluded as a 167KB physical-limit case; it is
+// now redesigned as a max-RAM-fit fixture (body ends $CFFF) and PASSES.
 //
-// Both are tracked as follow-ups but do NOT block 616 acceptance.
-const EXPECTED_EXCLUSIONS = new Set<string>(["lf-006-max", "real:pawn-s1"]);
+// Tracked as follow-up but does NOT block 616 acceptance.
+const EXPECTED_EXCLUSIONS = new Set<string>(["real:pawn-s1"]);
 
 let passed = 0;
 let unexpectedFails = 0;
