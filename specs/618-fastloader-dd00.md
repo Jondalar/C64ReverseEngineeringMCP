@@ -73,6 +73,32 @@ VICE reference:
 
 ## 4. RFL gates (Spec 620 §2)
 
+### 4.0 RESULTS — all gates PASS (2026-05-20, read-only RFL, no trace)
+
+| Gate | Scope | Verdict |
+|---|---|---|
+| 1 | `$DD00` CIA2 PA formulas — c64cia2.c store_ciapa/read_ciapa + c64iec.c iec_update_cpu_bus/ports/drive_write vs `c64iec.ts` | **byte-identical** |
+| 1b | active vice-mode `$DD00` bridge: cia6526-vice.storePa → kernel.iecWrite → legacy `iec-bus.ts`.setC64Output → facade.iecLineDrive → vice1541 `iecbus.ts`.iec_update_cpu_bus | **bus bit/cycle-faithful** |
+| 2 | `$1800` VIA1 PB — via1d1541.c store_prb/read_prb vs `via1d1541.ts` | **byte-identical** (active drive path) |
+| 3 | `iec.c` drive glue vs `iec.ts` | **faithful** (lifecycle/setup, not the hot bus path) |
+| 4 | `iecbus.c` conf1 state machine — write_conf1/read_conf1 vs `iecbus.ts` | **byte-identical** |
+
+Verified across all gates:
+- **active-low polarity**: legacy `setC64Output` does `inverted=(~cia2Pa)&0xff` (= VICE store_ciapa `tmp=~byte`); drive store_prb does `drv_data=~byte`. ✓
+- **bit mapping**: $DD00 PA bits 3/4/5 (ATN/CLK/DATA out) → `iec_update_cpu_bus` → cpu_bus 4/6/7; readback bits 6/7 from cpu_port; $1800 read `(drv_port^0x85)|0x1a|driveid`. ✓
+- **propagation timing**: `c64CiaWriteOffset=0` → IEC write fires at `clk+1` = VICE x64sc `maincpu_clk + !(write_offset)`. ✓
+- **arbitration (any-low-wins)**: `iec_update_ports` AND-folds `cpu_port &= drv_bus[unit]` over units 4..(8+NUM); legacy core loops 4..15 but drv_bus[12..15]=0xff → identical `cpu_port`. ✓
+- **order**: drive catch-up (`drive_cpu_execute_one`) → `iec_update_cpu_bus` → ATN edge `viacore_signal(via1d1541, CA1, iec_old_atn?0:VIA_SIG_RISE)` → drv_bus[8] recompute → `iec_update_ports`. ✓
+- **single ATN edge** to the real drive: legacy `_performC64Write` pulses the (inert) legacy DriveCpu via1; `iecLineDrive`→write_conf1 pulses the vice1541 via1d1541 CA1 exactly once. ✓
+- drive + C64 share one `iecbus` singleton (`iecbus_drive_port()` → c64iec.ts, Spec 621.2). ✓
+- legacy `recompute_drv_bus` byte-identical to VICE `iec_drive_write`; drive `drv_data[8]` overlaid back into legacy core before any C64 read (per-c64-cycle + at every $DD00 R/W). ✓
+
+**Follow-up (NOT a divergence, do NOT fix during 618 step-debug):** vice-mode coexists an inert legacy `DriveCpu` whose bus contribution is overlaid away — costs a redundant ATN edge to an unused legacy via1 + wasted cycles. Candidate for a later cleanup spec; does not corrupt the `$DD00`/`$1800` path.
+
+**Gate conclusion:** the IEC/CIA2/$DD00/$1800 port is byte/cycle-faithful to VICE. Any motm/MM fastloader divergence is therefore NOT in these primitives — proceed to §5 step-debug to locate the first runtime divergence in the fastloader poll/transfer loop itself.
+
+### 4.1 Original gate checklist (now satisfied by §4.0)
+
 Reuses Spec 616 work for c64iec.c + iec.c + iecbus.c. Additional gates:
 
 1. **`vice/src/c64/cia2.c` PA read mask**.
