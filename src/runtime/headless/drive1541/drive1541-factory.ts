@@ -10,10 +10,16 @@ import {
 export function resolveDrive1541Implementation(
   requested?: Drive1541Implementation,
 ): Drive1541Implementation {
+  // 2026-05-20 (user mandate, codex/615 branch): vice1541 is the DEFAULT
+  // everywhere. Legacy is opt-in ONLY — pass `requested="legacy"` explicitly
+  // or set `C64RE_DRIVE1541=legacy`. Spec 622 §4.0 made vice mode VICE-shaped
+  // (EventCatchupStrategy) + ~0.8x realtime + fixed the $DD00 fastloader
+  // timing (7/7 games load), so there is no longer a reason for any caller
+  // to silently fall back to legacy.
   const env = process.env.C64RE_DRIVE1541;
   const selected = requested ?? (
     env === "vice" || env === "legacy" ? env : undefined
-  ) ?? "legacy";
+  ) ?? "vice";
 
   if (selected !== "legacy" && selected !== "vice") {
     throw new Error(`[drive1541] unsupported implementation: ${String(selected)}`);
