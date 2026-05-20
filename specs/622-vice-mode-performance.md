@@ -91,6 +91,72 @@ drive core + dispatch, not an architecture change.
 Ranked by leverage × safety. Each must be measured + pixel-diff-verified
 independently.
 
+### 4.0 STRUCTURAL — stop forcing useCycleLockstep in vice mode (highest leverage, VICE-shaped)
+
+**Finding (2026-05-20).** `drive1541="vice"` force-sets
+`useCycleLockstep=true` (integrated-session.ts:477), switching the WHOLE
+C64/VIC into the per-cycle `CycleLockstepSchedulerImpl`. This is NOT
+VICE-shaped and is the prime structural perf cost (`executeCycle` 4.5% +
+per-cycle dispatch granularity on top of the VIC).
+
+Why it is leftover, not needed:
+- The **drive is already event-driven**. `afterCycleSync` for vice =
+  `undefined` (Codex 2026-05-19): the per-c64-cycle drive tick (Spec 614.3)
+  was reverted as "over-engineering — VICE's `drive_cpu_execute_one` is
+  event-driven from `iecbus_cpu_*_conf1`, NOT per c64 cycle." The 1541 now
+  catches up ONLY at `$DD00` R/W via the bridge `pushFlush.one/all →
+  vice.tickToClock(clk)` + `additionalCatchUp` at instruction boundaries.
+  That is exactly VICE's model.
+- **VIC cycle-accuracy does NOT come from the lockstep scheduler.** Per
+  Spec 425 the C64 CPU calls `vicii_cycle()` from inside `tick()` every
+  cycle, in BOTH scheduler paths. Proof: the Spec 600 proof-gate
+  screenshots (`test-*-screenshots.mjs`) run with `useCycleLockstep=false`
+  (legacy/eventCatchup) and produce the pixel-exact oracle PNGs. So
+  eventCatchup already yields a cycle-accurate VIC.
+- Therefore the forced lockstep only adds finer-than-VICE per-cycle C64
+  stepping (per-cycle IRQ-pin update + per-cycle BA bus-stall) with no
+  drive-accuracy or VIC-accuracy justification that eventCatchup lacks.
+
+VICE reference model (what we should match):
+- `maincpu_mainloop` (src/maincpu.c) — C64 CPU runs instruction-by-
+  instruction; **alarm contexts** (VIC raster, CIA timers) fire at
+  scheduled clocks. NOT a global per-cycle co-step of C64+drive.
+- `iecbus_cpu_read_conf1` / `iecbus_cpu_write_conf1` (src/iecbus/iecbus.c)
+  call `drive_cpu_execute_one/all(clock)` AT the `$DD00` access instant —
+  event-driven drive catch-up to the exact clock.
+- `drive_cpu_execute_all` also called periodically from the main loop.
+- Our `EventCatchupStrategy` (instruction-stepped C64 + `catchUpDrive` at
+  instruction boundaries) + the bridge `pushFlush` (drive catch-up at
+  `$DD00` events) is the faithful analog.
+
+**Smallest rebuild plan:**
+1. Remove the `if (opts.drive1541 === "vice") this.useCycleLockstep = true;`
+   force (integrated-session.ts:476-477). Let `useCycleLockstep` follow
+   `opts` (default false → `EventCatchupStrategy`).
+2. Keep the vice-drive bridge unchanged: `pushFlush.one/all` →
+   `vice.tickToClock(effClk)` at every `$DD00` R/W, `additionalCatchUp` at
+   instruction boundaries. Verify `effClk` passed to the bridge is the
+   exact CPU-cycle of the bus access in eventCatchup (the bus access already
+   carries the live `c64Cpu.cycles` stamp — confirm no off-by-one).
+3. Leave the cycle-lockstep scheduler code in place + reachable via the
+   explicit `useCycleLockstep` opt (probes / bisects).
+4. No change to the VIC, the drive core, or the IEC primitives.
+
+**Decisive verification (revert if any fails):**
+- 7-game proof-oracle pixel diff = ZERO (confirms VIC accuracy unaffected
+  → lockstep was NOT providing needed C64 cycle-accuracy).
+- 616/617 byte-fidelity + chain + `check:1541-fidelity` 0 FAIL (drive load
+  accuracy).
+- motm gold fastloader swimlane still 0 byte-divergence (the `$DD00`/`$1800`
+  handshake stays cycle-exact under eventCatchup).
+- Throughput measure — expect the largest single jump here (drops the
+  per-cycle C64 scheduler dispatch).
+
+If the pixel diff is non-zero, the lockstep WAS supplying per-cycle C64
+timing (IRQ-pin / BA bus-stall granularity) that eventCatchup lacks — then
+keep lockstep and pursue §4.1+ instead. The experiment is low-risk and
+self-falsifying.
+
 ### 4.1 VIC draw hot path (~35% in draw_*) — highest leverage
 
 - **C-1 Property-access hoisting.** The draw functions read `vicii.dbuf`,
