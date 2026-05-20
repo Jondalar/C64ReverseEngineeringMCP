@@ -328,7 +328,15 @@ export class V3WsServer {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
       const drv = s.drive;
-      const halfTrack = (s.headPosition as any).trackHalf ?? 0;
+      // Spec 618 follow-up — in drive1541="vice" mode the legacy DriveCpu
+      // (s.drive / s.headPosition / s.gcrShifter) is a co-resident stub
+      // whose head + PC freeze after the initial bridged dir step. The
+      // ACTIVE drive is the vice1541 facade. Read head + drive PC from it.
+      const viceUnit = (s as any).kernel?.drive1541?.unit ?? (s as any).drive1541?.unit ?? null;
+      const viceDrive0 = viceUnit?.drives?.[0] ?? null;
+      const halfTrack = viceDrive0
+        ? (viceDrive0.current_half_track ?? 0)
+        : ((s.headPosition as any).trackHalf ?? 0);
       const motorOn = !!(s as any).gcrShifter?.motorOn;
       // VICE 1:1 LED model (drive.c:870-931): PWM duty cycle per UI poll.
       // Fast PB3 toggles average to brightness; DOS error blink oscillates
@@ -350,7 +358,26 @@ export class V3WsServer {
       // drive RAM during BAM ops). Surface raw last-decoded sector header
       // when shifter exposes it; else 0. Follow-up spec to parse $1C00
       // GCR header bytes.
-      const sector = (s as any).gcrShifter?.lastSectorHeader ?? 0;
+      // vice mode: GCR head sector isn't trivially exposed; the DOS job
+      // sector lives in drive RAM $80. Read it via the drive memory map
+      // (job queue sector for buffer 0). Falls back to legacy shifter.
+      let sector = (s as any).gcrShifter?.lastSectorHeader ?? 0;
+      if (viceUnit) {
+        try {
+          const rd = viceUnit.cpud?.read_func_ptr?.[0x00];
+          // $0007 = sector of the active job (buffer 0) in 1541 DOS.
+          sector = rd ? (rd(viceUnit, 0x0007) & 0xff) : sector;
+        } catch { /* keep fallback */ }
+      }
+      // Active drive PC: vice drive 6502 in vice mode, legacy otherwise.
+      const drivePc = viceUnit
+        ? (viceUnit.cpu?.cpu_regs?.pc ?? drv.cpu.pc)
+        : drv.cpu.pc;
+      // Track from halftrack: vice current_half_track is 2-based (ht 2 =
+      // track 1) so track = ht/2; legacy headPosition is 0-based (+1).
+      const track = viceDrive0
+        ? Math.floor(halfTrack / 2)
+        : Math.floor(halfTrack / 2) + 1;
 
       // Spec 424 follow-up — IEC bus snapshot + transfer-mode heuristic.
       // CIA2 PA ($DD00):
@@ -379,7 +406,7 @@ export class V3WsServer {
         c64pc >= 0xF400 && c64pc <= 0xF800 ? "kernal" :
         // Heuristic: if drive cpu is idle in $EBFD..$ECC0 wait-loop AND
         // C64 in BASIC ($A000..$BFFF) or RAM, classify as idle.
-        (drv.cpu.pc >= 0xEBFD && drv.cpu.pc <= 0xECC0) ? "idle" :
+        (drivePc >= 0xEBFD && drivePc <= 0xECC0) ? "idle" :
         "custom";
 
       return {
@@ -390,9 +417,9 @@ export class V3WsServer {
         motorOn,
         rwMode,
         halfTrack,
-        track: Math.floor(halfTrack / 2) + 1,
+        track,
         sector,
-        drivePc: drv.cpu.pc,
+        drivePc,
         // Spec 424 follow-up — IEC + transfer indicator
         dd00: { pra: dd00pra, ddr: dd00ddr },
         transferMode,
@@ -403,6 +430,28 @@ export class V3WsServer {
     // plumbing yet (deferred to follow-up spec 425). Returns null.
     this.on("session/cart_status", ({ session_id: _ }) => {
       return null;
+    });
+
+    // Sidequest 2026-05-20 — Drive 8 power-cycle / re-init button.
+    // Single press = cold re-init of the active drive (drive 6502 PC
+    // back to ROM reset vector, DOS re-runs its power-on init). In
+    // vice mode this drives the vice1541 facade.reset("cold")
+    // (= drivecpu_trigger_reset + drivecpu_reset).
+    this.on("session/drive_power", ({ session_id }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const facade = (s as any).kernel?.drive1541 ?? (s as any).drive1541 ?? null;
+      if (facade && typeof facade.reset === "function") {
+        facade.reset("cold");
+        return { device: 8, reinitialized: true, mode: "vice" };
+      }
+      // Legacy fallback: cold-reset the legacy DriveCpu.
+      const drv = s.drive as any;
+      if (drv && typeof drv.reset === "function") {
+        drv.reset();
+        return { device: 8, reinitialized: true, mode: "legacy" };
+      }
+      return { device: 8, reinitialized: false };
     });
 
     // Spec 263 — audio streaming.

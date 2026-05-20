@@ -739,6 +739,14 @@ body {
 }
 .wb-device-eject:hover { color: var(--c64-red); border-color: var(--c64-red); }
 .wb-device-insert:hover { color: var(--c64-blue-bright); border-color: var(--c64-blue-bright); }
+.wb-device-power {
+  background: var(--c64-bg-1); color: var(--c64-fg-muted);
+  border: 1px solid var(--c64-border); padding: 0 6px;
+  cursor: pointer; font-family: inherit; font-size: 11px; line-height: 1;
+  margin-left: 6px;
+}
+.wb-device-power:hover { color: var(--c64-red); border-color: var(--c64-red); }
+.wb-device-power:active { color: var(--c64-yellow, #ffd44a); border-color: var(--c64-yellow, #ffd44a); }
 .wb-device-picker {
   list-style: none; padding: 0; margin: 2px 0;
   background: var(--c64-bg-1); border: 1px solid var(--c64-border);

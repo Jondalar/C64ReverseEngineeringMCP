@@ -81,7 +81,7 @@ function cartLedClass(c: Cart | null | undefined): string {
 }
 
 function DeviceRow({
-  label, ledClass, ledStyle, mediaList, currentPath, onMount, onEject, exts, secondLine,
+  label, ledClass, ledStyle, mediaList, currentPath, onMount, onEject, exts, secondLine, onPower,
 }: {
   label: string;
   ledClass: string;
@@ -92,6 +92,7 @@ function DeviceRow({
   onEject: () => void;
   exts: string[];
   secondLine: React.ReactNode;
+  onPower?: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const filtered = mediaList.filter(m => exts.some(e => m.path.toLowerCase().endsWith(e)));
@@ -102,6 +103,13 @@ function DeviceRow({
       <div className="wb-device-line1">
         <h3 className="wb-device-label">{label}</h3>
         <span className={ledClass} style={ledStyle} title="LED" />
+        {onPower && (
+          <button
+            className="wb-device-power"
+            onClick={onPower}
+            title="Power-cycle / re-initialize drive"
+          >⏻</button>
+        )}
         <button
           className={currentPath ? "wb-device-eject" : "wb-device-insert"}
           onClick={() => setOpen(o => !o)}
@@ -186,6 +194,12 @@ export function InspectorPanel({
       await getClient().call("media/unmount", { session_id: sessionId, slot });
       onMounted?.(slot, "");
     } catch (e) { console.error("eject:", e); }
+  };
+  const drivePower = async () => {
+    if (!sessionId) return;
+    try {
+      await getClient().call("session/drive_power", { session_id: sessionId });
+    } catch (e) { console.error("drive_power:", e); }
   };
 
   // T/S formatted as "XX.X/YY" — track + halfTrack-bit + sector zero-padded.
@@ -290,6 +304,7 @@ export function InspectorPanel({
             onEject={() => ejectSlot(8)}
             exts={[".d64", ".g64"]}
             secondLine={driveSecondLine(drive)}
+            onPower={drivePower}
           />
         </section>
       )}
