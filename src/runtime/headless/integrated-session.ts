@@ -880,10 +880,15 @@ export class IntegratedSession {
   // (RAM fill pattern, VIC raster phase, drive head track, peripheral
   // neutrals) so two reset+run pairs with the same inputs produce
   // byte-identical state at every cycle.
-  resetCold(profile: ResetProfile = "pal-default"): void {
+  resetCold(profile: ResetProfile = "pal-default", opts?: { keepRam?: boolean }): void {
     const spec = getResetProfile(profile);
-    this.c64Bus.reset();
-    applyRamFillPattern(this.c64Bus.ram, spec);
+    if (opts?.keepRam) {
+      // HW reset-button: keep user RAM, restore only banking + PLA.
+      this.c64Bus.resetCpuPortKeepRam();
+    } else {
+      this.c64Bus.reset();
+      applyRamFillPattern(this.c64Bus.ram, spec);
+    }
     this.iecBus.reset();
     if (this.iecBus.isTraceEnabled()) this.iecBus.clearTrace();
     this.c64Cpu.reset();
@@ -950,6 +955,20 @@ export class IntegratedSession {
       // Reset literal-port framebuffer accumulator
       this.literalPortFb?.fill(0);
     }
+  }
+
+  /**
+   * Reset button (HW RESET line): re-init the CPU + C64 I/O chips + drive,
+   * restore default banking, and re-enter the KERNAL reset routine via the
+   * $FFFC vector (= $FCE2). KEEPS user RAM — unlike a power-cycle, which
+   * fills the cold-boot RAM pattern. Recovers from a running or JAMmed
+   * game (c64Cpu.reset clears the jammed flag + pending IRQ/NMI; chip
+   * resets clear active raster-IRQ / CIA timers that would otherwise
+   * re-hijack execution). The 1541 disk stays mounted; the drive re-runs
+   * its ROM so it is back at a known head/track for the next access.
+   */
+  resetWarm(profile: ResetProfile = "pal-default"): void {
+    this.resetCold(profile, { keepRam: true });
   }
 
   // Sprint 93.1: queue text typing into keyboard matrix. Hold/gap default

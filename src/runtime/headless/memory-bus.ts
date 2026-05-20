@@ -122,6 +122,26 @@ export class HeadlessMemoryBus {
     this.memPlaConfigChanged();
   }
 
+  /**
+   * HW reset-button (RESET line) banking reset: restore default $00/$01
+   * processor-port + PLA mapping WITHOUT wiping RAM. Mirrors reset() minus
+   * the cold-power RAM fill so a warm reset preserves user RAM like real
+   * hardware (DRAM keeps its contents across a reset pulse).
+   */
+  resetCpuPortKeepRam(): void {
+    this.cpuPortDirection = 0x2f;
+    this.cpuPortValue = 0x37;
+    this.ram[0x0000] = this.cpuPortDirection;
+    this.ram[0x0001] = this.cpuPortValue;
+    this.dataSetBit6 = 0;
+    this.dataSetBit7 = 0;
+    this.dataSetClkBit6 = 0;
+    this.dataSetClkBit7 = 0;
+    this.dataFalloffBit6 = 0;
+    this.dataFalloffBit7 = 0;
+    this.memPlaConfigChanged();
+  }
+
   /** Spec 402 / §4.4 — glue logic resource setter (HMOS / CMOS). */
   setGlueLogic(g: GlueLogic): void {
     this.glueLogic = g;

@@ -81,6 +81,21 @@ export class V3WsServer {
   private wss: WebSocketServer;
   private handlers = new Map<string, RpcHandler>();
   private clients = new Set<WebSocket>();
+  // Single-session FIFO op chain. Node fires each ws "message" listener
+  // without awaiting the previous, so two async handlers interleave at
+  // their `await` points. A frame-stream session/run executing in that
+  // gap while media/mount is mid-attach (or session/reset mid-re-init)
+  // left the drive/CPU in a half-mutated state → UI freeze. Methods that
+  // run or mutate the live session are serialized through this chain so
+  // they execute atomically end-to-end, never interleaved.
+  private opChain: Promise<unknown> = Promise.resolve();
+  private static readonly SERIALIZED_METHODS = new Set<string>([
+    "session/run", "session/reset", "session/screenshot",
+    "session/type", "session/key_down", "session/key_up",
+    "session/release_keys", "session/joystick_set", "session/joystick_clear",
+    "session/drive_power", "media/mount", "media/unmount", "media/swap",
+    "runtime/call", "monitor/exec",
+  ]);
   // Spec 263 — per-session audio streamers. Pumped on a fixed cadence
   // and flushed via session_state ticks. Keyed by session_id.
   private audioStreams = new Map<string, {
@@ -187,19 +202,31 @@ export class V3WsServer {
       }
       return;
     }
-    try {
-      const result = await handler(req.params ?? {}, ctx);
-      if (req.id !== undefined) {
-        ctx.send({ jsonrpc: "2.0", result, id: req.id });
+    const exec = async () => {
+      try {
+        const result = await handler(req.params ?? {}, ctx);
+        if (req.id !== undefined) {
+          ctx.send({ jsonrpc: "2.0", result, id: req.id });
+        }
+      } catch (e) {
+        if (req.id !== undefined) {
+          ctx.send({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: (e as Error).message },
+            id: req.id,
+          });
+        }
       }
-    } catch (e) {
-      if (req.id !== undefined) {
-        ctx.send({
-          jsonrpc: "2.0",
-          error: { code: -32000, message: (e as Error).message },
-          id: req.id,
-        });
-      }
+    };
+
+    if (V3WsServer.SERIALIZED_METHODS.has(req.method)) {
+      // Queue behind any in-flight session op; keep the chain alive even
+      // if a handler rejects (exec already swallows + reports errors).
+      const link = this.opChain.then(exec, exec);
+      this.opChain = link.catch(() => {});
+      await link;
+    } else {
+      await exec();
     }
   }
 
@@ -285,14 +312,16 @@ export class V3WsServer {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
       if (mode === "soft") {
-        // SYS 64738 — vector at $FFFC/$FFFD (= $FCE2 with KERNAL mapped).
-        let lo = s.c64Bus.read(0xfffc) & 0xff;
-        let hi = s.c64Bus.read(0xfffd) & 0xff;
-        let vec = (hi << 8) | lo;
-        if (vec < 0xe000) vec = 0xfce2; // KERNAL hidden? fall back to $FCE2
-        (s.c64Cpu as unknown as { pc: number }).pc = vec & 0xffff;
+        // Reset button = HW RESET line. resetWarm re-inits CPU + chips +
+        // drive and restores banking, so the $FFFC vector reads $FCE2 and
+        // the KERNAL reset routine runs cleanly — recovering even from a
+        // running/JAMmed game where $01 banked KERNAL out or a raster-IRQ
+        // pointed into game code. RAM is preserved (unlike a power-cycle).
+        // A bare "set PC=$FCE2" was insufficient: from a live game it left
+        // chips/banking dirty → ran off into RAM (black screen).
+        s.resetWarm(video ?? "pal-default");
         s.runFor(5_000_000, { cycleBudget: 5_000_000 });
-        return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "soft", vector: vec };
+        return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "soft" };
       }
       s.resetCold(video ?? "pal-default");
       // Run enough cycles for KERNAL to fully reach READY + BASIC input
