@@ -122,10 +122,43 @@ Reuses Spec 616 work for c64iec.c + iec.c + iecbus.c. Additional gates:
 
 ## 5. Step-debug recipe
 
+### 5.0 Task 618.0/618.1 RESULTS (2026-05-20, bounded step-debug, no trace)
+
+**motm fastloader located + symptom confirmed.** Boot motm.g64 → `LOAD"*",8,1` + `RUN` (AB-stub `murder` $02DC loads via KERNAL, 40/40 byte-correct per Spec 616). Stub uploads a custom fastloader to **drive RAM `$0700`** (drive PC cycles `$072x`/`$07cx`) which bit-bangs `$1800`; the C64-side receiver runs at `$43xx`.
+
+C64 fastloader poll/transfer loop (disasm from live RAM):
+```
+$43c3 LDX #$07          ; bit counter (8 bits)
+$43c5 LDY #$30          ; timeout counter
+$43c7 DEY               ; ← POLL LOOP TOP
+$43c8 BEQ $43ba         ; timeout branch
+$43ca BIT $DD00         ; ← POLLED ADDR = CIA2 PA
+$43cd BPL $43c7         ; spin until bit7 (DATA_IN) HIGH
+$43cf LDA $DD00
+$43d2 BPL $4243
+$43d4 EOR #$40 / STA $9a / ORA #$20
+$43da STA $DD00         ; drive CLK/DATA handshake out
+$43e1 STA $DD00
+$43e4 JSR $43bd
+$43ed ROL $031b         ; assemble received byte
+$43f0 DEX / BPL $43cf   ; next bit
+```
+- **Polled bit:** `$DD00` bit7 = DATA_IN (drive's DATA-line contribution via cpu_port bit7).
+- **Written bits:** `$DD00` bits 4/5 (CLK/DATA out) for the handshake clock.
+- Live state in loop: CIA2 `PRA=$03 DDRA=$3f` (bits 0-5 out, 6-7 in).
+
+**Symptom (NOT a fastloader-poll stall):** the transfer loop RUNS and makes progress — screen fills to ~1000 non-blank chars over ~140M cycles, `$031e`/`$031b` byte counters advance. THEN control leaves the loop (`$7c75` → KERNAL `$fdbb` reset-ish → BASIC `$af4d`) and ends **stuck looping in BASIC ROM `$b7bd`/`$b7bf` for ~150M+ cycles** (never reaches the game title screen). screenFill drops 1000→~610.
+
+**Interpretation:** the fastloader bit-transfer mechanism works at the bit level (loop progresses), but a byte-level corruption during transfer (a DATA_IN sampled at the wrong instant, or a handshake-edge timing skew) most likely produces a bad byte → game crashes post-load → falls into a BASIC ROM error/idle loop. The §4 RFL gates proved the IEC primitives byte-faithful, so the divergence is a **timing/edge-alignment** issue between the drive's `$1800` bit-bang and the C64's `$DD00` sample point — exactly what §5.1 lockstep-vs-VICE on the two lanes will pin down.
+
+**Next:** §5.1 lockstep — capture headless + VICE at identical scenario, first-divergence on the `$DD00` read lane + `$1800` write lane during the fastloader window (Spec 620 first-divergence tool, single-record, NOT statistics).
+
+### 5.1 Step-debug recipe
+
 Pre-checklist:
-- [ ] konkrete PC (motm: fastloader entry near $0801-stub end)
-- [ ] konkrete polled addr ($DD00 read or $1800 read)
-- [ ] <30s reachable (motm boot + AB-loader hand-off ≈ 5s)
+- [x] konkrete PC — fastloader poll loop `$43c7` (DEY) / `$43ca` (BIT $DD00) / `$43cd` (BPL)
+- [x] konkrete polled addr — `$DD00` bit7 (DATA_IN); written bits 4/5 (CLK/DATA out)
+- [x] <30s reachable — fastloader engages ~10M cycles after RESET; transfer window ~10M–140M
 
 Scenario for motm:
 
