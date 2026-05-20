@@ -1,6 +1,6 @@
 # Spec 616 — KERNAL Load Fidelity
 
-**Status:** DONE (2026-05-19) — KERNAL LOAD byte-fidelity proven 14/16 PASS + 2 expected-FAIL carve-outs (lf-006-max physical-limit, real:pawn-s1 autoloader/protected-sector race). `tests/spec-616/kernal-load-byte-fidelity.test.ts` exits 0 (commit `8c07171`). Chain test green. Spec 618 (fastloader/$DD00) unblocked.
+**Status:** DONE (2026-05-19, cleanup 2026-05-20) — KERNAL LOAD byte-fidelity proven 15/16 PASS + 1 expected-FAIL carve-out (real:pawn-s1 autoloader artefact, root-caused commit `9ec6b17`). lf-006-max redesigned from broken 167KB physical-limit case to max-RAM-fit (51199 bytes, ends $CFFF) and now PASSES. `tests/spec-616/kernal-load-byte-fidelity.test.ts` exits 0. Chain test green. Spec 618 (fastloader/$DD00) unblocked.
 **Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`, `specs/615-gcr-decode-fidelity.md`
 **Base commit:** post-615-DONE on `codex/615-gcr-decode-fidelity`.
 **Branch:** `codex/616-kernal-load-fidelity` (stacked on 615).
@@ -93,7 +93,7 @@ Lives under `samples/fixtures/load-fidelity/`. Built by `scripts/build-load-fide
 | `lf-003-30block.d64` | ~7.6 KB | 30 | mid-size |
 | `lf-004-100block.d64` | ~25 KB | 100 | large |
 | `lf-005-200block.d64` | ~50 KB | 200 | very large |
-| `lf-006-max.d64` | ~158 KB | 660 (max disk) | max disk capacity |
+| `lf-006-max.d64` | 51199 bytes (~50 KB) | 202 | max RAM-fit PRG — load $0801, body ends exactly $CFFF (last byte before $D000 I/O). NOT max-disk (disk holds 660 sectors / 158 KB but a single KERNAL LOAD into RAM can't exceed ~$CFFF without hitting I/O or wrapping the $AE/$AF end pointer). |
 | `lf-007-eoi-edge.d64` | exactly 254 × N bytes | N | last sector is full-block — EOI on byte 256, not mid-sector. Edge case for ACPTR EOI handling. |
 | `lf-008-short-tail.d64` | (254 × N) + 1 byte | N+1 | last sector has 1 valid byte. Edge case for short-tail detection. |
 | `lf-009-cross-track.d64` | sized to span track boundary | mid-size | tests inter-track stepper between LOAD sectors. |
@@ -191,10 +191,9 @@ Recipe per failing fixture:
 
 | Class | Result |
 |---|---|
-| **Synthetic fixtures** | 8/9 PASS byte-equal (lf-001..lf-005, lf-007..lf-009) |
-| lf-006-max (167638 bytes) | Expected-partial — exceeds C64 64KB RAM from \$0801, physically unloadable in single KERNAL LOAD |
+| **Synthetic fixtures** | 9/9 PASS byte-equal (lf-001..lf-009; lf-006 redesigned to max-RAM-fit 51199 bytes, commit `9ec6b17`) |
 | **Real disks** | 6/7 PASS byte-equal (motm, MM s1, IM2, LNR s1, scramble, polarbear) |
-| pawn-s1 (12896 bytes) | 99.98% byte-equal (12894/12896) — last 2 bytes lost to autoloader/protected-last-sector race; KERNAL LOAD itself proven correct |
+| pawn-s1 (12896 bytes) | 99.98% byte-equal (12894/12896) — root-caused 2026-05-20 as autoloader artefact (commit `9ec6b17`): pawn's PRG loads to $02C0 spanning the $0314 IRQ vector, game auto-starts at LOAD completion and overwrites the last 2 bytes within <250k cycles, below harness snapshot granularity. Last-sector logic proven correct by clean short-tail fixtures. KERNAL LOAD itself byte-correct. Expected-FAIL carve-out. |
 
 Implementation notes recorded in test:
 - Synthetic fixtures invoked via ML loader at \$033C calling KERNAL \$FFD5 — bypasses BASIC LOAD parser and post-LOAD link-pointer relink that corrupts random body bytes in the \$0801 program area.
@@ -206,8 +205,8 @@ Implementation notes recorded in test:
 
 Spec is DONE when ALL of:
 
-1. ~~**Fixture matrix byte-equal:** all 9 fixtures from §5.1 pass byte-equality oracle.~~ → 8/9 PASS, lf-006 carved out (physical limit). **MET** for in-scope fixtures.
-2. ~~**Real-disk first-PRG byte-equal:** all 7 real game disks pass byte-equality for their first PRG.~~ → 6/7 PASS, pawn-s1 99.98%. **MET** functionally.
+1. **Fixture matrix byte-equal:** all 9 fixtures from §5.1 pass byte-equality oracle. → **MET 9/9** (lf-006 redesigned to max-RAM-fit).
+2. ~~**Real-disk first-PRG byte-equal:** all 7 real game disks pass byte-equality for their first PRG.~~ → 6/7 PASS, pawn-s1 99.98% (autoloader artefact, expected-FAIL). **MET** functionally.
 3. **Two-stage chain:** `lf-chain.d64` (STAGE1 → STAGE2 via `$FFD5`) — STAGE2 byte-equal in RAM after chained LOAD. **MET** (commit `09970ef`, `tests/spec-616/kernal-load-chain-fidelity.test.ts`: STAGE2 7618/7618 byte-equal, ~22M cycles, single SYS-call drives both LOADs).
 4. **No stalls:** every test completes in < 10 × VICE-baseline cycles. → MET (per-fixture cap based on body size, real 1541 byte-rate).
 5. **Post-LOAD invariants verified:** `$AE/$AF` end pointer correct, `$90` ST status correct. → MET (recorded per fixture).
@@ -215,7 +214,7 @@ Spec is DONE when ALL of:
 7. No new `scripts/diag-*.mjs` → MET.
 8. Differential test per Spec 620 §3 → **DEFERRED to Spec 621.6/621.7 harness**.
 
-**Goal achieved:** KERNAL LOAD proven byte-correct against 14 of 16 fixtures + 6 of 7 game disks. The 2 carve-outs (lf-006 max-disk physical limit, pawn-s1 last-2-bytes) are not KERNAL LOAD bugs.
+**Goal achieved:** KERNAL LOAD proven byte-correct against 15 of 16 fixtures + 6 of 7 game disks. The single carve-out (pawn-s1 last-2-bytes) is an autoloader artefact, not a KERNAL LOAD bug. Test exits 0.
 
 **Explicitly NOT in acceptance:**
 - Game-runtime success post-LOAD.
