@@ -86,7 +86,7 @@ Sizes:
 | `sf-003-30block` | ~7.6 KB | 30 | mid-size |
 | `sf-004-100block` | ~25 KB | 100 | large |
 | `sf-005-200block` | ~50 KB | 200 | very large |
-| `sf-006-max` | ~158 KB | 660 (max disk) | max disk capacity |
+| `sf-006-max` | 50000 bytes (~50 KB) | ~197 | **max RAM-fit, NOT max disk.** KERNAL SAVE writes from C64 RAM, so the payload is bounded by addressable RAM (load $0900 → ~$D000 I/O boundary ≈ 50 KB), not by disk capacity (660 sectors / 158 KB). The "max" suffix refers to the largest practical single-SAVE source, which is RAM-limited. |
 | `sf-007-full-block` | exactly 254 × N bytes | N | full-block last sector — EOI on byte 256 of last block |
 | `sf-008-short-tail` | (254 × N) + 1 byte | N+1 | 1-byte last sector |
 | `sf-009-cross-track` | sized to span track 18 directory | mid-size | tests BAM allocation around track 18 reservation |
