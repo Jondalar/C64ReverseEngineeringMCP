@@ -9,12 +9,39 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/agent-api.js";
 import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
+import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
 import { SidAudioRecorder, AudioExportSession } from "../runtime/headless/audio/sid-audio-recorder.js";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 
 export const V3_WS_PORT = 4312;
 export const V3_WS_HOST = "127.0.0.1";
+
+// Decode the physical sector under (or next approaching) the vice1541 GCR
+// read head. Loader-independent (works for KERNAL + custom fastloaders) —
+// reads the actual GCR track, scans from the head bit-position for the next
+// sector header block, returns its sector number. Mirrors VICE's monitor
+// sector indicator. Returns -1 if no header found (unformatted/empty track).
+function viceSectorUnderHead(d0: any): number {
+  const ht = d0?.current_half_track ?? 0;
+  const raw = d0?.gcr?.tracks?.[ht - 2];
+  if (!raw?.data || !raw.size) return -1;
+  const bits = raw.size * 8;
+  // GCR_head_offset is a BIT position (rotation.ts: byte = off >> 3).
+  let p = (((d0.GCR_head_offset ?? 0) % bits) + bits) % bits;
+  const header = new Uint8Array(4);
+  let firstSync = -1;
+  for (let guard = 0; guard < 64; guard++) {
+    p = gcr_find_sync(raw, p, bits);
+    if (p < 0) return -1;          // no sync = no header
+    if (firstSync === p) return -1; // full revolution, no header block
+    if (firstSync < 0) firstSync = p;
+    gcr_decode_block(raw, p, header, 1);
+    if (header[0] === 0x08) return header[2]; // 0x08 = header block; [2]=sector
+    // not a header (e.g. 0x07 data block) — gcr_find_sync(p) advances to next.
+  }
+  return -1;
+}
 
 // Binary frame type codes.
 export const BIN_TYPE_VIC_FRAME = 0x01;
@@ -358,16 +385,14 @@ export class V3WsServer {
       // drive RAM during BAM ops). Surface raw last-decoded sector header
       // when shifter exposes it; else 0. Follow-up spec to parse $1C00
       // GCR header bytes.
-      // vice mode: GCR head sector isn't trivially exposed; the DOS job
-      // sector lives in drive RAM $80. Read it via the drive memory map
-      // (job queue sector for buffer 0). Falls back to legacy shifter.
+      // Sector: physical sector under the GCR read head (decoded from the
+      // live GCR track) — loader-independent, matches VICE's indicator.
+      // DOS job-sector ($07) was unreliable: only buffer-0, and custom
+      // $0700 fastloaders bypass the DOS job queue entirely → always 0.
       let sector = (s as any).gcrShifter?.lastSectorHeader ?? 0;
-      if (viceUnit) {
-        try {
-          const rd = viceUnit.cpud?.read_func_ptr?.[0x00];
-          // $0007 = sector of the active job (buffer 0) in 1541 DOS.
-          sector = rd ? (rd(viceUnit, 0x0007) & 0xff) : sector;
-        } catch { /* keep fallback */ }
+      if (viceDrive0) {
+        const sec = viceSectorUnderHead(viceDrive0);
+        if (sec >= 0) sector = sec;
       }
       // Active drive PC: vice drive 6502 in vice mode, legacy otherwise.
       const drivePc = viceUnit
