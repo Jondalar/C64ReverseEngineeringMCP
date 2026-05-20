@@ -80,6 +80,23 @@ Single script invocation: `node scripts/check-1541-port-fidelity.mjs` exits 0 on
 - 5 seed diff-tests (Spec 620 §7 task 620.T3): `viacore_store`, `viacore_read`, `rotation_rotate_disk`, `gcr_convert_4bytes_to_GCR`, `driverom_initialize_traps`.
 - `npm run test:diff` runs all `tests/vice1541-diff/**/*.diff.test.ts`.
 
+### P1.5 — Spec 617 follow-up: automate VICE SAVE image-diff cross-check
+
+Spec 617 §5.3 (TS-saved D64 byte-diff vs VICE-saved D64) was DEFERRED.
+617 closed on intrinsic oracle (image-inspect + round-trip) plus a
+one-time manual BAM-vs-real-1541-ROM verification (617 commit `f1265c7`:
+x64sc 3.10 `-limitcycles` graceful run confirmed exact-fit orphan BAM
+byte-for-byte). Build the automated harness:
+
+- Generate VICE-reference post-SAVE D64 per fixture (x64sc autoload stub +
+  `-limitcycles` graceful exit; pattern proven in 617 BAM verification).
+- Diff TS-produced D64 vs VICE-produced D64 with §5.3 tolerance (data
+  sectors + BAM = 0 diff; unused dir slots masked).
+- Wire into `tests/spec-617/kernal-save-byte-fidelity.test.ts` as item 3.
+
+Depends on `c1541`/`x64sc` availability (present at
+`/Applications/vice-arm64-gtk3-3.10/bin/`). Not a 617 blocker — 617 is DONE.
+
 ### P1.4 — Layer micro-tests `tests/vice1541-fidelity/`
 
 Per Spec 612 §7 MT-* contract. Each layer (gcr, viacore, rotation, drivecpu, ...) ships one deterministic byte-for-byte trace test against VICE binmon capture. Seed set:

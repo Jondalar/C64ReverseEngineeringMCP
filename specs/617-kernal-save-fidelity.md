@@ -107,7 +107,15 @@ For every fixture in §5.1:
 
 This is the **round-trip oracle**. Independent of VICE comparison.
 
-### 5.3 Image-byte diff vs VICE (cross-check)
+### 5.3 Image-byte diff vs VICE (cross-check) — **DEFERRED**
+
+**Status: DEFERRED (not automated).** The intrinsic oracle (§6.1 image
+inspection + §6.2 round-trip) plus a one-time manual BAM-vs-VICE-real-ROM
+verification (commit `f1265c7`: x64sc 3.10 with real 1541 ROM, run graceful
+via `-limitcycles`, confirmed exact-fit orphan BAM byte-for-byte) are
+sufficient for DONE. A full automated TS-D64-vs-VICE-D64 image-diff harness
+is follow-up work — tracked under Spec 621 P1 (diff-harness territory). Do
+NOT claim automated VICE cross-check as evidence until that harness lands.
 
 For each fixture: run the same SAVE inside VICE (via `vice_session_*` or pre-captured reference), produce a reference post-SAVE D64. Diff the TS-produced D64 against the VICE-produced D64 byte-for-byte.
 
@@ -131,10 +139,13 @@ After SAVE completes:
 2. **Round-trip (§5.2):**
    - Re-LOAD into fresh C64 state. Compare RAM to source. 0 differences = PASS.
 
-3. **VICE cross-check (§5.3):**
+3. **VICE cross-check (§5.3) — DEFERRED:**
    - Image-byte diff to reference. Within tolerance = PASS.
+   - NOT automated. Replaced for DONE by intrinsic oracle (1+2) plus
+     one-time manual BAM-vs-real-1541-ROM check (commit `f1265c7`).
+     Full automated harness = Spec 621 P1 follow-up.
 
-`tests/spec-617/kernal-save-byte-fidelity.test.ts` (Task 617.5) implements 1 + 2 for every fixture. Task 617.6 implements 3.
+`tests/spec-617/kernal-save-byte-fidelity.test.ts` (Task 617.5) implements 1 + 2 for every fixture. Task 617.6 (item 3, automated VICE diff) is DEFERRED to Spec 621 P1.
 
 ## 7. RFL gates (Spec 620 §2 — read C first, before any trace)
 
