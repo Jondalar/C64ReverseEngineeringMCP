@@ -274,16 +274,32 @@ export class V3WsServer {
       return { c64Cycles: s.c64Cpu.cycles };
     });
 
-    // Reset (cold). Re-runs KERNAL boot to READY.
-    this.on("session/reset", async ({ session_id, video }) => {
+    // Reset. mode="soft" (default for the UI Reset button) = SYS 64738:
+    // jump the C64 CPU to its reset vector ($FFFC/$FFFD = $FCE2), the
+    // KERNAL cold-start routine (SEI/IOINIT/RESTOR/RAMTAS + BASIC cold).
+    // This is exactly what the physical RESET key / SuperReset does —
+    // resets the C64 only, NOT the drive (the drive has its own power),
+    // RAM preserved. mode="cold" = full emulator reset (resetCold), used
+    // by Power-ON cold boot.
+    this.on("session/reset", async ({ session_id, video, mode }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
+      if (mode === "soft") {
+        // SYS 64738 — vector at $FFFC/$FFFD (= $FCE2 with KERNAL mapped).
+        let lo = s.c64Bus.read(0xfffc) & 0xff;
+        let hi = s.c64Bus.read(0xfffd) & 0xff;
+        let vec = (hi << 8) | lo;
+        if (vec < 0xe000) vec = 0xfce2; // KERNAL hidden? fall back to $FCE2
+        (s.c64Cpu as unknown as { pc: number }).pc = vec & 0xffff;
+        s.runFor(5_000_000, { cycleBudget: 5_000_000 });
+        return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "soft", vector: vec };
+      }
       s.resetCold(video ?? "pal-default");
       // Run enough cycles for KERNAL to fully reach READY + BASIC input
       // poll. Anything < 3M cycles eats leading chars from typeText
       // (kbd buffer sees first key before BASIC polls). 5M is safe.
       s.runFor(5_000_000, { cycleBudget: 5_000_000 });
-      return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc };
+      return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "cold" };
     });
 
     // Type text (PETSCII keyboard input).

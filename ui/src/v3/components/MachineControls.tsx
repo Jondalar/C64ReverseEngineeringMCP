@@ -28,11 +28,12 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
       setRunState?.("off");
     }
   };
-  // Reset = cold reset, keep powered. Equivalent to pressing the C64
-  // RESET key (or SuperReset cart). Re-runs KERNAL boot to READY.
+  // Reset = SYS 64738 soft reset (jump to $FCE2 KERNAL reset vector),
+  // exactly like pressing the C64 RESET key / SuperReset cart. Resets
+  // the C64 only (not the drive), RAM preserved.
   const reset = async () => {
     if (!sessionId) return;
-    await c.call("session/reset", { session_id: sessionId, video: "pal-default" });
+    await c.call("session/reset", { session_id: sessionId, mode: "soft" });
     setRunState?.("running");
     onSnapshotTaken();
   };

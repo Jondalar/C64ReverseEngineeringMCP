@@ -234,6 +234,7 @@ export async function mountMedia(
       drive1541Implementation?: string;
       drive1541?: {
         attachDisk?: (m: { kind: "d64" | "g64" | "p64"; bytes: Uint8Array; readOnly: boolean }) => void;
+        reset?: (kind: "cold" | "warm") => void;
       };
     };
     if (
@@ -247,6 +248,17 @@ export async function mountMedia(
         bytes: originalBytes, // pre-buildG64; vice does its own encode for d64
         readOnly: false,
       });
+      // 2026-05-20 — mount-swap re-init. VICE drive_image_attach (mirrored
+      // in facade.attachDisk) re-points the head to the CURRENT (stale)
+      // half-track. On a mid-session disk swap that leaves the head on a
+      // partial/odd half-track from the previous disk's activity + the
+      // drive 6502 mid-routine → the new disk hangs (head can't read its
+      // directory). Cold-reset the drive after attach so it re-boots its
+      // ROM (bumps head, seeks track 18) fresh for the new image. Harmless
+      // on the initial mount (drive already idle at boot).
+      if (typeof kernelAny.drive1541.reset === "function") {
+        kernelAny.drive1541.reset("cold");
+      }
     }
 
     // Update the kernel's diskProvider so KERNAL file traps see new files.
