@@ -1,8 +1,10 @@
 # Spec 618 — Fastloader via $DD00 (Parallel-Cable / Bit-Banged IEC)
 
-**Status:** DEFERRED (2026-05-19, user mandate) — DO NOT START before Spec 616 AND Spec 617 are DONE. KERNAL LOAD + SAVE byte fidelity must be proven before any fastloader work.
+**Status:** READY (2026-05-20) — unblocked. Spec 616 (KERNAL LOAD) + Spec 617 (KERNAL SAVE) both DONE with green test gates, and Spec 621.1/621.2 P0 port-hygiene cleanup landed (commit `dc848c7`). Gate snapshot at unblock: `npm run check:1541-fidelity` 70 PASS / 12 WARN / 0 FAIL; 616 load 15/16 (1 documented pawn-s1 expected-FAIL) exit 0; 616 chain STAGE2 7618/7618 exit 0; 617 save 9/9 exit 0.
+
+**MANDATORY before ANY $DD00 trace or step-debug (Spec 620 RFL-first):** complete §4 RFL gates 618.2–618.5 IN ORDER and post the `[RFL-CHECK …]` block for each. Verify polarity, active-low arbitration, input OR-masks (bits 0/2/6/7), CIA2 PA propagation timing (next-cycle vs immediate). Only AFTER all four RFL gates pass → motm/MM fastloader step-debug. No `$DD00` traces beforehand. Note: `iecbus_drive_port` is machine-specific (c64iec.c → c64iec.ts, Spec 621.2) — bus arbitration reads route through there, NOT iecbus.ts.
 **Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`, `specs/617-kernal-save-fidelity.md`
-**Base commit:** post-617-DONE (TBD).
+**Base commit:** post-617-DONE + 621.1/621.2 (`dc848c7`).
 **Branch:** `codex/618-fastloader-dd00` (stacked on 617).
 
 ## 1. Why this spec exists
