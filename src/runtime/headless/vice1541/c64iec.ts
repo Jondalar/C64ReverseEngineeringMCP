@@ -13,9 +13,11 @@
 //   • the four "verbatim VICE name" entry points called by the IEC bus
 //     model from iecbus.ts (`iec_update_cpu_bus`, `iec_update_ports`,
 //     `iec_update_ports_embedded`, `iec_drive_write`, `iec_drive_read`),
-//   • the C64-side `iecbus_drive_port()` accessor (mirrored from iecbus.ts
-//     for symmetry — the canonical storage stays on iecbus.ts per VICE's
-//     extern-link arrangement),
+//   • the C64-side `iecbus_drive_port()` accessor — CANONICAL here. VICE
+//     defines it per-machine (c64/c64iec.c:157 `return &iecbus;`), NOT in
+//     iecbus/iecbus.c. The `iecbus` storage struct lives in iecbus.ts; this
+//     accessor (the C64 machine variant) returns it. All drive/bus consumers
+//     import this function from c64iec.ts (Spec 621.2 — single port),
 //   • the cartridge-aware `iec_available_busses` selector,
 //   • the `c64iec_init` / `c64iec_enable` / `c64iec_get_active_state`
 //     lifecycle entry points,

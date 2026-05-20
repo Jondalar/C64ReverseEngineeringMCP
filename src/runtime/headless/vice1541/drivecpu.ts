@@ -77,6 +77,7 @@ import {
   DRIVE_TYPE_9000,
   DRIVE_TYPE_2000,
   DRIVE_TYPE_4000,
+  OPINFO_NUMBER,
 } from "./drivetypes.js";
 import {
   drive_6510core_execute,
@@ -89,6 +90,13 @@ import {
   JAM_RESET_CPU,
   JAM_POWER_CYCLE,
   JAM_MONITOR,
+  // 6510core.h / interrupt.h symbols referenced by the inline-static
+  // interrupt_check_{nmi,irq}_delay helpers ported below (Spec 621.1).
+  OPINFO_DELAYS_INTERRUPT,
+  OPINFO_ENABLES_IRQ,
+  INTERRUPT_DELAY,
+  IK_IRQPEND,
+  intf,
 } from "./drive_6510core.js";
 
 import {
@@ -1161,14 +1169,8 @@ export function drivecpu_snapshot_read_module(
 }
 
 // =============================================================================
-// SECTION 12 — re-exports for the rotation hook side (drive_t alias) and
-//              the two `inline static` interrupt-delay helpers from
-//              drivecpu.c that VICE keeps in this translation unit but the
-//              TS port co-locates inside drive_6510core.ts so the CPU-core
-//              dispatch loop can reach them without a forward import. Per
-//              Spec 612 §1 NL-1 the C functions still need to be visible
-//              under the matching basename — re-export them here so a
-//              `grep interrupt_check_irq_delay vice1541/drivecpu.ts` hits.
+// SECTION 12 — type re-export + the two `inline static` interrupt-delay
+//              helpers that VICE defines in drivecpu.c.
 // =============================================================================
 
 // The `drive_t` type appears in the rotation_rotate_disk signature used by
@@ -1177,22 +1179,65 @@ export function drivecpu_snapshot_read_module(
 // drivetypes directly.
 export type { drive_t };
 
-// Spec 621.1 — PORT OF: vice/src/drive/drivecpu.c:303-325 + 327-351
-// (interrupt_check_nmi_delay + interrupt_check_irq_delay).
+// Spec 621.1 — PORT OF: vice/src/drive/drivecpu.c:303-351
+//   inline static int interrupt_check_nmi_delay(interrupt_cpu_status_t*, CLOCK)
+//   inline static int interrupt_check_irq_delay(interrupt_cpu_status_t*, CLOCK)
 //
-// VICE keeps both inline-static in drivecpu.c; the TS port locates the
-// bodies in `drive_6510core.ts` because the CPU-core dispatch loop calls
-// them on every step (a forward import into drivecpu.ts would create a
-// circular cycle). Per Spec 612 §1 NL-1 the canonical VICE name must
-// resolve via `drivecpu.ts` (the translation unit that VICE C exports
-// from), so the symbols are re-exported here as a single ES re-export.
+// VICE defines BOTH inline-static in drivecpu.c (before drivecpu.c:440
+// `#include "6510core.c"`), so the #included 6510core.c body sees them.
+// Spec 612 §1 NL-1: a function's TS home follows its VICE definition file
+// → drivecpu.ts. The 6510core.c body (drive_6510core.ts) USES them and
+// imports them back, mirroring the C #include direction exactly. This is
+// the SINGLE canonical port (FC-2 PASS: present here; FC-11 PASS: no shadow
+// definition elsewhere). The 6510core.h opinfo accessors + interrupt.h
+// constants they reference are imported from drive_6510core.ts (which
+// ports those header symbols) and drivetypes.ts (OPINFO_NUMBER).
 //
-// Pre-fix: this file shipped a `export function interrupt_check_*_delay`
-// wrapper that called `_core_*` — that triggered FC-11 duplicate-port
-// FAIL (PL-10) because both files looked like definition sites to a
-// `^export function` grep. Re-export form below has ONE definition site
-// (drive_6510core.ts) and FC-11 scan ignores `export { … } from "…"`.
-export {
-  interrupt_check_nmi_delay,
-  interrupt_check_irq_delay,
-} from "./drive_6510core.js";
+// PORT OF: vice/src/drive/drivecpu.c:303-325 (interrupt_check_nmi_delay).
+export function interrupt_check_nmi_delay(
+  cs: interrupt_cpu_status_t,
+  cpu_clk: number,
+): number {
+  const f = intf(cs);
+  let nmi_clk = f.nmi_clk + INTERRUPT_DELAY;
+
+  // BRK (0x00) delays the NMI by one opcode.
+  if (OPINFO_NUMBER(f.last_opcode_info_ptr.value) === 0x00) {
+    return 0;
+  }
+
+  // Branch instructions delay IRQs and NMI by one cycle if branch
+  // is taken with no page boundary crossing.
+  if (OPINFO_DELAYS_INTERRUPT(f.last_opcode_info_ptr.value)) {
+    nmi_clk++;
+  }
+
+  if (cpu_clk >= nmi_clk) {
+    return 1;
+  }
+  return 0;
+}
+
+// PORT OF: vice/src/drive/drivecpu.c:327-351 (interrupt_check_irq_delay,
+// inline static). Same translation unit + #include rationale as the NMI
+// helper above (Spec 621.1 / NL-1).
+export function interrupt_check_irq_delay(
+  cs: interrupt_cpu_status_t,
+  cpu_clk: number,
+): number {
+  const f = intf(cs);
+  let irq_clk = f.irq_clk + INTERRUPT_DELAY;
+
+  if (OPINFO_DELAYS_INTERRUPT(f.last_opcode_info_ptr.value)) {
+    irq_clk++;
+  }
+
+  if (cpu_clk >= irq_clk) {
+    if (!OPINFO_ENABLES_IRQ(f.last_opcode_info_ptr.value)) {
+      return 1;
+    } else {
+      f.global_pending_int |= IK_IRQPEND;
+    }
+  }
+  return 0;
+}

@@ -152,7 +152,10 @@ interface iecbus_t {
 // External-helper stubs (resolved when LO-14 iec.ts / iecbus.ts land)
 // =============================================================================
 // VICE source:
-//   - vice/src/iecbus/iecbus.c:iecbus_drive_port() — returns active iecbus.
+//   - vice/src/c64/c64iec.c:157 iecbus_drive_port() — MACHINE-SPECIFIC
+//     (each machine's iec file defines its own; iecbus.h:87 has only the
+//     prototype, iecbus/iecbus.c does NOT define it). C64 canonical = c64iec.c
+//     → c64iec.ts. Spec 621.2.
 //   - vice/src/drive/iec/iecdrive.c:iec_drive_write() — single-drive fallback.
 //   - vice/src/drive/iec/iecdrive.c:iec_fast_drive_direction() — burst.
 // All three are PORT-STUB until the matching .ts file lands. PL-7 spirit:

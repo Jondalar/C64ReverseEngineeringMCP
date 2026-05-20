@@ -104,13 +104,18 @@ const OPINFO_DISABLES_IRQ_MSK = 1 << 9;
 const OPINFO_ENABLES_IRQ_MSK = 1 << 10;
 
 // PORT OF: vice/src/6510core.h:36-50 (opinfo accessors)
-function OPINFO_DELAYS_INTERRUPT(opinfo: number): number {
+// Exported so drivecpu.ts can host interrupt_check_{nmi,irq}_delay — those
+// are inline-static in drivecpu.c (the file that #includes 6510core.c) and
+// reference these 6510core.h macros. Spec 612 NL-1: definition follows the
+// VICE owning file (drivecpu.c → drivecpu.ts).
+export function OPINFO_DELAYS_INTERRUPT(opinfo: number): number {
   return opinfo & OPINFO_DELAYS_INTERRUPT_MSK;
 }
 function OPINFO_DISABLES_IRQ(opinfo: number): number {
   return opinfo & OPINFO_DISABLES_IRQ_MSK;
 }
-function OPINFO_ENABLES_IRQ(opinfo: number): number {
+// PORT OF: vice/src/6510core.h:36-50 (OPINFO_ENABLES_IRQ accessor).
+export function OPINFO_ENABLES_IRQ(opinfo: number): number {
   return opinfo & OPINFO_ENABLES_IRQ_MSK;
 }
 // OPINFO_NUMBER is re-exported via drivetypes.
@@ -136,7 +141,7 @@ const NMI_CYCLES = 7;
 // const RESET_CYCLES = 6; // referenced only by maincpu reset path; drive uses cpu_reset()
 
 // PORT OF: vice/src/interrupt.h:39-52
-const INTERRUPT_DELAY = 2;
+export const INTERRUPT_DELAY = 2;
 const IK_NONE = 0;
 const IK_NMI = 1 << 0;
 const IK_IRQ = 1 << 1;
@@ -144,7 +149,7 @@ const IK_RESET = 1 << 2;
 const IK_TRAP = 1 << 3;
 const IK_MONITOR = 1 << 4;
 // const IK_DMA = 1 << 5;  // drives don't host DMA — DMA_FUNC is a no-op
-const IK_IRQPEND = 1 << 6;
+export const IK_IRQPEND = 1 << 6;
 
 // PORT OF: vice/src/machine.h:188-192 — JAM reason codes returned by drivecpu_jam.
 export const JAM_NONE = 0;
@@ -180,7 +185,7 @@ const LXA_MAGIC = 0xee;
  * When T2.4 (drivecpu.ts) ports interrupt.h these accessors disappear and
  * direct field reads take over.
  */
-interface IntStatusFields {
+export interface IntStatusFields {
   irq_clk: number;
   nmi_clk: number;
   irq_pending_clk: number;
@@ -188,7 +193,10 @@ interface IntStatusFields {
   last_opcode_info_ptr: { value: number };
   nnmi: number;
 }
-function intf(cs: interrupt_cpu_status_t | null): IntStatusFields {
+// PORT OF: vice/src/interrupt.h:55-129 (interrupt_cpu_status_s accessor shim).
+// Exported so drivecpu.ts's interrupt_check_{nmi,irq}_delay (Spec 621.1) can
+// read the same fields. Temporary until interrupt.ts lands.
+export function intf(cs: interrupt_cpu_status_t | null): IntStatusFields {
   return cs as unknown as IntStatusFields;
 }
 
@@ -227,57 +235,18 @@ function ackf(cs: interrupt_cpu_status_t | null): IntAckFns {
 
 // =============================================================================
 // SECTION C — interrupt_check_nmi_delay / interrupt_check_irq_delay
-//             VERBATIM from vice/src/drive/drivecpu.c:303-351 (inline static).
-//             NL-2: same name. PL-5: no invented signature.
+//             These are inline-static in vice/src/drive/drivecpu.c (lines
+//             303/329), defined BEFORE drivecpu.c:440 `#include "6510core.c"`,
+//             so 6510core.c's DO_INTERRUPT macro sees them. Spec 612 NL-1:
+//             a function's TS home follows its VICE definition file →
+//             drivecpu.ts owns these (drivecpu.c). This file (6510core.c
+//             body) USES them, exactly as in C, so it imports them back.
+//             Spec 621.1 / FC-2 / FC-11: single canonical port, no shadow.
 // =============================================================================
-
-// PORT OF: vice/src/drive/drivecpu.c:300-325 (interrupt_check_nmi_delay).
-export function interrupt_check_nmi_delay(
-  cs: interrupt_cpu_status_t,
-  cpu_clk: number,
-): number {
-  const f = intf(cs);
-  let nmi_clk = f.nmi_clk + INTERRUPT_DELAY;
-
-  // BRK (0x00) delays the NMI by one opcode.
-  if (OPINFO_NUMBER(f.last_opcode_info_ptr.value) === 0x00) {
-    return 0;
-  }
-
-  // Branch instructions delay IRQs and NMI by one cycle if branch
-  // is taken with no page boundary crossing.
-  if (OPINFO_DELAYS_INTERRUPT(f.last_opcode_info_ptr.value)) {
-    nmi_clk++;
-  }
-
-  if (cpu_clk >= nmi_clk) {
-    return 1;
-  }
-  return 0;
-}
-
-// PORT OF: vice/src/drive/drivecpu.c:327-351 (interrupt_check_irq_delay).
-export function interrupt_check_irq_delay(
-  cs: interrupt_cpu_status_t,
-  cpu_clk: number,
-): number {
-  const f = intf(cs);
-  const irq_clk_base = f.irq_clk + INTERRUPT_DELAY;
-  let irq_clk = irq_clk_base;
-
-  if (OPINFO_DELAYS_INTERRUPT(f.last_opcode_info_ptr.value)) {
-    irq_clk++;
-  }
-
-  if (cpu_clk >= irq_clk) {
-    if (!OPINFO_ENABLES_IRQ(f.last_opcode_info_ptr.value)) {
-      return 1;
-    } else {
-      f.global_pending_int |= IK_IRQPEND;
-    }
-  }
-  return 0;
-}
+import {
+  interrupt_check_nmi_delay,
+  interrupt_check_irq_delay,
+} from "./drivecpu.js";
 
 // =============================================================================
 // SECTION D — Optional rotate hooks (filled by drivecpu.ts T2.4 wiring).
