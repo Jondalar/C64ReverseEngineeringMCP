@@ -1,0 +1,172 @@
+# Spec 622 — vice-mode Headless Performance
+
+**Status:** DRAFT (2026-05-20) — concept only, no implementation yet.
+**Parent specs:** `specs/600-runtime-proof-gates.md` (literal-port renderer is the proof oracle — must NOT be weakened), `specs/611-new-vice1541-side-by-side.md`, `specs/618-fastloader-dd00.md`.
+**Branch:** `codex/615-gcr-decode-fidelity` (concept landed here; impl branch TBD).
+
+## 1. Problem
+
+In `drive1541Implementation="vice"` mode the headless emulator runs at
+**~0.50× realtime**, so disk loads take ~2× their real-hardware wall time.
+A 36 KB KERNAL load (LNR s1 boot) = ~127 s realtime-equivalent → ~250 s
+wall; the C64 sits in "LOADING" for minutes and feels stuck even though it
+is loading correctly. User verdict: performance "unterirdisch".
+
+This spec captures the measured cost breakdown and an **in-place,
+output-preserving** optimization plan. It does NOT propose changing the
+renderer.
+
+## 2. Measurements (2026-05-20)
+
+Throughput, vice-mode motm fastloader window, `node` (Opus harness):
+
+| Config | Throughput | vs realtime |
+|---|---|---|
+| baseline (literal-port, vice drive) | 0.49 Mcyc/s | 0.50× |
+| legacy DriveCpu tick gated OFF | 0.46 Mcyc/s | 0.46× |
+
+VICE x64sc (native C) = 0.985 Mcyc/s realtime. We are ~2× slower = the
+JS-vs-C gap, dominated by the VIC renderer.
+
+Gating the co-resident legacy DriveCpu gave **no speedup** (it was already
+quiet/no-op) — so that is NOT the bottleneck. (Flag added regardless:
+`C64RE_VICE_LEGACY_DRIVE=1` opt-in, commit `b687885`.)
+
+### 2.1 Profile (`node --prof`, vice-mode motm, 25M-cycle window)
+
+```
+Summary: 92.8% JavaScript, 4.2% GC, 7.1% unaccounted
+
+VIC literal renderer (~55% total):
+  draw_graphics            10.4%   vicii-draw-cycle.ts:201 (called ×8/cycle)
+  vicii_cycle               9.3%   vicii-cycle.ts:254 (per-cycle VIC timing)
+  draw_sprites              6.8%   vicii-draw-cycle.ts:332
+  draw_sprites8             5.9%   vicii-draw-cycle.ts:445
+  update_sprite_xpos        4.9%   vicii-draw-cycle.ts:438
+  vicii_draw_cycle          3.9%   vicii-draw-cycle.ts:620 (orchestrator)
+  draw_graphics8            3.8%   vicii-draw-cycle.ts:230
+  get_trigger_candidates    2.2%   vicii-draw-cycle.ts:300
+  draw_colors_6569          0.8%   vicii-draw-cycle.ts:554
+  draw_border8              0.7%
+
+vice drive (~17%):
+  drive_6510core_execute   15.3%   drive_6510core.ts:232
+  rotation_1541_gcr         1.6%   rotation.ts:377
+
+C64 CPU + scheduler (~12%):
+  executeCycle              4.5%   cycle-lockstep-scheduler.ts:21
+  executeMicroOp            1.4%   cpu65xx-vice.ts:742
+  executeCycle              1.1%   cycle-wrappers.ts:97
+  stepC64Instruction        0.9%
+  startInstructionCycle     0.6%, executeFinalOp 0.6%, ...
+
+Builtins (deopt signal):
+  KeyedLoadIC_Megamorphic   1.1%   (polymorphic/keyed property loads)
+  FastNewFunctionContextFunction 0.5%
+```
+
+`vicii_cycle()` calls `vicii_draw_cycle()` every C64 cycle
+(vicii-cycle.ts:288); `vicii_draw_cycle` calls `draw_graphics(0..7)` +
+`draw_sprites` + `draw_colors8` (8 pixels/cycle). So the per-pixel draw
+work runs ~8× per cycle, ~63504 cycles/frame, ~50 frames/s = the dominant
+cost.
+
+## 3. Hard constraints (user mandate 2026-05-20)
+
+1. **Literal-port stays the sole renderer.** No alternate/per-frame/
+   rasterized renderer, no frame-skipping, no "render only when displayed".
+   Spec 309 made literal-port the sole renderer and Spec 600 proof gates
+   depend on its per-cycle pixel accuracy.
+2. **Pixel-identical output.** Every optimization must produce byte-identical
+   framebuffers vs the current code. Verify via PNG/`dbuf` diff on the proof
+   oracle scenes (`samples/screenshots/proof/*.png`) — zero pixel delta.
+3. **No accuracy loss** in VIC timing, bad-line/DMA/BA, sprite DMA, or the
+   drive cycle model.
+
+So this is pure **micro-optimization of the existing hot functions** + the
+drive core + dispatch, not an architecture change.
+
+## 4. Candidate optimizations (in-place, output-preserving)
+
+Ranked by leverage × safety. Each must be measured + pixel-diff-verified
+independently.
+
+### 4.1 VIC draw hot path (~35% in draw_*) — highest leverage
+
+- **C-1 Property-access hoisting.** The draw functions read `vicii.dbuf`,
+  `vicii.dbuf_offset`, `vicii.color_latency`, `vicii.last_color_*` etc.
+  repeatedly inside per-pixel loops. Hoist the per-cycle-stable ones into
+  locals once per `vicii_draw_cycle` call. Investigate the
+  `KeyedLoadIC_Megamorphic` source — likely a `vicii.*` access on an object
+  whose shape V8 sees as polymorphic. Pinning `vicii`'s shape (stable field
+  init order, no late-added props) can de-megamorphize all hot reads.
+- **C-2 Monomorphize the draw dispatch.** `draw_graphics`/`draw_sprites`
+  are module functions over module-`let` state — already cheap, but the
+  ×8 unrolled calls + the `colors[]` plain-`number[]` lookup
+  (vicii-draw-cycle.ts:189) could become a typed-array lookup (Int8Array)
+  to avoid boxed-number/HOLEY-array deopts.
+- **C-3 Skip provably-idle pixel work.** Within the literal model, when the
+  beam is in a region whose output is fully determined by a single color
+  (e.g. vertical/horizontal border with no sprites pending), the per-pixel
+  branch chain can short-circuit to a memset-style fill of the 8-pixel
+  group — IF and only if it yields identical `dbuf` bytes. This is an
+  optimization of the SAME renderer (same output), not a different renderer.
+  Must be gated behind exact-equivalence proof.
+
+### 4.2 Drive 6510 core (~17%)
+
+- **D-1** `drive_6510core_execute` (drive_6510core.ts:232) is the cycle-
+  accurate drive 6502. Profile its inner micro-op dispatch for the same
+  property-hoist / monomorphization wins as the C64 `cpu65xx-vice`.
+- **D-2** `rotation_1541_gcr` (1.6%) runs per drive cycle; check for
+  redundant recompute when the head is stationary between byte boundaries.
+
+### 4.3 Scheduler / dispatch (~12%)
+
+- **S-1** `executeCycle` appears in BOTH cycle-lockstep-scheduler (4.5%) and
+  cycle-wrappers (1.1%) — possible double-dispatch layer. Verify the
+  per-cycle call chain isn't wrapping the same work twice in vice mode.
+- **S-2** GC 4.2% — hunt per-cycle allocations (closures, temp objects,
+  `FastNewFunctionContextFunction` 0.5% = per-call closure creation). Hoist
+  any per-cycle-allocated closure/array out of the hot loop.
+
+## 5. Methodology
+
+1. Re-profile with `node --prof` + `--prof-process` bottom-up to get exact
+   hot lines + IC states for the targeted function BEFORE editing.
+2. One optimization at a time. After each:
+   - **Pixel-diff gate:** render the 7-game proof scenes
+     (`scripts/test-game-screenshots-all.mjs` / the `samples/screenshots/proof/`
+     oracles) and assert ZERO pixel delta vs pre-change.
+   - **Throughput measure:** the §2 motm-window Mcyc/s probe.
+   - **Regression gate:** `npm run check:1541-fidelity` 0 FAIL +
+     616/617 byte-fidelity tests still green.
+3. Keep only changes with measurable speedup AND zero pixel delta. Revert
+   anything that risks output.
+
+## 6. Acceptance
+
+Spec is DONE when:
+1. vice-mode throughput improves measurably (target ≥ 0.8× realtime; stretch
+   1.0×) on the §2 motm window.
+2. Pixel-identical output on all proof oracle scenes (0 delta).
+3. `npm run check:1541-fidelity` 0 FAIL; 616/617 tests green; 600 runtime
+   proof gates unaffected.
+4. No renderer swap, no accuracy loss.
+
+## 7. Non-goals
+
+- Replacing or bypassing the literal-port renderer.
+- Per-frame / rasterized / frame-skipping rendering.
+- Reducing VIC or drive cycle accuracy.
+- Native/WASM rewrite (separate long-horizon track; this spec is JS-level
+  micro-opt only).
+
+## 8. Notes / open questions
+
+- The hard ~2× floor is the JS-vs-C gap. JS micro-opt can plausibly close
+  part of it (target 0.8×) but not fully reach native C without a WASM hot
+  core — explicitly out of scope here.
+- If 0.8× proves unreachable by micro-opt alone, a follow-up spec may scope
+  a WASM port of the VIC draw inner loop (still the SAME algorithm/output),
+  which is the only path to true 1.0×+ while keeping pixel parity.
