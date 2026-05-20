@@ -1,6 +1,44 @@
 # Spec 618 — Fastloader via $DD00 (Parallel-Cable / Bit-Banged IEC)
 
-**Status:** READY (2026-05-20) — unblocked. Spec 616 (KERNAL LOAD) + Spec 617 (KERNAL SAVE) both DONE with green test gates, and Spec 621.1/621.2 P0 port-hygiene cleanup landed (commit `dc848c7`). Gate snapshot at unblock: `npm run check:1541-fidelity` 70 PASS / 12 WARN / 0 FAIL; 616 load 15/16 (1 documented pawn-s1 expected-FAIL) exit 0; 616 chain STAGE2 7618/7618 exit 0; 617 save 9/9 exit 0.
+**Status:** LIKELY-RESOLVED by Spec 622 §4.0 (2026-05-20). The primary `$DD00`
+fastloader defect was a **scheduler timing bug, not an IEC-primitive bug**:
+`drive1541="vice"` force-set `useCycleLockstep=true` (un-VICE-shaped global
+per-cycle CycleLockstepScheduler). Removing that force (commit `2d9e4de`,
+→ EventCatchupStrategy = VICE's event-driven `iecbus_cpu_*_conf1 →
+drive_cpu_execute_one` model) fixed the `$DD00` bit-bang timing. The §4
+RFL gates had already proven the primitives byte-faithful — so the bug was
+upstream in HOW the C64↔drive were co-scheduled.
+
+**Post-§4.0 loader matrix (7/7 reach full game graphics, ZERO JAMs):**
+
+| Game | Loader chain | Result | Screen |
+|---|---|---|---|
+| motm | KERNAL AB-stub → `$07xx` fastloader | ✓ | steamboat menu |
+| MM s1 | KERNAL → post-loader | ✓ | character-select |
+| IM2 | KERNAL → `$06xx` fastloader + copy-protect | ✓ | robot/timer game |
+| LNR s1 | pure KERNAL whole-file (35990 B) | ✓ | ninja courtyard |
+| Scramble | KERNAL intro → **KRILL `$DD00`** bit-bang | ✓ | SCRAMBLE INFINITY title |
+| Pawn s1 | KERNAL → loader + copy-protect | ✓ | Magnetic Scrolls intro |
+| Polarbear | KERNAL autoload → **`$DD00`** fastloader | ✓ | photosensitive warning |
+
+**Before §4.0** (forced lockstep): polarbear + IM2 JAMmed (`$1463`, corrupt
+`$DD00` byte stream). **After §4.0**: all 7 load + run, no JAM, full graphics.
+
+Classification by stress axis:
+- **KERNAL LOAD** — all use it for stage-1; LNR is whole-file KERNAL. All ✓.
+- **`$DD00` fastloader** — motm `$07xx`, IM2 `$06xx`, Scramble KRILL,
+  polarbear, MM post-loader. All ✓ (were the broken cases pre-§4.0).
+- **copy protection / halftrack / checksum** — IM2 + Pawn (track-18 checksum).
+  Both ✓.
+- **game runtime / graphics** — all 7 render correct game screens (verified
+  vs the per-game screenshot harness scenes).
+
+Remaining: this is verified by PC-region + per-game PNG (proper LOAD→READY→RUN
+sequencing). Folding the vice-drive variant into the canonical
+`scripts/test-*-screenshots.mjs` oracle-diff harness is the formal DONE gate.
+
+(Original RFL gate snapshot at unblock: `npm run check:1541-fidelity` 70 PASS
+/ 12 WARN / 0 FAIL; 616 load 15/16 exit 0; 616 chain 7618/7618; 617 save 9/9.)
 
 **MANDATORY before ANY $DD00 trace or step-debug (Spec 620 RFL-first):** complete §4 RFL gates 618.2–618.5 IN ORDER and post the `[RFL-CHECK …]` block for each. Verify polarity, active-low arbitration, input OR-masks (bits 0/2/6/7), CIA2 PA propagation timing (next-cycle vs immediate). Only AFTER all four RFL gates pass → motm/MM fastloader step-debug. No `$DD00` traces beforehand. Note: `iecbus_drive_port` is machine-specific (c64iec.c → c64iec.ts, Spec 621.2) — bus arbitration reads route through there, NOT iecbus.ts.
 **Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`, `specs/617-kernal-save-fidelity.md`

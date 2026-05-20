@@ -91,15 +91,32 @@ drive core + dispatch, not an architecture change.
 Ranked by leverage × safety. Each must be measured + pixel-diff-verified
 independently.
 
-### 4.0 STRUCTURAL — stop forcing useCycleLockstep in vice mode (highest leverage, VICE-shaped) — **IMPLEMENTED 2026-05-20 (commit `2d9e4de`)**
+### 4.0 STRUCTURAL — stop forcing useCycleLockstep in vice mode — **IMPLEMENTED 2026-05-20 (commit `2d9e4de`). PERFORMANCE *AND* $DD00 TIMING/CORRECTNESS FIX.**
 
-**Result: throughput 0.50× → 0.82× realtime (+64%). Byte-identical: motm
-gold fastloader swimlane 73728-byte overlap / 0 mismatches; lnr-s1 KERNAL
-load 35990 bytes complete (ST=$40); motm reaches its menu. Same cycle-
-progress as lockstep (same byte count in 45s) → VIC output unchanged.
-Proof-gate oracles use the legacy drive, unaffected by this vice-only
-change.** The force was removed (integrated-session.ts); useCycleLockstep
-is now opt-driven (default false → EventCatchupStrategy) for vice mode too.
+**This was not a perf-only change.** Removing the un-VICE-shaped forced
+global per-cycle `CycleLockstepScheduler` (→ EventCatchupStrategy, VICE's
+event-driven `iecbus_cpu_*_conf1 → drive_cpu_execute_one` model) fixed the
+`$DD00` fastloader bit-bang timing.
+
+**Correctness result (the bigger one):** post-§4.0 the full 7-game loader
+matrix reaches game graphics with ZERO JAMs. Before §4.0 (forced lockstep)
+**polarbear + IM2 JAMmed** at `$1463` on a corrupt `$DD00` byte stream — the
+forced per-cycle co-step skewed the C64↔drive bit-bang handshake timing.
+Scramble (KRILL `$DD00`), polarbear (KERNAL→`$DD00`), IM2 (`$06xx`), motm
+(`$07xx`) all now load correctly. So the forced lockstep was the **`$DD00`
+fastloader timing root-cause candidate** (see Spec 618 matrix), not just a
+perf cost.
+
+**Performance result:** throughput 0.50× → 0.82× realtime (+64%).
+
+**Fidelity preserved:** motm gold fastloader swimlane 73728-byte overlap /
+0 mismatches; lnr-s1 KERNAL load 35990 bytes complete (ST=$40); 616 load
+15/16 exit 0; 617 save 9/9 exit 0; same cycle-progress as lockstep → VIC
+output unchanged; proof-gate oracles use the legacy drive (unaffected).
+
+The force was removed (integrated-session.ts); `useCycleLockstep` is now
+opt-driven (default false → EventCatchupStrategy) for vice mode too, still
+reachable via the explicit opt + `C64RE_VICE_LEGACY_DRIVE` for bisects.
 
 
 **Finding (2026-05-20).** `drive1541="vice"` force-sets
