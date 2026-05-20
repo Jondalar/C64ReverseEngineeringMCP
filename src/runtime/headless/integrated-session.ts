@@ -461,21 +461,27 @@ export class IntegratedSession {
     this.useCycleLockstep = opts.useCycleLockstep ?? false;
     this.useMicrocodedCpu = opts.useMicrocodedCpu ?? false;
 
-    // Spec 614.3 — CycleSchedulerVice: drive1541="vice" requires a
-    // per-c64-cycle scheduler. Forces useCycleLockstep on so the
-    // CycleLockstepSchedulerImpl path is built; the cycle-by-cycle
-    // drive tick is wired through `afterCycleSync` below (Spec 614 §3.3).
-    // Legacy drive ticking inside the scheduler is suppressed by the
-    // `disableLockstepDriveTick` flag — the vice drive runs through
-    // drive1541.tickToClock(c64Cycle) per cycle instead. Without this,
-    // the drive's $E9C0-$E9C3 debpia stable-read of $1800 spans
-    // ~7 drive cycles in which the c64's per-cycle CLK toggles get
-    // bunched into per-instruction bulk catch-up (Spec 614 §1 mismatch
-    // 3 — "stable-read failure mode"), causing CMP-fail loops in the
-    // byte-receive routine ($E9CD-$E9D5). Per-cycle drive tick fixes it.
-    if (opts.drive1541 === "vice") {
-      this.useCycleLockstep = true;
-    }
+    // Spec 622 §4.0 (2026-05-20) — do NOT force useCycleLockstep in vice
+    // mode. The earlier force (Spec 614.3) globally switched the C64/VIC
+    // into the per-cycle CycleLockstepScheduler, but that is not
+    // VICE-shaped and is the prime perf cost:
+    //   - the vice drive is ALREADY event-driven (afterCycleSync=undefined;
+    //     the bridge's pushFlush.one/all → vice.tickToClock(clk) catches the
+    //     1541 up to the exact $DD00 R/W clock, exactly like VICE's
+    //     iecbus_cpu_*_conf1 → drive_cpu_execute_one). The Spec 614.3
+    //     per-c64-cycle drive tick was already reverted as over-engineering.
+    //   - VIC cycle-accuracy comes from the CPU tick calling vicii_cycle()
+    //     per cycle (Spec 425) in BOTH scheduler paths — proven by the
+    //     Spec 600 proof-gate screenshots, which run eventCatchup
+    //     (useCycleLockstep=false) and are pixel-exact.
+    // So vice mode runs the VICE-shaped EventCatchupStrategy (instruction-
+    // stepped C64 + drive catch-up at IEC events) like every other mode.
+    // useCycleLockstep stays opt-driven (default false) and is still
+    // reachable explicitly for probes/bisects.
+    //
+    // Verification gates (Spec 622 §4.0): proof-oracle pixel diff = 0,
+    // 616/617 byte-fidelity + check:1541-fidelity green, motm gold
+    // fastloader swimlane 0 byte-divergence.
 
     // Spec 200-c2 + c3 + c4: kernel created up-front. Kernel constructor
     // owns alarm contexts, C64-side chips (iecBus, c64Bus, romSet,
