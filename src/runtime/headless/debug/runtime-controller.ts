@@ -261,6 +261,13 @@ export class RuntimeController {
 
   private scheduleNext(sleepMs: number): void {
     if (this.runState !== "running") return;
+    // CRITICAL: cancel any already-pending tick first. Otherwise a second
+    // scheduleNext (e.g. debug/run racing a media swap's runExclusive resume,
+    // or a reset→pause→run interleave) would orphan the previous timer — both
+    // fire → two concurrent loop chains → the CPU is double-stepped and the
+    // chain can't be cancelled by a single clearTimeout. There must only ever
+    // be ONE pending tick.
+    this.cancelScheduled();
     if (sleepMs <= 0 && this.pacing.mode === "warp") {
       this.immediate = setImmediate(() => { this.immediate = null; this.tick(); });
     } else {

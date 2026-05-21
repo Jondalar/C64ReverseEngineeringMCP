@@ -462,27 +462,31 @@ export class V3WsServer {
     this.on("session/reset", async ({ session_id, video, mode }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
-      // Spec 701: halt the autonomous loop before re-initing the machine so
-      // the loop can't step a session mid-reset. The UI re-issues debug/run.
-      getRuntimeController(session_id)?.pause();
-      if (mode === "soft") {
-        // Reset button = HW RESET line. resetWarm re-inits CPU + chips +
-        // drive and restores banking, so the $FFFC vector reads $FCE2 and
-        // the KERNAL reset routine runs cleanly — recovering even from a
-        // running/JAMmed game where $01 banked KERNAL out or a raster-IRQ
-        // pointed into game code. RAM is preserved (unlike a power-cycle).
-        // A bare "set PC=$FCE2" was insufficient: from a live game it left
-        // chips/banking dirty → ran off into RAM (black screen).
-        s.resetWarm(video ?? "pal-default");
+      // Spec 701: run the re-init ATOMICALLY w.r.t. the loop via runExclusive
+      // — it cancels the pending tick, runs the reset, then resumes the loop
+      // IFF it was running, WITHOUT broadcasting paused/running. The previous
+      // `pause()` here broadcast debug/paused, which raced the UI Reset
+      // button's setRunState("running") → the loop could end up paused while
+      // the UI thought it was running → frozen screen after reset+disk-change.
+      const ctrl = controllerFor(session_id);
+      const doReset = () => {
+        if (mode === "soft") {
+          // Reset button = HW RESET line. resetWarm re-inits CPU + chips +
+          // drive and restores banking, so the $FFFC vector reads $FCE2 and
+          // the KERNAL reset routine runs cleanly — recovering even from a
+          // running/JAMmed game where $01 banked KERNAL out or a raster-IRQ
+          // pointed into game code. RAM is preserved (unlike a power-cycle).
+          s.resetWarm(video ?? "pal-default");
+          s.runFor(5_000_000, { cycleBudget: 5_000_000 });
+          return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "soft" };
+        }
+        s.resetCold(video ?? "pal-default");
+        // Run enough cycles for KERNAL to fully reach READY + BASIC input poll.
+        // < 3M cycles eats leading chars from typeText; 5M is safe.
         s.runFor(5_000_000, { cycleBudget: 5_000_000 });
-        return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "soft" };
-      }
-      s.resetCold(video ?? "pal-default");
-      // Run enough cycles for KERNAL to fully reach READY + BASIC input
-      // poll. Anything < 3M cycles eats leading chars from typeText
-      // (kbd buffer sees first key before BASIC polls). 5M is safe.
-      s.runFor(5_000_000, { cycleBudget: 5_000_000 });
-      return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "cold" };
+        return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "cold" };
+      };
+      return ctrl.runExclusive(doReset);
     });
 
     // Type text (PETSCII keyboard input).
