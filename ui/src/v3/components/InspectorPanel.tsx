@@ -58,6 +58,7 @@ interface VicState {
 interface FlowRegs { a: number; x: number; y: number; sp: number; p: number; }
 interface FlowFrame { kind: string; pc: number; returnPc: number; cycle: number; regs?: FlowRegs; }
 interface FlowState { focus: string; current: string; stack: FlowFrame[]; }
+interface Vectors { irq: number; nmi: number; cinv: number; cbinv: number; }
 
 // Spec 424 LED color matrix — user direction 2026-05-12.
 function driveLedClass(d: Drive | null): string {
@@ -155,6 +156,7 @@ export function InspectorPanel({
   const [cpu, setCpu] = useState<CpuState | null>(null);
   const [vic, setVic] = useState<VicState | null>(null);
   const [flow, setFlow] = useState<FlowState | null>(null);
+  const [vectors, setVectors] = useState<Vectors | null>(null);
   const [media, setMedia] = useState<RecentMedium[]>([]);
 
   useEffect(() => {
@@ -168,6 +170,7 @@ export function InspectorPanel({
           setCpu(s.cpu ?? { pc: 0, a: 0, x: 0, y: 0, sp: 0, flags: 0, cycles: s.c64Cycles ?? 0 });
           setVic(s.vic ?? null);
           setFlow(s.flow ?? null);
+          setVectors(s.vectors ?? null);
         }
       } catch { /* ignore */ }
       if (alive) setTimeout(tick, 250);
@@ -268,39 +271,48 @@ export function InspectorPanel({
 
   return (
     <aside className="wb-inspector">
-      {/* Per-flow CPU blocks (Spec 623 §4.3). ONE 6502 — these are nested
-          interrupt contexts, NOT parallel CPUs. The active (top) level shows
-          LIVE registers; suspended levels show their resume PC + the registers
-          captured when they were interrupted (PC+P off the stack; A/X/Y are
-          shared and shown as the snapshot at suspension). */}
+      {/* CPU contexts (Spec 623 §4.3). ONE 6502, time-sliced — NOT parallel
+          CPUs. A/X/Y/SP/P are SHARED (shown on each block, same values); only
+          the PC differs per context. MAIN + IRQ + NMI are shown ALWAYS:
+          - the executing context shows the LIVE PC (highlighted),
+          - the others show their handler ENTRY PC from the vectors
+            (IRQ=$FFFE, NMI=$FFFA; KERNAL RAM hooks CINV=$0314 / CBINV=$0318
+            shown as the source so you can see who's hooked). */}
       {(() => {
+        const cur = flow?.current ?? "main";
         const stack = flow?.stack ?? [];
-        const blocks = [{ kind: "MAIN" }, ...stack.map((f) => ({ kind: f.kind.toUpperCase() }))];
-        return blocks.map((b, L) => {
-          const active = L === stack.length; // top of the stack is executing
-          const regs = active
-            ? (cpu ? { a: cpu.a, x: cpu.x, y: cpu.y, sp: cpu.sp, p: cpu.flags } : null)
-            : (stack[L]?.regs ?? null);
-          const pc = active ? (cpu?.pc ?? 0) : (stack[L]?.returnPc ?? 0);
-          const pflags = regs
-            ? "NV-BDIZC".split("").map((f, i) => ((regs.p >> (7 - i)) & 1) ? f : f.toLowerCase()).join("")
-            : "";
-          return (
-            <section key={L}>
-              <h3>CPU · {b.kind}{active ? " ◀" : ""}</h3>
-              {regs ? (
-                <table className={`wb-regs ${active ? "wb-flow-active" : ""}`}>
-                  <tbody>
-                    <tr><th>PC</th><td>{hex(pc, 4)}</td><th>SP</th><td>{hex(regs.sp)}</td></tr>
-                    <tr><th>A</th><td>{hex(regs.a)}</td><th>X</th><td>{hex(regs.x)}</td></tr>
-                    <tr><th>Y</th><td>{hex(regs.y)}</td><th>P</th><td>{pflags}</td></tr>
-                    {active && cpu ? <tr><th>cyc</th><td colSpan={3}>{cpu.cycles.toLocaleString()}</td></tr> : null}
-                  </tbody>
-                </table>
-              ) : <p>—</p>}
-            </section>
-          );
-        });
+        const regs = cpu ? { a: cpu.a, x: cpu.x, y: cpu.y, sp: cpu.sp, p: cpu.flags } : null;
+        const pflags = regs
+          ? "NV-BDIZC".split("").map((f, i) => ((regs.p >> (7 - i)) & 1) ? f : f.toLowerCase()).join("")
+          : "";
+        // MAIN's PC: live when MAIN executes, else the resume addr stacked by
+        // the innermost interrupt (where MAIN will continue).
+        const mainPc = cur === "main" ? (cpu?.pc ?? 0) : (stack[0]?.returnPc ?? cpu?.pc ?? 0);
+        const contexts = [
+          { kind: "MAIN", pc: mainPc, active: cur === "main", vec: null as null | [string, number][] },
+          { kind: "IRQ", pc: cur === "irq" ? (cpu?.pc ?? 0) : (vectors?.irq ?? 0), active: cur === "irq",
+            vec: [["$FFFE", vectors?.irq ?? 0], ["CINV $0314", vectors?.cinv ?? 0]] as [string, number][] },
+          { kind: "NMI", pc: cur === "nmi" ? (cpu?.pc ?? 0) : (vectors?.nmi ?? 0), active: cur === "nmi",
+            vec: [["$FFFA", vectors?.nmi ?? 0], ["CBINV $0318", vectors?.cbinv ?? 0]] as [string, number][] },
+        ];
+        return contexts.map((ctx) => (
+          <section key={ctx.kind}>
+            <h3>CPU · {ctx.kind}{ctx.active ? " ◀" : ""}</h3>
+            {regs ? (
+              <table className={`wb-regs ${ctx.active ? "wb-flow-active" : ""}`}>
+                <tbody>
+                  <tr><th>PC</th><td>{hex(ctx.pc, 4)}</td><th>SP</th><td>{hex(regs.sp)}</td></tr>
+                  <tr><th>A</th><td>{hex(regs.a)}</td><th>X</th><td>{hex(regs.x)}</td></tr>
+                  <tr><th>Y</th><td>{hex(regs.y)}</td><th>P</th><td>{pflags}</td></tr>
+                  {ctx.kind === "MAIN" && cpu ? <tr><th>cyc</th><td colSpan={3}>{cpu.cycles.toLocaleString()}</td></tr> : null}
+                  {ctx.vec ? ctx.vec.map(([label, addr]) => (
+                    <tr key={label} className="wb-vec-row"><th>{label}</th><td colSpan={3}>→ {hex(addr, 4)}</td></tr>
+                  )) : null}
+                </tbody>
+              </table>
+            ) : <p>—</p>}
+          </section>
+        ));
       })()}
       <section>
         <h3>VIC</h3>

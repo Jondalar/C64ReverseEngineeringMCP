@@ -681,10 +681,10 @@ body {
   color: var(--c64-blue-bright); font-size: 11px; pointer-events: none;
 }
 
-/* Spec 623 §4.3 flow panel — active flow row highlighted. */
-.wb-flow th { text-transform: uppercase; }
-.wb-flow .wb-flow-active th { color: var(--c64-yellow); }
-.wb-flow .wb-flow-active td { color: var(--c64-yellow); }
+/* Spec 623 §4.3 flow panel — active context highlighted; vector rows muted. */
+.wb-regs.wb-flow-active th { color: var(--c64-yellow); }
+.wb-regs.wb-flow-active td { color: var(--c64-yellow); }
+.wb-vec-row th, .wb-vec-row td { color: var(--c64-fg-muted); font-size: 10px; }
 
 /* Inspector */
 .wb-inspector {

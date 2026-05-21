@@ -314,6 +314,15 @@ export class V3WsServer {
       const c = s.c64Cpu;
       const v = s.vic.regs;
       const raster = s.vicRaster(); // live literal-port raster (legacy raster_y stays 0)
+      // Interrupt vectors (banked reads) so the UI can ALWAYS show where the
+      // IRQ/NMI handlers enter, not only while stepping into them.
+      const rd16 = (a: number) => (s.c64Bus.read(a) | (s.c64Bus.read((a + 1) & 0xffff) << 8)) & 0xffff;
+      const vectors = {
+        irq: rd16(0xfffe),   // hardware IRQ/BRK vector ($FFFE/$FFFF)
+        nmi: rd16(0xfffa),   // hardware NMI vector ($FFFA/$FFFB)
+        cinv: rd16(0x0314),  // KERNAL RAM IRQ vector (CINV) — common game hook
+        cbinv: rd16(0x0318), // KERNAL RAM NMI vector (CBINV)
+      };
       return {
         c64Cycles: c.cycles,
         driveCycles: s.drive.cpu.cycles,
@@ -336,6 +345,7 @@ export class V3WsServer {
         // Spec 623 §4.3 — control-flow stack (main/irq/nmi/brk) for the UI
         // FLOW panel. Populated while stepping (z/n/sf/nf); empty = main.
         flow: getRuntimeController(session_id)?.flow.flowState() ?? null,
+        vectors,
       };
     });
 
