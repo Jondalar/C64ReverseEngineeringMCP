@@ -247,6 +247,9 @@ Findings:
   - then schedules the next iteration with `setTimeout(tick, 20)`.
 - The server `session/run` handler only executes the requested C64 cycle budget. It does not sleep, throttle, or decide realtime/warp policy.
 - The current disabled Warp button in `MachineControls.tsx` is a UI placeholder only.
+- The current screenshot path still uses PNG encoding + base64 data URLs for
+  live display. That is acceptable for manual snapshots, not for a live
+  frame stream.
 
 Recommended work:
 
@@ -254,6 +257,10 @@ Recommended work:
 - Throttle debug/status snapshots when the user is not inspecting them.
 - Do not optimize renderer UI by changing C64/VIC state generation.
 - Move live pacing policy out of the React polling loop and into an explicit runtime/session pacing mode.
+- Replace live PNG/base64 screenshots with binary frame transport:
+  palette-indexed C64 pixels or raw RGBA to canvas/ImageBitmap.
+- Keep MPEG/H.264 for export/recording or optional remote spectator mode,
+  not as the primary debugger display path.
 
 Expected gain: user-perceived responsiveness can improve, but this may not increase emulation Mcyc/s.
 
@@ -386,6 +393,9 @@ Rules:
 - no runtime semantics changes,
 - status snapshots can be throttled,
 - debugger fidelity remains available when requested.
+- live frame presentation must not PNG-encode/base64 every frame.
+- binary frame transport must use "latest frame wins" when the browser is
+  behind.
 
 ### 700.8 Threading Decision
 

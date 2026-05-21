@@ -187,6 +187,35 @@ Required broadcasts:
 - `session/state`
 - optional binary frame payloads for presentation frames
 
+Live frame transport:
+
+- The Live UI must not use `session/screenshot` PNG/base64 as its normal
+  frame stream.
+- `session/screenshot` remains a manual/export/debug primitive.
+- Default live transport should be a binary WebSocket frame:
+  - metadata: session id, frame number, C64 cycle, width, height, pixel
+    format,
+  - payload: latest completed frame.
+- Preferred first implementation:
+  - palette-indexed 8-bit pixels plus 16-color RGBA palette, or
+  - raw RGBA if simpler.
+- Raw RGBA is acceptable on localhost at 25/30fps:
+  `392 * 272 * 4 ~= 426KiB/frame`, about `10.6MiB/s` at 25fps.
+- Palette-indexed is cheaper and C64-shaped:
+  `392 * 272 ~= 107KiB/frame`, about `2.7MiB/s` at 25fps.
+- PNG/base64 is too much per-frame CPU/GC/IO overhead for live display.
+
+MPEG/H.264 policy:
+
+- MPEG/H.264 is appropriate for export/recording and optional remote
+  spectator streaming.
+- It is not the default debugger display transport because it adds encoder
+  latency, decoder buffering, GOP/keyframe behavior, and makes exact
+  frame-level debugger presentation harder.
+- If added later, it must be a presentation-only stream. The monitor and
+  debugger still consume exact backend state and frame numbers, not decoded
+  video timing.
+
 Compatibility:
 
 - Keep `session/run` only as a deterministic manual/headless primitive.
@@ -211,6 +240,8 @@ Required changes:
   - Warp: bounded latest-frame stream, `15fps` to `30fps`
 - The UI may display fewer frames than the emulated VIC-II generates.
 - The UI must not request one emulated frame per rendered browser frame.
+- The UI should paint binary frame payloads to a canvas/ImageBitmap path,
+  not replace an `<img>` with PNG data URLs for every frame.
 - Monitor updates from `debug/stopped` and `debug/state`.
 
 The UI is a window onto the machine, not the machine clock.
@@ -259,6 +290,9 @@ Required:
 - UI receives roughly every second completed frame,
 - CPU/VIC/CIA/drive state after `N` internal frames matches a no-presentation run,
 - WebSocket does not build an unbounded frame backlog.
+- live presentation does not call `renderToPng` / `session/screenshot` for
+  every frame.
+- binary frame transport reports stable frame number and cycle metadata.
 
 Run NTSC later with presentation set to `30fps` under the same rules.
 
