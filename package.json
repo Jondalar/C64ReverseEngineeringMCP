@@ -135,6 +135,7 @@
     "smoke:loader-profile": "npm run build:mcp && node scripts/smoke-loader-profile.mjs",
     "smoke:vice-diff": "npm run build:mcp && node scripts/smoke-vice-diff.mjs",
     "smoke:v3-ws": "npm run build:mcp && node scripts/smoke-v3-ws.mjs",
+    "smoke:701": "npm run build:mcp && node scripts/smoke-701-debug-loop.mjs",
     "smoke:sid-resid": "npm run build:mcp && node scripts/smoke-sid-resid.mjs",
     "runtime_audio_export": "npm run build:mcp && node scripts/cli-audio-export.mjs",
     "regress": "npm run build:mcp && node scripts/regress.mjs",
