@@ -1,8 +1,19 @@
 # Spec 701 — Autonomous Runtime Loop
 
-Status: DRAFT  
+Status: DONE (2026-05-21 CEST)  
 Created: 2026-05-21 CEST  
 Owner: runtime / debugger / v3 UI
+
+Implemented on branch `codex/615-gcr-decode-fidelity`:
+`RuntimeController` (`src/runtime/headless/debug/runtime-controller.ts`) owns
+the paced loop + run/pause/pacing/breakpoints + self-halt; `debug/*` +
+`session/set_pacing` WS API; UI reduced to commands + visualization. §7 live
+binary VIC frame transport (raw RGBA push, latest-frame-wins, no per-frame
+PNG); UI `<canvas>` blit. PAL presents every frame (50fps) per user request.
+Tests: `tests/unit/debug/runtime-controller.test.ts` 8/8; smoke `npm run
+smoke:701` 10/10 (incl. frame push). Gates: build:mcp + check:1541-fidelity
+(0 FAIL) + smoke:v3-ws (7/7) green. NTSC pacing + fixed-ratio remain the
+documented later extension (§5.2/§5.4).
 
 ## 1. Problem
 
@@ -371,9 +382,14 @@ Add controller-level tests for:
 
 Spec 701 is complete when:
 
-- the backend owns live run/pause/pacing/breakpoint state,
-- the UI no longer calls `session/run` as a frame clock,
-- breakpoints halt deterministically without UI polling,
-- Warp is host-pacing only and state-equivalent for equal cycles,
-- existing 1541/VIC/load/save/custom-loader gates remain green,
-- manual headless `session.runFor(...)` remains available for tests and scripts.
+- [x] the backend owns live run/pause/pacing/breakpoint state,
+- [x] the UI no longer calls `session/run` as a frame clock,
+- [x] breakpoints halt deterministically without UI polling
+      (smoke:701 — loop self-halts at $EA31, no polling),
+- [x] Warp is host-pacing only and state-equivalent for equal cycles
+      (controller test: PAL/Warp chunking == unchunked, equal cycles ⇒ equal state),
+- [x] existing 1541/VIC/load/save/custom-loader gates remain green
+      (build:mcp + check:1541-fidelity 0 FAIL + smoke:v3-ws 7/7),
+- [x] manual headless `session.runFor(...)` remains available for tests and scripts.
+- [x] §7 live binary frame transport (no per-frame PNG/base64); UI canvas blit;
+      latest-frame-wins.
