@@ -349,7 +349,13 @@ export class V3WsServer {
       const { readFileSync } = await import("node:fs");
       const path = join(tmpdir(), `c64re-frame-${session_id}-${Date.now()}.png`);
       // Spec 309: literal-port is sole renderer; opts.renderer dropped.
-      s.renderToPng(path);
+      // frameAligned:false — session/screenshot is a PASSIVE snapshot; it must
+      // NOT advance the CPU. The default (frameAligned:true) calls
+      // runUntilFrameReady() which runs the machine up to ~1 frame to reach a
+      // raster boundary — that silently stepped the CPU PAST a breakpoint halt
+      // (e.g. $0800 → into the IRQ at $10C1) every time the UI grabbed the
+      // frozen frame. Renders the last completed frame (literalPortFbStable).
+      s.renderToPng(path, { frameAligned: false });
       const bytes = readFileSync(path);
       return { dataUrl: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length };
     });
