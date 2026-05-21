@@ -11,6 +11,11 @@ import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/
 import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
 import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
 import { disasm6502, disasmLine } from "../runtime/headless/debug/disasm6502.js";
+import {
+  ensureRuntimeController,
+  getRuntimeController,
+  type RuntimePacingMode,
+} from "../runtime/headless/debug/runtime-controller.js";
 import { SidAudioRecorder, AudioExportSession } from "../runtime/headless/audio/sid-audio-recorder.js";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
@@ -18,26 +23,11 @@ import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 export const V3_WS_PORT = 4312;
 export const V3_WS_HOST = "127.0.0.1";
 
-// Per-session CPU breakpoints for the monitor/exec debugger (`bk`/`del`).
-// Each breakpoint has a STABLE checknum (VICE-style, never re-assigned) so
-// `del <n>` and the "#N BREAK" report stay consistent as bps are added/
-// removed. Used by `g` (run-until-breakpoint), `n`/`z`, and session/run.
-interface BpStore { next: number; bps: Map<number /*checknum*/, number /*addr*/>; }
-const monitorBreakpoints = new Map<string, BpStore>();
-function bpStore(sessionId: string): BpStore {
-  let s = monitorBreakpoints.get(sessionId);
-  if (!s) { s = { next: 1, bps: new Map() }; monitorBreakpoints.set(sessionId, s); }
-  return s;
-}
-/** Set of breakpoint ADDRESSES (for runFor's `breakpoints` option). */
-function bpAddrSet(sessionId: string): Set<number> {
-  return new Set(bpStore(sessionId).bps.values());
-}
-/** Lowest checknum whose address == addr (for the "#N BREAK" report). */
-function bpNumForAddr(sessionId: string, addr: number): number {
-  for (const [num, a] of bpStore(sessionId).bps) if (a === addr) return num;
-  return 0;
-}
+// Spec 701 — breakpoints are CORE-owned now: the per-session
+// RuntimeController holds the stable-checknum breakpoint store so the
+// autonomous run-loop and the monitor (`bk`/`del`/`g`/`z`/`n`) share ONE
+// source of truth. The server reaches them via getRuntimeController() /
+// ensureRuntimeController() instead of a local map.
 
 // VICE-style continue cursors: a bare `d` / `m` (no address) resumes from
 // where the previous one left off. Keyed by session_id.
@@ -122,6 +112,9 @@ export class V3WsServer {
     "session/release_keys", "session/joystick_set", "session/joystick_clear",
     "session/drive_power", "media/mount", "media/unmount", "media/swap",
     "runtime/call", "monitor/exec",
+    // Spec 701 — loop/step commands mutate the live session; serialize them
+    // behind any in-flight mount/reset so they execute atomically.
+    "debug/run", "debug/pause", "debug/continue", "debug/step", "session/set_pacing",
   ]);
   // Spec 263 — per-session audio streamers. Pumped on a fixed cadence
   // and flushed via session_state ticks. Keyed by session_id.
@@ -316,15 +309,24 @@ export class V3WsServer {
 
     // Run with C64 CYCLE budget (not instructions). runFor's first
     // arg is instruction-count; we pass huge instr cap + tight
-    // cycleBudget so live UI gets cycle-accurate pacing (1 PAL frame
+    // cycleBudget so a caller gets cycle-accurate stepping (1 PAL frame
     // = 19705 cycles default).
+    //
+    // Spec 701: session/run is now a MANUAL/HEADLESS primitive only — it is
+    // NOT the live UI clock anymore (that is the backend RuntimeController
+    // loop, driven via debug/run). If the autonomous loop owns this session,
+    // reject the manual step so the two clocks can't double-advance the CPU.
     this.on("session/run", async ({ session_id, cycles }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
+      const ctrl = ensureRuntimeController(session_id, s, (m, p) => this.broadcast(m, p));
+      if (ctrl.runState === "running") {
+        throw new Error("session is running under the autonomous loop; use debug/pause before manual session/run");
+      }
       const cycleBudget = cycles ?? 19705;
       // Instruction cap must exceed cycle cap so cycleBudget always wins.
       // Min cycles per 6502 instruction = 2, so cycles/2 ≈ max instructions.
-      const bps = bpAddrSet(session_id);
+      const bps = ctrl.bpAddrSet();
       // If we're sitting ON a breakpoint (resumed from one), step past it
       // once so the run doesn't immediately re-trigger the same address.
       if (bps.size > 0 && bps.has(s.c64Cpu.pc)) s.runFor(1);
@@ -333,13 +335,13 @@ export class V3WsServer {
         breakpoints: bps.size > 0 ? bps : undefined,
       });
       if (r.aborted === "breakpoint") {
-        // Halt: report the hit so the UI stops its run loop, drops into the
-        // monitor, prints "BK reached" + registers, and focuses the input.
+        // Halt: report the hit so a manual caller can drop into the monitor,
+        // print "BK reached" + registers, and focus the input.
         const hx = (n: number, w = 2) => n.toString(16).padStart(w, "0").toUpperCase();
         const c = s.c64Cpu;
         const flagsStr = "NV-BDIZC".split("").map((f, i) =>
           ((c.flags >> (7 - i)) & 1) ? f : f.toLowerCase()).join("");
-        const num = bpNumForAddr(session_id, r.lastPc);
+        const num = ctrl.bpNumForAddr(r.lastPc);
         monitorDisasmAddr.set(session_id, r.lastPc); // bare `d` shows from the break
         return {
           c64Cycles: s.c64Cpu.cycles,
@@ -355,6 +357,52 @@ export class V3WsServer {
       return { c64Cycles: s.c64Cpu.cycles };
     });
 
+    // ---- Spec 701 — autonomous runtime loop: debug/* command + state API.
+    // The backend RuntimeController owns run/pause/pacing/breakpoints and
+    // self-halts on a breakpoint. The UI sends commands and visualizes; it
+    // does NOT drive the emulation clock.
+    const ctrlFor = (session_id: string) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      return ensureRuntimeController(session_id, s, (m, p) => this.broadcast(m, p));
+    };
+    const PACING_MODES: RuntimePacingMode[] = ["pal", "warp", "fixed-ratio"];
+
+    this.on("debug/run", ({ session_id, pacing }) => {
+      const ctrl = ctrlFor(session_id);
+      const mode = pacing?.mode && PACING_MODES.includes(pacing.mode) ? pacing.mode : undefined;
+      ctrl.run({ mode, ratio: pacing?.ratio });
+      return ctrl.state();
+    });
+    this.on("debug/pause", ({ session_id }) => { const c = ctrlFor(session_id); c.pause(); return c.state(); });
+    this.on("debug/continue", ({ session_id }) => { const c = ctrlFor(session_id); c.continue(); return c.state(); });
+    this.on("debug/step", ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      const stop = c.step();
+      monitorDisasmAddr.set(session_id, stop.pc); // bare `d` follows the step
+      return c.state();
+    });
+    this.on("debug/break_add", ({ session_id, pc }) => {
+      const c = ctrlFor(session_id);
+      if (typeof pc !== "number") throw new Error("debug/break_add: pc (number) required");
+      const num = c.addBreakpoint(pc);
+      return { num, breakpoints: c.listBreakpoints() };
+    });
+    this.on("debug/break_del", ({ session_id, id }) => {
+      const c = ctrlFor(session_id);
+      if (id === undefined || id === null) { c.clearBreakpoints(); return { breakpoints: [] }; }
+      const ok = c.delBreakpoint(Number(id));
+      return { deleted: ok, breakpoints: c.listBreakpoints() };
+    });
+    this.on("debug/break_list", ({ session_id }) => ({ breakpoints: ctrlFor(session_id).listBreakpoints() }));
+    this.on("debug/state", ({ session_id }) => ctrlFor(session_id).state());
+    this.on("session/set_pacing", ({ session_id, mode, ratio }) => {
+      const c = ctrlFor(session_id);
+      if (!PACING_MODES.includes(mode)) throw new Error(`bad pacing mode: ${mode}`);
+      c.setPacing(mode, ratio);
+      return c.state();
+    });
+
     // Reset. mode="soft" (default for the UI Reset button) = SYS 64738:
     // jump the C64 CPU to its reset vector ($FFFC/$FFFD = $FCE2), the
     // KERNAL cold-start routine (SEI/IOINIT/RESTOR/RAMTAS + BASIC cold).
@@ -365,6 +413,9 @@ export class V3WsServer {
     this.on("session/reset", async ({ session_id, video, mode }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
+      // Spec 701: halt the autonomous loop before re-initing the machine so
+      // the loop can't step a session mid-reset. The UI re-issues debug/run.
+      getRuntimeController(session_id)?.pause();
       if (mode === "soft") {
         // Reset button = HW RESET line. resetWarm re-inits CPU + chips +
         // drive and restores banking, so the $FFFC vector reads $FCE2 and
@@ -766,6 +817,10 @@ export class V3WsServer {
     this.on("monitor/exec", async ({ session_id, command }) => {
       const s = getIntegratedSession(session_id);
       if (!s) return { error: `no session ${session_id}` };
+      // Spec 701 — share the core-owned breakpoint store + halt the
+      // autonomous loop before any synchronous monitor stepping (g/z/n) so
+      // the manual step can't race the backend run-loop.
+      const ctrl = ensureRuntimeController(session_id, s, (m, p) => this.broadcast(m, p));
       const cmd = String(command ?? "").trim();
       if (!cmd) return { output: "" };
       const tokens = cmd.split(/\s+/);
@@ -823,45 +878,45 @@ export class V3WsServer {
         }
         // Breakpoints: bk | bk <addr> | bk -<addr> | bk clear
         if (op === "bk" || op === "break" || op === "b") {
-          const st = bpStore(session_id);
           const t1 = tokens[1];
           if (!t1) {
-            return { output: st.bps.size
-              ? "breakpoints:\n" + [...st.bps].sort((a, b) => a[0] - b[0])
-                  .map(([num, a]) => `  #${num}  $${hex(a, 4)}`).join("\n")
+            const list = ctrl.listBreakpoints();
+            return { output: list.length
+              ? "breakpoints:\n" + list.map(({ num, addr }) => `  #${num}  $${hex(addr, 4)}`).join("\n")
               : "no breakpoints (set: bk <addr>)" };
           }
-          if (t1.toLowerCase() === "clear") { st.bps.clear(); return { output: "breakpoints cleared" }; }
+          if (t1.toLowerCase() === "clear") { ctrl.clearBreakpoints(); return { output: "breakpoints cleared" }; }
           if (t1.startsWith("-")) { // bk -<addr> : delete by address
             const a = parseAddr(t1.slice(1));
             if (a === null) return { error: `bad address: ${t1}` };
-            for (const [num, addr] of st.bps) if (addr === a) st.bps.delete(num);
-            return { output: `removed bp $${hex(a, 4)} (${st.bps.size} left)` };
+            for (const { num, addr } of ctrl.listBreakpoints()) if (addr === a) ctrl.delBreakpoint(num);
+            return { output: `removed bp $${hex(a, 4)} (${ctrl.listBreakpoints().length} left)` };
           }
           const addr = parseAddr(t1);
           if (addr === null) return { error: `bad address: ${t1}` };
-          const num = st.next++;
-          st.bps.set(num, addr);
-          return { output: `bk #${num} set at $${hex(addr, 4)} (${st.bps.size} total)` };
+          const num = ctrl.addBreakpoint(addr);
+          return { output: `bk #${num} set at $${hex(addr, 4)} (${ctrl.listBreakpoints().length} total)` };
         }
         // Delete breakpoint(s): del | del <num> | del <num> ...  (VICE: del <checknum>)
         if (op === "del" || op === "delete") {
-          const st = bpStore(session_id);
-          if (!tokens[1]) { st.bps.clear(); return { output: "all breakpoints deleted" }; }
+          if (!tokens[1]) { ctrl.clearBreakpoints(); return { output: "all breakpoints deleted" }; }
           const out: string[] = [];
           for (const t of tokens.slice(1)) {
             const num = parseInt(t, 10);
             if (isNaN(num)) { out.push(`bad checknum: ${t}`); continue; }
-            if (st.bps.has(num)) { st.bps.delete(num); out.push(`deleted #${num}`); }
+            if (ctrl.delBreakpoint(num)) out.push(`deleted #${num}`);
             else out.push(`no breakpoint #${num}`);
           }
           return { output: out.join("\n") };
         }
-        // Go / continue: g [addr] — run until a breakpoint (cap 20M instr)
+        // Go / continue: g [addr] — run until a breakpoint (cap 20M instr).
+        // Halt the autonomous loop first so this synchronous run is the only
+        // thing advancing the CPU.
         if (op === "g") {
+          ctrl.pause();
           const addr = parseAddr(tokens[1]);
           if (addr !== null) s.c64Cpu.pc = addr & 0xffff;
-          const bps = bpAddrSet(session_id);
+          const bps = ctrl.bpAddrSet();
           if (bps.size === 0) {
             s.runFor(20_000);
             monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
@@ -884,6 +939,7 @@ export class V3WsServer {
         }
         // Step into: z | step | si — one instruction (descends into JSR)
         if (op === "z" || op === "step" || op === "si") {
+          ctrl.pause();
           const before = s.c64Cpu.cycles;
           s.runFor(1);
           monitorDisasmAddr.set(session_id, s.c64Cpu.pc); // bare `d` now shows from new PC
@@ -891,11 +947,12 @@ export class V3WsServer {
         }
         // Step over: n | next — JSR runs to its return; others = single step
         if (op === "n" || op === "next" || op === "so") {
+          ctrl.pause();
           const read = (a: number) => s.c64Bus.ram[a & 0xffff] ?? 0;
           const di = disasm6502(read, s.c64Cpu.pc);
           if (di.isJsr) {
             const ret = (s.c64Cpu.pc + di.size) & 0xffff;
-            const tmp = new Set(bpAddrSet(session_id)); tmp.add(ret);
+            const tmp = new Set(ctrl.bpAddrSet()); tmp.add(ret);
             const startCyc = s.c64Cpu.cycles;
             s.runFor(1); // execute the JSR itself
             const CAP = 20_000_000; let executed = 0; let hit = false;
@@ -916,6 +973,7 @@ export class V3WsServer {
         }
         // Reset
         if (op === "reset") {
+          ctrl.pause();
           s.resetCold("pal-default");
           return { output: "reset" };
         }
