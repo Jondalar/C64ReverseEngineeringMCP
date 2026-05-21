@@ -145,6 +145,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameImgRef = useRef<ImageData | null>(null); // reused per-frame (no 50fps GC churn)
 
   // Auto-pick first session
   useEffect(() => {
@@ -171,14 +172,33 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     if (!cv || payload.length < 10) return;
     const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
     const w = dv.getUint16(0, true), h = dv.getUint16(2, true);
-    if (!w || !h || payload.length < 10 + w * h * 4) return;
+    const fmt = payload[4];
+    if (!w || !h) return;
     if (cv.width !== w) cv.width = w;
     if (cv.height !== h) cv.height = h;
     const ctx = cv.getContext("2d");
     if (!ctx) return;
-    const rgba = new Uint8ClampedArray(w * h * 4);
-    rgba.set(payload.subarray(10, 10 + w * h * 4));
-    ctx.putImageData(new ImageData(rgba, w, h), 0, 0);
+    // Reuse one ImageData (write into its backing buffer) so a 50fps stream
+    // doesn't allocate per-frame → no GC churn / tab crash.
+    let img = frameImgRef.current;
+    if (!img || img.width !== w || img.height !== h) { img = new ImageData(w, h); frameImgRef.current = img; }
+    const out = img.data;
+    if (fmt === 1) {
+      // Palette-indexed (Spec 701 §7): [10 hdr][48 palette RGB][w*h indices].
+      const palOff = 10, idxOff = 58, n = w * h;
+      if (payload.length < idxOff + n) return;
+      for (let p = 0; p < n; p++) {
+        const idx = payload[idxOff + p]! & 0x0f;
+        const pe = palOff + idx * 3;
+        const o = p * 4;
+        out[o] = payload[pe]!; out[o + 1] = payload[pe + 1]!; out[o + 2] = payload[pe + 2]!; out[o + 3] = 0xff;
+      }
+    } else {
+      // fmt 0 = raw RGBA.
+      if (payload.length < 10 + w * h * 4) return;
+      out.set(payload.subarray(10, 10 + w * h * 4));
+    }
+    ctx.putImageData(img, 0, 0);
     if (!hasFrame) setHasFrame(true);
   };
 

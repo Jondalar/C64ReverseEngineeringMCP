@@ -1628,4 +1628,36 @@ export class IntegratedSession {
     }
     return { width: CANVAS_W, height: CANVAS_H, rgba };
   }
+
+  /**
+   * Spec 701 §7 (preferred transport) — palette-indexed frame: 1 byte/pixel
+   * (the 4-bit C64 colour index) + a 16-colour RGB palette (48 bytes). ~107
+   * KiB/frame vs ~417 KiB raw RGBA → ~4× less WebSocket bandwidth, so a 50fps
+   * live stream stays well within what the browser WS + canvas can sustain.
+   * The UI expands index→RGBA into a reused ImageData.
+   */
+  renderLiteralPortIndexed():
+    { width: number; height: number; indices: Uint8Array; palette: Uint8Array } | null {
+    if (!this.literalPortFbStable && !this.literalPortFb) return null;
+    const FB_W_INTERNAL = 65 * 8, FB_H_INTERNAL = 312;
+    const fb = this.literalPortFbStable ?? this.literalPortFb!;
+    const pal = this.framebuffer.palette;
+    const CANVAS_X0 = 104, CANVAS_W = 384, CANVAS_Y0 = 16, CANVAS_H = 272;
+    const indices = new Uint8Array(CANVAS_W * CANVAS_H);
+    for (let cy = 0; cy < CANVAS_H; cy++) {
+      const srcY = cy + CANVAS_Y0;
+      if (srcY >= FB_H_INTERNAL) continue;
+      for (let cx = 0; cx < CANVAS_W; cx++) {
+        const srcX = cx + CANVAS_X0;
+        if (srcX >= FB_W_INTERNAL) continue;
+        indices[cy * CANVAS_W + cx] = fb[srcY * FB_W_INTERNAL + srcX]! & 0x0f;
+      }
+    }
+    const palette = new Uint8Array(48);
+    for (let i = 0; i < 16; i++) {
+      const [r, g, b] = pal[i] ?? [0, 0, 0];
+      palette[i * 3] = r; palette[i * 3 + 1] = g; palette[i * 3 + 2] = b;
+    }
+    return { width: CANVAS_W, height: CANVAS_H, indices, palette };
+  }
 }

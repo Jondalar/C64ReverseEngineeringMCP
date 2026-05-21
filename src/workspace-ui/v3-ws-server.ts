@@ -271,22 +271,28 @@ export class V3WsServer {
     // handler that touches loop/debug/breakpoint state goes through this so
     // the frame stream is always available once a session exists.
     const pushFrame = (sessionId: string, frameNum: number) => {
+      try {
       const sess = getIntegratedSession(sessionId);
       if (!sess) return;
-      const f = sess.renderLiteralPortRgba();
+      // Palette-indexed (Spec 701 §7 preferred): ~4× less WS bandwidth than
+      // raw RGBA, so a 50fps stream doesn't choke the browser socket.
+      const f = sess.renderLiteralPortIndexed();
       if (!f) return;
       // header: [w:u16][h:u16][fmt:u8][rsvd:u8][c64cycle:u32], all LE.
+      // fmt 1 = palette-indexed: header + 48-byte RGB palette + w*h indices.
       const header = new Uint8Array(10);
       const dv = new DataView(header.buffer);
       dv.setUint16(0, f.width, true);
       dv.setUint16(2, f.height, true);
-      header[4] = 0; // fmt 0 = RGBA8888
+      header[4] = 1; // fmt 1 = palette-indexed
       header[5] = 0;
       dv.setUint32(6, sess.c64Cpu.cycles >>> 0, true);
-      const payload = new Uint8Array(header.length + f.rgba.length);
+      const payload = new Uint8Array(header.length + f.palette.length + f.indices.length);
       payload.set(header, 0);
-      payload.set(f.rgba, header.length);
+      payload.set(f.palette, header.length);
+      payload.set(f.indices, header.length + f.palette.length);
       this.broadcastFrame(frameNum >>> 0, payload);
+      } catch { /* a transport error must never kill the loop */ }
     };
     const controllerFor = (session_id: string) => {
       const s = getIntegratedSession(session_id);

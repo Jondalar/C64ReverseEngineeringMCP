@@ -321,7 +321,9 @@ export class RuntimeController {
     // Completed a chunk = one PAL frame (or one warp chunk). Count + present.
     this.frameCounter++;
     this.framesSinceEpoch++;
-    this.maybePresentFrame(warp);
+    // A presentation/transport error (render, WS send) must NEVER kill the
+    // loop or crash the process — the emulation keeps running regardless.
+    try { this.maybePresentFrame(warp); } catch { /* drop this frame's display */ }
 
     if (warp) {
       this.scheduleNext(0); // flat-out

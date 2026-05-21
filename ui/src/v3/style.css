@@ -668,11 +668,13 @@ body {
 }
 .wb-screen.focused { border-color: var(--c64-blue-bright); }
 .wb-screen.paused { border-color: var(--c64-yellow); cursor: crosshair; }
+/* Overlay (not a flex sibling) so it sits ON the canvas, centered, instead of
+   being laid out beside it by the flex-centered wrap. */
 .wb-screen-empty {
-  width: 100%; aspect-ratio: 384 / 272;
-  background: #000; border: 2px solid var(--c64-border);
+  position: absolute; inset: 8px;
   display: flex; align-items: center; justify-content: center;
   color: var(--c64-fg-muted);
+  pointer-events: none;
 }
 .wb-screen-hint {
   position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
