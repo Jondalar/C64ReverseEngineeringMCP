@@ -1588,39 +1588,31 @@ export class IntegratedSession {
    * has accumulated.
    */
   private renderLiteralPortToPng(path: string): { width: number; height: number; bytes: number } {
+    const f = this.renderLiteralPortRgba();
+    if (!f) return { width: 0, height: 0, bytes: 0 };
+    const pngBytes = rgbaToPng(f.width, f.height, f.rgba);
+    writeFileSync(path, pngBytes);
+    return { width: f.width, height: f.height, bytes: pngBytes.length };
+  }
+
+  /**
+   * Spec 701 §7 — extract the current literal-port frame as raw RGBA (the
+   * VICE x64sc 384×272 visible window). Shared by renderToPng (screenshots)
+   * and the live binary frame stream (RuntimeController → broadcastFrame),
+   * so the live display no longer pays the PNG/base64 encode cost per frame.
+   * Reads the stable (= last complete) frame, falling back to the in-fill
+   * accumulator just after boot. Returns null if no literal-port FB yet.
+   */
+  renderLiteralPortRgba(): { width: number; height: number; rgba: Uint8Array } | null {
+    if (!this.literalPortFbStable && !this.literalPortFb) return null;
     const FB_W_INTERNAL = 65 * 8; // 520 — full dbuf width
     const FB_H_INTERNAL = 312;
-    // Spec V-stable-frame: prefer stable (= last complete frame) over
-    // mid-fill accumulator. Falls back to accumulator if no full frame
-    // has wrapped yet (= just-booted scenario).
     const fb = this.literalPortFbStable ?? this.literalPortFb!;
     const palette = this.framebuffer.palette;
-
-    // Spec 298k harness fixes (= what user identified as off):
-    //   1. Right-side black band (= 16 px) — dbuf positions [504..519] never
-    //      written by visible/sprite-fetch cycles. Crop to display window.
-    //   2. Bottom 8-px black band — last raster line never captured because
-    //      hook fires on raster_line CHANGE and cycle 1 of new line resets
-    //      dbuf BEFORE we copy. Force-capture line 311 by reading dbuf at
-    //      render time even if hook hasn't seen the wrap yet.
-    //   3. Asymmetric L/R borders — caused by 1+2 above plus alignment
-    //      mismatch between dbuf coord (cycle 1 = pixel 0) and VICE x64sc
-    //      canvas (display first pixel = canvas x=32). Crop to canvas.
-    //
-    // Output: VICE x64sc PAL canvas convention = 384×272 visible window.
-    //   - Empirical dbuf measurement (Spec 428 / IM2 fix follow-up):
-    //     display columns land in dbuf[136..455] (= 320 px).
-    //   - Add 32-px left border + 32-px right border:
-    //       canvas crop X = dbuf[104..488] = 384 px wide, balanced.
-    //   - Previous X0=96 gave L=40px / R=24px (asymmetric, visible bug
-    //     reported by user — UI rechte Border zu schmal).
-    //   - First displayed line per VICE PAL = line 16, height 272:
-    //       canvas crop Y = fb[16..288] = 272 px tall
-    const CANVAS_X0 = 104;
-    const CANVAS_W = 384;
-    const CANVAS_Y0 = 16;
-    const CANVAS_H = 272;
-
+    // VICE x64sc PAL canvas convention (see renderLiteralPortToPng history):
+    //   X = dbuf[104..488] = 384 px (balanced 32-px L/R borders)
+    //   Y = fb[16..288]    = 272 px (first displayed PAL line = 16)
+    const CANVAS_X0 = 104, CANVAS_W = 384, CANVAS_Y0 = 16, CANVAS_H = 272;
     const rgba = new Uint8Array(CANVAS_W * CANVAS_H * 4);
     for (let cy = 0; cy < CANVAS_H; cy++) {
       const srcY = cy + CANVAS_Y0;
@@ -1631,14 +1623,9 @@ export class IntegratedSession {
         const cIdx = fb[srcY * FB_W_INTERNAL + srcX]! & 0x0f;
         const [r, g, b] = palette[cIdx]!;
         const off = (cy * CANVAS_W + cx) * 4;
-        rgba[off] = r;
-        rgba[off + 1] = g;
-        rgba[off + 2] = b;
-        rgba[off + 3] = 0xff;
+        rgba[off] = r; rgba[off + 1] = g; rgba[off + 2] = b; rgba[off + 3] = 0xff;
       }
     }
-    const pngBytes = rgbaToPng(CANVAS_W, CANVAS_H, rgba);
-    writeFileSync(path, pngBytes);
-    return { width: CANVAS_W, height: CANVAS_H, bytes: pngBytes.length };
+    return { width: CANVAS_W, height: CANVAS_H, rgba };
   }
 }

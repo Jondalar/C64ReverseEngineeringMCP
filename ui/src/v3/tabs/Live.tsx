@@ -13,7 +13,7 @@
 // no auto-LOAD. Spec 354: pause → Explore overlay.
 
 import React, { useEffect, useRef, useState } from "react";
-import { getClient } from "../ws-client.js";
+import { getClient, BIN_TYPE_VIC_FRAME } from "../ws-client.js";
 import type { TabProps } from "./Live.types.js";
 import { MonitorPanel } from "../components/MonitorPanel.js";
 import { InspectorPanel } from "../components/InspectorPanel.js";
@@ -132,7 +132,7 @@ function joystickBitForCode(code: string): JoyBit | null {
 type JoystickMode = "off" | "port1" | "port2";
 
 export function LiveTab({ sessionId, setSessionId, runState = "running", setRunState }: TabProps): JSX.Element {
-  const [imgUrl, setImgUrl] = useState<string>("");
+  const [hasFrame, setHasFrame] = useState(false);
   const [fps, setFps] = useState(0);
   const [drive, setDrive] = useState<DriveStatus | null>(null);
   const [drive9, setDrive9] = useState<DriveStatus | null>(null);
@@ -144,7 +144,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const [bpSignal, setBpSignal] = useState<{ pc: number; num: number; registers: string; seq: number } | null>(null);
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
-  const screenRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // Auto-pick first session
   useEffect(() => {
@@ -163,12 +163,43 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   //     commands. run()/pause() are idempotent on the backend (they only
   //     broadcast on an actual transition), so the broadcast→runState→here
   //     round-trip below cannot loop.
+  // Paint a frame buffer onto the canvas. Spec 701 §7: the live transport is
+  // a raw-RGBA binary WS frame ([w:u16][h:u16][fmt:u8][rsvd][cycle:u32] + RGBA),
+  // blitted via putImageData — no per-frame PNG/base64 decode.
+  const drawFrame = (payload: Uint8Array) => {
+    const cv = canvasRef.current;
+    if (!cv || payload.length < 10) return;
+    const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    const w = dv.getUint16(0, true), h = dv.getUint16(2, true);
+    if (!w || !h || payload.length < 10 + w * h * 4) return;
+    if (cv.width !== w) cv.width = w;
+    if (cv.height !== h) cv.height = h;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    rgba.set(payload.subarray(10, 10 + w * h * 4));
+    ctx.putImageData(new ImageData(rgba, w, h), 0, 0);
+    if (!hasFrame) setHasFrame(true);
+  };
+
+  // grabScreenshot: one-shot PNG (session/screenshot — manual/export primitive,
+  // Spec 701 §7) blitted onto the same canvas. Used for paused/breakpoint/reset
+  // moments when the live frame stream is not running.
   const grabScreenshot = useRef(async () => {});
   grabScreenshot.current = async () => {
     if (!sessionId) return;
     try {
       const r = await getClient().call<{ dataUrl: string }>("session/screenshot", { session_id: sessionId });
-      setImgUrl(r.dataUrl);
+      const cv = canvasRef.current; if (!cv) return;
+      const img = new Image();
+      img.onload = () => {
+        const ctx = cv.getContext("2d"); if (!ctx) return;
+        if (cv.width !== img.width) cv.width = img.width;
+        if (cv.height !== img.height) cv.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        setHasFrame(true);
+      };
+      img.src = r.dataUrl;
     } catch { /* ignore */ }
   };
 
@@ -183,30 +214,24 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     }
   }, [sessionId, runState]);
 
-  // (B) Presentation poll — decoupled from emulation. Fetches a screenshot
-  //     on a timer (~25fps) while running; this only RENDERS the current
-  //     frame, it does NOT advance the machine.
+  // (B) Presentation = backend frame PUSH (Spec 701 §7). The backend streams
+  //     binary RGBA frames at its presentation cadence (25fps PAL / bounded
+  //     warp, latest-frame-wins); we just blit them. This does NOT advance the
+  //     machine and carries no PNG/base64 cost. The old session/screenshot
+  //     poll is gone.
   useEffect(() => {
-    if (!sessionId || runState !== "running") return;
+    if (!sessionId) return;
     const client = getClient();
-    let alive = true;
-    const tick = async () => {
-      if (!alive) return;
-      try {
-        const r = await client.call<{ dataUrl: string }>("session/screenshot", { session_id: sessionId });
-        if (alive) {
-          setImgUrl(r.dataUrl);
-          const c = fpsCounterRef.current;
-          c.frames++;
-          const now = Date.now();
-          if (now - c.lastT >= 1000) { setFps(c.frames); c.frames = 0; c.lastT = now; }
-        }
-      } catch { /* ignore */ }
-      if (alive) setTimeout(tick, 40); // ~25fps presentation cadence
-    };
-    tick();
-    return () => { alive = false; };
-  }, [sessionId, runState]);
+    const off = client.onBinary(BIN_TYPE_VIC_FRAME, (frame) => {
+      drawFrame(frame.payload);
+      const c = fpsCounterRef.current;
+      c.frames++;
+      const now = Date.now();
+      if (now - c.lastT >= 1000) { setFps(c.frames); c.frames = 0; c.lastT = now; }
+    });
+    return off;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   // (C) Backend broadcasts → UI state. The loop self-halts on a breakpoint
   //     and announces it; the UI reacts (drops into the monitor, freezes the
@@ -350,13 +375,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     };
   }, [sessionId, runState, joyMode]);
 
-  // Snapshot single frame (= force re-render even when paused)
+  // Force a single-frame re-render even when paused (= draw one screenshot
+  // onto the canvas). Used after reset/power so a paused machine shows a frame.
   const snapshot = async () => {
-    if (!sessionId) return;
-    try {
-      const r = await getClient().call<{ dataUrl: string }>("session/screenshot", { session_id: sessionId });
-      setImgUrl(r.dataUrl);
-    } catch (e) { console.error(e); }
+    await grabScreenshot.current();
   };
 
   return (
@@ -380,26 +402,30 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
             }}>
               POWER OFF
             </div>
-          ) : imgUrl ? (
-            <img
-              ref={screenRef}
-              src={imgUrl}
-              alt="C64 screen"
-              tabIndex={runState === "running" ? 0 : -1}
-              onFocus={() => setScreenFocused(true)}
-              onBlur={() => setScreenFocused(false)}
-              onClick={(e) => runState === "running" && e.currentTarget.focus()}
-              className={`wb-screen ${runState === "paused" ? "paused" : ""} ${screenFocused ? "focused" : ""}`}
-            />
           ) : (
-            <div className="wb-screen-empty">
-              <p>No frame yet — emulator booting…</p>
-            </div>
+            <>
+              <canvas
+                ref={canvasRef}
+                width={384}
+                height={272}
+                tabIndex={runState === "running" ? 0 : -1}
+                onFocus={() => setScreenFocused(true)}
+                onBlur={() => setScreenFocused(false)}
+                onClick={(e) => runState === "running" && e.currentTarget.focus()}
+                className={`wb-screen ${runState === "paused" ? "paused" : ""} ${screenFocused ? "focused" : ""}`}
+                style={{ imageRendering: "pixelated" }}
+              />
+              {!hasFrame && (
+                <div className="wb-screen-empty">
+                  <p>No frame yet — emulator booting…</p>
+                </div>
+              )}
+            </>
           )}
-          {runState === "paused" && screenRef.current && (
+          {runState === "paused" && canvasRef.current && (
             <ExploreOverlay
               sessionId={sessionId}
-              screenEl={screenRef.current}
+              screenEl={canvasRef.current}
               selection={exploreSelection}
               onSelection={setExploreSelection}
             />

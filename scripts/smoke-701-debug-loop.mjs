@@ -35,10 +35,19 @@ await new Promise(r => setTimeout(r, 100));
 const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
 await new Promise((r, j) => { ws.once("open", r); ws.once("error", j); });
 
-// Collect broadcasts (no id) so we can prove the loop self-announces a halt.
+// Collect broadcasts (no id) + binary VIC frames (Spec 701 §7 frame push).
 const broadcasts = [];
+const frames = [];
+const BIN_TYPE_VIC_FRAME = 0x01;
 ws.on("message", (data, isBinary) => {
-  if (isBinary) return;
+  if (isBinary) {
+    const buf = new Uint8Array(data);
+    if (buf[0] === BIN_TYPE_VIC_FRAME && buf.length > 15) {
+      const dv = new DataView(buf.buffer, buf.byteOffset + 5, 10); // skip [type:u8][seq:u32]
+      frames.push({ w: dv.getUint16(0, true), h: dv.getUint16(2, true), bytes: buf.length });
+    }
+    return;
+  }
   const msg = JSON.parse(data.toString());
   if (msg.method && msg.id === undefined) broadcasts.push(msg);
 });
@@ -99,6 +108,16 @@ let rejected = false;
 try { await rpc(ws, "session/set_pacing", { session_id: sessionId, mode: "bogus" }, id++); }
 catch { rejected = true; }
 test("9. session/set_pacing pal ok, bad mode rejected", paced.pacing.mode === "pal" && rejected);
+
+// 10. live binary frame push (§7): run with no breakpoints, expect frames.
+frames.length = 0;
+await rpc(ws, "debug/run", { session_id: sessionId, pacing: { mode: "warp" } }, id++);
+await new Promise(r => setTimeout(r, 400));
+await rpc(ws, "debug/pause", { session_id: sessionId }, id++);
+const f0 = frames[0];
+test("10. backend pushes binary VIC frames (384x272 RGBA)",
+  frames.length > 0 && f0?.w === 384 && f0?.h === 272 && f0?.bytes >= 384 * 272 * 4,
+  `${frames.length} frames, first ${f0?.w}x${f0?.h} ${f0?.bytes}B`);
 
 ws.close();
 await server.close();

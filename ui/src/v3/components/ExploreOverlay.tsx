@@ -12,7 +12,7 @@ type Selection = { x: number; y: number; w: number; h: number };
 
 interface Props {
   sessionId: string;
-  screenEl: HTMLImageElement;
+  screenEl: HTMLCanvasElement; // Spec 701 §7 — live frame is a <canvas> now
   selection: Selection | null;
   onSelection: (s: Selection | null) => void;
 }

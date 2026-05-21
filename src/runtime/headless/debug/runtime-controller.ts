@@ -72,6 +72,10 @@ export class RuntimeController {
   readonly sessionId: string;
   readonly session: IntegratedSession;
   private broadcast: BroadcastFn;
+  // Spec 701 §7 — live binary frame sink. Called at the presentation cadence
+  // with the just-completed frame number; the server renders RGBA + pushes a
+  // BIN_TYPE_VIC_FRAME. Optional (headless/tests run without it).
+  presentFrame?: (frameNum: number) => void;
 
   runState: RuntimeRunState = "paused";
   pacing: { mode: RuntimePacingMode; ratio: number } = { mode: "pal", ratio: 1 };
@@ -91,10 +95,14 @@ export class RuntimeController {
   private frameCounter = 0;    // monotonic completed-frame count (for presentation)
   private lastPresentMs = 0;
 
-  constructor(sessionId: string, session: IntegratedSession, broadcast: BroadcastFn) {
+  constructor(
+    sessionId: string, session: IntegratedSession, broadcast: BroadcastFn,
+    presentFrame?: (frameNum: number) => void,
+  ) {
     this.sessionId = sessionId;
     this.session = session;
     this.broadcast = broadcast;
+    this.presentFrame = presentFrame;
   }
 
   /** Allow the server to (re)wire the broadcast sink (e.g. on reconnect). */
@@ -331,6 +339,9 @@ export class RuntimeController {
     } else if (this.frameCounter % PAL_PRESENT_DIVISOR !== 0) {
       return;
     }
+    // Push the actual pixels (Spec 701 §7 live binary frame transport) +
+    // a lightweight JSON signal for any metadata-only consumer.
+    this.presentFrame?.(this.frameCounter);
     this.broadcast("session/frame_available", {
       session_id: this.sessionId,
       frame: this.frameCounter,
@@ -357,10 +368,11 @@ export function ensureRuntimeController(
   sessionId: string,
   session: IntegratedSession,
   broadcast: BroadcastFn,
+  presentFrame?: (frameNum: number) => void,
 ): RuntimeController {
   let c = controllers.get(sessionId);
-  if (!c) { c = new RuntimeController(sessionId, session, broadcast); controllers.set(sessionId, c); }
-  else c.setBroadcast(broadcast);
+  if (!c) { c = new RuntimeController(sessionId, session, broadcast, presentFrame); controllers.set(sessionId, c); }
+  else { c.setBroadcast(broadcast); if (presentFrame) c.presentFrame = presentFrame; }
   return c;
 }
 

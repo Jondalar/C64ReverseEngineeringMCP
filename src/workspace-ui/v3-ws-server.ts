@@ -158,6 +158,21 @@ export class V3WsServer {
     }
   }
 
+  /**
+   * Spec 701 §7 — live VIC frame push with "latest frame wins": skip any
+   * client whose send buffer already holds ~2 frames, so a slow consumer
+   * never accumulates a WebSocket backlog (the next frame supersedes it).
+   */
+  broadcastFrame(seq: number, payload: Uint8Array): void {
+    const buf = encodeBinaryFrame(BIN_TYPE_VIC_FRAME, seq, payload);
+    const maxBuffered = payload.length * 2;
+    for (const ws of this.clients) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      if (ws.bufferedAmount > maxBuffered) continue; // backed up — drop this frame
+      ws.send(buf, { binary: true });
+    }
+  }
+
   close(): Promise<void> {
     return new Promise((resolve) => {
       for (const [, s] of this.audioStreams) {
@@ -251,6 +266,38 @@ export class V3WsServer {
   }
 
   private registerBuiltinHandlers(): void {
+    // Spec 701 — get-or-create the per-session RuntimeController, wired with
+    // the JSON broadcast sink AND the live binary frame push (§7). Every
+    // handler that touches loop/debug/breakpoint state goes through this so
+    // the frame stream is always available once a session exists.
+    const pushFrame = (sessionId: string, frameNum: number) => {
+      const sess = getIntegratedSession(sessionId);
+      if (!sess) return;
+      const f = sess.renderLiteralPortRgba();
+      if (!f) return;
+      // header: [w:u16][h:u16][fmt:u8][rsvd:u8][c64cycle:u32], all LE.
+      const header = new Uint8Array(10);
+      const dv = new DataView(header.buffer);
+      dv.setUint16(0, f.width, true);
+      dv.setUint16(2, f.height, true);
+      header[4] = 0; // fmt 0 = RGBA8888
+      header[5] = 0;
+      dv.setUint32(6, sess.c64Cpu.cycles >>> 0, true);
+      const payload = new Uint8Array(header.length + f.rgba.length);
+      payload.set(header, 0);
+      payload.set(f.rgba, header.length);
+      this.broadcastFrame(frameNum >>> 0, payload);
+    };
+    const controllerFor = (session_id: string) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      return ensureRuntimeController(
+        session_id, s,
+        (m, p) => this.broadcast(m, p),
+        (frameNum) => pushFrame(session_id, frameNum),
+      );
+    };
+
     // Connectivity ping.
     this.on("ping", () => ({ pong: Date.now() }));
 
@@ -319,7 +366,7 @@ export class V3WsServer {
     this.on("session/run", async ({ session_id, cycles }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
-      const ctrl = ensureRuntimeController(session_id, s, (m, p) => this.broadcast(m, p));
+      const ctrl = controllerFor(session_id);
       if (ctrl.runState === "running") {
         throw new Error("session is running under the autonomous loop; use debug/pause before manual session/run");
       }
@@ -361,11 +408,7 @@ export class V3WsServer {
     // The backend RuntimeController owns run/pause/pacing/breakpoints and
     // self-halts on a breakpoint. The UI sends commands and visualizes; it
     // does NOT drive the emulation clock.
-    const ctrlFor = (session_id: string) => {
-      const s = getIntegratedSession(session_id);
-      if (!s) throw new Error(`no session ${session_id}`);
-      return ensureRuntimeController(session_id, s, (m, p) => this.broadcast(m, p));
-    };
+    const ctrlFor = controllerFor; // Spec 701 §7 — same wiring (incl. frame push)
     const PACING_MODES: RuntimePacingMode[] = ["pal", "warp", "fixed-ratio"];
 
     this.on("debug/run", ({ session_id, pacing }) => {
@@ -837,7 +880,7 @@ export class V3WsServer {
       // Spec 701 — share the core-owned breakpoint store + halt the
       // autonomous loop before any synchronous monitor stepping (g/z/n) so
       // the manual step can't race the backend run-loop.
-      const ctrl = ensureRuntimeController(session_id, s, (m, p) => this.broadcast(m, p));
+      const ctrl = controllerFor(session_id);
       const cmd = String(command ?? "").trim();
       if (!cmd) return { output: "" };
       const tokens = cmd.split(/\s+/);
