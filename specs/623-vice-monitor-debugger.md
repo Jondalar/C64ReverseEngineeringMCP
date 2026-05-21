@@ -110,6 +110,8 @@ Abbrev in (). **P0 = shipped.** Mark each as we land it.
   `tracedb status`, `tracedb mark`.
 - C64RE flow-focus stepping extensions (see §4.3): `focus`, `stepf`/`sf`,
   `nextf`/`nf`.
+- Monitor input/history behavior (see §4.4): bare RETURN repeats the last
+  command.
 
 ## 3. Architecture (where it lives)
 
@@ -352,6 +354,59 @@ Acceptance:
 - `focus` prints the active flow stack with kind, entry PC, cycle, and SP.
 - `z` and `n` still match VICE semantics after the extension is enabled.
 
+## 4.4 Monitor RETURN / command repeat
+
+Bare RETURN on an empty monitor input line repeats the last repeatable
+monitor command.
+
+Required behavior:
+
+- If the user presses RETURN with an empty input line, execute the last
+  repeatable command again.
+- This must work for common stepping/inspection workflows:
+  - `z` then RETURN -> another `z`
+  - `n` then RETURN -> another `n`
+  - `sf` then RETURN -> another `sf`
+  - `d c000` then RETURN -> repeat disassembly command using the monitor's
+    updated dot/disassembly address behavior
+  - `m c000 c0ff` then RETURN -> repeat memory command using updated
+    monitor memory cursor behavior
+- The repeated command is echoed or otherwise made visible in the monitor
+  output so the user can tell what ran.
+
+Repeatability rules:
+
+- State-changing commands may be repeatable when VICE-like and useful:
+  `z`, `n`, `sf`, `nf`, `d`, `m`, `r`, `g`, `x`.
+- Dangerous/destructive commands are not repeatable by bare RETURN unless
+  explicitly confirmed later:
+  `dump`, `undump`, `load`, `save`, `bload`, `bsave`, `attach`, `detach`,
+  memory write/fill/move commands.
+- `tracedb start` and `tracedb stop` are not repeatable by bare RETURN.
+- `tracedb status` and `tracedb mark` may be repeatable.
+- If no repeatable command exists yet, bare RETURN is a no-op.
+
+Implementation guidance:
+
+- Store both:
+  - raw command text for history,
+  - normalized repeat command for execution.
+- Do not store failed parse attempts as the repeat command.
+- Do not let asynchronous `g`/`x` resume create duplicate run requests if
+  the backend is already running.
+- The command-line history Up/Down remains separate from bare RETURN
+  repeat.
+
+Acceptance:
+
+- Type `z`, press RETURN three times: exactly four step operations occur.
+- Type `d e000`, press RETURN twice: disassembly advances according to the
+  monitor dot-address behavior.
+- Type `dump "snapshots/a.c64re"`, press RETURN: dump is not repeated
+  silently.
+- Type invalid command, press RETURN: last valid repeatable command is still
+  the previous one, not the invalid text.
+
 ## 5. Acceptance
 
 - P0: `d`/`m`/`r`/`bk`/`g`/`z`/`n` match VICE output shape; disasm
@@ -367,6 +422,8 @@ Acceptance:
   treat IRQ/NMI as nested flow and return to caller flow after `RTI`.
 - Cross-check C64RE flow-focus stepping: `sf`/`nf` preserve selected
   main/IRQ/NMI focus without changing VICE-compatible `z`/`n`.
+- Cross-check bare RETURN repeat: `z`/`n`/`sf` repeat, while destructive
+  file/memory commands do not repeat silently.
 
 ## 6. Non-goals
 
