@@ -48,7 +48,7 @@ gate script, expected baseline result.
 | IM2       | `im2-title.png` + `im2-ingame.png`                                                     | Loader title → elevator         | `LOAD"*",8,1` + `RUN`         | `scripts/test-im2-screenshots.mjs`                 | **GREEN** |
 | Scramble  | `scramble-loadscreen.png` + `scramble-title.png` + `scramble-menu.png`                 | Loader → title → menu           | `LOAD"*",8,1` + `RUN`         | `scripts/test-scramble-screenshots.mjs` + `scripts/smoke-423-krill-loader.mjs` | **GREEN** |
 | Polarbear | `polarbear-load.png` + `polarbear-text1_menu.png` + `polarbear-scores_menu.png`        | Bear loader → warning → menu    | `LOAD"*",8,1` + `RUN`         | `scripts/test-polarbear-screenshots.mjs`           | **GREEN** |
-| Pawn s1   | `thepawn1.png` + `thepawn2.png`                                                        | Intro text → mountains          | `LOAD"*",8,1` + `RUN`         | `scripts/test-pawn-screenshots.mjs`                | **RED** (LOAD"*" → `?FILE NOT FOUND`) |
+| Pawn s1   | `thepawn1.png` + `thepawn2.png`                                                        | Intro text → mountains          | `LOAD"*",8,1` + `RUN`         | `scripts/test-pawn-screenshots.mjs`                | **GREEN** (loads since vice-default; verified UI 2026-05-21) |
 | LNR s1    | `LNR_System3.png`                                                                      | System 3 title / "PRESS FIRE!"  | `LOAD"*",8,1` + `RUN`         | `scripts/test-lnr-screenshots.mjs`                 | **RED** (LOAD → `?SYNTAX ERROR`)     |
 
 ### Stuck-PC vocabulary

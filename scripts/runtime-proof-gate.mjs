@@ -74,7 +74,7 @@ const GAMES = [
     proofs: ["polarbear-load.png", "polarbear-text1_menu.png", "polarbear-scores_menu.png"],
     screenshot: "/tmp/polar-t060s.png" },
   { key: "pawn",      script: "scripts/test-pawn-screenshots.mjs",
-    expected: "RED", baselinePc: "f6da",
+    expected: "GREEN", baselinePc: "f144",
     proofs: ["thepawn1.png", "thepawn2.png"],
     screenshot: "/tmp/pawn-t060s.png" },
   { key: "lnr",       script: "scripts/test-lnr-screenshots.mjs",
