@@ -248,17 +248,19 @@ export async function mountMedia(
         bytes: originalBytes, // pre-buildG64; vice does its own encode for d64
         readOnly: false,
       });
-      // 2026-05-20 — mount-swap re-init. VICE drive_image_attach (mirrored
-      // in facade.attachDisk) re-points the head to the CURRENT (stale)
-      // half-track. On a mid-session disk swap that leaves the head on a
-      // partial/odd half-track from the previous disk's activity + the
-      // drive 6502 mid-routine → the new disk hangs (head can't read its
-      // directory). Cold-reset the drive after attach so it re-boots its
-      // ROM (bumps head, seeks track 18) fresh for the new image. Harmless
-      // on the initial mount (drive already idle at boot).
-      if (typeof kernelAny.drive1541.reset === "function") {
-        kernelAny.drive1541.reset("cold");
-      }
+      // MOUNT MUST NOT RESET THE DRIVE (user directive 2026-05-21).
+      // On real hardware inserting/swapping a disk does NOT reset the 1541 —
+      // the drive 6502 keeps running its current code (DOS idle loop, OR a
+      // custom $DD00 fastloader's uploaded routine). Resetting on mount:
+      //   (a) destroys in-flight loader state → you could never swap disks
+      //       under an active DD00 loader, and
+      //   (b) reset the drive clock baseline (last_clk → 0) while the C64
+      //       clock was at ~7M, so the next catchUpTo() ran ~7M drive cycles
+      //       of the DOS idle loop in one tick → a 4.5s UI freeze.
+      // VICE's drive_image_attach likewise does not reset the drive CPU; it
+      // only re-points the head to the current (mechanically unchanged)
+      // half-track, which facade.attachDisk already does. The ONLY cold
+      // reset is the explicit Drive-Power button (session/drive_power).
     }
 
     // Update the kernel's diskProvider so KERNAL file traps see new files.
