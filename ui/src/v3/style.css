@@ -789,6 +789,8 @@ body {
 .wb-monitor-out {
   flex: 1; overflow-y: auto; padding: 4px 8px;
   font-size: 12px; font-family: ui-monospace, monospace;
+  white-space: pre;        /* preserve column padding (disasm / mem dumps) */
+  tab-size: 4;
 }
 .wb-mon-in { color: var(--c64-blue-bright); }
 .wb-mon-out { color: var(--c64-fg); }

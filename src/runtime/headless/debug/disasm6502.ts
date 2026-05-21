@@ -134,12 +134,15 @@ export function disasm6502(read: (addr: number) => number, addr: number): Disasm
   };
 }
 
-/** Format one line, VICE monitor style: `.C:addr  b0 b1 b2  mn ops`. */
+/** Format one line: `$addr  bb bb bb  MNEMONIC ops`. Bytes padded to a
+ *  fixed 3-byte column (max instruction length) so mnemonics align;
+ *  mnemonic upper-cased, operand hex lower-case (VICE-ish). */
 export function disasmLine(read: (addr: number) => number, addr: number): { size: number; line: string } {
   const di = disasm6502(read, addr);
   const bytes: string[] = [];
   for (let i = 0; i < di.size; i++) bytes.push(hx(read((addr + i) & 0xffff) & 0xff, 2));
   const ops = di.text ? ` ${di.text}` : "";
-  const line = `.C:${hx(addr, 4)}  ${bytes.join(" ").padEnd(8)}  ${di.mnemonic}${ops}`;
+  // "bb bb bb" = 8 chars max; pad to 8 so the mnemonic column is fixed
+  const line = `$${hx(addr, 4)}  ${bytes.join(" ").padEnd(8)}  ${di.mnemonic.toUpperCase()}${ops}`;
   return { size: di.size, line };
 }
