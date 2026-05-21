@@ -94,9 +94,12 @@ Abbrev in (). **P0 = shipped.** Mark each as we land it.
 
 ### P3 — symbols / files / misc
 - labels: `al`/`dl`/`ll`/`sl`/`shl`/`cl` (symbol table → annotate disasm).
-- `load`/`save`/`bload`/`bsave`/`dump`/`undump`, `attach`/`detach`.
+- `load`/`save`/`bload`/`bsave`, `attach`/`detach`.
+- `dump`/`undump` for C64RE runtime snapshots (see §7).
 - `bt`/backtrace, `chis`/cpuhistory, `sw`/stopwatch, `print`/`p`,
   `radix`/`rad`, `sidefx`/`sfx`, `keybuf`, `warp`.
+- C64RE trace control commands (see §8): `tracedb start`, `tracedb stop`,
+  `tracedb status`, `tracedb mark`.
 
 ## 3. Architecture (where it lives)
 
@@ -147,3 +150,112 @@ Keep it cheap: only install the tap when ≥1 watchpoint exists.
 - Z80/6809/65816 CPUs, c64dtv extra regs — 6510 + 1541-6502 only.
 - The binary-monitor protocol (`monitor_binary.c`) — separate `vice_*`
   toolset already covers external x64sc.
+
+## 7. Runtime dump / undump policy
+
+The monitor must support `dump` / `undump`, but the native format is the
+C64RE runtime snapshot format, not VICE's internal monitor dump format.
+
+Reason:
+
+- The in-process runtime owns more than a VICE monitor dump surface:
+  C64 CPU/VIC/CIA/SID state, C64 RAM/banking, VICE1541 drive state,
+  mounted media, runtime controller state, breakpoints, pacing state,
+  and later trace/session metadata.
+- VICE snapshot/monitor formats are compatibility boundaries, not the
+  internal source of truth for our runtime.
+
+Required command behavior:
+
+- `dump "<path>"` writes a C64RE runtime snapshot.
+- `undump "<path>"` restores a C64RE runtime snapshot.
+- Paths resolve through the active C64RE project/session root policy,
+  not arbitrary process cwd.
+- Output reports the absolute resolved path and snapshot summary:
+  C64 cycles, PC, active media, drive state, breakpoint count.
+- Dumping while running first obtains a deterministic paused snapshot or
+  uses the Spec 701 runtime controller to stop at a safe boundary.
+- Restoring updates runtime controller state and monitor dot-address state.
+
+VICE compatibility:
+
+- VICE VSF import/export may exist as explicit commands or flags, e.g.
+  `dump --vice-vsf "<path>"` / `undump --vice-vsf "<path>"`.
+- VICE format is for interchange only.
+- VICE format is not the canonical internal save-state format.
+- A VSF import/export must document unsupported fields instead of silently
+  dropping them.
+
+Non-goals for P3:
+
+- Bit-for-bit VICE VSF identity.
+- Supporting every VICE module immediately.
+- Using VICE monitor dump syntax as the runtime's own persistence model.
+
+Acceptance:
+
+- `dump "snapshots/foo.c64re"` writes a snapshot and prints the resolved
+  absolute path.
+- `undump "snapshots/foo.c64re"` restores CPU/VIC/drive/media state and
+  monitor commands operate on the restored session.
+- Dump/undump roundtrip followed by `N` cycles matches the original run
+  from the same dump.
+- If VICE import/export is present, it is explicit and never confused with
+  native C64RE snapshots.
+
+## 8. DuckDB runtime trace control
+
+The monitor must be able to start/stop C64RE runtime tracing into DuckDB.
+
+This is not VICE binary-monitor tracing. It controls the in-process C64RE
+trace pipeline so monitor sessions can record the same machine the user is
+debugging in the UI.
+
+Required commands:
+
+- `tracedb start ["path"] [families...]`
+- `tracedb stop`
+- `tracedb status`
+- `tracedb mark "<label>"`
+- optional later: `tracedb flush`, `tracedb rotate`, `tracedb query`
+
+Families are implementation-defined but should map to existing trace
+families, e.g.:
+
+- `cpu`
+- `mem`
+- `io`
+- `vic`
+- `cia`
+- `iec`
+- `drive`
+- `gcr`
+- `breakpoint`
+- `monitor`
+
+Required behavior:
+
+- `tracedb start` opens/creates a DuckDB trace store for the active session.
+- If no path is supplied, the backend chooses a session-scoped trace path
+  and prints it.
+- `tracedb stop` flushes and closes the trace cleanly.
+- `tracedb status` reports path, active families, buffered row count if
+  available, and whether tracing is active.
+- `tracedb mark` writes a monitor marker event with label, PC, cycle, and
+  current memspace.
+- Breakpoint hits and monitor commands should be traceable events when the
+  `monitor` or `breakpoint` family is active.
+
+Spec 701 dependency:
+
+- Trace start/stop must interact with the autonomous runtime controller.
+- Starting/stopping tracing must not depend on UI frame polling.
+- If tracing requires a safe boundary, the controller must pause or schedule
+  the operation deterministically.
+
+Acceptance:
+
+- Start a trace from the monitor, run until a breakpoint, stop the trace.
+- DuckDB contains monitor command events and the breakpoint hit event.
+- Trace continues correctly while the UI is disconnected.
+- Trace stop flushes all rows before reporting success.
