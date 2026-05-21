@@ -308,7 +308,33 @@ export class V3WsServer {
       const cycleBudget = cycles ?? 19705;
       // Instruction cap must exceed cycle cap so cycleBudget always wins.
       // Min cycles per 6502 instruction = 2, so cycles/2 ≈ max instructions.
-      s.runFor(Math.ceil(cycleBudget / 2) + 1000, { cycleBudget });
+      const bps = bpSet(session_id);
+      // If we're sitting ON a breakpoint (resumed from one), step past it
+      // once so the run doesn't immediately re-trigger the same address.
+      if (bps.size > 0 && bps.has(s.c64Cpu.pc)) s.runFor(1);
+      const r = s.runFor(Math.ceil(cycleBudget / 2) + 1000, {
+        cycleBudget,
+        breakpoints: bps.size > 0 ? bps : undefined,
+      });
+      if (r.aborted === "breakpoint") {
+        // Halt: report the hit so the UI stops its run loop, drops into the
+        // monitor, prints "BK reached" + registers, and focuses the input.
+        const hx = (n: number, w = 2) => n.toString(16).padStart(w, "0").toUpperCase();
+        const c = s.c64Cpu;
+        const flagsStr = "NV-BDIZC".split("").map((f, i) =>
+          ((c.flags >> (7 - i)) & 1) ? f : f.toLowerCase()).join("");
+        const num = [...bps].sort((a, b) => a - b).indexOf(r.lastPc) + 1;
+        return {
+          c64Cycles: s.c64Cpu.cycles,
+          breakpoint: {
+            pc: r.lastPc,
+            num,
+            registers:
+              `  ADDR AC XR YR SP NV-BDIZC\n` +
+              `.;${hx(c.pc, 4)} ${hx(c.a)} ${hx(c.x)} ${hx(c.y)} ${hx(c.sp)} ${flagsStr}`,
+          },
+        };
+      }
       return { c64Cycles: s.c64Cpu.cycles };
     });
 

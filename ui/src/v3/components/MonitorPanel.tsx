@@ -11,11 +11,14 @@ interface Props {
   sessionId: string;
   maximized: boolean;
   onToggleMax: () => void;
+  // Set by the Live run-loop when emulation halts at a breakpoint. The
+  // changing `seq` re-triggers the in-monitor "BREAK" report + input focus.
+  breakpoint?: { pc: number; num: number; registers: string; seq: number } | null;
 }
 
 interface MonLine { kind: "in" | "out" | "err"; text: string; }
 
-export function MonitorPanel({ sessionId, maximized, onToggleMax }: Props): JSX.Element {
+export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: Props): JSX.Element {
   const [history, setHistory] = useState<MonLine[]>([
     { kind: "out", text: "C64RE Monitor — VICE-compat. Try: r, m c000 c0ff, d e000, bk e5cf, help" },
   ]);
@@ -23,12 +26,27 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax }: Props): JSX.
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
   const [cmdHistoryIdx, setCmdHistoryIdx] = useState(-1);
   const outRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight;
   }, [history]);
 
   const append = (lines: MonLine[]) => setHistory((h) => [...h, ...lines]);
+
+  // Breakpoint halt: drop into the monitor — print "BREAK", the register
+  // dump, and focus the input so the user can step (z/n) or continue (g).
+  useEffect(() => {
+    if (!breakpoint) return;
+    const pcHex = breakpoint.pc.toString(16).padStart(4, "0").toUpperCase();
+    setHistory((h) => [
+      ...h,
+      { kind: "err", text: `#${breakpoint.num} BREAK at $${pcHex}` },
+      ...breakpoint.registers.split(/\r?\n/).map((t) => ({ kind: "out" as const, text: t })),
+    ]);
+    inputRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [breakpoint?.seq]);
 
   const dispatch = async (raw: string) => {
     const cmd = raw.trim();
@@ -88,6 +106,7 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax }: Props): JSX.
       <div className="wb-monitor-in">
         <span className="wb-prompt">&gt;</span>
         <input
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKey}

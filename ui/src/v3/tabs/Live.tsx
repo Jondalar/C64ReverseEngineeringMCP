@@ -141,6 +141,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const [activeMedia9, setActiveMedia9] = useState<string>("");
   const [screenFocused, setScreenFocused] = useState(false);
   const [monitorMax, setMonitorMax] = useState(false);
+  const [bpSignal, setBpSignal] = useState<{ pc: number; num: number; registers: string; seq: number } | null>(null);
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
   const screenRef = useRef<HTMLImageElement>(null);
@@ -163,7 +164,20 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     const tick = async () => {
       if (!alive) return;
       try {
-        await client.call("session/run", { session_id: sessionId, cycles: 19705 });
+        const rr = await client.call<{ breakpoint?: { pc: number; num: number; registers: string } }>(
+          "session/run", { session_id: sessionId, cycles: 19705 });
+        if (rr?.breakpoint && alive) {
+          // Halted at a monitor breakpoint: drop into the monitor (the
+          // panel prints "#N BREAK" + registers + focuses), pause the run
+          // loop, and show the frozen frame.
+          setBpSignal({ ...rr.breakpoint, seq: Date.now() });
+          setRunState?.("paused");
+          try {
+            const sc = await client.call<{ dataUrl: string }>("session/screenshot", { session_id: sessionId });
+            if (alive) setImgUrl(sc.dataUrl);
+          } catch { /* ignore */ }
+          return; // stop ticking — resume via monitor 'g'
+        }
         const r = await client.call<{ dataUrl: string }>("session/screenshot", { session_id: sessionId });
         if (alive) {
           setImgUrl(r.dataUrl);
@@ -369,6 +383,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
         sessionId={sessionId}
         maximized={monitorMax}
         onToggleMax={() => setMonitorMax(!monitorMax)}
+        breakpoint={bpSignal}
       />
     </div>
   );
