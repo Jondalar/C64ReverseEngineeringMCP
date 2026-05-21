@@ -18,14 +18,25 @@ import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 export const V3_WS_PORT = 4312;
 export const V3_WS_HOST = "127.0.0.1";
 
-// Per-session CPU breakpoint sets for the monitor/exec debugger (`bk`).
-// Keyed by session_id; the set holds c64 PC addresses. Used by `g`
-// (run-until-breakpoint) and `n`/`z` step.
-const monitorBreakpoints = new Map<string, Set<number>>();
-function bpSet(sessionId: string): Set<number> {
+// Per-session CPU breakpoints for the monitor/exec debugger (`bk`/`del`).
+// Each breakpoint has a STABLE checknum (VICE-style, never re-assigned) so
+// `del <n>` and the "#N BREAK" report stay consistent as bps are added/
+// removed. Used by `g` (run-until-breakpoint), `n`/`z`, and session/run.
+interface BpStore { next: number; bps: Map<number /*checknum*/, number /*addr*/>; }
+const monitorBreakpoints = new Map<string, BpStore>();
+function bpStore(sessionId: string): BpStore {
   let s = monitorBreakpoints.get(sessionId);
-  if (!s) { s = new Set<number>(); monitorBreakpoints.set(sessionId, s); }
+  if (!s) { s = { next: 1, bps: new Map() }; monitorBreakpoints.set(sessionId, s); }
   return s;
+}
+/** Set of breakpoint ADDRESSES (for runFor's `breakpoints` option). */
+function bpAddrSet(sessionId: string): Set<number> {
+  return new Set(bpStore(sessionId).bps.values());
+}
+/** Lowest checknum whose address == addr (for the "#N BREAK" report). */
+function bpNumForAddr(sessionId: string, addr: number): number {
+  for (const [num, a] of bpStore(sessionId).bps) if (a === addr) return num;
+  return 0;
 }
 
 // Decode the physical sector under (or next approaching) the vice1541 GCR
@@ -308,7 +319,7 @@ export class V3WsServer {
       const cycleBudget = cycles ?? 19705;
       // Instruction cap must exceed cycle cap so cycleBudget always wins.
       // Min cycles per 6502 instruction = 2, so cycles/2 ≈ max instructions.
-      const bps = bpSet(session_id);
+      const bps = bpAddrSet(session_id);
       // If we're sitting ON a breakpoint (resumed from one), step past it
       // once so the run doesn't immediately re-trigger the same address.
       if (bps.size > 0 && bps.has(s.c64Cpu.pc)) s.runFor(1);
@@ -323,7 +334,7 @@ export class V3WsServer {
         const c = s.c64Cpu;
         const flagsStr = "NV-BDIZC".split("").map((f, i) =>
           ((c.flags >> (7 - i)) & 1) ? f : f.toLowerCase()).join("");
-        const num = [...bps].sort((a, b) => a - b).indexOf(r.lastPc) + 1;
+        const num = bpNumForAddr(session_id, r.lastPc);
         return {
           c64Cycles: s.c64Cpu.cycles,
           breakpoint: {
@@ -802,26 +813,45 @@ export class V3WsServer {
         }
         // Breakpoints: bk | bk <addr> | bk -<addr> | bk clear
         if (op === "bk" || op === "break" || op === "b") {
-          const bps = bpSet(session_id);
+          const st = bpStore(session_id);
           const t1 = tokens[1];
           if (!t1) {
-            return { output: bps.size
-              ? "breakpoints:\n" + [...bps].sort((a, b) => a - b).map((a) => `  $${hex(a, 4)}`).join("\n")
+            return { output: st.bps.size
+              ? "breakpoints:\n" + [...st.bps].sort((a, b) => a[0] - b[0])
+                  .map(([num, a]) => `  #${num}  $${hex(a, 4)}`).join("\n")
               : "no breakpoints (set: bk <addr>)" };
           }
-          if (t1.toLowerCase() === "clear") { bps.clear(); return { output: "breakpoints cleared" }; }
-          const del = t1.startsWith("-");
-          const addr = parseAddr(del ? t1.slice(1) : t1);
+          if (t1.toLowerCase() === "clear") { st.bps.clear(); return { output: "breakpoints cleared" }; }
+          if (t1.startsWith("-")) { // bk -<addr> : delete by address
+            const a = parseAddr(t1.slice(1));
+            if (a === null) return { error: `bad address: ${t1}` };
+            for (const [num, addr] of st.bps) if (addr === a) st.bps.delete(num);
+            return { output: `removed bp $${hex(a, 4)} (${st.bps.size} left)` };
+          }
+          const addr = parseAddr(t1);
           if (addr === null) return { error: `bad address: ${t1}` };
-          if (del) { bps.delete(addr); return { output: `removed bp $${hex(addr, 4)} (${bps.size} left)` }; }
-          bps.add(addr);
-          return { output: `set bp $${hex(addr, 4)} (${bps.size} total)` };
+          const num = st.next++;
+          st.bps.set(num, addr);
+          return { output: `bk #${num} set at $${hex(addr, 4)} (${st.bps.size} total)` };
+        }
+        // Delete breakpoint(s): del | del <num> | del <num> ...  (VICE: del <checknum>)
+        if (op === "del" || op === "delete") {
+          const st = bpStore(session_id);
+          if (!tokens[1]) { st.bps.clear(); return { output: "all breakpoints deleted" }; }
+          const out: string[] = [];
+          for (const t of tokens.slice(1)) {
+            const num = parseInt(t, 10);
+            if (isNaN(num)) { out.push(`bad checknum: ${t}`); continue; }
+            if (st.bps.has(num)) { st.bps.delete(num); out.push(`deleted #${num}`); }
+            else out.push(`no breakpoint #${num}`);
+          }
+          return { output: out.join("\n") };
         }
         // Go / continue: g [addr] — run until a breakpoint (cap 20M instr)
         if (op === "g") {
           const addr = parseAddr(tokens[1]);
           if (addr !== null) s.c64Cpu.pc = addr & 0xffff;
-          const bps = bpSet(session_id);
+          const bps = bpAddrSet(session_id);
           if (bps.size === 0) {
             s.runFor(20_000);
             return { output: `ran 1 frame -> .C:${hex(s.c64Cpu.pc, 4)} (no breakpoints; set with 'bk <addr>')` };
@@ -852,7 +882,7 @@ export class V3WsServer {
           const di = disasm6502(read, s.c64Cpu.pc);
           if (di.isJsr) {
             const ret = (s.c64Cpu.pc + di.size) & 0xffff;
-            const tmp = new Set(bpSet(session_id)); tmp.add(ret);
+            const tmp = new Set(bpAddrSet(session_id)); tmp.add(ret);
             const startCyc = s.c64Cpu.cycles;
             s.runFor(1); // execute the JSR itself
             const CAP = 20_000_000; let executed = 0; let hit = false;
@@ -881,9 +911,11 @@ export class V3WsServer {
             "  r                registers\n" +
             "  m <a> [b]        memory dump\n" +
             "  d [a] [n]        disassemble (n instr from a, default PC)\n" +
-            "  bk               list breakpoints\n" +
+            "  bk               list breakpoints (#num $addr)\n" +
             "  bk <a>           set breakpoint at a\n" +
-            "  bk -<a>          remove breakpoint at a\n" +
+            "  bk -<a>          remove breakpoint at address a\n" +
+            "  del <n> [n..]    delete breakpoint(s) by #num\n" +
+            "  del              delete all breakpoints\n" +
             "  bk clear         clear all breakpoints\n" +
             "  g [a]            go/continue (PC=a) until a breakpoint\n" +
             "  z / step         step into (descends into JSR)\n" +
