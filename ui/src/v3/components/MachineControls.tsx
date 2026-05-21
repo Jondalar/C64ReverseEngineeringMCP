@@ -1,7 +1,9 @@
 // Spec 351 — machine controls bar.
-// Power Cycle, Reset, Run/Pause, Step, Snapshot, Warp (placeholder).
+// Power Cycle, Reset, Run/Pause, Step, Snapshot, Warp.
+// Spec 701: Run/Pause/Step/Warp drive the BACKEND runtime loop via debug/*
+// + session/set_pacing. The UI no longer owns the emulation clock.
 
-import React from "react";
+import React, { useState } from "react";
 import { getClient } from "../ws-client.js";
 
 interface Props {
@@ -14,6 +16,7 @@ interface Props {
 
 export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken }: Props): JSX.Element {
   const c = getClient();
+  const [warp, setWarp] = useState(false);
   // Power = ON/OFF toggle (NOT reset).
   //   OFF → ON: simulate plugging in C64 = cold reset + start running.
   //   ON  → OFF: simulate unplugging = stop polling, freeze state.
@@ -41,10 +44,20 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     if (runState === "off") return;
     setRunState?.(runState === "running" ? "paused" : "running");
   };
+  // Step = exactly one instruction via the backend loop (Spec 701 §6). The
+  // backend broadcasts debug/stopped, which the Live tab uses to refresh.
   const step = async () => {
     if (!sessionId) return;
-    try { await c.call("session/step", { session_id: sessionId }); } catch { /* monitor TBD */ }
+    try { await c.call("debug/step", { session_id: sessionId }); } catch { /* ignore */ }
     onSnapshotTaken();
+  };
+  // Warp = host pacing only (Spec 701 §5.3): unthrottled, same emulated
+  // cycle order. Toggles the backend pacing mode; takes effect live.
+  const toggleWarp = async () => {
+    if (!sessionId) return;
+    const next = !warp;
+    setWarp(next);
+    try { await c.call("session/set_pacing", { session_id: sessionId, mode: next ? "warp" : "pal" }); } catch { /* ignore */ }
   };
   const snapshot = async () => {
     if (!sessionId) return;
@@ -68,7 +81,12 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
       </button>
       <button onClick={step} disabled={runState !== "paused"} title="Step one instruction">⤳ Step</button>
       <button onClick={snapshot} title="Save snapshot">📷 Snapshot</button>
-      <button disabled title="Warp (not yet implemented)">⏩ Warp</button>
+      <button
+        onClick={toggleWarp}
+        disabled={runState === "off"}
+        className={warp ? "wb-warp-on" : ""}
+        title="Warp (host pacing only — unthrottled, same emulated cycles)"
+      >⏩ Warp{warp ? " ●" : ""}</button>
       <span className="wb-controls-spacer" />
       {runState === "running" && <span className="wb-fps">{fps} fps</span>}
     </div>

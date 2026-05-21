@@ -156,7 +156,36 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     }).catch(() => {});
   }, [sessionId, setSessionId]);
 
-  // Frame poll loop — only when running
+  // Spec 701 — the BACKEND owns the emulation clock now. The UI no longer
+  // drives `session/run`; it sends debug/run | debug/pause and visualizes.
+  //
+  // (A) Run-state driver: translate the UI run/pause/off into backend loop
+  //     commands. run()/pause() are idempotent on the backend (they only
+  //     broadcast on an actual transition), so the broadcast→runState→here
+  //     round-trip below cannot loop.
+  const grabScreenshot = useRef(async () => {});
+  grabScreenshot.current = async () => {
+    if (!sessionId) return;
+    try {
+      const r = await getClient().call<{ dataUrl: string }>("session/screenshot", { session_id: sessionId });
+      setImgUrl(r.dataUrl);
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const client = getClient();
+    if (client.getState() !== "open") return;
+    if (runState === "running") {
+      client.call("debug/run", { session_id: sessionId, pacing: { mode: "pal" } }).catch(() => {});
+    } else {
+      client.call("debug/pause", { session_id: sessionId }).catch(() => {});
+    }
+  }, [sessionId, runState]);
+
+  // (B) Presentation poll — decoupled from emulation. Fetches a screenshot
+  //     on a timer (~25fps) while running; this only RENDERS the current
+  //     frame, it does NOT advance the machine.
   useEffect(() => {
     if (!sessionId || runState !== "running") return;
     const client = getClient();
@@ -164,20 +193,6 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     const tick = async () => {
       if (!alive) return;
       try {
-        const rr = await client.call<{ breakpoint?: { pc: number; num: number; registers: string } }>(
-          "session/run", { session_id: sessionId, cycles: 19705 });
-        if (rr?.breakpoint && alive) {
-          // Halted at a monitor breakpoint: drop into the monitor (the
-          // panel prints "#N BREAK" + registers + focuses), pause the run
-          // loop, and show the frozen frame.
-          setBpSignal({ ...rr.breakpoint, seq: Date.now() });
-          setRunState?.("paused");
-          try {
-            const sc = await client.call<{ dataUrl: string }>("session/screenshot", { session_id: sessionId });
-            if (alive) setImgUrl(sc.dataUrl);
-          } catch { /* ignore */ }
-          return; // stop ticking — resume via monitor 'g'
-        }
         const r = await client.call<{ dataUrl: string }>("session/screenshot", { session_id: sessionId });
         if (alive) {
           setImgUrl(r.dataUrl);
@@ -186,12 +201,42 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           const now = Date.now();
           if (now - c.lastT >= 1000) { setFps(c.frames); c.frames = 0; c.lastT = now; }
         }
-      } catch (e) { console.error("frame loop:", e); }
-      if (alive) setTimeout(tick, 20);
+      } catch { /* ignore */ }
+      if (alive) setTimeout(tick, 40); // ~25fps presentation cadence
     };
     tick();
     return () => { alive = false; };
   }, [sessionId, runState]);
+
+  // (C) Backend broadcasts → UI state. The loop self-halts on a breakpoint
+  //     and announces it; the UI reacts (drops into the monitor, freezes the
+  //     run-state, grabs the frozen frame) instead of inferring halt from a
+  //     polling timeout.
+  useEffect(() => {
+    if (!sessionId) return;
+    const client = getClient();
+    const offHit = client.onNotification("debug/breakpoint_hit", (p: any) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      setBpSignal({ pc: p.pc, num: p.num, registers: p.registers, seq: Date.now() });
+      setRunState?.("paused");
+      grabScreenshot.current();
+    });
+    const offStopped = client.onNotification("debug/stopped", (p: any) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      setRunState?.("paused");
+      grabScreenshot.current();
+    });
+    const offPaused = client.onNotification("debug/paused", (p: any) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      setRunState?.("paused");
+      grabScreenshot.current();
+    });
+    const offRunning = client.onNotification("debug/running", (p: any) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      setRunState?.("running");
+    });
+    return () => { offHit(); offStopped(); offPaused(); offRunning(); };
+  }, [sessionId, setRunState]);
 
   // Drive + cart status poll
   useEffect(() => {
