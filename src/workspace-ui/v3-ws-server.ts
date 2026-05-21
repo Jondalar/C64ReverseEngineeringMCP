@@ -10,12 +10,23 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/agent-api.js";
 import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
 import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
+import { disasm6502, disasmLine } from "../runtime/headless/debug/disasm6502.js";
 import { SidAudioRecorder, AudioExportSession } from "../runtime/headless/audio/sid-audio-recorder.js";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 
 export const V3_WS_PORT = 4312;
 export const V3_WS_HOST = "127.0.0.1";
+
+// Per-session CPU breakpoint sets for the monitor/exec debugger (`bk`).
+// Keyed by session_id; the set holds c64 PC addresses. Used by `g`
+// (run-until-breakpoint) and `n`/`z` step.
+const monitorBreakpoints = new Map<string, Set<number>>();
+function bpSet(sessionId: string): Set<number> {
+  let s = monitorBreakpoints.get(sessionId);
+  if (!s) { s = new Set<number>(); monitorBreakpoints.set(sessionId, s); }
+  return s;
+}
 
 // Decode the physical sector under (or next approaching) the vice1541 GCR
 // read head. Loader-independent (works for KERNAL + custom fastloaders) —
@@ -748,31 +759,89 @@ export class V3WsServer {
           }
           return { output: lines.join("\n") };
         }
-        // Disassembly: d [addr] [count]
+        // Disassembly: d [addr] [count]  — real 6502/6510 disasm
         if (op === "d" || op === "disass") {
           const start = parseAddr(tokens[1]) ?? s.c64Cpu.pc;
           const count = parseInt(tokens[2] ?? "16", 10);
-          // Minimal disasm: just dump byte + crude opcode hint
+          const read = (a: number) => s.c64Bus.ram[a & 0xffff] ?? 0;
           const lines: string[] = [];
-          for (let i = 0, a = start; i < count; i++, a = (a + 1) & 0xffff) {
-            const op = s.c64Bus.ram[a] ?? 0;
-            lines.push(`.C:${hex(a, 4)}  ${hex(op)}        ; opcode`);
+          let a = start & 0xffff;
+          for (let i = 0; i < count; i++) {
+            const { size, line } = disasmLine(read, a);
+            const mark = (a === s.c64Cpu.pc) ? " <-- PC" : "";
+            lines.push(line + mark);
+            a = (a + size) & 0xffff;
           }
-          return { output: lines.join("\n") + "\n(full disasm: TODO)" };
+          return { output: lines.join("\n") };
         }
-        // Execute: g <addr>
+        // Breakpoints: bk | bk <addr> | bk -<addr> | bk clear
+        if (op === "bk" || op === "break" || op === "b") {
+          const bps = bpSet(session_id);
+          const t1 = tokens[1];
+          if (!t1) {
+            return { output: bps.size
+              ? "breakpoints:\n" + [...bps].sort((a, b) => a - b).map((a) => `  $${hex(a, 4)}`).join("\n")
+              : "no breakpoints (set: bk <addr>)" };
+          }
+          if (t1.toLowerCase() === "clear") { bps.clear(); return { output: "breakpoints cleared" }; }
+          const del = t1.startsWith("-");
+          const addr = parseAddr(del ? t1.slice(1) : t1);
+          if (addr === null) return { error: `bad address: ${t1}` };
+          if (del) { bps.delete(addr); return { output: `removed bp $${hex(addr, 4)} (${bps.size} left)` }; }
+          bps.add(addr);
+          return { output: `set bp $${hex(addr, 4)} (${bps.size} total)` };
+        }
+        // Go / continue: g [addr] — run until a breakpoint (cap 20M instr)
         if (op === "g") {
           const addr = parseAddr(tokens[1]);
-          if (addr !== null) s.c64Cpu.pc = addr;
-          // Run a frame budget; user can pause via UI
-          s.runFor(50_000, { cycleBudget: 50_000 });
-          return { output: `running from $${hex(s.c64Cpu.pc, 4)} (frame budget consumed)` };
+          if (addr !== null) s.c64Cpu.pc = addr & 0xffff;
+          const bps = bpSet(session_id);
+          if (bps.size === 0) {
+            s.runFor(20_000);
+            return { output: `ran 1 frame -> .C:${hex(s.c64Cpu.pc, 4)} (no breakpoints; set with 'bk <addr>')` };
+          }
+          if (bps.has(s.c64Cpu.pc)) s.runFor(1); // clear the BP we're sitting on
+          const startCyc = s.c64Cpu.cycles;
+          const CAP = 20_000_000; let executed = 0; let hit = false;
+          while (executed < CAP) {
+            const r = s.runFor(Math.min(2_000_000, CAP - executed), { breakpoints: bps });
+            executed += r.instructionsExecuted;
+            if (r.aborted === "breakpoint") { hit = true; break; }
+            if (r.instructionsExecuted === 0) break;
+          }
+          const cyc = s.c64Cpu.cycles - startCyc;
+          return { output: hit
+            ? `BREAK at .C:${hex(s.c64Cpu.pc, 4)} (${executed} instr, ${cyc} cyc)`
+            : `ran ${executed} instr (${cyc} cyc) — no breakpoint hit, pc=$${hex(s.c64Cpu.pc, 4)}` };
         }
-        // Step: step | next
-        if (op === "step" || op === "next" || op === "z") {
+        // Step into: z | step | si — one instruction (descends into JSR)
+        if (op === "z" || op === "step" || op === "si") {
           const before = s.c64Cpu.cycles;
-          s.runFor(1, { cycleBudget: 100 });
-          return { output: `.C:${hex(s.c64Cpu.pc, 4)} (${s.c64Cpu.cycles - before} cyc)` };
+          s.runFor(1);
+          return { output: `${disasmLine((a) => s.c64Bus.ram[a & 0xffff] ?? 0, s.c64Cpu.pc).line} (${s.c64Cpu.cycles - before} cyc)` };
+        }
+        // Step over: n | next — JSR runs to its return; others = single step
+        if (op === "n" || op === "next" || op === "so") {
+          const read = (a: number) => s.c64Bus.ram[a & 0xffff] ?? 0;
+          const di = disasm6502(read, s.c64Cpu.pc);
+          if (di.isJsr) {
+            const ret = (s.c64Cpu.pc + di.size) & 0xffff;
+            const tmp = new Set(bpSet(session_id)); tmp.add(ret);
+            const startCyc = s.c64Cpu.cycles;
+            s.runFor(1); // execute the JSR itself
+            const CAP = 20_000_000; let executed = 0; let hit = false;
+            while (executed < CAP) {
+              const r = s.runFor(Math.min(2_000_000, CAP - executed), { breakpoints: tmp });
+              executed += r.instructionsExecuted;
+              if (r.aborted === "breakpoint") { hit = true; break; }
+              if (r.instructionsExecuted === 0) break;
+            }
+            const stoppedAtRet = s.c64Cpu.pc === ret;
+            return { output: `${disasmLine(read, s.c64Cpu.pc).line} (over jsr, ${s.c64Cpu.cycles - startCyc} cyc${hit && !stoppedAtRet ? ", hit user bp" : ""}${!hit ? ", CAP" : ""})` };
+          }
+          const before = s.c64Cpu.cycles;
+          s.runFor(1);
+          return { output: `${disasmLine(read, s.c64Cpu.pc).line} (${s.c64Cpu.cycles - before} cyc)` };
         }
         // Reset
         if (op === "reset") {
@@ -782,15 +851,18 @@ export class V3WsServer {
         // Help
         if (op === "help" || op === "?") {
           return { output:
-            "VICE-compat monitor (subset):\n" +
-            "  r              registers\n" +
-            "  m <a> [b]      memory dump\n" +
-            "  d <a> [n]      disasm\n" +
-            "  g <a>          go (PC = a, run 1 frame)\n" +
-            "  step / next    one step\n" +
-            "  reset          reset\n" +
-            "  bk / break     breakpoints (TBD)\n" +
-            "  load/save/...  file ops (TBD)" };
+            "VICE-compat monitor:\n" +
+            "  r                registers\n" +
+            "  m <a> [b]        memory dump\n" +
+            "  d [a] [n]        disassemble (n instr from a, default PC)\n" +
+            "  bk               list breakpoints\n" +
+            "  bk <a>           set breakpoint at a\n" +
+            "  bk -<a>          remove breakpoint at a\n" +
+            "  bk clear         clear all breakpoints\n" +
+            "  g [a]            go/continue (PC=a) until a breakpoint\n" +
+            "  z / step         step into (descends into JSR)\n" +
+            "  n / next         step over (runs JSR to its return)\n" +
+            "  reset            cold reset" };
         }
         return { error: `unknown command: ${op}. Try 'help'.` };
       } catch (e: any) {
