@@ -1,9 +1,80 @@
-# Spec 429 — Last Ninja Remix copy-protection divergence
+# Spec 429 — Last Ninja Remix intro-skip divergence
 
-**Status:** OPEN 2026-05-12
-**Branch:** `vic_bugs`
-**Depends on:** 428 Phase D (drive whole-instruction dispatch default)
-**Doctrine:** 1:1 VICE drive timing. No game-specific patches.
+**Status:** OPEN — root re-localized 2026-05-22 (see UPDATE below). All
+copy-protection / half-track / $DD00 hypotheses RULED OUT. Real divergence =
+a VIC raster-IRQ split-phase timing offset (intro renders during the wrong
+raster split → bail-storm → intro never plays → falls into the game).
+**Branch:** `codex/615-gcr-decode-fidelity` (proof-green 7/7; lnr RED-expected).
+**Depends on:** nothing new — it is a `viciisc` VIC raster-IRQ timing issue.
+**Doctrine:** 1:1 VICE timing. No game-specific patches.
+
+> ⚠️ Everything from "## Symptom" down to "## Next step" is the ORIGINAL
+> 2026-05-12 copy-protection investigation. It is **historical / SUPERSEDED**
+> — the protection-signature, half-track, weak-bits, M-E, and $DD00-bit-timing
+> theses were all empirically disproven (see memory `lnr-dd00-fastloader`).
+> The current truth is the UPDATE section immediately below.
+
+## UPDATE 2026-05-22 — root re-localized (read this, not the old body)
+
+### Current symptom (changed from 2026-05-12)
+LNR now **LOADS fully** (KERNAL boot-file load + the custom $DD00 streaming
+loader both work; this was fixed by the vice-drive default + later work). It
+no longer exits to BASIC READY. Instead it **boots into the game (Central
+Park) instead of the title / SYSTEM3 splash / intro**. Deterministic: ours
+ALWAYS → game, VICE ALWAYS → intro, on the same G64.
+
+### What is RULED OUT (do not re-investigate)
+- Copy-protection sector check / weak-bits / half-track sync — the cracked
+  dump has no such gate; the signature `$D2$CB$37$EB` is nowhere on the G64.
+- M-E (drive Memory-Execute) — the custom loader fully executes.
+- $DD00 bit-timing as the *root* — bits flow on both sides; it's a symptom.
+- `vicii_irq_check_state` being a stub — our port is of **`viciisc/`** (single
+  cycle) where that fn IS empty (faithful). I mis-diffed against `vicii/`
+  (cycle-based x64) and wrongly "fixed" it; reverted, no effect.
+
+### Confirmed root (symptom-level, probed)
+The intro at `$0800` installs a 2-split raster IRQ (handler `$106F`). Split
+compare lines (D012) alternate **$2F (47)** and **$F7 (247)**. The intro's
+render `$08DB LDA $D011 / AND #$EF / STA $D011` (blank screen, bottom border)
+RMWs $D011 — the READ picks up the live raster bit8 (=1 at raster ≥256) and
+writes it back as **RST8** (D011 bit7). **VICE does this too** (gold trace:
+`$08E0` writes A=$AB at raster~295). The DIFFERENCE is *which split's D012 is
+active when RST8 gets set*:
+- **VICE: D012=$F7(247)** → compare = `$F7|$100 = 503` → **>311 out of range →
+  IRQ never fires there = harmless**.
+- **OURS: D012=$2F(47)** → compare = `$2F|$100 = 303` → **≤311 in range →
+  raster IRQ fires at line 303 → handler `$107F BMI $1099` bails (raster≥256)
+  → does NOT ack $D019 → IRQ re-fires every instruction = STORM** → the
+  work-path that sets `$49` + receives intro assets rarely completes → intro
+  malfunctions → falls into the game.
+
+Probe (fresh headless, mountMedia boot, bp $106F, read `LIT_TYPES.vicii`):
+`raster_line=303, raster_irq_line=303, D011=$AB, D012=$2F`. = exactly the
+in-range storm compare.
+
+So it is a **raster-split PHASE divergence**: ours runs the intro render
+during the `$2F` split, VICE during the `$F7` split. A small per-cycle
+raster-IRQ timing offset (the long-suspected "+1 PC" smell) flips the phase.
+
+### Real next step (focused, fresh session)
+Cycle-exact diff our `src/runtime/headless/vic/literal/vicii-cycle.ts` raster
+handling vs `vice/src/viciisc/vicii-cycle.c` — specifically the cycle at which
+`raster_line++` happens, the raster-IRQ compare fires, and the
+`vicii_irq_raster_trigger` clk. Our increment is at `VICII_PAL_CYCLE(1)`;
+verify VICE's exact cycle. Validate the split sequence against the gold trace
+`samples/traces/v2-baseline/lnr-vice-gold-2026-05-20/trace.duckdb`
+(`instructions`: `master_clock`→raster; `STA $D012` = opcode 141,b1=18,b2=208)
+vs a headless probe hooking `d012_store`. NOT check_state, NOT $DD00, NOT
+protection. Differential test per Spec 620.
+
+### Acceptance (revised)
+- LNR s1 reaches its title / SYSTEM3 / "PRESS FIRE" intro matching VICE.
+- Proof gate stays GREEN 7/7 (mm/im2/scramble/polarbear also use raster IRQs —
+  the timing fix must not regress them).
+
+---
+
+# (historical, superseded — 2026-05-12 copy-protection investigation)
 
 ## Symptom
 
