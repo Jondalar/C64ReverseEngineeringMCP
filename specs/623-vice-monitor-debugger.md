@@ -75,9 +75,17 @@ Abbrev in (). **P0 = shipped.** Mark each as we land it.
   MNEMONIC ops`, PC-marked.
 - `bk`/`break [a]` — exec breakpoint set/list; `bk -<a>` del; `bk clear`.
 - `g`/`goto [a]` — run until breakpoint. `z`/`step` — step into.
-  `n`/`next` — step over (JSR→return). `reset`.
+  `n`/`next` — step over (JSR→return). `x`/`exit` — leave monitor and
+  resume. `reset`.
 
 ### P1 — debugger core (next)
+- **DONE (§4.2/§4.3):** interrupt-aware `n`/`next` (skips JSR + runs THROUGH
+  IRQ/NMI via wait-for-return nesting), `ret`/`return` (run to RTS/RTI),
+  C64RE flow-focus `focus [auto|main|irq|nmi|brk|clear]` + `sf`/`stepf` +
+  `nf`/`nextf`. Engine: `src/runtime/headless/debug/stepping.ts` (FlowTracker,
+  per-step SP-delta+opcode flow classification). Tests:
+  `tests/unit/debug/stepping.test.ts` (8/8). `z`/step kept VICE-correct
+  (may enter IRQ).
 - Full `mon_checkpoint_t`: `break <a> [b]` ranges; `watch`/`w` (load/store
   watchpoints); `trace`/`tr` (non-stop logging); `until`/`un <a>` (temp bp);
   `delete`/`del`, `enable`/`en`, `disable`/`dis`, `ignore <n> [count]`,
@@ -100,6 +108,8 @@ Abbrev in (). **P0 = shipped.** Mark each as we land it.
   `radix`/`rad`, `sidefx`/`sfx`, `keybuf`, `warp`.
 - C64RE trace control commands (see §8): `tracedb start`, `tracedb stop`,
   `tracedb status`, `tracedb mark`.
+- C64RE flow-focus stepping extensions (see §4.3): `focus`, `stepf`/`sf`,
+  `nextf`/`nf`.
 
 ## 3. Architecture (where it lives)
 
@@ -122,6 +132,14 @@ Abbrev in (). **P0 = shipped.** Mark each as we land it.
   commands to `monitor/exec`; `.wb-monitor-out` is `white-space: pre`
   monospace so column padding renders.
 
+Spec 701 dependency:
+
+- Live run/pause/pacing state is owned by the backend runtime controller.
+- Monitor commands and toolbar buttons must call the same backend state
+  transitions.
+- The monitor must not maintain a separate run/pause universe from the Live
+  controls.
+
 ## 4. Watchpoint wiring (the one real new hook)
 
 Exec breakpoints work via the runFor loop. Load/store watchpoints need the
@@ -134,6 +152,206 @@ each access and signal a halt to the run loop. Options:
    (`cpud.store_func_ptr` wrap) for the drive side.
 Keep it cheap: only install the tap when ≥1 watchpoint exists.
 
+## 4.1 Run/Pause/UI focus contract
+
+Toolbar controls and monitor commands must be synchronized through the same
+backend controller state.
+
+Required behavior:
+
+- Pressing the Live toolbar `Pause` button calls the backend pause command.
+- Backend enters paused/stopped monitor state and broadcasts it.
+- UI updates the toolbar to paused.
+- Monitor cursor/input becomes active so the user can type monitor commands.
+
+Monitor resume commands:
+
+- `g` / `goto [addr]` resumes backend execution through the Spec 701
+  runtime controller.
+- `x` / `exit` leaves the monitor and resumes execution without changing PC,
+  equivalent to VICE's "exit monitor / continue" behavior for the live
+  session.
+- When `g` or `x` resumes, UI focus may return to the C64 screen so
+  keyboard/joystick input goes back to the emulated machine.
+- Toolbar updates to running.
+
+Monitor stop commands:
+
+- `z` / `step` executes exactly one instruction while remaining in monitor
+  focus.
+- `n` / `next` steps over while remaining in monitor focus.
+- Breakpoint hits enter monitor focus and print the VICE-like break report.
+- Explicit toolbar `Pause` while running also enters monitor focus.
+
+Forbidden:
+
+- UI toolbar state must not be a local-only React state that can disagree
+  with `g`/`x` monitor commands.
+- `g` must not run by directly looping `session.runFor(...)` inside
+  `monitor/exec` while the backend controller still thinks the machine is
+  paused.
+- `x` must not only close/hide the monitor; it resumes the backend live
+  session.
+
+Acceptance:
+
+- Press Pause in the toolbar, type `r` in the monitor, then type `g`; the
+  toolbar switches to running and keyboard focus returns to the C64 screen.
+- Hit a breakpoint, monitor prints `#n BREAK`, toolbar shows paused, monitor
+  input is focused.
+- Type `x`; execution resumes, toolbar shows running, and subsequent key
+  presses go to the C64 screen.
+- Type `z` repeatedly while paused; toolbar remains paused and monitor focus
+  stays active.
+
+## 4.2 Step / next interrupt semantics
+
+VICE source references:
+
+- `vice/src/monitor/monitor.c` `mon_instructions_step`
+- `vice/src/monitor/monitor.c` `mon_instructions_next`
+- `vice/src/monitor/monitor.c` `monitor_check_icount`
+- `vice/src/monitor/monitor.c` `monitor_check_icount_interrupt`
+- `vice/src/6510core.c` `DO_INTERRUPT`
+
+Observed VICE model:
+
+- `z` / `step` is true step-into. It steps actual CPU execution. If an IRQ
+  or NMI is accepted before the next main-flow opcode, `z` may enter the
+  interrupt path. This is correct.
+- `n` / `next` is step-over. It is not a naive "run until PC+len".
+  VICE sets `skip_jsrs = true` and maintains `wait_for_return_level`.
+- During `n`, VICE calls `monitor_check_icount_interrupt()` from the CPU
+  interrupt path. That increments the return/wait level for IRQ/NMI while
+  step-over is active, so an interrupt is treated like a nested flow that
+  must return before the monitor stops in the caller's flow again.
+- `return` / `ret` similarly treats `RTS` and `RTI` as return points.
+
+Required C64RE behavior:
+
+- `z` may stop inside IRQ/NMI if the interrupt is the next accepted CPU
+  flow. Do not suppress interrupts for step-into.
+- `n` must not be implemented as only "break at PC + instruction length".
+  It must track nested JSR/RTS and IRQ/NMI/RTI depth in the active CPU
+  memspace.
+- `n` from main code must return to main-flow stepping after IRQ/NMI/RTI
+  instead of unexpectedly leaving the user inside the interrupt handler.
+- `n` over a JSR must still treat the subroutine as one instruction, as
+  VICE does.
+- The same model applies to drive CPU memspaces once drive monitor support
+  is active.
+
+Implementation guidance:
+
+- Port the VICE state names directly where possible:
+  `instruction_count`, `skip_jsrs`, `wait_for_return_level`,
+  `monitor_check_icount`, `monitor_check_icount_interrupt`.
+- The CPU core or runtime controller must notify the monitor when IRQ/NMI
+  is accepted, not merely when PC changes.
+- The monitor must know whether the stop was caused by normal instruction
+  count, breakpoint, watchpoint, or interrupt-aware next/return completion.
+
+Acceptance:
+
+- With a pending raster IRQ, `z` may enter the IRQ handler; this is accepted
+  and documented.
+- With the same pending raster IRQ, `n` from main-flow code does not stop
+  in the IRQ handler; it waits through RTI and stops back in main flow.
+- `n` over `JSR` with an IRQ occurring inside the subroutine still returns
+  to the caller-side next instruction.
+- `ret` from inside an IRQ returns after `RTI`.
+
+## 4.3 C64RE flow-focus stepping extension
+
+VICE-compatible commands remain unchanged:
+
+- `z` = VICE step-into actual execution.
+- `n` = VICE step-over with JSR/IRQ/NMI nesting.
+- `ret` = VICE return via RTS/RTI.
+
+C64RE adds optional flow-focused stepping commands because VICE's stepping
+model is useful but not expressive enough for long loader/raster/IRQ
+debugging sessions.
+
+Goal:
+
+- Let the user keep debugger focus on the current control-flow path.
+- Avoid losing the user's stepping context just because an IRQ/NMI fires.
+- Allow explicit focus into IRQ/NMI when the user starts there.
+
+Commands:
+
+- `focus` — show current focus mode and current flow stack.
+- `focus auto` — derive focus from current execution context.
+- `focus main` — stay on mainline/non-interrupt flow.
+- `focus irq` — stay on IRQ flow.
+- `focus nmi` — stay on NMI flow.
+- `focus brk` — stay on BRK/trap flow.
+- `focus clear` — disable flow focus.
+- `stepf` / `sf` — step into, but stop only when execution is again in the
+  selected/current flow.
+- `nextf` / `nf` — step over calls and foreign flows, stopping only in the
+  selected/current flow.
+
+Semantics:
+
+- If focus is `main` and an IRQ/NMI is accepted before the next mainline
+  instruction, the runtime executes through that interrupt flow and stops
+  after `RTI` when execution returns to mainline.
+- If focus is `irq` and the current context is inside an IRQ handler,
+  `stepf` stays in the IRQ path; it does not bounce back to mainline until
+  the IRQ flow ends or the user changes focus.
+- If focus is `auto`, entering the monitor sets focus from the current
+  context:
+  - no interrupt/trap frame active -> `main`,
+  - IRQ frame active -> `irq`,
+  - NMI frame active -> `nmi`,
+  - BRK/trap frame active -> `brk`.
+- If the selected focus cannot be re-entered within a configured safety
+  budget, the monitor stops with reason `focus-timeout` and reports the
+  last observed flow.
+
+Implementation model:
+
+```ts
+type CpuFlowKind = "main" | "irq" | "nmi" | "brk" | "trap";
+
+interface CpuFlowFrame {
+  kind: CpuFlowKind;
+  enteredAtPc: number;
+  enteredAtCycle: number;
+  stackSpAtEntry: number;
+  returnPc?: number;
+}
+```
+
+Required runtime signals:
+
+- CPU core notifies monitor/controller when IRQ/NMI/BRK/trap is accepted.
+- CPU core notifies monitor/controller when `RTI` completes.
+- Optional call-flow tracking:
+  - JSR pushes call frame for `nextf`,
+  - RTS pops call frame.
+- Flow tracking is per memspace/CPU. C64 main CPU and drive CPU must not
+  share a single flow stack.
+
+Relationship to VICE:
+
+- This is a C64RE monitor extension, not a VICE compatibility command.
+- It must not change VICE-compatible `z`, `n`, or `ret` behavior.
+- Output should mark these commands as C64RE extensions in `help`.
+
+Acceptance:
+
+- Mainline focus: with periodic raster IRQs enabled, repeated `sf` stops on
+  mainline instructions and does not park inside the IRQ handler.
+- IRQ focus: break inside an IRQ handler, run repeated `sf`; stepping stays
+  in the IRQ path until RTI or focus change.
+- `nf` over a JSR with an IRQ firing inside the subroutine returns to the
+  caller-side flow, not to the IRQ handler.
+- `focus` prints the active flow stack with kind, entry PC, cycle, and SP.
+- `z` and `n` still match VICE semantics after the extension is enabled.
+
 ## 5. Acceptance
 
 - P0: `d`/`m`/`r`/`bk`/`g`/`z`/`n` match VICE output shape; disasm
@@ -143,6 +361,12 @@ Keep it cheap: only install the tap when ≥1 watchpoint exists.
   VICE; `r pc=$xxxx` + `return` work.
 - Cross-check a real session: boot LNR in the UI, `bk 0899`, `g`, then
   `n`/`z` through the intro decision (the use case that motivated this).
+- Cross-check toolbar/monitor sync: Pause toolbar -> monitor active -> `g`
+  resumes; breakpoint hit -> monitor active -> `x` resumes.
+- Cross-check interrupt-aware stepping: `z` may enter IRQ/NMI; `n` must
+  treat IRQ/NMI as nested flow and return to caller flow after `RTI`.
+- Cross-check C64RE flow-focus stepping: `sf`/`nf` preserve selected
+  main/IRQ/NMI focus without changing VICE-compatible `z`/`n`.
 
 ## 6. Non-goals
 

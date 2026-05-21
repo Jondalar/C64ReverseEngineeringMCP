@@ -10,7 +10,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/agent-api.js";
 import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
 import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
-import { disasm6502, disasmLine } from "../runtime/headless/debug/disasm6502.js";
+import { disasmLine } from "../runtime/headless/debug/disasm6502.js";
 import {
   ensureRuntimeController,
   getRuntimeController,
@@ -954,39 +954,68 @@ export class V3WsServer {
             ? `BREAK at .C:${hex(s.c64Cpu.pc, 4)} (${executed} instr, ${cyc} cyc)`
             : `ran ${executed} instr (${cyc} cyc) — no breakpoint hit, pc=$${hex(s.c64Cpu.pc, 4)}` };
         }
-        // Step into: z | step | si — one instruction (descends into JSR)
+        // Spec 623 §4.2/§4.3 — interrupt-aware stepping. Format the landing
+        // line + a short tag for how the step ended (Spec 623 §4.2).
+        const readRam = (a: number) => s.c64Bus.ram[a & 0xffff] ?? 0;
+        const landLine = (stop: { reason: string; cyc: number }, tag: string) => {
+          const flow = ctrl.flow.currentFlow();
+          const flowTag = flow === "main" ? "" : ` [${flow}]`;
+          const why =
+            stop.reason === "user-bp" ? ", hit user bp" :
+            stop.reason === "cap" ? ", CAP" :
+            stop.reason === "focus-timeout" ? ", focus-timeout" : "";
+          monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
+          return { output: `${disasmLine(readRam, s.c64Cpu.pc).line}${flowTag} (${tag}, ${stop.cyc} cyc${why})` };
+        };
+        // Step into: z | step | si — one instruction. May enter an IRQ/NMI
+        // (VICE-correct, §4.2): a pending interrupt is taken before the next
+        // main-flow opcode.
         if (op === "z" || op === "step" || op === "si") {
           ctrl.pause();
-          const before = s.c64Cpu.cycles;
-          s.runFor(1);
-          monitorDisasmAddr.set(session_id, s.c64Cpu.pc); // bare `d` now shows from new PC
-          return { output: `${disasmLine((a) => s.c64Bus.ram[a & 0xffff] ?? 0, s.c64Cpu.pc).line} (${s.c64Cpu.cycles - before} cyc)` };
+          const stop = ctrl.flow.stepInto(s as any);
+          return landLine(stop, "step");
         }
-        // Step over: n | next — JSR runs to its return; others = single step
+        // Step over: n | next — VICE-faithful (§4.2). JSR subroutines AND
+        // accepted IRQ/NMI are treated as nested flow run THROUGH; stops back
+        // in the caller flow after one instruction. NOT "break at PC+len".
         if (op === "n" || op === "next" || op === "so") {
           ctrl.pause();
-          const read = (a: number) => s.c64Bus.ram[a & 0xffff] ?? 0;
-          const di = disasm6502(read, s.c64Cpu.pc);
-          if (di.isJsr) {
-            const ret = (s.c64Cpu.pc + di.size) & 0xffff;
-            const tmp = new Set(ctrl.bpAddrSet()); tmp.add(ret);
-            const startCyc = s.c64Cpu.cycles;
-            s.runFor(1); // execute the JSR itself
-            const CAP = 20_000_000; let executed = 0; let hit = false;
-            while (executed < CAP) {
-              const r = s.runFor(Math.min(2_000_000, CAP - executed), { breakpoints: tmp });
-              executed += r.instructionsExecuted;
-              if (r.aborted === "breakpoint") { hit = true; break; }
-              if (r.instructionsExecuted === 0) break;
-            }
-            const stoppedAtRet = s.c64Cpu.pc === ret;
-            monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
-            return { output: `${disasmLine(read, s.c64Cpu.pc).line} (over jsr, ${s.c64Cpu.cycles - startCyc} cyc${hit && !stoppedAtRet ? ", hit user bp" : ""}${!hit ? ", CAP" : ""})` };
+          const stop = ctrl.flow.stepOver(s as any, ctrl.bpAddrSet());
+          return landLine(stop, "next");
+        }
+        // Return: ret | return — run until the current frame returns (RTS/RTI).
+        if (op === "ret" || op === "return") {
+          ctrl.pause();
+          const stop = ctrl.flow.runReturn(s as any, ctrl.bpAddrSet());
+          return landLine(stop, "return");
+        }
+        // Flow focus (C64RE extension, §4.3): focus [auto|main|irq|nmi|brk|clear]
+        if (op === "focus") {
+          const arg = (tokens[1] ?? "").toLowerCase();
+          if (arg === "" ) {
+            const f = ctrl.flow;
+            const stackStr = f.stack.length
+              ? f.stack.map((fr) => `  ${fr.kind}  enter=$${hex(fr.enteredAtPc, 4)} sp=$${hex(fr.stackSpAtEntry)}`).join("\n")
+              : "  (main — no interrupt/trap frame active)";
+            return { output: `focus = ${f.focus} (current flow: ${f.currentFlow()})\nflow stack:\n${stackStr}` };
           }
-          const before = s.c64Cpu.cycles;
-          s.runFor(1);
-          monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
-          return { output: `${disasmLine(read, s.c64Cpu.pc).line} (${s.c64Cpu.cycles - before} cyc)` };
+          if (["auto", "main", "irq", "nmi", "brk", "none", "clear"].includes(arg)) {
+            ctrl.flow.focus = (arg === "clear" ? "none" : arg) as any;
+            return { output: `focus = ${ctrl.flow.focus}` };
+          }
+          return { error: `focus: expected auto|main|irq|nmi|brk|clear, got '${arg}'` };
+        }
+        // stepf/sf — step into, stop only in the selected/current flow (§4.3).
+        if (op === "sf" || op === "stepf") {
+          ctrl.pause();
+          const stop = ctrl.flow.stepFocus(s as any, ctrl.bpAddrSet());
+          return landLine(stop, `stepf:${ctrl.flow.effectiveFocus()}`);
+        }
+        // nextf/nf — step over calls + foreign flows, stop in selected flow (§4.3).
+        if (op === "nf" || op === "nextf") {
+          ctrl.pause();
+          const stop = ctrl.flow.nextFocus(s as any, ctrl.bpAddrSet());
+          return landLine(stop, `nextf:${ctrl.flow.effectiveFocus()}`);
         }
         // Reset
         if (op === "reset") {
@@ -1008,8 +1037,13 @@ export class V3WsServer {
             "  del              delete all breakpoints\n" +
             "  bk clear         clear all breakpoints\n" +
             "  g [a]            go/continue (PC=a) until a breakpoint\n" +
-            "  z / step         step into (descends into JSR)\n" +
-            "  n / next         step over (runs JSR to its return)\n" +
+            "  z / step         step into — may enter IRQ/NMI (VICE-correct)\n" +
+            "  n / next         step over — skips JSR + runs THROUGH IRQ/NMI,\n" +
+            "                   stops back in caller flow (VICE-faithful)\n" +
+            "  ret / return     run until current frame returns (RTS/RTI)\n" +
+            "  focus [m]        C64RE flow focus: auto|main|irq|nmi|brk|clear\n" +
+            "  sf / stepf       step into, stop only in focused flow (C64RE)\n" +
+            "  nf / nextf       step over, stop only in focused flow (C64RE)\n" +
             "  reset            cold reset" };
         }
         return { error: `unknown command: ${op}. Try 'help'.` };

@@ -24,6 +24,7 @@
 // commands are still processed between chunks.
 
 import type { IntegratedSession } from "../integrated-session.js";
+import { FlowTracker } from "./stepping.js";
 
 export type RuntimeRunState = "running" | "paused" | "stopped";
 export type RuntimePacingMode = "pal" | "warp" | "fixed-ratio";
@@ -77,6 +78,9 @@ export class RuntimeController {
   // Core-owned breakpoint list (Spec 701 §6). Shared with monitor/exec.
   readonly breakpoints: BpStore = { next: 1, bps: new Map() };
   stopInfo: RuntimeStopInfo | null = null;
+  // Spec 623 §4.2/§4.3 — interrupt-aware stepping + flow-focus state, per
+  // session (the monitor's z/n/ret/sf/nf/focus operate on this).
+  readonly flow = new FlowTracker();
 
   // Loop state.
   private timer: ReturnType<typeof setTimeout> | null = null;
