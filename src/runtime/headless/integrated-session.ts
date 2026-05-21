@@ -1630,6 +1630,18 @@ export class IntegratedSession {
   }
 
   /**
+   * Live VIC raster position from the literal-port renderer (the authority).
+   * The legacy `vic.raster_y` / `raster_cycle` stay 0 in literal-port mode, so
+   * any UI reading them shows a frozen raster — read these instead.
+   */
+  vicRaster(): { line: number; cycle: number } {
+    return {
+      line: LIT_TYPES.vicii.raster_line | 0,
+      cycle: LIT_TYPES.vicii.raster_cycle | 0,
+    };
+  }
+
+  /**
    * Spec 701 §7 (preferred transport) — palette-indexed frame: 1 byte/pixel
    * (the 4-bit C64 colour index) + a 16-colour RGB palette (48 bytes). ~107
    * KiB/frame vs ~417 KiB raw RGBA → ~4× less WebSocket bandwidth, so a 50fps

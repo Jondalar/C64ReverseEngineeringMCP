@@ -313,6 +313,7 @@ export class V3WsServer {
       if (!s) throw new Error(`no session ${session_id}`);
       const c = s.c64Cpu;
       const v = s.vic.regs;
+      const raster = s.vicRaster(); // live literal-port raster (legacy raster_y stays 0)
       return {
         c64Cycles: c.cycles,
         driveCycles: s.drive.cpu.cycles,
@@ -322,8 +323,8 @@ export class V3WsServer {
           flags: c.flags, cycles: c.cycles,
         },
         vic: {
-          rasterLine: (s.vic as any).raster_y ?? 0,
-          rasterCycle: (s.vic as any).raster_cycle ?? 0,
+          rasterLine: raster.line,
+          rasterCycle: raster.cycle,
           mode: ((v[0x11] >> 5) & 3) | (((v[0x16] >> 4) & 1) << 2),
           bank: (s.cia2.pra & s.cia2.ddra & 0x03) ^ 0x03,
           screenPtr: ((v[0x18] >> 4) & 0xf) << 10,
@@ -332,6 +333,9 @@ export class V3WsServer {
           border: v[0x20] & 0xf,
           background: v[0x21] & 0xf,
         },
+        // Spec 623 §4.3 — control-flow stack (main/irq/nmi/brk) for the UI
+        // FLOW panel. Populated while stepping (z/n/sf/nf); empty = main.
+        flow: getRuntimeController(session_id)?.flow.flowState() ?? null,
       };
     });
 

@@ -681,6 +681,11 @@ body {
   color: var(--c64-blue-bright); font-size: 11px; pointer-events: none;
 }
 
+/* Spec 623 §4.3 flow panel — active flow row highlighted. */
+.wb-flow th { text-transform: uppercase; }
+.wb-flow .wb-flow-active th { color: var(--c64-yellow); }
+.wb-flow .wb-flow-active td { color: var(--c64-yellow); }
+
 /* Inspector */
 .wb-inspector {
   background: var(--c64-bg-2); border-radius: 4px;

@@ -14,7 +14,7 @@ const NOP = 0xea, JSR = 0x20, RTS = 0x60, RTI = 0x40, BRK = 0x00;
 // instruction cap, with a one-shot pending IRQ/NMI taken before the next op.
 class MiniCpu implements SteppableSession {
   mem = new Uint8Array(0x10000);
-  c64Cpu = { pc: 0, sp: 0xff, cycles: 0 };
+  c64Cpu = { pc: 0, sp: 0xff, cycles: 0, a: 0, x: 0, y: 0, flags: 0x20 };
   pendingIrq = false;
   pendingNmi = false;
   private p = 0x20;

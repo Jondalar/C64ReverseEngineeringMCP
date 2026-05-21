@@ -54,6 +54,11 @@ interface VicState {
   border?: number; background?: number;
 }
 
+// Spec 623 §4.3 — control-flow stack (main/irq/nmi/brk).
+interface FlowRegs { a: number; x: number; y: number; sp: number; p: number; }
+interface FlowFrame { kind: string; pc: number; cycle: number; regs?: FlowRegs; }
+interface FlowState { focus: string; current: string; stack: FlowFrame[]; }
+
 // Spec 424 LED color matrix — user direction 2026-05-12.
 function driveLedClass(d: Drive | null): string {
   if (!d) return "wb-led";
@@ -149,6 +154,7 @@ export function InspectorPanel({
 }: Props): JSX.Element {
   const [cpu, setCpu] = useState<CpuState | null>(null);
   const [vic, setVic] = useState<VicState | null>(null);
+  const [flow, setFlow] = useState<FlowState | null>(null);
   const [media, setMedia] = useState<RecentMedium[]>([]);
 
   useEffect(() => {
@@ -161,6 +167,7 @@ export function InspectorPanel({
         if (alive) {
           setCpu(s.cpu ?? { pc: 0, a: 0, x: 0, y: 0, sp: 0, flags: 0, cycles: s.c64Cycles ?? 0 });
           setVic(s.vic ?? null);
+          setFlow(s.flow ?? null);
         }
       } catch { /* ignore */ }
       if (alive) setTimeout(tick, 250);
@@ -271,6 +278,32 @@ export function InspectorPanel({
               <tr><th>A</th><td>{hex(cpu.a)}</td><th>X</th><td>{hex(cpu.x)}</td></tr>
               <tr><th>Y</th><td>{hex(cpu.y)}</td><th>P</th><td>{flags}</td></tr>
               <tr><th>cyc</th><td colSpan={3}>{cpu.cycles.toLocaleString()}</td></tr>
+            </tbody>
+          </table>
+        ) : <p>—</p>}
+      </section>
+      <section>
+        <h3>FLOW{flow ? ` · focus ${flow.focus}` : ""}</h3>
+        {flow ? (
+          <table className="wb-regs wb-flow">
+            <tbody>
+              <tr className={flow.stack.length === 0 ? "wb-flow-active" : ""}>
+                <th>MAIN</th>
+                <td colSpan={3}>{flow.stack.length === 0 ? "◀ active" : "—"}</td>
+              </tr>
+              {flow.stack.map((f, i) => {
+                const active = i === flow.stack.length - 1;
+                return (
+                  <tr key={i} className={active ? "wb-flow-active" : ""}>
+                    <th>{f.kind.toUpperCase()}</th>
+                    <td colSpan={3}>
+                      @{hex(f.pc, 4)}
+                      {f.regs ? `  A:${hex(f.regs.a)} X:${hex(f.regs.x)} Y:${hex(f.regs.y)} SP:${hex(f.regs.sp)}` : ""}
+                      {active ? "  ◀" : ""}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         ) : <p>—</p>}

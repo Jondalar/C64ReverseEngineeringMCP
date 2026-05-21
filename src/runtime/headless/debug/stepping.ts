@@ -39,17 +39,20 @@
 export type CpuFlowKind = "main" | "irq" | "nmi" | "brk" | "trap";
 export type FocusMode = "auto" | CpuFlowKind | "none";
 
+export interface CpuRegs { a: number; x: number; y: number; sp: number; p: number; }
+
 export interface CpuFlowFrame {
   kind: CpuFlowKind;
   enteredAtPc: number;
   enteredAtCycle: number;
   stackSpAtEntry: number;
   returnPc?: number;
+  regs?: CpuRegs; // register snapshot at the moment the flow was entered
 }
 
 // Minimal session surface the engine needs (keeps it decoupled + testable).
 export interface SteppableSession {
-  c64Cpu: { pc: number; sp: number; cycles: number };
+  c64Cpu: { pc: number; sp: number; cycles: number; a: number; x: number; y: number; flags: number };
   c64Bus: { read(a: number): number };
   runFor(n: number, opts?: { breakpoints?: Set<number>; cycleBudget?: number }):
     { instructionsExecuted: number; lastPc: number; aborted?: string };
@@ -68,6 +71,7 @@ export interface StepResult {
   ev: StepEventType;
   flow?: CpuFlowKind;   // set when ev === "int"
   pc0: number; op0: number; pc1: number; sp0: number; sp1: number; cyc: number;
+  cycleAbs: number; regs: CpuRegs; // post-step absolute cycle + register snapshot
 }
 
 /** Advance exactly one instruction (or one interrupt entry) and classify it. */
@@ -79,7 +83,8 @@ export function stepOne(s: SteppableSession): StepResult {
   s.runFor(1);
   const pc1 = s.c64Cpu.pc & 0xffff;
   const sp1 = s.c64Cpu.sp & 0xff;
-  const cyc = s.c64Cpu.cycles - cyc0;
+  const cycleAbs = s.c64Cpu.cycles;
+  const regs: CpuRegs = { a: s.c64Cpu.a & 0xff, x: s.c64Cpu.x & 0xff, y: s.c64Cpu.y & 0xff, sp: sp1, p: s.c64Cpu.flags & 0xff };
   const pushed = (sp0 - sp1) & 0xff;
 
   let ev: StepEventType;
@@ -94,7 +99,7 @@ export function stepOne(s: SteppableSession): StepResult {
     flow = (pc1 === nmiVec) ? "nmi" : "irq";
     ev = "int";
   } else ev = "normal";
-  return { ev, flow, pc0, op0, pc1, sp0, sp1, cyc };
+  return { ev, flow, pc0, op0, pc1, sp0, sp1, cyc: cycleAbs - cyc0, cycleAbs, regs };
 }
 
 export type StepStop =
@@ -155,14 +160,26 @@ export class FlowTracker {
   private apply(r: StepResult): void {
     if (r.ev === "int") {
       this.stack.push({
-        kind: r.flow!, enteredAtPc: r.pc0, enteredAtCycle: r.sp0 /*placeholder*/,
-        stackSpAtEntry: r.sp0, returnPc: r.pc0,
+        kind: r.flow!, enteredAtPc: r.pc1, enteredAtCycle: r.cycleAbs,
+        stackSpAtEntry: r.sp0, returnPc: r.pc0, regs: r.regs,
       });
     } else if (r.ev === "rti") {
       if (this.stack.length) this.stack.pop();
     }
     // jsr/rts/normal don't change the interrupt-flow kind (call depth is
     // tracked structurally via runUntilReturn, not the flow stack).
+  }
+
+  /** Snapshot of the flow context for the UI (Spec 623 §4.3 focus panel). */
+  flowState(): {
+    focus: FocusMode; current: CpuFlowKind;
+    stack: Array<{ kind: CpuFlowKind; pc: number; cycle: number; regs?: CpuRegs }>;
+  } {
+    return {
+      focus: this.focus,
+      current: this.currentFlow(),
+      stack: this.stack.map((f) => ({ kind: f.kind, pc: f.enteredAtPc, cycle: f.enteredAtCycle, regs: f.regs })),
+    };
   }
 
   // ---- VICE-compatible commands (§4.2) ----
