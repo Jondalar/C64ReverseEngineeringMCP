@@ -54,9 +54,14 @@ const PAL_FRAME_MS = (PAL_CYCLES_PER_FRAME / PAL_CYCLES_PER_SEC) * 1000; // ≈ 
 const WARP_CHUNK_CYCLES = PAL_CYCLES_PER_FRAME * 8;
 const WARP_PRESENT_MS = 1000 / 20; // cap UI frame pushes to ~20fps in warp
 
-// PAL presentation: publish every 2nd completed frame → 25fps default. The
-// SKIPPED frame is not skipped in emulation, only not announced to the UI.
-const PAL_PRESENT_DIVISOR = 2;
+// PAL presentation cadence. Divisor 1 = publish EVERY completed frame (50fps),
+// so 50Hz smooth-scrollers ($D016 fine-scroll) don't get decimated → no
+// every-8th-frame hitch at the coarse-scroll boundary. Raw RGBA @50fps on
+// localhost ≈ 21 MiB/s (fine); broadcastFrame's latest-frame-wins guard still
+// drops frames for a client that falls behind. (Spec 701 §5.1 lists 25fps as
+// the default; bumped to every-frame per user request 2026-05-21 for scroll
+// smoothness — divisor 2 = 25fps remains a one-line revert.)
+const PAL_PRESENT_DIVISOR = 1;
 
 /** Build the VICE-style register dump line used by the monitor + broadcasts. */
 function registerDump(s: IntegratedSession): string {
