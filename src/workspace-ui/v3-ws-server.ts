@@ -39,6 +39,11 @@ function bpNumForAddr(sessionId: string, addr: number): number {
   return 0;
 }
 
+// VICE-style continue cursors: a bare `d` / `m` (no address) resumes from
+// where the previous one left off. Keyed by session_id.
+const monitorDisasmAddr = new Map<string, number>();
+const monitorMemAddr = new Map<string, number>();
+
 // Decode the physical sector under (or next approaching) the vice1541 GCR
 // read head. Loader-independent (works for KERNAL + custom fastloaders) —
 // reads the actual GCR track, scans from the head bit-position for the next
@@ -335,6 +340,7 @@ export class V3WsServer {
         const flagsStr = "NV-BDIZC".split("").map((f, i) =>
           ((c.flags >> (7 - i)) & 1) ? f : f.toLowerCase()).join("");
         const num = bpNumForAddr(session_id, r.lastPc);
+        monitorDisasmAddr.set(session_id, r.lastPc); // bare `d` shows from the break
         return {
           c64Cycles: s.c64Cpu.cycles,
           breakpoint: {
@@ -782,7 +788,8 @@ export class V3WsServer {
         }
         // Memory dump: m [addr] [end]
         if (op === "m" || op === "mem") {
-          const start = parseAddr(tokens[1]) ?? 0;
+          // Bare `m` continues from where the previous `m` ended (VICE-style).
+          const start = parseAddr(tokens[1]) ?? monitorMemAddr.get(session_id) ?? 0;
           const end = parseAddr(tokens[2]) ?? Math.min(0xffff, start + 0x7f);
           const lines: string[] = [];
           for (let a = start & ~0xf; a <= end; a += 16) {
@@ -794,11 +801,13 @@ export class V3WsServer {
             }
             lines.push(`>C:${hex(a, 4)}  ${bytes.join(" ").padEnd(48)}  ${ascii.join("")}`);
           }
+          monitorMemAddr.set(session_id, (end + 1) & 0xffff); // next bare `m` resumes here
           return { output: lines.join("\n") };
         }
-        // Disassembly: d [addr] [count]  — real 6502/6510 disasm
+        // Disassembly: d [addr] [count]  — real 6502/6510 disasm.
+        // Bare `d` continues from where the previous `d` ended (VICE-style).
         if (op === "d" || op === "disass") {
-          const start = parseAddr(tokens[1]) ?? s.c64Cpu.pc;
+          const start = parseAddr(tokens[1]) ?? monitorDisasmAddr.get(session_id) ?? s.c64Cpu.pc;
           const count = parseInt(tokens[2] ?? "16", 10);
           const read = (a: number) => s.c64Bus.ram[a & 0xffff] ?? 0;
           const lines: string[] = [];
@@ -809,6 +818,7 @@ export class V3WsServer {
             lines.push(line + mark);
             a = (a + size) & 0xffff;
           }
+          monitorDisasmAddr.set(session_id, a); // next bare `d` resumes here
           return { output: lines.join("\n") };
         }
         // Breakpoints: bk | bk <addr> | bk -<addr> | bk clear
@@ -854,6 +864,7 @@ export class V3WsServer {
           const bps = bpAddrSet(session_id);
           if (bps.size === 0) {
             s.runFor(20_000);
+            monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
             return { output: `ran 1 frame -> .C:${hex(s.c64Cpu.pc, 4)} (no breakpoints; set with 'bk <addr>')` };
           }
           if (bps.has(s.c64Cpu.pc)) s.runFor(1); // clear the BP we're sitting on
@@ -866,6 +877,7 @@ export class V3WsServer {
             if (r.instructionsExecuted === 0) break;
           }
           const cyc = s.c64Cpu.cycles - startCyc;
+          monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
           return { output: hit
             ? `BREAK at .C:${hex(s.c64Cpu.pc, 4)} (${executed} instr, ${cyc} cyc)`
             : `ran ${executed} instr (${cyc} cyc) — no breakpoint hit, pc=$${hex(s.c64Cpu.pc, 4)}` };
@@ -874,6 +886,7 @@ export class V3WsServer {
         if (op === "z" || op === "step" || op === "si") {
           const before = s.c64Cpu.cycles;
           s.runFor(1);
+          monitorDisasmAddr.set(session_id, s.c64Cpu.pc); // bare `d` now shows from new PC
           return { output: `${disasmLine((a) => s.c64Bus.ram[a & 0xffff] ?? 0, s.c64Cpu.pc).line} (${s.c64Cpu.cycles - before} cyc)` };
         }
         // Step over: n | next — JSR runs to its return; others = single step
@@ -893,10 +906,12 @@ export class V3WsServer {
               if (r.instructionsExecuted === 0) break;
             }
             const stoppedAtRet = s.c64Cpu.pc === ret;
+            monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
             return { output: `${disasmLine(read, s.c64Cpu.pc).line} (over jsr, ${s.c64Cpu.cycles - startCyc} cyc${hit && !stoppedAtRet ? ", hit user bp" : ""}${!hit ? ", CAP" : ""})` };
           }
           const before = s.c64Cpu.cycles;
           s.runFor(1);
+          monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
           return { output: `${disasmLine(read, s.c64Cpu.pc).line} (${s.c64Cpu.cycles - before} cyc)` };
         }
         // Reset
