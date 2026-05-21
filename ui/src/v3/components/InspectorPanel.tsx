@@ -271,49 +271,45 @@ export function InspectorPanel({
 
   return (
     <aside className="wb-inspector">
-      {/* CPU contexts (Spec 623 §4.3). ONE 6502, time-sliced — NOT parallel
-          CPUs. A/X/Y/SP/P are SHARED (shown on each block, same values); only
-          the PC differs per context. MAIN + IRQ + NMI are shown ALWAYS:
-          - the executing context shows the LIVE PC (highlighted),
-          - the others show their handler ENTRY PC from the vectors
-            (IRQ=$FFFE, NMI=$FFFA; KERNAL RAM hooks CINV=$0314 / CBINV=$0318
-            shown as the source so you can see who's hooked). */}
-      {(() => {
-        const cur = flow?.current ?? "main";
-        const stack = flow?.stack ?? [];
-        const regs = cpu ? { a: cpu.a, x: cpu.x, y: cpu.y, sp: cpu.sp, p: cpu.flags } : null;
-        const pflags = regs
-          ? "NV-BDIZC".split("").map((f, i) => ((regs.p >> (7 - i)) & 1) ? f : f.toLowerCase()).join("")
-          : "";
-        // MAIN's PC: live when MAIN executes, else the resume addr stacked by
-        // the innermost interrupt (where MAIN will continue).
-        const mainPc = cur === "main" ? (cpu?.pc ?? 0) : (stack[0]?.returnPc ?? cpu?.pc ?? 0);
-        const contexts = [
-          { kind: "MAIN", pc: mainPc, active: cur === "main", vec: null as null | [string, number][] },
-          { kind: "IRQ", pc: cur === "irq" ? (cpu?.pc ?? 0) : (vectors?.irq ?? 0), active: cur === "irq",
-            vec: [["$FFFE", vectors?.irq ?? 0], ["CINV $0314", vectors?.cinv ?? 0]] as [string, number][] },
-          { kind: "NMI", pc: cur === "nmi" ? (cpu?.pc ?? 0) : (vectors?.nmi ?? 0), active: cur === "nmi",
-            vec: [["$FFFA", vectors?.nmi ?? 0], ["CBINV $0318", vectors?.cbinv ?? 0]] as [string, number][] },
-        ];
-        return contexts.map((ctx) => (
-          <section key={ctx.kind}>
-            <h3>CPU · {ctx.kind}{ctx.active ? " ◀" : ""}</h3>
-            {regs ? (
-              <table className={`wb-regs ${ctx.active ? "wb-flow-active" : ""}`}>
-                <tbody>
-                  <tr><th>PC</th><td>{hex(ctx.pc, 4)}</td><th>SP</th><td>{hex(regs.sp)}</td></tr>
-                  <tr><th>A</th><td>{hex(regs.a)}</td><th>X</th><td>{hex(regs.x)}</td></tr>
-                  <tr><th>Y</th><td>{hex(regs.y)}</td><th>P</th><td>{pflags}</td></tr>
-                  {ctx.kind === "MAIN" && cpu ? <tr><th>cyc</th><td colSpan={3}>{cpu.cycles.toLocaleString()}</td></tr> : null}
-                  {ctx.vec ? ctx.vec.map(([label, addr]) => (
-                    <tr key={label} className="wb-vec-row"><th>{label}</th><td colSpan={3}>→ {hex(addr, 4)}</td></tr>
-                  )) : null}
-                </tbody>
-              </table>
-            ) : <p>—</p>}
-          </section>
-        ));
-      })()}
+      {/* CPU (Spec 623 §4.3). ONE 6502, time-sliced — NOT parallel CPUs.
+          A/X/Y/SP/P are SHARED (shown once); only the PC differs per context.
+          MAIN/IRQ/NMI PCs shown ALWAYS: the executing context = live PC
+          (highlighted ◀); the others = handler entry from the vectors
+          (IRQ $FFFE / NMI $FFFA; KERNAL RAM hooks CINV $0314 / CBINV $0318). */}
+      <section>
+        <h3>CPU</h3>
+        {cpu ? (() => {
+          const cur = flow?.current ?? "main";
+          const stack = flow?.stack ?? [];
+          const pflags = "NV-BDIZC".split("").map((f, i) => ((cpu.flags >> (7 - i)) & 1) ? f : f.toLowerCase()).join("");
+          const mainPc = cur === "main" ? cpu.pc : (stack[0]?.returnPc ?? cpu.pc);
+          const ctxs = [
+            { kind: "MAIN", pc: mainPc, active: cur === "main", hook: null as null | [string, number] },
+            { kind: "IRQ", pc: cur === "irq" ? cpu.pc : (vectors?.irq ?? 0), active: cur === "irq", hook: ["$0314", vectors?.cinv ?? 0] as [string, number] },
+            { kind: "NMI", pc: cur === "nmi" ? cpu.pc : (vectors?.nmi ?? 0), active: cur === "nmi", hook: ["$0318", vectors?.cbinv ?? 0] as [string, number] },
+          ];
+          return (
+            <table className="wb-regs wb-cpu">
+              <tbody>
+                {ctxs.map((c) => (
+                  <tr key={c.kind} className={c.active ? "wb-flow-active" : ""}>
+                    <th>{c.kind}{c.active ? " ◀" : ""}</th>
+                    <td>{hex(c.pc, 4)}</td>
+                    <td colSpan={2} className="wb-vec-note">
+                      {c.hook ? `${c.hook[0]}→${hex(c.hook[1], 4)}` : ""}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="wb-cpu-sep"><td colSpan={4}></td></tr>
+                <tr><th>A</th><td>{hex(cpu.a)}</td><th>X</th><td>{hex(cpu.x)}</td></tr>
+                <tr><th>Y</th><td>{hex(cpu.y)}</td><th>SP</th><td>{hex(cpu.sp)}</td></tr>
+                <tr><th>P</th><td colSpan={3}>{pflags}</td></tr>
+                <tr><th>cyc</th><td colSpan={3}>{cpu.cycles.toLocaleString()}</td></tr>
+              </tbody>
+            </table>
+          );
+        })() : <p>—</p>}
+      </section>
       <section>
         <h3>VIC</h3>
         {vic ? (
@@ -412,11 +408,6 @@ export function InspectorPanel({
             }</td></tr>
           </tbody>
         </table>
-      </section>
-
-      <section>
-        <h3>Breakpoints</h3>
-        <p className="wb-muted">none</p>
       </section>
     </aside>
   );

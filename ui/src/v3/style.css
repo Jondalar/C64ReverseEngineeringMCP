@@ -681,10 +681,10 @@ body {
   color: var(--c64-blue-bright); font-size: 11px; pointer-events: none;
 }
 
-/* Spec 623 §4.3 flow panel — active context highlighted; vector rows muted. */
-.wb-regs.wb-flow-active th { color: var(--c64-yellow); }
-.wb-regs.wb-flow-active td { color: var(--c64-yellow); }
-.wb-vec-row th, .wb-vec-row td { color: var(--c64-fg-muted); font-size: 10px; }
+/* Spec 623 §4.3 CPU panel — active context row highlighted; hooks muted. */
+.wb-cpu tr.wb-flow-active th, .wb-cpu tr.wb-flow-active td { color: var(--c64-yellow); }
+.wb-vec-note { color: var(--c64-fg-muted); font-size: 10px; text-align: right; }
+.wb-cpu-sep td { border-bottom: 1px solid var(--c64-border); padding: 0; height: 4px; }
 
 /* Inspector */
 .wb-inspector {
