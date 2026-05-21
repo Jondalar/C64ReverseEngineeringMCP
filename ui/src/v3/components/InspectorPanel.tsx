@@ -56,7 +56,7 @@ interface VicState {
 
 // Spec 623 §4.3 — control-flow stack (main/irq/nmi/brk).
 interface FlowRegs { a: number; x: number; y: number; sp: number; p: number; }
-interface FlowFrame { kind: string; pc: number; cycle: number; regs?: FlowRegs; }
+interface FlowFrame { kind: string; pc: number; returnPc: number; cycle: number; regs?: FlowRegs; }
 interface FlowState { focus: string; current: string; stack: FlowFrame[]; }
 
 // Spec 424 LED color matrix — user direction 2026-05-12.
@@ -186,7 +186,6 @@ export function InspectorPanel({
   }, []);
 
   const hex = (n: number, w = 2) => "$" + n.toString(16).padStart(w, "0").toUpperCase();
-  const flags = cpu ? "NV-BDIZC".split("").map((f, i) => ((cpu.flags >> (7-i)) & 1) ? f : f.toLowerCase()).join("") : "";
 
   const mountSlot = async (slot: number, path: string) => {
     if (!sessionId) return;
@@ -269,45 +268,40 @@ export function InspectorPanel({
 
   return (
     <aside className="wb-inspector">
-      <section>
-        <h3>CPU</h3>
-        {cpu ? (
-          <table className="wb-regs">
-            <tbody>
-              <tr><th>PC</th><td>{hex(cpu.pc, 4)}</td><th>SP</th><td>{hex(cpu.sp)}</td></tr>
-              <tr><th>A</th><td>{hex(cpu.a)}</td><th>X</th><td>{hex(cpu.x)}</td></tr>
-              <tr><th>Y</th><td>{hex(cpu.y)}</td><th>P</th><td>{flags}</td></tr>
-              <tr><th>cyc</th><td colSpan={3}>{cpu.cycles.toLocaleString()}</td></tr>
-            </tbody>
-          </table>
-        ) : <p>—</p>}
-      </section>
-      <section>
-        <h3>FLOW{flow ? ` · focus ${flow.focus}` : ""}</h3>
-        {flow ? (
-          <table className="wb-regs wb-flow">
-            <tbody>
-              <tr className={flow.stack.length === 0 ? "wb-flow-active" : ""}>
-                <th>MAIN</th>
-                <td colSpan={3}>{flow.stack.length === 0 ? "◀ active" : "—"}</td>
-              </tr>
-              {flow.stack.map((f, i) => {
-                const active = i === flow.stack.length - 1;
-                return (
-                  <tr key={i} className={active ? "wb-flow-active" : ""}>
-                    <th>{f.kind.toUpperCase()}</th>
-                    <td colSpan={3}>
-                      @{hex(f.pc, 4)}
-                      {f.regs ? `  A:${hex(f.regs.a)} X:${hex(f.regs.x)} Y:${hex(f.regs.y)} SP:${hex(f.regs.sp)}` : ""}
-                      {active ? "  ◀" : ""}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : <p>—</p>}
-      </section>
+      {/* Per-flow CPU blocks (Spec 623 §4.3). ONE 6502 — these are nested
+          interrupt contexts, NOT parallel CPUs. The active (top) level shows
+          LIVE registers; suspended levels show their resume PC + the registers
+          captured when they were interrupted (PC+P off the stack; A/X/Y are
+          shared and shown as the snapshot at suspension). */}
+      {(() => {
+        const stack = flow?.stack ?? [];
+        const blocks = [{ kind: "MAIN" }, ...stack.map((f) => ({ kind: f.kind.toUpperCase() }))];
+        return blocks.map((b, L) => {
+          const active = L === stack.length; // top of the stack is executing
+          const regs = active
+            ? (cpu ? { a: cpu.a, x: cpu.x, y: cpu.y, sp: cpu.sp, p: cpu.flags } : null)
+            : (stack[L]?.regs ?? null);
+          const pc = active ? (cpu?.pc ?? 0) : (stack[L]?.returnPc ?? 0);
+          const pflags = regs
+            ? "NV-BDIZC".split("").map((f, i) => ((regs.p >> (7 - i)) & 1) ? f : f.toLowerCase()).join("")
+            : "";
+          return (
+            <section key={L}>
+              <h3>CPU · {b.kind}{active ? " ◀" : ""}</h3>
+              {regs ? (
+                <table className={`wb-regs ${active ? "wb-flow-active" : ""}`}>
+                  <tbody>
+                    <tr><th>PC</th><td>{hex(pc, 4)}</td><th>SP</th><td>{hex(regs.sp)}</td></tr>
+                    <tr><th>A</th><td>{hex(regs.a)}</td><th>X</th><td>{hex(regs.x)}</td></tr>
+                    <tr><th>Y</th><td>{hex(regs.y)}</td><th>P</th><td>{pflags}</td></tr>
+                    {active && cpu ? <tr><th>cyc</th><td colSpan={3}>{cpu.cycles.toLocaleString()}</td></tr> : null}
+                  </tbody>
+                </table>
+              ) : <p>—</p>}
+            </section>
+          );
+        });
+      })()}
       <section>
         <h3>VIC</h3>
         {vic ? (

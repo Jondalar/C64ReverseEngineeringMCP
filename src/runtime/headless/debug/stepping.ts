@@ -173,12 +173,19 @@ export class FlowTracker {
   /** Snapshot of the flow context for the UI (Spec 623 §4.3 focus panel). */
   flowState(): {
     focus: FocusMode; current: CpuFlowKind;
-    stack: Array<{ kind: CpuFlowKind; pc: number; cycle: number; regs?: CpuRegs }>;
+    stack: Array<{ kind: CpuFlowKind; pc: number; returnPc: number; cycle: number; regs?: CpuRegs }>;
   } {
     return {
       focus: this.focus,
       current: this.currentFlow(),
-      stack: this.stack.map((f) => ({ kind: f.kind, pc: f.enteredAtPc, cycle: f.enteredAtCycle, regs: f.regs })),
+      // pc = handler-entry PC; returnPc = where the INTERRUPTED level resumes;
+      // regs = the interrupted level's registers at the moment it was suspended
+      // (the IRQ/NMI sequence leaves A/X/Y untouched, so this snapshot is the
+      // parent flow's A/X/Y; PC+P came off the stack).
+      stack: this.stack.map((f) => ({
+        kind: f.kind, pc: f.enteredAtPc, returnPc: f.returnPc ?? f.enteredAtPc,
+        cycle: f.enteredAtCycle, regs: f.regs,
+      })),
     };
   }
 
