@@ -179,6 +179,25 @@ test("PAL and Warp reach identical state for the same cycle count", () => {
   assert.equal(palFake.c64Cpu.pc, warpFake.c64Cpu.pc, "equal cycles ⇒ equal PC regardless of pacing");
 });
 
+// regression — the loop must NOT tick during a runExclusive mutation
+// (disk mount/swap), else the drive runs half-attached → UI freeze.
+test("runExclusive suspends the loop's clock for the whole mutation", async () => {
+  const { ctrl, fake } = mkController();
+  ctrl.run({ mode: "warp" });
+  await waitFor(() => fake.c64Cpu.cycles > 0);
+  let cyclesAtStart = -1, cyclesAtEnd = -1;
+  await ctrl.runExclusive(async () => {
+    cyclesAtStart = fake.c64Cpu.cycles;
+    await delay(40); // simulate an async mount (await import + mountMedia)
+    cyclesAtEnd = fake.c64Cpu.cycles;
+  });
+  assert.equal(cyclesAtStart, cyclesAtEnd, "machine must NOT advance during the mutation");
+  assert.equal(ctrl.runState, "running", "still running after the swap (not paused)");
+  const after = fake.c64Cpu.cycles;
+  await waitFor(() => fake.c64Cpu.cycles > after); // loop re-armed → advances again
+  ctrl.pause();
+});
+
 // breakpoint store: stable checknums + add/del/list.
 test("breakpoint store assigns stable checknums", () => {
   const { ctrl } = mkController();

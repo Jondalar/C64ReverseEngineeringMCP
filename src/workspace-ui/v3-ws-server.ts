@@ -706,8 +706,17 @@ export class V3WsServer {
       if (s !== 8 && s !== 9) throw new Error(`media/mount: slot must be 8 or 9, got ${s}`);
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
-      const { mountMedia } = await import("../runtime/headless/media/mount.js");
-      return mountMedia(session, s as 8 | 9, path);
+      // Spec 701: the autonomous loop's clock lives outside the op-chain, so
+      // it could tick runFor() mid-attach and freeze the C64 on a half-
+      // attached drive (the regression cadc185 originally cured). Suspend
+      // the loop for the duration of the swap; it resumes (still running)
+      // after. No-op when no loop is active.
+      const ctrl = getRuntimeController(session_id);
+      const doMount = async () => {
+        const { mountMedia } = await import("../runtime/headless/media/mount.js");
+        return mountMedia(session, s as 8 | 9, path);
+      };
+      return ctrl ? ctrl.runExclusive(doMount) : doMount();
     });
 
     this.on("media/unmount", async ({ session_id, slot }) => {
@@ -715,8 +724,12 @@ export class V3WsServer {
       if (s !== 8 && s !== 9) throw new Error(`media/unmount: slot must be 8 or 9, got ${s}`);
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
-      const { unmountMedia } = await import("../runtime/headless/media/mount.js");
-      return unmountMedia(session, s as 8 | 9);
+      const ctrl = getRuntimeController(session_id); // Spec 701 — atomic vs loop
+      const doUnmount = async () => {
+        const { unmountMedia } = await import("../runtime/headless/media/mount.js");
+        return unmountMedia(session, s as 8 | 9);
+      };
+      return ctrl ? ctrl.runExclusive(doUnmount) : doUnmount();
     });
 
     this.on("media/swap", async ({ session_id, slot, path }) => {
@@ -725,8 +738,12 @@ export class V3WsServer {
       if (s !== 8 && s !== 9) throw new Error(`media/swap: slot must be 8 or 9, got ${s}`);
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
-      const { swapDisk } = await import("../runtime/headless/media/mount.js");
-      return swapDisk(session, s as 8 | 9, path);
+      const ctrl = getRuntimeController(session_id); // Spec 701 — atomic vs loop
+      const doSwap = async () => {
+        const { swapDisk } = await import("../runtime/headless/media/mount.js");
+        return swapDisk(session, s as 8 | 9, path);
+      };
+      return ctrl ? ctrl.runExclusive(doSwap) : doSwap();
     });
 
     this.on("media/recent", async () => {

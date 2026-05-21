@@ -81,6 +81,7 @@ export class RuntimeController {
   // Loop state.
   private timer: ReturnType<typeof setTimeout> | null = null;
   private immediate: ReturnType<typeof setImmediate> | null = null;
+  private suspendCount = 0;   // >0 = a mutation is in flight; loop must not tick
   private epochMs = 0;        // wall time at the current pacing epoch
   private framesSinceEpoch = 0;
   private frameCounter = 0;    // monotonic completed-frame count (for presentation)
@@ -189,6 +190,31 @@ export class RuntimeController {
     };
   }
 
+  /**
+   * Run a session-mutating op (disk mount/unmount/swap) atomically with
+   * respect to the loop. The loop's clock lives OUTSIDE the WS op-chain
+   * (it's a self-scheduled timer), so without this a loop tick could call
+   * runFor() mid-attach and leave the drive half-attached → the same UI
+   * freeze cadc185 fixed when the clock was still session/run on the chain.
+   *
+   * Cancels any pending tick, runs fn (which may await), then re-arms the
+   * loop. runState is NOT changed — a disk swap while the machine runs is
+   * legal (real hardware) and the UI keeps showing "running".
+   */
+  async runExclusive<T>(fn: () => T | Promise<T>): Promise<T> {
+    this.cancelScheduled();
+    this.suspendCount++;
+    try {
+      return await fn();
+    } finally {
+      this.suspendCount--;
+      if (this.suspendCount === 0 && this.runState === "running") {
+        this.resetPaceEpoch(); // don't try to "catch up" the suspended wall time
+        this.scheduleNext(0);
+      }
+    }
+  }
+
   /** Tear down (session stop). */
   dispose(): void {
     this.cancelScheduled();
@@ -229,6 +255,7 @@ export class RuntimeController {
   // presentation, then schedule the next chunk paced to wall-clock.
   private tick(): void {
     if (this.runState !== "running") return;
+    if (this.suspendCount > 0) return; // a mutation is in flight; runExclusive re-arms us
 
     const bps = this.bpAddrSet();
     const warp = this.pacing.mode === "warp";
