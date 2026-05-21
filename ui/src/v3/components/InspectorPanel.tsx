@@ -211,9 +211,10 @@ export function InspectorPanel({
     } catch (e) { console.error("drive_power:", e); }
   };
 
-  // T/S formatted as "XX.X/YY" — track + halfTrack-bit + sector zero-padded.
+  // T/S formatted as fixed-width "XX.X/YY" (zero-padded) so the layout doesn't
+  // shift when track/sector drop a digit.
   const tsFmt = (d: Drive): string => {
-    const t = d.track.toString();
+    const t = d.track.toString().padStart(2, "0");
     const half = (d.halfTrack % 2 === 1) ? "5" : "0";
     const sec = (d.sector ?? 0).toString().padStart(2, "0");
     return `${t}.${half}/${sec}`;
@@ -315,7 +316,7 @@ export function InspectorPanel({
         {vic ? (
           <table className="wb-regs">
             <tbody>
-              <tr><th>raster</th><td>{vic.rasterLine ?? "?"}.{vic.rasterCycle ?? "?"}</td></tr>
+              <tr><th>raster</th><td>{String(vic.rasterLine ?? 0).padStart(3, "0")}.{String(vic.rasterCycle ?? 0).padStart(2, "0")}</td></tr>
               <tr><th>mode</th><td>{vic.mode ?? "?"}</td></tr>
               <tr><th>bank</th><td>{hex((vic.bank ?? 0) << 14, 4)}</td></tr>
               <tr><th>screen</th><td>{hex(vic.screenPtr ?? 0, 4)}</td></tr>
