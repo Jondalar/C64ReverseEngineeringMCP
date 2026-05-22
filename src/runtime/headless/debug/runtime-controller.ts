@@ -100,6 +100,14 @@ export class RuntimeController {
   private frameCounter = 0;    // monotonic completed-frame count (for presentation)
   private lastPresentMs = 0;
 
+  // Spec 703 §8 — per-frame audio hook. Called once per COMPLETED emulated
+  // frame (un-throttled, unlike presentation). The server uses it to flush the
+  // batch of SID register writes captured that frame and stream them to the
+  // browser, which runs reSID and renders on its own audio clock. Emulation
+  // stays pure wall-clock; the browser is the audio master purely by rendering
+  // on demand (no backend pace feedback needed).
+  onAudioFrame?: () => void;
+
   constructor(
     sessionId: string, session: IntegratedSession, broadcast: BroadcastFn,
     presentFrame?: (frameNum: number) => void,
@@ -321,6 +329,10 @@ export class RuntimeController {
     // Completed a chunk = one PAL frame (or one warp chunk). Count + present.
     this.frameCounter++;
     this.framesSinceEpoch++;
+    // Produce + deliver this frame's audio in lockstep with emulated time
+    // (Spec 703 §8). Un-throttled (every frame) and isolated from the loop:
+    // a transport hiccup must never kill emulation.
+    try { this.onAudioFrame?.(); } catch { /* drop this frame's audio */ }
     // A presentation/transport error (render, WS send) must NEVER kill the
     // loop or crash the process — the emulation keeps running regardless.
     try { this.maybePresentFrame(warp); } catch { /* drop this frame's display */ }

@@ -44,6 +44,8 @@ const EXPORTED_FUNCTIONS = [
   "_resid_set_chip_model",
   "_resid_set_voice_mask",
   "_resid_enable_filter",
+  "_resid_adjust_filter_bias",
+  "_resid_enable_external_filter",
   "_resid_set_sampling",
   "_resid_reset",
   "_resid_write",

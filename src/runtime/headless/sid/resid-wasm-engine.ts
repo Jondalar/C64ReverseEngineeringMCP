@@ -46,7 +46,9 @@ type ResidBindings = {
   setChipModel: (m: number) => void;
   setVoiceMask: (mask: number) => void;
   enableFilter: (on: number) => void;
-  setSampling: (clk: number, sr: number, method: number) => number;
+  adjustFilterBias: (bias: number) => void;
+  enableExternalFilter: (on: number) => void;
+  setSampling: (clk: number, sr: number, method: number, passband: number, gain: number) => number;
   reset: () => void;
   write: (reg: number, val: number) => void;
   read: (reg: number) => number;
@@ -67,6 +69,9 @@ export class ResidWasm implements AudioSidLike {
   public readonly clockFreq: number;
   private readonly model: number;
 
+  /** Filter DC bias passed to reSID (VICE units: mV/1000). */
+  private readonly filterBias: number;
+
   /** WASM bindings once the module has loaded; undefined until then. */
   private b: ResidBindings | undefined;
   private loadPromise: Promise<void> | undefined;
@@ -79,7 +84,15 @@ export class ResidWasm implements AudioSidLike {
     this.inner = inner ?? new Sid6581();
     this.sampleRate = opts.sampleRate ?? DEFAULT_SAMPLE_RATE;
     this.clockFreq = opts.clockFreq ?? PAL_CLOCK_FREQ;
-    this.model = opts.model === "8580" ? MODEL_8580 : MODEL_6581;
+    // Model + 6581 filter bias are tunable (filter character is subjective and
+    // chip-unit-dependent — VICE exposes both as user settings). Defaults match
+    // VICE: 6581, SidResidFilterBias 500mV → 0.5. 8580 is brighter/cleaner.
+    const envModel = (process.env["C64RE_SID_MODEL"] || "").toLowerCase();
+    const model = opts.model ?? (envModel === "8580" ? "8580" : envModel === "6581" ? "6581" : undefined);
+    this.model = model === "8580" ? MODEL_8580 : MODEL_6581;
+    const envBias = Number(process.env["C64RE_SID_FILTER_BIAS"]);
+    const defaultBiasMv = this.model === MODEL_8580 ? 0 : 500;
+    this.filterBias = (Number.isFinite(envBias) ? envBias : defaultBiasMv) / 1000;
     // Kick off the background load; emit() yields silence until it resolves.
     this.loadPromise = this.load().catch((e) => {
       this.loadFailed = e instanceof Error ? e : new Error(String(e));
@@ -112,7 +125,9 @@ export class ResidWasm implements AudioSidLike {
       setChipModel: mod.cwrap("resid_set_chip_model", null, ["number"]),
       setVoiceMask: mod.cwrap("resid_set_voice_mask", null, ["number"]),
       enableFilter: mod.cwrap("resid_enable_filter", null, ["number"]),
-      setSampling: mod.cwrap("resid_set_sampling", "number", ["number", "number", "number"]),
+      adjustFilterBias: mod.cwrap("resid_adjust_filter_bias", null, ["number"]),
+      enableExternalFilter: mod.cwrap("resid_enable_external_filter", null, ["number"]),
+      setSampling: mod.cwrap("resid_set_sampling", "number", ["number", "number", "number", "number", "number"]),
       reset: mod.cwrap("resid_reset", null, []),
       write: mod.cwrap("resid_write", null, ["number", "number"]),
       read: mod.cwrap("resid_read", "number", ["number"]),
@@ -134,15 +149,23 @@ export class ResidWasm implements AudioSidLike {
 
   /**
    * Apply the post-reset configuration in VICE's exact order (sid/resid.cc):
-   * set_chip_model → set_voice_mask(0x07) → enable_filter → set_sampling.
-   * The reSID ctor sets none of voice_mask/filter, so skipping this mutes
-   * voices and bypasses the filter.
+   * set_chip_model → set_voice_mask(0x07) → enable_filter →
+   * adjust_filter_bias → enable_external_filter → set_sampling. The reSID ctor
+   * sets none of voice_mask/bias/passband, so skipping these mutes voices and
+   * leaves the 6581 filter curve mis-biased (wrong filter character).
+   *
+   * VICE 6581 defaults (sid/sid.h): SidResidFilterBias 500mV → 0.5,
+   * SidResidPassband 90% → sampleRate*90/200, SidResidGain 97% → 0.97.
    */
   private configure(b: ResidBindings): void {
+    const passband = (this.sampleRate * 90) / 200;
+    const gain = 0.97;
     b.setChipModel(this.model);
     b.setVoiceMask(0x07); // all three voices (single SID)
     b.enableFilter(1);
-    b.setSampling(this.clockFreq, this.sampleRate, SAMPLE_RESAMPLE);
+    b.adjustFilterBias(this.filterBias);
+    b.enableExternalFilter(1);
+    b.setSampling(this.clockFreq, this.sampleRate, SAMPLE_RESAMPLE, passband, gain);
   }
 
   reset(): void {

@@ -8,6 +8,7 @@ export const BIN_TYPE_VIC_FRAME = 0x01;
 export const BIN_TYPE_AUDIO_BUFFER = 0x02;
 export const BIN_TYPE_TRACE_CHUNK = 0x03;
 export const BIN_TYPE_ACK = 0x04;
+export const BIN_TYPE_SID_WRITES = 0x05; // Spec 703 §8 — SID register-write stream
 
 export interface BinaryFrame {
   type: number;

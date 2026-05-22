@@ -1,41 +1,56 @@
 // Spec 703 §8 — UI WebAudio playback for the live SID stream.
 //
-// The backend pumps BIN_TYPE_AUDIO_BUFFER frames: interleaved signed-16-bit
-// little-endian stereo PCM at 44.1 kHz (mono SID duplicated to L/R). This is a
-// small jitter-buffered scheduler: each frame becomes an AudioBuffer played
-// back-to-back on a moving play-head, with a short lead so network/timer jitter
-// doesn't underrun, and a hard cap so a backgrounded tab can't build a huge
-// backlog (latest-wins resync instead).
+// The backend renders reSID PCM in its per-frame loop (the same cadence that
+// makes video smooth) and streams BIN_TYPE_AUDIO_BUFFER: interleaved s16le
+// stereo at 44.1 kHz. Playback is an AudioWorklet ring (resid-worklet.js) that
+// drains continuously at the audio render rate — no per-chunk source nodes
+// (those gapped at every boundary), no worker, no feedback loop. A generous
+// prebuffer absorbs frame-delivery jitter; on underrun the worklet emits smooth
+// silence and re-buffers instead of clicking.
 
-const STREAM_RATE = 44100; // backend SID stream rate
-const LEAD_SEC = 0.08; // target buffered lead (~80ms)
-const MAX_BACKLOG_SEC = 1.0; // resync if scheduled this far ahead
+import workletUrl from "./resid-worklet.js?url";
+
+const STREAM_RATE = 44100;
+const PREBUFFER_SEC = 0.25; // headroom to ride brief realtime dips (fastloaders)
 
 export class WebAudioPlayer {
   private ctx: AudioContext | null = null;
-  private playHead = 0;
-
+  private node: AudioWorkletNode | null = null;
+  private setupP: Promise<void> | null = null;
   private gestureArmed = false;
   private onGesture = (): void => { void this.resume(); };
 
-  /** Create/resume the AudioContext. MUST be called from a user gesture. */
-  async resume(): Promise<void> {
-    if (!this.ctx) {
-      const Ctor: typeof AudioContext =
-        (window as any).AudioContext ?? (window as any).webkitAudioContext;
-      this.ctx = new Ctor();
-    }
-    if (this.ctx.state === "suspended") await this.ctx.resume();
+  private async setup(): Promise<void> {
+    if (this.ctx) return;
+    const Ctor: typeof AudioContext =
+      (window as any).AudioContext ?? (window as any).webkitAudioContext;
+    const ctx = new Ctor({ sampleRate: STREAM_RATE });
+    this.ctx = ctx;
+    await ctx.audioWorklet.addModule(workletUrl);
+    const node = new AudioWorkletNode(ctx, "resid-playback", {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      processorOptions: {
+        ringFrames: STREAM_RATE, // ~1s
+        resampleRatio: STREAM_RATE / ctx.sampleRate,
+        startFrames: Math.round(STREAM_RATE * PREBUFFER_SEC),
+      },
+    });
+    node.connect(ctx.destination);
+    this.node = node;
   }
 
-  /**
-   * Arm audio without a user gesture: create the (suspended) context now and
-   * resume it on the first interaction anywhere. Lets us default audio ON —
-   * frames are dropped (not queued) until the context actually runs, so there
-   * is no backlog burst when it finally starts.
-   */
+  /** Create + start the AudioContext/worklet. Must be from a user gesture. */
+  async resume(): Promise<void> {
+    if (!this.setupP) this.setupP = this.setup().catch((e) => { this.setupP = null; throw e; });
+    await this.setupP;
+    if (this.ctx && this.ctx.state === "suspended") await this.ctx.resume();
+  }
+
+  /** Arm without a gesture: build a suspended context, resume on first input. */
   arm(): void {
-    void this.resume(); // creates the context; may stay suspended
+    void this.resume().catch(() => { /* resumes on gesture */ });
     if (this.gestureArmed) return;
     this.gestureArmed = true;
     for (const ev of ["pointerdown", "keydown", "touchstart"] as const) {
@@ -51,43 +66,23 @@ export class WebAudioPlayer {
     }
   }
 
-  /** Schedule one s16le interleaved-stereo PCM frame for playback. */
+  /** Feed one s16le interleaved-stereo PCM frame into the worklet ring. */
   push(bytes: Uint8Array): void {
-    const ctx = this.ctx;
-    // Drop frames until the context is actually running (autoplay-gated): no
-    // queueing into a frozen clock, so playback starts clean on first gesture.
-    if (!ctx || ctx.state !== "running") return;
-    const frames = (bytes.byteLength / 4) | 0; // 2ch × 2 bytes
-    if (frames === 0) return;
-
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    // AudioBuffer carries its own sampleRate; the device context resamples.
-    const buf = ctx.createBuffer(2, frames, STREAM_RATE);
-    const l = buf.getChannelData(0);
-    const r = buf.getChannelData(1);
-    for (let i = 0; i < frames; i++) {
-      l[i] = view.getInt16(i * 4, true) / 32768;
-      r[i] = view.getInt16(i * 4 + 2, true) / 32768;
-    }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-
-    const now = ctx.currentTime;
-    // Underrun (head fell behind) or first frame → re-arm the lead.
-    if (this.playHead < now + 0.01) this.playHead = now + LEAD_SEC;
-    src.start(this.playHead);
-    this.playHead += buf.duration;
-    // Overrun guard (tab was backgrounded): drop ahead to the lead window.
-    if (this.playHead > now + MAX_BACKLOG_SEC) this.playHead = now + LEAD_SEC;
+    const node = this.node;
+    if (!node || !this.ctx || this.ctx.state !== "running") return;
+    if (bytes.byteLength < 4) return;
+    const copy = bytes.slice(0, bytes.byteLength & ~1);
+    const i16 = new Int16Array(copy.buffer); // s16le; browsers are little-endian
+    node.port.postMessage(i16, [copy.buffer]);
   }
 
   async close(): Promise<void> {
     this.disarm();
+    try { this.node?.disconnect(); } catch { /* ignore */ }
+    this.node = null;
     try { await this.ctx?.close(); } catch { /* ignore */ }
     this.ctx = null;
-    this.playHead = 0;
+    this.setupP = null;
   }
 
   get active(): boolean {

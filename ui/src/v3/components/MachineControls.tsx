@@ -88,9 +88,10 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     const player = new WebAudioPlayer();
     playerRef.current = player;
     player.arm(); // suspended context + resume-on-first-gesture
+    // Backend streams reSID PCM (BIN_TYPE_AUDIO_BUFFER); feed the worklet ring.
     offBinRef.current = c.onBinary(BIN_TYPE_AUDIO_BUFFER, (frame) => player.push(frame.payload));
     try {
-      await c.call("audio/start", { session_id: sessionId, sample_rate: 44100, chunk_samples: 1024 });
+      await c.call("audio/start", { session_id: sessionId });
     } catch (e) {
       console.error("audio/start failed", e);
       await stopAudio();

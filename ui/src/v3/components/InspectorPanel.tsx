@@ -54,6 +54,33 @@ interface VicState {
   border?: number; background?: number;
 }
 
+interface SidState { regs: number[]; streaming: boolean }
+
+// Decode one SID voice (7 regs from offset vb) into a display row.
+const PAL_SID_CLOCK = 985248;
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+function noteName(freqReg: number): string {
+  if (freqReg <= 0) return "—";
+  const hz = (freqReg * PAL_SID_CLOCK) / 16777216;
+  if (hz < 8) return "—";
+  const midi = Math.round(69 + 12 * Math.log2(hz / 440));
+  if (midi < 0 || midi > 127) return "—";
+  return `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
+}
+function waveform(control: number): string {
+  const w: string[] = [];
+  if (control & 0x10) w.push("△");  // triangle
+  if (control & 0x20) w.push("◣");  // sawtooth
+  if (control & 0x40) w.push("⊓");  // pulse
+  if (control & 0x80) w.push("∿");  // noise
+  return w.length ? w.join("") : "—";
+}
+function decodeVoice(regs: number[], vb: number): { wave: string; gate: boolean; note: string } {
+  const ctrl = regs[vb + 4] ?? 0;
+  const freq = (regs[vb] ?? 0) | ((regs[vb + 1] ?? 0) << 8);
+  return { wave: waveform(ctrl), gate: (ctrl & 1) !== 0, note: noteName(freq) };
+}
+
 // Spec 623 §4.3 — control-flow stack (main/irq/nmi/brk).
 interface FlowRegs { a: number; x: number; y: number; sp: number; p: number; }
 interface FlowFrame { kind: string; pc: number; returnPc: number; cycle: number; regs?: FlowRegs; }
@@ -155,6 +182,7 @@ export function InspectorPanel({
 }: Props): JSX.Element {
   const [cpu, setCpu] = useState<CpuState | null>(null);
   const [vic, setVic] = useState<VicState | null>(null);
+  const [sid, setSid] = useState<SidState | null>(null);
   const [flow, setFlow] = useState<FlowState | null>(null);
   const [vectors, setVectors] = useState<Vectors | null>(null);
   const [media, setMedia] = useState<RecentMedium[]>([]);
@@ -169,6 +197,7 @@ export function InspectorPanel({
         if (alive) {
           setCpu(s.cpu ?? { pc: 0, a: 0, x: 0, y: 0, sp: 0, flags: 0, cycles: s.c64Cycles ?? 0 });
           setVic(s.vic ?? null);
+          setSid(s.sid ?? null);
           setFlow(s.flow ?? null);
           setVectors(s.vectors ?? null);
         }
@@ -326,6 +355,50 @@ export function InspectorPanel({
             </tbody>
           </table>
         ) : <p>—</p>}
+      </section>
+
+      <section>
+        <h3>
+          SID
+          <span
+            className={sid?.streaming ? "wb-led read" : "wb-led off"}
+            style={{ marginLeft: 6, verticalAlign: "middle" }}
+            title={sid?.streaming ? "audio streaming" : "audio off"}
+          />
+          <span className="wb-muted" style={{ marginLeft: 4, fontSize: 10 }}>
+            {sid?.streaming ? "on" : "off"}
+          </span>
+        </h3>
+        {sid ? (() => {
+          const r = sid.regs;
+          const vol = (r[0x18] ?? 0) & 0x0f;
+          const fmode = [
+            (r[0x18] ?? 0) & 0x10 ? "LP" : "",
+            (r[0x18] ?? 0) & 0x20 ? "BP" : "",
+            (r[0x18] ?? 0) & 0x40 ? "HP" : "",
+          ].filter(Boolean).join("+") || "—";
+          const cutoff = ((r[0x15] ?? 0) & 7) | ((r[0x16] ?? 0) << 3);
+          const res = (r[0x17] ?? 0) >> 4;
+          const voices = [0x00, 0x07, 0x0e].map((vb) => decodeVoice(r, vb));
+          return (
+            <table className="wb-regs">
+              <tbody>
+                <tr><th></th><th>wave</th><th>note</th><th>gate</th></tr>
+                {voices.map((v, i) => (
+                  <tr key={i} className={v.gate ? "wb-flow-active" : ""}>
+                    <th>V{i + 1}</th>
+                    <td>{v.wave}</td>
+                    <td>{v.note}</td>
+                    <td>{v.gate ? "●" : "○"}</td>
+                  </tr>
+                ))}
+                <tr className="wb-cpu-sep"><td colSpan={4}></td></tr>
+                <tr><th>vol</th><td>{vol}</td><th>filt</th><td>{fmode}</td></tr>
+                <tr><th>fc</th><td>{hex(cutoff, 3)}</td><th>res</th><td>{res}</td></tr>
+              </tbody>
+            </table>
+          );
+        })() : <p>—</p>}
       </section>
 
       {drive && (

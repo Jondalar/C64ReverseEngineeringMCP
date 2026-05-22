@@ -17,6 +17,10 @@ export default defineConfig({
   build: {
     outDir: "dist-v3",
     emptyOutDir: true,
+    // Keep the AudioWorklet a real file: addModule() rejects inlined data:
+    // URLs. Everything else uses the default inline threshold.
+    assetsInlineLimit: (filePath: string) =>
+      filePath.endsWith("resid-worklet.js") ? false : undefined,
     rollupOptions: {
       input: resolve(__dirname, "v3.html"),
     },

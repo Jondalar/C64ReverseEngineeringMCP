@@ -53,12 +53,29 @@ void resid_enable_filter(int enable) {
 }
 
 // method: 0 FAST, 1 INTERPOLATE, 2 RESAMPLE, 3 RESAMPLE_FASTMEM.
+// passband / gain match VICE: passband = sample_freq * SidResidPassband/200,
+// gain = SidResidGain/100. Pass passband<=0 to use reSID's own default.
 // Returns 1 on success, 0 on failure (e.g. invalid resample params).
-int resid_set_sampling(double clock_freq, double sample_freq, int method) {
+int resid_set_sampling(double clock_freq, double sample_freq, int method,
+                       double passband, double gain) {
+  const double pass = passband > 0.0 ? passband : -1.0;
   return g_sid.set_sampling_parameters(
-             clock_freq, static_cast<sampling_method>(method), sample_freq)
+             clock_freq, static_cast<sampling_method>(method), sample_freq,
+             pass, gain)
              ? 1
              : 0;
+}
+
+// 6581 filter DC bias (VICE: adjust_filter_bias(SidResidFilterBias/1000)).
+// THE 6581 filter-character knob; VICE default 500mV → 0.5.
+void resid_adjust_filter_bias(double bias) {
+  g_sid.adjust_filter_bias(bias);
+}
+
+// Output RC stage (VICE enables it with the filter). reSID enables it by
+// default; expose it so the engine can match VICE explicitly.
+void resid_enable_external_filter(int enable) {
+  g_sid.enable_external_filter(enable != 0);
 }
 
 void resid_reset() {

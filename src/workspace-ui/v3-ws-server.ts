@@ -62,9 +62,13 @@ function viceSectorUnderHead(d0: any): number {
 
 // Binary frame type codes.
 export const BIN_TYPE_VIC_FRAME = 0x01;
-export const BIN_TYPE_AUDIO_BUFFER = 0x02;
+export const BIN_TYPE_AUDIO_BUFFER = 0x02; // legacy PCM stream (export path only)
 export const BIN_TYPE_TRACE_CHUNK = 0x03;
 export const BIN_TYPE_ACK = 0x04;
+// Spec 703 §8 — SID register-write stream. The browser runs reSID and renders;
+// the backend only ships the $D400-$D41F writes (cycle-stamped) per frame.
+// payload: baseCycle f64 | nowDelta u32 | count u16 | count×(delta u32, reg u8, val u8)
+export const BIN_TYPE_SID_WRITES = 0x05;
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -116,12 +120,14 @@ export class V3WsServer {
     // behind any in-flight mount/reset so they execute atomically.
     "debug/run", "debug/pause", "debug/continue", "debug/step", "session/set_pacing",
   ]);
-  // Spec 263 — per-session audio streamers. Pumped on a fixed cadence
-  // and flushed via session_state ticks. Keyed by session_id.
+  // Spec 703 §8 — per-session audio. reSID PCM is rendered on the backend in
+  // the RuntimeController's per-frame hook (the SAME loop + cadence that pushes
+  // video frames — so audio rides the steady frame clock that already makes
+  // video smooth) and streamed as BIN_TYPE_AUDIO_BUFFER. The browser plays it
+  // through an AudioWorklet ring.
   private audioStreams = new Map<string, {
     recorder: SidAudioRecorder;
     cursorId: string;
-    timer: ReturnType<typeof setInterval>;
     seq: number;
   }>();
 
@@ -175,8 +181,9 @@ export class V3WsServer {
 
   close(): Promise<void> {
     return new Promise((resolve) => {
-      for (const [, s] of this.audioStreams) {
-        clearInterval(s.timer);
+      for (const [sessId, s] of this.audioStreams) {
+        const c = getRuntimeController(sessId);
+        if (c) c.onAudioFrame = undefined;
         try { s.recorder.buffer.detach(s.cursorId); } catch {}
         try { s.recorder.detach(); } catch {}
       }
@@ -346,6 +353,12 @@ export class V3WsServer {
         // FLOW panel. Populated while stepping (z/n/sf/nf); empty = main.
         flow: getRuntimeController(session_id)?.flow.flowState() ?? null,
         vectors,
+        // Spec 703 §10 — SID register snapshot ($D400-$D418) + audio stream
+        // state. The UI decodes per-voice waveform/gate/note + filter/volume.
+        sid: {
+          regs: Array.from(s.sid.regs.slice(0, 0x19)),
+          streaming: this.audioStreams.has(session_id),
+        },
       };
     });
 
@@ -674,45 +687,47 @@ export class V3WsServer {
       return { device: 8, reinitialized: false };
     });
 
-    // Spec 263 — audio streaming.
-    this.on("audio/start", ({ session_id, sample_rate, chunk_samples }) => {
-      const s = getIntegratedSession(session_id);
+    // Spec 703 §8 — backend renders reSID PCM in the per-frame hook (same loop
+    // + cadence as the video push) and streams it. Audio inherits the steady
+    // frame clock that already makes video smooth.
+    this.on("audio/start", ({ session_id }) => {
+      const s = getIntegratedSession(session_id) as any;
       if (!s) throw new Error(`no session ${session_id}`);
-      if (this.audioStreams.has(session_id)) {
-        return { already_streaming: true };
-      }
-      const recorder = new SidAudioRecorder(s as any, {
-        sampleRate: sample_rate ?? 44100,
-        bufferSamples: 65536,
-      });
-      // reSID WASM loads asynchronously; the 23ms pump tolerates the brief
-      // pre-load silence. Surface a load failure rather than streaming silence
-      // forever in that case.
+      if (this.audioStreams.has(session_id)) return { already_streaming: true };
+
+      const recorder = new SidAudioRecorder(s, { sampleRate: 44100, bufferSamples: 65536 });
       recorder.resid.ready?.().catch((e) => {
-        console.warn(`[audio/start] reSID engine load failed for ${session_id}: ${e?.message ?? e}`);
+        console.warn(`[audio/start] reSID load failed for ${session_id}: ${e?.message ?? e}`);
       });
       const cursorId = `ws_${session_id}_${Date.now()}`;
       recorder.buffer.attach(cursorId);
-      const chunk = chunk_samples ?? 1024;
-      let seq = 0;
-      const timer = setInterval(() => { // audit-ok: audio-stream wall-clock pump (~1024 samples @ 44.1kHz cadence). Not emulator timing — drains pre-rendered ResID buffer over WebSocket.
+      const state = { recorder, cursorId, seq: 0 };
+      this.audioStreams.set(session_id, state);
+
+      const controller = ensureRuntimeController(
+        session_id, s, (m, p) => this.broadcast(m, p), undefined,
+      );
+      // One PCM frame per completed emulated frame (~882 samples @ PAL) →
+      // steady ~20ms delivery, locked to the video frame cadence.
+      controller.onAudioFrame = () => {
         recorder.flush();
-        while (recorder.buffer.available(cursorId) >= chunk) {
-          const { samples } = recorder.buffer.read(cursorId, chunk);
-          const stereo = monoToStereoLR(samples);
-          this.broadcastBinary(BIN_TYPE_AUDIO_BUFFER, seq++, int16ToLeBytes(stereo));
-        }
-      }, 23); // ~1024 samples @ 44.1kHz
-      this.audioStreams.set(session_id, { recorder, cursorId, timer, seq });
+        const avail = recorder.buffer.available(cursorId);
+        if (avail <= 0) return;
+        const { samples } = recorder.buffer.read(cursorId, avail);
+        if (samples.length === 0) return;
+        const stereo = monoToStereoLR(samples);
+        this.broadcastBinary(BIN_TYPE_AUDIO_BUFFER, state.seq++, int16ToLeBytes(stereo));
+      };
       return { streaming: true, sample_rate: recorder.resid.sampleRate };
     });
 
     this.on("audio/stop", ({ session_id }) => {
       const stream = this.audioStreams.get(session_id);
       if (!stream) return { stopped: false };
-      clearInterval(stream.timer);
-      try { stream.recorder.buffer.detach(stream.cursorId); } catch {}
-      try { stream.recorder.detach(); } catch {}
+      const c = getRuntimeController(session_id);
+      if (c) c.onAudioFrame = undefined;
+      try { stream.recorder.buffer.detach(stream.cursorId); } catch { /* ignore */ }
+      try { stream.recorder.detach(); } catch { /* ignore */ }
       this.audioStreams.delete(session_id);
       return { stopped: true };
     });
