@@ -43,8 +43,9 @@ export function runPaddleTest(): CheckResult[] {
   const { session } = startIntegratedSession({ diskPath: FIXTURE, mode: "true-drive" });
   out.push(check("paddles[] initialised to 4 slots",
     session.paddles.length === 4));
-  out.push(check("paddles default 0",
-    session.paddles[0] === 0 && session.paddles[3] === 0));
+  // Spec 429: unconnected POT lines default to $80 (VICE-match), not 0.
+  out.push(check("paddles default $80 (no paddle, VICE-match)",
+    session.paddles[0] === 0x80 && session.paddles[3] === 0x80));
 
   session.setPaddle(0, 0xff);
   session.setPaddle(1, 0x80);

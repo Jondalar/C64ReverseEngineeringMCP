@@ -78,8 +78,8 @@ const GAMES = [
     proofs: ["thepawn1.png", "thepawn2.png"],
     screenshot: "/tmp/pawn-t060s.png" },
   { key: "lnr",       script: "scripts/test-lnr-screenshots.mjs",
-    expected: "RED", baselinePc: "f6c5",
-    proofs: ["LNR_System3.png"],
+    expected: "GREEN", baselinePc: "89c",   // Spec 429: SID POTX $D419 default
+    proofs: ["LNR_System3.png"],            // 0->$80 (VICE); LNR reaches intro
     screenshot: "/tmp/lnr-t090s.png" },
 ];
 

@@ -134,7 +134,12 @@ export class HeadlessMachineKernel implements MachineKernel {
   readonly keyboard: KeyboardMatrix;
   readonly joystick1: JoystickState;
   readonly joystick2: JoystickState;
-  readonly paddles: Uint8Array = new Uint8Array(4); // [POTAX, POTAY, POTBX, POTBY]
+  // Spec 429: unconnected POT lines read $80, matching VICE. (gold trace
+  // $D419 = $80 on every read; VICE sid.c makepotval(read_joyport_potx())).
+  // A default of 0 made Last Ninja Remix's POTX bit-7 gate
+  // ($0917 LDA $D419 / CMP #$00 / BMI) fall through to the in-game path
+  // (Central Park) instead of the SYSTEM3/title/intro. setPaddle() overrides.
+  readonly paddles: Uint8Array = new Uint8Array([0x80, 0x80, 0x80, 0x80]); // [POTAX, POTAY, POTBX, POTBY]
   readonly vic: VicIIVice;
   readonly sid: Sid6581;
   readonly framebuffer: VicFramebuffer;
@@ -382,7 +387,7 @@ export class HeadlessMachineKernel implements MachineKernel {
     this.sid = installSid(this.c64Bus);
     // Spec 108 (M2.6c) v1: bridge POT readback to paddles[].
     // Paddle 0 → POT A, paddle 2 → POT B.
-    this.sid.potReader = (idx) => this.paddles[idx === 0 ? 0 : 2] ?? 0;
+    this.sid.potReader = (idx) => this.paddles[idx === 0 ? 0 : 2] ?? 0x80;
     this.c64Bus.reset();
 
     this.framebuffer = new VicFramebuffer(isPal);

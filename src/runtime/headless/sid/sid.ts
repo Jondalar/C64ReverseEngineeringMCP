@@ -222,9 +222,10 @@ export class Sid6581 {
     const a = addr & 0x1f;
     switch (a) {
       case SR_POT_X:
-        return u8(this.potReader?.(0) ?? 0);
+        // Spec 429: unconnected POT default = $80 (VICE), not 0.
+        return u8(this.potReader?.(0) ?? 0x80);
       case SR_POT_Y:
-        return u8(this.potReader?.(1) ?? 0);
+        return u8(this.potReader?.(1) ?? 0x80);
       case SR_OSC3:
         return this.readOsc3();
       case SR_ENV3:

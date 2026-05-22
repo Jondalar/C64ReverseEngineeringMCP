@@ -71,11 +71,12 @@ export function runPotReadbackTest(): CheckResult[] {
   const out: CheckResult[] = [];
   const { session } = startIntegratedSession({ diskPath: FIXTURE, mode: "true-drive" });
   const sid = session.sid;
-  // Default paddles = 0.
-  out.push(check("$D419 POT A default 0 (paddle 0 default)",
-    sid.read(0x19) === 0));
-  out.push(check("$D41A POT B default 0 (paddle 2 default)",
-    sid.read(0x1A) === 0));
+  // Spec 429: unconnected POT lines default to $80 (VICE: $D419/$D41A = $80),
+  // not 0. A 0 default made LNR's POTX bit-7 intro gate skip to the game.
+  out.push(check("$D419 POT A default $80 (no paddle, VICE-match)",
+    sid.read(0x19) === 0x80));
+  out.push(check("$D41A POT B default $80 (no paddle, VICE-match)",
+    sid.read(0x1A) === 0x80));
 
   session.setPaddle(0, 0xab);
   session.setPaddle(2, 0xcd);
