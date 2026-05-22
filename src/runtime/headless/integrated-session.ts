@@ -46,7 +46,6 @@ import {
   type KernalFileIoState,
 } from "./traps/kernal-fileio.js";
 import {
-  handleKernalSerialTrap,
   makeKernalSerialState,
   type KernalSerialState,
 } from "./traps/kernal-serial.js";
@@ -690,16 +689,24 @@ export class IntegratedSession {
     // current values. Tracing only emits when (a) producer.enable()
     // is called AND (b) channel mode != "off".
     if (opts.enableBusAccessTrace) {
+      // Spec 704 §11 R3 — drive-side bus trace reads the vice drive via
+      // driveDebug() (probe). The legacy drive VIA1 busAccessHook is gone,
+      // so drive-VIA register-access events are not captured here
+      // (driveVia1 omitted); the drive-CPU pc/clk lane still works.
+      const self = this;
+      const driveCpuView = {
+        get pc() { return self.driveDebug().drive_pc; },
+        get cycles() { return self.driveDebug().drive_clk; },
+      };
       const producer = new BusAccessTraceProducerImpl({
         registry: this.traceRegistry,
         c64Cpu: this.c64Cpu as unknown as { pc: number; cycles: number; isAtInstructionBoundary?: () => boolean },
-        driveCpu: this.drive.cpu as unknown as { pc: number; cycles: number; isAtInstructionBoundary?: () => boolean },
+        driveCpu: driveCpuView as unknown as { pc: number; cycles: number; isAtInstructionBoundary?: () => boolean },
         schedule: {
           c64Cycle: () => this.scheduler ? this.scheduler.c64Cycle() : this.c64Cpu.cycles,
-          driveCycle: () => this.scheduler ? this.scheduler.driveCycle() : ((this.drive.cpu as unknown as { cycles?: number }).cycles ?? 0),
+          driveCycle: () => this.scheduler ? this.scheduler.driveCycle() : self.driveDebug().drive_clk,
         },
         iecBus: this.iecBus,
-        driveVia1: this.drive.bus.via1,
       });
       producer.setFilter({
         pcRangesC64: opts.busAccessPcRangesC64 ?? [],
@@ -707,8 +714,6 @@ export class IntegratedSession {
       });
       producer.enable();
       this.iecBus.busAccessProducer = producer;
-      this.drive.bus.via1.busAccessHook = producer;
-      this.drive.bus.via1.baseAddr = 0x1800;
       this.busAccessProducer = producer;
       // Spec 205-A c1: register producer with kernel trace controller
       // so external consumers can reach it via kernel.trace().
@@ -1020,7 +1025,7 @@ export class IntegratedSession {
   // Spec 093: drive PC sample (called per C64 instruction step).
   private sampleDrivePc(): void {
     if (this.drivePcTraceCapacity <= 0) return;
-    const pc = this.drive.cpu.pc;
+    const pc = this.driveDebug().drive_pc;
     const last = this.drivePcTrace[this.drivePcTrace.length - 1];
     if (last && last.pc === pc) return; // dedupe consecutive
     this.drivePcTrace.push({ cycle: this.c64Cpu.cycles, pc });
@@ -1062,14 +1067,10 @@ export class IntegratedSession {
       this.kernel.recordHookFire("kernal-fileio-trap", `pc=$${this.c64Cpu.pc.toString(16)}`);
       return true;
     }
-    if (this.enableKernalSerialTraps && this.diskProvider && handleKernalSerialTrap({
-      cpu: this.c64Cpu, bus: this.c64Bus,
-      diskProvider: this.diskProvider, drive: this.drive,
-      iecBus: this.iecBus, state: this.kernalSerial,
-    })) {
-      this.kernel.recordHookFire("kernal-serial-trap", `pc=$${this.c64Cpu.pc.toString(16)}`);
-      return true;
-    }
+    // Spec 704 §11 R3 — legacy KERNAL-serial fast-trap removed: it poked
+    // the legacy drive RAM/PC (M-W/M-E), incompatible with VICE1541, and
+    // was forbidden in true-drive mode anyway (Spec 429 §8). The kernalSerial
+    // state survives for handleKernalIoTrap below.
     if (this.enableKernalIoTraps && this.diskProvider && handleKernalIoTrap({
       cpu: this.c64Cpu, bus: this.c64Bus,
       diskProvider: this.diskProvider, serial: this.kernalSerial,
@@ -1344,12 +1345,14 @@ export class IntegratedSession {
         sp: this.c64Cpu.sp, flags: this.c64Cpu.flags,
         cycles: this.c64Cpu.cycles, instructions: this.c64InstructionCount,
       },
-      drive: {
-        pc: this.drive.cpu.pc, a: this.drive.cpu.a, x: this.drive.cpu.x, y: this.drive.cpu.y,
-        sp: this.drive.cpu.sp, flags: this.drive.cpu.flags,
-        cycles: this.drive.cpu.cycles, instructions: 0,
-        track: this.headPosition.currentTrack,
-      },
+      // Spec 704 §11 R3 — vice-redirect: drive snapshot from the vice
+      // drive probe (was legacy drive.cpu / headPosition).
+      drive: ((d) => ({
+        pc: d.drive_pc, a: d.drive_a, x: d.drive_x, y: d.drive_y,
+        sp: d.drive_sp, flags: d.drive_flags,
+        cycles: d.drive_clk, instructions: 0,
+        track: d.current_track,
+      }))(this.driveDebug()),
       iecBus: this.iecBus.snapshot(),
       romSet: {
         kernal: `${this.romSet.kernal.source}${this.romSet.kernal.path ? ` (${this.romSet.kernal.path})` : ""}`,

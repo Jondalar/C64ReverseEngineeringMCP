@@ -296,7 +296,7 @@ export class AgentQueryApi {
   status() {
     return {
       c64Cycles: this.session.c64Cpu.cycles,
-      driveCycles: this.session.drive.cpu.cycles,
+      driveCycles: this.session.driveDebug().drive_clk, // Spec 704 §11 R3 — vice drive clock
       mode: this.session.mode,
       scenarioId: this.scenarioId,
       hasTraceBackend: !!this.traceBackend,

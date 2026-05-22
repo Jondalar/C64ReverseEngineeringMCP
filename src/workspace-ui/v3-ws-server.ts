@@ -325,7 +325,7 @@ export class V3WsServer {
       };
       return {
         c64Cycles: c.cycles,
-        driveCycles: s.drive.cpu.cycles,
+        driveCycles: s.driveDebug().drive_clk, // Spec 704 §11 R3 — vice drive clock
         mode: s.mode,
         cpu: {
           pc: c.pc, a: c.a, x: c.x, y: c.y, sp: c.sp,
@@ -577,55 +577,32 @@ export class V3WsServer {
     this.on("session/drive_status", ({ session_id }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
-      const drv = s.drive;
-      // Spec 618 follow-up — in drive1541="vice" mode the legacy DriveCpu
-      // (s.drive / s.headPosition / s.gcrShifter) is a co-resident stub
-      // whose head + PC freeze after the initial bridged dir step. The
-      // ACTIVE drive is the vice1541 facade. Read head + drive PC from it.
+      // Spec 704 §11 R3 — vice-only: read drive status from the vice1541
+      // facade (driveDebug probe) + diskunit. Legacy DriveCpu/headPosition/
+      // gcrShifter removed. Parity gaps vs the old legacy readout: LED-PWM
+      // brightness curve, VIA2-PCR r/w indicator, and a precise motor flag
+      // are not surfaced by the vice probe — approximated below.
+      const dd = s.driveDebug();
       const viceUnit = (s as any).kernel?.drive1541?.unit ?? (s as any).drive1541?.unit ?? null;
       const viceDrive0 = viceUnit?.drives?.[0] ?? null;
-      const halfTrack = viceDrive0
-        ? (viceDrive0.current_half_track ?? 0)
-        : ((s.headPosition as any).trackHalf ?? 0);
-      const motorOn = !!(s as any).gcrShifter?.motorOn;
-      // VICE 1:1 LED model (drive.c:870-931): PWM duty cycle per UI poll.
-      // Fast PB3 toggles average to brightness; DOS error blink oscillates
-      // duty per poll; idle = 0. sqrt curve for human-eye perception.
-      const { pwm: ledPwm, on: ledOn } = drv.bus.ledMonitor.sampleAndReset(drv.cpu.cycles);
-      // Flash = duty between 20%..80% sustained across polls (= DOS error
-      // ~2Hz blink shows up that way). UI treats ledPwm directly as
-      // brightness; ledFlashing kept for backwards-compat tagging.
-      const ledFlashing = ledPwm >= 200 && ledPwm <= 800;
-      // VIA2 CB2 from PCR bits 5..7. PCR & 0xE0:
-      //   0xC0 (110) = manual high  → R/W = read
-      //   0xE0 (111) = manual high  → R/W = read
-      //   0x80/0xA0 = pulse/handshake → treat as read default
-      //   0x00..0x40 = manual low / pulse low → write
-      const pcrCb2 = (drv.bus.via2 as any).pcr & 0xE0;
-      const rwMode: "read" | "write" =
-        (pcrCb2 === 0xC0 || pcrCb2 === 0xE0) ? "read" : "write";
-      // V1: sector not derived from GCR pipeline (DOS-tracked at $80 in
-      // drive RAM during BAM ops). Surface raw last-decoded sector header
-      // when shifter exposes it; else 0. Follow-up spec to parse $1C00
-      // GCR header bytes.
-      // Sector: physical sector under the GCR read head (decoded from the
-      // live GCR track) — loader-independent, matches VICE's indicator.
-      // DOS job-sector ($07) was unreliable: only buffer-0, and custom
-      // $0700 fastloaders bypass the DOS job queue entirely → always 0.
-      let sector = (s as any).gcrShifter?.lastSectorHeader ?? 0;
+      const halfTrack = (viceDrive0?.current_half_track ?? dd.head_halftrack) & 0xff;
+      const ledOn = dd.led !== 0;
+      const ledPwm = ledOn ? 1000 : 0;
+      const ledFlashing = false;
+      // Motor not exposed on the vice probe; DOS lights the LED while the
+      // motor spins, so approximate motorOn from the LED.
+      const motorOn = ledOn;
+      // R/W mode: vice VIA2 PCR not surfaced on the probe; default read.
+      const rwMode: "read" | "write" = "read";
+      // Sector under the GCR read head (vice decode).
+      let sector = 0;
       if (viceDrive0) {
         const sec = viceSectorUnderHead(viceDrive0);
         if (sec >= 0) sector = sec;
       }
-      // Active drive PC: vice drive 6502 in vice mode, legacy otherwise.
-      const drivePc = viceUnit
-        ? (viceUnit.cpu?.cpu_regs?.pc ?? drv.cpu.pc)
-        : drv.cpu.pc;
-      // Track from halftrack: vice current_half_track is 2-based (ht 2 =
-      // track 1) so track = ht/2; legacy headPosition is 0-based (+1).
-      const track = viceDrive0
-        ? Math.floor(halfTrack / 2)
-        : Math.floor(halfTrack / 2) + 1;
+      const drivePc = (viceUnit?.cpu?.cpu_regs?.pc ?? dd.drive_pc) & 0xffff;
+      // vice current_half_track is 2-based (ht 2 = track 1) → track = ht/2.
+      const track = Math.floor(halfTrack / 2);
 
       // Spec 424 follow-up — IEC bus snapshot + transfer-mode heuristic.
       // CIA2 PA ($DD00):
@@ -693,12 +670,7 @@ export class V3WsServer {
         facade.reset("cold");
         return { device: 8, reinitialized: true, mode: "vice" };
       }
-      // Legacy fallback: cold-reset the legacy DriveCpu.
-      const drv = s.drive as any;
-      if (drv && typeof drv.reset === "function") {
-        drv.reset();
-        return { device: 8, reinitialized: true, mode: "legacy" };
-      }
+      // Spec 704 §11 R3 — vice-only: no legacy drive fallback.
       return { device: 8, reinitialized: false };
     });
 

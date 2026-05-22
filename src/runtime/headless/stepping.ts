@@ -88,7 +88,7 @@ export function runUntilPc(
   let hits = 0;
   let lastPc = -1;
   for (let i = 0; i < budget; i++) {
-    const cur = side === "c64" ? session.c64Cpu.pc : session.drive.cpu.pc;
+    const cur = side === "c64" ? session.c64Cpu.pc : session.driveDebug().drive_pc;
     if (cur === target && lastPc !== target) {
       hits++;
       if (hits >= wantCount) {

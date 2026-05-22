@@ -130,7 +130,7 @@ export async function runEntry(entry: RegressEntry): Promise<RegressResult> {
     payloadSize,
     firstByte: `0x${firstByte.toString(16)}`,
     finalC64Pc: `0x${c64.pc.toString(16)}`,
-    driveTrack: session.headPosition.currentTrack,
+    driveTrack: session.driveDebug().current_track,
   };
 
   const e = entry.expected;

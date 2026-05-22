@@ -127,7 +127,7 @@ export async function runLoadSmoke(
   const loadAddr = target.expectedLoadStart;
   const payloadSize = loadEnd - loadAddr;
   const firstByte = ram[loadAddr] ?? 0;
-  const driveTrack = session.drive.headPosition?.currentTrack ?? -1;
+  const driveTrack = session.driveDebug().current_track;
 
   const details: LoadSmokeResult["details"] = {
     status90,

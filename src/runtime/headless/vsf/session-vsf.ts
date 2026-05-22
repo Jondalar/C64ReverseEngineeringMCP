@@ -93,13 +93,13 @@ export function saveSessionVsf(session: IntegratedSession, outputPath: string): 
   //    DRIVECPU + DRIVERAM + VIA1d1541 + VIA2d1541 + GCR head state.
   //    We split into named sibling chunks for round-trip clarity;
   //    the wire-order stays grouped under "DRIVE".
-  writer.addModule(VSF_MODULE_DRIVECPU, serializeCpu(session.drive.cpu as any));
-  writer.addModule(VSF_MODULE_DRIVERAM, serializeRam(session.drive.bus.ram));
-  writer.addModule(VSF_MODULE_VIA1D1541, serializeVia(session.drive.bus.via1));
-  writer.addModule(VSF_MODULE_VIA2D1541, serializeVia(session.drive.bus.via2));
-  writer.addModule(VSF_MODULE_GCRHEAD, serializeGcrHead(session.headPosition, session.trackBuffer));
-  modules.push(VSF_MODULE_DRIVECPU, VSF_MODULE_DRIVERAM,
-    VSF_MODULE_VIA1D1541, VSF_MODULE_VIA2D1541, VSF_MODULE_GCRHEAD);
+  // Spec 704 §11 R3 — vice drive snapshot as a single opaque module.
+  // facade.snapshot() is a stub (empty) until Spec 611.8 wires the host
+  // snapshot_t; until then VSF does not capture drive state. The legacy
+  // 5-module split (DRIVECPU/DRIVERAM/VIA1/VIA2/GCRHEAD) is retired.
+  const driveBlob = (session.kernel.drive1541 as { snapshot?(): Uint8Array }).snapshot?.() ?? new Uint8Array(0);
+  writer.addModule(VSF_MODULE_DRIVECPU, driveBlob);
+  modules.push(VSF_MODULE_DRIVECPU);
   // 6b. IEC bus (= part of DRIVE chunk in VICE per OQ-405-3 note —
   //     "IEC state is embedded in DRIVE chunk, not a top-level module"
   //     — we keep it grouped with DRIVE here for the same reason).
@@ -172,22 +172,13 @@ export function loadSessionVsf(session: IntegratedSession, inputPath: string): S
           deserializeKeyboard(session.keyboard, mod.data);
           result.loadedModules.push(mod.name); break;
         case VSF_MODULE_DRIVECPU:
-          deserializeCpu(session.drive.cpu as any, mod.data);
-          result.loadedModules.push(mod.name); break;
-        case VSF_MODULE_DRIVERAM:
-          deserializeRam(session.drive.bus.ram, mod.data);
-          result.loadedModules.push(mod.name); break;
-        case VSF_MODULE_VIA1D1541:
-          deserializeVia(session.drive.bus.via1, mod.data);
-          result.loadedModules.push(mod.name); break;
-        case VSF_MODULE_VIA2D1541:
-          deserializeVia(session.drive.bus.via2, mod.data);
+          // Spec 704 §11 R3 — vice drive opaque restore (stub until 611.8).
+          // Legacy DRIVERAM/VIA1/VIA2/GCRHEAD modules are retired; old
+          // snapshots carrying them fall through to default (ignored).
+          (session.kernel.drive1541 as { restore?(b: Uint8Array): void }).restore?.(mod.data);
           result.loadedModules.push(mod.name); break;
         case VSF_MODULE_IEC:
           deserializeIecBus(session.iecBus, mod.data);
-          result.loadedModules.push(mod.name); break;
-        case VSF_MODULE_GCRHEAD:
-          deserializeGcrHead(session.headPosition, session.trackBuffer, mod.data);
           result.loadedModules.push(mod.name); break;
         default:
           result.ignoredModules.push(mod.name);
@@ -235,7 +226,8 @@ export function loadSessionVsf(session: IntegratedSession, inputPath: string): S
   //       src/drive/drive.c:514 (cpu->stop_clk = *clk_ptr),
   //       src/core/viacore.c viacore_snapshot_module_read (alarm_set
   //         on restore with absolute clock).
-  session.drive.enable(session.c64Cpu.cycles);
+  // Spec 704 §11 R3 — vice drive re-arm is handled inside
+  // drive1541.restore; legacy session.drive.enable removed.
 
   return result;
 }

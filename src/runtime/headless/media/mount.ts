@@ -173,55 +173,12 @@ export async function mountMedia(
     // notifyMediaChange(newParser) hook that handles its own state
     // reset. Keeps the data-path hookups encapsulated and makes
     // multi-disk-title swaps clean.
-    session.trackBuffer.notifyMediaChange(newParser);
-    if (session.drive.trackBuffer
-        && session.drive.trackBuffer !== session.trackBuffer) {
-      session.drive.trackBuffer.notifyMediaChange(newParser);
-    }
-    session.gcrShifter?.notifyMediaChange(newParser);
-    // HeadPosition cap = constructed from initial parser's
-    // halfTrackCount (kernel.ts:168-172). NoDisk parser → 0 → fallback
-    // 35 tracks. motm.g64 has 37 tracks (extended for copy protection),
-    // so without re-cap the head can't reach tracks 36/37 after a
-    // mount-swap → fastloader read failures → retry loop. Update cap
-    // to match new image. Mirrors what kernel ctor does on direct boot.
-    const newHalfTrackCount = newParser.getHalfTrackCount();
-    if (newHalfTrackCount > 0) {
-      session.headPosition.setMaxHalfTracks(newHalfTrackCount);
-    }
-    // VICE drive_image_attach: set attach_clk = current cpu cycle.
-    // Drive sees no-sync + neutral data for DRIVE_ATTACH_DELAY cycles
-    // (~1.8 sec PAL), letting drive ROM settle without abrupt
-    // bit-stream transition. Mirrors real HW media-insert physics.
-    session.gcrShifter?.notifyAttach(session.c64Cpu.cycles);
-
-    // Spec 414 — Phase H step 32: re-arm drive enable after image
-    // (re-)attach. VICE `drive_enable()` (drive.c:482-529) does:
-    // (a) check `Drive%uTrueEmulation` resource — TS always-on,
-    // (b) `drive_image_attach` for each populated slot — done above
-    //     via parser swap + headPosition cap update,
-    // (c) `cpu->stop_clk = *clk_ptr` — done by enable() via
-    //     setSyncBaseline,
-    // (d) `drivecpu_wake_up()` — done by enable() via wakeUp(),
-    // (e) UI update — no-op in headless.
-    // Idempotent: enable() on an already-enabled drive only resyncs
-    // the baseline + clears sleep, both of which are correct after
-    // a media swap.
-    //
-    // Doc: docs/vice-1541-arch.md §2.4 (image attach), §13 Phase H
-    //      step 32, §17 OQ-414-1.
-    // VICE: src/drive/drive.c:482-529 `drive_enable`.
-    // Spec 612 T3.2-fix-O: skip legacy drive enable when drive1541=vice.
-    // Legacy ghost drive ticks in parallel and writes legacy iec-bus
-    // setDriveOutput → updates core.drv_data[8] → conflicts with bridge's
-    // vice-state overlay. Per user direction: legacy quiet in vice mode.
-    {
-      const kAny = session.kernel as unknown as { drive1541Implementation?: string };
-      if (kAny.drive1541Implementation !== "vice"
-          || process.env.C64RE_KEEP_LEGACY_DRIVE_IN_VICE_MODE === "1") {
-        session.drive.enable(session.c64Cpu.cycles);
-      }
-    }
+    // Spec 704 §11 R3 — legacy disk-attach removed (trackBuffer /
+    // gcrShifter notifyMediaChange/notifyAttach, headPosition cap,
+    // drive.enable). VICE1541 owns image + head geometry; the disk is
+    // attached to the vice drive via drive1541.attachDisk below, which
+    // re-points the head to the current half-track. Per VICE
+    // drive_image_attach, mount does NOT reset the drive CPU.
 
     // Spec 611 phase 611.7f.1 — dual-attach for `drive1541="vice"`.
     // Default legacy mount path above is unchanged. When the active
@@ -307,14 +264,16 @@ export function unmountMedia(
   // VICE drive_image_detach: set detach_clk + swap to no-disk parser.
   // Drive sees no-sync + neutral for DRIVE_DETACH_DELAY (~600K cycles).
   // Track data freed; head position preserved.
-  const empty = createNoDiskParser();
-  session.trackBuffer.notifyMediaChange(empty);
-  if (session.drive.trackBuffer
-      && session.drive.trackBuffer !== session.trackBuffer) {
-    session.drive.trackBuffer.notifyMediaChange(empty);
+  // Spec 704 §11 R3 — vice detach: drive1541.detachDisk writes back any
+  // dirty GCR + sets the WPS detach window (VICE drive_image_detach).
+  // Legacy trackBuffer / gcrShifter media-change removed.
+  const kernelAny = session.kernel as unknown as {
+    drive1541Implementation?: string;
+    drive1541?: { detachDisk?: () => void };
+  };
+  if (kernelAny.drive1541Implementation === "vice" && kernelAny.drive1541?.detachDisk) {
+    kernelAny.drive1541.detachDisk();
   }
-  session.gcrShifter?.notifyMediaChange(empty);
-  session.gcrShifter?.notifyDetach(session.c64Cpu.cycles);
   session.diskPath = "";
   return { slot, ejected: true };
 }

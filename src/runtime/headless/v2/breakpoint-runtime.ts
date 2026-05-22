@@ -54,7 +54,8 @@ export class BreakpointRuntime {
   // ---- Build BreakpointContext from current session state ----
 
   buildContext(): BreakpointContext {
-    const { c64Cpu, c64Bus, drive } = this.session;
+    const { c64Cpu, c64Bus } = this.session;
+    const dd = this.session.driveDebug(); // Spec 704 §11 R3 — vice drive regs
     return {
       cycle: c64Cpu.cycles,
       cpu: {
@@ -69,12 +70,12 @@ export class BreakpointRuntime {
       io: (addr: number) => c64Bus.read(addr & 0xffff),
       irqPending: false,   // populated below when available
       nmiPending: false,
-      drive: drive?.cpu ? {
-        pc: drive.cpu.pc,
-        a: drive.cpu.a,
-        x: drive.cpu.x,
-        y: drive.cpu.y,
-      } : undefined,
+      drive: {
+        pc: dd.drive_pc,
+        a: dd.drive_a,
+        x: dd.drive_x,
+        y: dd.drive_y,
+      },
     };
   }
 

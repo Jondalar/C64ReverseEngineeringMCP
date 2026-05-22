@@ -140,7 +140,7 @@ export async function runEofTrace(opts: EofTraceOptions): Promise<EofTraceResult
   session.typeText(loadCmd, 80_000, 80_000);
 
   const c64CycStart = session.c64Cpu.cycles;
-  const drvCycStart = session.drive.cpu.cycles;
+  const drvCycStart = session.driveDebug().drive_clk; // Spec 704 §11 R3
 
   const fineRing: FineRun[] = [];
   const coarseRing: CoarseSample[] = [];
@@ -201,13 +201,13 @@ export async function runEofTrace(opts: EofTraceOptions): Promise<EofTraceResult
 
   const recordCoarse = () => {
     const c64Cyc = session.c64Cpu.cycles;
-    const drvCyc = session.drive.cpu.cycles;
+    const dd = session.driveDebug(); // Spec 704 §11 R3 — vice drive probe
+    const drvCyc = dd.drive_clk;
     if (drvCyc - lastCoarseDrvCyc < coarseEvery) return;
     lastCoarseDrvCyc = drvCyc;
     const iec = session.iecBus.snapshot();
     const c64Bus = session.c64Bus;
-    const drvBus = session.drive.bus;
-    const drvPc = session.drive.cpu.pc;
+    const drvPc = dd.drive_pc;
     const sample: CoarseSample = {
       c64Cyc, drvCyc,
       c64Pc: session.c64Cpu.pc,
@@ -228,11 +228,9 @@ export async function runEofTrace(opts: EofTraceOptions): Promise<EofTraceResult
         zA4: c64Bus.ram[0xa4]!,
         zA5: c64Bus.ram[0xa5]!,
       },
-      drvRam: {
-        z77: drvBus.ram[0x77]!,
-        z79: drvBus.ram[0x79]!,
-        z85: drvBus.ram[0x85]!,
-      },
+      // Spec 704 §11 R3 — legacy drive RAM gone; vice drive RAM not exposed
+      // on the probe. DOS-ZP samples unavailable (diagnostic gap).
+      drvRam: { z77: 0, z79: 0, z85: 0 },
       drvInTalk: drvPc >= DRIVE_TALK_LO && drvPc <= DRIVE_TALK_HI,
     };
     coarseRing.push(sample);
@@ -246,8 +244,9 @@ export async function runEofTrace(opts: EofTraceOptions): Promise<EofTraceResult
   for (let i = 0; i < budget; i++) {
     session.runFor(1);
     const c64Cyc = session.c64Cpu.cycles;
-    const drvCyc = session.drive.cpu.cycles;
-    const drvPc = session.drive.cpu.pc;
+    const ddF = session.driveDebug(); // Spec 704 §11 R3 — vice drive probe
+    const drvCyc = ddF.drive_clk;
+    const drvPc = ddF.drive_pc;
     const c64Pc = session.c64Cpu.pc;
 
     recordFine(drvPc, c64Pc, drvCyc, c64Cyc);
@@ -339,7 +338,7 @@ export async function runEofTrace(opts: EofTraceOptions): Promise<EofTraceResult
     c64CycStart,
     c64CycEnd: session.c64Cpu.cycles,
     drvCycStart,
-    drvCycEnd: session.drive.cpu.cycles,
+    drvCycEnd: session.driveDebug().drive_clk, // Spec 704 §11 R3
     moments,
     c64PcHistogramTop: topN(c64Hist, 10),
     drvPcHistogramTop: topN(drvHist, 10),
