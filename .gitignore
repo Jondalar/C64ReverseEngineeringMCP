@@ -30,3 +30,5 @@ samples/screenshots/*
 !samples/fixtures/
 !samples/fixtures/**
 tmp/
+session/
+snapshots/
