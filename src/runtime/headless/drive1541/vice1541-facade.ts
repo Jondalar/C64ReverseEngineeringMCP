@@ -429,9 +429,19 @@ export class Vice1541Facade implements Drive1541 {
   }
 
   debugProbe(): Drive1541DebugProbe {
+    const regs = this.unit.cpu?.cpu_regs;
+    const ht = (this.drive.current_half_track ?? 0) & 0xff;
     return {
-      drive_pc: (this.unit.cpu?.cpu_regs.pc ?? 0) & 0xffff,
-      head_halftrack: (this.drive.current_half_track ?? 0) & 0xff,
+      drive_pc: (regs?.pc ?? 0) & 0xffff,
+      // Spec 704 §11 R3 — mos6510_regs_t: ac/xr/yr → a/x/y.
+      drive_a: (regs?.ac ?? 0) & 0xff,
+      drive_x: (regs?.xr ?? 0) & 0xff,
+      drive_y: (regs?.yr ?? 0) & 0xff,
+      drive_sp: (regs?.sp ?? 0) & 0xff,
+      drive_flags: (regs?.flags ?? 0) & 0xff,
+      drive_clk: (diskunit_clk_refs[0]?.value ?? 0) >>> 0,
+      head_halftrack: ht,
+      current_track: ht >> 1,
       led: (this.drive.led_status ?? 0) & 0xff,
     };
   }

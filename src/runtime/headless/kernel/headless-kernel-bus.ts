@@ -64,7 +64,12 @@ export class HeadlessKernelBus implements KernelBus {
         `[kernel-bus] driveRead(${device}) — only device 8 mounted`,
       );
     }
-    return this.kernel.drive.bus.read(addr);
+    // Spec 704 §11 R3 — legacy drive bus removed. Drive-side memory is
+    // owned by VICE1541; the C64 reaches the drive only via IEC ($DD00),
+    // not direct drive-bus reads. No caller remains.
+    throw new Error(
+      `[kernel-bus] driveRead(${device}, $${addr.toString(16)}) — Spec 704 §11 R3: legacy drive bus removed (VICE1541 owns drive memory)`,
+    );
   }
 
   driveWrite(
@@ -83,7 +88,11 @@ export class HeadlessKernelBus implements KernelBus {
       this.kernel.iecBus.setDriveOutput(value & 0xff, ddr);
       return;
     }
-    this.kernel.drive.bus.write(addr, value);
+    // Spec 704 §11 R3 — legacy drive bus removed (VICE1541 owns drive
+    // memory). No caller reaches a non-IEC drive write.
+    throw new Error(
+      `[kernel-bus] driveWrite(${device}, $${addr.toString(16)}) — Spec 704 §11 R3: legacy drive bus removed`,
+    );
   }
 
   // Spec 418 — Spec 218 hybrid-sync rule lifted out of the old

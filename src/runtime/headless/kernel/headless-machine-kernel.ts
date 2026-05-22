@@ -34,13 +34,7 @@ import { installCia1 } from "../peripherals/cia1.js";
 import type { KeyboardMatrix, JoystickState } from "../peripherals/keyboard.js";
 import { installCia2 } from "../peripherals/cia2.js";
 import type { Cia6526Vice } from "../cia/cia6526-vice.js";
-import {
-  DriveCpu,
-  C64_PAL_CYCLES_PER_SEC,
-  C64_NTSC_CYCLES_PER_SEC,
-} from "../drive/drive-cpu.js";
-import { TrackBuffer, HeadPosition } from "../drive/head-position.js";
-import { GcrShifter } from "../drive/gcr-shifter.js";
+// Spec 704 §11 R3 — legacy drive/** removed. VICE1541 is the only drive.
 import { G64Parser } from "../../../disk/g64-parser.js";
 import { buildG64 } from "../../../disk/g64-builder.js";
 import { DiskProvider } from "../providers.js";
@@ -158,10 +152,6 @@ export class HeadlessMachineKernel implements MachineKernel {
   readonly imageFormat: string;
   readonly parser: G64Parser;
   diskProvider?: DiskProvider;
-  readonly trackBuffer: TrackBuffer;
-  readonly headPosition: HeadPosition;
-  readonly gcrShifter: GcrShifter;
-  readonly drive: DriveCpu;
   readonly drive1541Implementation: Drive1541Implementation;
   /**
    * Spec 614.3 — per-c64-cycle overlay from vice iecbus → legacy core,
@@ -216,15 +206,9 @@ export class HeadlessMachineKernel implements MachineKernel {
       this.parser = createNoDiskParser();
       this.diskProvider = undefined;
     }
-    this.trackBuffer = new TrackBuffer(this.parser);
-    // Pass G64 parser's actual half-track count so drive head can step
-    // beyond standard 35-track cap. motm.g64 has 37 tracks (data up to
-    // track 36) used by copy protection.
-    const halfTrackCount = this.parser.getHalfTrackCount();
-    this.headPosition = new HeadPosition({
-      startTrack: deps.startTrack,
-      defaultTrackCount: halfTrackCount > 0 ? Math.ceil(halfTrackCount / 2) : 35,
-    });
+    // Spec 704 §11 R3 — legacy TrackBuffer / HeadPosition removed. In
+    // vice mode VICE1541 owns its own disk image + head geometry
+    // (vice1541/driveimage.ts + rotation.ts), wired via drive1541.attachDisk.
 
     // Spec 200-c3: shared IEC bus. Drive-side wiring happens after
     // drive build below.
@@ -392,86 +376,10 @@ export class HeadlessMachineKernel implements MachineKernel {
 
     this.framebuffer = new VicFramebuffer(isPal);
 
-    // Spec 200-c4: 1:1 VICE GCR shifter. Constructed before DriveCpu
-    // so it can be supplied (DriveCpu wires byte-ready → VIA2 CA1
-    // + CPU SO line and ticks the shifter per drive cycle in lockstep).
-    // Same parser + headPosition as TrackBuffer — they share the disk
-    // image but the shifter is the source-of-truth for VIA2 PA reads
-    // when wired (TrackBuffer remains the write-buffer for V3).
-    this.gcrShifter = new GcrShifter({
-      parser: this.parser,
-      headPosition: this.headPosition,
-    });
-
-    // Spec 213 — GcrShifter (1:1 VICE rotation.c) ALWAYS ON. Legacy
-    // TrackBuffer.tickShifter path removed 2026-05-08 with motm boot
-    // confirmed via head-cap fix (commit d927a1a) + MM/motm/IM2 title
-    // screens rendering. Feature flag retired per Spec 213 acceptance.
-    const useGcrShifter = true;
-
-    // Drive build. Spec 090: configure sync ratio + zero baseline.
-    this.drive = new DriveCpu({
-      deviceId: deps.deviceId,
-      iecBus: this.iecBus,
-      gcr: {
-        trackBuffer: this.trackBuffer,
-        headPosition: this.headPosition,
-        writeProtected: deps.writeProtected,
-      },
-      gcrShifter: useGcrShifter ? this.gcrShifter : undefined,
-      // Sprint 96 part 6 (Bug 39): drive uses microcoded CPU when c64
-      // does. Required for sub-instruction bus access timing during
-      // IEC bit-bang.
-      useMicrocodedCpu: deps.useMicrocodedCpu,
-      driveDispatchMode: deps.driveDispatchMode,
-      alarmContext: this.alarms.drivecpu,
-      // Spec 201-c3: $1800 PB store threads through KernelBus.
-      iecStorePb: (byte, device) =>
-        this.bus.driveWrite(device, 0x1800, byte, {
-          side: "drive",
-          device,
-          clock: this.drive.cpu.cycles,
-          pc: this.drive.cpu.pc | 0,
-          opcode: 0,
-          phase: "phi2",
-          addr: 0x1800,
-          access: "write",
-        }),
-      // Spec 203-c3: drive-side IRQ + SO edges into the kernel event
-      // ring. Mirror CIA1/CIA2 pattern; targets the drive-cpu instead
-      // of the c64-cpu.
-      onVia1IrqEdge: (asserted, clk) => {
-        this.emitIrqEvent({
-          line: "irq",
-          asserted,
-          source: "via1",
-          target: "drive-cpu",
-          edgeClock: clk,
-          visibleClock: clk,
-        });
-      },
-      onVia2IrqEdge: (asserted, clk) => {
-        this.emitIrqEvent({
-          line: "irq",
-          asserted,
-          source: "via2",
-          target: "drive-cpu",
-          edgeClock: clk,
-          visibleClock: clk,
-        });
-      },
-      onSoEdge: (asserted, clk) => {
-        this.emitIrqEvent({
-          line: "so",
-          asserted,
-          source: "gcr-shifter",
-          target: "drive-cpu",
-          edgeClock: clk,
-          visibleClock: clk,
-        });
-      },
-    });
-    this.iecBus.attachDriveRam(this.drive.bus.ram);
+    // Spec 704 §11 R3 — legacy GcrShifter + DriveCpu removed. VICE1541
+    // (drive1541-facade → vice1541/**) is the only drive: it owns the
+    // drive 6502, VIA1/VIA2, GCR rotation, and IEC drive-side wiring.
+    // The C64-side IEC view is bridged via installVice1541Bridge below.
     // Spec 140 v3: 1:1 VICE port. No mode flag — VICE is THE behavior.
     // Spec 141 v2: drive clock source for ATN edge IRQ stamping.
     //
@@ -488,10 +396,11 @@ export class HeadlessMachineKernel implements MachineKernel {
     // Fix: in vice mode driveClockSource returns the c64 master clock
     // (same domain the scheduler uses for tickToClock). In legacy mode
     // it stays the legacy drive cycles (= the real drive clock there).
+    // Spec 704 §11 R3 — vice-only: drive clock = c64 master clock (the
+    // domain the scheduler uses for tickToClock). The vice drive's own
+    // clock advances via drive1541.catchUpTo / tickToClock.
     this.iecBus.driveClockSource = () =>
-      this.drive1541Implementation === "vice"
-        ? (this.c64Cpu as { cycles: number }).cycles
-        : (this.drive.cpu as { cycles: number }).cycles;
+      (this.c64Cpu as { cycles: number }).cycles;
     // Spec 418 — push-flush invariant per docs/vice-iec-arc42.md
     // §15 Phase C steps 7-9 + §5.11 call-site enumeration.
     //
@@ -534,13 +443,11 @@ export class HeadlessMachineKernel implements MachineKernel {
     // Doc: docs/vice-1541-arch.md §5.1, §5.3, §13 Phase C step 7,
     //      §17 OQ-409-1/2/3.
     // VICE: src/drive/drivesync.c:55-65 drive_set_machine_parameter().
-    const cyclesPerSec = isPal
-      ? C64_PAL_CYCLES_PER_SEC
-      : C64_NTSC_CYCLES_PER_SEC;
-    this.drive.driveSetMachineParameter(cyclesPerSec);
-    this.drive.setSyncBaseline(0);
+    // Spec 704 §11 R3 — legacy drive_set_machine_parameter / setSyncBaseline
+    // removed; the vice drive (vice1541/drivesync.ts) self-configures its
+    // sync_factor. eventCatchup advances the vice drive via
+    // setAdditionalCatchUp (wired below), not via a legacy deps.drive.
     this.eventCatchup = new EventCatchupStrategy({
-      drive: this.drive,
       c64Clock: () => this.c64Cpu.cycles,
       stepC64Instruction: () => this.session.stepC64Instruction(),
     });
@@ -576,69 +483,10 @@ export class HeadlessMachineKernel implements MachineKernel {
       });
     });
 
-    // Spec 612 PL-11 (2026-05-19): legacy gcr trace callbacks read
-    // `this.drive.cpu.cycles` for timestamps. In vice mode the
-    // legacy DriveCpu is quiet AND the legacy gcrShifter (which fires
-    // these callbacks) doesn't tick. The callbacks should never fire
-    // in vice mode. Helper below throws if reached — fail-fast.
-    const gcrLegacyDriveClk = (): number => {
-      if (this.drive1541Implementation === "vice") {
-        throw new Error(
-          "[kernel] gcr trace publish reached in vice mode — Spec 612 PL-11: legacy gcrShifter / drive.cpu.cycles read while vice drive owns gcr pipeline",
-        );
-      }
-      return (this.drive.cpu as { cycles: number }).cycles;
-    };
-
-    // Spec 205-A c6: bridge GCR shifter byte-ready + SYNC# edges into
-    // the "gcr" trace channel. Uses the dedicated trace observer pair
-    // so DriveCpu's onByteReady (V-flag + VIA2 CA1) is untouched.
-    this.gcrShifter.traceByteReady = (byte) => {
-      if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = gcrLegacyDriveClk();
-      this.traceCtrl.publish("gcr", driveClk, {
-        kind: "byte_ready",
-        byte: byte & 0xff,
-        track: this.headPosition.currentTrack,
-      });
-    };
-    this.gcrShifter.traceSyncDetected = (active) => {
-      if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = gcrLegacyDriveClk();
-      this.traceCtrl.publish("gcr", driveClk, {
-        kind: "sync",
-        active,
-        track: this.headPosition.currentTrack,
-      });
-    };
-
-    // Spec 205-A c9: head step + motor + density transitions.
-    this.headPosition.onStep = (direction, halfTrack) => {
-      if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = gcrLegacyDriveClk();
-      this.traceCtrl.publish("gcr", driveClk, {
-        kind: "head_step",
-        direction,
-        halfTrack,
-        track: halfTrack / 2,
-      });
-    };
-    this.gcrShifter.onMotor = (on) => {
-      if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = gcrLegacyDriveClk();
-      this.traceCtrl.publish("gcr", driveClk, {
-        kind: "motor",
-        on,
-      });
-    };
-    this.gcrShifter.onDensity = (zone) => {
-      if (!this.traceRegistry.isEnabled("gcr")) return;
-      const driveClk = gcrLegacyDriveClk();
-      this.traceCtrl.publish("gcr", driveClk, {
-        kind: "density",
-        zone: zone === undefined ? null : zone,
-      });
-    };
+    // Spec 704 §11 R3 — legacy GCR-shifter / head trace wiring removed
+    // (byte_ready / sync / head_step / motor / density). The vice drive
+    // owns the GCR pipeline; equivalent trace lanes, if needed, come from
+    // vice1541 via the drive1541 facade.
 
     // Spec 205-A c7: bridge VIC raster line + frame transitions into
     // the "vic" trace channel.
@@ -676,44 +524,22 @@ export class HeadlessMachineKernel implements MachineKernel {
     // `installCpuInterruptHooks`.
     this.installCpuInterruptHooks();
 
-    // Spec 611 phase 611.7e.3 — expose the active Drive1541 surface.
-    // For "legacy": Legacy1541Adapter wraps the just-constructed
-    // DriveCpu + IecBus (read-only view; legacy runtime path is
-    // unchanged). For "vice": fresh Vice1541 instance alongside the
-    // legacy DriveCpu (sidecar). Default = legacy.
-    if (this.drive1541Implementation === "legacy") {
-      this.drive1541 = createDrive1541("legacy", {
-        drive: this.drive,
-        iecBus: this.iecBus,
-      });
-    } else {
-      this.drive1541 = createDrive1541("vice");
-      // Spec 611 phase 611.7e.4 — narrow C64-IEC ↔ Vice1541 bridge.
-      // Routes the C64-side $DD00 write/read path through Vice1541
-      // when `drive1541="vice"` is selected. Wraps the EXISTING
-      // IecBus public surface — does NOT mutate IecBusCore formulas,
-      // CIA2 PA inversion/DDR handling, setC64Output()/
-      // buildC64InputBits() semantics, pushFlush order, or ATN edge
-      // polarity (Codex 19:16 review constraint). The wrap chains
-      // pre/post hooks; legacy bus internals stay intact.
-      this.installVice1541Bridge(this.drive1541);
-      // Spec 612 T3.6 — per-instruction vice drive tick. Without this
-      // the vice drive only advances on $DD00 pushFlush events; in
-      // legacy-quiet mode (Spec 612 T3.2-fix-O) the drive 6502 then
-      // starves between events (~166 drive cycles per 10K c64 cycles
-      // measured). Wire EventCatchupStrategy.catchUpDrive to ALSO call
-      // vice.catchUpTo so the drive runs lockstep with the c64.
-      const viceForTick = this.drive1541;
-      this.eventCatchup.setAdditionalCatchUp((targetClock) => {
-        viceForTick.catchUpTo(targetClock);
-      });
-      // Perf 2026-05-20 — by default DON'T tick the co-resident legacy
-      // DriveCpu in vice mode (it's overlaid away → ~2x speed waste).
-      // Opt back in for regression bisects via C64RE_VICE_LEGACY_DRIVE=1.
-      this.eventCatchup.setForceLegacyDriveTick(
-        process.env.C64RE_VICE_LEGACY_DRIVE === "1",
-      );
-    }
+    // Spec 611 phase 611.7e.4 + Spec 704 §11 R3 — VICE1541 is the only
+    // drive. Construct it and bridge the C64-side IEC view through it.
+    this.drive1541 = createDrive1541("vice");
+    // Narrow C64-IEC ↔ Vice1541 bridge: routes the C64-side $DD00
+    // write/read path through Vice1541, wrapping the EXISTING IecBus
+    // public surface — does NOT mutate IecBusCore formulas, CIA2 PA
+    // inversion/DDR handling, setC64Output()/buildC64InputBits()
+    // semantics, pushFlush order, or ATN edge polarity.
+    this.installVice1541Bridge(this.drive1541);
+    // Spec 612 T3.6 — per-instruction vice drive tick: EventCatchupStrategy
+    // also calls vice.catchUpTo so the drive 6502 runs lockstep with the
+    // c64 (not only on $DD00 pushFlush events).
+    const viceForTick = this.drive1541;
+    this.eventCatchup.setAdditionalCatchUp((targetClock) => {
+      viceForTick.catchUpTo(targetClock);
+    });
   }
 
   /**
@@ -877,20 +703,9 @@ export class HeadlessMachineKernel implements MachineKernel {
       this.markIrqServiced("c64-cpu", line, clk);
     };
     (this.c64Cpu as { onInterruptServiced?: typeof c64Hook }).onInterruptServiced = c64Hook;
-    const driveHook = (_vectorAddress: number, clk: number) => {
-      this.markIrqServiced("drive-cpu", "irq", clk);
-    };
-    // Spec 612 PL-11 (2026-05-19): in vice mode the legacy DriveCpu is
-    // quiet — assigning hooks to it would install on a never-firing
-    // object AND leave the vice drive's cpu (which DOES fire IRQs)
-    // un-hooked. Skip the legacy assign; mis-wire follow-up = install
-    // on vice drive cpu via diskunit.cpu hook. Not in PL-11 scope —
-    // tracked as separate bug.
-    if (this.drive1541Implementation === "vice") {
-      // legacy hook deliberately skipped — see PL-11 doctrine.
-    } else {
-      (this.drive.cpu as { onInterruptServiced?: typeof driveHook }).onInterruptServiced = driveHook;
-    }
+    // Spec 704 §11 R3 — legacy DriveCpu interrupt-serviced hook removed
+    // (was already skipped in vice mode; the vice drive owns its own
+    // interrupt servicing).
 
     // Spec 205-A c4 + Spec 217: instruction-complete edges → "cpu"
     // trace channel. Hook receives full register state at boundary so
@@ -911,16 +726,8 @@ export class HeadlessMachineKernel implements MachineKernel {
       this.publishCpuInstruction("c64", prevPc, opcode, b1, b2, a, x, y, sp, p, clk);
     };
     (this.c64Cpu as { onInstructionComplete?: InstrHook }).onInstructionComplete = c64InstrHook;
-    const driveInstrHook: InstrHook = (prevPc, opcode, b1, b2, a, x, y, sp, p, clk) => {
-      this.publishCpuInstruction("drive", prevPc, opcode, b1, b2, a, x, y, sp, p, clk);
-    };
-    // Spec 612 PL-11 (2026-05-19): see installCpuInterruptHooks comment
-    // above — legacy DriveCpu quiet in vice mode; skip the assign.
-    if (this.drive1541Implementation === "vice") {
-      // legacy hook deliberately skipped.
-    } else {
-      (this.drive.cpu as { onInstructionComplete?: InstrHook }).onInstructionComplete = driveInstrHook;
-    }
+    // Spec 704 §11 R3 — legacy DriveCpu instruction-complete hook removed
+    // (was already skipped in vice mode; the vice drive owns its tracing).
   }
 
   /**
@@ -992,19 +799,11 @@ export class HeadlessMachineKernel implements MachineKernel {
         `[kernel] driveClock(${device}) — only device 8 mounted in this session`,
       );
     }
-    // Spec 612 PL-11 (2026-05-19): in vice mode the legacy DriveCpu is
-    // quiet; its `.cycles` is stale. Public callers (MCP runtime_status,
-    // headless_drive_status, etc.) must NOT receive that stale clock.
-    // No supported migration target yet — vice1541 has its own clk_ptr
-    // on diskunit_context[0], but the public surface accepts a `device`
-    // arg; refactor to take the unit ref + read clk_ptr there is the
-    // follow-up. Throw to make the shadow-read fail fast.
-    if (this.drive1541Implementation === "vice") {
-      throw new Error(
-        `[kernel] driveClock(${device}) — Spec 612 PL-11: legacy DriveCpu read in vice mode (caller must use kernel.drive1541.unit.clk_ptr.value)`,
-      );
-    }
-    return this.drive.cpu.cycles;
+    // Spec 704 §11 R3 — vice-only: the legacy DriveCpu clock is gone. The
+    // vice drive shares the c64 master clock domain (see driveClockSource),
+    // so report that. A precise per-unit clk_ptr read on the vice
+    // diskunit_context is a future facade accessor.
+    return (this.c64Cpu as { cycles: number }).cycles;
   }
 
   /**

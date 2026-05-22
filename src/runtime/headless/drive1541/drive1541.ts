@@ -20,7 +20,18 @@ export interface Drive1541Media {
 
 export interface Drive1541DebugProbe {
   drive_pc: number;
+  // Spec 704 §11 R3 — full drive-CPU register snapshot so callers that
+  // formerly read the legacy `drive.cpu.{pc,a,x,y,sp,flags,cycles}` can
+  // redirect to the vice drive (mos6510_regs_t: pc/ac/xr/yr/sp/flags +
+  // diskunit clk). Used by snapshot / VSF / status / trace surfaces.
+  drive_a: number;
+  drive_x: number;
+  drive_y: number;
+  drive_sp: number;
+  drive_flags: number;
+  drive_clk: number;
   head_halftrack: number;
+  current_track: number;
   led: number;
 }
 

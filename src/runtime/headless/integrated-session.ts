@@ -14,9 +14,8 @@ import { Cpu6510 } from "./cpu6510.js";
 import { HeadlessMemoryBus } from "./memory-bus.js";
 import { loadAllC64Roms, type LoadedC64RomSet } from "./c64-rom.js";
 import { IecBus } from "./iec/iec-bus.js";
-import { DriveCpu } from "./drive/drive-cpu.js";
-import { TrackBuffer, HeadPosition } from "./drive/head-position.js";
-import { GcrShifter } from "./drive/gcr-shifter.js";
+// Spec 704 §11 R3 — legacy drive/** (DriveCpu / TrackBuffer / HeadPosition /
+// GcrShifter) removed. VICE1541 is the only drive.
 import { G64Parser } from "../../disk/g64-parser.js";
 import { buildG64 } from "../../disk/g64-builder.js";
 import { DiskProvider } from "./providers.js";
@@ -64,14 +63,14 @@ import {
 } from "./trace/bus-access.js";
 import {
   Cpu6510Cycled, AlarmContextCycled, VicCycled, SidCycled,
-  DriveCpuCycled, KeyboardCycled,
+  KeyboardCycled,
 } from "./scheduler/cycle-wrappers.js";
 import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
 import {
   type AlarmContext,
 } from "./alarm/alarm-context.js";
 import { HeadlessMachineKernel } from "./kernel/headless-machine-kernel.js";
-import type { Drive1541Implementation } from "./drive1541/drive1541.js";
+import type { Drive1541Implementation, Drive1541DebugProbe } from "./drive1541/drive1541.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -255,15 +254,10 @@ export interface PrgLoadResult {
 export class IntegratedSession {
   public readonly c64Bus: HeadlessMemoryBus;
   public readonly c64Cpu: Cpu6510;
-  public readonly drive: DriveCpu;
   public readonly iecBus: IecBus;
-  public readonly trackBuffer: TrackBuffer;
-  public readonly headPosition: HeadPosition;
-  // Spec 153 / Sprint 114: 1:1 VICE GCR bit-stream shifter. Replaces
-  // the inline TrackBuffer shifter for VIA2 PA / SYNC#. Always
-  // constructed; passed into DriveCpu so the VIA2 backend reads its
-  // dataByte / syncBit and DriveCpuCycled ticks it per drive cycle.
-  public readonly gcrShifter: GcrShifter;
+  // Spec 704 §11 R3 — legacy drive / trackBuffer / headPosition / gcrShifter
+  // fields removed. VICE1541 (kernel.drive1541) is the only drive; it owns
+  // its 6502 / VIAs / GCR rotation / head geometry internally.
   public diskPath: string;
   // Spec 115 v1: list of drive-9+ slots that were declared but not
   // yet instantiated. Empty when only device-8 is in use.
@@ -527,12 +521,7 @@ export class IntegratedSession {
     this.framebuffer = this.kernel.framebuffer;
     this.parser = this.kernel.parser;
     this.diskProvider = this.kernel.diskProvider;
-    this.trackBuffer = this.kernel.trackBuffer;
-    this.headPosition = this.kernel.headPosition;
-    this.gcrShifter = this.kernel.gcrShifter;
-    // VICE attach/detach delay state machine needs current cpu cycle.
-    this.gcrShifter.setClockProvider(() => this.c64Cpu.cycles);
-    this.drive = this.kernel.drive;
+    // Spec 704 §11 R3 — legacy drive object mirrors removed.
     if (this.mode === "true-drive" || this.mode === "debug-vice-compare") {
       this.kernel.setMode("true-drive");
     }
@@ -632,14 +621,10 @@ export class IntegratedSession {
         new SidCycled(this.sid),
         new KeyboardCycled(this.keyboard),
       ];
-      const driveComponents = [
-        new DriveCpuCycled(this.drive),
-        // Sprint 113 Phase 2 (Spec 147): VIA1 + VIA2 are alarm-driven
-        // (Via1d1541 / Via2d1541). Per-cycle tick() replaced by a single
-        // AlarmContextCycled that drains the drivecpu alarm context each
-        // cycle — mirrors the same pattern as CIA (Spec 146 migration).
-        new AlarmContextCycled(this.drivecpuAlarmContext, () => this.drive.cpu.cycles),
-      ];
+      // Spec 704 §11 R3 — vice-only: the scheduler ticks no legacy drive
+      // (disableLockstepDriveTick was already true in vice mode). The vice
+      // drive advances via eventCatchup / pushFlush → drive1541.tickToClock.
+      const driveComponents: import("./scheduler/cycle-steppable.js").CycleSteppable[] = [];
       // Spec 280g: enable per-cycle bus stealing on the VIC chip.
       // Scheduler will query vic.getBusStallForCycle() before each CPU
       // step. When stalled, CPU does NOT step; cpu.cycles still bumps
@@ -667,8 +652,8 @@ export class IntegratedSession {
         // vice mode per Spec 612 T3.2-fix-O; per-cycle drive tick
         // happens through drive1541.tickToClock).
         tickDriveFirst: opts.probeMode === "B",
-        disableLockstepDriveTick:
-          opts.drive1541 === "vice" ? true : opts.probeMode === "C",
+        // Spec 704 §11 R3 — vice-only: never tick a legacy lockstep drive.
+        disableLockstepDriveTick: true,
         // Spec 614.3 §3.3 — per-c64-cycle drive tick wiring. In vice
         // mode, every c64 cycle the scheduler advances the vice1541
         // drive to the current c64 clk. This is the core fix for
@@ -679,22 +664,10 @@ export class IntegratedSession {
         //
         // For probe variants A/B (legacy lockstep + flush, no vice
         // drive), the original setSyncBaseline hook is preserved.
-        afterCycleSync:
-          opts.drive1541 === "vice"
-            // Codex P0 follow-up #3 (2026-05-19) — pure VICE event-
-            // catch-up. Drive ticks ONLY on $DD00 R/W via
-            // `pushFlush.one/all` → `vice.tickToClock(clk)`. Per-cycle
-            // afterCycleSync tick (Spec 614.3) was an over-engineering
-            // — VICE's `drive_cpu_execute_one` is event-driven from
-            // `iecbus_cpu_*_conf1`, NOT per c64 cycle. The c64-side
-            // CLK_INC happens per cycle (alarms + maincpu_clk++ +
-            // vicii_cycle) but the drive is not in that loop.
-            // No-op here keeps useCycleLockstep for c64-side timing
-            // while letting pushFlush events alone drive the 1541.
-            ? undefined
-            : (opts.probeMode === "A" || opts.probeMode === "B"
-                ? (c64Cycle, _driveCycle) => this.drive.setSyncBaseline(c64Cycle)
-                : undefined),
+        // Spec 704 §11 R3 — vice-only: the drive ticks only on $DD00 R/W
+        // via pushFlush → vice.tickToClock (event-driven, VICE-shaped).
+        // No per-cycle afterCycleSync drive tick.
+        afterCycleSync: undefined,
         // Spec 280g per-cycle bus stealing wiring.
         // Spec 302: when useLiteralPortVicStall on, sample literal
         // port ba_low (captured in onCycle hook from prior
@@ -880,6 +853,20 @@ export class IntegratedSession {
   // (RAM fill pattern, VIC raster phase, drive head track, peripheral
   // neutrals) so two reset+run pairs with the same inputs produce
   // byte-identical state at every cycle.
+  /**
+   * Spec 704 §11 R3 — vice-drive debug snapshot. Replaces the legacy
+   * `this.drive.cpu.*` / `this.headPosition.currentTrack` reads on the
+   * snapshot / VSF / status / trace surfaces. Returns zeros if the drive
+   * facade exposes no probe (should not happen in vice-only mode).
+   */
+  driveDebug(): Drive1541DebugProbe {
+    const d = this.kernel.drive1541 as { debugProbe?(): Drive1541DebugProbe } | undefined;
+    return d?.debugProbe?.() ?? {
+      drive_pc: 0, drive_a: 0, drive_x: 0, drive_y: 0, drive_sp: 0,
+      drive_flags: 0, drive_clk: 0, head_halftrack: 0, current_track: 0, led: 0,
+    };
+  }
+
   resetCold(profile: ResetProfile = "pal-default", opts?: { keepRam?: boolean }): void {
     const spec = getResetProfile(profile);
     if (opts?.keepRam) {
@@ -892,18 +879,13 @@ export class IntegratedSession {
     this.iecBus.reset();
     if (this.iecBus.isTraceEnabled()) this.iecBus.clearTrace();
     this.c64Cpu.reset();
-    this.drive.reset();
-    this.drive.setSyncBaseline(this.c64Cpu.cycles);
-    // Spec 612 T3.9 — when drive1541=vice, also reset the vice drive.
-    // Without this the vice drive holds last_clk from before resetCold;
-    // c64 cycles reset to 0 → first catchUpTo(0) sees clk_value < last_clk
-    // → cycles=0 (clamped) → vice never advances during boot → drive
-    // 6502 doesn't reach ROM init. Per-instruction tick (T3.6) then
-    // accumulates inconsistent state. Fix: reset vice in lockstep.
+    // Spec 704 §11 R3 — vice-only: reset the vice drive. (Legacy
+    // this.drive.reset / setSyncBaseline removed.) Without this the vice
+    // drive holds last_clk from before resetCold; c64 cycles reset to 0
+    // → first catchUpTo(0) sees clk_value < last_clk → drive never
+    // advances during boot. Reset vice in lockstep with the c64.
     const kernelAny = this.kernel as unknown as { drive1541?: { reset?: (kind?: "cold" | "warm") => void } };
-    if (kernelAny.drive1541?.reset && this.kernel.drive1541Implementation === "vice") {
-      kernelAny.drive1541.reset("cold");
-    }
+    kernelAny.drive1541?.reset?.("cold");
     // Spec 145 v3+: re-sync drive VIA1 CA1 pin baseline AFTER
     // drive.reset() resets the VIA's lastCa1Pin to true.
     this.iecBus.syncDriveCa1Baseline();
@@ -913,7 +895,6 @@ export class IntegratedSession {
     const headStart = this.driveHeadStartCycles;
     if (headStart > 0) {
       this.kernel.catchUpDrive(8, headStart);
-      this.drive.setSyncBaseline(this.c64Cpu.cycles); // = 0 still
     }
     this.sid.reset();
     // Cold-reset C64 peripherals. Without this, second+ reset leaves
@@ -930,8 +911,8 @@ export class IntegratedSession {
     this.keyboard.resetClock();
     // Pin VIC raster phase deterministically.
     (this.vic as { rasterLine?: number }).rasterLine = spec.vicRasterPhase;
-    // Pin drive head to profile-specified start track.
-    this.headPosition.reset(spec.driveStartTrack);
+    // Spec 704 §11 R3 — vice drive owns head geometry (reset via
+    // drive1541.reset above); legacy headPosition.reset removed.
     // Wipe keyboard + joystick state.
     const kb = this.keyboard as unknown as { clear?: () => void };
     if (typeof kb.clear === "function") kb.clear();
