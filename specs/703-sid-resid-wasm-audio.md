@@ -37,6 +37,11 @@ Spec 703 makes the policy explicit:
 - reSID WASM becomes the audio synthesis authority;
 - simplified TS `resid.ts` is compatibility/fallback only.
 
+Important correction from Spec 429: software-visible SID I/O readback is not an
+audio-only concern. `$D419/$D41A` POTX/POTY must be VICE-shaped even when no
+audible SID engine is active. reSID WASM may help long-term, but it does not
+replace the need for a correct joyport/POT model.
+
 ## 3. Non-Goals
 
 - Do not rewrite reSID in TypeScript as the primary path.
@@ -46,6 +51,8 @@ Spec 703 makes the policy explicit:
 - Do not require exact VICE binary snapshot compatibility for internal reSID
   state in the first milestone.
 - Do not implement stereo SID or exotic multi-SID hardware in this spec.
+- Do not use reSID audio work as a reason to defer fixing software-visible SID
+  POT readback. Games can branch on `$D419/$D41A` without using SID sound.
 
 ## 4. Engine Model
 
@@ -86,11 +93,14 @@ build integration allow it.
 Reference areas:
 
 - `src/resid/sid.cc`
+- `src/resid/pot.cc`
 - `src/resid/voice.cc`
 - `src/resid/wave.cc`
 - `src/resid/envelope.cc`
 - `src/resid/filter.cc`
 - `src/resid/extfilt.cc`
+- `src/sid/sid.c`
+- `src/joyport/joyport.c`
 
 The WASM wrapper must preserve:
 
@@ -99,8 +109,34 @@ The WASM wrapper must preserve:
 - configurable sample rate, default `44100 Hz`;
 - register writes with exact cycle timestamps;
 - deterministic output for a fixed register-write timeline.
+- VICE-shaped software-visible readback for `$D419/$D41A`, either directly in
+  the WASM-backed engine or through the existing register-state SID plus a
+  VICE-shaped joyport/POT model.
 
 8580 support is a later extension unless nearly free in the chosen reSID build.
+
+## 5.1 POT Readback Contract
+
+`$D419/$D41A` are runtime-visible inputs. They must be correct before audio is
+considered complete.
+
+VICE evidence:
+
+- `sid/sid.c` initializes `val_pot_x` / `val_pot_y` to `$ff`.
+- `sid/sid.c::sid_read_chip()` samples POT values on a 512-cycle cadence and
+  handles the first sample period after CIA1 port-mask switching specially.
+- `joyport/joyport.c::read_joyport_potx()` and `read_joyport_poty()` default
+  unconnected POT lines to `$ff`.
+- `resid/pot.cc::Potentiometer::readPOT()` returns `$ff` when not modeled.
+
+Therefore:
+
+- default/unconnected POT readback must not be `0`;
+- paddle input APIs may override the value, but the no-device default must stay
+  VICE-shaped;
+- CIA1 PA bits 6/7 must drive the POT port mask before exact 1351/paddle
+  behavior can be claimed;
+- LNR Spec 429 is the current regression gate for `$D419` bit 7.
 
 ## 6. Timing Contract
 
