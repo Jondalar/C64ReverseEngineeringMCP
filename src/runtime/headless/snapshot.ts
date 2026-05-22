@@ -92,15 +92,16 @@ function snapshotCpu(cpu: { pc: number; a: number; x: number; y: number; sp: num
 export function snapshot(session: IntegratedSession, opts: SnapshotIncludeOpts = {}): SessionSnapshot {
   const include = new Set(opts.include ?? []);
   const iecState = session.iecBus.snapshot();
-  const drive = session.drive;
-  const drvBus = drive.bus;
+  // Spec 704 §11 R3 — vice drive snapshot via probe (ram/via not exposed
+  // by the facade; drive state lives in the vice diskunit).
+  const dd = session.driveDebug();
   const kb = session.keyboard as unknown as { matrixCols?: number[] };
   return {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     mode: session.mode,
     cycles: {
       c64: session.c64Cpu.cycles,
-      drive: drive.cpu.cycles,
+      drive: dd.drive_clk,
       instructions: session.status().c64.instructions,
     },
     cpu: snapshotCpu(session.c64Cpu),
@@ -114,11 +115,13 @@ export function snapshot(session: IntegratedSession, opts: SnapshotIncludeOpts =
       drvAtnAck: iecState.drive.atnAckReleased,
     },
     drive: {
-      cpu: snapshotCpu(drive.cpu),
-      ram: bytesToB64(drvBus.ram),
-      via1: snapshotVia(drvBus.via1 as never),
-      via2: snapshotVia(drvBus.via2 as never),
-      head: { track: session.headPosition.currentTrack },
+      // Spec 704 §11 R3 — vice drive probe; ram/via not exposed by the
+      // facade. cpu regs + track surfaced; ram/via reduced (parity gap).
+      cpu: snapshotCpu({ pc: dd.drive_pc, a: dd.drive_a, x: dd.drive_x, y: dd.drive_y, sp: dd.drive_sp, flags: dd.drive_flags, cycles: dd.drive_clk } as never),
+      ram: bytesToB64(new Uint8Array(0)),
+      via1: snapshotVia({} as never),
+      via2: snapshotVia({} as never),
+      head: { track: dd.current_track },
     },
     keyboard: { matrixCols: kb.matrixCols ? [...kb.matrixCols] : [] },
     joystick2: {
@@ -166,14 +169,11 @@ export function restore(session: IntegratedSession, snap: SessionSnapshot): void
   iec.driveClkReleased = snap.iec.drvClk;
   iec.driveDataReleased = snap.iec.drvData;
   iec.driveAtnAckReleased = snap.iec.drvAtnAck;
-  // Drive.
-  const drive = session.drive;
-  const drvBytes = b64ToBytes(snap.drive.ram);
-  drive.bus.ram.set(drvBytes.subarray(0, drive.bus.ram.length));
-  restoreCpu(drive.cpu, snap.drive.cpu);
-  restoreVia(drive.bus.via1 as never, snap.drive.via1);
-  restoreVia(drive.bus.via2 as never, snap.drive.via2);
-  session.headPosition.reset(snap.drive.head.track);
+  // Spec 704 §11 R3 — vice-only: legacy drive ram/cpu/via/head restore
+  // removed. The JSON snapshot's reduced drive section is not applied to
+  // the vice drive; full drive restore is the opaque VSF path
+  // (drive1541.restore, stub until Spec 611.8). No-op here.
+  void snap.drive;
   // Keyboard + joystick.
   const kb = session.keyboard as unknown as { matrixCols?: number[] };
   if (kb.matrixCols && snap.keyboard.matrixCols.length === kb.matrixCols.length) {
