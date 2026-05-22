@@ -30,7 +30,6 @@ import {
   serializeRam, deserializeRam,
   serializeVia, deserializeVia,
   serializeIecBus, deserializeIecBus,
-  serializeGcrHead, deserializeGcrHead,
 } from "./module-mapping.js";
 import type { IntegratedSession } from "../integrated-session.js";
 

@@ -26,7 +26,8 @@ export interface ViaLike {
   t1Counter: number; t1Latch: number; t2Counter: number;
   sr: number; acr: number; pcr: number; ifr: number; ier: number;
 }
-import type { TrackBuffer, HeadPosition } from "../drive/head-position.js";
+// Spec 704 §11 R3 — legacy drive head-position types removed; GCR-head
+// (de)serializers below deleted (VSF now uses the opaque vice drive module).
 
 // Module names are intended to be VICE-compatible so future tooling
 // can swap snapshots. Names mirror VICE's own module identifiers.
@@ -158,36 +159,7 @@ export function deserializeIecBus(bus: IecBus, data: Uint8Array): void {
   b.driveAtnAckReleased = data[5]! !== 0;
 }
 
-// ---- GCR head module ----
-// Layout: trackHalf (2 LE) + maxHalfTracks (2 LE) + lastStepBits (1) +
-//         byteCursor (4 LE) + lastReadByteIsSyncContext (1)
-//       = 10 bytes header + then per modified track:
-//         track number (1) + length (2 LE) + bytes
-export function serializeGcrHead(head: HeadPosition, tracks: TrackBuffer): Uint8Array {
-  const headerSize = 10;
-  // Reach into private fields.
-  const h = head as unknown as { trackHalf: number; maxHalfTracks: number; lastStepBits: number };
-  const t = tracks as unknown as { byteCursor: number; lastReadByteIsSyncContext: number };
-  const mods = tracks.modifiedTracks();
-  let totalBody = 0;
-  for (const [, buf] of mods) totalBody += 1 + 2 + buf.length;
-  const out = new Uint8Array(headerSize + totalBody);
-  out[0] = h.trackHalf & 0xff; out[1] = (h.trackHalf >> 8) & 0xff;
-  out[2] = h.maxHalfTracks & 0xff; out[3] = (h.maxHalfTracks >> 8) & 0xff;
-  out[4] = h.lastStepBits;
-  out[5] = t.byteCursor & 0xff; out[6] = (t.byteCursor >> 8) & 0xff;
-  out[7] = (t.byteCursor >> 16) & 0xff; out[8] = (t.byteCursor >> 24) & 0xff;
-  out[9] = t.lastReadByteIsSyncContext;
-  let off = headerSize;
-  for (const [trackNum, buf] of mods) {
-    out[off++] = trackNum & 0xff;
-    out[off++] = buf.length & 0xff;
-    out[off++] = (buf.length >> 8) & 0xff;
-    out.set(buf, off);
-    off += buf.length;
-  }
-  return out;
-}
+// Spec 704 §11 R3 — serializeGcrHead removed (legacy drive head/track).
 
 // ---- C64MEM module (Spec 251) ----
 // Layout:
@@ -480,29 +452,4 @@ function readU32LE(data: Uint8Array, off: number): number {
   return ((data[off]! | (data[off+1]! << 8) | (data[off+2]! << 16) | (data[off+3]! << 24)) >>> 0);
 }
 
-export function deserializeGcrHead(head: HeadPosition, tracks: TrackBuffer, data: Uint8Array): void {
-  if (data.length < 10) throw new Error(`GCR head data too short: ${data.length}`);
-  const h = head as unknown as { trackHalf: number; maxHalfTracks: number; lastStepBits: number };
-  const t = tracks as unknown as {
-    byteCursor: number;
-    lastReadByteIsSyncContext: number;
-    tracks: Map<number, Uint8Array | null>;
-    modified: Set<number>;
-  };
-  h.trackHalf = data[0]! | (data[1]! << 8);
-  h.maxHalfTracks = data[2]! | (data[3]! << 8);
-  h.lastStepBits = data[4]!;
-  t.byteCursor = (data[5]! | (data[6]! << 8) | (data[7]! << 16) | (data[8]! << 24)) >>> 0;
-  t.lastReadByteIsSyncContext = data[9]!;
-  let off = 10;
-  while (off < data.length) {
-    const trackNum = data[off++]!;
-    const len = data[off]! | (data[off + 1]! << 8);
-    off += 2;
-    if (off + len > data.length) throw new Error(`GCR head: truncated track ${trackNum} body`);
-    const bytes = new Uint8Array(data.slice(off, off + len));
-    t.tracks.set(trackNum, bytes);
-    t.modified.add(trackNum);
-    off += len;
-  }
-}
+// Spec 704 §11 R3 — deserializeGcrHead removed (legacy drive head/track).

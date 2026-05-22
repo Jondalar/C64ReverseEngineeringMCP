@@ -29,7 +29,7 @@ import {
 import type { CLOCK } from "../util/uint.js";
 import type { VicIIVice } from "../vic/vic-ii-vice.js";
 import type { Sid6581 } from "../sid/sid.js";
-import type { DriveCpu } from "../drive/drive-cpu.js";
+// Spec 704 §11 R3 — DriveCpu import removed (DriveCpuCycled deleted).
 
 export class Cpu6510Cycled implements CycleSteppable {
   // Cycles still owed for the current instruction. 0 = at boundary.
@@ -105,51 +105,9 @@ export class SidCycled implements CycleSteppable {
   executeCycle(): void { this.sid.tick(1); }
 }
 
-export class DriveCpuCycled implements CycleSteppable {
-  private cyclesOwed = 0;
-  constructor(public readonly drive: DriveCpu) {}
-  executeCycle(): void {
-    // Spec 153 / Sprint 114: 1:1 VICE GcrShifter tick path.
-    //
-    // When the standalone GcrShifter is wired, tick it BEFORE running
-    // the drive CPU cycle so any byte-ready edge (V-flag set) is visible
-    // to the very next CPU instruction. The byte-ready callback in
-    // DriveCpu directly sets V on the microcoded CPU's reg_p (matches
-    // VICE drivecpu_set_overflow which does `cpu_regs.p |= P_OVERFLOW`).
-    // No SO-pin pulse shaping needed.
-    if (this.drive.gcrShifter) {
-      this.drive.gcrShifter.tick(1);
-    } else if (this.drive.trackBuffer && this.drive.headPosition) {
-      // Sprint 96 part 7 legacy path: TrackBuffer-inline shifter.
-      // Used when no GcrShifter is wired (back-compat).
-      this.drive.trackBuffer.tickShifter(1, this.drive.headPosition.currentTrack);
-    }
-    if (this.drive.microcoded) {
-      // Microcoded path (Sprint 96 part 6): per-cycle bus access.
-      // Refresh IRQ line every cycle (VICE maincpu_int_status pattern);
-      // microcoded CPU samples it at instruction boundary.
-      const cpu = this.drive.cpu as any;
-      cpu.irqLine = this.drive.bus.via1.irqAsserted() || this.drive.bus.via2.irqAsserted();
-      cpu.executeCycle();
-      return;
-    }
-    if (this.cyclesOwed === 0) {
-      // Legacy whole-instruction path. IRQ check before instruction.
-      const cpu = this.drive.cpu as any;
-      if (!cpu.interruptsDisabled()) {
-        const irq = this.drive.bus.via1.irqAsserted() || this.drive.bus.via2.irqAsserted();
-        if (irq) cpu.serviceInterrupt(0xfffe, false);
-      }
-      const before = cpu.cycles;
-      cpu.step();
-      const consumed = cpu.cycles - before;
-      this.cyclesOwed = Math.max(0, consumed - 1);
-    } else {
-      this.cyclesOwed--;
-    }
-  }
-  cycle(): number { return this.drive.cpu.cycles; }
-}
+// Spec 704 §11 R3 — DriveCpuCycled DELETED. The legacy DriveCpu is gone;
+// the vice drive advances via EventCatchupStrategy → drive1541.catchUpTo,
+// not as a scheduler cycle-component.
 
 // ViaCycled — DELETED in Sprint 113 Phase 2 (Spec 147 migration).
 // VIA1 + VIA2 are now alarm-driven (Via1d1541 / Via2d1541). Per-cycle

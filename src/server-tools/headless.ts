@@ -214,7 +214,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       write_protected: z.boolean().optional().describe("If true, drive treats the image as write-protected."),
     },
     safeHandler("headless_drive_session_start", async ({ disk_path, start_track, device_id, pal, write_protected }) => {
-      const { startDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const { startDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const record = startDriveSession({
         diskPath: disk_path,
         startTrack: start_track,
@@ -230,8 +230,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
             `Session: ${record.sessionId}`,
             `Disk: ${record.diskPath}`,
             `Started: ${record.startedAt}`,
-            `Head: track ${record.headPosition.currentTrack}`,
-            `Drive ROM: ${record.session.drive.bus.romSource}${record.session.drive.bus.romPath ? ` (${record.session.drive.bus.romPath})` : ""}`,
+            `Head: track ${record.drive.debugProbe().current_track}`,
+            `Drive: VICE1541 (vice-backed standalone session)`,
           ].join("\n"),
         }],
       };
@@ -245,23 +245,21 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       session_id: z.string(),
     },
     safeHandler("headless_drive_status", async ({ session_id }) => {
-      const { getDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
-      const drive = record.session.drive;
-      const via1 = drive.bus.via1;
-      const via2 = drive.bus.via2;
+      // Spec 704 §11 R3 — vice drive probe. VIA IFR/IER + track-buffer
+      // dirty state are not surfaced by the facade probe (parity gap).
+      const p = record.drive.debugProbe();
       return {
         content: [{
           type: "text" as const,
           text: [
             `Drive session: ${session_id}`,
             `Disk: ${record.diskPath}`,
-            `CPU: PC=${formatHexWord(drive.cpu.pc)} A=${formatHexByte(drive.cpu.a)} X=${formatHexByte(drive.cpu.x)} Y=${formatHexByte(drive.cpu.y)} SP=${formatHexByte(drive.cpu.sp)} P=${formatHexByte(drive.cpu.flags)} cycles=${drive.cpu.cycles}`,
-            `Head: track ${record.headPosition.currentTrack} (half-track ${record.headPosition.currentHalfTrack})`,
-            `VIA1 IFR=${formatHexByte(via1.ifr)} IER=${formatHexByte(via1.ier)} IRQ=${via1.irqAsserted() ? "asserted" : "—"}`,
-            `VIA2 IFR=${formatHexByte(via2.ifr)} IER=${formatHexByte(via2.ier)} IRQ=${via2.irqAsserted() ? "asserted" : "—"}`,
-            `Track buffer: ${record.trackBuffer.isModified() ? `MODIFIED (${record.trackBuffer.modifiedTracks().size} tracks)` : "clean"}`,
+            `CPU: PC=${formatHexWord(p.drive_pc)} A=${formatHexByte(p.drive_a)} X=${formatHexByte(p.drive_x)} Y=${formatHexByte(p.drive_y)} SP=${formatHexByte(p.drive_sp)} P=${formatHexByte(p.drive_flags)} cycles=${p.drive_clk}`,
+            `Head: track ${p.current_track} (half-track ${p.head_halftrack})`,
+            `LED: ${p.led !== 0 ? "on" : "off"}`,
           ].join("\n"),
         }],
       };
@@ -275,31 +273,24 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       session_id: z.string(),
     },
     safeHandler("headless_iec_bus_state", async ({ session_id }) => {
-      const { getDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
-      const snap = record.session.iecBus.snapshot();
-      const fmt = (b: boolean) => b ? "released (1)" : "PULLED LOW (0)";
+      // Spec 704 §11 R3 — vice drive-side IEC sample. A standalone session
+      // has no C64 driver, so the wired-AND line state isn't composed here;
+      // the vice facade exposes the drive's open-collector pulls.
+      const s = record.drive.iecLineSample();
+      const fmt = (pull: boolean) => pull ? "PULLED LOW (0)" : "released (1)";
       return {
         content: [{
           type: "text" as const,
           text: [
-            `IEC bus state — session ${session_id}`,
-            ``,
-            `Line state (wired-AND):`,
-            `  ATN:  ${fmt(snap.line.atn)}`,
-            `  CLK:  ${fmt(snap.line.clk)}`,
-            `  DATA: ${fmt(snap.line.data)}`,
-            ``,
-            `C64 driver:`,
-            `  ATN:  ${fmt(snap.c64.atnReleased)}`,
-            `  CLK:  ${fmt(snap.c64.clkReleased)}`,
-            `  DATA: ${fmt(snap.c64.dataReleased)}`,
+            `IEC bus state — session ${session_id} (drive side, vice)`,
             ``,
             `Drive driver:`,
-            `  CLK:     ${fmt(snap.drive.clkReleased)}`,
-            `  DATA:    ${fmt(snap.drive.dataReleased)}`,
-            `  ATN_ACK: ${fmt(snap.drive.atnAckReleased)}`,
+            `  CLK:     ${fmt(s.drv_clk_pull)}`,
+            `  DATA:    ${fmt(s.drv_data_pull)}`,
+            `  ATN_ACK: ${fmt(s.drv_atna_pull)}`,
           ].join("\n"),
         }],
       };
@@ -723,7 +714,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       output_path: z.string(),
     },
     safeHandler("headless_drive_session_save_vsf", async ({ session_id, output_path }) => {
-      const { getDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const { saveDriveSessionVsf } = await import("../runtime/headless/vsf/drive-vsf.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
@@ -750,7 +741,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       input_path: z.string(),
     },
     safeHandler("headless_drive_session_load_vsf", async ({ session_id, input_path }) => {
-      const { getDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const { loadDriveSessionVsf } = await import("../runtime/headless/vsf/drive-vsf.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
@@ -779,18 +770,15 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       output_path: z.string().optional().describe("Optional override for the session-G64 output path."),
     },
     safeHandler("headless_drive_persist_writes", async ({ session_id, output_path }) => {
-      const { persistDriveSession } = await import("../runtime/headless/drive/drive-session-manager.js");
+      const { persistDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const result = persistDriveSession(session_id, output_path);
+      // Spec 704 §11 R3 — vice-backed PersistResult { written, outputPath?, note? }.
       const lines = [
         `headless_drive_persist_writes — session ${session_id}`,
-        `Output: ${result.outputPath}`,
+        `Written: ${result.written ? "yes" : "no"}`,
       ];
-      if (result.skipped) {
-        lines.push(`Skipped: ${result.skipped}`);
-      } else {
-        lines.push(`Modified tracks: ${result.modifiedTracks.join(", ")}`);
-        lines.push(`Bytes written: ${result.bytesWritten}`);
-      }
+      if (result.outputPath) lines.push(`Output: ${result.outputPath}`);
+      if (result.note) lines.push(`Note: ${result.note}`);
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
 ));

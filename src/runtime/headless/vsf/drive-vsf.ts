@@ -1,30 +1,16 @@
-// VSF save / load for a DriveSession (Sprint 64).
+// VSF save / load for a standalone DriveSession.
 //
-// Saves all subsystems the drive owns. C64 RAM + MainCPU added when
-// session-manager integration lands (deferred). On load, modules
-// the runtime doesn't model (VIC, SID, CIA1, full CIA2, KEYBOARD,
-// JOYSTICK, TAPE, EXPANSION) are skipped with a warning, per Spec
-// 062 Sprint 64.
+// Spec 704 §11 R3 — vice-backed rebuild. The legacy 5-module drive snapshot
+// (DRIVECPU/DRIVERAM/VIA1/VIA2/GCRHEAD) is retired; the standalone drive is a
+// Vice1541Facade, so VSF carries a single opaque vice drive module
+// (drive1541.snapshot()/restore()). That facade snapshot is a stub (empty)
+// until Spec 611.8 wires the host snapshot_t — until then save/load is a
+// no-op round-trip, but the format + plumbing are forward-compatible.
 
 import { writeFileSync, readFileSync } from "node:fs";
 import { VsfWriter, readVsf, VSF_MACHINE_C64 } from "./vsf-format.js";
-import {
-  VSF_MODULE_DRIVECPU, VSF_MODULE_DRIVERAM,
-  VSF_MODULE_VIA1D1541, VSF_MODULE_VIA2D1541,
-  VSF_MODULE_IEC, VSF_MODULE_GCRHEAD,
-  serializeCpu, deserializeCpu,
-  serializeVia, deserializeVia,
-  serializeRam, deserializeRam,
-  serializeIecBus, deserializeIecBus,
-  serializeGcrHead, deserializeGcrHead,
-} from "./module-mapping.js";
-import type { DriveSessionRecord } from "../drive/drive-session-manager.js";
-
-const KNOWN_OWNED_MODULES = new Set<string>([
-  VSF_MODULE_DRIVECPU, VSF_MODULE_DRIVERAM,
-  VSF_MODULE_VIA1D1541, VSF_MODULE_VIA2D1541,
-  VSF_MODULE_IEC, VSF_MODULE_GCRHEAD,
-]);
+import { VSF_MODULE_DRIVECPU } from "./module-mapping.js";
+import type { DriveSessionRecord } from "../drive1541/drive-session-manager.js";
 
 export interface VsfSaveResult {
   outputPath: string;
@@ -41,20 +27,10 @@ export interface VsfLoadResult {
 
 export function saveDriveSessionVsf(record: DriveSessionRecord, outputPath: string): VsfSaveResult {
   const writer = new VsfWriter(VSF_MACHINE_C64);
-  const drive = record.session.drive;
-  writer.addModule(VSF_MODULE_DRIVECPU, serializeCpu(drive.cpu as any));
-  writer.addModule(VSF_MODULE_DRIVERAM, serializeRam(drive.bus.ram));
-  writer.addModule(VSF_MODULE_VIA1D1541, serializeVia(drive.bus.via1));
-  writer.addModule(VSF_MODULE_VIA2D1541, serializeVia(drive.bus.via2));
-  writer.addModule(VSF_MODULE_IEC, serializeIecBus(record.session.iecBus));
-  writer.addModule(VSF_MODULE_GCRHEAD, serializeGcrHead(record.headPosition, record.trackBuffer));
+  writer.addModule(VSF_MODULE_DRIVECPU, record.drive.snapshot());
   const bytes = writer.toBytes();
   writeFileSync(outputPath, bytes);
-  return {
-    outputPath,
-    bytesWritten: bytes.length,
-    modules: [...KNOWN_OWNED_MODULES],
-  };
+  return { outputPath, bytesWritten: bytes.length, modules: [VSF_MODULE_DRIVECPU] };
 }
 
 export function loadDriveSessionVsf(record: DriveSessionRecord, inputPath: string): VsfLoadResult {
@@ -63,21 +39,13 @@ export function loadDriveSessionVsf(record: DriveSessionRecord, inputPath: strin
   const loadedModules: string[] = [];
   const ignoredModules: string[] = [];
   const errors: Array<{ module: string; error: string }> = [];
-  const drive = record.session.drive;
   for (const mod of file.modules) {
-    if (!KNOWN_OWNED_MODULES.has(mod.name)) {
+    if (mod.name !== VSF_MODULE_DRIVECPU) {
       ignoredModules.push(mod.name);
       continue;
     }
     try {
-      switch (mod.name) {
-        case VSF_MODULE_DRIVECPU: deserializeCpu(drive.cpu as any, mod.data); break;
-        case VSF_MODULE_DRIVERAM: deserializeRam(drive.bus.ram, mod.data); break;
-        case VSF_MODULE_VIA1D1541: deserializeVia(drive.bus.via1, mod.data); break;
-        case VSF_MODULE_VIA2D1541: deserializeVia(drive.bus.via2, mod.data); break;
-        case VSF_MODULE_IEC: deserializeIecBus(record.session.iecBus, mod.data); break;
-        case VSF_MODULE_GCRHEAD: deserializeGcrHead(record.headPosition, record.trackBuffer, mod.data); break;
-      }
+      record.drive.restore(mod.data);
       loadedModules.push(mod.name);
     } catch (e) {
       errors.push({ module: mod.name, error: e instanceof Error ? e.message : String(e) });
