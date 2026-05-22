@@ -2,8 +2,8 @@
 
 C64RE MCP is a project-centric reverse-engineering workbench for
 Commodore 64 software. It combines deterministic extraction tools, a
-persistent knowledge layer, an LLM workflow contract, a workspace UI, VICE
-integration, and a TypeScript headless C64/1541 runtime.
+persistent knowledge layer, an LLM workflow contract, VICE integration,
+and a TypeScript C64/1541 runtime with a browser workbench.
 
 The Headless Runtime is important, but it is one subsystem of the larger
 C64RE project. The project goal is not only to boot software. The goal is
@@ -22,9 +22,9 @@ licensed as GPL-compatible derivative work and VICE is credited below.
   tasks, open questions, and registered artifacts
 - builds stable JSON views consumed by the workspace UI
 - exposes VICE as an external oracle, debugger, and trace source
-- exposes a TypeScript Headless Runtime for CLI/MCP/LLM workflows
+- exposes a TypeScript C64/1541 runtime for CLI/MCP/UI workflows
 - supports runtime evidence, traces, snapshots, monitor operations, and
-  future human emulator UI features
+  live browser debugging
 
 ## Why An LLM
 
@@ -81,7 +81,7 @@ init`.
 │ - dashboard · docs · memory · cartridge · disk                 │
 │ - load sequence · flow graph · annotated listing · activity    │
 │                                                               │
-│ Emulator UI / V3 workbench                                     │
+│ Emulator UI / V3 Workbench                                     │
 │ - live C64 screen · media · monitor · inspector                │
 │ - keyboard / joystick · trace swimlanes · frozen explore       │
 └───────────────────────────────────────────────────────────────┘
@@ -94,6 +94,8 @@ Detailed walkthroughs:
   store and Workspace UI
 - [docs/project-knowledge-layer.md](docs/project-knowledge-layer.md) —
   project knowledge internals
+- [docs/tools/headless.md](docs/tools/headless.md) — Headless Runtime,
+  backend loop, V3 UI, monitor, tracing, and evidence model
 - [EPIC_ROADMAP.md](EPIC_ROADMAP.md) — current V1/V2/V3 roadmap
 
 ## Setup
@@ -150,7 +152,8 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 
 ## Workspace UI
 
-The Workspace UI is the project-knowledge browser.
+The Workspace UI is the project-knowledge browser: artifacts, findings,
+relations, memory maps, media views, disassembly context, and activity.
 
 ```bash
 npm run ui:build
@@ -162,24 +165,17 @@ See [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md).
 
 ## Emulator UI / V3 Workbench
 
-The V3 UI is the human-facing emulator workbench backed by the same
-Headless Runtime and project APIs.
+The V3 Workbench is the live emulator/debugger UI. The backend owns the
+C64/1541 clock, monitor state, media state, trace capture, and WebSocket
+streams; the browser is a command and visualization client.
 
 ```bash
 npm run v3:server           # runtime WebSocket/API server
 npm run ui:v3:dev           # V3 browser client
 ```
 
-Current UX specs live in the 350-series:
-
-- [specs/350-emulator-workbench-ux-master.md](specs/350-emulator-workbench-ux-master.md)
-- [specs/351-emulator-live-machine-ux.md](specs/351-emulator-live-machine-ux.md)
-- [specs/352-emulator-monitor-vice-compat-ux.md](specs/352-emulator-monitor-vice-compat-ux.md)
-- [specs/353-emulator-media-project-flow-ux.md](specs/353-emulator-media-project-flow-ux.md)
-- [specs/354-emulator-frozen-explore-to-knowledge-ux.md](specs/354-emulator-frozen-explore-to-knowledge-ux.md)
-- [specs/355-emulator-trace-swimlane-workbench-ux.md](specs/355-emulator-trace-swimlane-workbench-ux.md)
-- [specs/356-dashboard-launch-emulator-ux.md](specs/356-dashboard-launch-emulator-ux.md)
-- [specs/357-browser-keyboard-virtual-joystick-ux.md](specs/357-browser-keyboard-virtual-joystick-ux.md)
+Runtime/backend/UI details live in
+[docs/tools/headless.md](docs/tools/headless.md).
 
 ## Tool Surface
 

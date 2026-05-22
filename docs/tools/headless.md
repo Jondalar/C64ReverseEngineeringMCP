@@ -13,7 +13,7 @@ It remains part of the larger C64RE MCP project:
 
 ## Runtime Modes
 
-The roadmap and ADR distinguish these modes:
+The runtime exposes several modes for tools and diagnostics:
 
 | Mode | Purpose |
 |---|---|
@@ -23,8 +23,8 @@ The roadmap and ADR distinguish these modes:
 | `debug-vice-compare` | Headless run prepared for first-divergence comparison against VICE. |
 | `debug-lockstep` / `debug-push-only` / `debug-hybrid` | Diagnostic-only modes. They are not product acceptance modes. |
 
-See [../adr-headless-machine-kernel.md](../adr-headless-machine-kernel.md)
-and [../../EPIC_ROADMAP.md](../../EPIC_ROADMAP.md).
+Product compatibility gates should use `true-drive` unless a test explicitly
+targets a faster analysis or diagnostic mode.
 
 ## Integrated C64 + 1541 Sessions
 
@@ -61,11 +61,10 @@ isolating media or VIA behavior from a full C64 boot.
 | `headless_io_interrupt_trigger` | Trigger simple emulated I/O interrupt sources. |
 | `headless_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
 
-## V3 Emulator UI — Pure Visualization Of The Headless Core
+## V3 Emulator UI - Visualization Of The Headless Core
 
-As of Spec 701 (DONE 2026-05-21) the **headless runtime, not the UI, owns
-the machine clock.** The browser is a thin visualization + command layer
-on top of a backend-driven loop.
+The **headless runtime, not the UI, owns the machine clock.** The browser is a
+visualization and command layer on top of a backend-driven loop.
 
 ### Backend owns the loop
 
@@ -78,8 +77,8 @@ browser:
   (`setImmediate`), `fixed-ratio` clamps to a chosen multiple of realtime.
 - **Run / pause / stopped** state is backend-owned. The controller
   **self-halts on a breakpoint** — the UI never polls a clock.
-- **Breakpoints** live in a stable checknum store on the controller;
-  `FlowTracker` (Spec 623) classifies each step into MAIN / IRQ / NMI.
+- **Breakpoints** live in a stable checknum store on the controller.
+  `FlowTracker` classifies each step into MAIN / IRQ / NMI.
 - **Atomic media ops**: `runExclusive(fn)` suspends the loop while a disk
   is mounted / swapped so a tick can never run on a half-attached drive.
 
@@ -97,12 +96,12 @@ clock:
 | Run / pause | `debug/run` / `debug/pause` |
 | Single step | `debug/step` |
 | Breakpoint add/remove, go, halt | `monitor/exec` `bk` / `del` / `g` / `z` |
-| Interrupt-aware step / return | `monitor/exec` `n` / `ret` (Spec 623 §4.2) |
-| Flow-focus step (stay in MAIN/IRQ/NMI) | `monitor/exec` `focus` / `sf` / `nf` (§4.3) |
+| Interrupt-aware step / return | `monitor/exec` `n` / `ret` |
+| Flow-focus step (stay in MAIN/IRQ/NMI) | `monitor/exec` `focus` / `sf` / `nf` |
 | Warp toggle, pacing | `session/set_pacing` |
 | Mount / swap / unmount media | `media/*` (wrapped in `runExclusive`) |
 
-### Live VIC frame transport (Spec 701 §7)
+### Live VIC frame transport
 
 The screen is a **binary VIC frame stream**, not per-frame PNG/base64:
 
@@ -149,26 +148,18 @@ Large JSONL traces are not the desired long-term UI format. The current
 direction is a DuckDB trace store with typed event tables, post-hoc
 rollups, zoomable time windows, and VICE/headless trace import.
 
-Relevant specs:
-
-- [../../specs/217-duckdb-trace-store.md](../../specs/217-duckdb-trace-store.md)
-- [../../specs/230-v2-llm-workbench-master.md](../../specs/230-v2-llm-workbench-master.md)
-- [../../specs/234-transaction-swimlane.md](../../specs/234-transaction-swimlane.md)
-- [../../specs/355-emulator-trace-swimlane-workbench-ux.md](../../specs/355-emulator-trace-swimlane-workbench-ux.md)
-
 ## Current Development Focus
 
 As of 2026-05-22, the active runtime work is around:
 
-- 1:1 VICE 1541 port under `src/runtime/headless/vice1541/**` (Spec 612
-  fidelity doctrine), driving toward dropping VICE entirely
-- the 7-game Runtime Proof Gate (motm / MM / IM2 / LNR / Scramble / Pawn /
-  Polarbear) staying GREEN as the single acceptance bar (Specs 600/601)
-- backend-owned autonomous runtime loop + V3 visualization (Spec 701) and
-  VICE-faithful monitor stepping (Spec 623)
+- 1:1 VICE-shaped C64/1541 behavior under `src/runtime/headless/**`
+- the 7-game Runtime Proof Gate staying green as the single acceptance bar
+- backend-owned autonomous runtime loop + V3 visualization
+- VICE-faithful monitor stepping and flow-aware debugging
 - VIC-II pixel/line/raster fidelity from the `viciisc/` literal port
-- per-cycle drive scheduling and custom-fastloader `$DD00` paths
-  (Specs 614/618)
+- per-cycle drive scheduling, IEC, GCR, KERNAL load/save, and custom-fastloader
+  `$DD00` paths
+- SID readback correctness and reSID WASM audio integration
 
 Do not introduce game-specific traps as product fixes. Compatibility
 bugs should identify the exact VICE-observable event or state being
