@@ -383,26 +383,81 @@ VICE1541 is the active drive AND passes the gate. What remains:
   (all 7, not just motm); `--drive1541=legacy` → confirm regression status.
 - This is the measured acceptance of spec 611.9.
 
-**R1 — Prove legacy unreachable from any default path.**
-- Confirm: factory default vice ✓, v3 backend vice ✓, manager/integrated
-  default vice ✓. Only consumers of `"legacy"` are: the factory legacy
-  branch, the kernel legacy-wiring branch (`headless-machine-kernel.ts:684`),
-  and `scripts/diag-611-*.mjs` (which `capture("legacy")` for comparison —
-  those diags are §6.6 debris, deleted in the Tier-A pass).
+**R1 — Severability audit (DONE 2026-05-22, result: NOT cleanly severable).**
 
-**R2 — Demote legacy to a one-release reference lane (per 611.9).**
-- Keep `--drive1541=legacy` selectable for one release as a regression lane.
-- Add a loud retirement banner comment to `legacy1541-adapter.ts` and the
-  legacy `drive/**` entry naming this section + the removal release.
+A surgery-map audit found LEGACY1541 `drive/**` is **structurally co-resident**
+with the vice drive, not an opt-in sidecar. The kernel constructs the legacy
+`DriveCpu` / `TrackBuffer` / `HeadPosition` / `GcrShifter` **unconditionally**
+(even in vice mode); the vice path overlays onto the shared `iec/**` bus
+(which is a SEPARATE module, NOT a deletion target). **Nine active-path call
+sites read legacy objects while `drive1541="vice"`:**
 
-**R3 — Delete legacy (next release, after R0 ships green).**
-- Delete `src/runtime/headless/drive/**` (legacy DriveCpu / IecBus / GCR /
-  VIA / image impl).
+| # | site | coupling |
+|---|---|---|
+| 1 | `kernel/headless-machine-kernel.ts:38-43,161-164,219-473` | builds legacy objects unconditionally; `readonly` typed fields |
+| 2 | `headless-machine-kernel.ts:39-40` | shared consts `C64_PAL/NTSC_CYCLES_PER_SEC` from `drive/drive-cpu.ts:79,81` |
+| 3 | `kernel/event-catchup-strategy.ts:16,20,84` | types/calls `DriveCpu` (vice uses `eventCatchup`); call already vice-skipped |
+| 4 | `scheduler/cycle-wrappers.ts:32,108-151` | `DriveCpuCycled` ticks legacy drive |
+| 5 | `integrated-session.ts:17-19,260-266,528-532` | mirrors legacy fields; reads `drive.cpu` (641,723,1042,1367) |
+| 6 | `media/mount.ts:176-317` | calls legacy GCR/head methods even in vice mode |
+| 7 | `vsf/module-mapping.ts:29,166,483` | legacy GCR-head VSF serialize |
+| 8 | `server-tools/headless.ts:217-783` | `headless_drive_session_*` MCP tools via `drive-session-manager` |
+| 9 | `traps/kernal-serial.ts:19,89` | type-only `DriveCpu` |
+
+Mitigating: `vice1541/**` + the facade import **nothing** from `drive/**`
+(vice logic is self-contained); most vice-mode legacy reads are already inert
+(driveClockSource falls back, `executeToClock` skipped, mount.enable skipped);
+the only true shared symbols are the two cycles-per-sec constants. So the
+retirement is tractable but is a **decoupling refactor, not a delete** — and
+it touches live kernel/scheduler/mount wiring, which conflicts with §3's
+"no emulator timing / IEC / drive-semantics change" non-goal unless done very
+carefully and gated.
+
+**R2/R3 are therefore deferred to a dedicated refactor session** (not this
+cleanup pass). Phase A below is the prerequisite; only after it compiles AND
+the 7-game vice gate stays green does the Phase B delete happen.
+
+#### Phase A — decouple the active vice path from `drive/**` (dedicated session)
+
+Ordered so the build never breaks:
+
+1. Extract `C64_PAL/NTSC_CYCLES_PER_SEC` out of `drive/drive-cpu.ts:79,81` into
+   a neutral `c64/timing-constants.ts`; update kernel import (39-40). (Verify
+   the vice facade even needs them once the legacy drive is gone.)
+2. Kernel: gate legacy object construction behind non-vice mode (make
+   `trackBuffer`/`headPosition`/`gcrShifter`/`drive` vice-optional); take the
+   vice branch unconditionally (remove the `=== "legacy"` branch 684-688);
+   drop the `legacyDeps` arg to `createDrive1541`; re-point `driveClockSource`
+   (491-494); guard/remove legacy trace wiring (584-641).
+3. `event-catchup-strategy.ts`: make `deps.drive` optional, type-decouple from
+   `DriveCpu`; remove `forceLegacyDriveTick`/`C64RE_VICE_LEGACY_DRIVE` plumbing.
+4. `scheduler/cycle-wrappers.ts`: remove `DriveCpuCycled` from the vice
+   steppable list + delete the class + `DriveCpu` import.
+5. `integrated-session.ts`: remove/guard legacy fields + `drive.cpu` reads;
+   re-point debug reads to `kernel.drive1541.debugProbe()`.
+6. `media/mount.ts`: gate every `trackBuffer`/`gcrShifter`/`headPosition`/
+   `drive` call so they no-op in vice mode (vice attach already uses
+   `drive1541.attachDisk`).
+7. `vsf/module-mapping.ts` + `vsf/drive-vsf.ts`: confirm legacy GCR-head VSF +
+   `drive-session-manager` unused in vice; remove or re-point to
+   `vice1541/drive_snapshot.ts`.
+8. `traps/kernal-serial.ts`: retype off `DriveCpu`.
+9. `server-tools/headless.ts`: delete or migrate the `headless_drive_session_*`
+   MCP tools (decouple from `drive-session-manager`).
+
+Gate between A and B: `npm run build:mcp` + `npm run runtime:proof`
+(vice 7/7) + full `tests/` suite green.
+
+#### Phase B — delete legacy (only after Phase A is green)
+
+- Delete `src/runtime/headless/drive/**` (19 files).
 - Delete `src/runtime/headless/drive1541/legacy1541-adapter.ts`.
-- Simplify `drive1541-factory.ts` to vice-only (drop the legacy branch +
-  `legacyDeps`); `resolveDrive1541Implementation` becomes a vice-only assert.
-- Remove the kernel legacy-wiring branch (`headless-machine-kernel.ts:684`).
-- Remove the legacy lane from `runtime-proof-gate.mjs`.
+- `drive1541-factory.ts` → vice-only (drop `Legacy1541Adapter` import, the
+  `"legacy"` branch, `legacyDeps`, the legacy env/validation).
+- `drive1541.ts`: collapse `Drive1541Implementation` to `"vice"`.
+- Delete `tests/unit/drive/*.test.ts` + the `drive/**`-importing
+  smoke/sprint/probe/audit/diag-611-legacy scripts.
+- `runtime-proof-gate.mjs`: remove the `"legacy"`/`"both"` selector handling.
 - Gates after each delete: `npm run build:mcp`, `npm run check:1541-fidelity`,
   `npm run runtime:proof` (vice), `npm run smoke:701`, `npm run smoke:v3-ws`.
 

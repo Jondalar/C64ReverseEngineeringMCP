@@ -90,7 +90,7 @@ const flags = {
   updateDoc: args.includes("--update-baseline-doc"),
   acceptNew: args.includes("--accept-new-state"),
   only: null,
-  drive1541: "legacy",
+  drive1541: "vice",
 };
 const onlyIdx = args.indexOf("--only");
 if (onlyIdx >= 0) {
@@ -120,50 +120,16 @@ function readDrive1541Selector(argv, env) {
   if (e === "vice" || e === "both" || e === "legacy") {
     return e;
   }
-  return "legacy";
+  return "vice";
 }
 flags.drive1541 = readDrive1541Selector(args, process.env);
 
-// Spec 611 §5 + §7 false-green guard.
-//
-// Phases 611.0–611.6 build VICE1541 incrementally but the C64 / IEC /
-// disk runtime path still flows through LEGACY1541. Running real
-// per-game LOAD gates with --drive1541=vice in that window would
-// produce PASS results that are LEGACY1541's PASS, not VICE1541's —
-// a false "VICE1541 passes runtime proof" claim.
-//
-// Until the phase that wires the Drive1541 surface end-to-end (per
-// Spec 611 §5 row 611.7 "first real disk-read phase"), this gate
-// refuses --drive1541=vice (and --drive1541=both). Remove this guard
-// in the same commit that lands 611.7's end-to-end wiring AND its
-// substep (a) D64 directory match.
-// Spec 611 phase 611.7f.2 — narrow per-scenario whitelist for
-// --drive1541=vice. The blanket refusal above is now scoped to
-// "no scenario explicitly whitelisted for the vice path".
-// Allowed combinations:
-//   --drive1541=vice --only load-directory
-// Everything else (bare --drive1541=vice, or --drive1541=vice with
-// any other --only) still exits 2.
-//
-// Whitelist is intentionally minimal: 611.7f covers substep (a)
-// LOAD"$",8 only. Substeps (b)-(d) extend this set in 611.7g/h/i.
-const VICE_SCENARIO_WHITELIST = new Set([
-  "load-directory",
-]);
-if (flags.drive1541 !== "legacy") {
-  const allowed = flags.only && VICE_SCENARIO_WHITELIST.has(flags.only);
-  if (!allowed) {
-    console.error(
-      `[runtime-proof-gate] refusing --drive1541=${flags.drive1541}` +
-        (flags.only ? ` --only ${flags.only}` : "") +
-        `: only whitelisted vice scenarios are permitted before ` +
-        `Spec 611 phase 611.9 default flip. Current whitelist: ` +
-        `[${[...VICE_SCENARIO_WHITELIST].join(", ")}]. See ` +
-        `specs/611-new-vice1541-side-by-side.md §5 + §7.`,
-    );
-    process.exit(2);
-  }
-}
+// Spec 704 §11 R0 — honest gate. The 611.7-era false-green guard is
+// retired: the runtime default is now VICE1541 (drive1541-factory.ts:22),
+// and the 7-game GAMES loop runs whatever flags.drive1541 selects, passed
+// to every child via the C64RE_DRIVE1541 child env (see runGame /
+// SCENARIOS dispatch). Default = vice. `--drive1541=legacy` is the opt-in
+// regression lane while LEGACY1541 still exists; removed with Spec 704 R3.
 
 // Spec 611 phase 611.7f.3 — SCENARIOS dispatch.
 //
@@ -193,7 +159,10 @@ if (flags.only && SCENARIOS[flags.only]) {
   console.log(`  script: ${sc.script}`);
   console.log(`  drive:  ${flags.drive1541}`);
   console.log("");
-  const r = spawnSync("node", [sc.script], { stdio: "inherit" });
+  const r = spawnSync("node", [sc.script], {
+    stdio: "inherit",
+    env: { ...process.env, C64RE_DRIVE1541: flags.drive1541 },
+  });
   console.log("");
   console.log("================= RUNTIME PROOF GATE =================");
   console.log(`Scenario:  ${flags.only}`);
@@ -238,7 +207,10 @@ function classify(finalPc) {
 function runGame(g) {
   return new Promise((resolveRun) => {
     console.log(`[${g.key}] running ${g.script} ...`);
-    const child = spawn("node", [g.script], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("node", [g.script], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, C64RE_DRIVE1541: flags.drive1541 },
+    });
     let stdout = "";
     child.stdout.on("data", (c) => { stdout += c.toString(); process.stdout.write(c); });
     child.stderr.on("data", (c) => process.stderr.write(c));
