@@ -685,6 +685,12 @@ export class V3WsServer {
         sampleRate: sample_rate ?? 44100,
         bufferSamples: 65536,
       });
+      // reSID WASM loads asynchronously; the 23ms pump tolerates the brief
+      // pre-load silence. Surface a load failure rather than streaming silence
+      // forever in that case.
+      recorder.resid.ready?.().catch((e) => {
+        console.warn(`[audio/start] reSID engine load failed for ${session_id}: ${e?.message ?? e}`);
+      });
       const cursorId = `ws_${session_id}_${Date.now()}`;
       recorder.buffer.attach(cursorId);
       const chunk = chunk_samples ?? 1024;

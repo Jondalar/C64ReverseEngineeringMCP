@@ -12,8 +12,13 @@
 
 import { Sid6581 } from "./sid.js";
 import { Resid, type ResidEmitOptions } from "./resid.js";
+import { ResidWasm } from "./resid-wasm-engine.js";
 
-export type SidEngineKind = "resid" | "fastsid";
+// Spec 703 §4 engine model. `resid-wasm` = the compiled reSID audio authority;
+// `resid` = the simplified TS synth (703.6 fallback/test-only); `fastsid` =
+// register-state only, no synth (trace/no-audio). The 703 spec names these
+// `resid-wasm` / `fastsid-register`; the legacy short names stay accepted.
+export type SidEngineKind = "resid-wasm" | "resid" | "fastsid";
 
 export interface SidFactoryOptions extends ResidEmitOptions {
   engine?: SidEngineKind;
@@ -39,6 +44,13 @@ export interface AudioSidLike extends SidLike {
   emit(cycles: number): Int16Array;
   readonly sampleRate: number;
   readonly clockFreq: number;
+  /**
+   * Resolves when the engine is fully ready to emit audio. Synchronous
+   * engines (TS `Resid`) may omit it (treated as already ready); the reSID
+   * WASM engine resolves once its module has loaded, and rejects on load
+   * failure. Callers driving a synchronous pump (export) should await it.
+   */
+  ready?(): Promise<void>;
 }
 
 export function isAudioSid(sid: SidLike): sid is AudioSidLike {
@@ -50,13 +62,43 @@ export function isAudioSid(sid: SidLike): sid is AudioSidLike {
  */
 export function createSid(opts: SidFactoryOptions = {}): SidLike {
   const explicit = opts.engine;
-  const envChoice = (process.env["C64RE_SID_ENGINE"] || "").toLowerCase();
-  let kind: SidEngineKind;
-  if (explicit) kind = explicit;
-  else if (envChoice === "resid" || envChoice === "fastsid") kind = envChoice;
-  else kind = "fastsid";
+  const envChoice = normalizeEngineKind(process.env["C64RE_SID_ENGINE"]);
+  const kind: SidEngineKind = explicit ?? envChoice ?? "fastsid";
+  if (kind === "resid-wasm") return new ResidWasm(undefined, opts);
   if (kind === "resid") return new Resid(undefined, opts);
   return new Sid6581();
+}
+
+/**
+ * Construct an **audio-capable** SID engine (has `emit()`), for the audio
+ * recorder / export / live-stream paths which must produce PCM. Selection:
+ * explicit > env > default `resid-wasm` (the committed reSID WASM authority,
+ * Spec 703). `fastsid` is silently upgraded to `resid-wasm` here because it
+ * cannot synthesise. Falls back to the TS `Resid` only when explicitly asked.
+ */
+export function createAudioSid(opts: SidFactoryOptions = {}): AudioSidLike {
+  const explicit = opts.engine;
+  const envKind = normalizeEngineKind(process.env["C64RE_SID_ENGINE"]);
+  let kind: SidEngineKind = explicit ?? envKind ?? "resid-wasm";
+  if (kind === "fastsid") kind = "resid-wasm"; // register-only can't emit
+  if (kind === "resid") return new Resid(undefined, opts);
+  return new ResidWasm(undefined, opts);
+}
+
+/** Map env / config strings (incl. the Spec 703 long names) to a kind. */
+function normalizeEngineKind(v: string | undefined): SidEngineKind | undefined {
+  switch ((v || "").toLowerCase()) {
+    case "resid-wasm":
+    case "residwasm":
+      return "resid-wasm";
+    case "resid":
+      return "resid";
+    case "fastsid":
+    case "fastsid-register":
+      return "fastsid";
+    default:
+      return undefined;
+  }
 }
 
 /**

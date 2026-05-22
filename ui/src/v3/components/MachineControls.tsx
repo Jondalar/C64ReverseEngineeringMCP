@@ -3,8 +3,9 @@
 // Spec 701: Run/Pause/Step/Warp drive the BACKEND runtime loop via debug/*
 // + session/set_pacing. The UI no longer owns the emulation clock.
 
-import React, { useState } from "react";
-import { getClient } from "../ws-client.js";
+import React, { useEffect, useRef, useState } from "react";
+import { getClient, BIN_TYPE_AUDIO_BUFFER } from "../ws-client.js";
+import { WebAudioPlayer } from "../audio-player.js";
 
 interface Props {
   sessionId: string;
@@ -68,6 +69,68 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     onSnapshotTaken();
   };
 
+  // Spec 703 §8 — live SID audio, ON by default. Browsers gate the
+  // AudioContext behind a user gesture, so we ARM on mount (subscribe + start
+  // the backend pump + create a suspended context) and resume on the first
+  // interaction anywhere; frames are dropped until then (no backlog). The
+  // backend runs reSID (Spec 703) for the live stream.
+  const [audioOn, setAudioOn] = useState(true);
+  const playerRef = useRef<WebAudioPlayer | null>(null);
+  const offBinRef = useRef<(() => void) | null>(null);
+  const userMutedRef = useRef(false); // once muted by hand, don't auto-rearm
+
+  // `audioOn` is the user's PREFERENCE (default on), toggled only by the
+  // button. The stream's live/teardown state is tracked by playerRef and is
+  // independent of pause: when paused the machine emits no cycles, so audio is
+  // naturally silent without tearing the stream down — it resumes on continue.
+  const startAudio = async () => {
+    if (!sessionId || playerRef.current) return;
+    const player = new WebAudioPlayer();
+    playerRef.current = player;
+    player.arm(); // suspended context + resume-on-first-gesture
+    offBinRef.current = c.onBinary(BIN_TYPE_AUDIO_BUFFER, (frame) => player.push(frame.payload));
+    try {
+      await c.call("audio/start", { session_id: sessionId, sample_rate: 44100, chunk_samples: 1024 });
+    } catch (e) {
+      console.error("audio/start failed", e);
+      await stopAudio();
+    }
+  };
+
+  const stopAudio = async () => {
+    if (sessionId) { try { await c.call("audio/stop", { session_id: sessionId }); } catch { /* ignore */ } }
+    offBinRef.current?.();
+    offBinRef.current = null;
+    await playerRef.current?.close();
+    playerRef.current = null;
+  };
+
+  const toggleAudio = async () => {
+    if (!sessionId) return;
+    if (audioOn) { userMutedRef.current = true; setAudioOn(false); await stopAudio(); return; }
+    userMutedRef.current = false;
+    setAudioOn(true);
+    await playerRef.current?.resume(); // explicit click is a valid gesture
+    await startAudio();
+  };
+
+  // Auto-arm when a powered session is present and audio is wanted. Power-off
+  // tears the stream down (machine unplugged); pause does NOT (handled above).
+  useEffect(() => {
+    if (sessionId && runState !== "off" && audioOn && !userMutedRef.current && !playerRef.current) {
+      void startAudio();
+    } else if (runState === "off" && playerRef.current) {
+      void stopAudio();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, runState, audioOn]);
+
+  // Tear down only on unmount or when the session itself changes.
+  useEffect(() => {
+    return () => { void stopAudio(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
   return (
     <div className="wb-controls">
       <button
@@ -87,6 +150,12 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         className={warp ? "wb-warp-on" : ""}
         title="Warp (host pacing only — unthrottled, same emulated cycles)"
       >⏩ Warp{warp ? " ●" : ""}</button>
+      <button
+        onClick={toggleAudio}
+        disabled={runState === "off"}
+        className={audioOn ? "wb-audio-on" : ""}
+        title={audioOn ? "Mute live SID audio" : "Play live SID audio (reSID)"}
+      >{audioOn ? "🔊 Audio" : "🔇 Audio"}</button>
       <span className="wb-controls-spacer" />
       {runState === "running" && <span className="wb-fps">{fps} fps</span>}
     </div>

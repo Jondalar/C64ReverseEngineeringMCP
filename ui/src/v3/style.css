@@ -640,6 +640,8 @@ body {
 }
 .wb-controls button:hover:not(:disabled) { border-color: var(--c64-blue-bright); }
 .wb-controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Spec 703 §8 — live SID audio toggle (active state). */
+.wb-controls button.wb-audio-on { border-color: var(--c64-green); color: var(--c64-green); }
 .wb-controls-spacer { flex: 1; }
 .wb-fps { color: var(--c64-fg-muted); font-size: 11px; }
 

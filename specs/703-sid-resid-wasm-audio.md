@@ -1,6 +1,6 @@
 # Spec 703 — SID reSID WASM Audio
 
-Status: DRAFT  
+Status: DRAFT (703.1 inventory DONE 2026-05-22)  
 Created: 2026-05-21 CEST  
 Supersedes: archived Spec 263  
 Depends: Spec 216, Spec 701, Spec 623  
@@ -251,11 +251,50 @@ This is inspect metadata, not a requirement for first audible playback.
 
 ## 11. Implementation Phases
 
-### 703.1 Inventory
+### 703.1 Inventory — DONE (2026-05-22 CEST)
 
-- Decide exact reSID source package used for WASM.
-- Confirm license compatibility and build command.
-- Document version/commit in this spec.
+**Source.** VICE-bundled reSID. Upstream `daglem/reSID` rejected: ~3 years
+stale and itself points back to VICE.
+
+- Repo: `git@github.com:VICE-Team/svn-mirror.git`, HEAD `e635822a93`
+  ("Merge branch 'clean' into main").
+- Local checkout root: `/Users/alex/Development/C64/Tools/vice`
+  (git root). VICE source tree: `<root>/vice` (VICE **3.10**).
+  reSID source: `<root>/vice/src/resid` — reSID subpackage **1.0-pre2**.
+- Vendored into `third_party/resid/` (see License below). The build
+  compiles from there; the VICE path above is the re-vendoring source
+  only, not a build-time dependency.
+
+**License — resolved by project relicense to GPLv3.** reSID is
+**GPL-2.0-or-later**; this project was relicensed MIT → **GPL-3.0-or-later**
+(2026-05-22), compatible via reSID's "v2 or any later" grant. See
+`/LICENSE` + `/THIRD_PARTY_NOTICES.md`. Decision: **bundle reSID source
+in-repo** (supersedes the earlier generate-at-build plan that the MIT
+conflict had forced).
+
+- reSID `.cc/.h` vendored unmodified into `third_party/resid/` (30 files,
+  ~620K), GPL headers preserved verbatim. Provenance + pinned VICE commit
+  in `third_party/resid/PROVENANCE.md`.
+- Build is reproducible without an external VICE checkout; the build
+  script compiles from `third_party/resid/`.
+- The generated `.wasm` + emscripten glue are build artifacts and stay
+  `.gitignore`d. No network fetch during `npm run build:mcp` (audio WASM
+  build is a separate explicit step — see 703.2).
+- `siddefs.h` is already VICE-configured (no `configure` step). Engine is
+  self-contained (standard C++ headers only, no VICE-external includes).
+
+**WASM build-set** (complete; corrects the partial list in §5 which omits
+`dac.cc`, `filter8580new.cc`, and the 8 wave sample tables):
+
+- Compile units: `sid.cc voice.cc wave.cc envelope.cc filter.cc
+  filter8580new.cc extfilt.cc pot.cc dac.cc version.cc`.
+- Headers pulled in: `wave6581_{PST,PS_,P_T,_ST}.h`,
+  `wave8580_{PST,PS_,P_T,_ST}.h`, `spline.h`, `resid-config.h`,
+  `siddefs.h`, plus the per-unit `.h`.
+
+**Toolchain.** emscripten (`emcc`/`em++`) — **not currently installed**
+in the dev env (`emcc not found`, `EMSDK` unset). Installing it is a
+703.2 prerequisite (`brew install emscripten` or emsdk).
 
 ### 703.2 WASM Build
 

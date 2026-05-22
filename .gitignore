@@ -32,3 +32,10 @@ samples/screenshots/*
 tmp/
 session/
 snapshots/
+
+# reSID WASM (Spec 703). Source vendored in third_party/resid/ (GPL).
+# The prebuilt module IS committed under src/runtime/headless/sid/wasm/ so a
+# plain checkout/npm install needs no emscripten — only the maintainer rebuilds
+# it with `npm run build:resid-wasm`. Ignore only emcc scratch + the dist copy.
+third_party/resid/build/
+dist/runtime/headless/sid/wasm/

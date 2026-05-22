@@ -9,8 +9,9 @@
 // so existing trace/snapshot/replay paths remain bit-equal. Audio is a
 // read-side overlay: same writes → same audio every time → determinism.
 
-import { Resid, type ResidEmitOptions } from "../sid/resid.js";
+import { type ResidEmitOptions } from "../sid/resid.js";
 import type { Sid6581 } from "../sid/sid.js";
+import { createAudioSid, type AudioSidLike, type SidEngineKind } from "../sid/sid-engine.js";
 import { AudioRingBuffer, monoToStereoLR } from "./audio-buffer.js";
 
 export interface SessionLike {
@@ -21,6 +22,12 @@ export interface SessionLike {
 export interface RecorderOptions extends ResidEmitOptions {
   /** Ring-buffer capacity in mono samples (default 65536). */
   bufferSamples?: number;
+  /**
+   * Audio synth engine for the parallel mirror. Default resolves via
+   * `createAudioSid` (explicit > C64RE_SID_ENGINE > `resid-wasm`). Spec 703:
+   * the live stream + WAV export now run the real reSID WASM engine.
+   */
+  engine?: SidEngineKind;
 }
 
 /**
@@ -31,14 +38,14 @@ export interface RecorderOptions extends ResidEmitOptions {
  * Important: this composes with an existing writeTrace if one is set.
  */
 export class SidAudioRecorder {
-  public readonly resid: Resid;
+  public readonly resid: AudioSidLike;
   public readonly buffer: AudioRingBuffer;
   private prevWriteTrace?: ((addr: number, value: number) => void) | undefined;
   private lastCycle: number;
   private detached = false;
 
   constructor(public readonly session: SessionLike, opts: RecorderOptions = {}) {
-    this.resid = new Resid(undefined, opts);
+    this.resid = createAudioSid(opts);
     this.buffer = new AudioRingBuffer({
       capacitySamples: opts.bufferSamples ?? 65536,
       sampleRate: this.resid.sampleRate,
@@ -107,7 +114,12 @@ export class AudioExportSession {
   private collected: Int16Array[] = [];
 
   constructor(session: SessionLike, opts: RecorderOptions = {}) {
-    this.recorder = new SidAudioRecorder(session, opts);
+    // Export pumps synchronously, so it pins the synchronous TS `Resid` engine
+    // by default: the reSID WASM engine loads asynchronously and would emit
+    // silence (and non-deterministic timing) under a sync pump. Migrating
+    // export to reSID is Spec 703.5 (needs an `await resid.ready()` pass). The
+    // live WS stream already runs reSID via SidAudioRecorder's default.
+    this.recorder = new SidAudioRecorder(session, { engine: "resid", ...opts });
     this.cursorId = `export_${Date.now()}_${Math.floor(Math.random() * 1e9)}`;
     this.recorder.buffer.attach(this.cursorId);
   }
