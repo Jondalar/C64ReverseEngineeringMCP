@@ -332,3 +332,99 @@ Gates after any deletion:
 
 Commit only cleanup. No runtime behavior fixes in the same commit.
 ```
+
+## 11. Legacy 1541 Retirement Plan (measured 2026-05-22)
+
+This section replaces the speculative parts of §6.1. It is grounded in a
+measured run, not assumptions. **The conclusion is that retiring LEGACY1541
+is no longer blocked on emulator work — it is a formalization + delete task.**
+
+### 11.1 Measured current state
+
+- `drive1541-factory.ts:22` — default implementation is already `"vice"`.
+  Spec 611.9's "default flip" is, in code, **already done**. Legacy is
+  opt-in only (`requested="legacy"` or `C64RE_DRIVE1541=legacy`).
+- `start-v3-server.mjs:34` — the V3 backend defaults to `"vice"`. The live
+  UI (motm, LNR, etc.) runs on VICE1541.
+- `runtime-proof-gate.mjs` spawns each per-game child with `spawn("node",
+  [script])` and **never sets `C64RE_DRIVE1541` in the child env**. With the
+  shell var unset, every game child therefore runs on the factory default =
+  **vice**. The gate's `flags.drive1541 = "legacy"` (lines 93/123) is a
+  cosmetic label in the gate's own summary; it does not reach the GAMES
+  loop. The §7 false-green guard (lines 127–166) only blocks the SCENARIOS
+  dispatch (`load-directory`), not the 7-game GAMES loop.
+- **Consequence: the 7/7 GREEN proof run that gates master was VICE1541.**
+  Re-measured 2026-05-22: motm reaches `$b7bf` under **both**
+  `C64RE_DRIVE1541=vice` and `=legacy`. vice passes; legacy still passes
+  (so legacy is a safe regression lane, not the active path).
+
+So the §7 guard premise — "the C64/IEC/disk runtime path still flows through
+LEGACY1541" — is **stale**. It was true at phase 611.2/611.7; it is false now.
+
+### 11.2 The gap is honesty + cleanup, not capability
+
+VICE1541 is the active drive AND passes the gate. What remains:
+
+1. the gate **mislabels** which drive it runs;
+2. the §7 guard guards a condition that no longer holds;
+3. LEGACY1541 source is still present and selectable;
+4. spec text (this doc §5, spec 611 §5 611.9) still reads as "future".
+
+### 11.3 Ordered retirement steps
+
+**R0 — Honest gate (formalize 611.9, no behavior change).**
+- In `runtime-proof-gate.mjs`, pass the resolved drive into each child env:
+  `spawn("node",[g.script],{ env:{...process.env, C64RE_DRIVE1541: flags.drive1541}, ... })`.
+- Flip the gate default from `"legacy"` to `"vice"` (lines 93/123) so the
+  label matches what already runs.
+- Replace the §7 false-green guard with an opt-in legacy regression lane:
+  default = vice (7 games), `--drive1541=legacy` = regression check.
+- Gate: `npm run runtime:proof` → confirm 7/7 GREEN under vice **explicitly**
+  (all 7, not just motm); `--drive1541=legacy` → confirm regression status.
+- This is the measured acceptance of spec 611.9.
+
+**R1 — Prove legacy unreachable from any default path.**
+- Confirm: factory default vice ✓, v3 backend vice ✓, manager/integrated
+  default vice ✓. Only consumers of `"legacy"` are: the factory legacy
+  branch, the kernel legacy-wiring branch (`headless-machine-kernel.ts:684`),
+  and `scripts/diag-611-*.mjs` (which `capture("legacy")` for comparison —
+  those diags are §6.6 debris, deleted in the Tier-A pass).
+
+**R2 — Demote legacy to a one-release reference lane (per 611.9).**
+- Keep `--drive1541=legacy` selectable for one release as a regression lane.
+- Add a loud retirement banner comment to `legacy1541-adapter.ts` and the
+  legacy `drive/**` entry naming this section + the removal release.
+
+**R3 — Delete legacy (next release, after R0 ships green).**
+- Delete `src/runtime/headless/drive/**` (legacy DriveCpu / IecBus / GCR /
+  VIA / image impl).
+- Delete `src/runtime/headless/drive1541/legacy1541-adapter.ts`.
+- Simplify `drive1541-factory.ts` to vice-only (drop the legacy branch +
+  `legacyDeps`); `resolveDrive1541Implementation` becomes a vice-only assert.
+- Remove the kernel legacy-wiring branch (`headless-machine-kernel.ts:684`).
+- Remove the legacy lane from `runtime-proof-gate.mjs`.
+- Gates after each delete: `npm run build:mcp`, `npm run check:1541-fidelity`,
+  `npm run runtime:proof` (vice), `npm run smoke:701`, `npm run smoke:v3-ws`.
+
+### 11.4 Out of scope for THIS plan
+
+The two other items from the cleanup request are **not** part of 1541
+retirement and are not dead:
+
+- **VIC-II**: only two implementations exist and they are **coupled**, not
+  redundant — `vic/literal/**` renders pixels; `vic/vic-ii-vice.ts` is the
+  raster / IRQ / bus-steal state authority the literal port reads
+  (`integrated-session.ts:1510`). Neither is removable; any change is a
+  rewrite, tracked separately.
+- **Renderer**: `renderLiteralPortToPng` is active; `renderFrame` is a legacy
+  alias still used by the video-export path; VicIIVice snapshot renderers
+  were already removed (Spec 404). Only `renderFrame` is a future candidate,
+  and only after the export path is migrated.
+
+### 11.5 Prerequisite checklist before R3
+
+- [ ] R0 shipped: gate runs + labels vice honestly, 7/7 GREEN under vice.
+- [ ] `--drive1541=legacy` regression lane documented (one release).
+- [ ] 617 SAVE matrix green under vice.
+- [ ] Spec 429 (LNR) behavior unchanged under vice.
+- [ ] No production import reaches `drive/**` or `legacy1541-adapter.ts`.
