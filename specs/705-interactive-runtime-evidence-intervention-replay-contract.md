@@ -406,9 +406,10 @@ Steps: 1 in-memory VICE snapshot module stream; 2.1-2.2 TDE + controlled stop;
 RuntimeCheckpoint core+literal-VIC+drive + maincpu alarm-schedule; 4 reSID
 VICE-shaped synthesis state.
 
-Follow-ons (separate, user-gated): Spec 706 §9/706.8 (live audio latency +
-transport restore re-sync); 705.B (automatic checkpoint ring); 706+ persistence
-/ dump-undump / rewind.
+Follow-ons: Spec 706 §9/706.8 (live audio latency + transport restore re-sync)
+and 705.B (automatic checkpoint ring) are DONE. Spec 707 owns native snapshot
+persistence / dump-undump; Specs 708-712 own trace, media, inspect,
+intervention and rewind surfaces.
 
 ### 4.10 705.B DONE — Always-On Checkpoint Ring + Pin/Restore (2026-05-23 CEST)
 
@@ -462,12 +463,13 @@ Tentative only until refinement closes:
 |---|---|
 | 705.A | Native checkpoint schema and restore spike implementation. **DONE (§4.9).** |
 | 705.B | Automatic checkpoint ring and pin/restore lifecycle. **DONE (§4.10)** — promote-to-Experiment deferred. |
-| 706 | Native snapshot persistence plus monitor `dump`/`undump`. |
-| 707 | Declarative trace definitions and TraceDB control. |
-| 708 | Reproducible media ingress: disk, PRG, CRT, drag/drop. |
-| 709 | Frozen VIC inspect integration on checkpoint/evidence model. |
-| 710 | Code/data overlay and controlled intervention branches. |
-| 711 | Rewind, replay, branch comparison, and any eventual UI surface. |
+| 706 | reSID audio latency governor and restore-transport re-sync. **DONE.** |
+| 707 | Native snapshot persistence plus monitor `dump`/`undump`. |
+| 708 | Declarative trace definitions and TraceDB control. |
+| 709 | Reproducible media ingress: disk, PRG, CRT, drag/drop. |
+| 710 | Frozen VIC inspect integration on checkpoint/evidence model. |
+| 711 | Code/data overlay and controlled intervention branches. |
+| 712 | Rewind, replay, branch comparison, and eventual UI surface. |
 
 ## 7. Open Refinement Questions
 
@@ -475,11 +477,12 @@ Resolve one at a time with the user:
 
 1. Which state changes must force an immediate checkpoint outside the normal
    automatic capture cadence?
-2. What is the first ring retention target: seconds of emulated time, count of
-   checkpoints, or maximum host-memory budget?
+2. RESOLVED by 705.B: byte-bounded 128 MiB ring, oldest-first eviction,
+   automatic capture every 25 completed frames; pinned checkpoints are exempt.
 3. What is the safe intervention boundary: instruction boundary only for the
    first implementation, with cycle-exact edits deferred?
-4. Should media operations create new experiment roots or branch events?
-5. Which trace-definition language is canonical: structured JSON schema,
-   textual DSL, or both with one compiling into the other?
+4. RESOLVED by Spec 709: initial media defines an experiment root; later
+   mount/swap/eject operations are checkpointed branch events.
+5. RESOLVED by Spec 708: a structured, versioned trace definition is
+   canonical; text or UI authoring compiles into that representation.
 6. Which real-media title/state is the canonical Spike B acceptance fixture?

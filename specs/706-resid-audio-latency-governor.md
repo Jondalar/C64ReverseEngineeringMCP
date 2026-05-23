@@ -1,6 +1,6 @@
 # Spec 706 — reSID Audio Latency Governor
 
-**Status:** DONE (2026-05-23) — headless gates green + user live-UI sign-off ("audio perfect from the timing"). See §10. (706.8 live verification still waits on 705.B's restore trigger; mechanism headless-proven.)
+**Status:** DONE (2026-05-23) — headless gates green + user live-UI sign-off ("audio perfect from the timing"). See §10. Spec 705.B restore now invokes the 706.8 audio-transport flush path.
 **Parent spec:** `specs/703-sid-resid-wasm-audio.md` (reSID WASM audio, MERGED master `fb27a7d`).
 **Branch:** `claude/706-audio-latency-governor` (fresh from master 137389d).
 **Scope:** the live SID audio stream path — backend reSID render → WS transport → browser AudioWorklet playback. Latency only. No codec / quality / engine changes.
