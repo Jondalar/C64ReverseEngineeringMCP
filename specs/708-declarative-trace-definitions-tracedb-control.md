@@ -1,6 +1,6 @@
 # Spec 708 - Declarative Trace Definitions and TraceDB Control
 
-Status: DONE (2026-05-23 CEST) — see §9. All gates green incl. runtime:proof 7/7.
+Status: BASELINE IMPLEMENTED; CORRECTIVE SLICE REQUIRED (2026-05-23 CEST) - see §§9-10.
 Depends: Specs 619, 623, 701, 705, 707
 Consumed by: Spec 721 runtime-informed annotation; Specs 710-712
 Owner: runtime evidence / monitor / knowledge
@@ -181,7 +181,7 @@ Paths resolve under `C64RE_PROJECT_DIR`.
 tables ARE the Spec 721 (runtime-informed annotation) + paused-VIC-inspect
 consumption surface — queryable evidence, no extra wiring.
 
-**Gates (all GREEN):** `probe:708-trace` 8/8 — definition validation; a declared
+**Original implementation gates:** `probe:708-trace` 8/8 — definition validation; a declared
 C64-PC + IEC trace started, captured over the existing channels (cpu + iec
 rows), queried from DuckDB; run linked to definition + start checkpoint + media
 sha + cycle range; `mark` evidence row; reproducible event count across
@@ -192,3 +192,47 @@ identical runs (no title-specific script); explicit cost + no-active-tap. 705.A/
 **Deferred (Non-Goals §7):** annotation synthesis (721), rewind/event replay
 (712), graphical builder, full RAM r/w firehose (memory domain taps the
 `bus_access`/`io` channels, not every RAM access).
+
+## 10. Post-Implementation Review and Required Correction (2026-05-23 CEST)
+
+Review against the implemented TypeScript and a rerun of `probe:708-trace`
+shows that §9 overstates the implemented contract. The baseline recording path
+is useful, but the full definition surface is not yet trustworthy.
+
+### 10.1 Confirmed Working Subset
+
+- schema storage and validation;
+- one active definition-driven observer over existing kernel channels;
+- PC-range and broad IEC event matching;
+- `checkpointPolicy: "at-start"`;
+- explicit `trace/run/mark`;
+- DuckDB run/event/mark persistence.
+
+### 10.2 Blocking Contract Gaps
+
+1. `captures` is validated and stored but is not compiled into capture
+   selection. Matching events are retained from their channel regardless of the
+   declared capture list.
+2. `checkpointPolicy` accepts `"on-trigger"` and `"at-stop"`, but runtime
+   capture currently implements only `"at-start"`.
+3. `mem-access.access` and `iec-transition.line` are accepted but ignored by
+   trigger matching; `monitor-stop` and declarative `manual-mark` do not have
+   runtime trigger semantics.
+4. The reported reproducibility gate reached the 500,000-event safety cap in
+   both runs and still passed. A capped trace is bounded storage behavior, not
+   proof of complete reproducible evidence. The probe must assert overflow
+   status explicitly.
+5. The no-active-tap assertion currently proves only that the observer API
+   exists, not that no observer or enabled trace channel remains installed.
+
+### 10.3 Mandatory Corrective Slice
+
+| ID | Task | Gate |
+|---|---|---|
+| 708.7 | Either implement every accepted trigger/capture/checkpoint-policy field, or reject unsupported definitions with a precise validation error. No silent no-ops. | Focused definition-to-runtime tests for every accepted field. |
+| 708.8 | Replace the capped reproducibility proof with an uncapped-complete fixture or assert and classify overflow as non-reproducible; verify actual observer/channel teardown. | `probe:708-trace` fails on overflow and leaked taps. |
+| 708.9 | Re-run monitor/API/DuckDB and downstream consumer gates using only the corrected supported surface. | Updated gates green; status may return to DONE. |
+
+Until 708.7-708.9 land, Specs 710-712 may refer to explicit existing
+`trace/run/mark` and run IDs only. They must not depend on unproved trigger,
+capture-filter or stop-policy semantics.
