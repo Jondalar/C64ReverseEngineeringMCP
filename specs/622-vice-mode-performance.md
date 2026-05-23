@@ -1,8 +1,8 @@
 # Spec 622 — vice-mode Headless Performance
 
-**Status:** DRAFT (2026-05-20) — concept only, no implementation yet.
+**Status:** §4.0 IMPLEMENTED + merged to master (commit `2d9e4de`, 2026-05-20): dropped forced `useCycleLockstep` in vice mode → **0.50×→0.82× realtime** AND a $DD00 timing/correctness fix (7-game loader matrix reaches graphics with ZERO JAMs, byte-identical output). §4.1 (VIC draw hot path), §4.2 (drive 6510 core), §4.3 (scheduler) remain open candidates.
 **Parent specs:** `specs/600-runtime-proof-gates.md` (literal-port renderer is the proof oracle — must NOT be weakened), `specs/611-new-vice1541-side-by-side.md`, `specs/618-fastloader-dd00.md`.
-**Branch:** `codex/615-gcr-decode-fidelity` (concept landed here; impl branch TBD).
+**Branch:** landed on master (was `codex/615-gcr-decode-fidelity`, merged).
 
 ## 1. Problem
 

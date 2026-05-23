@@ -1,6 +1,6 @@
 # Spec 704 — Runtime Codebase Cleanup and Legacy Retirement
 
-Status: DRAFT  
+Status: §11 (1541 legacy retirement) DONE — merged master `0411295` (2026-05-22). Other phases (704.2/.5/.6/.7) open.  
 Created: 2026-05-22 CEST  
 Depends: Specs 429, 610-623, 700-703  
 Owner: runtime / workspace-ui / project-knowledge
@@ -413,11 +413,18 @@ it touches live kernel/scheduler/mount wiring, which conflicts with §3's
 "no emulator timing / IEC / drive-semantics change" non-goal unless done very
 carefully and gated.
 
-**R2/R3 are therefore deferred to a dedicated refactor session** (not this
-cleanup pass). Phase A below is the prerequisite; only after it compiles AND
-the 7-game vice gate stays green does the Phase B delete happen.
+**UPDATE 2026-05-22 — R2/R3 DONE (merged master `0411295`).** A dedicated
+session executed the full R0→R3 path (user chose "komplett durchziehen", **R2
+regression-lane skipped** — legacy is fully gone, not a one-release opt-in).
+R0 (honest gate) + R1 (audit) + **Phase A (decouple) + Phase B (delete
+`drive/**`)** all landed. The 7-game vice gate stayed GREEN before AND after the
+delete. `−13470` lines: `drive/**` (19 files) + `_quarantine_vice1541_v4/**` +
+`legacy1541-adapter.ts` removed; all drive readers redirect via
+`session.driveDebug()`; standalone `headless_drive_session_*` tools rebuilt
+vice-backed. The Phase A/B step-lists below are kept as the historical record
+of what was done.
 
-#### Phase A — decouple the active vice path from `drive/**` (dedicated session)
+#### Phase A — decouple the active vice path from `drive/**` — DONE (merged 0411295)
 
 Ordered so the build never breaks:
 
@@ -448,7 +455,7 @@ Ordered so the build never breaks:
 Gate between A and B: `npm run build:mcp` + `npm run runtime:proof`
 (vice 7/7) + full `tests/` suite green.
 
-#### Phase B — delete legacy (only after Phase A is green)
+#### Phase B — delete legacy — DONE (merged 0411295)
 
 - Delete `src/runtime/headless/drive/**` (19 files).
 - Delete `src/runtime/headless/drive1541/legacy1541-adapter.ts`.

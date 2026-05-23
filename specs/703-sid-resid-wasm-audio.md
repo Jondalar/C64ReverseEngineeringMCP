@@ -1,6 +1,9 @@
 # Spec 703 — SID reSID WASM Audio
 
-Status: DRAFT (703.1 inventory DONE 2026-05-22)  
+Status: IMPLEMENTED — merged master `fb27a7d` (2026-05-22). Live reSID audio +
+SID inspector shipped; 703.5 (WAV export on reSID) deferred. See §11 phase
+status + the **As-Built** note in §6/§8 (the shipped live-transport design
+DIVERGED from the draft — see below).  
 Created: 2026-05-21 CEST  
 Supersedes: archived Spec 263  
 Depends: Spec 216, Spec 701, Spec 623  
@@ -296,36 +299,68 @@ conflict had forced).
 in the dev env (`emcc not found`, `EMSDK` unset). Installing it is a
 703.2 prerequisite (`brew install emscripten` or emsdk).
 
-### 703.2 WASM Build
+### 703.2 WASM Build — DONE
 
-- Add deterministic local build script for the reSID WASM module.
-- Keep generated binary either checked in with source/version notes or generated
-  by a reproducible build step.
-- No network fetch during normal `npm run build:mcp`.
+- `scripts/build-resid-wasm.mjs`: emcc-compiles vendored `third_party/resid/`
+  (VICE 3.10 / reSID 1.0-pre2) + `resid_shim.cc` → `resid.{mjs,wasm}`.
+- Output is **committed** (`src/runtime/headless/sid/wasm/`) so a plain checkout
+  needs no emscripten; `build:mcp` copies it to `dist/` (bulletproof no-op if
+  absent). No network fetch.
 
-### 703.3 Wrapper
+### 703.3 Wrapper — DONE
 
-- Add `sid/resid-wasm-engine.ts`.
-- Keep existing `sid.ts` register-state tests green.
-- Route writes from the bus into both readback state and WASM audio as needed.
+- `sid/resid-wasm-engine.ts` (`ResidWasm`, AudioSidLike). Inner `Sid6581` =
+  §7 readback authority (POT/$D419, OSC3/ENV3, snapshot, trace); writes
+  forwarded to reSID for synth. VICE init order applied
+  (set_chip_model→voice_mask 0x07→enable_filter→adjust_filter_bias→
+  enable_external_filter→set_sampling, passband/gain). `sid.ts` tests stay green.
 
-### 703.4 Runtime Loop Integration
+### 703.4 Runtime Loop Integration — DONE (as-built differs, see §8 note)
 
-- Integrate with Spec 701 controller.
-- Produce PCM chunks from C64 cycle deltas.
-- Add `BIN_TYPE_AUDIO_FRAME`.
-- Browser schedules WebAudio buffers.
+- reSID PCM rendered on the BACKEND in the Spec 701 `RuntimeController`
+  per-frame hook (`onAudioFrame`), produced from C64 cycle deltas.
+- Live transport ships as `BIN_TYPE_AUDIO_BUFFER` (s16le stereo) per frame,
+  played by a browser **AudioWorklet ring** — NOT `BIN_TYPE_AUDIO_FRAME` and
+  NOT register-write streaming / audio-master pacing (those were tried + rejected
+  — see the §8 As-Built note).
 
-### 703.5 Export
+### 703.5 Export — DEFERRED
 
-- Add WAV export using the same engine.
-- Add deterministic export tests.
+- WAV export still uses the synchronous TS `Resid` (`AudioExportSession` pins
+  `engine:"resid"`), NOT reSID-WASM, because the WASM loads asynchronously and
+  the export pump is synchronous. Migrating it needs an `await resid.ready()`
+  pass. Live audio is unaffected. Tracked as the one open 703 item.
 
-### 703.6 Cleanup
+### 703.6 Cleanup — PARTIAL
 
-- Demote current simplified TS `resid.ts` to fallback/test-only, or remove it if
-  no longer needed.
-- Keep `fastsid-register` for trace-only/no-audio mode.
+- TS `resid.ts` retained as the export/sync fallback (not removed — 703.5
+  depends on it). `fastsid-register` (`sid.ts`) kept for trace/no-audio.
+- Engine selector `createSid`/`createAudioSid` (`C64RE_SID_ENGINE`,
+  `C64RE_SID_MODEL`, `C64RE_SID_FILTER_BIAS`).
+
+## As-Built note (supersedes the §6/§8 draft transport design)
+
+The draft (§6 audio-master timing, §8 `BIN_TYPE_AUDIO_FRAME`) was NOT what
+shipped. Three designs stuttered and were rejected before the working one:
+
+1. **setInterval PCM pump** (Spec 263 legacy) — bursty delivery → underruns.
+2. **reSID in a browser Web Worker** fed register-writes — message round-trip
+   jitter; also explored an AudioWorklet rendering reSID directly.
+3. **Audio-master pacing** (browser buffer level nudges emulation speed, VICE's
+   sound-as-clock model) — the feedback loop oscillated; worse stutter.
+
+**Shipped (smooth):** reSID renders on the backend in the SAME per-frame loop
+that pushes video (`onAudioFrame`), so audio inherits the steady frame clock
+that already makes video smooth; the browser plays a continuous AudioWorklet
+ring (no per-chunk source-node gaps; underrun = silence-fill, ~250ms prebuffer
+rides fastloader realtime-dips). reSID stays on the backend — do NOT move it to
+the browser. See memory `resid-audio-architecture`.
+
+## 10b. SID inspector (§10) — DONE
+
+`session/state` carries a raw `$D400-$D418` snapshot + audio `streaming` flag;
+`InspectorPanel.tsx` renders a SID section (between VIC and DRIVE 8): audio
+on/off, per-voice waveform/note/gate, volume/filter-mode/cutoff/resonance.
 
 ## 12. Gates
 
