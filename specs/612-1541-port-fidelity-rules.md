@@ -119,6 +119,7 @@ The authoritative TS↔C map for the 1541 rebuild. **A TS file in `vice1541/` MU
 | `snapshot.ts` | `snapshot.c` (module-stream layer — in-memory backing store; Spec 705.A) |
 | `memiec.ts` | `drive/iec/memiec.c` (drive memory map installer for 1541) |
 | `iec.ts` | `drive/iec/iec.c` (drive-side iec helpers) |
+| `iecieee.ts` | `drive/iecieee/iecieee.c` (VIA2 disk-controller dispatch; Spec 705.A) |
 | `iecbus.ts` | `iecbus/iecbus.c` |
 | `c64iec.ts` | `c64/c64iec.c` |
 | `drivetypes.ts` | `drive/drivetypes.h` (struct definitions only — no functions) |

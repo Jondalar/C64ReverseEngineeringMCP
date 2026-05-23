@@ -129,6 +129,10 @@ import {
   type snapshot_t,
   type via_context_t,
 } from "./drivetypes.js";
+// Opaque VSF module handle — canonically defined+exported by drivecpu.ts
+// (drivecpu.ts:276). Type-only import: no runtime cycle. drive_snapshot.ts
+// imports it from the same place. NL-1 keeps a single canonical declaration.
+import { type snapshot_module_t } from "./drivecpu.js";
 
 // =============================================================================
 // Module-private constants — viacore.c:216 (FULL_CYCLE_2), :286-287 (SR_PHI2_*)
@@ -1350,41 +1354,381 @@ export function viacore_shutdown(ctx: via_context_t): void {
 // viacore_snapshot_write_module / viacore_snapshot_read_module — viacore.c:1946-2192
 // =============================================================================
 //
-// PL-9: VICE-format module chunks. The snapshot_t plumbing (snapshot_module_*
-// SMW_B / SMR_B / SMW_W / SMR_W) lives in vice/src/snapshot.c. That whole
-// module is not yet ported — it will land alongside drive_snapshot.ts (Spec
-// 612 T2.14). Until then these functions throw with the PORT-STUB marker
-// per PL-7-spirit (no silent fallback, no flat blob).
-//
-// When snapshot.ts lands, the body becomes the literal VICE chunk write:
-//   m = snapshot_module_create(s, ctx.my_module_name, 2, 2);
-//   SMW_B(m, ctx.via[VIA_PRA]); ... (21 base fields)
-//   SMW_B(m, ctx.t2_irq_allowed); SMW_B(m, m2_underflow_alarm);
-//   SMW_B(m, m2_shift_alarm); snapshot_module_close(m);
-// That is the ONLY acceptable shape per PL-9 — do NOT collapse to a JSON
-// blob or `vice1541Snapshot()` facade method.
+// PL-9: VICE-format module chunks. The snapshot_t plumbing (snapshot_module_*,
+// SMW_B / SMR_B / SMW_W / SMR_W) lives in vice/src/snapshot.c, ported in
+// src/runtime/headless/vice1541/snapshot.ts (Spec 705.A step 1). Because
+// drivetypes.snapshot_t / snapshot_module_t are OPAQUE forwards, viacore.ts
+// cannot import snapshot.ts's concrete types directly without breaking the
+// boundary. It uses the same host-hook install boundary drivecpu.ts and
+// drive_snapshot.ts use (Spec 612 §2 PL-3 boundary): the facade installs the
+// real snapshot.ts primitives via viacore_install_snapshot_hooks(). This is
+// the only TS-side indirection; the field order, versions, and clock/alarm
+// semantics below are a literal C→TS port.
+
+// VIA_DUMP_VER_MAJOR / VIA_DUMP_VER_MINOR (= 2 / 2) are declared once near the
+// top of this module (viacore.c:1941-1942). Reused here.
+
+/** Host-installed VSF module IO primitives (snapshot.c / snapshot.h macros).
+ *  Only the functions that touch the opaque snapshot_t / snapshot_module_t are
+ *  routed through here; pure helpers stay local. */
+export interface viacore_snapshot_hooks_t {
+  snapshot_module_create: (
+    s: snapshot_t,
+    name: string,
+    major: number,
+    minor: number,
+  ) => snapshot_module_t | null;
+  snapshot_module_open: (
+    s: snapshot_t,
+    name: string,
+  ) => { module: snapshot_module_t; major: number; minor: number } | null;
+  snapshot_module_close: (m: snapshot_module_t) => number;
+  snapshot_set_error: () => void;
+  snapshot_version_is_bigger: (
+    maj: number,
+    min: number,
+    refMaj: number,
+    refMin: number,
+  ) => boolean;
+  SMW_B: (m: snapshot_module_t, v: number) => number;
+  SMW_W: (m: snapshot_module_t, v: number) => number;
+  SMR_B: (m: snapshot_module_t) => { ok: boolean; v: number };
+  SMR_W: (m: snapshot_module_t) => { ok: boolean; v: number };
+}
+
+// PL-7: error-loud defaults. snapshot_module_create returning null makes
+// viacore_snapshot_write_module return -1 (visible failure), so a missing
+// facade wiring never silently produces a header-only / empty module.
+let g_snap_hooks: viacore_snapshot_hooks_t = {
+  snapshot_module_create: () => null,
+  snapshot_module_open: () => null,
+  snapshot_module_close: () => 0,
+  snapshot_set_error: () => { /* no-op until installed */ },
+  snapshot_version_is_bigger: () => false,
+  SMW_B: () => -1,
+  SMW_W: () => -1,
+  SMR_B: () => ({ ok: false, v: 0 }),
+  SMR_W: () => ({ ok: false, v: 0 }),
+};
+
+// PORT OF: vice/src/core/viacore.c (host-facility wiring shim — Spec 612 §2
+//          PL-3 boundary, NOT in the C source). Installs snapshot.ts's
+//          VICE-format module IO primitives. Called once by the facade.
+export function viacore_install_snapshot_hooks(
+  hooks: viacore_snapshot_hooks_t,
+): void {
+  g_snap_hooks = hooks;
+}
 
 // PORT OF: vice/src/core/viacore.c:1946-2014 (viacore_snapshot_write_module)
 export function viacore_snapshot_write_module(
   ctx: via_context_t,
-  _s: snapshot_t,
+  s: snapshot_t,
 ): number {
-  // Touch ctx to avoid unused-param lint while keeping the VICE signature.
-  void ctx;
-  throw new Error(
-    "PORT-STUB: viacore_snapshot_write_module pending snapshot.ts port (Spec 612 PL-9 / T2.14).",
+  const rclk = ctx.clk_ptr.value;
+
+  run_pending_alarms(rclk, 0, ctx.alarm_context);
+
+  const m = g_snap_hooks.snapshot_module_create(
+    s,
+    ctx.my_module_name!,
+    VIA_DUMP_VER_MAJOR,
+    VIA_DUMP_VER_MINOR,
   );
+
+  if (m === null) {
+    return -1;
+  }
+
+  const byte4 = ctx.t1_pb7 & 0x80;
+
+  const { SMW_B, SMW_W } = g_snap_hooks;
+  if (
+    SMW_B(m, ctx.via[VIA_PRA]!) < 0 ||
+    SMW_B(m, ctx.via[VIA_DDRA]!) < 0 ||
+    SMW_B(m, ctx.via[VIA_PRB]!) < 0 ||
+    SMW_B(m, ctx.via[VIA_DDRB]!) < 0 ||
+    SMW_W(m, ctx.tal & 0xffff) < 0 ||
+    SMW_W(m, viacore_t1(ctx, rclk) & 0xffff) < 0 ||
+    SMW_B(m, ctx.via[VIA_T2LL]!) < 0 ||
+    SMW_B(m, ctx.via[VIA_T2LH]!) < 0 ||
+    SMW_B(m, ctx.t2cl) < 0 ||
+    SMW_B(m, ctx.t2ch) < 0 ||
+    SMW_W(m, viacore_t2(ctx, ctx.clk_ptr.value) & 0xffff) < 0 ||
+    SMW_B(m, (ctx.t1zero ? 0x80 : 0) | (ctx.t2xx00 ? 0x40 : 0)) < 0 ||
+    SMW_B(m, ctx.via[VIA_SR]!) < 0 ||
+    SMW_B(m, ctx.via[VIA_ACR]!) < 0 ||
+    SMW_B(m, ctx.via[VIA_PCR]!) < 0 ||
+    SMW_B(m, ctx.ifr & 0xff) < 0 ||
+    SMW_B(m, ctx.ier & 0xff) < 0 ||
+    SMW_B(m, byte4) < 0 ||
+    /* SRHBITS */
+    SMW_B(m, ctx.shift_state & 0xff) < 0 ||
+    /* CABSTATE — VICE's literal overlapping-bit OR (cb2_out & cb2_in both
+       0x40, cb1_in & cb1_out both 0x20). Ported verbatim, NOT "fixed". */
+    SMW_B(
+      m,
+      (ctx.ca2_out_state ? 0x80 : 0) |
+        (ctx.cb2_out_state ? 0x40 : 0) |
+        (ctx.cb2_in_state ? 0x40 : 0) |
+        (ctx.cb1_in_state ? 0x20 : 0) |
+        (ctx.cb1_out_state ? 0x20 : 0),
+    ) < 0 ||
+    SMW_B(m, ctx.ila) < 0 ||
+    SMW_B(m, ctx.ilb) < 0
+  ) {
+    g_snap_hooks.snapshot_module_close(m);
+    return -1;
+  }
+
+  /* Add stuff for minor version 2 */
+  let tmpclock = alarm_clk(ctx.t2_underflow_alarm as unknown as Alarm);
+  const m2_t2_underflow_alarm = tmpclock ? (1 + tmpclock - rclk) & 0xff : 0;
+  tmpclock = alarm_clk(ctx.t2_shift_alarm as unknown as Alarm);
+  const m2_t2_shift_alarm = tmpclock ? (1 + tmpclock - rclk) & 0xff : 0;
+
+  if (
+    SMW_B(m, ctx.t2_irq_allowed ? 1 : 0) < 0 ||
+    SMW_B(m, m2_t2_underflow_alarm) < 0 ||
+    SMW_B(m, m2_t2_shift_alarm) < 0
+  ) {
+    g_snap_hooks.snapshot_module_close(m);
+    return -1;
+  }
+
+  return g_snap_hooks.snapshot_module_close(m);
 }
 
 // PORT OF: vice/src/core/viacore.c:2016-2192 (viacore_snapshot_read_module)
 export function viacore_snapshot_read_module(
   ctx: via_context_t,
-  _s: snapshot_t,
+  s: snapshot_t,
 ): number {
-  void ctx;
-  throw new Error(
-    "PORT-STUB: viacore_snapshot_read_module pending snapshot.ts port (Spec 612 PL-9 / T2.14).",
-  );
+  const rclk = ctx.clk_ptr.value;
+
+  let opened = g_snap_hooks.snapshot_module_open(s, ctx.my_module_name!);
+
+  if (opened === null) {
+    if (ctx.my_module_name_alt1 === null) {
+      return -1;
+    }
+    opened = g_snap_hooks.snapshot_module_open(s, ctx.my_module_name_alt1);
+    if (opened === null) {
+      if (ctx.my_module_name_alt2 === null) {
+        return -1;
+      }
+      opened = g_snap_hooks.snapshot_module_open(s, ctx.my_module_name_alt2);
+      if (opened === null) {
+        return -1;
+      }
+    }
+  }
+
+  const m = opened.module;
+  const vmajor = opened.major;
+  const vminor = opened.minor;
+
+  /* if major version does not match, the snapshot is not compatible */
+  if (vmajor !== VIA_DUMP_VER_MAJOR) {
+    g_snap_hooks.snapshot_set_error(); /* SNAPSHOT_MODULE_INCOMPATIBLE */
+    g_snap_hooks.snapshot_module_close(m);
+    return -1;
+  }
+  /* Do not accept versions higher than current */
+  if (
+    g_snap_hooks.snapshot_version_is_bigger(
+      vmajor,
+      vminor,
+      VIA_DUMP_VER_MAJOR,
+      VIA_DUMP_VER_MINOR,
+    )
+  ) {
+    g_snap_hooks.snapshot_set_error(); /* SNAPSHOT_MODULE_HIGHER_VERSION */
+    g_snap_hooks.snapshot_module_close(m);
+    return -1;
+  }
+
+  if (ctx.t1_zero_alarm) alarmUnset(ctx.t1_zero_alarm as unknown as Alarm);
+  if (ctx.t2_zero_alarm) alarmUnset(ctx.t2_zero_alarm as unknown as Alarm);
+  if (ctx.t2_underflow_alarm)
+    alarmUnset(ctx.t2_underflow_alarm as unknown as Alarm);
+  /* t2_shift_alarm: TODO load from snapshot */
+  if (ctx.t2_shift_alarm) alarmUnset(ctx.t2_shift_alarm as unknown as Alarm);
+  if (ctx.phi2_sr_alarm) alarmUnset(ctx.phi2_sr_alarm as unknown as Alarm);
+
+  ctx.t1zero = 0;
+  ctx.t2xx00 = false;
+
+  // Base block (v2.0 — 22 fields). Read sequentially; any failure → -1.
+  const { SMR_B, SMR_W } = g_snap_hooks;
+  const r_pra = SMR_B(m);
+  const r_ddra = SMR_B(m);
+  const r_prb = SMR_B(m);
+  const r_ddrb = SMR_B(m);
+  const r_word1 = SMR_W(m);
+  const r_word2 = SMR_W(m);
+  const r_t2ll = SMR_B(m);
+  const r_t2lh = SMR_B(m);
+  const r_t2cl = SMR_B(m);
+  const r_t2ch = SMR_B(m);
+  const r_word3 = SMR_W(m);
+  const r_byte1 = SMR_B(m);
+  const r_sr = SMR_B(m);
+  const r_acr = SMR_B(m);
+  const r_pcr = SMR_B(m);
+  const r_byte2 = SMR_B(m);
+  const r_byte3 = SMR_B(m);
+  const r_byte4 = SMR_B(m);
+  /* SRHBITS */
+  const r_byte5 = SMR_B(m);
+  /* CABSTATE */
+  const r_byte6 = SMR_B(m);
+  const r_ila = SMR_B(m);
+  const r_ilb = SMR_B(m);
+
+  if (
+    !r_pra.ok || !r_ddra.ok || !r_prb.ok || !r_ddrb.ok ||
+    !r_word1.ok || !r_word2.ok || !r_t2ll.ok || !r_t2lh.ok ||
+    !r_t2cl.ok || !r_t2ch.ok || !r_word3.ok || !r_byte1.ok ||
+    !r_sr.ok || !r_acr.ok || !r_pcr.ok || !r_byte2.ok ||
+    !r_byte3.ok || !r_byte4.ok || !r_byte5.ok || !r_byte6.ok ||
+    !r_ila.ok || !r_ilb.ok
+  ) {
+    g_snap_hooks.snapshot_module_close(m);
+    return -1;
+  }
+
+  ctx.via[VIA_PRA] = r_pra.v;
+  ctx.via[VIA_DDRA] = r_ddra.v;
+  ctx.via[VIA_PRB] = r_prb.v;
+  ctx.via[VIA_DDRB] = r_ddrb.v;
+  const word1 = r_word1.v;
+  const word2 = r_word2.v;
+  ctx.via[VIA_T2LL] = r_t2ll.v;
+  ctx.via[VIA_T2LH] = r_t2lh.v;
+  ctx.t2cl = r_t2cl.v;
+  ctx.t2ch = r_t2ch.v;
+  const word3 = r_word3.v;
+  const byte1 = r_byte1.v;
+  ctx.via[VIA_SR] = r_sr.v;
+  ctx.via[VIA_ACR] = r_acr.v;
+  ctx.via[VIA_PCR] = r_pcr.v;
+  const byte2 = r_byte2.v;
+  const byte3 = r_byte3.v;
+  const byte4 = r_byte4.v;
+  const byte5 = r_byte5.v;
+  const byte6 = r_byte6.v;
+  ctx.ila = r_ila.v;
+  ctx.ilb = r_ilb.v;
+
+  /* Read minor version 2 data */
+  let m2_t2_irq_allowed: number;
+  let m2_t2_underflow_alarm: number;
+  let m2_t2_shift_alarm: number;
+  const r_m2a = SMR_B(m);
+  const r_m2b = SMR_B(m);
+  const r_m2c = SMR_B(m);
+  if (!r_m2a.ok || !r_m2b.ok || !r_m2c.ok) {
+    /* Set defaults. This will be some level of imperfect state restoration */
+    m2_t2_irq_allowed = 1;
+    m2_t2_underflow_alarm = 0;
+    m2_t2_shift_alarm = 0;
+  } else {
+    m2_t2_irq_allowed = r_m2a.v;
+    m2_t2_underflow_alarm = r_m2b.v;
+    m2_t2_shift_alarm = r_m2c.v;
+  }
+
+  let addr = VIA_DDRA;
+  let byte = (ctx.via[VIA_PRA]! | ~ctx.via[VIA_DDRA]!) & 0xff;
+  ctx.undump_pra?.(ctx, byte);
+  ctx.oldpa = byte;
+
+  addr = VIA_DDRB;
+  byte = (ctx.via[VIA_PRB]! | ~ctx.via[VIA_DDRB]!) & 0xff;
+  ctx.undump_prb?.(ctx, byte);
+  ctx.oldpb = byte;
+
+  ctx.tal = word1;
+  ctx.via[VIA_T1LL] = ctx.tal & 0xff;
+  ctx.via[VIA_T1LH] = (ctx.tal >> 8) & 0xff;
+
+  ctx.t1reload = rclk + word2 + FULL_CYCLE_2 /* 3 */;
+  ctx.t1zero = rclk + word2 + 0 /* 1 */;
+
+  /* word3 is the effective value of T2 */
+  ctx.t2zero = rclk + (word3 & 0xff);
+  ctx.t2xx00 = true;
+
+  if (byte1 & 0x80) {
+    alarmSet(ctx.t1_zero_alarm as unknown as Alarm, ctx.t1zero);
+  } else {
+    ctx.t1zero = 0;
+  }
+  if (
+    byte1 & 0x40 ||
+    (ctx.via[VIA_ACR]! & 0x1c) === 0x04 ||
+    (ctx.via[VIA_ACR]! & 0x1c) === 0x10 ||
+    (ctx.via[VIA_ACR]! & 0x1c) === 0x14
+  ) {
+    alarmSet(ctx.t2_zero_alarm as unknown as Alarm, ctx.t2zero);
+  } else {
+    ctx.t2zero = rclk + word3;
+    ctx.t2xx00 = false;
+  }
+  /* FIXME: SR alarm */
+  if ((ctx.via[VIA_ACR]! & 0x0c) === 0x08) {
+    alarmSet(ctx.phi2_sr_alarm as unknown as Alarm, rclk + 1);
+  }
+
+  ctx.ifr = byte2;
+  ctx.ier = byte3;
+
+  via_restore_int(ctx, ctx.ifr & ctx.ier & 0x7f);
+
+  ctx.t1_pb7 = byte4 & 0x80;
+  ctx.shift_state = byte5;
+
+  ctx.ca2_out_state = (byte6 & 0x80) !== 0;
+  ctx.cb2_out_state = (byte6 & 0x40) !== 0;
+  ctx.cb2_in_state = (byte6 & 0x20) !== 0;
+  ctx.cb1_in_state = (byte6 & 0x10) !== 0;
+  ctx.cb1_out_state = (byte6 & 0x08) !== 0;
+
+  ctx.t2_irq_allowed = m2_t2_irq_allowed !== 0;
+
+  if (m2_t2_underflow_alarm) {
+    alarmSet(
+      ctx.t2_underflow_alarm as unknown as Alarm,
+      rclk + m2_t2_underflow_alarm - 1,
+    );
+  }
+
+  if (m2_t2_shift_alarm) {
+    alarmSet(
+      ctx.t2_shift_alarm as unknown as Alarm,
+      rclk + m2_t2_shift_alarm - 1,
+    );
+  }
+
+  /* undump_pcr also restores the ca2_state/cb2_state effects if necessary;
+     i.e. calls set_c*2(c*2_state) if necessary */
+  addr = VIA_PCR;
+  byte = ctx.via[addr]!;
+  ctx.undump_pcr?.(ctx, byte);
+
+  addr = VIA_SR;
+  byte = ctx.via[addr]!;
+  ctx.store_sr?.(ctx, byte);
+
+  addr = VIA_ACR;
+  byte = ctx.via[addr]!;
+  ctx.undump_acr?.(ctx, byte);
+  void addr;
+
+  viacore_cache_cb12_io_status(ctx);
+
+  return g_snap_hooks.snapshot_module_close(m);
 }
 
 // =============================================================================

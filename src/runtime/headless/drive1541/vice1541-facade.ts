@@ -107,8 +107,12 @@ import {
   snapshot_module_close as sm_close,
   SMW_B as sm_w_b, SMW_W as sm_w_w, SMW_DW as sm_w_dw, SMW_CLOCK as sm_w_clock, SMW_BA as sm_w_ba,
   SMR_B as sm_r_b, SMR_W as sm_r_w, SMR_DW as sm_r_dw, SMR_BA as sm_r_ba, SMR_CLOCK as sm_r_clock,
+  snapshot_version_is_bigger as sm_version_is_bigger,
+  snapshot_set_error as sm_set_error,
 } from "../vice1541/snapshot.js";
+import { viacore_install_snapshot_hooks } from "../vice1541/viacore.js";
 import { iec_drive_install_hooks, iec_drive_snapshot_write, iec_drive_snapshot_read } from "../vice1541/iec.js";
+import { iecieee_drive_snapshot_write, iecieee_drive_snapshot_read } from "../vice1541/iecieee.js";
 import { drive_set_machine_parameter } from "../vice1541/drivesync.js";
 import { memiec_init } from "../vice1541/memiec.js";
 import { via1d1541_setup_context, via1d1541_init } from "../vice1541/via1d1541.js";
@@ -621,12 +625,24 @@ export class Vice1541Facade implements Drive1541 {
       SMR_BA: (m, buf, len) => sm_r_ba(m as any, buf, len),
       vdrive_snapshot_module_write: () => 0,
       vdrive_snapshot_module_read: () => 0,
-      // Spec 705.A step 2.2 — C64 machine_drive_snapshot_write/read
-      // (c64/c64drive.c:155) dispatch to iec_drive_snapshot_write/read for the
-      // IEC drive. This carries the per-drive VIA1d1541/VIA2d1541 modules
-      // (iec.c:254-299), reaching viacore_snapshot_write/read_module.
-      machine_drive_snapshot_write: (drv, s) => iec_drive_snapshot_write(drv as any, s as any),
-      machine_drive_snapshot_read: (drv, s) => iec_drive_snapshot_read(drv as any, s as any),
+      // Spec 705.A step 2.3 — C64 machine_drive_snapshot_write/read
+      // (c64/c64drive.c:155-168) dispatch IN ORDER to:
+      //   1. iec_drive_snapshot_write    → VIA1d1541 (iec.c:254-299)
+      //   2. iecieee_drive_snapshot_write → VIA2 disk controller (iecieee.c:93)
+      //   3. ieee_drive_snapshot_write   → no-op for the 1541 family
+      //      (ieee.c:161 — type != 2031 && !drive_check_old → returns 0; not
+      //      ported, the no-op produces byte-identical output).
+      // All three reach viacore_snapshot_write/read_module on the respective VIA.
+      machine_drive_snapshot_write: (drv, s) => {
+        if (iec_drive_snapshot_write(drv as any, s as any) < 0) return -1;
+        if (iecieee_drive_snapshot_write(drv as any, s as any) < 0) return -1;
+        return 0;
+      },
+      machine_drive_snapshot_read: (drv, s) => {
+        if (iec_drive_snapshot_read(drv as any, s as any) < 0) return -1;
+        if (iecieee_drive_snapshot_read(drv as any, s as any) < 0) return -1;
+        return 0;
+      },
       machine_drive_rom_setup_image: () => { /* no-op */ },
       machine_bus_status_drivetype_set: () => { /* no-op */ },
       drive_enable: () => 0,
@@ -675,6 +691,24 @@ export class Vice1541Facade implements Drive1541 {
       PARALLEL_WRITE: 0,
       ZFILE_REQUEST: 0,
       log_error: () => { /* no-op */ },
+    });
+
+    // Spec 705.A step 2.3 — viacore VIA1d1541/VIA2d1541 snapshot module IO.
+    // viacore_snapshot_write/read_module route the opaque snapshot_t /
+    // snapshot_module_t through this PL-3 boundary into the real snapshot.ts
+    // primitives (same casts as the drive_snapshot install above). The real
+    // version comparator + set_error are installed so the read path version-
+    // gates exactly as VICE (viacore.c:2049-2060).
+    viacore_install_snapshot_hooks({
+      snapshot_module_create: (s, name, major, minor) => sm_create(s as any, name, major, minor) as any,
+      snapshot_module_open: (s, name) => sm_open(s as any, name) as any,
+      snapshot_module_close: (m) => sm_close(m as any),
+      snapshot_set_error: () => sm_set_error(),
+      snapshot_version_is_bigger: (maj, min, refMaj, refMin) => sm_version_is_bigger(maj, min, refMaj, refMin),
+      SMW_B: (m, v) => sm_w_b(m as any, v),
+      SMW_W: (m, v) => sm_w_w(m as any, v),
+      SMR_B: (m) => sm_r_b(m as any),
+      SMR_W: (m) => sm_r_w(m as any),
     });
 
     // iec.ts hooks — peer-chip init for non-1541 drive types. The 1541
