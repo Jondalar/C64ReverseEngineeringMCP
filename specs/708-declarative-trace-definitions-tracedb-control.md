@@ -1,6 +1,6 @@
 # Spec 708 - Declarative Trace Definitions and TraceDB Control
 
-Status: DRAFT (2026-05-23 CEST)
+Status: DONE (2026-05-23 CEST) — see §9. All gates green incl. runtime:proof 7/7.
 Depends: Specs 619, 623, 701, 705, 707
 Consumed by: Spec 721 runtime-informed annotation; Specs 710-712
 Owner: runtime evidence / monitor / knowledge
@@ -143,3 +143,52 @@ A graphical builder is optional later and must compile to the same structure.
 - `specs/623-vice-monitor-debugger.md` section 8
 - `specs/705-interactive-runtime-evidence-intervention-replay-contract.md`
 - `specs/721-runtime-informed-annotation.md`
+
+## 9. Result (2026-05-23)
+
+Implemented as a declarative layer over the EXISTING kernel trace channels +
+DuckDB store — no parallel diagnostic path (708.1).
+
+**708.1 inventory / reuse map:** taps = kernel trace channels
+(`headless/trace/channels.ts`) + `registry.registerObserver` (exposed on
+`KernelTraceController`). Storage = the DuckDB engine (`@duckdb/node-api`),
+extended with 708 evidence tables. Producers only publish on enabled channels
+(cpu also fires when an observer is present), so enabling just the needed
+channels + a single definition-driven observer bounds the tap.
+
+**708.2 schema:** `headless/trace/trace-definition.ts` — `RuntimeTraceDefinition`
+(canonical structured object) + triggers (pc-range, mem-access, iec-transition,
+raster-window, monitor-stop, manual-mark) + captures (cpu/mem/iec/vic-row,
+checkpoint-ref) + `validateTraceDefinition` + stable `slugTraceId` +
+`RuntimeTraceRun` record (bound to a 705.B/707 checkpoint + media identity +
+cycle range + marks + explicit cost). `domainsToChannels` reuse map.
+
+**708.3 compiler/observer/storage:** `trace-run.ts` (`TraceRunController`)
+enables only the needed channels, registers ONE observer that filters by the
+definition triggers, buffers matching rows in memory on the hot path, and on
+STOP flushes to DuckDB in one batch (runs are bounded by the stop condition;
+500k-event guard). `trace-run-store.ts` writes `trace_run` / `trace_event` /
+`trace_mark` in the shared DuckDB store. Hot-path cost (events/bytes/overhead)
+is reported per run (§2.3); no tap exists when no run is active.
+
+**708.4 monitor + API:** WS RPCs `trace/definition/{validate,put,list}` +
+`trace/run/{start,stop,status,mark}`; monitor `tracedb start "<id>" ["<out>"]` /
+`stop` / `status` / `mark "<label>"` — the SAME backend (controller `traceRun` +
+per-session `traceDefinitions`). `tracedb` is one-shot (no bare-RETURN repeat).
+Paths resolve under `C64RE_PROJECT_DIR`.
+
+**708.6 consumers:** the retained `trace_run`/`trace_event`/`trace_mark` DuckDB
+tables ARE the Spec 721 (runtime-informed annotation) + paused-VIC-inspect
+consumption surface — queryable evidence, no extra wiring.
+
+**Gates (all GREEN):** `probe:708-trace` 8/8 — definition validation; a declared
+C64-PC + IEC trace started, captured over the existing channels (cpu + iec
+rows), queried from DuckDB; run linked to definition + start checkpoint + media
+sha + cycle range; `mark` evidence row; reproducible event count across
+identical runs (no title-specific script); explicit cost + no-active-tap. 705.A/
+705.B/706/707 probes green; `check:1541-fidelity` 78 PASS / 0 FAIL;
+`runtime:proof` 7/7.
+
+**Deferred (Non-Goals §7):** annotation synthesis (721), rewind/event replay
+(712), graphical builder, full RAM r/w firehose (memory domain taps the
+`bus_access`/`io` channels, not every RAM access).

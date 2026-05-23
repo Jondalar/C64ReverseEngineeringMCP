@@ -30,6 +30,8 @@ import {
   type RuntimeCheckpointRef,
 } from "../kernel/runtime-checkpoint-ring.js";
 import type { MachineSnapshot } from "../kernel/machine-kernel.js";
+import { TraceRunController } from "../trace/trace-run.js";
+import type { RuntimeTraceDefinition } from "../trace/trace-definition.js";
 
 export type RuntimeRunState = "running" | "paused" | "stopped";
 export type RuntimePacingMode = "pal" | "warp" | "fixed-ratio";
@@ -123,6 +125,11 @@ export class RuntimeController {
   // The ring is transient (in-memory); pinned entries survive eviction.
   readonly checkpointRing = new RuntimeCheckpointRing();
   private framesSinceCheckpoint = 0;
+
+  // Spec 708 — declarative trace runs + per-session definition registry. The
+  // run controller taps the existing kernel trace channels (no parallel path).
+  readonly traceRun = new TraceRunController();
+  readonly traceDefinitions = new Map<string, RuntimeTraceDefinition>();
 
   constructor(
     sessionId: string, session: IntegratedSession, broadcast: BroadcastFn,

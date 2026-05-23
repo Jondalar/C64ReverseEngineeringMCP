@@ -12,6 +12,7 @@ import type {
   ChannelConfig,
   ChannelName,
   TraceEvent,
+  TraceObserver,
   TraceRegistry,
 } from "../trace/channels.js";
 import type { BusAccessTraceProducer } from "../trace/bus-access.js";
@@ -25,6 +26,14 @@ export interface KernelTraceController {
   getRing(name: ChannelName): TraceEvent[];
   /** Whether a channel is currently producing events (mode != "off"). */
   isEnabled(name: ChannelName): boolean;
+  /**
+   * Spec 708 — register a parallel observer that receives every published
+   * event (across all channels) until the returned dispose is called. Used by
+   * the declarative trace-run compiler to tap the EXISTING channels (no second
+   * diagnostic path). Producers only publish on enabled channels, so enabling
+   * just the needed channels bounds what the observer sees.
+   */
+  registerObserver(obs: TraceObserver): () => void;
   /** Close all channels (flushes JSONL fds, clears rings). */
   closeAll(): void;
   /**
@@ -56,6 +65,10 @@ export class KernelTraceControllerImpl implements KernelTraceController {
 
   isEnabled(name: ChannelName): boolean {
     return this.registry.isEnabled(name);
+  }
+
+  registerObserver(obs: TraceObserver): () => void {
+    return this.registry.registerObserver(obs);
   }
 
   closeAll(): void {

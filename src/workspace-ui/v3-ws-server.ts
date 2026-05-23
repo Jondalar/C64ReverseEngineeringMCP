@@ -19,8 +19,9 @@ import {
 import { SidAudioRecorder, AudioExportSession, LIVE_RECORDER_BUFFER_SAMPLES } from "../runtime/headless/audio/sid-audio-recorder.js";
 import {
   dumpRuntimeSnapshot, undumpRuntimeSnapshot,
-  formatDumpSummary, formatUndumpSummary,
+  formatDumpSummary, formatUndumpSummary, resolveSnapshotPath,
 } from "../runtime/headless/kernel/snapshot-persistence.js";
+import { validateTraceDefinition, slugTraceId } from "../runtime/headless/trace/trace-definition.js";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 
@@ -559,6 +560,40 @@ export class V3WsServer {
       if (!path) throw new Error("snapshot/undump: path required");
       return await undumpRuntimeSnapshot(ctrlFor(session_id), String(path));
     });
+
+    // ---- Spec 708 — declarative trace definitions + runs.
+    // Definitions live per-session on the controller; runs tap the existing
+    // kernel trace channels and write 708 evidence tables in DuckDB. Same
+    // backend the monitor `tracedb` commands use.
+    this.on("trace/definition/validate", ({ definition }) => validateTraceDefinition(definition));
+    this.on("trace/definition/put", ({ session_id, definition }) => {
+      const v = validateTraceDefinition(definition);
+      if (!v.ok) return { ok: false, errors: v.errors };
+      const def = { ...definition, id: definition.id || slugTraceId(definition.name) };
+      ctrlFor(session_id).traceDefinitions.set(def.id, def);
+      return { ok: true, id: def.id };
+    });
+    this.on("trace/definition/list", ({ session_id }) => ({
+      definitions: [...ctrlFor(session_id).traceDefinitions.values()],
+    }));
+    this.on("trace/run/start", async ({ session_id, definition_id, output }) => {
+      const c = ctrlFor(session_id);
+      const def = c.traceDefinitions.get(String(definition_id));
+      if (!def) throw new Error(`trace/run/start: unknown definition "${definition_id}"`);
+      const outputPath = resolveSnapshotPath(
+        output ? String(output) : `traces/${def.id}_${Date.now().toString(36)}.duckdb`,
+      );
+      const run = await c.traceRun.start(def, { controller: c, outputPath });
+      return { run };
+    });
+    this.on("trace/run/stop", async ({ session_id }) => ({ run: await ctrlFor(session_id).traceRun.stop() }));
+    this.on("trace/run/status", ({ session_id }) => ctrlFor(session_id).traceRun.status());
+    this.on("trace/run/mark", ({ session_id, label }) => {
+      const c = ctrlFor(session_id);
+      if (!label) throw new Error("trace/run/mark: label required");
+      c.traceRun.mark(String(label));
+      return c.traceRun.status();
+    });
     this.on("session/set_pacing", ({ session_id, mode, ratio }) => {
       const c = ctrlFor(session_id);
       if (!PACING_MODES.includes(mode)) throw new Error(`bad pacing mode: ${mode}`);
@@ -1032,6 +1067,38 @@ export class V3WsServer {
           const r = await undumpRuntimeSnapshot(ctrl, path);
           monitorDisasmAddr.set(session_id, s.c64Cpu.pc); // bare `d` follows restored PC
           return { output: formatUndumpSummary(r) };
+        }
+        // Spec 708 / 623 §8 — declarative trace runs (one-shot; no RETURN repeat).
+        //   tracedb start "<def-id>" ["<output>"] | stop | status | mark "<label>"
+        if (op === "tracedb") {
+          const sub = (tokens[1] ?? "").toLowerCase();
+          const args = [...cmd.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+          if (sub === "stop") {
+            const run = await ctrl.traceRun.stop();
+            return { output: `tracedb stopped: ${run.runId}\n  events=${run.eventCount} bytes=${run.bytesWritten} cyc=${run.cycleStart}..${run.cycleEnd}\n  evidence: ${run.evidenceRef}` };
+          }
+          if (sub === "status") {
+            const st = ctrl.traceRun.status();
+            return { output: st.active
+              ? `tracedb active: ${st.runId} def=${st.definitionId} events=${st.eventCount} marks=${st.marks}${st.capturing ? "" : " (capture stopped)"}`
+              : "tracedb: no active run" };
+          }
+          if (sub === "start") {
+            const defId = args[0];
+            if (!defId) return { output: 'tracedb: usage: tracedb start "<definition-id>" ["<output>"]' };
+            const def = ctrl.traceDefinitions.get(defId);
+            if (!def) return { output: `tracedb: unknown definition "${defId}" (put it via trace/definition/put first)` };
+            const outputPath = resolveSnapshotPath(args[1] ?? `traces/${def.id}_${Date.now().toString(36)}.duckdb`);
+            const run = await ctrl.traceRun.start(def, { controller: ctrl, outputPath });
+            return { output: `tracedb started: ${run.runId}\n  def=${def.id} domains=[${def.domains.join(",")}]\n  evidence: ${outputPath}` };
+          }
+          if (sub === "mark") {
+            const label = args[0];
+            if (!label) return { output: 'tracedb: usage: tracedb mark "<label>"' };
+            ctrl.traceRun.mark(label);
+            return { output: `tracedb mark: "${label}" @ cycle ${s.c64Cpu.cycles}` };
+          }
+          return { output: 'tracedb: start|stop|status|mark' };
         }
         // Registers
         if (op === "r" || op === "registers" || op === "cpu") {
