@@ -739,6 +739,15 @@ export class V3WsServer {
       const state = { recorder, cursorId, seq: 0 };
       this.audioStreams.set(session_id, state);
 
+      // Spec 706.8 — on a RuntimeCheckpoint restore the recorder flushes its PCM
+      // ring (transport state) and fires this hook. Start a new stream epoch:
+      // reset the send seq and tell the browser to flush its worklet ring +
+      // re-prebuffer from the restored reSID state (no old-timeline playback).
+      recorder.onRestore = () => {
+        state.seq = 0;
+        this.broadcast("audio/flush", { session_id });
+      };
+
       const controller = ensureRuntimeController(
         session_id, s, (m, p) => this.broadcast(m, p), undefined,
       );

@@ -77,6 +77,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
   const [audioOn, setAudioOn] = useState(true);
   const playerRef = useRef<WebAudioPlayer | null>(null);
   const offBinRef = useRef<(() => void) | null>(null);
+  const offFlushRef = useRef<(() => void) | null>(null); // Spec 706.8 audio/flush sub
   const userMutedRef = useRef(false); // once muted by hand, don't auto-rearm
 
   // `audioOn` is the user's PREFERENCE (default on), toggled only by the
@@ -90,6 +91,10 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     player.arm(); // suspended context + resume-on-first-gesture
     // Backend streams reSID PCM (BIN_TYPE_AUDIO_BUFFER); feed the worklet ring.
     offBinRef.current = c.onBinary(BIN_TYPE_AUDIO_BUFFER, (frame) => player.push(frame.payload));
+    // Spec 706.8 — on a RuntimeCheckpoint restore the backend flushes its audio
+    // transport and emits audio/flush; drop the stale-timeline worklet ring +
+    // re-prebuffer from the restored reSID state (no old-timeline playback).
+    offFlushRef.current = c.onNotification("audio/flush", () => player.flush());
     try {
       await c.call("audio/start", { session_id: sessionId });
     } catch (e) {
@@ -102,6 +107,8 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     if (sessionId) { try { await c.call("audio/stop", { session_id: sessionId }); } catch { /* ignore */ } }
     offBinRef.current?.();
     offBinRef.current = null;
+    offFlushRef.current?.();
+    offFlushRef.current = null;
     await playerRef.current?.close();
     playerRef.current = null;
   };

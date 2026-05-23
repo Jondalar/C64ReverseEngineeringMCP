@@ -88,6 +88,15 @@ export class SidAudioRecorder {
   private prevWriteTrace?: ((addr: number, value: number) => void) | undefined;
   private lastCycle: number;
   private detached = false;
+  /**
+   * Spec 706.8 — transport re-sync hook. Invoked at the end of restore(), after
+   * the recorder PCM ring is flushed, so the transport owner (the WS audio
+   * stream) can invalidate downstream presentation state: reset its send seq +
+   * tell the browser to flush its worklet/FIFO and re-prebuffer from the
+   * restored reSID synthesis state. The recorder owns NO transport itself; it
+   * only signals that a restore happened.
+   */
+  public onRestore?: () => void;
 
   constructor(public readonly session: SessionLike, opts: RecorderOptions = {}) {
     this.resid = createAudioSid(opts);
@@ -159,6 +168,10 @@ export class SidAudioRecorder {
     if (this.resid.cycleAccumulator !== undefined) this.resid.cycleAccumulator = s.cycleAcc;
     this.lastCycle = this.session.c64Cpu.cycles;
     this.buffer.clear();
+    // Spec 706.8 — pre-restore PCM in the WS send queue + browser worklet ring
+    // is OLD-timeline transport state; tell the transport owner to invalidate it
+    // and re-prebuffer from the restored reSID synthesis state.
+    this.onRestore?.();
   }
 
   /**
