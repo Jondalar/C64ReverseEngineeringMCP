@@ -1,6 +1,6 @@
 # Spec 706 — reSID Audio Latency Governor
 
-**Status:** HEADLESS-GREEN — awaiting live-UI sign-off (2026-05-23). See §10.
+**Status:** DONE (2026-05-23) — headless gates green + user live-UI sign-off ("audio perfect from the timing"). See §10. (706.8 live verification still waits on 705.B's restore trigger; mechanism headless-proven.)
 **Parent spec:** `specs/703-sid-resid-wasm-audio.md` (reSID WASM audio, MERGED master `fb27a7d`).
 **Branch:** `claude/706-audio-latency-governor` (fresh from master 137389d).
 **Scope:** the live SID audio stream path — backend reSID render → WS transport → browser AudioWorklet playback. Latency only. No codec / quality / engine changes.
@@ -81,9 +81,9 @@ In `resid-worklet.js` `process()`:
 | 706.2 | Fix A — `bufferSamples` per-use: small (~80 ms) for live stream, large for export. | P0 | 706.1 | DONE — `LIVE_RECORDER_BUFFER_SAMPLES` / `EXPORT_RECORDER_BUFFER_SAMPLES` |
 | 706.3 | Fix B — worklet latency governor: target ~100 ms, fast-forward when `avail > target + margin`. | P0 | 706.1 | DONE — `resid-worklet.js` + `audio-player.ts` |
 | 706.4 | Fix C — broadcastBinary backpressure / recorder read-per-frame bound. | P1 | 706.2 | DONE — `broadcastAudio` + `MAX_AUDIO_SHIP_SAMPLES` |
-| 706.5 | Verify acceptance §5 #1-#5. Report measured latency before/after. | P0 | 706.2 + 706.3 + 706.4 | HEADLESS-GREEN (§5 #1/#3/#4); #2/#5 live-UI |
-| 706.6 | Regression: 60 s motm + fastloader audio run, no stutter (Spec 703 §8 hold). | P0 | 706.5 | LIVE-UI gate (user-verified) |
-| 706.7 | Memory note + close. | P0 | 706.6 | pending live sign-off |
+| 706.5 | Verify acceptance §5 #1-#5. Report measured latency before/after. | P0 | 706.2 + 706.3 + 706.4 | DONE — #1/#3/#4 headless, #2/#5 user-confirmed |
+| 706.6 | Regression: 60 s motm + fastloader audio run, no stutter (Spec 703 §8 hold). | P0 | 706.5 | DONE — user: "audio perfect from the timing" |
+| 706.7 | Memory note + close. | P0 | 706.6 | DONE |
 | 706.8 | Restore/resume re-sync (see §9): on RuntimeCheckpoint restore, flush recorder buffer + WS audio send + worklet ring, then re-prebuffer fresh PCM from the restored reSID synthesis state. | P0 | 706.2 + 706.3 | DONE — `onRestore`→`audio/flush`→worklet flush; `probe-706-restore-resync.mjs` |
 
 ## 9. Restore/Resume Re-Sync (contract from Spec 705.A step 4)
