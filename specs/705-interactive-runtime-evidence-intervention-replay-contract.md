@@ -248,6 +248,44 @@ Implementation order for `705.A`:
 5. Turn the preflight green, then implement the BASIC/READY and real-media
    continuation comparisons from sections 4.2 and 4.3.
 
+### 4.6 Drive Subsystem Progress + DRIVE8 Classification (2026-05-23 CEST)
+
+Steps 1+2 done. The active VICE1541 drive checkpoint now carries real
+DRIVECPU0 + 1541VIA1D0 + VIA2D0 modules:
+
+- step 2.3 (commit `90540f7`): `viacore_snapshot_write/read_module` ported
+  verbatim (viacore.c:1946-2192) + new `iecieee.ts` VIA2 dispatch +
+  `machine_drive_snapshot_write/read` ordered iec(VIA1)→iecieee(VIA2) per
+  c64drive.c:155. `probe:705-drive-roundtrip` proves: DRIVECPU restores
+  byte-identical; each VIA differs only at the CABSTATE byte (VICE's own
+  write/read bit-layout asymmetry, viacore.c:1983/2159 — ported verbatim);
+  restore is a stable fixed point (b1==b2).
+
+- step 2.4 — DRIVE8 normalization RFL, classified **CASE A (VICE-canonical,
+  not a TS port bug)**. The 16 DRIVE8 body bytes that change on the first
+  restore are all rotation/GCR/head fields (GCR_head_offset, GCR_read,
+  speed_zone, snap_accum, snap_rotation_last_clk, snap_bit_counter,
+  snap_last_read/write_data, snap_ue7_dcba, byte_ready_active). Root cause:
+  an idle 1541 (BASIC READY job loop) never runs the GCR-read BVC poll, so
+  VICE advances rotation only in `LOCAL_SET_OVERFLOW(0)` (6510core.c:158) and
+  3 byte-ready opcodes (2527/2815/2934). Idle ⇒ rotation **defers** —
+  `rotation_last_clk` lags the drive clock (measured: 6 vs 60904, motor on,
+  accum 0). On restore, `viacore_snapshot_read_module`'s `undump_pcr` tail
+  (viacore.c:2179, verbatim) → via2d `update_pcr` → `rotation_rotate_disk`
+  catches up the `(drive_clk − rotation_last_clk)` delta and re-derives those
+  fields. VICE performs the identical catch-up. Verified faithful and NOT the
+  cause: `drive_set_half_track` (only GCR_track_start_ptr / scaled
+  GCR_head_offset / track size), `rotation_table_get`/`set` (1:1).
+
+  Consequence (per the case-A rule): the drive checkpoint gate is **live-state
+  identity + stable fixed point + confined-diff**, NOT A==B serialized bytes.
+  `probe:705-drive-roundtrip` asserts every DRIVE8 b0→b1 diff lies inside the
+  rotation-resync field set (any foreign byte fails), and that
+  `rotation_last_clk` catches up to ≈ the drive clock. No TS "fix" and no
+  symptom-normalization. The full `restore→run N == original→run N`
+  continuation equivalence needs the C64-side checkpoint to drive the drive
+  deterministically and is deferred to the kernel-payload step.
+
 ## 5. Related Existing Specs
 
 | Spec | Relationship to 705 |
