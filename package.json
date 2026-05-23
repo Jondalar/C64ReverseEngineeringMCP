@@ -73,6 +73,7 @@
     "probe:709-ws-routes": "npm run build:mcp && node scripts/probe-709-ws-routes.mjs",
     "probe:709-12": "npm run build:mcp && node scripts/probe-709-12.mjs",
     "probe:714": "npm run build:mcp && node scripts/probe-714.mjs",
+    "probe:714-5": "npm run build:mcp && node scripts/probe-714-5.mjs",
     "smoke:trace-query": "npm run build:mcp && node scripts/smoke-trace-query.mjs",
     "smoke:hook-hygiene": "npm run build:mcp && node scripts/smoke-hook-hygiene.mjs",
     "smoke:trace": "npm run build:mcp && node scripts/smoke-trace.mjs",

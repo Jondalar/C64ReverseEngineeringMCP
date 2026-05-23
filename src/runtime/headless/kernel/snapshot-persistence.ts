@@ -79,18 +79,17 @@ export async function dumpRuntimeSnapshot(ctrl: RuntimeController, path: string)
   // the written content. (The dirty writable-CRT reject below stays until
   // Spec 713/714.5.)
 
-  // Spec 709.11b (writable-CRT policy B): the cartridge checkpoint embeds the
-  // ORIGINAL .crt bytes + bank/control state, not flash write-deltas. A flash
-  // that was written/erased since attach cannot be restored byte-identically in
-  // v1, so reject rather than silently restore the original bytes. Clean
-  // (unwritten) cartridges dump/restore normally.
-  const cart = (ctrl.session.kernel as { c64Bus?: { getCartridge?(): { isWritableDirty?(): boolean } | undefined } }).c64Bus?.getCartridge?.();
-  if (cart?.isWritableDirty?.()) {
+  // Spec 714.5: a dirty cartridge is rejected ONLY when its mapper does not
+  // faithfully persist its writable hardware state. EasyFlash now captures its
+  // flash (cartFlash payload, persistsWritableState → true), so a written
+  // EasyFlash dumps + restores its flash. Families without a writable port stay
+  // reject-on-dirty (no silent stale restore) until their 713/714.5 slice lands.
+  const cart = (ctrl.session.kernel as { c64Bus?: { getCartridge?(): { isWritableDirty?(): boolean; persistsWritableState?(): boolean } | undefined } }).c64Bus?.getCartridge?.();
+  if (cart?.isWritableDirty?.() && !cart?.persistsWritableState?.()) {
     throw new Error(
-      "dump: writable CRT state not persistable in v1 — the attached cartridge's flash " +
-      "was written/erased since attach, and native snapshots embed only the original .crt " +
-      "bytes + bank/control state (no flash delta). Aborting rather than restoring a stale " +
-      "flash image (Spec 709.11b policy B).",
+      "dump: writable cartridge state not persistable — the attached cartridge's writable " +
+      "hardware (flash/EEPROM) changed since attach and this mapper has no Spec 713/714.5 " +
+      "persistence port. Aborting rather than restoring a stale image.",
     );
   }
 

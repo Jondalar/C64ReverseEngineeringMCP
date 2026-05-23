@@ -1,6 +1,6 @@
 # Spec 714 - Mutable Media Snapshot Fidelity: Disk, Cartridge and Rewind State
 
-**Status:** IN PROGRESS (2026-05-24 CEST) — 714.1 (RFL) + 714.2 (same-session) + 714.3 (.c64re fresh-session) + 714.4 (bounded ring dedup) DONE for the disk path, see §11. 714.5 (writable cartridge, after Spec 713 implementation) + 714.6 (downstream) pending.  
+**Status:** IN PROGRESS (2026-05-24 CEST) — disk path DONE (714.1-714.4) + EasyFlash writable cartridge persistence DONE (Spec 713 EasyFlash slice + 714.5), see §11. Remaining: 714.5 GMOD2/GMOD3/MegaByter (deferred — no test corpus, stay reject-on-dirty) + 714.6 (downstream contract update).  
 **Depends on:** Specs 705.A/B, 706, 707 implementation surfaces; VICE1541 fidelity doctrine in Specs 612/620  
 **Coordinates with:** Spec 709 for media ingress/events; Spec 713 for VICE-faithful writable cartridge hardware  
 **Blocks:** Durable Spec 710 evidence promotion, Spec 711 intervention branches, Spec 712 rewind/replay; truthful writable-media `.c64re` persistence  
@@ -497,6 +497,44 @@ oldest-unpinned entries are evicted while a pinned entry's pooled version
 survives and rehydrates exactly; identical images dedup; refcount holds a shared
 version while any entry references it. 8.1/8.2/8.4 unchanged.
 
-714.1-714.4 DONE (disk path complete). Next: implement Spec 713 (writable
-cartridge hardware fidelity, EasyFlash first) → 714.5 (writable cartridge
-persistence) → 714.6 (downstream contract update).
+714.1-714.4 DONE (disk path complete).
+
+### Spec 713 (EasyFlash slice) + 714.5 — writable EasyFlash persistence
+
+EasyFlash is the priority cartridge (the only one mounted in the UI — the TRX
+crack intro). Its writable hardware (two FLASH040 chips = VICE roml_banks +
+romh_banks) is now a faithful, persistable state surface.
+
+- **713 (EasyFlash):** `AmdFlashChip` gains `getData()`/`loadData()` (loadData
+  resets the command state machine to read mode + clears dirty). `EasyFlashMapper`
+  implements `getWritableImage()` (flash low+high concatenated, a fresh copy) +
+  `setWritableImage()` (split + load) + `persistsWritableState() → true`. RFL vs
+  VICE `easyflash.c` snapshot module: VICE persists jumper + reg00 (bank) + reg02
+  (control) + `easyflash_ram[256]` + roml_banks(512K) + romh_banks(512K) + each
+  flash command-state. We persist bank/control (getState) + both flash images
+  (getWritableImage). KNOWN GAP: the `$DF00` 256-byte EasyFlash cart RAM is not
+  modeled by this mapper (games rarely use it) — a 713 follow-up.
+- **714.5:** the cartridge's large byte payloads moved OUT of `media.cartridge`
+  to top-level `RuntimeCheckpoint.cartBytes` (original .crt) + `cartFlash`
+  (writable image), so the ring content-addresses + dedups them (the .crt is
+  constant → ONE stored copy; flash dedups across non-write checkpoints). The
+  ring pool generalized to a slot list (`driveDiskImage`, `cartBytes`,
+  `cartFlash`). kernel snapshot captures them; restore rebuilds the mapper from
+  cartBytes, restores bank/control, overlays the flash via `setWritableImage`.
+- **Reject retired for EasyFlash:** `nonPersistableDirtyMedia` + the dump guard
+  now reject a dirty cartridge ONLY when its mapper lacks
+  `persistsWritableState`. EasyFlash → captured/dumped; GMOD2/GMOD3/MegaByter
+  (no writable port + no test corpus) → still reject-on-dirty. The former
+  709.11b/709.12 dirty-CRT-reject gates (probe-709-12 A2-A5, probe-709-media
+  G12) flipped accordingly.
+
+**Gate `probe:714-5` (8/8):** 8.5a same-session program→checkpoint→reprogram→
+restore restores the programmed flash (the §4.3 repro, green); a written
+EasyFlash is ACCEPTED for capture. 8.5b .c64re dump→fresh-session undump
+reattaches with the written flash + mapper/bank. 8.5c three distinct flash
+versions in the ring each restore exactly; the .crt dedups to ONE pooled version
+(1 .crt + 4 flash = 5 versions).
+
+Next: 714.6 (downstream contract update — 707/709 dirty-reject language, 710-712
+require 714-complete media). GMOD2/GMOD3/MegaByter writable persistence deferred
+(no test corpus; explicit reject-on-dirty stands).

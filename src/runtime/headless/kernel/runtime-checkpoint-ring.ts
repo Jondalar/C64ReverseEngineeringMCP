@@ -36,13 +36,21 @@ export interface RuntimeCheckpointRef {
   createdAtMs: number;
 }
 
+/**
+ * Spec 714.4/714.5 — top-level payload fields that hold large mutable media
+ * byte blobs. Each is extracted into the content-addressed pool on capture and
+ * rehydrated on restore, so identical content (a constant .crt; an unchanged
+ * disk/flash across checkpoints) is stored once. Order is irrelevant.
+ */
+const POOLED_BLOB_SLOTS = ["driveDiskImage", "cartBytes", "cartFlash"] as const;
+
 interface RingEntry extends RuntimeCheckpointRef {
   snapshot: MachineSnapshot;
-  /** Spec 714.4 — content hash of the entry's disk image (key into diskPool),
-   *  or null when the entry has no disk image. The bytes are NOT stored on the
-   *  entry's snapshot payload (driveDiskImage is nulled there); they live once
-   *  in the pool and are rehydrated on restoreSnapshot(). */
-  diskImageHash: string | null;
+  /** Spec 714.4/714.5 — pooled-slot → content hash for each large media blob
+   *  present on this entry. The bytes are NOT stored on the entry's snapshot
+   *  payload (the slot is nulled there); they live once in the pool and are
+   *  rehydrated by restoreSnapshot(). */
+  blobHashes: Record<string, string>;
 }
 
 export interface RuntimeCheckpointRingOptions {
@@ -123,25 +131,28 @@ export class RuntimeCheckpointRing {
    * checkpoints. restoreSnapshot() rehydrates the exact bytes.
    */
   capture(snapshot: MachineSnapshot, frame: number, cycles: number): RuntimeCheckpointRef {
-    const payload = snapshot.payload as { driveDiskImage?: Uint8Array | null };
-    let diskImageHash: string | null = null;
-    const img = payload.driveDiskImage;
-    if (img && img.byteLength > 0) {
-      diskImageHash = createHash("sha256").update(img).digest("hex");
-      const pooled = this.diskPool.get(diskImageHash);
-      if (pooled) {
-        pooled.refs++;
-      } else {
-        this.diskPool.set(diskImageHash, { bytes: img, refs: 1 });
-        this.diskPoolBytes += img.byteLength;
+    const payload = snapshot.payload as Record<string, unknown>;
+    const blobHashes: Record<string, string> = {};
+    for (const slot of POOLED_BLOB_SLOTS) {
+      const v = payload[slot];
+      if (v instanceof Uint8Array && v.byteLength > 0) {
+        const hash = createHash("sha256").update(v).digest("hex");
+        const pooled = this.diskPool.get(hash);
+        if (pooled) {
+          pooled.refs++;
+        } else {
+          this.diskPool.set(hash, { bytes: v, refs: 1 });
+          this.diskPoolBytes += v.byteLength;
+        }
+        blobHashes[slot] = hash;
+        payload[slot] = null; // stored entry keeps only the hash ref
       }
-      payload.driveDiskImage = null; // stored entry keeps only the hash ref
     }
     const byteSize = estimateCheckpointBytes(snapshot);
     const entry: RingEntry = {
       id: `cp_${frame}_${this.seq++}`,
       frame, cycles, pinned: false, byteSize, createdAtMs: Date.now(),
-      snapshot, diskImageHash,
+      snapshot, blobHashes,
     };
     this.entries.push(entry);
     this.totalBytes += byteSize;
@@ -163,7 +174,7 @@ export class RuntimeCheckpointRing {
       if (idx < 0) break; // everything left is pinned — honor the user's intent
       const [gone] = this.entries.splice(idx, 1);
       this.totalBytes -= gone!.byteSize;
-      this.releaseDiskImage(gone!.diskImageHash);
+      for (const hash of Object.values(gone!.blobHashes)) this.releaseDiskImage(hash);
     }
   }
 
@@ -202,12 +213,14 @@ export class RuntimeCheckpointRing {
   restoreSnapshot(id: string): MachineSnapshot | undefined {
     const e = this.entries.find((x) => x.id === id);
     if (!e) return undefined;
-    if (!e.diskImageHash) return e.snapshot;
-    const pooled = this.diskPool.get(e.diskImageHash);
-    return {
-      schemaVersion: e.snapshot.schemaVersion,
-      payload: { ...(e.snapshot.payload as object), driveDiskImage: pooled ? pooled.bytes : null },
-    } as MachineSnapshot;
+    const slots = Object.keys(e.blobHashes);
+    if (slots.length === 0) return e.snapshot;
+    const payload = { ...(e.snapshot.payload as Record<string, unknown>) };
+    for (const slot of slots) {
+      const pooled = this.diskPool.get(e.blobHashes[slot]!);
+      payload[slot] = pooled ? pooled.bytes : null;
+    }
+    return { schemaVersion: e.snapshot.schemaVersion, payload } as MachineSnapshot;
   }
 
   get(id: string): RuntimeCheckpointRef | undefined {

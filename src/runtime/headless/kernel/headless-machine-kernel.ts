@@ -964,6 +964,11 @@ export class HeadlessMachineKernel implements MachineKernel {
       // Spec 714.4 — capture the mutable disk image apart from the core blob so
       // the ring can content-address + dedup it (one copy per disk identity).
       driveDiskImage: this.drive1541?.snapshotDiskImage?.() ?? null,
+      // Spec 714.5 — large cartridge byte payloads captured apart from the media
+      // metadata so the ring dedups them (the original .crt is constant; flash
+      // varies only on writes).
+      cartBytes: this.captureCartBytes(),
+      cartFlash: this.captureCartFlash(),
       media: this.captureMediaCheckpoint(),
       alarmsMaincpu: this.alarms.maincpu ? alarmContextCaptureSchedule(this.alarms.maincpu) : [],
       // Spec 705.A step 4 — optional reSID audio slice when a recorder is
@@ -1039,10 +1044,10 @@ export class HeadlessMachineKernel implements MachineKernel {
       if (diskImage && diskImage.byteLength > 0) this.drive1541.restoreDiskImage?.(diskImage);
     }
 
-    // Spec 709.7 — restore the attached cartridge: recreate the mapper from the
-    // embedded .crt bytes, restore its bank-switching state, re-attach to the
-    // live bus (or detach if the checkpoint had no cartridge).
-    this.restoreMediaCheckpoint(cp.media);
+    // Spec 709.7 / 714.5 — restore the attached cartridge: recreate the mapper
+    // from the original .crt bytes, restore its bank/control state, overlay the
+    // mutable flash image (714.5), re-attach (or detach if no cartridge).
+    this.restoreMediaCheckpoint(cp.media, cp.cartBytes ?? null, cp.cartFlash ?? null);
 
     // Re-arm the maincpu alarm schedule LAST, after all chip-state restore, so
     // the captured CIA timer/TOD/SDR/idle alarm clks line up with the restored
@@ -1066,8 +1071,9 @@ export class HeadlessMachineKernel implements MachineKernel {
     const cart = this.c64Bus.getCartridge();
     const cartMedia = this.c64Bus.getCartridgeMedia();
     if (cart && cartMedia) {
+      // Spec 714.5 — metadata only; the big .crt bytes + flash image ride in
+      // top-level cartBytes/cartFlash so the ring can dedup them.
       media.cartridge = {
-        bytes: cartMedia.bytes.slice(),
         name: cartMedia.name,
         sha256: snapshotSha256(cartMedia.bytes),
         mapperType: cart.getMapperType(),
@@ -1077,13 +1083,34 @@ export class HeadlessMachineKernel implements MachineKernel {
     return media;
   }
 
-  // Spec 709.7 — restore the cartridge medium (or detach if none).
-  private restoreMediaCheckpoint(media: RuntimeCheckpointMedia): void {
+  // Spec 714.5 — the attached cartridge's original .crt bytes (constant; pooled),
+  // or null when no cartridge.
+  private captureCartBytes(): Uint8Array | null {
+    const cart = this.c64Bus.getCartridge();
+    const cartMedia = this.c64Bus.getCartridgeMedia();
+    return cart && cartMedia ? cartMedia.bytes : null;
+  }
+
+  // Spec 714.5 — the attached cartridge's mutable device image (flash low+high),
+  // or null when the cart has no writable hardware state.
+  private captureCartFlash(): Uint8Array | null {
+    return this.c64Bus.getCartridge()?.getWritableImage?.() ?? null;
+  }
+
+  // Spec 709.7 / 714.5 — restore the cartridge medium (or detach if none).
+  // Rebuilds the mapper from the original .crt bytes, restores bank/control
+  // state, then overlays the mutable flash image (mutable-wins).
+  private restoreMediaCheckpoint(
+    media: RuntimeCheckpointMedia,
+    cartBytes: Uint8Array | null,
+    cartFlash: Uint8Array | null,
+  ): void {
     const c = media.cartridge;
-    if (!c) { this.c64Bus.attachCartridge(undefined); return; }
-    const bytes = c.bytes instanceof Uint8Array ? c.bytes : new Uint8Array(c.bytes as ArrayLike<number>);
+    if (!c || !cartBytes) { this.c64Bus.attachCartridge(undefined); return; }
+    const bytes = cartBytes instanceof Uint8Array ? cartBytes : new Uint8Array(cartBytes as ArrayLike<number>);
     const mapper = loadCartridgeMapperFromBytes(bytes, c.name);
     mapper.setState(c.state as HeadlessCartridgeState);
+    if (cartFlash && cartFlash.byteLength > 0) mapper.setWritableImage?.(cartFlash);
     this.c64Bus.attachCartridge(mapper, { bytes, name: c.name });
   }
 

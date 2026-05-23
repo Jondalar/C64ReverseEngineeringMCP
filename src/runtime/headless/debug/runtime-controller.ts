@@ -317,11 +317,16 @@ export class RuntimeController {
    */
   nonPersistableDirtyMedia(): string | null {
     const k = this.session.kernel as {
-      c64Bus?: { getCartridge?(): { isWritableDirty?(): boolean } | undefined };
+      c64Bus?: { getCartridge?(): { isWritableDirty?(): boolean; persistsWritableState?(): boolean } | undefined };
     };
     const cart = k.c64Bus?.getCartridge?.();
-    if (cart?.isWritableDirty?.()) {
-      return "writable CRT flash was written/erased since attach; v1 has no writable-CRT-delta payload";
+    // Spec 714.5 — a dirty cartridge is non-persistable ONLY when its mapper does
+    // not faithfully capture/restore its writable hardware state. EasyFlash now
+    // persists its flash (persistsWritableState → true), so a dirty EasyFlash is
+    // captured, not rejected. Families without a writable port (no test corpus)
+    // stay reject-on-dirty until their Spec 713 port + a 714.5 slice land.
+    if (cart?.isWritableDirty?.() && !cart?.persistsWritableState?.()) {
+      return "writable cartridge state changed since attach and this mapper has no persistence port; v1 cannot snapshot it";
     }
     return null;
   }

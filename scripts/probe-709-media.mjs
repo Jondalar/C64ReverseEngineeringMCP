@@ -278,9 +278,11 @@ console.log(`Spec 709 — media ingress gates  (tmp ${dir})`);
   } finally { stopIntegratedSession(f.sessionId); }
 }
 
-// ---- G12 writable EasyFlash: clean dumps, written rejects (709.11b policy B) ----
+// ---- G12 writable EasyFlash dump ACCEPTED (Spec 714.5 — flash persists) ----
 {
-  // clean already proven by G8; here prove a WRITTEN EasyFlash rejects at dump.
+  // 709.11b briefly rejected a written EasyFlash dump; 714.5 retires that —
+  // EasyFlash persists its flash (cartFlash payload, persistsWritableState), so
+  // the dump is accepted. Full flash round-trip lives in probe-714-5.
   const { session, sessionId } = newSession();
   try {
     const ctrl = new RuntimeController(sessionId, session, () => {});
@@ -292,8 +294,10 @@ console.log(`Spec 709 — media ingress gates  (tmp ${dir})`);
     cartM.write(0x8555, 0xAA, bi); cartM.write(0x82AA, 0x55, bi); cartM.write(0x8555, 0xA0, bi);
     cartM.write(0x8000, 0x42, bi); // program one flash byte
     gate("G12 flash write marks the cartridge writable-dirty", cartM.isWritableDirty?.() === true);
-    const r = await expectThrow(() => dumpRuntimeSnapshot(ctrl, join(dir, "dirty-crt.c64re")), "writable CRT");
-    gate("G12 written EasyFlash dump rejected (deterministic, no silent stale restore)", r.ok, r.msg.slice(0, 80));
+    let g12ok = false, g12msg = "";
+    try { await dumpRuntimeSnapshot(ctrl, join(dir, "dirty-crt.c64re")); g12ok = true; }
+    catch (e) { g12msg = String(e?.message ?? e).slice(0, 80); }
+    gate("G12 written EasyFlash dump ACCEPTED (714.5 persists flash; reject retired)", g12ok, g12msg);
   } finally { stopIntegratedSession(sessionId); }
 }
 

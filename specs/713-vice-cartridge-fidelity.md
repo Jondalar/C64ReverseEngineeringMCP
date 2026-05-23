@@ -1,6 +1,6 @@
 # Spec 713 - VICE Cartridge Fidelity: CRT Mapping, Banking and Writable Hardware
 
-**Status:** IMPLEMENTATION-READY DRAFT (2026-05-23 CEST) - RFL required before source edits  
+**Status:** IN PROGRESS (2026-05-24 CEST) — EasyFlash writable-state surface DONE (getData/loadData on the FLASH040 chip + getWritableImage/setWritableImage/persistsWritableState on the mapper), consumed by Spec 714.5 persistence (probe:714-5 8/8). KNOWN GAP: EasyFlash $DF00 256-byte cart RAM not modeled. GMOD2/GMOD3 (EEPROM/SPI) + MegaByter writable ports deferred (no test corpus). Banking/CRT-mapping fidelity for the existing mounted families is already exercised by the runtime proof gate.  
 **Depends on:** Spec 705 native checkpoint/dump foundation; Spec 709 media ingress and UI mount/eject completion  
 **Blocks:** Trustworthy CRT execution, CRT-based inspect evidence, cartridge rewind/replay and code-overlay work  
 **Authority:** VICE C source is the behavioral ground truth.

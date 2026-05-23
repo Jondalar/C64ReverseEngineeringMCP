@@ -8,13 +8,10 @@
 //
 //   Part A (core, deterministic):
 //     A1 clean EasyFlash captures + restores through the ring (no regression).
-//     A2 a WRITTEN EasyFlash makes captureCheckpoint() reject (policy B).
-//     A3 a WRITTEN EasyFlash makes a cartridge eject reject.
-//     A4 a WRITTEN EasyFlash makes a CRT replace reject.
-//     A5 the original repro: the flash write is NOT silently reverted (capture
-//        refuses, so no checkpoint exists that restores stale .crt bytes).
-//   (Former Part C = dirty-DISK reject = the temporary 709.13 barrier, retired
-//    by Spec 714.2; dirty-disk capture/restore now lives in probe-714.mjs.)
+//   (Former A2-A5 = written-EasyFlash REJECT = the temporary 709.11b barrier,
+//    retired by Spec 714.5 — EasyFlash now persists its flash; see probe-714-5.
+//    Former Part C = dirty-DISK reject = the 709.13 barrier, retired by Spec
+//    714.2; dirty-disk capture/restore now lives in probe-714.mjs.)
 //   Part D (Spec 709.13.1 — device vs C64-internal pause rule):
 //     D1 disk insert while running → C64 stays running (1541 = device).
 //     D2 disk eject while running → C64 stays running.
@@ -92,52 +89,12 @@ function writeFlashByte(session, value = 0x42) {
   } finally { stopIntegratedSession(sessionId); }
 }
 
-// ---- A2/A5 written EasyFlash: captureCheckpoint rejects + write survives ----
-{
-  const { session, sessionId } = newSession();
-  try {
-    const ctrl = new RuntimeController(sessionId, session, () => {});
-    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
-    await ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" });
-    const { cartM, bi, orig, written } = writeFlashByte(session, 0x42);
-    gate("A2 flash write marks the cartridge writable-dirty", cartM.isWritableDirty?.() === true && written === 0x42,
-      `orig=${orig} written=${written}`);
-    const r = await expectThrow(() => ctrl.captureCheckpoint(), "writable CRT");
-    gate("A2 captureCheckpoint() rejects a dirty writable CRT (policy B at the ring path)", r.ok, r.msg.slice(0, 80));
-    // A5 — the original repro: previously capture+restore reverted the byte to
-    // orig and cleared dirty. Now no such checkpoint can be minted, so the write
-    // is preserved.
-    gate("A5 flash write NOT silently reverted (the repro: no stale-restore path exists)",
-      cartM.read(0x8000, bi) === 0x42 && cartM.isWritableDirty?.() === true,
-      `byte=${cartM.read(0x8000, bi)} dirty=${cartM.isWritableDirty?.()}`);
-  } finally { stopIntegratedSession(sessionId); }
-}
-
-// ---- A3 written EasyFlash: cartridge eject rejects ----
-{
-  const { session, sessionId } = newSession();
-  try {
-    const ctrl = new RuntimeController(sessionId, session, () => {});
-    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
-    await ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" });
-    writeFlashByte(session, 0x37);
-    const r = await expectThrow(() => ingestMedia(ctrl, { kind: "eject", role: "cartridge" }), "writable-CRT-delta");
-    gate("A3 dirty writable CRT rejects a cartridge eject (no silent flash loss)", r.ok, r.msg.slice(0, 80));
-  } finally { stopIntegratedSession(sessionId); }
-}
-
-// ---- A4 written EasyFlash: CRT replace rejects ----
-{
-  const { session, sessionId } = newSession();
-  try {
-    const ctrl = new RuntimeController(sessionId, session, () => {});
-    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
-    await ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" });
-    writeFlashByte(session, 0x5a);
-    const r = await expectThrow(() => ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade2.crt", resetPolicy: "power-cycle" }), "writable-CRT-delta");
-    gate("A4 dirty writable CRT rejects a CRT replace (no silent flash loss)", r.ok, r.msg.slice(0, 80));
-  } finally { stopIntegratedSession(sessionId); }
-}
+// NOTE: the former A2-A5 (written-EasyFlash → REJECT, the temporary 709.11b
+// policy-B barrier) are retired by Spec 714.5: EasyFlash now PERSISTS its flash
+// (persistsWritableState), so a dirty EasyFlash is captured/dumped, not
+// rejected. EasyFlash flash checkpoint/.c64re/ring fidelity lives in
+// scripts/probe-714-5.mjs. The reject now only applies to writable cartridge
+// families without a persistence port (no test corpus yet).
 
 // NOTE: the former Part C (dirty-DISK → reject) asserted the TEMPORARY 709.13
 // barrier. Spec 714.2 retires that barrier: a dirty disk is now CAPTURED (the

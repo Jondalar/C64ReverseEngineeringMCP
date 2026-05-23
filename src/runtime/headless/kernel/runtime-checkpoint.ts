@@ -88,14 +88,14 @@ export interface RuntimeCheckpointMedia {
   diskPath: string;
   imageFormat: string;
   /**
-   * Spec 709.7 — attached cartridge medium. Embedded .crt bytes (so the mapper
-   * is recreated independently on restore) + sha256 identity + the mapper's
-   * bank-switching continuation state. Absent when no cartridge is attached.
-   * The bytes ride inside the checkpoint payload, so the 707 typed-array codec
-   * serializes them into .c64re automatically.
+   * Spec 709.7 — attached cartridge medium identity + the mapper's bank-switching
+   * continuation state. Absent when no cartridge is attached.
+   * Spec 714.5 — the LARGE byte payloads (original .crt bytes, mutable flash
+   * image) moved OUT to top-level `RuntimeCheckpoint.cartBytes` / `cartFlash` so
+   * the 705.B ring content-addresses + dedups them (the .crt is identical across
+   * checkpoints → one stored copy; flash dedups across non-write checkpoints).
    */
   cartridge?: {
-    bytes: Uint8Array;
     name: string;
     sha256: string;
     mapperType: string;
@@ -144,6 +144,13 @@ export interface RuntimeCheckpoint {
    *  content-addressed (once per identity, refcounted); embedded verbatim in
    *  `.c64re`. On restore it overlays the live GCR buffer (mutable-wins, §6.1). */
   driveDiskImage?: Uint8Array | null;
+  /** Spec 714.5 — attached cartridge's original .crt bytes (constant across a
+   *  session → the ring dedups to one stored copy). Null when no cartridge. */
+  cartBytes?: Uint8Array | null;
+  /** Spec 714.5 — attached cartridge's mutable device image (flash low+high
+   *  concatenated), content-addressed + deduped in the ring; null when the
+   *  cartridge has no writable state. */
+  cartFlash?: Uint8Array | null;
   media: RuntimeCheckpointMedia;
 
   /**

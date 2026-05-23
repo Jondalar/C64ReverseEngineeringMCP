@@ -41,6 +41,18 @@ export interface HeadlessCartridgeMapper {
   /** Spec 709.11b — true if writable (flash) contents were mutated since attach.
    *  Read-only mappers omit it. Used by the dump guard (v1 can't persist flash). */
   isWritableDirty?(): boolean;
+  /** Spec 713/714.5 — true when this mapper's full mutable hardware state (flash,
+   *  etc.) is captured/restored by getWritableImage/setWritableImage, so a dirty
+   *  cartridge IS persistable (no reject). Families without a faithful writable
+   *  port (no test corpus yet) omit it / return false and stay reject-on-dirty. */
+  persistsWritableState?(): boolean;
+  /** Spec 714.5 — the mapper's mutable device image (e.g. flash low+high), as a
+   *  flat copy safe to pool/serialize, or null when there is nothing writable.
+   *  Captured apart from the original .crt bytes so the ring can dedup it. */
+  getWritableImage?(): Uint8Array | null;
+  /** Spec 714.5 — restore a previously captured writable image onto the live
+   *  device (overlays the flash rebuilt from the original .crt bytes). */
+  setWritableImage?(bytes: Uint8Array): void;
 }
 
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
@@ -395,6 +407,17 @@ class AmdFlashChip implements HeadlessWritableChip {
 
   isDirty(): boolean { return this.dirty; }
 
+  // Spec 713/714.5 — VICE-faithful writable-state surface. getData() returns the
+  // live flash array (caller copies before pooling); loadData() overlays a
+  // restored image and resets the command state machine to read mode (the
+  // restored bytes are the new truth, so dirty clears).
+  getData(): Uint8Array { return this.options.data; }
+  loadData(bytes: Uint8Array): void {
+    this.options.data.set(bytes.subarray(0, this.options.data.length));
+    this.state = "read";
+    this.dirty = false;
+  }
+
   getMode(): string {
     return `${this.options.label}:${this.state}`;
   }
@@ -552,6 +575,27 @@ class EasyFlashMapper extends BaseMapper {
     state.writable = true;
     state.flashMode = `${this.currentMode()} [${this.loFlash.getMode()},${this.hiFlash.getMode()}]`;
     return state;
+  }
+
+  // Spec 713/714.5 — EasyFlash mutable hardware state IS faithfully captured:
+  // both flash chips' contents (VICE roml_banks + romh_banks). The EasyFlash
+  // $DF00 256-byte cart RAM is not modeled by this mapper (games rarely use it;
+  // a 713 follow-up could add it); bank/control ride in getState/setState.
+  persistsWritableState(): boolean { return true; }
+
+  getWritableImage(): Uint8Array {
+    const lo = this.loFlash.getData();
+    const hi = this.hiFlash.getData();
+    const out = new Uint8Array(lo.length + hi.length);
+    out.set(lo, 0);
+    out.set(hi, lo.length);
+    return out;
+  }
+
+  setWritableImage(bytes: Uint8Array): void {
+    const loLen = this.loFlash.getData().length;
+    this.loFlash.loadData(bytes.subarray(0, loLen));
+    this.hiFlash.loadData(bytes.subarray(loLen));
   }
 
   read(address: number, bankInfo: HeadlessBankInfo): number | undefined {
