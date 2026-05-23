@@ -2,8 +2,17 @@
 
 Status: IMPLEMENTATION-READY DRAFT (reviewed 2026-05-23 CEST)
 Depends (core inspect): Specs 702, 705.B, 707
-Depends (durable media/evidence promotion): Specs 708 corrective slice, 709
+Depends (durable media/evidence promotion): Specs 708 corrective slice, 709, 714
 Owner: literal VIC / v3 UI / knowledge
+
+> **Spec 714 requirement (mutable media).** When a session has a writable medium
+> (a written disk, or a writable cartridge such as EasyFlash), evidence may be
+> promoted as **durable/replayable only if the medium is 714-complete** — its
+> mutable state must be captured by the checkpoint (disk via `driveDiskImage`,
+> EasyFlash via `cartFlash`). For families still under the temporary dirty-reject
+> barrier (GMOD2/GMOD3/MegaByter), evidence over a written medium is NOT durable.
+> Clean-media / no-writable-dependence inspect is unaffected. Never label
+> evidence durable when its medium state is incomplete.
 
 ## 1. Purpose
 

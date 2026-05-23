@@ -1,8 +1,14 @@
 # Spec 711 - Code/Data Overlay and Controlled Intervention Branches
 
 Status: DRAFT (2026-05-23 CEST)
-Depends: Specs 705.B, 707-710, 623
+Depends: Specs 705.B, 707-710, 623, 714
 Owner: runtime intervention / monitor / knowledge / UI
+
+> **Spec 714 requirement (mutable media).** An intervention branch root over a
+> writable medium is valid only when its before/after checkpoints include the
+> complete mutable-media state (disk `driveDiskImage`, EasyFlash `cartFlash`).
+> Media families still under the temporary dirty-reject barrier
+> (GMOD2/GMOD3/MegaByter) cannot form a branch root over a written medium.
 
 ## 1. Purpose
 

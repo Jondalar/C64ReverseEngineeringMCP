@@ -350,6 +350,13 @@ bytes + bank/control state, restored byte-identically across checkpoint and
 `.c64re`. Written (dirty) flash cartridge = rejected at dump (no silent stale
 restore). Flash-delta persistence is a future slice.
 
+> **UPDATED (Spec 713/714.5).** The flash-delta persistence slice landed for
+> **EasyFlash**: its flash is captured (`cartFlash`) + restored, so a written
+> EasyFlash is now persisted, not rejected. The dirty-CRT reject remains only
+> for writable families without a persistence port (GMOD2/GMOD3/MegaByter — no
+> test corpus). The 709.11b/709.12 dirty-CRT-reject gates were flipped
+> accordingly (probe-709-12 A2-A5 retired; probe-709-media G12 dump now accepted).
+
 Status restored to **DONE**.
 
 ## 13. Hardening Slice Result (709.12, 2026-05-23)

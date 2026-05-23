@@ -1,8 +1,15 @@
 # Spec 712 - Rewind, Replay and Branch Diff Runtime/UI
 
 Status: DRAFT (2026-05-23 CEST)
-Depends: Specs 705.B, 707-711, 701
+Depends: Specs 705.B, 707-711, 701, 714
 Owner: runtime / v3 UI / experiments / knowledge
+
+> **Spec 714 requirement (mutable media).** Rewind/replay/branch-diff must
+> consume the full mutable-media checkpoint state (disk `driveDiskImage`,
+> EasyFlash `cartFlash`, content-addressed in the 705.B ring) — never assume
+> clean source media. Rewinding across a disk save or a flash write reproduces
+> the written state exactly (714 gates 8.3/8.5). For media families still under
+> the dirty-reject barrier, rewind across a written medium is unsupported.
 
 ## 1. Purpose
 

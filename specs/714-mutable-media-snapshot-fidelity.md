@@ -1,6 +1,6 @@
 # Spec 714 - Mutable Media Snapshot Fidelity: Disk, Cartridge and Rewind State
 
-**Status:** IN PROGRESS (2026-05-24 CEST) — disk path DONE (714.1-714.4) + EasyFlash writable cartridge persistence DONE (Spec 713 EasyFlash slice + 714.5), see §11. Remaining: 714.5 GMOD2/GMOD3/MegaByter (deferred — no test corpus, stay reject-on-dirty) + 714.6 (downstream contract update).  
+**Status:** DONE for all media active in the runtime (2026-05-24 CEST) — disk (714.1-714.4) + EasyFlash writable cartridge (Spec 713 EasyFlash slice + 714.5) persist/restore exactly through checkpoint, `.c64re` and the bounded dedup ring; downstream contracts updated (714.6), see §11. EXPLICITLY DEFERRED (no test corpus, kept under the honest reject-on-dirty barrier): GMOD2/GMOD3 (EEPROM/SPI) + MegaByter writable persistence, and the EasyFlash `$DF00` cart RAM.  
 **Depends on:** Specs 705.A/B, 706, 707 implementation surfaces; VICE1541 fidelity doctrine in Specs 612/620  
 **Coordinates with:** Spec 709 for media ingress/events; Spec 713 for VICE-faithful writable cartridge hardware  
 **Blocks:** Durable Spec 710 evidence promotion, Spec 711 intervention branches, Spec 712 rewind/replay; truthful writable-media `.c64re` persistence  
@@ -535,6 +535,32 @@ reattaches with the written flash + mapper/bank. 8.5c three distinct flash
 versions in the ring each restore exactly; the .crt dedups to ONE pooled version
 (1 .crt + 4 flash = 5 versions).
 
-Next: 714.6 (downstream contract update — 707/709 dirty-reject language, 710-712
-require 714-complete media). GMOD2/GMOD3/MegaByter writable persistence deferred
-(no test corpus; explicit reject-on-dirty stands).
+### 714.6 downstream contract update
+
+Doc-only, no code change. The temporary dirty-reject language is replaced with
+the implemented mutable-media behavior, and the downstream features are pinned
+to require 714-complete media:
+
+- **Spec 707** media-policy paragraph: the "dirty disk aborts dump" rule is
+  retired (save_disks=1 → `driveDiskImage`; EasyFlash → `cartFlash`); dirty-media
+  dump is rejected only for writable cartridge families without a persistence
+  port. Dirty detection kept for status, not as a dump gate.
+- **Spec 709** §2.3 (disk) + §12 (CRT) carry "UPDATED (714)" notes: disk +
+  EasyFlash are persisted, not rejected; the reject survives only for unported
+  writable families.
+- **Specs 710/711/712** each gain a "Spec 714 requirement" banner + a `714`
+  dependency: durable evidence promotion (710), branch roots (711) and
+  rewind/replay/diff (712) over a writable medium require 714-complete mutable
+  media; families under the dirty barrier are not durable/branchable/rewindable
+  over a written medium; clean-media work is unaffected.
+
+## Done
+
+Spec 714 is DONE for every medium the runtime actually mounts (disk + EasyFlash):
+checkpoint, `.c64re` and the bounded content-addressed ring all carry and
+exactly restore the written disk and the written EasyFlash flash; the dirty
+barrier is removed for those and the downstream specs require 714-complete media.
+The remaining writable cartridge families (GMOD2/GMOD3 EEPROM/SPI, MegaByter) and
+the EasyFlash `$DF00` cart RAM are explicitly deferred behind the honest
+reject-on-dirty barrier until a test corpus + their Spec 713 ports exist — no
+silent gap, no false DONE.

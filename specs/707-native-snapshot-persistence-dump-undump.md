@@ -154,13 +154,20 @@ payload via a typed-array codec (`$ta`+base64) — RAM / VIC FB / opaque drive
 integrity over body + per-embedded-media. No VSF internally.
 
 **Media policy (§3, user-bound):** v1 EMBEDS the mounted source bytes + sha256
-identity → self-contained, portable restore. **Dirty disk (written since attach)
-aborts dump with a clear `unsupported-dirty-media` error** — the active VICE1541
-checkpoint uses `save_disks=0`, so runtime disk writes are not in the drive blob;
-v1 never silently persists a partial disk state. A versioned `writableDeltaRef`
-slot is reserved; no half-built delta path. Dirty detection (read-only, no port
-behavior change): `GCR_dirty_track != 0 OR live-gcr-hash != attach-baseline`
-(`vice1541-facade.ts`).
+identity → self-contained, portable restore. The embedded source is the
+non-authoritative identity/baseline; the mutable content rides in the checkpoint.
+
+> **UPDATED (Spec 714 — mutable media is now persisted).** The original
+> "dirty disk aborts dump" policy is RETIRED. The VICE1541 snapshot runs
+> `save_disks=1` and the mutated disk image is captured as `driveDiskImage`
+> (Spec 714.2/714.3), so a dump after a disk write restores the WRITTEN content
+> in a fresh session. Writable **EasyFlash** flash is captured as `cartFlash`
+> (Spec 713/714.5). Both ride in the payload (typed-array codec) and are
+> content-addressed/deduped in the 705.B ring (714.4). A dirty-media dump is now
+> rejected ONLY for writable cartridge families without a persistence port
+> (GMOD2/GMOD3/MegaByter — no test corpus yet). Dirty detection
+> (`GCR_dirty_track != 0 OR live-gcr-hash != attach-baseline`,
+> `vice1541-facade.ts`) is retained for status/diagnostics, not as a dump gate.
 
 **dump/undump (§4):** `src/runtime/headless/kernel/snapshot-persistence.ts` — the
 single backend shared by the Spec 623 monitor `dump "<path>"` / `undump "<path>"`
