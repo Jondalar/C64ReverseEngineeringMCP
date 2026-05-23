@@ -1,6 +1,6 @@
 # Spec 714 - Mutable Media Snapshot Fidelity: Disk, Cartridge and Rewind State
 
-**Status:** IN PROGRESS (2026-05-23 CEST) — 714.1 (RFL) + 714.2 (same-session mutable disk checkpoint) DONE, see §11. 714.3 (.c64re), 714.4 (bounded ring), 714.5 (writable cartridge after Spec 713), 714.6 (downstream) pending.  
+**Status:** IN PROGRESS (2026-05-23 CEST) — 714.1 (RFL) + 714.2 (same-session mutable disk checkpoint) + 714.3 (.c64re fresh-session mutable disk) DONE, see §11. 714.4 (bounded ring), 714.5 (writable cartridge after Spec 713), 714.6 (downstream) pending.  
 **Depends on:** Specs 705.A/B, 706, 707 implementation surfaces; VICE1541 fidelity doctrine in Specs 612/620  
 **Coordinates with:** Spec 709 for media ingress/events; Spec 713 for VICE-faithful writable cartridge hardware  
 **Blocks:** Durable Spec 710 evidence promotion, Spec 711 intervention branches, Spec 712 rewind/replay; truthful writable-media `.c64re` persistence  
@@ -447,4 +447,25 @@ removed, A/D/B green); `probe:709-media` 21/21; `probe:709-ws-routes` 5/5;
 `probe:705b-ring` 7/7; `probe:706-restore-resync` green; `probe:708-trace` 8/8;
 `check:1541-fidelity` 78/0; `runtime:proof` 7/7.
 
-714.1 + 714.2 DONE. Next: 714.3 (.c64re fresh-session mutable disk).
+### 714.3 `.c64re` fresh-session mutable disk persistence
+
+The dump/undump path already had the right shape; the only blocker was the
+dirty-disk dump reject. With save_disks=1, the mutated GCR rides in the
+`drive1541` blob, and on undump the order is `attachDisk(embedded source =
+clean baseline)` → `drive1541.restore(blob)` whose GCRIMAGE module OVERWRITES
+the tracks — so the embedded baseline never wins over the restored mutable disk
+(§6.1). Changes:
+
+- `dumpRuntimeSnapshot` — removed the dirty-disk abort (the writable-CRT reject
+  stays until Spec 713/714.5). A dump after a disk write is now accepted.
+- `undumpRuntimeSnapshot` — clarified the baseline-then-blob (mutable-wins)
+  ordering; no behavior change (the blob already overwrote).
+- Test gates that asserted the retired barrier flipped: `probe-707` G6
+  (dirty-disk dump abort → ACCEPTED); `probe-709-media` G5 (dirty-disk swap/
+  eject reject → ACCEPTED, before-checkpoint restores the modified disk).
+
+**Gate `probe:714` (now 18/18):** 8.2 for D64 + G64 — dirty-disk `.c64re` dump
+accepted; a FRESH-session undump restores the written disk byte + drive
+continuation (`drive_pc`/head). 8.1 + 8.4 unchanged.
+
+714.1 + 714.2 + 714.3 DONE. Next: 714.4 (bounded ring media-version store).

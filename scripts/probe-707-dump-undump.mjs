@@ -7,8 +7,8 @@
 //      (no disk mounted) → embedded media re-attaches → state matches (acceptance #3).
 //   G4 integrity failure: a flipped body byte is rejected, not partially restored.
 //   G5 version failure: an incompatible format version is rejected.
-//   G6 dirty-media guard: a written disk aborts dump with a clear error (binding
-//      v1 contract — save_disks=0 means runtime disk writes aren't in the blob).
+//   G6 dirty disk dump ACCEPTED (Spec 714.3 save_disks=1; old reject retired —
+//      the mutated GCR now rides in the drive blob; 8.2 round-trip in probe-714).
 //
 // dumpRuntimeSnapshot/undumpRuntimeSnapshot ARE the same backend the Spec 623
 // monitor dump/undump commands call (§4 single implementation).
@@ -142,14 +142,18 @@ let sigRealDump;
     gate("G2 real-media run-N continuation matches control", e2.ok,
       e2.ok ? sigStr(sigControl) : `mismatch ${e2.k}: ${e2.a} vs ${e2.b}`);
 
-    // G6 dirty-media guard: simulate a disk write (mutate a live GCR track byte)
-    // → isMediaDirty() true → dump must abort with the unsupported-dirty-media error.
+    // G6 (Spec 714.3) — a written disk is now PERSISTABLE: the VICE1541 snapshot
+    // runs save_disks=1, so the mutated GCR rides in the blob and the dump is
+    // ACCEPTED (the old dirty-media abort is retired). The fresh-session round-
+    // trip of the written bytes is gated by probe-714 (gate 8.2).
     const du = session.kernel.drive1541.diskunit;
     const gcr = du.drives[0].gcr;
     const trk = gcr.tracks.find((t) => t && t.data && t.size > 0);
     trk.data[0] = (trk.data[0] ^ 0xff) & 0xff; // a write that was "flushed" to the image
-    const r6 = await expectThrow(() => dumpRuntimeSnapshot(ctrl, join(dir, "dirty.c64re")), "dirty");
-    gate("G6 dirty disk aborts dump with unsupported-dirty-media error", r6.ok, r6.msg.slice(0, 80));
+    let g6ok = false, g6msg = "";
+    try { await dumpRuntimeSnapshot(ctrl, join(dir, "dirty.c64re")); g6ok = true; }
+    catch (e) { g6msg = String(e?.message ?? e).slice(0, 80); }
+    gate("G6 dirty disk dump is ACCEPTED (714.3 save_disks=1; reject retired)", g6ok, g6msg);
   } finally { recorder?.detach?.(); stopIntegratedSession(sessionId); }
 }
 

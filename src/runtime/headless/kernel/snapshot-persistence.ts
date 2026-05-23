@@ -70,18 +70,14 @@ function gatherMedia(ctrl: RuntimeController, mediaField: CheckpointMediaField):
 export async function dumpRuntimeSnapshot(ctrl: RuntimeController, path: string): Promise<DumpResult> {
   const abs = resolveSnapshotPath(path);
 
-  // Dirty-media guard (Spec 707 v1): the active VICE1541 checkpoint uses
-  // save_disks=0, so runtime disk writes are NOT in the drive blob. A dirty
-  // disk would restore against a clean embedded image → wrong continuation.
-  const drive = (ctrl.session.kernel as { drive1541?: { isMediaDirty?(): boolean } }).drive1541;
-  if (drive?.isMediaDirty?.()) {
-    throw new Error(
-      "dump: mounted disk is dirty (written since attach). Native v1 snapshots only " +
-      "persist unmodified/read-only media; a VICE-faithful writable-media payload is " +
-      "not implemented yet (Spec 707 media policy). Aborting rather than persisting a " +
-      "partial disk state.",
-    );
-  }
+  // Spec 714.3 — the dirty-disk dump reject is RETIRED. The VICE1541 checkpoint
+  // now runs save_disks=1, so the mutated GCR image rides in the drive1541 blob.
+  // The embedded media payload (gatherMedia → getAttachedMedia) is the clean
+  // SOURCE/identity baseline; on undump attachDisk(baseline) builds the GCR
+  // buffer + disk identity and then the blob's GCRIMAGE OVERWRITES the tracks
+  // (mutable wins, §6.1). A dump after a disk write therefore persists + restores
+  // the written content. (The dirty writable-CRT reject below stays until
+  // Spec 713/714.5.)
 
   // Spec 709.11b (writable-CRT policy B): the cartridge checkpoint embeds the
   // ORIGINAL .crt bytes + bank/control state, not flash write-deltas. A flash
@@ -146,8 +142,11 @@ export async function undumpRuntimeSnapshot(ctrl: RuntimeController, path: strin
   // embedded media sha; it throws a clear error on any failure (no partial).
   const { manifest, snapshot, media } = readNativeSnapshot(fileBytes);
 
-  // Re-establish embedded media before restoring the drive blob, so the disk
-  // image matches the checkpoint (the blob carries head/CPU/VIA, not the disk).
+  // Spec 714.3 — re-establish the embedded media FIRST: attachDisk(baseline)
+  // rebuilds the drive's GCR buffer + disk identity from the clean source bytes.
+  // restoreFromSnapshot() then runs drive1541.restore(blob), whose GCRIMAGE
+  // module (save_disks=1) OVERWRITES those tracks with the mutated content —
+  // so the embedded baseline never wins over the restored mutable disk (§6.1).
   const drive = (ctrl.session.kernel as { drive1541?: {
     attachDisk?(m: { kind: string; bytes: Uint8Array; readOnly: boolean }): void;
   } }).drive1541;

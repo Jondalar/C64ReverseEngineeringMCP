@@ -1,21 +1,27 @@
 #!/usr/bin/env node
-// Spec 714.2 — VICE1541 mutable disk checkpoint fidelity (save_disks=1).
+// Spec 714.2+714.3 — VICE1541 mutable disk checkpoint + .c64re fidelity (save_disks=1).
 //
 //   Gate 8.1 (same-session, D64 + G64): a checkpoint taken AFTER a disk write
 //     restores the WRITTEN media bytes (not the clean source), plus drive
 //     continuation + deterministic forward run. This is the §4.1 red repro
 //     turned green: write V1 → capture A → write V2 → restore A → byte == V1.
+//   Gate 8.2 (.c64re fresh-session, D64 + G64): dirty-disk dump is accepted and
+//     a fresh-session undump restores the written disk byte + drive continuation.
 //   Gate 8.4 (cross-media branch validity): with a dirty disk, a CRT insert is
 //     now ACCEPTED (the 709.13 barrier is retired for disk) and its before-
 //     checkpoint restores the modified disk content.
 //
 // The dirty-CRT barrier stays (Spec 713/714.5); this proves DISK only.
 
-import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { readFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
 import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
 import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
+import { dumpRuntimeSnapshot, undumpRuntimeSnapshot } from "../dist/runtime/headless/kernel/snapshot-persistence.js";
+
+const dir = mkdtempSync(join(tmpdir(), "c64re-714-"));
 
 const failures = [];
 let passes = 0;
@@ -29,7 +35,7 @@ const newSession = () => startIntegratedSession({ mode: "true-drive", useMicroco
 const g64 = new Uint8Array(readFileSync(resolve("samples/motm.g64")));
 const d64 = new Uint8Array(readFileSync(resolve("samples/scramble_infinity.d64")));
 const crt = new Uint8Array(readFileSync(resolve("samples/AccoladeComics_TRX+1D_EF.crt")));
-console.log("Spec 714.2 — mutable disk checkpoint fidelity (save_disks=1)");
+console.log("Spec 714.2+714.3 — mutable disk checkpoint + .c64re fidelity (save_disks=1)");
 
 // First GCR track that has data (the write target / readback point).
 function liveTrack(session) {
@@ -81,6 +87,41 @@ async function gate81(label, bytes, name) {
 await gate81("8.1/G64", g64, "motm.g64");
 await gate81("8.1/D64", d64, "scramble.d64");
 
+// ---- Gate 8.2 — dirty-disk .c64re dump → FRESH-session undump, per format ----
+async function gate82(label, bytes, name) {
+  const A = newSession();
+  let snapPath, V1, dProbe;
+  try {
+    const ctrl = new RuntimeController(A.sessionId, A.session, () => {});
+    A.session.runFor(2_000_000, { cycleBudget: 2_000_000 });
+    await ingestMedia(ctrl, { kind: "disk", role: "drive8", bytes, name });
+    const trk = liveTrack(A.session);
+    V1 = (trk.data[0] ^ 0x3c) & 0xff;
+    trk.data[0] = V1;
+    dProbe = A.session.kernel.drive1541.debugProbe();
+    snapPath = join(dir, `${label.replace(/\W/g, "_")}.c64re`);
+    try { await dumpRuntimeSnapshot(ctrl, snapPath); gate(`${label} dirty-disk .c64re dump ACCEPTED (714.3, no reject)`, true); }
+    catch (e) { gate(`${label} dirty-disk .c64re dump ACCEPTED (714.3, no reject)`, false, String(e?.message).slice(0, 80)); return; }
+  } finally { stopIntegratedSession(A.sessionId); }
+
+  const B = newSession();
+  try {
+    const ctrl = new RuntimeController(B.sessionId, B.session, () => {});
+    B.session.runFor(1_000_000, { cycleBudget: 1_000_000 });
+    await undumpRuntimeSnapshot(ctrl, snapPath);
+    const trk = liveTrack(B.session);
+    gate(`${label} fresh-session undump restores the WRITTEN disk byte (V1)`,
+      !!trk && trk.data[0] === V1, `byte=${trk?.data[0]} V1=${V1}`);
+    const p = B.session.kernel.drive1541.debugProbe();
+    gate(`${label} fresh-session undump restores drive continuation`,
+      p.drive_pc === dProbe.drive_pc && p.head_halftrack === dProbe.head_halftrack,
+      `pc ${p.drive_pc}/${dProbe.drive_pc} ht ${p.head_halftrack}/${dProbe.head_halftrack}`);
+  } finally { stopIntegratedSession(B.sessionId); }
+}
+
+await gate82("8.2/G64", g64, "motm.g64");
+await gate82("8.2/D64", d64, "scramble.d64");
+
 // ---- Gate 8.4 — cross-media branch validity (dirty disk + CRT insert) ----
 {
   const { session, sessionId } = newSession();
@@ -110,7 +151,7 @@ await gate81("8.1/D64", d64, "scramble.d64");
 }
 
 console.log("---");
-if (failures.length === 0) { console.log(`GREEN 714.2 mutable disk fidelity: ${passes} checks pass.`); process.exit(0); }
-console.log(`RED 714.2: ${passes} pass, ${failures.length} blocker(s).`);
+if (failures.length === 0) { console.log(`GREEN 714.2+714.3 mutable disk fidelity: ${passes} checks pass.`); process.exit(0); }
+console.log(`RED 714.2/714.3: ${passes} pass, ${failures.length} blocker(s).`);
 for (const f of failures) console.log(`  - ${f.name}: ${f.detail}`);
 process.exit(1);
