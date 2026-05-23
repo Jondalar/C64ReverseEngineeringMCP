@@ -22,6 +22,8 @@ import {
   formatDumpSummary, formatUndumpSummary, resolveSnapshotPath,
 } from "../runtime/headless/kernel/snapshot-persistence.js";
 import { validateTraceDefinition, slugTraceId } from "../runtime/headless/trace/trace-definition.js";
+import { ingestMedia, type MediaIngressRequest } from "../runtime/headless/media/ingress.js";
+import { readFileSync } from "node:fs";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 
@@ -129,7 +131,7 @@ export class V3WsServer {
     "session/run", "session/reset", "session/screenshot",
     "session/type", "session/key_down", "session/key_up",
     "session/release_keys", "session/joystick_set", "session/joystick_clear",
-    "session/drive_power", "media/mount", "media/unmount", "media/swap",
+    "session/drive_power", "media/mount", "media/unmount", "media/swap", "media/ingress",
     "runtime/call", "monitor/exec",
     // Spec 701 — loop/step commands mutate the live session; serialize them
     // behind any in-flight mount/reset so they execute atomically.
@@ -903,50 +905,55 @@ export class V3WsServer {
       return browseDir(path);
     });
 
-    this.on("media/mount", async ({ session_id, slot, path }) => {
+    // Spec 709 — single byte/hash/event media-ingress authority. The UI
+    // drag/drop + file chooser send a typed request here (bytes as base64, or a
+    // server-resolvable path); disk/prg/crt/eject all run through ingestMedia
+    // with checkpoint-before/after + dirty-media + drive9 + .c64re guards.
+    const buildIngressRequest = (p: any): MediaIngressRequest => {
+      const name: string = String(p.name ?? (p.path ? String(p.path).split("/").pop() : "media"));
+      const bytes: Uint8Array | undefined = p.bytes_b64
+        ? new Uint8Array(Buffer.from(String(p.bytes_b64), "base64"))
+        : p.path ? new Uint8Array(readFileSync(String(p.path))) : undefined;
+      if (p.kind === "eject") return { kind: "eject", role: p.role === "cartridge" ? "cartridge" : "drive8" };
+      if (!bytes) throw new Error("media/ingress: bytes_b64 or path required");
+      if (p.kind === "prg") return { kind: "prg", bytes, name, mode: p.mode === "inject-run" ? "inject-run" : "load", entry: p.entry };
+      if (p.kind === "crt") return { kind: "crt", bytes, name, resetPolicy: p.resetPolicy === "reset" ? "reset" : "power-cycle" };
+      return { kind: "disk", role: "drive8", bytes, name }; // default + explicit "disk"
+    };
+    this.on("media/ingress", async ({ session_id, ...rest }) => {
+      const ctrl = ctrlFor(session_id);
+      return await ingestMedia(ctrl, buildIngressRequest(rest));
+    });
+
+    // Legacy path-based routes — now thin adapters to the single ingress service
+    // (Spec 709 §2.1; .vsf stays the snapshot path, it is not media). slot 9 is
+    // rejected by the service. mount/swap sniff kind by extension.
+    const kindFromExt = (path: string): "disk" | "prg" | "crt" | "vsf" => {
+      const e = path.toLowerCase().split(".").pop();
+      if (e === "prg") return "prg";
+      if (e === "crt") return "crt";
+      if (e === "vsf" || e === "c64re") return "vsf";
+      return "disk";
+    };
+    const adaptMount = async ({ session_id, slot, path }: any) => {
       if (typeof path !== "string") throw new Error("media/mount: path required");
-      const s = slot !== undefined ? Number(slot) : 8;
-      if (s !== 8 && s !== 9) throw new Error(`media/mount: slot must be 8 or 9, got ${s}`);
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`no session ${session_id}`);
-      // Spec 701: the autonomous loop's clock lives outside the op-chain, so
-      // it could tick runFor() mid-attach and freeze the C64 on a half-
-      // attached drive (the regression cadc185 originally cured). Suspend
-      // the loop for the duration of the swap; it resumes (still running)
-      // after. No-op when no loop is active.
-      const ctrl = getRuntimeController(session_id);
-      const doMount = async () => {
+      if (slot !== undefined && Number(slot) === 9) throw new Error("media/mount: drive 9 not supported (v1 drive8-only)");
+      const k = kindFromExt(path);
+      if (k === "vsf") {
+        const session = getIntegratedSession(session_id);
+        if (!session) throw new Error(`no session ${session_id}`);
         const { mountMedia } = await import("../runtime/headless/media/mount.js");
-        return mountMedia(session, s as 8 | 9, path);
-      };
-      return ctrl ? ctrl.runExclusive(doMount) : doMount();
-    });
-
+        const ctrl = getRuntimeController(session_id);
+        const doMount = () => mountMedia(session, 8, path);
+        return ctrl ? ctrl.runExclusive(doMount) : doMount();
+      }
+      return await ingestMedia(ctrlFor(session_id), buildIngressRequest({ kind: k, path, mode: "load" }));
+    };
+    this.on("media/mount", adaptMount);
+    this.on("media/swap", adaptMount); // swap = ingest a new disk; service dirty-checks + checkpoints
     this.on("media/unmount", async ({ session_id, slot }) => {
-      const s = slot !== undefined ? Number(slot) : 8;
-      if (s !== 8 && s !== 9) throw new Error(`media/unmount: slot must be 8 or 9, got ${s}`);
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`no session ${session_id}`);
-      const ctrl = getRuntimeController(session_id); // Spec 701 — atomic vs loop
-      const doUnmount = async () => {
-        const { unmountMedia } = await import("../runtime/headless/media/mount.js");
-        return unmountMedia(session, s as 8 | 9);
-      };
-      return ctrl ? ctrl.runExclusive(doUnmount) : doUnmount();
-    });
-
-    this.on("media/swap", async ({ session_id, slot, path }) => {
-      if (typeof path !== "string") throw new Error("media/swap: path required");
-      const s = slot !== undefined ? Number(slot) : 8;
-      if (s !== 8 && s !== 9) throw new Error(`media/swap: slot must be 8 or 9, got ${s}`);
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`no session ${session_id}`);
-      const ctrl = getRuntimeController(session_id); // Spec 701 — atomic vs loop
-      const doSwap = async () => {
-        const { swapDisk } = await import("../runtime/headless/media/mount.js");
-        return swapDisk(session, s as 8 | 9, path);
-      };
-      return ctrl ? ctrl.runExclusive(doSwap) : doSwap();
+      if (slot !== undefined && Number(slot) === 9) throw new Error("media/unmount: drive 9 not supported (v1 drive8-only)");
+      return await ingestMedia(ctrlFor(session_id), { kind: "eject", role: "drive8" });
     });
 
     this.on("media/recent", async () => {

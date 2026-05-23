@@ -38,7 +38,17 @@ export interface HeadlessCartridgeMapper {
 }
 
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
-  const image = parseCrt(readFileSync(crtPath), crtPath, mapperType);
+  return mapperFromImage(parseCrt(readFileSync(crtPath), crtPath, mapperType));
+}
+
+// Spec 709 — byte-based CRT load for the media-ingress service (no file path).
+export function loadCartridgeMapperFromBytes(
+  bytes: Uint8Array, name: string, mapperType?: HeadlessCartridgeMapperType,
+): HeadlessCartridgeMapper {
+  return mapperFromImage(parseCrt(bytes, name, mapperType));
+}
+
+function mapperFromImage(image: ParsedCartridgeImage): HeadlessCartridgeMapper {
   switch (image.mapperType) {
     case "megabyter":
       return new MegabyterMapper(image);

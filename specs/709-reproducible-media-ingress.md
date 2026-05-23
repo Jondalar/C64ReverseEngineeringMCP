@@ -1,6 +1,6 @@
 # Spec 709 - Reproducible Media Ingress: Disk, PRG, CRT and Drag/Drop
 
-Status: IMPLEMENTATION-READY DRAFT (reviewed 2026-05-23 CEST)
+Status: DONE (2026-05-23 CEST) — see §9. All gates green incl. runtime:proof 7/7.
 Depends: Specs 701, 705, 707
 Consumed by: Specs 710-712
 Owner: runtime / UI / media
@@ -165,3 +165,41 @@ mutation occurs.
 - `src/runtime/headless/media/mount.ts`
 - `src/workspace-ui/v3-ws-server.ts`
 - `src/runtime/headless/kernel/snapshot-persistence.ts`
+
+## 9. Result (2026-05-23)
+
+One typed byte/hash/event media-ingress service — `src/runtime/headless/media/ingress.ts`
+`ingestMedia(controller, request)`. Single authority; the WS routes are adapters.
+
+- **709.2 service + identity + events:** `MediaIngressRequest` union
+  (disk/prg/crt/eject). Every accepted medium → `{format, sha256, role}` +
+  a replayable `MediaIngressEvent` with `checkpointBeforeId`/`checkpointAfterId`.
+- **709.3 disk + boundary + dirty-stop:** drive8 d64/g64 via VICE1541
+  `attachDisk`; mid-session changes pause → checkpoint-before (pin) → apply →
+  checkpoint-after (pin) → stay paused (§2.2; initial medium = root, after only).
+  A DIRTY disk (written since attach, detected read-only via the 707 facade
+  `isMediaDirty`) hard-rejects swap/eject (§2.3). VICE1541 continuation proven
+  through a 707 `.c64re` dump→undump.
+- **709.4 PRG explicit:** `load` writes bytes to RAM (+ BASIC end pointers at
+  $0801) and does NOT run; `inject-run` loads + sets PC to the entry (load
+  address or explicit `entry`). No silent `loadPrgIntoRam` heuristic.
+- **709.5 CRT real attach:** `loadCartridgeMapperFromBytes` →
+  `c64Bus.attachCartridge` → `resetCold` (power-cycle clears RAM, reset keeps
+  it) so $FFFC re-vectors from the cart. Real EXROM/GAME banking, not a
+  parse-only success; bad CRT throws. Cartridge eject detaches + resets.
+- **709.6 migration + UI:** `media/ingress` WS RPC (bytes-base64 or path);
+  legacy `media/mount`/`swap`/`unmount` are thin adapters to the SAME service
+  (`.vsf` stays the snapshot path — not media). drive9 rejected at the route +
+  the service. UI drag/drop + file chooser target `media/ingress` (rule 8).
+
+**Drive 9 / `.c64re`:** rejected explicitly (not silently registered / not media).
+
+**Gates (all GREEN):** `probe:709-media` 12/12 — disk identity + d64/g64 +
+.c64re dump→undump continuation; PRG load vs inject-run; CRT real attach
+(easyflash, exrom=1, with `samples/AccoladeComics_TRX+1D_EF.crt`); swap
+before+after pinned checkpoints; dirty swap+eject rejection; drive9 +
+.c64re-as-media rejection. 705.A/705.B/706/707/708 probes green;
+`check:1541-fidelity` 78 PASS / 0 FAIL; `runtime:proof` 7/7.
+
+**Deferred (§7):** writable-disk delta export/replay, drive 9 attach, visual
+inspect (710), overlay (711), rewind UI (712).
