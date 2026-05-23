@@ -65,6 +65,14 @@ export interface Drive1541 {
   reset(kind: "cold" | "warm"): void;
   snapshot(): Uint8Array;
   restore(blob: Uint8Array): void;
+  // Spec 714.4 — the mutable disk image is captured SEPARATELY from the drive
+  // core blob so the ring can content-address + dedup it (stored once per disk
+  // identity, refcounted, pin/evict-aware). `snapshot()` is core-only
+  // (save_disks=0); `snapshotDiskImage()` is the GCRIMAGE-only payload (or null
+  // when no GCR image is loaded); `restoreDiskImage()` overlays it back onto the
+  // live GCR buffer after `restore()` rebuilds the core.
+  snapshotDiskImage?(): Uint8Array | null;
+  restoreDiskImage?(bytes: Uint8Array): void;
   debugProbe?(): Drive1541DebugProbe;
   // Spec 707 — native-snapshot media persistence (read-only; no port change).
   /** The currently attached media (re-attachable source bytes), or null. */

@@ -961,6 +961,9 @@ export class HeadlessMachineKernel implements MachineKernel {
       vic: vicii_snapshot_write(this.colorRamView()),
       vicPresentation: this.session.captureVicPresentation(),
       drive1541: this.drive1541 ? this.drive1541.snapshot() : null,
+      // Spec 714.4 — capture the mutable disk image apart from the core blob so
+      // the ring can content-address + dedup it (one copy per disk identity).
+      driveDiskImage: this.drive1541?.snapshotDiskImage?.() ?? null,
       media: this.captureMediaCheckpoint(),
       alarmsMaincpu: this.alarms.maincpu ? alarmContextCaptureSchedule(this.alarms.maincpu) : [],
       // Spec 705.A step 4 — optional reSID audio slice when a recorder is
@@ -1026,7 +1029,15 @@ export class HeadlessMachineKernel implements MachineKernel {
     vicii_snapshot_read(cp.vic, this.colorRamView());
     this.session.restoreVicPresentation(cp.vicPresentation);
 
-    if (cp.drive1541 && this.drive1541) this.drive1541.restore(cp.drive1541);
+    if (cp.drive1541 && this.drive1541) {
+      this.drive1541.restore(cp.drive1541);
+      // Spec 714.4 — after the core blob rebuilds the drive + GCR buffer, overlay
+      // the mutable disk image (GCRIMAGE) so the written tracks are restored
+      // (mutable-wins, §6.1). null = no disk image captured (empty drive / older
+      // checkpoint that embedded the disk in the core blob).
+      const diskImage = cp.driveDiskImage;
+      if (diskImage && diskImage.byteLength > 0) this.drive1541.restoreDiskImage?.(diskImage);
+    }
 
     // Spec 709.7 — restore the attached cartridge: recreate the mapper from the
     // embedded .crt bytes, restore its bank-switching state, re-attach to the

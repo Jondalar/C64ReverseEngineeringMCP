@@ -96,6 +96,8 @@ import {
   drive_snapshot_install_hooks,
   drive_snapshot_read_module,
   drive_snapshot_write_module,
+  drive_snapshot_write_gcrimage_module,
+  drive_snapshot_read_gcrimage_module,
 } from "../vice1541/drive_snapshot.js";
 // Spec 705.A — in-memory VICE-shaped snapshot module stream (port of snapshot.c).
 import {
@@ -480,19 +482,14 @@ export class Vice1541Facade implements Drive1541 {
   }
 
   snapshot(): Uint8Array {
-    // Spec 714.2 — write the active VICE1541 drive state through the real,
-    // VICE-shaped in-memory snapshot module stream with save_disks=1 (was 0).
-    // This is the VICE `drive_snapshot_write_module(s, save_disks, save_roms)`
-    // contract (vice/src/drive/drive-snapshot.c): save_disks=1 additionally
-    // writes the attached disk image via the GCRIMAGE module (the live
-    // drive.gcr buffer = current sector/track writes), so a checkpoint taken
-    // after a disk write restores the WRITTEN bytes, not the clean source.
-    // save_roms stays 0 — ROMs are reloaded from resources, not persisted.
-    // The returned opaque Uint8Array is embedded as the `drive1541` payload of
-    // the native RuntimeCheckpoint (Spec 705 §3.2); restore() reads the
-    // GCRIMAGE module back via drive_snapshot_read_module (already wired).
+    // Spec 714.4 — the drive CORE blob only (save_disks=0/save_roms=0): drive
+    // CPU/VIA/GCR-rotation/head state, NOT the disk image. The mutable disk
+    // image is captured separately via snapshotDiskImage() so the ring can
+    // content-address + dedup it (Spec 714.2 had briefly put it inline with
+    // save_disks=1; 714.4 splits it back out). The opaque Uint8Array is the
+    // `drive1541` payload of the native RuntimeCheckpoint (Spec 705 §3.2).
     const s = snapshot_create_in_memory();
-    const rc = drive_snapshot_write_module(s, 1, 0);
+    const rc = drive_snapshot_write_module(s, 0, 0);
     if (rc < 0) {
       throw new Error("vice1541 snapshot: drive_snapshot_write_module failed");
     }
@@ -504,6 +501,36 @@ export class Vice1541Facade implements Drive1541 {
     const rc = drive_snapshot_read_module(s);
     if (rc < 0) {
       throw new Error("vice1541 restore: drive_snapshot_read_module failed");
+    }
+  }
+
+  /**
+   * Spec 714.4 — capture ONLY the attached disk image (the VICE GCRIMAGE module,
+   * = the live drive.gcr buffer with current sector/track writes), or null when
+   * no GCR image is loaded. This is the deduplicatable mutable-media payload; it
+   * is stored content-addressed in the ring and embedded in `.c64re`.
+   */
+  snapshotDiskImage(): Uint8Array | null {
+    if (!(this.drive.GCR_image_loaded > 0)) return null;
+    const s = snapshot_create_in_memory();
+    const rc = drive_snapshot_write_gcrimage_module(s, 0 /* unit 0 = drive 8 */);
+    if (rc < 0) {
+      throw new Error("vice1541 snapshotDiskImage: drive_snapshot_write_gcrimage_module failed");
+    }
+    return snapshot_to_bytes(s);
+  }
+
+  /**
+   * Spec 714.4 — overlay a captured disk image back onto the live GCR buffer.
+   * Called AFTER restore() (which rebuilds the drive core + GCR buffer from the
+   * attached baseline); the GCRIMAGE read OVERWRITES the tracks with the
+   * mutable content (§6.1 mutable-wins).
+   */
+  restoreDiskImage(bytes: Uint8Array): void {
+    const s = snapshot_open_in_memory(bytes);
+    const rc = drive_snapshot_read_gcrimage_module(s, 0 /* unit 0 = drive 8 */);
+    if (rc < 0) {
+      throw new Error("vice1541 restoreDiskImage: drive_snapshot_read_gcrimage_module failed");
     }
   }
 

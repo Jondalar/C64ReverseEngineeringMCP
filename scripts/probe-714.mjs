@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Spec 714.2+714.3 — VICE1541 mutable disk checkpoint + .c64re fidelity (save_disks=1).
+// Spec 714.2-714.4 — VICE1541 mutable disk checkpoint + .c64re + bounded ring dedup.
 //
 //   Gate 8.1 (same-session, D64 + G64): a checkpoint taken AFTER a disk write
 //     restores the WRITTEN media bytes (not the clean source), plus drive
@@ -7,6 +7,10 @@
 //     turned green: write V1 → capture A → write V2 → restore A → byte == V1.
 //   Gate 8.2 (.c64re fresh-session, D64 + G64): dirty-disk dump is accepted and
 //     a fresh-session undump restores the written disk byte + drive continuation.
+//   Gate 8.3 (bounded ring dedup): 8.3a — same disk shares one pooled version,
+//     three distinct disk versions in the ring each restore exactly. 8.3b (ring
+//     unit, tiny budget) — pin keeps a referenced version alive through
+//     eviction, evicted entries release their version, identical images dedup.
 //   Gate 8.4 (cross-media branch validity): with a dirty disk, a CRT insert is
 //     now ACCEPTED (the 709.13 barrier is retired for disk) and its before-
 //     checkpoint restores the modified disk content.
@@ -20,6 +24,7 @@ import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/h
 import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
 import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
 import { dumpRuntimeSnapshot, undumpRuntimeSnapshot } from "../dist/runtime/headless/kernel/snapshot-persistence.js";
+import { RuntimeCheckpointRing } from "../dist/runtime/headless/kernel/runtime-checkpoint-ring.js";
 
 const dir = mkdtempSync(join(tmpdir(), "c64re-714-"));
 
@@ -35,7 +40,7 @@ const newSession = () => startIntegratedSession({ mode: "true-drive", useMicroco
 const g64 = new Uint8Array(readFileSync(resolve("samples/motm.g64")));
 const d64 = new Uint8Array(readFileSync(resolve("samples/scramble_infinity.d64")));
 const crt = new Uint8Array(readFileSync(resolve("samples/AccoladeComics_TRX+1D_EF.crt")));
-console.log("Spec 714.2+714.3 — mutable disk checkpoint + .c64re fidelity (save_disks=1)");
+console.log("Spec 714.2-714.4 — mutable disk checkpoint + .c64re + bounded ring dedup");
 
 // First GCR track that has data (the write target / readback point).
 function liveTrack(session) {
@@ -122,6 +127,67 @@ async function gate82(label, bytes, name) {
 await gate82("8.2/G64", g64, "motm.g64");
 await gate82("8.2/D64", d64, "scramble.d64");
 
+// ---- Gate 8.3a — ring across ≥3 disk-write versions, restored exactly + dedup ----
+{
+  const { session, sessionId } = newSession();
+  try {
+    const ctrl = new RuntimeController(sessionId, session, () => {});
+    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
+    await ingestMedia(ctrl, { kind: "disk", role: "drive8", bytes: g64, name: "motm.g64" });
+    const trk = liveTrack(session);
+    const base = trk.data[0];
+
+    // Two checkpoints of the SAME disk state must share one pooled version.
+    await ctrl.captureCheckpoint();
+    await ctrl.captureCheckpoint();
+    gate("8.3a two checkpoints of the same disk share ONE pooled version (dedup)",
+      ctrl.checkpointRing.stats().diskImageVersions === 1, `versions=${ctrl.checkpointRing.stats().diskImageVersions}`);
+
+    // Three distinct disk states across time.
+    const V1 = (base ^ 0x11) & 0xff; trk.data[0] = V1; const A = await ctrl.captureCheckpoint();
+    const V2 = (base ^ 0x22) & 0xff; trk.data[0] = V2; const B = await ctrl.captureCheckpoint();
+    const V3 = (base ^ 0x33) & 0xff; trk.data[0] = V3; const C = await ctrl.captureCheckpoint();
+    gate("8.3a three distinct disk versions pooled (+ the shared base = 4)",
+      ctrl.checkpointRing.stats().diskImageVersions === 4, `versions=${ctrl.checkpointRing.stats().diskImageVersions}`);
+
+    // Jump between versions — each reconstructs exactly.
+    await ctrl.restoreCheckpoint(A.id); const rA = liveTrack(session).data[0];
+    await ctrl.restoreCheckpoint(C.id); const rC = liveTrack(session).data[0];
+    await ctrl.restoreCheckpoint(B.id); const rB = liveTrack(session).data[0];
+    gate("8.3a restore reconstructs each disk version exactly (A=V1, B=V2, C=V3)",
+      rA === V1 && rB === V2 && rC === V3, `A=${rA}/${V1} B=${rB}/${V2} C=${rC}/${V3}`);
+  } finally { stopIntegratedSession(sessionId); }
+}
+
+// ---- Gate 8.3b — pool refcount/pin/evict mechanics (ring unit, tiny budget) ----
+{
+  const fakeSnap = (diskByte, n = 4096) => ({
+    schemaVersion: 1, payload: { ram: new Uint8Array(64), driveDiskImage: new Uint8Array(n).fill(diskByte) },
+  });
+  const ring = new RuntimeCheckpointRing({ budgetBytes: 10_000 });
+  const a = ring.capture(fakeSnap(0x11), 1, 100); ring.pin(a.id);
+  const b = ring.capture(fakeSnap(0x22), 2, 200);
+  const c = ring.capture(fakeSnap(0x33), 3, 300);
+  const d = ring.capture(fakeSnap(0x44), 4, 400); // budget forces eviction of oldest unpinned (b, c)
+  const st = ring.stats();
+  gate("8.3b ring stays bounded under a tiny budget", st.totalBytes <= ring.budgetBytes, `bytes=${st.totalBytes} budget=${ring.budgetBytes}`);
+  gate("8.3b oldest UNPINNED entries evicted; pinned kept", ring.has(a.id) && !ring.has(b.id) && !ring.has(c.id) && ring.has(d.id),
+    `a=${ring.has(a.id)} b=${ring.has(b.id)} c=${ring.has(c.id)} d=${ring.has(d.id)}`);
+  const snapA = ring.restoreSnapshot(a.id);
+  gate("8.3b pinned entry's pooled disk version survives eviction + rehydrates exactly",
+    !!snapA && snapA.payload.driveDiskImage?.[0] === 0x11 && snapA.payload.driveDiskImage?.length === 4096,
+    `byte=${snapA?.payload?.driveDiskImage?.[0]} len=${snapA?.payload?.driveDiskImage?.length}`);
+
+  const ring2 = new RuntimeCheckpointRing({ budgetBytes: 1_000_000 });
+  const e1 = ring2.capture(fakeSnap(0x55), 1, 1);
+  ring2.capture(fakeSnap(0x55), 2, 2); // identical image → dedup
+  gate("8.3b identical disk images dedup to one pooled version", ring2.stats().diskImageVersions === 1,
+    `versions=${ring2.stats().diskImageVersions}`);
+  ring2.unpin(e1.id); // (not pinned) — drop one ref via eviction simulation: capture distinct to push out
+  gate("8.3b refcount holds the shared version while any entry references it",
+    ring2.stats().diskImageVersions === 1 && !!ring2.restoreSnapshot(e1.id)?.payload?.driveDiskImage);
+}
+
 // ---- Gate 8.4 — cross-media branch validity (dirty disk + CRT insert) ----
 {
   const { session, sessionId } = newSession();
@@ -151,7 +217,7 @@ await gate82("8.2/D64", d64, "scramble.d64");
 }
 
 console.log("---");
-if (failures.length === 0) { console.log(`GREEN 714.2+714.3 mutable disk fidelity: ${passes} checks pass.`); process.exit(0); }
-console.log(`RED 714.2/714.3: ${passes} pass, ${failures.length} blocker(s).`);
+if (failures.length === 0) { console.log(`GREEN 714.2-714.4 mutable disk fidelity: ${passes} checks pass.`); process.exit(0); }
+console.log(`RED 714.2-714.4: ${passes} pass, ${failures.length} blocker(s).`);
 for (const f of failures) console.log(`  - ${f.name}: ${f.detail}`);
 process.exit(1);

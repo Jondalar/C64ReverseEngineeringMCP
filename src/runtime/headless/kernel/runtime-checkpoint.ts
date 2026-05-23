@@ -135,8 +135,15 @@ export interface RuntimeCheckpoint {
   vic: LiteralVicSnapshot;    // active literal-port VIC (VICE-shaped)
   vicPresentation: RuntimeCheckpointVicPresentation;
 
-  /** Opaque VICE-shaped VICE1541 snapshot-module byte blob (null = no drive). */
+  /** Opaque VICE-shaped VICE1541 snapshot-module byte blob (null = no drive).
+   *  Spec 714.4: CORE state only (save_disks=0) — the mutable disk image is the
+   *  separate `driveDiskImage` field so the ring can content-address/dedup it. */
   drive1541: Uint8Array | null;
+  /** Spec 714.4 — the attached disk's mutable GCRIMAGE payload (null when no
+   *  disk). Captured apart from the core blob; in the 705.B ring it is stored
+   *  content-addressed (once per identity, refcounted); embedded verbatim in
+   *  `.c64re`. On restore it overlays the live GCR buffer (mutable-wins, §6.1). */
+  driveDiskImage?: Uint8Array | null;
   media: RuntimeCheckpointMedia;
 
   /**

@@ -1,6 +1,6 @@
 # Spec 714 - Mutable Media Snapshot Fidelity: Disk, Cartridge and Rewind State
 
-**Status:** IN PROGRESS (2026-05-23 CEST) — 714.1 (RFL) + 714.2 (same-session mutable disk checkpoint) + 714.3 (.c64re fresh-session mutable disk) DONE, see §11. 714.4 (bounded ring), 714.5 (writable cartridge after Spec 713), 714.6 (downstream) pending.  
+**Status:** IN PROGRESS (2026-05-24 CEST) — 714.1 (RFL) + 714.2 (same-session) + 714.3 (.c64re fresh-session) + 714.4 (bounded ring dedup) DONE for the disk path, see §11. 714.5 (writable cartridge, after Spec 713 implementation) + 714.6 (downstream) pending.  
 **Depends on:** Specs 705.A/B, 706, 707 implementation surfaces; VICE1541 fidelity doctrine in Specs 612/620  
 **Coordinates with:** Spec 709 for media ingress/events; Spec 713 for VICE-faithful writable cartridge hardware  
 **Blocks:** Durable Spec 710 evidence promotion, Spec 711 intervention branches, Spec 712 rewind/replay; truthful writable-media `.c64re` persistence  
@@ -468,4 +468,35 @@ the tracks — so the embedded baseline never wins over the restored mutable dis
 accepted; a FRESH-session undump restores the written disk byte + drive
 continuation (`drive_pc`/head). 8.1 + 8.4 unchanged.
 
-714.1 + 714.2 + 714.3 DONE. Next: 714.4 (bounded ring media-version store).
+### 714.4 bounded ring media-version store
+
+The mutable disk image is split out of the drive core blob and stored
+content-addressed in the ring, so an unchanged disk costs one stored copy
+across many checkpoints (§6.2 "stored once per identity").
+
+- `vice1541-facade.snapshot()` reverts to `save_disks=0` (core only); new
+  `snapshotDiskImage()` writes the GCRIMAGE-only payload (or null when no disk),
+  and `restoreDiskImage()` overlays it after `restore()` rebuilds the core
+  (mutable-wins). `RuntimeCheckpoint.driveDiskImage` carries it; kernel snapshot
+  captures it, kernel restore overlays it.
+- `RuntimeCheckpointRing` keeps a refcounted, sha256-content-addressed disk-image
+  pool. On capture the image is extracted into the pool (deduped) and the entry
+  keeps only the hash; `restoreSnapshot()` rehydrates the exact bytes; eviction
+  releases the entry's pool reference (freeing the bytes only when the last
+  referencing entry is gone); pinned entries keep their version alive. The
+  budget now bounds `entry cores + deduped pool`. `stats()` exposes
+  `diskImageVersions` / `diskPoolBytes`.
+- This also de-duplicates the in-blob disk that 714.2 had embedded — `.c64re`
+  now carries the disk in `driveDiskImage` (the embedded `gatherMedia` source
+  stays as the non-authoritative identity/baseline for the initial attach, §6.1).
+
+**Gate `probe:714` (now 26/26):** 8.3a (via the controller) — two checkpoints of
+the same disk share ONE pooled version; three distinct disk versions in the ring
+each restore exactly. 8.3b (ring unit, tiny budget) — the ring stays bounded;
+oldest-unpinned entries are evicted while a pinned entry's pooled version
+survives and rehydrates exactly; identical images dedup; refcount holds a shared
+version while any entry references it. 8.1/8.2/8.4 unchanged.
+
+714.1-714.4 DONE (disk path complete). Next: implement Spec 713 (writable
+cartridge hardware fidelity, EasyFlash first) → 714.5 (writable cartridge
+persistence) → 714.6 (downstream contract update).

@@ -18,6 +18,7 @@
 // survives ring eviction and returns a stable ref. Promote-to-Experiment needs
 // the Experiment object model (§3.1) and is a later slice.
 
+import { createHash } from "node:crypto";
 import type { MachineSnapshot } from "./machine-kernel.js";
 
 /** Public, payload-free view of a ring entry. */
@@ -37,6 +38,11 @@ export interface RuntimeCheckpointRef {
 
 interface RingEntry extends RuntimeCheckpointRef {
   snapshot: MachineSnapshot;
+  /** Spec 714.4 — content hash of the entry's disk image (key into diskPool),
+   *  or null when the entry has no disk image. The bytes are NOT stored on the
+   *  entry's snapshot payload (driveDiskImage is nulled there); they live once
+   *  in the pool and are rehydrated on restoreSnapshot(). */
+  diskImageHash: string | null;
 }
 
 export interface RuntimeCheckpointRingOptions {
@@ -51,6 +57,10 @@ export interface RuntimeCheckpointRingStats {
   budgetBytes: number;
   oldestFrame: number | null;
   newestFrame: number | null;
+  /** Spec 714.4 — distinct disk-image versions held in the content-addressed
+   *  pool (shared across entries), and their total deduplicated byte size. */
+  diskImageVersions: number;
+  diskPoolBytes: number;
 }
 
 export const DEFAULT_CHECKPOINT_RING_BUDGET_BYTES = 128 * 1024 * 1024;
@@ -90,8 +100,13 @@ function walk(v: unknown): number {
 export class RuntimeCheckpointRing {
   readonly budgetBytes: number;
   private entries: RingEntry[] = []; // oldest first
-  private totalBytes = 0;
+  private totalBytes = 0; // sum of entry core byteSizes (excludes pooled disk images)
   private seq = 0;
+  // Spec 714.4 — content-addressed disk-image pool: identical disk versions are
+  // stored ONCE (refcounted across entries); pinned entries keep their version
+  // alive; eviction releases unreferenced versions.
+  private diskPool = new Map<string, { bytes: Uint8Array; refs: number }>();
+  private diskPoolBytes = 0;
 
   constructor(opts: RuntimeCheckpointRingOptions = {}) {
     this.budgetBytes = opts.budgetBytes ?? DEFAULT_CHECKPOINT_RING_BUDGET_BYTES;
@@ -101,13 +116,32 @@ export class RuntimeCheckpointRing {
    * Append a fresh checkpoint and evict oldest-unpinned until within budget.
    * The caller owns the capture cadence + the instruction-boundary contract
    * (kernel.snapshot() must be taken at an atomic boundary with the loop idle).
+   *
+   * Spec 714.4: the snapshot's `driveDiskImage` is extracted into the
+   * content-addressed pool (deduped by sha256) and replaced on the stored entry
+   * with a hash ref, so an unchanged disk costs one stored image across many
+   * checkpoints. restoreSnapshot() rehydrates the exact bytes.
    */
   capture(snapshot: MachineSnapshot, frame: number, cycles: number): RuntimeCheckpointRef {
+    const payload = snapshot.payload as { driveDiskImage?: Uint8Array | null };
+    let diskImageHash: string | null = null;
+    const img = payload.driveDiskImage;
+    if (img && img.byteLength > 0) {
+      diskImageHash = createHash("sha256").update(img).digest("hex");
+      const pooled = this.diskPool.get(diskImageHash);
+      if (pooled) {
+        pooled.refs++;
+      } else {
+        this.diskPool.set(diskImageHash, { bytes: img, refs: 1 });
+        this.diskPoolBytes += img.byteLength;
+      }
+      payload.driveDiskImage = null; // stored entry keeps only the hash ref
+    }
     const byteSize = estimateCheckpointBytes(snapshot);
     const entry: RingEntry = {
       id: `cp_${frame}_${this.seq++}`,
       frame, cycles, pinned: false, byteSize, createdAtMs: Date.now(),
-      snapshot,
+      snapshot, diskImageHash,
     };
     this.entries.push(entry);
     this.totalBytes += byteSize;
@@ -115,13 +149,32 @@ export class RuntimeCheckpointRing {
     return toRef(entry);
   }
 
-  /** Evict oldest UNPINNED entries until within budget (or only pinned remain). */
+  /** Combined retained bytes: entry cores + the deduplicated disk-image pool. */
+  private retainedBytes(): number {
+    return this.totalBytes + this.diskPoolBytes;
+  }
+
+  /** Evict oldest UNPINNED entries until within budget (or only pinned remain).
+   *  Each eviction releases the entry's disk-image pool reference (freeing the
+   *  pooled bytes only when the last referencing entry is gone). */
   private evict(): void {
-    while (this.totalBytes > this.budgetBytes) {
+    while (this.retainedBytes() > this.budgetBytes) {
       const idx = this.entries.findIndex((e) => !e.pinned);
       if (idx < 0) break; // everything left is pinned — honor the user's intent
       const [gone] = this.entries.splice(idx, 1);
       this.totalBytes -= gone!.byteSize;
+      this.releaseDiskImage(gone!.diskImageHash);
+    }
+  }
+
+  /** Spec 714.4 — drop one reference to a pooled disk image; free it at zero. */
+  private releaseDiskImage(hash: string | null): void {
+    if (!hash) return;
+    const pooled = this.diskPool.get(hash);
+    if (!pooled) return;
+    if (--pooled.refs <= 0) {
+      this.diskPool.delete(hash);
+      this.diskPoolBytes -= pooled.bytes.byteLength;
     }
   }
 
@@ -142,9 +195,19 @@ export class RuntimeCheckpointRing {
     return ref;
   }
 
-  /** The stored MachineSnapshot for `id` (for the kernel to restore), or undefined. */
+  /** The stored MachineSnapshot for `id` (for the kernel to restore), or undefined.
+   *  Spec 714.4 — rehydrate the pooled disk image into a shallow payload view so
+   *  the returned snapshot carries the exact `driveDiskImage` bytes (the stored
+   *  entry holds only the hash ref). */
   restoreSnapshot(id: string): MachineSnapshot | undefined {
-    return this.entries.find((x) => x.id === id)?.snapshot;
+    const e = this.entries.find((x) => x.id === id);
+    if (!e) return undefined;
+    if (!e.diskImageHash) return e.snapshot;
+    const pooled = this.diskPool.get(e.diskImageHash);
+    return {
+      schemaVersion: e.snapshot.schemaVersion,
+      payload: { ...(e.snapshot.payload as object), driveDiskImage: pooled ? pooled.bytes : null },
+    } as MachineSnapshot;
   }
 
   get(id: string): RuntimeCheckpointRef | undefined {
@@ -164,6 +227,8 @@ export class RuntimeCheckpointRing {
   clear(): void {
     this.entries = [];
     this.totalBytes = 0;
+    this.diskPool.clear();
+    this.diskPoolBytes = 0;
   }
 
   stats(): RuntimeCheckpointRingStats {
@@ -172,10 +237,12 @@ export class RuntimeCheckpointRing {
     return {
       count: this.entries.length,
       pinnedCount,
-      totalBytes: this.totalBytes,
+      totalBytes: this.retainedBytes(),
       budgetBytes: this.budgetBytes,
       oldestFrame: this.entries.length ? this.entries[0]!.frame : null,
       newestFrame: this.entries.length ? this.entries[this.entries.length - 1]!.frame : null,
+      diskImageVersions: this.diskPool.size,
+      diskPoolBytes: this.diskPoolBytes,
     };
   }
 }
