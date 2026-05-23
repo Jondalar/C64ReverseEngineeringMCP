@@ -160,9 +160,10 @@ export async function ingestMedia(ctrl: RuntimeController, req: MediaIngressRequ
         format = "crt";
         sha256 = snapshotSha256(req.bytes);
         const mapper = loadCartridgeMapperFromBytes(req.bytes, req.name); // throws on bad CRT (no fake success)
-        const bus = (ctrl.session.kernel as { c64Bus?: { attachCartridge?(c: unknown): void } }).c64Bus;
+        const bus = (ctrl.session.kernel as { c64Bus?: { attachCartridge?(c: unknown, m?: { bytes: Uint8Array; name: string }): void } }).c64Bus;
         if (!bus?.attachCartridge) throw new Error("media-ingress: bus has no cartridge attach");
-        bus.attachCartridge(mapper);
+        // Spec 709.7 — pass the source bytes so the checkpoint/.c64re can embed + recreate it.
+        bus.attachCartridge(mapper, { bytes: req.bytes, name: req.name });
         // real reset so $FFFC re-vectors from the cart (Ultimax/GAME): power-cycle
         // clears RAM, reset keeps it.
         ctrl.session.resetCold("pal-default", { keepRam: req.resetPolicy === "reset" });
@@ -185,6 +186,8 @@ export async function ingestMedia(ctrl: RuntimeController, req: MediaIngressRequ
     checkpointBeforeId: before?.id,
     checkpointAfterId: after.id,
   };
+  // Spec 709.8 — append to the ordered, replayable media-event history.
+  ctrl.mediaEvents.push(event);
   return { ok: true, event, paused: true, detail };
 }
 

@@ -159,6 +159,90 @@ console.log(`Spec 709 — media ingress gates  (tmp ${dir})`);
   } finally { stopIntegratedSession(sessionId); }
 }
 
+// ---- G7 CRT persistence: attach → checkpoint → eject → restore (709.7a) ----
+{
+  const { session, sessionId } = newSession();
+  try {
+    const ctrl = new RuntimeController(sessionId, session, () => {});
+    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
+    const att = (await ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" })).event;
+    const b0 = session.kernel.c64Bus.getBankInfo();
+    await ingestMedia(ctrl, { kind: "eject", role: "cartridge" });
+    const bEject = session.kernel.c64Bus.getBankInfo();
+    await ctrl.restoreCheckpoint(att.checkpointAfterId); // restore the after-attach checkpoint
+    const bR = session.kernel.c64Bus.getBankInfo();
+    gate("G7 CRT attach→checkpoint→eject→restore reattaches identical cartridge",
+      b0.cartridgeAttached === true && bEject.cartridgeAttached === false &&
+      bR.cartridgeAttached === true && bR.cartridgeMapperType === b0.cartridgeMapperType &&
+      bR.cartridgeExrom === b0.cartridgeExrom && bR.cartridgeGame === b0.cartridgeGame,
+      `attached ${b0.cartridgeAttached}→eject ${bEject.cartridgeAttached}→restore ${bR.cartridgeAttached} (${bR.cartridgeMapperType} exrom=${bR.cartridgeExrom})`);
+  } finally { stopIntegratedSession(sessionId); }
+}
+
+// ---- G8 CRT dump → fresh session → undump (709.7b/c) ----
+{
+  const a = newSession();
+  let snapPath, b0, ctlPc;
+  try {
+    const ctrl = new RuntimeController(a.sessionId, a.session, () => {});
+    a.session.runFor(2_000_000, { cycleBudget: 2_000_000 });
+    await ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" });
+    a.session.runFor(4_000_000, { cycleBudget: 4_000_000 });
+    b0 = a.session.kernel.c64Bus.getBankInfo();
+    snapPath = join(dir, "crt.c64re");
+    await dumpRuntimeSnapshot(ctrl, snapPath);
+    a.session.runFor(500_000, { cycleBudget: 500_000 }); ctlPc = a.session.c64Cpu.pc;
+  } finally { stopIntegratedSession(a.sessionId); }
+
+  const f = newSession();
+  try {
+    const ctrl = new RuntimeController(f.sessionId, f.session, () => {});
+    f.session.runFor(1_000_000, { cycleBudget: 1_000_000 });
+    await undumpRuntimeSnapshot(ctrl, snapPath); // embedded CRT recreated + reattached
+    const bU = f.session.kernel.c64Bus.getBankInfo();
+    gate("G8 CRT dump→fresh-session undump reattaches same mapper/lines/state",
+      bU.cartridgeAttached === true && bU.cartridgeMapperType === b0.cartridgeMapperType &&
+      bU.cartridgeExrom === b0.cartridgeExrom && bU.cartridgeGame === b0.cartridgeGame,
+      `${bU.cartridgeMapperType} exrom=${bU.cartridgeExrom} game=${bU.cartridgeGame}`);
+    f.session.runFor(500_000, { cycleBudget: 500_000 });
+    gate("G8 run-N continuation after CRT undump (same forward PC as control)",
+      (f.session.c64Cpu.pc & 0xffff) === (ctlPc & 0xffff), `pc=$${f.session.c64Cpu.pc.toString(16)} ctl=$${ctlPc.toString(16)}`);
+  } finally { stopIntegratedSession(f.sessionId); }
+}
+
+// ---- G9 persisted ordered media-event history (709.8) ----
+{
+  const { session, sessionId } = newSession();
+  try {
+    const ctrl = new RuntimeController(sessionId, session, () => {});
+    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
+    await ingestMedia(ctrl, { kind: "disk", role: "drive8", bytes: motm, name: "motm.g64" });
+    await ingestMedia(ctrl, { kind: "prg", bytes: prg, name: "boot.prg", mode: "load" });
+    await ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" });
+    const ev = ctrl.mediaEvents;
+    const ops = ev.map((e) => e.operation).join(",");
+    const allHaveAfter = ev.every((e) => !!e.checkpointAfterId);
+    const swapHasBefore = ev[2].checkpointBeforeId; // crt after disk+prg present → intervention
+    gate("G9 media events persisted in order with checkpoint refs (queryable for 710-712)",
+      ev.length === 3 && ops === "disk,prg,crt" && allHaveAfter && !!swapHasBefore,
+      `[${ops}] all-after=${allHaveAfter} crt-before=${swapHasBefore}`);
+  } finally { stopIntegratedSession(sessionId); }
+}
+
+// ---- G10 WS adapter projection building blocks (709.9 route contract) ----
+{
+  const { session, sessionId } = newSession();
+  try {
+    const ctrl = new RuntimeController(sessionId, session, () => {});
+    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
+    const res = await ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" });
+    // the media/mount adapter projects { mountedPath, type:event.format, mapperType:detail.mapperType }
+    gate("G10 result carries the fields the MountResult-compatible adapter needs",
+      res.event.format === "crt" && typeof res.detail.mapperType === "string",
+      `type=${res.event.format} mapperType=${res.detail.mapperType}`);
+  } finally { stopIntegratedSession(sessionId); }
+}
+
 console.log("---");
 if (failures.length === 0) { console.log(`GREEN 709 media ingress: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 709 media ingress: ${passes} pass, ${failures.length} blocker(s).`);

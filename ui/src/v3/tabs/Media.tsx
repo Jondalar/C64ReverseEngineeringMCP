@@ -341,14 +341,15 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
           onEject={() => ejectSlot(8)}
           onSwap={(p) => swapSlot(8, p)}
         />
-        <DriveSlot
-          slot={9}
-          mountedPath={drive9.path}
-          mountedType={drive9.type}
-          mapperType={drive9.mapperType}
-          onEject={() => ejectSlot(9)}
-          onSwap={(p) => swapSlot(9, p)}
-        />
+        {/* Spec 709.9 — Drive 9 is not wired in v1 (the backend rejects it); the
+            control is disabled rather than presented as functional. */}
+        <div style={{
+          border: "1px dashed #333", borderRadius: "5px", padding: "8px 12px",
+          marginBottom: "8px", background: "#181818", color: "#555", fontSize: "12px",
+        }}>
+          <strong style={{ color: "#666", minWidth: "70px" }}>Drive 9:</strong>{" "}
+          <span style={{ fontStyle: "italic" }}>not supported in v1 (drive 8 only)</span>
+        </div>
       </div>
 
       {/* Main browser area */}
@@ -392,15 +393,9 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
                     style={{ fontSize: "10px", padding: "1px 5px", marginLeft: "4px" }}
                     title="Mount to drive 8"
                   >
-                    Mnt8
+                    Mount
                   </button>
-                  <button
-                    onClick={() => mountFile(entry, 9)}
-                    style={{ fontSize: "10px", padding: "1px 5px", marginLeft: "2px" }}
-                    title="Mount to drive 9"
-                  >
-                    Mnt9
-                  </button>
+                  {/* Spec 709.9 — Drive 9 mount removed (v1 drive8-only; backend rejects it). */}
                 </>
               )}
               {entry.deferred && (

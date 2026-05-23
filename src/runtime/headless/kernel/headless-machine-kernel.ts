@@ -29,6 +29,10 @@ import {
 } from "../alarm/alarm-context.js";
 import { Cpu6510 } from "../cpu6510.js";
 import { HeadlessMemoryBus } from "../memory-bus.js";
+import { loadCartridgeMapperFromBytes } from "../cartridge.js";
+import { snapshotSha256 } from "./native-snapshot.js";
+import type { RuntimeCheckpointMedia } from "./runtime-checkpoint.js";
+import type { HeadlessCartridgeState } from "../types.js";
 import { loadAllC64Roms, type LoadedC64RomSet } from "../c64-rom.js";
 import { IecBus } from "../iec/iec-bus.js";
 import { VicIIVice, installVicIIVice, type VicBackend } from "../vic/vic-ii-vice.js";
@@ -957,7 +961,7 @@ export class HeadlessMachineKernel implements MachineKernel {
       vic: vicii_snapshot_write(this.colorRamView()),
       vicPresentation: this.session.captureVicPresentation(),
       drive1541: this.drive1541 ? this.drive1541.snapshot() : null,
-      media: { diskPath: this.diskPath, imageFormat: this.imageFormat },
+      media: this.captureMediaCheckpoint(),
       alarmsMaincpu: this.alarms.maincpu ? alarmContextCaptureSchedule(this.alarms.maincpu) : [],
       // Spec 705.A step 4 — optional reSID audio slice when a recorder is
       // registered; null otherwise (core checkpoint works without audio).
@@ -1024,6 +1028,11 @@ export class HeadlessMachineKernel implements MachineKernel {
 
     if (cp.drive1541 && this.drive1541) this.drive1541.restore(cp.drive1541);
 
+    // Spec 709.7 — restore the attached cartridge: recreate the mapper from the
+    // embedded .crt bytes, restore its bank-switching state, re-attach to the
+    // live bus (or detach if the checkpoint had no cartridge).
+    this.restoreMediaCheckpoint(cp.media);
+
     // Re-arm the maincpu alarm schedule LAST, after all chip-state restore, so
     // the captured CIA timer/TOD/SDR/idle alarm clks line up with the restored
     // master clock and override any partial per-chip re-derivation.
@@ -1035,6 +1044,36 @@ export class HeadlessMachineKernel implements MachineKernel {
     if (cp.audio != null && this.session.audioCheckpointProvider) {
       this.session.audioCheckpointProvider.restore(cp.audio as never);
     }
+  }
+
+  // Spec 709.7 — build the media slice of a checkpoint: disk identity + (when a
+  // cartridge is attached) embedded .crt bytes + sha256 + mapper continuation
+  // state. The bytes ride in the payload → the 707 codec serializes them to
+  // .c64re.
+  private captureMediaCheckpoint(): RuntimeCheckpointMedia {
+    const media: RuntimeCheckpointMedia = { diskPath: this.diskPath, imageFormat: this.imageFormat };
+    const cart = this.c64Bus.getCartridge();
+    const cartMedia = this.c64Bus.getCartridgeMedia();
+    if (cart && cartMedia) {
+      media.cartridge = {
+        bytes: cartMedia.bytes.slice(),
+        name: cartMedia.name,
+        sha256: snapshotSha256(cartMedia.bytes),
+        mapperType: cart.getMapperType(),
+        state: cart.getState(),
+      };
+    }
+    return media;
+  }
+
+  // Spec 709.7 — restore the cartridge medium (or detach if none).
+  private restoreMediaCheckpoint(media: RuntimeCheckpointMedia): void {
+    const c = media.cartridge;
+    if (!c) { this.c64Bus.attachCartridge(undefined); return; }
+    const bytes = c.bytes instanceof Uint8Array ? c.bytes : new Uint8Array(c.bytes as ArrayLike<number>);
+    const mapper = loadCartridgeMapperFromBytes(bytes, c.name);
+    mapper.setState(c.state as HeadlessCartridgeState);
+    this.c64Bus.attachCartridge(mapper, { bytes, name: c.name });
   }
 
   mountMedia(device: number, media: MountedMedia): void {

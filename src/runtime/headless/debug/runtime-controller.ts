@@ -32,6 +32,7 @@ import {
 import type { MachineSnapshot } from "../kernel/machine-kernel.js";
 import { TraceRunController } from "../trace/trace-run.js";
 import type { RuntimeTraceDefinition } from "../trace/trace-definition.js";
+import type { MediaIngressEvent } from "../media/ingress.js";
 
 export type RuntimeRunState = "running" | "paused" | "stopped";
 export type RuntimePacingMode = "pal" | "warp" | "fixed-ratio";
@@ -130,6 +131,11 @@ export class RuntimeController {
   // run controller taps the existing kernel trace channels (no parallel path).
   readonly traceRun = new TraceRunController();
   readonly traceDefinitions = new Map<string, RuntimeTraceDefinition>();
+
+  // Spec 709.8 — ordered media-ingress event history (disk/PRG/CRT/eject), each
+  // carrying its before/after checkpoint refs. The replayable record consumed
+  // by Specs 710-712 (overlay / rewind / branch diff). ingestMedia() appends.
+  readonly mediaEvents: MediaIngressEvent[] = [];
 
   constructor(
     sessionId: string, session: IntegratedSession, broadcast: BroadcastFn,

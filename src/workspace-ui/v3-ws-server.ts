@@ -784,8 +784,21 @@ export class V3WsServer {
 
     // Spec 424 — cartridge status. IntegratedSession has no cart
     // plumbing yet (deferred to follow-up spec 425). Returns null.
-    this.on("session/cart_status", ({ session_id: _ }) => {
-      return null;
+    // Spec 709.9 — live cartridge status from the real attached cartridge.
+    this.on("session/cart_status", ({ session_id }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const bus = (s.kernel as any).c64Bus;
+      const info = bus?.getBankInfo?.();
+      if (!info?.cartridgeAttached) return { attached: false };
+      const media = bus?.getCartridgeMedia?.();
+      return {
+        attached: true,
+        mapperType: info.cartridgeMapperType,
+        exrom: info.cartridgeExrom,
+        game: info.cartridgeGame,
+        name: media?.name,
+      };
     });
 
     // Sidequest 2026-05-20 — Drive 8 power-cycle / re-init button.
@@ -926,19 +939,25 @@ export class V3WsServer {
     });
 
     // Legacy path-based routes — now thin adapters to the single ingress service
-    // (Spec 709 §2.1; .vsf stays the snapshot path, it is not media). slot 9 is
-    // rejected by the service. mount/swap sniff kind by extension.
-    const kindFromExt = (path: string): "disk" | "prg" | "crt" | "vsf" => {
+    // (Spec 709 §2.1). slot 9 + .c64re rejected. .vsf stays the legacy snapshot
+    // path (not media). The adapter returns a MountResult-COMPATIBLE shape
+    // ({ mountedPath, type, mapperType, slot } + the typed event/detail) so the
+    // existing Media tab keeps working (Spec 709.9).
+    const kindFromExt = (path: string): "disk" | "prg" | "crt" | "vsf" | "c64re" => {
       const e = path.toLowerCase().split(".").pop();
       if (e === "prg") return "prg";
       if (e === "crt") return "crt";
-      if (e === "vsf" || e === "c64re") return "vsf";
+      if (e === "c64re") return "c64re";
+      if (e === "vsf") return "vsf";
       return "disk";
     };
     const adaptMount = async ({ session_id, slot, path }: any) => {
       if (typeof path !== "string") throw new Error("media/mount: path required");
       if (slot !== undefined && Number(slot) === 9) throw new Error("media/mount: drive 9 not supported (v1 drive8-only)");
       const k = kindFromExt(path);
+      if (k === "c64re") {
+        throw new Error("media/mount: .c64re is a runtime snapshot, not media — use snapshot/undump (Spec 707), not a media mount.");
+      }
       if (k === "vsf") {
         const session = getIntegratedSession(session_id);
         if (!session) throw new Error(`no session ${session_id}`);
@@ -947,10 +966,21 @@ export class V3WsServer {
         const doMount = () => mountMedia(session, 8, path);
         return ctrl ? ctrl.runExclusive(doMount) : doMount();
       }
-      return await ingestMedia(ctrlFor(session_id), buildIngressRequest({ kind: k, path, mode: "load" }));
+      const res = await ingestMedia(ctrlFor(session_id), buildIngressRequest({ kind: k, path, mode: "load" }));
+      // MountResult-compatible projection for the existing UI + the typed event.
+      return {
+        mountedPath: String(path),
+        type: res.event.format ?? k,
+        mapperType: res.detail.mapperType,
+        slot: k === "disk" ? 8 : undefined,
+        sha256: res.event.sha256,
+        event: res.event, detail: res.detail, paused: res.paused,
+      };
     };
     this.on("media/mount", adaptMount);
     this.on("media/swap", adaptMount); // swap = ingest a new disk; service dirty-checks + checkpoints
+    // Spec 709.8 — ordered media-event readback for replay/branch consumers (710-712).
+    this.on("media/events", ({ session_id }) => ({ events: ctrlFor(session_id).mediaEvents }));
     this.on("media/unmount", async ({ session_id, slot }) => {
       if (slot !== undefined && Number(slot) === 9) throw new Error("media/unmount: drive 9 not supported (v1 drive8-only)");
       return await ingestMedia(ctrlFor(session_id), { kind: "eject", role: "drive8" });

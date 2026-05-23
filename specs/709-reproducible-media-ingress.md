@@ -1,6 +1,6 @@
 # Spec 709 - Reproducible Media Ingress: Disk, PRG, CRT and Drag/Drop
 
-Status: LIVE INGRESS BASELINE IMPLEMENTED; CORRECTIVE SLICE REQUIRED (reviewed 2026-05-23 CEST) - see §§9-10.
+Status: DONE (2026-05-23 CEST) — corrective slice 709.7-709.10 complete, see §11. All gates green incl. runtime:proof 7/7.
 Depends: Specs 701, 705, 707
 Consumed by: Specs 710-712
 Owner: runtime / UI / media
@@ -254,3 +254,42 @@ needed by Specs 710-712.
 Spec 710 core checkpoint-bound inspect work can be designed in parallel, but
 media identity/evidence promotion must not claim 709 completion until
 709.7-709.10 are green.
+
+## 11. Corrective Slice Result (709.7-709.10, 2026-05-23)
+
+All §10.3 gaps closed; built on the existing checkpoint/persistence path (no
+second snapshot model).
+
+- **709.7 CRT persistence/restore:** `RuntimeCheckpointMedia.cartridge` now
+  carries embedded `.crt` bytes + sha256 + mapperType + the mapper's
+  bank-switching continuation state (`HeadlessCartridgeState`). The mapper
+  interface gained `setState`; `BaseMapper` restores `currentBank` via a
+  `setControlRegister` hook (EasyFlash + Megabyter override). The memory bus
+  holds the source bytes (`attachCartridge(mapper, {bytes,name})` +
+  `getCartridge`/`getCartridgeMedia`). `kernel.snapshot` embeds the cartridge;
+  `kernel.restore` recreates the mapper from the bytes, applies `setState` and
+  re-attaches via the live `c64Bus` (or detaches when the checkpoint had none).
+  The bytes ride in the payload, so the 707 typed-array codec writes them into
+  `.c64re` automatically — no separate model. (Flash-write/EEPROM state is
+  deferred like a writable-disk delta.)
+- **709.8 media-event history:** `RuntimeController.mediaEvents` is an ordered,
+  replayable log; `ingestMedia` appends each `MediaIngressEvent` (operation +
+  identity + before/after checkpoint refs). Readback via the `media/events` WS
+  RPC for Specs 710-712.
+- **709.9 WS/UI contract:** `media/mount`/`media/swap` adapters now return a
+  `MountResult`-compatible projection (`{mountedPath, type, mapperType, slot}` +
+  the typed event/detail), so the existing Media tab keeps working.
+  `session/cart_status` returns the real attached cartridge
+  (mapperType/exrom/game/name). `.c64re` via a media route is explicitly
+  rejected toward `snapshot/undump` (never the `vsf` route). The Media tab Drive
+  9 slot + mount button are disabled (v1 drive8-only); the backend rejects
+  Drive 9 regardless. (The InspectorPanel Drive-9 status chip remains a passive
+  display with no mount path — cosmetic follow-up.)
+- **709.10 gates:** `probe:709-media` strengthened to **17/17** — adds G7 (CRT
+  attach→checkpoint→eject→restore reattaches identical mapper/lines), G8 (CRT
+  `.c64re` dump → fresh-session undump → same mapper/state + run-N continuation),
+  G9 (ordered media events with checkpoint refs), G10 (MountResult-projection
+  fields). `probe:707-dump-undump`, 705.A/705.B/706/708 probes,
+  `check:1541-fidelity` 78/0, and `runtime:proof` 7/7 stay green.
+
+Status restored to **DONE**.

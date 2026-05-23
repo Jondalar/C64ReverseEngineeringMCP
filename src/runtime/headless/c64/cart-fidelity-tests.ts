@@ -20,6 +20,7 @@ class StubCart8k implements HeadlessCartridgeMapper {
   public bank = 0;
   getMapperType() { return "normal_8k" as const; }
   getLines() { return { exrom: 0, game: 1 }; }
+  setState(_s: HeadlessCartridgeState): void { /* fixed-bank stub — no restorable state */ }
   getState(): HeadlessCartridgeState {
     return {
       path: "stub",
@@ -48,6 +49,7 @@ class StubCart16k implements HeadlessCartridgeMapper {
   public byte = 0xbb;
   getMapperType() { return "normal_16k" as const; }
   getLines() { return { exrom: 0, game: 0 }; }
+  setState(_s: HeadlessCartridgeState): void { /* fixed-bank stub — no restorable state */ }
   getState(): HeadlessCartridgeState {
     return {
       path: "stub", name: "stub16k", mapperType: "normal_16k",
@@ -68,6 +70,7 @@ class StubCartUltimax implements HeadlessCartridgeMapper {
   public byteRomh = 0xdd;
   getMapperType() { return "ultimax" as const; }
   getLines() { return { exrom: 1, game: 0 }; }
+  setState(_s: HeadlessCartridgeState): void { /* fixed-bank stub — no restorable state */ }
   getState(): HeadlessCartridgeState {
     return {
       path: "stub", name: "stubUltimax", mapperType: "ultimax",

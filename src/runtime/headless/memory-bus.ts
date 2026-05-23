@@ -94,6 +94,9 @@ export class HeadlessMemoryBus {
   private accessTrace: HeadlessMemoryAccess[] = [];
   private tracingEnabled = false;
   private cartridge?: HeadlessCartridgeMapper;
+  // Spec 709.7 — the original .crt bytes + display name backing the attached
+  // cartridge, so RuntimeCheckpoint/.c64re can embed + recreate it on restore.
+  private cartridgeMedia?: { bytes: Uint8Array; name: string };
 
   reset(): void {
     // Sprint 93.2: match VICE cold-power RAM init pattern.
@@ -210,8 +213,14 @@ export class HeadlessMemoryBus {
     };
   }
 
-  attachCartridge(cartridge: HeadlessCartridgeMapper | undefined): void {
+  /** The mapper currently attached (for snapshot/cart-status), or undefined. */
+  getCartridge(): HeadlessCartridgeMapper | undefined { return this.cartridge; }
+  /** The original .crt bytes + name backing the attached cart (Spec 709.7), or undefined. */
+  getCartridgeMedia(): { bytes: Uint8Array; name: string } | undefined { return this.cartridgeMedia; }
+
+  attachCartridge(cartridge: HeadlessCartridgeMapper | undefined, media?: { bytes: Uint8Array; name: string }): void {
     this.cartridge = cartridge;
+    this.cartridgeMedia = cartridge ? media : undefined;
     // Spec 402 / §12 step 8 — cartridge GAME/EXROM lines feed the 5-bit
     // memConfig selector. On attach/detach (or banking-register write
     // that changes the lines), re-run the PLA reconfig hook so the

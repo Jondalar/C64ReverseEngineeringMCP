@@ -32,6 +32,9 @@ interface HeadlessCartridgeLines {
 export interface HeadlessCartridgeMapper {
   getMapperType(): HeadlessCartridgeMapperType;
   getState(): HeadlessCartridgeState;
+  /** Spec 709.7 — restore the bank-switching continuation state (currentBank +
+   *  control register) so a checkpoint/.c64re-restored cart resumes identically. */
+  setState(state: HeadlessCartridgeState): void;
   getLines(): HeadlessCartridgeLines;
   read(address: number, bankInfo: HeadlessBankInfo): number | undefined;
   write(address: number, value: number, bankInfo: HeadlessBankInfo): boolean;
@@ -326,6 +329,16 @@ abstract class BaseMapper implements HeadlessCartridgeMapper {
   protected getControlRegister(): number | undefined {
     return undefined;
   }
+
+  // Spec 709.7 — restore the bank-switching state. Banked mappers with a
+  // control register override setControlRegister; flash-write (EEPROM) state is
+  // not restored in v1 (treated like a writable-disk delta — deferred).
+  setState(state: HeadlessCartridgeState): void {
+    this.currentBank = (state.currentBank ?? 0) & 0xff;
+    this.setControlRegister(state.controlRegister);
+  }
+
+  protected setControlRegister(_v: number | undefined): void { /* override in banked mappers */ }
 }
 
 class Normal8kMapper extends BaseMapper {}
@@ -583,6 +596,10 @@ class EasyFlashMapper extends BaseMapper {
     return this.controlRegister;
   }
 
+  protected setControlRegister(v: number | undefined): void {
+    this.controlRegister = (v ?? 0x00) & 0xff; // Spec 709.7 — restore EasyFlash $DE02 mode/LED state
+  }
+
   private currentMode(): "off" | "ultimax" | "8k" | "16k" {
     const mxg = this.controlRegister & 0x07;
     switch (mxg) {
@@ -659,6 +676,13 @@ class MegabyterMapper extends BaseMapper {
     state.writable = true;
     state.flashMode = `${this.currentMode()} [${this.flash.getMode()}]`;
     return state;
+  }
+
+  setState(state: HeadlessCartridgeState): void {
+    // Spec 709.7 — Megabyter banks via bankRegister (mapped to currentBank in
+    // getState); restore both registers. Flash-write state is deferred (v1).
+    this.bankRegister = (state.currentBank ?? 0) & 0xff;
+    this.controlRegister = (state.controlRegister ?? 0) & 0xff;
   }
 
   read(address: number, bankInfo: HeadlessBankInfo): number | undefined {

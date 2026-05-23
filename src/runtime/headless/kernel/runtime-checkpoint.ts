@@ -87,6 +87,20 @@ export interface RuntimeCheckpointVicPresentation {
 export interface RuntimeCheckpointMedia {
   diskPath: string;
   imageFormat: string;
+  /**
+   * Spec 709.7 — attached cartridge medium. Embedded .crt bytes (so the mapper
+   * is recreated independently on restore) + sha256 identity + the mapper's
+   * bank-switching continuation state. Absent when no cartridge is attached.
+   * The bytes ride inside the checkpoint payload, so the 707 typed-array codec
+   * serializes them into .c64re automatically.
+   */
+  cartridge?: {
+    bytes: Uint8Array;
+    name: string;
+    sha256: string;
+    mapperType: string;
+    state: unknown; // HeadlessCartridgeState (opaque here to avoid a cartridge import)
+  };
 }
 
 export interface RuntimeCheckpoint {
