@@ -64,6 +64,7 @@
     "probe:705-core-roundtrip": "npm run build:mcp && node scripts/probe-705-core-roundtrip.mjs",
     "probe:705-drive-roundtrip": "npm run build:mcp && node scripts/probe-705-drive-roundtrip.mjs",
     "probe:705-resid-roundtrip": "npm run build:mcp && node scripts/probe-705-resid-roundtrip.mjs",
+    "probe:706-latency": "npm run build:mcp && node scripts/probe-706-latency.mjs",
     "smoke:trace-query": "npm run build:mcp && node scripts/smoke-trace-query.mjs",
     "smoke:hook-hygiene": "npm run build:mcp && node scripts/smoke-hook-hygiene.mjs",
     "smoke:trace": "npm run build:mcp && node scripts/smoke-trace.mjs",
