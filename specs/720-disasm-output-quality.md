@@ -1,4 +1,4 @@
-# Spec 706 — Disassembly Output Quality (Heuristic Auto-Labels + Box Headers)
+# Spec 720 — Disassembly Output Quality (Heuristic Auto-Labels + Box Headers)
 
 **Status:** DRAFT (2026-05-20)
 **Scope:** `pipeline/src/lib/prg-disasm.ts` renderer + `pipeline/src/analysis/*` label/role derivation. The heuristic (phase-1) disassembly output — the `.asm` produced BEFORE any LLM semantic-annotation pass.
@@ -124,16 +124,16 @@ The phase-2 LLM tool (`propose_annotations`, Spec 042) writes the annotations JS
 
 | ID | Task | Priority | Depends |
 |---|---|---|---|
-| 706.1 | Auto-label role derivation in analysis: tag each labeled address with role (sub/loop/lbl/jmp/tbl/buf/data/ptr/vec) from existing xref + access data. Expose on the label index. | P1 | none |
-| 706.2 | `makeLabel()` heuristic tier: annotation-label > role-label > raw `W<addr>`. `--raw-labels` flag. | P1 | 706.1 |
-| 706.3 | Re-render `LL_disasm.asm` + a couple existing PRGs. Verify byte-identical rebuild stays green. | P1 | 706.2 |
-| 706.4 | Cross-bank/external call flag (§4). Use loadContexts[] bank map if present. | P2 | 706.2 |
-| 706.5 | Store/load comment consistency (§5). | P2 | 706.2 |
-| 706.6 | ZP pointer-pair operand naming consistency (§6). | P3 | 706.1 |
-| 706.7 | Auto box-header per subroutine (§7), `[auto]` tag, facts from ROUTINE CONTEXT. | P3 | 706.1 |
-| 706.8 | Header/vector byte interpretation (§8). | P4 | 706.1 |
-| 706.9 | Smoke test fixture (§10.5) + rebuild-green gate in CI. | P1 | 706.2 |
-| 706.10 | (Optional, separate) propose_annotations enrichment (§9). | P4 | — |
+| 720.1 | Auto-label role derivation in analysis: tag each labeled address with role (sub/loop/lbl/jmp/tbl/buf/data/ptr/vec) from existing xref + access data. Expose on the label index. | P1 | none |
+| 720.2 | `makeLabel()` heuristic tier: annotation-label > role-label > raw `W<addr>`. `--raw-labels` flag. | P1 | 720.1 |
+| 720.3 | Re-render `LL_disasm.asm` + a couple existing PRGs. Verify byte-identical rebuild stays green. | P1 | 720.2 |
+| 720.4 | Cross-bank/external call flag (§4). Use loadContexts[] bank map if present. | P2 | 720.2 |
+| 720.5 | Store/load comment consistency (§5). | P2 | 720.2 |
+| 720.6 | ZP pointer-pair operand naming consistency (§6). | P3 | 720.1 |
+| 720.7 | Auto box-header per subroutine (§7), `[auto]` tag, facts from ROUTINE CONTEXT. | P3 | 720.1 |
+| 720.8 | Header/vector byte interpretation (§8). | P4 | 720.1 |
+| 720.9 | Smoke test fixture (§10.5) + rebuild-green gate in CI. | P1 | 720.2 |
+| 720.10 | (Optional, separate) propose_annotations enrichment (§9). | P4 | — |
 
 ## 13. References
 
