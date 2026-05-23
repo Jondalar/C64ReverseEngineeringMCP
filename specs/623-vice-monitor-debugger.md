@@ -436,6 +436,8 @@ Acceptance:
 
 The monitor must support `dump` / `undump`, but the native format is the
 C64RE runtime snapshot format, not VICE's internal monitor dump format.
+Spec 707 owns the persisted format and executable backend integration for this
+reserved command surface.
 
 Reason:
 
@@ -487,6 +489,8 @@ Acceptance:
 ## 8. DuckDB runtime trace control
 
 The monitor must be able to start/stop C64RE runtime tracing into DuckDB.
+Spec 708 owns the declarative trace-definition schema and executable backend
+integration for this reserved command surface.
 
 This is not VICE binary-monitor tracing. It controls the in-process C64RE
 trace pipeline so monitor sessions can record the same machine the user is

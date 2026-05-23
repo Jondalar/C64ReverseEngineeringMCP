@@ -1,6 +1,6 @@
 # Spec 702 — Paused VIC Inspect Overlay
 
-Status: DRAFT  
+Status: DRAFT — production integration refined by Spec 710
 Created: 2026-05-21 CEST  
 Owner: v3 UI / runtime / knowledge
 
@@ -30,6 +30,8 @@ The current runtime already has most of the required foundation:
   define a concrete paused inspect data model.
 
 Spec 702 turns that skeleton into a deterministic API and knowledge contract.
+Spec 710 binds this design to retained native checkpoints, trace references and
+reproducible media identity after Specs 705-709.
 
 ## 3. Non-Goals
 

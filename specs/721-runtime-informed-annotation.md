@@ -1,7 +1,7 @@
 # Spec 721 — Runtime-Informed Semantic Annotation
 
 **Status:** DRAFT (2026-05-20)
-**Parent specs:** `specs/720-disasm-output-quality.md` (static heuristic labels — prerequisite), `specs/042-*` (`propose_annotations`), revives `specs/_archive/249-disasm-annotations-table-discovery.md` + `specs/_archive/235-runtime-disasm-link.md` onto the V2 runtime substrate.
+**Parent specs:** `specs/720-disasm-output-quality.md` (static heuristic labels — prerequisite), `specs/708-declarative-trace-definitions-tracedb-control.md` (retained runtime trace definitions/runs), `specs/042-*` (`propose_annotations`), revives `specs/_archive/249-disasm-annotations-table-discovery.md` + `specs/_archive/235-runtime-disasm-link.md` onto the V2 runtime substrate.
 **Scope:** wire RUNTIME EXECUTION EVIDENCE (taint / swimlane / follow-path / profile / events) into the SEMANTIC ANNOTATION layer — both a mechanical extraction pass (deterministic) and an LLM-synthesis step (the "runtime explains the code again" workflow that produced the Accolade Comics gold annotations).
 
 ## 1. Why this spec exists
@@ -85,7 +85,7 @@ Bundle is the single input to the LLM step. Compact + token-bounded (one routine
 
 Slots into the seven-phase workflow without new phases:
 
-- **Phase 2** (loader/runtime) already collects the traces. Add: persist a reusable `traceRef` so later phases consume it.
+- **Phase 2** (loader/runtime) records a retained Spec 708 trace run and its reusable `traceRef`, so later phases consume declared evidence rather than one-off diagnostics.
 - **Phase 5** (Semantic V1): mechanical layer (§3) runs → enriches `propose_annotations` draft with runtime hints.
 - **Phase 6** (Meta Connections): call-graph + C64↔drive interaction edges (from swimlane) become relations (`save_relation`, `link_entities`).
 - **Phase 7** (Semantic V2): LLM synthesis (§4) per routine using the evidence bundle → final prose. This is where "runtime explains it again" lands.
@@ -106,7 +106,7 @@ Slots into the seven-phase workflow without new phases:
 - Replacing the static heuristic labels (Spec 720) — this layers ON TOP.
 - Fully deterministic prose generation — §4 is agent-in-the-loop by design.
 - New runtime forensic tools — reuse existing V2 (taint/swimlane/follow-path/profile/events).
-- Trace capture mechanics — Spec 701 / V2 own that; this consumes traceRefs.
+- Trace capture/control mechanics — Specs 701/708 and V2 own that; this consumes retained `traceRef`s.
 - Cross-artifact / whole-game synthesis — one artifact at a time first.
 - NTSC / hardware variants — orthogonal.
 
@@ -114,7 +114,7 @@ Slots into the seven-phase workflow without new phases:
 
 | ID | Task | Layer | Depends |
 |---|---|---|---|
-| 721.1 | Persist a reusable `traceRef` from Phase-2 runtime sessions (snapshot/trace handle later phases can re-open). | infra | Spec 701 trace store |
+| 721.1 | Consume a reusable retained `traceRef` from a Spec 708 Phase-2 runtime trace run (checkpoint/media/definition-linked evidence later phases can re-open). | infra | Spec 708 |
 | 721.2 | `analyzeRuntimeEvidence(artifactId, traceRef)` mechanical pass — §3 trigger table → findings + `<artifact>_runtime_evidence.json`. | (a) mechanical | 721.1 |
 | 721.3 | Emit findings via `save_finding`/`save_entity` with `provenance:"runtime"` + confidence. Call-graph + C64↔drive edges via `save_relation`. | (a) | 721.2 |
 | 721.4 | Extend `propose_annotations` to consume `_runtime_evidence.json` (runtime hints rank above static heuristics, below LLM prose). | (a)→draft | 721.2 |
@@ -135,4 +135,5 @@ Slots into the seven-phase workflow without new phases:
 - V2 runtime tools: `runtime_trace_taint` (taint.ts), `runtime_swimlane_slice` (swimlane.ts), `runtime_follow_path`, `runtime_profile_loader`, `runtime_query_events`, `runtime_resolve_pc`.
 - Gold reference: `EF_Version_C/003_runtime_library.asm` + `analysis/003_runtime_library_annotations.json` (42 routines, the coherence target).
 - `specs/035-*` — master/worker pattern (for 721.6 orchestration).
-- `specs/701-*` — autonomous runtime / trace substrate.
+- `specs/701-*` — autonomous runtime substrate.
+- `specs/708-declarative-trace-definitions-tracedb-control.md` — retained trace-run and `traceRef` authority consumed here.
