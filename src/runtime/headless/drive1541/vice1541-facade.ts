@@ -480,14 +480,19 @@ export class Vice1541Facade implements Drive1541 {
   }
 
   snapshot(): Uint8Array {
-    // Spec 705.A — write the active VICE1541 drive state through the real,
-    // VICE-shaped in-memory snapshot module stream. save_disks=0/save_roms=0:
-    // capture only the drive CPU/VIA/GCR/rotation core state (the disk image
-    // and ROM are owned by the media/ROM layer, not this checkpoint blob).
-    // The returned opaque Uint8Array is embedded later as the `drive1541`
-    // payload of the native RuntimeCheckpoint (Spec 705 §3.2).
+    // Spec 714.2 — write the active VICE1541 drive state through the real,
+    // VICE-shaped in-memory snapshot module stream with save_disks=1 (was 0).
+    // This is the VICE `drive_snapshot_write_module(s, save_disks, save_roms)`
+    // contract (vice/src/drive/drive-snapshot.c): save_disks=1 additionally
+    // writes the attached disk image via the GCRIMAGE module (the live
+    // drive.gcr buffer = current sector/track writes), so a checkpoint taken
+    // after a disk write restores the WRITTEN bytes, not the clean source.
+    // save_roms stays 0 — ROMs are reloaded from resources, not persisted.
+    // The returned opaque Uint8Array is embedded as the `drive1541` payload of
+    // the native RuntimeCheckpoint (Spec 705 §3.2); restore() reads the
+    // GCRIMAGE module back via drive_snapshot_read_module (already wired).
     const s = snapshot_create_in_memory();
-    const rc = drive_snapshot_write_module(s, 0, 0);
+    const rc = drive_snapshot_write_module(s, 1, 0);
     if (rc < 0) {
       throw new Error("vice1541 snapshot: drive_snapshot_write_module failed");
     }

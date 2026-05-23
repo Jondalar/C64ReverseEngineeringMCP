@@ -70,6 +70,14 @@ mounted disk may not be ejected, swapped, persisted as a branch root or silently
 discarded through this reproducible ingress contract. The operation fails with
 a precise dirty-media error until a later writable-delta slice is specified.
 
+**Update (Spec 714.2):** the writable-delta slice landed for the disk. The
+VICE1541 snapshot now runs `save_disks=1`, so a dirty disk's GCR image rides in
+the checkpoint and restores exactly. The dirty-disk reject is therefore RETIRED
+at the checkpoint/branch boundary (capture, auto-cadence, ingress swap/eject) —
+a dirty disk is captured, not rejected. The `.c64re` `dump` path keeps its
+dirty-disk reject until Spec 714.3 reconciles the embedded source bytes vs the
+blob's mutable GCRIMAGE. The dirty **CRT** reject remains (Spec 713 + 714.5).
+
 ## 3. Supported Operations
 
 First required set:

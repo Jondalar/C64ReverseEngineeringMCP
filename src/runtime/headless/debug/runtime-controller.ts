@@ -301,25 +301,24 @@ export class RuntimeController {
   }
 
   /**
-   * Spec 709.13 — describe any currently-mounted medium whose live mutations are
-   * NOT serialized into a checkpoint/.c64re in v1, returning a precise reason
-   * (or null when all media is persistable). Covers a dirty VICE1541 disk
-   * (writable-disk delta) and a dirty writable CRT (flash delta). This is the
-   * single source of truth shared by `captureCheckpoint` (hard reject), the
-   * always-on auto-cadence capture (skip — a ring gap beats a corrupt
-   * checkpoint) and `ingestMedia` (reject any branching intervention). The CRT
-   * reason keeps the "writable CRT" / "writable-CRT-delta" wording the 709.12
-   * gates assert on.
+   * Describe any currently-mounted medium whose live mutations are NOT
+   * serialized into a checkpoint/.c64re, returning a precise reason (or null
+   * when all media is persistable). Shared by `captureCheckpoint` (hard
+   * reject), the always-on auto-cadence capture (skip — a ring gap beats a
+   * corrupt checkpoint) and `ingestMedia` (reject any branching intervention).
+   *
+   * Spec 714.2 — the DISK is now persistable: the VICE1541 snapshot runs with
+   * save_disks=1, so a dirty disk's GCR image rides in the checkpoint and
+   * restores exactly. The disk branch of this guard is therefore REMOVED (the
+   * 709.13 dirty-disk barrier is retired now that disk capture is faithful).
+   * Only the writable CRT remains non-persistable (flash delta) until its
+   * Spec 713 mapper port + Spec 714.5 persistence land; its reason keeps the
+   * "writable CRT" / "writable-CRT-delta" wording the 709.12 gates assert on.
    */
   nonPersistableDirtyMedia(): string | null {
     const k = this.session.kernel as {
-      drive1541?: { getAttachedMedia?(): unknown; isMediaDirty?(): boolean };
       c64Bus?: { getCartridge?(): { isWritableDirty?(): boolean } | undefined };
     };
-    const drive = k.drive1541;
-    if (drive?.getAttachedMedia?.() && drive.isMediaDirty?.()) {
-      return "mounted disk is dirty (written since attach); v1 has no writable-disk-delta payload";
-    }
     const cart = k.c64Bus?.getCartridge?.();
     if (cart?.isWritableDirty?.()) {
       return "writable CRT flash was written/erased since attach; v1 has no writable-CRT-delta payload";

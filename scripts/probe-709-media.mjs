@@ -127,7 +127,10 @@ console.log(`Spec 709 — media ingress gates  (tmp ${dir})`);
   } finally { stopIntegratedSession(sessionId); }
 }
 
-// ---- G5 dirty disk rejects swap + eject ----
+// ---- G5 dirty disk swap/eject ACCEPTED (Spec 714.2 — disk now persistable) ----
+// The 709.13 dirty-disk reject was a TEMPORARY barrier; 714.2 (save_disks=1)
+// retires it. A dirty disk's modified GCR rides in the before/after checkpoints,
+// so swap/eject is accepted and the before-checkpoint restores the written disk.
 {
   const { session, sessionId } = newSession();
   try {
@@ -137,11 +140,16 @@ console.log(`Spec 709 — media ingress gates  (tmp ${dir})`);
     // simulate a disk write (mutate a live GCR track byte → isMediaDirty)
     const gcr = session.kernel.drive1541.diskunit.drives[0].gcr;
     const trk = gcr.tracks.find((t) => t && t.data && t.size > 0);
-    trk.data[0] = (trk.data[0] ^ 0xff) & 0xff;
-    const rSwap = await expectThrow(() => ingestMedia(ctrl, { kind: "disk", role: "drive8", bytes: scramble, name: "scramble.d64" }), "dirty");
-    gate("G5 dirty disk rejects swap with precise error", rSwap.ok, rSwap.msg.slice(0, 70));
-    const rEject = await expectThrow(() => ingestMedia(ctrl, { kind: "eject", role: "drive8" }), "dirty");
-    gate("G5 dirty disk rejects eject with precise error", rEject.ok, rEject.msg.slice(0, 70));
+    const V1 = (trk.data[0] ^ 0xff) & 0xff;
+    trk.data[0] = V1;
+    const swap = (await ingestMedia(ctrl, { kind: "disk", role: "drive8", bytes: scramble, name: "scramble.d64" })).event;
+    gate("G5 dirty disk swap is ACCEPTED with before+after checkpoints (714.2)",
+      !!swap.checkpointBeforeId && !!swap.checkpointAfterId, `before=${swap.checkpointBeforeId} after=${swap.checkpointAfterId}`);
+    await ctrl.restoreCheckpoint(swap.checkpointBeforeId);
+    const t = session.kernel.drive1541.diskunit.drives[0].gcr.tracks.find((x) => x && x.data && x.size > 0);
+    gate("G5 the swap before-checkpoint restores the MODIFIED disk content (V1)", !!t && t.data[0] === V1, `byte=${t?.data[0]} V1=${V1}`);
+    const ej = await ingestMedia(ctrl, { kind: "eject", role: "drive8" });
+    gate("G5 dirty disk eject is ACCEPTED (714.2, no barrier)", ej.ok === true);
   } finally { stopIntegratedSession(sessionId); }
 }
 

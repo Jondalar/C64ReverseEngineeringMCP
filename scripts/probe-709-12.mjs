@@ -13,11 +13,8 @@
 //     A4 a WRITTEN EasyFlash makes a CRT replace reject.
 //     A5 the original repro: the flash write is NOT silently reverted (capture
 //        refuses, so no checkpoint exists that restores stale .crt bytes).
-//   Part C (Spec 709.13 — dirty DISK at the SAME shared chokepoint):
-//     C1 dirty disk → captureCheckpoint() rejects; written byte preserved.
-//     C2 dirty disk → auto-cadence mints no new ring entry (clean baseline first).
-//     C3 dirty disk → CRT insert rejected, no cart attach, no media event.
-//     C4 dirty disk → PRG ingress rejected, no RAM/PC mutation, no event.
+//   (Former Part C = dirty-DISK reject = the temporary 709.13 barrier, retired
+//    by Spec 714.2; dirty-disk capture/restore now lives in probe-714.mjs.)
 //   Part D (Spec 709.13.1 — device vs C64-internal pause rule):
 //     D1 disk insert while running → C64 stays running (1541 = device).
 //     D2 disk eject while running → C64 stays running.
@@ -142,84 +139,11 @@ function writeFlashByte(session, value = 0x42) {
   } finally { stopIntegratedSession(sessionId); }
 }
 
-// ---- Part C — dirty DISK at the SAME shared chokepoint (Spec 709.13) ----
-
-// C1 dirty disk → captureCheckpoint() rejects + the written byte is preserved.
-{
-  const { session, sessionId } = newSession();
-  try {
-    const ctrl = new RuntimeController(sessionId, session, () => {});
-    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
-    await ingestMedia(ctrl, { kind: "disk", role: "drive8", bytes: motmBytes, name: "motm.g64" });
-    const d = dirtyDisk(session);
-    gate("C1 a written GCR byte marks the disk dirty", session.kernel.drive1541.isMediaDirty?.() === true,
-      `orig=${d.orig} mutated=${d.mutated}`);
-    const r = await expectThrow(() => ctrl.captureCheckpoint(), "709.13");
-    gate("C1 captureCheckpoint() rejects a dirty disk (shared chokepoint, not just CRT)", r.ok, r.msg.slice(0, 80));
-    gate("C1 the written byte is preserved (no stale-restore path minted)", d.trk.data[0] === d.mutated,
-      `byte=${d.trk.data[0]}`);
-  } finally { stopIntegratedSession(sessionId); }
-}
-
-// C2 dirty disk → auto-cadence mints no new ring entry (clean baseline first).
-{
-  const { session, sessionId } = newSession();
-  try {
-    const ctrl = new RuntimeController(sessionId, session, () => {});
-    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
-    await ingestMedia(ctrl, { kind: "disk", role: "drive8", bytes: motmBytes, name: "motm.g64" });
-    // clean baseline: the auto-cadence DOES capture while running clean.
-    ctrl.run({ mode: "warp" }); await sleep(300); ctrl.pause();
-    const cleanCount = ctrl.checkpointRing.stats().count;
-    gate("C2 baseline: clean disk auto-cadence captures into the ring", cleanCount > 0, `count=${cleanCount}`);
-    // dirty: no new ring entry across an equal warp window.
-    dirtyDisk(session);
-    const dirtyStart = ctrl.checkpointRing.stats().count;
-    ctrl.run({ mode: "warp" }); await sleep(300); ctrl.pause();
-    const dirtyEnd = ctrl.checkpointRing.stats().count;
-    gate("C2 dirty disk: auto-cadence mints NO new ring entry (ring gap is correct)",
-      dirtyEnd === dirtyStart, `start=${dirtyStart} end=${dirtyEnd}`);
-  } finally { stopIntegratedSession(sessionId); }
-}
-
-// C3 dirty disk → CRT insert rejected, no cart attach, no new before/after IDs.
-{
-  const { session, sessionId } = newSession();
-  try {
-    const ctrl = new RuntimeController(sessionId, session, () => {});
-    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
-    await ingestMedia(ctrl, { kind: "disk", role: "drive8", bytes: motmBytes, name: "motm.g64" });
-    dirtyDisk(session);
-    const evBefore = ctrl.mediaEvents.length;
-    const r = await expectThrow(() => ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" }), "709.13");
-    gate("C3 dirty disk rejects a CRT insert (branch root illegal, §2.3/§4)", r.ok, r.msg.slice(0, 80));
-    gate("C3 rejected CRT insert leaves no cartridge attached",
-      session.kernel.c64Bus.getBankInfo().cartridgeAttached === false);
-    gate("C3 rejected CRT insert records NO media event (no before/after IDs)",
-      ctrl.mediaEvents.length === evBefore, `events ${evBefore}→${ctrl.mediaEvents.length}`);
-  } finally { stopIntegratedSession(sessionId); }
-}
-
-// C4 dirty disk → PRG ingress rejected, no RAM/PC mutation, no event.
-{
-  const { session, sessionId } = newSession();
-  try {
-    const ctrl = new RuntimeController(sessionId, session, () => {});
-    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
-    await ingestMedia(ctrl, { kind: "disk", role: "drive8", bytes: motmBytes, name: "motm.g64" });
-    dirtyDisk(session);
-    const loadAddr = (prg[0] | (prg[1] << 8)) & 0xffff;
-    const ram = session.c64Bus.ram;
-    const ramBefore = ram[loadAddr];
-    const pcBefore = session.c64Cpu.pc;
-    const evBefore = ctrl.mediaEvents.length;
-    const r = await expectThrow(() => ingestMedia(ctrl, { kind: "prg", bytes: prg, name: "boot.prg", mode: "load" }), "709.13");
-    gate("C4 dirty disk rejects a PRG ingress (branch root illegal)", r.ok, r.msg.slice(0, 80));
-    gate("C4 rejected PRG leaves RAM + PC unmutated + no event",
-      ram[loadAddr] === ramBefore && (session.c64Cpu.pc & 0xffff) === (pcBefore & 0xffff) && ctrl.mediaEvents.length === evBefore,
-      `ram@${loadAddr.toString(16)} ${ramBefore}→${ram[loadAddr]} pc $${pcBefore.toString(16)}→$${session.c64Cpu.pc.toString(16)} ev ${evBefore}→${ctrl.mediaEvents.length}`);
-  } finally { stopIntegratedSession(sessionId); }
-}
+// NOTE: the former Part C (dirty-DISK → reject) asserted the TEMPORARY 709.13
+// barrier. Spec 714.2 retires that barrier: a dirty disk is now CAPTURED (the
+// VICE1541 snapshot runs save_disks=1). Dirty-disk capture/restore + dirty-disk
+// branch validity now live in scripts/probe-714.mjs. The dirty-CRT reject (A)
+// stays here until Spec 713/714.5.
 
 // ---- Part D — 1541 = device (C64 keeps running); cart port = C64 (pause) ----
 // Spec 709.13.1: a disk insert/eject/swap must NOT pause a running C64; a CRT
