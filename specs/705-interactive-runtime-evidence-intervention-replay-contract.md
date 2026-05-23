@@ -399,7 +399,7 @@ Closing gates on branch `claude/705-checkpoint-spike` HEAD (`d3fcf8e`):
 | `npm run probe:705-drive-roundtrip` | GREEN 8/8 |
 | `npm run probe:705-resid-roundtrip` | GREEN 7/7 |
 | `smoke-sid-resid-wasm` / `smoke-sid-resid` | PASS / 9-9 |
-| `npm run runtime:proof` (7-game) | see merge record |
+| `npm run runtime:proof` (7-game) | GREEN 7/7 (motm/mm/im2/scramble/polarbear/pawn/lnr match Spec 601) |
 
 Steps: 1 in-memory VICE snapshot module stream; 2.1-2.2 TDE + controlled stop;
 2.3 viacore VIA + iecieee VIA2; 2.4 DRIVE8 CASE A (VICE-canonical); 3 native
