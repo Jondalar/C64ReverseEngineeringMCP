@@ -97,6 +97,17 @@ import {
   drive_snapshot_read_module,
   drive_snapshot_write_module,
 } from "../vice1541/drive_snapshot.js";
+// Spec 705.A — in-memory VICE-shaped snapshot module stream (port of snapshot.c).
+import {
+  snapshot_create_in_memory,
+  snapshot_open_in_memory,
+  snapshot_to_bytes,
+  snapshot_module_create as sm_create,
+  snapshot_module_open as sm_open,
+  snapshot_module_close as sm_close,
+  SMW_B as sm_w_b, SMW_W as sm_w_w, SMW_DW as sm_w_dw, SMW_CLOCK as sm_w_clock, SMW_BA as sm_w_ba,
+  SMR_B as sm_r_b, SMR_W as sm_r_w, SMR_DW as sm_r_dw, SMR_BA as sm_r_ba, SMR_CLOCK as sm_r_clock,
+} from "../vice1541/snapshot.js";
 import { iec_drive_install_hooks } from "../vice1541/iec.js";
 import { drive_set_machine_parameter } from "../vice1541/drivesync.js";
 import { memiec_init } from "../vice1541/memiec.js";
@@ -413,19 +424,26 @@ export class Vice1541Facade implements Drive1541 {
   }
 
   snapshot(): Uint8Array {
-    // PL-9: VICE-format module chunks. Without a real snapshot_t implementation
-    // wired into the host_hooks, drive_snapshot_write_module returns 0
-    // (no-op). T3.1 acceptance does not require functional snapshot —
-    // T2.14 provides the snake_case body; this facade exposes the entry
-    // point so 611.8 can complete the round-trip later.
-    void drive_snapshot_write_module;
-    return new Uint8Array(0);
+    // Spec 705.A — write the active VICE1541 drive state through the real,
+    // VICE-shaped in-memory snapshot module stream. save_disks=0/save_roms=0:
+    // capture only the drive CPU/VIA/GCR/rotation core state (the disk image
+    // and ROM are owned by the media/ROM layer, not this checkpoint blob).
+    // The returned opaque Uint8Array is embedded later as the `drive1541`
+    // payload of the native RuntimeCheckpoint (Spec 705 §3.2).
+    const s = snapshot_create_in_memory();
+    const rc = drive_snapshot_write_module(s, 0, 0);
+    if (rc < 0) {
+      throw new Error("vice1541 snapshot: drive_snapshot_write_module failed");
+    }
+    return snapshot_to_bytes(s);
   }
 
   restore(blob: Uint8Array): void {
-    void blob;
-    void drive_snapshot_read_module;
-    // See snapshot() — PL-9 placeholder until host snapshot_t lands.
+    const s = snapshot_open_in_memory(blob);
+    const rc = drive_snapshot_read_module(s);
+    if (rc < 0) {
+      throw new Error("vice1541 restore: drive_snapshot_read_module failed");
+    }
   }
 
   debugProbe(): Drive1541DebugProbe {
@@ -486,19 +504,20 @@ export class Vice1541Facade implements Drive1541 {
       machine_trigger_reset: () => { /* no-op */ },
       log_message: () => { /* no-op */ },
       drive_jam: () => 0 /* JAM_NONE */,
-      snapshot_module_create: () => null,
-      snapshot_module_open: () => null,
-      snapshot_module_close: () => 0,
-      SMW_CLOCK: () => 0,
-      SMW_B: () => 0,
-      SMW_W: () => 0,
-      SMW_DW: () => 0,
-      SMW_BA: () => 0,
-      SMR_CLOCK: () => 0,
-      SMR_B: () => ({ ok: true, v: 0 }),
-      SMR_W: () => ({ ok: true, v: 0 }),
-      SMR_DW_UINT: () => ({ ok: true, v: 0 }),
-      SMR_BA: () => 0,
+      // Spec 705.A — real in-memory VICE-shaped snapshot module stream.
+      snapshot_module_create: (s, name, major, minor) => sm_create(s as any, name, major, minor) as any,
+      snapshot_module_open: (s, name) => sm_open(s as any, name) as any,
+      snapshot_module_close: (m) => sm_close(m as any),
+      SMW_CLOCK: (m, v) => sm_w_clock(m as any, v),
+      SMW_B: (m, v) => sm_w_b(m as any, v),
+      SMW_W: (m, v) => sm_w_w(m as any, v),
+      SMW_DW: (m, v) => sm_w_dw(m as any, v),
+      SMW_BA: (m, buf, len) => sm_w_ba(m as any, buf, len),
+      SMR_CLOCK: (m, ref) => sm_r_clock(m as any, ref),
+      SMR_B: (m) => sm_r_b(m as any),
+      SMR_W: (m) => sm_r_w(m as any),
+      SMR_DW_UINT: (m) => sm_r_dw(m as any),
+      SMR_BA: (m, buf, len) => sm_r_ba(m as any, buf, len),
     });
 
     // drive.ts hooks — drive_check_type / UI / sound / P64.
@@ -570,27 +589,31 @@ export class Vice1541Facade implements Drive1541 {
     // workflows. T2.14 acceptance verifies the snake_case body separately.
     drive_snapshot_install_hooks({
       diskunit_context: () => vice_diskunit_context,
-      snapshot_module_create: () => null,
-      snapshot_module_open: () => null,
-      snapshot_module_close: () => 0,
+      // Spec 705.A — real in-memory VICE-shaped snapshot module stream. The
+      // _INT/_UINT/_UL SMR variants read the same LE bytes; they differ only in
+      // host-side signedness interpretation, which is irrelevant for the small
+      // drive-state values, so all map to the one faithful reader.
+      snapshot_module_create: (s, name, major, minor) => sm_create(s as any, name, major, minor) as any,
+      snapshot_module_open: (s, name) => sm_open(s as any, name) as any,
+      snapshot_module_close: (m) => sm_close(m as any),
       snapshot_version_is_bigger: () => false,
       snapshot_version_is_smaller: () => false,
       snapshot_set_error: () => { /* no-op */ },
-      SMW_B: () => 0,
-      SMW_W: () => 0,
-      SMW_DW: () => 0,
-      SMW_CLOCK: () => 0,
-      SMW_BA: () => 0,
-      SMR_B: () => ({ ok: false, v: 0 }),
-      SMR_B_INT: () => ({ ok: false, v: 0 }),
-      SMR_W: () => ({ ok: false, v: 0 }),
-      SMR_W_INT: () => ({ ok: false, v: 0 }),
-      SMR_DW: () => ({ ok: false, v: 0 }),
-      SMR_DW_INT: () => ({ ok: false, v: 0 }),
-      SMR_DW_UINT: () => ({ ok: false, v: 0 }),
-      SMR_DW_UL: () => ({ ok: false, v: 0 }),
-      SMR_CLOCK: () => -1,
-      SMR_BA: () => -1,
+      SMW_B: (m, v) => sm_w_b(m as any, v),
+      SMW_W: (m, v) => sm_w_w(m as any, v),
+      SMW_DW: (m, v) => sm_w_dw(m as any, v),
+      SMW_CLOCK: (m, v) => sm_w_clock(m as any, v),
+      SMW_BA: (m, buf, len) => sm_w_ba(m as any, buf, len),
+      SMR_B: (m) => sm_r_b(m as any),
+      SMR_B_INT: (m) => sm_r_b(m as any),
+      SMR_W: (m) => sm_r_w(m as any),
+      SMR_W_INT: (m) => sm_r_w(m as any),
+      SMR_DW: (m) => sm_r_dw(m as any),
+      SMR_DW_INT: (m) => sm_r_dw(m as any),
+      SMR_DW_UINT: (m) => sm_r_dw(m as any),
+      SMR_DW_UL: (m) => sm_r_dw(m as any),
+      SMR_CLOCK: (m, ref) => sm_r_clock(m as any, ref),
+      SMR_BA: (m, buf, len) => sm_r_ba(m as any, buf, len),
       vdrive_snapshot_module_write: () => 0,
       vdrive_snapshot_module_read: () => 0,
       machine_drive_snapshot_write: () => 0,

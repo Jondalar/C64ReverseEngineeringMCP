@@ -116,6 +116,7 @@ The authoritative TS↔C map for the 1541 rebuild. **A TS file in `vice1541/` MU
 | `driverom.ts` | `drive/driverom.c` (+ `drive/driverom.h`) |
 | `drive.ts` | `drive/drive.c` (drive_init / drive_set_half_track / drive_gcr_data_writeback / drive_enable etc.) |
 | `drive_snapshot.ts` | `drive/drive-snapshot.c` |
+| `snapshot.ts` | `snapshot.c` (module-stream layer — in-memory backing store; Spec 705.A) |
 | `memiec.ts` | `drive/iec/memiec.c` (drive memory map installer for 1541) |
 | `iec.ts` | `drive/iec/iec.c` (drive-side iec helpers) |
 | `iecbus.ts` | `iecbus/iecbus.c` |
