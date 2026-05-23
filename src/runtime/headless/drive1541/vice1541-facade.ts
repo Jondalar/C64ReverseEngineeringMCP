@@ -212,6 +212,13 @@ export class Vice1541Facade implements Drive1541 {
     return d;
   }
 
+  // Spec 707 — media identity + dirty-detection. Bridge-side, READ-ONLY on the
+  // port (no VICE1541 behavior change, Spec 612 PL-5 / rule 6). `attachedMedia`
+  // are the re-attachable source bytes; `mediaBaselineGcrHash` is the clean GCR
+  // image hash captured right after attach (the dirty reference).
+  private attachedMedia: { kind: string; bytes: Uint8Array; readOnly: boolean } | null = null;
+  private mediaBaselineGcrHash: number | null = null;
+
   constructor() {
     // T3.2-fix-I: drive_6510core.ts reads InterruptCpuStatus via VICE
     // snake_case names (global_pending_int, irq_clk, nmi_clk,
@@ -411,12 +418,52 @@ export class Vice1541Facade implements Drive1541 {
     }
     // Re-point head per VICE drive_image_attach trailing call.
     drive_set_half_track(this.drive.current_half_track, this.drive.side, this.drive);
+    // Spec 707 — record the re-attachable media + clean GCR baseline.
+    this.attachedMedia = { kind: media.kind, bytes: media.bytes, readOnly: media.readOnly };
+    this.mediaBaselineGcrHash = this.gcrImageHash();
   }
 
   detachDisk(): void {
     const img = this.drive.image;
     if (img === null) return;
     drive_image_detach(img, 8, 0);
+    this.attachedMedia = null;
+    this.mediaBaselineGcrHash = null;
+  }
+
+  // ---- Spec 707 media identity + dirty guard (read-only on the port) ----
+
+  /** The currently attached media (re-attachable source bytes), or null. */
+  getAttachedMedia(): { kind: string; bytes: Uint8Array; readOnly: boolean } | null {
+    return this.attachedMedia;
+  }
+
+  /**
+   * Spec 707 dirty-media guard. True if the in-memory GCR image has been written
+   * since attach. Read-only: `GCR_dirty_track` catches the current not-yet-
+   * written-back track; the live GCR-image hash diverging from the post-attach
+   * baseline catches writes already flushed to other tracks (so `==0` alone is
+   * not trusted as clean). Write-protected media cannot be dirtied.
+   */
+  isMediaDirty(): boolean {
+    if (this.attachedMedia === null) return false;
+    if (this.drive.read_only) return false;
+    if (this.drive.GCR_dirty_track !== 0) return true;
+    return this.mediaBaselineGcrHash !== null && this.gcrImageHash() !== this.mediaBaselineGcrHash;
+  }
+
+  /** fnv1a over all live GCR track buffers (dirty-guard reference, read-only). */
+  private gcrImageHash(): number {
+    let h = 0x811c9dc5 >>> 0;
+    const gcr = this.drive.gcr;
+    if (gcr === null) return h >>> 0;
+    for (const trk of gcr.tracks) {
+      const data = trk?.data;
+      if (!data) { h = Math.imul(h ^ 0xff, 0x01000193) >>> 0; continue; }
+      const n = Math.min(trk.size, data.length);
+      for (let i = 0; i < n; i++) { h ^= data[i]!; h = Math.imul(h, 0x01000193) >>> 0; }
+    }
+    return h >>> 0;
   }
 
   setWriteProtect(on: boolean): void {
@@ -648,7 +695,13 @@ export class Vice1541Facade implements Drive1541 {
       drive_enable: () => 0,
       drive_disable: () => { /* no-op */ },
       drive_set_active_led_color: () => { /* no-op */ },
-      drive_set_half_track: () => { /* no-op */ },
+      // Spec 707 — VICE-faithful: drive_snapshot_read_module re-establishes the
+      // head position + GCR_track_start_ptr by calling drive_set_half_track on
+      // restore (drive-snapshot.c, ported at drive_snapshot.ts:957). A no-op
+      // here left current_half_track unrestored — latent for in-session ring
+      // restore (head already in place) but wrong for cross-session .c64re
+      // undump. Wire it to the real function (same one attachDisk uses at :420).
+      drive_set_half_track: (num: number, side: number, drv: drive_t) => drive_set_half_track(num, side, drv),
       drive_gcr_data_writeback_all: () => { /* no-op */ },
       drive_is_dualdrive_by_devnr: () => false,
       drive_update_ui_status: () => { /* no-op */ },

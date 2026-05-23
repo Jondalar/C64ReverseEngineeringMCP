@@ -17,6 +17,10 @@ import {
   type RuntimePacingMode,
 } from "../runtime/headless/debug/runtime-controller.js";
 import { SidAudioRecorder, AudioExportSession, LIVE_RECORDER_BUFFER_SAMPLES } from "../runtime/headless/audio/sid-audio-recorder.js";
+import {
+  dumpRuntimeSnapshot, undumpRuntimeSnapshot,
+  formatDumpSummary, formatUndumpSummary,
+} from "../runtime/headless/kernel/snapshot-persistence.js";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 
@@ -543,6 +547,18 @@ export class V3WsServer {
       const restored = await c.restoreCheckpoint(String(id));
       return { restored, state: c.state() };
     });
+
+    // ---- Spec 707 — native .c64re snapshot persistence (dump/undump).
+    // The SAME backend the monitor `dump`/`undump` commands use, so UI/API
+    // controls never re-implement serialization (Spec 707 §4).
+    this.on("snapshot/dump", async ({ session_id, path }) => {
+      if (!path) throw new Error("snapshot/dump: path required");
+      return await dumpRuntimeSnapshot(ctrlFor(session_id), String(path));
+    });
+    this.on("snapshot/undump", async ({ session_id, path }) => {
+      if (!path) throw new Error("snapshot/undump: path required");
+      return await undumpRuntimeSnapshot(ctrlFor(session_id), String(path));
+    });
     this.on("session/set_pacing", ({ session_id, mode, ratio }) => {
       const c = ctrlFor(session_id);
       if (!PACING_MODES.includes(mode)) throw new Error(`bad pacing mode: ${mode}`);
@@ -1001,6 +1017,22 @@ export class V3WsServer {
         return isNaN(v) ? null : v & 0xffff;
       };
       try {
+        // Spec 707 / 623 §7 — native runtime snapshot persistence.
+        // `dump "<path>"` / `undump "<path>"` (quoted, may contain spaces).
+        // Both are one-shot: there is no cursor/repeat state, and a bare RETURN
+        // returns "" above (line ~994), so a dump is never repeated by RETURN.
+        if (op === "dump" || op === "undump") {
+          const pm = cmd.match(/^\w+\s+"([^"]+)"/) ?? cmd.match(/^\w+\s+(\S+)/);
+          const path = pm?.[1];
+          if (!path) return { output: `${op}: usage: ${op} "<path.c64re>"` };
+          if (op === "dump") {
+            const r = await dumpRuntimeSnapshot(ctrl, path);
+            return { output: formatDumpSummary(r) };
+          }
+          const r = await undumpRuntimeSnapshot(ctrl, path);
+          monitorDisasmAddr.set(session_id, s.c64Cpu.pc); // bare `d` follows restored PC
+          return { output: formatUndumpSummary(r) };
+        }
         // Registers
         if (op === "r" || op === "registers" || op === "cpu") {
           const c = s.c64Cpu;

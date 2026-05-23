@@ -29,6 +29,7 @@ import {
   RuntimeCheckpointRing,
   type RuntimeCheckpointRef,
 } from "../kernel/runtime-checkpoint-ring.js";
+import type { MachineSnapshot } from "../kernel/machine-kernel.js";
 
 export type RuntimeRunState = "running" | "paused" | "stopped";
 export type RuntimePacingMode = "pal" | "warp" | "fixed-ratio";
@@ -282,14 +283,33 @@ export class RuntimeController {
     const snap = this.checkpointRing.restoreSnapshot(id);
     const ref = this.checkpointRing.get(id);
     if (!snap || !ref) throw new Error(`[checkpoint] unknown id ${id}`);
+    await this.restoreFromSnapshot(snap, { ref });
+    return ref;
+  }
+
+  /**
+   * Restore an arbitrary MachineSnapshot (ring entry OR a deserialized native
+   * .c64re snapshot — Spec 707 undump). Goes through runExclusive so the loop
+   * is idle; kernel.restore() drives the 705.A audio provider → the 706.8
+   * transport flush, leaving no stale frames/audio. `pause` stops live
+   * execution and publishes the restored paused/debug state (undump default).
+   */
+  async restoreFromSnapshot(
+    snap: MachineSnapshot, opts: { ref?: RuntimeCheckpointRef; pause?: boolean } = {},
+  ): Promise<void> {
+    if (opts.pause && this.runState === "running") this.pause();
     await this.runExclusive(() => {
       this.session.kernel.restore(snap);
       this.framesSinceCheckpoint = 0; // re-base the auto-capture cadence
     });
+    const registers = registerDump(this.session);
     this.broadcast("debug/checkpoint_restored", {
-      session_id: this.sessionId, ref, registers: registerDump(this.session),
+      session_id: this.sessionId, ref: opts.ref ?? null, registers,
     });
-    return ref;
+    if (opts.pause) {
+      this.stopInfo = { reason: "pause", pc: this.session.c64Cpu.pc, cycles: this.session.c64Cpu.cycles };
+      this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers });
+    }
   }
 
   /** Tear down (session stop). */

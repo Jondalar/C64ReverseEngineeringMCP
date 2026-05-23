@@ -1,6 +1,6 @@
 # Spec 707 - Native Snapshot Persistence and Monitor dump/undump
 
-Status: DRAFT (2026-05-23 CEST)
+Status: DONE (2026-05-23 CEST) — see §9. All gates green incl. runtime:proof 7/7.
 Depends: Specs 623, 701, 705.A, 705.B, 706
 Owner: runtime / monitor / workspace persistence
 
@@ -140,3 +140,49 @@ separate serialization logic.
 - `specs/705-interactive-runtime-evidence-intervention-replay-contract.md`
 - `specs/706-resid-audio-latency-governor.md`
 - `specs/623-vice-monitor-debugger.md` section 7
+
+## 9. Result (2026-05-23)
+
+Implemented on the existing 705.A RuntimeCheckpoint + 705.B ring/restore — no
+second snapshot model.
+
+**Format (`.c64re`, canonical, §3):** `src/runtime/headless/kernel/native-snapshot.ts`.
+Container = `MAGIC "C64RESNP"` + `u8 formatVersion` + `sha256(gzBody)` + gzipped
+JSON `{ manifest, checkpoint, mediaPayloads }`. Checkpoint = the RuntimeCheckpoint
+payload via a typed-array codec (`$ta`+base64) — RAM / VIC FB / opaque drive
+`Uint8Array` / reSID state round-trip 1:1. Versioned + rejectable; sha256
+integrity over body + per-embedded-media. No VSF internally.
+
+**Media policy (§3, user-bound):** v1 EMBEDS the mounted source bytes + sha256
+identity → self-contained, portable restore. **Dirty disk (written since attach)
+aborts dump with a clear `unsupported-dirty-media` error** — the active VICE1541
+checkpoint uses `save_disks=0`, so runtime disk writes are not in the drive blob;
+v1 never silently persists a partial disk state. A versioned `writableDeltaRef`
+slot is reserved; no half-built delta path. Dirty detection (read-only, no port
+behavior change): `GCR_dirty_track != 0 OR live-gcr-hash != attach-baseline`
+(`vice1541-facade.ts`).
+
+**dump/undump (§4):** `src/runtime/headless/kernel/snapshot-persistence.ts` — the
+single backend shared by the Spec 623 monitor `dump "<path>"` / `undump "<path>"`
+commands AND the `snapshot/dump` · `snapshot/undump` WS API. Paths resolve under
+`C64RE_PROJECT_DIR`. dump captures via the 705.B controller (instruction
+boundary); undump validates → re-attaches embedded media → restores via the 705.B
+path (706.8 audio transport flush runs), leaving the machine PAUSED with restored
+debug state published. Bare RETURN never repeats dump (one-shot, no cursor).
+
+**Port-fidelity fix found + applied (rule 6, reported first):** `drive_snapshot_read_module`
+re-points the head via `drive_set_half_track` (port `drive_snapshot.ts:957`, VICE
+`drive-snapshot.c`), but the facade had stubbed that hook to a no-op — latent for
+in-session ring restore (head already in place), wrong for cross-session undump.
+Wired the bridge hook to the real function (`vice1541-facade.ts`). VICE-faithful;
+no pure-port change.
+
+**Gates (all GREEN):** `probe:707-dump-undump` 10/10 — G1 BASIC roundtrip identity
++ run-N continuation; G2 real-media (motm.g64) + reSID undump continuation; G3
+self-contained undump into a FRESH session (head/RAM/drive byte-exact); G4
+integrity-flip rejected; G5 incompatible-version rejected; G6 dirty-disk dump
+abort. 705.A (core/drive/reSID) + 705.B ring + 706 (latency/restore) probes green;
+`check:1541-fidelity` 78 PASS / 0 FAIL; `runtime:proof` 7/7.
+
+**Deferred (Non-Goals §7):** VSF import/export, rewind UI, writable-media delta,
+external (non-embedded) media resolution.

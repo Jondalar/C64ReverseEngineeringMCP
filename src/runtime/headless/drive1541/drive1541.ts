@@ -66,4 +66,9 @@ export interface Drive1541 {
   snapshot(): Uint8Array;
   restore(blob: Uint8Array): void;
   debugProbe?(): Drive1541DebugProbe;
+  // Spec 707 — native-snapshot media persistence (read-only; no port change).
+  /** The currently attached media (re-attachable source bytes), or null. */
+  getAttachedMedia?(): { kind: string; bytes: Uint8Array; readOnly: boolean } | null;
+  /** True if the in-memory GCR image was written since attach (dirty guard). */
+  isMediaDirty?(): boolean;
 }
