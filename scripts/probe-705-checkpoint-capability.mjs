@@ -24,6 +24,23 @@ if (!existsSync(diskPath)) {
 const failures = [];
 let passes = 0;
 
+// Walk a VICE in-memory snapshot module stream: each module is
+// [name:16][major:1][minor:1][size:4 LE], size includes the 22-byte header.
+// Returns [{name, bodyBytes}] or null if the byte stream is malformed/truncated.
+function parseSnapshotModules(bytes) {
+  const mods = [];
+  let off = 0;
+  while (off + 22 <= bytes.length) {
+    let name = "";
+    for (let i = 0; i < 16; i++) { const c = bytes[off + i]; if (c) name += String.fromCharCode(c); }
+    const size = (bytes[off + 18] | (bytes[off + 19] << 8) | (bytes[off + 20] << 16) | (bytes[off + 21] << 24)) >>> 0;
+    if (size < 22 || off + size > bytes.length) return null;
+    mods.push({ name, bodyBytes: size - 22 });
+    off += size;
+  }
+  return off === bytes.length ? mods : null;
+}
+
 function gate(name, ok, detail) {
   if (ok) {
     passes++;
@@ -61,8 +78,20 @@ try {
     `payload=${String(machineSnap?.payload)}`);
 
   const driveBlob = session.kernel.drive1541.snapshot();
-  gate("active VICE1541 exposes a non-empty restorable checkpoint blob",
-    driveBlob.length > 0, `bytes=${driveBlob.length}`);
+  // Spec 705.A tightened gate: a non-empty blob is NOT enough — a header-only
+  // blob (just DRIVE8/DRIVE9 module headers) is plumbing success, not a
+  // snapshot PASS. Walk the VICE module stream (independent inline parser, so
+  // it checks the BYTES, not the port's own reader) and require real, non-empty
+  // active-1541 state: a DRIVECPU module + both VIA modules.
+  const mods = parseSnapshotModules(driveBlob);
+  gate("VICE1541 snapshot stream is syntactically parseable",
+    mods !== null,
+    mods === null ? `unparseable, ${driveBlob.length}B` : `${mods.length} modules, ${driveBlob.length}B`);
+  const driveCpuMod = (mods ?? []).find((m) => m.name.startsWith("DRIVECPU") && m.bodyBytes > 0);
+  const viaMods = (mods ?? []).filter((m) => m.name.includes("VIA") && m.bodyBytes > 0);
+  gate("active VICE1541 snapshot contains real DRIVECPU + VIA1/VIA2 state (not header-only)",
+    !!driveCpuMod && viaMods.length >= 2,
+    mods ? `modules=[${mods.map((m) => `${m.name}:${m.bodyBytes}`).join(", ")}]` : "n/a");
 
   const vsfPath = join(tempDir, "active-runtime.vsf");
   saveSessionVsf(session, vsfPath);
