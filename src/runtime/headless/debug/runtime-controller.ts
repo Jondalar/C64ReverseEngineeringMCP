@@ -25,6 +25,10 @@
 
 import type { IntegratedSession } from "../integrated-session.js";
 import { FlowTracker } from "./stepping.js";
+import {
+  RuntimeCheckpointRing,
+  type RuntimeCheckpointRef,
+} from "../kernel/runtime-checkpoint-ring.js";
 
 export type RuntimeRunState = "running" | "paused" | "stopped";
 export type RuntimePacingMode = "pal" | "warp" | "fixed-ratio";
@@ -49,6 +53,12 @@ export type BroadcastFn = (method: string, params?: any) => void;
 const PAL_CYCLES_PER_SEC = 985248;
 const PAL_CYCLES_PER_FRAME = 19705; // matches the legacy Live.tsx budget + session/run default
 const PAL_FRAME_MS = (PAL_CYCLES_PER_FRAME / PAL_CYCLES_PER_SEC) * 1000; // ≈ 20.0ms → 50Hz
+
+// Spec 705.B — automatic checkpoint ring cadence: capture one RuntimeCheckpoint
+// every N completed frames (~0.5 s @ 50 Hz PAL). Fine enough to rewind to the
+// cause of a just-seen effect; ~400 KB/checkpoint × 2/s is cheap, and the ring
+// budget (128 MiB) bounds total retention by evicting oldest-unpinned.
+const CHECKPOINT_CAPTURE_EVERY_FRAMES = 25;
 
 // Warp: run large chunks flat-out, present the latest frame at a bounded rate.
 const WARP_CHUNK_CYCLES = PAL_CYCLES_PER_FRAME * 8;
@@ -107,6 +117,11 @@ export class RuntimeController {
   // stays pure wall-clock; the browser is the audio master purely by rendering
   // on demand (no backend pace feedback needed).
   onAudioFrame?: () => void;
+
+  // Spec 705.B — always-on bounded checkpoint ring + per-frame capture counter.
+  // The ring is transient (in-memory); pinned entries survive eviction.
+  readonly checkpointRing = new RuntimeCheckpointRing();
+  private framesSinceCheckpoint = 0;
 
   constructor(
     sessionId: string, session: IntegratedSession, broadcast: BroadcastFn,
@@ -240,10 +255,48 @@ export class RuntimeController {
     }
   }
 
+  // ---- Spec 705.B: checkpoint ring lifecycle ----
+
+  /**
+   * Capture a checkpoint NOW into the ring (in addition to the automatic
+   * cadence). Safe from a paused state or between chunks; if called while the
+   * loop is running it goes through runExclusive so snapshot() sees an atomic
+   * boundary with the loop idle.
+   */
+  async captureCheckpoint(): Promise<RuntimeCheckpointRef> {
+    const take = (): RuntimeCheckpointRef =>
+      this.checkpointRing.capture(
+        this.session.kernel.snapshot(), this.frameCounter, this.session.c64Cpu.cycles,
+      );
+    return this.runState === "running" ? this.runExclusive(take) : take();
+  }
+
+  /**
+   * Restore a ring checkpoint into the live machine. Goes through runExclusive
+   * so the loop is idle during the mutation. kernel.restore() also drives the
+   * 705.A audio-checkpoint provider, which fires the Spec 706.8 transport flush
+   * (recorder ring + WS + worklet re-prebuffer). runState is unchanged: a
+   * rewind while running keeps running from the restored state.
+   */
+  async restoreCheckpoint(id: string): Promise<RuntimeCheckpointRef> {
+    const snap = this.checkpointRing.restoreSnapshot(id);
+    const ref = this.checkpointRing.get(id);
+    if (!snap || !ref) throw new Error(`[checkpoint] unknown id ${id}`);
+    await this.runExclusive(() => {
+      this.session.kernel.restore(snap);
+      this.framesSinceCheckpoint = 0; // re-base the auto-capture cadence
+    });
+    this.broadcast("debug/checkpoint_restored", {
+      session_id: this.sessionId, ref, registers: registerDump(this.session),
+    });
+    return ref;
+  }
+
   /** Tear down (session stop). */
   dispose(): void {
     this.cancelScheduled();
     this.runState = "stopped";
+    this.checkpointRing.clear();
   }
 
   // ---- internals ----
@@ -336,6 +389,20 @@ export class RuntimeController {
     // A presentation/transport error (render, WS send) must NEVER kill the
     // loop or crash the process — the emulation keeps running regardless.
     try { this.maybePresentFrame(warp); } catch { /* drop this frame's display */ }
+
+    // Spec 705.B — automatic checkpoint capture. We're at a completed-frame
+    // boundary: runFor returned at an atomic CPU instruction boundary and the
+    // loop is the only thing running (single-threaded, between chunks), so
+    // kernel.snapshot()'s boundary contract holds. Isolated like audio/present:
+    // a capture failure must never kill the loop.
+    if (++this.framesSinceCheckpoint >= CHECKPOINT_CAPTURE_EVERY_FRAMES) {
+      this.framesSinceCheckpoint = 0;
+      try {
+        this.checkpointRing.capture(
+          this.session.kernel.snapshot(), this.frameCounter, this.session.c64Cpu.cycles,
+        );
+      } catch { /* drop this checkpoint; the ring stays consistent */ }
+    }
 
     if (warp) {
       this.scheduleNext(0); // flat-out

@@ -508,6 +508,41 @@ export class V3WsServer {
     });
     this.on("debug/break_list", ({ session_id }) => ({ breakpoints: ctrlFor(session_id).listBreakpoints() }));
     this.on("debug/state", ({ session_id }) => ctrlFor(session_id).state());
+
+    // ---- Spec 705.B — always-on checkpoint ring + pin/restore lifecycle.
+    // The RuntimeController owns an in-memory bounded ring (auto-captured every
+    // ~0.5 s). list/pin/unpin are pure ring ops; capture/restore go through the
+    // controller (instruction-boundary + runExclusive). Restore also fires the
+    // 706.8 audio transport flush. No persistence here (dump/undump = later).
+    this.on("checkpoint/list", ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      return { checkpoints: c.checkpointRing.list(), stats: c.checkpointRing.stats() };
+    });
+    this.on("checkpoint/capture", async ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      const ref = await c.captureCheckpoint();
+      return { ref, stats: c.checkpointRing.stats() };
+    });
+    this.on("checkpoint/pin", ({ session_id, id }) => {
+      const c = ctrlFor(session_id);
+      if (!id) throw new Error("checkpoint/pin: id required");
+      const ref = c.checkpointRing.pin(String(id));
+      if (!ref) throw new Error(`checkpoint/pin: unknown id ${id}`);
+      return { ref, stats: c.checkpointRing.stats() };
+    });
+    this.on("checkpoint/unpin", ({ session_id, id }) => {
+      const c = ctrlFor(session_id);
+      if (!id) throw new Error("checkpoint/unpin: id required");
+      const ref = c.checkpointRing.unpin(String(id));
+      if (!ref) throw new Error(`checkpoint/unpin: unknown id ${id}`);
+      return { ref, stats: c.checkpointRing.stats() };
+    });
+    this.on("checkpoint/restore", async ({ session_id, id }) => {
+      const c = ctrlFor(session_id);
+      if (!id) throw new Error("checkpoint/restore: id required");
+      const restored = await c.restoreCheckpoint(String(id));
+      return { restored, state: c.state() };
+    });
     this.on("session/set_pacing", ({ session_id, mode, ratio }) => {
       const c = ctrlFor(session_id);
       if (!PACING_MODES.includes(mode)) throw new Error(`bad pacing mode: ${mode}`);
