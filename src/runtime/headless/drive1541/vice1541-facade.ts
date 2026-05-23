@@ -108,7 +108,7 @@ import {
   SMW_B as sm_w_b, SMW_W as sm_w_w, SMW_DW as sm_w_dw, SMW_CLOCK as sm_w_clock, SMW_BA as sm_w_ba,
   SMR_B as sm_r_b, SMR_W as sm_r_w, SMR_DW as sm_r_dw, SMR_BA as sm_r_ba, SMR_CLOCK as sm_r_clock,
 } from "../vice1541/snapshot.js";
-import { iec_drive_install_hooks } from "../vice1541/iec.js";
+import { iec_drive_install_hooks, iec_drive_snapshot_write, iec_drive_snapshot_read } from "../vice1541/iec.js";
 import { drive_set_machine_parameter } from "../vice1541/drivesync.js";
 import { memiec_init } from "../vice1541/memiec.js";
 import { via1d1541_setup_context, via1d1541_init } from "../vice1541/via1d1541.js";
@@ -181,6 +181,11 @@ export class Vice1541Facade implements Drive1541 {
   /** Per-unit interrupt-cpu-status — VICE: `interrupt_cpu_status_t *` allocated by
    *  `interrupt_cpu_status_new()` in `drivecpu_setup_context`. */
   private readonly intStatus = new InterruptCpuStatus();
+
+  /** Spec 705.A — minimal VICE resource store for the snapshot path. TDE is
+   *  derived live from `diskunit_context.enable`; other resources (e.g.
+   *  MachineVideoStandard) round-trip through here on set/get. */
+  private readonly viceResources = new Map<string, number>();
 
   /** Convenience: the diskunit_context_t for unit 0 (device 8), populated
    *  by `drive_setup_context` + `drive_init`. */
@@ -616,8 +621,12 @@ export class Vice1541Facade implements Drive1541 {
       SMR_BA: (m, buf, len) => sm_r_ba(m as any, buf, len),
       vdrive_snapshot_module_write: () => 0,
       vdrive_snapshot_module_read: () => 0,
-      machine_drive_snapshot_write: () => 0,
-      machine_drive_snapshot_read: () => 0,
+      // Spec 705.A step 2.2 — C64 machine_drive_snapshot_write/read
+      // (c64/c64drive.c:155) dispatch to iec_drive_snapshot_write/read for the
+      // IEC drive. This carries the per-drive VIA1d1541/VIA2d1541 modules
+      // (iec.c:254-299), reaching viacore_snapshot_write/read_module.
+      machine_drive_snapshot_write: (drv, s) => iec_drive_snapshot_write(drv as any, s as any),
+      machine_drive_snapshot_read: (drv, s) => iec_drive_snapshot_read(drv as any, s as any),
       machine_drive_rom_setup_image: () => { /* no-op */ },
       machine_bus_status_drivetype_set: () => { /* no-op */ },
       drive_enable: () => 0,
@@ -635,10 +644,29 @@ export class Vice1541Facade implements Drive1541 {
       file_system_attach_disk: () => -1,
       file_system_detach_disk: () => { /* no-op */ },
       zfile_close_action: () => { /* no-op */ },
-      resources_get_int: () => ({ ok: false, v: 0 }),
-      resources_set_int: () => 0,
-      resources_get_int_sprintf: () => ({ ok: false, v: 0 }),
-      resources_set_int_sprintf: () => 0,
+      // Spec 705.A step 2.1 — report the REAL active vice1541 config, not a
+      // hardcoded snapshot special-case. `DriveNTrueEmulation` mirrors the
+      // per-unit `enable` flag of the actual diskunit_context: a unit running
+      // on the vice true-drive path reports TDE=1, an unused unit reports 0.
+      // This is what gates the per-drive CPU/VIA/GCR module writers.
+      resources_get_int: (name) => {
+        // MachineVideoStandard → sync_factor in the DRIVE module. Active runtime
+        // is PAL (MACHINE_SYNC_PAL=0; NTSC deferred per project), and any value
+        // set during restore is stored below so the round-trip is consistent.
+        if (name === "MachineVideoStandard") return { ok: true, v: this.viceResources.get(name) ?? 0 };
+        const stored = this.viceResources.get(name);
+        return stored === undefined ? { ok: false, v: 0 } : { ok: true, v: stored };
+      },
+      resources_set_int: (name, value) => { this.viceResources.set(name, value); return 0; },
+      resources_get_int_sprintf: (fmt, devnr) => {
+        if (fmt === "Drive%iTrueEmulation") {
+          const u = vice_diskunit_context[devnr - 8];
+          return { ok: true, v: (u && u.enable) ? 1 : 0 };
+        }
+        const stored = this.viceResources.get(`${fmt}:${devnr}`);
+        return stored === undefined ? { ok: false, v: 0 } : { ok: true, v: stored };
+      },
+      resources_set_int_sprintf: (fmt, value, devnr) => { this.viceResources.set(`${fmt}:${devnr}`, value); return 0; },
       disk_image_read_sector: () => -1,
       disk_image_write_sector: () => -1,
       archdep_mkstemp_fd: () => null,
