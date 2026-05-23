@@ -11,7 +11,15 @@
 import workletUrl from "./resid-worklet.js?url";
 
 const STREAM_RATE = 44100;
-const PREBUFFER_SEC = 0.25; // headroom to ride brief realtime dips (fastloaders)
+// Spec 706.3 — live latency budget. Prebuffer is the startup headroom that
+// rides brief realtime dips (fastloaders); the governor target is the
+// steady-state ring fill the worklet trims back toward; margin is the slack
+// above target before a trim fires (so steady state never trims). Prebuffer
+// sits just above target so playback starts at the governed level without an
+// immediate trim. Was 0.25 s flat (banked permanently — Spec 706 §3).
+const PREBUFFER_SEC = 0.12;    // ~120 ms startup headroom
+const LIVE_TARGET_SEC = 0.10;  // ~100 ms steady-state fill target
+const LIVE_MARGIN_SEC = 0.05;  // trim when fill exceeds target + 50 ms
 
 export class WebAudioPlayer {
   private ctx: AudioContext | null = null;
@@ -32,9 +40,11 @@ export class WebAudioPlayer {
       numberOfOutputs: 1,
       outputChannelCount: [2],
       processorOptions: {
-        ringFrames: STREAM_RATE, // ~1s
+        ringFrames: STREAM_RATE, // ~1s hard cap (governor keeps fill far below)
         resampleRatio: STREAM_RATE / ctx.sampleRate,
         startFrames: Math.round(STREAM_RATE * PREBUFFER_SEC),
+        governorTarget: Math.round(STREAM_RATE * LIVE_TARGET_SEC),
+        governorMargin: Math.round(STREAM_RATE * LIVE_MARGIN_SEC),
       },
     });
     node.connect(ctx.destination);
@@ -74,6 +84,15 @@ export class WebAudioPlayer {
     const copy = bytes.slice(0, bytes.byteLength & ~1);
     const i16 = new Int16Array(copy.buffer); // s16le; browsers are little-endian
     node.port.postMessage(i16, [copy.buffer]);
+  }
+
+  /**
+   * Spec 706.8 — drop all buffered (stale-timeline) PCM and re-prebuffer. Call
+   * on a RuntimeCheckpoint restore: pre-restore PCM is transport state for the
+   * OLD timeline; after restore, audio re-syncs from the restored reSID state.
+   */
+  flush(): void {
+    this.node?.port.postMessage({ type: "flush" });
   }
 
   async close(): Promise<void> {

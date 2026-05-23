@@ -14,6 +14,22 @@ import type { Sid6581 } from "../sid/sid.js";
 import { createAudioSid, type AudioSidLike, type SidEngineKind } from "../sid/sid-engine.js";
 import { AudioRingBuffer, monoToStereoLR } from "./audio-buffer.js";
 
+// Spec 706.2 (Fix A) — recorder buffer size is per-use, NOT one-size.
+//
+// The recorder ring is the primary banking enabler (Spec 706 §3): a backend
+// lead (startup burst / fastloader catch-up) can flush a large backlog in one
+// go; whatever the recorder holds becomes permanent downstream latency. The
+// LIVE stream therefore uses a SMALL cap (~80 ms) so a catch-up flush drops the
+// stale excess at the source (reSID is re-rendered fresh — dropping stale
+// samples = staying current with video, no quality loss). The OFFLINE export
+// path legitimately banks (it drains linearly, never realtime) and keeps the
+// LARGE buffer.
+//
+// NB AudioRingBuffer rounds capacity up to a power of two, so 3528 → 4096
+// (~93 ms). That is the realized live cap.
+export const LIVE_RECORDER_BUFFER_SAMPLES = 3528;   // ~80 ms @ 44.1 kHz (→ 4096 after pow2)
+export const EXPORT_RECORDER_BUFFER_SAMPLES = 65536; // ~1.48 s — offline banking
+
 export interface SessionLike {
   sid: Sid6581;
   c64Cpu: { cycles: number };
@@ -182,7 +198,11 @@ export class AudioExportSession {
     // silence (and non-deterministic timing) under a sync pump. Migrating
     // export to reSID is Spec 703.5 (needs an `await resid.ready()` pass). The
     // live WS stream already runs reSID via SidAudioRecorder's default.
-    this.recorder = new SidAudioRecorder(session, { engine: "resid", ...opts });
+    // Spec 706.2: export banks legitimately (linear drain, not realtime) → keep
+    // the large buffer. Explicit so a future ctor-default change can't shrink it.
+    this.recorder = new SidAudioRecorder(session, {
+      engine: "resid", bufferSamples: EXPORT_RECORDER_BUFFER_SAMPLES, ...opts,
+    });
     this.cursorId = `export_${Date.now()}_${Math.floor(Math.random() * 1e9)}`;
     this.recorder.buffer.attach(this.cursorId);
   }

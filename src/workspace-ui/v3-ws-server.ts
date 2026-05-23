@@ -16,7 +16,7 @@ import {
   getRuntimeController,
   type RuntimePacingMode,
 } from "../runtime/headless/debug/runtime-controller.js";
-import { SidAudioRecorder, AudioExportSession } from "../runtime/headless/audio/sid-audio-recorder.js";
+import { SidAudioRecorder, AudioExportSession, LIVE_RECORDER_BUFFER_SAMPLES } from "../runtime/headless/audio/sid-audio-recorder.js";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 
@@ -69,6 +69,16 @@ export const BIN_TYPE_ACK = 0x04;
 // the backend only ships the $D400-$D41F writes (cycle-stamped) per frame.
 // payload: baseCycle f64 | nowDelta u32 | count u16 | count×(delta u32, reg u8, val u8)
 export const BIN_TYPE_SID_WRITES = 0x05;
+
+// Spec 706.4 (Fix C) — live audio backpressure tunables (44.1 kHz stereo s16).
+//   MAX_AUDIO_SHIP_SAMPLES: mono samples shipped per emulated frame. ~2 PAL
+//     frames (882×2) of slack — steady state ships ~882; the bound only bites
+//     during a catch-up burst, deferring (not dropping) the surplus.
+//   AUDIO_WS_HIGH_WATER_BYTES: skip a client whose send buffer exceeds ~250 ms
+//     of audio (0.25 s × 44100 × 2 ch × 2 B ≈ 44 KiB) — a genuinely stuck
+//     socket only; bounds server memory.
+export const MAX_AUDIO_SHIP_SAMPLES = 882 * 2;
+export const AUDIO_WS_HIGH_WATER_BYTES = 44100;
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -175,6 +185,26 @@ export class V3WsServer {
     for (const ws of this.clients) {
       if (ws.readyState !== WebSocket.OPEN) continue;
       if (ws.bufferedAmount > maxBuffered) continue; // backed up — drop this frame
+      ws.send(buf, { binary: true });
+    }
+  }
+
+  /**
+   * Spec 706.4 (Fix C) — live audio binary push with a backpressure high-water.
+   * Unlike video (`broadcastFrame`, latest-frame-wins → drops freely), audio
+   * must not drop a packet under normal load (that is an audible gap). The
+   * per-frame ship bound (`MAX_AUDIO_SHIP_SAMPLES`) keeps a HEALTHY client's
+   * `bufferedAmount` near zero. This high-water is the last-resort guard for a
+   * GENUINELY stuck socket (tab backgrounded, dead-slow link): only then do we
+   * skip, to bound server memory rather than queue unboundedly. The client
+   * worklet smooths the resulting gap (underrun → silence) and the governor
+   * re-syncs on recovery.
+   */
+  broadcastAudio(seq: number, payload: Uint8Array): void {
+    const buf = encodeBinaryFrame(BIN_TYPE_AUDIO_BUFFER, seq, payload);
+    for (const ws of this.clients) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      if (ws.bufferedAmount > AUDIO_WS_HIGH_WATER_BYTES) continue; // stuck client
       ws.send(buf, { binary: true });
     }
   }
@@ -695,7 +725,12 @@ export class V3WsServer {
       if (!s) throw new Error(`no session ${session_id}`);
       if (this.audioStreams.has(session_id)) return { already_streaming: true };
 
-      const recorder = new SidAudioRecorder(s, { sampleRate: 44100, bufferSamples: 65536 });
+      // Spec 706.2 (Fix A) — LIVE stream uses the small recorder buffer so a
+      // catch-up flush drops stale excess at the source instead of banking
+      // permanent latency. (Offline export keeps the large buffer.)
+      const recorder = new SidAudioRecorder(s, {
+        sampleRate: 44100, bufferSamples: LIVE_RECORDER_BUFFER_SAMPLES,
+      });
       recorder.resid.ready?.().catch((e) => {
         console.warn(`[audio/start] reSID load failed for ${session_id}: ${e?.message ?? e}`);
       });
@@ -713,10 +748,17 @@ export class V3WsServer {
         recorder.flush();
         const avail = recorder.buffer.available(cursorId);
         if (avail <= 0) return;
-        const { samples } = recorder.buffer.read(cursorId, avail);
+        // Spec 706.4 (Fix C) — bound how much we ship per frame to ~realtime+
+        // slack. Steady state ships ~882; this only bites during a catch-up
+        // burst, where shipping the whole backlog at once would flood the WS +
+        // worklet (permanent latency). Unshipped samples stay in the recorder
+        // ring; its small live cap (Fix A) then drops the STALE excess at the
+        // source — so this defers without ever emitting a gap.
+        const ship = Math.min(avail, MAX_AUDIO_SHIP_SAMPLES);
+        const { samples } = recorder.buffer.read(cursorId, ship);
         if (samples.length === 0) return;
         const stereo = monoToStereoLR(samples);
-        this.broadcastBinary(BIN_TYPE_AUDIO_BUFFER, state.seq++, int16ToLeBytes(stereo));
+        this.broadcastAudio(state.seq++, int16ToLeBytes(stereo));
       };
       return { streaming: true, sample_rate: recorder.resid.sampleRate };
     });

@@ -25,11 +25,35 @@ class ResidPlaybackProcessor extends AudioWorkletProcessor {
     this.frac = 0;
     this.started = false;
     this.startFill = o.startFrames || 2048; // prebuffer before first playback
+    // Spec 706.3 (Fix B) — latency governor. Steady-state fill target + the
+    // slack tolerated above it before trimming. The backend re-renders reSID
+    // fresh, so banked audio ahead of `target` is STALE: dropping it (advancing
+    // `read`) keeps playback current with video/input, like the video path's
+    // "latest frame wins". 0 = governor off (back-compat).
+    this.governorTarget = o.governorTarget || 0; // frames
+    this.governorMargin = o.governorMargin || 0; // frames of slack above target
+    // Spec 706.8 (restore re-sync) — bump this `epoch` from the page on a
+    // RuntimeCheckpoint restore to drop all pre-restore (stale-timeline) PCM and
+    // re-prebuffer from the restored reSID synthesis state.
+    this.epoch = 0;
     // Report the ring fill level back to the page periodically so the backend
     // can slave emulation pace to this audio clock (Spec 703 §8 audio-master).
     this.reportEvery = o.reportEveryBlocks || 32; // ~93ms at 128-frame blocks
     this.blockCount = 0;
-    this.port.onmessage = (e) => this.enqueue(e.data);
+    this.port.onmessage = (e) => {
+      const d = e.data;
+      // Spec 706.8 control: {type:"flush"} drops the entire ring and re-arms the
+      // prebuffer (new stream epoch after a RuntimeCheckpoint restore).
+      if (d && d.type === "flush") { this.flush(); return; }
+      this.enqueue(d);
+    };
+  }
+
+  // Spec 706.8 — discard all buffered (stale-timeline) PCM and re-prebuffer.
+  flush() {
+    this.read = 0; this.write = 0; this.avail = 0; this.frac = 0;
+    this.started = false;
+    this.epoch++;
   }
 
   enqueue(i16) {
@@ -60,6 +84,18 @@ class ResidPlaybackProcessor extends AudioWorkletProcessor {
     if (!this.started) {
       if (this.avail >= this.startFill) this.started = true;
       else { L.fill(0); R.fill(0); return true; }
+    }
+
+    // Spec 706.3 (Fix B) — latency governor: if the ring has banked more than
+    // target + margin, fast-forward `read` to trim back to `target`. The dropped
+    // frames are STALE (reSID is re-rendered fresh on the backend), so this
+    // trades a single tiny skip for staying current — the same trade the video
+    // path makes by dropping frames. Steady state stays under target+margin so
+    // this never fires; it only re-syncs after a transient backend lead.
+    if (this.governorTarget > 0 && this.avail > this.governorTarget + this.governorMargin) {
+      const drop = this.avail - this.governorTarget;
+      this.read = (this.read + drop) % this.cap;
+      this.avail = this.governorTarget;
     }
 
     for (let i = 0; i < frames; i++) {

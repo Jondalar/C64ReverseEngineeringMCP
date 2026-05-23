@@ -169,13 +169,15 @@ const before = await runConfig("BEFORE (master)", {
   worklet: { cap: SAMPLE_RATE /* 1 s */, startFill: Math.round(SAMPLE_RATE * 0.25), governor: false },
 });
 
-// AFTER = Spec 706 fixes: recorder ~80 ms, worklet governor target ~100 ms /
-// margin ~50 ms, WS ship bound ~200 ms.
+// AFTER = the SHIPPED Spec 706 fix params (must mirror the real code):
+//   Fix A  LIVE_RECORDER_BUFFER_SAMPLES = 3528 (sid-audio-recorder.ts)
+//   Fix C  MAX_AUDIO_SHIP_SAMPLES = 1764 mono ≈ 40 ms (v3-ws-server.ts)
+//   Fix B  audio-player.ts: prebuffer 120 ms, governor target 100 ms / margin 50 ms
 const after = await runConfig("AFTER (706 fixes)", {
-  recorderCap: Math.round(SAMPLE_RATE * 0.08), // ~3528 (~80 ms)
-  wsShipBoundMs: 200,
+  recorderCap: 3528,           // Fix A LIVE_RECORDER_BUFFER_SAMPLES
+  wsShipBoundMs: (1764 / SAMPLE_RATE) * 1000, // Fix C MAX_AUDIO_SHIP_SAMPLES ≈ 40 ms
   worklet: {
-    cap: SAMPLE_RATE, startFill: Math.round(SAMPLE_RATE * 0.10),
+    cap: SAMPLE_RATE, startFill: Math.round(SAMPLE_RATE * 0.12), // prebuffer 120 ms
     governor: true,
     target: Math.round(SAMPLE_RATE * 0.10),  // ~100 ms
     margin: Math.round(SAMPLE_RATE * 0.05),  // ~50 ms
