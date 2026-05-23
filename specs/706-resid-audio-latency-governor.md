@@ -84,6 +84,32 @@ In `resid-worklet.js` `process()`:
 | 706.5 | Verify acceptance §5 #1-#5. Report measured latency before/after. | P0 | 706.2 + 706.3 + 706.4 |
 | 706.6 | Regression: 60 s motm + fastloader audio run, no stutter (Spec 703 §8 hold). | P0 | 706.5 |
 | 706.7 | Memory note + close. | P0 | 706.6 |
+| 706.8 | Restore/resume re-sync (see §9): on RuntimeCheckpoint restore, flush recorder buffer + WS audio send + worklet ring, then re-prebuffer fresh PCM from the restored reSID synthesis state. | P0 | 706.2 + 706.3 |
+
+## 9. Restore/Resume Re-Sync (contract from Spec 705.A step 4)
+
+Spec 705.A step 4 owns the **VICE-shaped reSID SYNTHESIS state** and its
+checkpoint/restore (`ResidWasm.captureResidState/restoreResidState` over the
+WASM `resid_read_state/write_state` = reSID `SID::State`;
+`SidAudioRecorder.snapshot/restore`). Spec 706 owns the **live transport**
+(recorder buffer, WS backpressure, worklet FIFO/governor). They meet at
+restore:
+
+- **reSID synthesis state = machine state** → captured in the native
+  RuntimeCheckpoint (`RuntimeCheckpoint.audio`, when a recorder is registered).
+- **Buffered, not-yet-played PCM (recorder ring + WS send buffer + worklet
+  FIFO) = presentation/transport state** → NOT in the checkpoint. On restore it
+  is **invalidated/flushed** and re-buffered from the restored reSID synthesis
+  state (`SidAudioRecorder.restore` already calls `buffer.clear()`;
+  `AudioRingBuffer.clear()` added in step 4).
+- This mirrors VICE: reSID synthesis is serialized; the output/host buffer is
+  separate (`sound_snapshot_prepare/finish`). Raw resampled PCM is therefore
+  NOT byte-identical across restore (resampler sub-sample phase + FIR warmup) —
+  it is the same waveform; the synthesis state is restored byte-identical.
+
+706.8 extends the governor/transport so that on restore the WS audio send queue
++ worklet ring are also flushed and a fresh prebuffer is established, so audio
+re-syncs to the restored runtime instead of replaying stale pre-restore PCM.
 
 ## 8. References
 

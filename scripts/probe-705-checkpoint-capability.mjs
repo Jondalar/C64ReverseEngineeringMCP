@@ -111,11 +111,20 @@ try {
 
   recorder = new SidAudioRecorder(session, { engine: "resid-wasm" });
   await recorder.resid.ready?.();
-  const audioCheckpointable =
-    typeof recorder.snapshot === "function" && typeof recorder.restore === "function";
-  gate("live reSID sidecar exposes checkpoint/restore continuation state",
-    audioCheckpointable,
-    "SidAudioRecorder is outside current session checkpoint ownership");
+  // Spec 705.A step 4 — the live reSID sidecar now owns a VICE-shaped synthesis
+  // snapshot/restore (read_state/write_state), AND registers with the session
+  // so the machine RuntimeCheckpoint optionally carries the audio slice.
+  const audioState = recorder.resid.captureResidState?.();
+  const snap = recorder.snapshot?.();
+  const machineSnapWithAudio = session.kernel.snapshot();
+  gate("live reSID sidecar exposes VICE-shaped synthesis checkpoint/restore",
+    typeof recorder.snapshot === "function" && typeof recorder.restore === "function" &&
+      recorder.resid.residReady === true && audioState != null && audioState.length > 0 &&
+      snap?.residState != null,
+    `reSID state ${audioState?.length ?? 0}B`);
+  gate("machine RuntimeCheckpoint carries the registered audio slice",
+    machineSnapWithAudio?.payload?.audio != null,
+    `audio=${machineSnapWithAudio?.payload?.audio ? "present" : "null"} (transport ring NOT included)`);
 } finally {
   recorder?.detach();
   stopIntegratedSession(sessionId);

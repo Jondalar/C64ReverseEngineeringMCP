@@ -959,7 +959,11 @@ export class HeadlessMachineKernel implements MachineKernel {
       drive1541: this.drive1541 ? this.drive1541.snapshot() : null,
       media: { diskPath: this.diskPath, imageFormat: this.imageFormat },
       alarmsMaincpu: this.alarms.maincpu ? alarmContextCaptureSchedule(this.alarms.maincpu) : [],
-      residPending: true,
+      // Spec 705.A step 4 — optional reSID audio slice when a recorder is
+      // registered; null otherwise (core checkpoint works without audio).
+      audio: this.session.audioCheckpointProvider
+        ? this.session.audioCheckpointProvider.snapshot()
+        : null,
     };
     return { schemaVersion: RUNTIME_CHECKPOINT_SCHEMA_VERSION, payload };
   }
@@ -1024,6 +1028,13 @@ export class HeadlessMachineKernel implements MachineKernel {
     // the captured CIA timer/TOD/SDR/idle alarm clks line up with the restored
     // master clock and override any partial per-chip re-derivation.
     if (this.alarms.maincpu) alarmContextRestoreSchedule(this.alarms.maincpu, cp.alarmsMaincpu);
+
+    // Spec 705.A step 4 — optional reSID audio restore. The provider restores
+    // the VICE-shaped synthesis state (no register replay) and FLUSHES the live
+    // PCM transport (pre-restore buffered audio is dropped + re-buffered).
+    if (cp.audio != null && this.session.audioCheckpointProvider) {
+      this.session.audioCheckpointProvider.restore(cp.audio as never);
+    }
   }
 
   mountMedia(device: number, media: MountedMedia): void {

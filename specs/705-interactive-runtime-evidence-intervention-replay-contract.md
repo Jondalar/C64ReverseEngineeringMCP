@@ -326,6 +326,51 @@ PENDING (step 4): reSID PCM continuation-state ownership (the `SidAudioRecorder`
 sidecar). The DRIVE8 first-restore rotation re-sync remains VICE-canonical
 (§4.6). No ring buffer / dump-undump / UI here.
 
+### 4.8 reSID Synthesis-State Checkpoint (Step 4, 2026-05-23 CEST)
+
+Step 4 DONE. The reSID audio engine now restores its FULL VICE-shaped SYNTHESIS
+state, not just SID registers:
+
+- WASM shim (`sid/wasm/resid_shim.cc`): `resid_state_size/read_state/write_state`
+  expose reSID's own `SID::State` (= the content VICE serializes via
+  `sid-snapshot.c` `sid_snapshot_write/read_resid_module` + `resid.cc`
+  `resid_state_read/write`): sid_register[0x20], bus_value/ttl, write_pipeline/
+  address, voice_mask, accumulator[3], shift_register[3]/reset/pipeline,
+  pulse_output[3], floating_output_ttl[3], rate/exponential/envelope counters +
+  periods, envelope_state[3], hold_zero[3], envelope_pipeline[3]. read_state
+  zeroes the struct first so inter-field padding is deterministic.
+- `ResidWasm.captureResidState/restoreResidState` (no register replay — the
+  prior register-replay restore would have clobbered the restored interna) +
+  `cycleAccumulator`. `SidAudioRecorder.snapshot/restore` carry that slice and,
+  on restore, FLUSH the live PCM ring (`AudioRingBuffer.clear()`).
+- Ownership: the recorder registers with the session
+  (`registerAudioCheckpoint`); the native RuntimeCheckpoint OPTIONALLY carries
+  the audio slice (`RuntimeCheckpoint.audio`) when a recorder is active, and
+  works without audio otherwise. The PCM ring / WS / worklet FIFO are NOT in the
+  checkpoint (transport — flushed + re-buffered; Spec 706 §9 owns the transport
+  re-sync).
+
+Contract (binding): reSID synthesis state = machine state (checkpointed);
+buffered pre-restore PCM = transport state (dropped on restore, re-buffered from
+the restored synthesis state). Per VICE's own `sound_snapshot_prepare/finish`
+separation, raw resampled PCM is NOT byte-identical across restore — the
+resampler sub-sample timing phase + FIR warmup are transport-level (not in
+`SID::State`). The proven boundary: IMMEDIATE restore → reSID synthesis state
+byte-identical; continuation → same output waveform (far-tail ≤ ~30 LSB of
+32768) + synthesis state matching within a ≤2-cycle pipeline-counter tolerance
+(reSID-inherent sub-state, not a port bug).
+
+Gates: `build:resid-wasm` (rebuilt + committed `resid.mjs`/`resid.wasm`);
+`build:mcp` clean; `check:1541-fidelity` 78/0; `probe:705-checkpoint` 8/8 GREEN
+(reSID synthesis + machine audio slice now GREEN — no PENDING left);
+`probe:705-resid-roundtrip` (NEW) 7/7 GREEN; `probe:705-core-roundtrip` +
+`probe:705-drive-roundtrip` still GREEN; reSID/audio smokes pass (9/9 + SMOKE
+PASS).
+
+With step 4, the native checkpoint spike (705.A §4.1-4.4) is complete: BASIC,
+real-media, mid-frame, and audio continuation all proven. Spec 706 §9/706.8
+owns the live-transport restore re-sync (flush WS/worklet + fresh prebuffer).
+
 ## 5. Related Existing Specs
 
 | Spec | Relationship to 705 |

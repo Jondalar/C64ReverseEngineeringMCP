@@ -25,6 +25,7 @@
 // convention already used elsewhere in the runtime.)
 
 #include "sid.h"
+#include <cstring>
 
 using namespace reSID;
 
@@ -113,5 +114,43 @@ void resid_clock_silent(int delta) {
 
 // Current 16-bit AUDIO OUT (post external filter).
 int resid_output() { return g_sid.output(); }
+
+// ---- Spec 705.A step 4 — reSID synthesis-state snapshot/restore -------------
+//
+// VICE restores reSID's full SYNTHESIS state on snapshot read (not just SID
+// registers): src/sid/sid-snapshot.c (sid_snapshot_write/read_resid_module) +
+// src/sid/resid.cc (resid_state_read/write) map reSID::SID::State <->
+// sid_snapshot_state_t. reSID::SID::State (third_party/resid/sid.h:65-93) holds
+// exactly that synthesis state: sid_register[0x20], bus_value/bus_value_ttl,
+// write_pipeline/write_address, voice_mask, accumulator[3], shift_register[3],
+// shift_register_reset[3], shift_pipeline[3], pulse_output[3],
+// floating_output_ttl[3], rate_counter[3]/rate_counter_period[3],
+// exponential_counter[3]/exponential_counter_period[3], envelope_counter[3],
+// envelope_state[3], hold_zero[3], envelope_pipeline[3].
+//
+// We expose reSID's own read_state()/write_state() over a flat byte buffer
+// (= the SID::State POD). Self-consistent within this build (same struct layout
+// for read+write), so snapshot -> restore round-trips bit-exact. This is the
+// VICE-shaped synthesis state, NOT a SID-register reinit.
+
+int resid_state_size() { return static_cast<int>(sizeof(SID::State)); }
+
+void resid_read_state(unsigned char* buf) {
+  // Zero the whole struct first so the inter-field PADDING bytes are
+  // deterministic. SID::State's copy-assignment only writes the named members,
+  // leaving padding as stack garbage that varies call-to-call; without the
+  // memset, two captures of an otherwise-identical state can differ by a couple
+  // of padding bytes (not the synthesis fields).
+  SID::State s;
+  std::memset(&s, 0, sizeof(s));
+  s = g_sid.read_state();
+  std::memcpy(buf, &s, sizeof(s));
+}
+
+void resid_write_state(const unsigned char* buf) {
+  SID::State s;  // default-constructed, then overwritten by the captured POD
+  std::memcpy(&s, buf, sizeof(s));
+  g_sid.write_state(s);
+}
 
 }  // extern "C"

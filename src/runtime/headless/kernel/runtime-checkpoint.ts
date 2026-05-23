@@ -125,6 +125,12 @@ export interface RuntimeCheckpoint {
   drive1541: Uint8Array | null;
   media: RuntimeCheckpointMedia;
 
-  /** reSID PCM continuation state is the explicit follow-on (step 4). */
-  residPending: true;
+  /**
+   * Spec 705.A step 4 — OPTIONAL reSID audio-checkpoint slice (the recorder's
+   * SidAudioRecorderSnapshot: VICE-shaped reSID synthesis state + cadence).
+   * null when no live audio session is registered — the core checkpoint then
+   * works without audio. The PCM ring / WS / worklet FIFO are NOT here
+   * (transport state, flushed + re-buffered on restore).
+   */
+  audio: unknown | null;
 }

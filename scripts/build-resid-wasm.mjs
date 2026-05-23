@@ -54,6 +54,10 @@ const EXPORTED_FUNCTIONS = [
   "_resid_clock_remaining",
   "_resid_clock_silent",
   "_resid_output",
+  // Spec 705.A step 4 — reSID synthesis-state snapshot/restore.
+  "_resid_state_size",
+  "_resid_read_state",
+  "_resid_write_state",
   "_malloc",
   "_free",
 ];

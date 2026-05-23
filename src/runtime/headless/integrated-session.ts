@@ -26,6 +26,7 @@ import { VicIIVice, installVicIIVice, type VicBackend } from "./vic/vic-ii-vice.
 import * as LIT_VICII from "./vic/literal/vicii.js";
 import * as LIT_TYPES from "./vic/literal/vicii-types.js";
 import type { RuntimeCheckpointVicPresentation } from "./kernel/runtime-checkpoint.js";
+import type { AudioCheckpointProvider } from "./audio/sid-audio-recorder.js";
 import * as LIT_CYCLE from "./vic/literal/vicii-cycle.js";
 import * as LIT_FETCH from "./vic/literal/vicii-fetch.js";
 import * as LIT_IRQ from "./vic/literal/vicii-irq.js";
@@ -1642,6 +1643,19 @@ export class IntegratedSession {
       lastLitBaLow: this.lastLitBaLow,
       litStableFrameCount: this.litStableFrameCount,
     };
+  }
+
+  /**
+   * Spec 705.A step 4 — the active reSID audio recorder, registered by
+   * SidAudioRecorder when one attaches. null when no live audio session; the
+   * RuntimeCheckpoint then carries no audio state and the core checkpoint still
+   * works (machine continuation is GREEN without audio).
+   */
+  audioCheckpointProvider: AudioCheckpointProvider | null = null;
+
+  /** Spec 705.A step 4 — SessionLike hook: (un)register the audio recorder. */
+  registerAudioCheckpoint(provider: AudioCheckpointProvider | null): void {
+    this.audioCheckpointProvider = provider;
   }
 
   /** Spec 705.A step 3 — restore the literal-VIC presentation seam. */

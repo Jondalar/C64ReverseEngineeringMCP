@@ -40,6 +40,7 @@ interface ResidWasmModule {
   _malloc(n: number): number;
   _free(p: number): void;
   HEAP16: Int16Array;
+  HEAPU8: Uint8Array;
 }
 
 type ResidBindings = {
@@ -54,7 +55,11 @@ type ResidBindings = {
   read: (reg: number) => number;
   clock: (delta: number, buf: number, max: number) => number;
   clockRemaining: () => number;
+  readState: (buf: number) => number;
+  writeState: (buf: number) => number;
   bufPtr: number;
+  statePtr: number;
+  stateBytes: number;
   mod: ResidWasmModule;
 };
 
@@ -133,9 +138,16 @@ export class ResidWasm implements AudioSidLike {
       read: mod.cwrap("resid_read", "number", ["number"]),
       clock: mod.cwrap("resid_clock", "number", ["number", "number", "number"]),
       clockRemaining: mod.cwrap("resid_clock_remaining", "number", []),
+      readState: mod.cwrap("resid_read_state", null, ["number"]),
+      writeState: mod.cwrap("resid_write_state", null, ["number"]),
       bufPtr: mod._malloc(MAX_SAMPLES_PER_CALL * 2),
+      statePtr: 0,
+      stateBytes: 0,
       mod,
     };
+    // reSID synthesis-state scratch buffer (sizeof reSID::SID::State).
+    b.stateBytes = mod.cwrap("resid_state_size", "number", [])();
+    b.statePtr = mod._malloc(b.stateBytes);
     b.reset();
     this.configure(b);
     this.b = b;
@@ -193,6 +205,42 @@ export class ResidWasm implements AudioSidLike {
     }
   }
   get regs(): Uint8Array { return this.inner.regs; }
+
+  // ----- Spec 705.A step 4 — reSID synthesis-state checkpoint ----------------
+  //
+  // Capture/restore reSID's FULL internal synthesis state (accumulators, shift
+  // registers, envelope/rate counters, pipelines, ...) via the WASM
+  // read_state/write_state (= reSID::SID::State = VICE's sid_snapshot_state_t
+  // content). This is NOT register replay: restoreResidState() writes the exact
+  // synthesis state and must NOT be followed by a register re-write, or the
+  // restored interna would be clobbered.
+
+  /** True once the WASM module is loaded and reSID state is capturable. */
+  get residReady(): boolean { return this.b !== undefined; }
+
+  /** Opaque reSID synthesis-state blob (sizeof SID::State), or null if the
+   *  WASM module has not loaded yet. */
+  captureResidState(): Uint8Array | null {
+    if (!this.b) return null;
+    this.b.readState(this.b.statePtr);
+    return this.b.mod.HEAPU8.slice(this.b.statePtr, this.b.statePtr + this.b.stateBytes);
+  }
+
+  /** Write a reSID synthesis-state blob back (no register replay afterwards). */
+  restoreResidState(bytes: Uint8Array): void {
+    if (!this.b) return;
+    if (bytes.length !== this.b.stateBytes) {
+      throw new Error(
+        `ResidWasm.restoreResidState: size ${bytes.length} != reSID state ${this.b.stateBytes}`,
+      );
+    }
+    this.b.mod.HEAPU8.set(bytes, this.b.statePtr);
+    this.b.writeState(this.b.statePtr);
+  }
+
+  /** TS-side sample-cadence remainder (part of the audio-checkpoint state). */
+  get cycleAccumulator(): number { return this.cycleAcc; }
+  set cycleAccumulator(v: number) { this.cycleAcc = v; }
   set potReader(fn: ((idx: 0 | 1) => number) | undefined) { this.inner.potReader = fn; }
   get potReader(): ((idx: 0 | 1) => number) | undefined { return this.inner.potReader; }
   set writeTrace(fn: ((addr: number, value: number) => void) | undefined) { this.inner.writeTrace = fn; }

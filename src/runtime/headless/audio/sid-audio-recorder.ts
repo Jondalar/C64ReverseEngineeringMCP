@@ -17,6 +17,20 @@ import { AudioRingBuffer, monoToStereoLR } from "./audio-buffer.js";
 export interface SessionLike {
   sid: Sid6581;
   c64Cpu: { cycles: number };
+  /**
+   * Spec 705.A step 4 — optional registration of the active reSID audio
+   * recorder, so a native RuntimeCheckpoint can OPTIONALLY capture/restore the
+   * audio continuation state. When no recorder is registered, the core
+   * checkpoint works without audio (machine continuation is already GREEN
+   * without audio). Pass null to unregister (on detach).
+   */
+  registerAudioCheckpoint?(provider: AudioCheckpointProvider | null): void;
+}
+
+/** The audio-checkpoint slice the session/kernel can optionally own. */
+export interface AudioCheckpointProvider {
+  snapshot(): SidAudioRecorderSnapshot;
+  restore(s: SidAudioRecorderSnapshot): void;
 }
 
 export interface RecorderOptions extends ResidEmitOptions {
@@ -37,6 +51,21 @@ export interface RecorderOptions extends ResidEmitOptions {
  *
  * Important: this composes with an existing writeTrace if one is set.
  */
+/**
+ * Spec 705.A step 4 — the audio-checkpoint slice of a live recorder. Carries
+ * ONLY the reSID synthesis state (+ TS sample-cadence). The PCM ring / WS /
+ * worklet FIFO are presentation/transport state and are NOT serialized; on
+ * restore they are flushed and re-buffered from the restored reSID state.
+ */
+export interface SidAudioRecorderSnapshot {
+  /** reSID synthesis state (sizeof reSID::SID::State); null if WASM not loaded. */
+  residState: Uint8Array | null;
+  /** ResidWasm cycle-cadence remainder. */
+  cycleAcc: number;
+  /** Sample-emit clock anchor (re-synced to the restored cpu cycle on restore). */
+  lastCycle: number;
+}
+
 export class SidAudioRecorder {
   public readonly resid: AudioSidLike;
   public readonly buffer: AudioRingBuffer;
@@ -61,6 +90,8 @@ export class SidAudioRecorder {
       // addr is the offset within the SID tile (& 0x1f) per Sid6581.write.
       this.resid.write(0xD400 + (addr & 0x1f), value);
     };
+    // Register as the session's active audio-checkpoint owner (optional hook).
+    this.session.registerAudioCheckpoint?.(this);
   }
 
   /** Generate samples for cycles elapsed since last flush. Returns the buffer. */
@@ -80,6 +111,38 @@ export class SidAudioRecorder {
     this.detached = true;
     // Restore prior writeTrace.
     this.session.sid.writeTrace = this.prevWriteTrace;
+    // Unregister from the session audio-checkpoint hook.
+    this.session.registerAudioCheckpoint?.(null);
+  }
+
+  /**
+   * Spec 705.A step 4 — capture the audio-checkpoint slice: reSID synthesis
+   * state + cadence. NOT the PCM ring (transport).
+   */
+  snapshot(): SidAudioRecorderSnapshot {
+    return {
+      residState: this.resid.captureResidState ? this.resid.captureResidState() : null,
+      cycleAcc: this.resid.cycleAccumulator ?? 0,
+      lastCycle: this.lastCycle,
+    };
+  }
+
+  /**
+   * Spec 705.A step 4 — restore the reSID synthesis state directly (NOT
+   * register replay, which would clobber the restored interna), re-sync the
+   * sample-cadence clock to the machine-restored cpu cycle, and FLUSH the PCM
+   * ring (pre-restore buffered audio is transport state, dropped + re-buffered
+   * from the restored reSID state). The reSID synthesis state already carries
+   * sid_register[]; the inner readback mirror re-syncs lazily via writeTrace.
+   */
+  restore(s: SidAudioRecorderSnapshot): void {
+    if (this.detached) return;
+    if (s.residState && this.resid.restoreResidState) {
+      this.resid.restoreResidState(s.residState);
+    }
+    if (this.resid.cycleAccumulator !== undefined) this.resid.cycleAccumulator = s.cycleAcc;
+    this.lastCycle = this.session.c64Cpu.cycles;
+    this.buffer.clear();
   }
 
   /**

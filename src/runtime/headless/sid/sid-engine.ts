@@ -51,6 +51,18 @@ export interface AudioSidLike extends SidLike {
    * failure. Callers driving a synchronous pump (export) should await it.
    */
   ready?(): Promise<void>;
+
+  // Spec 705.A step 4 — reSID synthesis-state checkpoint (ResidWasm only; the
+  // synchronous TS engines have no separate WASM synthesis state). Optional so
+  // non-reSID engines satisfy the interface.
+  /** True once reSID is loaded and its synthesis state is capturable. */
+  readonly residReady?: boolean;
+  /** Capture reSID's full synthesis state (VICE sid_snapshot_state_t content). */
+  captureResidState?(): Uint8Array | null;
+  /** Restore reSID synthesis state (no register replay afterwards). */
+  restoreResidState?(bytes: Uint8Array): void;
+  /** TS-side sample-cadence remainder (part of the audio checkpoint). */
+  cycleAccumulator?: number;
 }
 
 export function isAudioSid(sid: SidLike): sid is AudioSidLike {

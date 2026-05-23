@@ -65,6 +65,20 @@ export class AudioRingBuffer {
 
   detach(id: string): void { this.consumers.delete(id); }
 
+  /**
+   * Spec 705.A step 4 — discard all currently-buffered (unconsumed) samples.
+   * Used on RuntimeCheckpoint restore: pre-restore PCM is presentation/transport
+   * state, not machine state, so it is dropped and re-buffered from the restored
+   * reSID synthesis state. Advances every consumer to the write head (available
+   * = 0) and clears overflow flags; the monotonic writePos is preserved.
+   */
+  clear(): void {
+    for (const c of this.consumers.values()) {
+      c.readPos = this.writePos;
+      c.overflowed = false;
+    }
+  }
+
   /** Consumer: how many samples are available since last read. */
   available(id: string): number {
     const c = this.consumers.get(id);
