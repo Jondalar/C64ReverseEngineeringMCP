@@ -192,5 +192,34 @@ for (const r of [before, after]) {
     (r.recoveryMs == null ? "  never≤150ms" : `${r.recoveryMs.toFixed(0)}ms (${r.recoveryFrames}f)`),
   );
 }
-console.log("\n  (706.1 baseline report only — 706.5 turns AFTER into pass/fail thresholds.)");
-console.log("  Target steady-state latency < 150 ms; recovery to <150 ms within ~1 s after a 1 s stall.");
+console.log("");
+
+// --- 706.5 acceptance gates (§5 #1 steady < 150ms, #3 recovery < ~1s) -------
+const failures = [];
+let passes = 0;
+function gate(name, ok, detail) {
+  if (ok) { passes++; console.log(`  PASS  ${name}${detail ? ` (${detail})` : ""}`); return; }
+  failures.push({ name, detail });
+  console.log(`  RED   ${name}${detail ? ` (${detail})` : ""}`);
+}
+const STEADY_MAX_MS = 150;     // §5 #1
+const RECOVERY_MAX_MS = 1000;  // §5 #3 "within ~1 s"
+gate("§5#1 AFTER steady-state latency < 150 ms (warm)", after.steadyWarmupMs < STEADY_MAX_MS, `${after.steadyWarmupMs.toFixed(1)} ms`);
+gate("§5#1 AFTER steady-state latency < 150 ms (after stall)", after.steadyFinalMs < STEADY_MAX_MS, `${after.steadyFinalMs.toFixed(1)} ms`);
+gate("§5#3 AFTER recovers to ≤150 ms within ~1 s of a 1 s stall",
+  after.recoveryMs != null && after.recoveryMs <= RECOVERY_MAX_MS,
+  after.recoveryMs == null ? "never recovered" : `${after.recoveryMs.toFixed(0)} ms`);
+gate("BEFORE confirms the bug: post-stall latency is permanent (never ≤150 ms)",
+  before.recoveryMs == null, before.recoveryMs == null ? `stuck at ${before.steadyFinalMs.toFixed(0)} ms` : `recovered in ${before.recoveryMs} ms`);
+gate("fix reduces post-stall steady-state latency", after.steadyFinalMs < before.steadyFinalMs,
+  `${before.steadyFinalMs.toFixed(0)} ms -> ${after.steadyFinalMs.toFixed(0)} ms`);
+
+console.log("---");
+console.log("  Live-UI gates (user-verified): §5 #2 60s no-stutter, #5 audio/video sync.");
+if (failures.length === 0) {
+  console.log(`GREEN 706.5 latency gates: ${passes} checks pass.`);
+  process.exit(0);
+}
+console.log(`RED 706.5 latency: ${passes} pass, ${failures.length} blocker(s).`);
+for (const f of failures) console.log(`  - ${f.name}: ${f.detail}`);
+process.exit(1);

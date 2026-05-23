@@ -1,8 +1,8 @@
 # Spec 706 — reSID Audio Latency Governor
 
-**Status:** DRAFT (2026-05-20)
+**Status:** HEADLESS-GREEN — awaiting live-UI sign-off (2026-05-23). See §10.
 **Parent spec:** `specs/703-sid-resid-wasm-audio.md` (reSID WASM audio, MERGED master `fb27a7d`).
-**Branch:** fresh from `master` (audio path is on master, unchanged).
+**Branch:** `claude/706-audio-latency-governor` (fresh from master 137389d).
 **Scope:** the live SID audio stream path — backend reSID render → WS transport → browser AudioWorklet playback. Latency only. No codec / quality / engine changes.
 
 ## 1. Why this spec exists
@@ -75,16 +75,16 @@ In `resid-worklet.js` `process()`:
 
 ## 7. Tasks
 
-| ID | Task | Priority | Depends |
-|---|---|---|---|
-| 706.1 | Add end-to-end latency probe (backend send-timestamp → worklet playback-time) + log/report. Establishes the baseline number BEFORE fixing. | P0 | none |
-| 706.2 | Fix A — `bufferSamples` per-use: small (~80 ms) for live stream, large for export. | P0 | 706.1 |
-| 706.3 | Fix B — worklet latency governor: target ~100 ms, fast-forward when `avail > target + margin`. | P0 | 706.1 |
-| 706.4 | Fix C — broadcastBinary backpressure / recorder read-per-frame bound. | P1 | 706.2 |
-| 706.5 | Verify acceptance §5 #1-#5. Report measured latency before/after. | P0 | 706.2 + 706.3 + 706.4 |
-| 706.6 | Regression: 60 s motm + fastloader audio run, no stutter (Spec 703 §8 hold). | P0 | 706.5 |
-| 706.7 | Memory note + close. | P0 | 706.6 |
-| 706.8 | Restore/resume re-sync (see §9): on RuntimeCheckpoint restore, flush recorder buffer + WS audio send + worklet ring, then re-prebuffer fresh PCM from the restored reSID synthesis state. | P0 | 706.2 + 706.3 |
+| ID | Task | Priority | Depends | Status |
+|---|---|---|---|---|
+| 706.1 | Add end-to-end latency probe (backend send-timestamp → worklet playback-time) + log/report. Establishes the baseline number BEFORE fixing. | P0 | none | DONE — `scripts/probe-706-latency.mjs` |
+| 706.2 | Fix A — `bufferSamples` per-use: small (~80 ms) for live stream, large for export. | P0 | 706.1 | DONE — `LIVE_RECORDER_BUFFER_SAMPLES` / `EXPORT_RECORDER_BUFFER_SAMPLES` |
+| 706.3 | Fix B — worklet latency governor: target ~100 ms, fast-forward when `avail > target + margin`. | P0 | 706.1 | DONE — `resid-worklet.js` + `audio-player.ts` |
+| 706.4 | Fix C — broadcastBinary backpressure / recorder read-per-frame bound. | P1 | 706.2 | DONE — `broadcastAudio` + `MAX_AUDIO_SHIP_SAMPLES` |
+| 706.5 | Verify acceptance §5 #1-#5. Report measured latency before/after. | P0 | 706.2 + 706.3 + 706.4 | HEADLESS-GREEN (§5 #1/#3/#4); #2/#5 live-UI |
+| 706.6 | Regression: 60 s motm + fastloader audio run, no stutter (Spec 703 §8 hold). | P0 | 706.5 | LIVE-UI gate (user-verified) |
+| 706.7 | Memory note + close. | P0 | 706.6 | pending live sign-off |
+| 706.8 | Restore/resume re-sync (see §9): on RuntimeCheckpoint restore, flush recorder buffer + WS audio send + worklet ring, then re-prebuffer fresh PCM from the restored reSID synthesis state. | P0 | 706.2 + 706.3 | DONE — `onRestore`→`audio/flush`→worklet flush; `probe-706-restore-resync.mjs` |
 
 ## 9. Restore/Resume Re-Sync (contract from Spec 705.A step 4)
 
@@ -120,3 +120,33 @@ re-syncs to the restored runtime instead of replaying stale pre-restore PCM.
 - `src/runtime/headless/audio/sid-audio-recorder.ts` — recorder buffer 65536 (Fix A target, line 50).
 - Memory: `project_resid_audio_architecture.md` — reSID renders on backend per-frame; browser plays via AudioWorklet ring.
 - `specs/701-*` — autonomous runtime loop (frame pacing context).
+
+## 10. Result (2026-05-23, branch `claude/706-audio-latency-governor`)
+
+**Implemented (all four fixes + restore re-sync):**
+
+| Fix | Where | Change |
+|---|---|---|
+| A | `src/runtime/headless/audio/sid-audio-recorder.ts` | `LIVE_RECORDER_BUFFER_SAMPLES = 3528` (→4096 pow2, ~93 ms) for the live stream; `EXPORT_RECORDER_BUFFER_SAMPLES = 65536` kept for offline export. `v3-ws-server` `audio/start` uses LIVE; `AudioExportSession` pins EXPORT. |
+| B | `ui/src/v3/resid-worklet.js`, `ui/src/v3/audio-player.ts` | Governor in `process()`: trim ring to `governorTarget` when `avail > target + margin` (drop oldest = stale). Prebuffer 0.25→0.12 s, target 100 ms, margin 50 ms. |
+| C | `src/workspace-ui/v3-ws-server.ts` | `broadcastAudio` with per-frame ship bound `MAX_AUDIO_SHIP_SAMPLES = 1764` (defers, no gap) + `AUDIO_WS_HIGH_WATER_BYTES` skip for a genuinely stuck socket only. |
+| 706.8 | recorder `onRestore` → `audio/flush` broadcast → `WebAudioPlayer.flush()` → worklet `{type:"flush"}` | On RuntimeCheckpoint restore: recorder ring `clear()`, WS seq reset + new stream epoch, worklet ring dropped + prebuffer re-armed. No change to the green RuntimeCheckpoint machine contract (705.A). |
+
+**Headless gates (GREEN):**
+
+- `probe:706-latency` (§5 #1+#3): BEFORE 1 s stall→catch-up pins the worklet
+  ring at its 980 ms hard cap and **never** recovers ≤150 ms (permanent — the
+  §3 bug). AFTER: steady 100 ms / 113 ms post-stall, recovers ≤150 ms in 1
+  frame (20 ms). 5/5.
+- `probe:706-restore-resync` (706.8): recorder ring flushed, `onRestore` fires
+  once, worklet flush empties + re-arms → only post-restore PCM plays. 4/4.
+- §5 #4 export full-fidelity: large buffer preserved, 2 s export = 88206 ≈
+  88200 samples (0.01 % drift), no drops.
+- 705.A regression all GREEN: checkpoint 8/8, core 13/13, drive 8/8, reSID 7/7.
+- `runtime:proof` 7-game gate: see commit (audio-transport-only change).
+
+**Pending live-UI sign-off (user "gut/nicht gut"):** §5 #2 (60 s motm +
+fastloader, no stutter — Spec 703 §8 holds) and §5 #5 (audio within ~100 ms of
+video). These are perceptual and only measurable on the real browser audio
+pipeline; the worklet governor + 120 ms prebuffer are the relevant tunables if
+underrun appears.
