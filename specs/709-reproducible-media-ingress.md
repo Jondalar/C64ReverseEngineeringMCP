@@ -1,6 +1,6 @@
 # Spec 709 - Reproducible Media Ingress: Disk, PRG, CRT and Drag/Drop
 
-Status: DONE (2026-05-23 CEST) — closing slice 709.11 complete (durable media events + writable-CRT policy B + CART eject routing), see §12. All gates green incl. runtime:proof 7/7.
+Status: DONE (2026-05-23 CEST) — closure slice 709.13 complete (one shared non-persistable-dirty-media guard for disk + CRT at every checkpoint/branch boundary; CART UI reads one backend truth), see §14. 709.12 hardening in §13, 709.11 in §12. All gates green incl. runtime:proof 7/7.
 Depends: Specs 701, 705, 707
 Consumed by: Specs 710-712
 Owner: runtime / UI / media
@@ -48,8 +48,16 @@ WS media routes become thin adapters to this service or are retired.
 
 Starting a session with disk, cartridge or injected PRG defines the initial
 experiment root. A later mount/eject/swap in a running session is a recorded
-media intervention event preceded and followed by a pinned checkpoint. The
-controller remains paused after the intervention until explicitly resumed.
+media intervention event preceded and followed by a pinned checkpoint.
+
+**Pause boundary (refined in 709.13.1):** whether the C64 pauses depends on
+*where the medium lives*. The 1541 is a separate device on the IEC bus —
+inserting / ejecting / swapping a **disk** does not pause the C64 (it keeps
+running, the drive picks up the new image like real hardware). The **cartridge
+port and PRG RAM/PC are part of the C64** — a CRT op cold-boots the machine and
+a PRG op writes RAM/PC, so those pause; a live UI CRT insert into a running
+session then resumes at PAL pacing (deterministic service callers stay paused).
+Checkpoints are captured atomically via `runExclusive` regardless of run state.
 
 ### 2.3 Media Identity Must Survive Snapshot and Replay
 
@@ -335,3 +343,116 @@ bytes + bank/control state, restored byte-identically across checkpoint and
 restore). Flash-delta persistence is a future slice.
 
 Status restored to **DONE**.
+
+## 13. Hardening Slice Result (709.12, 2026-05-23)
+
+Post-709.11 review found Policy B was enforced **only** at
+`dumpRuntimeSnapshot()`. The same dirty-writable-CRT corruption was still
+reachable on the shared runtime checkpoint path and on a live UI insert.
+
+- **Dirty CRT at the native checkpoint path (the bug):** repro — attach
+  EasyFlash, program a flash byte, `ctrl.captureCheckpoint()` then
+  `ctrl.restoreCheckpoint()`; the byte reverted to the original `.crt` content
+  and `dirty` went false (`checkpointLostWrite: true`). Fix: Policy B now lives
+  at the single checkpoint chokepoint. `RuntimeController.captureCheckpoint()`
+  rejects while a writable CRT is dirty (covers manual / dump / media-ingress
+  before+after), and the always-on auto-cadence capture **skips** a dirty CRT
+  (a ring gap beats a corrupt checkpoint; capture resumes once the flash is
+  clean). `media-ingress` additionally hard-rejects a dirty-CRT eject/replace
+  with the precise media-side message. Gates A2/A3/A4/A5: capture/eject/replace
+  all reject; the flash write is never silently reverted (no stale-restore path
+  can be minted). The 709.11b dump reject and clean-cartridge round-trip
+  (A1/G8) are unchanged.
+- **Live UI CRT insert (UX):** the Inspector CART dropdown mounts a `.crt`
+  through `media/mount { slot: 0 }`. Two defects: (1) `ingestMedia` left the
+  session paused, so a CRT inserted into a *running* session never executed
+  ("nothing happens"); (2) the Inspector CART row hard-coded `currentPath=""`
+  and `Live.tsx onMounted` ignored slot 0, so the picker stayed `(insert)` and
+  no path showed. Fixes: `ingestMedia(ctrl, req, { resumeIfRunning })` resumes a
+  session that was running before the insert (the deterministic service default
+  stays paused — replay/branch + the diff probes rely on it); the WS `media/mount`
+  + `media/ingress` adapters pass `resumeIfRunning` for `crt`. `Live.tsx` tracks
+  `activeCartMedia` (slot 0) and feeds the Inspector CART `currentPath`; the
+  Media tab routes a `.crt` to a CART row (slot 0) instead of mislabeling it
+  "mounted to drive 8", with its own eject. A paused session stays paused at
+  cycle 0 (press Run); a running session resumes and the cart boots.
+  User-confirmed in the live UI: "crt bootet".
+- **New gate `probe:709-12` (18/18):** Part A (deterministic) — clean EasyFlash
+  captures+restores (no regression); a written EasyFlash makes
+  `captureCheckpoint()` / cartridge-eject / CRT-replace reject and the write
+  survives. Part B (real V3WsServer + ws client) — a running session resumes and
+  the CPU leaves cycle 0 after a slot-0 `.crt` insert; a paused session stays
+  paused at cycle 0; CART eject clears the cart and leaves drive 8 intact.
+
+**Gates:** `build:mcp` clean; `probe:709-12` 18/18; `probe:709-media` 21/21;
+`probe:709-ws-routes` 5/5; `probe:707-dump-undump` 10/10; 705.B + 708 green;
+`check:1541-fidelity` 78 PASS / 0 FAIL (13 pre-existing WARN); `ui:typecheck`
+47 pre-existing errors, **0 introduced**; `runtime:proof` 7/7.
+
+Status remains **DONE** (Policy B now consistent across dump, native checkpoint,
+auto-cadence, eject and replace).
+
+## 14. Closure Slice Result (709.13, 2026-05-23)
+
+A follow-up review found 709.12 added the Policy-B chokepoint for a dirty
+writable **CRT** but a dirty **DISK** was still unprotected at the same
+chokepoint — two reproduced bugs:
+
+1. **dirty disk → `captureCheckpoint()` was accepted**, so the ring held a
+   non-restorable checkpoint (the writable-disk delta is not serialized in v1;
+   restore reverts the written byte).
+2. **dirty disk → `ingestMedia(crt)` was accepted** and minted
+   `checkpointBefore/AfterId` — a new branch root over unpersistable media,
+   violating §2.3 + §4.
+
+Fixes (one shared guard, no per-medium special-casing):
+
+- **`RuntimeController.nonPersistableDirtyMedia()`** is the single source of
+  truth — returns a precise reason for a dirty VICE1541 disk OR a dirty writable
+  CRT (or null). `captureCheckpoint()` hard-rejects on it; the always-on
+  auto-cadence **skips** on it (a ring gap is correct, not a corrupt entry).
+  The old CRT-only `cartWritableDirty()` helper is gone.
+- **`ingestMedia()`** rejects EVERY branching intervention (disk
+  mount/swap/eject, CRT attach/replace/eject, PRG load/inject-run) while any
+  mounted medium is dirty + non-persistable, BEFORE any pause/apply/checkpoint/
+  event — no partial apply, no checkpoint, no `MediaIngressEvent`. This replaces
+  the two narrow 709/709.12 dirty guards with the one shared guard, so disk and
+  CRT are handled identically everywhere (capture, cadence, ingress).
+- The 709.12 CRT running-session resume + live-insert UI is unchanged.
+- **UI CART single-source-of-truth:** the CART display was per-tab local truth
+  (Live `activeCartMedia`, Media `cart`) that could diverge. `session/cart_status`
+  now returns `sourceName` (backend-owned filename); the Inspector CART row
+  (`Live.tsx`) derives `currentPath` from `cart.sourceName`, and the Media tab
+  polls `cart_status` for its CART row. Neither keeps a local path. Insert/eject
+  fire an immediate refresh for latency; the poll is the truth.
+
+**New gates (`probe:709-12`, now 32/32):** Part C — dirty disk →
+`captureCheckpoint()` rejects + written byte preserved; dirty disk → auto-cadence
+mints no new ring entry (clean baseline proven first); dirty disk → CRT insert
+rejected with no cart attach + no event; dirty disk → PRG ingress rejected with
+no RAM/PC mutation + no event. The 709.12 dirty-CRT gates (A1-A5) and the
+live-insert running/paused/eject WS gates (B1-B3) stay green.
+
+**Gates:** `build:mcp` clean; `probe:709-12` 32/32; `probe:709-media` 21/21;
+`probe:709-ws-routes` 5/5; `probe:707-dump-undump` 10/10; `probe:705b-ring` 7/7;
+`probe:708-trace` 8/8; `check:1541-fidelity` 78 PASS / 0 FAIL; `ui:typecheck` 47
+pre-existing, **0 introduced**; `runtime:proof` 7/7 (final orthogonal regression).
+
+Status remains **DONE** — non-persistable dirty media (disk + CRT) is now
+rejected uniformly at every checkpoint/branch boundary, and the CART UI reads
+one backend truth.
+
+### 709.13.1 — device-vs-C64 pause refinement (2026-05-23)
+
+User review: every disk-picker change was pausing the emulation. Wrong model —
+the 1541 is a separate device; the C64 should run while a disk is inserted /
+ejected / swapped. Only the cartridge port (part of the C64) should pause.
+
+`ingestMedia` previously paused on *every* mid-session change. It now pauses
+only for C64-internal interventions (`requiresPause = crt || prg || cartridge
+eject`); disk insert/eject/swap leaves a running C64 running (and a paused one
+paused). The checkpoint-before/after evidence is unchanged (captured via
+`runExclusive` either way). The 709.12 CRT resume path is unchanged. New gates
+(`probe:709-12` Part D, now 32/32): disk insert + eject do NOT pause a running
+C64 (cycles keep advancing across the swap); a CRT op DOES pause it. §2.2 pause
+boundary updated accordingly.

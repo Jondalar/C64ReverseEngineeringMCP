@@ -278,11 +278,53 @@ export class RuntimeController {
    * boundary with the loop idle.
    */
   async captureCheckpoint(): Promise<RuntimeCheckpointRef> {
+    // Spec 709.13 (policy B): refuse to mint a checkpoint while ANY mounted
+    // medium carries live mutations that v1 does not serialize — a dirty
+    // VICE1541 disk (no writable-disk-delta payload) OR a dirty writable CRT
+    // (embeds only the original .crt bytes + bank/control, no flash delta).
+    // Either way capture+restore would silently revert the delta, so the ring
+    // would hold a non-restorable checkpoint. This is the shared chokepoint for
+    // every explicit capture (manual / dump / media-ingress before+after).
+    const dirty = this.nonPersistableDirtyMedia();
+    if (dirty) {
+      throw new Error(
+        `checkpoint: cannot capture — ${dirty} (Spec 709.13 / policy B). A RuntimeCheckpoint ` +
+        `does not serialize this delta, so capture+restore would silently revert it. Aborting ` +
+        `rather than minting a non-restorable checkpoint.`,
+      );
+    }
     const take = (): RuntimeCheckpointRef =>
       this.checkpointRing.capture(
         this.session.kernel.snapshot(), this.frameCounter, this.session.c64Cpu.cycles,
       );
     return this.runState === "running" ? this.runExclusive(take) : take();
+  }
+
+  /**
+   * Spec 709.13 — describe any currently-mounted medium whose live mutations are
+   * NOT serialized into a checkpoint/.c64re in v1, returning a precise reason
+   * (or null when all media is persistable). Covers a dirty VICE1541 disk
+   * (writable-disk delta) and a dirty writable CRT (flash delta). This is the
+   * single source of truth shared by `captureCheckpoint` (hard reject), the
+   * always-on auto-cadence capture (skip — a ring gap beats a corrupt
+   * checkpoint) and `ingestMedia` (reject any branching intervention). The CRT
+   * reason keeps the "writable CRT" / "writable-CRT-delta" wording the 709.12
+   * gates assert on.
+   */
+  nonPersistableDirtyMedia(): string | null {
+    const k = this.session.kernel as {
+      drive1541?: { getAttachedMedia?(): unknown; isMediaDirty?(): boolean };
+      c64Bus?: { getCartridge?(): { isWritableDirty?(): boolean } | undefined };
+    };
+    const drive = k.drive1541;
+    if (drive?.getAttachedMedia?.() && drive.isMediaDirty?.()) {
+      return "mounted disk is dirty (written since attach); v1 has no writable-disk-delta payload";
+    }
+    const cart = k.c64Bus?.getCartridge?.();
+    if (cart?.isWritableDirty?.()) {
+      return "writable CRT flash was written/erased since attach; v1 has no writable-CRT-delta payload";
+    }
+    return null;
   }
 
   /**
@@ -430,11 +472,18 @@ export class RuntimeController {
     // a capture failure must never kill the loop.
     if (++this.framesSinceCheckpoint >= CHECKPOINT_CAPTURE_EVERY_FRAMES) {
       this.framesSinceCheckpoint = 0;
-      try {
-        this.checkpointRing.capture(
-          this.session.kernel.snapshot(), this.frameCounter, this.session.c64Cpu.cycles,
-        );
-      } catch { /* drop this checkpoint; the ring stays consistent */ }
+      // Spec 709.13 (policy B) — skip the auto-capture while any mounted medium
+      // is dirty + non-persistable (dirty disk OR dirty writable CRT). A
+      // checkpoint that does not serialize the delta would silently revert it on
+      // restore; better to leave a gap in the ring than to mint a corrupt
+      // checkpoint. Capture resumes once all media is clean.
+      if (!this.nonPersistableDirtyMedia()) {
+        try {
+          this.checkpointRing.capture(
+            this.session.kernel.snapshot(), this.frameCounter, this.session.c64Cpu.cycles,
+          );
+        } catch { /* drop this checkpoint; the ring stays consistent */ }
+      }
     }
 
     if (warp) {

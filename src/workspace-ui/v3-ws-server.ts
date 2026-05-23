@@ -794,10 +794,15 @@ export class V3WsServer {
       const info = bus?.getBankInfo?.();
       if (!info?.cartridgeAttached) return null;
       const state = bus?.getCartridge?.()?.getState?.();
+      // Spec 709.13 — the source filename is backend truth (from the attached
+      // cartridge media), so every tab's CART display derives from here instead
+      // of keeping its own per-tab local path that can diverge.
+      const sourceName: string | undefined = bus?.getCartridgeMedia?.()?.name;
       return {
         type: info.cartridgeMapperType ?? "cartridge",
         bank: typeof state?.currentBank === "number" ? state.currentBank : 0,
         activity: "idle" as const,
+        sourceName,
       };
     });
 
@@ -935,7 +940,10 @@ export class V3WsServer {
     };
     this.on("media/ingress", async ({ session_id, ...rest }) => {
       const ctrl = ctrlFor(session_id);
-      return await ingestMedia(ctrl, buildIngressRequest(rest));
+      const ireq = buildIngressRequest(rest);
+      // Spec 709.12 — a live CRT insert from a running session resumes after the
+      // power-cycle so the cart actually executes (UX: "insert CRT → it runs").
+      return await ingestMedia(ctrl, ireq, { resumeIfRunning: ireq.kind === "crt" });
     });
 
     // Legacy path-based routes — now thin adapters to the single ingress service
@@ -966,7 +974,15 @@ export class V3WsServer {
         const doMount = () => mountMedia(session, 8, path);
         return ctrl ? ctrl.runExclusive(doMount) : doMount();
       }
-      const res = await ingestMedia(ctrlFor(session_id), buildIngressRequest({ kind: k, path, mode: "load" }));
+      // Spec 709.12 — the Inspector CART dropdown mounts a .crt through this
+      // same route (slot 0). A CRT insert from a running session resumes at PAL
+      // pacing after the power-cycle so the cart executes; a disk mount keeps
+      // the existing paused-after contract.
+      const res = await ingestMedia(
+        ctrlFor(session_id),
+        buildIngressRequest({ kind: k, path, mode: "load" }),
+        { resumeIfRunning: k === "crt" },
+      );
       // MountResult-compatible projection for the existing UI + the typed event.
       return {
         mountedPath: String(path),

@@ -38,6 +38,9 @@ interface CartStatus {
   type: string;
   bank: number;
   activity: "read" | "write" | "idle";
+  // Spec 709.13 — backend-owned source filename; the CART display derives from
+  // this (not a per-tab local path), so Live + Media never diverge.
+  sourceName?: string;
 }
 
 // Spec 310 — symbolic mapping: host KeyboardEvent → C64 matrix key name(s).
@@ -139,6 +142,8 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const [cart, setCart] = useState<CartStatus | null>(null);
   const [activeMedia, setActiveMedia] = useState<string>("");
   const [activeMedia9, setActiveMedia9] = useState<string>("");
+  // Spec 709.13 — the CART (slot 0) display is derived from backend cart_status
+  // (cart.sourceName), NOT a per-tab local path, so it can't diverge across tabs.
   const [screenFocused, setScreenFocused] = useState(false);
   const [monitorMax, setMonitorMax] = useState(false);
   const [bpSignal, setBpSignal] = useState<{ pc: number; num: number; registers: string; seq: number } | null>(null);
@@ -461,8 +466,12 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           cart={cart}
           activeMedia={activeMedia}
           activeMedia9={activeMedia9}
+          activeCartMedia={cart?.sourceName ?? ""}
           onMounted={(slot, path) => {
-            if (slot === 8) setActiveMedia(path); else if (slot === 9) setActiveMedia9(path);
+            // Spec 709.13 — slots 8/9 = drives (local display); slot 0 = CART is
+            // backend-derived (cart_status poll), so nothing to set here.
+            if (slot === 8) setActiveMedia(path);
+            else if (slot === 9) setActiveMedia9(path);
           }}
           joyMode={joyMode}
           setJoyMode={setJoyMode}

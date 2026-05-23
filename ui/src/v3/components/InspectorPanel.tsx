@@ -37,6 +37,8 @@ interface Props {
   cart?: Cart | null;
   activeMedia?: string;
   activeMedia9?: string;
+  /** Spec 709.12 — mounted CART (slot 0) path, shown on the CART row. */
+  activeCartMedia?: string;
   onMounted?: (slot: number, path: string) => void;
   joyMode?: JoyMode;
   setJoyMode?: (m: JoyMode) => void;
@@ -177,7 +179,7 @@ function DeviceRow({
 }
 
 export function InspectorPanel({
-  sessionId, drive, drive9, cart, activeMedia = "", activeMedia9 = "",
+  sessionId, drive, drive9, cart, activeMedia = "", activeMedia9 = "", activeCartMedia = "",
   onMounted, joyMode = "off", setJoyMode, joyBits, pressedKeys,
 }: Props): JSX.Element {
   const [cpu, setCpu] = useState<CpuState | null>(null);
@@ -439,7 +441,7 @@ export function InspectorPanel({
           label="CART"
           ledClass={cartLedClass(cart)}
           mediaList={media}
-          currentPath=""
+          currentPath={activeCartMedia}
           onMount={(p) => mountSlot(0, p)}
           onEject={() => ejectSlot(0)}
           exts={[".crt"]}

@@ -40,7 +40,18 @@ export interface MediaIngressResult {
   ok: true;
   event: MediaIngressEvent;
   paused: boolean;
+  /** Spec 709.12 — the run-state at ingress entry, so a UI adapter can decide
+   *  whether to resume after a live insert (the service itself stays paused
+   *  unless opts.resumeIfRunning is set). */
+  wasRunning: boolean;
   detail: Record<string, unknown>;
+}
+
+/** Spec 709.12 — per-call options. The deterministic service default keeps the
+ *  machine PAUSED after a mid-session change (replay/branch contract); the live
+ *  UI adapter opts in to resume a session that was running before the insert. */
+export interface MediaIngressOptions {
+  resumeIfRunning?: boolean;
 }
 
 // ---- helpers ----
@@ -73,7 +84,11 @@ function driveFacade(ctrl: RuntimeController): {
  * mid-session change. Throws a precise error on any rejected case (drive9,
  * .c64re-as-media, dirty disk, parse failure) rather than reporting fake success.
  */
-export async function ingestMedia(ctrl: RuntimeController, req: MediaIngressRequest): Promise<MediaIngressResult> {
+export async function ingestMedia(
+  ctrl: RuntimeController,
+  req: MediaIngressRequest,
+  opts: MediaIngressOptions = {},
+): Promise<MediaIngressResult> {
   // --- drive9 hard reject (v1 drive8-only) ---
   const role = (req as { role?: string }).role;
   if (role === "drive9" || role === "9" || (req as { slot?: number }).slot === 9) {
@@ -91,19 +106,37 @@ export async function ingestMedia(ctrl: RuntimeController, req: MediaIngressRequ
 
   const drive = driveFacade(ctrl);
 
-  // --- dirty-media hard stop for any op that detaches/replaces the disk ---
-  const detachesDisk =
-    req.kind === "disk" || (req.kind === "eject" && req.role === "drive8");
-  if (detachesDisk && drive?.getAttachedMedia?.() && drive.isMediaDirty?.()) {
+  // --- Spec 709.13: no branching media intervention while ANY mounted medium is
+  // dirty + non-persistable (writable disk delta OR writable CRT flash delta). ---
+  // Every ingest captures a before/after checkpoint and records a replayable
+  // MediaIngressEvent — a new branch root / intervention (Spec 709 §2.3 + §4). A
+  // checkpoint cannot serialize the delta, so the intervention would mint a
+  // non-restorable branch. Reject EVERY op (disk / crt / prg / eject) BEFORE any
+  // pause / apply / checkpoint / event — no partial apply. This is the SAME
+  // shared guard the controller checkpoint chokepoint uses, so dirty disk and
+  // dirty CRT are handled identically everywhere.
+  const dirtyMedia = ctrl.nonPersistableDirtyMedia();
+  if (dirtyMedia) {
     throw new Error(
-      "media-ingress: mounted disk is dirty (written since attach). v1 has no writable-disk-delta contract, " +
-      "so it cannot be swapped/ejected without losing the written state. Aborting (Spec 709 §2.3).",
+      `media-ingress: cannot apply a media change — ${dirtyMedia} (Spec 709.13). v1 cannot ` +
+      `persist this state, so the intervention would create a non-restorable checkpoint/branch. ` +
+      `Aborting (no partial apply, no checkpoint, no event).`,
     );
   }
 
-  // --- boundary: pause, checkpoint-before, apply, checkpoint-after, stay paused ---
+  // --- boundary: (conditional) pause, checkpoint-before, apply, checkpoint-after ---
+  // Spec 709.13.1 — only C64-INTERNAL interventions pause the machine. The 1541
+  // is a separate device: inserting/ejecting/swapping a disk leaves the C64
+  // running (the drive picks the new image up like real hardware). The cartridge
+  // port is PART of the C64 and a CRT op cold-boots it, so CRT (attach/replace/
+  // eject) pauses; PRG writes C64 RAM/PC so it pauses too. Checkpoints are still
+  // captured atomically via runExclusive whether running or paused.
   const wasRunning = ctrl.runState === "running";
-  if (wasRunning) ctrl.pause();
+  const requiresPause =
+    req.kind === "crt" ||
+    req.kind === "prg" ||
+    (req.kind === "eject" && req.role === "cartridge");
+  if (wasRunning && requiresPause) ctrl.pause();
 
   const mediaPresent = !!drive?.getAttachedMedia?.() ||
     !!(ctrl.session.kernel as { c64Bus?: { getBankInfo?: () => { cartridgeAttached?: boolean } } }).c64Bus
@@ -188,7 +221,16 @@ export async function ingestMedia(ctrl: RuntimeController, req: MediaIngressRequ
   };
   // Spec 709.8 — append to the ordered, replayable media-event history.
   ctrl.mediaEvents.push(event);
-  return { ok: true, event, paused: true, detail };
+
+  // Spec 709.13.1 — resume semantics:
+  //  - A device op (disk insert/eject/swap) never paused → the C64 keeps running.
+  //  - A C64-internal op (CRT/PRG) paused for the cold-boot/RAM write; a live UI
+  //    insert (opts.resumeIfRunning) resumes it at PAL pacing so the cart boots,
+  //    while the deterministic service default stays paused (replay/branch +
+  //    differential probes rely on it).
+  if (requiresPause && opts.resumeIfRunning && wasRunning) ctrl.run();
+  const paused = ctrl.runState === "paused";
+  return { ok: true, event, paused, wasRunning, detail };
 }
 
 // Byte-based PRG load (mirrors session.loadPrgIntoRam, no file path). Writes the

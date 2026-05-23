@@ -165,8 +165,31 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
   const [recent, setRecent] = useState<RecentEntry[]>([]);
   const [drive8, setDrive8] = useState<{ path?: string; type?: string; mapperType?: string }>({});
   const [drive9, setDrive9] = useState<{ path?: string; type?: string; mapperType?: string }>({});
+  // Spec 709.13 — a .crt is a CARTRIDGE (slot 0), not a drive-8 disk. The CART
+  // row is derived from backend cart_status (single source of truth), so the
+  // Media tab and the Live/Inspector tab never diverge.
+  const [cart, setCart] = useState<{ path?: string; mapperType?: string }>({});
   const [status, setStatus] = useState<string>("");
   const client = getClient();
+
+  // Spec 709.13 — poll the backend cartridge state; refreshCart() also fires
+  // immediately after an insert/eject for low latency.
+  const refreshCart = useCallback(async () => {
+    if (!sessionId) { setCart({}); return; }
+    try {
+      const cs = await client.call<{ type?: string; sourceName?: string } | null>(
+        "session/cart_status", { session_id: sessionId });
+      setCart(cs ? { path: cs.sourceName, mapperType: cs.type } : {});
+    } catch { /* ignore */ }
+  }, [sessionId, client]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    let alive = true;
+    const tick = async () => { if (!alive) return; await refreshCart(); if (alive) setTimeout(tick, 500); };
+    tick();
+    return () => { alive = false; };
+  }, [sessionId, refreshCart]);
 
   // Load roots on mount.
   useEffect(() => {
@@ -211,12 +234,22 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
         slot,
         path: entry.path,
       });
-      const setter = slot === 8 ? setDrive8 : setDrive9;
-      setter({ path: result.mountedPath, type: result.type, mapperType: result.mapperType });
       // Refresh recent.
       client.call<RecentEntry[]>("media/recent").then(setRecent).catch(() => {});
       const errMsg = result.errors?.join("; ");
-      setStatus(errMsg ? `Mounted with warnings: ${errMsg}` : `Mounted ${entry.name} to drive ${slot}`);
+      // Spec 709.12 — a CRT inserts as a CARTRIDGE (slot 0), never drive 8. The
+      // adapter returns slot=undefined for a crt; route it to the CART row.
+      if (entry.type === "crt" || result.slot === undefined && result.type === "crt") {
+        // Spec 709.13 — CART display comes from backend cart_status, not the
+        // mount result; refresh now so the row updates immediately.
+        void refreshCart();
+        setStatus(errMsg ? `Cartridge inserted with warnings: ${errMsg}`
+          : `Inserted ${entry.name} as cartridge${result.mapperType ? ` [${result.mapperType}]` : ""}`);
+      } else {
+        const setter = slot === 8 ? setDrive8 : setDrive9;
+        setter({ path: result.mountedPath, type: result.type, mapperType: result.mapperType });
+        setStatus(errMsg ? `Mounted with warnings: ${errMsg}` : `Mounted ${entry.name} to drive ${slot}`);
+      }
     } catch (e) {
       setStatus(`Mount error: ${(e as Error).message}`);
     }
@@ -229,6 +262,18 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
       const setter = slot === 8 ? setDrive8 : setDrive9;
       setter({});
       setStatus(`Drive ${slot} ejected`);
+    } catch (e) {
+      setStatus(`Eject error: ${(e as Error).message}`);
+    }
+  }, [sessionId, client]);
+
+  // Spec 709.12 — eject the cartridge (slot 0); leaves drive 8 untouched.
+  const ejectCart = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      await client.call("media/unmount", { session_id: sessionId, slot: 0 });
+      void refreshCart(); // Spec 709.13 — re-derive from backend (will clear)
+      setStatus("Cartridge ejected");
     } catch (e) {
       setStatus(`Eject error: ${(e as Error).message}`);
     }
@@ -349,6 +394,29 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
         }}>
           <strong style={{ color: "#666", minWidth: "70px" }}>Drive 9:</strong>{" "}
           <span style={{ fontStyle: "italic" }}>not supported in v1 (drive 8 only)</span>
+        </div>
+        {/* Spec 709.12 — CART row: a .crt inserts here (slot 0), not drive 8. */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: "8px",
+          padding: "8px 12px", marginTop: "8px",
+          border: "1px solid #2a2a2a", borderRadius: "5px", background: "#181818", fontSize: "12px",
+        }}>
+          <strong style={{ color: "#aaa", minWidth: "70px" }}>CART:</strong>
+          {cart.path ? (
+            <>
+              <TypeBadge type="crt" deferred={false} />
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={cart.path}>
+                {basename(cart.path)}
+              </span>
+              {cart.mapperType && (
+                <span style={{ color: "#d47f00", fontSize: "11px" }}>[{cart.mapperType}]</span>
+              )}
+              <button onClick={ejectCart} style={{ fontSize: "10px", padding: "1px 6px" }}>Eject</button>
+            </>
+          ) : (
+            <span style={{ color: "#555", fontStyle: "italic" }}>empty — mount a .crt to insert</span>
+          )}
         </div>
       </div>
 
