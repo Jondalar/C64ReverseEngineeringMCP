@@ -1,6 +1,6 @@
 # Spec 705 - Interactive Runtime Evidence, Intervention and Replay Contract
 
-Status: REFINEMENT (2026-05-23 CEST) — slice **705.A DONE** (2026-05-23, see §4.9)
+Status: REFINEMENT (2026-05-23 CEST) — slices **705.A DONE** (§4.9) + **705.B DONE** (§4.10)
 Created: 2026-05-23 CEST
 Depends: Specs 600/601, 616-618, 623, 701-704
 Owner: runtime / debugger / v3 UI / project-knowledge
@@ -410,6 +410,40 @@ Follow-ons (separate, user-gated): Spec 706 §9/706.8 (live audio latency +
 transport restore re-sync); 705.B (automatic checkpoint ring); 706+ persistence
 / dump-undump / rewind.
 
+### 4.10 705.B DONE — Always-On Checkpoint Ring + Pin/Restore (2026-05-23 CEST)
+
+The §3.3 automatic bounded checkpoint ring + §3.4 pin primitive are
+**DONE**. In-memory / transient only — no persistence, dump/undump,
+replay event-log (§3.5), or rewind UI (those are later slices).
+
+Resolved open knobs (§3.3 said "open for refinement and measurement";
+resolved by measurement + user decision 2026-05-23):
+
+- **capacity policy = BYTES, budget 128 MiB**, evict OLDEST-first; pinned
+  exempt. A real checkpoint ≈ 400 KB (vicPresentation framebuffer ~317 KB
+  + 64 KB RAM dominate) → ~320 checkpoints.
+- **capture interval = 25 frames (~0.5 s)**, driven by the controller loop
+  at the completed-frame boundary (instruction-boundary safe, loop idle).
+- **pin** is the only durability primitive in 705.B; promote-to-Experiment
+  (§3.1) is deferred (needs the Experiment object model + persistence).
+
+Implementation:
+
+- `src/runtime/headless/kernel/runtime-checkpoint-ring.ts` —
+  `RuntimeCheckpointRing` (capture/pin/unpin/get/list/restoreSnapshot/
+  clear/stats) + `estimateCheckpointBytes`.
+- `runtime-controller.ts` — owns the ring; auto-captures every 25 frames;
+  `captureCheckpoint()` / `restoreCheckpoint()` via `runExclusive`. Restore
+  drives `kernel.restore()` → the 705.A audio provider → the Spec 706.8
+  transport flush.
+- `v3-ws-server.ts` — `checkpoint/list|capture|pin|unpin|restore` RPCs.
+
+Gate: `npm run probe:705b-ring` GREEN 7/7 — bytes eviction oldest-first,
+pinned survives eviction, unpin reclaims, and a real ring
+capture→restore→forward-continuation is byte-identical
+(RAM/regs/raster/drive). 705.A + 706 probes + `runtime:proof` 7/7 stay
+green (no regression from the in-loop capture).
+
 ## 5. Related Existing Specs
 
 | Spec | Relationship to 705 |
@@ -426,8 +460,8 @@ Tentative only until refinement closes:
 
 | Slice | Subject |
 |---|---|
-| 705.A | Native checkpoint schema and restore spike implementation. |
-| 705.B | Automatic checkpoint ring and pin/promote lifecycle. |
+| 705.A | Native checkpoint schema and restore spike implementation. **DONE (§4.9).** |
+| 705.B | Automatic checkpoint ring and pin/restore lifecycle. **DONE (§4.10)** — promote-to-Experiment deferred. |
 | 706 | Native snapshot persistence plus monitor `dump`/`undump`. |
 | 707 | Declarative trace definitions and TraceDB control. |
 | 708 | Reproducible media ingress: disk, PRG, CRT, drag/drop. |
