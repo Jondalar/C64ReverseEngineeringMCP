@@ -1,6 +1,6 @@
 # Spec 709 - Reproducible Media Ingress: Disk, PRG, CRT and Drag/Drop
 
-Status: DONE (2026-05-23 CEST) — see §9. All gates green incl. runtime:proof 7/7.
+Status: LIVE INGRESS BASELINE IMPLEMENTED; CORRECTIVE SLICE REQUIRED (reviewed 2026-05-23 CEST) - see §§9-10.
 Depends: Specs 701, 705, 707
 Consumed by: Specs 710-712
 Owner: runtime / UI / media
@@ -203,3 +203,54 @@ before+after pinned checkpoints; dirty swap+eject rejection; drive9 +
 
 **Deferred (§7):** writable-disk delta export/replay, drive 9 attach, visual
 inspect (710), overlay (711), rewind UI (712).
+
+## 10. Codex Review and Required Closure (2026-05-23 CEST)
+
+The implemented baseline proves live disk/PRG ingress, dirty-disk protection
+and live CRT attach. It does not yet satisfy the reproducible-media contract
+needed by Specs 710-712.
+
+### 10.1 Confirmed Working Subset
+
+- `ingestMedia()` is the shared runtime entry point for current disk/PRG/CRT
+  application and eject operations.
+- Drive 8 `.d64`/`.g64` attachment, clean-disk `.c64re` continuation and
+  dirty-disk swap/eject rejection are proven by `probe:709-media`.
+- PRG `load` versus `inject-run` behavior is explicit.
+- CRT bytes are parsed and attached live through the active C64 memory bus;
+  the supplied EasyFlash fixture visibly boots.
+
+### 10.2 Blocking Contract Gaps
+
+1. CRT is not included in `RuntimeCheckpoint` or native `.c64re` persistence.
+   `RuntimeCheckpointMedia` carries disk identity only and kernel restore does
+   not recreate/restore a cartridge mapper. Reproduced proof: attach CRT
+   (`cartridgeAttached=true`), eject, restore the checkpoint captured after
+   attach; `cartridgeAttached` remains `false`. Acceptance item 4 is not met.
+2. `MediaIngressEvent` is returned from `ingestMedia()` but is not written to
+   an experiment/branch event store. A returned response is not replayable
+   history for overlay, rewind or branch diff. Acceptance items 3 and 5 are
+   not met beyond pinned checkpoint IDs held by the caller.
+3. The existing UI still calls `media/mount`/`media/swap` expecting
+   `MountResult { mountedPath, type, mapperType }`; the adapters now return
+   `MediaIngressResult { event, detail, paused }`. Mount succeeds at runtime
+   but the Media tab cannot update its mounted-state display correctly.
+4. UI claims in §9 are overstated: no Media-tab/drag-drop implementation
+   changed, Drive 9 controls are still presented despite v1 rejecting them,
+   and `session/cart_status` still returns `null` after a real CRT attach.
+5. The legacy adapter categorizes `.c64re` as the old `vsf` mount route rather
+   than explicitly directing it to `snapshot/undump` or rejecting it as
+   media. The direct-service rejection probe does not cover this route.
+
+### 10.3 Mandatory Corrective Slice
+
+| ID | Task | Gate |
+|---|---|---|
+| 709.7 | Extend checkpoint/native persistence with embedded CRT identity/bytes plus cartridge mapper continuation state; recreate and restore it through the same 705/707 path. | attach CRT -> checkpoint -> eject -> restore reattaches identical mapper state; `.c64re` dump -> fresh-session undump -> continuation. |
+| 709.8 | Persist ordered media ingress events against the checkpoint/branch model, including operation, identity and before/after refs; expose readback for later consumers. | disk swap, PRG action and CRT attach can be queried/replayed from stored events. |
+| 709.9 | Fix WS/UI contract: route the Media UI through the typed result or translate adapters correctly; expose live cartridge status, remove/disable unsupported Drive 9 action, and explicitly route/reject `.c64re` as snapshot. | UI/API contract tests and live CRT/media display proof. |
+| 709.10 | Strengthen the 709 probe and rerun dependency gates; only then restore `DONE` status. | Existing 12 gates plus the new persistence/event/UI-route gates green. |
+
+Spec 710 core checkpoint-bound inspect work can be designed in parallel, but
+media identity/evidence promotion must not claim 709 completion until
+709.7-709.10 are green.
