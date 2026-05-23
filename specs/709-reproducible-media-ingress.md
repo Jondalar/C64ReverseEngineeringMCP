@@ -1,6 +1,6 @@
 # Spec 709 - Reproducible Media Ingress: Disk, PRG, CRT and Drag/Drop
 
-Status: DONE (2026-05-23 CEST) — corrective slice 709.7-709.10 complete, see §11. All gates green incl. runtime:proof 7/7.
+Status: DONE (2026-05-23 CEST) — closing slice 709.11 complete (durable media events + writable-CRT policy B + CART eject routing), see §12. All gates green incl. runtime:proof 7/7.
 Depends: Specs 701, 705, 707
 Consumed by: Specs 710-712
 Owner: runtime / UI / media
@@ -291,5 +291,47 @@ second snapshot model).
   G9 (ordered media events with checkpoint refs), G10 (MountResult-projection
   fields). `probe:707-dump-undump`, 705.A/705.B/706/708 probes,
   `check:1541-fidelity` 78/0, and `runtime:proof` 7/7 stay green.
+
+Status restored to **DONE**.
+
+## 12. Closing Slice Result (709.11, 2026-05-23)
+
+Three reproducibility gaps from the post-709.10 review closed.
+
+- **709.11a durable media events:** media-ingress events were a per-controller
+  in-memory array lost on a fresh-session restore. `dumpRuntimeSnapshot` now
+  embeds `ctrl.mediaEvents` into the `.c64re` payload (`payload.mediaEvents`,
+  serialized by the 707 codec); `undumpRuntimeSnapshot` restores them into the
+  live controller array (shared by `media/events`). No second event authority —
+  the checkpoint payload carries the history. Gate G11: CRT attach → dump →
+  fresh-session undump → `media/events` has the original CRT ingress with stable
+  operation/format/sha256.
+- **709.11b writable-CRT correctness — POLICY B (reject dirty):** the cartridge
+  checkpoint embeds the ORIGINAL `.crt` bytes + bank/control state, not flash
+  write-deltas, so a written/erased flash would silently restore the original
+  bytes. `AmdFlashChip` now tracks a `dirty` flag on program/erase; mappers
+  expose `isWritableDirty()`; `dumpRuntimeSnapshot` HARD-REJECTS a dirty writable
+  cartridge ("writable CRT state not persistable in v1"). Clean/unmodified
+  cartridges dump/restore byte-identically (G8). Full flash-delta persistence
+  (Policy A) is deferred — the same honest boundary as the writable-disk delta.
+  Chosen because flash-image persistence is out of this slice's scope and Policy
+  B prevents silent machine-state corruption now. Gate G12: written EasyFlash →
+  deterministic hard reject; never a silent stale restore.
+- **709.11c CART eject routing:** `media/unmount` ignored `slot` and always
+  ejected drive 8, so the UI CART eject (slot 0) removed the disk. It now routes
+  slot 0 / role `cartridge` → cartridge eject, slot 8 → drive 8, slot 9 →
+  rejected. Gate (`probe:709-ws-routes`, over the REAL V3WsServer + ws client):
+  CART eject removes the cartridge and leaves the drive-8 disk intact; drive-8
+  eject removes the disk; drive 9 rejected.
+
+**Gates:** `build:mcp` clean; `probe:709-media` 21/21; `probe:709-ws-routes` 5/5;
+`probe:707-dump-undump` + 705.A/705.B/706/708 green; `check:1541-fidelity`
+78/0; `ui:typecheck` 47 pre-existing JSX/TS errors, **0 introduced by this
+slice**; `runtime:proof` 7/7.
+
+**CRT v1 persistence policy (documented):** clean cartridge = embedded `.crt`
+bytes + bank/control state, restored byte-identically across checkpoint and
+`.c64re`. Written (dirty) flash cartridge = rejected at dump (no silent stale
+restore). Flash-delta persistence is a future slice.
 
 Status restored to **DONE**.

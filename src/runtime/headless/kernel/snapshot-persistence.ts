@@ -83,9 +83,28 @@ export async function dumpRuntimeSnapshot(ctrl: RuntimeController, path: string)
     );
   }
 
+  // Spec 709.11b (writable-CRT policy B): the cartridge checkpoint embeds the
+  // ORIGINAL .crt bytes + bank/control state, not flash write-deltas. A flash
+  // that was written/erased since attach cannot be restored byte-identically in
+  // v1, so reject rather than silently restore the original bytes. Clean
+  // (unwritten) cartridges dump/restore normally.
+  const cart = (ctrl.session.kernel as { c64Bus?: { getCartridge?(): { isWritableDirty?(): boolean } | undefined } }).c64Bus?.getCartridge?.();
+  if (cart?.isWritableDirty?.()) {
+    throw new Error(
+      "dump: writable CRT state not persistable in v1 — the attached cartridge's flash " +
+      "was written/erased since attach, and native snapshots embed only the original .crt " +
+      "bytes + bank/control state (no flash delta). Aborting rather than restoring a stale " +
+      "flash image (Spec 709.11b policy B).",
+    );
+  }
+
   const ref = await ctrl.captureCheckpoint();
   const snapshot = ctrl.checkpointRing.restoreSnapshot(ref.id);
   if (!snapshot) throw new Error("dump: checkpoint capture did not land in the ring");
+
+  // Spec 709.11a — embed the ordered media-ingress history in the payload so a
+  // fresh-session undump restores the replayable media evidence (Specs 705/712).
+  (snapshot.payload as { mediaEvents?: unknown }).mediaEvents = ctrl.mediaEvents.map((e) => ({ ...e }));
 
   const mediaField = (snapshot.payload as { media?: CheckpointMediaField }).media ?? {};
   const media = gatherMedia(ctrl, mediaField);
@@ -149,6 +168,15 @@ export async function undumpRuntimeSnapshot(ctrl: RuntimeController, path: strin
   }
 
   await ctrl.restoreFromSnapshot(snapshot, { pause: true });
+
+  // Spec 709.11a — restore the media-ingress history embedded in the .c64re so
+  // it is readable after a fresh-session undump (replace the live array contents
+  // in place; the WS media/events route + ingress share this ref).
+  const restoredEvents = (snapshot.payload as { mediaEvents?: unknown[] }).mediaEvents;
+  if (Array.isArray(restoredEvents)) {
+    ctrl.mediaEvents.length = 0;
+    ctrl.mediaEvents.push(...(restoredEvents as (typeof ctrl.mediaEvents)));
+  }
 
   return {
     path: abs,

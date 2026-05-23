@@ -38,6 +38,9 @@ export interface HeadlessCartridgeMapper {
   getLines(): HeadlessCartridgeLines;
   read(address: number, bankInfo: HeadlessBankInfo): number | undefined;
   write(address: number, value: number, bankInfo: HeadlessBankInfo): boolean;
+  /** Spec 709.11b — true if writable (flash) contents were mutated since attach.
+   *  Read-only mappers omit it. Used by the dump guard (v1 can't persist flash). */
+  isWritableDirty?(): boolean;
 }
 
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
@@ -383,8 +386,14 @@ type FlashCommandState = "read" | "cmd1" | "cmd2" | "program" | "erase1" | "eras
 
 class AmdFlashChip implements HeadlessWritableChip {
   public state: FlashCommandState = "read";
+  // Spec 709.11b — set when flash contents are mutated (program/erase). Used by
+  // the writable-CRT dump guard: v1 cannot persist flash deltas, so a dirty
+  // flash is rejected at dump rather than silently restoring the original bytes.
+  private dirty = false;
 
   constructor(private readonly options: AmdFlashChipOptions) {}
+
+  isDirty(): boolean { return this.dirty; }
 
   getMode(): string {
     return `${this.options.label}:${this.state}`;
@@ -440,6 +449,7 @@ class AmdFlashChip implements HeadlessWritableChip {
         return false;
       case "program":
         this.options.data[normalized] = byte;
+        this.dirty = true; // Spec 709.11b — flash mutated
         this.state = "read";
         return true;
       case "erase1":
@@ -459,6 +469,7 @@ class AmdFlashChip implements HeadlessWritableChip {
       case "erase3":
         if (commandOffset === this.options.commandAddress1 && byte === 0x10) {
           this.options.data.fill(0xff);
+          this.dirty = true; // Spec 709.11b — chip erase mutated flash
           this.state = "read";
           return true;
         }
@@ -469,6 +480,7 @@ class AmdFlashChip implements HeadlessWritableChip {
             return false;
           }
           this.options.data.fill(0xff, sector.start, sector.start + sector.size);
+          this.dirty = true; // Spec 709.11b — sector erase mutated flash
           this.state = "read";
           return true;
         }
@@ -600,6 +612,10 @@ class EasyFlashMapper extends BaseMapper {
     this.controlRegister = (v ?? 0x00) & 0xff; // Spec 709.7 — restore EasyFlash $DE02 mode/LED state
   }
 
+  isWritableDirty(): boolean {
+    return this.loFlash.isDirty() || this.hiFlash.isDirty(); // Spec 709.11b
+  }
+
   private currentMode(): "off" | "ultimax" | "8k" | "16k" {
     const mxg = this.controlRegister & 0x07;
     switch (mxg) {
@@ -683,6 +699,10 @@ class MegabyterMapper extends BaseMapper {
     // getState); restore both registers. Flash-write state is deferred (v1).
     this.bankRegister = (state.currentBank ?? 0) & 0xff;
     this.controlRegister = (state.controlRegister ?? 0) & 0xff;
+  }
+
+  isWritableDirty(): boolean {
+    return this.flash.isDirty(); // Spec 709.11b
   }
 
   read(address: number, bankInfo: HeadlessBankInfo): number | undefined {

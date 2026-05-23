@@ -243,6 +243,52 @@ console.log(`Spec 709 — media ingress gates  (tmp ${dir})`);
   } finally { stopIntegratedSession(sessionId); }
 }
 
+// ---- G11 durable media events across fresh-session dump/undump (709.11a) ----
+{
+  const a = newSession();
+  let snapPath, srcEvent;
+  try {
+    const ctrl = new RuntimeController(a.sessionId, a.session, () => {});
+    a.session.runFor(2_000_000, { cycleBudget: 2_000_000 });
+    await ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" });
+    srcEvent = ctrl.mediaEvents[0];
+    snapPath = join(dir, "events.c64re");
+    await dumpRuntimeSnapshot(ctrl, snapPath);
+  } finally { stopIntegratedSession(a.sessionId); }
+
+  const f = newSession();
+  try {
+    const ctrl = new RuntimeController(f.sessionId, f.session, () => {});
+    f.session.runFor(1_000_000, { cycleBudget: 1_000_000 });
+    gate("G11 fresh session starts with empty media history", ctrl.mediaEvents.length === 0);
+    await undumpRuntimeSnapshot(ctrl, snapPath);
+    const ev = ctrl.mediaEvents;
+    gate("G11 fresh-session undump restores the CRT ingress event (stable identity)",
+      ev.length === 1 && ev[0].operation === "crt" && ev[0].format === srcEvent.format &&
+      ev[0].sha256 === srcEvent.sha256,
+      `n=${ev.length} op=${ev[0]?.operation} sha=${ev[0]?.sha256?.slice(0, 8)} (src ${srcEvent.sha256.slice(0, 8)})`);
+  } finally { stopIntegratedSession(f.sessionId); }
+}
+
+// ---- G12 writable EasyFlash: clean dumps, written rejects (709.11b policy B) ----
+{
+  // clean already proven by G8; here prove a WRITTEN EasyFlash rejects at dump.
+  const { session, sessionId } = newSession();
+  try {
+    const ctrl = new RuntimeController(sessionId, session, () => {});
+    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
+    await ingestMedia(ctrl, { kind: "crt", bytes: crt, name: "accolade.crt", resetPolicy: "power-cycle" });
+    const cartM = session.kernel.c64Bus.getCartridge();
+    const bi = session.kernel.c64Bus.getBankInfo();
+    // AMD program sequence (EasyFlash loFlash, ultimax mode after attach → roml visible):
+    cartM.write(0x8555, 0xAA, bi); cartM.write(0x82AA, 0x55, bi); cartM.write(0x8555, 0xA0, bi);
+    cartM.write(0x8000, 0x42, bi); // program one flash byte
+    gate("G12 flash write marks the cartridge writable-dirty", cartM.isWritableDirty?.() === true);
+    const r = await expectThrow(() => dumpRuntimeSnapshot(ctrl, join(dir, "dirty-crt.c64re")), "writable CRT");
+    gate("G12 written EasyFlash dump rejected (deterministic, no silent stale restore)", r.ok, r.msg.slice(0, 80));
+  } finally { stopIntegratedSession(sessionId); }
+}
+
 console.log("---");
 if (failures.length === 0) { console.log(`GREEN 709 media ingress: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 709 media ingress: ${passes} pass, ${failures.length} blocker(s).`);

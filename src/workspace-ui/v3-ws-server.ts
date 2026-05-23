@@ -981,9 +981,15 @@ export class V3WsServer {
     this.on("media/swap", adaptMount); // swap = ingest a new disk; service dirty-checks + checkpoints
     // Spec 709.8 — ordered media-event readback for replay/branch consumers (710-712).
     this.on("media/events", ({ session_id }) => ({ events: ctrlFor(session_id).mediaEvents }));
-    this.on("media/unmount", async ({ session_id, slot }) => {
-      if (slot !== undefined && Number(slot) === 9) throw new Error("media/unmount: drive 9 not supported (v1 drive8-only)");
-      return await ingestMedia(ctrlFor(session_id), { kind: "eject", role: "drive8" });
+    // Spec 709.11 (Befund 3) — route eject by target. The UI sends slot 0 (or
+    // role "cartridge") for a CART eject; slot 8 = drive 8; slot 9 rejected.
+    // Previously this ignored slot and always ejected drive 8, so a CART eject
+    // removed the disk in drive 8.
+    this.on("media/unmount", async ({ session_id, slot, role }) => {
+      const n = slot !== undefined ? Number(slot) : 8;
+      if (n === 9) throw new Error("media/unmount: drive 9 not supported (v1 drive8-only)");
+      const ejectRole: "cartridge" | "drive8" = (role === "cartridge" || n === 0) ? "cartridge" : "drive8";
+      return await ingestMedia(ctrlFor(session_id), { kind: "eject", role: ejectRole });
     });
 
     this.on("media/recent", async () => {
