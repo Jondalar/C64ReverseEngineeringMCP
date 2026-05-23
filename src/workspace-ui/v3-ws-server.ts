@@ -784,20 +784,20 @@ export class V3WsServer {
 
     // Spec 424 — cartridge status. IntegratedSession has no cart
     // plumbing yet (deferred to follow-up spec 425). Returns null.
-    // Spec 709.9 — live cartridge status from the real attached cartridge.
+    // Spec 709.9 — live cartridge status from the real attached cartridge, in
+    // the shape the Live/Inspector UI consumes ({ type, bank, activity }; null
+    // when no cart). Was hard-coded null after a real CRT attach (§10.2.4).
     this.on("session/cart_status", ({ session_id }) => {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
       const bus = (s.kernel as any).c64Bus;
       const info = bus?.getBankInfo?.();
-      if (!info?.cartridgeAttached) return { attached: false };
-      const media = bus?.getCartridgeMedia?.();
+      if (!info?.cartridgeAttached) return null;
+      const state = bus?.getCartridge?.()?.getState?.();
       return {
-        attached: true,
-        mapperType: info.cartridgeMapperType,
-        exrom: info.cartridgeExrom,
-        game: info.cartridgeGame,
-        name: media?.name,
+        type: info.cartridgeMapperType ?? "cartridge",
+        bank: typeof state?.currentBank === "number" ? state.currentBank : 0,
+        activity: "idle" as const,
       };
     });
 
