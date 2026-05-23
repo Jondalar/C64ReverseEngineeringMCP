@@ -73,9 +73,17 @@ try {
   session.runFor(50_000, { cycleBudget: 50_000 });
 
   const machineSnap = session.kernel.snapshot();
-  gate("kernel snapshot API contains runtime payload",
-    machineSnap?.payload !== null && machineSnap?.payload !== undefined,
-    `payload=${String(machineSnap?.payload)}`);
+  const cp = machineSnap?.payload;
+  gate("kernel snapshot API contains native RuntimeCheckpoint payload",
+    cp != null && machineSnap.schemaVersion === 1,
+    `schema=${machineSnap?.schemaVersion}, payload=${cp ? "RuntimeCheckpoint" : String(cp)}`);
+  // Spec 705.A step 3 — the checkpoint must carry the active core domains, the
+  // active literal-VIC state, and the maincpu alarm schedule (not a stub).
+  gate("checkpoint carries active core + literal-VIC + alarm-schedule state",
+    !!cp && cp.ram?.length === 0x10000 && cp.vic?.regs?.length === 0x40 &&
+      Array.isArray(cp.alarmsMaincpu) && !!cp.cia1 && !!cp.cia2 && !!cp.sid &&
+      cp.drive1541 != null,
+    cp ? `ram=${cp.ram?.length}B vic.regs=${cp.vic?.regs?.length} alarms=${cp.alarmsMaincpu?.length} drive=${cp.drive1541?.length ?? 0}B` : "n/a");
 
   const driveBlob = session.kernel.drive1541.snapshot();
   // Spec 705.A tightened gate: a non-empty blob is NOT enough — a header-only

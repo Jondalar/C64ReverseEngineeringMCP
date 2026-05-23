@@ -286,6 +286,46 @@ DRIVECPU0 + 1541VIA1D0 + VIA2D0 modules:
   continuation equivalence needs the C64-side checkpoint to drive the drive
   deterministically and is deferred to the kernel-payload step.
 
+### 4.7 Native RuntimeCheckpoint Core+VIC+Drive Restore (Step 3, 2026-05-23 CEST)
+
+Step 3 DONE (no audio). `HeadlessMachineKernel.snapshot()/restore()` now produce
+a native C64RE `RuntimeCheckpoint` (`kernel/runtime-checkpoint.ts`) that
+deterministically restores the active machine path:
+
+- C64 CPU at an instruction boundary (Cpu65xxVice mid-instruction `inst` is
+  private but null at a boundary — documented contract); RAM + CPU-port latches
+  ($00/$01, `setCpuPort` re-runs PLA banking); CIA1/CIA2 (their own
+  snapshot/restore); SID software-visible registers (`sid.snapshot`, NO PCM);
+  IEC (full `IecBus.core` shadow); `cpuIntStatus`; keyboard live keys / joystick
+  / paddles; mounted-media identity.
+- Active **literal VIC** (the production `literal-port` path, NOT `VicIIVice`):
+  RFL port of `viciisc/vicii-snapshot.c` in `vic/literal/vicii-snapshot.ts` over
+  `LIT_TYPES.vicii` + the existing `vicii_get/set_draw_cycle_state`; restore
+  re-asserts the VIC IRQ line. The VICE `raster_t` has no TS struct, so the
+  visible-continuation seam maps to the IntegratedSession presentation fields
+  (`literalPortFb` accumulator + `literalPortFbStable` freeze image +
+  `litLastRasterLine` + `lastLitBaLow`), captured in the container.
+- VICE1541 drive: the opaque, VICE-shaped snapshot-module byte blob
+  (steps 2.3/2.4), stored verbatim.
+- **Alarm schedule (maincpu context):** captured + re-armed
+  (`alarmContextCaptureSchedule/RestoreSchedule`). This was the continuation
+  blocker — CIA `restore()` reloads timer fields but does not re-arm its 5
+  alarms, so the maincpu alarm schedule (CIA1/CIA2 timer/TOD/SDR/idle) had to be
+  captured and re-armed by name; without it run-N drifted ~3 cycles. The drive's
+  VIA alarms live on the drive context and are re-armed by the drive blob.
+
+Gates: `build:mcp` clean; `check:1541-fidelity` 78/0; `probe:705-checkpoint`
+kernel payload + literal-VIC + drive GREEN (reSID still RED/PENDING);
+`probe:705-core-roundtrip` 13/13 GREEN — BASIC/READY, real-media+VICE1541, and a
+mid-frame VIC checkpoint each prove immediate restore identity AND run-N
+continuation determinism (CPU + raster + RAM hash + completed-frame hash + drive
++ IEC), strictly sequential from one checkpoint (the literal VIC is a global
+singleton — no parallel-session oracle).
+
+PENDING (step 4): reSID PCM continuation-state ownership (the `SidAudioRecorder`
+sidecar). The DRIVE8 first-restore rotation re-sync remains VICE-canonical
+(§4.6). No ring buffer / dump-undump / UI here.
+
 ## 5. Related Existing Specs
 
 | Spec | Relationship to 705 |

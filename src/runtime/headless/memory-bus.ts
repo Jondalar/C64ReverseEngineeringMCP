@@ -181,6 +181,19 @@ export class HeadlessMemoryBus {
     return this.cpuPortValue;
   }
 
+  /** Spec 705.A step 3 — restore the CPU-port latches ($00 direction, $01
+   *  value) from a native RuntimeCheckpoint and re-run the PLA banking
+   *  reconfig. Mirrors the reset path (resetCpuPortKeepRam) but with captured
+   *  values. RAM[0]/[1] are part of the captured 64K image; this restores the
+   *  separate port latches that drive memPlaConfigChanged(). */
+  setCpuPort(direction: number, value: number): void {
+    this.cpuPortDirection = direction & 0xff;
+    this.cpuPortValue = value & 0xff;
+    this.ram[0x0000] = this.cpuPortDirection;
+    this.ram[0x0001] = this.cpuPortValue;
+    this.memPlaConfigChanged();
+  }
+
   getBankInfo(): HeadlessBankInfo {
     const lines = this.cartridge?.getLines();
     return {

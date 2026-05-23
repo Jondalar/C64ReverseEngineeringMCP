@@ -159,6 +159,54 @@ export function alarmContextDestroy(context: AlarmContext): void {
   // a no-op for our purposes. Caller drops the reference.
 }
 
+// ---------------------------------------------------------------------------
+// Spec 705.A step 3 — alarm-schedule capture/restore for the native
+// RuntimeCheckpoint. The pending-alarm schedule (which alarm fires at which
+// absolute clk) is continuation-critical state: chips that are alarm-driven
+// (CIA) restore their register fields but the alarm context still holds the
+// pre-restore schedule, so run-N continuation diverges. Capturing the schedule
+// by alarm NAME (alarms are uniquely named per context) and re-arming it makes
+// the restored alarm state exact, independent of how each chip would re-derive.
+// ---------------------------------------------------------------------------
+
+export interface AlarmScheduleEntry {
+  name: string;
+  clk: number;
+}
+
+/** Capture the pending-alarm schedule of `context` as {name, clk}[]. */
+export function alarmContextCaptureSchedule(context: AlarmContext): AlarmScheduleEntry[] {
+  const out: AlarmScheduleEntry[] = [];
+  for (let i = 0; i < context.num_pending_alarms; i++) {
+    const p = context.pending_alarms[i]!;
+    out.push({ name: p.alarm.name, clk: p.clk >>> 0 });
+  }
+  return out;
+}
+
+/**
+ * Restore the pending-alarm schedule: unset every currently-pending alarm on
+ * the context, then re-arm exactly the captured entries by name lookup over the
+ * registered-alarm list. Apply AFTER chip-state restore so the alarm objects
+ * exist and their absolute clks line up with the restored master clock.
+ */
+export function alarmContextRestoreSchedule(
+  context: AlarmContext,
+  schedule: AlarmScheduleEntry[],
+): void {
+  // The registered-alarm linked list (`context.alarms`) is independent of the
+  // `pending_alarms[]` array, so unsetting while walking it is safe.
+  for (let a = context.alarms; a; a = a.next) {
+    if (a.pending_idx >= 0) alarmUnset(a);
+  }
+  const byName = new Map<string, Alarm>();
+  for (let a = context.alarms; a; a = a.next) byName.set(a.name, a);
+  for (const e of schedule) {
+    const a = byName.get(e.name);
+    if (a) alarmSet(a, e.clk >>> 0);
+  }
+}
+
 /**
  * alarm.c lines 79-101 — `alarm_context_time_warp`.
  *

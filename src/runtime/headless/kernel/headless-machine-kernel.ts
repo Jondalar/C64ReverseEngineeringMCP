@@ -22,7 +22,11 @@ import { KernelTraceControllerImpl } from "./kernel-trace.js";
 import { TraceRegistry } from "../trace/channels.js";
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import { InterruptCpuStatus } from "../cpu/interrupt-cpu-status.js";
-import { alarmContextNew } from "../alarm/alarm-context.js";
+import {
+  alarmContextNew,
+  alarmContextCaptureSchedule,
+  alarmContextRestoreSchedule,
+} from "../alarm/alarm-context.js";
 import { Cpu6510 } from "../cpu6510.js";
 import { HeadlessMemoryBus } from "../memory-bus.js";
 import { loadAllC64Roms, type LoadedC64RomSet } from "../c64-rom.js";
@@ -45,6 +49,11 @@ import { EventCatchupStrategy } from "./event-catchup-strategy.js";
 import { LockstepStrategy } from "./lockstep-strategy.js";
 import type { SyncStrategy } from "./sync-strategy.js";
 import { vicii_set_vbank as litViciiSetVbank } from "../vic/literal/vicii.js";
+import { vicii_snapshot_write, vicii_snapshot_read } from "../vic/literal/vicii-snapshot.js";
+import {
+  RUNTIME_CHECKPOINT_SCHEMA_VERSION,
+  type RuntimeCheckpoint,
+} from "./runtime-checkpoint.js";
 import type {
   Drive1541,
   Drive1541Implementation,
@@ -898,12 +907,123 @@ export class HeadlessMachineKernel implements MachineKernel {
     return this.eventCatchup;
   }
 
-  snapshot(): MachineSnapshot {
-    return { schemaVersion: 0, payload: null };
+  /** Live C64 color RAM ($D800-$DBFF) view — separate 1K nibble RAM in io. */
+  private colorRamView(): Uint8Array {
+    return new Uint8Array(this.c64Bus.io.buffer, this.c64Bus.io.byteOffset + 0x0800, 0x0400);
   }
 
-  restore(_snap: MachineSnapshot): void {
-    // Placeholder; real adapter lands in commit 200-c5.
+  // Spec 705.A step 3 — native RuntimeCheckpoint capture. Contract: called at
+  // an atomic CPU instruction boundary with the controller paused (Cpu65xxVice
+  // mid-instruction `inst` is null at a boundary, so register/clk capture is
+  // deterministic). reSID PCM is the explicit follow-on (step 4); SID
+  // software-visible registers ARE captured.
+  snapshot(): MachineSnapshot {
+    const cpu = this.c64Cpu as unknown as {
+      pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number;
+      maincpu_ba_low_flags?: number; soLine?: number; jammed?: boolean;
+    };
+    const cs = this.cpuIntStatus;
+    const core = this.iecBus.core;
+    const j1 = this.joystick1, j2 = this.joystick2;
+    const payload: RuntimeCheckpoint = {
+      schemaVersion: RUNTIME_CHECKPOINT_SCHEMA_VERSION,
+      atInstructionBoundary: true,
+      cpu: {
+        pc: cpu.pc, a: cpu.a, x: cpu.x, y: cpu.y, sp: cpu.sp, flags: cpu.flags, cycles: cpu.cycles,
+        maincpu_ba_low_flags: cpu.maincpu_ba_low_flags, soLine: cpu.soLine, jammed: cpu.jammed,
+      },
+      ram: this.c64Bus.ram.slice(),
+      cpuPortDirection: this.c64Bus.getCpuPortDirection(),
+      cpuPortValue: this.c64Bus.getCpuPortValue(),
+      cia1: this.cia1.snapshot(),
+      cia2: this.cia2.snapshot(),
+      sid: this.sid.snapshot(),
+      iec: {
+        cpu_bus: core.cpu_bus, cpu_port: core.cpu_port, drv_port: core.drv_port,
+        iec_old_atn: core.iec_old_atn,
+        drv_bus: Array.from(core.drv_bus), drv_data: Array.from(core.drv_data),
+      },
+      cpuIntStatus: {
+        pendingInt: [...cs.pendingInt], intNames: [...cs.intNames],
+        nirq: cs.nirq, nnmi: cs.nnmi, irqClk: cs.irqClk, nmiClk: cs.nmiClk,
+        irqDelayCycles: cs.irqDelayCycles, nmiDelayCycles: cs.nmiDelayCycles,
+        irqPendingClk: cs.irqPendingClk, globalPendingInt: cs.globalPendingInt,
+        lastStolenCyclesClk: cs.lastStolenCyclesClk,
+      },
+      keyboard: { livePressed: this.keyboard.livePressedKeys() as string[] },
+      joystick1: { up: j1.up, down: j1.down, left: j1.left, right: j1.right, fire: j1.fire },
+      joystick2: { up: j2.up, down: j2.down, left: j2.left, right: j2.right, fire: j2.fire },
+      paddles: Array.from(this.paddles),
+      vic: vicii_snapshot_write(this.colorRamView()),
+      vicPresentation: this.session.captureVicPresentation(),
+      drive1541: this.drive1541 ? this.drive1541.snapshot() : null,
+      media: { diskPath: this.diskPath, imageFormat: this.imageFormat },
+      alarmsMaincpu: this.alarms.maincpu ? alarmContextCaptureSchedule(this.alarms.maincpu) : [],
+      residPending: true,
+    };
+    return { schemaVersion: RUNTIME_CHECKPOINT_SCHEMA_VERSION, payload };
+  }
+
+  // Spec 705.A step 3 — native RuntimeCheckpoint restore. Same instruction-
+  // boundary contract. Order: RAM → CPU-port (re-runs PLA banking) → CPU regs
+  // → CIA → SID → IEC core → IRQ status → input → literal VIC → VIC
+  // presentation → drive blob.
+  restore(snap: MachineSnapshot): void {
+    if (snap.schemaVersion !== RUNTIME_CHECKPOINT_SCHEMA_VERSION || snap.payload == null) {
+      throw new Error(
+        `[kernel] restore: unexpected checkpoint schemaVersion ${snap.schemaVersion} / null payload`,
+      );
+    }
+    const cp = snap.payload as RuntimeCheckpoint;
+
+    this.c64Bus.ram.set(cp.ram.subarray(0, this.c64Bus.ram.length));
+    this.c64Bus.setCpuPort(cp.cpuPortDirection, cp.cpuPortValue);
+
+    const cpu = this.c64Cpu as unknown as {
+      pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number;
+      maincpu_ba_low_flags?: number; soLine?: number; jammed?: boolean;
+    };
+    cpu.pc = cp.cpu.pc; cpu.a = cp.cpu.a; cpu.x = cp.cpu.x; cpu.y = cp.cpu.y;
+    cpu.sp = cp.cpu.sp; cpu.flags = cp.cpu.flags; cpu.cycles = cp.cpu.cycles;
+    if (cp.cpu.maincpu_ba_low_flags !== undefined && "maincpu_ba_low_flags" in cpu) cpu.maincpu_ba_low_flags = cp.cpu.maincpu_ba_low_flags;
+    if (cp.cpu.soLine !== undefined && "soLine" in cpu) cpu.soLine = cp.cpu.soLine;
+    if (cp.cpu.jammed !== undefined && "jammed" in cpu) cpu.jammed = cp.cpu.jammed;
+
+    this.cia1.restore(cp.cia1);
+    this.cia2.restore(cp.cia2);
+    this.sid.restore(cp.sid);
+
+    const core = this.iecBus.core;
+    core.cpu_bus = cp.iec.cpu_bus; core.cpu_port = cp.iec.cpu_port;
+    core.drv_port = cp.iec.drv_port; core.iec_old_atn = cp.iec.iec_old_atn;
+    core.drv_bus.set(cp.iec.drv_bus.slice(0, core.drv_bus.length));
+    core.drv_data.set(cp.iec.drv_data.slice(0, core.drv_data.length));
+
+    const cs = this.cpuIntStatus;
+    cs.pendingInt.length = 0; cs.pendingInt.push(...cp.cpuIntStatus.pendingInt);
+    cs.intNames.length = 0; cs.intNames.push(...cp.cpuIntStatus.intNames);
+    cs.nirq = cp.cpuIntStatus.nirq; cs.nnmi = cp.cpuIntStatus.nnmi;
+    cs.irqClk = cp.cpuIntStatus.irqClk; cs.nmiClk = cp.cpuIntStatus.nmiClk;
+    cs.irqDelayCycles = cp.cpuIntStatus.irqDelayCycles; cs.nmiDelayCycles = cp.cpuIntStatus.nmiDelayCycles;
+    cs.irqPendingClk = cp.cpuIntStatus.irqPendingClk; cs.globalPendingInt = cp.cpuIntStatus.globalPendingInt;
+    cs.lastStolenCyclesClk = cp.cpuIntStatus.lastStolenCyclesClk;
+
+    this.keyboard.releaseAllLive();
+    for (const k of cp.keyboard.livePressed) this.keyboard.setKeyDown(k);
+    const j1 = this.joystick1, j2 = this.joystick2;
+    j1.up = cp.joystick1.up; j1.down = cp.joystick1.down; j1.left = cp.joystick1.left; j1.right = cp.joystick1.right; j1.fire = cp.joystick1.fire;
+    j2.up = cp.joystick2.up; j2.down = cp.joystick2.down; j2.left = cp.joystick2.left; j2.right = cp.joystick2.right; j2.fire = cp.joystick2.fire;
+    this.paddles.set(cp.paddles.slice(0, this.paddles.length));
+
+    vicii_snapshot_read(cp.vic, this.colorRamView());
+    this.session.restoreVicPresentation(cp.vicPresentation);
+
+    if (cp.drive1541 && this.drive1541) this.drive1541.restore(cp.drive1541);
+
+    // Re-arm the maincpu alarm schedule LAST, after all chip-state restore, so
+    // the captured CIA timer/TOD/SDR/idle alarm clks line up with the restored
+    // master clock and override any partial per-chip re-derivation.
+    if (this.alarms.maincpu) alarmContextRestoreSchedule(this.alarms.maincpu, cp.alarmsMaincpu);
   }
 
   mountMedia(device: number, media: MountedMedia): void {

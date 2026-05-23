@@ -25,6 +25,7 @@ import { VicIIVice, installVicIIVice, type VicBackend } from "./vic/vic-ii-vice.
 // avoid module-loader cycle vs ESM/CJS).
 import * as LIT_VICII from "./vic/literal/vicii.js";
 import * as LIT_TYPES from "./vic/literal/vicii-types.js";
+import type { RuntimeCheckpointVicPresentation } from "./kernel/runtime-checkpoint.js";
 import * as LIT_CYCLE from "./vic/literal/vicii-cycle.js";
 import * as LIT_FETCH from "./vic/literal/vicii-fetch.js";
 import * as LIT_IRQ from "./vic/literal/vicii-irq.js";
@@ -1623,6 +1624,43 @@ export class IntegratedSession {
       line: LIT_TYPES.vicii.raster_line | 0,
       cycle: LIT_TYPES.vicii.raster_cycle | 0,
     };
+  }
+
+  /**
+   * Spec 705.A step 3 — capture the literal-VIC presentation seam for the
+   * native RuntimeCheckpoint. VICE carries this visible-continuation state in
+   * `raster_t` (not ported); here it is the render fields. literalPortFb is the
+   * mid-frame accumulator (continuation-relevant), literalPortFbStable the
+   * immediately-visible freeze image. Copies, so the checkpoint is detached
+   * from the live buffers.
+   */
+  captureVicPresentation(): RuntimeCheckpointVicPresentation {
+    return {
+      literalPortFb: this.literalPortFb ? this.literalPortFb.slice() : null,
+      literalPortFbStable: this.literalPortFbStable ? this.literalPortFbStable.slice() : null,
+      litLastRasterLine: this.litLastRasterLine,
+      lastLitBaLow: this.lastLitBaLow,
+      litStableFrameCount: this.litStableFrameCount,
+    };
+  }
+
+  /** Spec 705.A step 3 — restore the literal-VIC presentation seam. */
+  restoreVicPresentation(p: RuntimeCheckpointVicPresentation): void {
+    if (p.literalPortFb) {
+      if (!this.literalPortFb || this.literalPortFb.length !== p.literalPortFb.length) {
+        this.literalPortFb = new Uint8Array(p.literalPortFb.length);
+      }
+      this.literalPortFb.set(p.literalPortFb);
+    }
+    if (p.literalPortFbStable) {
+      if (!this.literalPortFbStable || this.literalPortFbStable.length !== p.literalPortFbStable.length) {
+        this.literalPortFbStable = new Uint8Array(p.literalPortFbStable.length);
+      }
+      this.literalPortFbStable.set(p.literalPortFbStable);
+    }
+    this.litLastRasterLine = p.litLastRasterLine;
+    this.lastLitBaLow = p.lastLitBaLow;
+    this.litStableFrameCount = p.litStableFrameCount;
   }
 
   /**
