@@ -1,6 +1,6 @@
 # Spec 705 - Interactive Runtime Evidence, Intervention and Replay Contract
 
-Status: REFINEMENT (2026-05-23 CEST)
+Status: REFINEMENT (2026-05-23 CEST) — slice **705.A DONE** (2026-05-23, see §4.9)
 Created: 2026-05-23 CEST
 Depends: Specs 600/601, 616-618, 623, 701-704
 Owner: runtime / debugger / v3 UI / project-knowledge
@@ -370,6 +370,45 @@ PASS).
 With step 4, the native checkpoint spike (705.A §4.1-4.4) is complete: BASIC,
 real-media, mid-frame, and audio continuation all proven. Spec 706 §9/706.8
 owns the live-transport restore re-sync (flush WS/worklet + fresh prebuffer).
+
+### 4.9 705.A DONE — Accepted Contract + Closing Gates (2026-05-23 CEST)
+
+The native checkpoint spike (705.A, §4.1-4.4 + steps 1-4) is **DONE and
+accepted** under this contract:
+
+- `RuntimeCheckpoint` restores the full machine state, including the
+  VICE-shaped reSID `SID::State`.
+- Pre-restore PCM in the recorder / WS / AudioWorklet is transport/presentation
+  state and is **discarded** on restore.
+- Interactive restore/rewind guarantees correct machine + synthesis
+  continuation and freshly re-synchronised audio output.
+- It does **not** guarantee sample-bit-identical continuation of
+  already-buffered PCM output, nor forensic offline audio export from a
+  checkpoint. If checkpoint audio export is needed later, that is a separate
+  contract (warm-up/re-render or an extended export state).
+
+Closing gates on branch `claude/705-checkpoint-spike` HEAD (`d3fcf8e`):
+
+| Gate | Result |
+|---|---|
+| `npm run build:mcp` | clean |
+| `npm run build:resid-wasm` | committed `resid.mjs`/`resid.wasm` |
+| `npm run check:1541-fidelity` | 78 PASS / 0 FAIL |
+| `npm run probe:705-checkpoint` | GREEN 8/8 |
+| `npm run probe:705-core-roundtrip` | GREEN 13/13 |
+| `npm run probe:705-drive-roundtrip` | GREEN 8/8 |
+| `npm run probe:705-resid-roundtrip` | GREEN 7/7 |
+| `smoke-sid-resid-wasm` / `smoke-sid-resid` | PASS / 9-9 |
+| `npm run runtime:proof` (7-game) | see merge record |
+
+Steps: 1 in-memory VICE snapshot module stream; 2.1-2.2 TDE + controlled stop;
+2.3 viacore VIA + iecieee VIA2; 2.4 DRIVE8 CASE A (VICE-canonical); 3 native
+RuntimeCheckpoint core+literal-VIC+drive + maincpu alarm-schedule; 4 reSID
+VICE-shaped synthesis state.
+
+Follow-ons (separate, user-gated): Spec 706 §9/706.8 (live audio latency +
+transport restore re-sync); 705.B (automatic checkpoint ring); 706+ persistence
+/ dump-undump / rewind.
 
 ## 5. Related Existing Specs
 
