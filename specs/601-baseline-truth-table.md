@@ -1,6 +1,17 @@
 # Spec 601 — Baseline Truth Table
 
-**Status:** ACTIVE (2026-05-16)
+> **SUPERSEDED as active product authority by Spec 715 (2026-05-24).**
+> The game-by-game truth table below remains the authoritative expected-state
+> definition for the seven-game `c64-1541-execution` capability, but it is no
+> longer "the whole runtime proof". The active product baseline is
+> `specs/715-runtime-product-proof-baseline.md` (frozen
+> `runtime-product-green-2026-05-24`, `npm run proof:product`). Any historical
+> RED / Pawn / LNR prose below is retained **as historical-at-baseline
+> evidence**, not a current product claim. `scripts/runtime-proof-gate.mjs`
+> still consumes this table; the product runner invokes that gate as one
+> capability among several.
+
+**Status:** SUPERSEDED for active product-baseline claims by Spec 715 (was ACTIVE 2026-05-16); truth table still authoritative for the seven-game capability
 **Baseline:** `runtime-green-2026-05-16` → master HEAD `87b4957`
 ("Merge vic_bugs: Specs 425-429 = CLK_INC + VIC bank + IM2 fix +
 LED VICE 1:1"). The pre-merge tip `7bfba28` ("Spec 424 LED") is the

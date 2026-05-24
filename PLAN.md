@@ -6,25 +6,33 @@ framing see [README.md](README.md); for working doctrine see
 
 ## What is green today (baseline)
 
-Frozen baseline tag: `runtime-green-2026-05-16` (master). The single
-source of "is this green" is the **Runtime Proof Gate** stack, not unit
-or mapping tests:
+Frozen product baseline: `runtime-product-green-2026-05-24` (master). The
+single source of "is this green" is the **manifest-driven Runtime Product
+Proof** (`specs/715-runtime-product-proof-baseline.md`), not unit or
+mapping tests — and no longer the seven-game gate alone:
 
-- `specs/600-runtime-proof-gates.md` — gate doctrine
-- `specs/601-baseline-truth-table.md` — game-by-game expected state
-- oracle PNGs under `samples/screenshots/proof/`
-- run: `npm run runtime:proof` (7-game set: motm, MM s1, IM2, LNR s1,
-  Scramble, Pawn s1, Polarbear + SAVE/FORMAT)
+- `specs/715-runtime-product-proof-baseline.md` — active product authority + tiered gate policy
+- `scripts/runtime-proof-manifest.mjs` — the gate manifest (capability → gates)
+- `docs/runtime-product-baseline-2026-05-24.md` — frozen baseline record
+- run: `npm run proof:product` (full manifest) ·
+  `npm run proof:capability -- <cap>` (focused) · `npm run proof:list`
+- Specs `600`/`601` are **superseded as active authority** but retained as
+  historical 1541 bring-up evidence; `601`'s truth table still defines the
+  seven-game capability's expected state.
 
-Currently green on master:
+Product capabilities green on master (each backed by manifest gates):
 
-- **C64 + 1541 runtime** — the VICE-faithful TS drive (`vice1541/`) is the
-  default everywhere; the 7-game gate passes 7/7.
-- **EasyFlash cartridge** — flash040core + PLA-gated bus dispatch + ultimax
-  open-bus; boots real cracks (Accolade Comics) end to end.
-- **Audio** — frame-locked reSID with the latency governor (~100 ms).
-- **Snapshots / media** — `.c64re` persistence, checkpoint ring, media
-  ingress, mutable disk.
+- **C64 + 1541 real execution** — VICE-faithful TS drive (`vice1541/`) is the
+  default; the seven-game canary (motm, MM s1, IM2, LNR s1, Scramble, Pawn s1,
+  Polarbear) passes — one capability, not the whole proof.
+- **KERNAL load/save + fastloaders** — LOAD/directory/SAVE/FORMAT + fastloader gates.
+- **Cartridge** — EasyFlash, MagicDesk/16, Ocean, GMOD2/3, MegaByter, C64MegaCart
+  (flash040/flash800 + m93c86 + spi-flash); PLA-gated bus + ultimax open-bus.
+- **Mutable media** — writable disk + cartridge snapshot/restore persistence.
+- **Checkpoint** — native checkpoint, `.c64re`, checkpoint ring.
+- **Audio** — frame-locked reSID + latency governor (~100 ms) + transport re-sync.
+- **Media ingress** — insert/eject/reset/restore + UI/WS control.
+- **Declarative trace** — trace defs + TraceDB.
 
 **Unit green ≠ runtime green. Mapping green ≠ runtime green.** No step
 lands red; if a gate fails, revert and record findings in the spec's
@@ -63,10 +71,10 @@ The headline epic: a controllable, inspectable, rewindable runtime.
 - **Done:** `701` autonomous paced loop · `703` reSID/WASM audio · `705`
   interactive-evidence + checkpoint ring · `706` audio-latency governor ·
   `707` native snapshot persistence (`.c64re`) · `708` declarative trace
-  defs + tracedb · `709` reproducible media ingress · `714` mutable disk.
-- **In flight:** `713` cartridge fidelity — EasyFlash done; GMOD2/3,
-  Ocean, Magic Desk/16, MegaByter (+ m93c86 / spi-flash / flash800core)
-  on branch `spec-713-cart-families`. `714.5` cartridge persistence.
+  defs + tracedb · `709` reproducible media ingress · `713` cartridge
+  fidelity (EasyFlash, MagicDesk/16, Ocean, GMOD2/3, MegaByter, C64MegaCart
+  + m93c86 / spi-flash / flash800core) · `714` mutable disk + `714.5`
+  writable cartridge persistence · `715` product proof baseline.
 - **Next (drafts):** `702` paused-VIC inspect overlay · `710` frozen-VIC
   checkpoint evidence · `711` code-overlay intervention branches · `712`
   rewind/replay branch diff · `700` runtime optimization · `704` runtime
@@ -81,14 +89,20 @@ Fusing live runtime evidence with LLM semantic disassembly:
 
 ## Step gates
 
-Every step ends green:
+Every step ends green, scaled to the change surface (Spec 715 §4/§5 tiers):
 
 - `npm run build` (MCP ESM + pipeline CJS)
-- relevant smokes / per-spec probe green
-- `npm run runtime:proof` 7/7 before any merge to master
+- **Tier 0 docs-only**: no emulator gate
+- **Tier 1/2 focused capability**: `npm run proof:capability -- <cap>` for the
+  changed capability (e.g. `cartridge`, `mutable-media`, `checkpoint`)
+- **runtime-affecting DONE/merge**: `npm run proof:product` (full manifest) once
+  at the boundary — includes the seven-game canary, but does not present it as
+  proof for unrelated capabilities
+- **Tier 3 global CPU/VIC/SID/IEC/1541/scheduler**: full product proof before
+  sharing/merge
 
-Branch strategy: master stays runtime-proof-green; one branch per work
-item; merge only after the proof gate passes; never merge
+Branch strategy: master stays product-proof-green; one branch per work
+item; merge only after the relevant proof passes; never merge
 `quarantine/1541-literal-vice` (cherry-pick `-n` only, each pick
 re-gated).
 

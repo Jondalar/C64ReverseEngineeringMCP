@@ -231,9 +231,14 @@ living only as console logs or loose markdown.
 
 - [PLAN.md](PLAN.md) — roadmap + working baseline + step gates
 - `specs/` — implementation specs and ADR follow-ups
-- [docs/runtime-gates.md](docs/runtime-gates.md) +
-  [docs/runtime-proof-baseline-2026-05-16.md](docs/runtime-proof-baseline-2026-05-16.md)
-  — the runtime proof-gate truth (the single "is this green" source)
+- [specs/715-runtime-product-proof-baseline.md](specs/715-runtime-product-proof-baseline.md)
+  + [docs/runtime-product-baseline-2026-05-24.md](docs/runtime-product-baseline-2026-05-24.md)
+  — the active product proof authority (the single "is this green" source).
+  Run `npm run proof:product` (full) or `npm run proof:capability -- <cap>`
+  (focused); `npm run proof:list` shows the manifest. Specs
+  [600](specs/600-runtime-proof-gates.md)/[601](specs/601-baseline-truth-table.md)
+  are retained as the historical seven-game 1541 bring-up gate, superseded as
+  product authority.
 - [CLAUDE.md](CLAUDE.md) — working doctrine for contributors and agents
 
 ## License & Credits

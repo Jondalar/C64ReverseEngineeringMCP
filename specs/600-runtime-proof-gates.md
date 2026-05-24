@@ -1,6 +1,18 @@
 # Spec 600 — Runtime Proof Gates
 
-**Status:** ACTIVE (2026-05-16)
+> **SUPERSEDED as active product authority by Spec 715 (2026-05-24).**
+> This spec established the seven-game Runtime Proof Gate while the primary
+> risk was bringing the VICE-shaped 1541 path to life — that gate was correct
+> for its job. The product surface is now wider (cartridges, checkpoint/ring,
+> `.c64re`, audio, mutable media, trace). The active "is the runtime green"
+> authority is now the manifest-driven product proof in
+> `specs/715-runtime-product-proof-baseline.md` (`npm run proof:product`).
+> This document is retained **unchanged as historical 1541 bring-up evidence**;
+> the seven-game gate survives as one capability (`c64-1541-execution`) within
+> the Spec 715 manifest, not as the whole proof. Do not treat the `5/7` /
+> `7/7` language below as the current product contract.
+
+**Status:** SUPERSEDED for active product-baseline claims by Spec 715 (was ACTIVE 2026-05-16)
 **Branch:** `codex/1541-runtime-gates`
 **Baseline:** `runtime-green-2026-05-16` → master HEAD `87b4957` (Merge vic_bugs: Specs 425-429)
 **Doc:** `docs/runtime-gates.md` (oracle inventory + script audit)
