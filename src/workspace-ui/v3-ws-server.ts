@@ -565,18 +565,27 @@ export class V3WsServer {
       if (!cp || !cp.vic || !cp.ram) throw new Error(`vic/inspect: unknown or empty checkpoint ${id}`);
       return cp;
     };
+    // Spec 710.4 — toggle the same-frame provenance sidecar (raster/FLI).
+    this.on("vic/inspect/provenance", ({ session_id, enabled }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`vic/inspect/provenance: no session ${session_id}`);
+      s.setVicProvenanceCapture(enabled !== false);
+      return { enabled: enabled !== false };
+    });
     this.on("vic/inspect/open", async ({ session_id }) => {
       const c = ctrlFor(session_id);
       if (c.runState === "running") c.pause();          // §2.2: inspect targets a retained state
       const ref = await c.captureCheckpoint();
       c.checkpointRing.pin(ref.id);                      // §2.2: pin the inspected checkpoint
       const cp = cpForInspect(c, ref.id);
-      return { checkpointId: ref.id, frame: buildVicInspectSnapshot(cp), runState: c.runState };
+      const provenance = getIntegratedSession(session_id)?.captureVicProvenance() ?? undefined;
+      return { checkpointId: ref.id, frame: buildVicInspectSnapshot(cp), provenance, runState: c.runState };
     });
     this.on("vic/inspect/at", ({ session_id, checkpoint_id, x, y }) => {
       if (!checkpoint_id) throw new Error("vic/inspect/at: checkpoint_id required");
       const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
-      return { node: resolveNodeAt(cp, Number(x) | 0, Number(y) | 0) };
+      const provenance = getIntegratedSession(session_id)?.captureVicProvenance() ?? undefined;
+      return { node: resolveNodeAt(cp, Number(x) | 0, Number(y) | 0, provenance) };
     });
     this.on("vic/inspect/region", ({ session_id, checkpoint_id, region }) => {
       if (!checkpoint_id) throw new Error("vic/inspect/region: checkpoint_id required");

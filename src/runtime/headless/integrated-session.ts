@@ -327,6 +327,13 @@ export class IntegratedSession {
   // from stable buffer so it never sees a half-filled frame.
   public literalPortFbStable: Uint8Array | null = null;
   private litStableFrameCount: number = 0;
+  // Spec 710.4 — optional same-frame provenance sidecar (per raster line:
+  // $D011/$D016/$D018 + VIC bank). OFF by default; when off, tickLitVic does
+  // ONE boolean check per raster line (negligible, no per-cycle cost). Lets
+  // inspect resolve raster-splits / FLI to the per-line base, not a frame guess.
+  public vicProvenanceEnabled = false;
+  private litProvenanceAccum: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }> = [];
+  private litProvenanceStable: { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }> } | null = null;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -1554,6 +1561,15 @@ export class IntegratedSession {
           fb[off + x] = lv.dbuf[x]!;
         }
       }
+      // Spec 710.4 — per-line provenance for the just-finished line (opt-in).
+      if (this.vicProvenanceEnabled && last >= 0) {
+        const r = lv.regs;
+        this.litProvenanceAccum.push({
+          line: last,
+          d011: r[0x11]! & 0xff, d016: r[0x16]! & 0xff, d018: r[0x18]! & 0xff,
+          bank: (3 - (this.cia2.pra & 0x03)) * 0x4000,
+        });
+      }
       // Spec V-stable-frame: when wrapping to line 0 (= frame complete),
       // snapshot the just-finished accumulator into the stable buffer.
       // renderLiteralPortToPng uses stable so it never sees a half-
@@ -1567,10 +1583,34 @@ export class IntegratedSession {
           this.literalPortFbStable.set(acc);
           this.litStableFrameCount++;
         }
+        // Spec 710.4 — promote the just-finished frame's per-line provenance.
+        if (this.vicProvenanceEnabled) {
+          this.litProvenanceStable = { lines: this.litProvenanceAccum };
+          this.litProvenanceAccum = [];
+        }
       }
       this.litLastRasterLine = lv.raster_line;
     }
     return baLow;
+  }
+
+  /**
+   * Spec 710.4 — toggle the same-frame provenance sidecar (raster/FLI). When
+   * disabled (default) the render path pays only one boolean check per raster
+   * line. Disabling clears any captured provenance.
+   */
+  setVicProvenanceCapture(on: boolean): void {
+    this.vicProvenanceEnabled = on;
+    if (!on) { this.litProvenanceAccum = []; this.litProvenanceStable = null; }
+  }
+
+  /**
+   * Spec 710.4 — the LAST COMPLETE frame's per-line provenance (same frame as
+   * literalPortFbStable / the checkpoint), or null if capture is off / no full
+   * frame has completed yet. Never reconstructed from later register state.
+   */
+  captureVicProvenance(): { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }> } | null {
+    return this.litProvenanceStable ? { lines: this.litProvenanceStable.lines.slice() } : null;
   }
 
   /**
