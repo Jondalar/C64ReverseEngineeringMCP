@@ -203,6 +203,12 @@ function inferMapperType(
       return "magicdesk16";     // CARTRIDGE_MAGIC_DESK_16
     case 86:
       return "megabyter";
+    case 60:
+      return "gmod2";           // CARTRIDGE_GMOD2
+    case 61:
+      return "c64megacart";     // CARTRIDGE_C64MEGACART (martinpiper fork)
+    case 62:
+      return "gmod3";           // CARTRIDGE_GMOD3
     case 32:
       return "easyflash";
     default:
