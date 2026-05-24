@@ -170,15 +170,25 @@ console.log("Spec 713 — device-core mappers (bus-level)");
   bus.write(0xde02, 0x02); gate("MegaByter: mode2 → off exrom=1 game=1", cart.getLines().exrom === 1 && cart.getLines().game === 1);
   bus.write(0xde02, 0x03); gate("MegaByter: mode3 → ultimax exrom=1 game=0", cart.getLines().exrom === 1 && cart.getLines().game === 0);
 
-  // flash program in 8K (flash800 magic 0xaaa/0x555 mask 0xfff, bank0 erased).
-  bus.write(0xde02, 0x00); bus.write(0xde00, 0x00); // 8K, bank0
+  // Lykia-crash fix: in 8K the $8xxx write hook is roml_no_ultimax_store → RAM
+  // (MegaByter not in that switch); flash is programmed ONLY in ultimax. So an 8K
+  // $8xxx write must fall through to RAM (read still shadows flash), and the AMD
+  // program sequence only reaches flash in ultimax (mode 3).
+  bus.write(0xde02, 0x00); bus.write(0xde00, 0x00); // 8K, bank0 (bank0 flash = 0xff)
+  bus.ram[0x9f55] = 0x00; bus.write(0x9f55, 0xBC);  // 8K $8xxx write → RAM beneath
+  gate("MegaByter #fix: 8K $9F55 write → RAM (not flash)", bus.ram[0x9f55] === 0xBC && bus.read(0x8000) === 0xff,
+    `ram=${bus.ram[0x9f55].toString(16)} flash0=${bus.read(0x8000)}`);
+  // flash program in ULTIMAX (mode 3): AMD magic 0xaaa/0x555 mask 0xfff, bank0 erased.
+  bus.write(0xde02, 0x03); bus.write(0xde00, 0x00); // ultimax, bank0
   bus.write(0x8aaa, 0xAA); bus.write(0x8555, 0x55); bus.write(0x8aaa, 0xA0); bus.write(0x8000, 0x6b);
-  gate("MegaByter: flash800 program → read 0x6b", bus.read(0x8000) === 0x6b, `r=${bus.read(0x8000)}`);
+  bus.write(0xde02, 0x00); // back to 8K to read (read shadows flash in any mode)
+  gate("MegaByter: ultimax flash800 program → read 0x6b", bus.read(0x8000) === 0x6b, `r=${bus.read(0x8000)}`);
 
   // writable image (1MB flash) round-trip
   const img = cart.getWritableImage();
   gate("MegaByter: writable image = 1MB flash", img.length === 0x100000, `len=${img.length}`);
-  bus.write(0x8aaa, 0xAA); bus.write(0x8555, 0x55); bus.write(0x8aaa, 0xA0); bus.write(0x8000, 0x00);
+  bus.write(0xde02, 0x03); bus.write(0x8aaa, 0xAA); bus.write(0x8555, 0x55); bus.write(0x8aaa, 0xA0); bus.write(0x8000, 0x00);
+  bus.write(0xde02, 0x00);
   gate("MegaByter: clobbered to 0", bus.read(0x8000) === 0x00);
   cart.setWritableImage(img);
   gate("MegaByter: setWritableImage restores 0x6b", bus.read(0x8000) === 0x6b, `r=${bus.read(0x8000)}`);

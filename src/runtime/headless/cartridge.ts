@@ -943,9 +943,15 @@ class MegabyterMapper extends BaseMapper {
       this.currentBank = this.register00;
       return true;
     }
-    // roml_store → flash800core_store (programming). The cart consumes the write
-    // (no RAM passthrough); a non-command STA is a no-op on the flash in READ state.
-    if (address >= 0x8000 && address <= 0x9fff) { this.flash.store(this.flashOffset(address), value); return true; }
+    // Flash is programmed ONLY in ultimax (VICE roml_store → megabyter_roml_store →
+    // flash800core_store). In 8K/16K the $8000 write hook is roml_no_ultimax_store,
+    // and MegaByter is NOT in its switch → ram_store: the write falls through to the
+    // RAM underneath. So return false in non-ultimax so the bus writes RAM (Lykia
+    // stages code into $9Fxx-RAM under the ROML, then banks ROML out and runs it).
+    if (address >= 0x8000 && address <= 0x9fff) {
+      if ((this.register02 & 0x03) === 0x03) { this.flash.store(this.flashOffset(address), value); return true; }
+      return false;
+    }
     return false;
   }
 
