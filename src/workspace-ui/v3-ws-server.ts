@@ -11,6 +11,8 @@ import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/
 import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
 import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
 import { disasmLine } from "../runtime/headless/debug/disasm6502.js";
+import { buildVicInspectSnapshot, resolveNodeAt, resolveRegion } from "../runtime/headless/inspect/vic-inspect.js";
+import type { RuntimeCheckpoint } from "../runtime/headless/kernel/runtime-checkpoint.js";
 import {
   ensureRuntimeController,
   getRuntimeController,
@@ -549,6 +551,43 @@ export class V3WsServer {
       if (!id) throw new Error("checkpoint/restore: id required");
       const restored = await c.restoreCheckpoint(String(id));
       return { restored, state: c.state() };
+    });
+
+    // ---- Spec 710 — frozen-VIC inspect on the checkpoint model.
+    // Reads a retained checkpoint and resolves display-area pixels/regions to
+    // exact VIC/RAM provenance WITHOUT advancing execution (Spec 710 §2.1/§2.2).
+    // Opening pauses the backend and pins the inspected checkpoint; the returned
+    // checkpointId + snapshot are the SHARED record 711/712 also bind to. The
+    // literal viciisc checkpoint is the visual authority; VicIIVice is not read.
+    const cpForInspect = (c: ReturnType<typeof ctrlFor>, id: string | number) => {
+      const snap = c.checkpointRing.restoreSnapshot(String(id));
+      const cp = snap?.payload as RuntimeCheckpoint | undefined;
+      if (!cp || !cp.vic || !cp.ram) throw new Error(`vic/inspect: unknown or empty checkpoint ${id}`);
+      return cp;
+    };
+    this.on("vic/inspect/open", async ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      if (c.runState === "running") c.pause();          // §2.2: inspect targets a retained state
+      const ref = await c.captureCheckpoint();
+      c.checkpointRing.pin(ref.id);                      // §2.2: pin the inspected checkpoint
+      const cp = cpForInspect(c, ref.id);
+      return { checkpointId: ref.id, frame: buildVicInspectSnapshot(cp), runState: c.runState };
+    });
+    this.on("vic/inspect/at", ({ session_id, checkpoint_id, x, y }) => {
+      if (!checkpoint_id) throw new Error("vic/inspect/at: checkpoint_id required");
+      const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
+      return { node: resolveNodeAt(cp, Number(x) | 0, Number(y) | 0) };
+    });
+    this.on("vic/inspect/region", ({ session_id, checkpoint_id, region }) => {
+      if (!checkpoint_id) throw new Error("vic/inspect/region: checkpoint_id required");
+      if (!region) throw new Error("vic/inspect/region: region required");
+      const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
+      return { nodes: resolveRegion(cp, region) };
+    });
+    this.on("vic/inspect/close", ({ session_id, checkpoint_id }) => {
+      const c = ctrlFor(session_id);
+      if (checkpoint_id) c.checkpointRing.unpin(String(checkpoint_id));
+      return { ok: true, stats: c.checkpointRing.stats() };
     });
 
     // ---- Spec 707 — native .c64re snapshot persistence (dump/undump).

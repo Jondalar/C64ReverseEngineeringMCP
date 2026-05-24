@@ -866,4 +866,39 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
   );
+
+  // ---- Spec 710 — frozen-VIC inspect (checkpoint-bound, no execution advance) ----
+  server.tool(
+    "runtime_vic_inspect_at",
+    "Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance " +
+      "(screen/color/charset/bitmap/sprite refs) on a retained checkpoint, without advancing " +
+      "execution. Coords are display-area pixels: x in 0..319, y in 0..199. Omit checkpoint_id " +
+      "to capture+pin a fresh one (pauses if running).",
+    {
+      session_id: z.string(),
+      x: z.number(),
+      y: z.number(),
+      checkpoint_id: z.string().optional(),
+    },
+    safeHandler("runtime_vic_inspect_at", async ({ session_id, x, y, checkpoint_id }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const { buildVicInspectSnapshot, resolveNodeAt } = await import("../runtime/headless/inspect/vic-inspect.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const ctrl = ensureRuntimeController(session_id, session, () => {});
+      let id = checkpoint_id;
+      if (!id) {
+        if (ctrl.runState === "running") ctrl.pause();
+        const ref = await ctrl.captureCheckpoint();
+        ctrl.checkpointRing.pin(ref.id);
+        id = ref.id;
+      }
+      const cp = ctrl.checkpointRing.restoreSnapshot(String(id))?.payload as any;
+      if (!cp || !cp.vic || !cp.ram) throw new Error(`runtime_vic_inspect_at: unknown checkpoint ${id}`);
+      const frame = buildVicInspectSnapshot(cp);
+      const node = resolveNodeAt(cp, x | 0, y | 0);
+      return { content: [{ type: "text", text: JSON.stringify({ checkpointId: id, frame, node }, null, 2) }] };
+    }),
+  );
 }
