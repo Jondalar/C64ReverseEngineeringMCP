@@ -328,13 +328,21 @@ against `spi-flash.c` and gated through the real bus — all GREEN first run, no
 needed.
 
 Status: **Spec 713 BEHAVIOR COMPLETE — merge HELD pending baseline / 714.5
-coordination.** Cart gates: probe-714-5 16/16, rombank 32/32, devcore 53/53,
-erase-catchup 3/3, ingress 8/8, smoke-cart-fidelity 18/18, smoke-cart-real 4/4,
-runtime:proof 7/7. All four real-cart families boot + render: EF (Accolade),
-MagicDesk (IM3 + Lykia/Protovision), GMOD2 (Yeti), MegaByter (Lykia). No open
-713 behaviour defect.
+coordination.** Cart gates: probe-714-5 16/16, rombank 39/39 (incl. generic
+Ultimax: hw-type 0 + ROMH @ $E000, header-inferred — $E000/$FFFF cart-read,
+$A000/$5000 open windows = phi1/open-bus), devcore 53/53, erase-catchup 3/3,
+ingress 8/8, smoke-cart-fidelity 18/18, smoke-cart-real 4/4, probe-714-5-persist
+33/33, runtime:proof 7/7. No open 713 behaviour defect.
 
-**NOT closed (deliberately, Spec 714.5):** end-to-end writable persistence
-(checkpoint / `.c64re` / ring) for GMOD2, GMOD3, MegaByter and C64MegaCart. Full
-cartridge support is not "complete" until 714.5 proves that. Branch
-`spec-713-cart-families` stays held — no merge, no DONE, no baseline change.
+**Real-cart boot evidence:** EF (Accolade), MagicDesk (IM3 + Lykia/Protovision),
+GMOD2 (Yeti), MegaByter (Lykia) render correct titles. **GMOD3 and C64MegaCart:
+no real commercial sample available in the corpus — verified by VICE-source-
+derived, header-inferred synthetic runtime gates (no mapper override).** This is
+the accepted completion proof for those two types, NOT a deferred implementation.
+
+**714.5 writable-cartridge persistence = COMPLETE** (probe-714-5-persist 33/33):
+checkpoint + `.c64re` fresh-session + ring + mid-operation for GMOD2 (flash+EEPROM),
+GMOD3 (SPI), MegaByter (flash800), C64MegaCart (flash) and EasyFlash.
+
+Branch `spec-713-cart-families` stays held — no merge, no DONE, no baseline change
+until the master baseline-extension spec lands.

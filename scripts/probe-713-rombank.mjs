@@ -136,6 +136,31 @@ console.log("Spec 713 — ROM-bank mappers (bus-level)");
   gate("Gen16K: $A000 ROMH=0x80", bus.read(0xa000) === 0x80, `r=${bus.read(0xa000)}`);
 }
 
+// ---- Generic Ultimax ($E000 ROMH, hw-type 0, header-inferred, no override) ----
+{
+  // 2 CHIPs: ROML @ $8000 (8K, sentinel 0x11) + ROMH @ $E000 (8K, 0x22, last byte 0x99).
+  const HDR = 0x40, head = Buffer.alloc(HDR);
+  head.write("C64 CARTRIDGE   ", 0, "ascii");
+  head.writeUInt32BE(HDR, 0x10); head.writeUInt16BE(0x0100, 0x14);
+  head.writeUInt16BE(0, 0x16); head.writeUInt8(1, 0x18); head.writeUInt8(0, 0x19); // hw 0, exrom=1 game=0 (ultimax)
+  head.write("ULTIMAX", 0x20, "ascii");
+  const roml = Buffer.alloc(0x10 + 0x2000); roml.write("CHIP", 0, "ascii"); roml.writeUInt32BE(0x10 + 0x2000, 4);
+  roml.writeUInt16BE(0, 10); roml.writeUInt16BE(0x8000, 12); roml.writeUInt16BE(0x2000, 14); roml.fill(0x11, 0x10);
+  const romh = Buffer.alloc(0x10 + 0x2000); romh.write("CHIP", 0, "ascii"); romh.writeUInt32BE(0x10 + 0x2000, 4);
+  romh.writeUInt16BE(0, 10); romh.writeUInt16BE(0xe000, 12); romh.writeUInt16BE(0x2000, 14); romh.fill(0x22, 0x10); romh[0x10 + 0x1fff] = 0x99;
+  const crt = new Uint8Array(Buffer.concat([head, roml, romh]));
+  const bus = new HeadlessMemoryBus(); bus.reset(); bus.setOpenBusProvider(() => 0x3f);
+  const cart = loadCartridgeMapperFromBytes(crt, "ultimax.crt"); // header-inferred → ultimax
+  bus.attachCartridge(cart); bus.write(0x0001, 0x37);
+  gate("Ultimax: type=ultimax (hw0 + romh_e000, no override)", cart.getMapperType() === "ultimax");
+  gate("Ultimax: lines exrom=1 game=0", cart.getLines().exrom === 1 && cart.getLines().game === 0);
+  gate("Ultimax: $8000 ROML = 0x11", bus.read(0x8000) === 0x11);
+  gate("Ultimax: $E000 ROMH = 0x22", bus.read(0xe000) === 0x22, `r=${bus.read(0xe000).toString(16)}`);
+  gate("Ultimax: $FFFF ROMH last byte = 0x99", bus.read(0xffff) === 0x99, `r=${bus.read(0xffff).toString(16)}`);
+  gate("Ultimax: $A000 open window = phi1/open-bus (not cart)", bus.read(0xa000) === 0x3f);
+  gate("Ultimax: $5000 open window = phi1/open-bus", bus.read(0x5000) === 0x3f);
+}
+
 console.log("---");
 if (failures.length === 0) { console.log(`GREEN 713 ROM-bank: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 713 ROM-bank: ${passes} pass, ${failures.length} fail.`);

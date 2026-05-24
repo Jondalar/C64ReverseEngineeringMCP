@@ -14,6 +14,22 @@ import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/h
 import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
 import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
 import { dumpRuntimeSnapshot, undumpRuntimeSnapshot } from "../dist/runtime/headless/kernel/snapshot-persistence.js";
+import { RuntimeCheckpointRing } from "../dist/runtime/headless/kernel/runtime-checkpoint-ring.js";
+
+const NEW = () => startIntegratedSession({ mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port", drive1541: "vice" });
+// AMD sector-erase command sequences (start an erase → flash enters the busy
+// continuation; magic addrs per flash type, in ultimax so writes reach flash).
+function gmod2SectorErase(bus) { // flash040 NORMAL 0x5555/0x2aaa → bank2 $9555 / bank1 $8aaa
+  const um = (b) => 0xc0 | b;
+  bus.write(0xde00, um(2)); bus.write(0x9555, 0xaa); bus.write(0xde00, um(1)); bus.write(0x8aaa, 0x55);
+  bus.write(0xde00, um(2)); bus.write(0x9555, 0x80); bus.write(0xde00, um(2)); bus.write(0x9555, 0xaa);
+  bus.write(0xde00, um(1)); bus.write(0x8aaa, 0x55); bus.write(0xde00, um(0)); bus.write(0x8000, 0x30);
+}
+function mbSectorErase(bus) { // flash800 0xaaa/0x555 bank0; ultimax mode 3
+  bus.write(0xde02, 0x03);
+  bus.write(0x8aaa, 0xaa); bus.write(0x8555, 0x55); bus.write(0x8aaa, 0x80);
+  bus.write(0x8aaa, 0xaa); bus.write(0x8555, 0x55); bus.write(0x8000, 0x30);
+}
 
 const failures = []; let passes = 0;
 const gate = (n, ok, d) => { ok ? passes++ : failures.push(n); console.log(`  ${ok ? "PASS" : "RED "}  ${n}${d ? ` (${d})` : ""}`); };
@@ -152,6 +168,79 @@ for (const c of carts) {
     gate("gmod2 EEPROM: .c64re fresh-session → 0xABCD@5", eAt(B.session.kernel.c64Bus.getCartridge().getWritableImage(), 5) === 0xabcd);
     stopIntegratedSession(B.sessionId);
   } catch (e) { gate("gmod2 EEPROM path threw", false, e.message); try { stopIntegratedSession(A.sessionId); } catch {} }
+}
+
+// --- generic cart-payload RING multi-version + pin + evict (format-generic) ---
+{
+  const snap = (b, n = 4096) => ({ schemaVersion: 1, payload: { ram: new Uint8Array(64), cartBytes: new Uint8Array(16), cartFlash: new Uint8Array(n).fill(b) } });
+  const ring = new RuntimeCheckpointRing({ budgetBytes: 10_000 });
+  const a = ring.capture(snap(0x11), 1, 100); ring.pin(a.id);
+  const b = ring.capture(snap(0x22), 2, 200);
+  const c = ring.capture(snap(0x33), 3, 300);
+  const d = ring.capture(snap(0x44), 4, 400); // tiny budget forces eviction of oldest unpinned
+  gate("ring: bounded under budget", ring.stats().totalBytes <= ring.budgetBytes, `bytes=${ring.stats().totalBytes}`);
+  gate("ring: pinned cart version kept, oldest unpinned (b) evicted",
+    ring.has(a.id) && ring.has(d.id) && !ring.has(b.id), `a=${ring.has(a.id)} b=${ring.has(b.id)} d=${ring.has(d.id)}`);
+  const sA = ring.restoreSnapshot(a.id), sD = ring.restoreSnapshot(d.id);
+  gate("ring: pinned cartFlash rehydrates exactly", sA?.payload?.cartFlash?.[0] === 0x11 && sA.payload.cartFlash.length === 4096);
+  gate("ring: remaining cartFlash version exact", sD?.payload?.cartFlash?.[0] === 0x44);
+}
+
+// --- mid-operation continuation through .c64re (not just direct getState/setState) ---
+async function midEraseC64re(name, hw, nbanks, eraseFn, label) {
+  let sp, before;
+  const A = NEW();
+  try {
+    const ctrl = new RuntimeController(A.sessionId, A.session, () => {});
+    A.session.runFor(1_000_000, { cycleBudget: 1_000_000 });
+    await ingestMedia(ctrl, { kind: "crt", bytes: buildCrt(hw, nbanks), name: `${name}-mid.crt`, resetPolicy: "power-cycle" });
+    eraseFn(A.session.kernel.c64Bus);
+    before = A.session.kernel.c64Bus.getCartridge().getState().flashLoState;
+    gate(`${label}: mid-erase busy-window captured (erasing + alarm pending)`,
+      before.state >= 10 && (before.eraseAlarmClk ?? -1) >= 0, `state=${before.state} alarm=${before.eraseAlarmClk}`);
+    sp = join(dir, `${name}-mid.c64re`); await dumpRuntimeSnapshot(ctrl, sp);
+  } finally { stopIntegratedSession(A.sessionId); }
+  const B = NEW();
+  try {
+    const ctrl = new RuntimeController(B.sessionId, B.session, () => {});
+    B.session.runFor(1_000_000, { cycleBudget: 1_000_000 });
+    await undumpRuntimeSnapshot(ctrl, sp);
+    const after = B.session.kernel.c64Bus.getCartridge().getState().flashLoState;
+    gate(`${label}: mid-erase .c64re fresh-session → identical continuation`,
+      after.state === before.state && after.eraseAlarmClk === before.eraseAlarmClk &&
+      (after.eraseMask ?? []).join("") === (before.eraseMask ?? []).join(""),
+      `state ${before.state}->${after.state} alarm ${before.eraseAlarmClk}->${after.eraseAlarmClk}`);
+  } finally { stopIntegratedSession(B.sessionId); }
+}
+await midEraseC64re("gmod2", 60, 64, gmod2SectorErase, "GMOD2 Flash040");
+await midEraseC64re("megabyter", 86, 128, mbSectorErase, "MegaByter Flash800");
+
+// GMOD3 mid-SPI READ continuation through .c64re
+{
+  let sp, before;
+  const A = NEW();
+  try {
+    const ctrl = new RuntimeController(A.sessionId, A.session, () => {});
+    A.session.runFor(1_000_000, { cycleBudget: 1_000_000 });
+    await ingestMedia(ctrl, { kind: "crt", bytes: buildCrt(62, 256), name: "gmod3-mid.crt", resetPolicy: "power-cycle" });
+    const bus = A.session.kernel.c64Bus;
+    const spiByte = (b) => { for (let i = 7; i >= 0; i--) { const bit = (b >> i) & 1; bus.write(0xde00, bit << 4); bus.write(0xde00, (bit << 4) | 0x20); } };
+    bus.write(0xde08, 0x80); bus.write(0xde00, 0x40); bus.write(0xde00, 0x00); // bitbang, deselect→select
+    spiByte(0x03); spiByte(0); spiByte(0); spiByte(0); // READ@0 → output loaded mid-shift
+    before = bus.getCartridge().getState().spiState;
+    gate("GMOD3 mid-SPI: READ in progress captured", before.command !== 0 || before.outCount > 0, `cmd=${before.command} outCount=${before.outCount}`);
+    sp = join(dir, "gmod3-mid.c64re"); await dumpRuntimeSnapshot(ctrl, sp);
+  } finally { stopIntegratedSession(A.sessionId); }
+  const B = NEW();
+  try {
+    const ctrl = new RuntimeController(B.sessionId, B.session, () => {});
+    B.session.runFor(1_000_000, { cycleBudget: 1_000_000 });
+    await undumpRuntimeSnapshot(ctrl, sp);
+    const after = B.session.kernel.c64Bus.getCartridge().getState().spiState;
+    gate("GMOD3 mid-SPI .c64re fresh-session → identical SPI continuation",
+      after.command === before.command && after.outSR === before.outSR && after.outCount === before.outCount && after.inSR === before.inSR,
+      `cmd ${before.command}->${after.command} outCount ${before.outCount}->${after.outCount}`);
+  } finally { stopIntegratedSession(B.sessionId); }
 }
 
 console.log("---");
