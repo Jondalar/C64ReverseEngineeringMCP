@@ -278,11 +278,11 @@ console.log(`Spec 709 — media ingress gates  (tmp ${dir})`);
   } finally { stopIntegratedSession(f.sessionId); }
 }
 
-// ---- G12 writable EasyFlash dump ACCEPTED (Spec 714.5 — flash persists) ----
+// ---- G12 written EasyFlash dump ACCEPTED (Spec 713/714.5 — flash persists) ----
 {
-  // 709.11b briefly rejected a written EasyFlash dump; 714.5 retires that —
-  // EasyFlash persists its flash (cartFlash payload, persistsWritableState), so
-  // the dump is accepted. Full flash round-trip lives in probe-714-5.
+  // EasyFlash is now VICE-faithful (flash040core port + IO mirror + IO2 RAM +
+  // command-state snapshot), so persistsWritableState is true and a written
+  // EasyFlash dump is accepted. Full flash round-trip lives in probe-714-5.
   const { session, sessionId } = newSession();
   try {
     const ctrl = new RuntimeController(sessionId, session, () => {});
@@ -297,7 +297,7 @@ console.log(`Spec 709 — media ingress gates  (tmp ${dir})`);
     let g12ok = false, g12msg = "";
     try { await dumpRuntimeSnapshot(ctrl, join(dir, "dirty-crt.c64re")); g12ok = true; }
     catch (e) { g12msg = String(e?.message ?? e).slice(0, 80); }
-    gate("G12 written EasyFlash dump ACCEPTED (714.5 persists flash; reject retired)", g12ok, g12msg);
+    gate("G12 written EasyFlash dump ACCEPTED (713/714.5 persists flash)", g12ok, g12msg);
   } finally { stopIntegratedSession(sessionId); }
 }
 

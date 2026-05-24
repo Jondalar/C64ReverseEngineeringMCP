@@ -350,12 +350,13 @@ bytes + bank/control state, restored byte-identically across checkpoint and
 `.c64re`. Written (dirty) flash cartridge = rejected at dump (no silent stale
 restore). Flash-delta persistence is a future slice.
 
-> **UPDATED (Spec 713/714.5).** The flash-delta persistence slice landed for
-> **EasyFlash**: its flash is captured (`cartFlash`) + restored, so a written
-> EasyFlash is now persisted, not rejected. The dirty-CRT reject remains only
-> for writable families without a persistence port (GMOD2/GMOD3/MegaByter — no
-> test corpus). The 709.11b/709.12 dirty-CRT-reject gates were flipped
-> accordingly (probe-709-12 A2-A5 retired; probe-709-media G12 dump now accepted).
+> **UPDATE (Spec 713/714.5).** EasyFlash is now VICE-faithful (flash040core port
+> + IO1 mirror + IO2 RAM + command-state snapshot), so a written/mid-command
+> EasyFlash IS persisted, not rejected (probe-714-5 16/16; probe-709-media G12
+> asserts the accepted dump). The dirty-CRT reject survives only for the writable
+> cartridge families still pending under Spec 713 (GMOD2/GMOD3/MegaByter, and the
+> not-yet-verified Ocean/Magic Desk). Those are removed family-by-family as each
+> faithful port + its 714.5 gates pass.
 
 Status restored to **DONE**.
 

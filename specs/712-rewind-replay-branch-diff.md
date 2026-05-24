@@ -5,11 +5,13 @@ Depends: Specs 705.B, 707-711, 701, 714
 Owner: runtime / v3 UI / experiments / knowledge
 
 > **Spec 714 requirement (mutable media).** Rewind/replay/branch-diff must
-> consume the full mutable-media checkpoint state (disk `driveDiskImage`,
-> EasyFlash `cartFlash`, content-addressed in the 705.B ring) — never assume
-> clean source media. Rewinding across a disk save or a flash write reproduces
-> the written state exactly (714 gates 8.3/8.5). For media families still under
-> the dirty-reject barrier, rewind across a written medium is unsupported.
+> consume the full mutable-media checkpoint state — never assume clean source
+> media. The DISK is content-addressed in the 705.B ring; rewinding across a disk
+> save reproduces the written state exactly (714 gate 8.3). EasyFlash flash
+> rewind is supported (`cartFlash` content-addressed in the ring, Spec 713/714.5;
+> 714-5 gate 7b). The remaining writable cartridge families (GMOD2/GMOD3/
+> MegaByter, not-yet-verified Ocean/Magic Desk) are NOT yet supported: a written
+> one is rejected at checkpoint until its faithful port + 714.5 gates land.
 
 ## 1. Purpose
 

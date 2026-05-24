@@ -62,6 +62,21 @@ export interface HeadlessCartridgeState {
   romhBanks: number[];
   writable?: boolean;
   flashMode?: string;
+  // Spec 713/714.5 — EasyFlash continuation state (small; flash DATA rides in the
+  // separate cartFlash payload). jumper + IO2 RAM + each flash command-state.
+  easyflashJumper?: number;
+  easyflashRam?: number[]; // 256 bytes
+  flashLoState?: Flash040SnapState;
+  flashHiState?: Flash040SnapState;
+}
+
+/** Spec 713 — FLASH040 command-state-machine continuation (VICE flash040core). */
+export interface Flash040SnapState {
+  state: number;
+  baseState: number;
+  programByte: number;
+  lastRead: number;
+  dirty: boolean;
 }
 
 export interface HeadlessSessionWorkspace {

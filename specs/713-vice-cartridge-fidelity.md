@@ -1,6 +1,6 @@
 # Spec 713 - VICE Cartridge Fidelity: CRT Mapping, Banking and Writable Hardware
 
-**Status:** IN PROGRESS (2026-05-24 CEST) — EasyFlash writable-state surface DONE (getData/loadData on the FLASH040 chip + getWritableImage/setWritableImage/persistsWritableState on the mapper), consumed by Spec 714.5 persistence (probe:714-5 8/8). KNOWN GAP: EasyFlash $DF00 256-byte cart RAM not modeled. GMOD2/GMOD3 (EEPROM/SPI) + MegaByter writable ports deferred (no test corpus). Banking/CRT-mapping fidelity for the existing mounted families is already exercised by the runtime proof gate.  
+**Status:** IN PROGRESS (scope corrected 2026-05-24 CEST after audit). This is now one complete VICE cartridge-port batch, not an EasyFlash-only repair followed by deferred active mappers. The active runtime must port or remove every declared cartridge family below, together with its VICE device core and snapshot state. Reproduced EasyFlash REDs remain the first acceptance failures: IO1 mirror (`$DE04` must act like `$DE00` via `addr & 2`), IO2 RAM `$DF00-$DFFF` missing, flash program assignment instead of AM29F040 `old & byte`, and lost flash command-state continuation. `persistsWritableState()` must not be considered complete for any writable mapper until its full VICE state is integrated by Spec 714.5. The runtime proof gate does NOT prove cartridge banking/mapping fidelity.  
 **Depends on:** Spec 705 native checkpoint/dump foundation; Spec 709 media ingress and UI mount/eject completion  
 **Blocks:** Trustworthy CRT execution, CRT-based inspect evidence, cartridge rewind/replay and code-overlay work  
 **Authority:** VICE C source is the behavioral ground truth.
@@ -19,6 +19,12 @@ This spec covers:
 - Protovision MegaByter
 
 Ultimax behavior is included wherever it is part of a listed cartridge mode or the generic CRT memory contract.
+
+`C64MegaCart` is currently exposed by the TypeScript mapper registry. During this
+spec it must either be mapped to its actual VICE source and fully ported/gated,
+or be removed from the faithful supported set and explicitly reported as
+unsupported/experimental. A Magic-Desk-like approximation may not remain active
+under a VICE-fidelity claim.
 
 Spec 709 owns ingress, UI mounting and reset policy. Spec 713 owns correctness after a cartridge is attached: memory mapping, IO1/IO2 registers, bank switching, cartridge lines, writable hardware and continuation state.
 
@@ -66,6 +72,11 @@ Before implementation, produce an internal source-to-port matrix covering the fo
 | Magic Desk | `src/c64/cart/magicdesk.c` | bank mask, bit-7 disable, dynamic cartridge lines, IO1 writes |
 | Magic Desk 16 | `src/c64/cart/magicdesk16.c` | 16K mapping, dynamic cartridge lines and disable behavior |
 | Protovision MegaByter | `src/c64/cart/megabyter.c` and its flash support | IO1 mirrored bank/control registers, mode matrix, flash, reset/snapshot |
+| Exposed C64MegaCart mapper | Resolve owning VICE authority during 713.0 or remove faithful-support claim | No simplified Magic Desk proxy may remain declared supported |
+| AM29F040 flash device | `src/core/flash040core.c`, `src/flash040.h` | Complete state machine, `old & byte` programming, erase alarms and snapshot; shared by EasyFlash/GMOD2 |
+| MegaByter flash device | `src/core/flash800core.c`, `src/flash800.h` | Complete program/erase/state/snapshot port |
+| GMOD2 EEPROM device | `src/core/m93c86.c`, `src/core/m93c86.h` | Serial protocol, image/write state and snapshot |
+| GMOD3 SPI flash device | `src/core/spi-flash.c`, `src/core/spi-flash.h` | Serial protocol, writable image/state and snapshot |
 
 Supporting device files used by these modules, such as flash, EEPROM or SPI implementations, must be included in the matrix when referenced by the owning VICE cart module.
 
@@ -109,32 +120,50 @@ The current single-file mapper implementation may be split into per-mapper modul
 - Port/verify generic ROML/ROMH and line behavior.
 - Include Ultimax mapping only where required by generic profiles or listed cartridge modes.
 
-### 713.3 - EasyFlash Full Fidelity
+### 713.3 - Shared Writable Device Cores
+
+- Port the complete VICE `flash040core` state machine used by EasyFlash and
+  GMOD2: magic/unlock sequence, autoselect, byte-program/error, erase sequence,
+  erase suspend/resume, `old & byte` programming, status reads, dirty state,
+  alarms and snapshot fields.
+- Port `flash800core` for MegaByter rather than approximating it through the
+  AM29F040 implementation.
+- Port `m93c86` for GMOD2 EEPROM and `spi-flash` for GMOD3, including protocol
+  progression and snapshot state.
+- These core ports must be shared by the corresponding mapper ports; no
+  mapper-local reduced copy of writable-device behavior is accepted.
+
+### 713.4 - EasyFlash Full Fidelity
 
 - Port VICE register decode, including mirrored IO1 selection and mode/control masks.
 - Port mode/line matrix, jumper behavior where applicable, IO2 RAM and flash behavior required by VICE.
 - Verify the reported real EasyFlash CRT beyond booting bank 0: program-driven bank changes and stable visual/data behavior.
 
-### 713.4 - Ocean And Magic Desk Families
+### 713.5 - Ocean And Magic Desk Families
 
 - Port Ocean profile/bank masking and mapped windows.
 - Port Magic Desk and Magic Desk 16 bank, disable and `GAME`/`EXROM` behavior.
 
-### 713.5 - Protovision MegaByter
+### 713.6 - Protovision MegaByter
 
 - Port bank/control IO1 decode, mode selection and flash/state behavior.
 
-### 713.6 - GMOD2 And GMOD3
+### 713.7 - GMOD2 And GMOD3
 
 - Replace simplified TS models with full VICE-shaped behavior.
 - GMOD2: mode switching, flash and EEPROM signal/state.
 - GMOD3: VICE IO1-address bank selection, modes and SPI flash behavior.
 
-### 713.7 - Integration And Continuation
+### 713.8 - Integration And Continuation
 
-- Wire mapper snapshot/restore/dump state into native checkpoint policy.
+- Wire every mapper's complete snapshot/restore state into the Spec 714.5
+  native-checkpoint policy in this same cartridge batch.
 - Verify detach/eject/reset/remount behavior through the active media ingress path.
 - Close UI-visible CRT execution gates only after mapper differential tests pass.
+
+The numbered slices are ownership boundaries for review, not permission to
+ship active partial mapper support. Do not finish with EasyFlash complete while
+GMOD2/GMOD3/MegaByter or another exposed mapper remains a known simplification.
 
 ## 7. Mandatory Gates
 
@@ -167,9 +196,13 @@ Passing only the cartridge's initial bank-zero display is explicitly insufficien
 Where VICE models writable cartridge storage or auxiliary state, prove:
 
 - write/read behavior;
+- write protocol behavior, including operations in progress at checkpoint time;
+- flash physics (`old & byte` programming and erase completion) where applicable;
 - reset/power-cycle behavior;
 - native checkpoint restore behavior;
-- dump/undump media policy for dirty cartridge state.
+- `.c64re` fresh-session restore and ring restore across mutable versions;
+- dirty status as status/writeback information, not a permanent snapshot reject
+  after the device port is complete.
 
 No flash, EEPROM or SPI behavior may remain silently absent on a mapper declared supported by this spec.
 
@@ -193,5 +226,50 @@ Spec 713 is complete only when:
 3. Tests exercise active mapper implementations and VICE-derived expectations, not substitute stubs.
 4. Cartridge line changes, writable state and continuation restore are proved end to end.
 5. No listed mapper remains an intentionally simplified implementation.
+6. Every exposed writable mapper can be snapshotted while modified or while a
+   protocol operation is in progress, with VICE-equivalent continuation after
+   restore; interim reject behavior is not a completion result.
 
 Until these conditions are met, CRT mounting may be exposed as experimental, but it must not be described as faithful cartridge support.
+
+## 9. RFL Ownership Matrix (713.0) and Progress
+
+VICE source root: `/Users/alex/Development/C64/Tools/vice/vice/src`. TS owner:
+`src/runtime/headless/cartridge.ts` (single-file registry + mappers) routed by
+`memory-bus.ts` (`$8000-$BFFF`, `$DE00-$DFFF`, EXROM/GAME via `getBankInfo()`).
+
+| Family / device | VICE authority | TS status (2026-05-24) |
+| --- | --- | --- |
+| AM29F040 flash core | `core/flash040core.c`, `flash040.h` | **PORTED (faithful)** — `Flash040` class: full command state machine + `flash_base_state`, `old & byte` program, autoselect IDs, byte-program-error status, magic masking (TYPE_B 0x555/0x2aa mask 0x7ff), `program_byte`/`last_read`, snapshot state. Documented simplification: erase is ATOMIC (no erase_alarm timing / sector-erase-timeout window); data-faithful, no mid-erase state to snapshot. |
+| EasyFlash | `c64/cart/easyflash.c` | **PORTED (faithful)** — IO1 `addr & 2` mirror decode, `register_02 & 0x87`, `easyflash_memconfig` mode/line matrix + jumper, IO2 RAM `$DF00-$DFFF` (256B), two `Flash040` chips, full continuation snapshot (bank/control/jumper/IO2 RAM + each flash command-state). Gates: `probe:714-5` 16/16. |
+| Generic Normal 8K/16K, Ultimax | `c64/cart/c64-generic.c` | Present (BaseMapper / Normal8k / Normal16k / Ultimax). Read-only banked; believed correct, NOT yet differential-verified vs VICE (713.2 pending). |
+| Ocean | `c64/cart/ocean.c` | SIMPLIFIED (fixed bank mask; not size/profile-derived). 713.5 pending. |
+| Magic Desk / Magic Desk 16 | `c64/cart/magicdesk.c`, `magicdesk16.c` | SIMPLIFIED (no bit-7 disable / dynamic GAME-EXROM). 713.5 pending. |
+| Protovision MegaByter | `c64/cart/megabyter.c` + `core/flash800core.c` | SIMPLIFIED (uses `AmdFlashChip` approximation, not `flash800core`). 713.3 (flash800core) + 713.6 pending. |
+| GMOD2 | `c64/cart/gmod2.c` + `core/m93c86.c` (EEPROM) | SIMPLIFIED (no EEPROM). 713.3 (m93c86) + 713.7 pending. |
+| GMOD3 | `c64/cart/gmod3.c` + `core/spi-flash.c` | SIMPLIFIED (no SPI flash, wrong bank-select). 713.3 (spi-flash) + 713.7 pending. |
+| C64MegaCart | resolve owning VICE source or remove | UNRESOLVED — 713.0 follow-up: map to real VICE source or drop the faithful claim. |
+
+## 10. Result — flash040core + EasyFlash (713.3 partial + 713.4)
+
+EasyFlash — the reproduced incident family — is now VICE-faithful. The four
+audit REDs are fixed and gated by `probe:714-5` (16/16):
+
+- IO1 mirror: `$DE04` sets the bank like `$DE00`; `$DE06` sets control like `$DE02`.
+- IO2 RAM `$DF00-$DFFF` reads/writes + survives same-session checkpoint,
+  `.c64re` fresh-session and the ring.
+- Flash program physics `old & byte`: `$ff→$14→$10→$ff` keeps `$10`.
+- Mid-command continuation: a checkpoint mid-AMD-unlock is accepted (the command
+  state is captured) and continues identically after restore (no drift).
+- Active-runtime banking: the real EasyFlash CRT cold-boots + executes, and a
+  program-driven `$DE00` bank switch reads the correct per-bank flash.
+
+`flash040core` is ported and shared-ready for GMOD2's flash. `flash800core`
+(MegaByter), `m93c86` (GMOD2 EEPROM) and `spi-flash` (GMOD3) are NOT yet ported.
+
+**Spec 713 status: IN PROGRESS.** EasyFlash + flash040core done; Ocean,
+Magic Desk/16, MegaByter (+flash800core), GMOD2 (+m93c86), GMOD3 (+spi-flash),
+the C64MegaCart resolution, and the generic-baseline differential verification
+remain. Per §3.7 the not-yet-faithful families are to be gated to explicit
+reject-on-attach in a follow-up slice so no simplified mapper is silently active
+under a fidelity claim. No partial-batch DONE.

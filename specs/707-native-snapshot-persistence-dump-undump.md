@@ -157,17 +157,21 @@ integrity over body + per-embedded-media. No VSF internally.
 identity → self-contained, portable restore. The embedded source is the
 non-authoritative identity/baseline; the mutable content rides in the checkpoint.
 
-> **UPDATED (Spec 714 — mutable media is now persisted).** The original
-> "dirty disk aborts dump" policy is RETIRED. The VICE1541 snapshot runs
-> `save_disks=1` and the mutated disk image is captured as `driveDiskImage`
-> (Spec 714.2/714.3), so a dump after a disk write restores the WRITTEN content
-> in a fresh session. Writable **EasyFlash** flash is captured as `cartFlash`
-> (Spec 713/714.5). Both ride in the payload (typed-array codec) and are
-> content-addressed/deduped in the 705.B ring (714.4). A dirty-media dump is now
-> rejected ONLY for writable cartridge families without a persistence port
-> (GMOD2/GMOD3/MegaByter — no test corpus yet). Dirty detection
+> **UPDATED (Spec 714 — mutable DISK is now persisted).** The "dirty disk aborts
+> dump" policy is RETIRED for the disk: the VICE1541 snapshot runs `save_disks=1`
+> and the mutated disk image is captured as `driveDiskImage` (Spec 714.2/714.3),
+> so a dump after a disk write restores the WRITTEN content in a fresh session;
+> it is content-addressed/deduped in the 705.B ring (714.4). Dirty detection
 > (`GCR_dirty_track != 0 OR live-gcr-hash != attach-baseline`,
-> `vice1541-facade.ts`) is retained for status/diagnostics, not as a dump gate.
+> `vice1541-facade.ts`) is retained for status, not as a dump gate.
+>
+> **Writable CARTRIDGE — EasyFlash IS persisted (Spec 713/714.5):** the EasyFlash
+> port is now VICE-faithful (flash040core state machine + IO1 mirror + IO2 RAM +
+> command-state snapshot), so its flash rides in `cartFlash` (content-addressed
+> in the ring) and a written/mid-command EasyFlash dumps + restores faithfully.
+> The dirty-cartridge dump reject survives only for the writable families still
+> pending under Spec 713 (GMOD2/GMOD3/MegaByter, not-yet-verified Ocean/Magic
+> Desk) — removed per family as each faithful port + its 714.5 gates pass.
 
 **dump/undump (§4):** `src/runtime/headless/kernel/snapshot-persistence.ts` — the
 single backend shared by the Spec 623 monitor `dump "<path>"` / `undump "<path>"`

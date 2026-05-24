@@ -1,6 +1,6 @@
 # Spec 714 - Mutable Media Snapshot Fidelity: Disk, Cartridge and Rewind State
 
-**Status:** DONE for all media active in the runtime (2026-05-24 CEST) — disk (714.1-714.4) + EasyFlash writable cartridge (Spec 713 EasyFlash slice + 714.5) persist/restore exactly through checkpoint, `.c64re` and the bounded dedup ring; downstream contracts updated (714.6), see §11. EXPLICITLY DEFERRED (no test corpus, kept under the honest reject-on-dirty barrier): GMOD2/GMOD3 (EEPROM/SPI) + MegaByter writable persistence, and the EasyFlash `$DF00` cart RAM.  
+**Status (scope corrected 2026-05-24 CEST after audit):** DISK path DONE (714.1-714.4) — untouched, green. **714.5 CARTRIDGE STATE = IN PROGRESS** and is bound to the complete Spec 713 VICE-cartridge batch: EasyFlash, MegaByter, GMOD2 and GMOD3 writable state must be carried through checkpoint, `.c64re` and ring once their complete device cores land; read-only banked families still require continuation-state proof under 713. EasyFlash is currently known RED (IO1 mirror, IO2 RAM, AM29F040 `old & byte` programming and command-state continuation). Any temporary reject present during development is only a corruption guard, not a milestone or final policy. The final VICE-shaped behavior allows snapshots of modified media and operations in progress because their complete state is captured.  
 **Depends on:** Specs 705.A/B, 706, 707 implementation surfaces; VICE1541 fidelity doctrine in Specs 612/620  
 **Coordinates with:** Spec 709 for media ingress/events; Spec 713 for VICE-faithful writable cartridge hardware  
 **Blocks:** Durable Spec 710 evidence promotion, Spec 711 intervention branches, Spec 712 rewind/replay; truthful writable-media `.c64re` persistence  
@@ -257,20 +257,27 @@ Output internally:
 - Restore remains instruction-boundary deterministic and preserves audio
   transport re-sync behavior.
 
-### 714.5 - Writable Cartridge Persistence After Spec 713
+### 714.5 - Complete Cartridge Continuation Integration With Spec 713
 
-For each supported writable cartridge family after its VICE mapper port is
-complete:
+This is not an EasyFlash-only persistence slice. It is the continuation and
+storage integration of the complete Spec 713 active cartridge batch. For each
+supported writable family (`EasyFlash`, `MegaByter`, `GMOD2`, `GMOD3`) after
+its VICE mapper/device-core port is complete:
 
 - capture full mutable device state in RuntimeCheckpoint;
 - persist it through `.c64re`;
 - retain it in the bounded ring;
 - restore it into a fresh session with correct banking/mode state;
-- remove the family-specific dirty reject after its gates pass.
+- accept snapshots while the medium is modified or its write protocol is in
+  progress, as VICE does, because those states are part of the payload;
+- remove any temporary family-specific reject within the same completed port
+  batch, after its gates pass.
 
-EasyFlash is first priority because it is already mounted in the UI and has
-demonstrated visible failure. GMOD2, GMOD3 and MegaByter follow their Spec 713
-completion.
+EasyFlash provides the first concrete RED incident and must be included, but
+finishing only EasyFlash does not complete the declared cartridge work. For
+read-only banked cartridges in Spec 713, 714.5 must still prove mapper
+bank/mode/line continuation through checkpoint and `.c64re`; there is simply no
+mutable storage payload.
 
 ### 714.6 - Downstream Contract Update
 
@@ -328,13 +335,26 @@ For D64 and G64:
 
 ### 8.5 Writable Cartridge State
 
-After each Spec 713 writable mapper slice:
+For every writable mapper in the completed Spec 713 cartridge batch:
 
 - program/erase/write cartridge storage through its emulated hardware protocol;
+- capture and restore at intermediate protocol states (unlock, erase, serial
+  EEPROM/SPI transaction states as applicable);
 - checkpoint and restore same-session;
 - `.c64re` dump/undump into a fresh session;
 - ring restore across distinct write versions;
 - assert mapped reads, mapper mode/register state and continuation match.
+
+Minimum family-specific coverage:
+
+- EasyFlash: IO1 mirrors, IO2 RAM, flash program/erase and flash-state restore;
+- MegaByter: IO1 mode/bank and `flash800core` state restore;
+- GMOD2: flash plus EEPROM protocol/image/state restore;
+- GMOD3: SPI flash protocol/image/state restore.
+
+For Ocean, Magic Desk, Magic Desk 16 and generic Normal/Ultimax mapping, prove
+bank/mode/line continuation in checkpoint and `.c64re` even though there is no
+writable-media delta.
 
 ### 8.6 Regressions
 
@@ -358,8 +378,9 @@ Spec 714 is DONE only when:
 2. `.c64re` persists and restores modified disk media into a fresh session;
 3. the automatic checkpoint ring continues across disk writes with bounded,
    exact media-version storage;
-4. writable cartridge families supported by the active runtime persist their
-   mutable state after their Spec 713 ports land;
+4. all cartridge families declared supported by the active runtime have complete
+   Spec 713 ports and restore their required continuation state; writable
+   families persist all VICE-modeled mutable and in-progress protocol state;
 5. dirty guards are removed for completed media families and remain only as
    explicit rejection for genuinely unsupported writable media;
 6. downstream evidence/overlay/rewind features consume full mutable-media
@@ -499,68 +520,66 @@ version while any entry references it. 8.1/8.2/8.4 unchanged.
 
 714.1-714.4 DONE (disk path complete).
 
-### Spec 713 (EasyFlash slice) + 714.5 — writable EasyFlash persistence
+### Superseded attempt: EasyFlash byte-array persistence
 
-EasyFlash is the priority cartridge (the only one mounted in the UI — the TRX
-crack intro). Its writable hardware (two FLASH040 chips = VICE roml_banks +
-romh_banks) is now a faithful, persistable state surface.
+The committed EasyFlash attempt established useful cartridge blob pooling
+(`cartBytes` plus a mutable payload), but it did not satisfy 713/714.5:
 
-- **713 (EasyFlash):** `AmdFlashChip` gains `getData()`/`loadData()` (loadData
-  resets the command state machine to read mode + clears dirty). `EasyFlashMapper`
-  implements `getWritableImage()` (flash low+high concatenated, a fresh copy) +
-  `setWritableImage()` (split + load) + `persistsWritableState() → true`. RFL vs
-  VICE `easyflash.c` snapshot module: VICE persists jumper + reg00 (bank) + reg02
-  (control) + `easyflash_ram[256]` + roml_banks(512K) + romh_banks(512K) + each
-  flash command-state. We persist bank/control (getState) + both flash images
-  (getWritableImage). KNOWN GAP: the `$DF00` 256-byte EasyFlash cart RAM is not
-  modeled by this mapper (games rarely use it) — a 713 follow-up.
-- **714.5:** the cartridge's large byte payloads moved OUT of `media.cartridge`
-  to top-level `RuntimeCheckpoint.cartBytes` (original .crt) + `cartFlash`
-  (writable image), so the ring content-addresses + dedups them (the .crt is
-  constant → ONE stored copy; flash dedups across non-write checkpoints). The
-  ring pool generalized to a slot list (`driveDiskImage`, `cartBytes`,
-  `cartFlash`). kernel snapshot captures them; restore rebuilds the mapper from
-  cartBytes, restores bank/control, overlays the flash via `setWritableImage`.
-- **Reject retired for EasyFlash:** `nonPersistableDirtyMedia` + the dump guard
-  now reject a dirty cartridge ONLY when its mapper lacks
-  `persistsWritableState`. EasyFlash → captured/dumped; GMOD2/GMOD3/MegaByter
-  (no writable port + no test corpus) → still reject-on-dirty. The former
-  709.11b/709.12 dirty-CRT-reject gates (probe-709-12 A2-A5, probe-709-media
-  G12) flipped accordingly.
+- it captured flash byte arrays but reset command state on restore;
+- it omitted EasyFlash IO2 RAM and did not fix IO1 mirror/mapping behavior;
+- it did not implement AM29F040 `old & byte` program behavior;
+- it left MegaByter, GMOD2 and GMOD3 as deferred active approximations.
 
-**Gate `probe:714-5` (8/8):** 8.5a same-session program→checkpoint→reprogram→
-restore restores the programmed flash (the §4.3 repro, green); a written
-EasyFlash is ACCEPTED for capture. 8.5b .c64re dump→fresh-session undump
-reattaches with the written flash + mapper/bank. 8.5c three distinct flash
-versions in the ring each restore exactly; the .crt dedups to ONE pooled version
-(1 .crt + 4 flash = 5 versions).
+The earlier `probe:714-5` result demonstrated byte-array transport only. It is
+not a VICE-fidelity completion gate and must be replaced/extended by the
+complete 713/714.5 family gates defined above.
+
+### Current 714.5 direction: complete Spec 713 cartridge batch
+
+Spec 714.5 now integrates all VICE-shaped state supplied by the complete Spec
+713 port:
+
+- `flash040core` state for EasyFlash and GMOD2;
+- `flash800core` state for MegaByter;
+- `m93c86` state for GMOD2;
+- `spi-flash` state for GMOD3;
+- mapper registers, RAM, writable images and in-progress operations;
+- bank/mode/line continuation for read-only banked cartridge families.
+
+Snapshots after modifications or during write operations must be valid once
+these ports land. Any dirty/operation reject used while implementing is an
+interim corruption guard only and must not be reported as completion.
 
 ### 714.6 downstream contract update
 
-Doc-only, no code change. The temporary dirty-reject language is replaced with
-the implemented mutable-media behavior, and the downstream features are pinned
-to require 714-complete media:
+The earlier downstream update was based on the invalid assertion that
+EasyFlash byte-array persistence made the cartridge path complete. It is
+superseded. Current downstream contract:
 
-- **Spec 707** media-policy paragraph: the "dirty disk aborts dump" rule is
-  retired (save_disks=1 → `driveDiskImage`; EasyFlash → `cartFlash`); dirty-media
-  dump is rejected only for writable cartridge families without a persistence
-  port. Dirty detection kept for status, not as a dump gate.
-- **Spec 709** §2.3 (disk) + §12 (CRT) carry "UPDATED (714)" notes: disk +
-  EasyFlash are persisted, not rejected; the reject survives only for unported
-  writable families.
-- **Specs 710/711/712** each gain a "Spec 714 requirement" banner + a `714`
-  dependency: durable evidence promotion (710), branch roots (711) and
-  rewind/replay/diff (712) over a writable medium require 714-complete mutable
-  media; families under the dirty barrier are not durable/branchable/rewindable
-  over a written medium; clean-media work is unaffected.
+- **Spec 707:** modified D64/G64 media are persistable; cartridge mutable state
+  is persistable only after the complete 713/714.5 mapper/device state lands.
+- **Spec 709:** disk ingress may form durable before/after checkpoints; CRT
+  ingress is functional for experimentation but cartridge evidence is not
+  faithful/durable while 713/714.5 remains open.
+- **Specs 710/711/712:** durable evidence promotion, intervention branches and
+  rewind/replay over cartridges require the complete 713/714.5 state, not
+  EasyFlash byte-array transport.
 
-## Done
+> **AUDIT CORRECTION (2026-05-24).** The earlier 713/714.5 EasyFlash work was
+> NOT VICE-faithful and is superseded by the complete Spec 713 cartridge batch.
+> Reproduced EasyFlash REDs: IO1 mirror (`$DE04` != `$DE00`), IO2 RAM `$DF00`
+> missing, flash program assignment instead of `old & byte`, and mid-command
+> continuation drift. The completion target is no longer “EasyFlash first,
+> remaining active writable families deferred”: it is the full VICE cartridge
+> and device-core port plus the 714.5 continuation integration.
 
-Spec 714 is DONE for every medium the runtime actually mounts (disk + EasyFlash):
-checkpoint, `.c64re` and the bounded content-addressed ring all carry and
-exactly restore the written disk and the written EasyFlash flash; the dirty
-barrier is removed for those and the downstream specs require 714-complete media.
-The remaining writable cartridge families (GMOD2/GMOD3 EEPROM/SPI, MegaByter) and
-the EasyFlash `$DF00` cart RAM are explicitly deferred behind the honest
-reject-on-dirty barrier until a test corpus + their Spec 713 ports exist — no
-silent gap, no false DONE.
+## Done (status)
+
+- **Disk path (714.1-714.4): DONE.** Checkpoint, `.c64re` and the bounded
+  content-addressed ring carry + exactly restore written D64/G64 disks.
+- **Cartridge continuation (complete Spec 713 batch + 714.5): IN PROGRESS** —
+  EasyFlash, MegaByter, GMOD2 and GMOD3 writable device state plus banked
+  cartridge continuation must be ported and gated together as the next
+  cartridge work.
+- Any interim dirty/mid-command reject is implementation scaffolding only; it
+  is removed for each faithful port before 714.5 may be called complete.
