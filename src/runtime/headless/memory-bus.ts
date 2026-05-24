@@ -553,10 +553,12 @@ export class HeadlessMemoryBus {
       this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
     }
-    // $8000-$9FFF — ultimax programs flash_low; otherwise RAM underneath.
+    // $8000-$9FFF — when ROML is mapped the cart sees the write; it returns true
+    // if it consumes it (flash programming, e.g. EasyFlash in ultimax / GMOD2 in
+    // 8K) or false to pass through to the RAM underneath (VICE roml_store vs
+    // roml_no_ultimax_store → ram_store). When ROML is unmapped → RAM.
     if (normalized >= 0x8000 && normalized <= 0x9fff) {
-      if (this.isUltimax()) {
-        this.cartridge?.write(normalized, byte, bankInfo);
+      if (this.memConfig.bank8 === "cart_lo" && this.cartridge?.write(normalized, byte, bankInfo)) {
         this.recordAccess("write", normalized, byte, "cartridge");
         return;
       }
@@ -564,10 +566,15 @@ export class HeadlessMemoryBus {
       this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
     }
-    // $A000-$BFFF — ultimax open window drops; else RAM underneath (16k ROMH
-    // and BASIC-region writes both reach RAM per romh_no_ultimax_store).
+    // $A000-$BFFF — ROMH@a000: cart may consume (flash) else RAM; ultimax open
+    // window (not cart_hi) drops; otherwise RAM (16K ROMH / BASIC region writes
+    // reach RAM per romh_no_ultimax_store).
     if (normalized >= 0xa000 && normalized <= 0xbfff) {
-      if (this.isUltimax()) { this.recordAccess("write", normalized, byte, "open_bus"); return; }
+      if (this.memConfig.bankA === "cart_hi" && this.cartridge?.write(normalized, byte, bankInfo)) {
+        this.recordAccess("write", normalized, byte, "cartridge");
+        return;
+      }
+      if (this.memConfig.bankA !== "cart_hi" && this.isUltimax()) { this.recordAccess("write", normalized, byte, "open_bus"); return; }
       this.ram[normalized] = byte;
       this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
@@ -579,10 +586,9 @@ export class HeadlessMemoryBus {
       this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
     }
-    // $E000-$FFFF — ultimax programs flash_high; else RAM underneath.
+    // $E000-$FFFF — ultimax ROMH: cart may consume (flash) else RAM; otherwise RAM.
     if (normalized >= 0xe000 && normalized <= 0xffff) {
-      if (this.memConfig.bankE === "cart_hi_ultimax") {
-        this.cartridge?.write(normalized, byte, bankInfo);
+      if (this.memConfig.bankE === "cart_hi_ultimax" && this.cartridge?.write(normalized, byte, bankInfo)) {
         this.recordAccess("write", normalized, byte, "cartridge");
         return;
       }

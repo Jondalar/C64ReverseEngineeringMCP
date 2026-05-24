@@ -1008,13 +1008,15 @@ class EasyFlashMapper extends BaseMapper {
     }
     // Flash programming (AMD command state machine). VICE programs the flash
     // ONLY in ULTIMAX: $8000-$9FFF → easyflash_roml_store (flash_low), $E000-$FFFF
-    // → easyflash_romh_store (flash_high). The bus only calls write here for those
-    // ultimax windows; 8k/16k ROM-window writes are routed to the RAM underneath
-    // by the bus (roml_no_ultimax_store/romh_no_ultimax_store → ram_store) and
-    // never reach this method. No write-through here — the bus owns RAM.
-    const offset = this.chipOffsetForWindow(address);
-    if (address >= 0x8000 && address <= 0x9fff) { this.loFlash.store(offset, value); return true; }
-    if (address >= 0xe000 && address <= 0xffff) { this.hiFlash.store(offset, value); return true; }
+    // → easyflash_romh_store (flash_high). In 8K/16K the ROM-window write hook is
+    // roml_no_ultimax_store / romh_no_ultimax_store → ram_store, so we return
+    // false and let the bus write the RAM underneath. Returning true consumes the
+    // write (no RAM); returning false = pass through to RAM.
+    if (this.currentMode() === "ultimax") {
+      const offset = this.chipOffsetForWindow(address);
+      if (address >= 0x8000 && address <= 0x9fff) { this.loFlash.store(offset, value); return true; }
+      if (address >= 0xe000 && address <= 0xffff) { this.hiFlash.store(offset, value); return true; }
+    }
     return false;
   }
 
