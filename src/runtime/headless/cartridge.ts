@@ -539,7 +539,13 @@ class Flash040 {
   /** "operation active" status (command sequence / erase busy). Not a snapshot
    *  veto — the full state is captured. Exposed for UI/debug. */
   isBusy(): boolean { return this.state !== "read"; }
-  getData(): Uint8Array { return this.data; }
+  /** Spec 713 (audit #5) — apply any erase steps due at the live clk. VICE's
+   *  erase_alarm_handler fires independently of flash access, so every
+   *  capture/inspect point (snapshot, writable-image, status) must catch up
+   *  first or it serialises stale (un-erased) data when a checkpoint lands past
+   *  completion without an intervening flash read/store. */
+  catchUp(): void { this.catchUpErase(this.clock()); }
+  getData(): Uint8Array { this.catchUp(); return this.data; }
   loadData(bytes: Uint8Array): void { this.data.set(bytes.subarray(0, this.data.length)); }
   getMode(): string { return `${this.label}:${this.state}`; }
 
@@ -710,6 +716,7 @@ class Flash040 {
   }
 
   snapshotState(): Flash040SnapState {
+    this.catchUp(); // audit #5 — capture post-alarm state, not stale lazy state
     return {
       state: FLASH040_STATES.indexOf(this.state),
       baseState: FLASH040_STATES.indexOf(this.baseState),

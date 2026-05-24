@@ -280,13 +280,24 @@ not exercise these mappers): `probe:714-5` 16/16 (EasyFlash), `probe:713-rombank
 43/43 (GMOD2+m93c86 / C64MegaCart / MegaByter+flash800 / GMOD3+spi-flash),
 `smoke-cart-fidelity` 18/18.
 
-The EasyFlash erase alarm is modelled lazy-but-scheduled rather than wired into
-`maincpuAlarmContext`. It is observably identical to VICE and snapshot-faithful
-(the scheduled completion clk is captured/restored). **Accepted as equivalent
-(decision 2026-05-24)** — a structural alarm-context wiring carries no behavioural
-change and is not required for DONE.
+## 11. Audit REOPEN (2026-05-24) — NOT complete, NOT faithful yet
 
-**Spec 713 status: implementation COMPLETE + proof-green (`runtime:proof` 7/7,
-2026-05-24). Merge to master HELD by request** (branch `spec-713-cart-families`,
-to land alongside the baseline-extension spec on master). No simplified active
-mapper remains; no type removed for lack of authority.
+A runtime/ingress audit with the real CRT samples found gaps the synthetic
++override probes hid. Spec 713 is **IN PROGRESS again**; the prior "COMPLETE /
+faithful / accepted-equivalent" text was premature and is withdrawn. No merge,
+no DONE, no baseline change until every finding below is RED-then-GREEN through
+the real media/runtime/checkpoint path (no mapper overrides in tests).
+
+| # | Owner | Finding |
+| --- | --- | --- |
+| 1 | `inferMapperType` + `media/ingress.ts` | Real GMOD2(60)/GMOD3(62)/C64MegaCart CRT headers must route with NO override; prove via ingress + checkpoint-restore. |
+| 2 | `gmod3.c gmod3_romh_read` | vectors-enabled fixed table `$FFF8-$FFFF = 08 00 08 00 0c 80 0c 00` not implemented; `$FFF8` returns open bus after `$DE08=$20`. |
+| 3 | `Gmod3Mapper` | mapper pin state (eepromCs/Clock/Data) not in getState/setState → mid-SPI snapshot/restore diverges. |
+| 4 | `gmod2_io1_read` | EEPROM read low 7 bits must be `vicii_read_phi1()&0x7f`, not constant `0x7f`. |
+| 5 | `flash040core`/`flash800core` | erase alarm is lazy at flash read/store only; `snapshotState()`/`getWritableImage()` do NOT catch up, so a checkpoint past completion WITHOUT a flash access captures stale (un-erased) data. Must be VICE-equivalent capture (catch-up on capture or real alarm). Covers EF/GMOD2/C64MegaCart/MegaByter.
+
+Plus: MegaByter (Lykia) real cart crashes to `$0002` in its bank-0 loader before
+banking (real-cart runtime gate failure to localise).
+
+Status: **IN PROGRESS — audit findings 1-5 open.** Branch `spec-713-cart-families`
+held; NOT mergeable until closed.
