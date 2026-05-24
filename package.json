@@ -163,6 +163,11 @@
     "smoke:runtime-mcp": "npm run build:mcp && node scripts/smoke-runtime-mcp.mjs",
     "smoke:media": "npm run build:mcp && node scripts/smoke-media.mjs",
     "smoke:distributed": "npm run build:mcp && node scripts/smoke-distributed.mjs",
+    "proof:product": "node scripts/runtime-product-proof.mjs",
+    "proof:capability": "node scripts/runtime-product-proof.mjs --capability",
+    "proof:list": "node scripts/runtime-product-proof.mjs --list",
+    "proof:freeze": "node scripts/runtime-product-proof.mjs --freeze",
+    "proof:seven-game": "node scripts/runtime-proof-gate.mjs",
     "runtime:proof": "node scripts/runtime-proof-gate.mjs",
     "start": "tsx src/cli.ts"
   },
