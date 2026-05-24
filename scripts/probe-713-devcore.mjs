@@ -144,6 +144,36 @@ console.log("Spec 713 — device-core mappers (bus-level)");
   gate("MegaCart: setWritableImage restores 0x5a", bus.read(0x8000) === 0x5a, `r=${bus.read(0x8000)}`);
 }
 
+// ============ MegaByter (flash800core MX29F800CB, ROML-only) ============
+{
+  const crt = buildCrt({ hwType: 0, exrom: 0, game: 1, nbanks: 128 });
+  const bus = new HeadlessMemoryBus(); bus.reset(); bus.setOpenBusProvider(() => 0x3f);
+  const cart = loadCartridgeMapperFromBytes(crt, "megabyter.crt", "megabyter");
+  bus.attachCartridge(cart); bus.write(0x0001, 0x37);
+
+  gate("MegaByter: type=megabyter", cart.getMapperType() === "megabyter");
+  // $DE02 mode 0 = 8K; $DE00 (bit1=0) = bank.
+  bus.write(0xde02, 0x00); bus.write(0xde00, 0x07);
+  gate("MegaByter: 8K bank7 → $8000 sentinel 7", bus.read(0x8000) === 7, `r=${bus.read(0x8000)}`);
+  gate("MegaByter: mode0 lines 8K exrom=0 game=1", cart.getLines().exrom === 0 && cart.getLines().game === 1);
+  bus.write(0xde02, 0x01); gate("MegaByter: mode1 → 16K exrom=0 game=0", cart.getLines().exrom === 0 && cart.getLines().game === 0);
+  bus.write(0xde02, 0x02); gate("MegaByter: mode2 → off exrom=1 game=1", cart.getLines().exrom === 1 && cart.getLines().game === 1);
+  bus.write(0xde02, 0x03); gate("MegaByter: mode3 → ultimax exrom=1 game=0", cart.getLines().exrom === 1 && cart.getLines().game === 0);
+
+  // flash program in 8K (flash800 magic 0xaaa/0x555 mask 0xfff, bank0 erased).
+  bus.write(0xde02, 0x00); bus.write(0xde00, 0x00); // 8K, bank0
+  bus.write(0x8aaa, 0xAA); bus.write(0x8555, 0x55); bus.write(0x8aaa, 0xA0); bus.write(0x8000, 0x6b);
+  gate("MegaByter: flash800 program → read 0x6b", bus.read(0x8000) === 0x6b, `r=${bus.read(0x8000)}`);
+
+  // writable image (1MB flash) round-trip
+  const img = cart.getWritableImage();
+  gate("MegaByter: writable image = 1MB flash", img.length === 0x100000, `len=${img.length}`);
+  bus.write(0x8aaa, 0xAA); bus.write(0x8555, 0x55); bus.write(0x8aaa, 0xA0); bus.write(0x8000, 0x00);
+  gate("MegaByter: clobbered to 0", bus.read(0x8000) === 0x00);
+  cart.setWritableImage(img);
+  gate("MegaByter: setWritableImage restores 0x6b", bus.read(0x8000) === 0x6b, `r=${bus.read(0x8000)}`);
+}
+
 console.log("---");
 if (failures.length === 0) { console.log(`GREEN 713 device-core: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 713 device-core: ${passes} pass, ${failures.length} fail.`);

@@ -248,40 +248,6 @@ function buildLinearChipData(
   return result;
 }
 
-interface FlashSectorLayout {
-  start: number;
-  size: number;
-}
-
-interface AmdFlashChipOptions {
-  label: string;
-  data: Uint8Array;
-  commandAddress1: number;
-  commandAddress2: number;
-  commandAddressMask: number;
-  manufacturerId: number;
-  deviceId: number;
-  sectors: FlashSectorLayout[];
-}
-
-interface HeadlessWritableChip {
-  read(offset: number): number;
-  write(offset: number, value: number): boolean;
-  getMode(): string;
-}
-
-function createUniformSectors(totalSize: number, sectorSize: number): FlashSectorLayout[] {
-  const sectors: FlashSectorLayout[] = [];
-  for (let start = 0; start < totalSize; start += sectorSize) {
-    sectors.push({ start, size: Math.min(sectorSize, totalSize - start) });
-  }
-  return sectors;
-}
-
-function findSectorForOffset(sectors: FlashSectorLayout[], offset: number): FlashSectorLayout | undefined {
-  return sectors.find((sector) => offset >= sector.start && offset < sector.start + sector.size);
-}
-
 // VICE derives the bank register mask from the loaded image size (magicdesk.c /
 // magicdesk16.c bankmask, ocean.c io1_mask = (size>>13)-1). We derive the same
 // power-of-two-minus-one mask from the highest 8K bank index present, capped to
@@ -472,134 +438,6 @@ class OceanMapper extends BaseMapper {
   protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
 }
 
-type FlashCommandState = "read" | "cmd1" | "cmd2" | "program" | "erase1" | "erase2" | "erase3" | "autoselect";
-
-class AmdFlashChip implements HeadlessWritableChip {
-  public state: FlashCommandState = "read";
-  // Spec 709.11b — set when flash contents are mutated (program/erase). Used by
-  // the writable-CRT dump guard: v1 cannot persist flash deltas, so a dirty
-  // flash is rejected at dump rather than silently restoring the original bytes.
-  private dirty = false;
-
-  constructor(private readonly options: AmdFlashChipOptions) {}
-
-  isDirty(): boolean { return this.dirty; }
-  // Spec 714.5 (audit) — true while a multi-step AMD command is in progress
-  // (state != read). Such a mid-command checkpoint is non-restorable until the
-  // flash command-state machine is snapshotted, so it must be rejected for now.
-  isBusy(): boolean { return this.state !== "read"; }
-
-  // Spec 713/714.5 — VICE-faithful writable-state surface. getData() returns the
-  // live flash array (caller copies before pooling); loadData() overlays a
-  // restored image and resets the command state machine to read mode (the
-  // restored bytes are the new truth, so dirty clears).
-  getData(): Uint8Array { return this.options.data; }
-  loadData(bytes: Uint8Array): void {
-    this.options.data.set(bytes.subarray(0, this.options.data.length));
-    this.state = "read";
-    this.dirty = false;
-  }
-
-  getMode(): string {
-    return `${this.options.label}:${this.state}`;
-  }
-
-  read(offset: number): number {
-    const normalized = offset % this.options.data.length;
-    const commandOffset = normalized & this.options.commandAddressMask;
-    if (this.state === "autoselect") {
-      if (commandOffset === 0x0000) return this.options.manufacturerId;
-      if (commandOffset === 0x0001) return this.options.deviceId;
-    }
-    return this.options.data[normalized] ?? 0xff;
-  }
-
-  write(offset: number, value: number): boolean {
-    const normalized = offset % this.options.data.length;
-    const commandOffset = normalized & this.options.commandAddressMask;
-    const byte = value & 0xff;
-    if (byte === 0xf0) {
-      this.state = "read";
-      return true;
-    }
-
-    switch (this.state) {
-      case "read":
-        if (commandOffset === this.options.commandAddress1 && byte === 0xaa) {
-          this.state = "cmd1";
-          return true;
-        }
-        return false;
-      case "cmd1":
-        if (commandOffset === this.options.commandAddress2 && byte === 0x55) {
-          this.state = "cmd2";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "cmd2":
-        if (commandOffset === this.options.commandAddress1 && byte === 0xa0) {
-          this.state = "program";
-          return true;
-        }
-        if (commandOffset === this.options.commandAddress1 && byte === 0x80) {
-          this.state = "erase1";
-          return true;
-        }
-        if (commandOffset === this.options.commandAddress1 && byte === 0x90) {
-          this.state = "autoselect";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "program":
-        this.options.data[normalized] = byte;
-        this.dirty = true; // Spec 709.11b — flash mutated
-        this.state = "read";
-        return true;
-      case "erase1":
-        if (commandOffset === this.options.commandAddress1 && byte === 0xaa) {
-          this.state = "erase2";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "erase2":
-        if (commandOffset === this.options.commandAddress2 && byte === 0x55) {
-          this.state = "erase3";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "erase3":
-        if (commandOffset === this.options.commandAddress1 && byte === 0x10) {
-          this.options.data.fill(0xff);
-          this.dirty = true; // Spec 709.11b — chip erase mutated flash
-          this.state = "read";
-          return true;
-        }
-        if (byte === 0x30) {
-          const sector = findSectorForOffset(this.options.sectors, normalized);
-          if (!sector) {
-            this.state = "read";
-            return false;
-          }
-          this.options.data.fill(0xff, sector.start, sector.start + sector.size);
-          this.dirty = true; // Spec 709.11b — sector erase mutated flash
-          this.state = "read";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "autoselect":
-        if (byte === 0xf0) {
-          this.state = "read";
-          return true;
-        }
-        return false;
-    }
-  }
-}
 
 // Spec 713 — source-faithful port of VICE flash040core.c for AM29F040B
 // (FLASH040_TYPE_B, as EasyFlash uses). Full 13-state command machine + base
@@ -653,6 +491,17 @@ const FLASH040_160: Flash040Type = {
   magic1Addr: 0xaaa, magic2Addr: 0x555, magic1Mask: 0xfff, magic2Mask: 0xfff,
   statusToggleBits: 0x40,
   eraseSectorTimeoutCycles: 50, eraseSectorCycles: 1_000_000, eraseChipCycles: 8_000_000,
+};
+// MX29F800CB (FLASH800_TYPE_CB) — MegaByter. VICE core/flash800core.c is the same
+// AMD command state machine as flash040core (identical states + `old & byte`
+// program), just a different device row, so it reuses the Flash040 class. 1MB,
+// mfg 0xc2 / dev 0x58, magic 0xaaa/0x555 mask 0xfff.
+const FLASH800_CB: Flash040Type = {
+  manufacturerId: 0xc2, deviceId: 0x58, deviceIdAddr: 1,
+  size: 0x100000, sectorMask: 0x0f0000, sectorSize: 0x10000, sectorShift: 16,
+  magic1Addr: 0xaaa, magic2Addr: 0x555, magic1Mask: 0xfff, magic2Mask: 0xfff,
+  statusToggleBits: 0x40,
+  eraseSectorTimeoutCycles: 40, eraseSectorCycles: 700_000, eraseChipCycles: 8_000_000,
 };
 const FLASH040_ERASE_MASK_SIZE = 8;
 type Flash040StateName =
@@ -1033,139 +882,73 @@ class EasyFlashMapper extends BaseMapper {
   }
 }
 
-function createMegabyterSectors(): FlashSectorLayout[] {
-  return [
-    { start: 0x00000, size: 0x04000 },
-    { start: 0x04000, size: 0x02000 },
-    { start: 0x06000, size: 0x02000 },
-    { start: 0x08000, size: 0x08000 },
-    ...createUniformSectors(0x100000 - 0x10000, 0x10000).map((sector) => ({
-      start: sector.start + 0x10000,
-      size: sector.size,
-    })),
-  ];
-}
-
+// VICE megabyter.c — Protovision MegaByter. 1MB Flash (MX29F800CB via
+// flash800core, 128×8K banks, ROML only). IO1 ($DE00): addr bit1 → register_02
+// (mode bits 0-1 + LED bit7), else register_00 (ROM bank & 0x7f). Mode index →
+// memconfig[0..3] = 8K / 16K / RAM(off) / ULTIMAX. Flash is read AND programmed
+// at ROML $8000-$9FFF (roml_read / roml_store → flash800core); the cart has no
+// ROMH. Replaces the old approximate AmdFlashChip path.
 class MegabyterMapper extends BaseMapper {
-  private bankRegister = 0x00;
-  private controlRegister = 0x00;
-  private readonly flash: AmdFlashChip;
+  private register00 = 0;   // bank
+  private register02 = 0;   // mode (bits 0-1) + LED (bit 7)
+  private readonly flash: Flash040;
 
   constructor(image: ParsedCartridgeImage) {
     super(image);
-    const data = buildLinearChipData(image, (bank) => bank.roml, 128);
-    this.flash = new AmdFlashChip({
-      label: "megabyter",
-      data,
-      commandAddress1: 0x0aaa,
-      commandAddress2: 0x0555,
-      commandAddressMask: 0x1fff,
-      manufacturerId: 0xc2,
-      deviceId: 0x58,
-      sectors: createMegabyterSectors(),
-    });
+    this.flash = new Flash040(buildLinearChipData(image, (b) => b.roml, 128), "megabyter", FLASH800_CB);
   }
 
+  setClock(clk: () => number): void { this.flash.clock = clk; }
+  private flashOffset(address: number): number { return ((this.register00 * 0x2000) + (address & 0x1fff)) >>> 0; }
+
   getLines(): HeadlessCartridgeLines {
-    switch (this.controlRegister & 0x03) {
-      case 0x00:
-        return { exrom: 0, game: 1 };
-      case 0x01:
-        return { exrom: 0, game: 0 };
-      case 0x02:
-        return { exrom: 1, game: 1 };
-      case 0x03:
-        return { exrom: 1, game: 0 };
-      default:
-        return { exrom: 1, game: 1 };
+    switch (this.register02 & 0x03) {
+      case 0x00: return { exrom: 0, game: 1 }; // 8K
+      case 0x01: return { exrom: 0, game: 0 }; // 16K
+      case 0x02: return { exrom: 1, game: 1 }; // RAM (off)
+      default:   return { exrom: 1, game: 0 }; // ULTIMAX
     }
+  }
+
+  read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0x8000 && address <= 0x9fff) return this.flash.read(this.flashOffset(address));
+    return undefined; // ROML-only cart; upper windows are not mapped by MegaByter
+  }
+
+  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      if (address & 2) this.register02 = value & 0x83;
+      else this.register00 = value & 0x7f;
+      this.currentBank = this.register00;
+      return true;
+    }
+    // roml_store → flash800core_store (programming). The cart consumes the write
+    // (no RAM passthrough); a non-command STA is a no-op on the flash in READ state.
+    if (address >= 0x8000 && address <= 0x9fff) { this.flash.store(this.flashOffset(address), value); return true; }
+    return false;
   }
 
   getState(): HeadlessCartridgeState {
     const state = super.getState();
-    state.currentBank = this.bankRegister;
-    state.controlRegister = this.controlRegister;
+    state.currentBank = this.register00;
+    state.controlRegister = this.register02;
     state.writable = true;
-    state.flashMode = `${this.currentMode()} [${this.flash.getMode()}]`;
+    state.flashMode = `megabyter:${this.register02 & 0x03} [${this.flash.getMode()}]`;
+    state.flashLoState = this.flash.snapshotState();
     return state;
   }
 
   setState(state: HeadlessCartridgeState): void {
-    // Spec 709.7 — Megabyter banks via bankRegister (mapped to currentBank in
-    // getState); restore both registers. Flash-write state is deferred (v1).
-    this.bankRegister = (state.currentBank ?? 0) & 0xff;
-    this.controlRegister = (state.controlRegister ?? 0) & 0xff;
+    this.register00 = (state.currentBank ?? 0) & 0x7f;
+    this.register02 = (state.controlRegister ?? 0) & 0x83;
+    this.currentBank = this.register00;
+    if (state.flashLoState) this.flash.restoreState(state.flashLoState);
   }
 
-  isWritableDirty(): boolean {
-    return this.flash.isDirty(); // Spec 709.11b
-  }
-
-  read(address: number, bankInfo: HeadlessBankInfo): number | undefined {
-    if (this.currentMode() === "off") {
-      return undefined;
-    }
-    if (address >= 0x8000 && address <= 0x9fff) {
-      return this.flash.read(this.chipOffsetForWindow(0x8000, address));
-    }
-    if (address >= 0xe000 && address <= 0xffff && this.currentMode() === "ultimax") {
-      return this.flash.read(this.chipOffsetForWindow(0xe000, address));
-    }
-    return super.read(address, bankInfo);
-  }
-
-  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
-    if (address === 0xde00) {
-      this.bankRegister = value & 0x7f;
-      this.currentBank = this.bankRegister;
-      return true;
-    }
-    if (address === 0xde02) {
-      this.controlRegister = value & 0x03;
-      return true;
-    }
-    if (this.currentMode() !== "ultimax") {
-      return false;
-    }
-    if (address >= 0x8000 && address <= 0x9fff) {
-      return this.flash.write(this.chipOffsetForWindow(0x8000, address), value);
-    }
-    if (address >= 0xe000 && address <= 0xffff) {
-      return this.flash.write(this.chipOffsetForWindow(0xe000, address), value);
-    }
-    return false;
-  }
-
-  protected romhA000Visible(): boolean {
-    return false;
-  }
-
-  protected romhE000Visible(): boolean {
-    return this.currentMode() === "ultimax";
-  }
-
-  protected romlVisible(): boolean {
-    return this.currentMode() !== "off";
-  }
-
-  protected getControlRegister(): number {
-    return this.controlRegister;
-  }
-
-  private currentMode(): "8k" | "off" | "ultimax" {
-    switch (this.controlRegister & 0x03) {
-      case 0x02:
-        return "off";
-      case 0x03:
-        return "ultimax";
-      default:
-        return "8k";
-    }
-  }
-
-  private chipOffsetForWindow(baseAddress: number, address: number): number {
-    return (this.bankRegister << 13) | resolveRelativeOffset(baseAddress, address);
-  }
+  persistsWritableState(): boolean { return true; }
+  isWritableDirty(): boolean { return this.flash.isDirty(); }
+  getWritableImage(): Uint8Array { return new Uint8Array(this.flash.getData()); }
+  setWritableImage(bytes: Uint8Array): void { this.flash.loadData(bytes); }
 }
 
 // VICE gmod2.c — Individual Computers GMOD2: 512KB Flash (29F040, TYPE_NORMAL,
