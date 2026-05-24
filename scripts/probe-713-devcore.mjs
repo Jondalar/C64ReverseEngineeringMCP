@@ -34,7 +34,8 @@ console.log("Spec 713 — device-core mappers (bus-level)");
 // ============ GMOD2 (flash040 TYPE_NORMAL + m93c86) ============
 {
   const crt = buildCrt({ hwType: 0, exrom: 0, game: 1, nbanks: 64 });
-  const bus = new HeadlessMemoryBus(); bus.reset(); bus.setOpenBusProvider(() => 0x3f);
+  const bus = new HeadlessMemoryBus(); bus.reset();
+  let phi1v = 0x3f; bus.setOpenBusProvider(() => phi1v);
   const cart = loadCartridgeMapperFromBytes(crt, "gmod2.crt", "gmod2");
   bus.attachCartridge(cart);
   bus.write(0x0001, 0x37);
@@ -84,6 +85,15 @@ console.log("Spec 713 — device-core mappers (bus-level)");
   let val = 0;
   for (let i = 0; i < 16; i++) { eClk(0); val = (val << 1) | ((bus.read(0xde00) >> 7) & 1); }
   gate("GMOD2: m93c86 EEPROM write 0xABCD@5 → read back 0xABCD", val === 0xabcd, `read=0x${val.toString(16)}`);
+
+  // audit #4: IO1 EEPROM read low 7 bits = vicii_read_phi1() & 0x7f (not constant 0x7f).
+  // CS on (bit6=1 → off mode, cs active); vary phi1 and confirm the low bits track it.
+  bus.write(0xde00, 0x40); // cs=1, off mode
+  phi1v = 0x55; const r55 = bus.read(0xde00) & 0x7f;
+  phi1v = 0x2a; const r2a = bus.read(0xde00) & 0x7f;
+  gate("GMOD2 #4: IO1 read low7 = phi1&0x7f (tracks phi1, not constant)",
+    r55 === 0x55 && r2a === 0x2a, `phi1=0x55→0x${r55.toString(16)} phi1=0x2a→0x${r2a.toString(16)}`);
+  phi1v = 0x3f;
 
   // ---- snapshot/restore ----
   // getState/setState carry the small continuation (bank, cmode, flash command

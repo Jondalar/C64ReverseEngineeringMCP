@@ -59,6 +59,10 @@ export interface HeadlessCartridgeMapper {
   /** Spec 713 — wire the live maincpu_clk into writable hardware that needs it
    *  (flash erase busy window / status toggle). The bus calls this at attach. */
   setClock?(clk: () => number): void;
+  /** Spec 713 (audit #4) — wire the live vicii_read_phi1() float-bus value into
+   *  mappers whose IO reads mix in open-bus low bits (GMOD2 EEPROM read =
+   *  (data<<7)|(phi1&0x7f)). The bus calls this at attach with its phi1 source. */
+  setPhi1?(phi1: () => number): void;
 }
 
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
@@ -980,6 +984,7 @@ class Gmod2Mapper extends BaseMapper {
   private eepromCs = 0;
   private readonly flash: Flash040;
   private readonly eeprom: M93c86;
+  private phi1: () => number = () => 0xff;
 
   constructor(image: ParsedCartridgeImage) {
     super(image);
@@ -988,6 +993,7 @@ class Gmod2Mapper extends BaseMapper {
   }
 
   setClock(clk: () => number): void { this.flash.clock = clk; }
+  setPhi1(fn: () => number): void { this.phi1 = fn; }
 
   private flashOffset(address: number): number {
     return ((address & 0x1fff) + (this.currentBank << 13)) >>> 0;
@@ -1003,8 +1009,10 @@ class Gmod2Mapper extends BaseMapper {
 
   read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
     if (address >= 0xde00 && address <= 0xdeff) {
-      // gmod2_io1_read: only valid while CS asserted.
-      return this.eepromCs ? (((this.eeprom.read_data() & 1) << 7) | 0x7f) : 0;
+      // gmod2_io1_read: (m93c86_read_data() << 7) | (vicii_read_phi1() & 0x7f)
+      // while CS asserted; otherwise open bus (phi1).
+      const phi1 = this.phi1() & 0xff;
+      return this.eepromCs ? (((this.eeprom.read_data() & 1) << 7) | (phi1 & 0x7f)) : phi1;
     }
     // gmod2_roml_read: flash only in 8K mode; otherwise the C64 RAM underneath
     // (fake-ultimax) — return undefined so the bus serves RAM.

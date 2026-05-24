@@ -236,6 +236,9 @@ export class HeadlessMemoryBus {
     // Spec 713 — wire the live maincpu_clk into writable cartridge hardware
     // (EasyFlash flash040 erase busy window / DQ6 toggle need a clock).
     cartridge?.setClock?.(this.cpuPortClock);
+    // Spec 713 (audit #4) — give the cart the live phi1 float-bus source so IO
+    // reads that mix in open-bus low bits (GMOD2 EEPROM) match VICE.
+    cartridge?.setPhi1?.(this.openBusProvider);
     // Spec 402 / §12 step 8 — cartridge GAME/EXROM lines feed the 5-bit
     // memConfig selector. On attach/detach (or banking-register write
     // that changes the lines), re-run the PLA reconfig hook so the
