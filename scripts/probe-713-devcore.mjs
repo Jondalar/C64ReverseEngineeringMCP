@@ -105,6 +105,45 @@ console.log("Spec 713 — device-core mappers (bus-level)");
   gate("GMOD2: setWritableImage restores flash 0x3c", bus.read(0x8000) === 0x3c, `r=${bus.read(0x8000)}`);
 }
 
+// ============ C64MegaCart (flash040 TYPE_160, 14-bit bank, no EEPROM) ============
+{
+  const crt = buildCrt({ hwType: 0, exrom: 0, game: 1, nbanks: 256 });
+  const bus = new HeadlessMemoryBus(); bus.reset(); bus.setOpenBusProvider(() => 0x3f);
+  const cart = loadCartridgeMapperFromBytes(crt, "megacart.crt", "c64megacart");
+  bus.attachCartridge(cart); bus.write(0x0001, 0x37);
+
+  gate("MegaCart: type=c64megacart", cart.getMapperType() === "c64megacart");
+  // $DF00=0x00 → 8K mode, bank-high 0; $DE00 = bank low.
+  bus.write(0xdf00, 0x00); bus.write(0xde00, 0x0a);
+  gate("MegaCart: 8K bank 0x0a → $8000 sentinel 0x0a", bus.read(0x8000) === 0x0a, `r=${bus.read(0x8000)}`);
+  gate("MegaCart: 8K lines exrom=0 game=1", cart.getLines().exrom === 0 && cart.getLines().game === 1);
+  bus.write(0xde00, 0x80);
+  gate("MegaCart: bank 0x80 → sentinel 0x80", bus.read(0x8000) === 0x80);
+  // 14-bit bank: lo via $DE00, hi via $DF00 (cmode 8K since 0x01 & 0xc0 == 0).
+  bus.write(0xde00, 0x05); bus.write(0xdf00, 0x01);
+  gate("MegaCart: 14-bit bank = (hi<<8)|lo = 0x105", cart.getState().currentBank === 0x105, `b=${cart.getState().currentBank}`);
+  // cmode via $DF00
+  bus.write(0xdf00, 0xc0);
+  gate("MegaCart: $DF00=0xc0 → ultimax", cart.getLines().exrom === 1 && cart.getLines().game === 0);
+  bus.write(0xdf00, 0x80);
+  gate("MegaCart: $DF00=0x80 → off", cart.getLines().exrom === 1 && cart.getLines().game === 1);
+
+  // flash program in ultimax (TYPE_160 magic 0xaaa/0x555, bank0 erased=0xff).
+  bus.write(0xde00, 0x00); bus.write(0xdf00, 0xc0); // ultimax, bank 0
+  bus.write(0x8aaa, 0xAA); bus.write(0x8555, 0x55); bus.write(0x8aaa, 0xA0); bus.write(0x8000, 0x5a);
+  bus.write(0xdf00, 0x00); bus.write(0xde00, 0x00); // back to 8K bank0
+  gate("MegaCart: ultimax flash program → read 0x5a in 8K", bus.read(0x8000) === 0x5a, `r=${bus.read(0x8000)}`);
+
+  // writable image (2MB flash) + restore
+  const img = cart.getWritableImage();
+  gate("MegaCart: writable image = 2MB flash", img.length === 0x200000, `len=${img.length}`);
+  bus.write(0xdf00, 0xc0); bus.write(0x8aaa, 0xAA); bus.write(0x8555, 0x55); bus.write(0x8aaa, 0xA0); bus.write(0x8000, 0x00);
+  bus.write(0xdf00, 0x00); bus.write(0xde00, 0x00);
+  gate("MegaCart: flash clobbered to 0", bus.read(0x8000) === 0x00);
+  cart.setWritableImage(img);
+  gate("MegaCart: setWritableImage restores 0x5a", bus.read(0x8000) === 0x5a, `r=${bus.read(0x8000)}`);
+}
+
 console.log("---");
 if (failures.length === 0) { console.log(`GREEN 713 device-core: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 713 device-core: ${passes} pass, ${failures.length} fail.`);

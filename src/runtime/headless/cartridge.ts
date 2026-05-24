@@ -97,13 +97,13 @@ function mapperFromImage(image: ParsedCartridgeImage): HeadlessCartridgeMapper {
       return new Gmod2Mapper(image);
     case "gmod3":
       return new Gmod3Mapper(image);
+    case "c64megacart":
+      return new C64MegaCartMapper(image);
     default:
-      // Spec 713 — a type with no authoritative VICE C64 source is not a
-      // supported VICE-faithful cartridge. (C64MegaCart was removed: the only
-      // "megacart" in the VICE tree is vic20/cart/megacart.c, a VIC20 cart, so
-      // there is no C64 authority to port — we report unsupported rather than
-      // keep an invented Magic-Desk-proxy mapper.)
-      throw new Error(`Unsupported cartridge type "${image.mapperType}" — no authoritative VICE C64 implementation.`);
+      // Spec 713 — a type with no authoritative VICE source is not a supported
+      // VICE-faithful cartridge; report unsupported rather than keep an invented
+      // proxy mapper.
+      throw new Error(`Unsupported cartridge type "${image.mapperType}" — no authoritative VICE implementation.`);
   }
 }
 
@@ -1296,5 +1296,90 @@ class Gmod3Mapper extends BaseMapper {
     }
     return false;
   }
+}
+
+// VICE c64megacart.c (martinpiper fork, vendored in vice-refs/c64megacart/).
+// 2MB flash (FLASH040_TYPE_160), 14-bit bank: IO1 $DE00 = bank low byte, IO2
+// $DF00 = bank high 6 bits (<<8) + cmode (bits 7-6: 0xc0 ultimax / 0x00 8K /
+// 0x80 RAM-off). ROML ($8000) and ultimax ROMH ($E000) both read the same flash
+// offset (addr&0x1fff)+(bank<<13). Flash is programmed in ultimax
+// (roml_store/romh_store). No EEPROM (the m93c86 include in the C source is
+// vestigial — zero calls).
+type MegaCartCmode = "8k" | "off" | "ultimax";
+class C64MegaCartMapper extends BaseMapper {
+  private megaBank = 0;       // 14-bit
+  private regHi = 0;          // last $DF00 value (cmode + bank high)
+  private cmode: MegaCartCmode = "8k";
+  private readonly flash: Flash040;
+
+  constructor(image: ParsedCartridgeImage) {
+    super(image);
+    this.flash = new Flash040(buildLinearChipData(image, (b) => b.roml, 256), "c64megacart", FLASH040_160);
+  }
+
+  setClock(clk: () => number): void { this.flash.clock = clk; }
+  private flashOffset(address: number): number { return ((address & 0x1fff) + (this.megaBank << 13)) >>> 0; }
+
+  getLines(): HeadlessCartridgeLines {
+    switch (this.cmode) {
+      case "8k": return { exrom: 0, game: 1 };
+      case "ultimax": return { exrom: 1, game: 0 };
+      case "off": return { exrom: 1, game: 1 };
+    }
+  }
+
+  read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xde00 && address <= 0xdfff) return undefined; // IO1/IO2 read = phi1 open-bus
+    if ((address >= 0x8000 && address <= 0x9fff) || (address >= 0xe000 && address <= 0xffff)) {
+      return this.flash.read(this.flashOffset(address));
+    }
+    return undefined;
+  }
+
+  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
+    if (address >= 0xde00 && address <= 0xdeff) { // IO1: bank low byte
+      this.megaBank = (this.megaBank & 0xff00) | (value & 0xff);
+      return true;
+    }
+    if (address >= 0xdf00 && address <= 0xdfff) { // IO2: bank high 6 bits + cmode
+      this.regHi = value & 0xff;
+      this.megaBank = (this.megaBank & 0x00ff) | ((value & 0x3f) << 8);
+      if ((value & 0xc0) === 0xc0) this.cmode = "ultimax";
+      else if ((value & 0xc0) === 0x00) this.cmode = "8k";
+      else this.cmode = "off"; // 0x80
+      return true;
+    }
+    // flash program (roml_store/romh_store) in ultimax; 8K window writes pass to RAM.
+    if (this.cmode === "ultimax" &&
+        ((address >= 0x8000 && address <= 0x9fff) || (address >= 0xe000 && address <= 0xffff))) {
+      this.flash.store(this.flashOffset(address), value);
+      return true;
+    }
+    return false;
+  }
+
+  getState(): HeadlessCartridgeState {
+    const state = super.getState();
+    state.currentBank = this.megaBank;
+    state.controlRegister = this.regHi;
+    state.writable = true;
+    state.flashMode = `c64megacart:${this.cmode} [${this.flash.getMode()}]`;
+    state.flashLoState = this.flash.snapshotState();
+    return state;
+  }
+
+  setState(state: HeadlessCartridgeState): void {
+    this.megaBank = (state.currentBank ?? 0) & 0x3fff;
+    this.regHi = (state.controlRegister ?? 0) & 0xff;
+    if ((this.regHi & 0xc0) === 0xc0) this.cmode = "ultimax";
+    else if ((this.regHi & 0xc0) === 0x00) this.cmode = "8k";
+    else this.cmode = "off";
+    if (state.flashLoState) this.flash.restoreState(state.flashLoState);
+  }
+
+  persistsWritableState(): boolean { return true; }
+  isWritableDirty(): boolean { return this.flash.isDirty(); }
+  getWritableImage(): Uint8Array { return new Uint8Array(this.flash.getData()); }
+  setWritableImage(bytes: Uint8Array): void { this.flash.loadData(bytes); }
 }
 
