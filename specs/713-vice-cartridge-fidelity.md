@@ -296,8 +296,27 @@ the real media/runtime/checkpoint path (no mapper overrides in tests).
 | 4 | `gmod2_io1_read` | EEPROM read low 7 bits must be `vicii_read_phi1()&0x7f`, not constant `0x7f`. |
 | 5 | `flash040core`/`flash800core` | erase alarm is lazy at flash read/store only; `snapshotState()`/`getWritableImage()` do NOT catch up, so a checkpoint past completion WITHOUT a flash access captures stale (un-erased) data. Must be VICE-equivalent capture (catch-up on capture or real alarm). Covers EF/GMOD2/C64MegaCart/MegaByter.
 
-Plus: MegaByter (Lykia) real cart crashes to `$0002` in its bank-0 loader before
-banking (real-cart runtime gate failure to localise).
+### Audit resolution (2026-05-24) — findings 1-5 CLOSED, each RED-then-GREEN
 
-Status: **IN PROGRESS — audit findings 1-5 open.** Branch `spec-713-cart-families`
-held; NOT mergeable until closed.
+| # | Fix | Gate |
+| --- | --- | --- |
+| 1 | `inferMapperType` routes hw-IDs 60→gmod2 / 61→c64megacart / 62→gmod3 (C64MegaCart ID 61 from the vendored fork `cartridge.h`). | `probe-713-ingress` 8/8 — header dispatch NO override + unknown-reject + real GMOD2 via media-ingress + checkpoint→restore. |
+| 2 | `Gmod3Mapper.read` adds ROMH: `$FFF8-$FFFF` table `08 00 08 00 0c 80 0c 00`, `$E000-$FFF7` = `mem_read_without_ultimax` via new `setRamRead`. | `probe-713-devcore` — real-bus `$FFF8-$FFFF` + reset `$800c` + `$E000` C64 RAM. |
+| 3 | GMOD3 mapper pin latches (eepromCs/Clock/Data) added to getState/setState (`state.mapperPins`). | `probe-713-devcore` — mid-SPI snapshot→disturb→restore identical next byte. |
+| 4 | GMOD2 `io1_read` low 7 bits = `vicii_read_phi1()&0x7f` via new `setPhi1`, not constant. | `probe-713-devcore` — varying phi1 tracked. |
+| 5 | `Flash040.catchUp()` runs at `getData()` + `snapshotState()`. Covers EF/GMOD2/C64MegaCart (flash040) + MegaByter (flash800). | `probe-713-erase-catchup` 3/3 — erase → advance clk past completion, NO flash access → capture reads erased. |
+
+**Reclassified (NOT a cart-mapper finding):** MegaByter (Lykia) real cart crashes
+in its bank-0 loader. Localised: a `$1000` RAM stub runs `LDA #$35; STA $01; JMP
+$9F00`; `$01=$35` (HIRAM=0) correctly unmaps the 8K ROML (the bus PLA-gates this —
+MegaByter read is simple ROML-only and gated faithful), so `$9F00` is RAM, but it
+holds non-code (`e0 e0 e0 80 80 ff…`) written by an upstream copy whose source
+flash read is correct. So the divergence is **core/CPU-level execution** exposed
+by Lykia's loader, outside cartridge-mapper scope. Needs a VICE-vs-headless
+first-divergence trace (separate effort).
+
+Status: **audit findings 1-5 GREEN.** Cart gates: probe-714-5 16/16, rombank
+32/32, devcore 48/48, erase-catchup 3/3, ingress 8/8, smoke-cart-fidelity 18/18,
+smoke-cart-real 4/4. Remaining before DONE/merge: the Lykia core-level divergence
+(trace) + the baseline-extension spec. Branch `spec-713-cart-families` held; NOT
+mergeable until those close.
