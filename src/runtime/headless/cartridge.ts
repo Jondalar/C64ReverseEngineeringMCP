@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { HeadlessBankInfo, HeadlessCartridgeMapperType, HeadlessCartridgeState, Flash040SnapState } from "./types.js";
 import { EAPI_AM29F040 } from "./eapi-am29f040.js";
+import { M93c86 } from "./m93c86.js";
 
 const CRT_SIGNATURE = "C64 CARTRIDGE   ";
 const FLASH_CMD_ADDR1 = 0x0555;
@@ -1167,19 +1168,117 @@ class MegabyterMapper extends BaseMapper {
   }
 }
 
-// Sprint 87 (Spec 087) — GMOD2 mapper (Individual Computers).
-// 512 KB Flash + 2 KB EEPROM. v1 implements bank switching via
-// $DE00 (bits 0-5 = bank, bit 6 = flash visible/disabled). EEPROM
-// SDA/CLK simulation (bit 7 + bit 6) deferred to R31 backlog.
+// VICE gmod2.c — Individual Computers GMOD2: 512KB Flash (29F040, TYPE_NORMAL,
+// 64×8K banks) + M93C86 serial EEPROM. IO1 ($DE00) store:
+//   bits 0-5 = ROM bank;  bit 6 = EEPROM CS (and cart mode);  bit 4 = EEPROM DI;
+//   bit 5 = EEPROM CLK;  bits 7-6 select cmode: 0xc0=ULTIMAX, b6=0 → 8K game,
+//   b6=1 (b7=0) → RAM (cart off).
+//   IO1 read: CS ? (eeprom.read_data()<<7) | open-bus(0x7f) : 0.
+// Flash is READ at $8000-$9FFF in 8K mode (roml_read); flash is PROGRAMMED in
+// ULTIMAX (roml_store/romh_store → flash040core_store at (addr&0x1fff)+(bank<<13)).
+type Gmod2Cmode = "8k" | "off" | "ultimax";
 class Gmod2Mapper extends BaseMapper {
-  write(address: number, value: number): boolean {
-    if (address === 0xde00) {
+  private register = 0;
+  private cmode: Gmod2Cmode = "8k";
+  private eepromCs = 0;
+  private readonly flash: Flash040;
+  private readonly eeprom: M93c86;
+
+  constructor(image: ParsedCartridgeImage) {
+    super(image);
+    this.flash = new Flash040(buildLinearChipData(image, (b) => b.roml, 64), "gmod2", FLASH040_NORMAL);
+    this.eeprom = new M93c86();
+  }
+
+  setClock(clk: () => number): void { this.flash.clock = clk; }
+
+  private flashOffset(address: number): number {
+    return ((address & 0x1fff) + (this.currentBank << 13)) >>> 0;
+  }
+
+  getLines(): HeadlessCartridgeLines {
+    switch (this.cmode) {
+      case "8k": return { exrom: 0, game: 1 };
+      case "ultimax": return { exrom: 1, game: 0 };
+      case "off": return { exrom: 1, game: 1 };
+    }
+  }
+
+  read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      // gmod2_io1_read: only valid while CS asserted.
+      return this.eepromCs ? (((this.eeprom.read_data() & 1) << 7) | 0x7f) : 0;
+    }
+    // gmod2_roml_read: flash only in 8K mode; otherwise the C64 RAM underneath
+    // (fake-ultimax) — return undefined so the bus serves RAM.
+    if (this.cmode === "8k" && address >= 0x8000 && address <= 0x9fff) {
+      return this.flash.read(this.flashOffset(address));
+    }
+    return undefined;
+  }
+
+  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      this.register = value & 0xff;
       this.currentBank = value & 0x3f;
-      // bit 6 = exrom (1 = released, 0 = asserted) per GMOD2 docs
-      // simplification: cart visible while bank-select active
+      if ((value & 0xc0) === 0xc0) this.cmode = "ultimax";
+      else if ((value & 0x40) === 0x00) this.cmode = "8k";
+      else this.cmode = "off";
+      this.eepromCs = (value >> 6) & 1;
+      const eepromData = (value >> 4) & 1;
+      const eepromClock = (value >> 5) & 1;
+      this.eeprom.write_select(this.eepromCs);
+      if (this.eepromCs) {
+        this.eeprom.write_data(eepromData);
+        this.eeprom.write_clock(eepromClock);
+      }
+      return true;
+    }
+    // gmod2_romh_store / roml_store: program flash. The bus routes cart-window
+    // writes here only in ultimax (roml_store/romh_store); 8K/off writes go to RAM.
+    if (this.cmode === "ultimax" &&
+        ((address >= 0x8000 && address <= 0x9fff) || (address >= 0xe000 && address <= 0xffff))) {
+      this.flash.store(this.flashOffset(address), value);
       return true;
     }
     return false;
+  }
+
+  getState(): HeadlessCartridgeState {
+    const state = super.getState();
+    state.currentBank = this.currentBank;
+    state.controlRegister = this.register;
+    state.writable = true;
+    state.flashMode = `gmod2:${this.cmode} [${this.flash.getMode()}]`;
+    state.flashLoState = this.flash.snapshotState();
+    state.eepromState = this.eeprom.snapshotState();
+    return state;
+  }
+
+  setState(state: HeadlessCartridgeState): void {
+    this.register = (state.controlRegister ?? 0) & 0xff;
+    this.currentBank = (state.currentBank ?? 0) & 0x3f;
+    if ((this.register & 0xc0) === 0xc0) this.cmode = "ultimax";
+    else if ((this.register & 0x40) === 0x00) this.cmode = "8k";
+    else this.cmode = "off";
+    this.eepromCs = (this.register >> 6) & 1;
+    if (state.flashLoState) this.flash.restoreState(state.flashLoState);
+    if (state.eepromState) this.eeprom.restoreState(state.eepromState);
+  }
+
+  persistsWritableState(): boolean { return true; }
+  isWritableDirty(): boolean { return this.flash.isDirty() || this.eeprom.isDirty(); }
+
+  getWritableImage(): Uint8Array {
+    const flash = this.flash.getData(), eeprom = this.eeprom.getData();
+    const out = new Uint8Array(flash.length + eeprom.length);
+    out.set(flash, 0); out.set(eeprom, flash.length);
+    return out;
+  }
+  setWritableImage(bytes: Uint8Array): void {
+    const flashLen = this.flash.getData().length;
+    this.flash.loadData(bytes.subarray(0, flashLen));
+    this.eeprom.loadData(bytes.subarray(flashLen));
   }
 }
 
