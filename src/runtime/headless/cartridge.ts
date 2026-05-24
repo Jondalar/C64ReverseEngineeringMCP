@@ -96,8 +96,13 @@ function mapperFromImage(image: ParsedCartridgeImage): HeadlessCartridgeMapper {
       return new Gmod2Mapper(image);
     case "gmod3":
       return new Gmod3Mapper(image);
-    case "c64megacart":
-      return new C64MegaCartMapper(image);
+    default:
+      // Spec 713 — a type with no authoritative VICE C64 source is not a
+      // supported VICE-faithful cartridge. (C64MegaCart was removed: the only
+      // "megacart" in the VICE tree is vic20/cart/megacart.c, a VIC20 cart, so
+      // there is no C64 authority to port — we report unsupported rather than
+      // keep an invented Magic-Desk-proxy mapper.)
+      throw new Error(`Unsupported cartridge type "${image.mapperType}" — no authoritative VICE C64 implementation.`);
   }
 }
 
@@ -1163,13 +1168,3 @@ class Gmod3Mapper extends BaseMapper {
   }
 }
 
-// C64MegaCart — multi-game cart with simple $DE00 bank select.
-class C64MegaCartMapper extends BaseMapper {
-  write(address: number, value: number): boolean {
-    if (address === 0xde00) {
-      this.currentBank = value & 0x7f;
-      return true;
-    }
-    return false;
-  }
-}

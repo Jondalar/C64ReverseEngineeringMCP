@@ -48,8 +48,7 @@ export type HeadlessCartridgeMapperType =
   | "ultimax"
   // Sprint 87 (Spec 087) — user-priority types beyond pre-existing set:
   | "gmod2"
-  | "gmod3"
-  | "c64megacart";
+  | "gmod3";
 
 export interface HeadlessCartridgeState {
   path: string;

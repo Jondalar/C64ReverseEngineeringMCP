@@ -116,6 +116,26 @@ console.log("Spec 713 — ROM-bank mappers (bus-level)");
   gate("Ocean8K: $A000 not cart-mirrored (8K → BASIC/RAM)", bus.read(0xa000) !== 17);
 }
 
+// ---- Generic Normal 8K (c64-generic.c: ROML $8000, BASIC $A000) ----
+{
+  const crt = buildCrt({ hwType: 0, exrom: 0, game: 1, nbanks: 1, bankBytes: 0x2000 });
+  const { bus, cart } = freshBus(crt);
+  gate("Gen8K: type=normal_8k", cart.getMapperType() === "normal_8k");
+  gate("Gen8K: lines exrom=0 game=1", cart.getLines().exrom === 0 && cart.getLines().game === 1);
+  bus.ram[0x8000] = 0x77;
+  gate("Gen8K: $8000 reads cart ROML (=0), not RAM 0x77", bus.read(0x8000) === 0);
+}
+
+// ---- Generic Normal 16K (ROML $8000 + ROMH $A000) ----
+{
+  const crt = buildCrt({ hwType: 0, exrom: 0, game: 0, nbanks: 1, bankBytes: 0x4000 });
+  const { bus, cart } = freshBus(crt);
+  gate("Gen16K: type=normal_16k", cart.getMapperType() === "normal_16k");
+  gate("Gen16K: lines exrom=0 game=0", cart.getLines().exrom === 0 && cart.getLines().game === 0);
+  gate("Gen16K: $8000 ROML=0", bus.read(0x8000) === 0);
+  gate("Gen16K: $A000 ROMH=0x80", bus.read(0xa000) === 0x80, `r=${bus.read(0xa000)}`);
+}
+
 console.log("---");
 if (failures.length === 0) { console.log(`GREEN 713 ROM-bank: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 713 ROM-bank: ${passes} pass, ${failures.length} fail.`);
