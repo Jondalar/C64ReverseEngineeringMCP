@@ -76,6 +76,8 @@ function mapperFromImage(image: ParsedCartridgeImage): HeadlessCartridgeMapper {
       return new MegabyterMapper(image);
     case "magicdesk":
       return new MagicDeskMapper(image);
+    case "magicdesk16":
+      return new MagicDesk16Mapper(image);
     case "ocean":
       return new OceanMapper(image);
     case "easyflash":
@@ -189,8 +191,9 @@ function inferMapperType(
     case 5:
       return "ocean";
     case 19:
+      return "magicdesk";       // CARTRIDGE_MAGIC_DESK
     case 85:
-      return "magicdesk";
+      return "magicdesk16";     // CARTRIDGE_MAGIC_DESK_16
     case 86:
       return "megabyter";
     case 32:
@@ -271,6 +274,22 @@ function createUniformSectors(totalSize: number, sectorSize: number): FlashSecto
 
 function findSectorForOffset(sectors: FlashSectorLayout[], offset: number): FlashSectorLayout | undefined {
   return sectors.find((sector) => offset >= sector.start && offset < sector.start + sector.size);
+}
+
+// VICE derives the bank register mask from the loaded image size (magicdesk.c /
+// magicdesk16.c bankmask, ocean.c io1_mask = (size>>13)-1). We derive the same
+// power-of-two-minus-one mask from the highest 8K bank index present, capped to
+// the family's maximum (MagicDesk 0x7f, Ocean 0x3f).
+function bankMaskForImage(image: ParsedCartridgeImage, cap: number): number {
+  const highest = [...image.banks.keys()].reduce((m, b) => Math.max(m, b), 0);
+  let mask = 1;
+  while (mask < highest) mask = ((mask << 1) | 1);
+  return mask & cap;
+}
+
+function totalImageBytes(image: ParsedCartridgeImage): number {
+  const highest = [...image.banks.keys()].reduce((m, b) => Math.max(m, b), 0);
+  return (highest + 1) * 0x2000;
 }
 
 abstract class BaseMapper implements HeadlessCartridgeMapper {
@@ -374,28 +393,77 @@ class UltimaxMapper extends BaseMapper {
   }
 }
 
+// VICE magicdesk.c — 8K-game banked cart. IO1 ($DE00-$DEFF) store: bit 7 =
+// disable (EXROM released → cart off), bits 0..6 = ROM bank (& bankmask). ROML
+// only; $A000-$BFFF stays BASIC. regval is the snapshot register.
 class MagicDeskMapper extends BaseMapper {
+  private regval = 0;
+  private readonly bankmask = bankMaskForImage(this.image, 0x7f);
   write(address: number, value: number): boolean {
-    if (address === 0xde00) {
-      this.currentBank = value & 0x3f;
+    if (address >= 0xde00 && address <= 0xdeff) {
+      this.regval = value & (0x80 | this.bankmask);
+      this.currentBank = value & this.bankmask;
       return true;
     }
     return false;
   }
-
-  protected romhA000Visible(): boolean {
-    return false;
+  getLines(): HeadlessCartridgeLines {
+    return (this.regval & 0x80) ? { exrom: 1, game: 1 } : { exrom: 0, game: 1 };
   }
+  protected romhA000Visible(): boolean { return false; }
+  protected getControlRegister(): number { return this.regval; }
+  protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
 }
 
-class OceanMapper extends BaseMapper {
+// VICE magicdesk16.c — 16K-game banked cart. IO1 store: bit 7 = disable, bits
+// 0..6 = bank (& bankmask); the bank maps to BOTH ROML ($8000) and ROMH ($A000).
+class MagicDesk16Mapper extends BaseMapper {
+  private regval = 0;
+  private readonly bankmask = bankMaskForImage(this.image, 0x7f);
   write(address: number, value: number): boolean {
-    if (address === 0xde00) {
-      this.currentBank = value & 0x3f;
+    if (address >= 0xde00 && address <= 0xdeff) {
+      this.regval = value & (0x80 | this.bankmask);
+      this.currentBank = value & this.bankmask;
       return true;
     }
     return false;
   }
+  getLines(): HeadlessCartridgeLines {
+    // enabled → 16K game (exrom+game asserted); bit 7 → cart off.
+    return (this.regval & 0x80) ? { exrom: 1, game: 1 } : { exrom: 0, game: 0 };
+  }
+  protected getControlRegister(): number { return this.regval; }
+  protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
+}
+
+// VICE ocean.c — banked cart, 8K bank → ROML. 512KB images use 8K-game config;
+// every other size uses 16K-game and MIRRORS the same 8K bank to ROML and ROMH.
+// IO1 store: bank = value & io1_mask & 0x3f (io1_mask = (size>>13)-1). No disable.
+class OceanMapper extends BaseMapper {
+  private regval = 0;
+  private readonly io1Mask = bankMaskForImage(this.image, 0x3f);
+  private readonly is8k = totalImageBytes(this.image) === 0x80000;
+  write(address: number, value: number): boolean {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      this.regval = value;
+      this.currentBank = value & this.io1Mask & 0x3f;
+      return true;
+    }
+    return false;
+  }
+  getLines(): HeadlessCartridgeLines {
+    return this.is8k ? { exrom: 0, game: 1 } : { exrom: 0, game: 0 };
+  }
+  read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    const bank = this.banks.get(this.currentBank);
+    if (!bank?.roml) return undefined;
+    if (address >= 0x8000 && address <= 0x9fff) return bank.roml[address - 0x8000];
+    // 16K-game mirror: $A000-$BFFF reads the same 8K ROML bank (ocean.c romh_read).
+    if (!this.is8k && address >= 0xa000 && address <= 0xbfff) return bank.roml[address - 0xa000];
+    return undefined;
+  }
+  protected getControlRegister(): number { return this.regval; }
+  protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
 }
 
 type FlashCommandState = "read" | "cmd1" | "cmd2" | "program" | "erase1" | "erase2" | "erase3" | "autoselect";

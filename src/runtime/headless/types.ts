@@ -41,6 +41,7 @@ export type HeadlessCartridgeMapperType =
   | "easyflash"
   | "megabyter"
   | "magicdesk"
+  | "magicdesk16"
   | "ocean"
   | "normal_8k"
   | "normal_16k"

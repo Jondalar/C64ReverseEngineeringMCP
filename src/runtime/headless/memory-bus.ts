@@ -536,9 +536,11 @@ export class HeadlessMemoryBus {
       if (this.ioVisible()) {
         if (normalized >= 0xde00 && normalized <= 0xdfff && this.cartridge?.write(normalized, byte, bankInfo)) {
           this.recordAccess("write", normalized, byte, normalized <= 0xdeff ? "cartridge_control" : "cartridge");
-          // Mode register ($DE02-class, addr&2) can change EXROM/GAME → PLA reconfig.
-          // A bank write ($DE00) leaves the lines unchanged, so skip it (hot path).
-          if (normalized <= 0xdeff && (normalized & 2)) this.memPlaConfigChanged();
+          // Any IO1 ($DE00-$DEFF) register write can change EXROM/GAME (EasyFlash
+          // $DE02 mode, Magic Desk / Ocean / GMOD $DE00 bank+disable), so re-run the
+          // PLA reconfig — VICE cart_config_changed_slotmain fires from the IO1 store.
+          // IO2 ($DF00-$DFFF) is RAM/peripheral, never the line driver → skip.
+          if (normalized <= 0xdeff) this.memPlaConfigChanged();
           return;
         }
         this.io[normalized - 0xd000] = byte;
