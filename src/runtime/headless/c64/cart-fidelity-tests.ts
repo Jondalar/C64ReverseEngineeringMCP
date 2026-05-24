@@ -114,18 +114,25 @@ export function runCartPlaTest(): CheckResult[] {
       bus.read(0xa000) === 0xbb));
   }
 
-  // Ultimax: $8000-$9FFF cart_lo, $E000-$FFFF cart_hi_ultimax,
-  // $A000-$BFFF unmapped (RAM). I/O always visible.
+  // Ultimax: $8000-$9FFF cart_lo, $E000-$FFFF cart_hi_ultimax. The open
+  // windows $1000-$7FFF / $A000-$BFFF / $C000-$CFFF read VICE
+  // vicii_read_phi1() (the float bus), NOT RAM — c64cartmem.c ultimax_*_read.
+  // I/O always visible.
   {
     const bus = new HeadlessMemoryBus();
+    bus.setOpenBusProvider(() => 0x3f); // stand-in for vicii_read_phi1()
     bus.attachCartridge(new StubCartUltimax());
     bus.write(0x0001, 0x37);
     out.push(check("Ultimax: $8000 reads cart ROML ($cc)",
       bus.read(0x8000) === 0xcc));
     out.push(check("Ultimax: $E000 reads cart ROMH ($dd)",
       bus.read(0xe000) === 0xdd));
-    out.push(check("Ultimax: $A000 reads RAM (unmapped)",
-      bus.read(0xa000) === 0));
+    out.push(check("Ultimax: $A000 reads open bus (phi1), not RAM",
+      bus.read(0xa000) === 0x3f));
+    out.push(check("Ultimax: $C000 reads open bus (phi1), not RAM",
+      bus.read(0xc000) === 0x3f));
+    out.push(check("Ultimax: $5000 reads open bus (phi1), not RAM",
+      bus.read(0x5000) === 0x3f));
   }
 
   return out;
