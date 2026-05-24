@@ -617,13 +617,42 @@ class AmdFlashChip implements HeadlessWritableChip {
 // maincpu_rmw_flag (RMW opcodes write the old value first). The active TS CPU
 // path does not signal RMW to the cartridge; if it ever does, wrap store() the
 // same way. The EAPI flash path is plain LDA/STA, unaffected.
-const FLASH040B = {
+// VICE flash040core.c flash_types[] rows. The TS Flash040 core is parametrized
+// by one of these so EasyFlash (TYPE_B), GMOD2 (TYPE_NORMAL) and C64MegaCart
+// (TYPE_160, from the martinpiper fork) share one faithful implementation.
+interface Flash040Type {
+  manufacturerId: number; deviceId: number; deviceIdAddr: number;
+  size: number; sectorMask: number; sectorSize: number; sectorShift: number;
+  magic1Addr: number; magic2Addr: number; magic1Mask: number; magic2Mask: number;
+  statusToggleBits: number;
+  eraseSectorTimeoutCycles: number; eraseSectorCycles: number; eraseChipCycles: number;
+}
+// AM29F040 (FLASH040_TYPE_NORMAL) — GMOD2.
+const FLASH040_NORMAL: Flash040Type = {
+  manufacturerId: 0x01, deviceId: 0xa4, deviceIdAddr: 1,
+  size: 0x80000, sectorMask: 0x70000, sectorSize: 0x10000, sectorShift: 16,
+  magic1Addr: 0x5555, magic2Addr: 0x2aaa, magic1Mask: 0x7fff, magic2Mask: 0x7fff,
+  statusToggleBits: 0x40,
+  eraseSectorTimeoutCycles: 80, eraseSectorCycles: 2_000_000, eraseChipCycles: 14_000_000,
+};
+// AM29F040B (FLASH040_TYPE_B) — EasyFlash.
+const FLASH040B: Flash040Type = {
   manufacturerId: 0x01, deviceId: 0xa4, deviceIdAddr: 1,
   size: 0x80000, sectorMask: 0x70000, sectorSize: 0x10000, sectorShift: 16,
   magic1Addr: 0x555, magic2Addr: 0x2aa, magic1Mask: 0x7ff, magic2Mask: 0x7ff,
   statusToggleBits: 0x40,
   eraseSectorTimeoutCycles: 50, eraseSectorCycles: 1_000_000, eraseChipCycles: 8_000_000,
-} as const;
+};
+// M29F160FT (FLASH040_TYPE_160, martinpiper fork) — C64MegaCart. 2MB,
+// device id 0xd2 at addr 2, magic 0xaaa/0x555 mask 0xfff. The fork uses a
+// global erase-cycle define; we reuse the TYPE_B busy-window timings.
+const FLASH040_160: Flash040Type = {
+  manufacturerId: 0x01, deviceId: 0xd2, deviceIdAddr: 2,
+  size: 0x200000, sectorMask: 0x7f0000, sectorSize: 0x10000, sectorShift: 16,
+  magic1Addr: 0xaaa, magic2Addr: 0x555, magic1Mask: 0xfff, magic2Mask: 0xfff,
+  statusToggleBits: 0x40,
+  eraseSectorTimeoutCycles: 50, eraseSectorCycles: 1_000_000, eraseChipCycles: 8_000_000,
+};
 const FLASH040_ERASE_MASK_SIZE = 8;
 type Flash040StateName =
   | "read" | "magic1" | "magic2" | "autoselect"
@@ -647,7 +676,7 @@ class Flash040 {
   private eraseAlarmClk = -1;     // absolute maincpu_clk of next erase step; -1 = unset
   clock: () => number = () => 0;  // wired to maincpu_clk at attach
 
-  constructor(readonly data: Uint8Array, readonly label: string) {}
+  constructor(readonly data: Uint8Array, readonly label: string, private readonly t: Flash040Type = FLASH040B) {}
 
   isDirty(): boolean { return this.dirty; }
   /** "operation active" status (command sequence / erase busy). Not a snapshot
@@ -657,9 +686,9 @@ class Flash040 {
   loadData(bytes: Uint8Array): void { this.data.set(bytes.subarray(0, this.data.length)); }
   getMode(): string { return `${this.label}:${this.state}`; }
 
-  private magic1(addr: number): boolean { return (addr & FLASH040B.magic1Mask) === FLASH040B.magic1Addr; }
-  private magic2(addr: number): boolean { return (addr & FLASH040B.magic2Mask) === FLASH040B.magic2Addr; }
-  private sectorNum(addr: number): number { return (addr & FLASH040B.sectorMask) >>> FLASH040B.sectorShift; }
+  private magic1(addr: number): boolean { return (addr & this.t.magic1Mask) === this.t.magic1Addr; }
+  private magic2(addr: number): boolean { return (addr & this.t.magic2Mask) === this.t.magic2Addr; }
+  private sectorNum(addr: number): number { return (addr & this.t.sectorMask) >>> this.t.sectorShift; }
 
   // VICE erase_alarm_handler, applied lazily for every elapsed step. Each step
   // chains the next alarm off the FIRED alarm's scheduled clk (`fireClk`), not
@@ -672,7 +701,7 @@ class Flash040 {
       this.eraseAlarmClk = -1; // alarm_unset
       switch (this.state) {
         case "sector_erase_timeout":
-          this.eraseAlarmClk = fireClk + FLASH040B.eraseSectorCycles;
+          this.eraseAlarmClk = fireClk + this.t.eraseSectorCycles;
           this.state = "sector_erase";
           break;
         case "sector_erase": {
@@ -682,7 +711,7 @@ class Flash040 {
           }
           let any = 0;
           for (let i = 0; i < FLASH040_ERASE_MASK_SIZE; i++) any |= this.eraseMask[i]!;
-          if (any !== 0) this.eraseAlarmClk = fireClk + FLASH040B.eraseSectorCycles;
+          if (any !== 0) this.eraseAlarmClk = fireClk + this.t.eraseSectorCycles;
           else this.state = this.baseState;
           break;
         }
@@ -707,8 +736,8 @@ class Flash040 {
     switch (this.state) {
       case "autoselect": {
         const a = addr & 0xff;
-        if (a === 0) v = FLASH040B.manufacturerId;
-        else if (a === FLASH040B.deviceIdAddr) v = FLASH040B.deviceId;
+        if (a === 0) v = this.t.manufacturerId;
+        else if (a === this.t.deviceIdAddr) v = this.t.deviceId;
         else if (a === 2) v = 0;
         else v = this.data[addr] ?? 0xff;
         break;
@@ -737,7 +766,7 @@ class Flash040 {
   // VICE flash_erase_operation_status: DQ6 toggle (status_toggle_bits), DQ3 timer.
   private eraseOperationStatus(): number {
     const v = this.programByte;
-    this.programByte = (this.programByte ^ FLASH040B.statusToggleBits) & 0xff;
+    this.programByte = (this.programByte ^ this.t.statusToggleBits) & 0xff;
     return (this.state !== "sector_erase_timeout" ? (v | 0x08) : v) & 0xff;
   }
 
@@ -776,11 +805,11 @@ class Flash040 {
       case "erase_select":
         if (this.magic1(addr) && b === 0x10) {
           this.state = "chip_erase"; this.programByte = 0;
-          this.eraseAlarmClk = clk + FLASH040B.eraseChipCycles;
+          this.eraseAlarmClk = clk + this.t.eraseChipCycles;
         } else if (b === 0x30) {
           this.addSectorToEraseMask(addr); this.programByte = 0;
           this.state = "sector_erase_timeout";
-          this.eraseAlarmClk = clk + FLASH040B.eraseSectorTimeoutCycles;
+          this.eraseAlarmClk = clk + this.t.eraseSectorTimeoutCycles;
         } else this.state = this.baseState;
         break;
       case "sector_erase_timeout":
@@ -791,7 +820,7 @@ class Flash040 {
         if (b === 0xb0) { this.state = "sector_erase_suspend"; this.eraseAlarmClk = -1; }
         break;
       case "sector_erase_suspend":
-        if (b === 0x30) { this.state = "sector_erase"; this.eraseAlarmClk = clk + FLASH040B.eraseSectorCycles; }
+        if (b === 0x30) { this.state = "sector_erase"; this.eraseAlarmClk = clk + this.t.eraseSectorCycles; }
         break;
       case "byte_program_error":
       case "autoselect":
@@ -813,8 +842,8 @@ class Flash040 {
     return next === byte; // false → byte_program_error (a 0->1 was requested)
   }
   private eraseSector(sector: number): void {
-    const start = sector * FLASH040B.sectorSize;
-    this.data.fill(0xff, start, Math.min(start + FLASH040B.sectorSize, this.data.length));
+    const start = sector * this.t.sectorSize;
+    this.data.fill(0xff, start, Math.min(start + this.t.sectorSize, this.data.length));
     this.dirty = true;
   }
   private eraseChip(): void { this.data.fill(0xff); this.dirty = true; }
