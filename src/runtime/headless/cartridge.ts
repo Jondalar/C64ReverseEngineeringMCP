@@ -622,6 +622,12 @@ class Flash040 {
   }
 
   read(addr: number): number {
+    // Hot path: in READ state with no pending erase (the overwhelming common
+    // case — the CPU fetching code/data from flash) just index the array. No
+    // clock() closure, no catch-up — keeps cart execution at full speed.
+    if (this.state === "read" && this.eraseAlarmClk < 0) {
+      return (this.lastRead = this.data[addr] ?? 0xff);
+    }
     const clk = this.clock();
     this.catchUpErase(clk);
     let v: number;
@@ -871,16 +877,21 @@ class EasyFlashMapper extends BaseMapper {
     this.hiFlash.loadData(bytes.subarray(loLen));
   }
 
-  read(address: number, bankInfo: HeadlessBankInfo): number | undefined {
+  // Spec 713 §1 — the memory bus routes every access through the active VICE
+  // memconfig (the PLA) and calls these ONLY for the windows the current config
+  // maps to the cart. The mapper therefore responds purely by address and does
+  // NOT re-derive visibility (= "nicht im Mapper an der PLA vorbei antworten").
+  // VICE equivalents: easyflash_roml_read / easyflash_romh_read / easyflash_io2_read.
+  read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
     if (address >= 0xdf00 && address <= 0xdfff) return this.ioRam[address & 0xff]; // IO2 RAM
     const offset = this.chipOffsetForWindow(address);
-    if (address >= 0x8000 && address <= 0x9fff && this.romlVisible(bankInfo)) return this.loFlash.read(offset);
-    if (address >= 0xa000 && address <= 0xbfff && this.romhA000Visible(bankInfo)) return this.hiFlash.read(offset);
-    if (address >= 0xe000 && address <= 0xffff && this.romhE000Visible(bankInfo)) return this.hiFlash.read(offset);
+    if (address >= 0x8000 && address <= 0x9fff) return this.loFlash.read(offset); // ROML
+    if (address >= 0xa000 && address <= 0xbfff) return this.hiFlash.read(offset); // ROMH @ $A000 (16k)
+    if (address >= 0xe000 && address <= 0xffff) return this.hiFlash.read(offset); // ROMH @ $E000 (ultimax)
     return undefined;
   }
 
-  write(address: number, value: number, bankInfo: HeadlessBankInfo): boolean {
+  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
     // VICE easyflash_io1_store: IO1 ($DE00-$DEFF) decodes `addr & 2` — even = bank
     // register (& 0x3f), odd-bit1 = mode register (& 0x87). So $DE04 mirrors
     // $DE00 and $DE06 mirrors $DE02.
@@ -893,34 +904,18 @@ class EasyFlashMapper extends BaseMapper {
       this.ioRam[address & 0xff] = value & 0xff;
       return true;
     }
-    // Flash window writes: the flash chip on ROML/ROMH sees the write (AMD
-    // command state machine / programming) AND the C64 RAM underneath is written
-    // too — on real HW writes to $8000-$BFFF / $E000-$FFFF always reach RAM,
-    // shadowed by the cart ROM on read while mapped and revealed when the cart
-    // switches off. So run flash.store for programming but return FALSE so the
-    // memory bus ALSO writes the underlying RAM; otherwise data a program stores
-    // under the cart window (its copied graphics / colour tables, read back after
-    // the cart is disabled) is silently lost.
+    // Flash programming (AMD command state machine). VICE programs the flash
+    // ONLY in ULTIMAX: $8000-$9FFF → easyflash_roml_store (flash_low), $E000-$FFFF
+    // → easyflash_romh_store (flash_high). The bus only calls write here for those
+    // ultimax windows; 8k/16k ROM-window writes are routed to the RAM underneath
+    // by the bus (roml_no_ultimax_store/romh_no_ultimax_store → ram_store) and
+    // never reach this method. No write-through here — the bus owns RAM.
     const offset = this.chipOffsetForWindow(address);
-    if (address >= 0x8000 && address <= 0x9fff && this.romlVisible(bankInfo)) { this.loFlash.store(offset, value); return false; }
-    if (address >= 0xa000 && address <= 0xbfff && this.romhA000Visible(bankInfo)) { this.hiFlash.store(offset, value); return false; }
-    if (address >= 0xe000 && address <= 0xffff && this.romhE000Visible(bankInfo)) { this.hiFlash.store(offset, value); return false; }
+    if (address >= 0x8000 && address <= 0x9fff) { this.loFlash.store(offset, value); return true; }
+    if (address >= 0xe000 && address <= 0xffff) { this.hiFlash.store(offset, value); return true; }
     return false;
   }
 
-  protected romhA000Visible(_bankInfo: HeadlessBankInfo): boolean {
-    // ROMH maps to $A000-$BFFF in 16k ONLY. In ultimax ROMH is at $E000-$FFFF
-    // and $A000-$BFFF is OPEN (not cart) — mapping the cart there returned wrong
-    // bytes to the game's runtime reads in ultimax (headless EF divergence vs
-    // VICE / real C64).
-    return this.currentMode() === "16k";
-  }
-  protected romhE000Visible(_bankInfo: HeadlessBankInfo): boolean {
-    return this.currentMode() === "ultimax";
-  }
-  protected romlVisible(_bankInfo: HeadlessBankInfo): boolean {
-    return this.currentMode() !== "off";
-  }
   protected getControlRegister(): number { return this.register02; }
   protected setControlRegister(v: number | undefined): void {
     this.register02 = (v ?? 0x00) & 0x87; // VICE register_02 mask

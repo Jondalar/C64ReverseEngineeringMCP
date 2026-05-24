@@ -1421,6 +1421,11 @@ export class IntegratedSession {
       ultimax_romh_phi2_read: () => null,
       reg_pc: 0,
     });
+    // Spec 713 §2 — open-bus value for ultimax unmapped reads ($1000-$7FFF /
+    // $A000-$BFFF / $C000-$CFFF) = VICE vicii_read_phi1() = the last byte the VIC
+    // fetched on phi1. Wire the live literal-port lane so the bus returns the
+    // same float-bus value VICE does instead of RAM.
+    this.c64Bus.setOpenBusProvider(() => vicii.last_read_phi1 & 0xff);
     // Spec 404 Phase D — VIC-II IRQ chip-side push (= 1:1 VICE port).
     // Doc anchor: docs/vice-c64-arch.md §5.11 ("Push site (chip-side, not
     // alarm-driven)") + §12 step 19.

@@ -85,6 +85,11 @@ export class HeadlessMemoryBus {
   // Reverse-lookup cached entry (memConfigTable[memConfigIndex]).
   private memConfig: MemConfigEntry = this.memConfigTable[0]!;
   private cpuPortClock: () => number = () => 0;
+  // Spec 713 §2 — open-bus value for unmapped reads (ultimax $1000-$7FFF /
+  // $A000-$BFFF / $C000-$CFFF, where VICE returns vicii_read_phi1() = the last
+  // byte the VIC fetched on phi1). The session wires this to the literal-port
+  // VIC's `vicii.last_read_phi1`; default $FF for renderers without a phi1 lane.
+  private openBusProvider: () => number = () => 0xff;
   private dataSetBit6 = 0; // 0x40 or 0
   private dataSetBit7 = 0; // 0x80 or 0
   private dataSetClkBit6 = 0;
@@ -174,6 +179,13 @@ export class HeadlessMemoryBus {
 
   setCpuPortClock(fn: () => number): void {
     this.cpuPortClock = fn;
+  }
+
+  /** Spec 713 §2 — wire the open-bus (phi1) source for ultimax unmapped reads.
+   *  VICE: vicii_read_phi1(). The session passes the literal-port VIC's
+   *  last_read_phi1; absent a phi1 lane the default $FF stands in. */
+  setOpenBusProvider(fn: () => number): void {
+    this.openBusProvider = fn;
   }
 
   getCpuPortDirection(): number {
@@ -304,18 +316,61 @@ export class HeadlessMemoryBus {
       this.recordAccess("read", normalized, value, "cpu_port_value");
       return value;
     }
-    const cartValue = this.cartridge?.read(normalized, this.getBankInfo());
-    if (cartValue !== undefined) {
-      this.recordAccess("read", normalized, cartValue, "cartridge");
-      return cartValue;
-    }
-    if (normalized >= 0xa000 && normalized <= 0xbfff && this.basicVisible()) {
-      value = this.basicRom[normalized - 0xa000]!;
-      this.recordAccess("read", normalized, value, "basic_rom");
+    // Spec 713 §1/§2 — route every read through the active VICE memconfig (PLA),
+    // like mem_read_tab[config][page]. The cartridge is consulted ONLY for the
+    // windows the current config maps to it (ROML/ROMH/IO); unmapped ultimax
+    // windows return open bus (vicii_read_phi1), never RAM. Cite: c64meminit.c +
+    // c64cartmem.c ultimax_* → vicii_read_phi1.
+
+    // $8000-$9FFF — ROML when the config maps cart_lo (8k/16k/ultimax).
+    if (normalized >= 0x8000 && normalized <= 0x9fff) {
+      if (this.memConfig.bank8 === "cart_lo") {
+        const cv = this.cartridge?.read(normalized, this.getBankInfo());
+        if (cv !== undefined) { this.recordAccess("read", normalized, cv, "cartridge"); return cv; }
+      }
+      value = this.ram[normalized]!;
+      this.recordAccess("read", normalized, value, classifyRamRegion(normalized));
       return value;
     }
+    // $A000-$BFFF — ROMH@a000 (16k) / BASIC / ultimax open bus / RAM.
+    if (normalized >= 0xa000 && normalized <= 0xbfff) {
+      if (this.memConfig.bankA === "cart_hi") {
+        const cv = this.cartridge?.read(normalized, this.getBankInfo());
+        if (cv !== undefined) { this.recordAccess("read", normalized, cv, "cartridge"); return cv; }
+      } else if (this.basicVisible()) {
+        value = this.basicRom[normalized - 0xa000]!;
+        this.recordAccess("read", normalized, value, "basic_rom");
+        return value;
+      } else if (this.isUltimax()) {
+        value = this.openBusProvider() & 0xff;
+        this.recordAccess("read", normalized, value, "open_bus");
+        return value;
+      }
+      value = this.ram[normalized]!;
+      this.recordAccess("read", normalized, value, classifyRamRegion(normalized));
+      return value;
+    }
+    // $C000-$CFFF — ultimax open bus, else RAM.
+    if (normalized >= 0xc000 && normalized <= 0xcfff) {
+      if (this.isUltimax()) {
+        value = this.openBusProvider() & 0xff;
+        this.recordAccess("read", normalized, value, "open_bus");
+        return value;
+      }
+      value = this.ram[normalized]!;
+      this.recordAccess("read", normalized, value, classifyRamRegion(normalized));
+      return value;
+    }
+    // $D000-$DFFF — I/O (incl cart $DE/$DF) when visible, else char ROM / RAM.
     if (normalized >= 0xd000 && normalized <= 0xdfff) {
       if (this.ioVisible()) {
+        // Spec 713 §1 — cart IO ($DE00 IO1 / $DF00 IO2) is reached ONLY when
+        // I/O is visible (the PLA gate). CHAREN-low / non-io configs never see
+        // it, so $DE00 can't change a bank register and $DFxx isn't IO2 RAM.
+        if (normalized >= 0xde00 && normalized <= 0xdfff) {
+          const cv = this.cartridge?.read(normalized, this.getBankInfo());
+          if (cv !== undefined) { this.recordAccess("read", normalized, cv, "cartridge"); return cv; }
+        }
         // Spec 405 / §8.1 / §8.2 — I/O area dispatch + open-bus.
         // Doc anchor: docs/vice-c64-arch.md §8.1 (page-aligned I/O
         // dispatch), §8.2 (chip register mirrors).
@@ -365,12 +420,36 @@ export class HeadlessMemoryBus {
         this.recordAccess("read", normalized, value, "char_rom");
         return value;
       }
-    }
-    if (normalized >= 0xe000 && normalized <= 0xffff && this.kernalVisible()) {
-      value = this.kernalRom[normalized - 0xe000]!;
-      this.recordAccess("read", normalized, value, "kernal_rom");
+      // IO invisible + char invisible (configs 0/4/8/12/...) → RAM underneath.
+      value = this.ram[normalized]!;
+      this.recordAccess("read", normalized, value, classifyRamRegion(normalized));
       return value;
     }
+    // $E000-$FFFF — KERNAL / ultimax ROMH / RAM.
+    if (normalized >= 0xe000 && normalized <= 0xffff) {
+      if (this.kernalVisible()) {
+        value = this.kernalRom[normalized - 0xe000]!;
+        this.recordAccess("read", normalized, value, "kernal_rom");
+        return value;
+      }
+      if (this.memConfig.bankE === "cart_hi_ultimax") {
+        const cv = this.cartridge?.read(normalized, this.getBankInfo());
+        if (cv !== undefined) { this.recordAccess("read", normalized, cv, "cartridge"); return cv; }
+        value = this.openBusProvider() & 0xff;
+        this.recordAccess("read", normalized, value, "open_bus");
+        return value;
+      }
+      value = this.ram[normalized]!;
+      this.recordAccess("read", normalized, value, classifyRamRegion(normalized));
+      return value;
+    }
+    // $1000-$7FFF — ultimax open bus (board != MAX keeps $0000-$0FFF as RAM).
+    if (normalized >= 0x1000 && normalized <= 0x7fff && this.isUltimax()) {
+      value = this.openBusProvider() & 0xff;
+      this.recordAccess("read", normalized, value, "open_bus");
+      return value;
+    }
+    // $0000-$0FFF + everything else → RAM.
     value = this.ram[normalized]!;
     this.recordAccess("read", normalized, value, classifyRamRegion(normalized));
     return value;
@@ -444,21 +523,77 @@ export class HeadlessMemoryBus {
       this.recordAccess("write", normalized, byte, "cpu_port_value");
       return;
     }
-    if (this.cartridge?.write(normalized, byte, bankInfo)) {
-      this.recordAccess("write", normalized, byte, normalized >= 0xde00 && normalized <= 0xdeff ? "cartridge_control" : "cartridge");
-      // Spec 713 — an IO1 register write ($DE00-$DEFF) can change the cart's
-      // EXROM/GAME lines (EasyFlash $DE02 mode). Re-run the PLA reconfig
-      // IMMEDIATELY so the memory map reflects the new lines on the very next
-      // access (VICE cart_config_changed_slotmain + cart_port_config_changed).
-      if (normalized >= 0xde00 && normalized <= 0xdeff) this.memPlaConfigChanged();
+    // Spec 713 §1/§3 — route writes through the active memconfig (PLA), like
+    // mem_write_tab[vbank][config][page]. Flash is programmed only where the
+    // config maps the cart for writing: ULTIMAX ROML ($8000) / ROMH ($E000) →
+    // roml_store/romh_store → easyflash_*_store. 8k/16k ROM-window writes hit
+    // the RAM underneath (roml_no_ultimax_store / romh_no_ultimax_store →
+    // ram_store; EF is not in those switches). Ultimax open windows ($1000-
+    // $7FFF / $A000 / $C000) drop the write. Cart IO only when I/O is visible.
+
+    // $D000-$DFFF — I/O (incl cart $DE/$DF) when visible, else RAM underneath.
+    if (normalized >= 0xd000 && normalized <= 0xdfff) {
+      if (this.ioVisible()) {
+        if (normalized >= 0xde00 && normalized <= 0xdfff && this.cartridge?.write(normalized, byte, bankInfo)) {
+          this.recordAccess("write", normalized, byte, normalized <= 0xdeff ? "cartridge_control" : "cartridge");
+          // Mode register ($DE02-class, addr&2) can change EXROM/GAME → PLA reconfig.
+          // A bank write ($DE00) leaves the lines unchanged, so skip it (hot path).
+          if (normalized <= 0xdeff && (normalized & 2)) this.memPlaConfigChanged();
+          return;
+        }
+        this.io[normalized - 0xd000] = byte;
+        this.ioHandlers.get(normalized)?.write?.(normalized, byte);
+        this.recordAccess("write", normalized, byte, "io");
+        return;
+      }
+      // I/O invisible (char-ROM / RAM config): write lands in the RAM underneath.
+      this.ram[normalized] = byte;
+      this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
     }
-    if (normalized >= 0xd000 && normalized <= 0xdfff && this.ioVisible()) {
-      this.io[normalized - 0xd000] = byte;
-      this.ioHandlers.get(normalized)?.write?.(normalized, byte);
-      this.recordAccess("write", normalized, byte, "io");
+    // $8000-$9FFF — ultimax programs flash_low; otherwise RAM underneath.
+    if (normalized >= 0x8000 && normalized <= 0x9fff) {
+      if (this.isUltimax()) {
+        this.cartridge?.write(normalized, byte, bankInfo);
+        this.recordAccess("write", normalized, byte, "cartridge");
+        return;
+      }
+      this.ram[normalized] = byte;
+      this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
     }
+    // $A000-$BFFF — ultimax open window drops; else RAM underneath (16k ROMH
+    // and BASIC-region writes both reach RAM per romh_no_ultimax_store).
+    if (normalized >= 0xa000 && normalized <= 0xbfff) {
+      if (this.isUltimax()) { this.recordAccess("write", normalized, byte, "open_bus"); return; }
+      this.ram[normalized] = byte;
+      this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
+      return;
+    }
+    // $C000-$CFFF — ultimax open window drops; else RAM.
+    if (normalized >= 0xc000 && normalized <= 0xcfff) {
+      if (this.isUltimax()) { this.recordAccess("write", normalized, byte, "open_bus"); return; }
+      this.ram[normalized] = byte;
+      this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
+      return;
+    }
+    // $E000-$FFFF — ultimax programs flash_high; else RAM underneath.
+    if (normalized >= 0xe000 && normalized <= 0xffff) {
+      if (this.memConfig.bankE === "cart_hi_ultimax") {
+        this.cartridge?.write(normalized, byte, bankInfo);
+        this.recordAccess("write", normalized, byte, "cartridge");
+        return;
+      }
+      this.ram[normalized] = byte;
+      this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
+      return;
+    }
+    // $1000-$7FFF — ultimax open window drops; else RAM.
+    if (normalized >= 0x1000 && normalized <= 0x7fff && this.isUltimax()) {
+      this.recordAccess("write", normalized, byte, "open_bus");
+      return;
+    }
+    // $0000-$0FFF + everything else → RAM.
     this.ram[normalized] = byte;
     this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
   }
@@ -522,6 +657,10 @@ export class HeadlessMemoryBus {
   private kernalVisible(): boolean { return this.memConfig.bankE === 'kernal'; }
   private ioVisible(): boolean { return this.memConfig.bankD === 'io'; }
   private charVisible(): boolean { return this.memConfig.bankD === 'char'; }
+  /** Ultimax = GAME=0 AND EXROM=1 (VICE memconfig 16-23). In this mode
+   *  $1000-$7FFF / $A000-$BFFF / $C000-$CFFF are open bus (not RAM) and
+   *  ROMH maps to $E000-$FFFF. Cite: c64meminit.c c64meminit_romh_mapping. */
+  private isUltimax(): boolean { return this.memConfig.bankE === 'cart_hi_ultimax'; }
 
   /**
    * Compute VICE-equivalent `pport.data_read` for $01.

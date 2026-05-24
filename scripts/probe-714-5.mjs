@@ -133,23 +133,57 @@ async function attach(ctrl, s) {
   } finally { stopIntegratedSession(sessionId); }
 }
 
-// ---- 6 mode write → immediate PLA visibility + IO1 mirror ----
+// ---- 6 PLA-gated cart dispatch via the REAL CPU bus (Spec 713 §1-3) ----
+// Every mode/bank/IO access goes through bus.read/bus.write — never cart.read/
+// write directly — so the gates exercise the same PLA the CPU sees.
 {
   const { session, sessionId } = newSession();
   try {
     const ctrl = new RuntimeController(sessionId, session, () => {});
     await attach(ctrl, session);
-    const c = cart(session); const bus = session.kernel.c64Bus;
-    c.write(0xde00, 0x00, bi(session));
-    c.write(0xde02, 0x07, bi(session));        // 16k: $A000 = cart
-    const a16k = bus.read(0xa000);              // via bus = PLA-decoded
-    c.write(0xde02, 0x06, bi(session));         // 8k: $A000 = open/RAM (not cart)
-    const a8k = bus.read(0xa000);
-    gate("6 $DE02 mode write changes $A000 PLA visibility immediately (16k cart vs 8k not)",
-      a16k !== a8k, `16k=${a16k} 8k=${a8k}`);
-    // IO1 mirror
-    c.write(0xde04, 0x05, bi(session)); gate("6 IO1 $DE04 mirrors $DE00 (bank)", c.getState().currentBank === 5);
-    c.write(0xde06, 0x07, bi(session)); gate("6 IO1 $DE06 mirrors $DE02 (control)", c.getState().controlRegister === 0x07);
+    const bus = session.kernel.c64Bus;
+    const knownPort = () => { bus.write(0x0000, 0x2f); bus.write(0x0001, 0x37); }; // LORAM/HIRAM/CHAREN=1
+
+    // (a) EF 16k + $01 ROM-out → $8000/$A000 read the RAM underneath.
+    knownPort();
+    bus.write(0xde00, 0x00); bus.write(0xde02, 0x07);   // 16k (exrom=0 game=0)
+    bus.write(0x8000, 0x11); bus.write(0xa000, 0x22);   // 16k ROM-window write → RAM beneath
+    const rom8 = bus.read(0x8000), romA = bus.read(0xa000); // cart ROM shadows RAM on read
+    bus.write(0x0001, 0x37 & ~0x03);                    // LORAM=0,HIRAM=0 → ROM out, $8000/$A000 = RAM
+    const ram8 = bus.read(0x8000), ramA = bus.read(0xa000);
+    gate("6a EF 16k + $01 ROM-out → $8000/$A000 read RAM underneath",
+      ram8 === 0x11 && ramA === 0x22 && (rom8 !== 0x11 || romA !== 0x22),
+      `rom8=${rom8} romA=${romA} ram8=${ram8} ramA=${ramA}`);
+
+    // (b) non-ultimax + CHAREN=0 → $DE00 changes NO bank register + $DFxx not IO2 RAM.
+    knownPort();
+    bus.write(0xde02, 0x06);                            // 8k (non-ultimax), IO visible
+    bus.write(0xde00, 0x00);                            // bank 0
+    bus.write(0xdf00, 0x5e);                            // IO2 RAM[0] = 0x5e (IO visible)
+    const bankBefore = cart(session).getState().currentBank;
+    const io2Seen = bus.read(0xdf00);                   // 0x5e while IO visible
+    bus.write(0x0001, 0x37 & ~0x04);                    // CHAREN=0 → I/O invisible (char ROM at $D000-$DFFF)
+    bus.write(0xde00, 0x1f);                            // would set bank 0x1f IF cart IO were reachable
+    const bankAfter = cart(session).getState().currentBank;
+    const dfx = bus.read(0xdf00);                       // char ROM, NOT IO2 RAM
+    gate("6b non-ultimax + CHAREN=0 → $DE00 no bank change",
+      io2Seen === 0x5e && bankAfter === bankBefore, `bank ${bankBefore}->${bankAfter} io2=${io2Seen}`);
+    gate("6b non-ultimax + CHAREN=0 → $DFxx is char ROM not IO2 RAM",
+      dfx !== 0x5e && dfx === bus.charRom[0x0f00], `df00=${dfx} char=${bus.charRom[0x0f00]}`);
+
+    // (c) ultimax → $5000 / $A000 / $C000 are open bus (phi1), not RAM.
+    knownPort();
+    bus.ram[0x5000] = 0xab; bus.ram[0xa000] = 0xcd; bus.ram[0xc000] = 0xef;
+    bus.write(0xde02, 0x00);                            // CMODE ultimax (memconfig[0]=3)
+    const u5 = bus.read(0x5000), uA = bus.read(0xa000), uC = bus.read(0xc000);
+    gate("6c ultimax → $5000/$A000/$C000 are open bus, not RAM",
+      u5 !== 0xab && uA !== 0xcd && uC !== 0xef, `5000=${u5} a000=${uA} c000=${uC}`);
+
+    // IO1 mirror ($DE04≡$DE00, $DE06≡$DE02) — via the bus, in a non-ultimax IO-visible config.
+    knownPort();
+    bus.write(0xde02, 0x06);
+    bus.write(0xde04, 0x05); gate("6 IO1 $DE04 mirrors $DE00 (bank)", cart(session).getState().currentBank === 5);
+    bus.write(0xde06, 0x07); gate("6 IO1 $DE06 mirrors $DE02 (control)", cart(session).getState().controlRegister === 0x07);
   } finally { stopIntegratedSession(sessionId); }
 }
 
