@@ -280,11 +280,13 @@ not exercise these mappers): `probe:714-5` 16/16 (EasyFlash), `probe:713-rombank
 43/43 (GMOD2+m93c86 / C64MegaCart / MegaByter+flash800 / GMOD3+spi-flash),
 `smoke-cart-fidelity` 18/18.
 
-One residual: the EasyFlash erase alarm is modelled lazy-but-scheduled rather
-than wired into `maincpuAlarmContext`. It is observably identical to VICE and
-snapshot-faithful (the scheduled completion clk is captured/restored); a
-structural alarm-context wiring is the only remaining §7.3 refinement and carries
-no behavioural change.
+The EasyFlash erase alarm is modelled lazy-but-scheduled rather than wired into
+`maincpuAlarmContext`. It is observably identical to VICE and snapshot-faithful
+(the scheduled completion clk is captured/restored). **Accepted as equivalent
+(decision 2026-05-24)** — a structural alarm-context wiring carries no behavioural
+change and is not required for DONE.
 
-**Spec 713 status: implementation complete; pending final full `runtime:proof`
-7/7 + master merge.**
+**Spec 713 status: implementation COMPLETE + proof-green (`runtime:proof` 7/7,
+2026-05-24). Merge to master HELD by request** (branch `spec-713-cart-families`,
+to land alongside the baseline-extension spec on master). No simplified active
+mapper remains; no type removed for lack of authority.
