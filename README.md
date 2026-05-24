@@ -1,50 +1,81 @@
 # C64 Reverse Engineering MCP
 
-C64RE MCP is a project-centric reverse-engineering workbench for
-Commodore 64 software. It combines deterministic extraction tools, a
-persistent knowledge layer, an LLM workflow contract, VICE integration,
-and a TypeScript C64/1541 runtime with a browser workbench.
+C64RE is a reverse-engineering workbench for Commodore 64 software. It
+pairs a human reverse engineer with an LLM and gives them a shared,
+controllable C64 — a headless runtime you can snapshot, rewind, replay,
+and inspect cycle by cycle — fused with a disassembly pipeline that turns
+raw bytes into explained, named, semantic source.
 
-The Headless Runtime is important, but it is one subsystem of the larger
-C64RE project. The project goal is not only to boot software. The goal is
-to turn disks, cartridges, PRGs, traces, screenshots, disassemblies, and
-LLM findings into durable project knowledge that survives across sessions.
+The aim isn't to boot software. It's understanding: turning disks,
+cartridges, PRGs, traces, and screenshots into durable project knowledge,
+built by a human and an LLM **together** — the LLM proposes structure and
+meaning, the human steers and confirms, and the runtime proves or refutes
+every claim against a real execution.
 
-The runtime work intentionally uses VICE as the correctness reference. Where
-the TypeScript runtime ports VICE behavior or code structure, that work is
-licensed as GPL-compatible derivative work and VICE is credited below.
+## The Killer Combination
 
-## What It Does
+Semantic disassembly tells you what code *means*. A controllable runtime
+lets you *watch it happen*. C64RE puts both on one timeline:
 
-- analyzes PRG, CRT, D64, and G64 inputs through deterministic tooling
-- emits and verifies disassembly/source artifacts
-- stores semantic knowledge as entities, findings, relations, flows,
-  tasks, open questions, and registered artifacts
-- builds stable JSON views consumed by the workspace UI
-- exposes VICE as an external oracle, debugger, and trace source
-- exposes a TypeScript C64/1541 runtime for CLI/MCP/UI workflows
-- supports runtime evidence, traces, snapshots, monitor operations, and
-  live browser debugging
+- rewind to the exact cycle a fastloader flips a bank,
+- overlay the named, explained routine onto the live execution,
+- replay that moment with findings and labels attached.
 
-## Why An LLM
+Plain emulators run code but don't know what it means. Disassemblers
+describe code but can't run it. Meaning + execution, human + LLM — that's
+the point.
 
-Traditional disassemblers identify code and data, but they do not know
-what the code means. C64RE separates deterministic facts from semantic
-interpretation:
+## The Runtime
 
-- deterministic tools extract bytes, files, banks, sectors, xrefs,
-  reports, and candidate segments
-- the LLM records hypotheses, explanations, and decisions in structured
-  project knowledge
-- runtime evidence from VICE or Headless confirms or refutes those
-  hypotheses
-- the UI renders backend-produced views instead of becoming a second
-  analysis engine
+A TypeScript C64 + 1541 + cartridge runtime, controllable and inspectable
+in ways neither real hardware nor a normal emulator offers:
 
-The intended result is not just `segment $7C21-$7F4F contains code`, but
-`this routine is the loader-side dispatcher that switches from KERNAL
-serial into the custom fastloader and then hands control to the scene
-init`.
+- **time travel** — snapshot / `.c64re` persistence, checkpoint ring,
+  rewind & replay
+- **code overlay** — map live execution onto disassembly and findings
+- **observation** — DuckDB traces, swimlanes, monitor, frozen-frame
+  exploration
+- **live browser workbench (V3)** — the backend owns the clock, monitor,
+  media, trace, and audio; the browser commands and visualizes
+- **frame-locked audio**, media ingress, mutable disks & cartridges
+
+It already boots real scene software end-to-end — multi-stage cracks,
+custom fastloaders, EasyFlash cartridges — and its fidelity is gated on
+every change.
+
+## The Disassembly Pipeline
+
+Bytes → structure → meaning:
+
+1. deterministic extraction (PRG / CRT / D64 / G64; banks, sectors,
+   xrefs, candidate segments)
+2. heuristic disassembly (full 6502 ISA incl. undocumented opcodes)
+3. **semantic annotation — the heart of it**: the LLM reads the whole
+   listing and proposes segment reclassifications, labels, and routine
+   explanations; the human reviews
+4. verification: byte-identical rebuild (`cmp -l`)
+
+The valuable phase is the semantic one — where `segment $7C21-$7F4F
+contains code` becomes `loader-side dispatcher: switches KERNAL serial →
+custom fastloader, hands control to scene init`.
+
+## Human + LLM, With A Contract
+
+The collaboration has structure, not just chat. Work moves through a
+defined workflow, and the LLM operates under explicit roles:
+
+- **analyst** — forms and tests hypotheses
+- **cartographer** — maps structure, memory, and flows
+- **implementer** — writes and verifies
+
+Progress persists as entities, findings, relations, flows, tasks, and
+open questions — durable knowledge that survives across sessions, not
+console logs. The Workspace UI renders that knowledge; it never becomes a
+second analysis engine.
+
+See [docs/workflow.md](docs/workflow.md) (workflow contract),
+[docs/agent-doctrine.md](docs/agent-doctrine.md) (roles), and
+[docs/re-phases.md](docs/re-phases.md) (seven-phase model).
 
 ## Architecture
 
@@ -58,45 +89,32 @@ init`.
 ┌───────────────────────────────────────────────────────────────┐
 │ C64RE MCP Server                                               │
 │                                                               │
-│ deterministic tools                                            │
-│ - TRXDis analysis / disassembly                                │
-│ - CRT, disk, G64, compression, BWC helpers                     │
-│ - C64Ref ROM lookup, sandbox, build helpers                    │
+│ runtime evidence                                               │
+│ - Headless TS C64 + 1541 + cartridge runtime                   │
+│ - snapshots · checkpoint ring · rewind / replay                │
+│ - DuckDB trace store · swimlanes · monitor                     │
+│ - VICE oracle / monitor / traces (correctness reference)       │
 │                                                               │
-│ project knowledge                                              │
+│ disassembly + project knowledge                                │
+│ - TRXDis analysis / heuristic + semantic disassembly           │
+│ - CRT, disk, G64, compression, BWC helpers                     │
 │ - artifacts · entities · findings · relations                  │
 │ - flows · tasks · open questions · views                       │
-│                                                               │
-│ runtime evidence                                               │
-│ - VICE runtime / monitor / traces                              │
-│ - Headless TS C64 + 1541 runtime                               │
-│ - DuckDB trace store / swimlanes / snapshots                   │
 └──────────────────────────────┬────────────────────────────────┘
                                │ view models / runtime streams
                                ▼
 ┌───────────────────────────────────────────────────────────────┐
 │ User Interfaces                                                │
 │                                                               │
-│ Workspace UI                                                   │
-│ - dashboard · docs · memory · cartridge · disk                 │
-│ - load sequence · flow graph · annotated listing · activity    │
-│                                                               │
 │ Emulator UI / V3 Workbench                                     │
 │ - live C64 screen · media · monitor · inspector                │
 │ - keyboard / joystick · trace swimlanes · frozen explore       │
+│                                                               │
+│ Workspace UI                                                   │
+│ - dashboard · docs · memory · cartridge · disk                 │
+│ - load sequence · flow graph · annotated listing · activity    │
 └───────────────────────────────────────────────────────────────┘
 ```
-
-Detailed walkthroughs:
-
-- [docs/workflow.md](docs/workflow.md) — RE workflow contract
-- [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md) — knowledge
-  store and Workspace UI
-- [docs/project-knowledge-layer.md](docs/project-knowledge-layer.md) —
-  project knowledge internals
-- [docs/tools/headless.md](docs/tools/headless.md) — Headless Runtime,
-  backend loop, V3 UI, monitor, tracing, and evidence model
-- [EPIC_ROADMAP.md](EPIC_ROADMAP.md) — current V1/V2/V3 roadmap
 
 ## Setup
 
@@ -150,9 +168,21 @@ args = ["-lc", "cd /path/to/C64ReverseEngineeringMCP && NODE_NO_WARNINGS=1 ./nod
 env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 ```
 
-## Workspace UI
+## Running The Workbenches
 
-The Workspace UI is the project-knowledge browser: artifacts, findings,
+**V3 Workbench** — the live emulator/debugger. The backend owns the
+C64/1541 clock, monitor state, media state, trace capture, and WebSocket
+streams; the browser is a command and visualization client.
+
+```bash
+npm run v3:server           # runtime WebSocket/API server
+npm run ui:v3:dev           # V3 browser client
+npm run ui:v3:build         # production V3 bundle
+```
+
+Runtime / backend / UI details: [docs/tools/headless.md](docs/tools/headless.md).
+
+**Workspace UI** — the project-knowledge browser: artifacts, findings,
 relations, memory maps, media views, disassembly context, and activity.
 
 ```bash
@@ -160,22 +190,6 @@ npm run ui:build
 npm run ui:serve            # API + bundled UI on http://127.0.0.1:4310
 npm run ui:dev              # Vite live reload on http://127.0.0.1:4311
 ```
-
-See [docs/semantic-ui-layer.md](docs/semantic-ui-layer.md).
-
-## Emulator UI / V3 Workbench
-
-The V3 Workbench is the live emulator/debugger UI. The backend owns the
-C64/1541 clock, monitor state, media state, trace capture, and WebSocket
-streams; the browser is a command and visualization client.
-
-```bash
-npm run v3:server           # runtime WebSocket/API server
-npm run ui:v3:dev           # V3 browser client
-```
-
-Runtime/backend/UI details live in
-[docs/tools/headless.md](docs/tools/headless.md).
 
 ## Tool Surface
 
@@ -198,7 +212,7 @@ Per-area docs:
 
 ## Workflow
 
-The active workflow is project-first:
+Project-first:
 
 1. initialize or audit a project workspace
 2. register real input media and source artifacts
@@ -213,29 +227,27 @@ Headless and VICE runs are evidence providers. Their output should be
 registered as artifacts and linked back to findings/entities instead of
 living only as console logs or loose markdown.
 
-Canonical planning docs:
+## Planning & Status
 
-- [PLAN.md](PLAN.md) — short pointer for agents
-- [EPIC_ROADMAP.md](EPIC_ROADMAP.md) — V1/V2/V3 product roadmap
-- [BUGREPORT.md](BUGREPORT.md) — bug tracker
-- [REQUIREMENTS.md](REQUIREMENTS.md) — refinement backlog
+- [PLAN.md](PLAN.md) — roadmap + working baseline + step gates
 - `specs/` — implementation specs and ADR follow-ups
+- [docs/runtime-gates.md](docs/runtime-gates.md) +
+  [docs/runtime-proof-baseline-2026-05-16.md](docs/runtime-proof-baseline-2026-05-16.md)
+  — the runtime proof-gate truth (the single "is this green" source)
+- [CLAUDE.md](CLAUDE.md) — working doctrine for contributors and agents
 
-## License
+## License & Credits
 
 C64RE MCP is licensed under the GNU General Public License v3.0 or later
 (`GPL-3.0-or-later`). See [LICENSE](LICENSE).
 
-Parts of the C64, 1541, VIC-II, CIA, VIA, IEC, GCR, monitor, trace, and
-runtime behavior are derived from, ported from, or validated against
-[VICE](https://vice-emu.sourceforge.io/), the Versatile Commodore Emulator.
-VICE is licensed under the GNU General Public License version 2 or later;
-C64RE uses the "or later" permission and distributes this project under
-GPL-3.0-or-later.
-
-Thank you to the VICE project and its contributors. C64RE treats VICE as
-the primary oracle for Commodore behavior and documents port provenance in
-the relevant source files, specs, and architecture notes.
+VICE is C64RE's correctness oracle: where the runtime ports C64, 1541,
+VIC-II, CIA, VIA, IEC, GCR, monitor, or trace behavior, it does so
+faithfully and validates against
+[VICE](https://vice-emu.sourceforge.io/), the Versatile Commodore
+Emulator. VICE is licensed under the GNU General Public License version 2
+or later; C64RE uses the "or later" permission and distributes under
+GPL-3.0-or-later. Thank you to the VICE project and its contributors.
 
 Additional notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
