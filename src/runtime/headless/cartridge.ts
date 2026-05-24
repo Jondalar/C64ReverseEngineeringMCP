@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { HeadlessBankInfo, HeadlessCartridgeMapperType, HeadlessCartridgeState, Flash040SnapState } from "./types.js";
+import { EAPI_AM29F040 } from "./eapi-am29f040.js";
 
 const CRT_SIGNATURE = "C64 CARTRIDGE   ";
 const FLASH_CMD_ADDR1 = 0x0555;
@@ -53,6 +54,9 @@ export interface HeadlessCartridgeMapper {
   /** Spec 714.5 — restore a previously captured writable image onto the live
    *  device (overlays the flash rebuilt from the original .crt bytes). */
   setWritableImage?(bytes: Uint8Array): void;
+  /** Spec 713 — wire the live maincpu_clk into writable hardware that needs it
+   *  (flash erase busy window / status toggle). The bus calls this at attach. */
+  setClock?(clk: () => number): void;
 }
 
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
@@ -523,32 +527,41 @@ class AmdFlashChip implements HeadlessWritableChip {
   }
 }
 
-// Spec 713 — source-faithful port of VICE flash040core.c (AM29F040B / FLASH040
-// TYPE_B, as EasyFlash uses). Full command state machine + base_state, AM29F040
-// program semantics (`old & byte` — a bit only flips 1->0 without an erase),
-// autoselect ID reads, and a program-error status read. Snapshot/restore the
-// command-state continuation so a checkpoint mid-unlock/mid-command resumes
-// identically (VICE flash040core_snapshot_*).
+// Spec 713 — source-faithful port of VICE flash040core.c for AM29F040B
+// (FLASH040_TYPE_B, as EasyFlash uses). Full 13-state command machine + base
+// state, AM29F040 `old & byte` programming, autoselect IDs, byte-program-error,
+// sector/chip erase with the clk-scheduled busy window (DQ6/DQ3/DQ7 status
+// toggling during erase), multi-sector erase_mask, and snapshot/restore of the
+// complete continuation incl. the pending erase-alarm clock.
 //
-// DOCUMENTED SIMPLIFICATION vs VICE: erase completes ATOMICALLY on the final
-// command byte (no erase_alarm timing / sector-erase-timeout accumulation
-// window). The erased DATA is identical to VICE; only the multi-cycle erase
-// TIMING + toggle-bit polling window are not modeled (the active EasyFlash
-// corpus does not erase at runtime). flash_state therefore never rests in a
-// CHIP_ERASE / SECTOR_ERASE state, so there is no mid-erase continuation to
-// snapshot. Spec 714.5 §5 gate 5 (mid-erase continuation) is N/A under this
-// model; the data result is gated instead.
+// The erase alarm is modelled LAZILY: `eraseAlarmClk` is the maincpu_clk at
+// which the next erase step completes; it is applied on the next flash access
+// at-or-after that clk (visible behaviour identical to VICE's alarm — software
+// only observes the flash via reads, and each read catches the alarm up). The
+// chip is driven the live maincpu_clk via `clock()`, wired at attach.
+//
+// RMW NOTE: VICE flash040core_store re-issues the dummy `last_read` write under
+// maincpu_rmw_flag (RMW opcodes write the old value first). The active TS CPU
+// path does not signal RMW to the cartridge; if it ever does, wrap store() the
+// same way. The EAPI flash path is plain LDA/STA, unaffected.
 const FLASH040B = {
-  magic1Addr: 0x555, magic2Addr: 0x2aa, magicMask: 0x7ff,
-  manufacturerId: 0x01, deviceId: 0xa4, deviceIdAddr: 1, sectorSize: 0x10000,
+  manufacturerId: 0x01, deviceId: 0xa4, deviceIdAddr: 1,
+  size: 0x80000, sectorMask: 0x70000, sectorSize: 0x10000, sectorShift: 16,
+  magic1Addr: 0x555, magic2Addr: 0x2aa, magic1Mask: 0x7ff, magic2Mask: 0x7ff,
+  statusToggleBits: 0x40,
+  eraseSectorTimeoutCycles: 50, eraseSectorCycles: 1_000_000, eraseChipCycles: 8_000_000,
 } as const;
+const FLASH040_ERASE_MASK_SIZE = 8;
 type Flash040StateName =
   | "read" | "magic1" | "magic2" | "autoselect"
   | "byte_program" | "byte_program_error"
-  | "erase_magic1" | "erase_magic2" | "erase_select";
+  | "erase_magic1" | "erase_magic2" | "erase_select"
+  | "chip_erase" | "sector_erase" | "sector_erase_timeout" | "sector_erase_suspend";
+// index order = VICE flash040_state_s enum (for snapshot).
 const FLASH040_STATES: Flash040StateName[] = [
-  "read", "magic1", "magic2", "autoselect", "byte_program",
-  "byte_program_error", "erase_magic1", "erase_magic2", "erase_select",
+  "read", "magic1", "magic2", "autoselect", "byte_program", "byte_program_error",
+  "erase_magic1", "erase_magic2", "erase_select", "chip_erase", "sector_erase",
+  "sector_erase_timeout", "sector_erase_suspend",
 ];
 
 class Flash040 {
@@ -557,22 +570,60 @@ class Flash040 {
   private programByte = 0;
   private lastRead = 0;
   private dirty = false;
+  private readonly eraseMask = new Uint8Array(FLASH040_ERASE_MASK_SIZE);
+  private eraseAlarmClk = -1;     // absolute maincpu_clk of next erase step; -1 = unset
+  clock: () => number = () => 0;  // wired to maincpu_clk at attach
 
   constructor(readonly data: Uint8Array, readonly label: string) {}
 
   isDirty(): boolean { return this.dirty; }
-  /** Spec 714.5 — "operation active" status (mid command sequence). NOT a
-   *  snapshot veto: the command state is captured, so a checkpoint here is
-   *  restorable. Exposed for UI/debug only. */
+  /** "operation active" status (command sequence / erase busy). Not a snapshot
+   *  veto — the full state is captured. Exposed for UI/debug. */
   isBusy(): boolean { return this.state !== "read"; }
   getData(): Uint8Array { return this.data; }
   loadData(bytes: Uint8Array): void { this.data.set(bytes.subarray(0, this.data.length)); }
   getMode(): string { return `${this.label}:${this.state}`; }
 
-  private magic1(addr: number): boolean { return (addr & FLASH040B.magicMask) === FLASH040B.magic1Addr; }
-  private magic2(addr: number): boolean { return (addr & FLASH040B.magicMask) === FLASH040B.magic2Addr; }
+  private magic1(addr: number): boolean { return (addr & FLASH040B.magic1Mask) === FLASH040B.magic1Addr; }
+  private magic2(addr: number): boolean { return (addr & FLASH040B.magic2Mask) === FLASH040B.magic2Addr; }
+  private sectorNum(addr: number): number { return (addr & FLASH040B.sectorMask) >>> FLASH040B.sectorShift; }
+
+  // VICE erase_alarm_handler, applied lazily for every elapsed step. Each step
+  // chains the next alarm off the FIRED alarm's scheduled clk (`fireClk`), not
+  // the current clk, so the multi-step erase timeline matches VICE's real alarm
+  // exactly regardless of when a read happens to catch it up.
+  private catchUpErase(clk: number): void {
+    let guard = 0;
+    while (this.eraseAlarmClk >= 0 && clk >= this.eraseAlarmClk && guard++ < 256) {
+      const fireClk = this.eraseAlarmClk;
+      this.eraseAlarmClk = -1; // alarm_unset
+      switch (this.state) {
+        case "sector_erase_timeout":
+          this.eraseAlarmClk = fireClk + FLASH040B.eraseSectorCycles;
+          this.state = "sector_erase";
+          break;
+        case "sector_erase": {
+          for (let i = 0; i < 8 * FLASH040_ERASE_MASK_SIZE; i++) {
+            const j = i >> 3, m = (1 << (i & 7)) & 0xff;
+            if (this.eraseMask[j]! & m) { this.eraseSector(i); this.eraseMask[j]! &= ~m & 0xff; break; }
+          }
+          let any = 0;
+          for (let i = 0; i < FLASH040_ERASE_MASK_SIZE; i++) any |= this.eraseMask[i]!;
+          if (any !== 0) this.eraseAlarmClk = fireClk + FLASH040B.eraseSectorCycles;
+          else this.state = this.baseState;
+          break;
+        }
+        case "chip_erase":
+          this.eraseChip(); this.state = this.baseState;
+          break;
+        default: break;
+      }
+    }
+  }
 
   read(addr: number): number {
+    const clk = this.clock();
+    this.catchUpErase(clk);
     let v: number;
     switch (this.state) {
       case "autoselect": {
@@ -584,19 +635,37 @@ class Flash040 {
         break;
       }
       case "byte_program_error":
-        // VICE flash_write_operation_status: DQ5 (error/timeout) + DQ6 toggle.
-        v = ((this.lastRead ^ 0x40) | 0x20) & 0xff;
+        v = this.writeOperationStatus(clk);
         break;
-      default: // "read" + any in-command state (a read does NOT reset the state)
+      case "sector_erase_suspend":
+      case "chip_erase":
+      case "sector_erase":
+      case "sector_erase_timeout":
+        v = this.eraseOperationStatus();
+        break;
+      default: // read + any in-command state (a read does NOT reset the state)
         v = this.data[addr] ?? 0xff;
         break;
     }
-    this.lastRead = v;
-    return v;
+    this.lastRead = v & 0xff;
+    return this.lastRead;
   }
 
-  // VICE flash040core_store_internal (atomic erase variant).
+  // VICE flash_write_operation_status: DQ7 inverse-of-data, DQ6 toggle, DQ5 timeout.
+  private writeOperationStatus(clk: number): number {
+    return (((this.programByte ^ 0x80) & 0x80) | ((clk & 2) << 5) | 0x20) & 0xff;
+  }
+  // VICE flash_erase_operation_status: DQ6 toggle (status_toggle_bits), DQ3 timer.
+  private eraseOperationStatus(): number {
+    const v = this.programByte;
+    this.programByte = (this.programByte ^ FLASH040B.statusToggleBits) & 0xff;
+    return (this.state !== "sector_erase_timeout" ? (v | 0x08) : v) & 0xff;
+  }
+
+  // VICE flash040core_store_internal.
   store(addr: number, byte: number): void {
+    const clk = this.clock();
+    this.catchUpErase(clk);
     const b = byte & 0xff;
     switch (this.state) {
       case "read":
@@ -626,14 +695,32 @@ class Flash040 {
         this.state = (this.magic2(addr) && b === 0x55) ? "erase_select" : this.baseState;
         break;
       case "erase_select":
-        if (this.magic1(addr) && b === 0x10) this.chipErase();
-        else if (b === 0x30) this.sectorErase(addr);
-        this.state = this.baseState; // atomic erase: complete immediately, no timeout window
+        if (this.magic1(addr) && b === 0x10) {
+          this.state = "chip_erase"; this.programByte = 0;
+          this.eraseAlarmClk = clk + FLASH040B.eraseChipCycles;
+        } else if (b === 0x30) {
+          this.addSectorToEraseMask(addr); this.programByte = 0;
+          this.state = "sector_erase_timeout";
+          this.eraseAlarmClk = clk + FLASH040B.eraseSectorTimeoutCycles;
+        } else this.state = this.baseState;
+        break;
+      case "sector_erase_timeout":
+        if (b === 0x30) this.addSectorToEraseMask(addr);
+        else { this.state = this.baseState; this.eraseMask.fill(0); this.eraseAlarmClk = -1; }
+        break;
+      case "sector_erase":
+        if (b === 0xb0) { this.state = "sector_erase_suspend"; this.eraseAlarmClk = -1; }
+        break;
+      case "sector_erase_suspend":
+        if (b === 0x30) { this.state = "sector_erase"; this.eraseAlarmClk = clk + FLASH040B.eraseSectorCycles; }
         break;
       case "byte_program_error":
       case "autoselect":
         if (this.magic1(addr) && b === 0xaa) this.state = "magic1";
         if (b === 0xf0) { this.state = "read"; this.baseState = "read"; }
+        break;
+      case "chip_erase":
+      default:
         break;
     }
   }
@@ -646,11 +733,15 @@ class Flash040 {
     this.dirty = true;
     return next === byte; // false → byte_program_error (a 0->1 was requested)
   }
-  private chipErase(): void { this.data.fill(0xff); this.dirty = true; }
-  private sectorErase(addr: number): void {
-    const start = Math.floor(addr / FLASH040B.sectorSize) * FLASH040B.sectorSize;
+  private eraseSector(sector: number): void {
+    const start = sector * FLASH040B.sectorSize;
     this.data.fill(0xff, start, Math.min(start + FLASH040B.sectorSize, this.data.length));
     this.dirty = true;
+  }
+  private eraseChip(): void { this.data.fill(0xff); this.dirty = true; }
+  private addSectorToEraseMask(addr: number): void {
+    const s = this.sectorNum(addr);
+    this.eraseMask[s >> 3]! |= (1 << (s & 7)) & 0xff;
   }
 
   snapshotState(): Flash040SnapState {
@@ -658,6 +749,7 @@ class Flash040 {
       state: FLASH040_STATES.indexOf(this.state),
       baseState: FLASH040_STATES.indexOf(this.baseState),
       programByte: this.programByte, lastRead: this.lastRead, dirty: this.dirty,
+      eraseMask: Array.from(this.eraseMask), eraseAlarmClk: this.eraseAlarmClk,
     };
   }
   restoreState(s: Flash040SnapState): void {
@@ -666,6 +758,8 @@ class Flash040 {
     this.programByte = s.programByte & 0xff;
     this.lastRead = s.lastRead & 0xff;
     this.dirty = !!s.dirty;
+    if (Array.isArray(s.eraseMask)) this.eraseMask.set(s.eraseMask.slice(0, FLASH040_ERASE_MASK_SIZE));
+    this.eraseAlarmClk = typeof s.eraseAlarmClk === "number" ? s.eraseAlarmClk : -1;
   }
 }
 
@@ -689,8 +783,29 @@ class EasyFlashMapper extends BaseMapper {
     super(image);
     const lowData = buildLinearChipData(image, (bank) => bank.roml, 64);
     const highData = buildLinearChipData(image, (bank) => bank.romhA000 ?? bank.romhE000, 64);
+    // VICE easyflash.c: if the EAPI signature "eapi" is present at romh bank-0
+    // $1800 (= $B800), replace the cart's EAPI with VICE's known-good
+    // eapiam29f040 block — cart EAPIs vary / assume real-HW timing; the
+    // replacement drives this flash040 port correctly (incl. the loader's
+    // EAPIReadFlashInc bank walk + flash write/erase status polling).
+    if (highData.length >= 0x1800 + 768 &&
+        highData[0x1800] === 0x65 && highData[0x1801] === 0x61 &&
+        highData[0x1802] === 0x70 && highData[0x1803] === 0x69) {
+      highData.set(EAPI_AM29F040, 0x1800);
+    }
     this.loFlash = new Flash040(lowData, "easyflash-lo");
     this.hiFlash = new Flash040(highData, "easyflash-hi");
+    // VICE easyflash_powerup: IO2 RAM init with a pattern (not zeros), see
+    // sourceforge bug 469. ramparam {start 255, value_invert 2, offset 1} →
+    // FF 00 00 FF FF 00 00 FF ... (no random component).
+    for (let i = 0; i < 256; i++) this.ioRam[i] = (((i + 1) >> 1) & 1) ? 0x00 : 0xff;
+  }
+
+  /** Spec 713 — wire the live maincpu_clk into the flash chips (erase busy
+   *  window + DQ6 toggle). Called by the memory bus at attach. */
+  setClock(clk: () => number): void {
+    this.loFlash.clock = clk;
+    this.hiFlash.clock = clk;
   }
 
   private chipOffsetForWindow(address: number): number {
@@ -794,8 +909,11 @@ class EasyFlashMapper extends BaseMapper {
   }
 
   protected romhA000Visible(_bankInfo: HeadlessBankInfo): boolean {
-    const mode = this.currentMode();
-    return mode === "16k" || mode === "ultimax";
+    // ROMH maps to $A000-$BFFF in 16k ONLY. In ultimax ROMH is at $E000-$FFFF
+    // and $A000-$BFFF is OPEN (not cart) — mapping the cart there returned wrong
+    // bytes to the game's runtime reads in ultimax (headless EF divergence vs
+    // VICE / real C64).
+    return this.currentMode() === "16k";
   }
   protected romhE000Visible(_bankInfo: HeadlessBankInfo): boolean {
     return this.currentMode() === "ultimax";

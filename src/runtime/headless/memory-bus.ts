@@ -221,6 +221,9 @@ export class HeadlessMemoryBus {
   attachCartridge(cartridge: HeadlessCartridgeMapper | undefined, media?: { bytes: Uint8Array; name: string }): void {
     this.cartridge = cartridge;
     this.cartridgeMedia = cartridge ? media : undefined;
+    // Spec 713 — wire the live maincpu_clk into writable cartridge hardware
+    // (EasyFlash flash040 erase busy window / DQ6 toggle need a clock).
+    cartridge?.setClock?.(this.cpuPortClock);
     // Spec 402 / §12 step 8 — cartridge GAME/EXROM lines feed the 5-bit
     // memConfig selector. On attach/detach (or banking-register write
     // that changes the lines), re-run the PLA reconfig hook so the
@@ -443,6 +446,11 @@ export class HeadlessMemoryBus {
     }
     if (this.cartridge?.write(normalized, byte, bankInfo)) {
       this.recordAccess("write", normalized, byte, normalized >= 0xde00 && normalized <= 0xdeff ? "cartridge_control" : "cartridge");
+      // Spec 713 — an IO1 register write ($DE00-$DEFF) can change the cart's
+      // EXROM/GAME lines (EasyFlash $DE02 mode). Re-run the PLA reconfig
+      // IMMEDIATELY so the memory map reflects the new lines on the very next
+      // access (VICE cart_config_changed_slotmain + cart_port_config_changed).
+      if (normalized >= 0xde00 && normalized <= 0xdeff) this.memPlaConfigChanged();
       return;
     }
     if (normalized >= 0xd000 && normalized <= 0xdfff && this.ioVisible()) {

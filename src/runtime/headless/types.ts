@@ -70,13 +70,17 @@ export interface HeadlessCartridgeState {
   flashHiState?: Flash040SnapState;
 }
 
-/** Spec 713 — FLASH040 command-state-machine continuation (VICE flash040core). */
+/** Spec 713 — FLASH040 command-state-machine continuation (VICE flash040core),
+ *  incl. the multi-sector erase mask and the pending erase-alarm clock so a
+ *  checkpoint mid-erase resumes the busy window identically. */
 export interface Flash040SnapState {
   state: number;
   baseState: number;
   programByte: number;
   lastRead: number;
   dirty: boolean;
+  eraseMask?: number[];      // 8 bytes
+  eraseAlarmClk?: number;    // absolute maincpu_clk of next erase completion; -1 = none
 }
 
 export interface HeadlessSessionWorkspace {
