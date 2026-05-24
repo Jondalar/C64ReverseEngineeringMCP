@@ -239,9 +239,9 @@ export class HeadlessMemoryBus {
     // Spec 713 (audit #4) — give the cart the live phi1 float-bus source so IO
     // reads that mix in open-bus low bits (GMOD2 EEPROM) match VICE.
     cartridge?.setPhi1?.(this.openBusProvider);
-    // Spec 713 (audit #2) — fake-ultimax romh read (GMOD3 $E000-$FFF7 =
-    // mem_read_without_ultimax). Raw RAM read of the underlying C64 memory.
-    cartridge?.setRamRead?.((addr) => this.ram[addr & 0xffff]!);
+    // Spec 713 (audit) — fake-ultimax romh read (GMOD3 $E000-$FFF7 =
+    // VICE mem_read_without_ultimax: normal CPU-port C64 map, no cart overlay).
+    cartridge?.setReadWithoutUltimax?.((addr) => this.readWithoutUltimax(addr));
     // Spec 402 / §12 step 8 — cartridge GAME/EXROM lines feed the 5-bit
     // memConfig selector. On attach/detach (or banking-register write
     // that changes the lines), re-run the PLA reconfig hook so the
@@ -611,6 +611,38 @@ export class HeadlessMemoryBus {
     // $0000-$0FFF + everything else → RAM.
     this.ram[normalized] = byte;
     this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
+  }
+
+  // Spec 713 (audit) — VICE `mem_read_without_ultimax(addr)` (c64mem.c:595):
+  //   read_tab_ptr = mem_read_tab[mem_config & 7]; return read_tab_ptr[addr>>8](addr)
+  // i.e. read `addr` through the NORMAL CPU-port-dependent C64 memory map with the
+  // cart's ultimax ROMH/ROML overlay removed. `mem_config & 7` keeps only LORAM/
+  // HIRAM/CHAREN (the stock no-cart configs 0-7), so at $01=$37 (config 7)
+  // $E000-$FFFF is KERNAL ROM, $A000-$BFFF is BASIC, $D000-$DFFF is I/O — NOT RAM.
+  // GMOD3's romh_read falls through here for $E000-$FFF7.
+  readWithoutUltimax(address: number): number {
+    const n = clampWord(address);
+    if (n === 0x0000) return this.cpuPortDirection;
+    if (n === 0x0001) return this.computeCpuPortDataRead();
+    // stock-C64 config = current port bits with the cart lines released (exrom=1,
+    // game=1) → memConfigTable[port | 0x18], the no-cart slice (= VICE config & 7).
+    const port = (~this.cpuPortDirection | this.cpuPortValue) & 0x07;
+    const cfg = this.memConfigTable[(port | 0x18) & 0x1f]!;
+    if (n >= 0xa000 && n <= 0xbfff && cfg.bankA === "basic") return this.basicRom[n - 0xa000]!;
+    if (n >= 0xd000 && n <= 0xdfff) {
+      if (cfg.bankD === "io") {
+        const handler = this.ioHandlers.get(n);
+        const v = handler?.read?.(n);
+        if (v !== undefined) this.io[n - 0xd000] = clampByte(v);
+        let ioValue = this.io[n - 0xd000]!;
+        if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | 0xf0;
+        return ioValue;
+      }
+      if (cfg.bankD === "char") return this.charRom[n - 0xd000]!;
+      return this.ram[n]!;
+    }
+    if (n >= 0xe000 && n <= 0xffff && cfg.bankE === "kernal") return this.kernalRom[n - 0xe000]!;
+    return this.ram[n]!;
   }
 
   // Spec 402 / §4.1 / §4.3 — PLA reconfig hook.

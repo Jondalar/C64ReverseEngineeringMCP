@@ -240,8 +240,14 @@ console.log("Spec 713 — device-core mappers (bus-level)");
   gate("GMOD3 #2: $FFF8-$FFFF = 08 00 08 00 0c 80 0c 00 (bus, ultimax romh)",
     vecs.join(",") === "8,0,8,0,12,128,12,0", vecs.map((v) => v.toString(16)).join(" "));
   gate("GMOD3 #2: reset vector $FFFC = $800c", (bus.read(0xfffc) | (bus.read(0xfffd) << 8)) === 0x800c);
-  bus.ram[0xe123] = 0x5e;
-  gate("GMOD3 #2: $E000-$FFF7 = fake-ultimax C64 RAM, not open bus", bus.read(0xe123) === 0x5e, `r=${bus.read(0xe123)}`);
+  // $E000-$FFF7 = mem_read_without_ultimax: the normal CPU-port C64 map (no cart
+  // overlay), NOT raw RAM. At $01=$37 (HIRAM) → KERNAL ROM; HIRAM cleared → RAM.
+  bus.kernalRom[0x0123] = 0xa5; bus.ram[0xe123] = 0x5e; // distinct KERNAL vs RAM sentinels
+  bus.write(0x0001, 0x37); // LORAM/HIRAM/CHAREN=1 → KERNAL visible
+  gate("GMOD3 #2: $E123 vectors + $01=$37 → KERNAL ROM (not RAM)", bus.read(0xe123) === 0xa5, `r=${bus.read(0xe123).toString(16)}`);
+  bus.write(0x0001, 0x35); // HIRAM=0 → KERNAL out
+  gate("GMOD3 #2: $E123 vectors + KERNAL-out → RAM", bus.read(0xe123) === 0x5e, `r=${bus.read(0xe123).toString(16)}`);
+  bus.write(0x0001, 0x37);
 
   // audit #3: mid-SPI-READ snapshot → disturb → restore → identical readout
   // (needs eepromCs/Clock/Data + spiState restored; RED if mapper pins omitted).

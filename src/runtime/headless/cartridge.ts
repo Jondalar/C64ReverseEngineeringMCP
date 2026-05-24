@@ -63,9 +63,10 @@ export interface HeadlessCartridgeMapper {
    *  mappers whose IO reads mix in open-bus low bits (GMOD2 EEPROM read =
    *  (data<<7)|(phi1&0x7f)). The bus calls this at attach with its phi1 source. */
   setPhi1?(phi1: () => number): void;
-  /** Spec 713 (audit #2) — wire a C64-RAM read for "fake ultimax" mappers whose
-   *  romh_read falls through to mem_read_without_ultimax (GMOD3 $E000-$FFF7). */
-  setRamRead?(read: (addr: number) => number): void;
+  /** Spec 713 (audit) — wire VICE `mem_read_without_ultimax` for fake-ultimax
+   *  mappers whose romh_read falls through to the normal CPU-port C64 map without
+   *  the cart overlay (GMOD3 $E000-$FFF7 → KERNAL/BASIC/IO/RAM per $01, NOT raw RAM). */
+  setReadWithoutUltimax?(read: (addr: number) => number): void;
 }
 
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
@@ -1123,7 +1124,7 @@ class Gmod3Mapper extends BaseMapper {
   private eepromData = 0;
   private readonly rom: Uint8Array;
   private readonly spi = new SpiFlash();
-  private ramRead: (addr: number) => number = () => 0;
+  private readWithoutUltimax: (addr: number) => number = () => 0;
 
   constructor(image: ParsedCartridgeImage) {
     super(image);
@@ -1132,7 +1133,7 @@ class Gmod3Mapper extends BaseMapper {
     this.spi.setImage(this.rom, this.rom.length);
   }
 
-  setRamRead(fn: (addr: number) => number): void { this.ramRead = fn; }
+  setReadWithoutUltimax(fn: (addr: number) => number): void { this.readWithoutUltimax = fn; }
 
   getLines(): HeadlessCartridgeLines {
     switch (this.cmode) {
@@ -1164,7 +1165,7 @@ class Gmod3Mapper extends BaseMapper {
     // $FFF8-$FFFF, otherwise mem_read_without_ultimax (the underlying C64 RAM).
     if (address >= 0xe000 && address <= 0xffff) {
       if (address >= 0xfff8) return GMOD3_VECTORS[address & 7];
-      return this.ramRead(address);
+      return this.readWithoutUltimax(address); // mem_read_without_ultimax (KERNAL/RAM per $01)
     }
     return undefined;
   }
