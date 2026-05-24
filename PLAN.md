@@ -7,32 +7,28 @@ framing see [README.md](README.md); for working doctrine see
 ## What is green today (baseline)
 
 Frozen product baseline: `runtime-product-green-2026-05-24` (master). The
-single source of "is this green" is the **manifest-driven Runtime Product
-Proof** (`specs/715-runtime-product-proof-baseline.md`), not unit or
-mapping tests — and no longer the seven-game gate alone:
+"is this green" source is the **small Runtime Product Proof canary baseline**
+(`specs/715-runtime-product-proof-baseline.md`) — it answers *"does the central
+runtime still work like yesterday?"* in minutes, NOT a full certification matrix:
 
 - `specs/715-runtime-product-proof-baseline.md` — active product authority + tiered gate policy
-- `scripts/runtime-proof-manifest.mjs` — the gate manifest (capability → gates)
+- `docs/runtime-product-proof.md` — the 7-canary baseline + gate-group policy
+- `scripts/runtime-proof-manifest.mjs` — gate manifest (baseline / focused / historical)
 - `docs/runtime-product-baseline-2026-05-24.md` — frozen baseline record
-- run: `npm run proof:product` (full manifest) ·
-  `npm run proof:capability -- <cap>` (focused) · `npm run proof:list`
-- Specs `600`/`601` are **superseded as active authority** but retained as
-  historical 1541 bring-up evidence; `601`'s truth table still defines the
-  seven-game capability's expected state.
+- run: `npm run proof:product` (7 canaries) · `npm run proof:capability -- <cap>`
+  (focused subsystem suite) · `npm run proof:list`
+- Specs `600`/`601` **superseded as active authority** (retained as historical
+  1541 bring-up evidence; `601`'s truth table still defines the seven-game state).
 
-Product capabilities green on master (each backed by manifest gates):
+The baseline = 7 fast real canaries, each cut to its earliest stable PASS:
+`kernal-directory`, `kernal-program-load`, `fastloader-scramble`,
+`fastloader-polarbear`, `crt-easyflash`, `crt-gmod2`, `checkpoint-canary`.
 
-- **C64 + 1541 real execution** — VICE-faithful TS drive (`vice1541/`) is the
-  default; the seven-game canary (motm, MM s1, IM2, LNR s1, Scramble, Pawn s1,
-  Polarbear) passes — one capability, not the whole proof.
-- **KERNAL load/save + fastloaders** — LOAD/directory/SAVE/FORMAT + fastloader gates.
-- **Cartridge** — EasyFlash, MagicDesk/16, Ocean, GMOD2/3, MegaByter, C64MegaCart
-  (flash040/flash800 + m93c86 + spi-flash); PLA-gated bus + ultimax open-bus.
-- **Mutable media** — writable disk + cartridge snapshot/restore persistence.
-- **Checkpoint** — native checkpoint, `.c64re`, checkpoint ring.
-- **Audio** — frame-locked reSID + latency governor (~100 ms) + transport re-sync.
-- **Media ingress** — insert/eject/reset/restore + UI/WS control.
-- **Declarative trace** — trace defs + TraceDB.
+The big subsystem suites — seven-game, Spec 616/617 LOAD/SAVE fidelity,
+713/714.5 cartridge + mutable-media matrices, 705/707 checkpoint, 706 audio,
+708 trace, 709 media — are **focused** gates, run only when their subsystem
+changes (`proof:capability -- <cap>`), not as a permanent baseline. Old
+097/415/611 bring-up smokes are **historical** (diagnostic, never a merge gate).
 
 **Unit green ≠ runtime green. Mapping green ≠ runtime green.** No step
 lands red; if a gate fails, revert and record findings in the spec's

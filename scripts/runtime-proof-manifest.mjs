@@ -1,337 +1,269 @@
 #!/usr/bin/env node
 // scripts/runtime-proof-manifest.mjs
 //
-// Spec 715 — Runtime Product Proof manifest.
+// Spec 715 — Runtime Product Proof manifest (SMALL real canary baseline).
 //
-// Single declarative source for "what proves the runtime product is green".
-// Replaces the Spec 600/601 framing where the seven-game gate WAS the whole
-// proof. The seven-game gate is now ONE capability among several; it is the
-// real-software execution canary, not proof for cartridges / checkpoint /
-// audio / media / trace.
+// The product regression baseline is NOT a completeness / release-certification
+// apparatus. This is a hobby project with an already thoroughly validated
+// runtime. The baseline answers one question, fast, in minutes:
+//
+//     "Does the central runtime still work like yesterday?"
+//
+// THREE gate groups:
+//
+//   baseline   — the small fast real canary set. THIS is `npm run proof:product`
+//                and the merge barrier. ~7 scenarios, each cut to its earliest
+//                stable PASS milestone (no cosmetic screenshot sequences).
+//   focused    — the big subsystem suites (616/617, 713/714.5, seven-game,
+//                705/707, 706, 708, 709). NOT in the baseline. Run ONLY when the
+//                owning subsystem code changes, via `proof:capability -- <cap>`.
+//   historical — old bring-up/oracle smokes (Spec 097/415/611). Drifted harness/
+//                golden contracts. Diagnostic only, NOT baseline-capable. Kept
+//                for reference; never gate merges on them.
 //
 // Consumed by scripts/runtime-product-proof.mjs.
+// NO emulator change lives here — Spec 715 is proof-authority only.
 //
-// Each gate entry records (Spec 715 §6.1):
-//   id        stable gate id (never reused / renamed once frozen)
-//   command   argv array spawned with `node` (relative to repo root)
-//   expect    pass condition (always "exit0" today)
-//   fixtures  oracles/fixtures consumed; note when gitignored/local-corpus
-//   tier      gate tier per Spec 715 §4 (1 local, 2 integrated, 3 global)
-//   triggers  changed-path globs that should re-run this gate (715.5 guidance)
-//   barrier   true => counted in the product merge barrier (proof:product)
-//   note      optional human note
-//
-// Capabilities (Spec 715 §6.2 initial product set):
-//   c64-1541-execution · kernal-loadsave · cartridge · mutable-media ·
-//   checkpoint · audio · media-ingress · declarative-trace
+// Gate entry fields (Spec 715 §6.1):
+//   id · capability · command (argv) · group · expect · fixtures · tier ·
+//   triggers (changed-path globs) · note
+// `barrier` is derived: barrier <=> group === "baseline".
 
-export const MANIFEST_VERSION = "715-1.0.0 (2026-05-24)";
+export const MANIFEST_VERSION = "715-2.0.0 (2026-05-24, small-canary-baseline)";
 
 export const CAPABILITIES = {
-  "c64-1541-execution": "VICE-shaped C64 + 1541 real-software execution (seven-game canary)",
-  "kernal-loadsave": "KERNAL LOAD/SAVE, directory, SAVE/FORMAT and fastloader paths",
-  "cartridge": "CRT mapper families + flash/EEPROM/SPI device cores (Spec 713)",
-  "mutable-media": "Writable disk + cartridge snapshot/restore persistence (Spec 714)",
-  "checkpoint": "Native checkpoint, .c64re dump/undump, checkpoint ring (Specs 705/707)",
-  "audio": "reSID synthesis restore + transport re-sync/latency (Specs 703/706)",
-  "media-ingress": "Reproducible insert/eject/reset/restore + UI/WS control (Spec 709)",
-  "declarative-trace": "Declarative trace definitions + TraceDB evidence (Spec 708)",
+  "kernal-loadsave": "KERNAL directory + program LOAD over the serial path",
+  "fastloader": "Real-software fastloaders reach the running game state",
+  "cartridge": "Real CRT samples cold-boot into a drawn intro/menu state",
+  "checkpoint": "Native checkpoint capture/restore/continue",
+};
+
+// Change-surface → which focused suite to run (Spec 715 §5 / work-order tiers).
+export const FOCUSED_TRIGGERS = {
+  "vice1541 / IEC / GCR / drive": "kernal-loadsave, fastloader focused suites + seven-game",
+  "cartridge / memory-bus cart routing": "cartridge (713/714.5) focused suites",
+  "checkpoint / ring / .c64re": "checkpoint (705/707/714) focused suites",
+  "SID / audio": "audio (706) focused suite",
+  "trace / TraceDB": "declarative-trace (708) focused suite",
+  "media ingress": "media-ingress (709) focused suite",
+  "UI-only / monitor view": "UI / monitor gates only — no runtime baseline",
 };
 
 export const GATES = [
-  // ---- c64-1541-execution -------------------------------------------------
+  // ======================= BASELINE (proof:product) =======================
+  // Small, fast, real. Each cut to earliest stable PASS.
   {
-    id: "seven-game",
-    capability: "c64-1541-execution",
-    command: ["scripts/runtime-proof-gate.mjs"],
-    expect: "exit0",
-    fixtures: "Spec 601 GAMES truth table + samples/screenshots/proof/ oracle PNGs (local scene corpus, gitignored)",
-    tier: 3,
-    triggers: ["src/runtime/**", "src/runtime/headless/vice1541/**"],
-    barrier: true,
-    note: "Real-software execution canary: motm, MM s1, IM2, LNR s1, Scramble, Pawn s1, Polarbear. NOT proof for cartridge/checkpoint/audio.",
-  },
-
-  // ---- kernal-loadsave ----------------------------------------------------
-  {
-    id: "kernal-load",
-    capability: "kernal-loadsave",
-    command: ["scripts/smoke-load.mjs"],
-    expect: "exit0",
-    fixtures: "synthetic + corpus disks",
-    tier: 2,
-    triggers: ["src/runtime/headless/vice1541/**", "src/runtime/headless/kernal*/**"],
-    barrier: true,
-  },
-  {
-    id: "kernal-load-directory",
-    capability: "kernal-loadsave",
-    command: ["scripts/smoke-611-7f-vice-load-directory.mjs"],
-    expect: "exit0",
-    fixtures: "corpus disk; vice1541 path",
-    tier: 2,
-    triggers: ["src/runtime/headless/vice1541/**", "src/runtime/headless/drive1541/**"],
-    barrier: true,
-  },
-  {
-    id: "kernal-save-format",
-    capability: "kernal-loadsave",
-    command: ["scripts/smoke-write-support.mjs"],
-    expect: "exit0",
-    fixtures: "blank D64 fixtures",
-    tier: 2,
-    triggers: ["src/runtime/headless/vice1541/**", "src/disk/**"],
-    barrier: true,
-  },
-  {
-    id: "fastloaders",
-    capability: "kernal-loadsave",
-    command: ["scripts/smoke-415-fastloaders.mjs"],
-    expect: "exit0",
-    fixtures: "fastloader corpus",
-    tier: 2,
+    id: "kernal-directory", capability: "kernal-loadsave", group: "baseline",
+    command: ["node", "scripts/proof-directory-load.mjs"],
+    expect: "exit0", tier: 2,
+    fixtures: "samples/synthetic/blank.d64",
     triggers: ["src/runtime/headless/vice1541/**", "src/runtime/headless/iec*/**"],
-    barrier: true,
+    note: "boot -> mount -> LOAD\"$\",8 -> LIST; PASS = directory content (quoted header + BLOCKS FREE). No PC/golden/bridge harness.",
+  },
+  {
+    id: "kernal-program-load", capability: "kernal-loadsave", group: "baseline",
+    command: ["node", "scripts/proof-kernal-load.mjs"],
+    expect: "exit0", tier: 2,
+    fixtures: "samples/fixtures/load-fidelity/lf-001-1block.d64",
+    triggers: ["src/runtime/headless/vice1541/**", "src/runtime/headless/iec*/**"],
+    note: "LOAD\"*\",8,1 of a small deterministic PRG; PASS = clean completion + expected loaded byte-count.",
+  },
+  {
+    id: "fastloader-scramble", capability: "fastloader", group: "baseline",
+    command: ["node", "scripts/proof-canary-disk.mjs", "--game", "scramble"],
+    expect: "exit0", tier: 2,
+    fixtures: "samples/scramble_infinity.d64 (local scene corpus)",
+    triggers: ["src/runtime/headless/vice1541/**", "src/runtime/headless/iec*/**"],
+    note: "Scramble Infinity — KRILL fastloader reaches running game code (earliest stable PASS).",
+  },
+  {
+    id: "fastloader-polarbear", capability: "fastloader", group: "baseline",
+    command: ["node", "scripts/proof-canary-disk.mjs", "--game", "polarbear"],
+    expect: "exit0", tier: 2,
+    fixtures: "samples/POLARBEAR.d64 (local scene corpus)",
+    triggers: ["src/runtime/headless/vice1541/**", "src/runtime/headless/iec*/**"],
+    note: "Polar Bear — KERNAL autoload -> custom loader reaches running game code.",
+  },
+  {
+    id: "crt-easyflash", capability: "cartridge", group: "baseline",
+    command: ["node", "scripts/proof-canary-crt.mjs", "--cart", "ef"],
+    expect: "exit0", tier: 2,
+    fixtures: "samples/AccoladeComics_TRX+1D_EF.crt (local sample)",
+    triggers: ["src/runtime/headless/cartridge.ts", "src/runtime/headless/memory-bus.ts"],
+    note: "Real EasyFlash sample cold-boots into a drawn intro state (cart executed, not crash loop).",
+  },
+  {
+    id: "crt-gmod2", capability: "cartridge", group: "baseline",
+    command: ["node", "scripts/proof-canary-crt.mjs", "--cart", "gmod2"],
+    expect: "exit0", tier: 2,
+    fixtures: "samples/yeti_mountain_GMOD2.crt (local sample)",
+    triggers: ["src/runtime/headless/cartridge.ts", "src/runtime/headless/memory-bus.ts"],
+    note: "Real GMOD2 sample cold-boots into a drawn intro/menu state.",
+  },
+  {
+    id: "checkpoint-canary", capability: "checkpoint", group: "baseline",
+    command: ["node", "scripts/probe-705-checkpoint-capability.mjs"],
+    expect: "exit0", tier: 2,
+    fixtures: "headless runtime + VSF",
+    triggers: ["src/runtime/**/checkpoint*/**", "src/runtime/**/ring*/**", "src/runtime/**/vsf/**"],
+    note: "Short native checkpoint capture -> restore -> continue capability preflight.",
   },
 
-  // ---- cartridge ----------------------------------------------------------
+  // ======================= FOCUSED (proof:capability) =====================
+  // Big subsystem suites. NOT the product baseline. Run on subsystem change.
   {
-    id: "cart-easyflash-writable",
-    capability: "cartridge",
-    command: ["scripts/probe-714-5.mjs"],
-    expect: "exit0",
-    fixtures: "synthetic EasyFlash CRT",
-    tier: 2,
-    triggers: ["src/runtime/headless/cartridge.ts", "src/runtime/headless/memory-bus.ts"],
-    barrier: true,
+    id: "seven-game", capability: "fastloader", group: "focused",
+    command: ["node", "scripts/runtime-proof-gate.mjs"],
+    expect: "exit0", tier: 3,
+    fixtures: "Spec 601 GAMES truth table + oracle PNGs (local corpus)",
+    triggers: ["src/runtime/headless/vice1541/**", "src/runtime/**/vic*/**", "src/runtime/**/cpu*/**"],
+    note: "Full seven-game real-software gate. Focused canary for broad C64/1541/VIC/CPU changes.",
   },
   {
-    id: "cart-rombank-mappers",
-    capability: "cartridge",
-    command: ["scripts/probe-713-rombank.mjs"],
-    expect: "exit0",
-    fixtures: "synthetic MagicDesk/MagicDesk16/Ocean/Normal/Ultimax CRTs",
-    tier: 2,
-    triggers: ["src/runtime/headless/cartridge.ts", "src/runtime/headless/memory-bus.ts"],
-    barrier: true,
+    id: "spec616-load-byte", capability: "kernal-loadsave", group: "focused",
+    command: ["npx", "tsx", "tests/spec-616/kernal-load-byte-fidelity.test.ts"],
+    expect: "exit0", tier: 3,
+    fixtures: "9 synthetic + 7 real disk oracles",
+    triggers: ["src/runtime/headless/vice1541/**", "src/runtime/headless/iec*/**"],
+    note: "Full Spec 616 KERNAL LOAD byte-fidelity matrix.",
   },
   {
-    id: "cart-device-cores",
-    capability: "cartridge",
-    command: ["scripts/probe-713-devcore.mjs"],
-    expect: "exit0",
-    fixtures: "synthetic GMOD2/GMOD3/MegaByter/C64MegaCart CRTs",
-    tier: 2,
+    id: "spec616-load-chain", capability: "kernal-loadsave", group: "focused",
+    command: ["npx", "tsx", "tests/spec-616/kernal-load-chain-fidelity.test.ts"],
+    expect: "exit0", tier: 3,
+    fixtures: "chained-load oracles",
+    triggers: ["src/runtime/headless/vice1541/**", "src/runtime/headless/iec*/**"],
+    note: "Full Spec 616 chained-load fidelity matrix.",
+  },
+  {
+    id: "spec617-save-byte", capability: "kernal-loadsave", group: "focused",
+    command: ["npx", "tsx", "tests/spec-617/kernal-save-byte-fidelity.test.ts"],
+    expect: "exit0", tier: 3,
+    fixtures: "blank D64 + save oracles",
+    triggers: ["src/runtime/headless/vice1541/**", "src/disk/**"],
+    note: "Full Spec 617 KERNAL SAVE byte-fidelity matrix.",
+  },
+  {
+    id: "cart-rombank-mappers", capability: "cartridge", group: "focused",
+    command: ["node", "scripts/probe-713-rombank.mjs"],
+    expect: "exit0", tier: 2, fixtures: "synthetic MagicDesk/16/Ocean/Normal/Ultimax",
+    triggers: ["src/runtime/headless/cartridge.ts", "src/runtime/headless/memory-bus.ts"],
+    note: "Spec 713 ROM-bank mapper matrix.",
+  },
+  {
+    id: "cart-device-cores", capability: "cartridge", group: "focused",
+    command: ["node", "scripts/probe-713-devcore.mjs"],
+    expect: "exit0", tier: 2, fixtures: "synthetic GMOD2/3/MegaByter/C64MegaCart",
     triggers: ["src/runtime/headless/cartridge.ts", "src/runtime/headless/m93c86.ts", "src/runtime/headless/spi-flash.ts"],
-    barrier: true,
+    note: "Spec 713 flash/EEPROM/SPI device-core matrix.",
   },
   {
-    id: "cart-flash-erase-catchup",
-    capability: "cartridge",
-    command: ["scripts/probe-713-erase-catchup.mjs"],
-    expect: "exit0",
-    fixtures: "synthetic flash040/flash800 CRT",
-    tier: 2,
+    id: "cart-erase-catchup", capability: "cartridge", group: "focused",
+    command: ["node", "scripts/probe-713-erase-catchup.mjs"],
+    expect: "exit0", tier: 2, fixtures: "synthetic flash CRT",
     triggers: ["src/runtime/headless/cartridge.ts"],
-    barrier: true,
+    note: "Spec 713 flash erase-alarm catch-up.",
   },
   {
-    id: "cart-ingress",
-    capability: "cartridge",
-    command: ["scripts/probe-713-ingress.mjs"],
-    expect: "exit0",
-    fixtures: "synthetic CRTs",
-    tier: 2,
+    id: "cart-ingress", capability: "cartridge", group: "focused",
+    command: ["node", "scripts/probe-713-ingress.mjs"],
+    expect: "exit0", tier: 2, fixtures: "synthetic CRTs",
     triggers: ["src/runtime/headless/cartridge.ts", "src/runtime/**/media*/**"],
-    barrier: true,
+    note: "Spec 713 CRT ingress/inference.",
   },
   {
-    id: "cart-fidelity-smoke",
-    capability: "cartridge",
-    command: ["scripts/smoke-cart-fidelity.mjs"],
-    expect: "exit0",
-    fixtures: "synthetic CRTs",
-    tier: 2,
+    id: "cart-fidelity-smoke", capability: "cartridge", group: "focused",
+    command: ["node", "scripts/smoke-cart-fidelity.mjs"],
+    expect: "exit0", tier: 2, fixtures: "synthetic CRTs",
     triggers: ["src/runtime/headless/cartridge.ts"],
-    barrier: true,
+    note: "Spec 713 PLA/bank/status fidelity.",
   },
   {
-    id: "cart-real-samples",
-    capability: "cartridge",
-    command: ["scripts/smoke-cart-real.mjs"],
-    expect: "exit0",
-    fixtures: "real .crt samples under samples/ (gitignored, local-only)",
-    tier: 2,
-    triggers: ["src/runtime/headless/cartridge.ts"],
-    barrier: false,
-    note: "Fixture-dependent: real CRT samples are gitignored. Counted at local freeze; self-skips where samples absent.",
-  },
-
-  // ---- mutable-media ------------------------------------------------------
-  {
-    id: "mutable-disk-persistence",
-    capability: "mutable-media",
-    command: ["scripts/probe-714.mjs"],
-    expect: "exit0",
-    fixtures: "G64 + D64 fixtures",
-    tier: 2,
-    triggers: ["src/runtime/headless/vice1541/drive_snapshot.ts", "src/runtime/**/checkpoint*/**", "src/runtime/**/ring*/**"],
-    barrier: true,
+    id: "cart-easyflash-writable", capability: "cartridge", group: "focused",
+    command: ["node", "scripts/probe-714-5.mjs"],
+    expect: "exit0", tier: 2, fixtures: "synthetic EasyFlash",
+    triggers: ["src/runtime/headless/cartridge.ts", "src/runtime/**/checkpoint*/**"],
+    note: "Spec 714.5 EasyFlash writable persistence.",
   },
   {
-    id: "mutable-cart-persistence",
-    capability: "mutable-media",
-    command: ["scripts/probe-714-5-persist.mjs"],
-    expect: "exit0",
-    fixtures: "synthetic GMOD2/GMOD3/MegaByter/C64MegaCart CRTs",
-    tier: 2,
+    id: "mutable-cart-persistence", capability: "cartridge", group: "focused",
+    command: ["node", "scripts/probe-714-5-persist.mjs"],
+    expect: "exit0", tier: 2, fixtures: "synthetic GMOD2/3/MegaByter/C64MegaCart",
     triggers: ["src/runtime/headless/cartridge.ts", "src/runtime/**/checkpoint*/**", "src/runtime/**/ring*/**"],
-    barrier: true,
+    note: "Spec 714.5 writable-cartridge persistence matrix.",
   },
-
-  // ---- checkpoint ---------------------------------------------------------
   {
-    id: "checkpoint-capability",
-    capability: "checkpoint",
-    command: ["scripts/probe-705-checkpoint-capability.mjs"],
-    expect: "exit0",
-    fixtures: "headless runtime",
-    tier: 2,
+    id: "mutable-disk-persistence", capability: "checkpoint", group: "focused",
+    command: ["node", "scripts/probe-714.mjs"],
+    expect: "exit0", tier: 2, fixtures: "G64 + D64",
+    triggers: ["src/runtime/headless/vice1541/drive_snapshot.ts", "src/runtime/**/checkpoint*/**", "src/runtime/**/ring*/**"],
+    note: "Spec 714 mutable-disk persistence + ring.",
+  },
+  {
+    id: "checkpoint-roundtrips", capability: "checkpoint", group: "focused",
+    command: ["node", "scripts/probe-705-core-roundtrip.mjs"],
+    expect: "exit0", tier: 2, fixtures: "headless runtime",
     triggers: ["src/runtime/**/checkpoint*/**"],
-    barrier: true,
+    note: "Spec 705 core checkpoint roundtrip.",
   },
   {
-    id: "checkpoint-core-roundtrip",
-    capability: "checkpoint",
-    command: ["scripts/probe-705-core-roundtrip.mjs"],
-    expect: "exit0",
-    fixtures: "headless runtime",
-    tier: 2,
-    triggers: ["src/runtime/**/checkpoint*/**"],
-    barrier: true,
-  },
-  {
-    id: "checkpoint-drive-roundtrip",
-    capability: "checkpoint",
-    command: ["scripts/probe-705-drive-roundtrip.mjs"],
-    expect: "exit0",
-    fixtures: "headless runtime + vice1541",
-    tier: 2,
-    triggers: ["src/runtime/headless/vice1541/drive_snapshot.ts", "src/runtime/**/checkpoint*/**"],
-    barrier: true,
-  },
-  {
-    id: "checkpoint-resid-roundtrip",
-    capability: "checkpoint",
-    command: ["scripts/probe-705-resid-roundtrip.mjs"],
-    expect: "exit0",
-    fixtures: "headless runtime + reSID",
-    tier: 2,
-    triggers: ["src/runtime/**/sid*/**", "src/runtime/**/checkpoint*/**"],
-    barrier: true,
-  },
-  {
-    id: "checkpoint-ring",
-    capability: "checkpoint",
-    command: ["scripts/probe-705b-ring.mjs"],
-    expect: "exit0",
-    fixtures: "headless runtime",
-    tier: 2,
+    id: "checkpoint-ring", capability: "checkpoint", group: "focused",
+    command: ["node", "scripts/probe-705b-ring.mjs"],
+    expect: "exit0", tier: 2, fixtures: "headless runtime",
     triggers: ["src/runtime/**/ring*/**", "src/runtime/**/checkpoint*/**"],
-    barrier: true,
+    note: "Spec 705.B checkpoint ring.",
   },
   {
-    id: "c64re-dump-undump",
-    capability: "checkpoint",
-    command: ["scripts/probe-707-dump-undump.mjs"],
-    expect: "exit0",
-    fixtures: ".c64re snapshot format",
-    tier: 2,
+    id: "c64re-dump-undump", capability: "checkpoint", group: "focused",
+    command: ["node", "scripts/probe-707-dump-undump.mjs"],
+    expect: "exit0", tier: 2, fixtures: ".c64re format",
     triggers: ["src/runtime/**/snapshot-persistence*/**", "src/runtime/**/checkpoint*/**"],
-    barrier: true,
+    note: "Spec 707 .c64re dump/undump.",
   },
 
-  // ---- audio --------------------------------------------------------------
+  // ======================= HISTORICAL (diagnostic only) ===================
+  // Old bring-up / oracle smokes with drifted harness/golden contracts.
+  // NOT baseline-capable. Superseded by the baseline canaries + focused suites.
   {
-    id: "audio-latency",
-    capability: "audio",
-    command: ["scripts/probe-706-latency.mjs"],
-    expect: "exit0",
-    fixtures: "reSID render path",
-    tier: 2,
-    triggers: ["src/runtime/**/sid*/**", "src/runtime/**/audio*/**"],
-    barrier: true,
+    id: "hist-smoke-load", capability: "kernal-loadsave", group: "historical",
+    command: ["node", "scripts/smoke-load.mjs"],
+    expect: "exit0", tier: 1, fixtures: "Spec 097 load-matrix synthetic",
+    triggers: [],
+    note: "Spec 097 (M0.4c) load-matrix harness — drifted oracle contract. Superseded by kernal-program-load (baseline) + spec616-load-byte (focused). Diagnostic only.",
   },
   {
-    id: "audio-restore-resync",
-    capability: "audio",
-    command: ["scripts/probe-706-restore-resync.mjs"],
-    expect: "exit0",
-    fixtures: "reSID render path + checkpoint",
-    tier: 2,
-    triggers: ["src/runtime/**/sid*/**", "src/runtime/**/audio*/**"],
-    barrier: true,
+    id: "hist-smoke-415-fastloaders", capability: "fastloader", group: "historical",
+    command: ["node", "scripts/smoke-415-fastloaders.mjs"],
+    expect: "exit0", tier: 1, fixtures: "Spec 415 curated corpus",
+    triggers: [],
+    note: "Spec 415 bring-up fastloader corpus — drifted. Superseded by fastloader-scramble/polarbear (baseline) + seven-game (focused). Diagnostic only.",
   },
   {
-    id: "sid-resid",
-    capability: "audio",
-    command: ["scripts/smoke-sid-resid.mjs"],
-    expect: "exit0",
-    fixtures: "reSID synthesis",
-    tier: 2,
-    triggers: ["src/runtime/**/sid*/**"],
-    barrier: true,
-  },
-
-  // ---- media-ingress ------------------------------------------------------
-  {
-    id: "media-ingress",
-    capability: "media-ingress",
-    command: ["scripts/probe-709-media.mjs"],
-    expect: "exit0",
-    fixtures: "disk + CRT media",
-    tier: 2,
-    triggers: ["src/runtime/**/media*/**"],
-    barrier: true,
+    id: "hist-smoke-611-load-directory", capability: "kernal-loadsave", group: "historical",
+    command: ["node", "scripts/smoke-611-7f-vice-load-directory.mjs"],
+    expect: "exit0", tier: 1, fixtures: "Spec 611 golden screen-SHA/PC/port",
+    triggers: [],
+    note: "Spec 611 bring-up — full-screen-RAM-SHA + PC + bus-port golden drifted (content markers still pass). Superseded by kernal-directory content proof (baseline). Diagnostic only.",
   },
   {
-    id: "media-ws-routes",
-    capability: "media-ingress",
-    command: ["scripts/probe-709-ws-routes.mjs"],
-    expect: "exit0",
-    fixtures: "WS control routes",
-    tier: 2,
-    triggers: ["src/runtime/**/media*/**", "src/workspace-ui/**"],
-    barrier: true,
-  },
-  {
-    id: "media-dirty-guard",
-    capability: "media-ingress",
-    command: ["scripts/probe-709-12.mjs"],
-    expect: "exit0",
-    fixtures: "dirty-media guard scenarios",
-    tier: 2,
-    triggers: ["src/runtime/**/media*/**", "src/runtime/**/checkpoint*/**"],
-    barrier: true,
-  },
-
-  // ---- declarative-trace --------------------------------------------------
-  {
-    id: "trace-defs",
-    capability: "declarative-trace",
-    command: ["scripts/probe-708-trace.mjs"],
-    expect: "exit0",
-    fixtures: "TraceDB (DuckDB)",
-    tier: 1,
-    triggers: ["src/runtime/**/trace*/**"],
-    barrier: true,
+    id: "hist-smoke-write-support", capability: "kernal-loadsave", group: "historical",
+    command: ["node", "scripts/smoke-write-support.mjs"],
+    expect: "exit0", tier: 1, fixtures: "blank D64 write smoke",
+    triggers: [],
+    note: "Spec-era SAVE/write smoke. SAVE authority is now the focused spec617-save-byte matrix. Diagnostic only.",
   },
 ];
 
-export function gatesForCapability(capability) {
-  return GATES.filter((g) => g.capability === capability);
+export function baselineGates() {
+  return GATES.filter((g) => g.group === "baseline");
 }
-
-export function barrierGates() {
-  return GATES.filter((g) => g.barrier);
+export function focusedGates() {
+  return GATES.filter((g) => g.group === "focused");
+}
+export function historicalGates() {
+  return GATES.filter((g) => g.group === "historical");
+}
+export function gatesForCapability(capability) {
+  // Capability runs cover baseline + focused for that capability; never historical.
+  return GATES.filter((g) => g.capability === capability && g.group !== "historical");
 }
