@@ -72,6 +72,9 @@ export interface HeadlessCartridgeState {
   // Spec 713 — GMOD2 m93c86 serial-EEPROM continuation (command shift state +
   // 2KB data). C64MegaCart / GMOD2 carry this alongside flashLoState.
   eepromState?: import("./m93c86.js").M93c86SnapState;
+  // Spec 713 — GMOD3 SPI-flash serial continuation (the flash DATA rides in the
+  // writable image). cmode/bank/bitbang continuation in controlRegister/currentBank.
+  spiState?: import("./spi-flash.js").SpiFlashSnapState;
 }
 
 /** Spec 713 — FLASH040 command-state-machine continuation (VICE flash040core),

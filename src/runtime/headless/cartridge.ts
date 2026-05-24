@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import type { HeadlessBankInfo, HeadlessCartridgeMapperType, HeadlessCartridgeState, Flash040SnapState } from "./types.js";
 import { EAPI_AM29F040 } from "./eapi-am29f040.js";
 import { M93c86 } from "./m93c86.js";
+import { SpiFlash } from "./spi-flash.js";
 
 const CRT_SIGNATURE = "C64 CARTRIDGE   ";
 const FLASH_CMD_ADDR1 = 0x0555;
@@ -1067,18 +1068,117 @@ class Gmod2Mapper extends BaseMapper {
 
 // GMOD3 — 16 MB Flash version of GMOD2. Same banking via $DE00 +
 // extended bank select via $DE02. v1 only handles low-byte bank select.
+// VICE gmod3.c — Individual Computers GMOD3: up to 16MB SPI flash, 8K banks.
+// IO1 ($DE00) is register-paged by the low address nibble:
+//   $DE00-$DE07: bitbang mode → SPI lines (cs=b6 active-low, clk=b5, di=b4);
+//                else → ROM bank: bank = value | ((addr&7)<<8) (11-bit).
+//   $DE08: control — bitbang_enabled=b7, vectors_enabled=b5, cmode (b6=0 →
+//          vectors?ultimax:8K; b6=1 → RAM/off).
+//   read $DE00-07 → bitbang+selected ? spi.read_data()<<7 : bank low;
+//        $DE08-0f → bank high.
+// ROML ($8000) reads the flash array DIRECTLY (parallel), gated by the CPU port
+// mem_config for fake-ultimax (vectors). Flash is REFLASHED only via the serial
+// SPI path (no parallel ROM-window programming).
+type Gmod3Cmode = "8k" | "off" | "ultimax";
 class Gmod3Mapper extends BaseMapper {
-  write(address: number, value: number): boolean {
-    if (address === 0xde00) {
-      this.currentBank = (this.currentBank & 0xff00) | (value & 0xff);
-      return true;
-    }
-    if (address === 0xde02) {
-      this.currentBank = ((value & 0xff) << 8) | (this.currentBank & 0xff);
-      return true;
-    }
-    return false;
+  private gmod3Bank = 0;
+  private bitbang = 0;
+  private vectors = 0;
+  private cmode: Gmod3Cmode = "8k";
+  private eepromCs = 0;
+  private eepromClock = 0;
+  private eepromData = 0;
+  private readonly rom: Uint8Array;
+  private readonly spi = new SpiFlash();
+
+  constructor(image: ParsedCartridgeImage) {
+    super(image);
+    const highest = [...image.banks.keys()].reduce((m, b) => Math.max(m, b), 0);
+    this.rom = buildLinearChipData(image, (b) => b.roml, highest + 1);
+    this.spi.setImage(this.rom, this.rom.length);
   }
+
+  getLines(): HeadlessCartridgeLines {
+    switch (this.cmode) {
+      case "8k": return { exrom: 0, game: 1 };
+      case "ultimax": return { exrom: 1, game: 0 };
+      case "off": return { exrom: 1, game: 1 };
+    }
+  }
+
+  read(address: number, bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      const a = address & 0xff;
+      if (this.bitbang) {
+        return this.eepromCs === 0 ? ((this.spi.read_data() & 1) << 7) : 0; // cs active-low
+      }
+      if (a <= 0x07) return this.gmod3Bank & 0xff;
+      if (a <= 0x0f) return (this.gmod3Bank & 0x0700) >> 8;
+      return 0;
+    }
+    if (address >= 0x8000 && address <= 0x9fff) {
+      // gmod3_roml_read: direct ROM unless vectors-enabled fake-ultimax says RAM.
+      const memConfig = (~bankInfo.cpuPortDirection | bankInfo.cpuPortValue) & 0x7;
+      if (!this.vectors || memConfig === 7 || memConfig === 3) {
+        return this.rom[((address & 0x1fff) + (this.gmod3Bank << 13)) >>> 0] ?? 0xff;
+      }
+      return undefined; // → bus RAM (fake ultimax)
+    }
+    return undefined;
+  }
+
+  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      const a = address & 0xff;
+      if (a <= 0x07) {
+        if (this.bitbang) {
+          this.eepromCs = (value >> 6) & 1;
+          this.eepromClock = (value >> 5) & 1;
+          this.eepromData = (value >> 4) & 1;
+        } else {
+          this.gmod3Bank = (value & 0xff) | ((a & 0x07) << 8);
+        }
+      } else if (a === 0x08) {
+        this.bitbang = (value >> 7) & 1;
+        this.vectors = (value >> 5) & 1;
+        if ((value & 0x40) === 0x00) this.cmode = this.vectors ? "ultimax" : "8k";
+        else this.cmode = "off";
+      }
+      // VICE drives the SPI lines on every IO1 store (cs active low).
+      this.spi.write_select(this.eepromCs);
+      if (this.eepromCs === 0) {
+        this.spi.write_data(this.eepromData);
+        this.spi.write_clock(this.eepromClock);
+      }
+      return true;
+    }
+    return false; // ROM window writes → RAM (flash is reprogrammed via SPI only)
+  }
+
+  getState(): HeadlessCartridgeState {
+    const state = super.getState();
+    state.currentBank = this.gmod3Bank;
+    state.controlRegister = (this.bitbang << 7) | (this.vectors << 5) | (this.cmode === "off" ? 0x40 : 0);
+    state.writable = true;
+    state.flashMode = `gmod3:${this.cmode}${this.bitbang ? " bitbang" : ""}`;
+    state.spiState = this.spi.snapshotState();
+    return state;
+  }
+
+  setState(state: HeadlessCartridgeState): void {
+    this.gmod3Bank = (state.currentBank ?? 0) & 0x7ff;
+    const ctrl = state.controlRegister ?? 0;
+    this.bitbang = (ctrl >> 7) & 1;
+    this.vectors = (ctrl >> 5) & 1;
+    if ((ctrl & 0x40) === 0x00) this.cmode = this.vectors ? "ultimax" : "8k";
+    else this.cmode = "off";
+    if (state.spiState) this.spi.restoreState(state.spiState);
+  }
+
+  persistsWritableState(): boolean { return true; }
+  isWritableDirty(): boolean { return this.spi.isDirty(); }
+  getWritableImage(): Uint8Array { return new Uint8Array(this.rom); }
+  setWritableImage(bytes: Uint8Array): void { this.rom.set(bytes.subarray(0, this.rom.length)); }
 }
 
 // VICE c64megacart.c (martinpiper fork, vendored in vice-refs/c64megacart/).

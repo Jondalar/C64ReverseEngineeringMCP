@@ -174,6 +174,46 @@ console.log("Spec 713 — device-core mappers (bus-level)");
   gate("MegaByter: setWritableImage restores 0x6b", bus.read(0x8000) === 0x6b, `r=${bus.read(0x8000)}`);
 }
 
+// ============ GMOD3 (spi-flash serial core, dual-mode) ============
+{
+  const crt = buildCrt({ hwType: 0, exrom: 0, game: 1, nbanks: 256 }); // 2MB
+  const bus = new HeadlessMemoryBus(); bus.reset(); bus.setOpenBusProvider(() => 0x3f);
+  const cart = loadCartridgeMapperFromBytes(crt, "gmod3.crt", "gmod3");
+  bus.attachCartridge(cart); bus.write(0x0001, 0x37);
+
+  gate("GMOD3: type=gmod3", cart.getMapperType() === "gmod3");
+  // $DE08=0x00 → 8K (bitbang off, vectors off). $DE00 = bank low.
+  bus.write(0xde08, 0x00); bus.write(0xde00, 0x07);
+  gate("GMOD3: 8K bank7 → $8000 sentinel 7", bus.read(0x8000) === 7, `r=${bus.read(0x8000)}`);
+  gate("GMOD3: 8K lines exrom=0 game=1", cart.getLines().exrom === 0 && cart.getLines().game === 1);
+  // 11-bit bank: $DE01 sets bank = value | (1<<8) = 0x105
+  bus.write(0xde01, 0x05);
+  gate("GMOD3: $DE01=5 → bank 0x105", cart.getState().currentBank === 0x105, `b=${cart.getState().currentBank}`);
+  // modes
+  bus.write(0xde08, 0x20); gate("GMOD3: $DE08 vectors+b6=0 → ultimax", cart.getLines().exrom === 1 && cart.getLines().game === 0);
+  bus.write(0xde08, 0x40); gate("GMOD3: $DE08 b6=1 → off", cart.getLines().exrom === 1 && cart.getLines().game === 1);
+
+  // SPI reflash round-trip: bitbang mode, WRITE_ENABLE + PAGE_PROGRAM(addr0, 0x5a), read via ROM.
+  bus.write(0xde08, 0x80); // bitbang on (vectors off, b6=0 → 8K config)
+  const spiByte = (b) => { for (let i = 7; i >= 0; i--) { const bit = (b >> i) & 1; bus.write(0xde00, bit << 4); bus.write(0xde00, (bit << 4) | 0x20); } };
+  const sel = () => bus.write(0xde00, 0x00);     // cs=0 (active low, selected) → reset shiftregs
+  const desel = () => bus.write(0xde00, 0x40);   // cs=1 (deselected) → execute command
+  desel(); sel(); spiByte(0x06); desel();        // WRITE_ENABLE
+  desel(); sel(); spiByte(0x02); spiByte(0x00); spiByte(0x00); spiByte(0x00); spiByte(0x5a); desel(); // PAGE_PROGRAM addr0 ← 0x5a
+  bus.write(0xde08, 0x00); bus.write(0xde00, 0x00); // 8K, bank0, bitbang off
+  gate("GMOD3: SPI PAGE_PROGRAM 0x5a@0 → ROML read 0x5a", bus.read(0x8000) === 0x5a, `r=${bus.read(0x8000)}`);
+
+  // SPI READ_DATA serial read-back of addr 0
+  bus.write(0xde08, 0x80); // bitbang
+  desel(); sel(); spiByte(0x03); spiByte(0x00); spiByte(0x00); spiByte(0x00); // READ_DATA addr0
+  let val = 0;
+  for (let i = 0; i < 8; i++) { bus.write(0xde00, 0x00); val = (val << 1) | ((bus.read(0xde00) >> 7) & 1); bus.write(0xde00, 0x20); }
+  gate("GMOD3: SPI READ_DATA serial read-back = 0x5a", val === 0x5a, `read=0x${val.toString(16)}`);
+
+  const img = cart.getWritableImage();
+  gate("GMOD3: writable image = 2MB", img.length === 0x200000, `len=${img.length}`);
+}
+
 console.log("---");
 if (failures.length === 0) { console.log(`GREEN 713 device-core: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 713 device-core: ${passes} pass, ${failures.length} fail.`);
