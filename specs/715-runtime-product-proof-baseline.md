@@ -1,4 +1,4 @@
-# Spec 716 - Runtime Product Proof Baseline and Tiered Gate Policy
+# Spec 715 - Runtime Product Proof Baseline and Tiered Gate Policy
 
 **Status:** DRAFT (2026-05-24 CEST)
 **Owner:** Runtime / quality contract
@@ -45,11 +45,11 @@ full-system endurance run.
 
 Once this spec is implemented and its baseline frozen:
 
-- Spec 716 is the active authority for "the runtime product is green."
+- Spec 715 is the active authority for "the runtime product is green."
 - Specs 600 and 601 remain in the repository as historical 1541 bring-up
   contracts, marked superseded for current-product claims.
 - `PLAN.md`, `README.md`, developer instructions, and proof scripts must refer
-  to Spec 716 for the live baseline.
+  to Spec 715 for the live baseline.
 
 Do not silently rewrite history in 600/601. The shift from the 1541 recovery
 baseline to a product baseline is itself important evidence.
@@ -91,7 +91,7 @@ execution gates, not a single legacy game-loop script treated as universal.
 Do not freeze a new active baseline while the active cartridge family port is
 still changing.
 
-The first Spec 716 baseline is cut after:
+The first Spec 715 baseline is cut after:
 
 1. Spec 713 cartridge-fidelity batch is integrated and truthful;
 2. Spec 714.5 writable cartridge persistence is complete for every mapper
@@ -193,13 +193,13 @@ Full product proof:
 - may be run earlier when a broad semantic change makes additional work unsafe
   until global health is confirmed.
 
-## 5. Immediate Policy While Spec 716 Is Being Implemented
+## 5. Immediate Policy While Spec 715 Is Being Implemented
 
 This policy applies now, including the in-flight Spec 713 branch.
 
 | Work Item | Inner Loop Required Gates | Full `runtime:proof` Timing |
 |---|---|---|
-| Docs / Spec 715 / Spec 716 | doc review only | none |
+| Docs / Specs 715/716 | doc review only | none |
 | Single CRT mapper or flash/EEPROM/SPI device core | `build:mcp`; mapper differential; mapper snapshot/persistence tests; real CRT sample when available | once at end of integrated 713/714.5 batch before merge |
 | Global cartridge/PLA routing | `build:mcp`; PLA/cart gate; affected CRT real-media gates | before merge, and once after routing settles |
 | UI-only monitor/inspector view | UI typecheck/build; route/component smoke | none unless runtime command/state behavior changed |
@@ -278,7 +278,7 @@ When future work lands, the capability set grows:
 
 ## 7. Fix Current Documentation Drift
 
-During the Spec 716 implementation:
+During the Spec 715 implementation:
 
 1. Mark Specs 600/601 as historical/superseded for active product-baseline
    claims while retaining their evidence content.
@@ -290,7 +290,7 @@ During the Spec 716 implementation:
 4. Replace dated active authority references such as
    `docs/runtime-proof-baseline-2026-05-16.md` in live scripts/docs with the
    new product baseline reference.
-5. Update `PLAN.md` and `README.md` to refer to Spec 716 and the manifest-driven
+5. Update `PLAN.md` and `README.md` to refer to Spec 715 and the manifest-driven
    product proof command.
 
 No documentation change may retroactively assert a feature was proven unless
@@ -298,7 +298,7 @@ the manifest gate for that feature was actually run and recorded.
 
 ## 8. Implementation Slices
 
-### 716.1 - Policy Ratification
+### 715.1 - Policy Ratification
 
 - Land this spec.
 - Apply its immediate tiered-gate policy to in-flight branches.
@@ -306,7 +306,7 @@ the manifest gate for that feature was actually run and recorded.
 
 **Exit:** current work can proceed under a documented non-wasteful gate rule.
 
-### 716.2 - Baseline Inventory After 713/714.5
+### 715.2 - Baseline Inventory After 713/714.5
 
 - Read the actual green gates on `master`.
 - Inventory claimed capabilities versus existing scripts.
@@ -314,7 +314,7 @@ the manifest gate for that feature was actually run and recorded.
 
 **Exit:** no capability is listed green without a concrete gate.
 
-### 716.3 - Manifest and Runner
+### 715.3 - Manifest and Runner
 
 - Add manifest-driven product proof execution.
 - Provide fast capability selection and full product mode.
@@ -324,7 +324,7 @@ the manifest gate for that feature was actually run and recorded.
 **Exit:** developers can run only relevant gates in the inner loop and one
   deterministic full product barrier before merge.
 
-### 716.4 - Freeze Current Product Baseline
+### 715.4 - Freeze Current Product Baseline
 
 - Run the complete manifest at the selected `master` commit.
 - Record results and baseline tag.
@@ -333,7 +333,7 @@ the manifest gate for that feature was actually run and recorded.
 
 **Exit:** one truthful, current, product-level green baseline exists.
 
-### 716.5 - Enforce by Change Surface
+### 715.5 - Enforce by Change Surface
 
 - Add lightweight CI or contributor instructions mapping changed paths to
   required capability gates.
@@ -346,9 +346,9 @@ the manifest gate for that feature was actually run and recorded.
 
 ## 9. Acceptance
 
-Spec 716 is `DONE` when:
+Spec 715 is `DONE` when:
 
-1. Spec 716 is cited as the active product proof authority.
+1. Spec 715 is cited as the active product proof authority.
 2. Specs 600/601 are retained as history but no longer contradict the active
    baseline.
 3. A manifest-driven focused/full proof workflow exists.
@@ -372,10 +372,10 @@ Spec 716 is `DONE` when:
 
 ## 11. Scheduling
 
-Land 716.1 immediately as process guidance. It unblocks efficient completion of
+Land 715.1 immediately as process guidance. It unblocks efficient completion of
 Spec 713 without weakening its acceptance criteria.
 
-Perform 716.2-716.4 after Spec 713 and Spec 714.5 have merged, because the
+Perform 715.2-715.4 after Spec 713 and Spec 714.5 have merged, because the
 supported cartridge and mutable-media surface must be stable before it can be
 frozen as the new product baseline.
 

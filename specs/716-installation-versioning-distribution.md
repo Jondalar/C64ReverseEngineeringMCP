@@ -1,4 +1,4 @@
-# Spec 715 - Installation, Versioning, and Distribution
+# Spec 716 - Installation, Versioning, and Distribution
 
 **Status:** DRAFT  
 **Owner:** Runtime / product infrastructure  
@@ -241,7 +241,7 @@ After the gate:
 
 ## 6. Implementation Slices
 
-### 715.1 - Truth and platform prerequisites
+### 716.1 - Truth and platform prerequisites
 
 - Determine supported Node LTS baseline by build/smoke evidence.
 - Identify minimum runtime assets and environment variables.
@@ -249,7 +249,7 @@ After the gate:
 
 **Exit:** no undocumented required prerequisite for MCP startup.
 
-### 715.2 - Root install guide
+### 716.2 - Root install guide
 
 - Add `INSTALL.md`.
 - Reduce `README.md` setup content to quick-start plus the install-guide link.
@@ -259,7 +259,7 @@ After the gate:
 **Exit:** commands are copy/pasteable and distinguish MCP, UI, and maintainer
 asset rebuild paths.
 
-### 715.3 - Reproducible source/container verification
+### 716.3 - Reproducible source/container verification
 
 - Add the chosen container recipe.
 - Add minimal install/mcp-start smoke suitable for CI.
@@ -268,7 +268,7 @@ asset rebuild paths.
 
 **Exit:** source checkout and container routes are supported, not aspirational.
 
-### 715.4 - Versioning contract
+### 716.4 - Versioning contract
 
 - Add the pre-1.0 semver policy to `INSTALL.md` or a linked release section.
 - Set/enforce supported Node version metadata.
@@ -277,7 +277,7 @@ asset rebuild paths.
 **Exit:** the existing `0.1.0` has an explicit meaning and future releases are
 not ad hoc.
 
-### 715.5 - npm packaging spike and decision
+### 716.5 - npm packaging spike and decision
 
 - Configure a candidate package/executable without publishing.
 - Run `npm pack` install-from-tarball proofs.
@@ -312,8 +312,9 @@ The spec is complete when:
 
 ## 9. Recommended Scheduling
 
-Spec 715 does not depend on completing Spec 713 and can run in parallel on a
-docs/infrastructure-only branch. It must not modify runtime code or interfere
-with the cartridge-port work. The npm publication decision should happen only
-after currently active runtime changes intended for the first public install
-baseline have landed.
+Spec 716 does not block the runtime roadmap. It can run later on a
+docs/infrastructure-only branch, after the new product-proof baseline work in
+Spec 715 or in parallel with feature work when desired. It must not modify
+runtime code. The npm publication decision should happen only after currently
+active runtime changes intended for the first public install baseline have
+landed.
