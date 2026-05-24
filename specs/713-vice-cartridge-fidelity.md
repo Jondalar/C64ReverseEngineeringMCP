@@ -306,21 +306,24 @@ the real media/runtime/checkpoint path (no mapper overrides in tests).
 | 4 | GMOD2 `io1_read` low 7 bits = `vicii_read_phi1()&0x7f` via new `setPhi1`, not constant. | `probe-713-devcore` — varying phi1 tracked. |
 | 5 | `Flash040.catchUp()` runs at `getData()` + `snapshotState()`. Covers EF/GMOD2/C64MegaCart (flash040) + MegaByter (flash800). | `probe-713-erase-catchup` 3/3 — erase → advance clk past completion, NO flash access → capture reads erased. |
 
-**MegaByter (Lykia) crash — RESOLVED, not a runtime bug.** The `lykianew`/
-`lykia_fixed`/`lykia_rebuilt` MegaByter CRTs are the crackers' work-in-progress
-**roundtrip rebuilds** (extract → decompile → reassemble; the folder has many
-`_fixed`/`_NOPATCH`/`_NOCARRIER`/`test` variants), and they crash (the rebuilt
-code runs garbage into `$9F00`-RAM). The **original** Lykia release
-(`lykia_protovision.crt`, MagicDesk type 19, 996K) boots correctly in the runtime
-and renders the Protovision logo (PC=`$1a36`). So MagicDesk + the core run the
-real game; the MegaByter crash is the broken rebuild, not the mapper. MegaByter
-mapper stays faithful + gated (synthetic + real-CRT load/attach); there is simply
-**no known-good real MegaByter CRT in the corpus** to e2e-boot (all are broken
-rebuilds) — honest deferral on MegaByter real-cart boot only.
+**MegaByter (Lykia) crash — was a REAL mapper bug, now FIXED.** `MegabyterMapper.write`
+consumed `$8000-$9FFF` writes into flash800 in ALL modes. VICE programs the flash
+ONLY in ultimax (`roml_store → megabyter_roml_store`); in 8K/16K the hook is
+`roml_no_ultimax_store` and MegaByter is not in its switch → `ram_store`, so the
+write falls through to the RAM under the ROML. Lykia (8K) stages code into
+`$9Fxx`-RAM, then `$01=$35` banks ROML out and `JMP $9F00` runs that RAM code; my
+mapper ate the write into flash so the RAM stayed garbage → crash. Fix: write
+returns true (flash) only when `register_02&3==3` (ultimax); else false → bus RAM
+passthrough. (The original Lykia is a real MegaByter cart with a WRONG CRT-type
+byte 19 — that mislabelled header is the cart's, not our inference; run as
+MegaByter it now boots its "Lykia / Play / Prologue" menu, and the `lykianew`
+type-86 rebuild renders the Protovision logo.) probe-713-devcore now gates 8K
+`$8xxx`→RAM + ultimax→flash.
 
-Status: **audit findings 1-5 GREEN; Lykia cleared.** Cart gates: probe-714-5
-16/16, rombank 32/32, devcore 48/48, erase-catchup 3/3, ingress 8/8,
-smoke-cart-fidelity 18/18, smoke-cart-real 4/4. Real-cart boots render correct:
-EF (Accolade), MagicDesk (IM3 + Lykia/Protovision), GMOD2 (Yeti). Remaining
-before DONE/merge: the baseline-extension spec (and, if desired, a known-good
-MegaByter sample). Branch `spec-713-cart-families` held.
+Status: **audit findings 1-5 GREEN; MegaByter write bug fixed.** Cart gates:
+probe-714-5 16/16, rombank 32/32, devcore 49/49, erase-catchup 3/3, ingress 8/8,
+smoke-cart-fidelity 18/18, smoke-cart-real 4/4. runtime:proof 7/7 (pre-MegaByter-
+fix; the fix is MegabyterMapper-only, no 7-game effect). All four real-cart
+families boot + render: EF (Accolade), MagicDesk (IM3 + Lykia/Protovision), GMOD2
+(Yeti), MegaByter (Lykia). Remaining before DONE/merge: the baseline-extension
+spec. Branch `spec-713-cart-families` held.
