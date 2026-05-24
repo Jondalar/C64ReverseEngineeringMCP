@@ -240,36 +240,111 @@ VICE source root: `/Users/alex/Development/C64/Tools/vice/vice/src`. TS owner:
 
 | Family / device | VICE authority | TS status (2026-05-24) |
 | --- | --- | --- |
-| AM29F040 flash core | `core/flash040core.c`, `flash040.h` | **PORTED (faithful)** — `Flash040` class: full command state machine + `flash_base_state`, `old & byte` program, autoselect IDs, byte-program-error status, magic masking (TYPE_B 0x555/0x2aa mask 0x7ff), `program_byte`/`last_read`, snapshot state. Documented simplification: erase is ATOMIC (no erase_alarm timing / sector-erase-timeout window); data-faithful, no mid-erase state to snapshot. |
-| EasyFlash | `c64/cart/easyflash.c` | **PORTED (faithful)** — IO1 `addr & 2` mirror decode, `register_02 & 0x87`, `easyflash_memconfig` mode/line matrix + jumper, IO2 RAM `$DF00-$DFFF` (256B), two `Flash040` chips, full continuation snapshot (bank/control/jumper/IO2 RAM + each flash command-state). Gates: `probe:714-5` 16/16. |
-| Generic Normal 8K/16K, Ultimax | `c64/cart/c64-generic.c` | Present (BaseMapper / Normal8k / Normal16k / Ultimax). Read-only banked; believed correct, NOT yet differential-verified vs VICE (713.2 pending). |
-| Ocean | `c64/cart/ocean.c` | SIMPLIFIED (fixed bank mask; not size/profile-derived). 713.5 pending. |
-| Magic Desk / Magic Desk 16 | `c64/cart/magicdesk.c`, `magicdesk16.c` | SIMPLIFIED (no bit-7 disable / dynamic GAME-EXROM). 713.5 pending. |
-| Protovision MegaByter | `c64/cart/megabyter.c` + `core/flash800core.c` | SIMPLIFIED (uses `AmdFlashChip` approximation, not `flash800core`). 713.3 (flash800core) + 713.6 pending. |
-| GMOD2 | `c64/cart/gmod2.c` + `core/m93c86.c` (EEPROM) | SIMPLIFIED (no EEPROM). 713.3 (m93c86) + 713.7 pending. |
-| GMOD3 | `c64/cart/gmod3.c` + `core/spi-flash.c` | SIMPLIFIED (no SPI flash, wrong bank-select). 713.3 (spi-flash) + 713.7 pending. |
-| C64MegaCart | resolve owning VICE source or remove | UNRESOLVED — 713.0 follow-up: map to real VICE source or drop the faithful claim. |
+| AM29F040 flash core | `core/flash040core.c`, `flash040.h` | **PORTED (faithful)** — `Flash040` class, **type-parametrized** (`FLASH040_NORMAL`/`B`/`160`): full 13-state command machine + `flash_base_state`, `old & byte` program, autoselect IDs, byte-program-error status, per-type magic masks, sector/chip erase as the **clk-scheduled busy window** (DQ6 toggle + DQ3, per-type erase cycles, multi-sector `erase_mask`), `program_byte`/`last_read`, snapshot incl. the pending erase-alarm clk. Erase alarm is lazy-but-scheduled (applied on the next access at-or-after the scheduled clk) — observably identical to VICE's `maincpu_alarm_context` alarm and snapshot-faithful (the scheduled clk is captured). Shared by EasyFlash, GMOD2, C64MegaCart. |
+| EasyFlash | `c64/cart/easyflash.c` | **PORTED (faithful)** — IO1 `addr & 2` mirror decode, `register_02 & 0x87`, `easyflash_memconfig` mode/line matrix + jumper, IO2 RAM `$DF00-$DFFF` (256B), EAPI replacement, two `Flash040` (TYPE_B), mode-aware flash-program (ultimax only) + RAM passthrough, full continuation snapshot + writable image. Gates: `probe:714-5` 16/16. |
+| Generic Normal 8K/16K, Ultimax | `c64/cart/c64-generic.c` | **PORTED + verified** — bus-level differential gate (`probe:713-rombank`): ROML/ROMH/lines, cart shadows RAM. |
+| Ocean | `c64/cart/ocean.c` | **PORTED (faithful)** — `io1_mask = (size>>13)-1`, 512KB → 8K game, else 16K game with the same 8K bank mirrored to ROML+ROMH, regval snapshot. `probe:713-rombank`. |
+| Magic Desk / Magic Desk 16 | `c64/cart/magicdesk.c`, `magicdesk16.c` | **PORTED (faithful)** — bit-7 disable, size-derived bankmask, 8K (MD) / 16K (MD16, NEW type, CRT 85) lines, regval snapshot. `probe:713-rombank`. |
+| Protovision MegaByter | `c64/cart/megabyter.c` + `core/flash800core.c` | **PORTED (faithful)** — `flash800core` reuses the `Flash040` class with a `FLASH800_CB` type (identical state machine). `$DE00` bit1 → mode register (8K/16K/RAM/ultimax + LED), else bank; ROML-only flash read+program. AmdFlashChip path removed. `probe:713-devcore`. |
+| GMOD2 | `c64/cart/gmod2.c` + `core/m93c86.c` (EEPROM) | **PORTED (faithful)** — `flash040` TYPE_NORMAL + full `m93c86.ts` MicroWire EEPROM. `$DE00` bank/cmode/EEPROM lines; flash read 8K / program ultimax; EEPROM via `$DE00` r/w. `probe:713-devcore`. |
+| GMOD3 | `c64/cart/gmod3.c` + `core/spi-flash.c` | **PORTED (faithful)** — full `spi-flash.ts` serial core; dual-mode IO1 (banking vs bitbang SPI), `$DE08` control, pport-gated direct ROML read, SPI reflash. `probe:713-devcore`. |
+| C64MegaCart | `martinpiper/Vice-3.1-with-C64MegaCart` (vendored `vice-refs/c64megacart/`) | **PORTED (faithful)** — corrected: it HAS fork authority (not in mainline VICE). `flash040` TYPE_160, 14-bit bank (`$DE00` low / `$DF00` high+cmode), no EEPROM. `probe:713-devcore`. |
+| flash800core / m93c86 / spi-flash | `core/flash800core.c` / `m93c86.c` / `spi-flash.c` | **PORTED** — flash800 via parametrized `Flash040`; `m93c86.ts` + `spi-flash.ts` full serial-protocol ports with snapshot. |
 
-## 10. Result — flash040core + EasyFlash (713.3 partial + 713.4)
+## 10. Result — full cartridge batch (2026-05-24)
 
-EasyFlash — the reproduced incident family — is now VICE-faithful. The four
-audit REDs are fixed and gated by `probe:714-5` (16/16):
+Every declared cartridge family now has a source-faithful VICE-shaped active
+implementation; no simplified active mapper remains. Device cores ported:
+`flash040core` (type-parametrized NORMAL/B/160, shared by EasyFlash/GMOD2/
+C64MegaCart), `flash800core` (MegaByter — reuses the parametrized `Flash040`
+class with a `FLASH800_CB` type, the state machine is byte-identical),
+`m93c86.ts` (GMOD2 MicroWire EEPROM) and `spi-flash.ts` (GMOD3 serial flash).
 
-- IO1 mirror: `$DE04` sets the bank like `$DE00`; `$DE06` sets control like `$DE02`.
-- IO2 RAM `$DF00-$DFFF` reads/writes + survives same-session checkpoint,
-  `.c64re` fresh-session and the ring.
-- Flash program physics `old & byte`: `$ff→$14→$10→$ff` keeps `$10`.
-- Mid-command continuation: a checkpoint mid-AMD-unlock is accepted (the command
-  state is captured) and continues identically after restore (no drift).
-- Active-runtime banking: the real EasyFlash CRT cold-boots + executes, and a
-  program-driven `$DE00` bank switch reads the correct per-bank flash.
+Architecture: the memory bus routes every access through the active VICE
+memconfig (PLA); the cartridge is consulted only for PLA-mapped windows + IO
+when visible; ultimax open windows return `vicii_read_phi1()`; cart-window
+writes are **mapper-driven** (return true = consumed/flash, false = pass through
+to RAM — VICE `roml_store` vs `roml_no_ultimax_store`); PLA reconfig runs on any
+consumed IO1/IO2 cart write. Writable state (flash/EEPROM/SPI) is fully
+persistable via `getWritableImage`/`setWritableImage` (data) + `getState`/
+`setState` (command/continuation), so checkpoint / `.c64re` / ring restore a
+mid-operation device identically.
 
-`flash040core` is ported and shared-ready for GMOD2's flash. `flash800core`
-(MegaByter), `m93c86` (GMOD2 EEPROM) and `spi-flash` (GMOD3) are NOT yet ported.
+`C64MegaCart` corrected: it was wrongly removed (only mainline VICE checked);
+its authority is the martinpiper fork (vendored `vice-refs/c64megacart/`) and it
+is now a real `flash040` TYPE_160 port. No type removed for lack of authority.
 
-**Spec 713 status: IN PROGRESS.** EasyFlash + flash040core done; Ocean,
-Magic Desk/16, MegaByter (+flash800core), GMOD2 (+m93c86), GMOD3 (+spi-flash),
-the C64MegaCart resolution, and the generic-baseline differential verification
-remain. Per §3.7 the not-yet-faithful families are to be gated to explicit
-reject-on-attach in a follow-up slice so no simplified mapper is silently active
-under a fidelity claim. No partial-batch DONE.
+Gates (per-mapper VICE differential, authoritative; the 7-game disk gate does
+not exercise these mappers): `probe:714-5` 16/16 (EasyFlash), `probe:713-rombank`
+32/32 (MagicDesk / MagicDesk16 / Ocean / generic 8K-16K), `probe:713-devcore`
+43/43 (GMOD2+m93c86 / C64MegaCart / MegaByter+flash800 / GMOD3+spi-flash),
+`smoke-cart-fidelity` 18/18.
+
+## 11. Audit REOPEN (2026-05-24) — NOT complete, NOT faithful yet
+
+A runtime/ingress audit with the real CRT samples found gaps the synthetic
++override probes hid. Spec 713 is **IN PROGRESS again**; the prior "COMPLETE /
+faithful / accepted-equivalent" text was premature and is withdrawn. No merge,
+no DONE, no baseline change until every finding below is RED-then-GREEN through
+the real media/runtime/checkpoint path (no mapper overrides in tests).
+
+| # | Owner | Finding |
+| --- | --- | --- |
+| 1 | `inferMapperType` + `media/ingress.ts` | Real GMOD2(60)/GMOD3(62)/C64MegaCart CRT headers must route with NO override; prove via ingress + checkpoint-restore. |
+| 2 | `gmod3.c gmod3_romh_read` | vectors-enabled fixed table `$FFF8-$FFFF = 08 00 08 00 0c 80 0c 00` not implemented; `$FFF8` returns open bus after `$DE08=$20`. |
+| 3 | `Gmod3Mapper` | mapper pin state (eepromCs/Clock/Data) not in getState/setState → mid-SPI snapshot/restore diverges. |
+| 4 | `gmod2_io1_read` | EEPROM read low 7 bits must be `vicii_read_phi1()&0x7f`, not constant `0x7f`. |
+| 5 | `flash040core`/`flash800core` | erase alarm is lazy at flash read/store only; `snapshotState()`/`getWritableImage()` do NOT catch up, so a checkpoint past completion WITHOUT a flash access captures stale (un-erased) data. Must be VICE-equivalent capture (catch-up on capture or real alarm). Covers EF/GMOD2/C64MegaCart/MegaByter.
+
+### Audit resolution (2026-05-24) — findings 1-5 CLOSED, each RED-then-GREEN
+
+| # | Fix | Gate |
+| --- | --- | --- |
+| 1 | `inferMapperType` routes hw-IDs 60→gmod2 / 61→c64megacart / 62→gmod3 (C64MegaCart ID 61 from the vendored fork `cartridge.h`). | `probe-713-ingress` 8/8 — header dispatch NO override + unknown-reject + real GMOD2 via media-ingress + checkpoint→restore. |
+| 2 | `Gmod3Mapper.read` adds ROMH: `$FFF8-$FFFF` table `08 00 08 00 0c 80 0c 00`; `$E000-$FFF7` = VICE `mem_read_without_ultimax()` via the new `HeadlessMemoryBus.readWithoutUltimax()` (wired to the cart as `setReadWithoutUltimax`) — the normal CPU-port map without the cart overlay: `$01=$37` → KERNAL ROM, HIRAM cleared → RAM (NOT unconditional raw RAM). | `probe-713-devcore` — real-bus `$FFF8-$FFFF` + reset `$800c` + `$E123` KERNAL at `$01=$37` / RAM when ROM-out. |
+| 3 | GMOD3 mapper pin latches (eepromCs/Clock/Data) added to getState/setState (`state.mapperPins`). | `probe-713-devcore` — mid-SPI snapshot→disturb→restore identical next byte. |
+| 4 | GMOD2 `io1_read` low 7 bits = `vicii_read_phi1()&0x7f` via new `setPhi1`, not constant. | `probe-713-devcore` — varying phi1 tracked. |
+| 5 | `Flash040.catchUp()` runs at `getData()` + `snapshotState()`. Covers EF/GMOD2/C64MegaCart (flash040) + MegaByter (flash800). | `probe-713-erase-catchup` 3/3 — erase → advance clk past completion, NO flash access → capture reads erased. |
+
+**MegaByter (Lykia) crash — was a REAL mapper bug, now FIXED.** `MegabyterMapper.write`
+consumed `$8000-$9FFF` writes into flash800 in ALL modes. VICE programs the flash
+ONLY in ultimax (`roml_store → megabyter_roml_store`); in 8K/16K the hook is
+`roml_no_ultimax_store` and MegaByter is not in its switch → `ram_store`, so the
+write falls through to the RAM under the ROML. Lykia (8K) stages code into
+`$9Fxx`-RAM, then `$01=$35` banks ROML out and `JMP $9F00` runs that RAM code; my
+mapper ate the write into flash so the RAM stayed garbage → crash. Fix: write
+returns true (flash) only when `register_02&3==3` (ultimax); else false → bus RAM
+passthrough. (The original Lykia is a real MegaByter cart with a WRONG CRT-type
+byte 19 — that mislabelled header is the cart's, not our inference; run as
+MegaByter it now boots its "Lykia / Play / Prologue" menu, and the `lykianew`
+type-86 rebuild renders the Protovision logo.) probe-713-devcore now gates 8K
+`$8xxx`→RAM + ultimax→flash.
+
+GMOD3 `$E000-$FFF7` corrected to VICE `mem_read_without_ultimax` (KERNAL at
+`$01=$37`, RAM when ROM-out) via the new `HeadlessMemoryBus.readWithoutUltimax`
+(wired as `setReadWithoutUltimax`).
+GMOD3 SPI commands READ_STATUS (command `0x05`, returns ready status byte `0x01`),
+REMS (2MB JEDEC id 1c 70 03) and
+BLOCK_ERASE (erases the addressed 64K block, neighbours intact) were verified 1:1
+against `spi-flash.c` and gated through the real bus — all GREEN first run, no fix
+needed.
+
+Status: **Spec 713 BEHAVIOR COMPLETE — merge HELD pending baseline / 714.5
+coordination.** Cart gates: probe-714-5 16/16, rombank 39/39 (incl. generic
+Ultimax: hw-type 0 + ROMH @ $E000, header-inferred — $E000/$FFFF cart-read,
+$A000/$5000 open windows = phi1/open-bus), devcore 53/53, erase-catchup 3/3,
+ingress 8/8, smoke-cart-fidelity 18/18, smoke-cart-real 4/4, probe-714-5-persist
+33/33, runtime:proof 7/7. No open 713 behaviour defect.
+
+**Real-cart boot evidence:** EF (Accolade), MagicDesk (IM3 + Lykia/Protovision),
+GMOD2 (Yeti), MegaByter (Lykia) render correct titles. **GMOD3 and C64MegaCart:
+no real commercial sample available in the corpus — verified by VICE-source-
+derived, header-inferred synthetic runtime gates (no mapper override).** This is
+the accepted completion proof for those two types, NOT a deferred implementation.
+
+**714.5 writable-cartridge persistence = COMPLETE** (probe-714-5-persist 33/33):
+checkpoint + `.c64re` fresh-session + ring + mid-operation for GMOD2 (flash+EEPROM),
+GMOD3 (SPI), MegaByter (flash800), C64MegaCart (flash) and EasyFlash.
+
+Branch `spec-713-cart-families` stays held — no merge, no DONE, no baseline change
+until the master baseline-extension spec lands.

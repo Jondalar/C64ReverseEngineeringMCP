@@ -1,6 +1,32 @@
 # Spec 714 - Mutable Media Snapshot Fidelity: Disk, Cartridge and Rewind State
 
-**Status (scope corrected 2026-05-24 CEST after audit):** DISK path DONE (714.1-714.4) — untouched, green. **714.5 CARTRIDGE STATE = IN PROGRESS** and is bound to the complete Spec 713 VICE-cartridge batch: EasyFlash, MegaByter, GMOD2 and GMOD3 writable state must be carried through checkpoint, `.c64re` and ring once their complete device cores land; read-only banked families still require continuation-state proof under 713. EasyFlash is currently known RED (IO1 mirror, IO2 RAM, AM29F040 `old & byte` programming and command-state continuation). Any temporary reject present during development is only a corruption guard, not a milestone or final policy. The final VICE-shaped behavior allows snapshots of modified media and operations in progress because their complete state is captured.  
+**Status (2026-05-24 CEST):** DISK path DONE (714.1-714.4). **714.5 CARTRIDGE
+PERSISTENCE = PROVEN** for every writable family now that the Spec 713 device
+cores landed. The checkpoint stack is mapper-agnostic: `captureMediaCheckpoint`
+stores `cartridge.state = cart.getState()` (continuation) + `captureCartFlash` =
+`getWritableImage()` (data); `restoreMediaCheckpoint` rebuilds from the original
+`.crt` bytes, `setState(continuation)`, then `setWritableImage(data)`. The ring
+(705.B) pools `cartFlash`; `.c64re` (707) serializes the same. The dirty guard
+only rejects when `!persistsWritableState()` — all five families return true, so
+a dirty cart is captured, not rejected (the temporary corruption guard is gone
+for them). **714.5 CARTRIDGE PERSISTENCE = COMPLETE**, proved by TWO gates:
+`scripts/probe-714-5-persist.mjs` (33/33) for **GMOD2, GMOD3, MegaByter and
+C64MegaCart** + the generic ring policy, and `scripts/probe-714-5.mjs` (16/16) for
+**EasyFlash**. Both header-inferred (no override), through the real
+RuntimeController. Matrix:
+- **checkpoint** (capture→clobber→restore) + **`.c64re` FRESH-session** dump/undump
+  — `probe-714-5-persist`: MegaByter flash, C64MegaCart flash, GMOD3 SPI flash,
+  GMOD2 flash AND m93c86 EEPROM (0xABCD@5 survives both paths); `probe-714-5`:
+  EasyFlash flash + IO2 RAM;
+- **ring** multi-version + pin + forced eviction (format-generic `cartFlash` pool,
+  `probe-714-5-persist`): pinned version survives eviction + rehydrates exactly,
+  remaining version exact;
+- **mid-operation**: `probe-714-5-persist` — GMOD2 Flash040 + MegaByter Flash800
+  mid-sector-erase busy-window through `.c64re` (state + erase-alarm clk +
+  erase-mask identical after fresh-session undump) and GMOD3 mid-SPI-READ
+  (command + shift-register continuation identical); `probe-714-5` — EasyFlash
+  mid-erase checkpoint + `.c64re` fresh-session.
+Operations-in-progress + modified media are captured (not rejected).
 **Depends on:** Specs 705.A/B, 706, 707 implementation surfaces; VICE1541 fidelity doctrine in Specs 612/620  
 **Coordinates with:** Spec 709 for media ingress/events; Spec 713 for VICE-faithful writable cartridge hardware  
 **Blocks:** Durable Spec 710 evidence promotion, Spec 711 intervention branches, Spec 712 rewind/replay; truthful writable-media `.c64re` persistence  

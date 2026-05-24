@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { HeadlessBankInfo, HeadlessCartridgeMapperType, HeadlessCartridgeState, Flash040SnapState } from "./types.js";
 import { EAPI_AM29F040 } from "./eapi-am29f040.js";
+import { M93c86 } from "./m93c86.js";
+import { SpiFlash } from "./spi-flash.js";
 
 const CRT_SIGNATURE = "C64 CARTRIDGE   ";
 const FLASH_CMD_ADDR1 = 0x0555;
@@ -57,6 +59,14 @@ export interface HeadlessCartridgeMapper {
   /** Spec 713 — wire the live maincpu_clk into writable hardware that needs it
    *  (flash erase busy window / status toggle). The bus calls this at attach. */
   setClock?(clk: () => number): void;
+  /** Spec 713 (audit #4) — wire the live vicii_read_phi1() float-bus value into
+   *  mappers whose IO reads mix in open-bus low bits (GMOD2 EEPROM read =
+   *  (data<<7)|(phi1&0x7f)). The bus calls this at attach with its phi1 source. */
+  setPhi1?(phi1: () => number): void;
+  /** Spec 713 (audit) — wire VICE `mem_read_without_ultimax` for fake-ultimax
+   *  mappers whose romh_read falls through to the normal CPU-port C64 map without
+   *  the cart overlay (GMOD3 $E000-$FFF7 → KERNAL/BASIC/IO/RAM per $01, NOT raw RAM). */
+  setReadWithoutUltimax?(read: (addr: number) => number): void;
 }
 
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
@@ -76,6 +86,8 @@ function mapperFromImage(image: ParsedCartridgeImage): HeadlessCartridgeMapper {
       return new MegabyterMapper(image);
     case "magicdesk":
       return new MagicDeskMapper(image);
+    case "magicdesk16":
+      return new MagicDesk16Mapper(image);
     case "ocean":
       return new OceanMapper(image);
     case "easyflash":
@@ -96,6 +108,11 @@ function mapperFromImage(image: ParsedCartridgeImage): HeadlessCartridgeMapper {
       return new Gmod3Mapper(image);
     case "c64megacart":
       return new C64MegaCartMapper(image);
+    default:
+      // Spec 713 — a type with no authoritative VICE source is not a supported
+      // VICE-faithful cartridge; report unsupported rather than keep an invented
+      // proxy mapper.
+      throw new Error(`Unsupported cartridge type "${image.mapperType}" — no authoritative VICE implementation.`);
   }
 }
 
@@ -189,10 +206,17 @@ function inferMapperType(
     case 5:
       return "ocean";
     case 19:
+      return "magicdesk";       // CARTRIDGE_MAGIC_DESK
     case 85:
-      return "magicdesk";
+      return "magicdesk16";     // CARTRIDGE_MAGIC_DESK_16
     case 86:
       return "megabyter";
+    case 60:
+      return "gmod2";           // CARTRIDGE_GMOD2
+    case 61:
+      return "c64megacart";     // CARTRIDGE_C64MEGACART (martinpiper fork)
+    case 62:
+      return "gmod3";           // CARTRIDGE_GMOD3
     case 32:
       return "easyflash";
     default:
@@ -239,38 +263,20 @@ function buildLinearChipData(
   return result;
 }
 
-interface FlashSectorLayout {
-  start: number;
-  size: number;
+// VICE derives the bank register mask from the loaded image size (magicdesk.c /
+// magicdesk16.c bankmask, ocean.c io1_mask = (size>>13)-1). We derive the same
+// power-of-two-minus-one mask from the highest 8K bank index present, capped to
+// the family's maximum (MagicDesk 0x7f, Ocean 0x3f).
+function bankMaskForImage(image: ParsedCartridgeImage, cap: number): number {
+  const highest = [...image.banks.keys()].reduce((m, b) => Math.max(m, b), 0);
+  let mask = 1;
+  while (mask < highest) mask = ((mask << 1) | 1);
+  return mask & cap;
 }
 
-interface AmdFlashChipOptions {
-  label: string;
-  data: Uint8Array;
-  commandAddress1: number;
-  commandAddress2: number;
-  commandAddressMask: number;
-  manufacturerId: number;
-  deviceId: number;
-  sectors: FlashSectorLayout[];
-}
-
-interface HeadlessWritableChip {
-  read(offset: number): number;
-  write(offset: number, value: number): boolean;
-  getMode(): string;
-}
-
-function createUniformSectors(totalSize: number, sectorSize: number): FlashSectorLayout[] {
-  const sectors: FlashSectorLayout[] = [];
-  for (let start = 0; start < totalSize; start += sectorSize) {
-    sectors.push({ start, size: Math.min(sectorSize, totalSize - start) });
-  }
-  return sectors;
-}
-
-function findSectorForOffset(sectors: FlashSectorLayout[], offset: number): FlashSectorLayout | undefined {
-  return sectors.find((sector) => offset >= sector.start && offset < sector.start + sector.size);
+function totalImageBytes(image: ParsedCartridgeImage): number {
+  const highest = [...image.banks.keys()].reduce((m, b) => Math.max(m, b), 0);
+  return (highest + 1) * 0x2000;
 }
 
 abstract class BaseMapper implements HeadlessCartridgeMapper {
@@ -374,158 +380,79 @@ class UltimaxMapper extends BaseMapper {
   }
 }
 
+// VICE magicdesk.c — 8K-game banked cart. IO1 ($DE00-$DEFF) store: bit 7 =
+// disable (EXROM released → cart off), bits 0..6 = ROM bank (& bankmask). ROML
+// only; $A000-$BFFF stays BASIC. regval is the snapshot register.
 class MagicDeskMapper extends BaseMapper {
+  private regval = 0;
+  private readonly bankmask = bankMaskForImage(this.image, 0x7f);
   write(address: number, value: number): boolean {
-    if (address === 0xde00) {
-      this.currentBank = value & 0x3f;
+    if (address >= 0xde00 && address <= 0xdeff) {
+      this.regval = value & (0x80 | this.bankmask);
+      this.currentBank = value & this.bankmask;
       return true;
     }
     return false;
   }
-
-  protected romhA000Visible(): boolean {
-    return false;
+  getLines(): HeadlessCartridgeLines {
+    return (this.regval & 0x80) ? { exrom: 1, game: 1 } : { exrom: 0, game: 1 };
   }
+  protected romhA000Visible(): boolean { return false; }
+  protected getControlRegister(): number { return this.regval; }
+  protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
 }
 
+// VICE magicdesk16.c — 16K-game banked cart. IO1 store: bit 7 = disable, bits
+// 0..6 = bank (& bankmask); the bank maps to BOTH ROML ($8000) and ROMH ($A000).
+class MagicDesk16Mapper extends BaseMapper {
+  private regval = 0;
+  private readonly bankmask = bankMaskForImage(this.image, 0x7f);
+  write(address: number, value: number): boolean {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      this.regval = value & (0x80 | this.bankmask);
+      this.currentBank = value & this.bankmask;
+      return true;
+    }
+    return false;
+  }
+  getLines(): HeadlessCartridgeLines {
+    // enabled → 16K game (exrom+game asserted); bit 7 → cart off.
+    return (this.regval & 0x80) ? { exrom: 1, game: 1 } : { exrom: 0, game: 0 };
+  }
+  protected getControlRegister(): number { return this.regval; }
+  protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
+}
+
+// VICE ocean.c — banked cart, 8K bank → ROML. 512KB images use 8K-game config;
+// every other size uses 16K-game and MIRRORS the same 8K bank to ROML and ROMH.
+// IO1 store: bank = value & io1_mask & 0x3f (io1_mask = (size>>13)-1). No disable.
 class OceanMapper extends BaseMapper {
+  private regval = 0;
+  private readonly io1Mask = bankMaskForImage(this.image, 0x3f);
+  private readonly is8k = totalImageBytes(this.image) === 0x80000;
   write(address: number, value: number): boolean {
-    if (address === 0xde00) {
-      this.currentBank = value & 0x3f;
+    if (address >= 0xde00 && address <= 0xdeff) {
+      this.regval = value;
+      this.currentBank = value & this.io1Mask & 0x3f;
       return true;
     }
     return false;
   }
+  getLines(): HeadlessCartridgeLines {
+    return this.is8k ? { exrom: 0, game: 1 } : { exrom: 0, game: 0 };
+  }
+  read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    const bank = this.banks.get(this.currentBank);
+    if (!bank?.roml) return undefined;
+    if (address >= 0x8000 && address <= 0x9fff) return bank.roml[address - 0x8000];
+    // 16K-game mirror: $A000-$BFFF reads the same 8K ROML bank (ocean.c romh_read).
+    if (!this.is8k && address >= 0xa000 && address <= 0xbfff) return bank.roml[address - 0xa000];
+    return undefined;
+  }
+  protected getControlRegister(): number { return this.regval; }
+  protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
 }
 
-type FlashCommandState = "read" | "cmd1" | "cmd2" | "program" | "erase1" | "erase2" | "erase3" | "autoselect";
-
-class AmdFlashChip implements HeadlessWritableChip {
-  public state: FlashCommandState = "read";
-  // Spec 709.11b — set when flash contents are mutated (program/erase). Used by
-  // the writable-CRT dump guard: v1 cannot persist flash deltas, so a dirty
-  // flash is rejected at dump rather than silently restoring the original bytes.
-  private dirty = false;
-
-  constructor(private readonly options: AmdFlashChipOptions) {}
-
-  isDirty(): boolean { return this.dirty; }
-  // Spec 714.5 (audit) — true while a multi-step AMD command is in progress
-  // (state != read). Such a mid-command checkpoint is non-restorable until the
-  // flash command-state machine is snapshotted, so it must be rejected for now.
-  isBusy(): boolean { return this.state !== "read"; }
-
-  // Spec 713/714.5 — VICE-faithful writable-state surface. getData() returns the
-  // live flash array (caller copies before pooling); loadData() overlays a
-  // restored image and resets the command state machine to read mode (the
-  // restored bytes are the new truth, so dirty clears).
-  getData(): Uint8Array { return this.options.data; }
-  loadData(bytes: Uint8Array): void {
-    this.options.data.set(bytes.subarray(0, this.options.data.length));
-    this.state = "read";
-    this.dirty = false;
-  }
-
-  getMode(): string {
-    return `${this.options.label}:${this.state}`;
-  }
-
-  read(offset: number): number {
-    const normalized = offset % this.options.data.length;
-    const commandOffset = normalized & this.options.commandAddressMask;
-    if (this.state === "autoselect") {
-      if (commandOffset === 0x0000) return this.options.manufacturerId;
-      if (commandOffset === 0x0001) return this.options.deviceId;
-    }
-    return this.options.data[normalized] ?? 0xff;
-  }
-
-  write(offset: number, value: number): boolean {
-    const normalized = offset % this.options.data.length;
-    const commandOffset = normalized & this.options.commandAddressMask;
-    const byte = value & 0xff;
-    if (byte === 0xf0) {
-      this.state = "read";
-      return true;
-    }
-
-    switch (this.state) {
-      case "read":
-        if (commandOffset === this.options.commandAddress1 && byte === 0xaa) {
-          this.state = "cmd1";
-          return true;
-        }
-        return false;
-      case "cmd1":
-        if (commandOffset === this.options.commandAddress2 && byte === 0x55) {
-          this.state = "cmd2";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "cmd2":
-        if (commandOffset === this.options.commandAddress1 && byte === 0xa0) {
-          this.state = "program";
-          return true;
-        }
-        if (commandOffset === this.options.commandAddress1 && byte === 0x80) {
-          this.state = "erase1";
-          return true;
-        }
-        if (commandOffset === this.options.commandAddress1 && byte === 0x90) {
-          this.state = "autoselect";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "program":
-        this.options.data[normalized] = byte;
-        this.dirty = true; // Spec 709.11b — flash mutated
-        this.state = "read";
-        return true;
-      case "erase1":
-        if (commandOffset === this.options.commandAddress1 && byte === 0xaa) {
-          this.state = "erase2";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "erase2":
-        if (commandOffset === this.options.commandAddress2 && byte === 0x55) {
-          this.state = "erase3";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "erase3":
-        if (commandOffset === this.options.commandAddress1 && byte === 0x10) {
-          this.options.data.fill(0xff);
-          this.dirty = true; // Spec 709.11b — chip erase mutated flash
-          this.state = "read";
-          return true;
-        }
-        if (byte === 0x30) {
-          const sector = findSectorForOffset(this.options.sectors, normalized);
-          if (!sector) {
-            this.state = "read";
-            return false;
-          }
-          this.options.data.fill(0xff, sector.start, sector.start + sector.size);
-          this.dirty = true; // Spec 709.11b — sector erase mutated flash
-          this.state = "read";
-          return true;
-        }
-        this.state = "read";
-        return false;
-      case "autoselect":
-        if (byte === 0xf0) {
-          this.state = "read";
-          return true;
-        }
-        return false;
-    }
-  }
-}
 
 // Spec 713 — source-faithful port of VICE flash040core.c for AM29F040B
 // (FLASH040_TYPE_B, as EasyFlash uses). Full 13-state command machine + base
@@ -544,13 +471,53 @@ class AmdFlashChip implements HeadlessWritableChip {
 // maincpu_rmw_flag (RMW opcodes write the old value first). The active TS CPU
 // path does not signal RMW to the cartridge; if it ever does, wrap store() the
 // same way. The EAPI flash path is plain LDA/STA, unaffected.
-const FLASH040B = {
+// VICE flash040core.c flash_types[] rows. The TS Flash040 core is parametrized
+// by one of these so EasyFlash (TYPE_B), GMOD2 (TYPE_NORMAL) and C64MegaCart
+// (TYPE_160, from the martinpiper fork) share one faithful implementation.
+interface Flash040Type {
+  manufacturerId: number; deviceId: number; deviceIdAddr: number;
+  size: number; sectorMask: number; sectorSize: number; sectorShift: number;
+  magic1Addr: number; magic2Addr: number; magic1Mask: number; magic2Mask: number;
+  statusToggleBits: number;
+  eraseSectorTimeoutCycles: number; eraseSectorCycles: number; eraseChipCycles: number;
+}
+// AM29F040 (FLASH040_TYPE_NORMAL) — GMOD2.
+const FLASH040_NORMAL: Flash040Type = {
+  manufacturerId: 0x01, deviceId: 0xa4, deviceIdAddr: 1,
+  size: 0x80000, sectorMask: 0x70000, sectorSize: 0x10000, sectorShift: 16,
+  magic1Addr: 0x5555, magic2Addr: 0x2aaa, magic1Mask: 0x7fff, magic2Mask: 0x7fff,
+  statusToggleBits: 0x40,
+  eraseSectorTimeoutCycles: 80, eraseSectorCycles: 2_000_000, eraseChipCycles: 14_000_000,
+};
+// AM29F040B (FLASH040_TYPE_B) — EasyFlash.
+const FLASH040B: Flash040Type = {
   manufacturerId: 0x01, deviceId: 0xa4, deviceIdAddr: 1,
   size: 0x80000, sectorMask: 0x70000, sectorSize: 0x10000, sectorShift: 16,
   magic1Addr: 0x555, magic2Addr: 0x2aa, magic1Mask: 0x7ff, magic2Mask: 0x7ff,
   statusToggleBits: 0x40,
   eraseSectorTimeoutCycles: 50, eraseSectorCycles: 1_000_000, eraseChipCycles: 8_000_000,
-} as const;
+};
+// M29F160FT (FLASH040_TYPE_160, martinpiper fork) — C64MegaCart. 2MB,
+// device id 0xd2 at addr 2, magic 0xaaa/0x555 mask 0xfff. The fork uses a
+// global erase-cycle define; we reuse the TYPE_B busy-window timings.
+const FLASH040_160: Flash040Type = {
+  manufacturerId: 0x01, deviceId: 0xd2, deviceIdAddr: 2,
+  size: 0x200000, sectorMask: 0x7f0000, sectorSize: 0x10000, sectorShift: 16,
+  magic1Addr: 0xaaa, magic2Addr: 0x555, magic1Mask: 0xfff, magic2Mask: 0xfff,
+  statusToggleBits: 0x40,
+  eraseSectorTimeoutCycles: 50, eraseSectorCycles: 1_000_000, eraseChipCycles: 8_000_000,
+};
+// MX29F800CB (FLASH800_TYPE_CB) — MegaByter. VICE core/flash800core.c is the same
+// AMD command state machine as flash040core (identical states + `old & byte`
+// program), just a different device row, so it reuses the Flash040 class. 1MB,
+// mfg 0xc2 / dev 0x58, magic 0xaaa/0x555 mask 0xfff.
+const FLASH800_CB: Flash040Type = {
+  manufacturerId: 0xc2, deviceId: 0x58, deviceIdAddr: 1,
+  size: 0x100000, sectorMask: 0x0f0000, sectorSize: 0x10000, sectorShift: 16,
+  magic1Addr: 0xaaa, magic2Addr: 0x555, magic1Mask: 0xfff, magic2Mask: 0xfff,
+  statusToggleBits: 0x40,
+  eraseSectorTimeoutCycles: 40, eraseSectorCycles: 700_000, eraseChipCycles: 8_000_000,
+};
 const FLASH040_ERASE_MASK_SIZE = 8;
 type Flash040StateName =
   | "read" | "magic1" | "magic2" | "autoselect"
@@ -574,19 +541,25 @@ class Flash040 {
   private eraseAlarmClk = -1;     // absolute maincpu_clk of next erase step; -1 = unset
   clock: () => number = () => 0;  // wired to maincpu_clk at attach
 
-  constructor(readonly data: Uint8Array, readonly label: string) {}
+  constructor(readonly data: Uint8Array, readonly label: string, private readonly t: Flash040Type = FLASH040B) {}
 
   isDirty(): boolean { return this.dirty; }
   /** "operation active" status (command sequence / erase busy). Not a snapshot
    *  veto — the full state is captured. Exposed for UI/debug. */
   isBusy(): boolean { return this.state !== "read"; }
-  getData(): Uint8Array { return this.data; }
+  /** Spec 713 (audit #5) — apply any erase steps due at the live clk. VICE's
+   *  erase_alarm_handler fires independently of flash access, so every
+   *  capture/inspect point (snapshot, writable-image, status) must catch up
+   *  first or it serialises stale (un-erased) data when a checkpoint lands past
+   *  completion without an intervening flash read/store. */
+  catchUp(): void { this.catchUpErase(this.clock()); }
+  getData(): Uint8Array { this.catchUp(); return this.data; }
   loadData(bytes: Uint8Array): void { this.data.set(bytes.subarray(0, this.data.length)); }
   getMode(): string { return `${this.label}:${this.state}`; }
 
-  private magic1(addr: number): boolean { return (addr & FLASH040B.magic1Mask) === FLASH040B.magic1Addr; }
-  private magic2(addr: number): boolean { return (addr & FLASH040B.magic2Mask) === FLASH040B.magic2Addr; }
-  private sectorNum(addr: number): number { return (addr & FLASH040B.sectorMask) >>> FLASH040B.sectorShift; }
+  private magic1(addr: number): boolean { return (addr & this.t.magic1Mask) === this.t.magic1Addr; }
+  private magic2(addr: number): boolean { return (addr & this.t.magic2Mask) === this.t.magic2Addr; }
+  private sectorNum(addr: number): number { return (addr & this.t.sectorMask) >>> this.t.sectorShift; }
 
   // VICE erase_alarm_handler, applied lazily for every elapsed step. Each step
   // chains the next alarm off the FIRED alarm's scheduled clk (`fireClk`), not
@@ -599,7 +572,7 @@ class Flash040 {
       this.eraseAlarmClk = -1; // alarm_unset
       switch (this.state) {
         case "sector_erase_timeout":
-          this.eraseAlarmClk = fireClk + FLASH040B.eraseSectorCycles;
+          this.eraseAlarmClk = fireClk + this.t.eraseSectorCycles;
           this.state = "sector_erase";
           break;
         case "sector_erase": {
@@ -609,7 +582,7 @@ class Flash040 {
           }
           let any = 0;
           for (let i = 0; i < FLASH040_ERASE_MASK_SIZE; i++) any |= this.eraseMask[i]!;
-          if (any !== 0) this.eraseAlarmClk = fireClk + FLASH040B.eraseSectorCycles;
+          if (any !== 0) this.eraseAlarmClk = fireClk + this.t.eraseSectorCycles;
           else this.state = this.baseState;
           break;
         }
@@ -634,8 +607,8 @@ class Flash040 {
     switch (this.state) {
       case "autoselect": {
         const a = addr & 0xff;
-        if (a === 0) v = FLASH040B.manufacturerId;
-        else if (a === FLASH040B.deviceIdAddr) v = FLASH040B.deviceId;
+        if (a === 0) v = this.t.manufacturerId;
+        else if (a === this.t.deviceIdAddr) v = this.t.deviceId;
         else if (a === 2) v = 0;
         else v = this.data[addr] ?? 0xff;
         break;
@@ -664,7 +637,7 @@ class Flash040 {
   // VICE flash_erase_operation_status: DQ6 toggle (status_toggle_bits), DQ3 timer.
   private eraseOperationStatus(): number {
     const v = this.programByte;
-    this.programByte = (this.programByte ^ FLASH040B.statusToggleBits) & 0xff;
+    this.programByte = (this.programByte ^ this.t.statusToggleBits) & 0xff;
     return (this.state !== "sector_erase_timeout" ? (v | 0x08) : v) & 0xff;
   }
 
@@ -703,11 +676,11 @@ class Flash040 {
       case "erase_select":
         if (this.magic1(addr) && b === 0x10) {
           this.state = "chip_erase"; this.programByte = 0;
-          this.eraseAlarmClk = clk + FLASH040B.eraseChipCycles;
+          this.eraseAlarmClk = clk + this.t.eraseChipCycles;
         } else if (b === 0x30) {
           this.addSectorToEraseMask(addr); this.programByte = 0;
           this.state = "sector_erase_timeout";
-          this.eraseAlarmClk = clk + FLASH040B.eraseSectorTimeoutCycles;
+          this.eraseAlarmClk = clk + this.t.eraseSectorTimeoutCycles;
         } else this.state = this.baseState;
         break;
       case "sector_erase_timeout":
@@ -718,7 +691,7 @@ class Flash040 {
         if (b === 0xb0) { this.state = "sector_erase_suspend"; this.eraseAlarmClk = -1; }
         break;
       case "sector_erase_suspend":
-        if (b === 0x30) { this.state = "sector_erase"; this.eraseAlarmClk = clk + FLASH040B.eraseSectorCycles; }
+        if (b === 0x30) { this.state = "sector_erase"; this.eraseAlarmClk = clk + this.t.eraseSectorCycles; }
         break;
       case "byte_program_error":
       case "autoselect":
@@ -740,8 +713,8 @@ class Flash040 {
     return next === byte; // false → byte_program_error (a 0->1 was requested)
   }
   private eraseSector(sector: number): void {
-    const start = sector * FLASH040B.sectorSize;
-    this.data.fill(0xff, start, Math.min(start + FLASH040B.sectorSize, this.data.length));
+    const start = sector * this.t.sectorSize;
+    this.data.fill(0xff, start, Math.min(start + this.t.sectorSize, this.data.length));
     this.dirty = true;
   }
   private eraseChip(): void { this.data.fill(0xff); this.dirty = true; }
@@ -751,6 +724,7 @@ class Flash040 {
   }
 
   snapshotState(): Flash040SnapState {
+    this.catchUp(); // audit #5 — capture post-alarm state, not stale lazy state
     return {
       state: FLASH040_STATES.indexOf(this.state),
       baseState: FLASH040_STATES.indexOf(this.baseState),
@@ -906,13 +880,15 @@ class EasyFlashMapper extends BaseMapper {
     }
     // Flash programming (AMD command state machine). VICE programs the flash
     // ONLY in ULTIMAX: $8000-$9FFF → easyflash_roml_store (flash_low), $E000-$FFFF
-    // → easyflash_romh_store (flash_high). The bus only calls write here for those
-    // ultimax windows; 8k/16k ROM-window writes are routed to the RAM underneath
-    // by the bus (roml_no_ultimax_store/romh_no_ultimax_store → ram_store) and
-    // never reach this method. No write-through here — the bus owns RAM.
-    const offset = this.chipOffsetForWindow(address);
-    if (address >= 0x8000 && address <= 0x9fff) { this.loFlash.store(offset, value); return true; }
-    if (address >= 0xe000 && address <= 0xffff) { this.hiFlash.store(offset, value); return true; }
+    // → easyflash_romh_store (flash_high). In 8K/16K the ROM-window write hook is
+    // roml_no_ultimax_store / romh_no_ultimax_store → ram_store, so we return
+    // false and let the bus write the RAM underneath. Returning true consumes the
+    // write (no RAM); returning false = pass through to RAM.
+    if (this.currentMode() === "ultimax") {
+      const offset = this.chipOffsetForWindow(address);
+      if (address >= 0x8000 && address <= 0x9fff) { this.loFlash.store(offset, value); return true; }
+      if (address >= 0xe000 && address <= 0xffff) { this.hiFlash.store(offset, value); return true; }
+    }
     return false;
   }
 
@@ -928,180 +904,412 @@ class EasyFlashMapper extends BaseMapper {
   }
 }
 
-function createMegabyterSectors(): FlashSectorLayout[] {
-  return [
-    { start: 0x00000, size: 0x04000 },
-    { start: 0x04000, size: 0x02000 },
-    { start: 0x06000, size: 0x02000 },
-    { start: 0x08000, size: 0x08000 },
-    ...createUniformSectors(0x100000 - 0x10000, 0x10000).map((sector) => ({
-      start: sector.start + 0x10000,
-      size: sector.size,
-    })),
-  ];
-}
-
+// VICE megabyter.c — Protovision MegaByter. 1MB Flash (MX29F800CB via
+// flash800core, 128×8K banks, ROML only). IO1 ($DE00): addr bit1 → register_02
+// (mode bits 0-1 + LED bit7), else register_00 (ROM bank & 0x7f). Mode index →
+// memconfig[0..3] = 8K / 16K / RAM(off) / ULTIMAX. Flash is read AND programmed
+// at ROML $8000-$9FFF (roml_read / roml_store → flash800core); the cart has no
+// ROMH. Replaces the old approximate AmdFlashChip path.
 class MegabyterMapper extends BaseMapper {
-  private bankRegister = 0x00;
-  private controlRegister = 0x00;
-  private readonly flash: AmdFlashChip;
+  private register00 = 0;   // bank
+  private register02 = 0;   // mode (bits 0-1) + LED (bit 7)
+  private readonly flash: Flash040;
 
   constructor(image: ParsedCartridgeImage) {
     super(image);
-    const data = buildLinearChipData(image, (bank) => bank.roml, 128);
-    this.flash = new AmdFlashChip({
-      label: "megabyter",
-      data,
-      commandAddress1: 0x0aaa,
-      commandAddress2: 0x0555,
-      commandAddressMask: 0x1fff,
-      manufacturerId: 0xc2,
-      deviceId: 0x58,
-      sectors: createMegabyterSectors(),
-    });
+    this.flash = new Flash040(buildLinearChipData(image, (b) => b.roml, 128), "megabyter", FLASH800_CB);
   }
 
+  setClock(clk: () => number): void { this.flash.clock = clk; }
+  private flashOffset(address: number): number { return ((this.register00 * 0x2000) + (address & 0x1fff)) >>> 0; }
+
   getLines(): HeadlessCartridgeLines {
-    switch (this.controlRegister & 0x03) {
-      case 0x00:
-        return { exrom: 0, game: 1 };
-      case 0x01:
-        return { exrom: 0, game: 0 };
-      case 0x02:
-        return { exrom: 1, game: 1 };
-      case 0x03:
-        return { exrom: 1, game: 0 };
-      default:
-        return { exrom: 1, game: 1 };
+    switch (this.register02 & 0x03) {
+      case 0x00: return { exrom: 0, game: 1 }; // 8K
+      case 0x01: return { exrom: 0, game: 0 }; // 16K
+      case 0x02: return { exrom: 1, game: 1 }; // RAM (off)
+      default:   return { exrom: 1, game: 0 }; // ULTIMAX
     }
+  }
+
+  read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0x8000 && address <= 0x9fff) return this.flash.read(this.flashOffset(address));
+    return undefined; // ROML-only cart; upper windows are not mapped by MegaByter
+  }
+
+  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      if (address & 2) this.register02 = value & 0x83;
+      else this.register00 = value & 0x7f;
+      this.currentBank = this.register00;
+      return true;
+    }
+    // Flash is programmed ONLY in ultimax (VICE roml_store → megabyter_roml_store →
+    // flash800core_store). In 8K/16K the $8000 write hook is roml_no_ultimax_store,
+    // and MegaByter is NOT in its switch → ram_store: the write falls through to the
+    // RAM underneath. So return false in non-ultimax so the bus writes RAM (Lykia
+    // stages code into $9Fxx-RAM under the ROML, then banks ROML out and runs it).
+    if (address >= 0x8000 && address <= 0x9fff) {
+      if ((this.register02 & 0x03) === 0x03) { this.flash.store(this.flashOffset(address), value); return true; }
+      return false;
+    }
+    return false;
   }
 
   getState(): HeadlessCartridgeState {
     const state = super.getState();
-    state.currentBank = this.bankRegister;
-    state.controlRegister = this.controlRegister;
+    state.currentBank = this.register00;
+    state.controlRegister = this.register02;
     state.writable = true;
-    state.flashMode = `${this.currentMode()} [${this.flash.getMode()}]`;
+    state.flashMode = `megabyter:${this.register02 & 0x03} [${this.flash.getMode()}]`;
+    state.flashLoState = this.flash.snapshotState();
     return state;
   }
 
   setState(state: HeadlessCartridgeState): void {
-    // Spec 709.7 — Megabyter banks via bankRegister (mapped to currentBank in
-    // getState); restore both registers. Flash-write state is deferred (v1).
-    this.bankRegister = (state.currentBank ?? 0) & 0xff;
-    this.controlRegister = (state.controlRegister ?? 0) & 0xff;
+    this.register00 = (state.currentBank ?? 0) & 0x7f;
+    this.register02 = (state.controlRegister ?? 0) & 0x83;
+    this.currentBank = this.register00;
+    if (state.flashLoState) this.flash.restoreState(state.flashLoState);
   }
 
-  isWritableDirty(): boolean {
-    return this.flash.isDirty(); // Spec 709.11b
+  persistsWritableState(): boolean { return true; }
+  isWritableDirty(): boolean { return this.flash.isDirty(); }
+  getWritableImage(): Uint8Array { return new Uint8Array(this.flash.getData()); }
+  setWritableImage(bytes: Uint8Array): void { this.flash.loadData(bytes); }
+}
+
+// VICE gmod2.c — Individual Computers GMOD2: 512KB Flash (29F040, TYPE_NORMAL,
+// 64×8K banks) + M93C86 serial EEPROM. IO1 ($DE00) store:
+//   bits 0-5 = ROM bank;  bit 6 = EEPROM CS (and cart mode);  bit 4 = EEPROM DI;
+//   bit 5 = EEPROM CLK;  bits 7-6 select cmode: 0xc0=ULTIMAX, b6=0 → 8K game,
+//   b6=1 (b7=0) → RAM (cart off).
+//   IO1 read: CS ? (eeprom.read_data()<<7) | open-bus(0x7f) : 0.
+// Flash is READ at $8000-$9FFF in 8K mode (roml_read); flash is PROGRAMMED in
+// ULTIMAX (roml_store/romh_store → flash040core_store at (addr&0x1fff)+(bank<<13)).
+type Gmod2Cmode = "8k" | "off" | "ultimax";
+class Gmod2Mapper extends BaseMapper {
+  private register = 0;
+  private cmode: Gmod2Cmode = "8k";
+  private eepromCs = 0;
+  private readonly flash: Flash040;
+  private readonly eeprom: M93c86;
+  private phi1: () => number = () => 0xff;
+
+  constructor(image: ParsedCartridgeImage) {
+    super(image);
+    this.flash = new Flash040(buildLinearChipData(image, (b) => b.roml, 64), "gmod2", FLASH040_NORMAL);
+    this.eeprom = new M93c86();
   }
 
-  read(address: number, bankInfo: HeadlessBankInfo): number | undefined {
-    if (this.currentMode() === "off") {
-      return undefined;
+  setClock(clk: () => number): void { this.flash.clock = clk; }
+  setPhi1(fn: () => number): void { this.phi1 = fn; }
+
+  private flashOffset(address: number): number {
+    return ((address & 0x1fff) + (this.currentBank << 13)) >>> 0;
+  }
+
+  getLines(): HeadlessCartridgeLines {
+    switch (this.cmode) {
+      case "8k": return { exrom: 0, game: 1 };
+      case "ultimax": return { exrom: 1, game: 0 };
+      case "off": return { exrom: 1, game: 1 };
     }
-    if (address >= 0x8000 && address <= 0x9fff) {
-      return this.flash.read(this.chipOffsetForWindow(0x8000, address));
+  }
+
+  read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      // gmod2_io1_read: (m93c86_read_data() << 7) | (vicii_read_phi1() & 0x7f)
+      // while CS asserted; otherwise open bus (phi1).
+      const phi1 = this.phi1() & 0xff;
+      return this.eepromCs ? (((this.eeprom.read_data() & 1) << 7) | (phi1 & 0x7f)) : phi1;
     }
-    if (address >= 0xe000 && address <= 0xffff && this.currentMode() === "ultimax") {
-      return this.flash.read(this.chipOffsetForWindow(0xe000, address));
+    // gmod2_roml_read: flash only in 8K mode; otherwise the C64 RAM underneath
+    // (fake-ultimax) — return undefined so the bus serves RAM.
+    if (this.cmode === "8k" && address >= 0x8000 && address <= 0x9fff) {
+      return this.flash.read(this.flashOffset(address));
     }
-    return super.read(address, bankInfo);
+    return undefined;
   }
 
   write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
-    if (address === 0xde00) {
-      this.bankRegister = value & 0x7f;
-      this.currentBank = this.bankRegister;
-      return true;
-    }
-    if (address === 0xde02) {
-      this.controlRegister = value & 0x03;
-      return true;
-    }
-    if (this.currentMode() !== "ultimax") {
-      return false;
-    }
-    if (address >= 0x8000 && address <= 0x9fff) {
-      return this.flash.write(this.chipOffsetForWindow(0x8000, address), value);
-    }
-    if (address >= 0xe000 && address <= 0xffff) {
-      return this.flash.write(this.chipOffsetForWindow(0xe000, address), value);
-    }
-    return false;
-  }
-
-  protected romhA000Visible(): boolean {
-    return false;
-  }
-
-  protected romhE000Visible(): boolean {
-    return this.currentMode() === "ultimax";
-  }
-
-  protected romlVisible(): boolean {
-    return this.currentMode() !== "off";
-  }
-
-  protected getControlRegister(): number {
-    return this.controlRegister;
-  }
-
-  private currentMode(): "8k" | "off" | "ultimax" {
-    switch (this.controlRegister & 0x03) {
-      case 0x02:
-        return "off";
-      case 0x03:
-        return "ultimax";
-      default:
-        return "8k";
-    }
-  }
-
-  private chipOffsetForWindow(baseAddress: number, address: number): number {
-    return (this.bankRegister << 13) | resolveRelativeOffset(baseAddress, address);
-  }
-}
-
-// Sprint 87 (Spec 087) — GMOD2 mapper (Individual Computers).
-// 512 KB Flash + 2 KB EEPROM. v1 implements bank switching via
-// $DE00 (bits 0-5 = bank, bit 6 = flash visible/disabled). EEPROM
-// SDA/CLK simulation (bit 7 + bit 6) deferred to R31 backlog.
-class Gmod2Mapper extends BaseMapper {
-  write(address: number, value: number): boolean {
-    if (address === 0xde00) {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      this.register = value & 0xff;
       this.currentBank = value & 0x3f;
-      // bit 6 = exrom (1 = released, 0 = asserted) per GMOD2 docs
-      // simplification: cart visible while bank-select active
+      if ((value & 0xc0) === 0xc0) this.cmode = "ultimax";
+      else if ((value & 0x40) === 0x00) this.cmode = "8k";
+      else this.cmode = "off";
+      this.eepromCs = (value >> 6) & 1;
+      const eepromData = (value >> 4) & 1;
+      const eepromClock = (value >> 5) & 1;
+      this.eeprom.write_select(this.eepromCs);
+      if (this.eepromCs) {
+        this.eeprom.write_data(eepromData);
+        this.eeprom.write_clock(eepromClock);
+      }
+      return true;
+    }
+    // gmod2_romh_store / roml_store: program flash. The bus routes cart-window
+    // writes here only in ultimax (roml_store/romh_store); 8K/off writes go to RAM.
+    if (this.cmode === "ultimax" &&
+        ((address >= 0x8000 && address <= 0x9fff) || (address >= 0xe000 && address <= 0xffff))) {
+      this.flash.store(this.flashOffset(address), value);
       return true;
     }
     return false;
+  }
+
+  getState(): HeadlessCartridgeState {
+    const state = super.getState();
+    state.currentBank = this.currentBank;
+    state.controlRegister = this.register;
+    state.writable = true;
+    state.flashMode = `gmod2:${this.cmode} [${this.flash.getMode()}]`;
+    state.flashLoState = this.flash.snapshotState();
+    state.eepromState = this.eeprom.snapshotState();
+    return state;
+  }
+
+  setState(state: HeadlessCartridgeState): void {
+    this.register = (state.controlRegister ?? 0) & 0xff;
+    this.currentBank = (state.currentBank ?? 0) & 0x3f;
+    if ((this.register & 0xc0) === 0xc0) this.cmode = "ultimax";
+    else if ((this.register & 0x40) === 0x00) this.cmode = "8k";
+    else this.cmode = "off";
+    this.eepromCs = (this.register >> 6) & 1;
+    if (state.flashLoState) this.flash.restoreState(state.flashLoState);
+    if (state.eepromState) this.eeprom.restoreState(state.eepromState);
+  }
+
+  persistsWritableState(): boolean { return true; }
+  isWritableDirty(): boolean { return this.flash.isDirty() || this.eeprom.isDirty(); }
+
+  getWritableImage(): Uint8Array {
+    const flash = this.flash.getData(), eeprom = this.eeprom.getData();
+    const out = new Uint8Array(flash.length + eeprom.length);
+    out.set(flash, 0); out.set(eeprom, flash.length);
+    return out;
+  }
+  setWritableImage(bytes: Uint8Array): void {
+    const flashLen = this.flash.getData().length;
+    this.flash.loadData(bytes.subarray(0, flashLen));
+    this.eeprom.loadData(bytes.subarray(flashLen));
   }
 }
 
 // GMOD3 — 16 MB Flash version of GMOD2. Same banking via $DE00 +
 // extended bank select via $DE02. v1 only handles low-byte bank select.
+// VICE gmod3.c — Individual Computers GMOD3: up to 16MB SPI flash, 8K banks.
+// IO1 ($DE00) is register-paged by the low address nibble:
+//   $DE00-$DE07: bitbang mode → SPI lines (cs=b6 active-low, clk=b5, di=b4);
+//                else → ROM bank: bank = value | ((addr&7)<<8) (11-bit).
+//   $DE08: control — bitbang_enabled=b7, vectors_enabled=b5, cmode (b6=0 →
+//          vectors?ultimax:8K; b6=1 → RAM/off).
+//   read $DE00-07 → bitbang+selected ? spi.read_data()<<7 : bank low;
+//        $DE08-0f → bank high.
+// ROML ($8000) reads the flash array DIRECTLY (parallel), gated by the CPU port
+// mem_config for fake-ultimax (vectors). Flash is REFLASHED only via the serial
+// SPI path (no parallel ROM-window programming).
+// VICE gmod3.c vectors[] — fixed table returned by gmod3_romh_read at $FFF8-$FFFF
+// when vectors are enabled (reset → $800C cart, NMI → $0008, IRQ → $000C).
+const GMOD3_VECTORS = [0x08, 0x00, 0x08, 0x00, 0x0c, 0x80, 0x0c, 0x00];
+type Gmod3Cmode = "8k" | "off" | "ultimax";
 class Gmod3Mapper extends BaseMapper {
-  write(address: number, value: number): boolean {
-    if (address === 0xde00) {
-      this.currentBank = (this.currentBank & 0xff00) | (value & 0xff);
-      return true;
-    }
-    if (address === 0xde02) {
-      this.currentBank = ((value & 0xff) << 8) | (this.currentBank & 0xff);
-      return true;
-    }
-    return false;
+  private gmod3Bank = 0;
+  private bitbang = 0;
+  private vectors = 0;
+  private cmode: Gmod3Cmode = "8k";
+  private eepromCs = 0;
+  private eepromClock = 0;
+  private eepromData = 0;
+  private readonly rom: Uint8Array;
+  private readonly spi = new SpiFlash();
+  private readWithoutUltimax: (addr: number) => number = () => 0;
+
+  constructor(image: ParsedCartridgeImage) {
+    super(image);
+    const highest = [...image.banks.keys()].reduce((m, b) => Math.max(m, b), 0);
+    this.rom = buildLinearChipData(image, (b) => b.roml, highest + 1);
+    this.spi.setImage(this.rom, this.rom.length);
   }
+
+  setReadWithoutUltimax(fn: (addr: number) => number): void { this.readWithoutUltimax = fn; }
+
+  getLines(): HeadlessCartridgeLines {
+    switch (this.cmode) {
+      case "8k": return { exrom: 0, game: 1 };
+      case "ultimax": return { exrom: 1, game: 0 };
+      case "off": return { exrom: 1, game: 1 };
+    }
+  }
+
+  read(address: number, bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      const a = address & 0xff;
+      if (this.bitbang) {
+        return this.eepromCs === 0 ? ((this.spi.read_data() & 1) << 7) : 0; // cs active-low
+      }
+      if (a <= 0x07) return this.gmod3Bank & 0xff;
+      if (a <= 0x0f) return (this.gmod3Bank & 0x0700) >> 8;
+      return 0;
+    }
+    if (address >= 0x8000 && address <= 0x9fff) {
+      // gmod3_roml_read: direct ROM unless vectors-enabled fake-ultimax says RAM.
+      const memConfig = (~bankInfo.cpuPortDirection | bankInfo.cpuPortValue) & 0x7;
+      if (!this.vectors || memConfig === 7 || memConfig === 3) {
+        return this.rom[((address & 0x1fff) + (this.gmod3Bank << 13)) >>> 0] ?? 0xff;
+      }
+      return undefined; // → bus RAM (fake ultimax)
+    }
+    // gmod3_romh_read (ultimax, vectors enabled): the fixed vector table at
+    // $FFF8-$FFFF, otherwise mem_read_without_ultimax (the underlying C64 RAM).
+    if (address >= 0xe000 && address <= 0xffff) {
+      if (address >= 0xfff8) return GMOD3_VECTORS[address & 7];
+      return this.readWithoutUltimax(address); // mem_read_without_ultimax (KERNAL/RAM per $01)
+    }
+    return undefined;
+  }
+
+  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
+    if (address >= 0xde00 && address <= 0xdeff) {
+      const a = address & 0xff;
+      if (a <= 0x07) {
+        if (this.bitbang) {
+          this.eepromCs = (value >> 6) & 1;
+          this.eepromClock = (value >> 5) & 1;
+          this.eepromData = (value >> 4) & 1;
+        } else {
+          this.gmod3Bank = (value & 0xff) | ((a & 0x07) << 8);
+        }
+      } else if (a === 0x08) {
+        this.bitbang = (value >> 7) & 1;
+        this.vectors = (value >> 5) & 1;
+        if ((value & 0x40) === 0x00) this.cmode = this.vectors ? "ultimax" : "8k";
+        else this.cmode = "off";
+      }
+      // VICE drives the SPI lines on every IO1 store (cs active low).
+      this.spi.write_select(this.eepromCs);
+      if (this.eepromCs === 0) {
+        this.spi.write_data(this.eepromData);
+        this.spi.write_clock(this.eepromClock);
+      }
+      return true;
+    }
+    return false; // ROM window writes → RAM (flash is reprogrammed via SPI only)
+  }
+
+  getState(): HeadlessCartridgeState {
+    const state = super.getState();
+    state.currentBank = this.gmod3Bank;
+    state.controlRegister = (this.bitbang << 7) | (this.vectors << 5) | (this.cmode === "off" ? 0x40 : 0);
+    state.writable = true;
+    state.flashMode = `gmod3:${this.cmode}${this.bitbang ? " bitbang" : ""}`;
+    state.spiState = this.spi.snapshotState();
+    // audit #3 — the mapper's own serial pin latches gate the next SPI edge.
+    state.mapperPins = (this.eepromCs << 2) | (this.eepromClock << 1) | this.eepromData;
+    return state;
+  }
+
+  setState(state: HeadlessCartridgeState): void {
+    this.gmod3Bank = (state.currentBank ?? 0) & 0x7ff;
+    const ctrl = state.controlRegister ?? 0;
+    this.bitbang = (ctrl >> 7) & 1;
+    this.vectors = (ctrl >> 5) & 1;
+    if ((ctrl & 0x40) === 0x00) this.cmode = this.vectors ? "ultimax" : "8k";
+    else this.cmode = "off";
+    if (state.spiState) this.spi.restoreState(state.spiState);
+    const pins = state.mapperPins ?? 0;
+    this.eepromCs = (pins >> 2) & 1; this.eepromClock = (pins >> 1) & 1; this.eepromData = pins & 1;
+  }
+
+  persistsWritableState(): boolean { return true; }
+  isWritableDirty(): boolean { return this.spi.isDirty(); }
+  getWritableImage(): Uint8Array { return new Uint8Array(this.rom); }
+  setWritableImage(bytes: Uint8Array): void { this.rom.set(bytes.subarray(0, this.rom.length)); }
 }
 
-// C64MegaCart — multi-game cart with simple $DE00 bank select.
+// VICE c64megacart.c (martinpiper fork, vendored in vice-refs/c64megacart/).
+// 2MB flash (FLASH040_TYPE_160), 14-bit bank: IO1 $DE00 = bank low byte, IO2
+// $DF00 = bank high 6 bits (<<8) + cmode (bits 7-6: 0xc0 ultimax / 0x00 8K /
+// 0x80 RAM-off). ROML ($8000) and ultimax ROMH ($E000) both read the same flash
+// offset (addr&0x1fff)+(bank<<13). Flash is programmed in ultimax
+// (roml_store/romh_store). No EEPROM (the m93c86 include in the C source is
+// vestigial — zero calls).
+type MegaCartCmode = "8k" | "off" | "ultimax";
 class C64MegaCartMapper extends BaseMapper {
-  write(address: number, value: number): boolean {
-    if (address === 0xde00) {
-      this.currentBank = value & 0x7f;
+  private megaBank = 0;       // 14-bit
+  private regHi = 0;          // last $DF00 value (cmode + bank high)
+  private cmode: MegaCartCmode = "8k";
+  private readonly flash: Flash040;
+
+  constructor(image: ParsedCartridgeImage) {
+    super(image);
+    this.flash = new Flash040(buildLinearChipData(image, (b) => b.roml, 256), "c64megacart", FLASH040_160);
+  }
+
+  setClock(clk: () => number): void { this.flash.clock = clk; }
+  private flashOffset(address: number): number { return ((address & 0x1fff) + (this.megaBank << 13)) >>> 0; }
+
+  getLines(): HeadlessCartridgeLines {
+    switch (this.cmode) {
+      case "8k": return { exrom: 0, game: 1 };
+      case "ultimax": return { exrom: 1, game: 0 };
+      case "off": return { exrom: 1, game: 1 };
+    }
+  }
+
+  read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xde00 && address <= 0xdfff) return undefined; // IO1/IO2 read = phi1 open-bus
+    if ((address >= 0x8000 && address <= 0x9fff) || (address >= 0xe000 && address <= 0xffff)) {
+      return this.flash.read(this.flashOffset(address));
+    }
+    return undefined;
+  }
+
+  write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
+    if (address >= 0xde00 && address <= 0xdeff) { // IO1: bank low byte
+      this.megaBank = (this.megaBank & 0xff00) | (value & 0xff);
+      return true;
+    }
+    if (address >= 0xdf00 && address <= 0xdfff) { // IO2: bank high 6 bits + cmode
+      this.regHi = value & 0xff;
+      this.megaBank = (this.megaBank & 0x00ff) | ((value & 0x3f) << 8);
+      if ((value & 0xc0) === 0xc0) this.cmode = "ultimax";
+      else if ((value & 0xc0) === 0x00) this.cmode = "8k";
+      else this.cmode = "off"; // 0x80
+      return true;
+    }
+    // flash program (roml_store/romh_store) in ultimax; 8K window writes pass to RAM.
+    if (this.cmode === "ultimax" &&
+        ((address >= 0x8000 && address <= 0x9fff) || (address >= 0xe000 && address <= 0xffff))) {
+      this.flash.store(this.flashOffset(address), value);
       return true;
     }
     return false;
   }
+
+  getState(): HeadlessCartridgeState {
+    const state = super.getState();
+    state.currentBank = this.megaBank;
+    state.controlRegister = this.regHi;
+    state.writable = true;
+    state.flashMode = `c64megacart:${this.cmode} [${this.flash.getMode()}]`;
+    state.flashLoState = this.flash.snapshotState();
+    return state;
+  }
+
+  setState(state: HeadlessCartridgeState): void {
+    this.megaBank = (state.currentBank ?? 0) & 0x3fff;
+    this.regHi = (state.controlRegister ?? 0) & 0xff;
+    if ((this.regHi & 0xc0) === 0xc0) this.cmode = "ultimax";
+    else if ((this.regHi & 0xc0) === 0x00) this.cmode = "8k";
+    else this.cmode = "off";
+    if (state.flashLoState) this.flash.restoreState(state.flashLoState);
+  }
+
+  persistsWritableState(): boolean { return true; }
+  isWritableDirty(): boolean { return this.flash.isDirty(); }
+  getWritableImage(): Uint8Array { return new Uint8Array(this.flash.getData()); }
+  setWritableImage(bytes: Uint8Array): void { this.flash.loadData(bytes); }
 }
+

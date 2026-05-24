@@ -236,6 +236,12 @@ export class HeadlessMemoryBus {
     // Spec 713 — wire the live maincpu_clk into writable cartridge hardware
     // (EasyFlash flash040 erase busy window / DQ6 toggle need a clock).
     cartridge?.setClock?.(this.cpuPortClock);
+    // Spec 713 (audit #4) — give the cart the live phi1 float-bus source so IO
+    // reads that mix in open-bus low bits (GMOD2 EEPROM) match VICE.
+    cartridge?.setPhi1?.(this.openBusProvider);
+    // Spec 713 (audit) — fake-ultimax romh read (GMOD3 $E000-$FFF7 =
+    // VICE mem_read_without_ultimax: normal CPU-port C64 map, no cart overlay).
+    cartridge?.setReadWithoutUltimax?.((addr) => this.readWithoutUltimax(addr));
     // Spec 402 / §12 step 8 — cartridge GAME/EXROM lines feed the 5-bit
     // memConfig selector. On attach/detach (or banking-register write
     // that changes the lines), re-run the PLA reconfig hook so the
@@ -536,9 +542,12 @@ export class HeadlessMemoryBus {
       if (this.ioVisible()) {
         if (normalized >= 0xde00 && normalized <= 0xdfff && this.cartridge?.write(normalized, byte, bankInfo)) {
           this.recordAccess("write", normalized, byte, normalized <= 0xdeff ? "cartridge_control" : "cartridge");
-          // Mode register ($DE02-class, addr&2) can change EXROM/GAME → PLA reconfig.
-          // A bank write ($DE00) leaves the lines unchanged, so skip it (hot path).
-          if (normalized <= 0xdeff && (normalized & 2)) this.memPlaConfigChanged();
+          // A consumed cart IO write can change EXROM/GAME — IO1 ($DE00, EasyFlash
+          // $DE02 / Magic Desk / Ocean / GMOD2 bank+mode) AND IO2 ($DF00, e.g.
+          // C64MegaCart's high-bank/mode register). Re-run the PLA reconfig in both
+          // cases (VICE cart_config_changed_slotmain fires from the relevant store);
+          // a no-op recompute for IO2-RAM carts (EasyFlash $DF00) is harmless.
+          this.memPlaConfigChanged();
           return;
         }
         this.io[normalized - 0xd000] = byte;
@@ -551,10 +560,12 @@ export class HeadlessMemoryBus {
       this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
     }
-    // $8000-$9FFF — ultimax programs flash_low; otherwise RAM underneath.
+    // $8000-$9FFF — when ROML is mapped the cart sees the write; it returns true
+    // if it consumes it (flash programming, e.g. EasyFlash in ultimax / GMOD2 in
+    // 8K) or false to pass through to the RAM underneath (VICE roml_store vs
+    // roml_no_ultimax_store → ram_store). When ROML is unmapped → RAM.
     if (normalized >= 0x8000 && normalized <= 0x9fff) {
-      if (this.isUltimax()) {
-        this.cartridge?.write(normalized, byte, bankInfo);
+      if (this.memConfig.bank8 === "cart_lo" && this.cartridge?.write(normalized, byte, bankInfo)) {
         this.recordAccess("write", normalized, byte, "cartridge");
         return;
       }
@@ -562,10 +573,15 @@ export class HeadlessMemoryBus {
       this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
     }
-    // $A000-$BFFF — ultimax open window drops; else RAM underneath (16k ROMH
-    // and BASIC-region writes both reach RAM per romh_no_ultimax_store).
+    // $A000-$BFFF — ROMH@a000: cart may consume (flash) else RAM; ultimax open
+    // window (not cart_hi) drops; otherwise RAM (16K ROMH / BASIC region writes
+    // reach RAM per romh_no_ultimax_store).
     if (normalized >= 0xa000 && normalized <= 0xbfff) {
-      if (this.isUltimax()) { this.recordAccess("write", normalized, byte, "open_bus"); return; }
+      if (this.memConfig.bankA === "cart_hi" && this.cartridge?.write(normalized, byte, bankInfo)) {
+        this.recordAccess("write", normalized, byte, "cartridge");
+        return;
+      }
+      if (this.memConfig.bankA !== "cart_hi" && this.isUltimax()) { this.recordAccess("write", normalized, byte, "open_bus"); return; }
       this.ram[normalized] = byte;
       this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
@@ -577,10 +593,9 @@ export class HeadlessMemoryBus {
       this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
       return;
     }
-    // $E000-$FFFF — ultimax programs flash_high; else RAM underneath.
+    // $E000-$FFFF — ultimax ROMH: cart may consume (flash) else RAM; otherwise RAM.
     if (normalized >= 0xe000 && normalized <= 0xffff) {
-      if (this.memConfig.bankE === "cart_hi_ultimax") {
-        this.cartridge?.write(normalized, byte, bankInfo);
+      if (this.memConfig.bankE === "cart_hi_ultimax" && this.cartridge?.write(normalized, byte, bankInfo)) {
         this.recordAccess("write", normalized, byte, "cartridge");
         return;
       }
@@ -596,6 +611,38 @@ export class HeadlessMemoryBus {
     // $0000-$0FFF + everything else → RAM.
     this.ram[normalized] = byte;
     this.recordAccess("write", normalized, byte, classifyRamRegion(normalized));
+  }
+
+  // Spec 713 (audit) — VICE `mem_read_without_ultimax(addr)` (c64mem.c:595):
+  //   read_tab_ptr = mem_read_tab[mem_config & 7]; return read_tab_ptr[addr>>8](addr)
+  // i.e. read `addr` through the NORMAL CPU-port-dependent C64 memory map with the
+  // cart's ultimax ROMH/ROML overlay removed. `mem_config & 7` keeps only LORAM/
+  // HIRAM/CHAREN (the stock no-cart configs 0-7), so at $01=$37 (config 7)
+  // $E000-$FFFF is KERNAL ROM, $A000-$BFFF is BASIC, $D000-$DFFF is I/O — NOT RAM.
+  // GMOD3's romh_read falls through here for $E000-$FFF7.
+  readWithoutUltimax(address: number): number {
+    const n = clampWord(address);
+    if (n === 0x0000) return this.cpuPortDirection;
+    if (n === 0x0001) return this.computeCpuPortDataRead();
+    // stock-C64 config = current port bits with the cart lines released (exrom=1,
+    // game=1) → memConfigTable[port | 0x18], the no-cart slice (= VICE config & 7).
+    const port = (~this.cpuPortDirection | this.cpuPortValue) & 0x07;
+    const cfg = this.memConfigTable[(port | 0x18) & 0x1f]!;
+    if (n >= 0xa000 && n <= 0xbfff && cfg.bankA === "basic") return this.basicRom[n - 0xa000]!;
+    if (n >= 0xd000 && n <= 0xdfff) {
+      if (cfg.bankD === "io") {
+        const handler = this.ioHandlers.get(n);
+        const v = handler?.read?.(n);
+        if (v !== undefined) this.io[n - 0xd000] = clampByte(v);
+        let ioValue = this.io[n - 0xd000]!;
+        if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | 0xf0;
+        return ioValue;
+      }
+      if (cfg.bankD === "char") return this.charRom[n - 0xd000]!;
+      return this.ram[n]!;
+    }
+    if (n >= 0xe000 && n <= 0xffff && cfg.bankE === "kernal") return this.kernalRom[n - 0xe000]!;
+    return this.ram[n]!;
   }
 
   // Spec 402 / §4.1 / §4.3 — PLA reconfig hook.

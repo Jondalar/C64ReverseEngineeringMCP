@@ -36,8 +36,10 @@ console.log("Spec 713 — VICE-faithful EasyFlash + flash040core");
 const cart = (s) => s.kernel.c64Bus.getCartridge();
 const bi = (s) => s.kernel.c64Bus.getBankInfo();
 const flash0 = (s) => cart(s).getWritableImage()[0];
-// 8k mode (roml visible) + bank 0 so flash command writes land at $8000.
-function efPrime(s, mode = 0x06) { cart(s).write(0xde00, 0x00, bi(s)); cart(s).write(0xde02, mode, bi(s)); }
+// Ultimax mode (reg02=0 → CMODE ultimax) + bank 0 so flash command/program
+// writes at $8000 reach the flash (VICE programs EasyFlash flash only in ultimax;
+// 8K/16K ROM-window writes pass through to RAM).
+function efPrime(s, mode = 0x00) { cart(s).write(0xde00, 0x00, bi(s)); cart(s).write(0xde02, mode, bi(s)); }
 const unlock = (s) => { cart(s).write(0x8555, 0xAA, bi(s)); cart(s).write(0x82AA, 0x55, bi(s)); };
 const program = (s, v) => { unlock(s); cart(s).write(0x8555, 0xA0, bi(s)); cart(s).write(0x8000, v & 0xff, bi(s)); };
 const sectorEraseCmd = (s) => { unlock(s); cart(s).write(0x8555, 0x80, bi(s)); unlock(s); cart(s).write(0x8000, 0x30, bi(s)); };
@@ -86,6 +88,7 @@ async function attach(ctrl, s) {
     chipEraseCmd(session); session.runFor(9_000_000, { cycleBudget: 9_000_000 }); // let chip erase complete
     cart(session).read(0x8000, bi(session)); // catch the lazy erase-alarm up
     gate("3 chip erase → byte 0 = 0xff", flash0(session) === 0xff, `b=${flash0(session)}`);
+    efPrime(session); // the running game changed EF mode during runFor — restore ultimax so programs reach flash
     program(session, 0x14); const a = flash0(session);
     program(session, 0x10); const b = flash0(session);
     program(session, 0xff); const c = flash0(session);
@@ -221,6 +224,7 @@ async function attach(ctrl, s) {
     await attach(ctrl, A.session);
     efPrime(A.session);
     chipEraseCmd(A.session); A.session.runFor(9_000_000, { cycleBudget: 9_000_000 }); cart(A.session).read(0x8000, bi(A.session));
+    efPrime(A.session); // restore ultimax after the running game touched EF mode during runFor
     program(A.session, 0x42); V = flash0(A.session);
     cart(A.session).write(0xdf20, 0x99, bi(A.session));
     snapPath = join(dir, "ef.c64re");
