@@ -75,6 +75,9 @@ export interface HeadlessCartridgeState {
   // Spec 713 — GMOD3 SPI-flash serial continuation (the flash DATA rides in the
   // writable image). cmode/bank/bitbang continuation in controlRegister/currentBank.
   spiState?: import("./spi-flash.js").SpiFlashSnapState;
+  // Spec 713 (audit #3) — GMOD3 mapper-level serial pin latches (cs<<2|clk<<1|di)
+  // that gate the next SPI edge; must restore for mid-SPI continuation.
+  mapperPins?: number;
 }
 
 /** Spec 713 — FLASH040 command-state-machine continuation (VICE flash040core),

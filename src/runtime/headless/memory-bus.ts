@@ -239,6 +239,9 @@ export class HeadlessMemoryBus {
     // Spec 713 (audit #4) — give the cart the live phi1 float-bus source so IO
     // reads that mix in open-bus low bits (GMOD2 EEPROM) match VICE.
     cartridge?.setPhi1?.(this.openBusProvider);
+    // Spec 713 (audit #2) — fake-ultimax romh read (GMOD3 $E000-$FFF7 =
+    // mem_read_without_ultimax). Raw RAM read of the underlying C64 memory.
+    cartridge?.setRamRead?.((addr) => this.ram[addr & 0xffff]!);
     // Spec 402 / §12 step 8 — cartridge GAME/EXROM lines feed the 5-bit
     // memConfig selector. On attach/detach (or banking-register write
     // that changes the lines), re-run the PLA reconfig hook so the

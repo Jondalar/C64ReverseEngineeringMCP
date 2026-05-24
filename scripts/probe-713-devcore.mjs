@@ -222,6 +222,30 @@ console.log("Spec 713 — device-core mappers (bus-level)");
 
   const img = cart.getWritableImage();
   gate("GMOD3: writable image = 2MB", img.length === 0x200000, `len=${img.length}`);
+
+  // audit #2: GMOD3 ROMH vector path — vectors+ultimax → fixed $FFF8-$FFFF table
+  // via the REAL bus (not a private mapper fn), + fake-ultimax C64 RAM elsewhere.
+  bus.write(0xde08, 0x20); // bitbang off, vectors on, b6=0 → ultimax
+  const vecs = Array.from({ length: 8 }, (_, i) => bus.read(0xfff8 + i));
+  gate("GMOD3 #2: $FFF8-$FFFF = 08 00 08 00 0c 80 0c 00 (bus, ultimax romh)",
+    vecs.join(",") === "8,0,8,0,12,128,12,0", vecs.map((v) => v.toString(16)).join(" "));
+  gate("GMOD3 #2: reset vector $FFFC = $800c", (bus.read(0xfffc) | (bus.read(0xfffd) << 8)) === 0x800c);
+  bus.ram[0xe123] = 0x5e;
+  gate("GMOD3 #2: $E000-$FFF7 = fake-ultimax C64 RAM, not open bus", bus.read(0xe123) === 0x5e, `r=${bus.read(0xe123)}`);
+
+  // audit #3: mid-SPI-READ snapshot → disturb → restore → identical readout
+  // (needs eepromCs/Clock/Data + spiState restored; RED if mapper pins omitted).
+  bus.write(0xde08, 0x80); // bitbang
+  desel(); sel(); spiByte(0x03); spiByte(0x00); spiByte(0x00); spiByte(0x00); // READ@0, first byte loaded
+  const read8 = () => { let v = 0; for (let i = 0; i < 8; i++) { bus.write(0xde00, 0x00); v = (v << 1) | ((bus.read(0xde00) >> 7) & 1); bus.write(0xde00, 0x20); } return v; };
+  const st = cart.getState();
+  const a = read8();
+  cart.setState(st);                                            // restore mid-read
+  for (let i = 0; i < 5; i++) { bus.write(0xde00, 0x00); bus.read(0xde00); bus.write(0xde00, 0x20); } // disturb
+  cart.setState(st);                                            // restore again over the disturbance
+  const b = read8();
+  gate("GMOD3 #3: mid-SPI snapshot→disturb→restore → identical next byte",
+    a === b && a === 0x5a, `a=0x${a.toString(16)} b=0x${b.toString(16)}`);
 }
 
 console.log("---");

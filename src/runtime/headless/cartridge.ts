@@ -63,6 +63,9 @@ export interface HeadlessCartridgeMapper {
    *  mappers whose IO reads mix in open-bus low bits (GMOD2 EEPROM read =
    *  (data<<7)|(phi1&0x7f)). The bus calls this at attach with its phi1 source. */
   setPhi1?(phi1: () => number): void;
+  /** Spec 713 (audit #2) — wire a C64-RAM read for "fake ultimax" mappers whose
+   *  romh_read falls through to mem_read_without_ultimax (GMOD3 $E000-$FFF7). */
+  setRamRead?(read: (addr: number) => number): void;
 }
 
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
@@ -1100,6 +1103,9 @@ class Gmod2Mapper extends BaseMapper {
 // ROML ($8000) reads the flash array DIRECTLY (parallel), gated by the CPU port
 // mem_config for fake-ultimax (vectors). Flash is REFLASHED only via the serial
 // SPI path (no parallel ROM-window programming).
+// VICE gmod3.c vectors[] — fixed table returned by gmod3_romh_read at $FFF8-$FFFF
+// when vectors are enabled (reset → $800C cart, NMI → $0008, IRQ → $000C).
+const GMOD3_VECTORS = [0x08, 0x00, 0x08, 0x00, 0x0c, 0x80, 0x0c, 0x00];
 type Gmod3Cmode = "8k" | "off" | "ultimax";
 class Gmod3Mapper extends BaseMapper {
   private gmod3Bank = 0;
@@ -1111,6 +1117,7 @@ class Gmod3Mapper extends BaseMapper {
   private eepromData = 0;
   private readonly rom: Uint8Array;
   private readonly spi = new SpiFlash();
+  private ramRead: (addr: number) => number = () => 0;
 
   constructor(image: ParsedCartridgeImage) {
     super(image);
@@ -1118,6 +1125,8 @@ class Gmod3Mapper extends BaseMapper {
     this.rom = buildLinearChipData(image, (b) => b.roml, highest + 1);
     this.spi.setImage(this.rom, this.rom.length);
   }
+
+  setRamRead(fn: (addr: number) => number): void { this.ramRead = fn; }
 
   getLines(): HeadlessCartridgeLines {
     switch (this.cmode) {
@@ -1144,6 +1153,12 @@ class Gmod3Mapper extends BaseMapper {
         return this.rom[((address & 0x1fff) + (this.gmod3Bank << 13)) >>> 0] ?? 0xff;
       }
       return undefined; // → bus RAM (fake ultimax)
+    }
+    // gmod3_romh_read (ultimax, vectors enabled): the fixed vector table at
+    // $FFF8-$FFFF, otherwise mem_read_without_ultimax (the underlying C64 RAM).
+    if (address >= 0xe000 && address <= 0xffff) {
+      if (address >= 0xfff8) return GMOD3_VECTORS[address & 7];
+      return this.ramRead(address);
     }
     return undefined;
   }
@@ -1183,6 +1198,8 @@ class Gmod3Mapper extends BaseMapper {
     state.writable = true;
     state.flashMode = `gmod3:${this.cmode}${this.bitbang ? " bitbang" : ""}`;
     state.spiState = this.spi.snapshotState();
+    // audit #3 — the mapper's own serial pin latches gate the next SPI edge.
+    state.mapperPins = (this.eepromCs << 2) | (this.eepromClock << 1) | this.eepromData;
     return state;
   }
 
@@ -1194,6 +1211,8 @@ class Gmod3Mapper extends BaseMapper {
     if ((ctrl & 0x40) === 0x00) this.cmode = this.vectors ? "ultimax" : "8k";
     else this.cmode = "off";
     if (state.spiState) this.spi.restoreState(state.spiState);
+    const pins = state.mapperPins ?? 0;
+    this.eepromCs = (pins >> 2) & 1; this.eepromClock = (pins >> 1) & 1; this.eepromData = pins & 1;
   }
 
   persistsWritableState(): boolean { return true; }
