@@ -306,17 +306,21 @@ the real media/runtime/checkpoint path (no mapper overrides in tests).
 | 4 | GMOD2 `io1_read` low 7 bits = `vicii_read_phi1()&0x7f` via new `setPhi1`, not constant. | `probe-713-devcore` — varying phi1 tracked. |
 | 5 | `Flash040.catchUp()` runs at `getData()` + `snapshotState()`. Covers EF/GMOD2/C64MegaCart (flash040) + MegaByter (flash800). | `probe-713-erase-catchup` 3/3 — erase → advance clk past completion, NO flash access → capture reads erased. |
 
-**Reclassified (NOT a cart-mapper finding):** MegaByter (Lykia) real cart crashes
-in its bank-0 loader. Localised: a `$1000` RAM stub runs `LDA #$35; STA $01; JMP
-$9F00`; `$01=$35` (HIRAM=0) correctly unmaps the 8K ROML (the bus PLA-gates this —
-MegaByter read is simple ROML-only and gated faithful), so `$9F00` is RAM, but it
-holds non-code (`e0 e0 e0 80 80 ff…`) written by an upstream copy whose source
-flash read is correct. So the divergence is **core/CPU-level execution** exposed
-by Lykia's loader, outside cartridge-mapper scope. Needs a VICE-vs-headless
-first-divergence trace (separate effort).
+**MegaByter (Lykia) crash — RESOLVED, not a runtime bug.** The `lykianew`/
+`lykia_fixed`/`lykia_rebuilt` MegaByter CRTs are the crackers' work-in-progress
+**roundtrip rebuilds** (extract → decompile → reassemble; the folder has many
+`_fixed`/`_NOPATCH`/`_NOCARRIER`/`test` variants), and they crash (the rebuilt
+code runs garbage into `$9F00`-RAM). The **original** Lykia release
+(`lykia_protovision.crt`, MagicDesk type 19, 996K) boots correctly in the runtime
+and renders the Protovision logo (PC=`$1a36`). So MagicDesk + the core run the
+real game; the MegaByter crash is the broken rebuild, not the mapper. MegaByter
+mapper stays faithful + gated (synthetic + real-CRT load/attach); there is simply
+**no known-good real MegaByter CRT in the corpus** to e2e-boot (all are broken
+rebuilds) — honest deferral on MegaByter real-cart boot only.
 
-Status: **audit findings 1-5 GREEN.** Cart gates: probe-714-5 16/16, rombank
-32/32, devcore 48/48, erase-catchup 3/3, ingress 8/8, smoke-cart-fidelity 18/18,
-smoke-cart-real 4/4. Remaining before DONE/merge: the Lykia core-level divergence
-(trace) + the baseline-extension spec. Branch `spec-713-cart-families` held; NOT
-mergeable until those close.
+Status: **audit findings 1-5 GREEN; Lykia cleared.** Cart gates: probe-714-5
+16/16, rombank 32/32, devcore 48/48, erase-catchup 3/3, ingress 8/8,
+smoke-cart-fidelity 18/18, smoke-cart-real 4/4. Real-cart boots render correct:
+EF (Accolade), MagicDesk (IM3 + Lykia/Protovision), GMOD2 (Yeti). Remaining
+before DONE/merge: the baseline-extension spec (and, if desired, a known-good
+MegaByter sample). Branch `spec-713-cart-families` held.
