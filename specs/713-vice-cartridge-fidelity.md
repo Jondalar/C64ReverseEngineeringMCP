@@ -301,7 +301,7 @@ the real media/runtime/checkpoint path (no mapper overrides in tests).
 | # | Fix | Gate |
 | --- | --- | --- |
 | 1 | `inferMapperType` routes hw-IDs 60→gmod2 / 61→c64megacart / 62→gmod3 (C64MegaCart ID 61 from the vendored fork `cartridge.h`). | `probe-713-ingress` 8/8 — header dispatch NO override + unknown-reject + real GMOD2 via media-ingress + checkpoint→restore. |
-| 2 | `Gmod3Mapper.read` adds ROMH: `$FFF8-$FFFF` table `08 00 08 00 0c 80 0c 00`, `$E000-$FFF7` = `mem_read_without_ultimax` via new `setRamRead`. | `probe-713-devcore` — real-bus `$FFF8-$FFFF` + reset `$800c` + `$E000` C64 RAM. |
+| 2 | `Gmod3Mapper.read` adds ROMH: `$FFF8-$FFFF` table `08 00 08 00 0c 80 0c 00`; `$E000-$FFF7` = VICE `mem_read_without_ultimax()` via the new `HeadlessMemoryBus.readWithoutUltimax()` (wired to the cart as `setReadWithoutUltimax`) — the normal CPU-port map without the cart overlay: `$01=$37` → KERNAL ROM, HIRAM cleared → RAM (NOT unconditional raw RAM). | `probe-713-devcore` — real-bus `$FFF8-$FFFF` + reset `$800c` + `$E123` KERNAL at `$01=$37` / RAM when ROM-out. |
 | 3 | GMOD3 mapper pin latches (eepromCs/Clock/Data) added to getState/setState (`state.mapperPins`). | `probe-713-devcore` — mid-SPI snapshot→disturb→restore identical next byte. |
 | 4 | GMOD2 `io1_read` low 7 bits = `vicii_read_phi1()&0x7f` via new `setPhi1`, not constant. | `probe-713-devcore` — varying phi1 tracked. |
 | 5 | `Flash040.catchUp()` runs at `getData()` + `snapshotState()`. Covers EF/GMOD2/C64MegaCart (flash040) + MegaByter (flash800). | `probe-713-erase-catchup` 3/3 — erase → advance clk past completion, NO flash access → capture reads erased. |
@@ -321,8 +321,10 @@ type-86 rebuild renders the Protovision logo.) probe-713-devcore now gates 8K
 `$8xxx`→RAM + ultimax→flash.
 
 GMOD3 `$E000-$FFF7` corrected to VICE `mem_read_without_ultimax` (KERNAL at
-`$01=$37`, RAM when ROM-out) via the new `HeadlessMemoryBus.readWithoutUltimax`.
-GMOD3 SPI commands READ_STATUS (0x01), REMS (2MB JEDEC id 1c 70 03) and
+`$01=$37`, RAM when ROM-out) via the new `HeadlessMemoryBus.readWithoutUltimax`
+(wired as `setReadWithoutUltimax`).
+GMOD3 SPI commands READ_STATUS (command `0x05`, returns ready status byte `0x01`),
+REMS (2MB JEDEC id 1c 70 03) and
 BLOCK_ERASE (erases the addressed 64K block, neighbours intact) were verified 1:1
 against `spi-flash.c` and gated through the real bus — all GREEN first run, no fix
 needed.
