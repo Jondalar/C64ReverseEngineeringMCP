@@ -1,18 +1,22 @@
 # Spec 710 - Frozen VIC Inspect on the Checkpoint/Evidence Model
 
-Status: IMPLEMENTATION-READY DRAFT (reviewed 2026-05-23 CEST)
+Status: IMPLEMENTATION-READY (refined 2026-05-24 CEST; Spec 715 unblocked it)
 Depends (core inspect): Specs 702, 705.B, 707
-Depends (durable media/evidence promotion): Specs 708 corrective slice, 709, 714
+Depends (durable media/evidence promotion): Specs 709 + 714/714.5 LANDED (2026-05-24); 708 §10 corrective slice — verify landed before 710.5
 Owner: literal VIC / v3 UI / knowledge
 
 > **Spec 714 requirement (mutable media).** Evidence over a writable medium may
-> be promoted as **durable/replayable only if the medium is 714-complete**. The
-> DISK is 714-complete (`driveDiskImage`); EasyFlash is 714-complete (`cartFlash`
-> + command-state snapshot, Spec 713/714.5). The remaining writable cartridge
-> families (GMOD2/GMOD3/MegaByter, and the not-yet-verified Ocean/Magic Desk) are
-> NOT yet 714-complete — a written one is rejected at checkpoint, so no durable
-> evidence over them exists yet. Clean-media / no-writable-dependence inspect is
-> unaffected. Never label evidence durable when its medium state is incomplete.
+> be promoted as **durable/replayable only if the medium is 714-complete**. As of
+> Spec 713 + 714.5 (LANDED 2026-05-24) this now covers the DISK (`driveDiskImage`)
+> AND every supported writable cartridge family — EasyFlash, GMOD2 (+m93c86
+> EEPROM), GMOD3 (+spi-flash), MegaByter (+flash800), C64MegaCart — via `cartFlash`
+> + device command-state snapshot (`probe-714-5-persist` 33/33). Dirty carts are
+> now ACCEPTED at checkpoint; the old reject-on-dirty barrier is retired. Remaining
+> honest gaps (verified by header-inferred runtime gates, not durable real-sample
+> evidence): GMOD3 / C64MegaCart have no commercial sample, and EasyFlash's `$DF00`
+> 256-byte cart-RAM is not yet modelled. Clean-media / no-writable-dependence
+> inspect is unaffected. Never label evidence durable when its medium state is
+> genuinely incomplete.
 
 ## 1. Purpose
 
@@ -61,9 +65,12 @@ read the secondary `VicIIVice` model as the inspection authority.
 
 Opening inspect while running causes a backend pause and pins or promotes the
 applicable checkpoint according to 705.B. All returned evidence names that
-checkpoint and optional currently proven trace mark/run reference. Once 709 is
-implemented it also names the durable media event/root. Inspection never
-samples moving mutable state silently.
+checkpoint, the durable media event/root (Spec 709, landed), and any currently
+proven trace mark/run reference. This same checkpoint + evidence record is the
+**shared anchor** consumed by code-overlay intervention branches (Spec 711) and
+rewind/replay branch diffs (Spec 712): 710 must produce it as a common substrate,
+not an inspect-private structure. Inspection never samples moving mutable state
+silently.
 
 ### 2.3 Provenance Is Compact and On-Demand
 
@@ -77,7 +84,10 @@ from later register state.
 ## 3. Inspect Model
 
 Build on Spec 702's `VicInspectSnapshot`, `VicFrameProvenance`, `VisualNode`
-and `MemoryRef` concepts, adding persistent context:
+and `MemoryRef` concepts, adding persistent context. `FrozenInspectEvidence` is
+the **shared checkpoint/evidence record** — Specs 711 (code-overlay) and 712
+(rewind/replay) bind to the same `checkpointId` and record, so it must not be
+shaped for inspect alone:
 
 ```ts
 interface FrozenInspectEvidence {
@@ -153,6 +163,11 @@ The overlay is HTML/SVG above the canvas. It never modifies frame pixels.
    media and optional trace refs.
 6. Normal live execution with inspect closed retains the current error-free
    VIC output and meets an explicit measured performance regression budget.
+7. At 710 DONE, a `frozen-inspect` canary is registered in the Spec 715 product
+   proof manifest (`scripts/runtime-proof-manifest.mjs`, group `baseline`): open
+   inspect on a pinned checkpoint and resolve one exact node, cut to the earliest
+   stable PASS. The 710.4 disabled-path performance budget (item 6) ships as a
+   focused gate, not as part of the small baseline.
 
 ## 7. Non-Goals
 
