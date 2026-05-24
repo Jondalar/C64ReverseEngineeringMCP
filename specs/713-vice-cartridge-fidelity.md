@@ -320,10 +320,21 @@ MegaByter it now boots its "Lykia / Play / Prologue" menu, and the `lykianew`
 type-86 rebuild renders the Protovision logo.) probe-713-devcore now gates 8K
 `$8xxx`→RAM + ultimax→flash.
 
-Status: **audit findings 1-5 GREEN; MegaByter write bug fixed.** Cart gates:
-probe-714-5 16/16, rombank 32/32, devcore 49/49, erase-catchup 3/3, ingress 8/8,
-smoke-cart-fidelity 18/18, smoke-cart-real 4/4. runtime:proof 7/7 (pre-MegaByter-
-fix; the fix is MegabyterMapper-only, no 7-game effect). All four real-cart
-families boot + render: EF (Accolade), MagicDesk (IM3 + Lykia/Protovision), GMOD2
-(Yeti), MegaByter (Lykia). Remaining before DONE/merge: the baseline-extension
-spec. Branch `spec-713-cart-families` held.
+GMOD3 `$E000-$FFF7` corrected to VICE `mem_read_without_ultimax` (KERNAL at
+`$01=$37`, RAM when ROM-out) via the new `HeadlessMemoryBus.readWithoutUltimax`.
+GMOD3 SPI commands READ_STATUS (0x01), REMS (2MB JEDEC id 1c 70 03) and
+BLOCK_ERASE (erases the addressed 64K block, neighbours intact) were verified 1:1
+against `spi-flash.c` and gated through the real bus — all GREEN first run, no fix
+needed.
+
+Status: **Spec 713 BEHAVIOR COMPLETE — merge HELD pending baseline / 714.5
+coordination.** Cart gates: probe-714-5 16/16, rombank 32/32, devcore 53/53,
+erase-catchup 3/3, ingress 8/8, smoke-cart-fidelity 18/18, smoke-cart-real 4/4,
+runtime:proof 7/7. All four real-cart families boot + render: EF (Accolade),
+MagicDesk (IM3 + Lykia/Protovision), GMOD2 (Yeti), MegaByter (Lykia). No open
+713 behaviour defect.
+
+**NOT closed (deliberately, Spec 714.5):** end-to-end writable persistence
+(checkpoint / `.c64re` / ring) for GMOD2, GMOD3, MegaByter and C64MegaCart. Full
+cartridge support is not "complete" until 714.5 proves that. Branch
+`spec-713-cart-families` stays held — no merge, no DONE, no baseline change.

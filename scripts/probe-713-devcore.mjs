@@ -262,6 +262,30 @@ console.log("Spec 713 — device-core mappers (bus-level)");
   const b = read8();
   gate("GMOD3 #3: mid-SPI snapshot→disturb→restore → identical next byte",
     a === b && a === 0x5a, `a=0x${a.toString(16)} b=0x${b.toString(16)}`);
+
+  // --- remaining SPI commands via the real bus ($DE00 bitbang + ROML readback) ---
+  bus.write(0xde08, 0x80); // bitbang
+  // READ_STATUS (0x05): status byte loaded at count8 → 0x01 (VICE 0x01000000).
+  desel(); sel(); spiByte(0x05);
+  const status = read8();
+  gate("GMOD3 SPI READ_STATUS = 0x01 (VICE)", status === 0x01, `0x${status.toString(16)}`);
+  desel();
+  // REMS (0x9f): 8 cmd + 24 dummy → JEDEC id at count32; 2MB → mfg 1c, dev 70, cap 03.
+  desel(); sel(); spiByte(0x9f); spiByte(0x00); spiByte(0x00); spiByte(0x00);
+  const mfg = read8(), dev = read8(), cap = read8();
+  gate("GMOD3 SPI REMS = 1c 70 03 (2MB JEDEC id)",
+    mfg === 0x1c && dev === 0x70 && cap === 0x03, `${mfg.toString(16)} ${dev.toString(16)} ${cap.toString(16)}`);
+  desel();
+  // BLOCK_ERASE (0xd8): erases the addressed 64K block on deselect, neighbours intact.
+  // bank0 sentinel = 0x00, bank8 (block 1, $10000) sentinel = 0x08; erase block 0.
+  desel(); sel(); spiByte(0x06); desel();                           // WRITE_ENABLE
+  desel(); sel(); spiByte(0xd8); spiByte(0x00); spiByte(0x00); spiByte(0x00); desel(); // BLOCK_ERASE addr 0
+  bus.write(0xde08, 0x00); bus.write(0xde00, 0x00);                 // 8K bank 0
+  const be0 = bus.read(0x8000);
+  bus.write(0xde00, 0x08);                                          // bank 8 = block 1
+  const be8 = bus.read(0x8000);
+  gate("GMOD3 SPI BLOCK_ERASE: block0 → 0xff, neighbour block1 (bank8) intact 0x08",
+    be0 === 0xff && be8 === 0x08, `bank0=0x${be0.toString(16)} bank8=0x${be8.toString(16)}`);
 }
 
 console.log("---");
