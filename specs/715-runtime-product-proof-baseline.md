@@ -1,10 +1,22 @@
 # Spec 715 - Runtime Product Proof Baseline and Tiered Gate Policy
 
-**Status:** DRAFT (2026-05-24 CEST)
+**Status:** DONE (2026-05-24 CEST) — small canary baseline implemented + frozen
 **Owner:** Runtime / quality contract
 **Scope:** Product-level regression authority and gate scheduling; no emulator behavior changes
 **Depends on:** Specs 600/601 (historical proof origin), 701-714; freeze implementation baseline after Spec 713 + 714.5 land
-**Replaces when implemented:** Specs 600/601 as the active product-baseline authority
+**Replaces:** Specs 600/601 as the active product-baseline authority (now SUPERSEDED)
+
+> **Implemented 2026-05-24.** Per scope refinement, the baseline is a SMALL fast
+> real canary set ("does the central runtime still work like yesterday?"), not a
+> certification matrix. Baseline frozen: `runtime-product-green-2026-05-24` on
+> master `8896c53`, manifest `715-2.0.0`, 7/7 GREEN (~61s gate time). Runner
+> `scripts/runtime-product-proof.mjs` + manifest `scripts/runtime-proof-manifest.mjs`
+> (groups: 7 baseline / 15 focused / 4 historical). Record:
+> `docs/runtime-product-baseline-2026-05-24.md`; policy: `docs/runtime-product-proof.md`.
+> The big subsystem suites (616/617, 713/714.5, seven-game, 705/707/714, 706, 708,
+> 709) are FOCUSED gates run on subsystem change, NOT the permanent baseline. The
+> §6.2 "full matrix per capability" sketch below is superseded by this small-canary
+> model; the §4/§5 tiered gate policy stands. NO emulator change.
 
 ## 1. Problem
 
