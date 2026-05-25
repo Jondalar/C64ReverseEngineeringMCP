@@ -882,3 +882,8 @@ body {
   background: var(--c64-yellow); color: var(--c64-bg-2);
   padding: 1px 5px; border-radius: 3px; font-weight: bold; font-size: 10px;
 }
+.wb-explore-text {
+  font-family: var(--c64-mono, monospace); white-space: pre; font-size: 11px;
+  color: var(--c64-blue-bright); letter-spacing: 1px;
+}
+.wb-glyph { color: var(--c64-yellow); font-size: 13px; }
