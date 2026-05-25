@@ -17,6 +17,9 @@ import {
   VISIBLE_FRAME, DISPLAY_ORIGIN,
 } from "../runtime/headless/inspect/vic-inspect.js";
 import type { FrozenInspectEvidence } from "../runtime/headless/inspect/vic-inspect-types.js";
+import { resolveVisualOrigin } from "../runtime/headless/inspect/asset-origin.js";
+import { extractAssetCandidates } from "../runtime/headless/inspect/asset-extract.js";
+import type { AssetCandidate } from "../runtime/headless/inspect/asset-join-types.js";
 import type { RuntimeCheckpoint } from "../runtime/headless/kernel/runtime-checkpoint.js";
 import {
   ensureRuntimeController,
@@ -653,6 +656,38 @@ export class V3WsServer {
       return { evidence: tagged, count: list.length };
     });
     this.on("vic/inspect/evidence", ({ session_id }) => ({ evidence: inspectEvidence.get(session_id) ?? [] }));
+
+    // ---- Spec 721 — Live Visual-Origin Join. Resolve a frozen visible node to
+    // its ORIGIN: extract AssetCandidates from the mounted medium, then exact-hash
+    // match (→ exact_asset) or, with a trace source, the writer/depack chain
+    // (→ derived_asset), else honest runtime_generated. Candidates per medium are
+    // cached (keyed by size+kind) so a click does not re-scan the image.
+    const originCandidateCache = new Map<string, AssetCandidate[]>();
+    const mediumCandidates = (session_id: string): { candidates: AssetCandidate[]; mediumRef: string | null } => {
+      const s = getIntegratedSession(session_id);
+      const media = s?.kernel?.drive1541?.getAttachedMedia?.();
+      if (!media?.bytes?.length) return { candidates: [], mediumRef: null };
+      const mediumRef = media.kind;
+      const key = `${mediumRef}:${media.bytes.length}`;
+      let candidates = originCandidateCache.get(key);
+      if (!candidates) {
+        candidates = extractAssetCandidates(media.bytes, { artifactId: session_id, mediumRef });
+        originCandidateCache.set(key, candidates);
+      }
+      return { candidates, mediumRef };
+    };
+    this.on("vic/inspect/origin", ({ session_id, checkpoint_id, x, y }) => {
+      if (!checkpoint_id) throw new Error("vic/inspect/origin: checkpoint_id required");
+      const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
+      const node = resolveVisibleNodeAt(cp, Number(x) || 0, Number(y) || 0, cp.vicProvenance ?? undefined);
+      const { candidates, mediumRef } = mediumCandidates(session_id);
+      const origin = resolveVisualOrigin(cp, node, candidates, { artifactId: session_id });
+      return {
+        node, classification: origin.result.classification,
+        result: origin.result, knowledge: origin.knowledge,
+        medium: { ref: mediumRef, candidateCount: candidates.length },
+      };
+    });
 
     // ---- Spec 707 — native .c64re snapshot persistence (dump/undump).
     // The SAME backend the monitor `dump`/`undump` commands use, so UI/API
