@@ -75,7 +75,9 @@ second analysis engine.
 
 See [docs/workflow.md](docs/workflow.md) (workflow contract),
 [docs/agent-doctrine.md](docs/agent-doctrine.md) (roles), and
-[docs/re-phases.md](docs/re-phases.md) (seven-phase model).
+[docs/re-phases.md](docs/re-phases.md) (seven-phase model). The canonical
+end-to-end product and unified-workbench direction is defined in
+[docs/product-vision-and-workbench-contract.md](docs/product-vision-and-workbench-contract.md).
 
 ## Architecture
 
@@ -209,6 +211,7 @@ Per-area docs:
 | Project knowledge tools | [docs/tools/knowledge.md](docs/tools/knowledge.md) |
 | Artifact access | [docs/tools/artifacts.md](docs/tools/artifacts.md) |
 | Agent workflow doctrine | [docs/agent-doctrine.md](docs/agent-doctrine.md), [docs/re-phases.md](docs/re-phases.md) |
+| Product vision and unified workbench contract | [docs/product-vision-and-workbench-contract.md](docs/product-vision-and-workbench-contract.md) |
 
 ## Workflow
 
