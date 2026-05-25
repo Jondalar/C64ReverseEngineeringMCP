@@ -270,10 +270,31 @@ export class V3WsServer {
     });
     ws.on("close", () => {
       this.clients.delete(ws);
+      // Spec 703/706 audio-restart fix: a UI reload closes the socket but the
+      // backend audio stream lingered (audioStreams kept) → the reloaded UI's
+      // audio/start hit `already_streaming` and never re-primed → silent until a
+      // manual off/on. When no client remains, tear the stream down so the next
+      // connection starts a fresh, primed stream.
+      if (this.clients.size === 0) {
+        for (const session_id of [...this.audioStreams.keys()]) this.stopAudioStream(session_id);
+      }
     });
     ws.on("error", (err) => {
       console.error("[v3-ws] client error:", err.message);
     });
+  }
+
+  /** Tear down a session's live audio stream (shared by audio/stop + socket
+   *  close). Idempotent. */
+  private stopAudioStream(session_id: string): boolean {
+    const stream = this.audioStreams.get(session_id);
+    if (!stream) return false;
+    const c = getRuntimeController(session_id);
+    if (c) c.onAudioFrame = undefined;
+    try { stream.recorder.buffer.detach(stream.cursorId); } catch { /* ignore */ }
+    try { stream.recorder.detach(); } catch { /* ignore */ }
+    this.audioStreams.delete(session_id);
+    return true;
   }
 
   private async dispatch(req: JsonRpcRequest, ctx: ClientContext): Promise<void> {
@@ -719,7 +740,14 @@ export class V3WsServer {
         s.runFor(5_000_000, { cycleBudget: 5_000_000 });
         return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "cold" };
       };
-      return ctrl.runExclusive(doReset);
+      const result = await ctrl.runExclusive(doReset);
+      // Audio-restart fix: a reset is a timeline discontinuity (reSID re-init +
+      // a burst run outside the frame-paced ship). Flush the worklet ring + reset
+      // the send epoch so audio re-syncs from the post-reset state — no manual
+      // off/on needed (same mechanism as a checkpoint restore, Spec 706.8).
+      const audio = this.audioStreams.get(session_id);
+      if (audio) { audio.seq = 0; this.broadcast("audio/flush", { session_id }); }
+      return result;
     });
 
     // Type text (PETSCII keyboard input).
@@ -911,7 +939,16 @@ export class V3WsServer {
     this.on("audio/start", ({ session_id }) => {
       const s = getIntegratedSession(session_id) as any;
       if (!s) throw new Error(`no session ${session_id}`);
-      if (this.audioStreams.has(session_id)) return { already_streaming: true };
+      // Audio-restart fix: if a stream already exists (e.g. a reloaded UI whose
+      // socket-close cleanup raced the reconnect), don't no-op — RE-PRIME the
+      // (new) client: reset the send epoch + flush its worklet ring so it
+      // re-prebuffers from the current reSID state instead of staying silent.
+      const existing = this.audioStreams.get(session_id);
+      if (existing) {
+        existing.seq = 0;
+        this.broadcast("audio/flush", { session_id });
+        return { already_streaming: true, reprimed: true };
+      }
 
       // Spec 706.2 (Fix A) — LIVE stream uses the small recorder buffer so a
       // catch-up flush drops stale excess at the source instead of banking
@@ -960,16 +997,7 @@ export class V3WsServer {
       return { streaming: true, sample_rate: recorder.resid.sampleRate };
     });
 
-    this.on("audio/stop", ({ session_id }) => {
-      const stream = this.audioStreams.get(session_id);
-      if (!stream) return { stopped: false };
-      const c = getRuntimeController(session_id);
-      if (c) c.onAudioFrame = undefined;
-      try { stream.recorder.buffer.detach(stream.cursorId); } catch { /* ignore */ }
-      try { stream.recorder.detach(); } catch { /* ignore */ }
-      this.audioStreams.delete(session_id);
-      return { stopped: true };
-    });
+    this.on("audio/stop", ({ session_id }) => ({ stopped: this.stopAudioStream(session_id) }));
 
     this.on("audio/export", async ({ session_id, out_path, duration_sec }) => {
       const session = getIntegratedSession(session_id);
