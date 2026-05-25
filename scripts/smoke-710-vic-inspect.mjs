@@ -205,6 +205,25 @@ console.log("Spec 710.2 — VIC inspect resolver smoke");
   gate("F raster 60 off-sprite → NOT sprite (per-raster state authoritative)", c.type !== "sprite_bounds", c.type);
 }
 
+// ---- (G) 710.6c — capture-on-freeze: a freeze auto-captures the frame's provenance ----
+{
+  const { session, sessionId } = startIntegratedSession({ mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port" });
+  try {
+    session.resetCold("pal-default");
+    session.runFor(2_000_000, { cycleBudget: 2_000_000 });
+    const ctrl = ensureRuntimeController(sessionId, session, () => {});
+    ctrl.run({ mode: "warp" });                       // free-run, NO provenance capture
+    await new Promise((r) => setTimeout(r, 150));
+    const provDuringRun = session.captureVicProvenance();
+    gate("G free-run has NO provenance (no continuous churn)", provDuringRun === null);
+    ctrl.freezeWithProvenance();                      // user freeze → captures one frame
+    gate("G runState paused after freeze", ctrl.runState === "paused", ctrl.runState);
+    const ref = await ctrl.captureCheckpoint();
+    const cp = ctrl.checkpointRing.restoreSnapshot(ref.id)?.payload;
+    gate("G capture-on-freeze → frozen frame HAS provenance (no toggle)", !!cp?.vicProvenance && cp.vicProvenance.lines.length >= 250, `lines=${cp?.vicProvenance?.lines?.length}`);
+  } finally { try { stopIntegratedSession(sessionId); } catch {} }
+}
+
 console.log("---");
 if (failures.length === 0) { console.log(`GREEN 710.2/710.5 VIC inspect: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 710.2 VIC inspect: ${passes} pass, ${failures.length} fail.`);

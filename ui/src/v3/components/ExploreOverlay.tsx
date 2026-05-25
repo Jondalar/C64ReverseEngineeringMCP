@@ -80,7 +80,6 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<string>("");
-  const [provOn, setProvOn] = useState(false);
   const [dragging, setDragging] = useState<{ start: { x: number; y: number } } | null>(null);
   // last resolved display-area target (point or region) for promote
   const lastTarget = useRef<{ points?: { x: number; y: number }[]; region?: { x: number; y: number; width: number; height: number } } | null>(null);
@@ -95,8 +94,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
         cpId = r.checkpointId;
         setCheckpointId(r.checkpointId);
         setFrameMode(r.frame?.mode ?? "");
-        if (r.provenance) setProvOn(true);
-        setStatus(`Inspect open — checkpoint ${r.checkpointId}, ${r.frame?.mode ?? "?"}${r.provenance ? ` (provenance: ${r.provenance.lines?.length ?? 0} lines)` : ""}`);
+        setStatus(`Inspect open — checkpoint ${r.checkpointId}, ${r.frame?.mode ?? "?"}${r.provenance ? ` · provenance ${r.provenance.lines?.length ?? 0} lines` : " · no provenance"}`);
       } catch (e: any) {
         setStatus(`vic/inspect/open failed: ${e?.message ?? e}`);
       }
@@ -190,16 +188,6 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
     }
   };
 
-  // Spec 710.4/710.6b — toggle same-frame provenance capture (raster/FLI +
-  // per-raster multiplexed sprites). Enable, then Run + Pause to capture.
-  const toggleProv = async () => {
-    try {
-      const r = await getClient().call<any>("vic/inspect/provenance", { session_id: sessionId, enabled: !provOn });
-      setProvOn(r.enabled);
-      setStatus(r.enabled ? "provenance ON — Run + Pause to capture raster/FLI + multiplexed sprites" : "provenance OFF");
-    } catch (e: any) { setStatus(`provenance toggle failed: ${e?.message ?? e}`); }
-  };
-
   const rect = screenEl.getBoundingClientRect();
   const img = imageRect(); // true displayed-image rect (border + object-fit)
   const renderRefs = (n: VisualNode) => (
@@ -238,9 +226,6 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
       </div>
       <div className="wb-explore-toolbar">
         <strong>Inspect (frozen{frameMode ? ` · ${frameMode}` : ""}):</strong>
-        <button className={provOn ? "active" : ""} onClick={toggleProv} title="Per-raster provenance: raster/FLI + multiplexed sprites">
-          Prov {provOn ? "ON" : "OFF"}
-        </button>
         <span className="wb-muted">{status}</span>
 
         {node && (

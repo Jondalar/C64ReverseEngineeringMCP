@@ -500,7 +500,7 @@ export class V3WsServer {
       ctrl.run({ mode, ratio: pacing?.ratio });
       return ctrl.state();
     });
-    this.on("debug/pause", ({ session_id }) => { const c = ctrlFor(session_id); c.pause(); return c.state(); });
+    this.on("debug/pause", ({ session_id }) => { const c = ctrlFor(session_id); c.freezeWithProvenance(); return c.state(); }); // 710.6c capture-on-freeze
     this.on("debug/continue", ({ session_id }) => { const c = ctrlFor(session_id); c.continue(); return c.state(); });
     this.on("debug/step", ({ session_id }) => {
       const c = ctrlFor(session_id);
@@ -583,7 +583,7 @@ export class V3WsServer {
     });
     this.on("vic/inspect/open", async ({ session_id }) => {
       const c = ctrlFor(session_id);
-      if (c.runState === "running") c.pause();          // §2.2: inspect targets a retained state
+      if (c.runState === "running") c.freezeWithProvenance(); // §2.2 + 710.6c capture-on-freeze
       const ref = await c.captureCheckpoint();
       c.checkpointRing.pin(ref.id);                      // §2.2: pin the inspected checkpoint
       const cp = cpForInspect(c, ref.id);

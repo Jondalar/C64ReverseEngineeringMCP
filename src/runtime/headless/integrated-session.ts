@@ -1652,6 +1652,29 @@ export class IntegratedSession {
   }
 
   /**
+   * Spec 710.6c — capture-on-freeze. Run exactly to the next COMPLETE frame
+   * boundary (raster wraps to 0) WITH provenance capture on, so a freeze lands
+   * on a full frame whose raster/FLI + multiplexed-sprite provenance is recorded
+   * and matches the presented picture. Capture is then turned off WITHOUT
+   * clearing the just-captured stable provenance. No continuous churn while
+   * free-running. Bounded by a ~2-frame cycle cap.
+   */
+  runFrameWithProvenance(maxCycles = 100_000): void {
+    let ran = 0;
+    const step = () => { this.runFor(4_000, { cycleBudget: 4_000 }); ran += 4_000; };
+    // Phase 1: align to a frame START (run to the next wrap, capture OFF) so the
+    // captured frame is COMPLETE (line 0..311), not a mid-frame tail.
+    const f0 = this.litStableFrameCount;
+    while (this.litStableFrameCount === f0 && ran < maxCycles) step();
+    // Phase 2: capture exactly one full frame (this wrap → next wrap).
+    this.vicProvenanceEnabled = true; // enable WITHOUT touching litProvenanceStable
+    const f1 = this.litStableFrameCount;
+    while (this.litStableFrameCount === f1 && ran < maxCycles) step();
+    // Leave the captured full frame's provenance in place; stop capturing.
+    this.vicProvenanceEnabled = false;
+  }
+
+  /**
    * Spec 298k — render the literalPortFb (= 520×312 color indices) as
    * PNG. Bypasses snapshot replay; reads only what the literal port
    * has accumulated.

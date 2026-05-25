@@ -204,6 +204,24 @@ export class RuntimeController {
     this.broadcast("debug/paused", { session_id: this.sessionId, stop: this.stopInfo });
   }
 
+  /**
+   * Spec 710.6c — user freeze for inspection: run to the next COMPLETE frame
+   * boundary WITH VIC provenance capture, so the frozen frame carries raster/FLI
+   * + multiplexed-sprite provenance matching the picture. Distinct from a
+   * breakpoint (BK stops at an exact PC mid-frame; it does NOT call this). If
+   * already paused, no advance. Then halt.
+   */
+  freezeWithProvenance(): void {
+    this.cancelScheduled();
+    if (this.runState === "running") {
+      this.session.runFrameWithProvenance(); // ≤1 frame, capture on, then off
+    }
+    this.runState = "paused";
+    this.stopInfo = this.makeStopInfo("pause");
+    this.frameCounter++; // refresh presentation
+    this.broadcast("debug/paused", { session_id: this.sessionId, stop: this.stopInfo });
+  }
+
   /** Execute exactly ONE instruction while paused (Spec 701 §6 step). */
   step(): RuntimeStopInfo {
     if (this.runState === "running") this.pause();
