@@ -23,24 +23,55 @@ export interface ExtractOpts {
 
 const SPRITE_BLOCK = 64;
 
-/** Scan a byte buffer for 64-byte sprite-block candidates (hashed). */
-export function extractSpriteCandidates(bytes: Uint8Array, opts: ExtractOpts): AssetCandidate[] {
+const CHARSET_2K = 0x800;  // 256 chars × 8 bytes
+const BITMAP_HIRES = 8000; // 320×200 / 8 hires bitmap
+
+const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
+
+/** Scan a byte buffer for fixed-size, hashed asset-block candidates. */
+function scanBlocks(
+  bytes: Uint8Array, opts: ExtractOpts,
+  kind: AssetCandidate["kind"], format: string, blockLen: number, step: number, idPrefix: string,
+): AssetCandidate[] {
   const base = opts.baseOffset ?? 0;
   const minDistinct = opts.minDistinctBytes ?? 3;
   const out: AssetCandidate[] = [];
-  for (let off = 0; off + SPRITE_BLOCK <= bytes.length; off += SPRITE_BLOCK) {
-    const block = bytes.subarray(off, off + SPRITE_BLOCK);
+  for (let off = 0; off + blockLen <= bytes.length; off += step) {
+    const block = bytes.subarray(off, off + blockLen);
     const distinct = new Set(block).size;
-    if (distinct < minDistinct) continue; // padding / near-empty → not a sprite candidate
+    if (distinct < minDistinct) continue; // padding / near-empty
     out.push({
-      id: `${opts.artifactId}:spr:${(base + off).toString(16)}`,
-      artifactId: opts.artifactId,
-      kind: "sprite",
-      source: { fileRef: opts.fileRef, mediumRef: opts.mediumRef, offset: base + off, length: SPRITE_BLOCK },
-      format: "sprite-block",
-      preview: { hash: createHash("sha256").update(block).digest("hex") },
+      id: `${opts.artifactId}:${idPrefix}:${(base + off).toString(16)}`,
+      artifactId: opts.artifactId, kind,
+      source: { fileRef: opts.fileRef, mediumRef: opts.mediumRef, offset: base + off, length: blockLen },
+      format,
+      preview: { hash: sha(block) },
       confidence: Math.min(1, distinct / 32),
     });
   }
   return out;
+}
+
+/** 64-byte sprite-block candidates (hashed). */
+export function extractSpriteCandidates(bytes: Uint8Array, opts: ExtractOpts): AssetCandidate[] {
+  return scanBlocks(bytes, opts, "sprite", "sprite-block", SPRITE_BLOCK, SPRITE_BLOCK, "spr");
+}
+
+/** 2KB charset-set candidates (256 chars × 8 bytes), 2KB-stepped. */
+export function extractCharsetCandidates(bytes: Uint8Array, opts: ExtractOpts): AssetCandidate[] {
+  return scanBlocks(bytes, opts, "charset", "charset-2k", CHARSET_2K, CHARSET_2K, "chr");
+}
+
+/** 8KB hires-bitmap candidates (8000 bytes), 8KB-stepped. */
+export function extractBitmapCandidates(bytes: Uint8Array, opts: ExtractOpts): AssetCandidate[] {
+  return scanBlocks(bytes, opts, "bitmap", "bitmap-hires", BITMAP_HIRES, 0x2000, "bmp");
+}
+
+/** All asset kinds (sprite + charset + bitmap) from one buffer. */
+export function extractAssetCandidates(bytes: Uint8Array, opts: ExtractOpts): AssetCandidate[] {
+  return [
+    ...extractSpriteCandidates(bytes, opts),
+    ...extractCharsetCandidates(bytes, opts),
+    ...extractBitmapCandidates(bytes, opts),
+  ];
 }

@@ -47,12 +47,18 @@ function dataRefOf(node: VisualNode): { addr: number; length: number; hashLen: n
     return { addr: ref.addr, length: ref.length, hashLen: SPRITE_BLOCK }; // hash the full 64-byte block
   }
   if (node.type === "bitmap_cell") {
+    // Match the whole 8KB hires bitmap image (bitmapBase), not one 8-byte cell.
     const ref = node.refs.find((r) => r.kind === "bitmap");
-    return ref ? { addr: ref.addr, length: ref.length, hashLen: ref.length } : null;
+    if (!ref) return null;
+    const base = ref.addr - (node.cell?.index ?? 0) * 8;
+    return { addr: base, length: 8000, hashLen: 8000 };
   }
   if (node.type === "text_cell") {
+    // Match the whole 2KB charset SET (charBase), not one 8-byte glyph.
     const ref = node.refs.find((r) => r.kind === "charset");
-    return ref ? { addr: ref.addr, length: ref.length, hashLen: ref.length } : null;
+    if (!ref) return null;
+    const base = ref.addr - (node.value ?? 0) * 8;
+    return { addr: base, length: 0x800, hashLen: 0x800 };
   }
   return null;
 }

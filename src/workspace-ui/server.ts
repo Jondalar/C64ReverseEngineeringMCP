@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { persistInspectEvidence } from "./inspect-evidence-persist.js";
+import { persistAssetJoin } from "./asset-join-persist.js";
+import type { JoinKnowledge } from "../runtime/headless/inspect/asset-join-knowledge.js";
 import type { FrozenInspectEvidence } from "../runtime/headless/inspect/vic-inspect-types.js";
 import { auditProject, auditProjectCached } from "../project-knowledge/audit.js";
 import { repairProject } from "../project-knowledge/repair.js";
@@ -522,6 +524,28 @@ const server = createServer((req, res) => {
           evidence: payload.evidence, name: payload.name, notes: payload.notes,
         });
         send(res, jsonResponse(200, { artifact }));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  // Spec 721.J3 — persist a Visual-Origin Join knowledge result (chain nodes →
+  // entities, edges → link_entities, summary → finding) into the ONE store. The
+  // UI gets JoinKnowledge from WS vic/inspect/origin and POSTs it here; the WS
+  // server never owns ProjectKnowledgeService (Spec 710.3 architecture).
+  if (requestUrl.pathname === "/api/asset-join" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; knowledge: JoinKnowledge; artifactId?: string };
+        if (!payload.knowledge?.relations) { send(res, jsonResponse(400, { error: "knowledge result required" })); return; }
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const result = persistAssetJoin(service, payload.knowledge, { artifactId: payload.artifactId });
+        send(res, jsonResponse(200, result));
       } catch (error) {
         send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
       }
