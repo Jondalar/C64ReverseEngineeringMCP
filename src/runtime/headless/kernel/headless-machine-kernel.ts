@@ -960,6 +960,10 @@ export class HeadlessMachineKernel implements MachineKernel {
       paddles: Array.from(this.paddles),
       vic: vicii_snapshot_write(this.colorRamView()),
       vicPresentation: this.session.captureVicPresentation(),
+      // Spec 710.4/710.5 — same-frame raster/FLI provenance for THIS frozen
+      // frame (null when capture off). Rides the payload so it is durable across
+      // ring / .c64re / restore; inspect reads it from the checkpoint.
+      vicProvenance: this.session.captureVicProvenance(),
       drive1541: this.drive1541 ? this.drive1541.snapshot() : null,
       // Spec 714.4 — capture the mutable disk image apart from the core blob so
       // the ring can content-address + dedup it (one copy per disk identity).
@@ -1033,6 +1037,9 @@ export class HeadlessMachineKernel implements MachineKernel {
 
     vicii_snapshot_read(cp.vic, this.colorRamView());
     this.session.restoreVicPresentation(cp.vicPresentation);
+    // Spec 710.4/710.5 — repopulate same-frame provenance so a fresh inspect
+    // capture after restore/undump reflects THIS frame, not a later one.
+    this.session.restoreVicProvenance(cp.vicProvenance ?? null);
 
     if (cp.drive1541 && this.drive1541) {
       this.drive1541.restore(cp.drive1541);

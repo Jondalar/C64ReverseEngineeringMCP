@@ -70,11 +70,14 @@ The headline epic: a controllable, inspectable, rewindable runtime.
   defs + tracedb · `709` reproducible media ingress · `713` cartridge
   fidelity (EasyFlash, MagicDesk/16, Ocean, GMOD2/3, MegaByter, C64MegaCart
   + m93c86 / spi-flash / flash800core) · `714` mutable disk + `714.5`
-  writable cartridge persistence · `715` product proof baseline.
-- **Next (drafts):** `702` paused-VIC inspect overlay · `710` frozen-VIC
-  checkpoint evidence · `711` code-overlay intervention branches · `712`
-  rewind/replay branch diff · `700` runtime optimization · `704` runtime
-  codebase cleanup.
+  writable cartridge persistence · `715` product proof baseline · `710`
+  frozen-VIC inspect (checkpoint-bound resolve, durable raster/FLI + multiplexed-
+  sprite provenance, capture-on-freeze, UI overlay + knowledge promote — branch
+  `spec-710-frozen-inspect`).
+- **Next (drafts):** `702` paused-VIC inspect overlay · `711` code-overlay
+  intervention branches · `712` rewind/replay branch diff · `700` runtime
+  optimization · `704` runtime codebase cleanup. (710 trace-mark ref +
+  pixel-exact sprites = follow-ups.)
 
 ### Semantic disassembly × runtime (the killer combo) — next focus
 

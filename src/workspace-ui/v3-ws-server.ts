@@ -12,6 +12,13 @@ import { getIntegratedSession } from "../runtime/headless/integrated-session-man
 import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
 import { disasmLine } from "../runtime/headless/debug/disasm6502.js";
 import {
+  buildVicInspectSnapshot, assembleInspectEvidence,
+  resolveVisibleNodeAt, resolveVisibleRegion,
+  VISIBLE_FRAME, DISPLAY_ORIGIN,
+} from "../runtime/headless/inspect/vic-inspect.js";
+import type { FrozenInspectEvidence } from "../runtime/headless/inspect/vic-inspect-types.js";
+import type { RuntimeCheckpoint } from "../runtime/headless/kernel/runtime-checkpoint.js";
+import {
   ensureRuntimeController,
   getRuntimeController,
   type RuntimePacingMode,
@@ -263,10 +270,31 @@ export class V3WsServer {
     });
     ws.on("close", () => {
       this.clients.delete(ws);
+      // Spec 703/706 audio-restart fix: a UI reload closes the socket but the
+      // backend audio stream lingered (audioStreams kept) → the reloaded UI's
+      // audio/start hit `already_streaming` and never re-primed → silent until a
+      // manual off/on. When no client remains, tear the stream down so the next
+      // connection starts a fresh, primed stream.
+      if (this.clients.size === 0) {
+        for (const session_id of [...this.audioStreams.keys()]) this.stopAudioStream(session_id);
+      }
     });
     ws.on("error", (err) => {
       console.error("[v3-ws] client error:", err.message);
     });
+  }
+
+  /** Tear down a session's live audio stream (shared by audio/stop + socket
+   *  close). Idempotent. */
+  private stopAudioStream(session_id: string): boolean {
+    const stream = this.audioStreams.get(session_id);
+    if (!stream) return false;
+    const c = getRuntimeController(session_id);
+    if (c) c.onAudioFrame = undefined;
+    try { stream.recorder.buffer.detach(stream.cursorId); } catch { /* ignore */ }
+    try { stream.recorder.detach(); } catch { /* ignore */ }
+    this.audioStreams.delete(session_id);
+    return true;
   }
 
   private async dispatch(req: JsonRpcRequest, ctx: ClientContext): Promise<void> {
@@ -493,7 +521,7 @@ export class V3WsServer {
       ctrl.run({ mode, ratio: pacing?.ratio });
       return ctrl.state();
     });
-    this.on("debug/pause", ({ session_id }) => { const c = ctrlFor(session_id); c.pause(); return c.state(); });
+    this.on("debug/pause", ({ session_id }) => { const c = ctrlFor(session_id); c.freezeWithProvenance(); return c.state(); }); // 710.6c capture-on-freeze
     this.on("debug/continue", ({ session_id }) => { const c = ctrlFor(session_id); c.continue(); return c.state(); });
     this.on("debug/step", ({ session_id }) => {
       const c = ctrlFor(session_id);
@@ -550,6 +578,81 @@ export class V3WsServer {
       const restored = await c.restoreCheckpoint(String(id));
       return { restored, state: c.state() };
     });
+
+    // ---- Spec 710 — frozen-VIC inspect on the checkpoint model.
+    // Reads a retained checkpoint and resolves display-area pixels/regions to
+    // exact VIC/RAM provenance WITHOUT advancing execution (Spec 710 §2.1/§2.2).
+    // Opening pauses the backend and pins the inspected checkpoint; the returned
+    // checkpointId + snapshot are the SHARED record 711/712 also bind to. The
+    // literal viciisc checkpoint is the visual authority; VicIIVice is not read.
+    // Spec 710.5 — promoted evidence records per session (the shared 710/711/712
+    // record). In-memory for now; knowledge-store persistence is the UI/explore
+    // wiring (710.3) on top of this assembled record.
+    const inspectEvidence = new Map<string, FrozenInspectEvidence[]>();
+    const cpForInspect = (c: ReturnType<typeof ctrlFor>, id: string | number) => {
+      const snap = c.checkpointRing.restoreSnapshot(String(id));
+      const cp = snap?.payload as RuntimeCheckpoint | undefined;
+      if (!cp || !cp.vic || !cp.ram) throw new Error(`vic/inspect: unknown or empty checkpoint ${id}`);
+      return cp;
+    };
+    // Spec 710.4 — toggle the same-frame provenance sidecar (raster/FLI).
+    this.on("vic/inspect/provenance", ({ session_id, enabled }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`vic/inspect/provenance: no session ${session_id}`);
+      s.setVicProvenanceCapture(enabled !== false);
+      return { enabled: enabled !== false };
+    });
+    this.on("vic/inspect/open", async ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      if (c.runState === "running") c.freezeWithProvenance(); // §2.2 + 710.6c capture-on-freeze
+      const ref = await c.captureCheckpoint();
+      c.checkpointRing.pin(ref.id);                      // §2.2: pin the inspected checkpoint
+      const cp = cpForInspect(c, ref.id);
+      // 710.4/710.5 — provenance rides the checkpoint payload (durable).
+      const provenance = cp.vicProvenance ?? undefined;
+      // 710.3 option 2 — backend owns coordinate geometry; UI sends raw
+      // visible-frame px and gets the conversion contract here.
+      return {
+        checkpointId: ref.id, frame: buildVicInspectSnapshot(cp), provenance, runState: c.runState,
+        geometry: { visible: VISIBLE_FRAME, displayOrigin: DISPLAY_ORIGIN, cell: { w: 8, h: 8, cols: 40, rows: 25 } },
+      };
+    });
+    // x/y and region are VISIBLE-frame coords (0..384 × 0..272); the backend converts.
+    this.on("vic/inspect/at", ({ session_id, checkpoint_id, x, y }) => {
+      if (!checkpoint_id) throw new Error("vic/inspect/at: checkpoint_id required");
+      const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
+      return { node: resolveVisibleNodeAt(cp, Number(x) || 0, Number(y) || 0, cp.vicProvenance ?? undefined) };
+    });
+    this.on("vic/inspect/region", ({ session_id, checkpoint_id, region }) => {
+      if (!checkpoint_id) throw new Error("vic/inspect/region: checkpoint_id required");
+      if (!region) throw new Error("vic/inspect/region: region required");
+      const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
+      return { nodes: resolveVisibleRegion(cp, region, cp.vicProvenance ?? undefined) };
+    });
+    this.on("vic/inspect/close", ({ session_id, checkpoint_id }) => {
+      const c = ctrlFor(session_id);
+      if (checkpoint_id) c.checkpointRing.unpin(String(checkpoint_id));
+      return { ok: true, stats: c.checkpointRing.stats() };
+    });
+    // Spec 710.5 — promote selected nodes to a shared evidence record (checkpoint
+    // + media identity + optional trace mark + resolved nodes). Disk + EasyFlash
+    // media are 714-complete, so their records are durable/replayable.
+    this.on("vic/inspect/promote", ({ session_id, checkpoint_id, points, region, name, notes, trace_mark_id }) => {
+      if (!checkpoint_id) throw new Error("vic/inspect/promote: checkpoint_id required");
+      const c = ctrlFor(session_id);
+      const cp = cpForInspect(c, checkpoint_id);
+      // points/region are VISIBLE-frame coords; assembleInspectEvidence resolves
+      // them border-aware (sprites/multiplexer) — same path as at/region.
+      const evidence = assembleInspectEvidence(cp, String(checkpoint_id), {
+        points, region, traceMarkId: trace_mark_id, provenance: cp.vicProvenance ?? undefined,
+      });
+      const tagged = { ...evidence, name: name ?? null, notes: notes ?? null, promotedAtMs: Date.now() };
+      const list = inspectEvidence.get(session_id) ?? [];
+      list.push(tagged);
+      inspectEvidence.set(session_id, list);
+      return { evidence: tagged, count: list.length };
+    });
+    this.on("vic/inspect/evidence", ({ session_id }) => ({ evidence: inspectEvidence.get(session_id) ?? [] }));
 
     // ---- Spec 707 — native .c64re snapshot persistence (dump/undump).
     // The SAME backend the monitor `dump`/`undump` commands use, so UI/API
@@ -637,7 +740,14 @@ export class V3WsServer {
         s.runFor(5_000_000, { cycleBudget: 5_000_000 });
         return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "cold" };
       };
-      return ctrl.runExclusive(doReset);
+      const result = await ctrl.runExclusive(doReset);
+      // Audio-restart fix: a reset is a timeline discontinuity (reSID re-init +
+      // a burst run outside the frame-paced ship). Flush the worklet ring + reset
+      // the send epoch so audio re-syncs from the post-reset state — no manual
+      // off/on needed (same mechanism as a checkpoint restore, Spec 706.8).
+      const audio = this.audioStreams.get(session_id);
+      if (audio) { audio.seq = 0; this.broadcast("audio/flush", { session_id }); }
+      return result;
     });
 
     // Type text (PETSCII keyboard input).
@@ -829,7 +939,16 @@ export class V3WsServer {
     this.on("audio/start", ({ session_id }) => {
       const s = getIntegratedSession(session_id) as any;
       if (!s) throw new Error(`no session ${session_id}`);
-      if (this.audioStreams.has(session_id)) return { already_streaming: true };
+      // Audio-restart fix: if a stream already exists (e.g. a reloaded UI whose
+      // socket-close cleanup raced the reconnect), don't no-op — RE-PRIME the
+      // (new) client: reset the send epoch + flush its worklet ring so it
+      // re-prebuffers from the current reSID state instead of staying silent.
+      const existing = this.audioStreams.get(session_id);
+      if (existing) {
+        existing.seq = 0;
+        this.broadcast("audio/flush", { session_id });
+        return { already_streaming: true, reprimed: true };
+      }
 
       // Spec 706.2 (Fix A) — LIVE stream uses the small recorder buffer so a
       // catch-up flush drops stale excess at the source instead of banking
@@ -878,16 +997,7 @@ export class V3WsServer {
       return { streaming: true, sample_rate: recorder.resid.sampleRate };
     });
 
-    this.on("audio/stop", ({ session_id }) => {
-      const stream = this.audioStreams.get(session_id);
-      if (!stream) return { stopped: false };
-      const c = getRuntimeController(session_id);
-      if (c) c.onAudioFrame = undefined;
-      try { stream.recorder.buffer.detach(stream.cursorId); } catch { /* ignore */ }
-      try { stream.recorder.detach(); } catch { /* ignore */ }
-      this.audioStreams.delete(session_id);
-      return { stopped: true };
-    });
+    this.on("audio/stop", ({ session_id }) => ({ stopped: this.stopAudioStream(session_id) }));
 
     this.on("audio/export", async ({ session_id, out_path, duration_sec }) => {
       const session = getIntegratedSession(session_id);

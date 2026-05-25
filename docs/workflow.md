@@ -1,5 +1,12 @@
 # Reverse-Engineering Workflow Contract
 
+This document defines the persisted workflow/data model. The canonical
+end-to-end user journey and unified workbench direction are defined in
+[`product-vision-and-workbench-contract.md`](product-vision-and-workbench-contract.md).
+In particular, media-driven crack/port workflows may collect retained runtime
+evidence early, before full semantic disassembly, in order to discover loader
+and execution structure.
+
 The intended model is a **project-centric reverse-engineering
 workspace** where each step leaves behind stable, inspectable artifacts.
 

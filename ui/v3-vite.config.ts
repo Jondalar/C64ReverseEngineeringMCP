@@ -13,6 +13,12 @@ export default defineConfig({
     port: 4313,
     host: "127.0.0.1",
     open: false,
+    // Spec 710.3 (ONE-UI) — dev: route the workspace/knowledge HTTP API
+    // (findings/artifacts + POST /api/vic-inspect-evidence) to the workspace
+    // server so the v3 dev UI reaches it same-origin. WS stays ws://…:4312.
+    proxy: {
+      "/api": { target: "http://127.0.0.1:4310", changeOrigin: true },
+    },
   },
   build: {
     outDir: "dist-v3",

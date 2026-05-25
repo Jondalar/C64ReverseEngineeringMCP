@@ -36,6 +36,7 @@ export const CAPABILITIES = {
   "fastloader": "Real-software fastloaders reach the running game state",
   "cartridge": "Real CRT samples cold-boot into a drawn intro/menu state",
   "checkpoint": "Native checkpoint capture/restore/continue",
+  "vic-inspect": "Frozen-VIC inspect: resolve a paused pixel to exact VIC/RAM provenance (Spec 710)",
 };
 
 // Change-surface → which focused suite to run (Spec 715 §5 / work-order tiers).
@@ -107,6 +108,17 @@ export const GATES = [
     fixtures: "headless runtime + VSF",
     triggers: ["src/runtime/**/checkpoint*/**", "src/runtime/**/ring*/**", "src/runtime/**/vsf/**"],
     note: "Short native checkpoint capture -> restore -> continue capability preflight.",
+  },
+  {
+    id: "frozen-inspect",
+    capability: "vic-inspect",
+    group: "baseline",
+    command: ["node", "scripts/proof-canary-inspect.mjs"],
+    expect: "exit0",
+    tier: 2,
+    fixtures: "headless runtime checkpoint",
+    triggers: ["src/runtime/headless/inspect/**", "src/runtime/headless/integrated-session.ts"],
+    note: "Spec 710 — capture-on-freeze + resolve one display pixel to exact VIC/RAM provenance, no exec advance.",
   },
 
   // ======================= FOCUSED (proof:capability) =====================

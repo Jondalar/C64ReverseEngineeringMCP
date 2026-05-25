@@ -327,6 +327,13 @@ export class IntegratedSession {
   // from stable buffer so it never sees a half-filled frame.
   public literalPortFbStable: Uint8Array | null = null;
   private litStableFrameCount: number = 0;
+  // Spec 710.4 — optional same-frame provenance sidecar (per raster line:
+  // $D011/$D016/$D018 + VIC bank). OFF by default; when off, tickLitVic does
+  // ONE boolean check per raster line (negligible, no per-cycle cost). Lets
+  // inspect resolve raster-splits / FLI to the per-line base, not a frame guess.
+  public vicProvenanceEnabled = false;
+  private litProvenanceAccum: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> = [];
+  private litProvenanceStable: { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> } | null = null;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -1554,6 +1561,38 @@ export class IntegratedSession {
           fb[off + x] = lv.dbuf[x]!;
         }
       }
+      // Spec 710.4 — per-line provenance for the just-finished line (opt-in).
+      // Spec 710.6b — also capture the active sprites at this raster, so the
+      // multiplexer (sprite regs changed per line via IRQs → >8 sprites/frame)
+      // can be resolved at the correct raster.
+      if (this.vicProvenanceEnabled && last >= 0) {
+        const r = lv.regs;
+        const bankBase = (3 - (this.cia2.pra & 0x03)) * 0x4000;
+        const enable = r[0x15]! & 0xff;
+        let sprites: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> | undefined;
+        if (enable) {
+          const msbx = r[0x10]!, xexp = r[0x1d]!, yexp = r[0x17]!;
+          const screenBase = bankBase + ((r[0x18]! & 0xf0) >> 4) * 0x400;
+          sprites = [];
+          for (let i = 0; i < 8; i++) {
+            if (!(enable & (1 << i))) continue;
+            sprites.push({
+              i,
+              x: (r[i * 2]! & 0xff) | ((msbx & (1 << i)) ? 0x100 : 0),
+              y: r[i * 2 + 1]! & 0xff,
+              w: (xexp & (1 << i)) ? 48 : 24,
+              h: (yexp & (1 << i)) ? 42 : 21,
+              ptr: this.c64Bus.ram[screenBase + 0x3f8 + i]! & 0xff,
+              color: r[0x27 + i]! & 0x0f,
+            });
+          }
+        }
+        this.litProvenanceAccum.push({
+          line: last,
+          d011: r[0x11]! & 0xff, d016: r[0x16]! & 0xff, d018: r[0x18]! & 0xff,
+          bank: bankBase, sprites,
+        });
+      }
       // Spec V-stable-frame: when wrapping to line 0 (= frame complete),
       // snapshot the just-finished accumulator into the stable buffer.
       // renderLiteralPortToPng uses stable so it never sees a half-
@@ -1567,10 +1606,72 @@ export class IntegratedSession {
           this.literalPortFbStable.set(acc);
           this.litStableFrameCount++;
         }
+        // Spec 710.4 — promote the just-finished frame's per-line provenance.
+        if (this.vicProvenanceEnabled) {
+          this.litProvenanceStable = { lines: this.litProvenanceAccum };
+          this.litProvenanceAccum = [];
+        } else {
+          // A restored provenance (e.g. after .c64re undump) applies ONLY to the
+          // restored frozen frame. Once a NEW full frame completes without
+          // capture, it must NOT inherit the old provenance — clear it so a
+          // later checkpoint B reports vicProvenance === null.
+          this.litProvenanceStable = null;
+        }
       }
       this.litLastRasterLine = lv.raster_line;
     }
     return baLow;
+  }
+
+  /**
+   * Spec 710.4 — toggle the same-frame provenance sidecar (raster/FLI). When
+   * disabled (default) the render path pays only one boolean check per raster
+   * line. Disabling clears any captured provenance.
+   */
+  setVicProvenanceCapture(on: boolean): void {
+    this.vicProvenanceEnabled = on;
+    if (!on) { this.litProvenanceAccum = []; this.litProvenanceStable = null; }
+  }
+
+  /**
+   * Spec 710.4 — the LAST COMPLETE frame's per-line provenance (same frame as
+   * literalPortFbStable / the checkpoint), or null if capture is off / no full
+   * frame has completed yet. Never reconstructed from later register state.
+   */
+  captureVicProvenance(): { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> } | null {
+    return this.litProvenanceStable ? { lines: this.litProvenanceStable.lines.slice() } : null;
+  }
+
+  /**
+   * Spec 710.4/710.5 — repopulate the stable provenance from a restored
+   * checkpoint payload, so a subsequent capture (inspect/open) reflects the
+   * restored frame. Does not re-enable live capture.
+   */
+  restoreVicProvenance(p: { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> } | null): void {
+    this.litProvenanceStable = p ? { lines: p.lines.slice() } : null;
+  }
+
+  /**
+   * Spec 710.6c — capture-on-freeze. Run exactly to the next COMPLETE frame
+   * boundary (raster wraps to 0) WITH provenance capture on, so a freeze lands
+   * on a full frame whose raster/FLI + multiplexed-sprite provenance is recorded
+   * and matches the presented picture. Capture is then turned off WITHOUT
+   * clearing the just-captured stable provenance. No continuous churn while
+   * free-running. Bounded by a ~2-frame cycle cap.
+   */
+  runFrameWithProvenance(maxCycles = 100_000): void {
+    let ran = 0;
+    const step = () => { this.runFor(4_000, { cycleBudget: 4_000 }); ran += 4_000; };
+    // Phase 1: align to a frame START (run to the next wrap, capture OFF) so the
+    // captured frame is COMPLETE (line 0..311), not a mid-frame tail.
+    const f0 = this.litStableFrameCount;
+    while (this.litStableFrameCount === f0 && ran < maxCycles) step();
+    // Phase 2: capture exactly one full frame (this wrap → next wrap).
+    this.vicProvenanceEnabled = true; // enable WITHOUT touching litProvenanceStable
+    const f1 = this.litStableFrameCount;
+    while (this.litStableFrameCount === f1 && ran < maxCycles) step();
+    // Leave the captured full frame's provenance in place; stop capturing.
+    this.vicProvenanceEnabled = false;
   }
 
   /**
