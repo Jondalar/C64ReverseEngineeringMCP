@@ -870,3 +870,15 @@ body {
   border: 1px solid var(--c64-border); padding: 3px 6px;
   font-family: inherit; font-size: 11px;
 }
+/* Spec 710.3 — inspect node panel inside the explore toolbar. */
+.wb-explore-toolbar { flex-wrap: wrap; max-width: 92vw; max-height: 42vh; overflow: auto; }
+.wb-explore-node {
+  flex-basis: 100%; border-top: 1px solid var(--c64-border);
+  margin-top: 4px; padding-top: 4px; font-size: 11px;
+}
+.wb-explore-node .wb-regs { font-size: 10px; margin-top: 3px; }
+.wb-explore-node .wb-regs td { padding: 1px 6px 1px 0; }
+.wb-badge {
+  background: var(--c64-yellow); color: var(--c64-bg-2);
+  padding: 1px 5px; border-radius: 3px; font-weight: bold; font-size: 10px;
+}
