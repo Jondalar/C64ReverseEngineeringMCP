@@ -1,139 +1,183 @@
-# Spec 721 — Runtime-Informed Semantic Annotation
+# Spec 721 — Visual-Origin Join (Frozen Inspect ↔ Extraction / Medium / Trace / Disassembly)
 
-**Status:** DRAFT (2026-05-20)
-**Parent specs:** `specs/720-disasm-output-quality.md` (static heuristic labels — prerequisite), `specs/708-declarative-trace-definitions-tracedb-control.md` (retained runtime trace definitions/runs), `specs/042-*` (`propose_annotations`), revives `specs/_archive/249-disasm-annotations-table-discovery.md` + `specs/_archive/235-runtime-disasm-link.md` onto the V2 runtime substrate.
-**Scope:** wire RUNTIME EXECUTION EVIDENCE (taint / swimlane / follow-path / profile / events) into the SEMANTIC ANNOTATION layer — both a mechanical extraction pass (deterministic) and an LLM-synthesis step (the "runtime explains the code again" workflow that produced the Accolade Comics gold annotations).
+**Status:** DRAFT — refined 2026-05-25 (re-scoped from the general "runtime-informed annotation" draft onto the central join).
+**Parent specs:** `specs/710-frozen-vic-inspect-checkpoint-evidence.md` (DONE — the visual side + `FrozenInspectEvidence`/`MemoryRef`), `specs/708-declarative-trace-definitions-tracedb-control.md` (retained DuckDB trace runs/marks), `specs/709-reproducible-media-ingress.md` (media identity), `specs/720-disasm-output-quality.md` (static labels), `specs/042-*` (`propose_annotations`). Revives `specs/_archive/249-*` (runtime tables) + `specs/_archive/235-*` (runtime↔disasm link) as the annotation OUTPUT of the join.
+**Scope:** ONE join — a visible object selected in Frozen Inspect resolves to its ORIGIN: the extracted asset, its file/medium location, the trace chain that put it on screen, and the code that uses it. No large implementation in this spec — data model + two small PoCs first.
 
-## 1. Why this spec exists
+## 1. The central join (why this spec)
 
-The gold annotations (`EF_Version_C/003_runtime_library.asm` — 42 routines with accurate prose, semantic labels, segment comments) were authored by an LLM (Claude) reading the disasm **while observing runtime traces alongside**. That is what makes the annotation *coherent / connected* ("zusammenhängend"): static structure explained by dynamic ground-truth.
+This is the killer-combo seam. Frozen Inspect (710) turns a paused pixel/region
+into `FrozenInspectEvidence` (checkpoint-bound `VisualNode`s + `MemoryRef`s).
+Extraction turns files/media into asset candidates. The trace store (708) records
+how bytes got where. Disassembly (720) names the code. **721 joins them:**
 
-**2026-05-20 audit finding:** the pipeline FORESEES this loop but does NOT wire it.
+> a visible object → its `MemoryRange` → the `Routine` that wrote/uses it →
+> the `ArtifactRange` (file offset) it came from → the `MediaRegion` (disk
+> sector / CRT bank) it physically lives in.
 
-- Seven-phase workflow (`docs/re-phases.md`) has the slots: Phase 2 collects runtime evidence, Phase 5/6/7 do semantics — but separate silos.
-- `propose_annotations` (Spec 042) reads **static analysis only** — no trace input.
-- Runtime forensic tools (`runtime_trace_taint`, `runtime_swimlane_slice`, `runtime_follow_path`, `runtime_profile_loader`, `runtime_query_events`) are **read-only**. None emit findings or annotation hints.
-- Two archived specs designed exactly this and were never built:
-  - **Spec 249** — runtime-tables analyzer → `<artifact>_runtime_tables.json` → consumed by `propose_annotations`.
-  - **Spec 235** — runtime evidence ↔ disasm link; resolution exists read-only (`runtime_resolve_pc`), no auto-generation.
+Today these are silos: 710 gives the picture+RAM refs, extraction gives asset
+candidates, the trace store gives writer/copy/depack chains, 720 gives labels —
+nothing resolves "this sprite on screen ⇒ that file at that offset, depacked by
+that routine." 721 is exactly that resolution, with an HONEST classification of
+how direct the link is.
 
-**Now feasible** because the V2 runtime substrate exists (taint graph, swimlane, follow-path, profile-loader, snapshot/trace per Spec 701) — it did not when 249/235 were archived (2026-05-08).
+**710 is not reopened. 711 (code-overlay intervention) sits AFTER this join** —
+it needs the VisualElement→Routine→ArtifactRange chain 721 produces.
 
-**Prerequisite:** Spec 720 (static heuristic labels). Clean `sub_`/`loop_`/`tbl_`/`ptr_` baseline first, then runtime evidence layers semantic meaning on top.
+## 2. Two equal runtime sources (one model)
 
-## 2. Two layers
+The join must work from EITHER runtime source, producing the SAME evidence model:
 
-Full automation = two distinct layers. Do NOT conflate.
+- **Agent-driven headless run** with a retained DuckDB trace (Spec 708
+  `traceRun` + marks, `vic/inspect` resolve via the checkpoint).
+- **Human-assisted UI run** with TRACE ON (the v3 workbench, same 708 trace
+  capture + 710 freeze-inspect).
 
-- **(a) Mechanical extraction (deterministic).** Runtime forensics → structured findings + annotation hints. No LLM. Produces: confirmed routine boundaries, call-graph edges, data-flow facts, table classifications, protection-pattern tags, RAM-role hypotheses. This is Spec 249 revived.
-- **(b) LLM synthesis (agent-in-the-loop).** Agent receives an *evidence bundle* (disasm slice + taint + swimlane + profile + the mechanical findings) for a routine → writes coherent prose + semantic name. This is the "runtime erklärt's nochmal" step. Not fully deterministic, but heavily evidence-fed so it's grounded, not guessed.
+Both emit the identical substrate the join consumes:
+`traceRun` (DuckDB) · `mark` · `checkpoint` (710 capture-on-freeze) · `media`
+identity (709). The join NEVER assumes which source produced them — it consumes
+the retained `traceRef` + `FrozenInspectEvidence` + `AssetCandidate`s. Neither
+source is privileged; an agent batch and a human session are interchangeable
+inputs.
 
-Layer (a) makes (b) cheap + accurate. (a) can ship + run unattended; (b) is orchestrated per-routine.
+## 3. Extraction side — `AssetCandidate`
 
-## 3. Mechanical layer — runtime forensics → findings (revive Spec 249)
+A deterministic extraction pass (over PRG / D64 / G64 / CRT) emits asset
+candidates the join can match against. No runtime needed to produce these.
 
-A pipeline post-pass `analyzeRuntimeEvidence(artifactId, traceRef)` that reads existing V2 forensic outputs and emits findings + annotation hints. Triggers:
-
-| Runtime signal | Source tool | Emitted annotation hint |
-|---|---|---|
-| Address executed as code (in trace PC set) but flagged data by heuristic | `runtime_query_events` PC set | `SegmentAnnotation kind=code` (confirm island) |
-| JSR target hit at runtime | PC set + call events | `RoutineAnnotation` (confirmed entry) + call-graph edge |
-| Indirect-JMP target consistency across runs | `runtime_follow_path` | `LabelAnnotation` on resolved target |
-| Indexed read sweep over a region | taint + event addr ranges | `SegmentAnnotation kind=table` + `tbl_` label |
-| Byte written from N sources / RMW chain | `runtime_trace_taint` TaintGraph | RAM-role finding (`flag`/`counter`/`pointer`) → feeds ROUTINE CONTEXT |
-| IO/IEC touch pattern | `runtime_profile_loader` | `RoutineAnnotation` hint (`loader`/`disk`/`io` role) |
-| Protection-pattern detector hit | `runtime_profile_loader` (5 detectors) | finding + `RoutineAnnotation` (`protection_check`) |
-| C64↔drive interaction at a PC | `runtime_swimlane_slice` | finding linking C64 routine ↔ drive response |
-
-Output: `<artifact>_runtime_evidence.json` (findings + hints) consumed by an extended `propose_annotations` (Task 721.4). Hints carry `confidence` + `provenance: "runtime"` so they're distinguishable from static heuristics and from LLM prose.
-
-All emitted via the existing `save_finding` / `save_entity` knowledge layer — no new persistence format.
-
-## 4. LLM synthesis layer — evidence bundle → coherent prose
-
-The "runtime explains it again" step. For a target routine, assemble an **evidence bundle** and hand it to the annotating agent (or a dedicated tool that calls the model):
-
-The bundle (§5) gives the agent everything the human-with-traces had:
-- what the routine IS structurally (disasm + static facts),
-- what it DOES dynamically (taint = data in/out, swimlane = who it talks to, profile = IO/protection role),
-- what the mechanical layer already concluded (findings/hints).
-
-Agent writes: `RoutineAnnotation.name` + `.comment` (prose), `LabelAnnotation`s for local targets, `SegmentAnnotation.comment`. Written to the annotations JSON → re-render via `disasm_prg` → gold-style output.
-
-This step is agent-orchestrated (master/worker per Spec 035). Not a single deterministic tool, but the bundle makes it reproducible + grounded. A routine annotated this way cites its runtime evidence (so a reviewer can check the prose against the trace).
-
-## 5. Evidence bundle format
-
-`buildEvidenceBundle(artifactId, routineAddr, traceRef) → EvidenceBundle`:
-
-```
-{
-  routine: { entry, range, static_facts },     // from AnalysisReport + Spec 720 labels
-  disasm: "<the routine's asm slice>",          // rendered listing for this range
-  taint:   { inputs: [...], outputs: [...] },   // runtime_trace_taint summarized
-  callers: [...], callees: [...],               // call-graph edges (mechanical layer)
-  ram_touched: [{ addr, role, evidence }],      // taint-derived RAM roles
-  interactions: [...],                          // runtime_swimlane_slice C64↔drive
-  io_profile: { regs, iec, protection_tags },   // runtime_profile_loader
-  mechanical_hints: [...],                       // §3 findings for this routine
+```ts
+interface AssetCandidate {
+  id: string;
+  artifactId: string;                 // owning extracted artifact (knowledge store)
+  kind: "sprite" | "charset" | "screen" | "bitmap" | "tile" | "font" | "table" | "unknown";
+  source: {
+    fileRef?: string;                 // file/artifact the bytes live in
+    mediumRef?: string;               // disk image / CRT identity (709)
+    offset: number;                   // byte offset within file/medium region
+    length: number;
+  };
+  format: string;                     // e.g. "sprite-24x21" / "sprite-mc" / "charset-2k" / "koala" / "bitmap-hires"
+  preview?: { hash: string; pngRef?: string };  // content hash of the asset bytes (+ optional render)
+  confidence: number;                 // 0..1 (heuristic strength)
 }
 ```
 
-Bundle is the single input to the LLM step. Compact + token-bounded (one routine at a time, not the whole binary).
+The `preview.hash` (content hash of the asset's bytes in their NATIVE form) is
+the exact-match key. `format` lets the join compare apples to apples (a sprite
+candidate vs a sprite `MemoryRef`). This reuses the existing graphics-candidate
+scanners (`scan_graphics_candidates`, sprite/charset/bitmap analyzers) — 721
+formalizes their output into `AssetCandidate` records, it does not invent new
+detectors.
 
-## 6. Phase integration
+## 4. Inspector join — resolve a `VisualNode` to its origin
 
-Slots into the seven-phase workflow without new phases:
+Input: a `FrozenInspectEvidence` (710) — its `VisualNode`s carry `MemoryRef`s
+(`screen_ram` / `color_ram` / `charset` / `bitmap` / `sprite_ptr` / `sprite_data`
+with absolute addr + length) — plus the set of `AssetCandidate`s and a retained
+`traceRef`.
 
-- **Phase 2** (loader/runtime) records a retained Spec 708 trace run and its reusable `traceRef`, so later phases consume declared evidence rather than one-off diagnostics.
-- **Phase 5** (Semantic V1): mechanical layer (§3) runs → enriches `propose_annotations` draft with runtime hints.
-- **Phase 6** (Meta Connections): call-graph + C64↔drive interaction edges (from swimlane) become relations (`save_relation`, `link_entities`).
-- **Phase 7** (Semantic V2): LLM synthesis (§4) per routine using the evidence bundle → final prose. This is where "runtime explains it again" lands.
+**Step 1 — exact match (no trace needed).** Hash the RUNTIME-resident bytes at a
+`MemoryRef` range (from the frozen checkpoint RAM) and compare to
+`AssetCandidate.preview.hash` of the same `kind`/`format`. A hit ⇒ the on-screen
+object IS that extracted asset, placed verbatim. → `exact_asset`.
 
-`phase-tools.ts` tags: add the new mechanical pass to Phase 5 tooling, the bundle builder to Phase 7.
+**Step 2 — no exact match ⇒ resolve the chain via DuckDB.** The bytes were
+transformed before display. Walk the trace store:
+- **writer** — which PC/routine wrote this `MemoryRange` (write events to the addr range);
+- **source** — where that routine READ from (taint / read events) → an `AssetCandidate` region;
+- **copy** — a block move (memcpy-shaped read→write run);
+- **depack** — a decompressor signature (Exomizer/ByteBoozer/BWC — the project's depack tooling) read-packed→write-unpacked.
+A resolved chain (display bytes ⇐ writer ⇐ … ⇐ a packed/source `AssetCandidate`
+on the medium) ⇒ `derived_asset`, carrying the chain as evidence.
+
+**Step 3 — honest classification.** Every resolved `VisualNode` gets exactly one:
+- `exact_asset` — RAM bytes == an extracted asset (hash) + (optionally) a load/copy trace placed them.
+- `derived_asset` — no byte match, but a trace writer/source/copy/depack chain ties it to a source `AssetCandidate` on the medium.
+- `runtime_generated` — bytes computed at runtime with no static asset origin (procedural table/sprite, cleared buffer, computed bitmap). Honestly "no file origin", not a forced guess.
+
+No fabricated links: if neither a hash match nor a trace chain exists, the answer
+is `runtime_generated` (or `unresolved` when even the writer is unknown), never a
+nearest-guess asset.
+
+## 5. Knowledge / disassembly result
+
+The join writes into the EXISTING knowledge store (no new persistence model):
+
+**Relation chain** (per resolved visual element):
+```
+VisualElement → MemoryRange → Routine → ArtifactRange → MediaRegion
+```
+- `VisualElement` = the promoted `FrozenInspectEvidence` node(s) (710 artifact).
+- `MemoryRange` = the `MemoryRef` addr/length.
+- `Routine` = the writer/owner routine (from the trace chain + 720 labels).
+- `ArtifactRange` = file offset/length of the source `AssetCandidate`.
+- `MediaRegion` = disk sector/track or CRT bank (709 identity).
+Saved via `save_relation` / `link_entities` / `link_payload_to_*` — the join is a
+set of relations + a classification, not a blob.
+
+**Annotation proposals** (with `EvidenceRef`s, `provenance:"runtime-join"`):
+- a `RoutineAnnotation` for the writer/depack routine ("unpacks sprite set X from
+  $… to $…"), and `LabelAnnotation`/`SegmentAnnotation` for the source and
+  destination data ranges. These feed `propose_annotations` (Spec 042/720) and the
+  per-routine LLM-synthesis bundle (the former §3/§4 of this spec — preserved as
+  the annotation-GENERATION path, now fed by the join's resolved chain). Every
+  proposal cites the trace evidence + the asset hash so a reviewer can verify it.
+- byte-identical rebuild stays green (comments/labels only — inherited gate).
+
+**UI navigation (LATER — not this spec):** screen marking → asset → file/offset →
+code → trace, as a clickable chain in the v3 workbench. Designed here, built after
+the data model + PoCs land (and overlaps 711).
+
+## 6. Order + minimal proof slices
+
+Strictly incremental. Data model + the simplest honest match FIRST; trace-backed
+resolution second; UI/overlay last.
+
+| ID | Slice | What it proves | Depends |
+|---|---|---|---|
+| **721.J1** | **Data model + exact sprite-match PoC.** Define `AssetCandidate` + the join-result types + the `exact_asset\|derived_asset\|runtime_generated` enum. Extract sprite `AssetCandidate`s from one PRG/disk; freeze-inspect a sprite (710); hash the RAM `sprite_data` range vs candidate hashes → emit an `exact_asset` relation. NO trace. | The hash-join + classification skeleton works on the simplest case. | 710, extraction scanners |
+| **721.J2** | **Trace-backed derived-asset PoC.** A depacked/copied asset (no direct hash match). Use the DuckDB trace writer/source/copy/depack chain to resolve `derived_asset` back to a packed `AssetCandidate` on the medium; attach the chain as evidence. | The trace store resolves an origin when bytes were transformed; honest `derived_asset`. | 721.J1, 708 traceRef, depack tooling |
+| **721.J3** | **Knowledge relations + annotation proposals.** Persist the `VisualElement→MemoryRange→Routine→ArtifactRange→MediaRegion` chain via `save_relation`; emit annotation proposals (routine + data labels) with `EvidenceRef`s. | The join lands as durable, reviewable knowledge that disasm consumes. | 721.J1/J2, 042/720 |
+| **721.J4** | *(later)* **UI navigation + code overlay.** Clickable screen→asset→file/offset→code→trace; overlaps Spec 711. | End-to-end human navigation. | 721.J3, 711 |
+
+Each PoC is a focused gate (a tiny script proving the one capability), not a big
+suite. J1 is deterministic + needs no runtime trace; J2 needs a retained trace.
 
 ## 7. Acceptance
 
-1. **Mechanical pass runs unattended:** `analyzeRuntimeEvidence` on a traced artifact emits `<artifact>_runtime_evidence.json` with ≥1 finding per category that the trace supports. Deterministic (same trace → same output).
-2. **propose_annotations consumes runtime hints:** the draft annotations JSON gains runtime-provenance routines/labels/segments distinct from static heuristics.
-3. **Evidence bundle builds + is token-bounded:** `buildEvidenceBundle` for a routine returns a complete bundle under a fixed token budget; one routine at a time.
-4. **End-to-end demo on a known target:** re-annotate a slice of the EF/Accolade `003` library (which has gold annotations to compare against) via mechanical + LLM-synthesis. Resulting routine prose is *coherent* (cites runtime evidence) and semantic labels match the dynamic behavior. Not byte-identical to gold (prose varies) but materially closer than Spec 720 static-only output.
-5. **Byte-identical rebuild stays green** — annotations are comments/labels only (inherited from Spec 720 §10.1 hard gate).
-6. **Provenance traceable:** every runtime-derived annotation carries `provenance: "runtime"` + a reference to the trace evidence that produced it.
+1. `AssetCandidate` model + join-result types + classification enum exist; an
+   extraction pass emits sprite/charset/bitmap candidates with content hashes.
+2. **Exact match (J1):** a freeze-inspected sprite whose RAM bytes equal an
+   extracted candidate resolves to `exact_asset` with the candidate's
+   file/offset; deterministic.
+3. **Derived match (J2):** a depacked/copied on-screen asset resolves to
+   `derived_asset` via a DuckDB writer/source/copy/depack chain back to a source
+   candidate; the chain is attached as evidence.
+4. **Honest no-origin:** a runtime-computed element resolves to `runtime_generated`
+   (or `unresolved`), never a fabricated asset link.
+5. **Source-agnostic:** the same join result is produced from an agent headless
+   trace and a human UI TRACE-ON run (same `traceRef`/checkpoint/media model).
+6. **Knowledge (J3):** the `VisualElement→…→MediaRegion` relation chain + cited
+   annotation proposals are saved in the existing store; rebuild stays green.
 
 ## 8. Out of scope
 
-- Replacing the static heuristic labels (Spec 720) — this layers ON TOP.
-- Fully deterministic prose generation — §4 is agent-in-the-loop by design.
-- New runtime forensic tools — reuse existing V2 (taint/swimlane/follow-path/profile/events).
-- Trace capture/control mechanics — Specs 701/708 and V2 own that; this consumes retained `traceRef`s.
-- Cross-artifact / whole-game synthesis — one artifact at a time first.
-- NTSC / hardware variants — orthogonal.
+- Large implementation in this spec — data model + J1/J2 PoCs only.
+- Reopening Spec 710 (visual side is DONE).
+- The UI navigation / code overlay (J4 / Spec 711) — designed, built after the join.
+- New extraction detectors or new trace mechanics — reuse existing scanners (720)
+  + trace store (708) + depack tooling.
+- Whole-game / cross-artifact synthesis — one artifact at a time.
+- NTSC / hardware variants.
 
-## 9. Tasks
+## 9. References
 
-| ID | Task | Layer | Depends |
-|---|---|---|---|
-| 721.1 | Consume a reusable retained `traceRef` from a Spec 708 Phase-2 runtime trace run (checkpoint/media/definition-linked evidence later phases can re-open). | infra | Spec 708 |
-| 721.2 | `analyzeRuntimeEvidence(artifactId, traceRef)` mechanical pass — §3 trigger table → findings + `<artifact>_runtime_evidence.json`. | (a) mechanical | 721.1 |
-| 721.3 | Emit findings via `save_finding`/`save_entity` with `provenance:"runtime"` + confidence. Call-graph + C64↔drive edges via `save_relation`. | (a) | 721.2 |
-| 721.4 | Extend `propose_annotations` to consume `_runtime_evidence.json` (runtime hints rank above static heuristics, below LLM prose). | (a)→draft | 721.2 |
-| 721.5 | `buildEvidenceBundle(artifactId, routineAddr, traceRef)` — §5 bundle, token-bounded. | (b) | 721.2 |
-| 721.6 | LLM-synthesis orchestration: per-routine bundle → `RoutineAnnotation`/`LabelAnnotation`/`SegmentAnnotation` prose. Master/worker per Spec 035. | (b) | 721.5 |
-| 721.7 | End-to-end demo on EF `003` library slice; compare coherence vs gold + vs Spec 720 static-only. | verify | 721.4 + 721.6 |
-| 721.8 | Phase-tool tagging (`phase-tools.ts`): mechanical→Phase 5, bundle/synthesis→Phase 7. | infra | 721.2 + 721.6 |
-| 721.9 | Byte-identical rebuild gate + provenance audit. Memory note + close. | verify | 721.7 |
-
-## 10. References
-
-- `specs/720-disasm-output-quality.md` — static heuristic labels (prerequisite).
-- `specs/_archive/249-disasm-annotations-table-discovery.md` — original runtime-table-discovery design (revived here).
-- `specs/_archive/235-runtime-disasm-link.md` — runtime↔disasm resolution (read-only `runtime_resolve_pc` exists).
-- `specs/042-*` — `propose_annotations` (static; extended in 721.4).
-- `docs/re-phases.md` — seven-phase workflow (slots in §6).
-- `src/agent-orchestrator/phase-tools.ts` — phase tool tags.
-- V2 runtime tools: `runtime_trace_taint` (taint.ts), `runtime_swimlane_slice` (swimlane.ts), `runtime_follow_path`, `runtime_profile_loader`, `runtime_query_events`, `runtime_resolve_pc`.
-- Gold reference: `EF_Version_C/003_runtime_library.asm` + `analysis/003_runtime_library_annotations.json` (42 routines, the coherence target).
-- `specs/035-*` — master/worker pattern (for 721.6 orchestration).
-- `specs/701-*` — autonomous runtime substrate.
-- `specs/708-declarative-trace-definitions-tracedb-control.md` — retained trace-run and `traceRef` authority consumed here.
+- `specs/710-frozen-vic-inspect-checkpoint-evidence.md` — `FrozenInspectEvidence` / `MemoryRef` / `VisualNode` (the visual input).
+- `specs/708-declarative-trace-definitions-tracedb-control.md` — retained `traceRun`/marks (writer/source/copy/depack chains).
+- `specs/709-reproducible-media-ingress.md` — media identity (`MediaRegion`).
+- `specs/720-disasm-output-quality.md` — static labels (`Routine`).
+- `specs/042-*` — `propose_annotations` (consumes the join's proposals).
+- `specs/_archive/249-*` (runtime tables) + `specs/_archive/235-*` (runtime↔disasm link) — the annotation-generation path, now fed by the join.
+- Extraction: `scan_graphics_candidates`, sprite/charset/bitmap analyzers; depack tooling (exomizer/byteboozer/bwc).
+- `specs/711-code-overlay-intervention-branches.md` — sits after this join (UI nav / overlay).
+- `docs/re-phases.md` — Phase 2 (trace) → 5/6 (relations) → 7 (annotation synthesis) slotting.
