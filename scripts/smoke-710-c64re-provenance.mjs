@@ -102,6 +102,13 @@ let topBefore, botBefore, cpAProv;
       `topBase=$${charBase(topAfter)?.toString(16)} botBase=$${charBase(botAfter)?.toString(16)}`);
     gate("R full resolved nodes identical pre/post dump",
       JSON.stringify(topBefore) === JSON.stringify(topAfter) && JSON.stringify(botBefore) === JSON.stringify(botAfter));
+
+    // Restored provenance applies ONLY to the restored frozen frame: run a new
+    // full frame WITHOUT capture, then a fresh checkpoint B must NOT inherit it.
+    session.runFor(1_000_000, { cycleBudget: 1_000_000 }); // several full frames, capture off
+    const refB = await ctrl.captureCheckpoint();
+    const cpB = ctrl.checkpointRing.restoreSnapshot(refB.id)?.payload;
+    gate("B new frame without capture → cp.vicProvenance === null (no inheritance)", cpB?.vicProvenance === null, `prov=${JSON.stringify(cpB?.vicProvenance)}`);
   } finally { try { stopIntegratedSession(sessionId); } catch {} }
 }
 

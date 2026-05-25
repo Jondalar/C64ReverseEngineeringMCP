@@ -152,9 +152,9 @@ The overlay is HTML/SVG above the canvas. It never modifies frame pixels.
 | ID | Task | Depends |
 |---|---|---|
 | 710.1 | Bind final API/types to the real 705 checkpoint and active literal `viciisc`/presentation surfaces; explicitly reject `VicIIVice` as authority. | 707 |
-| 710.2 | Implement checkpoint-bound inspect APIs for exact ordinary text/bitmap/multicolor/sprite nodes without advancing execution. | 710.1 |
+| 710.2 | Implement checkpoint-bound inspect APIs for exact text/bitmap/multicolor cells + `sprite_bounds` (bounding-box + pointer/data/register evidence) without advancing execution. Pixel-exact sprite transparency/priority is DEFERRED, not in scope. | 710.1 |
 | 710.3 | Integrate paused canvas overlay and inspector panel, replacing the current unwired artifact alert path. | 710.2 |
-| 710.4 | Implement optional bounded same-frame provenance capture inside the active literal render path for raster-split/FLI/priority cases, with disabled-path performance gate. | 710.2 |
+| 710.4 | Implement optional bounded same-frame per-raster-line base provenance ($D011/$D016/$D018+bank) inside the active literal render path for raster-split/FLI cases, persisted in the checkpoint payload (durable across ring/.c64re/restore), with a disabled-path performance gate. (Pixel-exact sprite priority resolution is DEFERRED.) | 710.2 |
 | 710.5 | Promote selections to evidence/knowledge with durable media refs and corrected trace mark/run refs. | 708 corrective slice, 709, 710.2 |
 
 ## 6. Acceptance

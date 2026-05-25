@@ -1587,6 +1587,12 @@ export class IntegratedSession {
         if (this.vicProvenanceEnabled) {
           this.litProvenanceStable = { lines: this.litProvenanceAccum };
           this.litProvenanceAccum = [];
+        } else {
+          // A restored provenance (e.g. after .c64re undump) applies ONLY to the
+          // restored frozen frame. Once a NEW full frame completes without
+          // capture, it must NOT inherit the old provenance — clear it so a
+          // later checkpoint B reports vicProvenance === null.
+          this.litProvenanceStable = null;
         }
       }
       this.litLastRasterLine = lv.raster_line;
