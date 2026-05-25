@@ -181,6 +181,25 @@ console.log("Spec 710.2 — VIC inspect resolver smoke");
   gate("E display click, no sprite → text/bitmap cell", inDisplay.type === "text_cell" || inDisplay.type === "bitmap_cell", inDisplay.type);
 }
 
+// ---- (F) 710.6b — multiplexer: per-raster sprite provenance ----
+{
+  const regs = new Array(0x40).fill(0); regs[0x18] = 0x14; regs[0x15] = 0x00; // no FROZEN sprites
+  const cp = { vic: { regs, color_ram: new Array(0x400).fill(0) }, ram: new Uint8Array(65536), cia2: { c_cia: [0x03] } };
+  // sprite 0 multiplexed: at raster 60 → X=88; at raster 140 → X=200 (re-used).
+  const provenance = { lines: [
+    { line: 60, d011: 0, d016: 0, d018: 0x14, bank: 0, sprites: [{ i: 0, x: 88, y: 60, w: 24, h: 21, ptr: 0x80, color: 1 }] },
+    { line: 140, d011: 0, d016: 0, d018: 0x14, bank: 0, sprites: [{ i: 0, x: 200, y: 140, w: 24, h: 21, ptr: 0x81, color: 2 }] },
+  ] };
+  const spriteX = (n) => n.refs.find((r) => r.kind === "vic_reg" && r.note === "sprite X")?.value;
+  const a = resolveVisibleNodeAt(cp, 100, 60 - 16, provenance); // raster 60, over X=88
+  gate("F multiplexer raster 60 → sprite0 @ X=88", a.type === "sprite_bounds" && a.value === 0 && spriteX(a) === 88, `${a.type} X=${spriteX(a)}`);
+  const b = resolveVisibleNodeAt(cp, 215, 140 - 16, provenance); // raster 140, over X=200
+  gate("F multiplexer raster 140 → SAME sprite0 @ X=200 (moved)", b.type === "sprite_bounds" && b.value === 0 && spriteX(b) === 200, `${b.type} X=${spriteX(b)}`);
+  gate("F sprite_data ref notes MULTIPLEXED", /MULTIPLEXED/.test(b.refs.find((r) => r.kind === "sprite_data")?.note ?? ""));
+  const c = resolveVisibleNodeAt(cp, 215, 60 - 16, provenance); // raster 60, off the sprite
+  gate("F raster 60 off-sprite → NOT sprite (per-raster state authoritative)", c.type !== "sprite_bounds", c.type);
+}
+
 console.log("---");
 if (failures.length === 0) { console.log(`GREEN 710.2/710.5 VIC inspect: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 710.2 VIC inspect: ${passes} pass, ${failures.length} fail.`);

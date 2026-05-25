@@ -17,11 +17,10 @@ import { getClient } from "../ws-client.js";
 
 type Selection = { x: number; y: number; w: number; h: number };
 
-// Visible-frame → display-area origin (PAL VICE visible 384x272; display 320x200).
-const BORDER_LEFT = 32;
-const BORDER_TOP = 35;
-const clampX = (x: number) => Math.max(0, Math.min(319, x));
-const clampY = (y: number) => Math.max(0, Math.min(199, y));
+// NOTE: visible-frame → display-area → cell conversion is the BACKEND's job
+// (Spec 710.3 option 2). This component only maps browser px → visible-frame px
+// (accounting for the canvas border + object-fit:contain) and sends raw
+// visible coords to vic/inspect/{at,region,promote}.
 
 interface MemoryRef { kind: string; addr: number; length: number; value?: number; bank?: number; note?: string }
 interface VisualNode {
@@ -44,6 +43,35 @@ interface Props {
 
 const hex = (n: number | undefined, w = 4) => (n == null ? "?" : `$${(n >>> 0).toString(16).padStart(w, "0")}`);
 
+// C64 screen-code → readable glyph (so the panel is human-judgable).
+const glyphOf = (code: number | undefined): string => {
+  if (code == null) return "";
+  const c = code & 0x7f; // ignore reverse-video bit
+  if (c === 0x00) return "@";
+  if (c >= 0x01 && c <= 0x1a) return String.fromCharCode(64 + c); // A-Z
+  if (c >= 0x20 && c <= 0x3f) return String.fromCharCode(c);      // space ! " # … 0-9 …
+  return "·";
+};
+
+// Reconstruct the readable text of a resolved region (rows of glyphs).
+function regionText(nodes: VisualNode[]): string[] {
+  const rows = new Map<number, { col: number; ch: string }[]>();
+  const sprites: number[] = [];
+  for (const n of nodes) {
+    if (n.type === "sprite_bounds") { if (n.value != null) sprites.push(n.value); continue; }
+    if (!n.cell) continue;
+    const r = rows.get(n.cell.row) ?? [];
+    r.push({ col: n.cell.col, ch: glyphOf(n.value) });
+    rows.set(n.cell.row, r);
+  }
+  const lines = [...rows.keys()].sort((a, b) => a - b).map((row) => {
+    const cells = rows.get(row)!.sort((a, b) => a.col - b.col);
+    return `r${row}: ${cells.map((c) => c.ch).join("")}`;
+  });
+  if (sprites.length) lines.push(`sprites(bounds): ${[...new Set(sprites)].join(", ")}`);
+  return lines;
+}
+
 export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: Props): JSX.Element {
   const [checkpointId, setCheckpointId] = useState<string | null>(null);
   const [frameMode, setFrameMode] = useState<string>("");
@@ -52,6 +80,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<string>("");
+  const [provOn, setProvOn] = useState(false);
   const [dragging, setDragging] = useState<{ start: { x: number; y: number } } | null>(null);
   // last resolved display-area target (point or region) for promote
   const lastTarget = useRef<{ points?: { x: number; y: number }[]; region?: { x: number; y: number; width: number; height: number } } | null>(null);
@@ -66,7 +95,8 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
         cpId = r.checkpointId;
         setCheckpointId(r.checkpointId);
         setFrameMode(r.frame?.mode ?? "");
-        setStatus(`Inspect open — checkpoint ${r.checkpointId}, ${r.frame?.mode ?? "?"}${r.provenance ? " (provenance)" : ""}`);
+        if (r.provenance) setProvOn(true);
+        setStatus(`Inspect open — checkpoint ${r.checkpointId}, ${r.frame?.mode ?? "?"}${r.provenance ? ` (provenance: ${r.provenance.lines?.length ?? 0} lines)` : ""}`);
       } catch (e: any) {
         setStatus(`vic/inspect/open failed: ${e?.message ?? e}`);
       }
@@ -76,16 +106,30 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
     };
   }, [sessionId]);
 
-  // browser px → visible frame (0..384, 0..272)
-  const toVisible = (clientX: number, clientY: number) => {
+  // The actual displayed-IMAGE rectangle inside the canvas element box. The
+  // canvas is width/height:100% with object-fit:contain + a 2px border, so the
+  // 384x272 frame is letterboxed/centred — getBoundingClientRect (the element
+  // box) is NOT the image rect. Compute the true image origin + scale here so
+  // browser px map exactly to visible-frame px. (Coordinate→cell conversion is
+  // the backend's job — Spec 710.3 option 2; we only send visible-frame px.)
+  const imageRect = () => {
     const rect = screenEl.getBoundingClientRect();
+    const cs = getComputedStyle(screenEl);
+    const bl = parseFloat(cs.borderLeftWidth) || 0, bt = parseFloat(cs.borderTopWidth) || 0;
+    const br = parseFloat(cs.borderRightWidth) || 0, bb = parseFloat(cs.borderBottomWidth) || 0;
+    const cw = rect.width - bl - br, ch = rect.height - bt - bb;
+    const scale = Math.min(cw / 384, ch / 272) || 1;
     return {
-      x: Math.round(((clientX - rect.left) / rect.width) * 384),
-      y: Math.round(((clientY - rect.top) / rect.height) * 272),
+      left: rect.left + bl + (cw - 384 * scale) / 2,
+      top: rect.top + bt + (ch - 272 * scale) / 2,
+      scale,
     };
   };
-  // visible → display area (0..319, 0..199)
-  const toDisplay = (v: { x: number; y: number }) => ({ x: clampX(v.x - BORDER_LEFT), y: clampY(v.y - BORDER_TOP) });
+  // browser px → visible-frame px (0..384, 0..272), fractional.
+  const toVisible = (clientX: number, clientY: number) => {
+    const r = imageRect();
+    return { x: (clientX - r.left) / r.scale, y: (clientY - r.top) / r.scale };
+  };
 
   const onMouseDown = (e: React.MouseEvent) => {
     const p = toVisible(e.clientX, e.clientY);
@@ -107,16 +151,14 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
     setDragging(null);
     try {
       if (w < 4 && h < 4) {
-        // point resolve
-        const d = toDisplay(dragging.start);
-        lastTarget.current = { points: [d] };
-        const r = await getClient().call<any>("vic/inspect/at", { session_id: sessionId, checkpoint_id: checkpointId, x: d.x, y: d.y });
+        // point — send VISIBLE-frame px; the backend converts to the C64 cell.
+        const v = dragging.start;
+        lastTarget.current = { points: [{ x: v.x, y: v.y }] };
+        const r = await getClient().call<any>("vic/inspect/at", { session_id: sessionId, checkpoint_id: checkpointId, x: v.x, y: v.y });
         setNode(r.node); setRegionNodes(null);
-        setStatus(`Resolved ${r.node?.type} @ display (${d.x},${d.y})`);
+        setStatus(`Resolved ${r.node?.type}${r.node?.cell ? ` cell (${r.node.cell.col},${r.node.cell.row})` : ""}`);
       } else {
-        // region resolve
-        const tl = toDisplay({ x: Math.min(dragging.start.x, end.x), y: Math.min(dragging.start.y, end.y) });
-        const region = { x: tl.x, y: tl.y, width: Math.min(320 - tl.x, w), height: Math.min(200 - tl.y, h) };
+        const region = { x: Math.min(dragging.start.x, end.x), y: Math.min(dragging.start.y, end.y), width: w, height: h };
         lastTarget.current = { region };
         const r = await getClient().call<any>("vic/inspect/region", { session_id: sessionId, checkpoint_id: checkpointId, region });
         setRegionNodes(r.nodes ?? []); setNode(null);
@@ -148,7 +190,18 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
     }
   };
 
+  // Spec 710.4/710.6b — toggle same-frame provenance capture (raster/FLI +
+  // per-raster multiplexed sprites). Enable, then Run + Pause to capture.
+  const toggleProv = async () => {
+    try {
+      const r = await getClient().call<any>("vic/inspect/provenance", { session_id: sessionId, enabled: !provOn });
+      setProvOn(r.enabled);
+      setStatus(r.enabled ? "provenance ON — Run + Pause to capture raster/FLI + multiplexed sprites" : "provenance OFF");
+    } catch (e: any) { setStatus(`provenance toggle failed: ${e?.message ?? e}`); }
+  };
+
   const rect = screenEl.getBoundingClientRect();
+  const img = imageRect(); // true displayed-image rect (border + object-fit)
   const renderRefs = (n: VisualNode) => (
     <table className="wb-regs"><tbody>
       {n.refs.map((rf, i) => (
@@ -176,14 +229,18 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
             className="wb-explore-selection"
             style={{
               position: "absolute",
-              left: (selection.x / 384) * rect.width, top: (selection.y / 272) * rect.height,
-              width: (selection.w / 384) * rect.width, height: (selection.h / 272) * rect.height,
+              left: (img.left - rect.left) + selection.x * img.scale,
+              top: (img.top - rect.top) + selection.y * img.scale,
+              width: selection.w * img.scale, height: selection.h * img.scale,
             }}
           />
         )}
       </div>
       <div className="wb-explore-toolbar">
         <strong>Inspect (frozen{frameMode ? ` · ${frameMode}` : ""}):</strong>
+        <button className={provOn ? "active" : ""} onClick={toggleProv} title="Per-raster provenance: raster/FLI + multiplexed sprites">
+          Prov {provOn ? "ON" : "OFF"}
+        </button>
         <span className="wb-muted">{status}</span>
 
         {node && (
@@ -197,7 +254,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
               <div>
                 <strong>{node.type}</strong>
                 {node.cell && <span> cell ({node.cell.col},{node.cell.row})</span>}
-                {node.value != null && <span> code {hex(node.value, 2)}</span>}
+                {node.value != null && <span> char <strong className="wb-glyph">‘{glyphOf(node.value)}’</strong> code {hex(node.value, 2)}</span>}
                 {node.colorIndex != null && <span> color {node.colorIndex}</span>}
                 {node.raster && <span> raster line {node.raster.line}</span>}
               </div>
@@ -208,15 +265,21 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
         {regionNodes && (
           <div className="wb-explore-node">
             <strong>{regionNodes.length} node(s)</strong>
-            <span className="wb-muted"> {regionNodes.map((n) => n.type === "sprite_bounds" ? `sprite#${n.value}(bounds)` : (n.cell ? `${n.cell.col},${n.cell.row}` : n.type)).join(" · ")}</span>
+            {regionText(regionNodes).map((line, i) => (
+              <div key={i} className="wb-explore-text">{line}</div>
+            ))}
           </div>
         )}
 
         {(node || regionNodes) && (
           <>
-            <input placeholder="Artifact name" value={name} onChange={(e) => setName(e.target.value)} />
-            <input placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-            <button onClick={promote} disabled={!checkpointId}>Promote → Knowledge</button>
+            <input placeholder="Artifact name" value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); promote(); } }} />
+            <input placeholder="Notes" value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); promote(); } }} />
+            <button onClick={promote} disabled={!checkpointId}>Promote → Knowledge ⏎</button>
           </>
         )}
       </div>

@@ -94,9 +94,15 @@ export interface VicInspectSnapshot {
  * priority). Populated only when same-frame capture is enabled; absent here in
  * the 710.1/710.2 slice. Associated with the SAME completed frame/checkpoint.
  */
+/** Spec 710.6b — one sprite's per-raster-line state (multiplexer: sprite
+ *  registers change per line via raster IRQs, giving >8 sprites/frame). */
+export interface SpriteLineRec {
+  i: number; x: number; y: number; w: number; h: number; ptr: number; color: number;
+}
+
 export interface VicFrameProvenance {
-  /** Per-display-line VIC mode + key register values, when captured. */
-  lines?: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }>;
+  /** Per-display-line VIC mode + key register values + active sprites, when captured. */
+  lines?: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: SpriteLineRec[] }>;
 }
 
 /**

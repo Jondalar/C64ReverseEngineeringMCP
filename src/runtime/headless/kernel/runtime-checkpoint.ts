@@ -92,7 +92,12 @@ export interface RuntimeCheckpointVicPresentation {
  * → durable raster/FLI evidence for Specs 710/711/712. null when capture off.
  */
 export interface RuntimeCheckpointVicProvenance {
-  lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }>;
+  lines: Array<{
+    line: number; d011: number; d016: number; d018: number; bank: number;
+    // Spec 710.6b — per-raster active sprites (multiplexer); absent when no
+    // sprites enabled on that line or capture predates 710.6b.
+    sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }>;
+  }>;
 }
 
 export interface RuntimeCheckpointMedia {

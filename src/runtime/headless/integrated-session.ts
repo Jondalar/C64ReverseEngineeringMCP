@@ -332,8 +332,8 @@ export class IntegratedSession {
   // ONE boolean check per raster line (negligible, no per-cycle cost). Lets
   // inspect resolve raster-splits / FLI to the per-line base, not a frame guess.
   public vicProvenanceEnabled = false;
-  private litProvenanceAccum: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }> = [];
-  private litProvenanceStable: { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }> } | null = null;
+  private litProvenanceAccum: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> = [];
+  private litProvenanceStable: { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> } | null = null;
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -1562,12 +1562,35 @@ export class IntegratedSession {
         }
       }
       // Spec 710.4 — per-line provenance for the just-finished line (opt-in).
+      // Spec 710.6b — also capture the active sprites at this raster, so the
+      // multiplexer (sprite regs changed per line via IRQs → >8 sprites/frame)
+      // can be resolved at the correct raster.
       if (this.vicProvenanceEnabled && last >= 0) {
         const r = lv.regs;
+        const bankBase = (3 - (this.cia2.pra & 0x03)) * 0x4000;
+        const enable = r[0x15]! & 0xff;
+        let sprites: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> | undefined;
+        if (enable) {
+          const msbx = r[0x10]!, xexp = r[0x1d]!, yexp = r[0x17]!;
+          const screenBase = bankBase + ((r[0x18]! & 0xf0) >> 4) * 0x400;
+          sprites = [];
+          for (let i = 0; i < 8; i++) {
+            if (!(enable & (1 << i))) continue;
+            sprites.push({
+              i,
+              x: (r[i * 2]! & 0xff) | ((msbx & (1 << i)) ? 0x100 : 0),
+              y: r[i * 2 + 1]! & 0xff,
+              w: (xexp & (1 << i)) ? 48 : 24,
+              h: (yexp & (1 << i)) ? 42 : 21,
+              ptr: this.c64Bus.ram[screenBase + 0x3f8 + i]! & 0xff,
+              color: r[0x27 + i]! & 0x0f,
+            });
+          }
+        }
         this.litProvenanceAccum.push({
           line: last,
           d011: r[0x11]! & 0xff, d016: r[0x16]! & 0xff, d018: r[0x18]! & 0xff,
-          bank: (3 - (this.cia2.pra & 0x03)) * 0x4000,
+          bank: bankBase, sprites,
         });
       }
       // Spec V-stable-frame: when wrapping to line 0 (= frame complete),
@@ -1615,7 +1638,7 @@ export class IntegratedSession {
    * literalPortFbStable / the checkpoint), or null if capture is off / no full
    * frame has completed yet. Never reconstructed from later register state.
    */
-  captureVicProvenance(): { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }> } | null {
+  captureVicProvenance(): { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> } | null {
     return this.litProvenanceStable ? { lines: this.litProvenanceStable.lines.slice() } : null;
   }
 
@@ -1624,7 +1647,7 @@ export class IntegratedSession {
    * checkpoint payload, so a subsequent capture (inspect/open) reflects the
    * restored frame. Does not re-enable live capture.
    */
-  restoreVicProvenance(p: { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }> } | null): void {
+  restoreVicProvenance(p: { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> } | null): void {
     this.litProvenanceStable = p ? { lines: p.lines.slice() } : null;
   }
 

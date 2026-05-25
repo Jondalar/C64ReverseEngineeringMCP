@@ -209,15 +209,51 @@ export const VISIBLE_FRAME = { width: 384, height: 272 } as const;
 const CANVAS_Y0 = 16; // literal renderer crop: first visible raster line (fb Y0)
 export const DISPLAY_ORIGIN = { x: 32, y: FIRST_DISPLAY_RASTER - CANVAS_Y0 } as const; // { x:32, y:35 }
 
+/** Build a `sprite_bounds` node. Spec 710.6a/b. */
+function makeSpriteNode(
+  i: number, sx: number, sy: number, ptr: number, color: number,
+  ptrAddr: number, bankBase: number, mode: VicInspectMode, vx: number, vy: number, multiplexed: boolean,
+): VisualNode {
+  const inBorder = vy < DISPLAY_ORIGIN.y || vy >= DISPLAY_ORIGIN.y + 200;
+  const refs: MemoryRef[] = [
+    { kind: "sprite_ptr", addr: ptrAddr, length: 1, value: ptr, bank: bankBase },
+    { kind: "sprite_data", addr: bankBase + ptr * 64, length: 63, bank: bankBase, note: `bounding-box; not pixel-exact${multiplexed ? "; MULTIPLEXED (per-raster)" : ""}${inBorder ? "; OPEN BORDER" : ""}` },
+    { kind: "vic_reg", addr: 0xd000 + i * 2, length: 1, value: sx & 0xff, note: "sprite X" },
+    { kind: "vic_reg", addr: 0xd001 + i * 2, length: 1, value: sy, note: "sprite Y (raster)" },
+    { kind: "vic_reg", addr: 0xd027 + i, length: 1, value: color & 0x0f, note: "sprite color" },
+  ];
+  return { type: "sprite_bounds", pixel: { x: Math.round(vx), y: Math.round(vy) }, raster: { line: Math.round(vy) + CANVAS_Y0 }, mode, value: i, colorIndex: color & 0x0f, refs };
+}
+
 /**
- * Spec 710.6a — sprite hit-test in VISIBLE-frame coords across the WHOLE frame
- * (including the open border, where sprites still render — e.g. a logo above the
- * display window). Uses the frozen 8 hardware sprite registers; the multiplexer
- * (>8 sprites/frame via per-line register changes) needs per-line sprite
- * provenance (710.6b). Visible box: x = spriteX - 24 + DISPLAY_ORIGIN.x;
- * y = spriteY - CANVAS_Y0 (sprite Y register is a raster line).
+ * Spec 710.6a/b — sprite hit-test in VISIBLE-frame coords across the WHOLE frame
+ * (incl. the open border, where sprites still render — e.g. a logo above the
+ * display window). When same-frame provenance carries per-raster sprites
+ * (710.6b multiplexer: sprite regs change per line via IRQs → >8 sprites/frame),
+ * the click's raster uses THOSE sprites; otherwise the frozen 8 hardware regs.
+ * Visible box: x = spriteX-24+DISPLAY_ORIGIN.x; y = spriteY-CANVAS_Y0 (sprite Y
+ * register is a raster line).
  */
-function spriteBoundsAtVisible(cp: RuntimeCheckpoint, snap: VicInspectSnapshot, vx: number, vy: number): VisualNode | null {
+function spriteBoundsAtVisible(
+  cp: RuntimeCheckpoint, snap: VicInspectSnapshot, vx: number, vy: number, provenance?: VicFrameProvenance | null,
+): VisualNode | null {
+  const raster = Math.round(vy) + CANVAS_Y0;
+
+  // Multiplexer: per-raster sprite state is authoritative for THIS line.
+  const ln = provenance?.lines?.find((l) => l.line === raster);
+  if (ln) {
+    for (const s of ln.sprites ?? []) {
+      const bx = s.x - 24 + DISPLAY_ORIGIN.x, by = s.y - CANVAS_Y0;
+      if (vx >= bx && vx < bx + s.w && vy >= by && vy < by + s.h) {
+        const lbank = ln.bank ?? snap.bankBase;
+        const lscreen = lbank + ((ln.d018 & 0xf0) >> 4) * 0x400;
+        return makeSpriteNode(s.i, s.x, s.y, s.ptr, s.color, lscreen + 0x3f8 + s.i, lbank, snap.mode, vx, vy, true);
+      }
+    }
+    return null; // per-raster state known → no sprite covers this pixel
+  }
+
+  // No provenance for this raster → frozen 8 hardware sprite registers.
   const enable = reg(cp, 0x15);
   if (enable === 0) return null;
   const msbx = reg(cp, 0x10), xexp = reg(cp, 0x1d), yexp = reg(cp, 0x17);
@@ -227,21 +263,10 @@ function spriteBoundsAtVisible(cp: RuntimeCheckpoint, snap: VicInspectSnapshot, 
     const sy = reg(cp, i * 2 + 1);
     const w = (xexp & (1 << i)) ? 48 : 24;
     const h = (yexp & (1 << i)) ? 42 : 21;
-    const bx = sx - 24 + DISPLAY_ORIGIN.x;
-    const by = sy - CANVAS_Y0;
+    const bx = sx - 24 + DISPLAY_ORIGIN.x, by = sy - CANVAS_Y0;
     if (vx >= bx && vx < bx + w && vy >= by && vy < by + h) {
       const ptrAddr = snap.screenBase + 0x3f8 + i;
-      const ptr = ram(cp, ptrAddr);
-      const inBorder = vy < DISPLAY_ORIGIN.y || vy >= DISPLAY_ORIGIN.y + 200;
-      const refs: MemoryRef[] = [
-        { kind: "sprite_ptr", addr: ptrAddr, length: 1, value: ptr, bank: snap.bankBase },
-        { kind: "sprite_data", addr: snap.bankBase + ptr * 64, length: 63, bank: snap.bankBase, note: `bounding-box; not pixel-exact (no transparency/priority)${inBorder ? "; OPEN BORDER" : ""}` },
-        { kind: "vic_reg", addr: 0xd000 + i * 2, length: 1, value: sx & 0xff, note: "sprite X" },
-        { kind: "vic_reg", addr: 0xd001 + i * 2, length: 1, value: sy, note: "sprite Y (raster)" },
-        { kind: "vic_reg", addr: 0xd015, length: 1, value: enable, note: "sprite enable" },
-        { kind: "vic_reg", addr: 0xd027 + i, length: 1, value: reg(cp, 0x27 + i) & 0x0f, note: "sprite color" },
-      ];
-      return { type: "sprite_bounds", pixel: { x: Math.round(vx), y: Math.round(vy) }, raster: { line: Math.round(vy) + CANVAS_Y0 }, mode: snap.mode, value: i, colorIndex: reg(cp, 0x27 + i) & 0x0f, refs };
+      return makeSpriteNode(i, sx, sy, ram(cp, ptrAddr), reg(cp, 0x27 + i), ptrAddr, snap.bankBase, snap.mode, vx, vy, false);
     }
   }
   return null;
@@ -273,7 +298,7 @@ export function resolveVisibleNodeAt(
   cp: RuntimeCheckpoint, vx: number, vy: number, provenance?: VicFrameProvenance | null,
 ): VisualNode {
   const snap = buildVicInspectSnapshot(cp);
-  const sprite = spriteBoundsAtVisible(cp, snap, vx, vy);
+  const sprite = spriteBoundsAtVisible(cp, snap, vx, vy, provenance);
   if (sprite) return sprite;
 
   const inDisplay = vx >= DISPLAY_ORIGIN.x && vx < DISPLAY_ORIGIN.x + 320
