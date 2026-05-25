@@ -1614,6 +1614,15 @@ export class IntegratedSession {
   }
 
   /**
+   * Spec 710.4/710.5 — repopulate the stable provenance from a restored
+   * checkpoint payload, so a subsequent capture (inspect/open) reflects the
+   * restored frame. Does not re-enable live capture.
+   */
+  restoreVicProvenance(p: { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }> } | null): void {
+    this.litProvenanceStable = p ? { lines: p.lines.slice() } : null;
+  }
+
+  /**
    * Spec 298k — render the literalPortFb (= 520×312 color indices) as
    * PNG. Bypasses snapshot replay; reads only what the literal port
    * has accumulated.

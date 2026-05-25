@@ -84,6 +84,17 @@ export interface RuntimeCheckpointVicPresentation {
   litStableFrameCount: number;
 }
 
+/**
+ * Spec 710.4/710.5 — same-frame VIC provenance (per displayed raster line:
+ * $D011/$D016/$D018 + VIC bank) belonging to THIS checkpoint's frozen frame.
+ * Captured during render (never reconstructed from later state), persisted in
+ * the native payload so it survives the ring, `.c64re` dump/undump and restore
+ * → durable raster/FLI evidence for Specs 710/711/712. null when capture off.
+ */
+export interface RuntimeCheckpointVicProvenance {
+  lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }>;
+}
+
 export interface RuntimeCheckpointMedia {
   diskPath: string;
   imageFormat: string;
@@ -134,6 +145,9 @@ export interface RuntimeCheckpoint {
 
   vic: LiteralVicSnapshot;    // active literal-port VIC (VICE-shaped)
   vicPresentation: RuntimeCheckpointVicPresentation;
+  /** Spec 710.4/710.5 — same-frame raster/FLI provenance for the frozen frame
+   *  (null when provenance capture is off). Persisted for durable inspect. */
+  vicProvenance: RuntimeCheckpointVicProvenance | null;
 
   /** Opaque VICE-shaped VICE1541 snapshot-module byte blob (null = no drive).
    *  Spec 714.4: CORE state only (save_disks=0) — the mutable disk image is the

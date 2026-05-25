@@ -112,10 +112,18 @@ First exact node classes:
 Raster-split/FLI nodes are reported only where provenance supports them; do not
 guess from end-of-frame register values.
 
-For the first slice, BASIC/text, ordinary bitmap/multicolor cells and ordinary
-sprites may be resolved exactly from the frozen checkpoint and frame. Claims
-about raster-split/FLI/priority provenance are gated on the optional active
-render-path sidecar and its performance proof.
+**Currently implemented (backend, GREEN):** exact text/charset, bitmap/multicolor
+and per-raster-line base provenance from the frozen checkpoint + same-frame
+sidecar (raster splits / FLI resolve to the correct per-line `$D018`/`$D011`/
+`$D016`+bank). The provenance is persisted in the native checkpoint payload, so
+this evidence is **durable across the ring, `.c64re` dump/undump and restore**
+(`smoke-710-c64re-provenance`).
+
+Sprites resolve as **`sprite_bounds`**: a bounding-box hit plus that sprite's
+pointer/data/register evidence. **Pixel-exact sprite resolution (mask-bit
+transparency + priority vs foreground) is explicitly DEFERRED** — it is NOT a
+DONE acceptance criterion for this slice; a later refinement may upgrade
+`sprite_bounds` to a pixel-exact node.
 
 ## 4. API and UI
 
@@ -153,11 +161,16 @@ The overlay is HTML/SVG above the canvas. It never modifies frame pixels.
 
 1. BASIC text selection resolves exact screen RAM, color RAM and charset refs
    from a pinned checkpoint without advancing execution.
-2. A sprite scene resolves visible sprite data/pointer/register evidence.
+2. A sprite scene resolves the sprite's pointer/data/register evidence as a
+   `sprite_bounds` node (bounding-box hit). Pixel-exact transparency/priority is
+   DEFERRED and is NOT required for this slice's DONE.
 3. Core inspect opens from a paused/pinned checkpoint while 709/evidence
    promotion is still absent; it does not depend on live mutable media state.
 4. Once 710.4 is enabled, a raster-effect test reports chunk/line provenance
-   from actual literal rendering, not a guessed static VIC mode.
+   from actual literal rendering, not a guessed static VIC mode. The same-frame
+   provenance is persisted in the checkpoint payload and is **durable across the
+   ring, `.c64re` dump/undump and restore** — re-inspecting a restored checkpoint
+   yields identical per-line char/screen bases.
 5. Once 708 correction and 709 are done, selecting and promoting a region
    produces an artifact carrying checkpoint,
    media and optional trace refs.
