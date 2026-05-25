@@ -73,8 +73,11 @@ export function buildVicInspectSnapshot(cp: RuntimeCheckpoint): VicInspectSnapsh
   };
 }
 
-/** Hit-test enabled sprites front-to-back (sprite 0 = highest priority). */
-function spriteAt(cp: RuntimeCheckpoint, snap: VicInspectSnapshot, x: number, y: number): VisualNode | null {
+/** Bounding-box hit-test of enabled sprites, front-to-back (sprite 0 highest).
+ *  Returns a `sprite_bounds` node: the pixel is within the sprite's on-screen
+ *  box, with that sprite's pointer/data/register evidence. NOT pixel-exact (no
+ *  transparency/priority resolution) — see VisualNode docs. */
+function spriteBoundsAt(cp: RuntimeCheckpoint, snap: VicInspectSnapshot, x: number, y: number): VisualNode | null {
   const enable = reg(cp, 0x15);
   if (enable === 0) return null;
   const msbx = reg(cp, 0x10), xexp = reg(cp, 0x1d), yexp = reg(cp, 0x17);
@@ -90,12 +93,12 @@ function spriteAt(cp: RuntimeCheckpoint, snap: VicInspectSnapshot, x: number, y:
       const ptr = ram(cp, ptrAddr);
       const refs: MemoryRef[] = [
         { kind: "sprite_ptr", addr: ptrAddr, length: 1, value: ptr, bank: snap.bankBase },
-        { kind: "sprite_data", addr: snap.bankBase + ptr * 64, length: 63, bank: snap.bankBase },
+        { kind: "sprite_data", addr: snap.bankBase + ptr * 64, length: 63, bank: snap.bankBase, note: "bounding-box hit; not pixel-exact (no transparency/priority)" },
         { kind: "vic_reg", addr: 0xd000 + i * 2, length: 1, value: sx & 0xff, note: "sprite X" },
         { kind: "vic_reg", addr: 0xd001 + i * 2, length: 1, value: sy, note: "sprite Y" },
         { kind: "vic_reg", addr: 0xd027 + i, length: 1, value: reg(cp, 0x27 + i) & 0x0f, note: "sprite color" },
       ];
-      return { type: "sprite", pixel: { x, y }, mode: snap.mode, value: i, colorIndex: reg(cp, 0x27 + i) & 0x0f, refs };
+      return { type: "sprite_bounds", pixel: { x, y }, mode: snap.mode, value: i, colorIndex: reg(cp, 0x27 + i) & 0x0f, refs };
     }
   }
   return null;
@@ -114,7 +117,7 @@ export function resolveNodeAt(
 ): VisualNode {
   const snap = buildVicInspectSnapshot(cp);
 
-  const sprite = spriteAt(cp, snap, x, y);
+  const sprite = spriteBoundsAt(cp, snap, x, y);
   if (sprite) return sprite;
 
   // Per-line raster/FLI override (710.4): map display y → raster line → record.
@@ -182,7 +185,7 @@ export function assembleInspectEvidence(
   for (const p of opts.points ?? []) {
     selectedNodes.push(resolveNodeAt(cp, p.x | 0, p.y | 0, opts.provenance));
   }
-  if (opts.region) selectedNodes.push(...resolveRegion(cp, opts.region));
+  if (opts.region) selectedNodes.push(...resolveRegion(cp, opts.region, opts.provenance));
   return {
     checkpointId,
     snapshotRef: opts.snapshotRef,
@@ -195,18 +198,21 @@ export function assembleInspectEvidence(
   };
 }
 
-/** Resolve every distinct element under a display-area region. */
+/** Resolve every distinct element under a display-area region. Threads the same
+ *  same-frame provenance as point-resolve so raster/FLI cells in the region use
+ *  the correct per-line base (key includes the resolved raster line). */
 export function resolveRegion(
   cp: RuntimeCheckpoint,
   region: { x: number; y: number; width: number; height: number },
+  provenance?: VicFrameProvenance | null,
 ): VisualNode[] {
   const nodes: VisualNode[] = [];
   const seen = new Set<string>();
   const x1 = region.x + region.width, y1 = region.y + region.height;
   for (let cy = region.y; cy < y1; cy += 8) {
     for (let cx = region.x; cx < x1; cx += 8) {
-      const n = resolveNodeAt(cp, cx, cy);
-      const key = `${n.type}:${n.cell?.index ?? n.value}`;
+      const n = resolveNodeAt(cp, cx, cy, provenance);
+      const key = `${n.type}:${n.cell?.index ?? n.value}:${n.raster?.line ?? ""}`;
       if (!seen.has(key)) { seen.add(key); nodes.push(n); }
     }
   }

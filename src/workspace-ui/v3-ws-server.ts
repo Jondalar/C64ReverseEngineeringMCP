@@ -583,20 +583,24 @@ export class V3WsServer {
       const ref = await c.captureCheckpoint();
       c.checkpointRing.pin(ref.id);                      // §2.2: pin the inspected checkpoint
       const cp = cpForInspect(c, ref.id);
-      const provenance = getIntegratedSession(session_id)?.captureVicProvenance() ?? undefined;
+      // 710.4 — provenance is bound to THIS checkpoint id by captureCheckpoint.
+      const provenance = c.vicProvenanceByCheckpoint.get(ref.id) ?? undefined;
       return { checkpointId: ref.id, frame: buildVicInspectSnapshot(cp), provenance, runState: c.runState };
     });
     this.on("vic/inspect/at", ({ session_id, checkpoint_id, x, y }) => {
       if (!checkpoint_id) throw new Error("vic/inspect/at: checkpoint_id required");
-      const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
-      const provenance = getIntegratedSession(session_id)?.captureVicProvenance() ?? undefined;
+      const c = ctrlFor(session_id);
+      const cp = cpForInspect(c, checkpoint_id);
+      const provenance = c.vicProvenanceByCheckpoint.get(String(checkpoint_id)) ?? undefined;
       return { node: resolveNodeAt(cp, Number(x) | 0, Number(y) | 0, provenance) };
     });
     this.on("vic/inspect/region", ({ session_id, checkpoint_id, region }) => {
       if (!checkpoint_id) throw new Error("vic/inspect/region: checkpoint_id required");
       if (!region) throw new Error("vic/inspect/region: region required");
-      const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
-      return { nodes: resolveRegion(cp, region) };
+      const c = ctrlFor(session_id);
+      const cp = cpForInspect(c, checkpoint_id);
+      const provenance = c.vicProvenanceByCheckpoint.get(String(checkpoint_id)) ?? undefined;
+      return { nodes: resolveRegion(cp, region, provenance) };
     });
     this.on("vic/inspect/close", ({ session_id, checkpoint_id }) => {
       const c = ctrlFor(session_id);
@@ -610,7 +614,7 @@ export class V3WsServer {
       if (!checkpoint_id) throw new Error("vic/inspect/promote: checkpoint_id required");
       const c = ctrlFor(session_id);
       const cp = cpForInspect(c, checkpoint_id);
-      const provenance = getIntegratedSession(session_id)?.captureVicProvenance() ?? undefined;
+      const provenance = c.vicProvenanceByCheckpoint.get(String(checkpoint_id)) ?? undefined;
       const evidence = assembleInspectEvidence(cp, String(checkpoint_id), {
         points, region, traceMarkId: trace_mark_id, provenance,
       });

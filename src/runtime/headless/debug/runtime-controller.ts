@@ -127,6 +127,13 @@ export class RuntimeController {
   readonly checkpointRing = new RuntimeCheckpointRing();
   private framesSinceCheckpoint = 0;
 
+  // Spec 710.4/710.5 — same-frame VIC provenance bound to the checkpoint id it
+  // was captured at (NOT the live session frame). Inspect/region/promote read
+  // the provenance of THE inspected checkpoint, so re-inspecting an old pinned
+  // checkpoint after running on yields the same result. Populated only while
+  // session.vicProvenanceEnabled; pruned to the live ring on each capture.
+  readonly vicProvenanceByCheckpoint = new Map<string, { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number }> }>();
+
   // Spec 708 — declarative trace runs + per-session definition registry. The
   // run controller taps the existing kernel trace channels (no parallel path).
   readonly traceRun = new TraceRunController();
@@ -293,10 +300,21 @@ export class RuntimeController {
         `rather than minting a non-restorable checkpoint.`,
       );
     }
-    const take = (): RuntimeCheckpointRef =>
-      this.checkpointRing.capture(
+    const take = (): RuntimeCheckpointRef => {
+      const ref = this.checkpointRing.capture(
         this.session.kernel.snapshot(), this.frameCounter, this.session.c64Cpu.cycles,
       );
+      // Spec 710.4/710.5 — bind the same-frame provenance to THIS checkpoint id.
+      if (this.session.vicProvenanceEnabled) {
+        const prov = this.session.captureVicProvenance();
+        if (prov) this.vicProvenanceByCheckpoint.set(ref.id, prov);
+        const live = new Set(this.checkpointRing.list().map((r) => r.id));
+        for (const k of this.vicProvenanceByCheckpoint.keys()) {
+          if (!live.has(k)) this.vicProvenanceByCheckpoint.delete(k);
+        }
+      }
+      return ref;
+    };
     return this.runState === "running" ? this.runExclusive(take) : take();
   }
 

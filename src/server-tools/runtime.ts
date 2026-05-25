@@ -897,7 +897,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const cp = ctrl.checkpointRing.restoreSnapshot(String(id))?.payload as any;
       if (!cp || !cp.vic || !cp.ram) throw new Error(`runtime_vic_inspect_at: unknown checkpoint ${id}`);
       const frame = buildVicInspectSnapshot(cp);
-      const provenance = session.captureVicProvenance?.() ?? undefined; // 710.4 raster/FLI, if enabled
+      const provenance = ctrl.vicProvenanceByCheckpoint.get(String(id)) ?? undefined; // 710.4 checkpoint-bound
       const node = resolveNodeAt(cp, x | 0, y | 0, provenance);
       return { content: [{ type: "text", text: JSON.stringify({ checkpointId: id, frame, node, hasProvenance: !!provenance }, null, 2) }] };
     }),

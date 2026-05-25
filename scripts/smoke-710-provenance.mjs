@@ -15,10 +15,12 @@
 //
 // Exit 0 = PASS, 1 = FAIL.
 
-let startIntegratedSession, stopIntegratedSession, buildVicInspectSnapshot, resolveNodeAt;
+let startIntegratedSession, stopIntegratedSession, ensureRuntimeController,
+    buildVicInspectSnapshot, resolveNodeAt, resolveRegion;
 try {
   ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
-  ({ buildVicInspectSnapshot, resolveNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
+  ({ ensureRuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js"));
+  ({ buildVicInspectSnapshot, resolveNodeAt, resolveRegion } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);
@@ -100,6 +102,50 @@ console.log("Spec 710.4 — provenance sidecar smoke");
   gate("C OFF-path runs are stable", Math.abs(off1 - off2) / offAvg < 0.35, `|Δ|=${(Math.abs(off1 - off2) / offAvg * 100).toFixed(0)}%`);
   // Opt-in ON overhead bounded (per-line object capture). Budget generous: <60%.
   gate("C opt-in ON overhead within budget (ON/OFF < 1.6)", ratio < 1.6, `ratio=${ratio.toFixed(3)}`);
+}
+
+// ---- (D) checkpoint-bound provenance (NOT session-live) ----
+{
+  const { session, sessionId } = startIntegratedSession({ mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port" });
+  try {
+    session.setVicProvenanceCapture(true);
+    session.resetCold("pal-default");
+    session.runFor(3_000_000, { cycleBudget: 3_000_000 });
+    const ctrl = ensureRuntimeController(sessionId, session, () => {});
+    const refA = await ctrl.captureCheckpoint();
+    ctrl.checkpointRing.pin(refA.id);                       // keep A inspectable across B
+    const provA = ctrl.vicProvenanceByCheckpoint.get(refA.id);
+    gate("D checkpoint A bound to its provenance", !!provA && provA.lines.length >= 250, `lines=${provA?.lines.length}`);
+    const cpA = ctrl.checkpointRing.restoreSnapshot(refA.id)?.payload;
+    const nodeBefore = resolveNodeAt(cpA, 36, 12, ctrl.vicProvenanceByCheckpoint.get(refA.id));
+
+    // advance to a later frame B + capture it
+    session.runFor(5_000_000, { cycleBudget: 5_000_000 });
+    const refB = await ctrl.captureCheckpoint();
+    const provB = ctrl.vicProvenanceByCheckpoint.get(refB.id);
+    const sessionNow = session.captureVicProvenance();
+
+    const cpA2 = ctrl.checkpointRing.restoreSnapshot(refA.id)?.payload;
+    const nodeAfter = resolveNodeAt(cpA2, 36, 12, ctrl.vicProvenanceByCheckpoint.get(refA.id));
+    gate("D re-inspect A after running to B → identical node", JSON.stringify(nodeBefore) === JSON.stringify(nodeAfter));
+    gate("D A provenance object stable after B", ctrl.vicProvenanceByCheckpoint.get(refA.id) === provA);
+    gate("D A and B have distinct provenance", provA !== provB && refA.id !== refB.id);
+    gate("D A provenance is NOT the live session provenance (checkpoint-bound)", provA !== sessionNow);
+  } finally { try { stopIntegratedSession(sessionId); } catch {} }
+}
+
+// ---- (E) region threads the same provenance as point-resolve ----
+{
+  const regs = new Array(0x40).fill(0); regs[0x18] = 0x14;
+  const cp = { vic: { regs, color_ram: new Array(0x400).fill(0) }, ram: new Uint8Array(65536), cia2: { c_cia: [0x03] } };
+  // cy steps by 8: y0 → raster 51 ($14→char $1000), y8 → raster 59 ($1c→char $3000)
+  const provenance = { lines: [
+    { line: 51, d011: 0, d016: 0, d018: 0x14, bank: 0 },
+    { line: 59, d011: 0, d016: 0, d018: 0x1c, bank: 0 },
+  ] };
+  const nodes = resolveRegion(cp, { x: 0, y: 0, width: 8, height: 16 }, provenance);
+  const bases = nodes.map((n) => n.refs.find((r) => r.kind === "charset")?.addr).sort((a, b) => a - b);
+  gate("E region uses provenance: two raster lines → two char bases", nodes.length === 2 && bases[0] === 0x1000 && bases[1] === 0x3000, `bases=${bases.map((b) => "$" + b.toString(16)).join(",")}`);
 }
 
 console.log("---");

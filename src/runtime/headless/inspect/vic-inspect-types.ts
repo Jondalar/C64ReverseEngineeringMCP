@@ -41,9 +41,13 @@ export type VicInspectMode =
   | "hires_bitmap"
   | "multicolor_bitmap";
 
-/** One resolved screen element, exact from the frozen checkpoint. */
+/** One resolved screen element from the frozen checkpoint.
+ *  NOTE: `sprite_bounds` is a bounding-box hit (the pixel lies within sprite N's
+ *  on-screen box) plus that sprite's pointer/data/register evidence — it is NOT
+ *  a pixel-exact, transparency/priority-resolved sprite pixel. Pixel-exact
+ *  sprite resolution (mask bit + priority vs foreground) is a later refinement. */
 export interface VisualNode {
-  type: "text_cell" | "bitmap_cell" | "sprite" | "border" | "background";
+  type: "text_cell" | "bitmap_cell" | "sprite_bounds" | "border" | "background";
   /** Display-area pixel the query resolved (0..319, 0..199). */
   pixel: { x: number; y: number };
   /** Character grid cell, for text/bitmap nodes. */

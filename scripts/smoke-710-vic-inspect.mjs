@@ -98,7 +98,8 @@ console.log("Spec 710.2 — VIC inspect resolver smoke");
   const cp = { vic: { regs, color_ram: new Array(0x400).fill(0) }, ram, cia2: { c_cia: [0x03] } };
 
   const inside = resolveNodeAt(cp, 52, 32); // inside the 24x21 sprite box at (50,30)
-  gate("B sprite hit → node.type = sprite", inside.type === "sprite", inside.type);
+  gate("B sprite hit → node.type = sprite_bounds (honest: box hit, not pixel-exact)", inside.type === "sprite_bounds", inside.type);
+  gate("B sprite_data ref notes bounding-box (not pixel-exact)", /bounding-box/.test(inside.refs.find((r) => r.kind === "sprite_data")?.note ?? ""), inside.refs.find((r) => r.kind === "sprite_data")?.note);
   gate("B sprite node.value = sprite index 0", inside.value === 0, `value=${inside.value}`);
   const ptr = inside.refs.find((r) => r.kind === "sprite_ptr");
   const data = inside.refs.find((r) => r.kind === "sprite_data");

@@ -6,11 +6,15 @@ Owner: runtime intervention / monitor / knowledge / UI
 
 > **Spec 714 requirement (mutable media).** An intervention branch root over a
 > writable medium is valid only when its before/after checkpoints include the
-> complete mutable-media state. The DISK qualifies (`driveDiskImage`); EasyFlash
-> qualifies (`cartFlash` + command-state, Spec 713/714.5). The remaining writable
-> cartridge families (GMOD2/GMOD3/MegaByter, not-yet-verified Ocean/Magic Desk)
-> do NOT yet: a written one is rejected at checkpoint, so it cannot form a branch
-> root over a written medium until its faithful port lands.
+> complete mutable-media state. As of Spec 713 + 714.5 (LANDED 2026-05-24) this
+> holds for the DISK (`driveDiskImage`) AND every supported writable cartridge
+> family — EasyFlash, GMOD2 (+m93c86 EEPROM), GMOD3 (+spi-flash), MegaByter
+> (+flash800), C64MegaCart — via `cartFlash` + device command-state snapshot
+> (`probe-714-5-persist` 33/33). Dirty carts are now ACCEPTED at checkpoint; the
+> old reject-on-dirty barrier is retired, so any of these can form a branch root
+> over a written medium. Remaining honest gaps (header-inferred gates, no durable
+> real-sample evidence): GMOD3 / C64MegaCart have no commercial sample, and
+> EasyFlash's `$DF00` 256-byte cart-RAM is not yet modelled.
 
 ## 1. Purpose
 
