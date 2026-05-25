@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { persistInspectEvidence } from "./inspect-evidence-persist.js";
+import type { FrozenInspectEvidence } from "../runtime/headless/inspect/vic-inspect-types.js";
 import { auditProject, auditProjectCached } from "../project-knowledge/audit.js";
 import { repairProject } from "../project-knowledge/repair.js";
 import { runPayloadReverseWorkflow, runPrgReverseWorkflow } from "../lib/prg-workflow.js";
@@ -496,6 +498,30 @@ const server = createServer((req, res) => {
         });
         if (!result) { send(res, jsonResponse(404, { error: "artifact not found" })); return; }
         send(res, jsonResponse(200, result));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  // Spec 710.3/710.5 — persist a frozen-VIC inspect evidence record into the
+  // ONE project knowledge store (saveArtifact). The UI gets the FrozenInspectEvidence
+  // from WS vic/inspect/promote and POSTs it here; the WS server never owns
+  // ProjectKnowledgeService (Spec 710.3 architecture).
+  if (requestUrl.pathname === "/api/vic-inspect-evidence" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; evidence: FrozenInspectEvidence; name?: string; notes?: string };
+        if (!payload.evidence) { send(res, jsonResponse(400, { error: "evidence record required" })); return; }
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const artifact = persistInspectEvidence(service, projectDir, {
+          evidence: payload.evidence, name: payload.name, notes: payload.notes,
+        });
+        send(res, jsonResponse(200, { artifact }));
       } catch (error) {
         send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
       }
