@@ -15,11 +15,13 @@
 import { resolve as resolvePath } from "node:path";
 
 let startIntegratedSession, stopIntegratedSession, ensureRuntimeController,
-    buildVicInspectSnapshot, resolveNodeAt, assembleInspectEvidence;
+    buildVicInspectSnapshot, resolveNodeAt, assembleInspectEvidence,
+    resolveVisibleNodeAt, visibleToDisplay, DISPLAY_ORIGIN;
 try {
   ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
   ({ ensureRuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js"));
-  ({ buildVicInspectSnapshot, resolveNodeAt, assembleInspectEvidence } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
+  ({ buildVicInspectSnapshot, resolveNodeAt, assembleInspectEvidence,
+     resolveVisibleNodeAt, visibleToDisplay, DISPLAY_ORIGIN } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
 } catch (e) {
   console.error("dist missing / import failed — run `npm run build:mcp` first");
   console.error(e?.message ?? e);
@@ -138,6 +140,45 @@ console.log("Spec 710.2 — VIC inspect resolver smoke");
     gate("C evidence has exactly one selected node", ev.selectedNodes?.length === 1, `n=${ev.selectedNodes?.length}`);
     gate("C selected node = text_cell with screen_ram ref", ev.selectedNodes?.[0]?.type === "text_cell" && !!ev.selectedNodes[0].refs.find((r) => r.kind === "screen_ram"));
   } finally { try { stopIntegratedSession(sessionId); } catch {} }
+}
+
+// ---- (D) 710.3 option 2 — backend visible-frame → cell conversion ----
+{
+  // DISPLAY_ORIGIN = {x:32, y:35}. Put 'C' (screen code $03) at cell (9,1).
+  const regs = new Array(0x40).fill(0); regs[0x18] = 0x14; // screen $0400, char $1000
+  const ram = new Uint8Array(65536); ram[0x400 + 1 * 40 + 9] = 0x03;
+  const cp = { vic: { regs, color_ram: new Array(0x400).fill(0) }, ram, cia2: { c_cia: [0x03] } };
+  // visible-frame px for the centre of cell (9,1):
+  const vx = DISPLAY_ORIGIN.x + 9 * 8 + 4, vy = DISPLAY_ORIGIN.y + 1 * 8 + 4;
+  const d = visibleToDisplay(vx, vy);
+  gate("D DISPLAY_ORIGIN = {32,35}", DISPLAY_ORIGIN.x === 32 && DISPLAY_ORIGIN.y === 35, `(${DISPLAY_ORIGIN.x},${DISPLAY_ORIGIN.y})`);
+  gate("D visibleToDisplay → cell (9,1)", (d.x >> 3) === 9 && (d.y >> 3) === 1, `display=(${d.x},${d.y})`);
+  const vn = resolveVisibleNodeAt(cp, vx, vy);
+  gate("D resolveVisibleNodeAt → cell (9,1)", vn.cell?.col === 9 && vn.cell?.row === 1, `cell=(${vn.cell?.col},${vn.cell?.row})`);
+  gate("D resolved screen code $03 ('C') at the visible click", vn.value === 0x03, `code=$${(vn.value || 0).toString(16)}`);
+}
+
+// ---- (E) 710.6a — border-aware sprite resolve (open-border logo sprites) ----
+{
+  // Scramble-like: sprite 0 in the TOP BORDER (X=88, Y=29), multicolor, enabled.
+  const regs = new Array(0x40).fill(0);
+  regs[0x18] = 0x14;          // screen $0400
+  regs[0x15] = 0x01;          // sprite 0 enabled
+  regs[0x00] = 88; regs[0x01] = 29; // X=88, Y=29 (raster 29 → open border)
+  regs[0x1c] = 0x01;          // sprite 0 multicolor
+  regs[0x20] = 14;            // border colour
+  regs[0x27] = 0x07;          // sprite 0 colour
+  const ram = new Uint8Array(65536); ram[0x07f8] = 0x80; // sprite0 ptr
+  const cp = { vic: { regs, color_ram: new Array(0x400).fill(0) }, ram, cia2: { c_cia: [0x03] } };
+  // visible box for spr0: x = 88-24+32 = 96..120, y = 29-16 = 13..34 (top border)
+  const inSpr = resolveVisibleNodeAt(cp, 100, 17);
+  gate("E open-border click → sprite_bounds (sprite 0)", inSpr.type === "sprite_bounds" && inSpr.value === 0, `${inSpr.type} v=${inSpr.value}`);
+  gate("E sprite node tags raster line (border, <51)", inSpr.raster?.line === 33, `raster=${inSpr.raster?.line}`);
+  gate("E sprite_data ref notes OPEN BORDER", /OPEN BORDER/.test(inSpr.refs.find((r) => r.kind === "sprite_data")?.note ?? ""));
+  const inBorderNoSpr = resolveVisibleNodeAt(cp, 10, 5);
+  gate("E border click, no sprite → border node", inBorderNoSpr.type === "border" && inBorderNoSpr.colorIndex === 14, `${inBorderNoSpr.type} c=${inBorderNoSpr.colorIndex}`);
+  const inDisplay = resolveVisibleNodeAt(cp, 200, 120);
+  gate("E display click, no sprite → text/bitmap cell", inDisplay.type === "text_cell" || inDisplay.type === "bitmap_cell", inDisplay.type);
 }
 
 console.log("---");

@@ -198,6 +198,107 @@ export function assembleInspectEvidence(
   };
 }
 
+// ---- visible-frame → display-area geometry (Spec 710.3 option 2) ------------
+// The UI sends RAW visible-frame coords (the rendered 384x272 VICE PAL window);
+// the backend owns the conversion to the C64 display area, so the UI carries no
+// magic offsets. Geometry is derived from the literal renderer crop
+// (renderLiteralPortRgba: CANVAS_X0=104 with balanced 32px L/R borders →
+// display X starts 32px into the visible frame; CANVAS_Y0=16 and the first
+// 25-row display raster line is FIRST_DISPLAY_RASTER=51 → Y starts at 51-16=35).
+export const VISIBLE_FRAME = { width: 384, height: 272 } as const;
+const CANVAS_Y0 = 16; // literal renderer crop: first visible raster line (fb Y0)
+export const DISPLAY_ORIGIN = { x: 32, y: FIRST_DISPLAY_RASTER - CANVAS_Y0 } as const; // { x:32, y:35 }
+
+/**
+ * Spec 710.6a — sprite hit-test in VISIBLE-frame coords across the WHOLE frame
+ * (including the open border, where sprites still render — e.g. a logo above the
+ * display window). Uses the frozen 8 hardware sprite registers; the multiplexer
+ * (>8 sprites/frame via per-line register changes) needs per-line sprite
+ * provenance (710.6b). Visible box: x = spriteX - 24 + DISPLAY_ORIGIN.x;
+ * y = spriteY - CANVAS_Y0 (sprite Y register is a raster line).
+ */
+function spriteBoundsAtVisible(cp: RuntimeCheckpoint, snap: VicInspectSnapshot, vx: number, vy: number): VisualNode | null {
+  const enable = reg(cp, 0x15);
+  if (enable === 0) return null;
+  const msbx = reg(cp, 0x10), xexp = reg(cp, 0x1d), yexp = reg(cp, 0x17);
+  for (let i = 0; i < 8; i++) {
+    if (!(enable & (1 << i))) continue;
+    const sx = reg(cp, i * 2) | ((msbx & (1 << i)) ? 0x100 : 0);
+    const sy = reg(cp, i * 2 + 1);
+    const w = (xexp & (1 << i)) ? 48 : 24;
+    const h = (yexp & (1 << i)) ? 42 : 21;
+    const bx = sx - 24 + DISPLAY_ORIGIN.x;
+    const by = sy - CANVAS_Y0;
+    if (vx >= bx && vx < bx + w && vy >= by && vy < by + h) {
+      const ptrAddr = snap.screenBase + 0x3f8 + i;
+      const ptr = ram(cp, ptrAddr);
+      const inBorder = vy < DISPLAY_ORIGIN.y || vy >= DISPLAY_ORIGIN.y + 200;
+      const refs: MemoryRef[] = [
+        { kind: "sprite_ptr", addr: ptrAddr, length: 1, value: ptr, bank: snap.bankBase },
+        { kind: "sprite_data", addr: snap.bankBase + ptr * 64, length: 63, bank: snap.bankBase, note: `bounding-box; not pixel-exact (no transparency/priority)${inBorder ? "; OPEN BORDER" : ""}` },
+        { kind: "vic_reg", addr: 0xd000 + i * 2, length: 1, value: sx & 0xff, note: "sprite X" },
+        { kind: "vic_reg", addr: 0xd001 + i * 2, length: 1, value: sy, note: "sprite Y (raster)" },
+        { kind: "vic_reg", addr: 0xd015, length: 1, value: enable, note: "sprite enable" },
+        { kind: "vic_reg", addr: 0xd027 + i, length: 1, value: reg(cp, 0x27 + i) & 0x0f, note: "sprite color" },
+      ];
+      return { type: "sprite_bounds", pixel: { x: Math.round(vx), y: Math.round(vy) }, raster: { line: Math.round(vy) + CANVAS_Y0 }, mode: snap.mode, value: i, colorIndex: reg(cp, 0x27 + i) & 0x0f, refs };
+    }
+  }
+  return null;
+}
+
+/** Visible-frame pixel → display-area pixel (0..319, 0..199 clamped). */
+export function visibleToDisplay(vx: number, vy: number): { x: number; y: number } {
+  return {
+    x: Math.max(0, Math.min(319, Math.round(vx) - DISPLAY_ORIGIN.x)),
+    y: Math.max(0, Math.min(199, Math.round(vy) - DISPLAY_ORIGIN.y)),
+  };
+}
+
+/** Visible-frame region → display-area region (clamped, non-negative). */
+export function visibleRegionToDisplay(
+  r: { x: number; y: number; width: number; height: number },
+): { x: number; y: number; width: number; height: number } {
+  const tl = visibleToDisplay(r.x, r.y);
+  const br = visibleToDisplay(r.x + r.width, r.y + r.height);
+  return { x: tl.x, y: tl.y, width: Math.max(0, br.x - tl.x), height: Math.max(0, br.y - tl.y) };
+}
+
+/** Resolve a VISIBLE-frame pixel (UI coords). Sprite-first + border-aware:
+ *  sprites render in the open border too, so a click anywhere in the frame is
+ *  hit-tested against sprites first (710.6a); inside the display window it falls
+ *  through to the text/bitmap cell; in the border with no sprite it reports the
+ *  border colour. */
+export function resolveVisibleNodeAt(
+  cp: RuntimeCheckpoint, vx: number, vy: number, provenance?: VicFrameProvenance | null,
+): VisualNode {
+  const snap = buildVicInspectSnapshot(cp);
+  const sprite = spriteBoundsAtVisible(cp, snap, vx, vy);
+  if (sprite) return sprite;
+
+  const inDisplay = vx >= DISPLAY_ORIGIN.x && vx < DISPLAY_ORIGIN.x + 320
+    && vy >= DISPLAY_ORIGIN.y && vy < DISPLAY_ORIGIN.y + 200;
+  if (inDisplay) {
+    const d = visibleToDisplay(vx, vy);
+    return resolveNodeAt(cp, d.x, d.y, provenance);
+  }
+  // open border, no sprite → border colour ($D020)
+  return {
+    type: "border", pixel: { x: Math.round(vx), y: Math.round(vy) }, mode: snap.mode,
+    colorIndex: snap.border,
+    refs: [{ kind: "vic_reg", addr: 0xd020, length: 1, value: snap.border, note: "border colour" }],
+  };
+}
+
+/** Resolve a VISIBLE-frame region (UI coords). */
+export function resolveVisibleRegion(
+  cp: RuntimeCheckpoint,
+  region: { x: number; y: number; width: number; height: number },
+  provenance?: VicFrameProvenance | null,
+): VisualNode[] {
+  return resolveRegion(cp, visibleRegionToDisplay(region), provenance);
+}
+
 /** Resolve every distinct element under a display-area region. Threads the same
  *  same-frame provenance as point-resolve so raster/FLI cells in the region use
  *  the correct per-line base (key includes the resolved raster line). */
