@@ -11,7 +11,11 @@ import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/
 import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
 import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
 import { disasmLine } from "../runtime/headless/debug/disasm6502.js";
-import { buildVicInspectSnapshot, resolveNodeAt, resolveRegion, assembleInspectEvidence } from "../runtime/headless/inspect/vic-inspect.js";
+import {
+  buildVicInspectSnapshot, assembleInspectEvidence,
+  resolveVisibleNodeAt, resolveVisibleRegion,
+  VISIBLE_FRAME, DISPLAY_ORIGIN,
+} from "../runtime/headless/inspect/vic-inspect.js";
 import type { FrozenInspectEvidence } from "../runtime/headless/inspect/vic-inspect-types.js";
 import type { RuntimeCheckpoint } from "../runtime/headless/kernel/runtime-checkpoint.js";
 import {
@@ -585,18 +589,24 @@ export class V3WsServer {
       const cp = cpForInspect(c, ref.id);
       // 710.4/710.5 — provenance rides the checkpoint payload (durable).
       const provenance = cp.vicProvenance ?? undefined;
-      return { checkpointId: ref.id, frame: buildVicInspectSnapshot(cp), provenance, runState: c.runState };
+      // 710.3 option 2 — backend owns coordinate geometry; UI sends raw
+      // visible-frame px and gets the conversion contract here.
+      return {
+        checkpointId: ref.id, frame: buildVicInspectSnapshot(cp), provenance, runState: c.runState,
+        geometry: { visible: VISIBLE_FRAME, displayOrigin: DISPLAY_ORIGIN, cell: { w: 8, h: 8, cols: 40, rows: 25 } },
+      };
     });
+    // x/y and region are VISIBLE-frame coords (0..384 × 0..272); the backend converts.
     this.on("vic/inspect/at", ({ session_id, checkpoint_id, x, y }) => {
       if (!checkpoint_id) throw new Error("vic/inspect/at: checkpoint_id required");
       const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
-      return { node: resolveNodeAt(cp, Number(x) | 0, Number(y) | 0, cp.vicProvenance ?? undefined) };
+      return { node: resolveVisibleNodeAt(cp, Number(x) || 0, Number(y) || 0, cp.vicProvenance ?? undefined) };
     });
     this.on("vic/inspect/region", ({ session_id, checkpoint_id, region }) => {
       if (!checkpoint_id) throw new Error("vic/inspect/region: checkpoint_id required");
       if (!region) throw new Error("vic/inspect/region: region required");
       const cp = cpForInspect(ctrlFor(session_id), checkpoint_id);
-      return { nodes: resolveRegion(cp, region, cp.vicProvenance ?? undefined) };
+      return { nodes: resolveVisibleRegion(cp, region, cp.vicProvenance ?? undefined) };
     });
     this.on("vic/inspect/close", ({ session_id, checkpoint_id }) => {
       const c = ctrlFor(session_id);
@@ -610,6 +620,8 @@ export class V3WsServer {
       if (!checkpoint_id) throw new Error("vic/inspect/promote: checkpoint_id required");
       const c = ctrlFor(session_id);
       const cp = cpForInspect(c, checkpoint_id);
+      // points/region are VISIBLE-frame coords; assembleInspectEvidence resolves
+      // them border-aware (sprites/multiplexer) — same path as at/region.
       const evidence = assembleInspectEvidence(cp, String(checkpoint_id), {
         points, region, traceMarkId: trace_mark_id, provenance: cp.vicProvenance ?? undefined,
       });

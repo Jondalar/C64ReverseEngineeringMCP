@@ -16,12 +16,12 @@ import { resolve as resolvePath } from "node:path";
 
 let startIntegratedSession, stopIntegratedSession, ensureRuntimeController,
     buildVicInspectSnapshot, resolveNodeAt, assembleInspectEvidence,
-    resolveVisibleNodeAt, visibleToDisplay, DISPLAY_ORIGIN;
+    resolveVisibleNodeAt, resolveVisibleRegion, visibleToDisplay, DISPLAY_ORIGIN;
 try {
   ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
   ({ ensureRuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js"));
   ({ buildVicInspectSnapshot, resolveNodeAt, assembleInspectEvidence,
-     resolveVisibleNodeAt, visibleToDisplay, DISPLAY_ORIGIN } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
+     resolveVisibleNodeAt, resolveVisibleRegion, visibleToDisplay, DISPLAY_ORIGIN } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
 } catch (e) {
   console.error("dist missing / import failed — run `npm run build:mcp` first");
   console.error(e?.message ?? e);
@@ -133,7 +133,8 @@ console.log("Spec 710.2 — VIC inspect resolver smoke");
         const code = cp.ram[vsnap.screenBase + row * 40 + col] & 0xff;
         if (code !== 0x20 && code !== 0x00) { cell = { row, col }; break; }
       }
-    const ev = assembleInspectEvidence(cp, ref.id, { points: [{ x: cell.col * 8 + 1, y: cell.row * 8 + 1 }] });
+    // assemble resolves VISIBLE-frame coords (= DISPLAY_ORIGIN + cell*8).
+    const ev = assembleInspectEvidence(cp, ref.id, { points: [{ x: DISPLAY_ORIGIN.x + cell.col * 8 + 1, y: DISPLAY_ORIGIN.y + cell.row * 8 + 1 }] });
     gate("C evidence.checkpointId = captured id", ev.checkpointId === ref.id, ev.checkpointId);
     gate("C evidence carries mediaState (Spec 709 identity in checkpoint)", ev.mediaState !== undefined);
     gate("C evidence.frame.mode = standard_text", ev.frame?.mode === "standard_text", ev.frame?.mode);
@@ -179,6 +180,10 @@ console.log("Spec 710.2 — VIC inspect resolver smoke");
   gate("E border click, no sprite → border node", inBorderNoSpr.type === "border" && inBorderNoSpr.colorIndex === 14, `${inBorderNoSpr.type} c=${inBorderNoSpr.colorIndex}`);
   const inDisplay = resolveVisibleNodeAt(cp, 200, 120);
   gate("E display click, no sprite → text/bitmap cell", inDisplay.type === "text_cell" || inDisplay.type === "bitmap_cell", inDisplay.type);
+  // REGION over the open-border sprite must include sprite_bounds (not all bitmap).
+  const rnodes = resolveVisibleRegion(cp, { x: 90, y: 10, width: 40, height: 30 });
+  const sprn = rnodes.filter((n) => n.type === "sprite_bounds");
+  gate("E open-border REGION resolves sprite_bounds (not all bitmap)", sprn.length >= 1 && sprn.some((n) => n.value === 0), `types=${JSON.stringify(rnodes.reduce((a, n) => ((a[n.type] = (a[n.type] || 0) + 1), a), {}))}`);
 }
 
 // ---- (F) 710.6b — multiplexer: per-raster sprite provenance ----

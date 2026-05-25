@@ -181,11 +181,12 @@ export function assembleInspectEvidence(
     provenance?: VicFrameProvenance | null;
   } = {},
 ): FrozenInspectEvidence {
+  // Points/region are VISIBLE-frame coords (UI space) → border-aware resolve.
   const selectedNodes: VisualNode[] = [];
   for (const p of opts.points ?? []) {
-    selectedNodes.push(resolveNodeAt(cp, p.x | 0, p.y | 0, opts.provenance));
+    selectedNodes.push(resolveVisibleNodeAt(cp, p.x, p.y, opts.provenance));
   }
-  if (opts.region) selectedNodes.push(...resolveRegion(cp, opts.region, opts.provenance));
+  if (opts.region) selectedNodes.push(...resolveVisibleRegion(cp, opts.region, opts.provenance));
   return {
     checkpointId,
     snapshotRef: opts.snapshotRef,
@@ -315,13 +316,25 @@ export function resolveVisibleNodeAt(
   };
 }
 
-/** Resolve a VISIBLE-frame region (UI coords). */
+/** Resolve a VISIBLE-frame region (UI coords). Samples in VISIBLE space and uses
+ *  the border-aware + sprite/multiplexer resolver per point, so an open-border
+ *  sprite region resolves as sprites (not display-clamped bitmap cells). */
 export function resolveVisibleRegion(
   cp: RuntimeCheckpoint,
   region: { x: number; y: number; width: number; height: number },
   provenance?: VicFrameProvenance | null,
 ): VisualNode[] {
-  return resolveRegion(cp, visibleRegionToDisplay(region), provenance);
+  const nodes: VisualNode[] = [];
+  const seen = new Set<string>();
+  const x1 = region.x + region.width, y1 = region.y + region.height;
+  for (let vy = region.y; vy < y1; vy += 8) {
+    for (let vx = region.x; vx < x1; vx += 8) {
+      const n = resolveVisibleNodeAt(cp, vx, vy, provenance);
+      const key = `${n.type}:${n.value ?? ""}:${n.cell?.index ?? ""}:${n.raster?.line ?? ""}`;
+      if (!seen.has(key)) { seen.add(key); nodes.push(n); }
+    }
+  }
+  return nodes;
 }
 
 /** Resolve every distinct element under a display-area region. Threads the same
