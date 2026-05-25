@@ -11,7 +11,8 @@ import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/
 import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
 import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
 import { disasmLine } from "../runtime/headless/debug/disasm6502.js";
-import { buildVicInspectSnapshot, resolveNodeAt, resolveRegion } from "../runtime/headless/inspect/vic-inspect.js";
+import { buildVicInspectSnapshot, resolveNodeAt, resolveRegion, assembleInspectEvidence } from "../runtime/headless/inspect/vic-inspect.js";
+import type { FrozenInspectEvidence } from "../runtime/headless/inspect/vic-inspect-types.js";
 import type { RuntimeCheckpoint } from "../runtime/headless/kernel/runtime-checkpoint.js";
 import {
   ensureRuntimeController,
@@ -559,6 +560,10 @@ export class V3WsServer {
     // Opening pauses the backend and pins the inspected checkpoint; the returned
     // checkpointId + snapshot are the SHARED record 711/712 also bind to. The
     // literal viciisc checkpoint is the visual authority; VicIIVice is not read.
+    // Spec 710.5 — promoted evidence records per session (the shared 710/711/712
+    // record). In-memory for now; knowledge-store persistence is the UI/explore
+    // wiring (710.3) on top of this assembled record.
+    const inspectEvidence = new Map<string, FrozenInspectEvidence[]>();
     const cpForInspect = (c: ReturnType<typeof ctrlFor>, id: string | number) => {
       const snap = c.checkpointRing.restoreSnapshot(String(id));
       const cp = snap?.payload as RuntimeCheckpoint | undefined;
@@ -598,6 +603,24 @@ export class V3WsServer {
       if (checkpoint_id) c.checkpointRing.unpin(String(checkpoint_id));
       return { ok: true, stats: c.checkpointRing.stats() };
     });
+    // Spec 710.5 — promote selected nodes to a shared evidence record (checkpoint
+    // + media identity + optional trace mark + resolved nodes). Disk + EasyFlash
+    // media are 714-complete, so their records are durable/replayable.
+    this.on("vic/inspect/promote", ({ session_id, checkpoint_id, points, region, name, notes, trace_mark_id }) => {
+      if (!checkpoint_id) throw new Error("vic/inspect/promote: checkpoint_id required");
+      const c = ctrlFor(session_id);
+      const cp = cpForInspect(c, checkpoint_id);
+      const provenance = getIntegratedSession(session_id)?.captureVicProvenance() ?? undefined;
+      const evidence = assembleInspectEvidence(cp, String(checkpoint_id), {
+        points, region, traceMarkId: trace_mark_id, provenance,
+      });
+      const tagged = { ...evidence, name: name ?? null, notes: notes ?? null, promotedAtMs: Date.now() };
+      const list = inspectEvidence.get(session_id) ?? [];
+      list.push(tagged);
+      inspectEvidence.set(session_id, list);
+      return { evidence: tagged, count: list.length };
+    });
+    this.on("vic/inspect/evidence", ({ session_id }) => ({ evidence: inspectEvidence.get(session_id) ?? [] }));
 
     // ---- Spec 707 — native .c64re snapshot persistence (dump/undump).
     // The SAME backend the monitor `dump`/`undump` commands use, so UI/API

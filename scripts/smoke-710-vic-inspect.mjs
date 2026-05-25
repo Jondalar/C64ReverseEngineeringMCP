@@ -15,11 +15,11 @@
 import { resolve as resolvePath } from "node:path";
 
 let startIntegratedSession, stopIntegratedSession, ensureRuntimeController,
-    buildVicInspectSnapshot, resolveNodeAt;
+    buildVicInspectSnapshot, resolveNodeAt, assembleInspectEvidence;
 try {
   ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
   ({ ensureRuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js"));
-  ({ buildVicInspectSnapshot, resolveNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
+  ({ buildVicInspectSnapshot, resolveNodeAt, assembleInspectEvidence } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
 } catch (e) {
   console.error("dist missing / import failed — run `npm run build:mcp` first");
   console.error(e?.message ?? e);
@@ -110,7 +110,36 @@ console.log("Spec 710.2 — VIC inspect resolver smoke");
   gate("B pixel outside sprite → text_cell", outside.type === "text_cell", outside.type);
 }
 
+// ---- (C) 710.5 evidence assembly (shared 710/711/712 record) ----
+{
+  const { session, sessionId } = startIntegratedSession({
+    mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port",
+  });
+  try {
+    session.resetCold("pal-default");
+    session.runFor(3_000_000, { cycleBudget: 3_000_000 });
+    const ctrl = ensureRuntimeController(sessionId, session, () => {});
+    const ref = await ctrl.captureCheckpoint();
+    const cp = ctrl.checkpointRing.restoreSnapshot(ref.id)?.payload;
+
+    // find a non-space cell again
+    const vsnap = buildVicInspectSnapshot(cp);
+    let cell = null;
+    for (let row = 0; row < 25 && !cell; row++)
+      for (let col = 0; col < 40; col++) {
+        const code = cp.ram[vsnap.screenBase + row * 40 + col] & 0xff;
+        if (code !== 0x20 && code !== 0x00) { cell = { row, col }; break; }
+      }
+    const ev = assembleInspectEvidence(cp, ref.id, { points: [{ x: cell.col * 8 + 1, y: cell.row * 8 + 1 }] });
+    gate("C evidence.checkpointId = captured id", ev.checkpointId === ref.id, ev.checkpointId);
+    gate("C evidence carries mediaState (Spec 709 identity in checkpoint)", ev.mediaState !== undefined);
+    gate("C evidence.frame.mode = standard_text", ev.frame?.mode === "standard_text", ev.frame?.mode);
+    gate("C evidence has exactly one selected node", ev.selectedNodes?.length === 1, `n=${ev.selectedNodes?.length}`);
+    gate("C selected node = text_cell with screen_ram ref", ev.selectedNodes?.[0]?.type === "text_cell" && !!ev.selectedNodes[0].refs.find((r) => r.kind === "screen_ram"));
+  } finally { try { stopIntegratedSession(sessionId); } catch {} }
+}
+
 console.log("---");
-if (failures.length === 0) { console.log(`GREEN 710.2 VIC inspect: ${passes} checks pass.`); process.exit(0); }
+if (failures.length === 0) { console.log(`GREEN 710.2/710.5 VIC inspect: ${passes} checks pass.`); process.exit(0); }
 console.log(`RED 710.2 VIC inspect: ${passes} pass, ${failures.length} fail.`);
 process.exit(1);

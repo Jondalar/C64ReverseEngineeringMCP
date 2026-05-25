@@ -14,6 +14,7 @@
 import type { RuntimeCheckpoint } from "../kernel/runtime-checkpoint.js";
 import type {
   MemoryRef, VisualNode, VicInspectSnapshot, VicInspectMode, VicFrameProvenance,
+  FrozenInspectEvidence,
 } from "./vic-inspect-types.js";
 
 const reg = (cp: RuntimeCheckpoint, i: number): number => (cp.vic.regs[i] ?? 0) & 0xff;
@@ -154,6 +155,44 @@ export function resolveNodeAt(
   refs.push({ kind: "charset", addr: bases.charBase + code * 8, length: 8, bank: bases.bankBase, note: bases.charRomShadow ? "char ROM shadow" : undefined });
   refs.push({ kind: "vic_reg", addr: 0xd018, length: 1, value: reg(cp, 0x18) });
   return { type: "text_cell", pixel: { x, y }, cell: { col, row, index }, raster, mode: bases.mode, value: code, colorIndex, refs };
+}
+
+/**
+ * Spec 710.5 — assemble the SHARED frozen-inspect evidence record from a pinned
+ * checkpoint + selected points/region. This is the common substrate Specs 711
+ * (code-overlay) and 712 (rewind/replay) bind to: it names the checkpoint, the
+ * media identity at that checkpoint (Spec 709, already in `cp.media`), an
+ * optional trace mark (Spec 708), and the exact resolved visual nodes. PURE —
+ * no execution advance, no knowledge-store side effect (persistence is the
+ * caller's concern).
+ */
+export function assembleInspectEvidence(
+  cp: RuntimeCheckpoint,
+  checkpointId: string,
+  opts: {
+    points?: Array<{ x: number; y: number }>;
+    region?: { x: number; y: number; width: number; height: number };
+    traceMarkId?: string;
+    snapshotRef?: string;
+    experimentId?: string;
+    provenance?: VicFrameProvenance | null;
+  } = {},
+): FrozenInspectEvidence {
+  const selectedNodes: VisualNode[] = [];
+  for (const p of opts.points ?? []) {
+    selectedNodes.push(resolveNodeAt(cp, p.x | 0, p.y | 0, opts.provenance));
+  }
+  if (opts.region) selectedNodes.push(...resolveRegion(cp, opts.region));
+  return {
+    checkpointId,
+    snapshotRef: opts.snapshotRef,
+    experimentId: opts.experimentId,
+    mediaState: cp.media,
+    traceMarkId: opts.traceMarkId,
+    frame: buildVicInspectSnapshot(cp),
+    provenance: opts.provenance ?? undefined,
+    selectedNodes,
+  };
 }
 
 /** Resolve every distinct element under a display-area region. */
