@@ -1,9 +1,50 @@
 # Spec 710 - Frozen VIC Inspect on the Checkpoint/Evidence Model
 
-Status: IMPLEMENTATION-READY (refined 2026-05-24 CEST; Spec 715 unblocked it)
+Status: DONE (2026-05-25 CEST) — core inspect + UI + durable provenance + sprites shipped on branch `spec-710-frozen-inspect`
 Depends (core inspect): Specs 702, 705.B, 707
-Depends (durable media/evidence promotion): Specs 709 + 714/714.5 LANDED (2026-05-24); 708 §10 corrective slice — verify landed before 710.5
+Depends (durable media/evidence promotion): Specs 709 + 714/714.5 LANDED (2026-05-24); 708 §10 corrective slice — trace-mark ref is an optional follow-up (710.5 ships checkpoint + media refs; trace-mark passthrough only)
 Owner: literal VIC / v3 UI / knowledge
+
+> **DONE 2026-05-25.** Implemented on branch `spec-710-frozen-inspect`:
+> - **710.1/710.2** — checkpoint-bound resolver (text/charset, bitmap/multicolor,
+>   border, sprites) off the literal `viciisc` checkpoint; NO execution advance;
+>   `VicIIVice` is not the authority. Commits `414fee1`, `133607d`.
+> - **710.3** — inspect overlay + inspector panel in the v3 Live UI wired to
+>   `vic/inspect/{open,at,region,promote,close}`; coordinate option 2 (UI sends
+>   raw VISIBLE-frame px accounting for the canvas border + `object-fit:contain`
+>   letterbox, backend owns visible→display→cell); glyph display, Enter=promote.
+>   Knowledge persistence via the existing workspace HTTP API
+>   (`POST /api/vic-inspect-evidence` → `ProjectKnowledgeService.saveArtifact`);
+>   the V3WsServer stays a thin live transport. Commits `b94b176`, `edc6da9`,
+>   `ee75f45`; coord fix in the 710.6 fix below.
+> - **710.4** — same-frame raster/FLI provenance, persisted in the checkpoint
+>   payload (durable across ring / `.c64re` / restore); cleared on a capture-off
+>   frame so a later frame never inherits it. Commits `004fed2`, `b2df0db`, `10556c3`.
+> - **710.5** — `assembleInspectEvidence` = the shared `FrozenInspectEvidence`
+>   record (checkpoint + media identity + resolved nodes + optional trace mark),
+>   the common substrate Specs 711/712 bind to. Commit `5f8d209`.
+> - **710.6a/b/c** — border-aware sprite resolve (open-border logo sprites);
+>   per-raster multiplexed-sprite provenance (>8 sprites/frame); **capture-on-
+>   freeze** (see semantics below). Region + promote use the same border/sprite
+>   resolver. Commits `800d4a5`, `2894237`, `9c5f757`, `d1960d6`.
+>
+> **Gates (all green):** `smoke-710-vic-inspect` 41/41, `smoke-710-provenance`
+> 16/16, `smoke-710-c64re-provenance` 8/8, `smoke-710-evidence-persist` 9/9,
+> `proof-canary-inspect` (Spec 715 baseline canary `frozen-inspect`). NO emulator
+> behaviour change anywhere in 710.
+>
+> **Pause vs Breakpoint semantics (user-confirmed):**
+> - **UI Pause / frozen inspect** runs CONTROLLED to a COMPLETE VIC frame WITH
+>   provenance, then freezes that frame. Correct for visual analysis/evidence —
+>   the picture, its raster/FLI + multiplexed-sprite provenance, and the
+>   checkpoint all describe the same full frame. (`RuntimeController.freezeWithProvenance`.)
+> - **Monitor breakpoint / debug stop** is an EXACT execution stop at the PC —
+>   it does NOT run on to the frame end and does NOT capture-on-freeze. Inspect on
+>   a BK-frozen state uses the frozen registers (no per-line provenance).
+>
+> `sprite_bounds` stays honest: a bounding-box hit + pointer/data/register
+> evidence. Pixel-exact sprite transparency/priority is DEFERRED (not a DONE
+> criterion). EasyFlash `$DF00` cart-RAM (714.5 follow-up) is out of 710 scope.
 
 > **Spec 714 requirement (mutable media).** Evidence over a writable medium may
 > be promoted as **durable/replayable only if the medium is 714-complete**. As of
@@ -149,13 +190,14 @@ The overlay is HTML/SVG above the canvas. It never modifies frame pixels.
 
 ## 5. Implementation Slices
 
-| ID | Task | Depends |
+| ID | Task | Status |
 |---|---|---|
-| 710.1 | Bind final API/types to the real 705 checkpoint and active literal `viciisc`/presentation surfaces; explicitly reject `VicIIVice` as authority. | 707 |
-| 710.2 | Implement checkpoint-bound inspect APIs for exact text/bitmap/multicolor cells + `sprite_bounds` (bounding-box + pointer/data/register evidence) without advancing execution. Pixel-exact sprite transparency/priority is DEFERRED, not in scope. | 710.1 |
-| 710.3 | Integrate paused canvas overlay and inspector panel, replacing the current unwired artifact alert path. | 710.2 |
-| 710.4 | Implement optional bounded same-frame per-raster-line base provenance ($D011/$D016/$D018+bank) inside the active literal render path for raster-split/FLI cases, persisted in the checkpoint payload (durable across ring/.c64re/restore), with a disabled-path performance gate. (Pixel-exact sprite priority resolution is DEFERRED.) | 710.2 |
-| 710.5 | Promote selections to evidence/knowledge with durable media refs and corrected trace mark/run refs. | 708 corrective slice, 709, 710.2 |
+| 710.1 | Bind final API/types to the real 705 checkpoint and active literal `viciisc`/presentation surfaces; explicitly reject `VicIIVice` as authority. | **DONE** `414fee1` |
+| 710.2 | Checkpoint-bound inspect APIs for exact text/bitmap/multicolor cells + `sprite_bounds` (bounding-box + pointer/data/register evidence) without advancing execution. Pixel-exact sprite transparency/priority DEFERRED. | **DONE** `414fee1`/`133607d` |
+| 710.3 | Paused canvas overlay + inspector panel wired to `vic/inspect/*`; knowledge persistence via the workspace HTTP API (not the WS transport). | **DONE** `b94b176`/`edc6da9`/`ee75f45` |
+| 710.4 | Same-frame per-raster-line provenance ($D011/$D016/$D018+bank, + per-raster sprites) in the literal render path; persisted in the checkpoint payload (durable across ring/.c64re/restore); capture-on-freeze (no continuous churn); disabled-path perf gate. | **DONE** `004fed2`/`b2df0db`/`10556c3`/`d1960d6` |
+| 710.5 | Assemble the shared `FrozenInspectEvidence` (checkpoint + media identity + nodes + optional trace mark). Trace-mark/run ref = optional follow-up (passthrough only; pending 708 §10). | **DONE (core)** `5f8d209`; trace-mark ref = follow-up |
+| 710.6a/b/c | Border-aware sprite resolve; per-raster multiplexed-sprite provenance (>8/frame); capture-on-freeze. Region + promote use the same resolver. | **DONE** `800d4a5`/`2894237`/`9c5f757`/`d1960d6` |
 
 ## 6. Acceptance
 
