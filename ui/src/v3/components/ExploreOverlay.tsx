@@ -80,6 +80,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<string>("");
+  const [origin, setOrigin] = useState<any>(null); // Spec 721 Visual-Origin Join result
   const [dragging, setDragging] = useState<{ start: { x: number; y: number } } | null>(null);
   // last resolved display-area target (point or region) for promote
   const lastTarget = useRef<{ points?: { x: number; y: number }[]; region?: { x: number; y: number; width: number; height: number } } | null>(null);
@@ -153,13 +154,13 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
         const v = dragging.start;
         lastTarget.current = { points: [{ x: v.x, y: v.y }] };
         const r = await getClient().call<any>("vic/inspect/at", { session_id: sessionId, checkpoint_id: checkpointId, x: v.x, y: v.y });
-        setNode(r.node); setRegionNodes(null);
+        setNode(r.node); setRegionNodes(null); setOrigin(null);
         setStatus(`Resolved ${r.node?.type}${r.node?.cell ? ` cell (${r.node.cell.col},${r.node.cell.row})` : ""}`);
       } else {
         const region = { x: Math.min(dragging.start.x, end.x), y: Math.min(dragging.start.y, end.y), width: w, height: h };
         lastTarget.current = { region };
         const r = await getClient().call<any>("vic/inspect/region", { session_id: sessionId, checkpoint_id: checkpointId, region });
-        setRegionNodes(r.nodes ?? []); setNode(null);
+        setRegionNodes(r.nodes ?? []); setNode(null); setOrigin(null);
         setStatus(`Resolved ${r.nodes?.length ?? 0} node(s) in region`);
       }
     } catch (err: any) {
@@ -185,6 +186,40 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
       setStatus(`Saved knowledge artifact ${artifact?.id ?? "?"} (${r.evidence?.selectedNodes?.length ?? 0} node(s))`);
     } catch (e: any) {
       setStatus(`promote/persist failed: ${e?.message ?? e}`);
+    }
+  };
+
+  // Spec 721 — resolve the clicked node to its ORIGIN (exact_asset / derived /
+  // runtime_generated): match the frozen bytes against the mounted medium's
+  // extracted assets, return classification + chain + knowledge.
+  const resolveOrigin = async () => {
+    const pt = lastTarget.current?.points?.[0];
+    if (!checkpointId || !pt) { setStatus("click a point first, then resolve origin"); return; }
+    try {
+      const r = await getClient().call<any>("vic/inspect/origin", {
+        session_id: sessionId, checkpoint_id: checkpointId, x: pt.x, y: pt.y,
+      });
+      setOrigin(r);
+      setStatus(`Origin: ${r.classification} (medium ${r.medium?.ref ?? "none"}, ${r.medium?.candidateCount ?? 0} candidates)`);
+    } catch (e: any) {
+      setStatus(`origin resolve failed: ${e?.message ?? e}`);
+    }
+  };
+
+  // Spec 721.J3 — persist the origin (entities + relation chain + finding) via the
+  // workspace knowledge HTTP API (NOT the WS transport).
+  const persistOrigin = async () => {
+    if (!origin?.knowledge) { setStatus("nothing to persist"); return; }
+    try {
+      const resp = await fetch("/api/asset-join", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ knowledge: origin.knowledge, artifactId: sessionId }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const out = await resp.json();
+      setStatus(`Persisted origin: ${out.entityIds?.length ?? 0} entities, ${out.relationIds?.length ?? 0} relations, finding ${out.findingId ?? "?"}`);
+    } catch (e: any) {
+      setStatus(`persist origin failed: ${e?.message ?? e}`);
     }
   };
 
@@ -245,6 +280,29 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
               </div>
             )}
             {renderRefs(node)}
+            <button onClick={resolveOrigin} disabled={!checkpointId}>Resolve origin →</button>
+          </div>
+        )}
+        {origin && (
+          <div className="wb-explore-node">
+            <div>
+              <span className="wb-badge">{String(origin.classification ?? "?").toUpperCase()}</span>
+              {origin.result?.candidate && (
+                <span className="wb-muted">
+                  {" "}{origin.result.candidate.kind} {origin.result.candidate.format} @ {origin.result.candidate.source?.mediumRef ?? origin.result.candidate.source?.fileRef ?? "?"}
+                  {" +"}{hex(origin.result.candidate.source?.offset ?? 0)}
+                </span>
+              )}
+            </div>
+            <div className="wb-explore-text wb-muted">{origin.result?.evidence}</div>
+            {Array.isArray(origin.knowledge?.relations) && origin.knowledge.relations.length > 0 && (
+              <table className="wb-regs"><tbody>
+                {origin.knowledge.relations.map((rl: any, i: number) => (
+                  <tr key={i}><td>{rl.from?.kind}</td><td>{rl.relation}</td><td>{rl.to?.kind}</td></tr>
+                ))}
+              </tbody></table>
+            )}
+            <button onClick={persistOrigin}>Persist origin → Knowledge</button>
           </div>
         )}
         {regionNodes && (
