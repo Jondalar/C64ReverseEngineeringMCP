@@ -69,6 +69,7 @@
     "probe:705b-ring": "npm run build:mcp && node scripts/probe-705b-ring.mjs",
     "probe:707-dump-undump": "npm run build:mcp && node scripts/probe-707-dump-undump.mjs",
     "probe:708-trace": "npm run build:mcp && node scripts/probe-708-trace.mjs",
+    "probe:708-patterns": "npm run build:mcp && node scripts/probe-708-patterns.mjs",
     "probe:709-media": "npm run build:mcp && node scripts/probe-709-media.mjs",
     "probe:709-ws-routes": "npm run build:mcp && node scripts/probe-709-ws-routes.mjs",
     "probe:709-12": "npm run build:mcp && node scripts/probe-709-12.mjs",

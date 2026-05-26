@@ -1189,6 +1189,31 @@ export class V3WsServer {
           out.push({ path: full, name: pmod.basename(full), type: ext.slice(1) });
         }
       }
+
+      // 3. $C64RE_PROJECT_DIR — depth-limited recursive scan for IMAGE media
+      //    (.crt/.d64/.g64/.vsf only; skip .prg to avoid flooding the picker
+      //    with analysis-dir PRGs). Surfaces e.g. ef_port/motm_ef.crt.
+      const projDir = process.env["C64RE_PROJECT_DIR"];
+      if (projDir && fsmod.existsSync(projDir)) {
+        const imgExts = [".crt", ".d64", ".g64", ".vsf"];
+        const walk = (dir: string, depth: number) => {
+          if (depth > 3 || out.length >= 100) return;
+          let entries: string[] = [];
+          try { entries = fsmod.readdirSync(dir).sort(); } catch { return; }
+          for (const entry of entries) {
+            if (entry.startsWith(".") || entry === "node_modules" || entry === "knowledge") continue;
+            const full = pmod.join(dir, entry);
+            let st; try { st = fsmod.statSync(full); } catch { continue; }
+            if (st.isDirectory()) { walk(full, depth + 1); continue; }
+            if (seen.has(full)) continue;
+            const ext = imgExts.find((e) => entry.toLowerCase().endsWith(e));
+            if (!ext) continue;
+            seen.add(full);
+            out.push({ path: full, name: `${pmod.basename(dir)}/${pmod.basename(full)}`, type: ext.slice(1) });
+          }
+        };
+        walk(projDir, 0);
+      }
       return out.slice(0, 100);
     });
 

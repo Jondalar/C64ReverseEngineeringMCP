@@ -98,6 +98,10 @@ export class HeadlessMemoryBus {
   private dataFalloffBit7 = 0;
   private accessTrace: HeadlessMemoryAccess[] = [];
   private tracingEnabled = false;
+  // Spike: lightweight aggregating access observer (region-liveness tooling).
+  // Fires on EVERY read/write (independent of beginInstructionTrace), O(1)/call,
+  // so it scales to whole-session windows without buffering every event.
+  private accessObserver: ((kind: "read" | "write", address: number, value: number) => void) | null = null;
   private cartridge?: HeadlessCartridgeMapper;
   // Spec 709.7 — the original .crt bytes + display name backing the attached
   // cartridge, so RuntimeCheckpoint/.c64re can embed + recreate it on restore.
@@ -267,6 +271,12 @@ export class HeadlessMemoryBus {
     const result = this.accessTrace;
     this.accessTrace = [];
     return result;
+  }
+
+  /** Spike — attach an aggregating read/write observer (region-liveness map).
+   *  Pass null to detach. Independent of beginInstructionTrace. */
+  setAccessObserver(obs: ((kind: "read" | "write", address: number, value: number) => void) | null): void {
+    this.accessObserver = obs;
   }
 
   registerIoHandler(address: number, handler: HeadlessIoHandler): void {
@@ -750,6 +760,9 @@ export class HeadlessMemoryBus {
   }
 
   private recordAccess(kind: "read" | "write", address: number, value: number, region: string): void {
+    if (this.accessObserver) {
+      this.accessObserver(kind, address, value);
+    }
     if (!this.tracingEnabled) {
       return;
     }

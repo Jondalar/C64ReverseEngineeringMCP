@@ -34,6 +34,9 @@ export interface KernelTraceController {
    * just the needed channels bounds what the observer sees.
    */
   registerObserver(obs: TraceObserver): () => void;
+  /** Whether any parallel observer is currently registered. Spec 708.8 — lets a
+   *  trace-run teardown be verified (no leaked tap after stop). */
+  hasObservers(): boolean;
   /** Close all channels (flushes JSONL fds, clears rings). */
   closeAll(): void;
   /**
@@ -69,6 +72,10 @@ export class KernelTraceControllerImpl implements KernelTraceController {
 
   registerObserver(obs: TraceObserver): () => void {
     return this.registry.registerObserver(obs);
+  }
+
+  hasObservers(): boolean {
+    return this.registry.hasObservers();
   }
 
   closeAll(): void {

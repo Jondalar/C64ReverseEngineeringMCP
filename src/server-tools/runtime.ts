@@ -54,6 +54,42 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     }),
   );
 
+  // Spike — runtime memory-access / region-liveness map. Runs the session for
+  // `cycles` with a per-page read/write observer, classifies every region:
+  // unused / read-only / dead (written, never read after) / live. Answers
+  // "which RAM is free / dead / reclaimable" — for loader homes, save buffers,
+  // overlay scratch, dead-data archaeology. Attach AT the phase of interest
+  // (e.g. after boot, in gameplay) so the window reflects that phase.
+  server.tool(
+    "runtime_memory_access_map",
+    "Spike — per-region read/write liveness map over a runtime window. Classes: unused | read-only | dead (written, never read after) | live. Finds free/dead/reclaimable RAM. Run AT the phase you care about (e.g. in-game).",
+    {
+      session_id: z.string(),
+      cycles: z.number().default(2_000_000).describe("CPU cycles to observe (the workload window)"),
+      classes: z.array(z.enum(["unused", "read-only", "dead", "live"])).default(["dead", "unused"]).describe("region classes to report"),
+      min_bytes: z.number().default(256).describe("minimum region size to report"),
+    },
+    safeHandler("runtime_memory_access_map", async ({ session_id, cycles, classes, min_bytes }) => {
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { MemoryAccessTracker } = await import("../runtime/headless/debug/memory-access-map.js");
+      const t = new MemoryAccessTracker(session.c64Bus);
+      t.attach();
+      session.runFor(cycles, { cycleBudget: cycles });
+      const map = t.finish();
+      const want = new Set(classes);
+      const hx = (n: number) => "$" + (n & 0xffff).toString(16).padStart(4, "0");
+      const rows = map.regions
+        .filter(r => want.has(r.cls) && (r.end - r.start + 1) >= min_bytes)
+        .map(r => `  ${hx(r.start)}-${hx(r.end)}  ${r.cls.padEnd(9)} r=${r.reads} w=${r.writes}`);
+      const tally = map.regions.reduce((a, r) => { a[r.cls] = (a[r.cls] || 0) + 1; return a; }, {} as Record<string, number>);
+      const text = `memory-access map over ${cycles} cyc — regions by class: ${JSON.stringify(tally)}\n` +
+        `${classes.join("/")} regions ≥${min_bytes}B:\n${rows.join("\n") || "  (none)"}`;
+      return { content: [{ type: "text", text }], structuredContent: { tally, regions: map.regions.filter(r => want.has(r.cls) && (r.end - r.start + 1) >= min_bytes) } };
+    }),
+  );
+
   server.tool(
     "runtime_monitor_disasm",
     "Spec 248 — disassemble N instructions starting at addr. Use indirect-target resolution from trace when available.",

@@ -87,9 +87,33 @@ export function validateTraceDefinition(def: Partial<RuntimeTraceDefinition> | n
   else def.captures.forEach((c, i) => e.push(...validateCapture(c, i)));
 
   if (def.retention !== "transient" && def.retention !== "evidence") e.push('retention: "transient" | "evidence"');
-  if (def.checkpointPolicy != null &&
-      !["none", "at-start", "on-trigger", "at-stop"].includes(def.checkpointPolicy)) {
-    e.push("checkpointPolicy: none | at-start | on-trigger | at-stop");
+  if (def.checkpointPolicy != null) {
+    // Spec 708.7 — runtime implements none/at-start/at-stop. "on-trigger" needs a
+    // synchronous hot-path checkpoint (705.B ring integration), not yet wired —
+    // reject precisely instead of silently degrading to at-start (§10.2.2).
+    if (def.checkpointPolicy === "on-trigger") {
+      e.push('checkpointPolicy: "on-trigger" not yet supported — use "at-start" or "at-stop"');
+    } else if (!["none", "at-start", "at-stop"].includes(def.checkpointPolicy)) {
+      e.push('checkpointPolicy: none | at-start | at-stop');
+    }
+  }
+
+  // Spec 708.7 — a definition must not silently capture nothing. Every declared
+  // capture must be producible by a declared domain, and every trigger's channel
+  // must be covered by a domain (else domainsToChannels never enables it).
+  if (Array.isArray(def.domains) && Array.isArray(def.captures)) {
+    const doms = new Set(def.domains);
+    for (let i = 0; i < def.captures.length; i++) {
+      const need = captureRequiresDomain(def.captures[i]!);
+      if (need && !doms.has(need)) e.push(`captures[${i}]: "${def.captures[i]!.kind}" requires domain "${need}" in domains`);
+    }
+  }
+  if (Array.isArray(def.domains) && Array.isArray(def.triggers)) {
+    const doms = new Set(def.domains);
+    for (let i = 0; i < def.triggers.length; i++) {
+      const need = triggerRequiresDomain(def.triggers[i]!);
+      if (need && !doms.has(need)) e.push(`triggers[${i}]: "${def.triggers[i]!.kind}" requires domain "${need}" in domains`);
+    }
   }
   if (def.stop != null) {
     if (!["cycle-budget", "event-count", "manual"].includes(def.stop.kind)) e.push("stop.kind invalid");
@@ -117,9 +141,12 @@ function validateTrigger(t: TraceTrigger, i: number): string[] {
     case "raster-window":
       return Number.isInteger(t.fromLine) && Number.isInteger(t.toLine) && t.fromLine <= t.toLine
         ? [] : [`${p}: fromLine<=toLine integers`];
+    // Spec 708.7 — these have no runtime event semantics yet; reject precisely
+    // rather than accept-and-silently-no-op (§10.2.3).
     case "monitor-stop":
+      return [`${p}: "monitor-stop" trigger not supported — no runtime event semantics; use pc-range / mem-access / raster-window`];
     case "manual-mark":
-      return [];
+      return [`${p}: "manual-mark" trigger not supported — record marks via trace/run/mark, not as a capture trigger`];
     default:
       return [`${p}: unknown trigger kind "${(t as { kind?: string })?.kind}"`];
   }
@@ -137,6 +164,30 @@ function validateCapture(c: TraceCapture, i: number): string[] {
   }
 }
 
+/** The domain a capture row needs in order to be produced (Spec 708.7 coverage).
+ *  null = no domain required (checkpoint-ref). */
+function captureRequiresDomain(c: TraceCapture): TraceDomain | null {
+  switch (c?.kind) {
+    case "cpu-row": return c.domain === "drive8-cpu" ? "drive8-cpu" : "c64-cpu";
+    case "mem-row": return "memory";
+    case "iec-row": return "iec";
+    case "vic-row": return "vic";
+    case "checkpoint-ref": return null;
+    default: return null;
+  }
+}
+
+/** The domain a trigger needs so its channel is enabled (Spec 708.7 coverage). */
+function triggerRequiresDomain(t: TraceTrigger): TraceDomain | null {
+  switch (t?.kind) {
+    case "pc-range": return t.domain === "drive8-cpu" ? "drive8-cpu" : "c64-cpu";
+    case "mem-access": return "memory";
+    case "iec-transition": return "iec";
+    case "raster-window": return "vic";
+    default: return null;
+  }
+}
+
 /** Stable kebab-case id from a name (used when a definition omits an explicit id). */
 export function slugTraceId(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
@@ -148,7 +199,8 @@ export interface RuntimeTraceRun {
   runId: string;
   definitionId: string;
   definitionVersion: number;
-  startCheckpointId?: string;       // 705.B / 707 checkpoint ref
+  startCheckpointId?: string;       // 705.B / 707 checkpoint ref (checkpointPolicy at-start)
+  stopCheckpointId?: string;        // checkpoint captured at stop() (checkpointPolicy at-stop)
   media?: { sha256?: string; sourceName?: string };
   branchId?: string;                // intervention branch (Spec 711, later)
   cycleStart: number;

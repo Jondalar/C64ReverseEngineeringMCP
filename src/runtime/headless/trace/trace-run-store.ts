@@ -43,7 +43,7 @@ export async function openTraceRunStore(path: string): Promise<TraceRunStore> {
   for (const ddl of [
     `CREATE TABLE IF NOT EXISTS trace_run (
        run_id TEXT PRIMARY KEY, def_id TEXT, def_version INTEGER, def_json TEXT, name TEXT,
-       start_checkpoint_id TEXT, media_sha TEXT, media_name TEXT, branch_id TEXT,
+       start_checkpoint_id TEXT, stop_checkpoint_id TEXT, media_sha TEXT, media_name TEXT, branch_id TEXT,
        cycle_start UBIGINT, cycle_end UBIGINT, event_count UBIGINT, bytes_written UBIGINT,
        overhead_ms DOUBLE, retention TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS trace_event (
@@ -64,6 +64,7 @@ export async function writeTraceRun(
   await conn.run(
     `INSERT INTO trace_run VALUES (${sq(run.runId)}, ${sq(run.definitionId)}, ${num(run.definitionVersion)}, ` +
     `${sq(JSON.stringify(def))}, ${sq(def.name)}, ${run.startCheckpointId ? sq(run.startCheckpointId) : "NULL"}, ` +
+    `${run.stopCheckpointId ? sq(run.stopCheckpointId) : "NULL"}, ` +
     `${run.media?.sha256 ? sq(run.media.sha256) : "NULL"}, ${run.media?.sourceName ? sq(run.media.sourceName) : "NULL"}, ` +
     `${run.branchId ? sq(run.branchId) : "NULL"}, ${num(run.cycleStart)}, ${num(run.cycleEnd)}, ` +
     `${num(run.eventCount)}, ${num(run.bytesWritten)}, ${run.overheadMs == null ? "NULL" : run.overheadMs}, ` +

@@ -86,6 +86,14 @@ export class TraceRunController {
     const stop = def.stop;
     let seq = 0;
 
+    // Spec 708.7 (§10.2.1) — compile `captures` into capture SELECTION: a matched
+    // event is only retained when its channel maps to a declared capture kind.
+    const declaredCaptures = new Set(def.captures.map((c) => c.kind));
+    // Spec 708.7 (§10.2.3) — iec-transition.line filtering: the iec channel event
+    // carries line STATES, not which line changed, so track previous bus-line
+    // state and derive the changed-line set per event.
+    let prevIec: { atn?: unknown; clk?: unknown; data?: unknown } | null = null;
+
     const run: RuntimeTraceRun = {
       runId: `run_${def.id}_${Date.now().toString(36)}`,
       definitionId: def.id, definitionVersion: def.version,
@@ -98,12 +106,27 @@ export class TraceRunController {
       const a = this.active;
       if (!a || !a.capturing || a.overflow) return;
       if (!chanSet.has(ev.channel)) return;
-      const matched = matchTriggers(triggers, ev);
+      // iec line-change derivation (for iec-transition.line filtering).
+      let changedIec: Set<string> | undefined;
+      if (ev.channel === "iec") {
+        const d = ev.data as Record<string, unknown>;
+        changedIec = new Set<string>();
+        if (prevIec) {
+          if (d["atn"] !== prevIec.atn) changedIec.add("atn");
+          if (d["clk"] !== prevIec.clk) changedIec.add("clk");
+          if (d["data"] !== prevIec.data) changedIec.add("data");
+        }
+        prevIec = { atn: d["atn"], clk: d["clk"], data: d["data"] };
+      }
+      const matched = matchTriggers(triggers, ev, changedIec);
       if (!matched) return;
+      // capture selection (§10.2.1): drop events whose channel is not a declared capture.
+      const captureKind = CHANNEL_TO_CAPTURE[ev.channel] ?? "raw";
+      if (!declaredCaptures.has(captureKind as never)) return;
       const dataJson = JSON.stringify(ev.data ?? {});
       events.push({
         seq: seq++, cycle: ev.ts, channel: ev.channel,
-        triggerKind: matched, captureKind: CHANNEL_TO_CAPTURE[ev.channel] ?? "raw",
+        triggerKind: matched, captureKind,
         dataJson,
       });
       if (events.length >= MAX_BUFFERED_EVENTS) { a.overflow = true; a.capturing = false; return; }
@@ -143,6 +166,11 @@ export class TraceRunController {
     const trace = a.ctx.controller.session.kernel.trace();
     for (const p of a.prior) if (!p.was) trace.configureChannel(p.name, { mode: "off" });
 
+    // Spec 708.7 (§10.2.2) — at-stop checkpoint policy.
+    if (a.def.checkpointPolicy === "at-stop") {
+      a.run.stopCheckpointId = (await a.ctx.controller.captureCheckpoint()).id;
+    }
+
     a.run.cycleEnd = a.ctx.controller.session.c64Cpu.cycles;
     a.run.eventCount = a.events.length;
     a.run.bytesWritten = a.events.reduce((n, e) => n + e.dataJson.length, 0);
@@ -173,7 +201,7 @@ export class TraceRunController {
 /** Return the matched trigger kind (string) or null. The data field names are
  *  the kernel producers' (cpu: pc/side; iec: edge record; vic: kind/raster_y;
  *  bus_access: addr). */
-function matchTriggers(triggers: TraceTrigger[], ev: TraceEvent): string | null {
+function matchTriggers(triggers: TraceTrigger[], ev: TraceEvent, changedIec?: Set<string>): string | null {
   const d = ev.data as Record<string, unknown>;
   for (const t of triggers) {
     switch (t.kind) {
@@ -191,10 +219,20 @@ function matchTriggers(triggers: TraceTrigger[], ev: TraceEvent): string | null 
         const addr = typeof d["addr"] === "number" ? (d["addr"] as number)
           : typeof d["address"] === "number" ? (d["address"] as number) : null;
         if (addr == null || addr < t.from || addr > t.to) break;
+        // Spec 708.7 (§10.2.3) — honour the declared read/write filter (bus_access
+        // carries `op`). "any" matches both.
+        if (t.access !== "any") {
+          const op = d["op"];
+          if (op !== t.access) break;
+        }
         return "mem-access";
       }
       case "iec-transition":
-        if (ev.channel === "iec") return "iec-transition"; // edge listener already fires per transition
+        if (ev.channel !== "iec") break;
+        // Spec 708.7 (§10.2.3) — when a specific line is named, require that line
+        // to have changed in this event; otherwise match every transition.
+        if (t.line == null) return "iec-transition";
+        if (changedIec?.has(t.line)) return "iec-transition";
         break;
       case "raster-window": {
         if (ev.channel !== "vic" || d["kind"] !== "raster") break;

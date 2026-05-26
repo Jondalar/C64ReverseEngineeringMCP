@@ -1,6 +1,6 @@
 # Spec 708 - Declarative Trace Definitions and TraceDB Control
 
-Status: BASELINE IMPLEMENTED; CORRECTIVE SLICE REQUIRED (2026-05-23 CEST) - see §§9-10.
+Status: DONE — baseline + corrective slice 708.7-708.9 landed (2026-05-25 CEST, branch `claude/708-corrective`); see §11. History in §§9-10.
 Depends: Specs 619, 623, 701, 705, 707
 Consumed by: Spec 721 runtime-informed annotation; Specs 710-712
 Owner: runtime evidence / monitor / knowledge
@@ -236,3 +236,53 @@ is useful, but the full definition surface is not yet trustworthy.
 Until 708.7-708.9 land, Specs 710-712 may refer to explicit existing
 `trace/run/mark` and run IDs only. They must not depend on unproved trigger,
 capture-filter or stop-policy semantics.
+
+## 11. Corrective Slice Landed (2026-05-25 CEST)
+
+708.7-708.9 implemented on branch `claude/708-corrective`. The full definition
+surface is now either implemented end-to-end or rejected with a precise
+validation error — no silent no-ops.
+
+**708.7 — implement-or-reject (no silent no-ops):**
+
+- *captures* are now compiled into capture SELECTION (`trace-run.ts`): a matched
+  event is retained only when its channel maps to a declared capture kind
+  (`CHANNEL_TO_CAPTURE` ∈ `def.captures`). Undeclared rows are dropped.
+- *mem-access.access* (`read`/`write`/`any`) is honoured — `bus_access` carries
+  `op`, matched against the trigger; `any` keeps both.
+- *iec-transition.line* is honoured — the run tracks previous bus-line state
+  (`atn`/`clk`/`data`) and matches only when the named line changed.
+- *checkpointPolicy `at-stop`* captures a checkpoint in `stop()` and persists it
+  in a new `trace_run.stop_checkpoint_id` column.
+- *checkpointPolicy `on-trigger`* and the *`monitor-stop`* / *`manual-mark`*
+  triggers are **rejected** by `validateTraceDefinition` with precise errors
+  (no runtime semantics yet — on-trigger needs a synchronous hot-path / 705.B
+  ring capture; manual marks go through `trace/run/mark`).
+- *coverage validation*: every declared capture must be producible by a declared
+  domain, and every trigger's channel must be covered by a domain — a definition
+  can no longer silently capture nothing.
+
+**708.8 — reproducibility + teardown:** the probe's reproducibility fixture is
+now BOUNDED-COMPLETE (a ~2M-cycle serial-LOAD window, ~301k events, well under
+the 500k safety cap) and asserts `overflowed === false` on both identical runs;
+a separate flood case asserts overflow IS classified (`overflowed === true`,
+`capturing === false`); teardown is verified via a new
+`KernelTraceController.hasObservers()` — after `stop()` no observer remains and
+every run-enabled channel is restored to its prior state.
+
+**708.9 — gates (this slice):** `probe:708-trace` 19/19 GREEN (was 8/8);
+`probe:708-patterns` 4/4 GREEN (new); `check:1541-fidelity` 78 PASS / 0 FAIL;
+`runtime:proof` GREEN (exit 0, 7/7 Spec-601 baseline match). The supported
+surface is trustworthy; Specs 710-712 may now depend on the implemented
+trigger/capture/checkpoint semantics.
+
+**Reusable patterns (formalized):** `trace-library.ts` ships canonical builders
+that replace the recurring one-off `/tmp` diagnostic scripts —
+`pcRegionProfile` (PC-execution histogram via pc-range + cpu-row, query with
+`pcHistogramSql`), `ioAccessWatch` (bus_access read/write watch), `iecLineTrace`
+(per-line IEC transitions). Two session patterns deliberately stay OUT of 708:
+full-RAM page-liveness (the "access map" — needs every RAM r/w, a §7 non-goal;
+stays the standalone `runtime_memory_access_map` tool tapping
+`HeadlessMemoryBus.setAccessObserver`) and the periodic screen-RAM snapshot
+("screen-sig" — not event-driven; no trigger kind models a fixed-interval
+sampler).
