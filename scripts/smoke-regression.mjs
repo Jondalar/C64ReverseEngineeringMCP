@@ -241,7 +241,7 @@ try {
 
 const s2Id = "smoke-s2-missing";
 const mockRegistry = new Map([
-  [s2Id, { id: s2Id, diskPath: "/nonexistent", mode: "fast-trap", startSnapshot: "/nonexistent", inputs: [], cycleBudget: 1000 }]
+  [s2Id, { id: s2Id, diskPath: "/nonexistent", mode: "true-drive", startSnapshot: "/nonexistent", inputs: [], cycleBudget: 1000 }]
 ]);
 
 try {

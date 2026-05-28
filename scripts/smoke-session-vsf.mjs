@@ -28,6 +28,11 @@ function test(name, fn) {
 console.log("=== Spec 251 — IntegratedSession VSF round-trip ===\n");
 
 function captureKeyState(session) {
+  // Spec 704 §11 removed the legacy `session.drive` field; the vice drive
+  // exposes its register state via status().drive (CPU regs + head track).
+  // Byte-level drive-RAM round-trip is covered by the .c64re dump/undump test
+  // (probe-707); here we verify the drive register state survives the VSF.
+  const drv = session.status().drive;
   return {
     cpuRegs: { pc: session.c64Cpu.pc, a: session.c64Cpu.a, x: session.c64Cpu.x, y: session.c64Cpu.y, sp: session.c64Cpu.sp, flags: session.c64Cpu.flags, cycles: session.c64Cpu.cycles },
     ramHash: hashBytes(session.c64Bus.ram),
@@ -37,8 +42,8 @@ function captureKeyState(session) {
     cia2Regs: hashBytes(session.cia2.c_cia),
     vicRegs: hashBytes(session.vic.regs),
     sidRegs: hashBytes(session.sid.regs),
-    driveCpuRegs: { pc: session.drive.cpu.pc, a: session.drive.cpu.a, x: session.drive.cpu.x, y: session.drive.cpu.y, sp: session.drive.cpu.sp, flags: session.drive.cpu.flags, cycles: session.drive.cpu.cycles },
-    driveRamHash: hashBytes(session.drive.bus.ram),
+    driveCpuRegs: { pc: drv.pc, a: drv.a, x: drv.x, y: drv.y, sp: drv.sp, flags: drv.flags, cycles: drv.cycles },
+    driveTrack: drv.track,
   };
 }
 
@@ -68,7 +73,7 @@ function statesEqual(a, b) {
   if (a.vicRegs !== b.vicRegs) return "vicRegs";
   if (a.sidRegs !== b.sidRegs) return "sidRegs";
   if (a.driveCpuRegs.pc !== b.driveCpuRegs.pc) return `drive pc ${a.driveCpuRegs.pc.toString(16)} vs ${b.driveCpuRegs.pc.toString(16)}`;
-  if (a.driveRamHash !== b.driveRamHash) return "driveRam";
+  if (a.driveTrack !== b.driveTrack) return "driveTrack";
   return null;
 }
 
@@ -94,7 +99,7 @@ test("c64-ready scenario round-trip", () => {
 });
 
 test("motm-dir-load scenario round-trip", () => {
-  const opts = { diskPath: resolvePath(repoRoot, "samples/motm.g64"), mode: "fast-trap", useMicrocodedCpu: false };
+  const opts = { diskPath: resolvePath(repoRoot, "samples/motm.g64"), mode: "true-drive" };
   const s1 = startIntegratedSession(opts).session;
   s1.resetCold("pal-default");
   s1.runFor(1_500_000);

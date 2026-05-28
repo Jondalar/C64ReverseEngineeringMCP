@@ -66,7 +66,8 @@ function assert(cond, msg) {
 console.log("breakpoints smoke — Spec 241 acceptance (10 scenarios)\n");
 
 // Boot a session we'll reuse across pure-logic tests (no ROM boot needed).
-const { session } = startIntegratedSession({ diskPath: disk, mode: "fast-trap" });
+// Spec 723.3: product path (true-drive default).
+const { session } = startIntegratedSession({ diskPath: disk });
 session.resetCold();
 
 // Synthetic CPU state we can control for pure-logic tests.

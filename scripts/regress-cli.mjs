@@ -59,7 +59,7 @@ function buildRegistry() {
       inputs: [],
       cycleBudget: 200_000,
       diskPath: dummyDisk,
-      mode: "fast-trap",
+      mode: "true-drive",
     });
   }
 
@@ -70,7 +70,7 @@ function buildRegistry() {
       inputs: [{ atCycle: 0, kind: "keyboard", payload: 'LOAD"$",8\r' }],
       cycleBudget: 3_000_000,
       diskPath: motmDisk,
-      mode: "fast-trap",
+      mode: "true-drive",
     });
   }
 

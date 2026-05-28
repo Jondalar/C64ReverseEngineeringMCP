@@ -62,7 +62,7 @@ function resultsEqual(r1, r2, label) {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 1: c64-ready (fast-trap, boot to BASIC READY, ~1.5M cycles)
+// Scenario 1: c64-ready (true-drive product path; determinism is mode-agnostic)
 // ---------------------------------------------------------------------------
 
 console.log("\n=== Spec 231 — deterministic replay smoke ===\n");
@@ -71,11 +71,12 @@ console.log("Building c64-ready start snapshot...");
 const dummyDisk = resolvePath(repoRoot, "samples/synthetic/1byte.g64");
 const motmDisk = resolvePath(repoRoot, "samples/motm.g64");
 
-// c64-ready scenario: use fast-trap for speed; boot for 500k cycles.
-// This scenario tests determinism from a fresh cold reset.
+// c64-ready scenario: boot for 500k cycles. Tests determinism from a fresh
+// cold reset (true-drive is fully deterministic; run1==run2 holds regardless
+// of whether READY/load completes within the window).
 const c64ReadySnapshot = buildStartSnapshot(
   "c64-ready",
-  { diskPath: dummyDisk, mode: "fast-trap" },
+  { diskPath: dummyDisk, mode: "true-drive" },
   (session) => {
     // Run 500k cycles — enough to pass power-on ROM init.
     session.runFor(500_000);
@@ -88,7 +89,7 @@ const scenarioC64Ready = {
   inputs: [],
   cycleBudget: 200_000,
   diskPath: dummyDisk,
-  mode: "fast-trap",
+  mode: "true-drive",
 };
 
 console.log("Running c64-ready scenario (run 1)...");
@@ -102,7 +103,7 @@ console.log(`  cycles=${c64ReadyRun2.cyclesRan} ram=${c64ReadyRun2.ramHash.slice
 resultsEqual(c64ReadyRun1, c64ReadyRun2, "c64-ready: run1 vs run2 byte-equal");
 
 // ---------------------------------------------------------------------------
-// Scenario 2: motm-dir-load (fast-trap, directory listing typed, ~5M cycles)
+// Scenario 2: motm-dir-load (true-drive, directory listing typed)
 // ---------------------------------------------------------------------------
 
 console.log("\nBuilding motm-dir-load start snapshot...");
@@ -110,7 +111,7 @@ console.log("\nBuilding motm-dir-load start snapshot...");
 // motm: boot to READY then type LOAD"$",8 — saves snapshot after boot only.
 const motmDirSnapshot = buildStartSnapshot(
   "motm-dir",
-  { diskPath: motmDisk, mode: "fast-trap" },
+  { diskPath: motmDisk, mode: "true-drive" },
   (session) => {
     // Boot to BASIC READY.
     session.runFor(1_500_000);
@@ -131,7 +132,7 @@ const scenarioMotmDir = {
   // 3M cycles — enough for the KERNAL to start the directory load.
   cycleBudget: 3_000_000,
   diskPath: motmDisk,
-  mode: "fast-trap",
+  mode: "true-drive",
 };
 
 console.log("Running motm-dir-load scenario (run 1)...");

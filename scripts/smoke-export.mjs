@@ -69,8 +69,8 @@ const SCENARIO_ID = `smoke-export-test-${Date.now()}`;
 const scenario = {
   id: SCENARIO_ID,
   diskPath: syntheticDisk,
-  mode: "fast-trap",
-  cycleBudget: 50_000,  // ~50ms — fast for smoke
+  mode: "true-drive",   // Spec 723.3: product path
+  cycleBudget: 50_000,  // ~50ms — fast for smoke (≥2 PAL frames rendered)
   inputs: [],
   startSnapshot: "",    // empty = no snapshot, session starts from constructor
 };
@@ -82,12 +82,14 @@ console.log(`  ffmpeg: ${hasFfmpeg ? "present" : "ABSENT (video test skipped)"}`
 console.log(`  outDir: ${outDir}\n`);
 
 try {
-  // ---- Case 1: PNG 1x (392×272) ----
+  // ---- Case 1: PNG 1x (384×272) ----
+  // Spec 723.3: product path = literal-port renderer, VICE x64sc PAL standard
+  // 384×272 (L32+320+R32). The old 392 was the retired snapshot renderer.
   {
     const p = outFile("frame-1x.png");
     const r = await exportScreenshot(SCENARIO_ID, p, { scale: 1 });
-    const ok = existsSync(p) && r.width === 392 && r.height === 272 && r.bytes > 0;
-    test("1. PNG 1x → 392×272", ok,
+    const ok = existsSync(p) && r.width === 384 && r.height === 272 && r.bytes > 0;
+    test("1. PNG 1x → 384×272", ok,
          `w=${r.width} h=${r.height} bytes=${r.bytes} cycles=${r.cycles_ran}`);
   }
 

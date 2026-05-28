@@ -50,7 +50,7 @@ const TEST_ID = `smoke-scenario-${Date.now()}`;
 const TEST_SCENARIO = {
   id: TEST_ID,
   diskPath: "samples/synthetic/1block.g64",
-  mode: "fast-trap",
+  mode: "true-drive",
   cycleBudget: 100_000,
   inputs: [
     { atCycle: 50_000, kind: "keyboard", payload: "HELLO\r" },
@@ -74,7 +74,7 @@ test("2. loadScenario reads back saved scenario", () => {
   const s = loadScenario(TEST_ID);
   if (!s) throw new Error("loadScenario returned null");
   if (s.id !== TEST_ID) throw new Error(`id mismatch: ${s.id}`);
-  if (s.mode !== "fast-trap") throw new Error(`mode mismatch: ${s.mode}`);
+  if (s.mode !== "true-drive") throw new Error(`mode mismatch: ${s.mode}`);
   if (s.cycleBudget !== 100_000) throw new Error(`cycleBudget mismatch: ${s.cycleBudget}`);
   if (!Array.isArray(s.inputs)) throw new Error("inputs not array");
   if (s.inputs.length !== 2) throw new Error(`inputs length ${s.inputs.length}`);
