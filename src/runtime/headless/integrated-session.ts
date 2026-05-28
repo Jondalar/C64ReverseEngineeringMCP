@@ -42,20 +42,8 @@ import { installCia1 } from "./peripherals/cia1.js";
 import type { KeyboardMatrix, JoystickState } from "./peripherals/keyboard.js";
 import { installCia2 } from "./peripherals/cia2.js";
 import type { Cia6526Vice } from "./cia/cia6526-vice.js";
-import {
-  handleKernalFileIoTrap,
-  makeKernalFileIoState,
-  type KernalFileIoState,
-} from "./traps/kernal-fileio.js";
-import {
-  makeKernalSerialState,
-  type KernalSerialState,
-} from "./traps/kernal-serial.js";
-import {
-  handleKernalIoTrap,
-  makeKernalIoState,
-  type KernalIoState,
-} from "./traps/kernal-io.js";
+// Spec 723.3c: KERNAL fast-trap layer (traps/kernal-*) removed — the product
+// path runs the real KERNAL with no traps.
 import { CycleLockstepSchedulerImpl } from "./scheduler/cycle-lockstep-scheduler.js";
 import { TraceRegistry } from "./trace/channels.js";
 import {
@@ -266,9 +254,6 @@ export class IntegratedSession {
   public readonly parser: G64Parser;
   public readonly romSet: LoadedC64RomSet;
   public diskProvider?: DiskProvider;
-  public readonly kernalFileIo: KernalFileIoState;
-  public readonly kernalSerial: KernalSerialState;
-  public readonly kernalIo: KernalIoState;
   public readonly cia1: Cia6526Vice;
   public readonly cia2: Cia6526Vice;
   // Sprint 113 Phase 2: VICE-style IRQ/NMI pin levels. Latched by the
@@ -334,6 +319,8 @@ export class IntegratedSession {
   public vicProvenanceEnabled = false;
   private litProvenanceAccum: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> = [];
   private litProvenanceStable: { lines: Array<{ line: number; d011: number; d016: number; d018: number; bank: number; sprites?: Array<{ i: number; x: number; y: number; w: number; h: number; ptr: number; color: number }> }> } | null = null;
+  // Spec 723.3c: KERNAL fast-trap layer removed. These remain as inert `false`
+  // reporting fields (modeReport/status) — no trap machinery behind them.
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
@@ -377,8 +364,6 @@ export class IntegratedSession {
   private drivePcTraceCapacity = 0;
   // NMI edge detection bookkeeping.
   private prevCia2IrqAsserted = false;
-  public get lastTrap(): string | undefined { return this.kernalFileIo.lastTrap; }
-  public get loadEvents(): KernalFileIoState["loadEvents"] { return this.kernalFileIo.loadEvents; }
 
   // Spec 098: machine-readable session mode + flag summary.
   public modeReport(): SessionModeReport {
@@ -538,14 +523,12 @@ export class IntegratedSession {
       this.kernel.setMode("true-drive");
     }
 
-    this.kernalFileIo = makeKernalFileIoState();
-    this.kernalSerial = makeKernalSerialState();
-    this.kernalIo = makeKernalIoState();
-    // Spec 083: real KERNAL serial bit-bang via cycle-precise CIA timer
-    // is the default. Traps are opt-in fast-mode.
-    this.enableKernalFileIoTraps = opts.enableKernalFileIoTraps ?? false;
-    this.enableKernalSerialTraps = opts.enableKernalSerialTraps ?? false;
-    this.enableKernalIoTraps = opts.enableKernalIoTraps ?? false;
+    // Spec 723.3c: KERNAL fast-trap layer removed. The real KERNAL serial
+    // bit-bang (cycle-precise CIA timer) is the only path. These flags remain
+    // as inert `false` reporting fields (no trap machinery behind them).
+    this.enableKernalFileIoTraps = false;
+    this.enableKernalSerialTraps = false;
+    this.enableKernalIoTraps = false;
     // Spec 200-c3: framebuffer constructed inside kernel; assigned via
     // alias above. No additional construction here.
     // Spec 200-c4: useCycleLockstep / useMicrocodedCpu set above before
@@ -1072,26 +1055,10 @@ export class IntegratedSession {
   // `true-drive` mode any fire throws HookForbiddenError and the
   // session crashes loud — that is the audit signal.
   private checkAndHandleTraps(): boolean {
-    // Traps that need disk are no-ops when no disk inserted.
-    if (this.enableKernalFileIoTraps && this.diskProvider && handleKernalFileIoTrap({
-      cpu: this.c64Cpu, bus: this.c64Bus,
-      diskProvider: this.diskProvider, state: this.kernalFileIo,
-    })) {
-      this.kernel.recordHookFire("kernal-fileio-trap", `pc=$${this.c64Cpu.pc.toString(16)}`);
-      return true;
-    }
-    // Spec 704 §11 R3 — legacy KERNAL-serial fast-trap removed: it poked
-    // the legacy drive RAM/PC (M-W/M-E), incompatible with VICE1541, and
-    // was forbidden in true-drive mode anyway (Spec 429 §8). The kernalSerial
-    // state survives for handleKernalIoTrap below.
-    if (this.enableKernalIoTraps && this.diskProvider && handleKernalIoTrap({
-      cpu: this.c64Cpu, bus: this.c64Bus,
-      diskProvider: this.diskProvider, serial: this.kernalSerial,
-      state: this.kernalIo,
-    })) {
-      this.kernel.recordHookFire("kernal-io-trap", `pc=$${this.c64Cpu.pc.toString(16)}`);
-      return true;
-    }
+    // Spec 723.3c: the KERNAL fast-trap layer (traps/kernal-*) is removed. The
+    // product path runs the real KERNAL end-to-end (no fileio/serial/io traps),
+    // so no trap can ever fire. Retained as a no-op so the step-loop call site
+    // stays untouched.
     return false;
   }
 

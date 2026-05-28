@@ -228,7 +228,7 @@ export async function mountMedia(
     if (newProvider !== null) {
       (session as unknown as { diskProvider: unknown }).diskProvider = newProvider;
       (session.kernel as unknown as { diskProvider: unknown }).diskProvider = newProvider;
-      (session.kernalFileIo as unknown as { diskProvider?: unknown }).diskProvider = newProvider;
+      // Spec 723.3c: KERNAL fileio-trap state removed; no trap diskProvider to wire.
     }
     // Update parser aliases on session + kernel. Currently dead aliases
     // (no consumer outside ctor) but kept consistent with direct-boot

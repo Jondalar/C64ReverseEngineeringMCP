@@ -2,9 +2,9 @@
 // Asserts the DEFAULT headless runtime is the product path (no traps,
 // microcoded, vice drive, literal/per-cycle VIC, useCycleLockstep=false)
 // and that useCycleLockstep is not exposed on the public session-start tool.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -65,6 +65,32 @@ for (const f of toolFiles) {
   } catch {}
 }
 ok(leaks.length === 0, "3 no server-tool hard-sets useCycleLockstep:true", leaks.join(",") || "none");
+
+// ---- Source-tree scan (checks 5 + 6) ----
+function walk(dir, acc) {
+  let entries = [];
+  try { entries = readdirSync(dir); } catch { return acc; }
+  for (const e of entries) {
+    if (e === "node_modules" || e === "dist" || e.startsWith(".")) continue;
+    const full = join(dir, e);
+    let st; try { st = statSync(full); } catch { continue; }
+    if (st.isDirectory()) walk(full, acc);
+    else if (/\.(ts|mjs)$/.test(e)) acc.push(full);
+  }
+  return acc;
+}
+const isExcluded = (p) => /\/(_archive|archive|docs)\//.test(p) || p.endsWith("probe-single-path.mjs");
+const srcFiles = [...walk(join(ROOT, "src"), []), ...walk(join(ROOT, "scripts"), [])].filter((p) => !isExcluded(p));
+
+// Check 5: no KERNAL fast-trap layer imports survive.
+const trapImporters = srcFiles.filter((p) => /from\s+["'][^"']*traps\/kernal-/.test(readFileSync(p, "utf8")));
+ok(trapImporters.length === 0, "5 no traps/kernal-* imports survive",
+  trapImporters.map((p) => relative(ROOT, p)).join(",") || "none");
+
+// Check 6: no mode:"fast-trap" / "real-kernal" consumers outside docs/archive.
+const ftConsumers = srcFiles.filter((p) => /mode:\s*["'](fast-trap|real-kernal)["']|["'](fast-trap|real-kernal)["']\s*(,|\]|\))/.test(readFileSync(p, "utf8")));
+ok(ftConsumers.length === 0, "6 no fast-trap/real-kernal mode consumers outside docs/archive",
+  ftConsumers.map((p) => relative(ROOT, p)).join(",") || "none");
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} single-path: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);
