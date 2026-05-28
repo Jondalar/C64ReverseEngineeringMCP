@@ -68,10 +68,11 @@ function assert(cond, msg) {
 console.log("monitor smoke — Spec 248 acceptance (12 scenarios)\n");
 
 // ---- Session setup ----
-// Use fast-trap mode so KERNAL boots quickly without needing real serial.
-const { session } = startIntegratedSession({ diskPath: disk, mode: "fast-trap" });
+// Spec 723.3: product path (true-drive default). BASIC boot is ROM-driven and
+// independent of KERNAL fast-traps, so the boot budget is unchanged.
+const { session } = startIntegratedSession({ diskPath: disk });
 session.resetCold();
-// Boot to BASIC ready state (~800k cycles is enough for fast-trap mode).
+// Boot to BASIC ready state.
 session.runFor(800_000);
 
 const monitor = createMonitorAPI(session);
@@ -226,7 +227,7 @@ check("10. find() locates byte pattern in memory", () => {
 // traces clean and avoid mode conflicts.
 // ============================================================
 
-const { session: session2 } = startIntegratedSession({ diskPath: disk, mode: "fast-trap" });
+const { session: session2 } = startIntegratedSession({ diskPath: disk });
 session2.resetCold();
 session2.runFor(800_000);
 

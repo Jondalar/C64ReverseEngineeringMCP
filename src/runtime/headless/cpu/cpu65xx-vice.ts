@@ -80,6 +80,19 @@ const P_INTERRUPT = 0x04;
 const P_ZERO      = 0x02;
 const P_CARRY     = 0x01;
 
+// Spec 723 prep — operand byte count per addressing mode, for the
+// onInstructionComplete hook contract (b1/b2 = RAW operand bytes, like
+// cpu6510). 3-byte modes carry 2 operand bytes; implied/accumulator carry 0;
+// everything else carries 1. Used to peek raw operand bytes from memory so the
+// monitor indirect-resolution tracker (izy/ind_jmp) works on the product CPU.
+const THREE_BYTE_MODES = new Set(["abs", "absx", "absy", "ind"]);
+const ZERO_BYTE_MODES = new Set(["imp", "impl", "implied", "acc", "accumulator", ""]);
+function operandByteCount(mode: string): number {
+  if (THREE_BYTE_MODES.has(mode)) return 2;
+  if (ZERO_BYTE_MODES.has(mode)) return 0;
+  return 1;
+}
+
 /** Bus-access kind, used by bus-trace harness. */
 export type BusAccessKind =
   | "FETCH"
@@ -833,8 +846,13 @@ export class Cpu65xxVice implements CycleSteppable {
     if (isFinal) {
       const prevPc = inst.opcodePc & 0xffff;
       const opcodeByte = inst.opcodeByte & 0xff;
-      const b1 = inst.operandLo & 0xff;
-      const b2 = inst.operandHi & 0xff;
+      // Spec 723 prep: hook contract = RAW operand bytes. The indirect microcode
+      // (indy/ind_jmp) overwrites operandLo/operandHi with the dereferenced
+      // pointer, so peek the operand bytes from memory at prevPc+1/+2 (non-cycle
+      // raw read, like cpu6510) — keeps the monitor indirect tracker correct.
+      const opLen = operandByteCount(inst.entry.mode);
+      const b1 = opLen >= 1 ? this.memory.read(u16(prevPc + 1)) & 0xff : 0;
+      const b2 = opLen >= 2 ? this.memory.read(u16(prevPc + 2)) & 0xff : 0;
       this.executeFinalOp(inst.entry, inst);
       this.atBoundary = true;
       this.inst = null;
