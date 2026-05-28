@@ -100,9 +100,18 @@ caller-cleanups:**
 
 - **Per slice (always):** `npm run build:mcp` + `node scripts/probe-single-path.mjs`
   + the small smokes affected by that slice.
-- **Full `npm run runtime:proof` (7/7, Spec 601):** ONLY after the 723.2
-  default-flip, after each big DELETE slice (723.3/723.4/723.5/723.6), and as the
-  final gate. NOT after mechanical caller-only cleanups.
+- **Full `npm run runtime:proof` (7/7, Spec 601):** ONLY for slices that touch
+  **execution-internals the gate actually exercises** — the chip cores (723.5
+  CIA/VIA/VIC), the drive (723.6), and the final gate. **NOT** for default/
+  tool-surface/label changes (723.2), nor for deleting code the product path
+  doesn't use (723.3 fast-trap/traps, 723.4 legacy CPU).
+
+  **Why:** all 7 gate scripts pin `mode:"true-drive", useMicrocodedCpu:true`
+  explicitly — they never consume the default. So a default-flip or a fast-trap/
+  legacy-CPU delete is INVISIBLE to the gate (it would return green regardless,
+  proving nothing). `probe-single-path` covers the default directly; targeted
+  fidelity smokes cover the deletes. Reserve the ~6-min gate for changes that can
+  actually move a gate pixel: the shared chip/drive execution path.
 
 - **723.1 — Audit + reachability.** Enumerate every caller of `mode`,
   `useMicrocodedCpu`, and each legacy toggle (scripts, tests, server tools,
@@ -117,8 +126,9 @@ caller-cleanups:**
   warning (per §2.1). Convert the `diagnose_mm` hard-coded `useCycleLockstep:true`
   to `mode:"debug-lockstep"` (hard-named). Fix hard `mode:"fast-trap"` callsites,
   especially v3-ws branch promotion → `session.mode`. Remove redundant product
-  flags from active scripts only where unambiguous. Gate = build + probe-single-path
-  + affected smokes, THEN full `runtime:proof`.
+  flags from active scripts only where unambiguous. Gate = build +
+  probe-single-path + affected smokes. **No full runtime:proof** — the gate pins
+  explicit modes, so it cannot observe a default-flip.
 - **723.3 — Delete fast-trap + real-kernal + traps/.** Remove K1, K2, K3. Gate.
 - **723.4 — Remove `cpu6510.ts` + `useMicrocodedCpu` flag (K4, K5).** CPU is
   unconditionally microcoded. Gate + cpu-fidelity smoke.
