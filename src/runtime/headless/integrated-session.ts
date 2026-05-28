@@ -460,8 +460,12 @@ export class IntegratedSession {
 
     // Spec 202: lockstep is diagnostic only. Microcoded CPU no longer
     // implies lockstep; true-drive is microcoded + event/catch-up.
+    // Spec 723.2: single-path defaults. Lockstep stays diagnostic-only
+    // (false); microcoded is the product CPU (true). The mode preset already
+    // resolves these for named modes — this also covers the direct
+    // boolean/"custom" path so no caller silently falls back to legacy.
     this.useCycleLockstep = opts.useCycleLockstep ?? false;
-    this.useMicrocodedCpu = opts.useMicrocodedCpu ?? false;
+    this.useMicrocodedCpu = opts.useMicrocodedCpu ?? true;
 
     // Spec 622 §4.0 (2026-05-20) — do NOT force useCycleLockstep in vice
     // mode. The earlier force (Spec 614.3) globally switched the C64/VIC

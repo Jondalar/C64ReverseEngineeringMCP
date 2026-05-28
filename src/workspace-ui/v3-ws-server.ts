@@ -1222,7 +1222,10 @@ export class V3WsServer {
     this.on("runtime/snapshot_tree", async ({ session_id }) => {
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
-      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: "", mode: "fast-trap" });
+      // Spec 723.2: the product path is true-drive; never bake a fast-trap
+      // scenario into a promoted branch. (ScenarioMode has no debug modes;
+      // the live session is true-drive.)
+      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: "", mode: "true-drive" });
       const rm = api.beginRewindSession();
       const handle = rm.handle();
       const branches: Record<string, any> = {};
@@ -1239,7 +1242,10 @@ export class V3WsServer {
     this.on("runtime/promote_branch", async ({ session_id, branch_id }) => {
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
-      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: "", mode: "fast-trap" });
+      // Spec 723.2: the product path is true-drive; never bake a fast-trap
+      // scenario into a promoted branch. (ScenarioMode has no debug modes;
+      // the live session is true-drive.)
+      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: "", mode: "true-drive" });
       const rm = api.beginRewindSession();
       return rm.promoteBranch(branch_id);
     });

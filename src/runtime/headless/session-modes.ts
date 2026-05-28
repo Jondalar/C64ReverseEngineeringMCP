@@ -51,7 +51,9 @@ export function resolveSessionFlags(
   mode: SessionMode | undefined,
   overrides?: Partial<SessionModeFlags>,
 ): SessionModeFlags {
-  const base = presetFlags(mode ?? "fast-trap");
+  // Spec 723.2: single-path default. No mode → the product runtime
+  // (true-drive = real KERNAL, no fast-traps, microcoded CPU, event-catchup).
+  const base = presetFlags(mode ?? "true-drive");
   if (!overrides) return base;
   // Skip undefined keys so callers passing `{ x: undefined }` don't
   // nuke the preset value with undefined.

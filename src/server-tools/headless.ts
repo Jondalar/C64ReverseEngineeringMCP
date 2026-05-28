@@ -303,15 +303,17 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Path to Murder boot trace.
   server.tool(
     "headless_integrated_session_start",
-    "Spec 062 Sprint 65 / Spec 093: open an integrated C64+1541 drive session. Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to IEC bus; drive CPU runs cycle-accurately in lockstep with the C64. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. For G64 images, cycle-lockstep + microcoded CPU default to ON (Spec 093) — required for custom-loader IEC handshake. Returns session id and resolved runtime config.",
+    "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to IEC bus. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. No mode/lockstep flag needed — defaults are the product path. Returns session id and resolved runtime config.",
     {
       disk_path: z.string(),
       device_id: z.number().int().min(8).max(11).optional(),
       pal: z.boolean().optional(),
       start_track: z.number().int().min(1).max(40).optional(),
       write_protected: z.boolean().optional(),
-      // Spec 093: explicit runtime knobs (G64 defaults to true on both).
-      use_cycle_lockstep: z.boolean().optional(),
+      // Spec 723.2: useCycleLockstep is NOT a product/workflow param and is no
+      // longer exposed here (debug/oracle-only, via mode:"debug-lockstep").
+      // Microcoded CPU is the unconditional product default; flag retained
+      // (removed in 723.4) only as an explicit escape.
       use_microcoded_cpu: z.boolean().optional(),
       // Spec 093: diagnostic ring buffers.
       trace_iec: z.boolean().optional(),
@@ -325,28 +327,22 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
     safeHandler("headless_integrated_session_start", async ({
       disk_path, device_id, pal, start_track, write_protected,
-      use_cycle_lockstep, use_microcoded_cpu,
+      use_microcoded_cpu,
       trace_iec, trace_iec_capacity, trace_drive, trace_drive_capacity,
       enable_kernal_fileio_traps, enable_kernal_serial_traps, enable_kernal_io_traps,
     }) => {
       const { startIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const ext = disk_path.toLowerCase().split(".").pop() ?? "";
-      const isG64 = ext === "g64";
-      // Spec 093: G64 defaults to lockstep + microcoded ON.
-      const resolvedLockstep = use_cycle_lockstep ?? (isG64 ? true : false);
-      const resolvedMicrocoded = use_microcoded_cpu ?? (isG64 ? true : false);
       const warnings: string[] = [];
-      if (isG64 && use_cycle_lockstep === false) {
-        warnings.push("WARNING: cycle-lockstep disabled for G64 — custom-loader compatibility reduced.");
+      if (use_microcoded_cpu === false) {
+        warnings.push("WARNING: microcoded CPU disabled — sub-instruction IEC edges lost; custom-loader handshake may stall. The product path is microcoded.");
       }
-      if (isG64 && use_microcoded_cpu === false) {
-        warnings.push("WARNING: microcoded CPU disabled for G64 — sub-instruction IEC edges lost; custom-loader handshake may stall.");
-      }
+      // Spec 723.2: no useCycleLockstep — the product path is event-catchup,
+      // not the global lockstep scheduler. Microcoded defaults to true in the
+      // session.
       const { sessionId, session } = startIntegratedSession({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
         startTrack: start_track, writeProtected: write_protected,
-        useCycleLockstep: resolvedLockstep,
-        useMicrocodedCpu: resolvedMicrocoded,
+        useMicrocodedCpu: use_microcoded_cpu,
         traceIec: trace_iec, traceIecCapacity: trace_iec_capacity,
         traceDrive: trace_drive, traceDriveCapacity: trace_drive_capacity,
         enableKernalFileIoTraps: enable_kernal_fileio_traps,
@@ -619,9 +615,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { mkdirSync, writeFileSync } = await import("node:fs");
       const { dirname, join } = await import("node:path");
       const projectRoot = resolveHeadlessProjectDir(context, project_dir);
+      // Spec 723.2: lockstep is debug/oracle-only and hard-named via the mode,
+      // not a free boolean. diagnose_mm is an explicit diagnostic tool.
       const { sessionId, session } = startIntegratedSession({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
-        useCycleLockstep: true, useMicrocodedCpu: true,
+        mode: "debug-lockstep",
         traceIec: true, traceIecCapacity: 4096,
         traceDrive: true, traceDriveCapacity: 2048,
       });
