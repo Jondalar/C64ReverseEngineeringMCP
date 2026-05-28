@@ -16,7 +16,7 @@
 
 import type { InterruptCpuStatus } from "./interrupt-cpu-status.js";
 import type { IoPort6510Hook } from "./io-port-6510.js";
-import type { CpuMemory } from "../cpu6510.js";
+import type { CpuMemory } from "./cpu-memory.js";
 
 /**
  * Runtime-facing C64 main CPU contract.

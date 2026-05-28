@@ -10,17 +10,10 @@
 // AlarmContextCycled dispatches all maincpu alarms per cycle, mirroring
 // the VICE CPU loop's PROCESS_ALARMS macro for the lockstep path.
 //
-// Cpu6510Cycled tracks "cycles owed" — when 0, fetches+executes next
-// instruction (which adds N to owed). Each executeCycle() decrements
-// owed by 1. Bus access happens at instruction-start (limitation),
-// other cycles are "no-op pass-throughs". Drive sees CIA/VIC progress
-// per cycle even if CPU bus fires only at instruction start.
-//
-// True per-cycle bus access (Sprint 92.7+) requires Cpu6510 rewrite
-// as state machine consuming microcode. Deferred for now.
+// Spec 723.4a: Cpu6510Cycled (the legacy-CPU lockstep wrapper) removed — the
+// product CPU is the microcoded Cpu65xxVice, which steps itself per cycle.
 
 import type { CycleSteppable } from "./cycle-steppable.js";
-import type { Cpu6510 } from "../cpu6510.js";
 import {
   alarmContextDispatch,
   alarmContextNextPendingClk,
@@ -30,39 +23,6 @@ import type { CLOCK } from "../util/uint.js";
 import type { VicIIVice } from "../vic/vic-ii-vice.js";
 import type { Sid6581 } from "../sid/sid.js";
 // Spec 704 §11 R3 — DriveCpu import removed (DriveCpuCycled deleted).
-
-export class Cpu6510Cycled implements CycleSteppable {
-  // Cycles still owed for the current instruction. 0 = at boundary.
-  private cyclesOwed = 0;
-  // Optional pre-step interrupt check callback.
-  public preInstructionCheck?: () => void;
-  // Optional per-cycle observer (for trace).
-  public onCycle?: (atBoundary: boolean) => void;
-
-  constructor(public readonly cpu: Cpu6510) {}
-
-  executeCycle(): void {
-    if (this.cyclesOwed === 0) {
-      // At instruction boundary — IRQ check, fetch + execute next.
-      this.preInstructionCheck?.();
-      const before = this.cpu.cycles;
-      this.cpu.step();
-      const consumed = this.cpu.cycles - before;
-      // The cpu.step() already incremented cycles by `consumed`. We
-      // still want the scheduler to tick `consumed - 1` more times for
-      // this instruction, so set cyclesOwed = consumed - 1.
-      this.cyclesOwed = Math.max(0, consumed - 1);
-      this.onCycle?.(true);
-    } else {
-      this.cyclesOwed--;
-      this.onCycle?.(false);
-    }
-  }
-
-  cycle(): number { return this.cpu.cycles; }
-  isAtInstructionBoundary(): boolean { return this.cyclesOwed === 0; }
-  reset(): void { this.cyclesOwed = 0; }
-}
 
 /**
  * Sprint 113 Phase 2 (Spec 146) — AlarmContextCycled.

@@ -98,7 +98,6 @@ export function runScenario(s: Scenario): ReplayResult {
   const { session } = startIntegratedSession({
     diskPath: s.diskPath,
     mode: s.mode,
-    useMicrocodedCpu: s.mode === "true-drive",
   });
 
   // 2. Load startSnapshot into the session.

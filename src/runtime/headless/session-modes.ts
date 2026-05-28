@@ -27,7 +27,7 @@ export interface SessionModeFlags {
   enableKernalFileIoTraps: boolean;
   enableKernalSerialTraps: boolean;
   enableKernalIoTraps: boolean;
-  useMicrocodedCpu: boolean;
+  // Spec 723.4a: useMicrocodedCpu removed — microcoded is the only product CPU.
   useCycleLockstep: boolean;
   traceIec: boolean;
   traceDrive: boolean;
@@ -69,7 +69,6 @@ function presetFlags(mode: SessionMode): SessionModeFlags {
         enableKernalFileIoTraps: false,
         enableKernalSerialTraps: false,
         enableKernalIoTraps: false,
-        useMicrocodedCpu: true,
         useCycleLockstep: false,
         traceIec: false,
         traceDrive: false,
@@ -79,7 +78,6 @@ function presetFlags(mode: SessionMode): SessionModeFlags {
         enableKernalFileIoTraps: false,
         enableKernalSerialTraps: false,
         enableKernalIoTraps: false,
-        useMicrocodedCpu: true,
         useCycleLockstep: false,
         traceIec: true,
         traceDrive: true,
@@ -89,7 +87,6 @@ function presetFlags(mode: SessionMode): SessionModeFlags {
         enableKernalFileIoTraps: false,
         enableKernalSerialTraps: false,
         enableKernalIoTraps: false,
-        useMicrocodedCpu: true,
         useCycleLockstep: true,
         traceIec: false,
         traceDrive: false,
@@ -101,7 +98,6 @@ function presetFlags(mode: SessionMode): SessionModeFlags {
         enableKernalFileIoTraps: false,
         enableKernalSerialTraps: false,
         enableKernalIoTraps: false,
-        useMicrocodedCpu: true,
         useCycleLockstep: false,
         traceIec: true,
         traceDrive: false,
@@ -114,7 +110,6 @@ function presetFlags(mode: SessionMode): SessionModeFlags {
         enableKernalFileIoTraps: false,
         enableKernalSerialTraps: false,
         enableKernalIoTraps: false,
-        useMicrocodedCpu: true,
         useCycleLockstep: false,
         traceIec: true,
         traceDrive: true,
@@ -125,7 +120,6 @@ function presetFlags(mode: SessionMode): SessionModeFlags {
         enableKernalFileIoTraps: false,
         enableKernalSerialTraps: false,
         enableKernalIoTraps: false,
-        useMicrocodedCpu: false,
         useCycleLockstep: false,
         traceIec: false,
         traceDrive: false,
@@ -149,7 +143,6 @@ function flagsEqual(a: SessionModeFlags, b: SessionModeFlags): boolean {
     a.enableKernalFileIoTraps === b.enableKernalFileIoTraps
     && a.enableKernalSerialTraps === b.enableKernalSerialTraps
     && a.enableKernalIoTraps === b.enableKernalIoTraps
-    && a.useMicrocodedCpu === b.useMicrocodedCpu
     && a.useCycleLockstep === b.useCycleLockstep
     && a.traceIec === b.traceIec
     && a.traceDrive === b.traceDrive
@@ -165,7 +158,7 @@ export function makeModeReport(mode: SessionMode, flags: SessionModeFlags): Sess
   return {
     mode,
     traps,
-    microcoded: flags.useMicrocodedCpu,
+    microcoded: true,  // Spec 723.4a: always microcoded (the only product CPU)
     lockstep: flags.useCycleLockstep,
     channels,
   };

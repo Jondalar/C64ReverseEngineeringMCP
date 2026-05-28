@@ -310,11 +310,9 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       pal: z.boolean().optional(),
       start_track: z.number().int().min(1).max(40).optional(),
       write_protected: z.boolean().optional(),
-      // Spec 723.2: useCycleLockstep is NOT a product/workflow param and is no
-      // longer exposed here (debug/oracle-only, via mode:"debug-lockstep").
-      // Microcoded CPU is the unconditional product default; flag retained
-      // (removed in 723.4) only as an explicit escape.
-      use_microcoded_cpu: z.boolean().optional(),
+      // Spec 723.2/723.4a: neither useCycleLockstep nor useMicrocodedCpu is a
+      // product/workflow param — the runtime is true-drive + microcoded
+      // unconditionally. Neither is exposed here.
       // Spec 093: diagnostic ring buffers.
       trace_iec: z.boolean().optional(),
       trace_iec_capacity: z.number().int().min(8).max(65536).optional(),
@@ -327,22 +325,16 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
     safeHandler("headless_integrated_session_start", async ({
       disk_path, device_id, pal, start_track, write_protected,
-      use_microcoded_cpu,
       trace_iec, trace_iec_capacity, trace_drive, trace_drive_capacity,
       enable_kernal_fileio_traps, enable_kernal_serial_traps, enable_kernal_io_traps,
     }) => {
       const { startIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const warnings: string[] = [];
-      if (use_microcoded_cpu === false) {
-        warnings.push("WARNING: microcoded CPU disabled — sub-instruction IEC edges lost; custom-loader handshake may stall. The product path is microcoded.");
-      }
-      // Spec 723.2: no useCycleLockstep — the product path is event-catchup,
-      // not the global lockstep scheduler. Microcoded defaults to true in the
-      // session.
+      // Spec 723.4a: the product runtime is true-drive + microcoded
+      // unconditionally — no useCycleLockstep / useMicrocodedCpu inputs.
       const { sessionId, session } = startIntegratedSession({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
         startTrack: start_track, writeProtected: write_protected,
-        useMicrocodedCpu: use_microcoded_cpu,
         traceIec: trace_iec, traceIecCapacity: trace_iec_capacity,
         traceDrive: trace_drive, traceDriveCapacity: trace_drive_capacity,
         enableKernalFileIoTraps: enable_kernal_fileio_traps,

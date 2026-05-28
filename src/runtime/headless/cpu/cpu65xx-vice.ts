@@ -43,7 +43,7 @@
 //   src/c64/c64cpu.c           C64 6510 wiring
 //   src/drive/drivecpu.c       drive CPU loop pattern
 
-import type { CpuMemory } from "../cpu6510.js";
+import type { CpuMemory } from "./cpu-memory.js";
 import type { CycleSteppable } from "../scheduler/cycle-steppable.js";
 import { MICROCODE_TABLE, ADDR_MODE_PATTERNS, type MicrocodeEntry } from "./microcode-table.js";
 import { UNDOC_TABLE } from "./undoc-table.js";

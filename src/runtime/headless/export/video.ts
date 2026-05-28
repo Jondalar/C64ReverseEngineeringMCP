@@ -78,7 +78,6 @@ export async function exportVideo(
   const { session } = startIntegratedSession({
     diskPath: saved.diskPath,
     mode: saved.mode,
-    useMicrocodedCpu: saved.mode === "true-drive",
   });
 
   // 2. Restore startSnapshot if present.

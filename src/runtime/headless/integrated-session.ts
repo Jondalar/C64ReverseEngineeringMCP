@@ -51,7 +51,7 @@ import {
   type BusAccessTraceProducer,
 } from "./trace/bus-access.js";
 import {
-  Cpu6510Cycled, AlarmContextCycled, VicCycled, SidCycled,
+  AlarmContextCycled, VicCycled, SidCycled,
   KeyboardCycled,
 } from "./scheduler/cycle-wrappers.js";
 import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
@@ -131,10 +131,8 @@ export interface IntegratedSessionOptions {
   enableKernalIoTraps?: boolean;
   // Sprint 92: enable cycle-lockstep scheduler. Default false.
   useCycleLockstep?: boolean;
-  // Sprint 92.7 v2: use new microcoded cpu6510 (sub-instruction bus
-  // access). Independent from lockstep; true-drive uses microcoded
-  // CPU with event/catch-up, debug-lockstep uses both.
-  useMicrocodedCpu?: boolean;
+  // Spec 723.4a: useMicrocodedCpu removed — the microcoded Cpu65xxVice is the
+  // only product CPU, built unconditionally.
   /**
    * Spec 428 Phase C — drive CPU dispatch mode (opt-in flag).
    * - "cycle-stepped" (default): post-Spec-401 path.
@@ -327,7 +325,6 @@ export class IntegratedSession {
   // Sprint 92: cycle-lockstep scheduler. Optional opt-in for now via
   // useCycleLockstep option. Default false for back-compat.
   public readonly scheduler?: CycleLockstepSchedulerImpl;
-  public readonly cpuCycled?: Cpu6510Cycled;
   public readonly useCycleLockstep: boolean;
   // Spec 200-c1: per-session monolithic emulator kernel. Owns clocks,
   // alarms, trace, status. Construction happens early in the session
@@ -348,7 +345,6 @@ export class IntegratedSession {
   // tools) keep working without churn.
   public get traceRegistry(): TraceRegistry { return this.kernel.traceRegistry; }
   public busAccessProducer?: BusAccessTraceProducer;
-  public readonly useMicrocodedCpu: boolean;
   // Spec 141 Q9: drive head-start cycles, default 200_000 (≈200ms PAL).
   public readonly driveHeadStartCycles: number;
   // Spec 098: named session-mode preset (resolved at construction).
@@ -371,7 +367,6 @@ export class IntegratedSession {
       enableKernalFileIoTraps: this.enableKernalFileIoTraps,
       enableKernalSerialTraps: this.enableKernalSerialTraps,
       enableKernalIoTraps: this.enableKernalIoTraps,
-      useMicrocodedCpu: this.useMicrocodedCpu,
       useCycleLockstep: this.useCycleLockstep,
       traceIec: this.iecBus.isTraceEnabled(),
       traceDrive: this.drivePcTraceCapacity > 0,
@@ -406,7 +401,6 @@ export class IntegratedSession {
       enableKernalFileIoTraps: opts.enableKernalFileIoTraps,
       enableKernalSerialTraps: opts.enableKernalSerialTraps,
       enableKernalIoTraps: opts.enableKernalIoTraps,
-      useMicrocodedCpu: opts.useMicrocodedCpu,
       useCycleLockstep: opts.useCycleLockstep,
       traceIec: opts.traceIec,
       traceDrive: opts.traceDrive,
@@ -416,7 +410,6 @@ export class IntegratedSession {
       enableKernalFileIoTraps: resolvedFlags.enableKernalFileIoTraps,
       enableKernalSerialTraps: resolvedFlags.enableKernalSerialTraps,
       enableKernalIoTraps: resolvedFlags.enableKernalIoTraps,
-      useMicrocodedCpu: resolvedFlags.useMicrocodedCpu,
       useCycleLockstep: resolvedFlags.useCycleLockstep,
       traceIec: resolvedFlags.traceIec,
       traceDrive: resolvedFlags.traceDrive,
@@ -450,7 +443,6 @@ export class IntegratedSession {
     // resolves these for named modes — this also covers the direct
     // boolean/"custom" path so no caller silently falls back to legacy.
     this.useCycleLockstep = opts.useCycleLockstep ?? false;
-    this.useMicrocodedCpu = opts.useMicrocodedCpu ?? true;
 
     // Spec 622 §4.0 (2026-05-20) — do NOT force useCycleLockstep in vice
     // mode. The earlier force (Spec 614.3) globally switched the C64/VIC
@@ -488,7 +480,7 @@ export class IntegratedSession {
       deviceId: opts.deviceId ?? 8,
       startTrack: opts.startTrack ?? 18,
       writeProtected: opts.writeProtected,
-      useMicrocodedCpu: this.useMicrocodedCpu,
+      useMicrocodedCpu: true,  // Spec 723.4a: always microcoded (constant)
       useCycleLockstep: this.useCycleLockstep,
       driveCyclesPerC64Cycle: this.driveCyclesPerC64Cycle,
       driveDispatchMode: opts.driveDispatchMode,
@@ -571,38 +563,29 @@ export class IntegratedSession {
     // Sprint 113 Phase 2: Cpu65xxVice is the required C64 CPU core for
     // IEC bit-bang correctness. Install it independently from the
     // scheduler so true-drive can run event/catch-up without lockstep.
-    let cpuComponent: any;
-    if (this.useMicrocodedCpu) {
-      const microcoded = new Cpu65xxVice({
-        memBus: this.c64Bus,
-        alarmContext: this.maincpuAlarmContext,
-        cpuIntStatus: this.kernel.cpuIntStatus,
-        // Spec 425 — C64 CPU calls vicii_cycle() from inside tick() per
-        // VICE CLK_INC. Drive CPU MUST NOT pass this hook.
-        c64ViciiCycle: this.useLiteralPortVicPerCycle
-          ? () => this.tickLitVic()
-          : undefined,
-      });
-      // Replace c64Cpu with microcoded version. Cast — both share
-      // public register state interface.
-      (this as any).c64Cpu = microcoded;
-      // Spec 200-c3: keep kernel's c64Cpu in sync. CIA clkPtr captured
-      // a closure on kernel.c64Cpu; without this update CIAs would read
-      // the stale Cpu6510's cycles (= 0 forever).
-      (this.kernel as unknown as { c64Cpu: unknown }).c64Cpu = microcoded;
-      // Spec 203-c4: re-attach onInterruptServiced to the new CPU.
-      this.kernel.installCpuInterruptHooks();
-      microcoded.reset();
-      cpuComponent = microcoded;
-    }
+    // Spec 723.4a: the microcoded Cpu65xxVice is the ONLY product CPU — built
+    // unconditionally (the useMicrocodedCpu flag is gone). The kernel's initial
+    // Cpu6510 base is replaced here; Cpu6510 itself is deleted in 723.4c.
+    const microcoded = new Cpu65xxVice({
+      memBus: this.c64Bus,
+      alarmContext: this.maincpuAlarmContext,
+      cpuIntStatus: this.kernel.cpuIntStatus,
+      // Spec 425 — C64 CPU calls vicii_cycle() from inside tick() per
+      // VICE CLK_INC. Drive CPU MUST NOT pass this hook.
+      c64ViciiCycle: this.useLiteralPortVicPerCycle
+        ? () => this.tickLitVic()
+        : undefined,
+    });
+    (this as any).c64Cpu = microcoded;
+    // Spec 200-c3: keep kernel's c64Cpu in sync. CIA clkPtr captured a closure
+    // on kernel.c64Cpu; without this update CIAs would read stale cycles.
+    (this.kernel as unknown as { c64Cpu: unknown }).c64Cpu = microcoded;
+    // Spec 203-c4: re-attach onInterruptServiced to the new CPU.
+    this.kernel.installCpuInterruptHooks();
+    microcoded.reset();
+    const cpuComponent: any = microcoded;
 
     if (this.useCycleLockstep) {
-      if (!cpuComponent) {
-        const cpuCycled = new Cpu6510Cycled(this.c64Cpu);
-        cpuCycled.preInstructionCheck = () => this.checkC64Interrupts();
-        this.cpuCycled = cpuCycled;
-        cpuComponent = cpuCycled;
-      }
       const c64Components = [
         cpuComponent,
         // Sprint 113 Phase 2 (Spec 146): alarm-driven CIAs no longer
@@ -634,9 +617,7 @@ export class IntegratedSession {
         c64Pc: () => this.c64Cpu.pc,
         isPal,
         // Sprint 93.1: per-cycle IRQ/NMI pin update (VICE pattern).
-        updateInterruptLines: opts.useMicrocodedCpu
-          ? () => this.updateMicrocodedInterruptLines()
-          : undefined,
+        updateInterruptLines: () => this.updateMicrocodedInterruptLines(),
         // Sprint 96: scheduler ticks peripherals + drive by CPU cycle
         // delta. Required so IRQ service / branch page-cross / illegal
         // burn don't desync drive timing during IEC bit-bang.
@@ -1112,11 +1093,8 @@ export class IntegratedSession {
     // BEFORE the C64 instruction starts. In true-drive, individual
     // $DD00 reads/writes push-flush through KernelBus.
     this.kernel.catchUpDrive(8, this.c64Cpu.cycles);
-    if (this.useMicrocodedCpu) {
-      this.updateMicrocodedInterruptLines();
-    } else {
-      this.checkC64Interrupts();
-    }
+    // Spec 723.4a: microcoded CPU is unconditional.
+    this.updateMicrocodedInterruptLines();
     // Pre-V2 1541-v2: IEC byte trace. $EDDD = CIOUT body entry
     // (KERNAL byte-send to listener). $EE13 = ACPTR body entry
     // (KERNAL byte-receive from talker). Hook PC match before step.
@@ -1147,11 +1125,7 @@ export class IntegratedSession {
       }
     }
     const before = this.c64Cpu.cycles;
-    if (this.useMicrocodedCpu) {
-      this.stepMicrocodedC64Instruction();
-    } else {
-      this.c64Cpu.step(); // audit-ok: legacy non-lockstep stepping; replaced by SyncStrategy in Spec 202
-    }
+    this.stepMicrocodedC64Instruction();  // Spec 723.4a: microcoded unconditional
     this.c64InstructionCount += 1;
     // Spec 205-A c4: cpu trace fires inside Cpu6510.step / Cpu65xxVice
     // — no need to publish here.
@@ -1168,7 +1142,7 @@ export class IntegratedSession {
     // Spec 299: skip end-of-instruction batched tick when per-cycle
     // mode is active (= stepMicrocodedC64Instruction already ticked
     // VIC per CPU cycle, ticking again would double-advance the raster).
-    const vicTick = (this.useLiteralPortVicPerCycle && this.useMicrocodedCpu)
+    const vicTick = this.useLiteralPortVicPerCycle
       ? { stolenCycles: 0 }
       : this.vic.tick(consumed); // audit-ok: legacy per-instruction VIC tick; replaced by Spec 203
     const totalCycles = consumed + vicTick.stolenCycles;
@@ -1251,7 +1225,7 @@ export class IntegratedSession {
       pc: number;
     };
     if (typeof cpu.executeCycle !== "function" || typeof cpu.isAtInstructionBoundary !== "function") {
-      throw new Error("useMicrocodedCpu=true but c64Cpu does not expose executeCycle/isAtInstructionBoundary");
+      throw new Error("product CPU (microcoded Cpu65xxVice) must expose executeCycle/isAtInstructionBoundary");
     }
 
     let guard = 0;
@@ -1345,7 +1319,7 @@ export class IntegratedSession {
         mode: this.mode,
         modeReport: this.modeReport(),
         useCycleLockstep: this.useCycleLockstep,
-        useMicrocodedCpu: this.useMicrocodedCpu,
+        useMicrocodedCpu: true,  // Spec 723.4a: always microcoded (constant in status)
         driveClockRatio: this.driveClockRatio,
         enableKernalFileIoTraps: this.enableKernalFileIoTraps,
         enableKernalSerialTraps: this.enableKernalSerialTraps,

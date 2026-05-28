@@ -21,7 +21,10 @@ console.log("Spec 723 — probe-single-path\n");
 const { session, sessionId } = startIntegratedSession({});
 try {
   ok(session.useCycleLockstep === false, "1a default useCycleLockstep === false", `got ${session.useCycleLockstep}`);
-  ok(session.useMicrocodedCpu === true, "1b default useMicrocodedCpu === true", `got ${session.useMicrocodedCpu}`);
+  // Spec 723.4a: useMicrocodedCpu flag removed — the product CPU is unconditionally
+  // the microcoded Cpu65xxVice. Verify by the c64Cpu class, not a flag.
+  const cpuName = session.c64Cpu?.constructor?.name ?? "(none)";
+  ok(/Cpu65xxVice/.test(cpuName), "1b c64Cpu is microcoded Cpu65xxVice", cpuName);
   ok(session.mode === "true-drive", "1c default mode === true-drive", `got ${session.mode}`);
   const traps = session.enableKernalFileIoTraps || session.enableKernalSerialTraps || session.enableKernalIoTraps;
   ok(traps === false, "1d no KERNAL fast-traps", `fileio=${session.enableKernalFileIoTraps} serial=${session.enableKernalSerialTraps} io=${session.enableKernalIoTraps}`);

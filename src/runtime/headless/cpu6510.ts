@@ -1,5 +1,9 @@
 import { OPCODE_TABLE, type AddressMode, type CpuOp } from "../../exomizer-ts/generated-opcodes.js";
 import type { HeadlessCpuState } from "./types.js";
+// Spec 723.4a: CpuMemory moved to cpu/cpu-memory.ts (re-exported here for any
+// remaining importers until cpu6510.ts is deleted in 723.4c).
+import type { CpuMemory } from "./cpu/cpu-memory.js";
+export type { CpuMemory } from "./cpu/cpu-memory.js";
 
 const FLAG_N = 0x80;
 const FLAG_V = 0x40;
@@ -7,11 +11,6 @@ const FLAG_D = 0x08;
 const FLAG_I = 0x04;
 const FLAG_Z = 0x02;
 const FLAG_C = 0x01;
-
-export interface CpuMemory {
-  read(address: number): number;
-  write(address: number, value: number): void;
-}
 
 interface ResolvedArg {
   mode: AddressMode;

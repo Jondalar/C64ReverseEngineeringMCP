@@ -15,7 +15,7 @@
 // own AlarmContext + InterruptCpuStatus.
 
 import type { InterruptCpuStatus } from "./interrupt-cpu-status.js";
-import type { CpuMemory } from "../cpu6510.js";
+import type { CpuMemory } from "./cpu-memory.js";
 
 /**
  * Runtime-facing 1541 drive CPU contract.

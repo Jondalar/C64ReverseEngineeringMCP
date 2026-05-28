@@ -56,7 +56,6 @@ export async function exportScenarioAudio(
   const { session } = startIntegratedSession({
     diskPath: saved.diskPath,
     mode: saved.mode,
-    useMicrocodedCpu: saved.mode === "true-drive",
   });
 
   // 2. Restore snapshot.
