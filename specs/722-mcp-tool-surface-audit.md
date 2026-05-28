@@ -84,6 +84,12 @@ justifies it (headless-over-VICE, seven-phase, proof-gate, etc).
   read as a *default* investigative step.
 - one-shot `backfill_* / dedupe_* / repair_* / migrate_*`: DEFER (maintenance,
   not workflow).
+- **`useCycleLockstep` exposure (cross-link Spec 723 §2.1):** no default/public
+  tool may accept or propagate `useCycleLockstep`. It is internal debug/oracle
+  only. Audit every tool input + RuntimeOptions passthrough; remove the flag from
+  public surfaces (e.g. `headless_integrated_session_start`), and ensure no tool
+  description presents lockstep as "accurate"/"faithful"/"recommended". Only an
+  explicitly advanced/debug-gated tool with a warning may expose it.
 
 ### 3.4 Apply (722.3)
 

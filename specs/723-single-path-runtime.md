@@ -40,16 +40,40 @@ drive idle-traps and STAY**.
 
 ## 2. The single path (target)
 
-The one supported runtime:
+The one supported runtime is `true-drive` + vice1541, microcoded, with
+**event-catchup** drive sync and VICE-shaped per-cycle bus/chip semantics:
 
 - CPU: `cpu/cpu65xx-vice.ts` (microcoded), C64 + own drive CPU.
-- Drive: vice1541 (VICE-shaped), per-cycle lockstep bridge.
-- Chips: vice-shaped CIA/VIA/VIC/SID, per-cycle bus stealing line state.
+- Drive: vice1541 (VICE-shaped), **event-catchup bridge**
+  (`pushFlush → drive1541.tickToClock`, exactly like VICE
+  `iecbus_cpu_*_conf1 → drive_cpu_execute_one`). **NOT** a global per-cycle
+  `CycleLockstepScheduler` — that path was reverted as over-engineering and is
+  not VICE-shaped (Spec 622 §4.0).
+- Chips: vice-shaped CIA/VIA/VIC/SID. VIC advances per-cycle via the microcoded
+  CPU's `c64ViciiCycle → tickLitVic()` hook (literal-port, `useLiteralPortVic*`),
+  NOT via the lockstep scheduler. Bus-steal = `useLiteralPortVicStall`.
 - KERNAL: real ROM execution. **No fast-traps.**
 
 This becomes the DEFAULT with no flags required. The `mode` param may stay as a
-thin selector but only `true-drive` (renamed/aliased to the default) plus an
-explicit debug-oracle path survive.
+thin selector but only `true-drive` (the default) plus an explicit debug-oracle
+path survive.
+
+### 2.1 `useCycleLockstep` is NOT a product/workflow parameter
+
+- Default/product runtime: `useCycleLockstep = false`. The global
+  `CycleLockstepScheduler` is **not** the product path.
+- `useCycleLockstep` MUST NOT be exposed in normal MCP tools, UI controls,
+  agent-workflow inputs, or public runtime start-options.
+- The flag stays internal, for explicit debug/oracle smokes only (e.g.
+  `debug-lockstep`), and must be **hard-named** there (set via `mode:"debug-lockstep"`,
+  not a free boolean).
+- No tool may pass through free RuntimeOptions containing `useCycleLockstep`
+  except an explicitly advanced/debug-gated tool that carries a warning.
+- Tool/option descriptions MUST NOT present lockstep as "accurate", "faithful",
+  or "recommended". (The earlier `headless_integrated_session_start` warning that
+  disabling lockstep "reduces custom-loader compatibility" is backwards and is
+  removed.)
+- Goal: an LLM cannot accidentally select the global lockstep path.
 
 ## 3. Kill / Keep / Defer list
 
@@ -67,20 +91,34 @@ explicit debug-oracle path survive.
 | D2 | `debug-lockstep` / `debug-push-only` / `debug-hybrid` | session-modes.ts | KILL unless a probe still needs it (confirm in 723.1) |
 | P1 | vice1541 driverom traps (~44) | vice1541/driverom.ts | **KEEP** — genuine VICE idle-traps |
 
-## 4. Staged tasks (proof-gate after EACH)
+## 4. Staged tasks + tiered gate strategy
 
-Every task ends with `npm run runtime:proof` = 7/7 GREEN (Spec 601) + the
-relevant fidelity smokes. No task lands red. Order chosen so each removal is
-preceded by its default-flip, so the gate proves the surviving path BEFORE the
-dead path is deleted.
+Order chosen so each removal is preceded by its default-flip — the gate proves
+the surviving path BEFORE the dead path is deleted. **Gate cost is tiered to the
+risk of the slice; no hours-long proof massacre after purely mechanical
+caller-cleanups:**
+
+- **Per slice (always):** `npm run build:mcp` + `node scripts/probe-single-path.mjs`
+  + the small smokes affected by that slice.
+- **Full `npm run runtime:proof` (7/7, Spec 601):** ONLY after the 723.2
+  default-flip, after each big DELETE slice (723.3/723.4/723.5/723.6), and as the
+  final gate. NOT after mechanical caller-only cleanups.
 
 - **723.1 — Audit + reachability.** Enumerate every caller of `mode`,
   `useMicrocodedCpu`, and each legacy toggle (scripts, tests, server tools,
   v3-ws-server, v2/scenario). Produce `docs/single-path-callers.md`. Confirm
   which debug-* modes any probe still needs (D2). NO code change.
-- **723.2 — Flip defaults.** `mode` default → the single path; `useMicrocodedCpu`
-  default → true; line-state/line-steal defaults → vice-shaped. Update every
-  caller found in 723.1 to stop passing the now-default flags. Gate.
+- **723.2 — Flip defaults (NO big deletes).** `mode` default `fast-trap` →
+  `true-drive`; `useMicrocodedCpu` default → true; drive/VIC/bus-steal already
+  default to the product path (drive1541="vice" @kernel:542; literal-port family
+  `?? true` @integrated-session:565-576) — verify, do not regress.
+  Remove the public `use_cycle_lockstep` tool input from
+  `headless_integrated_session_start` + its backwards G64-lockstep default and
+  warning (per §2.1). Convert the `diagnose_mm` hard-coded `useCycleLockstep:true`
+  to `mode:"debug-lockstep"` (hard-named). Fix hard `mode:"fast-trap"` callsites,
+  especially v3-ws branch promotion → `session.mode`. Remove redundant product
+  flags from active scripts only where unambiguous. Gate = build + probe-single-path
+  + affected smokes, THEN full `runtime:proof`.
 - **723.3 — Delete fast-trap + real-kernal + traps/.** Remove K1, K2, K3. Gate.
 - **723.4 — Remove `cpu6510.ts` + `useMicrocodedCpu` flag (K4, K5).** CPU is
   unconditionally microcoded. Gate + cpu-fidelity smoke.
@@ -93,9 +131,16 @@ dead path is deleted.
 - **723.7 — Debug-mode prune (D2).** Delete unused debug modes; keep
   debug-vice-compare. Gate.
 - **723.8 — Doc + guard.** Update CLAUDE.md ("the runtime has one path; no mode
-  flag needed"); add `scripts/probe-single-path.mjs` asserting no `fast-trap` /
-  `cpu6510` / `traps/kernal-*` import survives and the default session runs the
-  vice-shaped microcoded path.
+  flag needed"); extend `scripts/probe-single-path.mjs` (created in 723.2) to also
+  assert no `fast-trap` / `cpu6510` / `traps/kernal-*` import survives.
+
+`scripts/probe-single-path.mjs` (created in 723.2) MUST assert:
+1. `startIntegratedSession({})` (empty opts) → no traps, microcoded=true,
+   drive1541="vice", literal/per-cycle VIC on, **`useCycleLockstep=false`**.
+2. The default MCP runtime/session-start path neither accepts nor propagates
+   `useCycleLockstep` (no such tool input).
+3. Only `debug-lockstep` / oracle code paths still set the flag.
+4. Branch promotion no longer emits a `fast-trap` Scenario.
 
 ## 5. Risk
 
