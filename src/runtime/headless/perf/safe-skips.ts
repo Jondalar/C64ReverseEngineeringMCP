@@ -1,9 +1,11 @@
 // Spec 135 (M8.3) v1 — fast-forward safe paths registry.
 //
 // Some C64 idle loops (KERNAL keyboard scan idle, BASIC READY wait)
-// do not change externally visible state. In `mode: "fast-trap"` we
-// can safely fast-forward through them to save wall time. NEVER
-// applies in `true-drive` where timing fidelity is the contract.
+// do not change externally visible state. This registry described a
+// fast-forward optimisation for the (now-removed, Spec 723.3) fast-trap mode;
+// it NEVER applied in true-drive where timing fidelity is the contract. The
+// registry is retained only for its self-test (perf-ops-tests); it is not
+// wired into the product step loop.
 
 export interface SafeSkipPattern {
   name: string;

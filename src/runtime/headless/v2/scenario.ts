@@ -29,8 +29,9 @@ export interface ScenarioInputEvent {
   payload: unknown;
 }
 
-/** Mode must match IntegratedSessionOptions.mode values. */
-export type ScenarioMode = "fast-trap" | "real-kernal" | "true-drive";
+/** Mode must match IntegratedSessionOptions.mode values.
+ *  Spec 723.3: fast-trap / real-kernal removed — true-drive is the product path. */
+export type ScenarioMode = "true-drive";
 
 export interface Scenario {
   /** Unique scenario identifier. */

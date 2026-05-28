@@ -35,9 +35,8 @@ const PAL_HZ = 985248;
 
 async function bootCheck(name, diskRel, mode, expectFn, maxSec = 60) {
   const diskPath = diskRel ? resolvePath(repoRoot, diskRel) : resolvePath(repoRoot, "samples/motm.g64");
-  const opts = mode === "true-drive" || mode === "debug-vice-compare" || mode === "debug-hybrid"
-    ? { diskPath, mode, useMicrocodedCpu: true }
-    : { diskPath, mode, useMicrocodedCpu: false };
+  // Spec 723.3: all surviving modes are microcoded (product/debug); legacy CPU gone.
+  const opts = { diskPath, mode, useMicrocodedCpu: true };
   const { session } = startIntegratedSession(opts);
   session.resetCold("pal-default");
   session.runFor(800_000);
@@ -79,9 +78,9 @@ if (profile === "quick" || profile === "integration" || profile === "e2e-local" 
 
 // Profile: integration — directory load
 if (profile === "integration" || profile === "e2e-local" || profile === "release") {
-  await bootCheck("motm-dir-load", "samples/motm.g64", "fast-trap", (s) => {
+  await bootCheck("motm-dir-load", "samples/motm.g64", "true-drive", (s) => {
     // Just verify drive ROM ran (= drive PC outside default $E5CD area)
-    const drivePc = s.drive.cpu.pc;
+    const drivePc = s.status().drive.pc;
     return { pass: drivePc !== 0, note: `drive PC=$${drivePc.toString(16)}` };
   }, 10);
 }

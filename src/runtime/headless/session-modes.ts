@@ -8,16 +8,14 @@
 //
 //   Mode               | traps | microcoded | lockstep | channels
 //   -------------------|-------|------------|----------|----------
-//   fast-trap          |  ON   |  legacy    |  off     |  none
-//   real-kernal        |  off  |  legacy    |  off     |  none
 //   true-drive         |  off  |  microcd.  |  off     |  none
 //   debug-vice-compare |  off  |  microcd.  |  off     |  iec+drive
 //   debug-lockstep     |  off  |  microcd.  |  on      |  none
 //   custom             | (caller-provided booleans honored)
 
+// Spec 723.3: fast-trap / real-kernal (legacy KERNAL-trap + legacy-CPU modes)
+// removed. true-drive is the product path; debug-* are oracle-only.
 export type SessionMode =
-  | "fast-trap"
-  | "real-kernal"
   | "true-drive"
   | "debug-vice-compare"
   | "debug-lockstep"
@@ -66,26 +64,6 @@ export function resolveSessionFlags(
 
 function presetFlags(mode: SessionMode): SessionModeFlags {
   switch (mode) {
-    case "fast-trap":
-      return {
-        enableKernalFileIoTraps: true,
-        enableKernalSerialTraps: true,
-        enableKernalIoTraps: true,
-        useMicrocodedCpu: false,
-        useCycleLockstep: false,
-        traceIec: false,
-        traceDrive: false,
-      };
-    case "real-kernal":
-      return {
-        enableKernalFileIoTraps: false,
-        enableKernalSerialTraps: false,
-        enableKernalIoTraps: false,
-        useMicrocodedCpu: false,
-        useCycleLockstep: false,
-        traceIec: false,
-        traceDrive: false,
-      };
     case "true-drive":
       return {
         enableKernalFileIoTraps: false,
@@ -159,7 +137,7 @@ function presetFlags(mode: SessionMode): SessionModeFlags {
 // constructed via the legacy boolean path so `session.mode` always
 // has a stable answer.
 export function identifyMode(flags: SessionModeFlags): SessionMode {
-  for (const candidate of ["fast-trap", "real-kernal", "true-drive", "debug-vice-compare", "debug-lockstep", "debug-push-only", "debug-hybrid"] as SessionMode[]) {
+  for (const candidate of ["true-drive", "debug-vice-compare", "debug-lockstep", "debug-push-only", "debug-hybrid"] as SessionMode[]) {
     const preset = presetFlags(candidate);
     if (flagsEqual(preset, flags)) return candidate;
   }

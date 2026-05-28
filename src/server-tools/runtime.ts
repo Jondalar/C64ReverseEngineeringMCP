@@ -691,7 +691,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     {
       id: z.string(),
       diskPath: z.string(),
-      mode: z.enum(["fast-trap", "real-kernal", "true-drive"]),
+      mode: z.enum(["true-drive"]),  // Spec 723.3: fast-trap / real-kernal removed
       cycleBudget: z.number(),
       inputs: z.array(z.object({
         atCycle: z.number(),

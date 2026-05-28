@@ -20,9 +20,8 @@ import type { HookStatus } from "./kernel-hooks.js";
  *   - debug-hybrid     — hybrid sync probe (= cycle-step on $DD00 in
  *                        userland PC range; legacy elsewhere).
  */
+// Spec 723.3: fast-trap / real-kernal removed.
 export type KernelMode =
-  | "fast-trap"
-  | "real-kernal"
   | "true-drive"
   | "debug-vice-compare"
   | "debug-lockstep"
@@ -30,7 +29,7 @@ export type KernelMode =
   | "debug-hybrid";
 
 export const PRODUCTION_MODES: readonly KernelMode[] = [
-  "fast-trap", "real-kernal", "true-drive", "debug-vice-compare",
+  "true-drive", "debug-vice-compare",
 ] as const;
 export const DIAGNOSTIC_MODES: readonly KernelMode[] = [
   "debug-lockstep", "debug-push-only", "debug-hybrid",
