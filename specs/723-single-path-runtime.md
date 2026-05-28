@@ -130,8 +130,32 @@ caller-cleanups:**
   probe-single-path + affected smokes. **No full runtime:proof** — the gate pins
   explicit modes, so it cannot observe a default-flip.
 - **723.3 — Delete fast-trap + real-kernal + traps/.** Remove K1, K2, K3. Gate.
-- **723.4 — Remove `cpu6510.ts` + `useMicrocodedCpu` flag (K4, K5).** CPU is
-  unconditionally microcoded. Gate + cpu-fidelity smoke.
+- **723.4 — Remove the legacy CPU (K4, K5), STAGED.** Audit (2026-05-29) found
+  `cpu6510.ts`'s `Cpu6510` class is not a simple delete: the kernel builds it as
+  the base c64Cpu (then the integrated path swaps to microcoded), the standalone
+  `HeadlessSessionManager` runs it as its *only* CPU (~10 consumers incl. all
+  cpu/cia/vic/sid/input fidelity tests), VSF `serializeCpu` is typed against it,
+  and the `CpuMemory` type lives in `cpu6510.ts` (imported by cpu65xx-vice +
+  contracts). **Principle: no second runtime path** — `useMicrocodedCpu` must not
+  be removed while leaving `cpu6510.ts` alive as a silent second path, and
+  `HeadlessSessionManager` must not survive as a public/semi-public legacy
+  emulator path. Staged:
+  - **723.4a — flag + Cpu6510Cycled.** Remove `useMicrocodedCpu` from
+    IntegratedSession / SessionModeFlags / status / the public MCP input; build
+    the microcoded CPU directly in the product path; delete `Cpu6510Cycled` +
+    the dead lockstep branch; move `CpuMemory` out of `cpu6510.ts` into a neutral
+    CPU-type module. Gates: build, probe-single-path, smoke-monitor, breakpoints.
+  - **723.4b — HeadlessSessionManager audit/migrate.** List every consumer;
+    classify A (normal runtime/tool → migrate to IntegratedSession/RuntimeController),
+    B (old fidelity/bring-up tests → product path or VICE fixture), C (genuine
+    low-level unit tests → test the microcoded CPU directly), D (dead/archive →
+    leave archived or delete, not in the default surface). No public MCP tool may
+    start the standalone legacy manager afterward.
+  - **723.4c — delete `cpu6510.ts`.** Remove the file, clean imports/types,
+    extend probe-single-path (no `useMicrocodedCpu`, no `Cpu6510`, no
+    `Cpu6510Cycled`, no public legacy HeadlessSessionManager start, default stays
+    microcoded/vice/no-traps/lockstep=false). Gates: build, probe, relevant
+    smokes, runtime:proof once (final).
 - **723.5 — Delete legacy chip/line toggles (K6, K7).** Per file: confirm the
   vice-shaped default is the only branch reached, delete the legacy branch.
   Gate + cia/via/vic-fidelity smokes after each chip.
