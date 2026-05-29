@@ -1,6 +1,13 @@
 # Spec 726 — Headless Trace Sink + Marks (close the capture gap)
 
-**Status:** READY
+**Status:** DONE (2026-05-29) — streaming trace sink + marks implemented. The
+TraceRunController streams to DuckDB (queue + async drain, no RAM cap);
+`runtime_session_start(trace_out, trace_domains)` enables passive producers +
+starts the run; `runtime_session_run`/`until` chunk + drain; new default tools
+`runtime_mark` / `runtime_trace_finalize` / `runtime_trace_status`. Invariant
+proven by `scripts/smoke-trace-sink.mjs` (10/10: producers passive + chunked
+traced run == untraced + real trace.duckdb). default=76, full=274.
+probe-tool-surface 18/18, probe-single-path 25/25, no runtime:proof.
 **Owner:** MCP server / runtime trace
 **Source:** `docs/llm-human-c64re-swimlane.md` + the Murder project use-case
 `docs/USECASE_trace_to_disasm.md` (trace → dynamic analysis → better disasm).
