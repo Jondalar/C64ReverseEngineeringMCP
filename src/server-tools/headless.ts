@@ -154,7 +154,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // bit-bang $DD00, drive sees it via IEC bus, drive ROM responds.
   // Path to Murder boot trace.
   server.tool(
-    "headless_integrated_session_start",
+    "runtime_session_start",
     "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to IEC bus. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. No mode/lockstep flag needed — defaults are the product path. Returns session id and resolved runtime config.",
     {
       disk_path: z.string(),
@@ -175,7 +175,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       enable_kernal_serial_traps: z.boolean().optional(),
       enable_kernal_io_traps: z.boolean().optional(),
     },
-    safeHandler("headless_integrated_session_start", async ({
+    safeHandler("runtime_session_start", async ({
       disk_path, device_id, pal, start_track, write_protected,
       trace_iec, trace_iec_capacity, trace_drive, trace_drive_capacity,
       enable_kernal_fileio_traps, enable_kernal_serial_traps, enable_kernal_io_traps,
@@ -350,14 +350,14 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_integrated_session_load_prg",
+    "runtime_load_prg",
     "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. Useful for skipping the BASIC READY prompt and jumping straight into a bootloader. Returns load address + bytes loaded.",
     {
       session_id: z.string(),
       prg_path: z.string(),
       load_address: z.string().optional().describe("Override load address (hex). Default = PRG header."),
     },
-    safeHandler("headless_integrated_session_load_prg", async ({ session_id, prg_path, load_address }) => {
+    safeHandler("runtime_load_prg", async ({ session_id, prg_path, load_address }) => {
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -379,7 +379,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   // Sprint 93.1: queue text typing through CIA1 keyboard matrix.
   server.tool(
-    "headless_integrated_session_type",
+    "runtime_type",
     "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. PETSCII-aware (auto-SHIFT for `\"`, `?`, `(`, `)` etc.). `\\r` / `\\n` map to RETURN. Tuned default hold/gap (33000c each) gives KERNAL SCNKEY ≥ 2 raster IRQ ticks per state for reliable buffer pickup. Use to enter LOAD/RUN commands without bypassing KERNAL.",
     {
       session_id: z.string(),
@@ -387,7 +387,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       hold_cycles: z.number().int().min(1000).max(2_000_000).optional(),
       gap_cycles: z.number().int().min(0).max(2_000_000).optional(),
     },
-    safeHandler("headless_integrated_session_type", async ({ session_id, text, hold_cycles, gap_cycles }) => {
+    safeHandler("runtime_type", async ({ session_id, text, hold_cycles, gap_cycles }) => {
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -409,7 +409,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   // Sprint 93.1: joystick port 2 backend.
   server.tool(
-    "headless_integrated_session_joystick",
+    "runtime_joystick",
     "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). Bits stay held until next call updates them. Use to control games that read joystick at $DC00.",
     {
       session_id: z.string(),
@@ -419,7 +419,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       right: z.boolean().optional(),
       fire: z.boolean().optional(),
     },
-    safeHandler("headless_integrated_session_joystick", async ({ session_id, up, down, left, right, fire }) => {
+    safeHandler("runtime_joystick", async ({ session_id, up, down, left, right, fire }) => {
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);

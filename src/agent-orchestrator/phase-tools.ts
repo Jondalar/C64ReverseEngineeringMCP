@@ -60,7 +60,7 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
     "runtime_save_vsf", "runtime_load_vsf", "runtime_resolve_pc",
     "runtime_diff_snapshots",
     // Integrated session control (kept; V2.x has no direct replacement).
-    "headless_integrated_session_start", "headless_integrated_session_run",
+    "runtime_session_start", "headless_integrated_session_run",
     "headless_integrated_session_status", "headless_integrated_session_snapshot",
     "headless_render_screen",
   ],

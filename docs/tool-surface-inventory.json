@@ -3,10 +3,10 @@
   "specCount": 102,
   "advancedCandidate": 71,
   "byNamespace": {
+    "runtime": 52,
     "vice": 49,
-    "runtime": 48,
     "list": 17,
-    "headless": 15,
+    "headless": 11,
     "save": 10,
     "build": 9,
     "depack": 8,
@@ -655,24 +655,6 @@
       "tier": "default?"
     },
     {
-      "name": "headless_integrated_session_joystick",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": false,
-      "firstSentence": "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire).",
-      "desc": "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). Bits stay held until next call updates them. Use to control games that read joystick at $DC00.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_integrated_session_load_prg",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed.",
-      "desc": "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. Useful for skipping the BASIC READY prompt and jumping straight into a bootloader. Returns load address + bytes loaded.",
-      "tier": "default?"
-    },
-    {
       "name": "headless_integrated_session_run",
       "file": "server-tools/headless.ts",
       "ns": "headless",
@@ -691,30 +673,12 @@
       "tier": "default?"
     },
     {
-      "name": "headless_integrated_session_start",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": false,
-      "firstSentence": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync).",
-      "desc": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to IEC bus. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. No mode/lockstep flag needed — defaults are the product path. Returns session id and resolved runtime config.",
-      "tier": "default?"
-    },
-    {
       "name": "headless_integrated_session_status",
       "file": "server-tools/headless.ts",
       "ns": "headless",
       "hasSpec": true,
       "firstSentence": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
       "desc": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_integrated_session_type",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": false,
-      "firstSentence": "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix.",
-      "desc": "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. PETSCII-aware (auto-SHIFT for `\\\"`, `?`, `(`, `)` etc.). `\\\\r` / `\\ ` map to RETURN. Tuned default hold/gap (33000c each) gives KERNAL SCNKEY ≥ 2 raster IRQ ticks per state for reliable buffer pickup. Use to enter LOAD/RUN commands without bypassing KERNAL.",
       "tier": "default?"
     },
     {
@@ -1492,6 +1456,24 @@
       "tier": "default?"
     },
     {
+      "name": "runtime_joystick",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire).",
+      "desc": "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). Bits stay held until next call updates them. Use to control games that read joystick at $DC00.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_load_prg",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed.",
+      "desc": "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. Useful for skipping the BASIC READY prompt and jumping straight into a bootloader. Returns load address + bytes loaded.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_load_vsf",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
@@ -1708,6 +1690,15 @@
       "tier": "default?"
     },
     {
+      "name": "runtime_session_start",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync).",
+      "desc": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to IEC bus. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. No mode/lockstep flag needed — defaults are the product path. Returns session id and resolved runtime config.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_snapshot_tree",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
@@ -1759,6 +1750,15 @@
       "hasSpec": true,
       "firstSentence": "Spec 244 — taint analysis / dataflow.",
       "desc": "Spec 244 — taint analysis / dataflow. Walks back from (cycle, addr) via 5 contribution kinds. Cross-domain bridge default-on.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_type",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix.",
+      "desc": "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. PETSCII-aware (auto-SHIFT for `\\\"`, `?`, `(`, `)` etc.). `\\\\r` / `\\ ` map to RETURN. Tuned default hold/gap (33000c each) gives KERNAL SCNKEY ≥ 2 raster IRQ ticks per state for reliable buffer pickup. Use to enter LOAD/RUN commands without bypassing KERNAL.",
       "tier": "default?"
     },
     {

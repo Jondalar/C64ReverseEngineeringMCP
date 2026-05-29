@@ -60,11 +60,11 @@ try {
 // ---- Check 2: public session-start tool does NOT expose use_cycle_lockstep ----
 const headlessSrc = readFileSync(join(ROOT, "src/server-tools/headless.ts"), "utf8");
 const startBlock = headlessSrc.slice(
-  headlessSrc.indexOf('"headless_integrated_session_start"'),
+  headlessSrc.indexOf('"runtime_session_start"'),
   headlessSrc.indexOf("headless_integrated_session_status"),
 );
 ok(!/use_cycle_lockstep/.test(startBlock),
-  "2 headless_integrated_session_start has no use_cycle_lockstep input");
+  "2 runtime_session_start has no use_cycle_lockstep input");
 
 // ---- Check 3: useCycleLockstep:true literal only in debug-lockstep/oracle ----
 // No server-tool may hard-set the boolean (debug tools use mode:"debug-lockstep").

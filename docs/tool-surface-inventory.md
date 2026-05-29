@@ -14,10 +14,10 @@
 
 | namespace | tools |
 |-----------|-------|
+| `runtime_*` | 52 |
 | `vice_*` | 49 |
-| `runtime_*` | 48 |
 | `list_*` | 17 |
-| `headless_*` | 15 |
+| `headless_*` | 11 |
 | `save_*` | 10 |
 | `build_*` | 9 |
 | `depack_*` | 8 |
@@ -148,13 +148,9 @@
 | `headless_drive_status` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. |
 | `headless_iec_bus_state` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. |
 | `headless_integrated_session_diagnose_mm` | headless | server-tools/headless.ts | Y | default? |  | Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at  |
-| `headless_integrated_session_joystick` | headless | server-tools/headless.ts |  | default? |  | Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). |
-| `headless_integrated_session_load_prg` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. |
 | `headless_integrated_session_run` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. |
 | `headless_integrated_session_snapshot` | headless | server-tools/headless.ts | Y | default? |  | Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. |
-| `headless_integrated_session_start` | headless | server-tools/headless.ts |  | default? |  | Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). |
 | `headless_integrated_session_status` | headless | server-tools/headless.ts | Y | default? | runtime_status | Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source. |
-| `headless_integrated_session_type` | headless | server-tools/headless.ts |  | default? |  | Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. |
 | `headless_render_screen` | headless | server-tools/headless.ts | Y | default? | runtime_export_screenshot | Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. |
 | `import_analysis_report` | import | project-knowledge/mcp-tools.ts |  | default? |  | Import a saved analysis JSON artifact into structured entities and findings. |
 | `import_annotations_as_findings` | import | server-tools/analysis-workflow.ts |  | default? |  | Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification. |
@@ -241,6 +237,8 @@
 | `runtime_input_load_config` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent. |
 | `runtime_input_load_vicerc` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2). |
 | `runtime_input_save_config` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json. |
+| `runtime_joystick` | runtime | server-tools/headless.ts |  | default? |  | Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). |
+| `runtime_load_prg` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. |
 | `runtime_load_vsf` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 251 — restore full session state from VSF file. |
 | `runtime_media_browse` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed). |
 | `runtime_media_list_paths` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added). |
@@ -265,12 +263,14 @@
 | `runtime_scenario_list` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. |
 | `runtime_scenario_load` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — load a single scenario by id. |
 | `runtime_scenario_save` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — save a scenario JSON to project dir (or samples if no project dir). |
+| `runtime_session_start` | runtime | server-tools/headless.ts |  | default? |  | Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). |
 | `runtime_snapshot_tree` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — return the full branch tree for a rewind session. |
 | `runtime_status` | runtime | server-tools/runtime.ts | Y | default? | headless_integrated_session_status | Spec 237 — AgentQueryApi facade introspection. |
 | `runtime_step_into` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 248 — single-step one instruction. |
 | `runtime_step_over` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 248 — defensive step-over with stack-watch + cycle budget. |
 | `runtime_swimlane_slice` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 234 — transaction-level swimlane (cpu+bus+drive). |
 | `runtime_trace_taint` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 244 — taint analysis / dataflow. |
+| `runtime_type` | runtime | server-tools/headless.ts |  | default? |  | Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. |
 | `runtime_until` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 248 — run until PC reaches target addr or budget exhausted. |
 | `runtime_vic_inspect_at` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance |
 | `sandbox_6502_run` | sandbox | server-tools/sandbox.ts |  | advanced? |  | Run a 6502 routine in an isolated sandbox: load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. |
