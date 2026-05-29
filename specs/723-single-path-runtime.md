@@ -215,13 +215,21 @@ caller-cleanups:**
       `Cpu65xxVice implements CycleSteppable`. Retire `smoke-ba-aec`,
       `smoke-bus-stealing`, `smoke-vic-302-{sprite,badline}-stall`,
       `smoke-hook-hygiene`.
-    - Deferred (dead, but touches VIC raster/IRQ — own cleanup): the legacy
-      batched `VicIIVice.tick()` + `computeLineSteal()` + `stealCpuCycles`,
-      reachable only off the product per-cycle path. Needs its own
-      raster/IRQ verification.
     - probe-single-path checks 16 (no pruned lockstep symbol in src code) + 17
       (deleted files gone). 23/23. runtime:proof 7/7.
   - **7c (DONE)** — Spec + audit-doc update.
+  - **7d (DONE)** — delete the off-product `VicIIVice.tick()` batched path:
+    `tick()` + `computeLineSteal()` + the `stealCpuCycles` backend hook
+    (interface + kernel + fidelity-test impls) + `onCycle`/`onRasterLine`/
+    `onFrame` + `linesStolen` + the dead `stepC64Instruction` trap branch +
+    `checkAndHandleTraps` + the kernel vic-trace onRasterLine/onFrame wiring.
+    Kept the register-R/W + IRQ + `captureScanline`/`scanlineSnapshots`/
+    `frameLineLogs` surface (driven by register writes + the fidelity tests)
+    and `bad_line` (VSF serializes it; literal port is the authority).
+    Retired 6 obsolete `vic.tick(onCycle)`-pump smokes (297a/297b/297k/297m/
+    298-literal-real-boot/cycle-log). probe check 16 also bans
+    computeLineSteal/stealCpuCycles. probe 23/23. runtime:proof 7/7.
+    **No deferred VIC cleanup remains.**
 - **723.8 — Doc + guard.** Update CLAUDE.md ("the runtime has one path; no mode
   flag needed"); extend `scripts/probe-single-path.mjs` (created in 723.2) to also
   assert no `fast-trap` / `cpu6510` / `traps/kernal-*` import survives.
