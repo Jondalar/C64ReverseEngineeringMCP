@@ -40,7 +40,6 @@ export interface DiagnoseMmReport {
   imageFormat: string;
   config: {
     useCycleLockstep: boolean;
-    useMicrocodedCpu: boolean;
     driveClockRatio: number;
     enableKernalFileIoTraps: boolean;
     enableKernalSerialTraps: boolean;
@@ -110,10 +109,7 @@ export function diagnoseMm(session: IntegratedSession, opts: DiagnoseMmOptions =
     return finalize("tool-config-not-lockstep",
       "Session not in cycle-lockstep mode. Custom-loader IEC handshake cannot work. Restart with use_cycle_lockstep=true.");
   }
-  if (!cfg0.useMicrocodedCpu) {
-    return finalize("tool-config-no-microcoded-cpu",
-      "Session not running microcoded CPU. Bus accesses snap to instruction boundary; sub-instruction IEC edges lost. Restart with use_microcoded_cpu=true.");
-  }
+  // Spec 723.4c: microcoded CPU is unconditional — no flag check needed.
 
   try {
     while (session.c64Cpu.cycles - startCycles < o.cycleBudget) {
@@ -182,7 +178,6 @@ export function diagnoseMm(session: IntegratedSession, opts: DiagnoseMmOptions =
       imageFormat: s.runtime.imageFormat,
       config: {
         useCycleLockstep: s.runtime.useCycleLockstep,
-        useMicrocodedCpu: s.runtime.useMicrocodedCpu,
         driveClockRatio: s.runtime.driveClockRatio,
         enableKernalFileIoTraps: s.runtime.enableKernalFileIoTraps,
         enableKernalSerialTraps: s.runtime.enableKernalSerialTraps,
@@ -269,7 +264,6 @@ function questionnaire(session: IntegratedSession, _v: StallVerdict): Array<{ q:
   const propagationOk = trace.some((e) => e.side === "c64") && trace.some((e) => e.side === "drive");
   return [
     { q: "Did the session run with useCycleLockstep=true?", a: String(s.runtime.useCycleLockstep) },
-    { q: "Did it run with useMicrocodedCpu=true?", a: String(s.runtime.useMicrocodedCpu) },
     { q: "IEC trace captured at least one C64 + one drive edge?", a: String(propagationOk) },
     { q: "ATN line state at end (1=released, 0=pulled)", a: String(iec.line.atn ? 1 : 0) },
     { q: "CLK line state at end (1=released, 0=pulled)", a: String(iec.line.clk ? 1 : 0) },

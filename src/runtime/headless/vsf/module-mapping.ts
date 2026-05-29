@@ -9,7 +9,8 @@
 // head. C64 RAM + MainCPU added when full headless C64 ROM
 // integration lands. Spec 063 phases extend per-subsystem.
 
-import type { Cpu6510 } from "../cpu6510.js";
+// Spec 723.4c: typed against the microcoded product CPU (legacy Cpu6510 deleted).
+import type { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
 import type { IecBus } from "../iec/iec-bus.js";
 import type { HeadlessMemoryBus } from "../memory-bus.js";
 import type { Cia6526Vice } from "../cia/cia6526-vice.js";
@@ -54,7 +55,7 @@ export const VSF_HL_MODULE_VERSION_MINOR = 0;
 
 // ---- 6502/6510 CPU module ----
 // Layout: PC (2) A X Y SP P (1 each) cycles (4 LE) = 11 bytes
-export function serializeCpu(cpu: Cpu6510): Uint8Array {
+export function serializeCpu(cpu: Cpu65xxVice): Uint8Array {
   const buf = new Uint8Array(11);
   buf[0] = cpu.pc & 0xff; buf[1] = (cpu.pc >> 8) & 0xff;
   buf[2] = cpu.a; buf[3] = cpu.x; buf[4] = cpu.y;
@@ -66,7 +67,7 @@ export function serializeCpu(cpu: Cpu6510): Uint8Array {
   return buf;
 }
 
-export function deserializeCpu(cpu: Cpu6510, data: Uint8Array): void {
+export function deserializeCpu(cpu: Cpu65xxVice, data: Uint8Array): void {
   if (data.length < 11) throw new Error(`CPU module data too short: ${data.length} (expected 11)`);
   cpu.pc = data[0]! | (data[1]! << 8);
   cpu.a = data[2]!;

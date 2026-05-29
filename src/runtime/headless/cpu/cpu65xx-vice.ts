@@ -376,6 +376,16 @@ export class Cpu65xxVice implements CycleSteppable {
     this.cpuIntStatus.lastOpcodeInfoGetter = () => this.lastOpcodeInfo;
   }
 
+  /**
+   * Spec 723.4c: install the per-cycle VIC tick hook after construction. The
+   * kernel builds the C64 CPU before the VIC/literal-port wiring exists, so
+   * IntegratedSession sets this once the VIC is ready. The field stays private;
+   * this is NOT a public runtime option.
+   */
+  setC64ViciiCycle(fn: () => 0 | 1): void {
+    this.c64ViciiCycle = fn;
+  }
+
   // -------- Bus access primitives --------
   private emit(kind: BusAccessKind, addr: WORD, value: BYTE): void {
     if (!this.busTraceEnabled) return;

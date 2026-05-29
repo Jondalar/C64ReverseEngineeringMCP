@@ -2,7 +2,7 @@
 // Asserts the DEFAULT headless runtime is the product path (no traps,
 // microcoded, vice drive, literal/per-cycle VIC, useCycleLockstep=false)
 // and that useCycleLockstep is not exposed on the public session-start tool.
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
 
@@ -94,6 +94,37 @@ ok(trapImporters.length === 0, "5 no traps/kernal-* imports survive",
 const ftConsumers = srcFiles.filter((p) => /mode:\s*["'](fast-trap|real-kernal)["']|["'](fast-trap|real-kernal)["']\s*(,|\]|\))/.test(readFileSync(p, "utf8")));
 ok(ftConsumers.length === 0, "6 no fast-trap/real-kernal mode consumers outside docs/archive",
   ftConsumers.map((p) => relative(ROOT, p)).join(",") || "none");
+
+// Check 7: the legacy C64 Cpu6510 class is gone — no import + no `new Cpu6510`.
+// (The separate 1541 drive CPU `drive_6510core.ts` is a different identifier and
+// is explicitly allowed.)
+const cpu6510Refs = srcFiles.filter((p) => {
+  const s = readFileSync(p, "utf8");
+  return /import[^\n]*\bCpu6510\b/.test(s) || /\bnew\s+Cpu6510\b/.test(s);
+});
+ok(cpu6510Refs.length === 0, "7 no legacy Cpu6510 import / instantiation",
+  cpu6510Refs.map((p) => relative(ROOT, p)).join(",") || "none");
+
+// Check 8: the standalone legacy HeadlessSessionManager is gone — no factory /
+// no start. No public tool may launch the standalone legacy session.
+const mgrRefs = srcFiles.filter((p) => /getHeadlessSessionManager|getPreferredHeadlessSessionManager|new HeadlessSessionManager/.test(readFileSync(p, "utf8")));
+ok(mgrRefs.length === 0, "8 no standalone HeadlessSessionManager factory/start",
+  mgrRefs.map((p) => relative(ROOT, p)).join(",") || "none");
+
+// Check 9: useMicrocodedCpu is not a field/opt/input in the SOURCE/API surface
+// (microcoded is unconditional). Scoped to src/ — the single-path invariant is
+// about the runtime API, not test scripts that still pass the now-ignored key
+// (a cosmetic sweep, tracked separately). Matches `useMicrocodedCpu:`/`?` syntax,
+// not prose comments.
+const microFlag = srcFiles.filter((p) => /\/src\//.test(p) && /useMicrocodedCpu\s*[:?]/.test(readFileSync(p, "utf8")));
+ok(microFlag.length === 0, "9 no useMicrocodedCpu field/opt/input in src",
+  microFlag.map((p) => relative(ROOT, p)).join(",") || "none");
+
+// Check 10: the separate 1541 drive CPU is intact (must NOT be deleted with the
+// C64 legacy CPU).
+const driveCpuExists = ["src/runtime/headless/vice1541/drive_6510core.ts", "src/runtime/headless/vice1541/drivecpu.ts"]
+  .every((f) => existsSync(join(ROOT, f)));
+ok(driveCpuExists, "10 vice1541 drive CPU (drive_6510core.ts + drivecpu.ts) intact");
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} single-path: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

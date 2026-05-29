@@ -27,7 +27,7 @@ import {
   alarmContextCaptureSchedule,
   alarmContextRestoreSchedule,
 } from "../alarm/alarm-context.js";
-import { Cpu6510 } from "../cpu6510.js";
+import { Cpu65xxVice } from "../cpu/cpu65xx-vice.js";
 import { HeadlessMemoryBus } from "../memory-bus.js";
 import { loadCartridgeMapperFromBytes } from "../cartridge.js";
 import { snapshotSha256 } from "./native-snapshot.js";
@@ -84,7 +84,6 @@ export interface HeadlessMachineKernelDeps {
   deviceId: number;
   startTrack: number;
   writeProtected?: boolean;
-  useMicrocodedCpu: boolean;
   useCycleLockstep: boolean;
   driveCyclesPerC64Cycle: number;
   /** Spec 428 Phase C — drive dispatch mode flag. */
@@ -131,9 +130,9 @@ export class HeadlessMachineKernel implements MachineKernel {
   // reads them for backward-compat field access.
   readonly c64Bus: HeadlessMemoryBus;
   readonly romSet: LoadedC64RomSet;
-  // Mutable: Cpu65xxVice may replace Cpu6510 during scheduler init in
-  // commit 200-c5 when useMicrocodedCpu is set.
-  c64Cpu: Cpu6510;
+  // Spec 723.4c: the C64 product CPU is always the microcoded Cpu65xxVice,
+  // built directly in the constructor (no legacy Cpu6510 base + swap).
+  c64Cpu: Cpu65xxVice;
   readonly cia1: Cia6526Vice;
   readonly cia2: Cia6526Vice;
   /** Spec 309 Phase D: shared with Cpu65xxVice — chips push setIrq/setNmi here. */
@@ -242,11 +241,21 @@ export class HeadlessMachineKernel implements MachineKernel {
       this.c64Bus.loadCharRom(this.romSet.charRom.bytes);
     }
 
-    // CPU built BEFORE CIA install — Cia6526Vice's Ciat sub-modules
-    // capture the CPU clock at construction time via clkPtr(), so the
-    // CPU object must already exist. (Cpu65xxVice may replace this
-    // later under useMicrocodedCpu via commit 200-c5.)
-    this.c64Cpu = new Cpu6510(this.c64Bus);
+    // Spec 309 Phase D: shared InterruptCpuStatus instance — chips push
+    // setIrq/setNmi here; Cpu65xxVice reads globalPendingInt at opcode boundary.
+    // Built before the CPU (the microcoded CPU takes it as a ctor dep).
+    this.cpuIntStatus = new InterruptCpuStatus();
+    // CPU built BEFORE CIA install — Cia6526Vice's Ciat sub-modules capture the
+    // CPU clock at construction time via clkPtr(), so the CPU must already exist.
+    // Spec 723.4c: the C64 product CPU is the microcoded Cpu65xxVice, built
+    // directly here (the legacy Cpu6510 base + later swap is gone). The per-cycle
+    // VIC hook (c64ViciiCycle) is installed later by IntegratedSession via
+    // setC64ViciiCycle(), once the VIC/literal-port wiring exists.
+    this.c64Cpu = new Cpu65xxVice({
+      memBus: this.c64Bus,
+      alarmContext: this.alarms.maincpu,
+      cpuIntStatus: this.cpuIntStatus,
+    });
 
     // Spec 083 / VICE-style: when C64 reads or writes IEC bus state,
     // first catch the drive CPU up to the current cycle so drive's
@@ -277,9 +286,6 @@ export class HeadlessMachineKernel implements MachineKernel {
       addr: 0xdd00,
       access,
     });
-    // Spec 309 Phase D: shared InterruptCpuStatus instance — chips push
-    // setIrq/setNmi here; Cpu65xxVice reads globalPendingInt at opcode boundary.
-    this.cpuIntStatus = new InterruptCpuStatus();
     const cia2Install = installCia2(this.c64Bus, {
       alarmContext: this.alarms.maincpu,
       clkPtr: ciaClkPtr,

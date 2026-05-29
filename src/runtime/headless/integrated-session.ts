@@ -10,7 +10,7 @@
 //   real CIA1 timer lets KERNAL serial run authentically
 // - CIA2 wired to iec-bus for IEC PA bits
 
-import { Cpu6510 } from "./cpu6510.js";
+// Spec 723.4c: legacy Cpu6510 removed — the C64 product CPU is Cpu65xxVice.
 import { HeadlessMemoryBus } from "./memory-bus.js";
 import { loadAllC64Roms, type LoadedC64RomSet } from "./c64-rom.js";
 import { IecBus } from "./iec/iec-bus.js";
@@ -240,7 +240,7 @@ export interface PrgLoadResult {
 
 export class IntegratedSession {
   public readonly c64Bus: HeadlessMemoryBus;
-  public readonly c64Cpu: Cpu6510;
+  public readonly c64Cpu: Cpu65xxVice;
   public readonly iecBus: IecBus;
   // Spec 704 §11 R3 — legacy drive / trackBuffer / headPosition / gcrShifter
   // fields removed. VICE1541 (kernel.drive1541) is the only drive; it owns
@@ -480,7 +480,6 @@ export class IntegratedSession {
       deviceId: opts.deviceId ?? 8,
       startTrack: opts.startTrack ?? 18,
       writeProtected: opts.writeProtected,
-      useMicrocodedCpu: true,  // Spec 723.4a: always microcoded (constant)
       useCycleLockstep: this.useCycleLockstep,
       driveCyclesPerC64Cycle: this.driveCyclesPerC64Cycle,
       driveDispatchMode: opts.driveDispatchMode,
@@ -563,27 +562,19 @@ export class IntegratedSession {
     // Sprint 113 Phase 2: Cpu65xxVice is the required C64 CPU core for
     // IEC bit-bang correctness. Install it independently from the
     // scheduler so true-drive can run event/catch-up without lockstep.
-    // Spec 723.4a: the microcoded Cpu65xxVice is the ONLY product CPU — built
-    // unconditionally (the useMicrocodedCpu flag is gone). The kernel's initial
-    // Cpu6510 base is replaced here; Cpu6510 itself is deleted in 723.4c.
-    const microcoded = new Cpu65xxVice({
-      memBus: this.c64Bus,
-      alarmContext: this.maincpuAlarmContext,
-      cpuIntStatus: this.kernel.cpuIntStatus,
-      // Spec 425 — C64 CPU calls vicii_cycle() from inside tick() per
-      // VICE CLK_INC. Drive CPU MUST NOT pass this hook.
-      c64ViciiCycle: this.useLiteralPortVicPerCycle
-        ? () => this.tickLitVic()
-        : undefined,
-    });
-    (this as any).c64Cpu = microcoded;
-    // Spec 200-c3: keep kernel's c64Cpu in sync. CIA clkPtr captured a closure
-    // on kernel.c64Cpu; without this update CIAs would read stale cycles.
-    (this.kernel as unknown as { c64Cpu: unknown }).c64Cpu = microcoded;
-    // Spec 203-c4: re-attach onInterruptServiced to the new CPU.
+    // Spec 723.4c: the kernel now builds the microcoded Cpu65xxVice directly
+    // (no legacy Cpu6510 base + swap). this.c64Cpu already references it. We only
+    // install the per-cycle VIC tick hook — the kernel can't, because the VIC /
+    // literal-port wiring only exists at the session level (Spec 425: the C64 CPU
+    // calls vicii_cycle() from inside tick() per VICE CLK_INC; the drive CPU must
+    // NOT get this hook).
+    if (this.useLiteralPortVicPerCycle) {
+      this.c64Cpu.setC64ViciiCycle(() => this.tickLitVic());
+    }
+    // Spec 203-c4: (re)attach onInterruptServiced to the CPU.
     this.kernel.installCpuInterruptHooks();
-    microcoded.reset();
-    const cpuComponent: any = microcoded;
+    this.c64Cpu.reset();
+    const cpuComponent: any = this.c64Cpu;
 
     if (this.useCycleLockstep) {
       const c64Components = [
@@ -1284,7 +1275,6 @@ export class IntegratedSession {
       mode: SessionMode;
       modeReport: SessionModeReport;
       useCycleLockstep: boolean;
-      useMicrocodedCpu: boolean;
       driveClockRatio: number;
       enableKernalFileIoTraps: boolean;
       enableKernalSerialTraps: boolean;
@@ -1319,7 +1309,6 @@ export class IntegratedSession {
         mode: this.mode,
         modeReport: this.modeReport(),
         useCycleLockstep: this.useCycleLockstep,
-        useMicrocodedCpu: true,  // Spec 723.4a: always microcoded (constant in status)
         driveClockRatio: this.driveClockRatio,
         enableKernalFileIoTraps: this.enableKernalFileIoTraps,
         enableKernalSerialTraps: this.enableKernalSerialTraps,

@@ -201,7 +201,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         `Disk: ${disk_path}`,
         `Image format: ${status.runtime.imageFormat}`,
         `Mode: ${status.runtime.mode} (traps=${status.runtime.modeReport.traps} microcoded=${status.runtime.modeReport.microcoded} lockstep=${status.runtime.modeReport.lockstep} channels=${status.runtime.modeReport.channels})`,
-        `Runtime: useCycleLockstep=${status.runtime.useCycleLockstep} useMicrocodedCpu=${status.runtime.useMicrocodedCpu}`,
+        `Runtime: useCycleLockstep=${status.runtime.useCycleLockstep} (CPU: microcoded Cpu65xxVice)`,
         `Drive clock ratio: ${status.runtime.driveClockRatio.toFixed(6)} (drive cycles per C64 cycle)`,
         `KERNAL traps: fileio=${status.runtime.enableKernalFileIoTraps} serial=${status.runtime.enableKernalSerialTraps} io=${status.runtime.enableKernalIoTraps}`,
         `IEC trace: ${status.runtime.iecTraceEnabled ? "ON" : "off"}  Drive PC trace cap: ${status.runtime.drivePcTraceCapacity}`,
@@ -503,7 +503,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const lines: string[] = [
         `headless_integrated_session_diagnose_mm — session ${sessionId}`,
         `Disk: ${disk_path}`,
-        `Format: ${report.imageFormat}  lockstep=${report.config.useCycleLockstep}  microcoded=${report.config.useMicrocodedCpu}  ratio=${report.config.driveClockRatio.toFixed(6)}`,
+        `Format: ${report.imageFormat}  lockstep=${report.config.useCycleLockstep}  ratio=${report.config.driveClockRatio.toFixed(6)}`,
         `Verdict: ${report.run.verdict}`,
         `Summary: ${report.run.summary}`,
         `Cycles: ${report.run.cyclesExecuted} (budget ${report.run.cycleBudget})  duration=${report.run.durationMs}ms`,
