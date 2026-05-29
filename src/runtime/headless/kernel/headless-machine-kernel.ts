@@ -50,7 +50,6 @@ import { HeadlessKernelBus } from "./headless-kernel-bus.js";
 import { KernelIrqRing, type KernelIrqEvent } from "./kernel-irq.js";
 import { HookRegistry, type HookName } from "./kernel-hooks.js";
 import { EventCatchupStrategy } from "./event-catchup-strategy.js";
-import { LockstepStrategy } from "./lockstep-strategy.js";
 import type { SyncStrategy } from "./sync-strategy.js";
 import { vicii_set_vbank as litViciiSetVbank } from "../vic/literal/vicii.js";
 import { vicii_snapshot_write, vicii_snapshot_read } from "../vic/literal/vicii-snapshot.js";
@@ -80,7 +79,6 @@ export interface HeadlessMachineKernelDeps {
   deviceId: number;
   startTrack: number;
   writeProtected?: boolean;
-  useCycleLockstep: boolean;
   driveCyclesPerC64Cycle: number;
   /** Spec 428 Phase C — drive dispatch mode flag. */
   driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
@@ -109,11 +107,11 @@ export class HeadlessMachineKernel implements MachineKernel {
   // first-divergence diff tooling in Spec 205.
   private readonly irqRing = new KernelIrqRing(4096);
 
-  // Spec 204: TrueDrive hook hygiene. Mode is widened by Spec 207; for
-  // now `mode` is a private mutable field starting at "debug-lockstep".
-  // `hooks` registers every legacy rescue hook; `recordHookFire` is the
-  // single entry point hook callsites use to record + audit fires.
-  private mode: KernelMode = "debug-lockstep";
+  // Spec 204: TrueDrive hook hygiene. `hooks` registers every legacy rescue
+  // hook; `recordHookFire` is the single entry point hook callsites use to
+  // record + audit fires.
+  // Spec 723.7b: starts at "true-drive" (debug-lockstep removed).
+  private mode: KernelMode = "true-drive";
   readonly hooks: HookRegistry = new HookRegistry(() => this.mode);
 
   // Spec 200-c3: shared IEC bus. Created here because both C64 (CIA2)
@@ -471,8 +469,11 @@ export class HeadlessMachineKernel implements MachineKernel {
 
     // Spec 204: register every legacy rescue hook. `allowedModes`
     // = modes in which the hook may fire without raising
-    // HookForbiddenError. None of these are allowed in `true-drive`.
-    const debugOnly: readonly KernelMode[] = ["debug-lockstep"];
+    // HookForbiddenError. Spec 723.7b: with debug-lockstep gone, these legacy
+    // rescue hooks are allowed in NO mode — if one ever fires it raises
+    // HookForbiddenError, surfacing a regression (the product path never
+    // triggers them).
+    const debugOnly: readonly KernelMode[] = [];
     this.hooks.register("atn-poke-7c", debugOnly);
     this.hooks.register("iec-release-clk", debugOnly);
     this.hooks.register("iec-release-data", debugOnly);
@@ -906,12 +907,7 @@ export class HeadlessMachineKernel implements MachineKernel {
   }
 
   private syncStrategy(): SyncStrategy {
-    if (this.session.useCycleLockstep && this.session.scheduler) {
-      return new LockstepStrategy(
-        this.session.scheduler,
-        () => this.c64Cpu.cycles,
-      );
-    }
+    // Spec 723.7b: event-catchup is the only drive-sync strategy.
     return this.eventCatchup;
   }
 

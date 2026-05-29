@@ -44,16 +44,11 @@ import { installCia2 } from "./peripherals/cia2.js";
 import type { Cia6526Vice } from "./cia/cia6526-vice.js";
 // Spec 723.3c: KERNAL fast-trap layer (traps/kernal-*) removed — the product
 // path runs the real KERNAL with no traps.
-import { CycleLockstepSchedulerImpl } from "./scheduler/cycle-lockstep-scheduler.js";
 import { TraceRegistry } from "./trace/channels.js";
 import {
   BusAccessTraceProducerImpl,
   type BusAccessTraceProducer,
 } from "./trace/bus-access.js";
-import {
-  AlarmContextCycled, VicCycled, SidCycled,
-  KeyboardCycled,
-} from "./scheduler/cycle-wrappers.js";
 import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
 import {
   type AlarmContext,
@@ -129,8 +124,8 @@ export interface IntegratedSessionOptions {
   // real CIA2 → drive ATN handler runs and releases ATN_ACK.
   enableKernalSerialTraps?: boolean;
   enableKernalIoTraps?: boolean;
-  // Sprint 92: enable cycle-lockstep scheduler. Default false.
-  useCycleLockstep?: boolean;
+  // Spec 723.7b: useCycleLockstep removed — the cycle-lockstep scheduler is
+  // gone; event-catchup is the only drive-sync path.
   // Spec 723.4a: useMicrocodedCpu removed — the microcoded Cpu65xxVice is the
   // only product CPU, built unconditionally.
   /**
@@ -194,22 +189,14 @@ export interface IntegratedSessionOptions {
   // toggles are gone (Spec 304 had already flipped them on by default;
   // 5c removed the legacy off-states with the non-literal renderer +
   // batched vic.tick path).
-  // Spec 302 (debug-lockstep only, → 723.7): route CPU bus stall to the
-  // literal port `ba_low` instead of VicIIVice.getBusStallForCycle().
-  // Consumed only under useCycleLockstep + usePerCycleBusStealing.
-  useLiteralPortVicStall?: boolean;
+  // Spec 723.7b: useLiteralPortVicStall + usePerCycleBusStealing removed with
+  // the cycle-lockstep scheduler (their only consumer). Bus stealing is folded
+  // into the CPU's BA-low handling on the per-cycle literal path (Spec 425).
   // Spec 282: VIC palette selection. Default = "colodore" (modern
   // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
   // palette) for byte-exact VICE pixel-diff regression. See
   // src/runtime/headless/vic/palettes.ts for the full list.
   palette?: import("./vic/palettes.js").PaletteKey;
-  // Spec 280g: opt-in per-cycle VIC bus stealing. When true, the
-  // cycle-lockstep scheduler queries vic.getBusStallForCycle() before
-  // each CPU step and stalls the CPU one cycle at a time when VIC
-  // owns the bus (badline matrix DMA + sprite DMA). Default false
-  // (= legacy block accounting via VicIIVice.computeLineSteal).
-  // Requires useCycleLockstep=true.
-  usePerCycleBusStealing?: boolean;
 }
 
 export interface PrgLoadResult {
@@ -265,11 +252,9 @@ export class IntegratedSession {
   // per-cycle tickLitVic() driver. Always allocated (Spec 723.5c: the
   // literal port is the unconditional product VIC path).
   public literalPortFb?: Uint8Array;
-  // Spec 302 (debug-lockstep only, → 723.7): route CPU bus stall to literal
-  // port ba_low. Consumed under useCycleLockstep + usePerCycleBusStealing.
-  public useLiteralPortVicStall: boolean = false;
-  // Spec 302: last ba_low captured from litCycle.vicii_cycle() — read
-  // by busStallForNextC64Cycle when useLiteralPortVicStall is on.
+  // Spec 302: last ba_low captured from litCycle.vicii_cycle(). Retained in
+  // the checkpoint blob (serialize/restore); not used for runtime gating
+  // since the CPU folds BA-low itself on the per-cycle path (Spec 425).
   private lastLitBaLow: 0 | 1 = 0;
   // Spec 307: literal driver state — moved out of onCycle closure so
   // tickLitVic() can be called directly from stepMicrocodedC64Instruction.
@@ -295,10 +280,6 @@ export class IntegratedSession {
   public readonly enableKernalFileIoTraps: boolean;
   public readonly enableKernalSerialTraps: boolean;
   public readonly enableKernalIoTraps: boolean;
-  // Sprint 92: cycle-lockstep scheduler. Optional opt-in for now via
-  // useCycleLockstep option. Default false for back-compat.
-  public readonly scheduler?: CycleLockstepSchedulerImpl;
-  public readonly useCycleLockstep: boolean;
   // Spec 200-c1: per-session monolithic emulator kernel. Owns clocks,
   // alarms, trace, status. Construction happens early in the session
   // constructor so subsequent chip wiring reads from kernel-owned
@@ -340,7 +321,6 @@ export class IntegratedSession {
       enableKernalFileIoTraps: this.enableKernalFileIoTraps,
       enableKernalSerialTraps: this.enableKernalSerialTraps,
       enableKernalIoTraps: this.enableKernalIoTraps,
-      useCycleLockstep: this.useCycleLockstep,
       traceIec: this.iecBus.isTraceEnabled(),
       traceDrive: this.drivePcTraceCapacity > 0,
     });
@@ -374,7 +354,6 @@ export class IntegratedSession {
       enableKernalFileIoTraps: opts.enableKernalFileIoTraps,
       enableKernalSerialTraps: opts.enableKernalSerialTraps,
       enableKernalIoTraps: opts.enableKernalIoTraps,
-      useCycleLockstep: opts.useCycleLockstep,
       traceIec: opts.traceIec,
       traceDrive: opts.traceDrive,
     });
@@ -383,7 +362,6 @@ export class IntegratedSession {
       enableKernalFileIoTraps: resolvedFlags.enableKernalFileIoTraps,
       enableKernalSerialTraps: resolvedFlags.enableKernalSerialTraps,
       enableKernalIoTraps: resolvedFlags.enableKernalIoTraps,
-      useCycleLockstep: resolvedFlags.useCycleLockstep,
       traceIec: resolvedFlags.traceIec,
       traceDrive: resolvedFlags.traceDrive,
     };
@@ -415,29 +393,11 @@ export class IntegratedSession {
     // (false); microcoded is the product CPU (true). The mode preset already
     // resolves these for named modes — this also covers the direct
     // boolean/"custom" path so no caller silently falls back to legacy.
-    this.useCycleLockstep = opts.useCycleLockstep ?? false;
-
-    // Spec 622 §4.0 (2026-05-20) — do NOT force useCycleLockstep in vice
-    // mode. The earlier force (Spec 614.3) globally switched the C64/VIC
-    // into the per-cycle CycleLockstepScheduler, but that is not
-    // VICE-shaped and is the prime perf cost:
-    //   - the vice drive is ALREADY event-driven (afterCycleSync=undefined;
-    //     the bridge's pushFlush.one/all → vice.tickToClock(clk) catches the
-    //     1541 up to the exact $DD00 R/W clock, exactly like VICE's
-    //     iecbus_cpu_*_conf1 → drive_cpu_execute_one). The Spec 614.3
-    //     per-c64-cycle drive tick was already reverted as over-engineering.
-    //   - VIC cycle-accuracy comes from the CPU tick calling vicii_cycle()
-    //     per cycle (Spec 425) in BOTH scheduler paths — proven by the
-    //     Spec 600 proof-gate screenshots, which run eventCatchup
-    //     (useCycleLockstep=false) and are pixel-exact.
-    // So vice mode runs the VICE-shaped EventCatchupStrategy (instruction-
-    // stepped C64 + drive catch-up at IEC events) like every other mode.
-    // useCycleLockstep stays opt-driven (default false) and is still
-    // reachable explicitly for probes/bisects.
-    //
-    // Verification gates (Spec 622 §4.0): proof-oracle pixel diff = 0,
-    // 616/617 byte-fidelity + check:1541-fidelity green, motm gold
-    // fastloader swimlane 0 byte-divergence.
+    // Spec 723.7b: the cycle-lockstep scheduler is gone. The runtime runs the
+    // VICE-shaped event-catchup path unconditionally: the C64 CPU tick() calls
+    // vicii_cycle() per cycle (Spec 425) for VIC cycle-accuracy, and the vice
+    // drive is event-driven (pushFlush → drive1541.tickToClock at IEC events,
+    // like VICE's iecbus_cpu_*_conf1 → drive_cpu_execute_one).
 
     // Spec 200-c2 + c3 + c4: kernel created up-front. Kernel constructor
     // owns alarm contexts, C64-side chips (iecBus, c64Bus, romSet,
@@ -453,7 +413,6 @@ export class IntegratedSession {
       deviceId: opts.deviceId ?? 8,
       startTrack: opts.startTrack ?? 18,
       writeProtected: opts.writeProtected,
-      useCycleLockstep: this.useCycleLockstep,
       driveCyclesPerC64Cycle: this.driveCyclesPerC64Cycle,
       driveDispatchMode: opts.driveDispatchMode,
     });
@@ -510,9 +469,6 @@ export class IntegratedSession {
     // Spec 723.5c: the literal port is the unconditional product VIC path.
     // Renderer install + per-cycle interleave + literal IO reads + literal
     // IRQ + literal renderToPng are no longer gated behind opts.
-    // Spec 302 (debug-lockstep only, → 723.7): literal bus-stall sampling
-    // defaults on; consumed only under useCycleLockstep + per-cycle steal.
-    this.useLiteralPortVicStall = opts.useLiteralPortVicStall ?? true;
     this.installLiteralPortRenderer();
     // Spec 093: trace wiring. timeSource bound to c64Cpu cycles via getter.
     this.iecBus.timeSource = () => this.c64Cpu.cycles;
@@ -531,83 +487,10 @@ export class IntegratedSession {
     // Spec 203-c4: (re)attach onInterruptServiced to the CPU.
     this.kernel.installCpuInterruptHooks();
     this.c64Cpu.reset();
-    const cpuComponent: any = this.c64Cpu;
+    // Spec 723.7b: the cycle-lockstep scheduler is gone. Event-catchup is the
+    // only drive-sync path (the C64 CPU's tick() owns CLK_INC + the per-cycle
+    // VIC hook; the vice drive advances via pushFlush → drive1541.tickToClock).
 
-    if (this.useCycleLockstep) {
-      const c64Components = [
-        cpuComponent,
-        // Sprint 113 Phase 2 (Spec 146): alarm-driven CIAs no longer
-        // need per-cycle ticks. Instead a single AlarmContextCycled
-        // dispatches all maincpu alarms (CIA1 + CIA2 timers, TOD, SDR)
-        // up to the current C64 clock each cycle. Mirrors the VICE
-        // CPU loop's PROCESS_ALARMS macro behaviour for the lockstep
-        // path where the CPU itself isn't responsible for dispatch.
-        new AlarmContextCycled(this.maincpuAlarmContext, () => this.c64Cpu.cycles),
-        new VicCycled(this.vic),
-        new SidCycled(this.sid),
-        new KeyboardCycled(this.keyboard),
-      ];
-      // Spec 704 §11 R3 — vice-only: the scheduler ticks no legacy drive
-      // (disableLockstepDriveTick was already true in vice mode). The vice
-      // drive advances via eventCatchup / pushFlush → drive1541.tickToClock.
-      const driveComponents: import("./scheduler/cycle-steppable.js").CycleSteppable[] = [];
-      // Spec 280g: enable per-cycle bus stealing on the VIC chip.
-      // Scheduler will query vic.getBusStallForCycle() before each CPU
-      // step. When stalled, CPU does NOT step; cpu.cycles still bumps
-      // so peripherals + drive (driven off cpu cycle delta) stay in
-      // sync, and master clock advances normally.
-      if (opts.usePerCycleBusStealing) {
-        this.vic.usePerCycleBusStealing = true;
-      }
-      this.scheduler = new CycleLockstepSchedulerImpl({
-        c64Components, driveComponents,
-        c64IsAtInstructionBoundary: () => cpuComponent.isAtInstructionBoundary?.() ?? true,
-        c64Pc: () => this.c64Cpu.pc,
-        isPal,
-        // Sprint 93.1: per-cycle IRQ/NMI pin update (VICE pattern).
-        updateInterruptLines: () => this.updateMicrocodedInterruptLines(),
-        // Sprint 96: scheduler ticks peripherals + drive by CPU cycle
-        // delta. Required so IRQ service / branch page-cross / illegal
-        // burn don't desync drive timing during IEC bit-bang.
-        cpuCycleCounter: () => (cpuComponent as any).cycles,
-        // Spec 138 probe options. Spec 614.3 overrides for vice drive
-        // (see afterCycleSync below): drive1541="vice" forces
-        // disableLockstepDriveTick on (legacy DriveCpu stays quiet in
-        // vice mode per Spec 612 T3.2-fix-O; per-cycle drive tick
-        // happens through drive1541.tickToClock).
-        tickDriveFirst: opts.probeMode === "B",
-        // Spec 704 §11 R3 — vice-only: never tick a legacy lockstep drive.
-        disableLockstepDriveTick: true,
-        // Spec 614.3 §3.3 — per-c64-cycle drive tick wiring. In vice
-        // mode, every c64 cycle the scheduler advances the vice1541
-        // drive to the current c64 clk. This is the core fix for
-        // Spec 614 §1 mismatch 1 (atomicity granularity) and §1
-        // mismatch 3 (stable-read failure of drive ROM $E9C0-$E9C3
-        // debpia). VICE equiv: drive_cpu_execute_one called per c64
-        // cycle by maincpu_mainloop (src/maincpu.c).
-        //
-        // For probe variants A/B (legacy lockstep + flush, no vice
-        // drive), the original setSyncBaseline hook is preserved.
-        // Spec 704 §11 R3 — vice-only: the drive ticks only on $DD00 R/W
-        // via pushFlush → vice.tickToClock (event-driven, VICE-shaped).
-        // No per-cycle afterCycleSync drive tick.
-        afterCycleSync: undefined,
-        // Spec 280g per-cycle bus stealing wiring.
-        // Spec 302: when useLiteralPortVicStall on, sample literal
-        // port ba_low (captured in onCycle hook from prior
-        // vicii_cycle() call) instead of VicIIVice. Off-by-one alignment
-        // matches VICE semantic ("ba_low computed in cycle N gates
-        // Φ2 of cycle N+1" via prefetch countdown).
-        busStallForNextC64Cycle: opts.usePerCycleBusStealing
-          ? (this.useLiteralPortVicStall
-              ? () => this.lastLitBaLow === 1
-              : () => this.vic.getBusStallForCycle())
-          : undefined,
-        advanceC64CpuCycleOnStall: opts.usePerCycleBusStealing
-          ? () => { (this.c64Cpu as { cycles: number }).cycles += 1; }
-          : undefined,
-      });
-    }
     // Spec 142: bus-access trace producer wiring. Pass live object
     // references for c64Cpu / drive.cpu / via1 — producer reads
     // pc/cycles/ifr at emit time so live property reads = correct
@@ -628,8 +511,8 @@ export class IntegratedSession {
         c64Cpu: this.c64Cpu as unknown as { pc: number; cycles: number; isAtInstructionBoundary?: () => boolean },
         driveCpu: driveCpuView as unknown as { pc: number; cycles: number; isAtInstructionBoundary?: () => boolean },
         schedule: {
-          c64Cycle: () => this.scheduler ? this.scheduler.c64Cycle() : this.c64Cpu.cycles,
-          driveCycle: () => this.scheduler ? this.scheduler.driveCycle() : self.driveDebug().drive_clk,
+          c64Cycle: () => this.c64Cpu.cycles,
+          driveCycle: () => self.driveDebug().drive_clk,
         },
         iecBus: this.iecBus,
       });
@@ -965,25 +848,8 @@ export class IntegratedSession {
   }
 
   stepC64Instruction(): void {
-    if (this.scheduler) {
-      // Sprint 92: route through cycle-lockstep scheduler. Trap path
-      // still checked at instruction boundary BEFORE delegating to
-      // scheduler — traps short-circuit a real instruction.
-      const trapped = this.checkAndHandleTraps();
-      if (trapped) {
-        // Trap consumed an "instruction" worth of cycles. Run scheduler
-        // for ~7 cycles to advance peripherals + drive.
-        this.scheduler.runCycles(7);
-        this.sampleDrivePc();
-        // Spec 205-A c4: traps are not real instructions; they don't
-        // emit a "cpu" trace edge (CPU's onInstructionComplete fires
-        // for real instructions only).
-        return;
-      }
-      this.scheduler.runInstructions(1);
-      this.sampleDrivePc();
-      return;
-    }
+    // Spec 723.7b: the cycle-lockstep scheduler is gone — event-catchup is the
+    // only step path (below).
     // Spec 064 Sprint 69b: KERNAL file-IO traps now opt-in via
     // enableKernalFileIoTraps. Default is real KERNAL serial via
     // CIA1 timer + drive ROM bit-bang. Trap path kept as fallback
@@ -1182,7 +1048,6 @@ export class IntegratedSession {
       diskPath: string;
       mode: SessionMode;
       modeReport: SessionModeReport;
-      useCycleLockstep: boolean;
       driveClockRatio: number;
       enableKernalFileIoTraps: boolean;
       enableKernalSerialTraps: boolean;
@@ -1216,7 +1081,6 @@ export class IntegratedSession {
         diskPath: this.diskPath,
         mode: this.mode,
         modeReport: this.modeReport(),
-        useCycleLockstep: this.useCycleLockstep,
         driveClockRatio: this.driveClockRatio,
         enableKernalFileIoTraps: this.enableKernalFileIoTraps,
         enableKernalSerialTraps: this.enableKernalSerialTraps,

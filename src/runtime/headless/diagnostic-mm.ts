@@ -24,7 +24,6 @@ export interface DiagnoseMmOptions {
 
 export type StallVerdict =
   | "title-or-progress"
-  | "tool-config-not-lockstep"
   | "tool-config-no-microcoded-cpu"
   | "c64-stuck-at-watch-pc"
   | "c64-stuck-tight-loop"
@@ -39,7 +38,6 @@ export interface DiagnoseMmReport {
   diskPath: string;
   imageFormat: string;
   config: {
-    useCycleLockstep: boolean;
     driveClockRatio: number;
     enableKernalFileIoTraps: boolean;
     enableKernalSerialTraps: boolean;
@@ -103,13 +101,9 @@ export function diagnoseMm(session: IntegratedSession, opts: DiagnoseMmOptions =
   let watchPcSinceCycles = -1;
   const CHUNK = 4096; // C64 instructions per polling chunk.
 
-  // Pre-flight checks — Spec 093 §2 reject misleading success.
-  const cfg0 = session.status().runtime;
-  if (!cfg0.useCycleLockstep) {
-    return finalize("tool-config-not-lockstep",
-      "Session not in cycle-lockstep mode. Custom-loader IEC handshake cannot work. Restart with use_cycle_lockstep=true.");
-  }
-  // Spec 723.4c: microcoded CPU is unconditional — no flag check needed.
+  // Spec 723.7b: the runtime is single-path (event-catchup + microcoded CPU +
+  // vice1541). No lockstep pre-flight check — the diagnostic runs the product
+  // path directly.
 
   try {
     while (session.c64Cpu.cycles - startCycles < o.cycleBudget) {
@@ -177,7 +171,6 @@ export function diagnoseMm(session: IntegratedSession, opts: DiagnoseMmOptions =
       diskPath: s.runtime.diskPath,
       imageFormat: s.runtime.imageFormat,
       config: {
-        useCycleLockstep: s.runtime.useCycleLockstep,
         driveClockRatio: s.runtime.driveClockRatio,
         enableKernalFileIoTraps: s.runtime.enableKernalFileIoTraps,
         enableKernalSerialTraps: s.runtime.enableKernalSerialTraps,
@@ -246,7 +239,6 @@ function blameLines(iec: any) {
 function summaryFor(v: StallVerdict): string {
   switch (v) {
     case "title-or-progress": return "Run completed within budget without detecting a stall.";
-    case "tool-config-not-lockstep": return "Session was not in cycle-lockstep mode.";
     case "tool-config-no-microcoded-cpu": return "Session lacked microcoded CPU.";
     case "c64-stuck-at-watch-pc": return "C64 stuck at watch PC (default $46A7) — IEC handshake wait. See blame.";
     case "c64-stuck-tight-loop": return "C64 stuck in a tight loop. See finalState.c64.pc.";
@@ -263,7 +255,6 @@ function questionnaire(session: IntegratedSession, _v: StallVerdict): Array<{ q:
   const trace = session.getIecTrace();
   const propagationOk = trace.some((e) => e.side === "c64") && trace.some((e) => e.side === "drive");
   return [
-    { q: "Did the session run with useCycleLockstep=true?", a: String(s.runtime.useCycleLockstep) },
     { q: "IEC trace captured at least one C64 + one drive edge?", a: String(propagationOk) },
     { q: "ATN line state at end (1=released, 0=pulled)", a: String(iec.line.atn ? 1 : 0) },
     { q: "CLK line state at end (1=released, 0=pulled)", a: String(iec.line.clk ? 1 : 0) },

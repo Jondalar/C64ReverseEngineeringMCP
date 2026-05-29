@@ -20,7 +20,11 @@ console.log("Spec 723 — probe-single-path\n");
 // ---- Check 1: startIntegratedSession({}) = product path ----
 const { session, sessionId } = startIntegratedSession({});
 try {
-  ok(session.useCycleLockstep === false, "1a default useCycleLockstep === false", `got ${session.useCycleLockstep}`);
+  // Spec 723.7b: the cycle-lockstep scheduler is gone — there is no
+  // useCycleLockstep flag and no `scheduler` field on the session.
+  ok(!("useCycleLockstep" in session) && session.scheduler === undefined,
+    "1a no cycle-lockstep flag/scheduler on session",
+    `useCycleLockstep_in=${"useCycleLockstep" in session} scheduler=${session.scheduler}`);
   // Spec 723.4a: useMicrocodedCpu flag removed — the product CPU is unconditionally
   // the microcoded Cpu65xxVice. Verify by the c64Cpu class, not a flag.
   const cpuName = session.c64Cpu?.constructor?.name ?? "(none)";

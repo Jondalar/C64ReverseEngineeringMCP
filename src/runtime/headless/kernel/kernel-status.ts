@@ -11,23 +11,19 @@ import type { HookStatus } from "./kernel-hooks.js";
  *   - true-drive         — real KERNAL + real 1541, no hidden hooks.
  *   - debug-vice-compare — true-drive + trace/diff instrumentation.
  *
- * Diagnostic modes (NOT acceptance-gated):
- *   - debug-lockstep   — opt-in `LockstepStrategy` (Spec 200 default,
- *                        demoted by Spec 202).
+ * (Spec 723.7b: debug-lockstep removed with the cycle-lockstep scheduler.)
  */
 // Spec 723.3: fast-trap / real-kernal removed.
 // Spec 723.7a: debug-push-only / debug-hybrid removed (dead label-only modes).
+// Spec 723.7b: debug-lockstep removed.
 export type KernelMode =
   | "true-drive"
-  | "debug-vice-compare"
-  | "debug-lockstep";
+  | "debug-vice-compare";
 
 export const PRODUCTION_MODES: readonly KernelMode[] = [
   "true-drive", "debug-vice-compare",
 ] as const;
-export const DIAGNOSTIC_MODES: readonly KernelMode[] = [
-  "debug-lockstep",
-] as const;
+export const DIAGNOSTIC_MODES: readonly KernelMode[] = [] as const;
 
 export function isProductionMode(m: KernelMode): boolean {
   return PRODUCTION_MODES.includes(m);

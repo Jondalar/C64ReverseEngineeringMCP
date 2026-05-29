@@ -200,8 +200,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         `Session: ${sessionId}`,
         `Disk: ${disk_path}`,
         `Image format: ${status.runtime.imageFormat}`,
-        `Mode: ${status.runtime.mode} (traps=${status.runtime.modeReport.traps} microcoded=${status.runtime.modeReport.microcoded} lockstep=${status.runtime.modeReport.lockstep} channels=${status.runtime.modeReport.channels})`,
-        `Runtime: useCycleLockstep=${status.runtime.useCycleLockstep} (CPU: microcoded Cpu65xxVice)`,
+        `Mode: ${status.runtime.mode} (traps=${status.runtime.modeReport.traps} microcoded=${status.runtime.modeReport.microcoded} channels=${status.runtime.modeReport.channels})`,
+        `Runtime: event-catchup (CPU: microcoded Cpu65xxVice)`,
         `Drive clock ratio: ${status.runtime.driveClockRatio.toFixed(6)} (drive cycles per C64 cycle)`,
         `KERNAL traps: fileio=${status.runtime.enableKernalFileIoTraps} serial=${status.runtime.enableKernalSerialTraps} io=${status.runtime.enableKernalIoTraps}`,
         `IEC trace: ${status.runtime.iecTraceEnabled ? "ON" : "off"}  Drive PC trace cap: ${status.runtime.drivePcTraceCapacity}`,
@@ -459,11 +459,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { mkdirSync, writeFileSync } = await import("node:fs");
       const { dirname, join } = await import("node:path");
       const projectRoot = resolveHeadlessProjectDir(context, project_dir);
-      // Spec 723.2: lockstep is debug/oracle-only and hard-named via the mode,
-      // not a free boolean. diagnose_mm is an explicit diagnostic tool.
+      // Spec 723.7b: lockstep is gone; diagnose_mm runs the product event-catchup
+      // path with full IEC/drive trace channels enabled (debug-vice-compare).
       const { sessionId, session } = startIntegratedSession({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
-        mode: "debug-lockstep",
+        mode: "debug-vice-compare",
         traceIec: true, traceIecCapacity: 4096,
         traceDrive: true, traceDriveCapacity: 2048,
       });
@@ -503,7 +503,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const lines: string[] = [
         `headless_integrated_session_diagnose_mm — session ${sessionId}`,
         `Disk: ${disk_path}`,
-        `Format: ${report.imageFormat}  lockstep=${report.config.useCycleLockstep}  ratio=${report.config.driveClockRatio.toFixed(6)}`,
+        `Format: ${report.imageFormat}  ratio=${report.config.driveClockRatio.toFixed(6)}`,
         `Verdict: ${report.run.verdict}`,
         `Summary: ${report.run.summary}`,
         `Cycles: ${report.run.cyclesExecuted} (budget ${report.run.cycleBudget})  duration=${report.run.durationMs}ms`,
