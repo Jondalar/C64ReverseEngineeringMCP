@@ -56,7 +56,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // query state. headless_drive_persist_writes flushes modifications
   // to <image>_session.g64.
   server.tool(
-    "headless_drive_session_start",
+    "runtime_drive_session_start",
     "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. Returns a session id usable with the other headless_drive_* tools. Drive emulation runs cycle-accurately with full 6522 VIA + IEC bus modelling. The drive boots via its bundled DOS ROM (resources/roms/dos1541-...bin). For test/runtime tracing of custom loaders and save-game RE.",
     {
       disk_path: z.string().describe("Path to the G64 disk image."),
@@ -65,7 +65,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       pal: z.boolean().optional().describe("PAL timing if true (default), NTSC if false."),
       write_protected: z.boolean().optional().describe("If true, drive treats the image as write-protected."),
     },
-    safeHandler("headless_drive_session_start", async ({ disk_path, start_track, device_id, pal, write_protected }) => {
+    safeHandler("runtime_drive_session_start", async ({ disk_path, start_track, device_id, pal, write_protected }) => {
       const { startDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const record = startDriveSession({
         diskPath: disk_path,
@@ -91,12 +91,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_drive_status",
+    "runtime_drive_status",
     "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. Use after running drive code to verify state.",
     {
       session_id: z.string(),
     },
-    safeHandler("headless_drive_status", async ({ session_id }) => {
+    safeHandler("runtime_drive_status", async ({ session_id }) => {
       const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
@@ -119,12 +119,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_iec_bus_state",
+    "runtime_iec_bus_state",
     "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
     {
       session_id: z.string(),
     },
-    safeHandler("headless_iec_bus_state", async ({ session_id }) => {
+    safeHandler("runtime_iec_bus_state", async ({ session_id }) => {
       const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
@@ -216,7 +216,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_integrated_session_run",
+    "runtime_session_run",
     "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. Drive runs proportional cycles per the dual-clock accumulator. Optional breakpoints + cycle budget abort. Spec 099 (M1.2): optional `until` selects a named stopping condition (overrides max_instructions for the natural exit). Returns counts + final PC.",
     {
       session_id: z.string(),
@@ -233,7 +233,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         frames_stable: z.number().int().min(1).optional().describe("Frames-stable threshold (for kind=stable_screen). Default 3."),
       }).optional().describe("Named stop condition. If set, runs until satisfied (or budget exhausted) instead of max_instructions."),
     },
-    safeHandler("headless_integrated_session_run", async ({ session_id, max_instructions, breakpoints, cycle_budget, until }) => {
+    safeHandler("runtime_session_run", async ({ session_id, max_instructions, breakpoints, cycle_budget, until }) => {
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -296,13 +296,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_integrated_session_snapshot",
+    "runtime_session_snapshot",
     "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. Round-trippable via the matching restore API. Default skips full 64KB RAM; pass include=[\"ram\"] to expand.",
     {
       session_id: z.string(),
       include: z.array(z.enum(["ram", "tracks"])).optional().describe("Optional include sections."),
     },
-    safeHandler("headless_integrated_session_snapshot", async ({ session_id, include }) => {
+    safeHandler("runtime_session_snapshot", async ({ session_id, include }) => {
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -318,10 +318,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_integrated_session_status",
+    "runtime_session_status",
     "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
     { session_id: z.string() },
-    safeHandler("headless_integrated_session_status", async ({ session_id }) => {
+    safeHandler("runtime_session_status", async ({ session_id }) => {
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -439,7 +439,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   // Spec 093: Maniac Mansion G64 lockstep regression diagnostic.
   server.tool(
-    "headless_integrated_session_diagnose_mm",
+    "runtime_diagnose_mm",
     "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted). Writes a registered JSON artifact under analysis/headless/ and returns a one-line verdict + key blame. Cycle-lockstep + microcoded CPU enforced; tool will refuse misleading success.",
     {
       disk_path: z.string().describe("Disk image path (G64 expected)."),
@@ -451,7 +451,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       pal: z.boolean().optional(),
       output_path: z.string().optional().describe("Override JSON output path. Default = <project>/analysis/headless/mm-g64-lockstep-debug.json."),
     },
-    safeHandler("headless_integrated_session_diagnose_mm", async ({
+    safeHandler("runtime_diagnose_mm", async ({
       disk_path, project_dir, cycle_budget, stall_pc_repeat, watch_pc, device_id, pal, output_path,
     }) => {
       const { startIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
@@ -479,7 +479,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       mkdirSync(dirname(outPath), { recursive: true });
       writeFileSync(outPath, JSON.stringify(report, null, 2));
       const reg = context.tryRegisterKnowledgeArtifacts(projectRoot, {
-        toolName: "headless_integrated_session_diagnose_mm",
+        toolName: "runtime_diagnose_mm",
         title: `MM G64 lockstep diagnostic — ${report.run.verdict}`,
         parameters: {
           disk_path,
@@ -490,7 +490,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         outputs: [{
           path: outPath, kind: "report", scope: "analysis",
           format: "application/json", role: "mm-g64-lockstep-debug",
-          producedByTool: "headless_integrated_session_diagnose_mm",
+          producedByTool: "runtime_diagnose_mm",
           tags: ["spec-093", "headless", "iec-debug"],
         }],
         notes: [
@@ -522,13 +522,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_render_screen",
+    "runtime_render_screen",
     "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. Text mode only in Phase 65b; bitmap + sprites in Phase 65d/e. Returns the file path + dimensions + bytes written.",
     {
       session_id: z.string(),
       path: z.string().describe("Output PNG path"),
     },
-    safeHandler("headless_render_screen", async ({ session_id, path }) => {
+    safeHandler("runtime_render_screen", async ({ session_id, path }) => {
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -549,13 +549,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_drive_session_save_vsf",
+    "runtime_drive_session_save_vsf",
     "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
     {
       session_id: z.string(),
       output_path: z.string(),
     },
-    safeHandler("headless_drive_session_save_vsf", async ({ session_id, output_path }) => {
+    safeHandler("runtime_drive_session_save_vsf", async ({ session_id, output_path }) => {
       const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const { saveDriveSessionVsf } = await import("../runtime/headless/vsf/drive-vsf.js");
       const record = getDriveSession(session_id);
@@ -576,13 +576,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_drive_session_load_vsf",
+    "runtime_drive_session_load_vsf",
     "Spec 062 Sprint 64: load a VSF file into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import VICE-saved state.",
     {
       session_id: z.string(),
       input_path: z.string(),
     },
-    safeHandler("headless_drive_session_load_vsf", async ({ session_id, input_path }) => {
+    safeHandler("runtime_drive_session_load_vsf", async ({ session_id, input_path }) => {
       const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const { loadDriveSessionVsf } = await import("../runtime/headless/vsf/drive-vsf.js");
       const record = getDriveSession(session_id);
@@ -605,13 +605,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
-    "headless_drive_persist_writes",
+    "runtime_drive_persist_writes",
     "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
     {
       session_id: z.string(),
       output_path: z.string().optional().describe("Optional override for the session-G64 output path."),
     },
-    safeHandler("headless_drive_persist_writes", async ({ session_id, output_path }) => {
+    safeHandler("runtime_drive_persist_writes", async ({ session_id, output_path }) => {
       const { persistDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
       const result = persistDriveSession(session_id, output_path);
       // Spec 704 §11 R3 — vice-backed PersistResult { written, outputPath?, note? }.

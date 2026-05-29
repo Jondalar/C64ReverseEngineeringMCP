@@ -7,17 +7,16 @@
 ## Totals
 - **271** registered tools.
 - **102** (38%) have a `Spec NNN` in the description (history-encoded, not capability-first).
-- **71** are advanced-tier candidates (vice / maintenance / drive-only / sandbox).
-- Default-candidate (façade/workflow): **200**.
+- **68** are advanced-tier candidates (vice / maintenance / drive-only / sandbox).
+- Default-candidate (façade/workflow): **203**.
 
 ## By namespace
 
 | namespace | tools |
 |-----------|-------|
-| `runtime_*` | 52 |
+| `runtime_*` | 63 |
 | `vice_*` | 49 |
 | `list_*` | 17 |
-| `headless_*` | 11 |
 | `save_*` | 10 |
 | `build_*` | 9 |
 | `depack_*` | 8 |
@@ -141,17 +140,6 @@
 | `extract_g64_sectors` | extract | server-tools/disk-g64.ts |  | default? |  | Decode a G64 track via GCR and write one file per decoded sector for low-level inspection. |
 | `get_artifact_lineage` | get | project-knowledge/mcp-tools.ts |  | default? |  | Return the V0..Vn version chain for an artifact (oldest→newest). |
 | `get_project_profile` | get | project-knowledge/mcp-tools.ts |  | default? |  | Read the current project profile (platform, title, metadata). |
-| `headless_drive_persist_writes` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. |
-| `headless_drive_session_load_vsf` | headless | server-tools/headless.ts | Y | advanced? |  | Spec 062 Sprint 64: load a VSF file into a drive session. |
-| `headless_drive_session_save_vsf` | headless | server-tools/headless.ts | Y | advanced? |  | Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. |
-| `headless_drive_session_start` | headless | server-tools/headless.ts | Y | advanced? |  | Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. |
-| `headless_drive_status` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. |
-| `headless_iec_bus_state` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. |
-| `headless_integrated_session_diagnose_mm` | headless | server-tools/headless.ts | Y | default? |  | Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at  |
-| `headless_integrated_session_run` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. |
-| `headless_integrated_session_snapshot` | headless | server-tools/headless.ts | Y | default? |  | Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. |
-| `headless_integrated_session_status` | headless | server-tools/headless.ts | Y | default? | runtime_status | Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source. |
-| `headless_render_screen` | headless | server-tools/headless.ts | Y | default? | runtime_export_screenshot | Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. |
 | `import_analysis_report` | import | project-knowledge/mcp-tools.ts |  | default? |  | Import a saved analysis JSON artifact into structured entities and findings. |
 | `import_annotations_as_findings` | import | server-tools/analysis-workflow.ts |  | default? |  | Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification. |
 | `import_manifest_artifact` | import | project-knowledge/mcp-tools.ts |  | default? |  | Import a saved manifest artifact into structured entities, findings, and relations. |
@@ -229,11 +217,18 @@
 | `runtime_breakpoint_add` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 241 — add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst). |
 | `runtime_breakpoint_list` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 241 — list all registered breakpoints. |
 | `runtime_breakpoint_remove` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 241 — remove breakpoint by id. |
+| `runtime_diagnose_mm` | runtime | server-tools/headless.ts | Y | default? |  | Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at  |
 | `runtime_diff_snapshots` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 246 — semantic diff between two VSF snapshot files. |
+| `runtime_drive_persist_writes` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. |
+| `runtime_drive_session_load_vsf` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 64: load a VSF file into a drive session. |
+| `runtime_drive_session_save_vsf` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. |
+| `runtime_drive_session_start` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. |
+| `runtime_drive_status` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. |
 | `runtime_export_audio` | runtime | server-tools/runtime.ts | Y | default? | runtime_audio_export | Spec 269 / 263 — export WAV audio for a scenario. |
 | `runtime_export_screenshot` | runtime | server-tools/runtime.ts | Y | default? | headless_render_screen | Spec 269 — export PNG screenshot for a scenario. |
 | `runtime_export_video` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed). |
 | `runtime_follow_path` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 233 — follow causal chain back from an event. |
+| `runtime_iec_bus_state` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. |
 | `runtime_input_load_config` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent. |
 | `runtime_input_load_vicerc` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2). |
 | `runtime_input_save_config` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json. |
@@ -254,6 +249,7 @@
 | `runtime_query_events` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 232 — query event-indexed trace store. |
 | `runtime_regression_capture_baseline` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 250 — LLM-explicit baseline capture for a scenario. |
 | `runtime_regression_compare` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 250 — compare current scenario run against captured baseline. |
+| `runtime_render_screen` | runtime | server-tools/headless.ts | Y | default? |  | Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. |
 | `runtime_resolve_pc` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 235 — resolve PC to project label/routine/segment/source-line. |
 | `runtime_run_scenario` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes. |
 | `runtime_run_scenarios_parallel` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 271 — run multiple scenarios in parallel via worker_threads. |
@@ -263,7 +259,10 @@
 | `runtime_scenario_list` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. |
 | `runtime_scenario_load` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — load a single scenario by id. |
 | `runtime_scenario_save` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — save a scenario JSON to project dir (or samples if no project dir). |
+| `runtime_session_run` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. |
+| `runtime_session_snapshot` | runtime | server-tools/headless.ts | Y | default? |  | Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. |
 | `runtime_session_start` | runtime | server-tools/headless.ts |  | default? |  | Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). |
+| `runtime_session_status` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source. |
 | `runtime_snapshot_tree` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — return the full branch tree for a rewind session. |
 | `runtime_status` | runtime | server-tools/runtime.ts | Y | default? | headless_integrated_session_status | Spec 237 — AgentQueryApi facade introspection. |
 | `runtime_step_into` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 248 — single-step one instruction. |

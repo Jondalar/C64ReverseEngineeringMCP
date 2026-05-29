@@ -72,6 +72,33 @@ then remove the headless_ duplicate (capability preserved).
   namespace is no longer a product-facing second door. Gate: build:mcp +
   probe-tool-surface (+ any smoke that drove the removed tools).
 
+## CORRECTION (2026-05-29, 722.4b equivalence check)
+
+The "4 MERGE duplicates" were NOT duplicates — the equivalence check disproved
+the name-similarity assumption:
+- `runtime_status` = AgentQueryApi facade introspection + cycle counts, NOT the
+  CPU+IEC+drive machine snapshot of `headless_integrated_session_status`.
+- `runtime_until` = run-to-PC; `headless_integrated_session_run` = run-N
+  instructions + named stop conditions + breakpoints.
+- `runtime_save_vsf` / `runtime_snapshot_tree` = VSF bytes / rewind tree;
+  `headless_integrated_session_snapshot` = structured CPU+RAM+IEC+drive dump.
+- `runtime_export_screenshot` = scenario→PNG; `headless_render_screen` =
+  live-session-state→PNG.
+
+So removing them would have LOST capability. Correct action = **RENAME** (like
+4a), not remove. **722.4a + 722.4b together renamed ALL 15 headless_* → runtime_*
+(advanced); zero removals, zero capability loss; the headless_* namespace is now
+empty (probe-tool-surface check 15).**
+
+Final renames (4b):
+`..._status→runtime_session_status` · `..._run→runtime_session_run` ·
+`..._snapshot→runtime_session_snapshot` · `headless_render_screen→runtime_render_screen`
+· `..._diagnose_mm→runtime_diagnose_mm` · `headless_iec_bus_state→runtime_iec_bus_state`
+· `headless_drive_session_{start,load_vsf,save_vsf}→runtime_drive_session_*` ·
+`headless_drive_status→runtime_drive_status` ·
+`headless_drive_persist_writes→runtime_drive_persist_writes`.
+All advanced (C64RE_FULL_TOOLS). total tools unchanged (271).
+
 ## Acceptance (722.4 overall)
 No `headless_*` tool in the default surface (already true); the 4 duplicates
 gone; the 4 unique tools live under `runtime_*`; drive-only/debug clearly

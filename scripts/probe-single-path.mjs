@@ -61,7 +61,7 @@ try {
 const headlessSrc = readFileSync(join(ROOT, "src/server-tools/headless.ts"), "utf8");
 const startBlock = headlessSrc.slice(
   headlessSrc.indexOf('"runtime_session_start"'),
-  headlessSrc.indexOf("headless_integrated_session_status"),
+  headlessSrc.indexOf("runtime_session_status"),
 );
 ok(!/use_cycle_lockstep/.test(startBlock),
   "2 runtime_session_start has no use_cycle_lockstep input");

@@ -1,12 +1,11 @@
 {
   "total": 271,
   "specCount": 102,
-  "advancedCandidate": 71,
+  "advancedCandidate": 68,
   "byNamespace": {
-    "runtime": 52,
+    "runtime": 63,
     "vice": 49,
     "list": 17,
-    "headless": 11,
     "save": 10,
     "build": 9,
     "depack": 8,
@@ -589,105 +588,6 @@
       "hasSpec": false,
       "firstSentence": "Read the current project profile (platform, title, metadata).",
       "desc": "Read the current project profile (platform, title, metadata). Use to see top-level project settings. Not for live counts/paths (use project_status). Inputs: none. Returns: profile record.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_drive_persist_writes",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64.",
-      "desc": "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_drive_session_load_vsf",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 64: load a VSF file into a drive session.",
-      "desc": "Spec 062 Sprint 64: load a VSF file into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import VICE-saved state.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "headless_drive_session_save_vsf",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file.",
-      "desc": "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "headless_drive_session_start",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image.",
-      "desc": "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. Returns a session id usable with the other headless_drive_* tools. Drive emulation runs cycle-accurately with full 6522 VIA + IEC bus modelling. The drive boots via its bundled DOS ROM (resources/roms/dos1541-...bin). For test/runtime tracing of custom loaders and save-game RE.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "headless_drive_status",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits.",
-      "desc": "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. Use after running drive code to verify state.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_iec_bus_state",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution.",
-      "desc": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_integrated_session_diagnose_mm",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at ",
-      "desc": "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted). Writes a registered JSON artifact under analysis/headless/ and returns a one-line verdict + key blame. Cycle-lockstep + microcoded CPU enforced; tool will refuse misleading success.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_integrated_session_run",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions.",
-      "desc": "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. Drive runs proportional cycles per the dual-clock accumulator. Optional breakpoints + cycle budget abort. Spec 099 (M1.2): optional `until` selects a named stopping condition (overrides max_instructions for the natural exit). Returns counts + final PC.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_integrated_session_snapshot",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick.",
-      "desc": "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. Round-trippable via the matching restore API. Default skips full 64KB RAM; pass include=[\\\"ram\\\"] to expand.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_integrated_session_status",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
-      "desc": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
-      "tier": "default?"
-    },
-    {
-      "name": "headless_render_screen",
-      "file": "server-tools/headless.ts",
-      "ns": "headless",
-      "hasSpec": true,
-      "firstSentence": "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file.",
-      "desc": "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. Text mode only in Phase 65b; bitmap + sprites in Phase 65d/e. Returns the file path + dimensions + bytes written.",
       "tier": "default?"
     },
     {
@@ -1384,12 +1284,66 @@
       "tier": "default?"
     },
     {
+      "name": "runtime_diagnose_mm",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at ",
+      "desc": "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted). Writes a registered JSON artifact under analysis/headless/ and returns a one-line verdict + key blame. Cycle-lockstep + microcoded CPU enforced; tool will refuse misleading success.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_diff_snapshots",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 246 — semantic diff between two VSF snapshot files.",
       "desc": "Spec 246 — semantic diff between two VSF snapshot files. Returns RAM changedRanges + CPU/CIA/VIC/SID/PLA chip diffs.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_drive_persist_writes",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64.",
+      "desc": "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_drive_session_load_vsf",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 64: load a VSF file into a drive session.",
+      "desc": "Spec 062 Sprint 64: load a VSF file into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import VICE-saved state.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_drive_session_save_vsf",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file.",
+      "desc": "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_drive_session_start",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image.",
+      "desc": "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. Returns a session id usable with the other headless_drive_* tools. Drive emulation runs cycle-accurately with full 6522 VIA + IEC bus modelling. The drive boots via its bundled DOS ROM (resources/roms/dos1541-...bin). For test/runtime tracing of custom loaders and save-game RE.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_drive_status",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits.",
+      "desc": "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. Use after running drive code to verify state.",
       "tier": "default?"
     },
     {
@@ -1426,6 +1380,15 @@
       "hasSpec": true,
       "firstSentence": "Spec 233 — follow causal chain back from an event.",
       "desc": "Spec 233 — follow causal chain back from an event. 5 rules: pc_predecessor, stack_frame, mem_dep, irq_origin, io_dep. Optional cross-domain (c64↔drive via IEC).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_iec_bus_state",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution.",
+      "desc": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
       "tier": "default?"
     },
     {
@@ -1609,6 +1572,15 @@
       "tier": "default?"
     },
     {
+      "name": "runtime_render_screen",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file.",
+      "desc": "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. Text mode only in Phase 65b; bitmap + sprites in Phase 65d/e. Returns the file path + dimensions + bytes written.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_resolve_pc",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
@@ -1690,12 +1662,39 @@
       "tier": "default?"
     },
     {
+      "name": "runtime_session_run",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions.",
+      "desc": "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. Drive runs proportional cycles per the dual-clock accumulator. Optional breakpoints + cycle budget abort. Spec 099 (M1.2): optional `until` selects a named stopping condition (overrides max_instructions for the natural exit). Returns counts + final PC.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_session_snapshot",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick.",
+      "desc": "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. Round-trippable via the matching restore API. Default skips full 64KB RAM; pass include=[\\\"ram\\\"] to expand.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_session_start",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync).",
       "desc": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to IEC bus. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. No mode/lockstep flag needed — defaults are the product path. Returns session id and resolved runtime config.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_session_status",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
+      "desc": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
       "tier": "default?"
     },
     {
