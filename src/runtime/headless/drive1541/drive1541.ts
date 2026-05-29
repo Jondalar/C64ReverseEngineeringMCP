@@ -1,4 +1,6 @@
-export type Drive1541Implementation = "legacy" | "vice";
+// Spec 723.6a: the legacy drive was removed (Spec 704 §11); the only drive
+// implementation is the VICE1541 facade. The "legacy" arm is gone.
+export type Drive1541Implementation = "vice";
 
 export interface Drive1541IecSample {
   drv_data_pull: boolean;

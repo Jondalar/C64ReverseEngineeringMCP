@@ -59,7 +59,7 @@ import {
   type AlarmContext,
 } from "./alarm/alarm-context.js";
 import { HeadlessMachineKernel } from "./kernel/headless-machine-kernel.js";
-import type { Drive1541Implementation, Drive1541DebugProbe } from "./drive1541/drive1541.js";
+import type { Drive1541DebugProbe } from "./drive1541/drive1541.js";
 
 const C64_HZ_PAL = 985248;
 const C64_HZ_NTSC = 1022727;
@@ -142,10 +142,8 @@ export interface IntegratedSessionOptions {
    * - "vice-whole-instruction": VICE drivecpu.c shape (= IM2 Epyx fix).
    */
   driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
-  // Spec 723.4c: drive1541 always resolves to "vice"
-  // (resolveDrive1541Implementation; legacy drive removed per Spec 704 §11).
-  // This vestigial opt is retired in 723.6 (legacy-1541 retirement), not here.
-  drive1541?: Drive1541Implementation;
+  // Spec 723.6a: the drive1541 implementation selector is gone — VICE1541 is
+  // the only drive (legacy removed per Spec 704 §11). No opt to select it.
   // Spec 093: cycle-stamped IEC edge trace (ring buffer in IecBus).
   traceIec?: boolean;
   traceIecCapacity?: number;
@@ -458,7 +456,6 @@ export class IntegratedSession {
       useCycleLockstep: this.useCycleLockstep,
       driveCyclesPerC64Cycle: this.driveCyclesPerC64Cycle,
       driveDispatchMode: opts.driveDispatchMode,
-      drive1541: opts.drive1541,
     });
     this.maincpuAlarmContext = this.kernel.alarms.maincpu;
     this.drivecpuAlarmContext = this.kernel.alarms.drivecpu;

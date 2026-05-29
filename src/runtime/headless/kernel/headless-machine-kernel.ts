@@ -62,11 +62,7 @@ import type {
   Drive1541,
   Drive1541Implementation,
 } from "../drive1541/drive1541.js";
-import {
-  assertDrive1541ImplementationAvailable,
-  createDrive1541,
-  resolveDrive1541Implementation,
-} from "../drive1541/drive1541-factory.js";
+import { createDrive1541 } from "../drive1541/drive1541-factory.js";
 // Spec 612 T3.1 — drv_data[8] live read source for the Vice1541 bridge.
 // The new snake_case port owns the canonical iecbus singleton; the
 // bridge reads from it (NOT from legacy core closure refs).
@@ -88,8 +84,6 @@ export interface HeadlessMachineKernelDeps {
   driveCyclesPerC64Cycle: number;
   /** Spec 428 Phase C — drive dispatch mode flag. */
   driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
-  /** Spec 611 — side-by-side 1541 implementation selector. */
-  drive1541?: Drive1541Implementation;
 }
 
 export interface KernelAlarmContexts {
@@ -164,7 +158,10 @@ export class HeadlessMachineKernel implements MachineKernel {
   readonly imageFormat: string;
   readonly parser: G64Parser;
   diskProvider?: DiskProvider;
-  readonly drive1541Implementation: Drive1541Implementation;
+  // Spec 723.6a: the only drive is the VICE1541 facade. This field is a
+  // constant "vice" (the resolve/assert selection layer is gone); it remains
+  // only because mount.ts still reads it — removed with those guards in 723.6b.
+  readonly drive1541Implementation: Drive1541Implementation = "vice";
   /**
    * Spec 614.3 — per-c64-cycle overlay from vice iecbus → legacy core,
    * installed by `installVice1541Bridge` in vice mode. Called by the
@@ -187,12 +184,12 @@ export class HeadlessMachineKernel implements MachineKernel {
   constructor(deps: HeadlessMachineKernelDeps) {
     this.session = deps.session;
     this.video = deps.video;
-    this.drive1541Implementation = resolveDrive1541Implementation(deps.drive1541);
-    assertDrive1541ImplementationAvailable(this.drive1541Implementation);
+    // Spec 723.6a: drive1541Implementation is the constant "vice" (field
+    // initializer). No resolve/assert selection layer.
     // Spec 611 phase 611.7e.3 — defer drive1541 instantiation to the
     // end of the constructor (after `this.drive` + `this.iecBus` are
-    // wired). The legacy adapter needs both refs; the vice path needs
-    // nothing but we instantiate uniformly here for parity.
+    // wired). The vice path needs nothing here, but we keep the deferred
+    // instantiation point.
     const isPal = this.video === "PAL";
     this.alarms = {
       maincpu: alarmContextNew("maincpu"),
@@ -545,7 +542,7 @@ export class HeadlessMachineKernel implements MachineKernel {
 
     // Spec 611 phase 611.7e.4 + Spec 704 §11 R3 — VICE1541 is the only
     // drive. Construct it and bridge the C64-side IEC view through it.
-    this.drive1541 = createDrive1541("vice");
+    this.drive1541 = createDrive1541();
     // Narrow C64-IEC ↔ Vice1541 bridge: routes the C64-side $DD00
     // write/read path through Vice1541, wrapping the EXISTING IecBus
     // public surface — does NOT mutate IecBusCore formulas, CIA2 PA
