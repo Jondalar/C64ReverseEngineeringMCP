@@ -130,6 +130,16 @@ Each tool → exactly one bucket, citing the doctrine line that justifies it:
 Record as `docs/tool-surface-classification.md`. Confirm the §1 hypotheses
 (namespace merge, audio dup, vice tier, drive-only tier) here — not pre-decided.
 
+### 722.3a — Tool tier gate (code) — DONE (2026-05-29)
+`src/server-tools/tier-tools.ts` (`DEFAULT_TOOLS` = 42 façade tools, cap 45;
+`tierForTool` → unknown = advanced, never silently default) + the gate at the
+`applyPhaseTagInjector` choke-point in `src/server.ts` (skip advanced unless
+`C64RE_FULL_TOOLS`). Guard `scripts/probe-tool-surface.mjs` 9/9: default=42,
+full=271, no vice/runtime/headless/maintenance in default. Inventory corrected
+to 271 (was missing the 80 project-knowledge tools). All `vice_*` are advanced
+(oracle-only; not deleted — full surface intact under `C64RE_FULL_TOOLS`). No
+tool deleted, no rename, no dedup (that is 722.3b/722.4).
+
 ### 722.3 — Namespace merge + dedup (code)
 - Fold `headless_*` runtime tools into the `runtime_*` namespace (one front
   door for the single runtime). Keep backwards aliases ONLY if an external

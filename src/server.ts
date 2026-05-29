@@ -26,6 +26,7 @@ import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { registerTraceStoreTools } from "./server-tools/trace-store.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
+import { tierForTool, fullToolsEnabled } from "./server-tools/tier-tools.js";
 import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
 import { registerViceTools } from "./server-tools/vice.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
@@ -95,10 +96,16 @@ function tryRegisterKnowledgeArtifacts(
 // the inner handler when projectProfile.phaseGateStrict !== true.
 function applyPhaseTagInjector(server: McpServer): void {
   const original = server.tool.bind(server) as (...args: unknown[]) => unknown;
+  const fullTools = fullToolsEnabled();
   (server as { tool: (...args: unknown[]) => unknown }).tool = (...args: unknown[]) => {
     if (args.length >= 2 && typeof args[0] === "string" && typeof args[1] === "string") {
       const toolName = args[0];
       const description = args[1];
+      // Spec 722.3a — tool tier gate. Façade-first: skip ADVANCED tools unless
+      // C64RE_FULL_TOOLS is set. One choke-point; no register* module changes.
+      if (!fullTools && tierForTool(toolName) === "advanced") {
+        return undefined;
+      }
       const tag = phaseForTool(toolName);
       if (tag !== undefined) {
         const prefix = tag === "agnostic" ? "[Phase agnostic]" : `[Phase ${tag}: ${PHASE_TITLES[tag]}]`;

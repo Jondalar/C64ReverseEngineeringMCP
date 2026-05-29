@@ -27,16 +27,21 @@ change. Builds on `docs/tool-surface-inventory.md` (191 tools).
 | ADVANCED | raw runtime / debug / VICE / maintenance / format-detail | register only under `C64RE_FULL_TOOLS` |
 | REWRITE | description leads with `Spec NNN` / steers to superseded flow | rewrite to the §2 template |
 
-## Counts (proposed)
+## Counts (corrected 2026-05-29 — inventory now includes the knowledge tools)
 
-- Total: **191**.
-- **KEEP default façade: ~36** (the product workflow — list below).
-- **ADVANCED: ~150** (vice 49 · runtime 48 · headless 15 · compression-detail
-  ~14 · g64/disk-format detail ~12 · maintenance/bulk ~8 · sandbox 2).
-- **MERGE: ~10** (headless↔runtime overlaps + the audio/monitor dups).
-- **REWRITE: 64** (every spec-numbered description).
+The first inventory cut missed `src/project-knowledge/mcp-tools.ts` (80
+knowledge tools). True totals:
 
-Façade-first means the LLM sees ~36 obvious tools by default, not 191.
+- Total: **271** (server-tools 191 + project-knowledge 80).
+- **KEEP default façade: 42** (shipped in 722.3a `tier-tools.ts`,
+  `scripts/probe-tool-surface.mjs` GREEN; cap 45).
+- **ADVANCED: 229** (vice 49 · runtime 48 · headless 15 · all knowledge
+  maintenance/list/save/build/register detail not in the façade · compression /
+  g64 / sandbox).
+- **MERGE: ~10** (headless↔runtime overlaps + the audio/monitor dups) — 722.4.
+- **REWRITE: 111** (every spec-numbered description) — 722.5.
+
+Façade-first means the LLM sees **42** obvious tools by default, not 271.
 
 ## KEEP — default façade (~36)
 
@@ -110,11 +115,21 @@ if a fresh LLM doing project RE would reach for it, it is default.)
   family — after dedup, name the survivors `runtime_export_{audio,video,png}`
   consistently. No other forced renames.
 
-## REWRITE (64)
+## REWRITE (111)
 
-Every description containing `Spec NNN` (34% of tools) → rewrite to:
+Every description containing `Spec NNN` (41% of tools) → rewrite to:
 `<verb-led one-liner>. Use when <trigger>. Not for <adjacent tool>. Inputs … Returns …`
 Spec numbers move to code comments.
+
+**`vice_*` mandate (722.5):** VICE tools are NOT deleted, but they are advanced
+and must NOT read as a second normal path. The product path is headless/runtime
+C64RE. Every `vice_*` description must say, verbatim sense:
+> "Oracle-only. Use after the headless/runtime path shows a divergence, or when
+> the user explicitly asks for a VICE comparison / source-of-truth check. Not
+> for normal project workflow."
+The tier gate already keeps all `vice_*` out of the default surface (722.3a);
+722.5 fixes the wording so even under `C64RE_FULL_TOOLS` they read as
+oracle/fallback, not an alternate workflow.
 
 ## 722.3 / 722.4 slices (proposed)
 
