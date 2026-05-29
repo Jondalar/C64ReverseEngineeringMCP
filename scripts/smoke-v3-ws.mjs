@@ -10,7 +10,7 @@ const { V3WsServer, encodeBinaryFrame, decodeBinaryFrame, BIN_TYPE_VIC_FRAME } =
 const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
 
 const PORT = 14312; // ephemeral for test
-const server = new V3WsServer({ port: PORT, host: "127.0.0.1" });
+const server = new V3WsServer({ port: PORT, host: "127.0.0.1", projectDir: process.cwd() });
 
 const dummyDisk = resolvePath(repoRoot, "samples/motm.g64");
 const { sessionId } = startIntegratedSession({

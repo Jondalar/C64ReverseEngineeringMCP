@@ -13,7 +13,7 @@ const { V3WsServer } = await import(`${repoRoot}/dist/workspace-ui/v3-ws-server.
 const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
 
 const PORT = 14313;
-const server = new V3WsServer({ port: PORT, host: "127.0.0.1" });
+const server = new V3WsServer({ port: PORT, host: "127.0.0.1", projectDir: process.cwd() });
 
 const { sessionId, session } = startIntegratedSession({
   mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port", drive1541: "vice",

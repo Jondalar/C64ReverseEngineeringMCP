@@ -148,7 +148,7 @@ function rpc(ws, method, params) {
 }
 const driveHasDisk = (session) => !!session.kernel.drive1541?.getAttachedMedia?.();
 
-const server = new V3WsServer({ port: PORT, host: "127.0.0.1" });
+const server = new V3WsServer({ port: PORT, host: "127.0.0.1", projectDir: process.cwd() });
 const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
 const crtPath = resolve("samples/AccoladeComics_TRX+1D_EF.crt");
 

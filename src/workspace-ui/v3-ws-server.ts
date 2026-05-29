@@ -158,9 +158,20 @@ export class V3WsServer {
     seq: number;
   }>();
 
-  constructor(opts: { port?: number; host?: string } = {}) {
+  // Spec 724.3 — the project this WS serves. Media scans read from here, NOT
+  // from process.cwd(). Required (no cwd fallback).
+  private readonly projectDir: string;
+  // Spec 724.3 — opt-in repo `samples/` scan (dev only). Off in production.
+  private readonly devSamples: boolean;
+
+  constructor(opts: { port?: number; host?: string; projectDir: string; devSamples?: boolean }) {
     const port = opts.port ?? V3_WS_PORT;
     const host = opts.host ?? V3_WS_HOST;
+    if (!opts.projectDir) {
+      throw new Error("V3WsServer requires projectDir (Spec 724.3 — no cwd fallback).");
+    }
+    this.projectDir = opts.projectDir;
+    this.devSamples = opts.devSamples ?? false;
     if (host !== "127.0.0.1" && host !== "localhost") {
       console.warn(`[v3-ws] WARNING: binding ${host}:${port} (not localhost). No auth — exposes session to network.`);
     }
@@ -1171,10 +1182,11 @@ export class V3WsServer {
         out.push({ ...r, name: r.name ?? pmod.basename(r.path) });
       }
 
-      // 2. ALWAYS scan top-level samples/ + UNION (= picker shows
-      //    all known disks, not just previously-mounted ones).
+      // 2. Spec 724.3: repo `samples/` only under `--dev-samples` (dev
+      //    convenience). Production media comes from the project dir (§3
+      //    below), never a silent cwd fallback.
       const samplesDir = pmod.join(process.cwd(), "samples");
-      if (fsmod.existsSync(samplesDir)) {
+      if (this.devSamples && fsmod.existsSync(samplesDir)) {
         for (const entry of fsmod.readdirSync(samplesDir).sort()) {
           if (entry.startsWith(".") || entry === "node_modules") continue;
           const full = pmod.join(samplesDir, entry);
@@ -1190,10 +1202,11 @@ export class V3WsServer {
         }
       }
 
-      // 3. $C64RE_PROJECT_DIR — depth-limited recursive scan for IMAGE media
-      //    (.crt/.d64/.g64/.vsf only; skip .prg to avoid flooding the picker
-      //    with analysis-dir PRGs). Surfaces e.g. ef_port/motm_ef.crt.
-      const projDir = process.env["C64RE_PROJECT_DIR"];
+      // 3. Spec 724.3: the project dir (this.projectDir, resolved once at
+      //    startup — NOT process.env) — depth-limited recursive scan for IMAGE
+      //    media (.crt/.d64/.g64/.vsf only; skip .prg to avoid flooding the
+      //    picker with analysis-dir PRGs). Surfaces e.g. ef_port/motm_ef.crt.
+      const projDir = this.projectDir;
       if (projDir && fsmod.existsSync(projDir)) {
         const imgExts = [".crt", ".d64", ".g64", ".vsf"];
         const walk = (dir: string, depth: number) => {
@@ -1575,7 +1588,7 @@ export class V3WsServer {
 
       const pool = new WorkerPool({
         workerCount: n,
-        projectDir: process.env.C64RE_PROJECT_DIR,
+        projectDir: this.projectDir,
         onProgress: (completed, total, currentId) => {
           updateProgress(entry.batchId, completed);
           // Push progress notification to all connected clients.

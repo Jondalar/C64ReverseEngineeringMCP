@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { resolveProjectDir } from "./resolve-project-dir.js";
 import { persistInspectEvidence } from "./inspect-evidence-persist.js";
 import { persistAssetJoin } from "./asset-join-persist.js";
 import type { JoinKnowledge } from "../runtime/headless/inspect/asset-join-knowledge.js";
@@ -67,11 +68,12 @@ interface ServerReply {
 }
 
 function parseArgs(argv: string[]): ServerOptions {
+  // Spec 724.3: project dir via the ONE shared resolver — `--project` > env >
+  // hard error. No cwd fallback (the workspace must be explicit about which
+  // project it serves; usable outside the C64RE repo).
   const options: ServerOptions = {
     port: 4310,
-    projectDir: process.env.C64RE_PROJECT_DIR
-      ? resolve(process.env.C64RE_PROJECT_DIR)
-      : process.cwd(),
+    projectDir: resolveProjectDir(argv, process.env),
     apiOnly: false,
   };
 
@@ -82,8 +84,8 @@ function parseArgs(argv: string[]): ServerOptions {
       index += 1;
       continue;
     }
-    if (arg === "--project" && argv[index + 1]) {
-      options.projectDir = resolve(process.cwd(), argv[index + 1]!);
+    if (arg === "--project") {
+      // consumed by resolveProjectDir; skip its value here.
       index += 1;
       continue;
     }
