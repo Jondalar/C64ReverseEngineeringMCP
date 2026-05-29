@@ -134,13 +134,17 @@ export interface IntegratedSessionOptions {
   // Spec 723.4a: useMicrocodedCpu removed — the microcoded Cpu65xxVice is the
   // only product CPU, built unconditionally.
   /**
-   * Spec 428 Phase C — drive CPU dispatch mode (opt-in flag).
-   * - "cycle-stepped" (default): post-Spec-401 path.
+   * Spec 428 Phase C — drive CPU dispatch mode.
+   * Spec 723.5a: INTERNAL DEBUG/diagnostic only — NOT a public MCP/UI/agent
+   * input and NOT the product path (the product is "cycle-stepped"). Used by
+   * the drive-dispatch diagnostic (smoke-428).
+   * - "cycle-stepped" (default): post-Spec-401 product path.
    * - "vice-whole-instruction": VICE drivecpu.c shape (= IM2 Epyx fix).
    */
   driveDispatchMode?: "cycle-stepped" | "vice-whole-instruction";
-  // Spec 611: side-by-side 1541 rebuild. Default remains "legacy" until
-  // VICE1541 passes the runtime proof gates.
+  // Spec 723.4c: drive1541 always resolves to "vice"
+  // (resolveDrive1541Implementation; legacy drive removed per Spec 704 §11).
+  // This vestigial opt is retired in 723.6 (legacy-1541 retirement), not here.
   drive1541?: Drive1541Implementation;
   // Spec 093: cycle-stamped IEC edge trace (ring buffer in IecBus).
   traceIec?: boolean;
@@ -156,16 +160,20 @@ export interface IntegratedSessionOptions {
   busAccessPcRangesC64?: Array<[number, number]>;
   busAccessPcRangesDrive?: Array<[number, number]>;
   // Spec 138 probe variants. Mutually exclusive.
+  // Spec 723.5a: INTERNAL DEBUG/diagnostic only — NOT public, NOT the product
+  // path (default undefined = production). Used by drive-sync diagnostics
+  // (bus-trace-motm, swimlane capture).
   //   "A" = push-flush at IEC events (lockstep tick stays + flush hook)
   //   "B" = A + scheduler ticks drive BEFORE c64 each cycle
   //   "C" = push-flush only — disable lockstep drive tick entirely
-  // Default undefined = production hybrid (= "A" semantics, but
-  // status quo when bus-access tracing is off).
   probeMode?: "A" | "B" | "C";
   // Spec 140: IEC observable mode.
+  // Spec 723.5a: INTERNAL DEBUG only — NOT public. "vice-cache" is the product
+  // path; "live" is the legacy live-computed line state, kept only for the
+  // divergence diagnostic (diag-iec-divergence). Its removal is tracked under
+  // 723.5b/5c (Fork B — no legacy runtime path kept alive for tests).
   //   "vice-cache" = VICE-bit-exact cached cpu_port/drv_port + read_prb XOR
   //   "live"       = legacy live-computed line state + standard via.read merge
-  // Default = "vice-cache" (Spec 140 v2 milestone).
   iecMode?: "vice-cache" | "live";
   // Spec 141 (Q9): drive head-start before c64 reset deassertion.
   // Replicates real-HW boot order where 1541 boots ~10 PAL frames

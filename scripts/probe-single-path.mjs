@@ -126,5 +126,13 @@ const driveCpuExists = ["src/runtime/headless/vice1541/drive_6510core.ts", "src/
   .every((f) => existsSync(join(ROOT, f)));
 ok(driveCpuExists, "10 vice1541 drive CPU (drive_6510core.ts + drivecpu.ts) intact");
 
+// Check 11 (Spec 723.5a): the VIC literal-port / per-cycle-bus-stealing toggles
+// are internal — no public MCP/UI tool may expose them as an input.
+const toolDirs = [join(ROOT, "src/server-tools"), join(ROOT, "src/workspace-ui")];
+const litPublic = toolDirs.flatMap((d) => walk(d, []))
+  .filter((p) => /useLiteralPort|usePerCycleBusStealing/.test(readFileSync(p, "utf8")));
+ok(litPublic.length === 0, "11 no public useLiteralPort*/usePerCycleBusStealing tool input",
+  litPublic.map((p) => relative(ROOT, p)).join(",") || "none");
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} single-path: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);
