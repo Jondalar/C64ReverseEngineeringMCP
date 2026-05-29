@@ -1,69 +1,69 @@
 # LLM-Human C64RE Swimlane
 
-Ziel: Mensch und LLM arbeiten an einem C64RE-Projekt. Der Einstieg ist geordnet, aber ab der ersten Projektbasis ist die Arbeit nicht linear. Je nach Spiel, Loader, Schutz, Ziel und aktuellem Befund wechseln Trace, Disassembly, Inspect, Changes und Validation in Schleifen.
+Goal: a human and an LLM work together on a C64RE project. The entry is ordered, but from the first project baseline onward the work is not linear. Depending on the game, loader, protection, goal, and current finding, trace, disassembly, inspect, changes, and validation alternate in loops.
 
-## 1. Einstieg und Projektbasis
+## 1. Entry and project baseline
 
-Dieser Teil ist weitgehend linear. Er stellt sicher, dass das LLM weiss, wo es ist, was das Ziel ist und welche Medien/Artefakte existieren.
+This part is largely linear. It makes sure the LLM knows where it is, what the goal is, and which media/artifacts exist.
 
-| Phase | Mensch | LLM / Agent | MCP Project / Knowledge | Headless Runtime | TraceDB / Evidence | Workbench UI |
+| Phase | Human | LLM / Agent | MCP Project / Knowledge | Headless Runtime | TraceDB / Evidence | Workbench UI |
 |---|---|---|---|---|---|---|
-| Einstieg | Startet Claude/Codex im Projektordner und sagt: "Verbinde dich mit dem MCP." | Onboardet, erkennt neues oder bestehendes Projekt, meldet Status. | `agent_onboard`, `project_status`, `get_project_profile`, `c64re_whats_next` |  |  |  |
-| Ziel klaeren | Sagt Ziel: Crack, EasyFlash-Port, Analyse, Bugfix, Routine. | Setzt Rolle/Workflow, fragt nur fehlende Zielinfos ab. | `agent_set_role`, `start_re_workflow`, `agent_propose_next`, `agent_record_step` |  |  |  |
-| Medien bereitstellen | Legt `.d64`, `.g64`, `.crt`, `.prg` und Kontext in den Projektordner. | Sagt, wohin Medien gehoeren, registriert Kontext. | `save_finding`, `save_entity`, `save_open_question`, `list_artifacts` |  |  |  |
-| Inventar | Wartet auf erste Rueckmeldung. | Extrahiert und beschreibt Disk/CRT/PRG-Inhalt. | `inspect_disk`, `extract_disk`, `extract_crt`, `disk_sector_allocation`, `list_payloads`, `read_artifact` |  |  | Projekt-Dashboard aktualisierbar. |
+| Entry | Starts Claude/Codex in the project folder and says: "Connect to the MCP." | Onboards, detects a new or existing project, reports status. | `agent_onboard`, `project_status`, `get_project_profile`, `c64re_whats_next` |  |  |  |
+| Clarify goal | States the goal: crack, EasyFlash port, analysis, bugfix, routine. | Sets role/workflow, asks only for missing goal info. | `agent_set_role`, `start_re_workflow`, `agent_propose_next`, `agent_record_step` |  |  |  |
+| Provide media | Drops `.d64`, `.g64`, `.crt`, `.prg` and context into the project folder. | Says where media belongs, registers context. | `save_finding`, `save_entity`, `save_open_question`, `list_artifacts` |  |  |  |
+| Inventory | Waits for first feedback. | Extracts and describes disk/CRT/PRG content. | `inspect_disk`, `extract_disk`, `extract_crt`, `disk_sector_allocation`, `list_payloads`, `read_artifact` |  |  | Project dashboard can be refreshed. |
 
-## 2. Iterativer Arbeitsraum
+## 2. Iterative workspace
 
-Ab hier ist der Ablauf bewusst nicht linear. Das LLM waehlt den naechsten sinnvollen Schritt nach Projektziel, aktuellem Befund und menschlicher Rueckmeldung.
+From here on the flow is deliberately non-linear. The LLM picks the next sensible step based on the project goal, the current finding, and human feedback.
 
-Moegliche Zyklen:
+Possible cycles:
 
-- `Traces -> Disassembles -> Changes`
-- `Disassembles -> Changes -> Traces`
-- `Disassembles -> Traces zur Validierung/Verbesserung -> Changes`
+- `Trace -> Disassemble -> Change`
+- `Disassemble -> Change -> Trace`
+- `Disassemble -> Trace to validate/improve -> Change`
 - `Runtime/Inspect -> Finding -> Disassembly -> Runtime`
-- `Change -> Runtime-Test -> Trace-Diff -> naechster Change`
+- `Change -> Runtime test -> Trace diff -> next Change`
 
-| Arbeitsstrang | Mensch | LLM / Agent | MCP Project / Knowledge | Headless Runtime | TraceDB / Evidence | Workbench UI |
+| Work strand | Human | LLM / Agent | MCP Project / Knowledge | Headless Runtime | TraceDB / Evidence | Workbench UI |
 |---|---|---|---|---|---|---|
-| Runtime erkunden | Gibt Eingaben: RETURN, FIRE, Joystick, Menuewahl, Diskwechsel. | Startet oder nutzt Session, mountet Medien, laeuft bis sinnvollem Zustand. |  | `runtime_session_start`, `runtime_media_mount`, `runtime_type`, `runtime_joystick`, `runtime_session_run`, `runtime_until`, `runtime_render_screen`, `runtime_session_status` | Screens/Status als Evidence-Kandidaten. | Live-Screen sichtbar. |
-| Freeze / Inspect | Bewertet sichtbaren Zustand: Titel, Loader, Fehler, Menue, Asset. | Captured Checkpoint, liest Register/Speicher/Disasm, resolved VIC-Pixel/Cells. | Findings/Entities koennen entstehen. | `runtime_session_snapshot`, `runtime_monitor_registers`, `runtime_monitor_memory`, `runtime_monitor_disasm`, `runtime_vic_inspect_at` | Checkpoint, VIC-Provenance, Evidence Record. | Freeze/Overlay/Inspector. |
-| Trace aufnehmen | Laesst Runtime laufen oder hilft interaktiv durch Lade-/Spielphasen. | Sichert oder nutzt Trace und setzt/liest relevante Marker. | Trace wird als Projektartefakt referenziert. | `runtime_session_run` | `runtime_query_events`, `trace_store_info`, `trace_store_query`, `trace_store_anchor_list`, `trace_store_anchor_find` | Trace-Status und bounded Views. |
-| Trace auswerten | Fragt: wo haengt der Loader, wo kommt Asset her, was schreibt wohin? | Baut Swimlane, Taint, Loader-Profil, Pfadverfolgung. | `save_finding`, `save_open_question`, `link_entities` |  | `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_profile_loader`, `trace_store_bus_find`, `trace_store_top_pcs` |  |
-| Disassembly starten/verbessern | Bestaetigt, dass Disassembly sinnvoll ist, oder fragt nach Code. | Disassembliert Payloads, verbessert Labels/Annotations mit Runtime-Evidence. | `analyze_prg`, `disasm_prg`, `disasm_menu`, `inspect_address_range`, `c64ref_lookup`, `link_payload_to_asm`, `propose_annotations`, `save_finding` | `runtime_resolve_pc` | Runtime-Refs werden zitiert. | Annotated Listing sichtbar. |
-| Asset semantisch verknuepfen | Markiert Logo/Sprite/Charset/Screenbereich oder fragt danach. | Matcht sichtbare Daten gegen RAM, File/Payload und Code. | `save_finding`, `save_entity`, `link_entities` | `runtime_vic_inspect_at`, `runtime_monitor_memory` | Evidence Record zeigt Quelle. | Overlay/Inspector zeigt Ref. |
-| Change / Patch / Intervention | Entscheidet: Crack, Patch, EF-Port, Fix, Code Overlay, Testbranch. | Erzeugt oder beschreibt Aenderung, haelt Annahmen und Risk fest. | `save_finding`, `save_open_question`, `agent_record_step` | Spaeter: Code-Overlay/Patch-Branch Runtime-Tools. | Vorher/Nachher Evidence. | Branch/Change UI spaeter. |
-| Validation | Testet Ergebnis oder gibt neue Eingaben. | Reproduziert per Runtime, Trace oder Views; entscheidet naechsten Zyklus. | `agent_propose_next`, `agent_record_step`, `build_memory_map`, `build_project_dashboard`, `build_annotated_listing_view`, `build_all_views`, `render_docs` | `runtime_session_run`, `runtime_render_screen`, `runtime_session_snapshot` | Trace-/Checkpoint-Vergleich. | Projektstand sichtbar. |
-| VICE Oracle | Fordert VICE-Vergleich nur bei echter Divergenz. | Nutzt VICE gezielt als Oracle, nicht als Standardworkflow. | Finding mit Oracle-Bezug. | Headless bleibt Primaerpfad. | VICE-Diff als Evidence. |  |
+| Explore runtime | Gives input: RETURN, FIRE, joystick, menu choice, disk swap. | Starts or reuses a session, mounts media, runs to a sensible state. |  | `runtime_session_start`, `runtime_media_mount`, `runtime_type`, `runtime_joystick`, `runtime_session_run`, `runtime_until`, `runtime_render_screen`, `runtime_session_status` | Screens/status as evidence candidates. | Live screen visible. |
+| Freeze / inspect | Judges the visible state: title, loader, error, menu, asset. | Captures a checkpoint, reads registers/memory/disasm, resolves VIC pixels/cells. | Findings/entities can emerge. | `runtime_session_snapshot`, `runtime_monitor_registers`, `runtime_monitor_memory`, `runtime_monitor_disasm`, `runtime_vic_inspect_at` | Checkpoint, VIC provenance, evidence record. | Freeze/overlay/inspector. |
+| Capture trace | Lets the runtime run or helps interactively through load/play phases. | Saves or uses a trace and sets/reads relevant markers. | Trace is referenced as a project artifact. | `runtime_session_run` | `runtime_query_events`, `trace_store_info`, `trace_store_query`, `trace_store_anchor_list`, `trace_store_anchor_find` | Trace status and bounded views. |
+| Analyze trace | Asks: where does the loader hang, where does the asset come from, what writes where? | Builds swimlane, taint, loader profile, path following. | `save_finding`, `save_open_question`, `link_entities` |  | `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_profile_loader`, `trace_store_bus_find`, `trace_store_top_pcs` |  |
+| Start/improve disassembly | Confirms the disassembly makes sense, or asks for code. | Disassembles payloads, improves labels/annotations with runtime evidence. | `analyze_prg`, `disasm_prg`, `disasm_menu`, `inspect_address_range`, `c64ref_lookup`, `link_payload_to_asm`, `propose_annotations`, `save_finding` | `runtime_resolve_pc` | Runtime refs are cited. | Annotated listing visible. |
+| Link asset semantically | Marks logo/sprite/charset/screen region, or asks about it. | Matches visible data against RAM, file/payload, and code. | `save_finding`, `save_entity`, `link_entities` | `runtime_vic_inspect_at`, `runtime_monitor_memory` | Evidence record shows the source. | Overlay/inspector shows the ref. |
+| Change / patch / intervention | Decides: crack, patch, EF port, fix, code overlay, test branch. | Creates or describes the change, records assumptions and risk. | `save_finding`, `save_open_question`, `agent_record_step` | Later: code-overlay/patch-branch runtime tools. | Before/after evidence. | Branch/change UI later. |
+| Validation | Tests the result or gives new input. | Reproduces via runtime, trace, or views; decides the next cycle. | `agent_propose_next`, `agent_record_step`, `build_memory_map`, `build_project_dashboard`, `build_annotated_listing_view`, `build_all_views`, `render_docs` | `runtime_session_run`, `runtime_render_screen`, `runtime_session_snapshot` | Trace/checkpoint comparison. | Project state visible. |
+| VICE oracle | Requests a VICE comparison only on genuine divergence. | Uses VICE deliberately as an oracle, not as the standard workflow. | Finding with an oracle reference. | Headless stays the primary path. | VICE diff as evidence. |  |
 
-## 3. Loop-Regel
+## 3. Loop rule
 
-Nach jedem substantiellen Schritt macht das LLM drei Dinge:
+After every substantial step the LLM does three things:
 
-1. Ergebnis im Projekt speichern, nicht nur im Chat.
-2. Den naechsten sinnvollen Schritt vorschlagen.
-3. Begruenden, warum jetzt Trace, Disassembly, Inspect, Change oder Validation dran ist.
+1. Save the result in the project, not just in the chat.
+2. Propose the next sensible step.
+3. Justify why trace, disassembly, inspect, change, or validation is the right thing to do now.
 
-Es gibt keinen festen Zwang, erst komplett zu tracen oder erst komplett zu disassemblieren. Die richtige Reihenfolge ist projektabhaengig.
+There is no hard requirement to fully trace first or fully disassemble first. The right order is project-dependent.
 
-## 4. Default-Tool-Konsequenz
+## 4. Default-tool consequence
 
-Das Default-MCP muss diesen iterativen Arbeitsraum tragen. Es darf nicht nur statische Analyse/Knowledge anbieten.
+The default MCP must support this iterative workspace. It must not offer only static analysis/knowledge.
 
-Default sichtbar:
+Default-visible:
 
-- Agent/Workflow: `agent_onboard`, `agent_propose_next`, `agent_record_step`, `start_re_workflow`
+- Agent/workflow: `agent_onboard`, `agent_propose_next`, `agent_record_step`, `start_re_workflow`
 - Knowledge: `save_finding`, `save_entity`, `save_open_question`, `list_*`, `read_artifact`, `link_*`
-- Medien/Extraktion: `inspect_disk`, `extract_disk`, `extract_crt`, `disk_sector_allocation`
-- Analyse/Disassembly: `analyze_prg`, `disasm_prg`, `disasm_menu`, `inspect_address_range`, `c64ref_lookup`
+- Media/extraction: `inspect_disk`, `extract_disk`, `extract_crt`, `disk_sector_allocation`
+- Analysis/disassembly: `analyze_prg`, `disasm_prg`, `disasm_menu`, `inspect_address_range`, `c64ref_lookup`
 - Headless Runtime: `runtime_session_start`, `runtime_media_mount`, `runtime_session_run`, `runtime_type`, `runtime_joystick`, `runtime_render_screen`, `runtime_session_snapshot`
-- Monitor/Inspect: `runtime_monitor_registers`, `runtime_monitor_memory`, `runtime_monitor_disasm`, `runtime_until`, `runtime_resolve_pc`, `runtime_vic_inspect_at`
-- Trace/Evidence: `runtime_query_events`, `trace_store_*`, `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_profile_loader`
+- Monitor/inspect: `runtime_monitor_registers`, `runtime_monitor_memory`, `runtime_monitor_disasm`, `runtime_until`, `runtime_resolve_pc`, `runtime_vic_inspect_at`
+- Trace/evidence: `runtime_query_events`, `trace_store_*`, `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_profile_loader`
 
-Nicht Default:
+Not default:
 
-- `vice_*`: Oracle/Backup bei Divergenz.
-- Drive-only Debug-Tools.
-- Maintenance/Backfill/Repair/Bulk.
-- Alte Runtime-Modi, Lockstep-Schalter, Legacy-Pfade.
+- `vice_*`: oracle/backup on divergence.
+- Drive-only debug tools.
+- Maintenance/backfill/repair/bulk.
+- Old runtime modes, lockstep switches, legacy paths.
