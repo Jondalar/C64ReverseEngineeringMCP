@@ -77,6 +77,42 @@ mode options (removed in 723.3) — would 400 on submit.
   entry (no `ui/index.html`/`ui/dist`); HTTP + WS report the same `projectDir`;
   no post-723 removed runtime key in the bootstrap; project path required.
 
+## 8. Feature-diff: v1 vs v3 (724.2a) — why v1 must NOT be deleted
+
+v3 is ONLY the emulator workbench. All workspace/knowledge/analysis screens are
+v1. Deleting v1 = losing product function. Consolidation = ONE shell that hosts
+both, NOT deletion.
+
+**v1** — `ui/src/App.tsx` + `ui/src/components/**`, entry `ui/src/main.tsx`,
+REST via `server.ts` knowledge API. 11 tabs:
+
+| tab | purpose | REST deps (sample) |
+|-----|---------|--------------------|
+| Dashboard | project status / audit / workflow runner | `/api/workspace`, `/api/audit`, `/api/per-artifact-status` |
+| Questions | open questions | `/api/open-question`, `/api/tasks` |
+| Docs | rendered project docs | `/api/docs`, `/api/document` |
+| Memory Map | address-space map | `/api/artifact`, `/api/segment` |
+| Graphics | sprite/charset/bitmap preview | `/api/graphics`, `/api/graphics-marks` |
+| Scrub | segment scrub + annotate | `/api/scrub/annotate-segment`, `/api/segment` |
+| Disk | disk image layout | `/api/disk`, `/api/disk/assemble-chain` |
+| Cartridge | cart layout | `/api/artifact`, `/api/depack` |
+| Payloads | payload list + reverse workflow | `/api/run-payload-workflow`, `/api/depack` |
+| Flow Graph | control-flow view | `/api/artifact`, `/api/annotations` |
+| Annotated Listing | disasm + annotations | `/api/artifact/raw`, `/api/annotations` |
+
+(~24 `/api/*` endpoints total served by `server.ts`.)
+
+**v3** — `ui/src/v3/**`, entry `ui/src/v3/main.tsx`, WS :4312 (kinds:
+`debug/*`, `audio/*`, `batch/*`). 7 tabs: Live · Trace · Monitor · Media ·
+Scenarios · Snapshots · Export.
+
+**Target shell (724.2b-d):** one nav, four groups, both backends —
+Project/Knowledge (Dashboard, Questions, Docs) · Media/Extraction (Disk,
+Cartridge, Payloads, Graphics, Media) · Code (Memory Map, Flow Graph, Annotated
+Listing) · Runtime (Live, Trace, Monitor, Scenarios, Snapshots, Export). Move
+v1 screens in as components (reuse, same `/api/*`); remove the v1 entry only
+after all are reachable.
+
 ## 7. Out of scope (flag for a follow-up, not 724)
 - ROM/resource loading (`resources/roms/**`) repo-relativity — if the MCP can't
   find ROMs outside the repo that is a separate install/packaging concern.

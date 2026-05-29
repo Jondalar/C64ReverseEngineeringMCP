@@ -69,11 +69,36 @@ no single project-path source** — not the transport count.
 - List every project-path entry point + every `process.cwd()` use in
   `workspace-ui/**`.
 
-### 724.2 — Retire v1 UI (code)
-- Remove `ui/index.html`, `ui/vite.config.ts`, the `ui/dist` build, the v1
-  `ui:dev`/`ui:build` scripts, and the v1-serve branch in `server.ts`.
-- Keep `server.ts` as the knowledge HTTP API (it stays; it serves the v3 UI +
-  REST). Gate: `ui:v3:build` + the UI loads.
+### 724.2 — One UI shell (NOT "delete v1") (code)
+**Correction (2026-05-29):** v1 is NOT dead weight — it holds all the
+workspace/knowledge/analysis screens; v3 is only the emulator workbench. The
+goal is ONE shell that contains BOTH worlds. Delete nothing until every screen
+is reachable in the one UI.
+
+Current split (feature-diff, see `docs/ui-server-consolidation-audit.md` §8):
+- **v1** (`ui/src/App.tsx` + `ui/src/components/**`, REST via server.ts, 11 tabs):
+  Dashboard · Questions · Docs · Memory Map · Graphics · Scrub · Disk ·
+  Cartridge · Payloads · Flow Graph · Annotated Listing.
+- **v3** (`ui/src/v3/**`, WS :4312, 7 tabs): Live · Trace · Monitor · Media ·
+  Scenarios · Snapshots · Export.
+
+Target shell groups (one nav, both backends):
+- **Project/Knowledge** — Dashboard, Questions, Docs (REST)
+- **Media/Extraction** — Disk, Cartridge, Payloads, Graphics (REST) + Media (WS)
+- **Code** — Memory Map, Flow Graph, Annotated Listing (REST)
+- **Runtime** — Live, Trace, Monitor (WS) + Scenarios, Snapshots, Export (WS)
+
+Sequence (no capability loss at any step):
+1. (724.2a, audit-only) feature-diff: v1 tabs + REST deps vs v3 tabs + WS deps
+   → done in the audit doc.
+2. (724.2b) one v3/Workbench shell with the four groups above; the shell talks
+   to BOTH the HTTP (REST) and WS backends.
+3. (724.2c) move the v1 screens into the shell as components — reuse, not
+   rewrite. Each lands behind its group, still hitting the same `/api/*`.
+4. (724.2d) ONLY after every v1 screen is reachable in the shell: remove
+   `ui/index.html` + the v1 entry route; `server.ts` serves the one UI.
+- Gate per step: `ui:v3:build` + `ui:v3:typecheck` + the moved screens render
+  against the live REST API.
 
 ### 724.3 — One project path, fanned out (code)
 - Single resolver: `resolveProjectDir(argv, env)` (one precedence:
