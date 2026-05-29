@@ -149,6 +149,15 @@ tool deleted, no rename, no dedup (that is 722.3b/722.4).
   `runtime_export_audio` → one); consolidate the export family.
 - Gate: build + `runtime:proof` 7/7 + affected smokes.
 
+### 722.4 namespace audit — DONE (2026-05-29)
+`docs/headless-runtime-namespace-audit.md`: 15 `headless_*` (all advanced) → 4
+MERGE (duplicates of runtime_status/until/save_vsf/export_screenshot), 4 RENAME
+(unique product → `runtime_session_start`/`runtime_load_prg`/`runtime_type`/
+`runtime_joystick`), 7 ADVANCED-keep (drive-only + debug). UI uses none; callers
+= headless.ts + phase-tools + probe-single-path. Code slices: 722.4a (rename the
+4 unique) / 722.4b (merge-remove the 4 duplicates after equivalence check +
+drive-only sub-namespace).
+
 ### 722.4 — Tier gate (code)
 Add `src/server-tools/tier-tools.ts` (mirrors
 `agent-orchestrator/phase-tools.ts`): `tool name → "default" | "advanced"`.
