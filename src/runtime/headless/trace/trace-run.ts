@@ -15,11 +15,17 @@ import {
   type RuntimeTraceDefinition, type RuntimeTraceRun, type TraceTrigger,
 } from "./trace-definition.js";
 import {
-  openTraceRunStore, writeTraceRun, closeTraceRunStore, type TraceEventRow,
+  openTraceRunStore, appendTraceEvents, writeTraceRunHeader, closeTraceRunStore,
+  type TraceEventRow, type TraceRunStore,
 } from "./trace-run-store.js";
 import { snapshotSha256 } from "../kernel/native-snapshot.js";
 
-const MAX_BUFFERED_EVENTS = 500_000; // bounded storage guard (§2.3)
+// Spec 726.2 — bounded transport queue between the sync hot-path observer and
+// the async DuckDB drain. NOT a storage cap: events are NEVER dropped. The
+// chunked run loop calls drain() between chunks (emulator paused) to keep the
+// queue near this depth; exceeding it only signals backpressure (the run should
+// drain more often / chunk smaller), it does not truncate.
+const QUEUE_SOFT_LIMIT = 200_000;
 
 export interface TraceRunStartContext {
   controller: RuntimeController;
@@ -43,10 +49,13 @@ interface ActiveRun {
   run: RuntimeTraceRun;
   dispose: () => void;
   prior: { name: ChannelName; was: boolean }[];
-  events: TraceEventRow[];
+  queue: TraceEventRow[];      // bounded transport, drained to DuckDB
+  store: TraceRunStore;        // open store; written incrementally
+  totalEvents: number;         // events already flushed to DuckDB
+  totalBytes: number;
   startWall: number;
   capturing: boolean;
-  overflow: boolean;
+  overflow: boolean;           // soft backpressure signal (NOT a drop)
 }
 
 const CHANNEL_TO_CAPTURE: Partial<Record<ChannelName, string>> = {
@@ -80,8 +89,10 @@ export class TraceRunController {
       startCheckpointId = (await ctrl.captureCheckpoint()).id;
     }
 
+    // Spec 726.2 — open the DuckDB store NOW; events stream into it during the
+    // run via drain(). (Was: buffer all in RAM, write once at stop.)
+    const store = await openTraceRunStore(ctx.outputPath);
     const cycleStart = ctrl.session.c64Cpu.cycles;
-    const events: TraceEventRow[] = [];
     const triggers = def.triggers;
     const stop = def.stop;
     let seq = 0;
@@ -104,7 +115,9 @@ export class TraceRunController {
 
     const dispose = trace.registerObserver((ev: TraceEvent) => {
       const a = this.active;
-      if (!a || !a.capturing || a.overflow) return;
+      // Spec 726.2: do NOT gate on overflow — overflow is only a backpressure
+      // warning; events are never dropped. Capturing stops only on def stop.
+      if (!a || !a.capturing) return;
       if (!chanSet.has(ev.channel)) return;
       // iec line-change derivation (for iec-transition.line filtering).
       let changedIec: Set<string> | undefined;
@@ -124,19 +137,41 @@ export class TraceRunController {
       const captureKind = CHANNEL_TO_CAPTURE[ev.channel] ?? "raw";
       if (!declaredCaptures.has(captureKind as never)) return;
       const dataJson = JSON.stringify(ev.data ?? {});
-      events.push({
+      a.queue.push({
         seq: seq++, cycle: ev.ts, channel: ev.channel,
         triggerKind: matched, captureKind,
         dataJson,
       });
-      if (events.length >= MAX_BUFFERED_EVENTS) { a.overflow = true; a.capturing = false; return; }
-      // bounded stop conditions — stop CAPTURING (flush happens on stop())
-      if (stop?.kind === "event-count" && events.length >= (stop.value ?? Infinity)) a.capturing = false;
+      // Spec 726.2 — bounded transport: NEVER drop. The chunked run loop drains
+      // between chunks; if the queue runs past the soft limit within one chunk,
+      // signal backpressure (the run should drain more often / chunk smaller).
+      if (a.queue.length >= QUEUE_SOFT_LIMIT) a.overflow = true;
+      // bounded stop conditions — stop CAPTURING (def-driven, not a drop).
+      const total = a.totalEvents + a.queue.length;
+      if (stop?.kind === "event-count" && total >= (stop.value ?? Infinity)) a.capturing = false;
       else if (stop?.kind === "cycle-budget" && (ev.ts - cycleStart) >= (stop.value ?? Infinity)) a.capturing = false;
     });
 
-    this.active = { def, ctx, run, dispose, prior, events, startWall: Date.now(), capturing: true, overflow: false };
+    this.active = {
+      def, ctx, run, dispose, prior, store,
+      queue: [], totalEvents: 0, totalBytes: 0,
+      startWall: Date.now(), capturing: true, overflow: false,
+    };
     return run;
+  }
+
+  /** Spec 726.2 — flush the transport queue into the open DuckDB store. Called
+   *  from the run-loop chunk boundary (emulator paused) so the async write never
+   *  overlaps stepping. Idempotent; safe when the queue is empty. */
+  async drain(): Promise<void> {
+    const a = this.active;
+    if (!a || a.queue.length === 0) return;
+    const batch = a.queue;
+    a.queue = [];
+    await appendTraceEvents(a.store, a.run.runId, batch);
+    a.totalEvents += batch.length;
+    a.totalBytes += batch.reduce((n, e) => n + e.dataJson.length, 0);
+    if (a.queue.length < QUEUE_SOFT_LIMIT) a.overflow = false;
   }
 
   /** Explicit evidence marker (§3 manual mark; acceptance #3). */
@@ -151,8 +186,8 @@ export class TraceRunController {
     if (!a) return { active: false };
     return {
       active: true, runId: a.run.runId, definitionId: a.def.id,
-      eventCount: a.events.length,
-      bytesBuffered: a.events.reduce((n, e) => n + e.dataJson.length, 0),
+      eventCount: a.totalEvents + a.queue.length,
+      bytesBuffered: a.totalBytes + a.queue.reduce((n, e) => n + e.dataJson.length, 0),
       marks: a.run.marks.length, overflowed: a.overflow, capturing: a.capturing,
     };
   }
@@ -171,14 +206,16 @@ export class TraceRunController {
       a.run.stopCheckpointId = (await a.ctx.controller.captureCheckpoint()).id;
     }
 
+    // Spec 726.2 — drain the remaining queued events into the already-open
+    // store, then write the trace_run header + marks with the final counts.
+    await this.drain();
     a.run.cycleEnd = a.ctx.controller.session.c64Cpu.cycles;
-    a.run.eventCount = a.events.length;
-    a.run.bytesWritten = a.events.reduce((n, e) => n + e.dataJson.length, 0);
+    a.run.eventCount = a.totalEvents;
+    a.run.bytesWritten = a.totalBytes;
     a.run.overheadMs = Date.now() - a.startWall;
 
-    const store = await openTraceRunStore(a.ctx.outputPath);
-    try { await writeTraceRun(store, a.run, a.def, a.events); }
-    finally { await closeTraceRunStore(store); }
+    try { await writeTraceRunHeader(a.store, a.run, a.def); }
+    finally { await closeTraceRunStore(a.store); }
 
     this.active = null;
     return a.run;

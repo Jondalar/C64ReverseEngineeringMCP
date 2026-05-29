@@ -57,11 +57,32 @@ export async function openTraceRunStore(path: string): Promise<TraceRunStore> {
   return { conn, inst, path };
 }
 
-export async function writeTraceRun(
+/** Spec 726.2 — STREAMING: append a batch of trace_event rows into the open
+ *  store. Called from the run-loop chunk boundary (emulator paused). Bounded SQL
+ *  via 500-row chunks. Safe to call before the trace_run header exists (no FK). */
+export async function appendTraceEvents(
+  store: TraceRunStore,
+  runId: string,
+  events: TraceEventRow[],
+): Promise<void> {
+  if (events.length === 0) return;
+  const { conn } = store;
+  const CHUNK = 500;
+  for (let i = 0; i < events.length; i += CHUNK) {
+    const slice = events.slice(i, i + CHUNK);
+    const values = slice.map((e) =>
+      `(${sq(runId)}, ${num(e.seq)}, ${num(e.cycle)}, ${sq(e.channel)}, ${sq(e.triggerKind)}, ${sq(e.captureKind)}, ${sq(e.dataJson)})`,
+    ).join(", ");
+    await conn.run(`INSERT INTO trace_event VALUES ${values}`);
+  }
+}
+
+/** Spec 726.2 — write the trace_run header + trace_mark rows. Done at STOP, when
+ *  final counts (cycleEnd / eventCount / bytesWritten / overheadMs) are known. */
+export async function writeTraceRunHeader(
   store: TraceRunStore,
   run: RuntimeTraceRun,
   def: RuntimeTraceDefinition,
-  events: TraceEventRow[],
 ): Promise<void> {
   const { conn } = store;
   await conn.run(
@@ -73,21 +94,22 @@ export async function writeTraceRun(
     `${num(run.eventCount)}, ${num(run.bytesWritten)}, ${run.overheadMs == null ? "NULL" : run.overheadMs}, ` +
     `${sq(def.retention)}, ${sq(new Date().toISOString())})`,
   );
-
-  // batch trace_event inserts (chunks keep the SQL string bounded)
-  const CHUNK = 500;
-  for (let i = 0; i < events.length; i += CHUNK) {
-    const slice = events.slice(i, i + CHUNK);
-    const values = slice.map((e) =>
-      `(${sq(run.runId)}, ${num(e.seq)}, ${num(e.cycle)}, ${sq(e.channel)}, ${sq(e.triggerKind)}, ${sq(e.captureKind)}, ${sq(e.dataJson)})`,
-    ).join(", ");
-    await conn.run(`INSERT INTO trace_event VALUES ${values}`);
-  }
-
   if (run.marks.length > 0) {
     const values = run.marks.map((m) => `(${sq(run.runId)}, ${num(m.cycle)}, ${sq(m.label)})`).join(", ");
     await conn.run(`INSERT INTO trace_mark VALUES ${values}`);
   }
+}
+
+/** Legacy one-shot writer (scenario path / tests): header + all events + marks
+ *  in one call. The streaming path uses appendTraceEvents + writeTraceRunHeader. */
+export async function writeTraceRun(
+  store: TraceRunStore,
+  run: RuntimeTraceRun,
+  def: RuntimeTraceDefinition,
+  events: TraceEventRow[],
+): Promise<void> {
+  await writeTraceRunHeader(store, run, def);
+  await appendTraceEvents(store, run.runId, events);
 }
 
 export async function closeTraceRunStore(store: TraceRunStore): Promise<void> {
