@@ -68,6 +68,18 @@ explanatory comments (no live class) — comment tidy optional, not code residue
 So the product drive path is already unconditionally vice1541; 723.6 removes the
 illusion of choice, it does not change the runtime path.
 
+## Status (2026-05-29): 6a + 6b + 6c DONE
+
+- **6a** (commit `620f1b8`) — selection layer deleted; build + probe green.
+- **6b** (commit `25558e9`) — mount.ts vice-guards collapsed; build +
+  proof-kernal-load + proof-directory-load + runtime:proof 7/7 green.
+  `kernel.drive1541Implementation` kept as a constant `"vice"` status field
+  (proof scripts assert it — it became a single-path indicator, not dead code).
+- **6c** — probe-single-path checks 13-15b added (21/21). Spec 723 updated.
+- Pre-existing (NOT a 723.6 regression): `smoke-611-7f-vice-load-directory`
+  fails on a stale golden screen-SHA (fails at the 6a baseline too); the
+  equivalent `proof-directory-load` is GREEN. Flag for a golden refresh.
+
 ## Slices (implementation — gates AFTER each)
 
 - **723.6a — delete the selection layer (A + B-type + C).**

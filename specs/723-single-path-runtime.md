@@ -178,9 +178,27 @@ caller-cleanups:**
     `usePerCycleBusStealing` / `useLiteralPortVicStall` are NOT product — they
     live inside `if (useCycleLockstep)` (debug). Deferred to 723.7, NOT kept.
     Commits `dfe9645` (5c.1 smokes), `bad1bf6` (5c.2 runtime). probe 17/17.
-- **723.6 — Legacy 1541 retirement (K8, absorbed Spec 704 §11).** Decouple the
-  9 legacy drive couplings (per Spec 704 §11 plan), delete legacy drive/**.
-  Gate (incl. SAVE/FORMAT).
+- **723.6 — Legacy 1541 retirement (K8, absorbed Spec 704 §11).** The legacy
+  drive (`drive/**`, DriveCpu/TrackBuffer/HeadPosition/GcrShifter) was already
+  deleted in Spec 704 §11; 723.6 removes the dead implementation-selection
+  scaffolding that always resolved to `"vice"`. Audit:
+  `docs/drive-legacy-residue-audit.md`.
+  - **723.6a (DONE)** — delete the selection layer:
+    `resolveDrive1541Implementation` + `assertDrive1541ImplementationAvailable`,
+    the `Drive1541Implementation` `"legacy"` arm (type is now `"vice"`),
+    `createDrive1541()` param-less, the `IntegratedSessionOptions.drive1541` +
+    kernel-dep + ctor resolve/assert. Gates: build + probe.
+  - **723.6b (DONE)** — simplify `mount.ts`: drop the always-true
+    `drive1541Implementation === "vice"` attach/detach guards; legacy-provider
+    parse failure is unconditionally non-fatal. `kernel.drive1541Implementation`
+    kept as a constant `"vice"` status field (proof scripts assert it). Gates:
+    build + proof-kernal-load + proof-directory-load + runtime:proof 7/7.
+  - **723.6c (DONE)** — probe-single-path checks 13-15b (no resolve/assert
+    layer, no `"legacy"` type arm, no `drive1541?: Drive1541Implementation`
+    option, no session-start `drive1541` input). 21/21.
+  - Pre-existing: `smoke-611-7f-vice-load-directory` fails on a stale golden
+    SHA (fails at 6a baseline too); the equivalent `proof-directory-load` is
+    GREEN. Not a 723.6 regression — flag for a golden refresh.
 - **723.7 — Debug-mode prune (D2).** Delete unused debug modes; keep
   debug-vice-compare. **Also delete the debug-lockstep-coupled VIC residue
   deferred from 5c:** `VicIIVice.computeLineSteal()` + `stealCpuCycles` (still

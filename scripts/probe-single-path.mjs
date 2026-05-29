@@ -150,5 +150,30 @@ const removedToggleHits = srcFiles.filter((p) => /\/src\//.test(p) && REMOVED_TO
 ok(removedToggleHits.length === 0, "12 no removed product VIC toggle field/opt in src",
   removedToggleHits.map((p) => relative(ROOT, p)).join(",") || "none");
 
+// Check 13 (Spec 723.6a): the drive1541 implementation-selection layer is gone.
+// No resolveDrive1541Implementation / assertDrive1541ImplementationAvailable
+// survives in src (VICE1541 is the only drive; createDrive1541 is param-less).
+const driveSelHits = srcFiles.filter((p) => /\/src\//.test(p)
+  && /resolveDrive1541Implementation|assertDrive1541ImplementationAvailable/.test(readFileSync(p, "utf8")));
+ok(driveSelHits.length === 0, "13 no drive1541 resolve/assert selection layer in src",
+  driveSelHits.map((p) => relative(ROOT, p)).join(",") || "none");
+
+// Check 14 (Spec 723.6a): the Drive1541Implementation type has no "legacy" arm.
+const drive1541TypePath = join(ROOT, "src/runtime/headless/drive1541/drive1541.ts");
+const drive1541TypeSrc = readFileSync(drive1541TypePath, "utf8");
+const legacyArm = /type Drive1541Implementation\s*=[^;]*"legacy"/.test(drive1541TypeSrc);
+ok(!legacyArm, "14 Drive1541Implementation type has no legacy arm");
+
+// Check 15 (Spec 723.6a/6b): no drive1541 *implementation-selection* option
+// survives in src — i.e. no `drive1541?: Drive1541Implementation` opt/dep.
+// (The kept `drive1541?: Drive1541` facade-instance field and the constant
+// `drive1541Implementation = "vice"` status field are deliberately not
+// matched.) Plus the public session-start tool exposes no drive1541 input.
+const drive1541SelOptHits = srcFiles.filter((p) => /\/src\//.test(p)
+  && /\bdrive1541\s*\?\s*:\s*Drive1541Implementation\b/.test(readFileSync(p, "utf8")));
+ok(drive1541SelOptHits.length === 0, "15 no drive1541 selection option (drive1541?: Drive1541Implementation) in src",
+  drive1541SelOptHits.map((p) => relative(ROOT, p)).join(",") || "none");
+ok(!/drive1541/.test(startBlock), "15b session-start tool exposes no drive1541 input");
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} single-path: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);
