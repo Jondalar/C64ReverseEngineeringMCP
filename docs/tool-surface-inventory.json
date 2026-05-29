@@ -1,6 +1,6 @@
 {
   "total": 271,
-  "specCount": 100,
+  "specCount": 78,
   "advancedCandidate": 68,
   "byNamespace": {
     "runtime": 63,
@@ -1368,9 +1368,9 @@
       "name": "runtime_follow_path",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 233 — follow causal chain back from an event.",
-      "desc": "Spec 233 — follow causal chain back from an event. 5 rules: pc_predecessor, stack_frame, mem_dep, irq_origin, io_dep. Optional cross-domain (c64↔drive via IEC).",
+      "hasSpec": false,
+      "firstSentence": "Follow the execution path from a PC through a trace (call/branch chain).",
+      "desc": "Follow the execution path from a PC through a trace (call/branch chain). Use to reconstruct the control flow of a run. Not for static flow (use build_flow_graph_view, advanced). Inputs: run id, start PC. Returns: ordered path.",
       "tier": "default?"
     },
     {
@@ -1414,17 +1414,17 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire).",
-      "desc": "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). Bits stay held until next call updates them. Use to control games that read joystick at $DC00.",
+      "firstSentence": "Set joystick port-2 state (up/down/left/right/fire) on a session.",
+      "desc": "Set joystick port-2 state (up/down/left/right/fire) on a session. Use to drive game input. Not for keyboard (use runtime_type). Inputs: session_id, direction/fire flags. Returns: applied state.",
       "tier": "default?"
     },
     {
       "name": "runtime_load_prg",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed.",
-      "desc": "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. Useful for skipping the BASIC READY prompt and jumping straight into a bootloader. Returns load address + bytes loaded.",
+      "hasSpec": false,
+      "firstSentence": "Inject a PRG into a session's RAM as if KERNAL LOAD placed it.",
+      "desc": "Inject a PRG into a session's RAM as if KERNAL LOAD placed it. Use to load a program without a disk. Not for disk LOAD (mount + runtime_type a LOAD line) or static analysis (use analyze_prg). Inputs: session_id, prg_path, optional load_address. Returns: load range.",
       "tier": "default?"
     },
     {
@@ -1440,9 +1440,9 @@
       "name": "runtime_media_browse",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed).",
-      "desc": "Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed).",
+      "hasSpec": false,
+      "firstSentence": "Browse mountable media (disks/carts) from the project + configured roots.",
+      "desc": "Browse mountable media (disks/carts) from the project + configured roots. Use to find a disk/cart to mount. Not for mounting it (use runtime_media_mount). Inputs: optional path filter. Returns: media entries.",
       "tier": "default?"
     },
     {
@@ -1458,27 +1458,27 @@
       "name": "runtime_media_mount",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 265 — mount media file (.d64/.g64/.crt/.prg/.vsf) to a drive slot (8 or 9) on the active session.",
-      "desc": "Spec 265 — mount media file (.d64/.g64/.crt/.prg/.vsf) to a drive slot (8 or 9) on the active session.",
+      "hasSpec": false,
+      "firstSentence": "Mount a disk/cart image into a session's drive (no drive reset — like inserting media on real hardware).",
+      "desc": "Mount a disk/cart image into a session's drive (no drive reset — like inserting media on real hardware). Use to insert media before LOAD. Not for swapping a mounted disk (use runtime_media_swap) or removing it (use runtime_media_unmount). Inputs: session_id, path. Returns: mount result.",
       "tier": "default?"
     },
     {
       "name": "runtime_media_swap",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 265 — swap disk in slot (eject + mount new path, no reset).",
-      "desc": "Spec 265 — swap disk in slot (eject + mount new path, no reset). Multi-disk convenience for Side B etc.",
+      "hasSpec": false,
+      "firstSentence": "Swap the mounted disk for another in one step (side-B style; no session reset).",
+      "desc": "Swap the mounted disk for another in one step (side-B style; no session reset). Use to change disks under a running loader. Not for the first mount (use runtime_media_mount). Inputs: session_id, path. Returns: swap result.",
       "tier": "default?"
     },
     {
       "name": "runtime_media_unmount",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 265 — eject media from drive slot.",
-      "desc": "Spec 265 — eject media from drive slot.",
+      "hasSpec": false,
+      "firstSentence": "Eject the disk from a session's drive (writes back if dirty; the drive keeps running).",
+      "desc": "Eject the disk from a session's drive (writes back if dirty; the drive keeps running). Use to remove media. Not for replacing it in one step (use runtime_media_swap). Inputs: session_id. Returns: eject result.",
       "tier": "default?"
     },
     {
@@ -1494,36 +1494,36 @@
       "name": "runtime_monitor_disasm",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 248 — disassemble N instructions starting at addr.",
-      "desc": "Spec 248 — disassemble N instructions starting at addr. Use indirect-target resolution from trace when available.",
+      "hasSpec": false,
+      "firstSentence": "Disassemble live memory at an address in a session.",
+      "desc": "Disassemble live memory at an address in a session. Use to read code at the current PC or a target. Not for a static PRG (use disasm_prg). Inputs: session_id, address, count. Returns: disassembly lines.",
       "tier": "default?"
     },
     {
       "name": "runtime_monitor_memory",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 248 — read raw memory range (c64 or drive).",
-      "desc": "Spec 248 — read raw memory range (c64 or drive). Headless-first.",
+      "hasSpec": false,
+      "firstSentence": "Read a memory range from a session as hex/bytes.",
+      "desc": "Read a memory range from a session as hex/bytes. Use to inspect live RAM/IO. Not for disassembly (use runtime_monitor_disasm) or static artifacts (use read_artifact). Inputs: session_id, address, length. Returns: bytes.",
       "tier": "default?"
     },
     {
       "name": "runtime_monitor_registers",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 248 — read CPU registers (c64 or drive).",
-      "desc": "Spec 248 — read CPU registers (c64 or drive). Headless-first: prefer this over `vice_monitor_registers`.",
+      "hasSpec": false,
+      "firstSentence": "Read a session's CPU registers (PC/A/X/Y/SP/flags) + cycle count.",
+      "desc": "Read a session's CPU registers (PC/A/X/Y/SP/flags) + cycle count. Use to inspect live CPU state. Not for memory (use runtime_monitor_memory). Inputs: session_id. Returns: register dump.",
       "tier": "default?"
     },
     {
       "name": "runtime_profile_loader",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 245 — fastloader / protection profiling.",
-      "desc": "Spec 245 — fastloader / protection profiling. IO touches + IEC activity + disk activity + 5 protection-pattern detectors with confidence scoring.",
+      "hasSpec": false,
+      "firstSentence": "Profile a loader run — time/cycles per phase + hotspots.",
+      "desc": "Profile a loader run — time/cycles per phase + hotspots. Use to understand loader performance/structure. Not for byte-level events (use runtime_query_events). Inputs: run id. Returns: loader profile.",
       "tier": "default?"
     },
     {
@@ -1539,9 +1539,9 @@
       "name": "runtime_query_events",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 232 — query event-indexed trace store.",
-      "desc": "Spec 232 — query event-indexed trace store. Filter by family + cycle/pc/addr ranges. Headless-first: prefer over `vice_trace_*` for V2 workflows.",
+      "hasSpec": false,
+      "firstSentence": "Query captured runtime trace events (cpu/mem/irq/drive/vic/cia) for a session or run.",
+      "desc": "Query captured runtime trace events (cpu/mem/irq/drive/vic/cia) for a session or run. Use to find what happened during a run. Not for live registers (use runtime_monitor_registers). Inputs: session/run id, filters. Returns: matching events.",
       "tier": "default?"
     },
     {
@@ -1566,18 +1566,18 @@
       "name": "runtime_render_screen",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file.",
-      "desc": "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. Text mode only in Phase 65b; bitmap + sprites in Phase 65d/e. Returns the file path + dimensions + bytes written.",
+      "hasSpec": false,
+      "firstSentence": "Render a session's current VIC output to a PNG.",
+      "desc": "Render a session's current VIC output to a PNG. Use to see the live screen state. Not for a saved scenario (use the advanced scenario export). Inputs: session_id, out_path. Returns: PNG path + dimensions.",
       "tier": "default?"
     },
     {
       "name": "runtime_resolve_pc",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 235 — resolve PC to project label/routine/segment/source-line.",
-      "desc": "Spec 235 — resolve PC to project label/routine/segment/source-line. Layered lookup.",
+      "hasSpec": false,
+      "firstSentence": "Resolve a PC/address to its symbol / segment / source context.",
+      "desc": "Resolve a PC/address to its symbol / segment / source context. Use to label an address while debugging. Not for raw bytes (use runtime_monitor_memory). Inputs: session_id, address. Returns: resolved context.",
       "tier": "default?"
     },
     {
@@ -1665,18 +1665,18 @@
       "name": "runtime_session_run",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions.",
-      "desc": "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. Drive runs proportional cycles per the dual-clock accumulator. Optional breakpoints + cycle budget abort. Spec 099 (M1.2): optional `until` selects a named stopping condition (overrides max_instructions for the natural exit). Returns counts + final PC.",
+      "hasSpec": false,
+      "firstSentence": "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition.",
+      "desc": "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. Not for run-to-PC only (use runtime_until). Inputs: session_id, max_instructions, optional breakpoints/until. Returns: counts + final PC.",
       "tier": "default?"
     },
     {
       "name": "runtime_session_snapshot",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick.",
-      "desc": "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. Round-trippable via the matching restore API. Default skips full 64KB RAM; pass include=[\\\"ram\\\"] to expand.",
+      "hasSpec": false,
+      "firstSentence": "Capture a structured, round-trippable state snapshot of a session (CPU+RAM+IEC+drive+keyboard+joystick).",
+      "desc": "Capture a structured, round-trippable state snapshot of a session (CPU+RAM+IEC+drive+keyboard+joystick). Use to save/compare machine state. Not for VICE-format bytes (use runtime_save_vsf, advanced) or the rewind tree (use runtime_snapshot_tree, advanced). Inputs: session_id, optional include=['ram']. Returns: structured snapshot.",
       "tier": "default?"
     },
     {
@@ -1684,17 +1684,17 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync).",
-      "desc": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to IEC bus. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. No mode/lockstep flag needed — defaults are the product path. Returns session id and resolved runtime config.",
+      "firstSentence": "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup).",
+      "desc": "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Not for the VICE oracle (use vice_*, advanced). Inputs: optional disk/cart path, device id, pal. Returns: session id + resolved config.",
       "tier": "default?"
     },
     {
       "name": "runtime_session_status",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
-      "desc": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
+      "hasSpec": false,
+      "firstSentence": "Snapshot a running session's machine state — both CPUs, IEC bus, drive, cycle counts.",
+      "desc": "Snapshot a running session's machine state — both CPUs, IEC bus, drive, cycle counts. Use to check where execution is. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id. Returns: CPU/IEC/drive snapshot.",
       "tier": "default?"
     },
     {
@@ -1719,36 +1719,36 @@
       "name": "runtime_step_into",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 248 — single-step one instruction.",
-      "desc": "Spec 248 — single-step one instruction.",
+      "hasSpec": false,
+      "firstSentence": "Execute one instruction in a session, stepping INTO subroutines.",
+      "desc": "Execute one instruction in a session, stepping INTO subroutines. Use for fine-grained single-step debugging. Not for stepping over a JSR (use runtime_step_over). Inputs: session_id. Returns: new PC + registers.",
       "tier": "default?"
     },
     {
       "name": "runtime_step_over",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 248 — defensive step-over with stack-watch + cycle budget.",
-      "desc": "Spec 248 — defensive step-over with stack-watch + cycle budget. Reports if sub-routine modified flow.",
+      "hasSpec": false,
+      "firstSentence": "Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return).",
+      "desc": "Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return). Use to skip into-call detail. Not for entering the call (use runtime_step_into). Inputs: session_id. Returns: new PC + registers.",
       "tier": "default?"
     },
     {
       "name": "runtime_swimlane_slice",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 234 — transaction-level swimlane (cpu+bus+drive).",
-      "desc": "Spec 234 — transaction-level swimlane (cpu+bus+drive). Compact mode default.",
+      "hasSpec": false,
+      "firstSentence": "Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window.",
+      "desc": "Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window. Use to compare lanes at a moment of interest. Not for a single-PC search (use trace_store_query). Inputs: run id, cycle window. Returns: per-lane events.",
       "tier": "default?"
     },
     {
       "name": "runtime_trace_taint",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 244 — taint analysis / dataflow.",
-      "desc": "Spec 244 — taint analysis / dataflow. Walks back from (cycle, addr) via 5 contribution kinds. Cross-domain bridge default-on.",
+      "hasSpec": false,
+      "firstSentence": "Follow data-flow taint from a source byte/address through a trace.",
+      "desc": "Follow data-flow taint from a source byte/address through a trace. Use to find where a value came from or went. Not for plain event listing (use runtime_query_events). Inputs: run id, source. Returns: taint chain.",
       "tier": "default?"
     },
     {
@@ -1756,26 +1756,26 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix.",
-      "desc": "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. PETSCII-aware (auto-SHIFT for `\\\"`, `?`, `(`, `)` etc.). `\\\\r` / `\\ ` map to RETURN. Tuned default hold/gap (33000c each) gives KERNAL SCNKEY ≥ 2 raster IRQ ticks per state for reliable buffer pickup. Use to enter LOAD/RUN commands without bypassing KERNAL.",
+      "firstSentence": "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed.",
+      "desc": "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. Use to enter BASIC commands / LOAD lines. Not for joystick (use runtime_joystick). Inputs: session_id, text, optional timing. Returns: queued confirmation.",
       "tier": "default?"
     },
     {
       "name": "runtime_until",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 248 — run until PC reaches target addr or budget exhausted.",
-      "desc": "Spec 248 — run until PC reaches target addr or budget exhausted.",
+      "hasSpec": false,
+      "firstSentence": "Run a session until the PC reaches a target address or the cycle budget is exhausted.",
+      "desc": "Run a session until the PC reaches a target address or the cycle budget is exhausted. Use to reach a known code point. Not for N-instruction stepping (use runtime_session_run). Inputs: session_id, target PC, budget. Returns: stop reason + PC.",
       "tier": "default?"
     },
     {
       "name": "runtime_vic_inspect_at",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance",
-      "desc": "Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance",
+      "hasSpec": false,
+      "firstSentence": "Resolve a frozen display pixel to its exact VIC/RAM provenance (screen/color/charset/bitmap/sprite refs) on a retained checkpoint, without advancing execution.",
+      "desc": "Resolve a frozen display pixel to its exact VIC/RAM provenance (screen/color/charset/bitmap/sprite refs) on a retained checkpoint, without advancing execution. Use to explain what produces a given pixel. Not for live rendering (use runtime_render_screen). Inputs: checkpoint, x in 0..319, y in 0..199. Returns: provenance refs.",
       "tier": "default?"
     },
     {
@@ -1981,8 +1981,8 @@
       "file": "server-tools/trace-store.ts",
       "ns": "trace",
       "hasSpec": false,
-      "firstSentence": "List occurrences of a single anchor by name.",
-      "desc": "List occurrences of a single anchor by name. Returns up to `limit` rows.",
+      "firstSentence": "Find the trace anchor nearest a cycle/PC.",
+      "desc": "Find the trace anchor nearest a cycle/PC. Use to jump to a bookmarked point. Not for listing all (use trace_store_anchor_list). Inputs: run id, cycle/PC. Returns: nearest anchor.",
       "tier": "advanced?"
     },
     {
@@ -1990,8 +1990,8 @@
       "file": "server-tools/trace-store.ts",
       "ns": "trace",
       "hasSpec": false,
-      "firstSentence": "List all anchors in a trace store with occurrence counts and clock range.",
-      "desc": "List all anchors in a trace store with occurrence counts and clock range.",
+      "firstSentence": "List named trace anchors (saved cycle/PC markers) for a run.",
+      "desc": "List named trace anchors (saved cycle/PC markers) for a run. Use to see bookmarked points in a trace. Not for finding the nearest one (use trace_store_anchor_find). Inputs: run id. Returns: anchors.",
       "tier": "advanced?"
     },
     {
@@ -1999,8 +1999,8 @@
       "file": "server-tools/trace-store.ts",
       "ns": "trace",
       "hasSpec": false,
-      "firstSentence": "List bus_events at a target address (read+write+RMW).",
-      "desc": "List bus_events at a target address (read+write+RMW).",
+      "firstSentence": "Find IEC/bus events in the trace store ($DD00 / CIA2 / VIA reads+writes).",
+      "desc": "Find IEC/bus events in the trace store ($DD00 / CIA2 / VIA reads+writes). Use to debug loader/bus protocols from durable evidence. Not for CPU PCs (use trace_store_top_pcs). Inputs: run id, lane/value filters. Returns: bus events.",
       "tier": "advanced?"
     },
     {
@@ -2008,8 +2008,8 @@
       "file": "server-tools/trace-store.ts",
       "ns": "trace",
       "hasSpec": false,
-      "firstSentence": "Summarize a trace-store: meta, table counts, master_clock range.",
-      "desc": "Summarize a trace-store: meta, table counts, master_clock range. Path may be a .duckdb file or a directory containing trace.duckdb.",
+      "firstSentence": "Report the DuckDB trace-store status — runs, event counts, schema.",
+      "desc": "Report the DuckDB trace-store status — runs, event counts, schema. Use to see what trace evidence exists. Not for querying events (use trace_store_query). Inputs: optional run id. Returns: store summary.",
       "tier": "advanced?"
     },
     {
@@ -2017,8 +2017,8 @@
       "file": "server-tools/trace-store.ts",
       "ns": "trace",
       "hasSpec": false,
-      "firstSentence": "Run a read-only SELECT/WITH SQL query against the trace store.",
-      "desc": "Run a read-only SELECT/WITH SQL query against the trace store. Result rows capped at `limit`.",
+      "firstSentence": "Run a structured query over the DuckDB trace store (by PC, address, event family, cycle range).",
+      "desc": "Run a structured query over the DuckDB trace store (by PC, address, event family, cycle range). Use for durable trace evidence. Not for live state (use runtime_monitor_*). Inputs: query filters. Returns: matching rows.",
       "tier": "advanced?"
     },
     {
@@ -2026,8 +2026,8 @@
       "file": "server-tools/trace-store.ts",
       "ns": "trace",
       "hasSpec": false,
-      "firstSentence": "Return the top-N most-frequent PCs for a given CPU side (c64 | drive8).",
-      "desc": "Return the top-N most-frequent PCs for a given CPU side (c64 | drive8).",
+      "firstSentence": "Return the most-executed PCs in a trace run (hot spots).",
+      "desc": "Return the most-executed PCs in a trace run (hot spots). Use to find where time goes. Not for a specific PC's events (use trace_store_query). Inputs: run id, limit. Returns: ranked PCs.",
       "tier": "advanced?"
     },
     {

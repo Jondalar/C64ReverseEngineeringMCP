@@ -1,8 +1,13 @@
-// Spec 722.3a — tool tier gate. Façade-first: the DEFAULT surface is the small
-// set of normal project/RE workflow tools an LLM (outside the C64RE dev repo)
-// reaches for. Everything else — raw runtime/debug, VICE oracle, maintenance,
-// one-shot repair/backfill, format-forensics, sandbox — is ADVANCED and only
-// registered when `C64RE_FULL_TOOLS` is set.
+// Spec 722.3a + 725 — tool tier gate. The DEFAULT surface is the NORMAL LLM
+// project workflow — static project work (extract / inspect / disassemble /
+// annotate / persist) AND runtime work (start Headless, mount media, type /
+// joystick, run, render, monitor / frozen-inspect, query the TraceDB). It is
+// NOT "static-only" (Spec 722 overcorrected; Spec 725 promotes the curated
+// Headless Runtime + Monitor/Inspect + TraceDB facades to default).
+//
+// ADVANCED (only with `C64RE_FULL_TOOLS`): VICE oracle, drive-only debug,
+// maintenance / backfill / dedupe / repair / bulk, raw scenario batch/debug,
+// input-config, audio/video export, format-forensics, sandbox.
 //
 // Unknown / untagged tools resolve to "advanced" (NEVER silently default), so a
 // newly-added tool stays out of the lean surface until explicitly promoted +
@@ -37,10 +42,27 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "suggest_depacker", "try_depack",
   // Workflow entry
   "start_re_workflow", "run_prg_reverse_workflow",
+  // Spec 725 §3.7 — Headless Runtime facade (the LLM's normal way to run the
+  // product runtime; no V3 WebSocket server required).
+  "runtime_session_start", "runtime_session_status", "runtime_session_run",
+  "runtime_session_snapshot", "runtime_media_browse", "runtime_media_mount",
+  "runtime_media_unmount", "runtime_media_swap", "runtime_type",
+  "runtime_joystick", "runtime_load_prg", "runtime_render_screen",
+  // Spec 725 §3.8 — Monitor / frozen-inspect facade.
+  "runtime_monitor_registers", "runtime_monitor_memory", "runtime_monitor_disasm",
+  "runtime_step_into", "runtime_step_over", "runtime_until",
+  "runtime_resolve_pc", "runtime_vic_inspect_at",
+  // Spec 725 §3.9 — TraceDB / evidence facade (DuckDB trace is a product
+  // feature, not an internal debug escape hatch).
+  "runtime_query_events", "runtime_swimlane_slice", "runtime_trace_taint",
+  "runtime_follow_path", "runtime_profile_loader",
+  "trace_store_info", "trace_store_query", "trace_store_top_pcs",
+  "trace_store_bus_find", "trace_store_anchor_list", "trace_store_anchor_find",
 ]);
 
-/** Documented cap on the default surface (probe fails if exceeded). */
-export const DEFAULT_TIER_CAP = 45;
+/** Documented cap on the default surface (probe fails if exceeded). Spec 725
+ * raised this 45→80 to fit the Headless Runtime + TraceDB facade. */
+export const DEFAULT_TIER_CAP = 80;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

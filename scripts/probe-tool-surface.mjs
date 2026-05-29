@@ -28,15 +28,39 @@ ok(defaultNames.length <= DEFAULT_TIER_CAP,
 // 2. full surface = the whole inventory (gate off → all registered).
 ok(fullCount === inv.total, "2 full surface == inventory total", `${fullCount}`);
 
-// 3-5. no raw runtime / VICE / headless tool in the default surface.
+// 3-5. Negative guards — these never belong in the default surface.
+// (Spec 725: the "no runtime_* in default" guard is REMOVED — the curated
+// Headless Runtime + Monitor/Inspect + TraceDB facades ARE default; only the
+// drive-only/debug runtime_ tools stay advanced, covered below.)
 const leak = (re) => defaultNames.filter((n) => re.test(n));
 ok(leak(/^vice_/).length === 0, "3 no vice_* in default", leak(/^vice_/).join(",") || "none");
-ok(leak(/^runtime_/).length === 0, "4 no runtime_* in default", leak(/^runtime_/).join(",") || "none");
 ok(leak(/^headless_/).length === 0, "5 no headless_* in default", leak(/^headless_/).join(",") || "none");
+// 5a (Spec 725 §4): no drive-only/debug runtime_ tools in default.
+ok(leak(/^runtime_drive(_session)?_|^runtime_diagnose_/).length === 0,
+  "5a no runtime_drive_*/runtime_diagnose_* in default", leak(/^runtime_drive/).join(",") || "none");
 
 // 5b. no maintenance / bulk / sandbox in default.
 ok(leak(/^(backfill_|dedupe_|sandbox_|bulk_)|_(backfill|dedupe|repair)/).length === 0,
   "5b no maintenance/bulk/sandbox in default", leak(/^(backfill_|dedupe_|sandbox_|bulk_)/).join(",") || "none");
+
+// 5c (Spec 725 §3.7-3.9): the required facade tools MUST be default.
+const REQUIRED_DEFAULT = [
+  // Headless Runtime
+  "runtime_session_start","runtime_session_status","runtime_session_run","runtime_session_snapshot",
+  "runtime_media_browse","runtime_media_mount","runtime_media_unmount","runtime_media_swap",
+  "runtime_type","runtime_joystick","runtime_load_prg","runtime_render_screen",
+  // Monitor / inspect
+  "runtime_monitor_registers","runtime_monitor_memory","runtime_monitor_disasm",
+  "runtime_step_into","runtime_step_over","runtime_until","runtime_resolve_pc","runtime_vic_inspect_at",
+  // TraceDB / evidence
+  "runtime_query_events","runtime_swimlane_slice","runtime_trace_taint","runtime_follow_path","runtime_profile_loader",
+  "trace_store_info","trace_store_query","trace_store_top_pcs","trace_store_bus_find",
+  "trace_store_anchor_list","trace_store_anchor_find",
+];
+const defaultSet = new Set(defaultNames);
+const missingFacade = REQUIRED_DEFAULT.filter((n) => !defaultSet.has(n));
+ok(missingFacade.length === 0, "5c required Headless Runtime + Monitor + TraceDB facade tools are default",
+  missingFacade.join(",") || "none");
 
 // 6. every default tool has a description.
 const noDesc = defaultNames.filter((n) => !descByName.get(n) || !descByName.get(n).trim());

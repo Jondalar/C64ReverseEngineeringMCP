@@ -6,7 +6,7 @@
 
 ## Totals
 - **271** registered tools.
-- **100** (37%) have a `Spec NNN` in the description (history-encoded, not capability-first).
+- **78** (29%) have a `Spec NNN` in the description (history-encoded, not capability-first).
 - **68** are advanced-tier candidates (vice / maintenance / drive-only / sandbox).
 - Default-candidate (façade/workflow): **203**.
 
@@ -226,30 +226,30 @@
 | `runtime_export_audio` | runtime | server-tools/runtime.ts |  | default? | runtime_audio_export | Render a saved SCENARIO's SID audio to a stereo s16le WAV (part of the runtime_export_* scenario family). |
 | `runtime_export_screenshot` | runtime | server-tools/runtime.ts | Y | default? | headless_render_screen | Spec 269 — export PNG screenshot for a scenario. |
 | `runtime_export_video` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed). |
-| `runtime_follow_path` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 233 — follow causal chain back from an event. |
+| `runtime_follow_path` | runtime | server-tools/runtime.ts |  | default? |  | Follow the execution path from a PC through a trace (call/branch chain). |
 | `runtime_iec_bus_state` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. |
 | `runtime_input_load_config` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent. |
 | `runtime_input_load_vicerc` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2). |
 | `runtime_input_save_config` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json. |
-| `runtime_joystick` | runtime | server-tools/headless.ts |  | default? |  | Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). |
-| `runtime_load_prg` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. |
+| `runtime_joystick` | runtime | server-tools/headless.ts |  | default? |  | Set joystick port-2 state (up/down/left/right/fire) on a session. |
+| `runtime_load_prg` | runtime | server-tools/headless.ts |  | default? |  | Inject a PRG into a session's RAM as if KERNAL LOAD placed it. |
 | `runtime_load_vsf` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 251 — restore full session state from VSF file. |
-| `runtime_media_browse` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed). |
+| `runtime_media_browse` | runtime | server-tools/runtime.ts |  | default? |  | Browse mountable media (disks/carts) from the project + configured roots. |
 | `runtime_media_list_paths` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added). |
-| `runtime_media_mount` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 265 — mount media file (.d64/.g64/.crt/.prg/.vsf) to a drive slot (8 or 9) on the active session. |
-| `runtime_media_swap` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 265 — swap disk in slot (eject + mount new path, no reset). |
-| `runtime_media_unmount` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 265 — eject media from drive slot. |
+| `runtime_media_mount` | runtime | server-tools/runtime.ts |  | default? |  | Mount a disk/cart image into a session's drive (no drive reset — like inserting media on real hardware). |
+| `runtime_media_swap` | runtime | server-tools/runtime.ts |  | default? |  | Swap the mounted disk for another in one step (side-B style; no session reset). |
+| `runtime_media_unmount` | runtime | server-tools/runtime.ts |  | default? |  | Eject the disk from a session's drive (writes back if dirty; the drive keeps running). |
 | `runtime_memory_access_map` | runtime | server-tools/runtime.ts |  | default? |  | Spike — per-region read/write liveness map over a runtime window. |
-| `runtime_monitor_disasm` | runtime | server-tools/runtime.ts | Y | default? | vice_monitor_display | Spec 248 — disassemble N instructions starting at addr. |
-| `runtime_monitor_memory` | runtime | server-tools/runtime.ts | Y | default? | vice_monitor_memory | Spec 248 — read raw memory range (c64 or drive). |
-| `runtime_monitor_registers` | runtime | server-tools/runtime.ts | Y | default? | vice_monitor_registers | Spec 248 — read CPU registers (c64 or drive). |
-| `runtime_profile_loader` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 245 — fastloader / protection profiling. |
+| `runtime_monitor_disasm` | runtime | server-tools/runtime.ts |  | default? | vice_monitor_display | Disassemble live memory at an address in a session. |
+| `runtime_monitor_memory` | runtime | server-tools/runtime.ts |  | default? | vice_monitor_memory | Read a memory range from a session as hex/bytes. |
+| `runtime_monitor_registers` | runtime | server-tools/runtime.ts |  | default? | vice_monitor_registers | Read a session's CPU registers (PC/A/X/Y/SP/flags) + cycle count. |
+| `runtime_profile_loader` | runtime | server-tools/runtime.ts |  | default? |  | Profile a loader run — time/cycles per phase + hotspots. |
 | `runtime_promote_branch` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — promote a transient rewind branch to a persistent Scenario record. |
-| `runtime_query_events` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 232 — query event-indexed trace store. |
+| `runtime_query_events` | runtime | server-tools/runtime.ts |  | default? |  | Query captured runtime trace events (cpu/mem/irq/drive/vic/cia) for a session or run. |
 | `runtime_regression_capture_baseline` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 250 — LLM-explicit baseline capture for a scenario. |
 | `runtime_regression_compare` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 250 — compare current scenario run against captured baseline. |
-| `runtime_render_screen` | runtime | server-tools/headless.ts | Y | default? |  | Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. |
-| `runtime_resolve_pc` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 235 — resolve PC to project label/routine/segment/source-line. |
+| `runtime_render_screen` | runtime | server-tools/headless.ts |  | default? |  | Render a session's current VIC output to a PNG. |
+| `runtime_resolve_pc` | runtime | server-tools/runtime.ts |  | default? |  | Resolve a PC/address to its symbol / segment / source context. |
 | `runtime_run_scenario` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes. |
 | `runtime_run_scenarios_parallel` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 271 — run multiple scenarios in parallel via worker_threads. |
 | `runtime_save_vsf` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 251 — save full session state as VICE Snapshot Format bytes. |
@@ -259,19 +259,19 @@
 | `runtime_scenario_load` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — load a single scenario by id. |
 | `runtime_scenario_save` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — save a scenario JSON to project dir (or samples if no project dir). |
 | `runtime_session_export_audio` | runtime | server-tools/runtime.ts |  | default? |  | Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. |
-| `runtime_session_run` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. |
-| `runtime_session_snapshot` | runtime | server-tools/headless.ts | Y | default? |  | Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. |
-| `runtime_session_start` | runtime | server-tools/headless.ts |  | default? |  | Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). |
-| `runtime_session_status` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source. |
+| `runtime_session_run` | runtime | server-tools/headless.ts |  | default? |  | Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. |
+| `runtime_session_snapshot` | runtime | server-tools/headless.ts |  | default? |  | Capture a structured, round-trippable state snapshot of a session (CPU+RAM+IEC+drive+keyboard+joystick). |
+| `runtime_session_start` | runtime | server-tools/headless.ts |  | default? |  | Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup). |
+| `runtime_session_status` | runtime | server-tools/headless.ts |  | default? |  | Snapshot a running session's machine state — both CPUs, IEC bus, drive, cycle counts. |
 | `runtime_snapshot_tree` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — return the full branch tree for a rewind session. |
 | `runtime_status` | runtime | server-tools/runtime.ts | Y | default? | headless_integrated_session_status | Spec 237 — AgentQueryApi facade introspection. |
-| `runtime_step_into` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 248 — single-step one instruction. |
-| `runtime_step_over` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 248 — defensive step-over with stack-watch + cycle budget. |
-| `runtime_swimlane_slice` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 234 — transaction-level swimlane (cpu+bus+drive). |
-| `runtime_trace_taint` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 244 — taint analysis / dataflow. |
-| `runtime_type` | runtime | server-tools/headless.ts |  | default? |  | Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. |
-| `runtime_until` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 248 — run until PC reaches target addr or budget exhausted. |
-| `runtime_vic_inspect_at` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance |
+| `runtime_step_into` | runtime | server-tools/runtime.ts |  | default? |  | Execute one instruction in a session, stepping INTO subroutines. |
+| `runtime_step_over` | runtime | server-tools/runtime.ts |  | default? |  | Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return). |
+| `runtime_swimlane_slice` | runtime | server-tools/runtime.ts |  | default? |  | Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window. |
+| `runtime_trace_taint` | runtime | server-tools/runtime.ts |  | default? |  | Follow data-flow taint from a source byte/address through a trace. |
+| `runtime_type` | runtime | server-tools/headless.ts |  | default? |  | Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. |
+| `runtime_until` | runtime | server-tools/runtime.ts |  | default? |  | Run a session until the PC reaches a target address or the cycle budget is exhausted. |
+| `runtime_vic_inspect_at` | runtime | server-tools/runtime.ts |  | default? |  | Resolve a frozen display pixel to its exact VIC/RAM provenance (screen/color/charset/bitmap/sprite refs) on a retained checkpoint, without advancing execution. |
 | `sandbox_6502_run` | sandbox | server-tools/sandbox.ts |  | advanced? |  | Run a 6502 routine in an isolated sandbox: load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. |
 | `sandbox_depack` | sandbox | server-tools/sandbox-depack.ts |  | advanced? |  | Generic sandbox-driven depacker. |
 | `save_anti_pattern` | save | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 031: record a 'do not try this again' anti-pattern. |
@@ -294,12 +294,12 @@
 | `start_re_workflow` | start | server-tools/agent-workflow.ts |  | default? |  | Choose the reverse-engineering workflow template (full-re \| cracker-only \| analyst-deep \| targeted-routine \| bugfix), which sets the required phases per artifac |
 | `suggest_depacker` | suggest | server-tools/compression.ts |  | default? |  | Probe a file or byte-range and suggest likely depackers (RLE, Exomizer raw, ByteBoozer-like). |
 | `suggest_disk_lut_sector` | suggest | server-tools/media.ts |  | default? |  | Heuristic scan: look at every sector for plausible fixed-stride LUT entry tables and rank by confidence. |
-| `trace_store_anchor_find` | trace | server-tools/trace-store.ts |  | advanced? |  | List occurrences of a single anchor by name. |
-| `trace_store_anchor_list` | trace | server-tools/trace-store.ts |  | advanced? |  | List all anchors in a trace store with occurrence counts and clock range. |
-| `trace_store_bus_find` | trace | server-tools/trace-store.ts |  | advanced? |  | List bus_events at a target address (read+write+RMW). |
-| `trace_store_info` | trace | server-tools/trace-store.ts |  | advanced? |  | Summarize a trace-store: meta, table counts, master_clock range. |
-| `trace_store_query` | trace | server-tools/trace-store.ts |  | advanced? |  | Run a read-only SELECT/WITH SQL query against the trace store. |
-| `trace_store_top_pcs` | trace | server-tools/trace-store.ts |  | advanced? |  | Return the top-N most-frequent PCs for a given CPU side (c64 \| drive8). |
+| `trace_store_anchor_find` | trace | server-tools/trace-store.ts |  | advanced? |  | Find the trace anchor nearest a cycle/PC. |
+| `trace_store_anchor_list` | trace | server-tools/trace-store.ts |  | advanced? |  | List named trace anchors (saved cycle/PC markers) for a run. |
+| `trace_store_bus_find` | trace | server-tools/trace-store.ts |  | advanced? |  | Find IEC/bus events in the trace store ($DD00 / CIA2 / VIA reads+writes). |
+| `trace_store_info` | trace | server-tools/trace-store.ts |  | advanced? |  | Report the DuckDB trace-store status — runs, event counts, schema. |
+| `trace_store_query` | trace | server-tools/trace-store.ts |  | advanced? |  | Run a structured query over the DuckDB trace store (by PC, address, event family, cycle range). |
+| `trace_store_top_pcs` | trace | server-tools/trace-store.ts |  | advanced? |  | Return the most-executed PCs in a trace run (hot spots). |
 | `try_depack` | try | server-tools/compression.ts |  | default? |  | Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). |
 | `update_task_status` | update | project-knowledge/mcp-tools.ts |  | default? |  | Update the status of an existing task in the knowledge layer. |
 | `verify_constraints` | verify | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 029: run the built-in constraint checker. |

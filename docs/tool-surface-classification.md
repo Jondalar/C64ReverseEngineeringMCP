@@ -77,7 +77,11 @@ if a fresh LLM doing project RE would reach for it, it is default.)
 ## ADVANCED (~150) — by group + doctrine
 
 - **`vice_*` (49)** — VICE oracle-only (headless-over-VICE). ALL advanced.
-- **`runtime_*` (48)** — raw emulator internals: breakpoints, step, monitor,
+- **SUPERSEDED by Spec 725:** `runtime_*` is no longer advanced-by-default. The
+  curated Headless Runtime (§3.7), Monitor/Inspect (§3.8) and TraceDB/Evidence
+  (§3.9) facades are now DEFAULT (default surface = 73). Only the drive-only/
+  debug/raw runtime_ tools below stay advanced.
+- **`runtime_*` raw/debug remainder** — breakpoints, step, monitor,
   vsf save/load, snapshot tree, trace-taint, fingerprints, swimlane,
   follow-path, resolve-pc, memory-access-map, profile-loader, regression,
   scenario CRUD, bookmarks, batch, media mount/swap, input config, until,

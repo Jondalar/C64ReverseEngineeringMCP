@@ -39,7 +39,7 @@ function fmtHex(n: number): string {
 export function registerTraceStoreTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "trace_store_info",
-    "Summarize a trace-store: meta, table counts, master_clock range. Path may be a .duckdb file or a directory containing trace.duckdb.",
+    "Report the DuckDB trace-store status — runs, event counts, schema. Use to see what trace evidence exists. Not for querying events (use trace_store_query). Inputs: optional run id. Returns: store summary.",
     {
       path: z.string().describe("Path to trace.duckdb or its parent directory."),
     },
@@ -59,7 +59,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
 
   server.tool(
     "trace_store_anchor_list",
-    "List all anchors in a trace store with occurrence counts and clock range.",
+    "List named trace anchors (saved cycle/PC markers) for a run. Use to see bookmarked points in a trace. Not for finding the nearest one (use trace_store_anchor_find). Inputs: run id. Returns: anchors.",
     {
       path: z.string().describe("Path to trace.duckdb or its parent directory."),
     },
@@ -77,7 +77,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
 
   server.tool(
     "trace_store_anchor_find",
-    "List occurrences of a single anchor by name. Returns up to `limit` rows.",
+    "Find the trace anchor nearest a cycle/PC. Use to jump to a bookmarked point. Not for listing all (use trace_store_anchor_list). Inputs: run id, cycle/PC. Returns: nearest anchor.",
     {
       path: z.string().describe("Path to trace.duckdb or its parent directory."),
       name: z.string().describe("Anchor name (alphanumeric/underscore/dash only)."),
@@ -95,7 +95,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
 
   server.tool(
     "trace_store_top_pcs",
-    "Return the top-N most-frequent PCs for a given CPU side (c64 | drive8).",
+    "Return the most-executed PCs in a trace run (hot spots). Use to find where time goes. Not for a specific PC's events (use trace_store_query). Inputs: run id, limit. Returns: ranked PCs.",
     {
       path: z.string().describe("Path to trace.duckdb or its parent directory."),
       cpu: z.enum(["c64", "drive8"]).describe("CPU side."),
@@ -112,7 +112,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
 
   server.tool(
     "trace_store_bus_find",
-    "List bus_events at a target address (read+write+RMW).",
+    "Find IEC/bus events in the trace store ($DD00 / CIA2 / VIA reads+writes). Use to debug loader/bus protocols from durable evidence. Not for CPU PCs (use trace_store_top_pcs). Inputs: run id, lane/value filters. Returns: bus events.",
     {
       path: z.string().describe("Path to trace.duckdb or its parent directory."),
       addr: z.string().describe("Address as hex (e.g. $DD00, 0xDD00, DD00) or decimal."),
@@ -138,7 +138,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
 
   server.tool(
     "trace_store_query",
-    "Run a read-only SELECT/WITH SQL query against the trace store. Result rows capped at `limit`.",
+    "Run a structured query over the DuckDB trace store (by PC, address, event family, cycle range). Use for durable trace evidence. Not for live state (use runtime_monitor_*). Inputs: query filters. Returns: matching rows.",
     {
       path: z.string().describe("Path to trace.duckdb or its parent directory."),
       sql: z.string().describe("Read-only SELECT or WITH query."),

@@ -236,6 +236,12 @@ single-path). Original plan below.
   `runtime:proof` is not required for them.
 
 ## Status (2026-05-29)
+**SUPERSEDED in part by Spec 725:** 722 made the default surface static-only,
+which overcorrected. Spec 725 promotes the curated Headless Runtime + Monitor/
+Inspect + TraceDB facades to default (default=73, cap raised 45→80). The
+"no runtime_* in default" guard is removed; runtime_drive_*/diagnose_*/raw +
+vice_* + maintenance stay advanced.
+
 DONE: 722.1 inventory · 722.2 classification · 722.3a tier-gate · 722.3b audio
 collision retired · 722.4a+b headless_* namespace eliminated (→runtime_*, 0 left)
 · 722.5a default descriptions capability-first · 722.5b-1 vice_* oracle-only ·

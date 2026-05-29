@@ -26,7 +26,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Monitor (Spec 248) ----
   server.tool(
     "runtime_monitor_registers",
-    "Spec 248 — read CPU registers (c64 or drive). Headless-first: prefer this over `vice_monitor_registers`.",
+    "Read a session's CPU registers (PC/A/X/Y/SP/flags) + cycle count. Use to inspect live CPU state. Not for memory (use runtime_monitor_memory). Inputs: session_id. Returns: register dump.",
     {
       session_id: z.string(),
       memspace: z.enum(["c64", "drive"]).optional(),
@@ -40,7 +40,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_monitor_memory",
-    "Spec 248 — read raw memory range (c64 or drive). Headless-first.",
+    "Read a memory range from a session as hex/bytes. Use to inspect live RAM/IO. Not for disassembly (use runtime_monitor_disasm) or static artifacts (use read_artifact). Inputs: session_id, address, length. Returns: bytes.",
     {
       session_id: z.string(),
       start: z.number(),
@@ -92,7 +92,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_monitor_disasm",
-    "Spec 248 — disassemble N instructions starting at addr. Use indirect-target resolution from trace when available.",
+    "Disassemble live memory at an address in a session. Use to read code at the current PC or a target. Not for a static PRG (use disasm_prg). Inputs: session_id, address, count. Returns: disassembly lines.",
     {
       session_id: z.string(),
       addr: z.number(),
@@ -107,7 +107,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_step_into",
-    "Spec 248 — single-step one instruction.",
+    "Execute one instruction in a session, stepping INTO subroutines. Use for fine-grained single-step debugging. Not for stepping over a JSR (use runtime_step_over). Inputs: session_id. Returns: new PC + registers.",
     { session_id: z.string() },
     safeHandler("runtime_step_into", async ({ session_id }) => {
       const api = await getApi(session_id);
@@ -119,7 +119,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_step_over",
-    "Spec 248 — defensive step-over with stack-watch + cycle budget. Reports if sub-routine modified flow.",
+    "Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return). Use to skip into-call detail. Not for entering the call (use runtime_step_into). Inputs: session_id. Returns: new PC + registers.",
     {
       session_id: z.string(),
       budget: z.number().optional(),
@@ -133,7 +133,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_until",
-    "Spec 248 — run until PC reaches target addr or budget exhausted.",
+    "Run a session until the PC reaches a target address or the cycle budget is exhausted. Use to reach a known code point. Not for N-instruction stepping (use runtime_session_run). Inputs: session_id, target PC, budget. Returns: stop reason + PC.",
     {
       session_id: z.string(),
       addr: z.number(),
@@ -221,7 +221,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Resolve PC (Spec 235) ----
   server.tool(
     "runtime_resolve_pc",
-    "Spec 235 — resolve PC to project label/routine/segment/source-line. Layered lookup.",
+    "Resolve a PC/address to its symbol / segment / source context. Use to label an address while debugging. Not for raw bytes (use runtime_monitor_memory). Inputs: session_id, address. Returns: resolved context.",
     {
       session_id: z.string(),
       artifact_id: z.string(),
@@ -269,7 +269,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Trace store query (Spec 232) ----
   server.tool(
     "runtime_query_events",
-    "Spec 232 — query event-indexed trace store. Filter by family + cycle/pc/addr ranges. Headless-first: prefer over `vice_trace_*` for V2 workflows.",
+    "Query captured runtime trace events (cpu/mem/irq/drive/vic/cia) for a session or run. Use to find what happened during a run. Not for live registers (use runtime_monitor_registers). Inputs: session/run id, filters. Returns: matching events.",
     {
       run_id: z.string(),
       family: z.string(),
@@ -301,7 +301,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Follow-a-path (Spec 233) ----
   server.tool(
     "runtime_follow_path",
-    "Spec 233 — follow causal chain back from an event. 5 rules: pc_predecessor, stack_frame, mem_dep, irq_origin, io_dep. Optional cross-domain (c64↔drive via IEC).",
+    "Follow the execution path from a PC through a trace (call/branch chain). Use to reconstruct the control flow of a run. Not for static flow (use build_flow_graph_view, advanced). Inputs: run id, start PC. Returns: ordered path.",
     {
       run_id: z.string(),
       duckdb_path: z.string(),
@@ -335,7 +335,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Swimlane (Spec 234) ----
   server.tool(
     "runtime_swimlane_slice",
-    "Spec 234 — transaction-level swimlane (cpu+bus+drive). Compact mode default.",
+    "Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window. Use to compare lanes at a moment of interest. Not for a single-PC search (use trace_store_query). Inputs: run id, cycle window. Returns: per-lane events.",
     {
       run_id: z.string(),
       duckdb_path: z.string(),
@@ -364,7 +364,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Taint (Spec 244) ----
   server.tool(
     "runtime_trace_taint",
-    "Spec 244 — taint analysis / dataflow. Walks back from (cycle, addr) via 5 contribution kinds. Cross-domain bridge default-on.",
+    "Follow data-flow taint from a source byte/address through a trace. Use to find where a value came from or went. Not for plain event listing (use runtime_query_events). Inputs: run id, source. Returns: taint chain.",
     {
       run_id: z.string(),
       duckdb_path: z.string(),
@@ -394,7 +394,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Loader profile (Spec 245) ----
   server.tool(
     "runtime_profile_loader",
-    "Spec 245 — fastloader / protection profiling. IO touches + IEC activity + disk activity + 5 protection-pattern detectors with confidence scoring.",
+    "Profile a loader run — time/cycles per phase + hotspots. Use to understand loader performance/structure. Not for byte-level events (use runtime_query_events). Inputs: run id. Returns: loader profile.",
     {
       duckdb_path: z.string(),
       scenario_id: z.string(),
@@ -552,7 +552,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_browse",
-    "Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed).",
+    "Browse mountable media (disks/carts) from the project + configured roots. Use to find a disk/cart to mount. Not for mounting it (use runtime_media_mount). Inputs: optional path filter. Returns: media entries.",
     {
       path: z.string().describe("Absolute or relative directory path to browse"),
     },
@@ -565,7 +565,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_mount",
-    "Spec 265 — mount media file (.d64/.g64/.crt/.prg/.vsf) to a drive slot (8 or 9) on the active session.",
+    "Mount a disk/cart image into a session's drive (no drive reset — like inserting media on real hardware). Use to insert media before LOAD. Not for swapping a mounted disk (use runtime_media_swap) or removing it (use runtime_media_unmount). Inputs: session_id, path. Returns: mount result.",
     {
       session_id: z.string(),
       slot: z.number().int().default(8).describe("Drive slot: 8 (primary) or 9"),
@@ -584,7 +584,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_unmount",
-    "Spec 265 — eject media from drive slot.",
+    "Eject the disk from a session's drive (writes back if dirty; the drive keeps running). Use to remove media. Not for replacing it in one step (use runtime_media_swap). Inputs: session_id. Returns: eject result.",
     {
       session_id: z.string(),
       slot: z.number().int().default(8),
@@ -602,7 +602,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_swap",
-    "Spec 265 — swap disk in slot (eject + mount new path, no reset). Multi-disk convenience for Side B etc.",
+    "Swap the mounted disk for another in one step (side-B style; no session reset). Use to change disks under a running loader. Not for the first mount (use runtime_media_mount). Inputs: session_id, path. Returns: swap result.",
     {
       session_id: z.string(),
       slot: z.number().int().default(8),
@@ -906,10 +906,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Spec 710 — frozen-VIC inspect (checkpoint-bound, no execution advance) ----
   server.tool(
     "runtime_vic_inspect_at",
-    "Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance " +
-      "(screen/color/charset/bitmap/sprite refs) on a retained checkpoint, without advancing " +
-      "execution. Coords are display-area pixels: x in 0..319, y in 0..199. Omit checkpoint_id " +
-      "to capture+pin a fresh one (pauses if running).",
+    "Resolve a frozen display pixel to its exact VIC/RAM provenance (screen/color/charset/bitmap/sprite refs) on a retained checkpoint, without advancing execution. Use to explain what produces a given pixel. Not for live rendering (use runtime_render_screen). Inputs: checkpoint, x in 0..319, y in 0..199. Returns: provenance refs.",
     {
       session_id: z.string(),
       x: z.number(),
