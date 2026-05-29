@@ -199,12 +199,29 @@ caller-cleanups:**
   - Pre-existing: `smoke-611-7f-vice-load-directory` fails on a stale golden
     SHA (fails at 6a baseline too); the equivalent `proof-directory-load` is
     GREEN. Not a 723.6 regression — flag for a golden refresh.
-- **723.7 — Debug-mode prune (D2).** Delete unused debug modes; keep
-  debug-vice-compare. **Also delete the debug-lockstep-coupled VIC residue
-  deferred from 5c:** `VicIIVice.computeLineSteal()` + `stealCpuCycles` (still
-  reached via the lockstep `VicCycled` wrapper), `usePerCycleBusStealing`,
-  `useLiteralPortVicStall`, the bus-owner-table wiring, and the
-  `smoke-bus-stealing` / `smoke-vic-302-{sprite,badline}-stall` smokes. Gate.
+- **723.7 — Debug-mode prune (D2). DONE.** Option B (kill debug-lockstep).
+  Audit: `docs/debug-mode-prune-audit.md`.
+  - **7a (DONE)** — delete dead `debug-push-only` + `debug-hybrid` modes
+    (label-only). Build + probe.
+  - **7b (DONE)** — kill `debug-lockstep` + the cycle-lockstep scheduler.
+    - 7b.1: unwire from the runtime — drop the `if(useCycleLockstep)` scheduler
+      block + `scheduler`/`useCycleLockstep` fields/opts + the
+      `if(this.scheduler)` step-loop branch; `syncStrategy()` =
+      EventCatchupStrategy only; `diagnose_mm` runs on event-catchup; legacy
+      rescue hooks allowed in no mode.
+    - 7b.2: delete `scheduler/cycle-{lockstep-scheduler,wrappers,steppable}.ts`,
+      `kernel/lockstep-strategy.ts`, `vic/bus-owner-table.ts`, `vic/ba-aec.ts`;
+      remove `usePerCycleBusStealing` + `getBusStallForCycle()`; drop
+      `Cpu65xxVice implements CycleSteppable`. Retire `smoke-ba-aec`,
+      `smoke-bus-stealing`, `smoke-vic-302-{sprite,badline}-stall`,
+      `smoke-hook-hygiene`.
+    - Deferred (dead, but touches VIC raster/IRQ — own cleanup): the legacy
+      batched `VicIIVice.tick()` + `computeLineSteal()` + `stealCpuCycles`,
+      reachable only off the product per-cycle path. Needs its own
+      raster/IRQ verification.
+    - probe-single-path checks 16 (no pruned lockstep symbol in src code) + 17
+      (deleted files gone). 23/23. runtime:proof 7/7.
+  - **7c (DONE)** — Spec + audit-doc update.
 - **723.8 — Doc + guard.** Update CLAUDE.md ("the runtime has one path; no mode
   flag needed"); extend `scripts/probe-single-path.mjs` (created in 723.2) to also
   assert no `fast-trap` / `cpu6510` / `traps/kernal-*` import survives.

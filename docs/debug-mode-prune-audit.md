@@ -75,6 +75,21 @@ the residue cannot be cleanly stripped while the mode lives.
 - Under Option B the `diagnose_mm` lockstep coupling must be re-pointed or the
   tool retired.
 
+## STATUS (2026-05-29): 7a + 7b + 7c DONE
+
+- **7a** (`639d105`) — deleted dead `debug-push-only` + `debug-hybrid`.
+- **7b.1** (`f53f2cb`) — unwired cycle-lockstep from the runtime.
+- **7b.2** (`5f01687`) — deleted the 6 lockstep/bus-owner files + 5 smokes;
+  dropped `usePerCycleBusStealing` / `getBusStallForCycle` / `CycleSteppable`.
+- **7c** — Spec 723 + this doc updated. Gates: build + probe-single-path 23/23
+  + runtime:proof 7/7.
+- **Deferred (dead, own cleanup):** the legacy batched `VicIIVice.tick()` +
+  `computeLineSteal()` + `stealCpuCycles` remain — reachable only off the
+  product per-cycle literal path. Removing them touches the VIC chip's
+  raster/IRQ machinery, so it needs its own verification, not this slice.
+- **Pre-existing (NOT 7b):** `smoke-kernel-facade` has 3 Spec 704 §11
+  legacy-drive fails (kernel.drive removed) — RED before 7b.
+
 ## DECISION (2026-05-29): Option B — kill debug-lockstep (user-approved)
 
 debug-lockstep + the whole lockstep scheduler + the 5c-deferred VIC residue are
