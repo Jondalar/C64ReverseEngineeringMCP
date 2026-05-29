@@ -58,6 +58,8 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_follow_path", "runtime_profile_loader",
   "trace_store_info", "trace_store_query", "trace_store_top_pcs",
   "trace_store_bus_find", "trace_store_anchor_list", "trace_store_anchor_find",
+  // Spec 726 — live trace capture facade (write side, completes the readers above).
+  "runtime_mark", "runtime_trace_finalize", "runtime_trace_status",
 ]);
 
 /** Documented cap on the default surface (probe fails if exceeded). Spec 725

@@ -174,26 +174,48 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       enable_kernal_fileio_traps: z.boolean().optional(),
       enable_kernal_serial_traps: z.boolean().optional(),
       enable_kernal_io_traps: z.boolean().optional(),
+      // Spec 726: persistent runtime trace. When set, the session streams a
+      // durable trace.duckdb (query later with trace_store_* / runtime_query_events).
+      trace_out: z.string().optional().describe("Path (abs or under the project) for the trace.duckdb. Enables persistent streaming trace capture."),
+      trace_domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "memory"])).optional().describe("Which domains to capture (default c64-cpu + memory). Enables the matching passive producers."),
     },
     safeHandler("runtime_session_start", async ({
       disk_path, device_id, pal, start_track, write_protected,
       trace_iec, trace_iec_capacity, trace_drive, trace_drive_capacity,
       enable_kernal_fileio_traps, enable_kernal_serial_traps, enable_kernal_io_traps,
+      trace_out, trace_domains,
     }) => {
       const { startIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { producerOptsForDomains, startSessionTrace, resolveTraceOut, DEFAULT_TRACE_DOMAINS } =
+        await import("./runtime-trace-sink.js");
       const warnings: string[] = [];
+      // Spec 726: trace producers are passive (proven by smoke-trace-sink) — they
+      // do NOT change emulator behaviour, only emit events for the sink.
+      const traceDomains = trace_out ? (trace_domains ?? DEFAULT_TRACE_DOMAINS) : [];
+      const traceProducers = trace_out ? producerOptsForDomains(traceDomains) : {};
       // Spec 723.4a: the product runtime is true-drive + microcoded
       // unconditionally — no useCycleLockstep / useMicrocodedCpu inputs.
       const { sessionId, session } = startIntegratedSession({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
         startTrack: start_track, writeProtected: write_protected,
-        traceIec: trace_iec, traceIecCapacity: trace_iec_capacity,
-        traceDrive: trace_drive, traceDriveCapacity: trace_drive_capacity,
+        traceIec: trace_iec ?? traceProducers.traceIec,
+        traceIecCapacity: trace_iec_capacity,
+        traceDrive: trace_drive ?? traceProducers.traceDrive,
+        traceDriveCapacity: trace_drive_capacity,
+        enableBusAccessTrace: traceProducers.enableBusAccessTrace,
         enableKernalFileIoTraps: enable_kernal_fileio_traps,
         enableKernalSerialTraps: enable_kernal_serial_traps,
         enableKernalIoTraps: enable_kernal_io_traps,
       });
       session.resetCold();
+      // Spec 726: start streaming the trace AFTER cold reset (cycleStart = post-reset).
+      let traceLine = "";
+      if (trace_out) {
+        const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+        const outPath = resolveTraceOut(trace_out, proj);
+        const t = await startSessionTrace(sessionId, session, outPath, traceDomains);
+        traceLine = `Trace: streaming → ${t.outputPath} [${t.domains.join(",")}] run=${t.runId}`;
+      }
       const status = session.status();
       const lines: string[] = [
         `Integrated session started.`,
@@ -210,6 +232,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         `Drive PC after reset: ${formatHexWord(status.drive.pc)}`,
         `Drive head: track ${status.drive.track}`,
       ];
+      if (traceLine) lines.push(traceLine);
       if (warnings.length > 0) lines.push("", ...warnings);
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
@@ -237,6 +260,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { sessionTraceActive, drainSessionTrace } = await import("./runtime-trace-sink.js");
+      // Spec 726: when a streaming trace is active, run the plain path in chunks
+      // and drain to DuckDB between chunks (emulator paused during the async
+      // write). runFor(N) == k×runFor(N/k) — chunking is behaviour-neutral.
+      const traceActive = await sessionTraceActive(session_id);
 
       let modeText: string;
       if (until) {
@@ -271,12 +299,34 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           }
         }
         modeText = `Until-${until.kind}: ${stepResult.exitReason} (${stepResult.instructionsElapsed} instructions, ${stepResult.cyclesElapsed} cycles)${stepResult.hit ? ` hit=${JSON.stringify(stepResult.hit)}` : ""}`;
+        // Spec 726: until paths are a single sync run; drain once after.
+        if (traceActive) await drainSessionTrace(session_id);
       } else {
         const bp = breakpoints && breakpoints.length > 0
           ? new Set(breakpoints.map((s) => parseHexWord(s)))
           : undefined;
-        const result = session.runFor(max_instructions, { breakpoints: bp, cycleBudget: cycle_budget });
-        modeText = `Instructions executed: ${result.instructionsExecuted}${result.aborted ? ` (aborted: ${result.aborted})` : ""}`;
+        if (traceActive) {
+          // chunked run + drain between chunks (bounds the transport queue).
+          const CHUNK = 200_000;
+          const startCyc = session.c64Cpu.cycles;
+          let done = 0;
+          let aborted: string | undefined;
+          while (done < max_instructions) {
+            const n = Math.min(CHUNK, max_instructions - done);
+            const remaining = cycle_budget !== undefined
+              ? cycle_budget - (session.c64Cpu.cycles - startCyc) : undefined;
+            if (remaining !== undefined && remaining <= 0) { aborted = "cycle-budget"; break; }
+            const r = session.runFor(n, { breakpoints: bp, cycleBudget: remaining });
+            done += r.instructionsExecuted;
+            await drainSessionTrace(session_id);
+            if (r.aborted) { aborted = r.aborted; break; }
+            if (r.instructionsExecuted < n) break;
+          }
+          modeText = `Instructions executed: ${done}${aborted ? ` (aborted: ${aborted})` : ""}`;
+        } else {
+          const result = session.runFor(max_instructions, { breakpoints: bp, cycleBudget: cycle_budget });
+          modeText = `Instructions executed: ${result.instructionsExecuted}${result.aborted ? ` (aborted: ${result.aborted})` : ""}`;
+        }
       }
 
       const status = session.status();
@@ -292,6 +342,55 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           ].join("\n"),
         }],
       };
+    },
+));
+
+  // Spec 726 — trace marks + finalize (default capture-workflow tools).
+  server.tool(
+    "runtime_mark",
+    "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Use to scope later trace queries by phase. Not for querying marks (use trace_store_anchor_list). Inputs: session_id, label. Returns: trace status.",
+    {
+      session_id: z.string(),
+      label: z.string().describe("Phase label, e.g. boot-complete / title / scene-1."),
+    },
+    safeHandler("runtime_mark", async ({ session_id, label }) => {
+      const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const ctrl = getRuntimeController(session_id);
+      if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id} (start one with runtime_session_start trace_out=...).`);
+      ctrl.traceRun.mark(label);
+      const s = ctrl.traceRun.status();
+      return { content: [{ type: "text" as const, text: `Marked "${label}" — run ${s.runId}, ${s.eventCount} events, ${s.marks} marks.` }] };
+    },
+));
+
+  server.tool(
+    "runtime_trace_finalize",
+    "Finalize the active trace: drain remaining events + write the trace_run header, then close the trace.duckdb. Use when capture is done; the store is queryable afterward (trace_store_* / runtime_query_events). Not for marking (use runtime_mark). Inputs: session_id. Returns: run summary.",
+    { session_id: z.string() },
+    safeHandler("runtime_trace_finalize", async ({ session_id }) => {
+      const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const ctrl = getRuntimeController(session_id);
+      if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id}.`);
+      const run = await ctrl.traceRun.stop();
+      return { content: [{ type: "text" as const, text: [
+        `Trace finalized — run ${run.runId}`,
+        `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,
+        `Cycles: ${run.cycleStart}..${run.cycleEnd}`,
+        `Store: ${run.evidenceRef}`,
+        `Query it with trace_store_query / trace_store_top_pcs / runtime_query_events (duckdb_path = the store).`,
+      ].join("\n") }] };
+    },
+));
+
+  server.tool(
+    "runtime_trace_status",
+    "Report the active trace's status — event count, marks, backpressure. Use to watch capture progress / decide when to finalize. Not for the run's machine state (use runtime_session_status). Inputs: session_id. Returns: trace status.",
+    { session_id: z.string() },
+    safeHandler("runtime_trace_status", async ({ session_id }) => {
+      const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const ctrl = getRuntimeController(session_id);
+      const s = ctrl?.traceRun.status() ?? { active: false };
+      return { content: [{ type: "text" as const, text: JSON.stringify(s, null, 2) }] };
     },
 ));
 

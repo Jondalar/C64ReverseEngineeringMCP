@@ -1,9 +1,9 @@
 {
-  "total": 271,
+  "total": 274,
   "specCount": 78,
   "advancedCandidate": 68,
   "byNamespace": {
-    "runtime": 63,
+    "runtime": 66,
     "vice": 49,
     "list": 17,
     "save": 10,
@@ -1437,6 +1437,15 @@
       "tier": "default?"
     },
     {
+      "name": "runtime_mark",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Stamp a named phase marker into the active trace at the current cycle (e.g.",
+      "desc": "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Use to scope later trace queries by phase. Not for querying marks (use trace_store_anchor_list). Inputs: session_id, label. Returns: trace status.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_media_browse",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
@@ -1740,6 +1749,24 @@
       "hasSpec": false,
       "firstSentence": "Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window.",
       "desc": "Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window. Use to compare lanes at a moment of interest. Not for a single-PC search (use trace_store_query). Inputs: run id, cycle window. Returns: per-lane events.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_trace_finalize",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Finalize the active trace: drain remaining events + write the trace_run header, then close the trace.duckdb.",
+      "desc": "Finalize the active trace: drain remaining events + write the trace_run header, then close the trace.duckdb. Use when capture is done; the store is queryable afterward (trace_store_* / runtime_query_events). Not for marking (use runtime_mark). Inputs: session_id. Returns: run summary.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_trace_status",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Report the active trace's status — event count, marks, backpressure.",
+      "desc": "Report the active trace's status — event count, marks, backpressure. Use to watch capture progress / decide when to finalize. Not for the run's machine state (use runtime_session_status). Inputs: session_id. Returns: trace status.",
       "tier": "default?"
     },
     {

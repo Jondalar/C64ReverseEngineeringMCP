@@ -5,16 +5,16 @@
 **North star:** an LLM outside the C64RE dev repo must use the MCP without guessing between historical/dev/debug tools.
 
 ## Totals
-- **271** registered tools.
-- **78** (29%) have a `Spec NNN` in the description (history-encoded, not capability-first).
+- **274** registered tools.
+- **78** (28%) have a `Spec NNN` in the description (history-encoded, not capability-first).
 - **68** are advanced-tier candidates (vice / maintenance / drive-only / sandbox).
-- Default-candidate (façade/workflow): **203**.
+- Default-candidate (façade/workflow): **206**.
 
 ## By namespace
 
 | namespace | tools |
 |-----------|-------|
-| `runtime_*` | 63 |
+| `runtime_*` | 66 |
 | `vice_*` | 49 |
 | `list_*` | 17 |
 | `save_*` | 10 |
@@ -234,6 +234,7 @@
 | `runtime_joystick` | runtime | server-tools/headless.ts |  | default? |  | Set joystick port-2 state (up/down/left/right/fire) on a session. |
 | `runtime_load_prg` | runtime | server-tools/headless.ts |  | default? |  | Inject a PRG into a session's RAM as if KERNAL LOAD placed it. |
 | `runtime_load_vsf` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 251 — restore full session state from VSF file. |
+| `runtime_mark` | runtime | server-tools/headless.ts |  | default? |  | Stamp a named phase marker into the active trace at the current cycle (e.g. |
 | `runtime_media_browse` | runtime | server-tools/runtime.ts |  | default? |  | Browse mountable media (disks/carts) from the project + configured roots. |
 | `runtime_media_list_paths` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added). |
 | `runtime_media_mount` | runtime | server-tools/runtime.ts |  | default? |  | Mount a disk/cart image into a session's drive (no drive reset — like inserting media on real hardware). |
@@ -268,6 +269,8 @@
 | `runtime_step_into` | runtime | server-tools/runtime.ts |  | default? |  | Execute one instruction in a session, stepping INTO subroutines. |
 | `runtime_step_over` | runtime | server-tools/runtime.ts |  | default? |  | Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return). |
 | `runtime_swimlane_slice` | runtime | server-tools/runtime.ts |  | default? |  | Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window. |
+| `runtime_trace_finalize` | runtime | server-tools/headless.ts |  | default? |  | Finalize the active trace: drain remaining events + write the trace_run header, then close the trace.duckdb. |
+| `runtime_trace_status` | runtime | server-tools/headless.ts |  | default? |  | Report the active trace's status — event count, marks, backpressure. |
 | `runtime_trace_taint` | runtime | server-tools/runtime.ts |  | default? |  | Follow data-flow taint from a source byte/address through a trace. |
 | `runtime_type` | runtime | server-tools/headless.ts |  | default? |  | Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. |
 | `runtime_until` | runtime | server-tools/runtime.ts |  | default? |  | Run a session until the PC reaches a target address or the cycle budget is exhausted. |

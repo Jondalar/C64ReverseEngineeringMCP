@@ -56,6 +56,8 @@ const REQUIRED_DEFAULT = [
   "runtime_query_events","runtime_swimlane_slice","runtime_trace_taint","runtime_follow_path","runtime_profile_loader",
   "trace_store_info","trace_store_query","trace_store_top_pcs","trace_store_bus_find",
   "trace_store_anchor_list","trace_store_anchor_find",
+  // Spec 726 — live trace capture facade (write side).
+  "runtime_mark","runtime_trace_finalize","runtime_trace_status",
 ];
 const defaultSet = new Set(defaultNames);
 const missingFacade = REQUIRED_DEFAULT.filter((n) => !defaultSet.has(n));
