@@ -158,9 +158,10 @@ export class HeadlessMachineKernel implements MachineKernel {
   readonly imageFormat: string;
   readonly parser: G64Parser;
   diskProvider?: DiskProvider;
-  // Spec 723.6a: the only drive is the VICE1541 facade. This field is a
-  // constant "vice" (the resolve/assert selection layer is gone); it remains
-  // only because mount.ts still reads it — removed with those guards in 723.6b.
+  // Spec 723.6a/6b: the only drive is the VICE1541 facade. This is a constant
+  // "vice" status field (the resolve/assert selection layer + the mount.ts
+  // impl-guards are gone). Kept as a single-path status indicator that proof
+  // scripts assert on.
   readonly drive1541Implementation: Drive1541Implementation = "vice";
   /**
    * Spec 614.3 — per-c64-cycle overlay from vice iecbus → legacy core,

@@ -141,18 +141,16 @@ export async function mountMedia(
     // decides what to do. In vice-mode the legacy provider is bridge-
     // only metadata (sector count, file list for KERNAL traps); a parse
     // failure must NOT block the vice1541 attachDisk path that drives
-    // the actual emulation. In legacy mode the failure stays fatal.
-    const kModeAny = session.kernel as unknown as { drive1541Implementation?: string };
-    const isViceMode = kModeAny.drive1541Implementation === "vice";
-
+    // the actual emulation.
+    // Spec 723.6b: VICE1541 is the only drive, so a legacy-provider parse
+    // failure is always non-fatal (it is bridge-only metadata).
     let newProvider: ReturnType<typeof DiskProvider.fromImagePath> | null = null;
     try {
       newProvider = DiskProvider.fromImagePath(path);
       const files = newProvider.listFiles();
       sectors = files.length;
     } catch (e) {
-      if (!isViceMode) throw e;
-      errors.push(`legacy disk parse warning (non-fatal in vice mode): ${(e as Error).message}`);
+      errors.push(`legacy disk parse warning (non-fatal): ${(e as Error).message}`);
     }
 
     // Reload G64/D64 data into the shared TrackBuffer.
@@ -180,23 +178,17 @@ export async function mountMedia(
     // re-points the head to the current half-track. Per VICE
     // drive_image_attach, mount does NOT reset the drive CPU.
 
-    // Spec 611 phase 611.7f.1 — dual-attach for `drive1541="vice"`.
-    // Default legacy mount path above is unchanged. When the active
-    // Drive1541 is Vice1541, ALSO attach the disk to vice so the
-    // DD00/pushFlush bridge can serve real LOAD scenarios. Per Codex
-    // 01:37 review: dual-attach is a transitional non-invasive mount
-    // strategy — legacy default behavior must remain unchanged AND
-    // vice must serve the LOAD proof, not LEGACY1541 silent fallback.
+    // Spec 723.6b — attach the disk to the VICE1541 facade so the
+    // DD00/pushFlush bridge serves real LOAD scenarios. (Was the Spec 611
+    // dual-attach guarded on drive1541="vice"; vice is now the only drive.)
     const kernelAny = session.kernel as unknown as {
-      drive1541Implementation?: string;
       drive1541?: {
         attachDisk?: (m: { kind: "d64" | "g64" | "p64"; bytes: Uint8Array; readOnly: boolean }) => void;
         reset?: (kind: "cold" | "warm") => void;
       };
     };
     if (
-      kernelAny.drive1541Implementation === "vice"
-      && kernelAny.drive1541
+      kernelAny.drive1541
       && typeof kernelAny.drive1541.attachDisk === "function"
       && (mediaType === "d64" || mediaType === "g64")
     ) {
@@ -264,14 +256,13 @@ export function unmountMedia(
   // VICE drive_image_detach: set detach_clk + swap to no-disk parser.
   // Drive sees no-sync + neutral for DRIVE_DETACH_DELAY (~600K cycles).
   // Track data freed; head position preserved.
-  // Spec 704 §11 R3 — vice detach: drive1541.detachDisk writes back any
-  // dirty GCR + sets the WPS detach window (VICE drive_image_detach).
-  // Legacy trackBuffer / gcrShifter media-change removed.
+  // Spec 704 §11 R3 / 723.6b — vice detach: drive1541.detachDisk writes
+  // back any dirty GCR + sets the WPS detach window (VICE
+  // drive_image_detach). VICE1541 is the only drive.
   const kernelAny = session.kernel as unknown as {
-    drive1541Implementation?: string;
     drive1541?: { detachDisk?: () => void };
   };
-  if (kernelAny.drive1541Implementation === "vice" && kernelAny.drive1541?.detachDisk) {
+  if (kernelAny.drive1541?.detachDisk) {
     kernelAny.drive1541.detachDisk();
   }
   session.diskPath = "";
