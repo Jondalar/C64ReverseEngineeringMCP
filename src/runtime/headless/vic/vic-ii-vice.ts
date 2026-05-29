@@ -76,7 +76,6 @@ import {
 } from "../alarm/alarm-context.js";
 import { u8, u16, u32, type BYTE, type WORD, type CLOCK } from "../util/uint.js";
 import {
-  fetchMatrix,
   type BadlineFetchResult,
   type BadlineBus,
 } from "./badline-fetch.js";
@@ -166,12 +165,7 @@ export const VICII_R_SP_COL_BASE = 0x27; // $D027-$D02E
 // ---------------------------------------------------------------------------
 
 export interface VicBackend {
-  /**
-   * VICE: dma_maincpu_steal_cycles(start_clk, num, sub). Pause maincpu
-   * for `count` cycles starting from `clk`. Drive_clk advances normally
-   * (lockstep scheduler honors maincpu pause — Spec 150 § refinement 3).
-   */
-  stealCpuCycles: (count: number, clk: CLOCK) => void;
+  // Spec 723.7d: stealCpuCycles removed with the legacy batched tick() path.
 
   /**
    * VICE: maincpu_set_irq(int_num, value). Drive the maincpu IRQ line
@@ -313,33 +307,11 @@ export class VicIIVice {
   /** VICE: VICII_RASTER_Y(clk) — current scanline. */
   public raster_y = 0;
 
-  /**
-   * Spec 205-A c7: kernel-installed callback fired on every raster
-   * line transition (after raster_y advances). `clk` is c64 clock.
-   */
-  public onRasterLine?: (raster_y: number, clk: number) => void;
-  /** Spec 205-A c7: fired when raster_y wraps back to 0 (frame end → start). */
-  public onFrame?: (clk: number) => void;
+  // Spec 723.7d: onRasterLine / onFrame / onCycle removed — they fired only
+  // from the deleted batched tick(). VIC trace + per-cycle emit run on the
+  // literal port (vic/literal/) on the product path.
   /** VICE: VICII_RASTER_CYCLE(clk) — current cycle within line. */
   public raster_cycle = 0;
-
-  /**
-   * Spec 297a: per-cycle hook for cycle-pumped pixel emission. When
-   * set, tick() advances one raster_cycle at a time and invokes this
-   * callback for EACH cycle (= matches viciisc/vicii-cycle.c
-   * vicii_cycle() per-cycle dispatch). Caller does Φ1 fetch, Φ2 fetch
-   * (if mayFetchC + bad_line), display pipe sample/advance, and 8-pixel
-   * emit into the shared framebuffer.
-   *
-   * When unset (= legacy snapshot rendering path), tick() retains
-   * batched line-wrap advancement (= no overhead).
-   *
-   * Args:
-   *   raster_y     — current raster line (0..screen_height-1)
-   *   raster_cycle — cycle within line (0..cycles_per_line-1)
-   *   clk          — c64 clock at this cycle
-   */
-  public onCycle?: (raster_y: number, raster_cycle: number, clk: number) => void;
 
   /** VICE: unsigned int sprite_fetch_msk — sprites currently DMA'd. */
   public sprite_fetch_msk = 0;
@@ -385,9 +357,6 @@ export class VicIIVice {
   public readonly clkPtr: () => CLOCK;
   public readonly name: string;
 
-  /** Cumulative cycles counted into bus-stealing this line — debug only. */
-  private linesStolen = 0;
-
   constructor(opts: VicIIViceOptions) {
     this.backend = opts.backend;
     this.alarmContext = opts.alarmContext;
@@ -429,7 +398,6 @@ export class VicIIVice {
     this.chargen_ptr = 0;
     this.bitmap_ptr = 0;
     this.scanlineSnapshots.length = 0;
-    this.linesStolen = 0;
     // Spec 262a: drop log buffers on powerup.
     this.currentLineLog = { rasterLine: 0, writes: [] };
     this.frameLineLogs = [];
@@ -462,226 +430,13 @@ export class VicIIVice {
     this.backend.setIrqLine(false, this.clkPtr());
   }
 
-  // -------------------------------------------------------------------------
-  // Per-cycle scheduler hook — bus stealing.
-  //
-  // Called by the lockstep scheduler ONCE for each maincpu cycle that
-  // wants to start. If the current cycle is a badline-fetch or sprite-
-  // DMA cycle, we invoke `backend.stealCpuCycles(count, clk)` which
-  // advances maincpu_clk past the stolen window in one shot — exactly
-  // mirroring VICE's `dma_maincpu_steal_cycles`.
-  //
-  // Equivalent VICE flow: vicii_fetch_alarm_handler ⇒ do_matrix_fetch
-  // (vicii-fetch.c 135) ⇒ dma_maincpu_steal_cycles for VICII_SCREEN_
-  // TEXTCOLS + 3 cycles, plus handle_fetch_sprite ⇒ steal num_cycles
-  // (2 per sprite). At B-level we collapse that into one steal-call
-  // per-line at the entry point of each potential stealing region.
-  // -------------------------------------------------------------------------
-
-  /**
-   * Advance the chip by N CPU cycles, accumulating stolen cycles to
-   * report back. Caller (scheduler) honors `stolenCycles` as additional
-   * maincpu pause beyond the N normal cycles.
-   *
-   * VICE pattern: each cycle the chip alarm-context dispatches any
-   * pending fetch / draw / IRQ alarm. We follow the same shape, but at
-   * B-level we only need raster IRQ alarm (already wired) + per-line
-   * bus-stealing accumulation.
-   */
-  tick(cycles: number): { stolenCycles: number } {
-    if (cycles <= 0) return { stolenCycles: 0 };
-    let stolen = 0;
-    let remaining = cycles;
-    // Spec 297a: when onCycle hook is installed, advance 1 raster_cycle
-    // at a time so caller can do per-cycle Φ1/Φ2 fetch + display pipe
-    // emit (= viciisc/vicii-cycle.c vicii_cycle() dispatch shape).
-    // Without hook, batch advance to next line wrap (= legacy fast path).
-    const cyclePumped = !!this.onCycle;
-    while (remaining > 0) {
-      const stepThisLine = cyclePumped
-        ? Math.min(1, remaining)
-        : Math.min(this.cycles_per_line - this.raster_cycle, remaining);
-      // Fire per-cycle hook BEFORE advancing raster_cycle so the caller
-      // sees the cycle index it's about to process (= 0..cycles_per_line-1).
-      if (cyclePumped) {
-        this.onCycle!(this.raster_y, this.raster_cycle, this.clkPtr());
-      }
-      this.raster_cycle += stepThisLine;
-      remaining -= stepThisLine;
-
-      if (this.raster_cycle >= this.cycles_per_line) {
-        // Line wrap — advance raster_y, capture snapshot, fire IRQ if
-        // matching. Per VICE vicii_irq_alarm_handler: actual raster IRQ
-        // is alarm-driven; we keep alarm-driven semantics by also
-        // checking immediate match here (so callers that don't pump the
-        // alarm context still get IRQ flag set — needed for the
-        // existing rendering pipeline + tests).
-        this.raster_cycle = 0;
-        // Spec 262a: flush completed line's reg-write log. Push even
-        // if empty so frameLineLogs is rasterLine-indexed.
-        this.frameLineLogs.push(this.currentLineLog);
-        this.raster_y = (this.raster_y + 1) % this.screen_height;
-        if (this.raster_y === 0) {
-          this.scanlineSnapshots.length = 0;
-          // Spec 262a: new frame — clear frame-wide log buffer.
-          this.frameLineLogs.length = 0;
-          // Spec 280e: clear badline matrix at frame wrap.
-          this.currentLineMatrix = null;
-          // Spec 205-A c7: frame boundary — wrap to line 0.
-          this.onFrame?.(this.clkPtr());
-        }
-        // Spec 262a: start fresh log for the new line. (Done after the
-        // raster_y advance so rasterLine matches the now-current line.)
-        this.currentLineLog = { rasterLine: this.raster_y, writes: [] };
-        // Spec 205-A c7: raster line transition.
-        this.onRasterLine?.(this.raster_y, this.clkPtr());
-        this.captureScanline();
-
-        // Bus stealing for this line — VICE handle_fetch_matrix +
-        // handle_check_sprite_dma + handle_fetch_sprite. At B-level we
-        // collapse to one accounting call per line. (Spec 723.7b: the
-        // per-cycle bus-stealing path is gone; this is the legacy batched
-        // VicIIVice.tick accounting, reached only off the product per-cycle
-        // literal path.)
-        const lineSteal = this.computeLineSteal();
-        if (lineSteal > 0) {
-          stolen += lineSteal;
-          // Notify backend so maincpu_clk can be advanced explicitly.
-          this.backend.stealCpuCycles(lineSteal, this.clkPtr());
-        }
-
-        // Spec 280e: badline DMA matrix fetch.  If a bus is wired and
-        // this is a bad line, populate currentLineMatrix (vbuf+cbuf).
-        // charRowStart = mem_counter = (raster_y - first_dma_line) / 8 * 40
-        // (standard linear layout; advanced usage can override via
-        // badlineBus = null to skip).
-        if (this.bad_line && this.badlineBus !== null) {
-          // Sub-row 0 here — caller (renderer) owns sub-row per pixel line.
-          // We fetch at sub-row 0 because fetchMatrix only needs vbuf/cbuf;
-          // the renderer calls fetchChargen/fetchBitmap per sub-row using
-          // the stored vbuf from currentLineMatrix.
-          const charRowStart =
-            Math.floor((this.raster_y - this.first_dma_line) / 8) * 40;
-          const { vbuf, cbuf } = fetchMatrix(
-            this.badlineBus,
-            this.vbank_phi2,
-            this.screen_ptr,
-            charRowStart,
-          );
-          this.currentLineMatrix = {
-            vbuf,
-            cbuf,
-            bitmapBuf: new Uint8Array(40), // renderer fills per sub-row
-          };
-        } else if (!this.bad_line) {
-          this.currentLineMatrix = null;
-        }
-
-        // Raster IRQ comparator. VICE handles via alarm at
-        // vicii_irq_set_raster_line; we also raise the flag in-line so
-        // poll-based callers (current scheduler) see it without
-        // requiring alarm dispatch.
-        if (this.raster_y === this.raster_irq_line) {
-          this.viciiIrqRasterSet();
-        }
-      }
-    }
-    return { stolenCycles: stolen };
-  }
-
-  /**
-   * Compute total cycles VIC will steal on this line (just-entered).
-   * Reproduces VICE accounting:
-   *   - Badline (when allow_bad_lines && (raster_y & 7) == ysmooth &&
-   *     line in [first_dma_line..last_dma_line]): 40 char fetch + 3
-   *     color RAM = VICII_BADLINE_TOTAL_CYCLES.
-   *   - Sprite DMA: VICII_SPRITE_DMA_FIXED_CYCLES (3 pointer-fetch)
-   *     when ANY active sprite, plus
-   *     VICII_SPRITE_DMA_PER_SPRITE_CYCLES * popcount(active_msk).
-   *     Active = enabled && y-match. (VICE check_sprite_dma 267 +
-   *     handle_fetch_sprite num_cycles.)
-   *
-   * NOTE: B-level approximation — VICE charges char-fetch and sprite-
-   * fetch at different cycles within the line; the maincpu sees them
-   * sequentially. Total cycles match; intra-line phase does not. Spec
-   * 150 §point 16 marks this as acceptable for KERNAL serial timing
-   * because KERNAL writes $DD00 outside the badline window.
-   *
-   * Spec 280g: this block-charge accounting is the LEGACY path. When
-   * `usePerCycleBusStealing=true`, `tick()` still calls this to prime
-   * `bad_line` + `sprite_fetch_msk` for the per-cycle bus-owner table
-   * but discards the returned count. To be removed in 280f once all
-   * paths run on the per-cycle accounting.
-   *
-   * @deprecated since Spec 280g — use getBusStallForCycle() in
-   * scheduler integration. Kept callable for legacy paths.
-   */
-  private computeLineSteal(): number {
-    let steal = 0;
-
-    // Badline — VICE vicii-fetch.c do_matrix_fetch line 145..167.
-    // Condition: allow_bad_lines && (current_line & 7) == ysmooth &&
-    // in [first_dma_line..last_dma_line]. allow_bad_lines becomes true
-    // when DEN ($D011 bit 4) is seen high on first_dma_line, per
-    // d011_store line 347-353.
-    const ctrl1 = this.regs[VICII_R_CTRL1]!;
-    const ysmooth = ctrl1 & 7;
-    if (ctrl1 & 0x10) {
-      // DEN active: maintain allow_bad_lines flag per VICE.
-      if (this.raster_y === this.first_dma_line) this.allow_bad_lines = 1;
-    } else if (this.raster_y === this.first_dma_line) {
-      // DEN low at first_dma_line — VICE clears allow_bad_lines.
-      this.allow_bad_lines = 0;
-    }
-    if (
-      this.allow_bad_lines !== 0
-      && (this.raster_y & 7) === ysmooth
-      && this.raster_y >= this.first_dma_line
-      && this.raster_y <= this.last_dma_line
-    ) {
-      this.bad_line = 1;
-      steal += VICII_BADLINE_TOTAL_CYCLES;
-    } else {
-      this.bad_line = 0;
-    }
-
-    // Sprite DMA — VICE check_sprite_dma vicii-fetch.c 267-309. A
-    // sprite DMAs when sprite_status->visible_msk bit set AND y ==
-    // (current_line & 0xff). At B-level we only need the cycle cost.
-    const enable = this.regs[VICII_R_SP_ENABLE]!;
-    if (enable !== 0) {
-      let active = 0;
-      let count = 0;
-      const yLine = this.raster_y & 0xff;
-      for (let s = 0; s < VICII_NUM_SPRITES; s++) {
-        if (!(enable & (1 << s))) continue;
-        const spy = this.regs[VICII_R_SP_Y_BASE + s * 2]!;
-        if (spy === yLine) {
-          active |= 1 << s;
-          count++;
-        }
-      }
-      this.sprite_fetch_msk = active;
-      if (count > 0) {
-        // VICE handle_fetch_sprite: num_cycles per sprite-fetch slot.
-        // Pointer-fetch (3 cycles fixed) only happens when at least one
-        // sprite is active per check_sprite_dma 274.
-        steal += VICII_SPRITE_DMA_FIXED_CYCLES;
-        steal += VICII_SPRITE_DMA_PER_SPRITE_CYCLES * count;
-      } else {
-        this.sprite_fetch_msk = 0;
-      }
-    } else {
-      this.sprite_fetch_msk = 0;
-    }
-
-    this.linesStolen = steal;
-    return steal;
-  }
-
-  /**
-  // Spec 723.7b: getBusStallForCycle() removed with the cycle-lockstep
-  // scheduler (its only caller) + the bus-owner-table.
+  // Spec 723.7d: the legacy batched VicIIVice.tick() + computeLineSteal() +
+  // the backend.stealCpuCycles bus-stealing path are deleted. They were
+  // off-product (the product VIC is the per-cycle literal port: the C64 CPU
+  // tick() drives vicii_cycle() via the session's c64ViciiCycle hook). The
+  // literal port (vic/literal/) is the badline / fetch / bus-stealing
+  // authority; this class keeps register R/W + IRQ + scanline-capture for the
+  // rasterized-renderer / fidelity-test surface.
 
   // -------------------------------------------------------------------------
   // Register R/W — VICE: vicii_store / vicii_read (vicii-mem.c).

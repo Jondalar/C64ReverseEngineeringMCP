@@ -833,49 +833,11 @@ export class IntegratedSession {
     };
   }
 
-  // Sprint 92: extracted helper for trap dispatch — used by both
-  // legacy stepC64Instruction and scheduler-backed path.
-  // Spec 204: each trap that fires records a kernel hook fire.
-  // Mode-gating happens inside `kernel.recordHookFire`; in
-  // `true-drive` mode any fire throws HookForbiddenError and the
-  // session crashes loud — that is the audit signal.
-  private checkAndHandleTraps(): boolean {
-    // Spec 723.3c: the KERNAL fast-trap layer (traps/kernal-*) is removed. The
-    // product path runs the real KERNAL end-to-end (no fileio/serial/io traps),
-    // so no trap can ever fire. Retained as a no-op so the step-loop call site
-    // stays untouched.
-    return false;
-  }
-
   stepC64Instruction(): void {
     // Spec 723.7b: the cycle-lockstep scheduler is gone — event-catchup is the
-    // only step path (below).
-    // Spec 064 Sprint 69b: KERNAL file-IO traps now opt-in via
-    // enableKernalFileIoTraps. Default is real KERNAL serial via
-    // CIA1 timer + drive ROM bit-bang. Trap path kept as fallback
-    // for cases where the real protocol stalls (still being tuned).
-    // Sprint 67 + 72: KERNAL trap suite. Try fileio first then serial.
-    // enableKernalFileIoTraps gates fileio path (default off — Sprint
-    // 69 wants real KERNAL serial). Serial trap suite always on; it's
-    // the workaround for the byte-tx mutual-wait until Sprint 69b
-    // finish lands.
-    // Spec 204: route legacy step path through the same recorder
-    // as the scheduler path so hook fires are accounted in both.
-    const trapped = this.checkAndHandleTraps();
-    if (trapped) {
-      this.c64InstructionCount += 1;
-      const trapCycles = 7;
-      this.c64Cpu.cycles += trapCycles; // audit-ok: trap synthesizes JSR/RTS cost
-      this.cia1.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
-      this.cia2.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
-      this.vic.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
-      this.sid.tick(trapCycles); // audit-ok: legacy trap-cycle pump; replaced by Spec 204 hook hygiene
-      this.keyboard.advance(trapCycles);
-      // Spec 090: drive lazy executeToClock instead of accumulator drain.
-      this.kernel.catchUpDrive(8, this.c64Cpu.cycles);
-      this.sampleDrivePc();
-      return;
-    }
+    // only step path. Spec 723.3c: the KERNAL fast-trap layer is gone, so there
+    // is no trap pre-check; the real KERNAL runs end-to-end. Spec 723.7d: the
+    // dead trap branch (which was the last VicIIVice.tick() caller) is removed.
     // Spec 090 / VICE pattern: drive catches up to current C64 clock
     // BEFORE the C64 instruction starts. In true-drive, individual
     // $DD00 reads/writes push-flush through KernelBus.
@@ -1220,12 +1182,9 @@ export class IntegratedSession {
     // stepMicrocodedC64Instruction without a closure indirection.
     this.literalPortFb = new Uint8Array(this.litFbW * this.litFbH);
     this.litLastRasterLine = -1;
-    // Spec 307: onCycle still wired for cycle-lockstep + fast-trap
-    // paths (= scheduler / non-microcoded routes that don't hit
-    // stepMicrocodedC64Instruction). For the microcoded per-cycle
-    // path (default in true-drive mode), tickLitVic() is called
-    // DIRECTLY instead of through this hook.
-    this.vic.onCycle = () => this.tickLitVic();
+    // Spec 723.7d: tickLitVic() is called DIRECTLY by the C64 CPU's
+    // c64ViciiCycle hook (per-cycle, set above). The old VicIIVice.onCycle
+    // wiring is gone (it only fired from the deleted batched tick()).
     void litDraw; // import retained for previous polling path; now unused
   }
 

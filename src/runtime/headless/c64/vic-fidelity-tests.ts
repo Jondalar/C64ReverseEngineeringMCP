@@ -14,7 +14,6 @@ function makeVicForFidelity(): VicIIVice {
   const ctx = alarmContextNew("fidelity_maincpu");
   let clk = 0;
   const backend: VicBackend = {
-    stealCpuCycles: (_count, _clk) => {},
     setIrqLine: (_asserted, _clk) => {},
   };
   const vic = new VicIIVice({

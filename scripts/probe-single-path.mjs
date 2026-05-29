@@ -187,7 +187,7 @@ ok(!/drive1541/.test(startBlock), "15b session-start tool exposes no drive1541 i
 const stripComments = (s) => s
   .replace(/\/\*[\s\S]*?\*\//g, "")   // block comments
   .replace(/(^|[^:])\/\/.*$/gm, "$1"); // line comments (keep "://" in URLs)
-const PRUNED = /\bdebug-lockstep\b|\bdebug-push-only\b|\bdebug-hybrid\b|CycleLockstepScheduler|LockstepStrategy|cycle-lockstep-scheduler|cycle-wrappers|cycle-steppable|bus-owner-table|getBusStallForCycle|usePerCycleBusStealing|useCycleLockstep|CycleSteppable/;
+const PRUNED = /\bdebug-lockstep\b|\bdebug-push-only\b|\bdebug-hybrid\b|CycleLockstepScheduler|LockstepStrategy|cycle-lockstep-scheduler|cycle-wrappers|cycle-steppable|bus-owner-table|getBusStallForCycle|usePerCycleBusStealing|useCycleLockstep|CycleSteppable|computeLineSteal|stealCpuCycles/;
 const prunedHits = srcFiles.filter((p) => /\/src\//.test(p) && PRUNED.test(stripComments(readFileSync(p, "utf8"))));
 ok(prunedHits.length === 0, "16 no pruned debug-lockstep / cycle-lockstep scheduler symbol in src code",
   prunedHits.map((p) => relative(ROOT, p)).join(",") || "none");

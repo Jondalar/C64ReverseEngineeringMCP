@@ -350,9 +350,7 @@ export class HeadlessMachineKernel implements MachineKernel {
     // emit a kernel event.
     let vicPrevAsserted = false;
     const vicBusBackend: VicBackend = {
-      stealCpuCycles: (count: number, _clk: number) => {
-        (this.c64Cpu as { cycles: number }).cycles += count;
-      },
+      // Spec 723.7d: stealCpuCycles removed (batched tick() path deleted).
       setIrqLine: (asserted: boolean, clk: number) => {
         // Phase E' REVERTED: chip-side push caused VIC graphics regression
         // (D018 / raster splits misaligned by ~1-2 cycles vs pre-E' baseline).
@@ -506,21 +504,9 @@ export class HeadlessMachineKernel implements MachineKernel {
     // owns the GCR pipeline; equivalent trace lanes, if needed, come from
     // vice1541 via the drive1541 facade.
 
-    // Spec 205-A c7: bridge VIC raster line + frame transitions into
-    // the "vic" trace channel.
-    this.vic.onRasterLine = (raster_y, clk) => {
-      if (!this.traceRegistry.isEnabled("vic")) return;
-      this.traceCtrl.publish("vic", clk, {
-        kind: "raster",
-        raster_y,
-      });
-    };
-    this.vic.onFrame = (clk) => {
-      if (!this.traceRegistry.isEnabled("vic")) return;
-      this.traceCtrl.publish("vic", clk, {
-        kind: "frame",
-      });
-    };
+    // Spec 723.7d: the VIC raster/frame trace bridge (vic.onRasterLine /
+    // onFrame) is removed — those hooks fired only from the deleted batched
+    // VicIIVice.tick(). The product VIC trace comes off the literal port.
 
     // Spec 205-A c8: bridge CIA1 + CIA2 chip-side IRQ flag sets into
     // the "cia" trace channel. bits encode CIA_IM_* (TA=0x01, TB=0x02,
