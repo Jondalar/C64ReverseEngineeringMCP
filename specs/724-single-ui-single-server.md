@@ -2,10 +2,14 @@
 
 **Status:** PLANNED (2026-05-29 CEST)
 **Owner:** Workspace UI / server bootstrap
+**North star:** the MCP + workspace must be usable by an LLM **from outside the
+C64RE dev repo** (installed elsewhere, launched from any cwd, pointed at an
+arbitrary project). Today they are repo-cwd-bound (`cwd/ui/dist`, `cwd/samples`,
+projectDir defaulting to `cwd`). 724 makes path resolution explicit + cwd-free.
 **Scope:** Collapse the UI + server surfaces so a user starts ONE thing, points
 it at ONE project, and gets a coherent product. Retire the legacy v1 UI. Make
-the runtime WS project-aware. Remove the `process.cwd()` hard-wire. NO emulator
-behaviour change.
+the runtime WS project-aware. Remove every `process.cwd()` hard-wire / fallback.
+NO emulator behaviour change.
 **Depends on:** Spec 723 (single-path runtime — DONE). Pairs with Spec 722 (tool
 contract). 724 = the processes; 722 = the tools behind them.
 

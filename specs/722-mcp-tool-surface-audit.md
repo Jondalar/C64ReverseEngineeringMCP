@@ -2,8 +2,12 @@
 
 **Status:** PLANNED (2026-05-29 CEST, reworked)
 **Owner:** MCP server / interface contract
+**North star:** the MCP must be usable by an LLM **outside the C64RE dev repo**
+— a clean default surface that reads as one product, where every tool the LLM
+sees is a normal project/workflow action (not raw runtime/debug/VICE internals).
 **Scope:** The MCP tool surface exposed by `src/server.ts` + `src/server-tools/**`.
-Reshape it so it (a) **feels like one product** from a user's perspective, and
+Reshape it so it (a) **feels like one product** (façade-first: default = normal
+project/workflow tools; raw runtime/debug/VICE/maintenance = `advanced`), and
 (b) **an LLM can pick the right tool without guessing**. NO emulator behaviour
 change, NO removal of working capability — surface + descriptions only.
 **Depends on:** Spec 723 (single-path runtime — DONE; the runtime is now one
