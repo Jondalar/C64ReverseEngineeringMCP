@@ -1,0 +1,4704 @@
+{
+  "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
+  "spec": "727",
+  "total": 274,
+  "defaultCount": 76,
+  "advancedCount": 198,
+  "swimlaneLegend": {
+    "entry-project-baseline": "onboard, status, media inventory, knowledge",
+    "runtime-explore": "start/run Headless, mount, input, render",
+    "freeze-inspect": "paused monitor + VIC inspect",
+    "trace-capture": "durable trace_out + marks + finalize",
+    "trace-analysis": "DuckDB evidence queries",
+    "disassembly-improve": "static analysis + disasm + annotation",
+    "asset-linking": "visible asset → RAM/file/code",
+    "change-intervention": "patch/crack/port (future tooling)",
+    "validation": "record step, build views, verify",
+    "internal-dev-only": "VICE oracle, drive-only debug, scenario fixtures, legacy variants",
+    "operator-maintenance": "store repair/backfill/dedupe/export",
+    "none": "unclassified"
+  },
+  "e2eLegend": {
+    "E2E-A": "New project + media inventory",
+    "E2E-B": "Trace-first runtime discovery",
+    "E2E-C": "Disassembly-first + trace validation",
+    "E2E-D": "Frozen visual inspect → knowledge",
+    "E2E-E": "Change / validation loop",
+    "E2E-F": "VICE is internal-dev-only",
+    "E2E-G": "Operator tools are not workflow tools",
+    "E2E-H": "Path portability",
+    "E2E-I": "Trace writer/reader schema contract"
+  },
+  "rows": [
+    {
+      "name": "agent_advance_phase",
+      "namespace": "agent",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "workflow",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced agent/phase orchestration used inside a real RE project workspace.",
+      "notFor": "Casual use outside a C64RE project workspace.",
+      "adjacentTools": [
+        "agent_onboard"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "agent_freeze_artifact",
+      "namespace": "agent",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "workflow",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced agent/phase orchestration used inside a real RE project workspace.",
+      "notFor": "Casual use outside a C64RE project workspace.",
+      "adjacentTools": [
+        "agent_onboard"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "agent_onboard",
+      "namespace": "agent",
+      "sourceFile": "server-tools/agent-workflow.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "First call in any session: detect a new vs resumed project and load persistent project memory.",
+      "notFor": "Mid-task knowledge writes — use save_finding / agent_record_step.",
+      "adjacentTools": [
+        "project_status",
+        "c64re_whats_next",
+        "start_re_workflow"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-H"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "agent_propose_next",
+      "namespace": "agent",
+      "sourceFile": "server-tools/agent-workflow.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Get a ranked next-action proposal from current project + phase state.",
+      "notFor": "Per-artifact phase moves — use the advanced phase tools.",
+      "adjacentTools": [
+        "c64re_whats_next",
+        "agent_record_step"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "agent_record_step",
+      "namespace": "agent",
+      "sourceFile": "server-tools/agent-workflow.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "validation",
+      "useWhen": "After every substantive step, persist what was done + propose the next branch.",
+      "notFor": "Storing analysis facts — use save_finding.",
+      "adjacentTools": [
+        "agent_propose_next",
+        "save_finding"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-C",
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "agent_set_role",
+      "namespace": "agent",
+      "sourceFile": "server-tools/agent-workflow.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Mark whether you operate as analyst, cartographer or implementer for this work.",
+      "notFor": "Choosing a workflow profile — use start_re_workflow.",
+      "adjacentTools": [
+        "start_re_workflow",
+        "agent_onboard"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "analyze_g64_anomalies",
+      "namespace": "analyze",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "analyze_prg",
+      "namespace": "analyze",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Run the 9-analyzer heuristic pass over a PRG to find code/data/assets.",
+      "notFor": "Producing assembly text — use disasm_prg.",
+      "adjacentTools": [
+        "disasm_prg",
+        "inspect_address_range"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "apply_patch_recipe",
+      "namespace": "apply",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "change-intervention",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
+      "notFor": "Normal analysis — record conclusions via save_finding.",
+      "adjacentTools": [
+        "save_finding"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "archive_phase1_noise",
+      "namespace": "archive",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "assemble_source",
+      "namespace": "assemble",
+      "sourceFile": "server-tools/assembly.ts",
+      "tier": "default",
+      "role": "disassembly",
+      "swimlane": "validation",
+      "useWhen": "Assemble ASM (KickAss/64tass) to verify a byte-identical rebuild.",
+      "notFor": "Disassembly — use disasm_prg.",
+      "adjacentTools": [
+        "disasm_prg"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "auto_resolve_questions",
+      "namespace": "auto",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "auto_tag_relevance",
+      "namespace": "auto",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "backfill_finding_address_ranges",
+      "namespace": "backfill",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "backfill_internal_flags",
+      "namespace": "backfill",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "backfill_manifest_payload_hashes",
+      "namespace": "backfill",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "backfill_payload_content_hashes",
+      "namespace": "backfill",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "backfill_question_address_ranges",
+      "namespace": "backfill",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "build_all_views",
+      "namespace": "build",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "view-docs",
+      "swimlane": "validation",
+      "useWhen": "Regenerate every human view model for the project.",
+      "notFor": "One specific view — use the targeted build_* tool.",
+      "adjacentTools": [
+        "build_project_dashboard",
+        "render_docs"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "build_annotated_listing_view",
+      "namespace": "build",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "view-docs",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Render the annotated disassembly listing view.",
+      "notFor": "Raw disasm text — use disasm_prg.",
+      "adjacentTools": [
+        "disasm_prg",
+        "build_memory_map"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "build_cartridge_layout_view",
+      "namespace": "build",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "build_disk_layout_view",
+      "namespace": "build",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "build_flow_graph_view",
+      "namespace": "build",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "build_load_sequence_view",
+      "namespace": "build",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "build_memory_map",
+      "namespace": "build",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "view-docs",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Build the project memory-map view.",
+      "notFor": "Annotated listing — use build_annotated_listing_view.",
+      "adjacentTools": [
+        "ram_report",
+        "build_annotated_listing_view"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "build_project_dashboard",
+      "namespace": "build",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "view-docs",
+      "swimlane": "validation",
+      "useWhen": "Build/refresh the project dashboard view after inventory or findings change.",
+      "notFor": "Memory map — use build_memory_map.",
+      "adjacentTools": [
+        "build_all_views"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "build_tools",
+      "namespace": "build",
+      "sourceFile": "server-tools/artifacts.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "bulk_create_cart_chunk_payloads",
+      "namespace": "bulk",
+      "sourceFile": "server-tools/payloads.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "bulk_import_analysis_reports",
+      "namespace": "bulk",
+      "sourceFile": "server-tools/registration.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "c64re_whats_next",
+      "namespace": "c64re",
+      "sourceFile": "server-tools/agent-workflow.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Ask the server for the next sensible action when unsure where to continue.",
+      "notFor": "Recording a completed step — use agent_record_step.",
+      "adjacentTools": [
+        "agent_propose_next",
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "c64ref_build_rom_knowledge",
+      "namespace": "c64ref",
+      "sourceFile": "server-tools/reference.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "c64ref_lookup",
+      "namespace": "c64ref",
+      "sourceFile": "server-tools/reference.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Look up a KERNAL/BASIC/hardware address or symbol meaning.",
+      "notFor": "Resolving a runtime PC to source — use runtime_resolve_pc.",
+      "adjacentTools": [
+        "runtime_resolve_pc",
+        "disasm_prg"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "close_completed_tasks",
+      "namespace": "close",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "compare_exomizer_shared_encoding_sets",
+      "namespace": "compare",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "confirm_question_resolution",
+      "namespace": "confirm",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "declare_loader_entrypoint",
+      "namespace": "declare",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "change-intervention",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
+      "notFor": "Normal analysis — record conclusions via save_finding.",
+      "adjacentTools": [
+        "save_finding"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "dedupe_artifact_registry",
+      "namespace": "dedupe",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "dedupe_payload_entities",
+      "namespace": "dedupe",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "define_runtime_scenario",
+      "namespace": "define",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal dev: run/manage a built-in repo scenario fixture for regression/debug.",
+      "notFor": "External-LLM project work — start from user media via runtime_session_start.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "repo-dev-only",
+      "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "depack_bwc_bitstream",
+      "namespace": "depack",
+      "sourceFile": "server-tools/bwc-bitstream.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "depack_bwc_chunk",
+      "namespace": "depack",
+      "sourceFile": "server-tools/bwc-bitstream.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "depack_bwc_raw",
+      "namespace": "depack",
+      "sourceFile": "server-tools/bwc-bitstream.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "depack_byteboozer",
+      "namespace": "depack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "depack_byteboozer_lykia",
+      "namespace": "depack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "depack_exomizer_raw",
+      "namespace": "depack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "depack_exomizer_sfx",
+      "namespace": "depack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "depack_rle",
+      "namespace": "depack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "diff_scenario_runs",
+      "namespace": "diff",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal dev: run/manage a built-in repo scenario fixture for regression/debug.",
+      "notFor": "External-LLM project work — start from user media via runtime_session_start.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "repo-dev-only",
+      "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "disasm_menu",
+      "namespace": "disasm",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "default",
+      "role": "disassembly",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Disassemble a specific menu/region with chosen entry points.",
+      "notFor": "Whole-PRG disasm — use disasm_prg.",
+      "adjacentTools": [
+        "disasm_prg"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "disasm_prg",
+      "namespace": "disasm",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "default",
+      "role": "disassembly",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Disassemble a PRG to ASM; pass 2 consumes executed-PC evidence + annotations.",
+      "notFor": "Heuristic-only scan — use analyze_prg.",
+      "adjacentTools": [
+        "analyze_prg",
+        "propose_annotations",
+        "runtime_resolve_pc"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "disk_sector_allocation",
+      "namespace": "disk",
+      "sourceFile": "server-tools/media.ts",
+      "tier": "default",
+      "role": "format-forensics",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Map BAM/sector allocation of a disk image.",
+      "notFor": "File extraction — use extract_disk.",
+      "adjacentTools": [
+        "inspect_disk"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "export_menu",
+      "namespace": "export",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "extract_crt",
+      "namespace": "extract",
+      "sourceFile": "server-tools/media.ts",
+      "tier": "default",
+      "role": "media-ingress",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Extract banks/chips from a .crt cartridge into project artifacts.",
+      "notFor": "Live cartridge boot — use runtime_session_start / runtime_media_mount.",
+      "adjacentTools": [
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-H"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "extract_disk",
+      "namespace": "extract",
+      "sourceFile": "server-tools/media.ts",
+      "tier": "default",
+      "role": "media-ingress",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Extract files/payloads from a disk image into project artifacts.",
+      "notFor": "Just listing the directory — use inspect_disk.",
+      "adjacentTools": [
+        "inspect_disk",
+        "list_payloads"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-H"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "extract_disk_custom_lut",
+      "namespace": "extract",
+      "sourceFile": "server-tools/media.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "extract_g64_raw_track",
+      "namespace": "extract",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "extract_g64_sectors",
+      "namespace": "extract",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "get_artifact_lineage",
+      "namespace": "get",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "validation",
+      "useWhen": "Trace an artifact's version lineage / derivation.",
+      "notFor": "Listing all artifacts — use list_artifacts.",
+      "adjacentTools": [
+        "list_artifacts"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "get_project_profile",
+      "namespace": "get",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Read the active project's profile / objective / workflow selection.",
+      "notFor": "Mutating the profile — use start_re_workflow.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "import_analysis_report",
+      "namespace": "import",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "import_annotations_as_findings",
+      "namespace": "import",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Promote annotation routine docs into durable findings.",
+      "notFor": "Drafting annotations — use propose_annotations.",
+      "adjacentTools": [
+        "propose_annotations",
+        "save_finding"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "import_manifest_artifact",
+      "namespace": "import",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "inspect_address_range",
+      "namespace": "inspect",
+      "sourceFile": "server-tools/inspect-range.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Inspect a byte/address range of a payload statically.",
+      "notFor": "Live memory — use runtime_monitor_memory.",
+      "adjacentTools": [
+        "analyze_prg",
+        "runtime_monitor_memory"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "inspect_disk",
+      "namespace": "inspect",
+      "sourceFile": "server-tools/media.ts",
+      "tier": "default",
+      "role": "media-ingress",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Inspect a .d64/.g64 directory + layout from any absolute/project path.",
+      "notFor": "Extracting payloads — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "disk_sector_allocation"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-H"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "inspect_g64_blocks",
+      "namespace": "inspect",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "inspect_g64_syncs",
+      "namespace": "inspect",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "inspect_g64_track",
+      "namespace": "inspect",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "link_cart_chunk_to_asm",
+      "namespace": "link",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "link_entities",
+      "namespace": "link",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "asset-linking",
+      "useWhen": "Relate two project entities (e.g. asset → producing routine).",
+      "notFor": "Linking a payload to code — use link_payload_to_asm.",
+      "adjacentTools": [
+        "save_entity",
+        "link_payload_to_asm"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "link_payload_to_asm",
+      "namespace": "link",
+      "sourceFile": "server-tools/payloads.ts",
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "asset-linking",
+      "useWhen": "Link a payload/byte range to its disassembly + evidence.",
+      "notFor": "Linking two entities — use link_entities.",
+      "adjacentTools": [
+        "link_entities",
+        "save_finding"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "link_payload_to_runtime",
+      "namespace": "link",
+      "sourceFile": "server-tools/payloads.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_anti_patterns",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_artifacts",
+      "namespace": "list",
+      "sourceFile": "server-tools/artifacts.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "List tracked artifacts (media, payloads, disasm, views).",
+      "notFor": "Reading one artifact's content — use read_artifact.",
+      "adjacentTools": [
+        "read_artifact",
+        "list_payloads"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_build_pipelines",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_container_entries",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_entities",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "asset-linking",
+      "useWhen": "List project entities (routines, assets, structures).",
+      "notFor": "Creating an entity — use save_entity.",
+      "adjacentTools": [
+        "save_entity",
+        "link_entities"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_findings",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "validation",
+      "useWhen": "Review recorded findings for the project.",
+      "notFor": "Creating a finding — use save_finding.",
+      "adjacentTools": [
+        "save_finding",
+        "list_open_questions"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_flows",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "disassembly-improve",
+      "useWhen": "List recorded control/loader flows.",
+      "notFor": "Building a memory map — use build_memory_map.",
+      "adjacentTools": [
+        "build_memory_map"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_g64_slots",
+      "namespace": "list",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "list_loader_entrypoints",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "change-intervention",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
+      "notFor": "Normal analysis — record conclusions via save_finding.",
+      "adjacentTools": [
+        "save_finding"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_loader_events",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "change-intervention",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
+      "notFor": "Normal analysis — record conclusions via save_finding.",
+      "adjacentTools": [
+        "save_finding"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_open_questions",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "validation",
+      "useWhen": "Review unresolved open questions.",
+      "notFor": "Asking a new question — use save_open_question.",
+      "adjacentTools": [
+        "save_open_question"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_patch_recipes",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "change-intervention",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
+      "notFor": "Normal analysis — record conclusions via save_finding.",
+      "adjacentTools": [
+        "save_finding"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_payloads",
+      "namespace": "list",
+      "sourceFile": "server-tools/payloads.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "List executable payloads discovered in media.",
+      "notFor": "Disassembling one payload — use disasm_prg.",
+      "adjacentTools": [
+        "list_artifacts",
+        "disasm_prg"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_project_artifacts",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_relations",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_runtime_scenarios",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal dev: run/manage a built-in repo scenario fixture for regression/debug.",
+      "notFor": "External-LLM project work — start from user media via runtime_session_start.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "repo-dev-only",
+      "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "list_tasks",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "mark_segment_confirmed",
+      "namespace": "mark",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "mark_segment_rejected",
+      "namespace": "mark",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "pack_bwc_bitstream",
+      "namespace": "pack",
+      "sourceFile": "server-tools/bwc-bitstream.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "pack_bwc_raw",
+      "namespace": "pack",
+      "sourceFile": "server-tools/bwc-bitstream.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "pack_byteboozer",
+      "namespace": "pack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "pack_byteboozer_native",
+      "namespace": "pack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "pack_exomizer_raw",
+      "namespace": "pack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "pack_exomizer_sfx",
+      "namespace": "pack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "pack_exomizer_shared_encoding",
+      "namespace": "pack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "pack_rle",
+      "namespace": "pack",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "static-analysis",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
+      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "try_depack"
+    },
+    {
+      "name": "pointer_report",
+      "namespace": "pointer",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_audit",
+      "namespace": "project",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "workflow",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced project init/maintenance operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_checkpoint",
+      "namespace": "project",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "workflow",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced project init/maintenance operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_init",
+      "namespace": "project",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "workflow",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced project init/maintenance operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_repair",
+      "namespace": "project",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "workflow",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced project init/maintenance operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_status",
+      "namespace": "project",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Report whether the directory is a project and summarise its state.",
+      "notFor": "Listing individual artifacts — use list_artifacts.",
+      "adjacentTools": [
+        "get_project_profile",
+        "agent_onboard"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-H"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "propose_annotations",
+      "namespace": "propose",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "default",
+      "role": "disassembly",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Write a draft annotation set (labels/segments/routine docs) for review.",
+      "notFor": "Applying + rebuilding — use disasm_prg with annotations.",
+      "adjacentTools": [
+        "disasm_prg",
+        "import_annotations_as_findings"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "propose_question_resolutions",
+      "namespace": "propose",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "ram_report",
+      "namespace": "ram",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Read the project's RAM-usage hypotheses report.",
+      "notFor": "Live memory reads — use runtime_monitor_memory.",
+      "adjacentTools": [
+        "build_memory_map",
+        "runtime_monitor_memory"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "read_artifact",
+      "namespace": "read",
+      "sourceFile": "server-tools/artifacts.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Read the content of a tracked artifact by id/path.",
+      "notFor": "Raw disk/CRT inspection — use inspect_disk / extract_crt.",
+      "adjacentTools": [
+        "list_artifacts"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "read_g64_sector_candidate",
+      "namespace": "read",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "reconstruct_lut",
+      "namespace": "reconstruct",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "record_build_step_result",
+      "namespace": "record",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "record_cart_chunk_packer",
+      "namespace": "record",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "record_file_packer",
+      "namespace": "record",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "record_loader_event",
+      "namespace": "record",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "change-intervention",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
+      "notFor": "Normal analysis — record conclusions via save_finding.",
+      "adjacentTools": [
+        "save_finding"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "record_runtime_event_summary",
+      "namespace": "record",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "register_constraint",
+      "namespace": "register",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "register_container_entry",
+      "namespace": "register",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "register_existing_files",
+      "namespace": "register",
+      "sourceFile": "server-tools/registration.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "register_load_context",
+      "namespace": "register",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "register_operation",
+      "namespace": "register",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "register_payload",
+      "namespace": "register",
+      "sourceFile": "server-tools/payloads.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "register_resource_region",
+      "namespace": "register",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "rename_artifact_version",
+      "namespace": "rename",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "render_docs",
+      "namespace": "render",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "view-docs",
+      "swimlane": "validation",
+      "useWhen": "Render project documentation/report outputs.",
+      "notFor": "Building interactive views — use build_all_views.",
+      "adjacentTools": [
+        "build_all_views"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "render_graphics_preview",
+      "namespace": "render",
+      "sourceFile": "server-tools/graphics-render.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "run_build_pipeline",
+      "namespace": "run",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "run_payload_reverse_workflow",
+      "namespace": "run",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "run_prg_reverse_workflow",
+      "namespace": "run",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Run the end-to-end per-PRG analyze→disasm→verify workflow.",
+      "notFor": "Project-level workflow selection — use start_re_workflow.",
+      "adjacentTools": [
+        "analyze_prg",
+        "disasm_prg"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_batch_results",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_batch_status",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_bookmark_add",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_bookmark_list",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_breakpoint_add",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_breakpoint_list",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_breakpoint_remove",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_diagnose_mm",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_diff_snapshots",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-inspect",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
+      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "merge",
+      "pathMode": "no-path",
+      "useInstead": "runtime_swimlane_slice (before/after)"
+    },
+    {
+      "name": "runtime_drive_persist_writes",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "advanced",
+      "role": "debug-only",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced drive-only debugging of the 1541 CPU/mechanics in isolation.",
+      "notFor": "Normal disk loading — mount via runtime_media_mount and run the real drive.",
+      "adjacentTools": [
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_media_mount + runtime_session_run"
+    },
+    {
+      "name": "runtime_drive_session_load_vsf",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "advanced",
+      "role": "debug-only",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced drive-only debugging of the 1541 CPU/mechanics in isolation.",
+      "notFor": "Normal disk loading — mount via runtime_media_mount and run the real drive.",
+      "adjacentTools": [
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_media_mount + runtime_session_run"
+    },
+    {
+      "name": "runtime_drive_session_save_vsf",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "advanced",
+      "role": "debug-only",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced drive-only debugging of the 1541 CPU/mechanics in isolation.",
+      "notFor": "Normal disk loading — mount via runtime_media_mount and run the real drive.",
+      "adjacentTools": [
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_media_mount + runtime_session_run"
+    },
+    {
+      "name": "runtime_drive_session_start",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "advanced",
+      "role": "debug-only",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced drive-only debugging of the 1541 CPU/mechanics in isolation.",
+      "notFor": "Normal disk loading — mount via runtime_media_mount and run the real drive.",
+      "adjacentTools": [
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_media_mount + runtime_session_run"
+    },
+    {
+      "name": "runtime_drive_status",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "advanced",
+      "role": "debug-only",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced drive-only debugging of the 1541 CPU/mechanics in isolation.",
+      "notFor": "Normal disk loading — mount via runtime_media_mount and run the real drive.",
+      "adjacentTools": [
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_media_mount + runtime_session_run"
+    },
+    {
+      "name": "runtime_export_audio",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "view-docs",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced: export audio/video/frame artifacts from a session.",
+      "notFor": "Normal screen evidence — use runtime_render_screen.",
+      "adjacentTools": [
+        "runtime_render_screen"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_render_screen"
+    },
+    {
+      "name": "runtime_export_screenshot",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "view-docs",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced: export audio/video/frame artifacts from a session.",
+      "notFor": "Normal screen evidence — use runtime_render_screen.",
+      "adjacentTools": [
+        "runtime_render_screen"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_render_screen"
+    },
+    {
+      "name": "runtime_export_video",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "view-docs",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced: export audio/video/frame artifacts from a session.",
+      "notFor": "Normal screen evidence — use runtime_render_screen.",
+      "adjacentTools": [
+        "runtime_render_screen"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_render_screen"
+    },
+    {
+      "name": "runtime_follow_path",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Follow a pointer/path of accesses through the trace.",
+      "notFor": "Taint propagation — use runtime_trace_taint.",
+      "adjacentTools": [
+        "runtime_trace_taint"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "runtime_iec_bus_state",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "advanced",
+      "role": "trace-query",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
+      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "merge",
+      "pathMode": "no-path",
+      "useInstead": "runtime_swimlane_slice (iec lane)"
+    },
+    {
+      "name": "runtime_input_load_config",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced: configure input/keymap for a session.",
+      "notFor": "Sending input — use runtime_type / runtime_joystick.",
+      "adjacentTools": [
+        "runtime_type"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_type"
+    },
+    {
+      "name": "runtime_input_load_vicerc",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced: configure input/keymap for a session.",
+      "notFor": "Sending input — use runtime_type / runtime_joystick.",
+      "adjacentTools": [
+        "runtime_type"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_type"
+    },
+    {
+      "name": "runtime_input_save_config",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced: configure input/keymap for a session.",
+      "notFor": "Sending input — use runtime_type / runtime_joystick.",
+      "adjacentTools": [
+        "runtime_type"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_type"
+    },
+    {
+      "name": "runtime_joystick",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Send joystick direction/fire into the live machine.",
+      "notFor": "Keyboard — use runtime_type.",
+      "adjacentTools": [
+        "runtime_type"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_load_prg",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "media-ingress",
+      "swimlane": "runtime-explore",
+      "useWhen": "Load a .prg into RAM (load) or load+run (inject-run) in the live session.",
+      "notFor": "Disk mount — use runtime_media_mount.",
+      "adjacentTools": [
+        "runtime_session_start",
+        "runtime_type"
+      ],
+      "e2eUseCases": [
+        "E2E-H"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "runtime_load_vsf",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-inspect",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
+      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "merge",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_mark",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "trace-capture",
+      "swimlane": "trace-capture",
+      "useWhen": "Stamp a phase mark (boot/title/loader/gameplay) into the active trace.",
+      "notFor": "Querying marks — use trace_store_anchor_list.",
+      "adjacentTools": [
+        "runtime_session_start",
+        "runtime_trace_finalize",
+        "trace_store_anchor_list"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace writer: produces trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)."
+    },
+    {
+      "name": "runtime_media_browse",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "List media available to mount in the active project.",
+      "notFor": "Mounting — use runtime_media_mount.",
+      "adjacentTools": [
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "runtime_media_list_paths",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_media_mount",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "media-ingress",
+      "swimlane": "runtime-explore",
+      "useWhen": "Mount a .d64/.g64 to drive 8 (or .crt) in the live session via the 709 ingress service.",
+      "notFor": "Swapping a mounted disk — use runtime_media_swap.",
+      "adjacentTools": [
+        "runtime_media_swap",
+        "runtime_media_unmount"
+      ],
+      "e2eUseCases": [
+        "E2E-B",
+        "E2E-H"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "runtime_media_swap",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "media-ingress",
+      "swimlane": "runtime-explore",
+      "useWhen": "Swap the drive-8 disk mid-session (checkpointed branch event).",
+      "notFor": "Initial mount — use runtime_media_mount.",
+      "adjacentTools": [
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "runtime_media_unmount",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "media-ingress",
+      "swimlane": "runtime-explore",
+      "useWhen": "Eject media from a drive/cartridge slot.",
+      "notFor": "Mounting — use runtime_media_mount.",
+      "adjacentTools": [
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_memory_access_map",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "trace-query",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
+      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "merge",
+      "pathMode": "no-path",
+      "useInstead": "runtime_query_events / trace_store_bus_find"
+    },
+    {
+      "name": "runtime_monitor_disasm",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-monitor",
+      "swimlane": "freeze-inspect",
+      "useWhen": "Disassemble around the live PC at a paused state.",
+      "notFor": "Static PRG disasm — use disasm_prg.",
+      "adjacentTools": [
+        "runtime_monitor_registers",
+        "runtime_resolve_pc"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_monitor_memory",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-monitor",
+      "swimlane": "freeze-inspect",
+      "useWhen": "Read live RAM/IO bytes at a paused state.",
+      "notFor": "Static payload bytes — use inspect_address_range.",
+      "adjacentTools": [
+        "runtime_monitor_registers",
+        "inspect_address_range"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_monitor_registers",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-monitor",
+      "swimlane": "freeze-inspect",
+      "useWhen": "Read CPU registers/flags at a paused state.",
+      "notFor": "Memory bytes — use runtime_monitor_memory.",
+      "adjacentTools": [
+        "runtime_monitor_memory",
+        "runtime_monitor_disasm"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_profile_loader",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Profile loader phases / hot PCs / IEC activity from a trace.",
+      "notFor": "Generic event query — use runtime_query_events.",
+      "adjacentTools": [
+        "runtime_query_events",
+        "trace_store_top_pcs"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "runtime_promote_branch",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_query_events",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Query trace events by family/cycle/pc/addr against a trace.duckdb.",
+      "notFor": "Custom SQL — use trace_store_query only for one-off questions.",
+      "adjacentTools": [
+        "trace_store_top_pcs",
+        "trace_store_bus_find"
+      ],
+      "e2eUseCases": [
+        "E2E-B",
+        "E2E-I"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "runtime_regression_capture_baseline",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_regression_compare",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_render_screen",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-inspect",
+      "swimlane": "freeze-inspect",
+      "useWhen": "Render the current C64 screen as evidence of a visible state.",
+      "notFor": "Pixel→RAM resolution — use runtime_vic_inspect_at.",
+      "adjacentTools": [
+        "runtime_session_snapshot",
+        "runtime_vic_inspect_at"
+      ],
+      "e2eUseCases": [
+        "E2E-B",
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_resolve_pc",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-monitor",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Resolve a runtime PC to a payload/source location for annotation evidence.",
+      "notFor": "Symbol/ROM lookup — use c64ref_lookup.",
+      "adjacentTools": [
+        "disasm_prg",
+        "c64ref_lookup"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_run_scenario",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal dev: run/manage a built-in repo scenario fixture for regression/debug.",
+      "notFor": "External-LLM project work — start from user media via runtime_session_start.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "repo-dev-only",
+      "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "runtime_run_scenarios_parallel",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal dev: run/manage a built-in repo scenario fixture for regression/debug.",
+      "notFor": "External-LLM project work — start from user media via runtime_session_start.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "repo-dev-only",
+      "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "runtime_save_vsf",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-inspect",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
+      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "merge",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_scan_fingerprints",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_scenario_delete",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal dev: run/manage a built-in repo scenario fixture for regression/debug.",
+      "notFor": "External-LLM project work — start from user media via runtime_session_start.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "repo-dev-only",
+      "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "runtime_scenario_list",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal dev: run/manage a built-in repo scenario fixture for regression/debug.",
+      "notFor": "External-LLM project work — start from user media via runtime_session_start.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "repo-dev-only",
+      "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "runtime_scenario_load",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal dev: run/manage a built-in repo scenario fixture for regression/debug.",
+      "notFor": "External-LLM project work — start from user media via runtime_session_start.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "repo-dev-only",
+      "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "runtime_scenario_save",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal dev: run/manage a built-in repo scenario fixture for regression/debug.",
+      "notFor": "External-LLM project work — start from user media via runtime_session_start.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "repo-dev-only",
+      "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "runtime_session_export_audio",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "view-docs",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced: export audio/video/frame artifacts from a session.",
+      "notFor": "Normal screen evidence — use runtime_render_screen.",
+      "adjacentTools": [
+        "runtime_render_screen"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_render_screen"
+    },
+    {
+      "name": "runtime_session_run",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Advance the live session (instruction budget or until a stable-screen/PC condition).",
+      "notFor": "Single-step — use runtime_step_into / runtime_step_over.",
+      "adjacentTools": [
+        "runtime_until",
+        "runtime_mark"
+      ],
+      "e2eUseCases": [
+        "E2E-B",
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_session_snapshot",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-inspect",
+      "swimlane": "freeze-inspect",
+      "useWhen": "Capture a checkpoint of the live machine for inspect/rewind/branch.",
+      "notFor": "Durable .c64re dump — that is an advanced session dump tool.",
+      "adjacentTools": [
+        "runtime_render_screen",
+        "runtime_vic_inspect_at"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_session_start",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Start the Headless product runtime; pass disk_path/crt_path/prg_path + optional trace_out + trace_domains for durable capture. Disk-boot trace sequence: start(disk_path,trace_out) → session_run to BASIC READY → mark('basic-ready') → type('LOAD\"*\",8,1\\rRUN\\r') → session_run to stable screen → mark('loaded-or-title') → trace_finalize.",
+      "notFor": "VICE / scenario fixtures — those are advanced internal-dev paths.",
+      "adjacentTools": [
+        "runtime_session_run",
+        "runtime_mark",
+        "runtime_trace_finalize",
+        "runtime_media_mount"
+      ],
+      "e2eUseCases": [
+        "E2E-B",
+        "E2E-C",
+        "E2E-H"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace writer: produces trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)."
+    },
+    {
+      "name": "runtime_session_status",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Read the live session's run state / cycle / media.",
+      "notFor": "Register dump — use runtime_monitor_registers.",
+      "adjacentTools": [
+        "runtime_session_run",
+        "runtime_monitor_registers"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_snapshot_tree",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-control",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
+      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_status",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "advanced",
+      "role": "runtime-monitor",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
+      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "merge",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_status"
+    },
+    {
+      "name": "runtime_step_into",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-monitor",
+      "swimlane": "freeze-inspect",
+      "useWhen": "Single-step one instruction, entering subroutines.",
+      "notFor": "Stepping over a JSR — use runtime_step_over.",
+      "adjacentTools": [
+        "runtime_step_over",
+        "runtime_until"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_step_over",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-monitor",
+      "swimlane": "freeze-inspect",
+      "useWhen": "Single-step over a JSR without entering it.",
+      "notFor": "Entering the call — use runtime_step_into.",
+      "adjacentTools": [
+        "runtime_step_into"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_swimlane_slice",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Get a bounded multi-lane (c64/drive/iec/$dd00) slice around a cycle window.",
+      "notFor": "Single-family event list — use runtime_query_events.",
+      "adjacentTools": [
+        "runtime_query_events",
+        "trace_store_bus_find"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "runtime_trace_finalize",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "trace-capture",
+      "swimlane": "trace-capture",
+      "useWhen": "Drain + close the live trace into a durable trace.duckdb.",
+      "notFor": "Starting a trace — use runtime_session_start(trace_out).",
+      "adjacentTools": [
+        "runtime_session_start",
+        "runtime_mark"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace writer: produces trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)."
+    },
+    {
+      "name": "runtime_trace_status",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "trace-capture",
+      "swimlane": "trace-capture",
+      "useWhen": "Check whether a live trace is active + its queue/row counts.",
+      "notFor": "Reading rows — use runtime_query_events / trace_store_*.",
+      "adjacentTools": [
+        "runtime_trace_finalize"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace writer: produces trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)."
+    },
+    {
+      "name": "runtime_trace_taint",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Track how a value/address propagates through the trace.",
+      "notFor": "Top PCs — use trace_store_top_pcs.",
+      "adjacentTools": [
+        "runtime_follow_path"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "runtime_type",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Type text/commands into the live machine, e.g. LOAD\"*\",8,1\\rRUN\\r.",
+      "notFor": "Joystick/fire — use runtime_joystick.",
+      "adjacentTools": [
+        "runtime_joystick",
+        "runtime_session_run"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_until",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Run until a PC/condition (e.g. stable screen) is reached.",
+      "notFor": "Fixed instruction budget — use runtime_session_run.",
+      "adjacentTools": [
+        "runtime_session_run"
+      ],
+      "e2eUseCases": [
+        "E2E-B",
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_vic_inspect_at",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-inspect",
+      "swimlane": "freeze-inspect",
+      "useWhen": "Resolve a screen pixel/cell to VIC/RAM evidence on a paused checkpoint.",
+      "notFor": "Whole-screen capture — use runtime_render_screen.",
+      "adjacentTools": [
+        "runtime_render_screen",
+        "runtime_monitor_memory"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "sandbox_6502_run",
+      "namespace": "sandbox",
+      "sourceFile": "server-tools/sandbox.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "sandbox_depack",
+      "namespace": "sandbox",
+      "sourceFile": "server-tools/sandbox-depack.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_anti_pattern",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_artifact",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_build_pipeline",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_entity",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "asset-linking",
+      "useWhen": "Record a named entity (routine/asset/struct) to link evidence to.",
+      "notFor": "Free-text conclusions — use save_finding.",
+      "adjacentTools": [
+        "link_entities",
+        "save_finding"
+      ],
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_finding",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "validation",
+      "useWhen": "Persist an evidence-backed conclusion (routine, protection, asset origin).",
+      "notFor": "Transient chat notes — persist only durable conclusions.",
+      "adjacentTools": [
+        "save_open_question",
+        "link_entities",
+        "agent_record_step"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-B",
+        "E2E-C",
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_flow",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_open_question",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "validation",
+      "useWhen": "Record an unresolved question needing human input or later evidence.",
+      "notFor": "A settled conclusion — use save_finding.",
+      "adjacentTools": [
+        "list_open_questions"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_patch_recipe",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "change-intervention",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
+      "notFor": "Normal analysis — record conclusions via save_finding.",
+      "adjacentTools": [
+        "save_finding"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_project_profile",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "save_task",
+      "namespace": "save",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "scan_g64_headers",
+      "namespace": "scan",
+      "sourceFile": "server-tools/disk-g64.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "scan_graphics_candidates",
+      "namespace": "scan",
+      "sourceFile": "server-tools/graphics-render.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "scan_registration_delta",
+      "namespace": "scan",
+      "sourceFile": "server-tools/registration.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "set_artifact_relevance",
+      "namespace": "set",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "set_payload_disk_hint",
+      "namespace": "set",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "snapshot_artifact_before_overwrite",
+      "namespace": "snapshot",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "start_build_run",
+      "namespace": "start",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "start_re_workflow",
+      "namespace": "start",
+      "sourceFile": "server-tools/agent-workflow.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Select the workflow/profile (crack, port, analysis, bugfix) for the project objective.",
+      "notFor": "Per-PRG static disassembly — use run_prg_reverse_workflow / disasm_prg.",
+      "adjacentTools": [
+        "agent_set_role",
+        "agent_onboard"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "suggest_depacker",
+      "namespace": "suggest",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Identify the likely packer/cruncher of a payload.",
+      "notFor": "Actually unpacking — use try_depack.",
+      "adjacentTools": [
+        "try_depack"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "suggest_disk_lut_sector",
+      "namespace": "suggest",
+      "sourceFile": "server-tools/media.ts",
+      "tier": "advanced",
+      "role": "format-forensics",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
+      "name": "trace_store_anchor_find",
+      "namespace": "trace",
+      "sourceFile": "server-tools/trace-store.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Find a mark/anchor by label/cycle in a trace.",
+      "notFor": "Listing all marks — use trace_store_anchor_list.",
+      "adjacentTools": [
+        "trace_store_anchor_list"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "trace_store_anchor_list",
+      "namespace": "trace",
+      "sourceFile": "server-tools/trace-store.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "List phase marks/anchors recorded in a trace.",
+      "notFor": "Stamping a mark — use runtime_mark.",
+      "adjacentTools": [
+        "trace_store_anchor_find",
+        "runtime_mark"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "trace_store_bus_find",
+      "namespace": "trace",
+      "sourceFile": "server-tools/trace-store.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Find bus reads/writes to an address/range (e.g. $dd00, IEC).",
+      "notFor": "Top PCs — use trace_store_top_pcs.",
+      "adjacentTools": [
+        "trace_store_top_pcs"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "trace_store_info",
+      "namespace": "trace",
+      "sourceFile": "server-tools/trace-store.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Summarise a trace.duckdb: run, event/channel/mark counts.",
+      "notFor": "Per-event rows — use runtime_query_events.",
+      "adjacentTools": [
+        "trace_store_top_pcs",
+        "runtime_query_events"
+      ],
+      "e2eUseCases": [
+        "E2E-B",
+        "E2E-I"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "trace_store_query",
+      "namespace": "trace",
+      "sourceFile": "server-tools/trace-store.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Escape hatch for one-off custom SQL after the convenience readers cover the shape.",
+      "notFor": "Normal workflow — prefer trace_store_info/top_pcs/bus_find + runtime_query_events.",
+      "adjacentTools": [
+        "runtime_query_events",
+        "trace_store_info"
+      ],
+      "e2eUseCases": [
+        "E2E-I"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "trace_store_top_pcs",
+      "namespace": "trace",
+      "sourceFile": "server-tools/trace-store.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Get the most-executed PCs (executed-code set) for a cpu lane.",
+      "notFor": "Bus addresses — use trace_store_bus_find.",
+      "adjacentTools": [
+        "trace_store_bus_find",
+        "runtime_query_events"
+      ],
+      "e2eUseCases": [
+        "E2E-B",
+        "E2E-I"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok",
+      "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "try_depack",
+      "namespace": "try",
+      "sourceFile": "server-tools/compression.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Attempt to unpack a packed payload into a usable image.",
+      "notFor": "Identifying the packer only — use suggest_depacker.",
+      "adjacentTools": [
+        "suggest_depacker"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "update_task_status",
+      "namespace": "update",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "verify_constraints",
+      "namespace": "verify",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "advanced",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
+      "notFor": "Normal workflow — covered by the default facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "vice_debug_run",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_backtrace",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_bank",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_binary_save",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_breakpoint_add",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_breakpoint_delete",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_breakpoint_list",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_continue",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_display",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_memory",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_next",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_registers",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_reset",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_save",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_set_registers",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_snapshot",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_step",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_monitor_write_memory",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_session_attach_media",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_session_joystick",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_session_send_keys",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_session_start",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_session_status",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_session_stop",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_add_note",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_analyze_last_session",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_build_context_index",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_build_index",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_build_pyramid_index",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_call_path",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_context_writes",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_find_bytes",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_find_memory_access",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_find_operand",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_find_pc",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_find_phase_changes",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_follow_from_pc",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_hotspots",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_list_contexts",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_list_notes",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_runtime_start",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_slice",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_slice_context",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_start",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_status",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_stop",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_stop_and_analyze",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_zoom_overview",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "vice_trace_zoom_window",
+      "namespace": "vice",
+      "sourceFile": "server-tools/vice.ts",
+      "tier": "advanced",
+      "role": "internal-dev-oracle",
+      "swimlane": "internal-dev-only",
+      "useWhen": "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
+      "notFor": "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-advanced",
+      "pathMode": "no-path",
+      "useInstead": "runtime_session_start + trace readers"
+    }
+  ]
+}
