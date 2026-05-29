@@ -18,12 +18,12 @@ const { startIntegratedSession, stopIntegratedSession } = await import(
 const LIT_TYPES = await import(
   `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
 
+// Spec 723.5c: literal-port per-cycle VIC is unconditional. Literal is the
+// IRQ authority. s.vic (VicIIVice) irq_status field is still readable for
+// the informational vice-side comparison.
 const { sessionId, session: s } = startIntegratedSession({
   diskPath: `${REPO}/samples/synthetic/1block.g64`,
   mode: "true-drive",
-  useMicrocodedCpu: true,
-  useLiteralPortRenderer: true,
-  useLiteralPortVicPerCycle: true,
 });
 
 s.resetCold("pal-default");

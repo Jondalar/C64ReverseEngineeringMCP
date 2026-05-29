@@ -39,13 +39,13 @@ const PRG = new Uint8Array([
 ]);
 const ENTRY = 0xc000;
 
-async function runScenario(percycle, label) {
+// Spec 723.5c: single product run. literal-port per-cycle VIC is the only
+// path (no percycle toggle). Assert the raster-driven $D020 split lands at
+// the compare line within polling latency.
+function runProduct() {
   const { sessionId, session: s } = startIntegratedSession({
     diskPath: `${REPO}/samples/synthetic/1block.g64`,
     mode: "true-drive",
-    useMicrocodedCpu: true,
-    useLiteralPortRenderer: true,
-    useLiteralPortVicPerCycle: percycle,
   });
   s.resetCold("pal-default");
   s.runFor(3_000_000, { cycleBudget: 5_000_000 });
@@ -54,7 +54,7 @@ async function runScenario(percycle, label) {
   s.runFor(3_000_000, { cycleBudget: 5_000_000 });
   const outDir = `${REPO}/samples/screenshots/literal-port`;
   mkdirSync(outDir, { recursive: true });
-  const path = `${outDir}/d020-split-${label}.png`;
+  const path = `${outDir}/d020-split.png`;
   const r = s.renderToPng(path, { renderer: "literal-port", frameAligned: false });
   // Sample left border (x=80 in dbuf) at every line; find transition
   // (= first y where pixel = black AND previous y = light blue)
@@ -66,15 +66,23 @@ async function runScenario(percycle, label) {
     const cur = fb[y * FB_W + 80];
     if (prev === 0x0e && cur === 0x00) { split = y; break; }
   }
-  console.log(`[${label}] PNG ${r.bytes}b → split at y=${split} (raster=${split + 16})`);
+  console.log(`PNG ${r.bytes}b → split at y=${split} (raster=${split + 16})`);
   stopIntegratedSession(sessionId);
   return split;
 }
 
-console.log("smoke-vic-299-d020-split");
-const off = await runScenario(false, "percycle-off");
-const on = await runScenario(true, "percycle-on");
-console.log(`\npercycle off: split y=${off}`);
-console.log(`percycle on:  split y=${on}`);
-console.log(`expected: raster line $80 (= 128) → canvas y = 128 - 16 = 112`);
-console.log(`diff: ${Math.abs(off - on)} px between modes`);
+console.log("smoke-vic-299-d020-split (product per-cycle)");
+const split = runProduct();
+const raster = split + 16;
+// Compare line = $80 (128). A polling split lands at the compare line plus a
+// few lines of cmp-loop + store latency. Accept a tolerant product band.
+const checks = [
+  { name: "split detected", ok: split > 0 },
+  { name: "split raster within [$80, $80+24]", ok: raster >= 128 && raster <= 152 },
+];
+let ok = true;
+for (const c of checks) {
+  console.log(`  ${c.ok ? "PASS" : "FAIL"}: ${c.name} (raster=${raster})`);
+  if (!c.ok) ok = false;
+}
+process.exit(ok ? 0 : 1);

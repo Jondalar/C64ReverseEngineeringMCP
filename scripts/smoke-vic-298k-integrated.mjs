@@ -15,11 +15,10 @@ const args = process.argv.slice(2);
 const scenario = args[0] || "ready";
 const diskArg = args[1];
 
+// Spec 723.5c: literal-port VIC is the unconditional product path. No opt-in.
 const sessionOpts = {
   diskPath: diskArg ? resolvePath(diskArg) : `${REPO}/samples/synthetic/1block.g64`,
   mode: "true-drive",
-  useMicrocodedCpu: true,
-  useLiteralPortRenderer: true,  // ← Spec 298k opt-in
 };
 
 console.log(`smoke-vic-298k-integrated scenario=${scenario}`);

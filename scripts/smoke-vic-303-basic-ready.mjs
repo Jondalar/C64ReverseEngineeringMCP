@@ -20,18 +20,11 @@ mkdirSync(OUT_DIR, { recursive: true });
 
 console.log("Spec 303 BASIC ready acceptance");
 
+// Spec 723.5c: literal-port VIC is unconditional product path. renderToPng
+// with no opts.renderer routes to literal by default.
 const { sessionId, session: s } = startIntegratedSession({
   diskPath: `${REPO}/samples/synthetic/1block.g64`,
   mode: "true-drive",
-  useMicrocodedCpu: true,
-  useLiteralPortRenderer: true,
-  useLiteralPortVicPerCycle: true,
-  useLiteralPortVicReads: true,
-  useLiteralPortVicIrq: true,
-  useLiteralPortVicStall: true,
-  useLiteralPortVicFb: true,  // = default route to literal port
-  usePerCycleBusStealing: true,
-  useCycleLockstep: true,
 });
 s.resetCold("pal-default");
 s.runFor(2_000_000, { cycleBudget: 3_000_000 });
