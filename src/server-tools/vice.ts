@@ -435,7 +435,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
   // ── Tool: vice-session-start ─────────────────────────────────────────
   server.tool(
       "vice_session_start",
-      "Start a visible x64sc VICE session using a copied user config. Optional media is attached or autostarted via VICE start arguments. Only one active session is supported.",
+      "Oracle-only (VICE ground-truth). Start a visible x64sc VICE session using a copied user config. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       {
         media_path: z.string().optional().describe("Optional path to a PRG/CRT/D64/G64 file to attach on startup"),
         media_type: z.enum(["prg", "crt", "d64", "g64"]).optional().describe("Optional media type override"),
@@ -463,7 +463,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-runtime-start ──────────────────────────────────
     server.tool(
       "vice_trace_runtime_start",
-      "Start a visible VICE session with periodic CPU-history sampling. The user can interact with the emulator and close VICE manually; use vice_trace_analyze_last_session afterwards.",
+      "Oracle-only (VICE ground-truth). Start a visible VICE session with periodic CPU-history sampling. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         media_path: z.string().optional().describe("Path to a PRG/CRT/D64/G64 file to attach on startup"),
         media_type: z.enum(["prg", "crt", "d64", "g64"]).optional().describe("Optional media type override"),
@@ -502,7 +502,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-start ──────────────────────────────────────────
     server.tool(
       "vice_trace_start",
-      "Enable periodic CPU-history sampling on the active VICE session without restarting the emulator.",
+      "Oracle-only (VICE ground-truth). Enable periodic CPU-history sampling on the active VICE session without restarting the emulator. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         sample_interval_ms: z.number().int().positive().optional().describe(`Delay between runtime-trace samples (default: ${VICE_TRACE_DEFAULT_INTERVAL_MS})`),
         cpu_history_count: z.number().int().positive().optional().describe(`CPU-history depth to request per sample (default: ${VICE_TRACE_DEFAULT_CPU_HISTORY_COUNT})`),
@@ -531,7 +531,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-status ─────────────────────────────────────────
     server.tool(
       "vice_trace_status",
-      "Report whether runtime tracing is currently active on the active VICE session.",
+      "Oracle-only (VICE ground-truth). Report whether runtime tracing is currently active on the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {},
       safeHandler("vice_trace_status", async () => {
         try {
@@ -554,7 +554,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-stop ───────────────────────────────────────────
     server.tool(
       "vice_trace_stop",
-      "Stop periodic CPU-history sampling on the active VICE session without closing VICE.",
+      "Oracle-only (VICE ground-truth). Stop periodic CPU-history sampling on the active VICE session without closing VICE. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {},
       safeHandler("vice_trace_stop", async () => {
         try {
@@ -574,7 +574,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-session-status ────────────────────────────────────────
     server.tool(
       "vice_session_status",
-      "Report the current or most recent VICE session state, including workspace paths and monitor-port readiness.",
+      "Oracle-only (VICE ground-truth). Report the current or most recent VICE session state, including workspace paths and monitor-port readiness. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       {},
       safeHandler("vice_session_status", async () => {
         try {
@@ -597,7 +597,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-session-stop ──────────────────────────────────────────
     server.tool(
       "vice_session_stop",
-      "Stop the active VICE session. The server waits briefly, then escalates to SIGTERM and SIGKILL if needed, and finalizes session artifacts.",
+      "Oracle-only (VICE ground-truth). Stop the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       {},
       safeHandler("vice_session_stop", async () => {
         try {
@@ -617,7 +617,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-stop-and-analyze ───────────────────────────────
     server.tool(
       "vice_trace_stop_and_analyze",
-      "Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary.",
+      "Oracle-only (VICE ground-truth). Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         cpu_history_count: z.number().int().positive().optional().describe("How many CPU-history items to request before stopping (default: 20000)"),
       },
@@ -639,7 +639,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-analyze-last-session ───────────────────────────
     server.tool(
       "vice_trace_analyze_last_session",
-      "Analyze the most recently completed VICE runtime-trace session. Use this after the user has closed VICE manually.",
+      "Oracle-only (VICE ground-truth). Analyze the most recently completed VICE runtime-trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {},
       safeHandler("vice_trace_analyze_last_session", async () => {
         try {
@@ -659,7 +659,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-build-index ────────────────────────────────────
     server.tool(
       "vice_trace_build_index",
-      "Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON.",
+      "Oracle-only (VICE ground-truth). Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to link observed PCs back to semantic code knowledge."),
@@ -702,7 +702,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-build-pyramid-index ────────────────────────────
     server.tool(
       "vice_trace_build_pyramid_index",
-      "Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection.",
+      "Oracle-only (VICE ground-truth). Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to attach routine/segment semantics."),
@@ -747,7 +747,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-build-context-index ────────────────────────────
     server.tool(
       "vice_trace_build_context_index",
-      "Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time.",
+      "Oracle-only (VICE ground-truth). Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         annotations_path: z.string().optional().describe("Optional path to an _annotations.json file used to identify known IRQ/NMI handlers."),
@@ -781,7 +781,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-hotspots ───────────────────────────────────────
     server.tool(
       "vice_trace_hotspots",
-      "Summarize the hottest PCs in a completed VICE runtime trace. Use this as the first entry point before drilling into slices.",
+      "Oracle-only (VICE ground-truth). Summarize the hottest PCs in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many hotspots to return (default: 20)"),
@@ -820,7 +820,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-zoom-overview ──────────────────────────────────
     server.tool(
       "vice_trace_zoom_overview",
-      "Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices.",
+      "Oracle-only (VICE ground-truth). Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         level: z.number().int().nonnegative().optional().describe("Optional pyramid level to highlight. Defaults to 0."),
@@ -873,7 +873,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-zoom-window ────────────────────────────────────
     server.tool(
       "vice_trace_zoom_window",
-      "Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase.",
+      "Oracle-only (VICE ground-truth). Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         level: z.number().int().nonnegative().optional().describe("Pyramid level for a direct window lookup (default: 0)."),
@@ -934,7 +934,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-find-phase-changes ─────────────────────────────
     server.tool(
       "vice_trace_find_phase_changes",
-      "List the strongest phase boundaries detected from the trace window feature vectors.",
+      "Oracle-only (VICE ground-truth). List the strongest phase boundaries detected from the trace window feature vectors. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many boundaries to include (default: 12)."),
@@ -967,7 +967,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-find-pc ────────────────────────────────────────
     server.tool(
       "vice_trace_find_pc",
-      "Find occurrences of a specific PC in a completed VICE runtime trace. Returns anchor clocks you can pass to vice_trace_slice.",
+      "Oracle-only (VICE ground-truth). Find occurrences of a specific PC in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         pc: z.string().describe("Hex PC to search for, e.g. 63A1"),
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
@@ -1008,7 +1008,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-list-contexts ──────────────────────────────────
     server.tool(
       "vice_trace_list_contexts",
-      "List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices.",
+      "Oracle-only (VICE ground-truth). List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         kind: z.enum(["irq", "nmi", "interrupt"]).optional().describe("Optional context kind filter."),
@@ -1047,7 +1047,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-slice-context ──────────────────────────────────
     server.tool(
       "vice_trace_slice_context",
-      "Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span.",
+      "Oracle-only (VICE ground-truth). Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         context_id: z.string().describe("Context id from vice_trace_list_contexts, e.g. ctx-0003"),
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
@@ -1088,7 +1088,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-context-writes ─────────────────────────────────
     server.tool(
       "vice_trace_context_writes",
-      "Show the dominant memory writes and call edges recorded for one indexed interrupt context.",
+      "Oracle-only (VICE ground-truth). Show the dominant memory writes and call edges recorded for one indexed interrupt context. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         context_id: z.string().describe("Context id from vice_trace_list_contexts, e.g. ctx-0003"),
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
@@ -1131,7 +1131,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-follow-from-pc ─────────────────────────────────
     server.tool(
       "vice_trace_follow_from_pc",
-      "Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Useful for questions like 'I entered at $8400, what happened next exactly?'",
+      "Oracle-only (VICE ground-truth). Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         pc: z.string().describe("Hex PC to start from, e.g. 8400"),
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
@@ -1173,7 +1173,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-find-bytes ─────────────────────────────────────
     server.tool(
       "vice_trace_find_bytes",
-      "Find instructions in a completed VICE runtime trace by raw byte pattern. Useful when you know the exact opcode bytes from ASM.",
+      "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace by raw byte pattern. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         bytes: z.string().describe("Byte pattern, e.g. 'A9 FE 8D 00 DC' or 'A9FE8D00DC'"),
         mode: z.enum(["prefix", "exact", "contains"]).optional().describe("Match mode (default: prefix)"),
@@ -1207,7 +1207,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-find-operand ───────────────────────────────────
     server.tool(
       "vice_trace_find_operand",
-      "Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. Useful for I/O and data-address probing.",
+      "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         address: z.string().describe("Hex address to search inside instruction operands, e.g. D020 or DC00"),
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
@@ -1239,7 +1239,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-find-memory-access ─────────────────────────────
     server.tool(
       "vice_trace_find_memory_access",
-      "Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible.",
+      "Oracle-only (VICE ground-truth). Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         address: z.string().describe("Hex address to match as a direct instruction operand, e.g. D020 or DC00"),
         access: z.enum(["any", "read", "write", "readwrite"]).optional().describe("Access kind filter (default: any)"),
@@ -1281,7 +1281,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-slice ──────────────────────────────────────────
     server.tool(
       "vice_trace_slice",
-      "Return a focused instruction window around an anchor clock from a completed VICE runtime trace. Use this after vice_trace_find_pc or vice_trace_find_bytes.",
+      "Oracle-only (VICE ground-truth). Return a focused instruction window around an anchor clock from a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         anchor_clock: z.string().describe("Exact clock value from a trace match"),
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
@@ -1315,7 +1315,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-call-path ──────────────────────────────────────
     server.tool(
       "vice_trace_call_path",
-      "Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace.",
+      "Oracle-only (VICE ground-truth). Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         anchor_clock: z.string().describe("Exact clock value from a trace match"),
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
@@ -1356,7 +1356,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-add-note ───────────────────────────────────────
     server.tool(
       "vice_trace_add_note",
-      "Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings.",
+      "Oracle-only (VICE ground-truth). Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         title: z.string().describe("Short note title"),
         note: z.string().describe("The actual finding or hypothesis to preserve"),
@@ -1389,7 +1389,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-trace-list-notes ─────────────────────────────────────
     server.tool(
       "vice_trace_list_notes",
-      "List saved reasoning notes/bookmarks for a completed VICE trace session.",
+      "Oracle-only (VICE ground-truth). List saved reasoning notes/bookmarks for a completed VICE trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       {
         session_id: z.string().optional().describe("Optional session id. Defaults to the latest trace session in the current project."),
         limit: z.number().int().positive().optional().describe("How many recent notes to return (default: 50)"),
@@ -1412,7 +1412,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-registers ─────────────────────────────────────
     server.tool(
       "vice_monitor_registers",
-      "Read CPU register values from the active VICE session. If the machine is running, the monitor may stop it to collect state.",
+      "Oracle-only (VICE ground-truth). Read CPU register values from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {},
       safeHandler("vice_monitor_registers", async () => {
         try {
@@ -1438,7 +1438,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-memory ────────────────────────────────────────
     server.tool(
       "vice_monitor_memory",
-      "Read a memory range from the active VICE session.",
+      "Oracle-only (VICE ground-truth). Read a memory range from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
         end: z.string().describe("End address as hex, inclusive"),
@@ -1475,7 +1475,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-write-memory ─────────────────────────────────
     server.tool(
       "vice_monitor_write_memory",
-      "Write bytes into the active VICE session memory.",
+      "Oracle-only (VICE ground-truth). Write bytes into the active VICE session memory. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
         data_hex: z.string().describe("Hex bytes to write, e.g. 'a9 00 8d 20 d0'"),
@@ -1513,7 +1513,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-set-registers ────────────────────────────────
     server.tool(
       "vice_monitor_set_registers",
-      "Set CPU register values in the active VICE session.",
+      "Oracle-only (VICE ground-truth). Set CPU register values in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         registers: z.record(z.string(), z.string()).describe("Register map, e.g. {\"PC\":\"080D\",\"A\":\"00\",\"X\":\"10\"}"),
         memspace: z.enum(["main", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Target memspace; defaults to main"),
@@ -1544,7 +1544,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-breakpoint-add ───────────────────────────────
     server.tool(
       "vice_monitor_breakpoint_add",
-      "Add a breakpoint/watchpoint/tracepoint in the active VICE session.",
+      "Oracle-only (VICE ground-truth). Add a breakpoint/watchpoint/tracepoint in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         start: z.string().describe("Start address as hex, e.g. 080D"),
         end: z.string().optional().describe("Optional end address; defaults to start"),
@@ -1589,7 +1589,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-breakpoint-list ──────────────────────────────
     server.tool(
       "vice_monitor_breakpoint_list",
-      "List checkpoints currently configured in the active VICE session.",
+      "Oracle-only (VICE ground-truth). List checkpoints currently configured in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {},
       safeHandler("vice_monitor_breakpoint_list", async () => {
         try {
@@ -1615,7 +1615,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-breakpoint-delete ────────────────────────────
     server.tool(
       "vice_monitor_breakpoint_delete",
-      "Delete a checkpoint from the active VICE session.",
+      "Oracle-only (VICE ground-truth). Delete a checkpoint from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         checkpoint_number: z.number().int().nonnegative().describe("Checkpoint number to delete"),
       },
@@ -1639,7 +1639,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-session-send-keys ────────────────────────────────────
     server.tool(
       "vice_session_send_keys",
-      "Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer.",
+      "Oracle-only (VICE ground-truth). Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       {
         text: z.string().optional().describe("Text to feed into the keyboard buffer"),
         petscii_bytes: z.array(z.number().int().min(0).max(255)).optional().describe("Raw PETSCII bytes to queue into the keyboard buffer"),
@@ -1684,7 +1684,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-session-joystick ────────────────────────────────────
     server.tool(
       "vice_session_joystick",
-      "Send keyset-based joystick input into the active visible VICE session. Uses the copied VICE config and currently expects JoyDevice<port>=3 with KeySet<port>* bindings.",
+      "Oracle-only (VICE ground-truth). Send keyset-based joystick input into the active visible VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       {
         directions: z.array(z.enum(["up", "down", "left", "right", "fire"])).min(1).describe("Joystick directions/buttons to hold simultaneously"),
         duration_ms: z.number().int().positive().optional().describe("How long to hold the joystick input before releasing it (default: 120 ms)"),
@@ -1713,7 +1713,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-session-attach-media ─────────────────────────────────
     server.tool(
       "vice_session_attach_media",
-      "Autostart or autoload media into an already running VICE session via the binary monitor.",
+      "Oracle-only (VICE ground-truth). Autostart or autoload media into an already running VICE session via the binary monitor. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       {
         media_path: z.string().describe("Path to the media file to load"),
         run_after_loading: z.boolean().optional().describe("Whether to run after loading (default: true)"),
@@ -1739,7 +1739,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-display ──────────────────────────────────────
     server.tool(
       "vice_monitor_display",
-      "Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata.",
+      "Oracle-only (VICE ground-truth). Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         output_path: z.string().optional().describe("Output path for the PGM image; defaults to analysis/runtime/exports/display-<timestamp>.pgm"),
         use_vicii: z.boolean().optional().describe("On C128, capture VIC-II instead of VDC (default: true)"),
@@ -1775,7 +1775,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-reset ────────────────────────────────────────
     server.tool(
       "vice_monitor_reset",
-      "Reset the active VICE machine or one of its drives.",
+      "Oracle-only (VICE ground-truth). Reset the active VICE machine or one of its drives. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         target: z.enum(["system", "power", "drive8", "drive9", "drive10", "drive11"]).optional().describe("Reset target; defaults to system"),
       },
@@ -1800,7 +1800,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-backtrace ─────────────────────────────────────
     server.tool(
       "vice_monitor_backtrace",
-      "Build a heuristic call stack from the 6502 stack page in the active VICE session. This is inferred from stack contents; the binary monitor does not expose a dedicated backtrace command.",
+      "Oracle-only (VICE ground-truth). Build a heuristic call stack from the 6502 stack page in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         max_frames: z.number().int().positive().optional().describe("Maximum number of stack-derived frames to return (default: 16)"),
       },
@@ -1837,7 +1837,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-bank ──────────────────────────────────────────
     server.tool(
       "vice_monitor_bank",
-      "List the available VICE memory banks for the active machine. Use the returned bank IDs with vice_monitor_memory, vice_monitor_save, or vice_monitor_binary_save.",
+      "Oracle-only (VICE ground-truth). List the available VICE memory banks for the active machine. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {},
       safeHandler("vice_monitor_bank", async () => {
         try {
@@ -1861,7 +1861,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-snapshot ──────────────────────────────────────
     server.tool(
       "vice_monitor_snapshot",
-      "Save a VICE snapshot (.vsf) from the active session.",
+      "Oracle-only (VICE ground-truth). Save a VICE snapshot (.vsf) from the active session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         output_path: z.string().optional().describe("Output path for the snapshot file; defaults to analysis/runtime/exports/vice-snapshot-<timestamp>.vsf"),
         save_roms: z.boolean().optional().describe("Include ROMs in the snapshot (default: true)"),
@@ -1891,7 +1891,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-save ──────────────────────────────────────────
     server.tool(
       "vice_monitor_save",
-      "Save a memory range from the active VICE session as a PRG file with a load-address header.",
+      "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a PRG file with a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
         end: z.string().describe("End address as hex, inclusive"),
@@ -1940,7 +1940,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-binary-save ───────────────────────────────────
     server.tool(
       "vice_monitor_binary_save",
-      "Save a memory range from the active VICE session as a raw binary file without a load-address header.",
+      "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a raw binary file without a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {
         start: z.string().describe("Start address as hex, e.g. 0801 or $0801"),
         end: z.string().describe("End address as hex, inclusive"),
@@ -1989,7 +1989,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-continue ──────────────────────────────────────
     server.tool(
       "vice_monitor_continue",
-      "Resume execution in the active VICE session until the next breakpoint or manual stop.",
+      "Oracle-only (VICE ground-truth). Resume execution in the active VICE session until the next breakpoint or manual stop. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {},
       safeHandler("vice_monitor_continue", async () => {
         try {
@@ -2011,7 +2011,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-step ──────────────────────────────────────────
     server.tool(
       "vice_monitor_step",
-      "Advance the active VICE session by one instruction and stop again.",
+      "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction and stop again. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {},
       safeHandler("vice_monitor_step", async () => {
         try {
@@ -2033,7 +2033,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-monitor-next ──────────────────────────────────────────
     server.tool(
       "vice_monitor_next",
-      "Advance the active VICE session by one instruction, stepping over subroutine calls.",
+      "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction, stepping over subroutine calls. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       {},
       safeHandler("vice_monitor_next", async () => {
         try {
@@ -2055,7 +2055,7 @@ export function registerViceTools(server: McpServer, context: ServerToolContext)
     // ── Tool: vice-debug-run ─────────────────────────────────────────────
     server.tool(
       "vice_debug_run",
-      "Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs.",
+      "Oracle-only (VICE ground-truth). Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_* / runtime breakpoints.",
       {
         breakpoints: z.array(z.string()).min(1).describe("Breakpoint addresses as hex strings, e.g. [\"080D\", \"C000\"]"),
         timeout_ms: z.number().int().positive().optional().describe("How long to wait for a breakpoint or stop event (default: 15000)"),

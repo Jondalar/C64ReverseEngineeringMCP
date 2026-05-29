@@ -174,6 +174,16 @@ alternative pointer in every default description. 12/12 GREEN; default=42,
 full=271. (Advanced-tool descriptions incl. the `vice_*` oracle-only wording =
 722.5b, later.)
 
+### 722.5b-1 — vice_* descriptions oracle-only (code) — DONE (2026-05-29)
+All 49 `vice_*` tool descriptions reframed: lead with "Oracle-only (VICE
+ground-truth)", state "use only after the headless/runtime path diverges or when
+the user asks for a VICE comparison — not for normal project workflow", and
+point monitor/trace/debug tools at the preferred C64RE tools (runtime_monitor_*,
+trace_store_*/runtime trace). No Spec NNN (there were none). No rename/dedup/tier
+change. probe-tool-surface checks 12-14: every vice_* advanced, oracle-only
+framed, no Spec-start. 15/15 GREEN; default=42, full=271. (Other advanced
+descriptions = 722.5b-2, later.)
+
 ### 722.5 — Descriptions (code)
 Rewrite every KEEP/REWRITE description to the §2 template. Strip `Spec NNN`
 from all user-facing tool + param descriptions.

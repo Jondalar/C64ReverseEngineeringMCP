@@ -73,6 +73,18 @@ const lacksHelp = defaultNames.filter((n) => {
 });
 ok(lacksHelp.length === 0, "11 every default description has Use-trigger + alternative pointer", lacksHelp.join(",") || "none");
 
+// --- 722.5b-1: vice_* are advanced oracle-only ---
+const viceNames = allNames.filter((n) => n.startsWith("vice_"));
+// 12. every vice_* is advanced (none in default).
+const viceDefault = viceNames.filter((n) => tierForTool(n) === "default");
+ok(viceDefault.length === 0, "12 every vice_* is advanced (none default)", viceDefault.join(",") || "none");
+// 13. every vice_* description is framed oracle-only.
+const viceNoOracle = viceNames.filter((n) => !/Oracle-only|VICE comparison|oracle/i.test(fullDescByName.get(n) || ""));
+ok(viceNoOracle.length === 0, "13 every vice_* description is oracle-only framed", viceNoOracle.join(",") || "none");
+// 14. no vice_* description starts with Spec.
+const viceSpecStart = viceNames.filter((n) => /^\s*Spec\b/i.test(fullDescByName.get(n) || ""));
+ok(viceSpecStart.length === 0, "14 no vice_* description starts with Spec", viceSpecStart.join(",") || "none");
+
 console.log(`\nDefault surface (${defaultNames.length}):`);
 for (const n of defaultNames) console.log(`  ${n}`);
 

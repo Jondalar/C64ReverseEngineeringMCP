@@ -304,52 +304,52 @@
 | `try_depack` | try | server-tools/compression.ts |  | default? |  | Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). |
 | `update_task_status` | update | project-knowledge/mcp-tools.ts |  | default? |  | Update the status of an existing task in the knowledge layer. |
 | `verify_constraints` | verify | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 029: run the built-in constraint checker. |
-| `vice_debug_run` | vice | server-tools/vice.ts |  | advanced? |  | Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs. |
-| `vice_monitor_backtrace` | vice | server-tools/vice.ts |  | advanced? |  | Build a heuristic call stack from the 6502 stack page in the active VICE session. |
-| `vice_monitor_bank` | vice | server-tools/vice.ts |  | advanced? |  | List the available VICE memory banks for the active machine. |
-| `vice_monitor_binary_save` | vice | server-tools/vice.ts |  | advanced? |  | Save a memory range from the active VICE session as a raw binary file without a load-address header. |
-| `vice_monitor_breakpoint_add` | vice | server-tools/vice.ts |  | advanced? |  | Add a breakpoint/watchpoint/tracepoint in the active VICE session. |
-| `vice_monitor_breakpoint_delete` | vice | server-tools/vice.ts |  | advanced? |  | Delete a checkpoint from the active VICE session. |
-| `vice_monitor_breakpoint_list` | vice | server-tools/vice.ts |  | advanced? |  | List checkpoints currently configured in the active VICE session. |
-| `vice_monitor_continue` | vice | server-tools/vice.ts |  | advanced? |  | Resume execution in the active VICE session until the next breakpoint or manual stop. |
-| `vice_monitor_display` | vice | server-tools/vice.ts |  | advanced? | runtime_monitor_disasm | Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata. |
-| `vice_monitor_memory` | vice | server-tools/vice.ts |  | advanced? | runtime_monitor_memory | Read a memory range from the active VICE session. |
-| `vice_monitor_next` | vice | server-tools/vice.ts |  | advanced? |  | Advance the active VICE session by one instruction, stepping over subroutine calls. |
-| `vice_monitor_registers` | vice | server-tools/vice.ts |  | advanced? | runtime_monitor_registers | Read CPU register values from the active VICE session. |
-| `vice_monitor_reset` | vice | server-tools/vice.ts |  | advanced? |  | Reset the active VICE machine or one of its drives. |
-| `vice_monitor_save` | vice | server-tools/vice.ts |  | advanced? |  | Save a memory range from the active VICE session as a PRG file with a load-address header. |
-| `vice_monitor_set_registers` | vice | server-tools/vice.ts |  | advanced? |  | Set CPU register values in the active VICE session. |
-| `vice_monitor_snapshot` | vice | server-tools/vice.ts |  | advanced? |  | Save a VICE snapshot (.vsf) from the active session. |
-| `vice_monitor_step` | vice | server-tools/vice.ts |  | advanced? |  | Advance the active VICE session by one instruction and stop again. |
-| `vice_monitor_write_memory` | vice | server-tools/vice.ts |  | advanced? |  | Write bytes into the active VICE session memory. |
-| `vice_session_attach_media` | vice | server-tools/vice.ts |  | advanced? |  | Autostart or autoload media into an already running VICE session via the binary monitor. |
-| `vice_session_joystick` | vice | server-tools/vice.ts |  | advanced? |  | Send keyset-based joystick input into the active visible VICE session. |
-| `vice_session_send_keys` | vice | server-tools/vice.ts |  | advanced? |  | Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer. |
-| `vice_session_start` | vice | server-tools/vice.ts |  | advanced? |  | Start a visible x64sc VICE session using a copied user config. |
-| `vice_session_status` | vice | server-tools/vice.ts |  | advanced? |  | Report the current or most recent VICE session state, including workspace paths and monitor-port readiness. |
-| `vice_session_stop` | vice | server-tools/vice.ts |  | advanced? |  | Stop the active VICE session. |
-| `vice_trace_add_note` | vice | server-tools/vice.ts |  | advanced? |  | Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings. |
-| `vice_trace_analyze_last_session` | vice | server-tools/vice.ts |  | advanced? |  | Analyze the most recently completed VICE runtime-trace session. |
-| `vice_trace_build_context_index` | vice | server-tools/vice.ts |  | advanced? |  | Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every  |
-| `vice_trace_build_index` | vice | server-tools/vice.ts |  | advanced? |  | Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON. |
-| `vice_trace_build_pyramid_index` | vice | server-tools/vice.ts |  | advanced? |  | Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase de |
-| `vice_trace_call_path` | vice | server-tools/vice.ts |  | advanced? |  | Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace. |
-| `vice_trace_context_writes` | vice | server-tools/vice.ts |  | advanced? |  | Show the dominant memory writes and call edges recorded for one indexed interrupt context. |
-| `vice_trace_find_bytes` | vice | server-tools/vice.ts |  | advanced? |  | Find instructions in a completed VICE runtime trace by raw byte pattern. |
-| `vice_trace_find_memory_access` | vice | server-tools/vice.ts |  | advanced? |  | Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible. |
-| `vice_trace_find_operand` | vice | server-tools/vice.ts |  | advanced? |  | Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. |
-| `vice_trace_find_pc` | vice | server-tools/vice.ts |  | advanced? |  | Find occurrences of a specific PC in a completed VICE runtime trace. |
-| `vice_trace_find_phase_changes` | vice | server-tools/vice.ts |  | advanced? |  | List the strongest phase boundaries detected from the trace window feature vectors. |
-| `vice_trace_follow_from_pc` | vice | server-tools/vice.ts |  | advanced? |  | Follow the concrete linear execution path after entering a given PC in the completed runtime trace. |
-| `vice_trace_hotspots` | vice | server-tools/vice.ts |  | advanced? |  | Summarize the hottest PCs in a completed VICE runtime trace. |
-| `vice_trace_list_contexts` | vice | server-tools/vice.ts |  | advanced? |  | List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices. |
-| `vice_trace_list_notes` | vice | server-tools/vice.ts |  | advanced? |  | List saved reasoning notes/bookmarks for a completed VICE trace session. |
-| `vice_trace_runtime_start` | vice | server-tools/vice.ts |  | advanced? |  | Start a visible VICE session with periodic CPU-history sampling. |
-| `vice_trace_slice` | vice | server-tools/vice.ts |  | advanced? |  | Return a focused instruction window around an anchor clock from a completed VICE runtime trace. |
-| `vice_trace_slice_context` | vice | server-tools/vice.ts |  | advanced? |  | Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span. |
-| `vice_trace_start` | vice | server-tools/vice.ts |  | advanced? |  | Enable periodic CPU-history sampling on the active VICE session without restarting the emulator. |
-| `vice_trace_status` | vice | server-tools/vice.ts |  | advanced? |  | Report whether runtime tracing is currently active on the active VICE session. |
-| `vice_trace_stop` | vice | server-tools/vice.ts |  | advanced? |  | Stop periodic CPU-history sampling on the active VICE session without closing VICE. |
-| `vice_trace_stop_and_analyze` | vice | server-tools/vice.ts |  | advanced? |  | Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary. |
-| `vice_trace_zoom_overview` | vice | server-tools/vice.ts |  | advanced? |  | Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices. |
-| `vice_trace_zoom_window` | vice | server-tools/vice.ts |  | advanced? |  | Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase. |
+| `vice_debug_run` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_backtrace` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_bank` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_binary_save` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_breakpoint_add` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_breakpoint_delete` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_breakpoint_list` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_continue` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_display` | vice | server-tools/vice.ts |  | advanced? | runtime_monitor_disasm | Oracle-only (VICE ground-truth). |
+| `vice_monitor_memory` | vice | server-tools/vice.ts |  | advanced? | runtime_monitor_memory | Oracle-only (VICE ground-truth). |
+| `vice_monitor_next` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_registers` | vice | server-tools/vice.ts |  | advanced? | runtime_monitor_registers | Oracle-only (VICE ground-truth). |
+| `vice_monitor_reset` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_save` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_set_registers` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_snapshot` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_step` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_monitor_write_memory` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_session_attach_media` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_session_joystick` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_session_send_keys` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_session_start` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_session_status` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_session_stop` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_add_note` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_analyze_last_session` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_build_context_index` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_build_index` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_build_pyramid_index` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_call_path` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_context_writes` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_find_bytes` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_find_memory_access` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_find_operand` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_find_pc` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_find_phase_changes` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_follow_from_pc` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_hotspots` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_list_contexts` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_list_notes` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_runtime_start` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_slice` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_slice_context` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_start` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_status` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_stop` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_stop_and_analyze` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_zoom_overview` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |
+| `vice_trace_zoom_window` | vice | server-tools/vice.ts |  | advanced? |  | Oracle-only (VICE ground-truth). |

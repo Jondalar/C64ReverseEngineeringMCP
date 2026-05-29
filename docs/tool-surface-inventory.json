@@ -2063,8 +2063,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs.",
-      "desc": "Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_* / runtime breakpoints.",
       "tier": "advanced?"
     },
     {
@@ -2072,8 +2072,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Build a heuristic call stack from the 6502 stack page in the active VICE session.",
-      "desc": "Build a heuristic call stack from the 6502 stack page in the active VICE session. This is inferred from stack contents; the binary monitor does not expose a dedicated backtrace command.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Build a heuristic call stack from the 6502 stack page in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2081,8 +2081,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "List the available VICE memory banks for the active machine.",
-      "desc": "List the available VICE memory banks for the active machine. Use the returned bank IDs with vice_monitor_memory, vice_monitor_save, or vice_monitor_binary_save.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). List the available VICE memory banks for the active machine. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2090,8 +2090,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Save a memory range from the active VICE session as a raw binary file without a load-address header.",
-      "desc": "Save a memory range from the active VICE session as a raw binary file without a load-address header.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a raw binary file without a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2099,8 +2099,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Add a breakpoint/watchpoint/tracepoint in the active VICE session.",
-      "desc": "Add a breakpoint/watchpoint/tracepoint in the active VICE session.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Add a breakpoint/watchpoint/tracepoint in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2108,8 +2108,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Delete a checkpoint from the active VICE session.",
-      "desc": "Delete a checkpoint from the active VICE session.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Delete a checkpoint from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2117,8 +2117,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "List checkpoints currently configured in the active VICE session.",
-      "desc": "List checkpoints currently configured in the active VICE session.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). List checkpoints currently configured in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2126,8 +2126,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Resume execution in the active VICE session until the next breakpoint or manual stop.",
-      "desc": "Resume execution in the active VICE session until the next breakpoint or manual stop.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Resume execution in the active VICE session until the next breakpoint or manual stop. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2135,8 +2135,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata.",
-      "desc": "Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2144,8 +2144,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Read a memory range from the active VICE session.",
-      "desc": "Read a memory range from the active VICE session.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Read a memory range from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2153,8 +2153,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Advance the active VICE session by one instruction, stepping over subroutine calls.",
-      "desc": "Advance the active VICE session by one instruction, stepping over subroutine calls.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction, stepping over subroutine calls. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2162,8 +2162,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Read CPU register values from the active VICE session.",
-      "desc": "Read CPU register values from the active VICE session. If the machine is running, the monitor may stop it to collect state.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Read CPU register values from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2171,8 +2171,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Reset the active VICE machine or one of its drives.",
-      "desc": "Reset the active VICE machine or one of its drives.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Reset the active VICE machine or one of its drives. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2180,8 +2180,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Save a memory range from the active VICE session as a PRG file with a load-address header.",
-      "desc": "Save a memory range from the active VICE session as a PRG file with a load-address header.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a PRG file with a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2189,8 +2189,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Set CPU register values in the active VICE session.",
-      "desc": "Set CPU register values in the active VICE session.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Set CPU register values in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2198,8 +2198,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Save a VICE snapshot (.vsf) from the active session.",
-      "desc": "Save a VICE snapshot (.vsf) from the active session.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Save a VICE snapshot (.vsf) from the active session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2207,8 +2207,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Advance the active VICE session by one instruction and stop again.",
-      "desc": "Advance the active VICE session by one instruction and stop again.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction and stop again. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2216,8 +2216,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Write bytes into the active VICE session memory.",
-      "desc": "Write bytes into the active VICE session memory.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Write bytes into the active VICE session memory. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2225,8 +2225,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Autostart or autoload media into an already running VICE session via the binary monitor.",
-      "desc": "Autostart or autoload media into an already running VICE session via the binary monitor.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Autostart or autoload media into an already running VICE session via the binary monitor. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2234,8 +2234,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Send keyset-based joystick input into the active visible VICE session.",
-      "desc": "Send keyset-based joystick input into the active visible VICE session. Uses the copied VICE config and currently expects JoyDevice<port>=3 with KeySet<port>* bindings.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Send keyset-based joystick input into the active visible VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2243,8 +2243,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer.",
-      "desc": "Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2252,8 +2252,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Start a visible x64sc VICE session using a copied user config.",
-      "desc": "Start a visible x64sc VICE session using a copied user config. Optional media is attached or autostarted via VICE start arguments. Only one active session is supported.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Start a visible x64sc VICE session using a copied user config. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2261,8 +2261,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Report the current or most recent VICE session state, including workspace paths and monitor-port readiness.",
-      "desc": "Report the current or most recent VICE session state, including workspace paths and monitor-port readiness.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Report the current or most recent VICE session state, including workspace paths and monitor-port readiness. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2270,8 +2270,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Stop the active VICE session.",
-      "desc": "Stop the active VICE session. The server waits briefly, then escalates to SIGTERM and SIGKILL if needed, and finalizes session artifacts.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Stop the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2279,8 +2279,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings.",
-      "desc": "Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2288,8 +2288,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Analyze the most recently completed VICE runtime-trace session.",
-      "desc": "Analyze the most recently completed VICE runtime-trace session. Use this after the user has closed VICE manually.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Analyze the most recently completed VICE runtime-trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2297,8 +2297,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every ",
-      "desc": "Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2306,8 +2306,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON.",
-      "desc": "Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2315,8 +2315,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase de",
-      "desc": "Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2324,8 +2324,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace.",
-      "desc": "Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2333,8 +2333,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Show the dominant memory writes and call edges recorded for one indexed interrupt context.",
-      "desc": "Show the dominant memory writes and call edges recorded for one indexed interrupt context.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Show the dominant memory writes and call edges recorded for one indexed interrupt context. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2342,8 +2342,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Find instructions in a completed VICE runtime trace by raw byte pattern.",
-      "desc": "Find instructions in a completed VICE runtime trace by raw byte pattern. Useful when you know the exact opcode bytes from ASM.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace by raw byte pattern. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2351,8 +2351,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible.",
-      "desc": "Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2360,8 +2360,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address.",
-      "desc": "Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. Useful for I/O and data-address probing.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2369,8 +2369,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Find occurrences of a specific PC in a completed VICE runtime trace.",
-      "desc": "Find occurrences of a specific PC in a completed VICE runtime trace. Returns anchor clocks you can pass to vice_trace_slice.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Find occurrences of a specific PC in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2378,8 +2378,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "List the strongest phase boundaries detected from the trace window feature vectors.",
-      "desc": "List the strongest phase boundaries detected from the trace window feature vectors.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). List the strongest phase boundaries detected from the trace window feature vectors. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2387,8 +2387,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Follow the concrete linear execution path after entering a given PC in the completed runtime trace.",
-      "desc": "Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Useful for questions like 'I entered at $8400, what happened next exactly?'",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2396,8 +2396,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Summarize the hottest PCs in a completed VICE runtime trace.",
-      "desc": "Summarize the hottest PCs in a completed VICE runtime trace. Use this as the first entry point before drilling into slices.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Summarize the hottest PCs in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2405,8 +2405,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices.",
-      "desc": "List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2414,8 +2414,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "List saved reasoning notes/bookmarks for a completed VICE trace session.",
-      "desc": "List saved reasoning notes/bookmarks for a completed VICE trace session.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). List saved reasoning notes/bookmarks for a completed VICE trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2423,8 +2423,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Start a visible VICE session with periodic CPU-history sampling.",
-      "desc": "Start a visible VICE session with periodic CPU-history sampling. The user can interact with the emulator and close VICE manually; use vice_trace_analyze_last_session afterwards.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Start a visible VICE session with periodic CPU-history sampling. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2432,8 +2432,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Return a focused instruction window around an anchor clock from a completed VICE runtime trace.",
-      "desc": "Return a focused instruction window around an anchor clock from a completed VICE runtime trace. Use this after vice_trace_find_pc or vice_trace_find_bytes.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Return a focused instruction window around an anchor clock from a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2441,8 +2441,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span.",
-      "desc": "Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2450,8 +2450,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Enable periodic CPU-history sampling on the active VICE session without restarting the emulator.",
-      "desc": "Enable periodic CPU-history sampling on the active VICE session without restarting the emulator.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Enable periodic CPU-history sampling on the active VICE session without restarting the emulator. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2459,8 +2459,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Report whether runtime tracing is currently active on the active VICE session.",
-      "desc": "Report whether runtime tracing is currently active on the active VICE session.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Report whether runtime tracing is currently active on the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2468,8 +2468,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Stop periodic CPU-history sampling on the active VICE session without closing VICE.",
-      "desc": "Stop periodic CPU-history sampling on the active VICE session without closing VICE.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Stop periodic CPU-history sampling on the active VICE session without closing VICE. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2477,8 +2477,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary.",
-      "desc": "Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2486,8 +2486,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices.",
-      "desc": "Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2495,8 +2495,8 @@
       "file": "server-tools/vice.ts",
       "ns": "vice",
       "hasSpec": false,
-      "firstSentence": "Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase.",
-      "desc": "Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase.",
+      "firstSentence": "Oracle-only (VICE ground-truth).",
+      "desc": "Oracle-only (VICE ground-truth). Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     }
   ]
