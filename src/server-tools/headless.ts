@@ -1,8 +1,7 @@
 import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getHeadlessSessionManager, getPreferredHeadlessSessionManager } from "../runtime/headless/index.js";
-import type { HeadlessRunResult, HeadlessSessionRecord } from "../runtime/headless/types.js";
+// Spec 723.4b: standalone HeadlessSessionManager + its record formatters retired.
 import { findHeadlessTraceByAccess, findHeadlessTraceByPc, loadHeadlessSession, sliceHeadlessTraceByIndex } from "../runtime/headless/trace-query.js";
 import { buildHeadlessTraceIndex } from "../runtime/headless/trace-index.js";
 import type { ServerToolContext } from "./types.js";
@@ -25,109 +24,19 @@ function formatHexByte(value: number): string {
 }
 
 function resolveHeadlessProjectDir(context: ServerToolContext, hintPath?: string): string {
+  // Spec 723.4b: no longer consults the standalone HeadlessSessionManager.
   if (hintPath) {
     return context.projectDir(hintPath, true);
-  }
-  const preferred = getPreferredHeadlessSessionManager();
-  if (preferred) {
-    return preferred.getProjectDir();
   }
   return context.projectDir(undefined, true);
 }
 
-function headlessSessionToContent(record: HeadlessSessionRecord, headline: string): { content: [{ type: "text"; text: string }] } {
-  const lines = [
-    headline,
-    `Session: ${record.sessionId}`,
-    `State: ${record.state}`,
-    `Project: ${record.projectDir}`,
-    `PC: ${formatHexWord(record.currentPc)}`,
-  ];
-  if (record.prgPath) lines.push(`PRG: ${record.prgPath}`);
-  if (record.diskPath) lines.push(`Disk: ${record.diskPath}`);
-  if (record.crtPath) lines.push(`CRT: ${record.crtPath}`);
-  lines.push(`Workspace: ${record.workspace.sessionDir}`);
-  lines.push(`Trace: ${record.workspace.tracePath}`);
-  if (record.entryPoint !== undefined) lines.push(`Entry: ${formatHexWord(record.entryPoint)}`);
-  if (record.inferredBasicSys !== undefined) lines.push(`BASIC SYS: ${formatHexWord(record.inferredBasicSys)}`);
-  if (record.startedAt) lines.push(`Started: ${record.startedAt}`);
-  if (record.stoppedAt) lines.push(`Stopped: ${record.stoppedAt}`);
-  if (record.lastTrap) lines.push(`Last trap: ${record.lastTrap}`);
-  if (record.lastError) lines.push(`Last error: ${record.lastError}`);
-  if (record.loaderState.fileName) lines.push(`Loader filename: ${record.loaderState.fileName}`);
-  if (record.loaderState.device !== null) lines.push(`Loader device: ${record.loaderState.device}`);
-  if (record.loaderState.secondaryAddress !== null) lines.push(`Loader SA: ${record.loaderState.secondaryAddress}`);
-  if (record.breakpoints.length > 0) lines.push(`Breakpoints: ${record.breakpoints.length}`);
-  if (record.watchRanges.length > 0) lines.push(`Watch ranges: ${record.watchRanges.length}`);
-  lines.push(`IRQ/NMI: irqPending=${record.irqState.irqPending ? "yes" : "no"} nmiPending=${record.irqState.nmiPending ? "yes" : "no"} irqCount=${record.irqState.irqCount} nmiCount=${record.irqState.nmiCount}`);
-  lines.push(`I/O IRQ state: VIC status=${formatHexByte(record.ioInterrupts.vicIrqStatus)} mask=${formatHexByte(record.ioInterrupts.vicIrqMask)} | CIA1 status=${formatHexByte(record.ioInterrupts.cia1Status)} mask=${formatHexByte(record.ioInterrupts.cia1Mask)} | CIA2 status=${formatHexByte(record.ioInterrupts.cia2Status)} mask=${formatHexByte(record.ioInterrupts.cia2Mask)}`);
-  if (record.cartridge) {
-    lines.push(`Cartridge: ${record.cartridge.name} (${record.cartridge.mapperType}) bank=${record.cartridge.currentBank}`);
-    lines.push(`Cart lines: EXROM=${record.cartridge.exrom} GAME=${record.cartridge.game}${record.cartridge.controlRegister !== undefined ? ` control=${formatHexByte(record.cartridge.controlRegister)}` : ""}`);
-    if (record.cartridge.flashMode) lines.push(`Cart flash mode: ${record.cartridge.flashMode}`);
-    if (record.cartridge.writable) lines.push("Cart writes: enabled");
-  }
-  if (record.loadEvents.length > 0) {
-    lines.push("Load events:");
-    for (const event of record.loadEvents.slice(-5)) {
-      lines.push(`- "${event.name}" -> ${formatHexWord(event.startAddress)}-${formatHexWord((event.endAddress - 1) & 0xffff)} from ${event.source}`);
-    }
-  }
-  if (record.recentTrace.length > 0) {
-    const last = record.recentTrace[record.recentTrace.length - 1]!;
-    const bytes = last.bytes.map(formatHexByte).join(" ");
-    lines.push(`Recent trace tail: ${formatHexWord(last.pc)} [${bytes}]${last.trap ? ` ${last.trap}` : ""}`);
-    lines.push(`Last banks: $00=${formatHexByte(last.bankInfo.cpuPortDirection)} $01=${formatHexByte(last.bankInfo.cpuPortValue)} basic=${last.bankInfo.basicVisible ? "on" : "off"} kernal=${last.bankInfo.kernalVisible ? "on" : "off"} io=${last.bankInfo.ioVisible ? "on" : "off"} char=${last.bankInfo.charVisible ? "on" : "off"}`);
-  }
-  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
-}
-
-function headlessRunResultToContent(
-  result: HeadlessRunResult,
-  record: HeadlessSessionRecord,
-  headline: string,
-): { content: [{ type: "text"; text: string }] } {
-  const lines = [
-    headline,
-    `Reason: ${result.reason}`,
-    `Steps executed: ${result.stepsExecuted}`,
-    `PC: ${formatHexWord(result.currentPc)}`,
-  ];
-  if (result.lastTrap) lines.push(`Trap: ${result.lastTrap}`);
-  if (result.breakpointId) lines.push(`Breakpoint: ${result.breakpointId}`);
-  if (record.recentTrace.length > 0) {
-    const last = record.recentTrace[record.recentTrace.length - 1]!;
-    lines.push(`Last instruction: ${formatHexWord(last.pc)} [${last.bytes.map(formatHexByte).join(" ")}]`);
-    lines.push(`Cycles: ${last.before.cycles} -> ${last.after.cycles}`);
-    lines.push(`CPU port: $00=${formatHexByte(last.bankInfo.cpuPortDirection)} $01=${formatHexByte(last.bankInfo.cpuPortValue)}`);
-    lines.push(`Banks: basic=${last.bankInfo.basicVisible ? "on" : "off"} kernal=${last.bankInfo.kernalVisible ? "on" : "off"} io=${last.bankInfo.ioVisible ? "on" : "off"} char=${last.bankInfo.charVisible ? "on" : "off"}`);
-    lines.push(`Stack(before): SP=${formatHexByte(last.beforeStack.sp)} [${last.beforeStack.bytes.map(formatHexByte).join(" ")}]`);
-    lines.push(`Stack(after): SP=${formatHexByte(last.afterStack.sp)} [${last.afterStack.bytes.map(formatHexByte).join(" ")}]`);
-    if (last.accesses.length > 0) {
-      lines.push("Accesses:");
-      for (const access of last.accesses.slice(0, 12)) {
-        lines.push(`- ${access.kind} ${formatHexWord(access.address)}=${formatHexByte(access.value)} (${access.region})`);
-      }
-    }
-    if (last.watchHits.length > 0) {
-      lines.push("Watch hits:");
-      for (const hit of last.watchHits) {
-        lines.push(`- ${hit.name} ${formatHexWord(hit.start)}-${formatHexWord(hit.end)} via ${hit.touchedBy.join("/")}${hit.bytes ? ` bytes=[${hit.bytes.slice(0, 16).map(formatHexByte).join(" ")}${hit.bytes.length > 16 ? " ..." : ""}]` : ""}`);
-      }
-    }
-    lines.push("Recent trace:");
-    for (const event of record.recentTrace.slice(-8)) {
-      const bytes = event.bytes.map(formatHexByte).join(" ");
-      const suffix = event.trap ? ` ${event.trap}` : event.watchHits.length > 0 ? ` watch=${event.watchHits.map((hit) => hit.name).join(",")}` : "";
-      lines.push(`- ${formatHexWord(event.pc)} [${bytes}]${suffix}`);
-    }
-  }
-  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
-}
+// Spec 723.4b: headlessSessionToContent + headlessRunResultToContent removed —
+// they formatted the retired standalone HeadlessSessionManager records.
 
 async function resolveHeadlessTraceProjectDir(context: ServerToolContext): Promise<string> {
-  const preferred = getPreferredHeadlessSessionManager();
-  return preferred?.getProjectDir() ?? context.projectDir(undefined, true);
+  // Spec 723.4b: no longer consults the standalone HeadlessSessionManager.
+  return context.projectDir(undefined, true);
 }
 
 function formatHeadlessTraceMatch(match: { index: number; pc: number; bytes: number[]; trap?: string }): string {
@@ -135,68 +44,11 @@ function formatHeadlessTraceMatch(match: { index: number; pc: number; bytes: num
 }
 
 export function registerHeadlessTools(server: McpServer, context: ServerToolContext): void {
-  server.tool(
-    "headless_interrupt_request",
-    "Mark an IRQ or NMI as pending in the active headless runtime session. The runtime will dispatch it between instructions when possible.",
-    {
-      interrupt: z.enum(["irq", "nmi"]).describe("Interrupt line to request."),
-      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
-    },
-    safeHandler("headless_interrupt_request", async ({ interrupt, hint_path }) => {
-      try {
-        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
-        manager.requestInterrupt(interrupt);
-        return { content: [{ type: "text" as const, text: `Headless ${interrupt.toUpperCase()} requested.` }] };
-      } catch (error) {
-        return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
-      }
-    },
-));
-
-  server.tool(
-    "headless_io_interrupt_trigger",
-    "Trigger a simple VIC/CIA interrupt source in the headless runtime. If the corresponding mask bit is enabled, this will queue an IRQ or NMI.",
-    {
-      source: z.enum(["vic", "cia1", "cia2"]).describe("Interrupt source to trigger."),
-      mask: z.number().int().min(1).max(31).optional().describe("Bit mask to set in the source status register (default: 1)."),
-      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
-    },
-    safeHandler("headless_io_interrupt_trigger", async ({ source, mask, hint_path }) => {
-      try {
-        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
-        manager.triggerIoInterrupt(source, mask ?? 0x01);
-        const record = manager.getStatus();
-        if (!record) {
-          throw new Error("No headless runtime session is active.");
-        }
-        return headlessSessionToContent(record, `Headless ${source.toUpperCase()} interrupt source triggered.`);
-      } catch (error) {
-        return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
-      }
-    },
-));
-
-  server.tool(
-    "headless_interrupt_clear",
-    "Clear pending IRQ and/or NMI state in the active headless runtime session.",
-    {
-      interrupt: z.enum(["irq", "nmi", "both"]).optional().describe("Which pending interrupt to clear; defaults to both."),
-      hint_path: z.string().optional().describe("Optional path used to resolve the project context."),
-    },
-    safeHandler("headless_interrupt_clear", async ({ interrupt, hint_path }) => {
-      try {
-        const manager = getHeadlessSessionManager(resolveHeadlessProjectDir(context, hint_path));
-        if (!interrupt || interrupt === "both") {
-          manager.clearInterrupt();
-        } else {
-          manager.clearInterrupt(interrupt);
-        }
-        return { content: [{ type: "text" as const, text: `Headless pending interrupt state cleared (${interrupt ?? "both"}).` }] };
-      } catch (error) {
-        return context.cliResultToContent({ stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1 });
-      }
-    },
-));
+  // Spec 723.4b: the standalone-session interrupt tools (headless_interrupt_request,
+  // headless_io_interrupt_trigger, headless_interrupt_clear) were retired — they
+  // drove the legacy Cpu6510-based HeadlessSessionManager, had no programmatic
+  // caller, and have no IntegratedSession equivalent. No interrupt-injection was
+  // added to IntegratedSession.
 
   // Spec 062 Sprint 63: drive-emulation tools.
   // headless_drive_session_start opens a 1541 drive session backed by

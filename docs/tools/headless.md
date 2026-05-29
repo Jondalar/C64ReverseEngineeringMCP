@@ -56,9 +56,6 @@ isolating media or VIA behavior from a full C64 boot.
 
 | Tool | Description |
 |---|---|
-| `headless_interrupt_request` | Request IRQ/NMI in the session. |
-| `headless_interrupt_clear` | Clear pending interrupt state. |
-| `headless_io_interrupt_trigger` | Trigger simple emulated I/O interrupt sources. |
 | `headless_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
 
 ## V3 Emulator UI - Visualization Of The Headless Core
