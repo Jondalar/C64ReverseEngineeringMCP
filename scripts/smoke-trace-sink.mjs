@@ -183,5 +183,91 @@ let badThrew = false;
 try { ts.resolveStorePath("does-not-exist.duckdb", fakeCtx); } catch { badThrew = true; }
 ok(badThrew, "missing path → throws (no silent fallback to project root)");
 
+// Part 5 — reader-side self-heal. Stores written BEFORE the compat-view fix
+// have only trace_run / trace_event / trace_mark (no meta, no instructions /
+// bus_events / chip_events / anchors / rollups). Opening such a file through
+// the reader path MUST auto-install the compat layer — no regenerate required.
+console.log("\nPart 5 — reader self-heal on pre-fix trace.duckdb\n");
+const duckdb2 = await import("@duckdb/node-api");
+// Simulate a pre-fix file: drop everything the compat layer installed.
+const inst2 = await duckdb2.DuckDBInstance.create(TRACE_OUT);
+const conn2 = await inst2.connect();
+for (const ddl of [
+  "DROP VIEW IF EXISTS instructions",
+  "DROP VIEW IF EXISTS bus_events",
+  "DROP VIEW IF EXISTS chip_events",
+  "DROP VIEW IF EXISTS anchors",
+  "DROP VIEW IF EXISTS rollups",
+  "DROP TABLE IF EXISTS meta",
+]) await conn2.run(ddl);
+inst2.closeSync?.();
+// Verify the simulated pre-fix file actually fails without self-heal: open it
+// raw and confirm the legacy table is gone.
+const inst3 = await duckdb2.DuckDBInstance.create(TRACE_OUT);
+const conn3 = await inst3.connect();
+let preFixThrows = false;
+try { await conn3.runAndReadAll("SELECT count(*) FROM instructions"); }
+catch { preFixThrows = true; }
+inst3.closeSync?.();
+ok(preFixThrows, "pre-fix simulation: raw read of `instructions` errors before self-heal");
+
+// Now go through the reader path — it must self-heal and succeed.
+const info2 = await q.getInfo(TRACE_OUT);
+ok(info2.tableCounts.instructions > 0n,
+   "reader self-heal: getInfo works on pre-fix store",
+   `instructions=${info2.tableCounts.instructions}`);
+ok(info2.meta.schema_version?.startsWith("spec-708-streaming"),
+   "reader self-heal: meta.schema_version backfilled",
+   info2.meta.schema_version || "(missing)");
+const pcs2 = await q.topPcs(TRACE_OUT, "c64", 3);
+ok(pcs2.length > 0 && pcs2[0].count > 0,
+   "reader self-heal: topPcs works on pre-fix store",
+   pcs2[0] ? `top pc=$${pcs2[0].pc.toString(16)} n=${pcs2[0].count}` : "no rows");
+const anchors2 = await q.listAnchors(TRACE_OUT);
+ok(anchors2.length === 2,
+   "reader self-heal: listAnchors works on pre-fix store",
+   anchors2.map(a => a.name).join(",") || "none");
+// runtime_query_events backend path must also self-heal.
+const inst4 = await duckdb2.DuckDBInstance.create(TRACE_OUT);
+const conn4 = await inst4.connect();
+try {
+  const { ensureSpec726CompatLayer } = await import(`${ROOT}/dist/runtime/headless/trace/trace-run-store.js`);
+  await ensureSpec726CompatLayer(conn4);
+  const backend2 = new DuckDbQueryBackend(conn4);
+  const rows2 = await queryEvents(backend2, { runId: capturedRunId, family: "cpu_step", limit: 3 });
+  ok(rows2.length > 0 && rows2[0].family === "cpu_step",
+    "reader self-heal: runtime_query_events backend path works",
+    `rows=${rows2.length}`);
+} finally { inst4.closeSync?.(); }
+
+// Part 6 — DuckDB lock-leak fix. Before the fix, runtime.ts reader handlers
+// opened the file without closing the instance — the second call on the same
+// file failed with "Conflicting lock is held". The new withDuckDb helper
+// must close in finally so two successive reader calls succeed.
+console.log("\nPart 6 — reader instance close (no lock leak across calls)\n");
+const rt = await import(`${ROOT}/dist/server-tools/runtime.js`);
+let leak = null;
+try {
+  await rt.withDuckDb(TRACE_OUT, async (conn) => {
+    await conn.runAndReadAll("SELECT count(*) FROM trace_event LIMIT 1");
+  });
+  await rt.withDuckDb(TRACE_OUT, async (conn) => {
+    await conn.runAndReadAll("SELECT count(*) FROM trace_event LIMIT 1");
+  });
+} catch (e) { leak = e?.message ?? String(e); }
+ok(leak === null, "two successive withDuckDb calls succeed (no lock leak)", leak ?? "no error");
+
+// Plus: alternating reader paths (queries.ts withConn + runtime.ts withDuckDb)
+// must not deadlock either — the same lock-discipline must hold across modules.
+let cross = null;
+try {
+  await q.getInfo(TRACE_OUT);
+  await rt.withDuckDb(TRACE_OUT, async (conn) => {
+    await conn.runAndReadAll("SELECT count(*) FROM trace_event");
+  });
+  await q.getInfo(TRACE_OUT);
+} catch (e) { cross = e?.message ?? String(e); }
+ok(cross === null, "alternating queries.ts + runtime.ts readers succeed", cross ?? "no error");
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} trace-sink: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

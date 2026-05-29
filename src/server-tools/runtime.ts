@@ -22,6 +22,26 @@ async function getApi(sessionId: string) {
   return createAgentQueryApi({ session });
 }
 
+/** Spec 726-fix — every trace-store reader handler must open the DuckDB file
+ *  with try/finally CLOSE, otherwise the file's per-process lock leaks across
+ *  calls (next reader call on the same file fails with "Conflicting lock is
+ *  held"). Also installs the Spec 726 compat layer on open so 726 stores
+ *  written before the compat views existed are auto-healed. */
+export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any) => Promise<T>): Promise<T> {
+  const duckdb = await import("@duckdb/node-api");
+  const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
+  const { ensureSpec726CompatLayer } = await import("../runtime/headless/trace/trace-run-store.js");
+  const inst = await (duckdb as any).DuckDBInstance.create(dbPath);
+  try {
+    const conn = await inst.connect();
+    await ensureSpec726CompatLayer(conn);
+    const backend = new DuckDbQueryBackend(conn);
+    return await fn(conn, backend);
+  } finally {
+    try { (inst as any).closeSync?.(); } catch { /* ignore */ }
+  }
+}
+
 export function registerRuntimeTools(server: McpServer, _context: ServerToolContext): void {
   // ---- Monitor (Spec 248) ----
   server.tool(
@@ -284,17 +304,14 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_query_events", async (args) => {
       const { queryEvents } = await import("../runtime/headless/v2/query-events.js");
-      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-      const duckdb = await import("@duckdb/node-api");
-      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
-      const conn = await inst.connect();
-      const backend = new DuckDbQueryBackend(conn);
-      const q: any = { runId: args.run_id, family: args.family, limit: args.limit };
-      if (args.cycle_start !== undefined && args.cycle_end !== undefined) q.cycleRange = [args.cycle_start, args.cycle_end];
-      if (args.pc_start !== undefined && args.pc_end !== undefined) q.pcRange = [args.pc_start, args.pc_end];
-      if (args.addr_start !== undefined && args.addr_end !== undefined) q.addrRange = [args.addr_start, args.addr_end];
-      const rows = await queryEvents(backend, q);
-      return { content: [{ type: "text", text: `${rows.length} rows\n${JSON.stringify(rows.slice(0, 200), null, 2)}` }] };
+      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
+        const q: any = { runId: args.run_id, family: args.family, limit: args.limit };
+        if (args.cycle_start !== undefined && args.cycle_end !== undefined) q.cycleRange = [args.cycle_start, args.cycle_end];
+        if (args.pc_start !== undefined && args.pc_end !== undefined) q.pcRange = [args.pc_start, args.pc_end];
+        if (args.addr_start !== undefined && args.addr_end !== undefined) q.addrRange = [args.addr_start, args.addr_end];
+        const rows = await queryEvents(backend, q);
+        return { content: [{ type: "text", text: `${rows.length} rows\n${JSON.stringify(rows.slice(0, 200), null, 2)}` }] };
+      });
     }),
   );
 
@@ -314,21 +331,18 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_follow_path", async (args) => {
       const { followPath } = await import("../runtime/headless/v2/follow-path.js");
-      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-      const duckdb = await import("@duckdb/node-api");
-      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
-      const conn = await inst.connect();
-      const backend = new DuckDbQueryBackend(conn);
-      const chain = await followPath(backend, {
-        runId: args.run_id,
-        endEventCycle: args.end_event_cycle,
-        endEventFamily: args.end_event_family as any,
-        endEventKey: JSON.parse(args.end_event_key),
-        maxDepth: args.max_depth,
-        cycleWindow: args.cycle_window,
-        crossDomain: args.cross_domain,
+      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
+        const chain = await followPath(backend, {
+          runId: args.run_id,
+          endEventCycle: args.end_event_cycle,
+          endEventFamily: args.end_event_family as any,
+          endEventKey: JSON.parse(args.end_event_key),
+          maxDepth: args.max_depth,
+          cycleWindow: args.cycle_window,
+          crossDomain: args.cross_domain,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(chain, null, 2) }] };
       });
-      return { content: [{ type: "text", text: JSON.stringify(chain, null, 2) }] };
     }),
   );
 
@@ -346,18 +360,15 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     safeHandler("runtime_swimlane_slice", async (args) => {
       const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
       const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
-      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-      const duckdb = await import("@duckdb/node-api");
-      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
-      const conn = await inst.connect();
-      const backend = new DuckDbQueryBackend(conn);
-      const slice = await swimlaneSlice(backend, {
-        runId: args.run_id,
-        cycleRange: [args.cycle_start, args.cycle_end],
-        compact: args.compact,
+      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
+        const slice = await swimlaneSlice(backend, {
+          runId: args.run_id,
+          cycleRange: [args.cycle_start, args.cycle_end],
+          compact: args.compact,
+        });
+        const md = renderMarkdown(slice, { maxRows: 200 });
+        return { content: [{ type: "text", text: md }] };
       });
-      const md = renderMarkdown(slice, { maxRows: 200 });
-      return { content: [{ type: "text", text: md }] };
     }),
   );
 
@@ -375,19 +386,16 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_trace_taint", async (args) => {
       const { traceTaint } = await import("../runtime/headless/v2/taint.js");
-      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-      const duckdb = await import("@duckdb/node-api");
-      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
-      const conn = await inst.connect();
-      const backend = new DuckDbQueryBackend(conn);
-      const graph = await traceTaint(backend, {
-        runId: args.run_id,
-        startCycle: args.start_cycle,
-        startAddr: args.start_addr,
-        maxDepth: args.max_depth,
-        cycleWindow: args.cycle_window,
+      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
+        const graph = await traceTaint(backend, {
+          runId: args.run_id,
+          startCycle: args.start_cycle,
+          startAddr: args.start_addr,
+          maxDepth: args.max_depth,
+          cycleWindow: args.cycle_window,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] };
       });
-      return { content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] };
     }),
   );
 
@@ -403,13 +411,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_profile_loader", async (args) => {
       const { profileLoader } = await import("../runtime/headless/v2/loader-profile.js");
-      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-      const duckdb = await import("@duckdb/node-api");
-      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
-      const conn = await inst.connect();
-      const backend = new DuckDbQueryBackend(conn);
-      const profile = await profileLoader(backend, args.scenario_id, [args.cycle_start, args.cycle_end]);
-      return { content: [{ type: "text", text: JSON.stringify(profile, null, 2) }] };
+      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
+        const profile = await profileLoader(backend, args.scenario_id, [args.cycle_start, args.cycle_end]);
+        return { content: [{ type: "text", text: JSON.stringify(profile, null, 2) }] };
+      });
     }),
   );
 
@@ -455,18 +460,15 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_bookmark_add", async (args) => {
       const { addBookmark } = await import("../runtime/headless/v2/bookmarks.js");
-      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-      const duckdb = await import("@duckdb/node-api");
-      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
-      const conn = await inst.connect();
-      const backend = new DuckDbQueryBackend(conn);
-      const id = await addBookmark(backend as any, {
-        runId: args.run_id, cycle: args.cycle, label: args.label,
-        family: args.family as any,
-        eventKey: args.event_key_json ? JSON.parse(args.event_key_json) : undefined,
-        note: args.note, bindMode: args.bind_mode, tags: args.tags,
+      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
+        const id = await addBookmark(backend as any, {
+          runId: args.run_id, cycle: args.cycle, label: args.label,
+          family: args.family as any,
+          eventKey: args.event_key_json ? JSON.parse(args.event_key_json) : undefined,
+          note: args.note, bindMode: args.bind_mode, tags: args.tags,
+        });
+        return { content: [{ type: "text", text: `bookmark added: ${id}` }] };
       });
-      return { content: [{ type: "text", text: `bookmark added: ${id}` }] };
     }),
   );
 
@@ -481,14 +483,11 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_bookmark_list", async (args) => {
       const { listBookmarks } = await import("../runtime/headless/v2/bookmarks.js");
-      const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-      const duckdb = await import("@duckdb/node-api");
-      const inst = await (duckdb as any).DuckDBInstance.create(args.duckdb_path);
-      const conn = await inst.connect();
-      const backend = new DuckDbQueryBackend(conn);
-      const range = args.cycle_start !== undefined && args.cycle_end !== undefined ? [args.cycle_start, args.cycle_end] as [number, number] : undefined;
-      const list = await listBookmarks(backend as any, args.run_id, range);
-      return { content: [{ type: "text", text: JSON.stringify(list, null, 2) }] };
+      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
+        const range = args.cycle_start !== undefined && args.cycle_end !== undefined ? [args.cycle_start, args.cycle_end] as [number, number] : undefined;
+        const list = await listBookmarks(backend as any, args.run_id, range);
+        return { content: [{ type: "text", text: JSON.stringify(list, null, 2) }] };
+      });
     }),
   );
 

@@ -53,19 +53,47 @@ export async function openTraceRunStore(path: string): Promise<TraceRunStore> {
        run_id TEXT, seq UBIGINT, cycle UBIGINT, channel TEXT,
        trigger_kind TEXT, capture_kind TEXT, data_json TEXT)`,
     `CREATE TABLE IF NOT EXISTS trace_mark (run_id TEXT, cycle UBIGINT, label TEXT)`,
-    // Spec 217 readers (trace_store_* / runtime_query_events / queries.ts) expect
-    // a `meta` table — keep one here so getInfo's metaRows read does not fail
-    // and so writeTraceRunHeader can record schema info.
-    `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   ]) await conn.run(ddl);
-  // Compatibility VIEWs (post-726 reader bridge): project trace_event/trace_mark
-  // into the Spec-217 reader schema (instructions / bus_events / chip_events /
-  // anchors / rollups). The Spec-217 trace_store_* tools, runtime_query_events,
-  // anchor-builder and rollup-builder all SELECT from these table names; the
-  // views make them work against a 726-streaming store with no reader changes.
-  // Empty-where views (chip_events, rollups) exist only so getInfo()'s UNION ALL
-  // count query and any defensive SELECT does not error.
-  // CREATE OR REPLACE → idempotent across re-opens of the same store.
+  await ensureSpec726CompatLayer(conn);
+  return { conn, inst, path };
+}
+
+/** Has this connection's database the Spec 708/726 streaming schema?
+ *  Detect by checking for the `trace_event` table — its presence is the
+ *  signature of a 726-written store (Spec 217 native stores never have it). */
+export async function isSpec726Store(conn: any): Promise<boolean> {
+  try {
+    const reader = await conn.runAndReadAll(
+      `SELECT 1 FROM information_schema.tables
+         WHERE table_schema='main' AND table_name='trace_event' LIMIT 1`,
+    );
+    return reader.getRows().length > 0;
+  } catch { return false; }
+}
+
+/** Idempotent compat-layer install. Spec 217 readers (trace_store_* tools,
+ *  runtime_query_events, anchor-builder, rollup-builder, queries.ts) SELECT
+ *  from the legacy schema: meta / instructions / bus_events / chip_events /
+ *  anchors / rollups. The Spec 708/726 sink writes trace_run / trace_event /
+ *  trace_mark. This function adds a thin compat layer over the new schema so
+ *  EVERY legacy reader works against a 726 store with no reader changes.
+ *
+ *  Called from BOTH the writer (openTraceRunStore) AND the readers (queries.ts
+ *  withConn, runtime_query_events / runtime_follow_path / runtime_swimlane_slice
+ *  / runtime_trace_taint handlers) — readers must self-heal old files that were
+ *  written before the views existed.
+ *
+ *  Safe to call on non-726 stores (early-out via isSpec726Store). Safe to
+ *  call concurrently / repeatedly (CREATE TABLE/VIEW IF NOT EXISTS + CREATE
+ *  OR REPLACE VIEW). */
+export async function ensureSpec726CompatLayer(conn: any): Promise<void> {
+  if (!(await isSpec726Store(conn))) return;
+  // meta: key/value pairs the Spec 217 getInfo reader expects. Writer populates
+  // schema_version + run identity at writeTraceRunHeader time. If the table
+  // already existed (newer 726 store), CREATE IF NOT EXISTS is a no-op.
+  await conn.run(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  // Compat VIEWs over trace_event / trace_mark. CREATE OR REPLACE so a
+  // subsequent run with a refined projection upgrades the view in place.
   for (const ddl of [
     // instructions: cpu/drive_pc → one row per executed instruction.
     `CREATE OR REPLACE VIEW instructions AS
@@ -154,7 +182,24 @@ export async function openTraceRunStore(path: string): Promise<TraceRunStore> {
               CAST(NULL AS TEXT)     AS cpu
        FROM trace_event WHERE 1=0`,
   ]) await conn.run(ddl);
-  return { conn, inst, path };
+  // Backfill meta with schema_version derived from the trace_run header (if
+  // present) so an old file that finalized before meta existed still reports
+  // the right shape to getInfo. Safe: insert-or-replace, no error if empty.
+  await conn.run(
+    `INSERT OR REPLACE INTO meta(key, value)
+       SELECT 'schema_version', 'spec-708-streaming'
+       WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key='schema_version')`,
+  );
+  await conn.run(
+    `INSERT OR REPLACE INTO meta(key, value)
+       SELECT 'source', 'trace_event'
+       WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key='source')`,
+  );
+  await conn.run(
+    `INSERT OR REPLACE INTO meta(key, value)
+       SELECT 'run_id', run_id FROM trace_run
+       WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key='run_id') LIMIT 1`,
+  );
 }
 
 /** Spec 726.2 — STREAMING: append a batch of trace_event rows into the open

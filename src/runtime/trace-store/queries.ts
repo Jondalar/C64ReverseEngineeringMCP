@@ -22,6 +22,12 @@ async function withConn<T>(dbPath: string, fn: (conn: any) => Promise<T>): Promi
   const inst = await (duckdb.DuckDBInstance as any).create(dbPath);
   try {
     const conn = await (inst as any).connect();
+    // Self-heal: install the Spec 726 compat layer (meta + instructions / bus_events /
+    // chip_events / anchors / rollups views over trace_event/trace_mark) if this
+    // file is a 726 streaming store written before the views existed. No-op on
+    // native Spec 217 stores.
+    const { ensureSpec726CompatLayer } = await import("../headless/trace/trace-run-store.js");
+    await ensureSpec726CompatLayer(conn);
     return await fn(conn);
   } finally {
     (inst as any).closeSync?.();
