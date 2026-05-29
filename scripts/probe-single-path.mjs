@@ -28,8 +28,14 @@ try {
   ok(session.mode === "true-drive", "1c default mode === true-drive", `got ${session.mode}`);
   const traps = session.enableKernalFileIoTraps || session.enableKernalSerialTraps || session.enableKernalIoTraps;
   ok(traps === false, "1d no KERNAL fast-traps", `fileio=${session.enableKernalFileIoTraps} serial=${session.enableKernalSerialTraps} io=${session.enableKernalIoTraps}`);
-  ok(session.useLiteralPortRenderer === true, "1e literal-port renderer on", `got ${session.useLiteralPortRenderer}`);
-  ok(session.useLiteralPortVicPerCycle === true, "1f literal-port VIC per-cycle on", `got ${session.useLiteralPortVicPerCycle}`);
+  // Spec 723.5c: the literal port is the unconditional product VIC path —
+  // the useLiteralPort{Renderer,VicPerCycle,...} toggles are gone. Verify by
+  // the always-allocated literal framebuffer accumulator (65*8 × 312) rather
+  // than a flag.
+  const fbW = 65 * 8, fbH = 312;
+  ok(session.literalPortFb instanceof Uint8Array && session.literalPortFb.length === fbW * fbH,
+    "1e literal-port framebuffer allocated (unconditional)",
+    `${session.literalPortFb?.constructor?.name}:${session.literalPortFb?.length}`);
   const driveName = session.kernel?.drive1541?.constructor?.name ?? "(none)";
   ok(/Vice1541/.test(driveName), "1g drive1541 = vice facade", driveName);
 
@@ -133,6 +139,16 @@ const litPublic = toolDirs.flatMap((d) => walk(d, []))
   .filter((p) => /useLiteralPort|usePerCycleBusStealing/.test(readFileSync(p, "utf8")));
 ok(litPublic.length === 0, "11 no public useLiteralPort*/usePerCycleBusStealing tool input",
   litPublic.map((p) => relative(ROOT, p)).join(",") || "none");
+
+// Check 12 (Spec 723.5c): the product VIC toggles are gone from the runtime
+// API — literal renderer / per-cycle interleave / literal IO reads / literal
+// IRQ / literal renderToPng are unconditional. No field/opt named
+// useLiteralPort{Renderer,VicPerCycle,VicReads,VicIrq,VicFb} survives in src.
+// (useLiteralPortVicStall is retained as a debug-lockstep-only opt → 723.7.)
+const REMOVED_TOGGLES = /useLiteralPort(Renderer|VicPerCycle|VicReads|VicIrq|VicFb)\s*[:?=]/;
+const removedToggleHits = srcFiles.filter((p) => /\/src\//.test(p) && REMOVED_TOGGLES.test(readFileSync(p, "utf8")));
+ok(removedToggleHits.length === 0, "12 no removed product VIC toggle field/opt in src",
+  removedToggleHits.map((p) => relative(ROOT, p)).join(",") || "none");
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} single-path: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

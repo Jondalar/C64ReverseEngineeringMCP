@@ -189,43 +189,17 @@ export interface IntegratedSessionOptions {
    *   ignored. Kept here only so old callers don't TS-error during
    *   migration window. */
   vicRenderer?: "literal-port";
-  // Spec 298k: enable literal VICE x64sc port as the rendering source.
-  // When true, the literal port runs alongside VicIIVice via the 297a
-  // onCycle hook (= one VIC cycle pump, both chips see same cycle
-  // count) and writes pixels into a 520×312 framebuffer accumulator.
-  // renderToPng with renderer:"literal-port" reads that accumulator
-  // (skipping the snapshot replay path entirely).
-  useLiteralPortRenderer?: boolean;
-  // Spec 299: per-cycle CPU/VIC interleave. When true, the microcoded
-  // CPU loop calls vic.tick(1) per executeCycle (= literal port advances
-  // 1 raster cycle per CPU bus cycle). Without this flag, the legacy
-  // batched per-instruction tick stays. CPU register writes that happen
-  // mid-instruction reach the VIC at the exact cycle of the store.
-  // Acceptance gated on minimal D020/D018/D016/D011 split PRGs vs
-  // VICE x64sc reference.
-  useLiteralPortVicPerCycle?: boolean;
-  // Spec 300: route $D000-$D3FF reads through literal vicii_read.
-  // Defaults to useLiteralPortVicPerCycle (literal raster_y is only in
-  // sync when per-cycle hook drives it). Reads return literal-state
-  // values (raster line, IRQ status, collision read-clear, unused-bit
-  // OR masks) instead of VicIIVice values. Writes still mirror to
-  // both chips for diff harness.
-  useLiteralPortVicReads?: boolean;
-  // Spec 301: route CPU IRQ line to literal vicii.irq_status instead
-  // of VicIIVice.irqAsserted(). Defaults to useLiteralPortVicReads.
-  // Both chips still maintain their own irq_status; literal IRQ host
-  // callbacks remain no-op (this flag controls only which side the CPU
-  // samples). Diff harness compares both.
-  useLiteralPortVicIrq?: boolean;
-  // Spec 302: route CPU bus stall to literal port `ba_low` (returned
-  // by vicii_cycle()) instead of VicIIVice.getBusStallForCycle().
-  // Defaults to useLiteralPortVicReads. Requires
-  // usePerCycleBusStealing=true (otherwise legacy block path is used).
+  // Spec 723.5c: the literal VICE x64sc port is the unconditional product
+  // VIC path — renderer install, per-cycle CPU/VIC interleave, IO reads,
+  // IRQ source and renderToPng default all run on the literal port. The
+  // former useLiteralPort{Renderer,VicPerCycle,VicReads,VicIrq,VicFb}
+  // toggles are gone (Spec 304 had already flipped them on by default;
+  // 5c removed the legacy off-states with the non-literal renderer +
+  // batched vic.tick path).
+  // Spec 302 (debug-lockstep only, → 723.7): route CPU bus stall to the
+  // literal port `ba_low` instead of VicIIVice.getBusStallForCycle().
+  // Consumed only under useCycleLockstep + usePerCycleBusStealing.
   useLiteralPortVicStall?: boolean;
-  // Spec 303: route renderToPng() default to literal port
-  // (literalPortFb) instead of snapshot renderers. Defaults to
-  // useLiteralPortVicReads. Explicit `opts.renderer` always wins.
-  useLiteralPortVicFb?: boolean;
   // Spec 282: VIC palette selection. Default = "colodore" (modern
   // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
   // palette) for byte-exact VICE pixel-diff regression. See
@@ -289,20 +263,13 @@ export class IntegratedSession {
   public readonly sid: Sid6581;
   public readonly framebuffer: VicFramebuffer;
   // Spec 298k: literal port render output. 520×312 color-index buffer
-  // accumulated per scanline from the literal port's vicii.dbuf via
-  // 297a onCycle hook. Set when useLiteralPortRenderer=true.
+  // accumulated per scanline from the literal port's vicii.dbuf via the
+  // per-cycle tickLitVic() driver. Always allocated (Spec 723.5c: the
+  // literal port is the unconditional product VIC path).
   public literalPortFb?: Uint8Array;
-  public useLiteralPortRenderer: boolean = false;
-  // Spec 299: per-cycle CPU/VIC interleave flag (= literal port timing fix)
-  public useLiteralPortVicPerCycle: boolean = false;
-  // Spec 300: route $D000-$D3FF reads through literal vicii_read.
-  public useLiteralPortVicReads: boolean = false;
-  // Spec 301: route CPU IRQ line to literal vicii.irq_status.
-  public useLiteralPortVicIrq: boolean = false;
-  // Spec 302: route CPU bus stall to literal port ba_low.
+  // Spec 302 (debug-lockstep only, → 723.7): route CPU bus stall to literal
+  // port ba_low. Consumed under useCycleLockstep + usePerCycleBusStealing.
   public useLiteralPortVicStall: boolean = false;
-  // Spec 303: route renderToPng default to literal port framebuffer.
-  public useLiteralPortVicFb: boolean = false;
   // Spec 302: last ba_low captured from litCycle.vicii_cycle() — read
   // by busStallForNextC64Cycle when useLiteralPortVicStall is on.
   private lastLitBaLow: 0 | 1 = 0;
@@ -543,26 +510,13 @@ export class IntegratedSession {
     void opts.vicRenderer; // accepted for backwards-compat, ignored
     // Spec 282: bind palette to framebuffer. Default colodore (OQ1=b).
     if (opts.palette) this.framebuffer.setPalette(opts.palette);
-    // Spec 298k: install literal port renderer if opted in.
-    // Spec 304: defaults flipped on. Literal port is now the
-    // authoritative VIC-II path out of the box. Explicit `false`
-    // in opts still selects legacy VicIIVice-only path for diff
-    // comparison harnesses.
-    this.useLiteralPortRenderer = opts.useLiteralPortRenderer ?? true;
-    this.useLiteralPortVicPerCycle = opts.useLiteralPortVicPerCycle ?? true;
-    // Spec 300: literal reads default to per-cycle flag (literal raster_y
-    // is only in sync when per-cycle hook drives it).
-    this.useLiteralPortVicReads = opts.useLiteralPortVicReads ?? this.useLiteralPortVicPerCycle;
-    // Spec 301: literal IRQ defaults to literal-reads flag.
-    this.useLiteralPortVicIrq = opts.useLiteralPortVicIrq ?? this.useLiteralPortVicReads;
-    // Spec 302: literal stall defaults to literal-reads flag (literal
-    // ba_low is only meaningful when per-cycle hook drives vicii_cycle).
-    this.useLiteralPortVicStall = opts.useLiteralPortVicStall ?? this.useLiteralPortVicReads;
-    // Spec 303: literal framebuffer default routing.
-    this.useLiteralPortVicFb = opts.useLiteralPortVicFb ?? this.useLiteralPortVicReads;
-    if (this.useLiteralPortRenderer) {
-      this.installLiteralPortRenderer();
-    }
+    // Spec 723.5c: the literal port is the unconditional product VIC path.
+    // Renderer install + per-cycle interleave + literal IO reads + literal
+    // IRQ + literal renderToPng are no longer gated behind opts.
+    // Spec 302 (debug-lockstep only, → 723.7): literal bus-stall sampling
+    // defaults on; consumed only under useCycleLockstep + per-cycle steal.
+    this.useLiteralPortVicStall = opts.useLiteralPortVicStall ?? true;
+    this.installLiteralPortRenderer();
     // Spec 093: trace wiring. timeSource bound to c64Cpu cycles via getter.
     this.iecBus.timeSource = () => this.c64Cpu.cycles;
     if (opts.traceIec) this.iecBus.enableTrace(opts.traceIecCapacity ?? 1024);
@@ -576,9 +530,7 @@ export class IntegratedSession {
     // literal-port wiring only exists at the session level (Spec 425: the C64 CPU
     // calls vicii_cycle() from inside tick() per VICE CLK_INC; the drive CPU must
     // NOT get this hook).
-    if (this.useLiteralPortVicPerCycle) {
-      this.c64Cpu.setC64ViciiCycle(() => this.tickLitVic());
-    }
+    this.c64Cpu.setC64ViciiCycle(() => this.tickLitVic());
     // Spec 203-c4: (re)attach onInterruptServiced to the CPU.
     this.kernel.installCpuInterruptHooks();
     this.c64Cpu.reset();
@@ -769,36 +721,11 @@ export class IntegratedSession {
     path: string,
     opts?: { frameAligned?: boolean },
   ): { width: number; height: number; bytes: number } {
-    // Spec 309: literal-port is sole renderer.
+    // Spec 309 / 723.5c: the literal port is the sole renderer and its
+    // framebuffer accumulator is always allocated, so renderToPng always
+    // writes via renderLiteralPortToPng (VICE x64sc 384×272 crop).
     if (opts?.frameAligned !== false) this.runUntilFrameReady();
-    if (this.literalPortFb) return this.renderLiteralPortToPng(path);
-    // Defensive: paint via renderFrame (= literal port too).
-    this.renderFrame();
-    const fb = this.framebuffer;
-    // V3.1 (2026-05-09): symmetric borders matching internal renderer
-    // layout. VISIBLE_X=24 in vic-renderer.ts → display at internal
-    // x=24..343 (320px). Output equal 24-px borders L/R = 368 wide.
-    // VICE standard is 384×272 with 32-px borders, but our internal
-    // buf has only 24-px left margin (re-rendering wider would
-    // require widening framebuffer + adjusting all draw helpers).
-    // Symmetric 368×272 = correct ratio, smaller borders than VICE
-    // but L/R equal as user requested.
-    // VICE x64sc default PAL visible window: 384×272.
-    //   L 32 + display 320 + R 32 = 384
-    //   T 36 + display 200 + B 36 = 272 (cropY=15 → 51 display start)
-    const cropX = 0;
-    const cropY = 15;
-    const cropW = 384;
-    const cropH = 272;
-    const cropped = new Uint8Array(cropW * cropH * 4);
-    for (let y = 0; y < cropH; y++) {
-      const srcRow = ((cropY + y) * fb.width + cropX) * 4;
-      const dstRow = y * cropW * 4;
-      cropped.set(fb.pixels.subarray(srcRow, srcRow + cropW * 4), dstRow);
-    }
-    const png = rgbaToPng(cropW, cropH, cropped);
-    writeFileSync(path, png);
-    return { width: cropW, height: cropH, bytes: png.length };
+    return this.renderLiteralPortToPng(path);
   }
 
   // Spec 117 (M4.1) v1: stable framebuffer-API descriptor for agents.
@@ -909,14 +836,12 @@ export class IntegratedSession {
     // Spec 298k step 5: reset literal port state on cold reset so
     // multiple sessions / UI resets / repeated tests get clean
     // deterministic literal VIC state per machine reset.
-    if (this.useLiteralPortRenderer) {
-      LIT_VICII.vicii_reset();
-      // Re-bind RAM (= ram_base_phi1/phi2 may have been replaced)
-      LIT_VICII.vicii_bind_ram(this.c64Bus.ram);
-      LIT_TYPES.vicii.regs = this.vic.regs;
-      // Reset literal-port framebuffer accumulator
-      this.literalPortFb?.fill(0);
-    }
+    LIT_VICII.vicii_reset();
+    // Re-bind RAM (= ram_base_phi1/phi2 may have been replaced)
+    LIT_VICII.vicii_bind_ram(this.c64Bus.ram);
+    LIT_TYPES.vicii.regs = this.vic.regs;
+    // Reset literal-port framebuffer accumulator
+    this.literalPortFb?.fill(0);
   }
 
   /**
@@ -1129,22 +1054,13 @@ export class IntegratedSession {
     // Spec 205-A c4: cpu trace fires inside Cpu6510.step / Cpu65xxVice
     // — no need to publish here.
     const consumed = this.c64Cpu.cycles - before;
-    // Sprint 84: VIC may steal cycles via bad-line + sprite DMA. CPU
-    // pauses; peripherals still tick during stolen cycles ("wall
-    // clock" advances).
-    // Sprint 113 Phase 2 (Spec 150): VicIIVice's tick() internally
-    // calls VicBackend.stealCpuCycles(count, clk) which advances
-    // c64Cpu.cycles directly. Do NOT bump again here — that was the
-    // old per-tick contract before the new core moved the bump to
-    // the backend hook (caused uint32 wrap during long runs, motm
-    // probe at clk≈0xFFFFD192).
-    // Spec 299: skip end-of-instruction batched tick when per-cycle
-    // mode is active (= stepMicrocodedC64Instruction already ticked
-    // VIC per CPU cycle, ticking again would double-advance the raster).
-    const vicTick = this.useLiteralPortVicPerCycle
-      ? { stolenCycles: 0 }
-      : this.vic.tick(consumed); // audit-ok: legacy per-instruction VIC tick; replaced by Spec 203
-    const totalCycles = consumed + vicTick.stolenCycles;
+    // Spec 723.5c: the literal port per-cycle path is the only VIC path.
+    // stepMicrocodedC64Instruction already ticked the literal VIC per CPU
+    // cycle (via the c64ViciiCycle hook), so there is NO end-of-instruction
+    // batched vic.tick() here — that would double-advance the raster. Bus
+    // stealing (badline/sprite DMA) is folded into the CPU's BA-low handling
+    // (Spec 425), so cpu.cycles already reflects stolen cycles.
+    const totalCycles = consumed;
     // Tick CIA / SID / keyboard for the full wall-clock window.
     this.cia1.tick(totalCycles); // audit-ok: legacy CIA wall-clock tick; replaced by Spec 203
     this.cia2.tick(totalCycles); // audit-ok: legacy CIA wall-clock tick; replaced by Spec 203
@@ -1228,34 +1144,21 @@ export class IntegratedSession {
     }
 
     let guard = 0;
-    if (this.useLiteralPortVicPerCycle) {
-      // Spec 425 — Cpu65xxVice.tick() owns CLK_INC. Every CPU clock
-      // increment (= internal tick) calls vicii_cycle() via c64ViciiCycle
-      // hook. No session-side vic.tick pumping. IRQ entry, branch +1,
-      // page-cross, illegal-opcode burn cycles all interleave with VIC
-      // automatically.
-      do {
-        this.updateMicrocodedInterruptLines();
-        cpu.executeCycle();
-        if (++guard > 256) {
-          throw new Error(
-            `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
-          );
-        }
-      } while (!cpu.isAtInstructionBoundary());
-    } else {
-      // Legacy batched path: VIC ticks AFTER full instruction (= caller
-      // does this.vic.tick(consumed) after stepMicrocodedC64Instruction).
-      do {
-        this.updateMicrocodedInterruptLines();
-        cpu.executeCycle();
-        if (++guard > 256) {
-          throw new Error(
-            `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
-          );
-        }
-      } while (!cpu.isAtInstructionBoundary());
-    }
+    // Spec 425 / 723.5c — Cpu65xxVice.tick() owns CLK_INC. Every CPU clock
+    // increment (= internal tick) calls vicii_cycle() via the c64ViciiCycle
+    // hook. No session-side vic.tick pumping. IRQ entry, branch +1,
+    // page-cross, illegal-opcode burn cycles all interleave with VIC
+    // automatically. (The legacy batched-tick branch is gone — literal
+    // per-cycle is the only path.)
+    do {
+      this.updateMicrocodedInterruptLines();
+      cpu.executeCycle();
+      if (++guard > 256) {
+        throw new Error(
+          `microcoded C64 instruction did not reach boundary pc=$${(cpu.pc & 0xffff).toString(16)}`,
+        );
+      }
+    } while (!cpu.isAtInstructionBoundary());
   }
 
   private checkC64Interrupts(): void {
@@ -1424,25 +1327,20 @@ export class IntegratedSession {
     // sees ALL VIC reg writes via vicii_store (= proper side effects:
     // ysmooth update, raster_irq_line update, sprite x recompute, IRQ
     // raise/clear, color reg cregs[] propagation). Replaces poll-based
-    // color reg sync. Reads stay through VicIIVice (= legacy snapshot
-    // renderer still uses VICE-rasterized snapshots).
+    // color reg sync.
     const bus = this.c64Bus as unknown as {
       registerIoHandler: (a: number, h: { read: (a: number) => number; write: (a: number, v: number) => void }) => void;
     };
-    const useLitReads = this.useLiteralPortVicReads;
     for (let mirror = 0; mirror < 0x400; mirror += 0x40) {
       for (let r = 0; r < 0x40; r++) {
         const a = 0xd000 + mirror + r;
         const reg = r;
         const vicChip = this.vic;
         bus.registerIoHandler(a, {
-          // Spec 300: read source = literal vicii_read when flag on
-          // (literal raster_y is in sync via per-cycle hook), else
-          // legacy VicIIVice. Diff harness compares both via direct
-          // chip access regardless of which one serves IO reads.
-          read: useLitReads
-            ? () => LIT_MEM.vicii_read(reg)
-            : () => vicChip.read(reg),
+          // Spec 300 / 723.5c: read source = literal vicii_read (the
+          // literal raster_y is in sync via the per-cycle hook). The
+          // VicIIVice read path is no longer wired to IO.
+          read: () => LIT_MEM.vicii_read(reg),
           write: (_addr, value) => {
             // Mirror to literal port FIRST (= VICE order: store updates
             // derived state immediately, draw_cycle picks up in same cycle)
