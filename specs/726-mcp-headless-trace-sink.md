@@ -9,6 +9,119 @@
 (`runtime_query_events`, `trace_store_*`, swimlane/taint/follow/profile) actually
 have a store to read. Today the readers exist but **no tool writes the store**.
 
+## 0. Product Use-Cases From The LLM-Human Swimlane
+
+These are the product use-cases that 726 must enable for an LLM running in an
+isolated session. The LLM must be able to do them through MCP default tools,
+without using the V3 WebSocket server directly and without enabling
+`C64RE_FULL_TOOLS`.
+
+### UC1 — Trace-first reverse engineering
+
+User goal: "Run the game first; figure out what actually executes before
+disassembling everything."
+
+Flow:
+
+1. LLM inventories media with `inspect_disk` / `extract_disk` / `extract_crt`.
+2. LLM starts Headless with `runtime_session_start(trace_out=..., trace_domains=...)`.
+3. LLM drives the session with `runtime_type`, `runtime_joystick`,
+   `runtime_session_run` / `runtime_until`.
+4. LLM marks phases: `runtime_mark("boot")`, `runtime_mark("title")`,
+   `runtime_mark("loader-start")`, `runtime_mark("gameplay")`.
+5. LLM finalizes trace and queries it:
+   `trace_store_top_pcs`, `trace_store_bus_find`, `runtime_swimlane_slice`,
+   `runtime_profile_loader`.
+6. LLM uses executed PC sets and bus/memory access sets to choose entry points,
+   data ranges and payloads for `disasm_prg` / `disasm_menu`.
+
+Required 726 result: a real `trace.duckdb` exists after the live run. Reader
+tools must not need a pre-existing scenario trace or hand-written WS client.
+
+### UC2 — Disassembly-first, trace-as-validation
+
+User goal: "I already have disassembly; now validate which routines are real and
+which labels/branches are wrong."
+
+Flow:
+
+1. LLM runs `analyze_prg` / `disasm_prg` / `disasm_menu`.
+2. LLM starts a targeted trace on the live session with `trace_out`, narrowed
+   `trace_domains` / `trace_families`, and marks around candidate phases.
+3. LLM queries executed PCs, RAM reads/writes and IO accesses.
+4. LLM updates annotations with `propose_annotations`, `save_finding`,
+   `link_payload_to_asm`.
+
+Required 726 result: tracing can be started from a live session after static work
+has already begun; trace evidence is reusable offline and can improve the
+existing disassembly.
+
+### UC3 — Change-first, trace-as-regression/evidence
+
+User goal: "Patch/crack/change something, then prove what changed."
+
+Flow:
+
+1. LLM or human applies a code/data/media intervention through the current or
+   future patch/overlay path.
+2. LLM runs the changed session with `trace_out`.
+3. LLM marks before/after points and captures screens/checkpoints.
+4. LLM compares trace slices or summaries against an earlier trace:
+   `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`,
+   `trace_store_query`.
+5. LLM records the result as a finding and links it to the changed code/media.
+
+Required 726 result: trace capture is not tied to the original pristine run. It
+works equally for experiments and intervention branches.
+
+### UC4 — Human-assisted loader/protection trace
+
+User goal: "I will play/press fire/change disk; you trace the loader and tell me
+what happened."
+
+Flow:
+
+1. LLM starts Headless with `trace_out`.
+2. Human tells the LLM what to press or when to continue.
+3. LLM drives input via `runtime_type` / `runtime_joystick` and stamps marks for
+   human-observed phases.
+4. LLM queries IEC, `$DD00`, drive PC and bus events around the marks.
+
+Required 726 result: marks are first-class trace rows. Trace capture must support
+long interactive sessions with continuous streaming to DuckDB, not a tiny
+in-memory ring.
+
+### UC5 — Frozen visual evidence back to code/data
+
+User goal: "This logo/sprite/text is on screen; tell me which bytes/file/code
+made it."
+
+Flow:
+
+1. LLM captures a checkpoint / frozen frame with `runtime_session_snapshot` and
+   `runtime_vic_inspect_at`.
+2. LLM queries trace rows around the frame/mark to find the writes and code path
+   that filled the RAM/VIC region.
+3. LLM links visual evidence to payload/disassembly with
+   `link_payload_to_asm`, `save_finding`, `link_entities`.
+
+Required 726 result: trace marks and checkpoint references can align a frozen
+visual state with the writes and executed code that produced it.
+
+### UC6 — Offline repeated questioning
+
+User goal: "Do not rerun the game for every question."
+
+Flow:
+
+1. LLM captures one broad evidence trace.
+2. Later, the LLM asks many different questions against the same
+   `trace.duckdb`: top PCs, memory writes, loader phases, IRQ origins,
+   DD00/IEC transitions, drive-side behavior.
+
+Required 726 result: the DuckDB trace is a durable project artifact. Runtime
+does not need to be alive for `trace_store_*` queries.
+
 ## 1. Problem (the capture gap)
 
 The trace→disasm use-case needs: capture once (boot + play, trace everything to
@@ -37,6 +150,10 @@ Current MCP surface (post-Spec 725):
 
 So the chain breaks at capture: the LLM can drive the live session and can query
 a DuckDB, but cannot produce the DuckDB from that session.
+
+This is not a UI inconvenience. It breaks the product contract: the LLM can only
+complete the static half of the swimlane, while runtime evidence requires an
+external human/developer path.
 
 ## 2. Goal
 
@@ -74,12 +191,108 @@ twice — once with `trace_out`, once without — and asserts byte-identical fin
 state: PC/A/X/Y/SP/flags, cpu.cycles, drive clk, and a RAM hash. Any divergence
 = the trace influenced the runtime = blocker (fix the producer, do not ship).
 
+## 2b. Architectural Directive — One Producer, Bounded Transport, Multiple Sinks
+
+There must be **one runtime event production path**, not two trace systems.
+
+Required shape:
+
+```text
+runtime chips / bus / drive
+  -> existing KernelTraceController channels
+  -> one TraceRunController observer
+  -> bounded in-memory trace-event queue/ring
+  -> sinks:
+       1. DuckDB streaming writer for durable traces
+       2. optional live/UI/debug readers
+```
+
+### Binding rules
+
+1. Do **not** build a second MCP-only trace capture path.
+2. Do **not** make V3 WebSocket capture the authoritative trace path.
+3. Do **not** use the checkpoint ring as trace history.
+4. Do **not** query small diagnostic rings as durable evidence.
+5. Do use a bounded trace-event queue/ring as the hot-path transport between
+   passive observer and async DuckDB writer.
+6. Backpressure policy for evidence traces is **block/slow**, never silent drop.
+7. DuckDB is the durable trace authority; the queue/ring is only transport.
+
+Terminology:
+
+- **Checkpoint ring** = Spec 705.B restorable machine-state keyframes for rewind,
+  pin, inspect and branch. It is not an event log.
+- **Trace-event queue/ring** = bounded transport buffer for runtime events while
+  streaming to DuckDB. It is not the durable store.
+- **TraceDB / DuckDB** = durable event evidence used by `trace_store_*`,
+  `runtime_query_events`, swimlane, taint, follow-path and loader profiling.
+
+This means the answer is not "ringbuffer OR traces". The answer is:
+
+```text
+events are produced once
+events pass through a bounded trace-event queue/ring
+DuckDB is written from that queue/ring
+all trace readers query DuckDB
+checkpoint ring remains separate machine-state infrastructure
+```
+
 - Capture is session-driven + incremental, not scenario-batch.
 - One run = one `trace.duckdb` (`trace_run` + `trace_event` + `trace_mark`),
   re-queryable forever.
 - The agent stamps phase marks (`boot-complete`, `title`, `scene-1`) so Phase-B
   queries scope by game phase.
 - No emulator behaviour change — trace is a passive observer.
+
+## 3. Relationship To Ring, Dump/Undump, Rewind and TraceDB
+
+726 does not replace the existing runtime evidence architecture. It connects the
+missing capture edge.
+
+### 3.1 Checkpoint ring is transient state, not event evidence
+
+Spec 705.B's ring stores recent restorable machine checkpoints. It exists so a
+human or agent can rewind/pin after discovering an interesting state.
+
+It does **not** answer:
+
+- which instruction wrote this byte;
+- which PC range executed during the loader;
+- when `$DD00` or IEC changed;
+- what drive PC was doing during a fastloader phase.
+
+Those are TraceDB questions. 726 must write TraceDB rows, not expand the
+checkpoint ring into a trace substitute.
+
+### 3.2 Dump/undump is durable machine state, not timeline history
+
+Spec 707 `.c64re` dump stores a complete machine checkpoint and embedded mutable
+media state. It answers: "Restore this exact machine state."
+
+It does **not** answer: "How did we get here?" That requires trace events and
+marks. 726 may reference checkpoint IDs and dump paths, but its output is the
+event timeline in `trace.duckdb`.
+
+### 3.3 Rewind uses checkpoints plus replay events
+
+Spec 712 rewind/branch-diff consumes checkpoints, external input/media events,
+interventions and retained traces. 726 provides the retained trace side.
+
+If a branch is replayed or changed, a new trace run must be capturable from that
+branch. Tracing cannot be limited to pristine scenario runs.
+
+### 3.4 DuckDB is the durable trace authority
+
+Spec 708 already defines TraceDB as the persistent evidence store:
+
+- definition/version;
+- checkpoint/media/experiment linkage;
+- runtime cycle range;
+- marks;
+- queryable event rows.
+
+726 keeps that architecture. It must not introduce JSONL side paths, ad-hoc
+logs, or V3-WS-only capture paths.
 
 ## 4. Tasks
 
@@ -186,3 +399,78 @@ that is a bug to fix, not a reason to run the 7-game gate.)
   memory limit. Disk-size guard (warn/cap) can be a later option; not required.
 - **OQ4** — drain backpressure tuning: queue depth + whether to expose a
   `fast`/`lossy` mode later. Default = block (lossless evidence). Settle in 726.2.
+
+## 8. Prompt For Implementation Session
+
+```text
+Implement Spec 726 (headless trace sink + marks). Read the whole spec first,
+especially §2a (hard invariant) and §2b (one-producer architecture).
+
+NON-NEGOTIABLE:
+- Trace must NOT influence the runtime. Same instruction sequence, same
+  CPU/VIC/CIA/drive state, same cycle counts, with or without trace_out. The
+  observer is passive; the async DuckDB drain runs only while the emulator is
+  paused (between run-chunks, inside the I/O await).
+- One production path only (§2b): runtime chips -> KernelTraceController channels
+  -> ONE TraceRunController observer -> bounded trace-event queue/ring -> DuckDB
+  streaming writer. Do NOT build a second trace path. Do NOT use the checkpoint
+  ring as event history. DuckDB is the durable authority; the queue is transport.
+- Streaming, not buffer-then-flush: no 500k RAM cap, no end-of-run single flush,
+  no silent truncation. Backpressure for evidence traces = block/slow, never drop.
+
+ORDER (guard-first — prove the invariant before wiring):
+1. Build scripts/smoke-trace-sink.mjs FIRST. It runs the SAME scenario twice —
+   with trace_out and without — and asserts byte-identical final state:
+   PC/A/X/Y/SP/flags, cpu.cycles, drive clk, and a RAM hash. Run it against the
+   CURRENT code with the producers (enableBusAccessTrace/traceIec/traceDrive)
+   toggled to PROVE producer-enablement does not change emulation. If it
+   diverges, that is the blocker to fix before anything else.
+2. Decide streaming granularity. runtime_session_run uses a SYNCHRONOUS runFor
+   that blocks the event loop, so a single long call cannot drain mid-run unless
+   you CHUNK it: when a trace is active, run runFor in sub-chunks and
+   `await ctrl.traceRun.drain()` between chunks. Chunking runFor(N) into
+   k*runFor(N/k) must be behaviour-neutral (verify with the guard). The until/pc/
+   raster paths: chunk their budget similarly or drain per-call. Pick + document.
+3. Store streaming API (trace-run-store.ts): extract appendTraceEvents(store,
+   runId, rows[]) (the batched trace_event INSERT) + writeTraceRunHeader(store,
+   run, def) (trace_run + trace_mark, at stop). Keep writeTraceRun = header +
+   append + marks for the scenario/test path.
+4. TraceRunController (trace-run.ts): open the store at start(); observer
+   enqueues into a bounded queue (NOT the unbounded events[]); drain() async
+   batch-appends from the queue; stop() drains the remainder, writes the header,
+   closes. Reuse the existing observer/trigger/capture logic unchanged.
+5. MCP wiring: runtime_session_start gains trace_out (resolved .duckdb under the
+   project) + trace_domains. When set: enable the matching producers at session
+   construction (constraint #4: enableBusAccessTrace for memory, traceIec for
+   iec, traceDrive for drive8-cpu); ensureRuntimeController(session); build a
+   capture-def from trace_domains; ctrl.traceRun.start(def, {controller,
+   outputPath}). runtime_session_run/until chunk + drain. Add runtime_mark
+   (-> ctrl.traceRun.mark) and runtime_trace_finalize (-> ctrl.traceRun.stop;
+   auto on session close). Optional runtime_trace_status (-> ctrl.traceRun.status).
+6. tier-tools.ts: runtime_mark + runtime_trace_finalize (+ status) = default.
+   probe-tool-surface: add them to the required-facade positive guard. Rewrite
+   any new tool descriptions capability-first (no Spec NNN; Use-trigger +
+   alternative pointer).
+7. Refresh docs/tool-surface-inventory.{md,json}. Close the gap section in the
+   Murder project docs/USECASE_trace_to_disasm.md (capture path now exists).
+
+The binding point already exists: RuntimeController owns
+`readonly traceRun = new TraceRunController()` (debug/runtime-controller.ts),
+reachable via ensureRuntimeController(session_id, session)
+(debug/runtime-controller.ts). The whole pipeline (channels, observer,
+writeTraceRun, the trace_run/trace_event/trace_mark schema) exists — 726 reworks
+the writer to stream and wires it to the live MCP surface.
+
+GATES (no runtime:proof — passive observer):
+   npm run build:mcp
+   node scripts/smoke-trace-sink.mjs        # the equivalence guard + capture->query
+   node scripts/probe-tool-surface.mjs
+   node scripts/probe-single-path.mjs
+
+Acceptance: a default-surface LLM (no C64RE_FULL_TOOLS, no WebSocket) can run
+runtime_session_start(trace_out) -> session_run/until + runtime_mark across
+phases -> finalize -> a trace.duckdb with cpu_step + bus + trace_mark rows;
+offline trace_store_*/runtime_query_events return rows; the equivalence guard is
+GREEN (trace did not influence the runtime). Report: new tools, default/full
+counts, guard result.
+```
