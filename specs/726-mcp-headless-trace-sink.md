@@ -48,7 +48,31 @@ Reuse the Spec 708 pipeline (channels + single observer + the async `writeTraceR
 batched-insert path). Do NOT build a parallel trace path; rework the existing
 controller from buffer-then-flush into stream-while-running.
 
-## 3. Rule
+## 2a. HARD INVARIANT — trace must NOT influence the runtime
+
+Enabling a trace (`trace_out`) MUST NOT change emulator behaviour: identical
+instruction sequence, identical CPU/VIC/CIA/drive state, identical cycle counts,
+with or without tracing. Trace is pure observation.
+
+How the design guarantees it:
+- The observer is **passive** — it reads events the kernel already emits; it
+  never drives or mutates the machine.
+- The async DuckDB drain runs **while the emulator is paused** (between
+  run-chunks, inside the I/O `await`); the emulator clock does not advance during
+  the drain.
+- Chunking `runFor(N)` into `k × runFor(N/k)` yields the **identical** stepped
+  sequence/state (runFor is resumable + deterministic) — chunking is behaviour-
+  neutral.
+- **Producer enablement is the one risk:** `enableBusAccessTrace` / `traceIec` /
+  `traceDrive` must ONLY emit events, never add cycles or alter state. 726.2
+  MUST verify this and the guard below MUST prove it.
+- Wall-clock slows under tracing (overhead) — that is NOT a runtime influence
+  (the emulated result is identical), only real-time. Acceptable; opt-in.
+
+**Guard (mandatory):** `scripts/smoke-trace-sink.mjs` runs the SAME scenario
+twice — once with `trace_out`, once without — and asserts byte-identical final
+state: PC/A/X/Y/SP/flags, cpu.cycles, drive clk, and a RAM hash. Any divergence
+= the trace influenced the runtime = blocker (fix the producer, do not ship).
 
 - Capture is session-driven + incremental, not scenario-batch.
 - One run = one `trace.duckdb` (`trace_run` + `trace_event` + `trace_mark`),
@@ -143,7 +167,10 @@ that is a bug to fix, not a reason to run the 7-game gate.)
   executed-PC query over a file range returns in <1 s.
 - `disasm_prg` pass 2 can consume the executed-PC set as `entry_points[]` (the
   use-case payoff — measured separately in the project).
-- No new parallel trace path: capture reuses `TraceRunController` + `writeTraceRun`.
+- **Trace does not influence the runtime (§2a):** the equivalence guard proves
+  byte-identical final state (registers, cycles, drive clk, RAM hash) with vs
+  without `trace_out`.
+- No new parallel trace path: capture reuses `TraceRunController` + the store.
 - Default surface stays façade-first; `runtime_run_scenario` + `vice_trace_*`
   stay advanced. `probe-tool-surface` + `probe-single-path` GREEN.
 

@@ -6,9 +6,12 @@
 // firehose-shaped and does not carry run/definition/checkpoint/media linkage.
 // This is an extension of the store, NOT a parallel diagnostic path.
 //
-// Rows are written in one batch at run STOP (the observer buffers in memory on
-// the hot path; no per-event async). Runs are bounded by the definition stop
-// condition, so buffer-until-stop is safe.
+// Spec 726.2 — STREAMING writer: `appendTraceEvents` flushes batches into the
+// open store DURING the run (called from the run-loop chunk boundary), so there
+// is no in-RAM cap and no end-of-run stall. `writeTraceRunHeader` writes the
+// trace_run + trace_mark rows at stop (final counts known then). The legacy
+// one-shot `writeTraceRun` is kept = header + events + marks in one call (used
+// by the scenario path / tests).
 
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
