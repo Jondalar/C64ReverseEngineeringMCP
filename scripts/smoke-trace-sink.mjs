@@ -107,10 +107,12 @@ ok(JSON.stringify(traced.c64) === JSON.stringify(ref.c64) && traced.drive.cycles
 
 ok(existsSync(TRACE_OUT), "trace.duckdb written", TRACE_OUT);
 const st = await store.openTraceRunStore(TRACE_OUT);
+let capturedRunId = "";
 try {
   const [[runs]] = await store.queryTraceRunStore(st, "SELECT count(*) FROM trace_run");
   const [[events]] = await store.queryTraceRunStore(st, "SELECT count(*) FROM trace_event");
   const [[marks]] = await store.queryTraceRunStore(st, "SELECT count(*) FROM trace_mark");
+  capturedRunId = String((await store.queryTraceRunStore(st, "SELECT run_id FROM trace_run LIMIT 1"))[0][0]);
   ok(Number(runs) === 1, "trace_run header row present", `runs=${runs}`);
   ok(Number(events) > 0, "trace_event rows captured", `events=${events}`);
   ok(Number(marks) === 2, "trace_mark rows present (start+end)", `marks=${marks}`);
@@ -119,6 +121,67 @@ try {
   ok(Number(cpuRows[0][0]) > 0, "cpu rows present (code evidence)", `cpu=${cpuRows[0][0]}`);
   ok(Number(memRows[0][0]) > 0, "mem rows present (producer enabled)", `mem=${memRows[0][0]}`);
 } finally { await store.closeTraceRunStore(st); }
+
+// Part 3 — the SAME trace.duckdb must be readable via the Spec-217 readers used
+// by the MCP tools (trace_store_* + runtime_query_events). The 726 store
+// installs compatibility views (instructions / bus_events / chip_events /
+// anchors / rollups) so legacy readers work unchanged.
+console.log("\nPart 3 — readable through Spec-217 MCP-tool readers\n");
+const q = await import(`${ROOT}/dist/runtime/trace-store/queries.js`);
+
+const info = await q.getInfo(TRACE_OUT);
+ok(info.tableCounts.instructions > 0n, "getInfo: instructions view counts > 0",
+   `instructions=${info.tableCounts.instructions} bus_events=${info.tableCounts.bus_events} anchors=${info.tableCounts.anchors}`);
+ok(info.meta.schema_version?.startsWith("spec-708"), "getInfo: meta schema_version set",
+   info.meta.schema_version || "(missing)");
+ok(info.masterClockRange && info.masterClockRange.max > info.masterClockRange.min,
+   "getInfo: master_clock range non-empty",
+   info.masterClockRange ? `${info.masterClockRange.min}..${info.masterClockRange.max}` : "missing");
+
+const pcs = await q.topPcs(TRACE_OUT, "c64", 5);
+ok(pcs.length > 0 && pcs[0].count > 0, "topPcs(c64) returns rows",
+   pcs[0] ? `top pc=$${pcs[0].pc.toString(16)} n=${pcs[0].count}` : "no rows");
+
+const anchors = await q.listAnchors(TRACE_OUT);
+ok(anchors.length === 2, "listAnchors surfaces both trace marks",
+   anchors.map(a => a.name).join(",") || "none");
+const startAnchor = await q.findAnchor(TRACE_OUT, "start", 10);
+ok(startAnchor.length === 1, "findAnchor('start') returns 1 occurrence",
+   `count=${startAnchor.length}`);
+
+const sql = await q.safeQuery(TRACE_OUT, "SELECT count(*) FROM instructions WHERE cpu='c64' AND pc BETWEEN 57344 AND 65535");
+ok(Number(sql[0][0]) > 0, "safeQuery: KERNAL-range instruction count > 0", `kernel pcs=${sql[0][0]}`);
+
+// runtime_query_events backend path (Spec 232 → Spec-217 reader).
+const { DuckDbQueryBackend } = await import(`${ROOT}/dist/runtime/headless/v2/duckdb-backend.js`);
+const { queryEvents } = await import(`${ROOT}/dist/runtime/headless/v2/query-events.js`);
+const duckdb = await import("@duckdb/node-api");
+const inst = await duckdb.DuckDBInstance.create(TRACE_OUT);
+const conn = await inst.connect();
+try {
+  const backend = new DuckDbQueryBackend(conn);
+  const cpuRows = await queryEvents(backend, { runId: capturedRunId, family: "cpu_step", limit: 5 });
+  ok(cpuRows.length > 0 && cpuRows[0].family === "cpu_step",
+    "runtime_query_events: cpu_step rows materialise via compat view",
+    `rows=${cpuRows.length} first pc=$${cpuRows[0]?.pc?.toString(16) ?? "?"}`);
+} finally { inst.closeSync?.(); }
+
+// Part 4 — resolveStorePath must use the input as a PATH, not as a project hint
+// (Bug 1, pre-Spec 726.4 hotfix). Cover all 3 shapes: absolute file, absolute
+// directory containing trace.duckdb, and relative path under a fake project.
+console.log("\nPart 4 — trace_store path resolver (Bug 1 fix)\n");
+const ts = await import(`${ROOT}/dist/server-tools/trace-store.js`);
+const TRACE_DIR = `${ROOT}/.tmp/smoke-trace-sink`;
+const fakeCtx = { projectDir: () => TRACE_DIR };
+ok(ts.resolveStorePath(TRACE_OUT, fakeCtx) === TRACE_OUT,
+   "absolute file path → returned as-is", TRACE_OUT);
+ok(ts.resolveStorePath(TRACE_DIR, fakeCtx) === TRACE_OUT,
+   "absolute dir path → resolves to trace.duckdb inside", `${TRACE_DIR}/trace.duckdb`);
+ok(ts.resolveStorePath("trace.duckdb", fakeCtx) === TRACE_OUT,
+   "relative path → joined under projectDir, not stripped", `trace.duckdb under ${TRACE_DIR}`);
+let badThrew = false;
+try { ts.resolveStorePath("does-not-exist.duckdb", fakeCtx); } catch { badThrew = true; }
+ok(badThrew, "missing path → throws (no silent fallback to project root)");
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} trace-sink: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

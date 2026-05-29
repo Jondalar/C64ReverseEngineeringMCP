@@ -53,6 +53,106 @@ export async function openTraceRunStore(path: string): Promise<TraceRunStore> {
        run_id TEXT, seq UBIGINT, cycle UBIGINT, channel TEXT,
        trigger_kind TEXT, capture_kind TEXT, data_json TEXT)`,
     `CREATE TABLE IF NOT EXISTS trace_mark (run_id TEXT, cycle UBIGINT, label TEXT)`,
+    // Spec 217 readers (trace_store_* / runtime_query_events / queries.ts) expect
+    // a `meta` table — keep one here so getInfo's metaRows read does not fail
+    // and so writeTraceRunHeader can record schema info.
+    `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  ]) await conn.run(ddl);
+  // Compatibility VIEWs (post-726 reader bridge): project trace_event/trace_mark
+  // into the Spec-217 reader schema (instructions / bus_events / chip_events /
+  // anchors / rollups). The Spec-217 trace_store_* tools, runtime_query_events,
+  // anchor-builder and rollup-builder all SELECT from these table names; the
+  // views make them work against a 726-streaming store with no reader changes.
+  // Empty-where views (chip_events, rollups) exist only so getInfo()'s UNION ALL
+  // count query and any defensive SELECT does not error.
+  // CREATE OR REPLACE → idempotent across re-opens of the same store.
+  for (const ddl of [
+    // instructions: cpu/drive_pc → one row per executed instruction.
+    `CREATE OR REPLACE VIEW instructions AS
+       SELECT
+         run_id,
+         seq,
+         CASE WHEN channel = 'drive_pc' OR json_extract_string(data_json, '$.side') = 'drive'
+              THEN 'drive8' ELSE 'c64' END AS cpu,
+         CAST(COALESCE(json_extract(data_json, '$.clk'), cycle) AS UBIGINT) AS clock,
+         cycle AS master_clock,
+         CAST(json_extract(data_json, '$.pc') AS USMALLINT) AS pc,
+         CAST(json_extract(data_json, '$.opcode') AS UTINYINT) AS opcode,
+         CAST(json_extract(data_json, '$.b1') AS UTINYINT) AS b1,
+         CAST(json_extract(data_json, '$.b2') AS UTINYINT) AS b2,
+         CAST(json_extract(data_json, '$.a') AS UTINYINT) AS a,
+         CAST(json_extract(data_json, '$.x') AS UTINYINT) AS x,
+         CAST(json_extract(data_json, '$.y') AS UTINYINT) AS y,
+         CAST(json_extract(data_json, '$.sp') AS UTINYINT) AS sp,
+         CAST(json_extract(data_json, '$.p') AS UTINYINT) AS p,
+         'trace_event' AS source
+       FROM trace_event
+       WHERE channel IN ('cpu', 'drive_pc')`,
+    // bus_events: bus_access/io = memory R/W; iec = line_change carrying line states.
+    `CREATE OR REPLACE VIEW bus_events AS
+       SELECT
+         run_id,
+         seq,
+         CASE WHEN json_extract_string(data_json, '$.side') = 'drive' THEN 'drive8' ELSE 'c64' END AS cpu,
+         CAST(COALESCE(json_extract(data_json, '$.cycle_drive'),
+                       json_extract(data_json, '$.cycle_c64'),
+                       cycle) AS UBIGINT) AS clock,
+         cycle AS master_clock,
+         CAST(json_extract(data_json, '$.pc') AS USMALLINT) AS pc,
+         CASE
+           WHEN channel = 'iec' THEN 'line_change'
+           ELSE json_extract_string(data_json, '$.op')
+         END AS kind,
+         CAST(json_extract(data_json, '$.addr') AS USMALLINT) AS addr,
+         CAST(json_extract(data_json, '$.value') AS UTINYINT) AS value,
+         NULL::UTINYINT AS old_value,
+         CASE WHEN channel = 'iec'
+              THEN CAST(json_extract(data_json, '$.atn') AS BOOLEAN) END AS line_atn,
+         CASE WHEN channel = 'iec'
+              THEN CAST(json_extract(data_json, '$.clk') AS BOOLEAN) END AS line_clk,
+         CASE WHEN channel = 'iec'
+              THEN CAST(json_extract(data_json, '$.data') AS BOOLEAN) END AS line_data,
+         'trace_event' AS source
+       FROM trace_event
+       WHERE channel IN ('bus_access', 'io', 'iec')`,
+    // chip_events: no producer publishes chip-shaped rows into trace_event yet.
+    `CREATE OR REPLACE VIEW chip_events AS
+       SELECT run_id,
+              CAST(NULL AS UBIGINT)   AS seq,
+              CAST(NULL AS TEXT)      AS cpu,
+              CAST(NULL AS UBIGINT)   AS clock,
+              CAST(NULL AS UBIGINT)   AS master_clock,
+              CAST(NULL AS USMALLINT) AS pc,
+              CAST(NULL AS TEXT)      AS chip,
+              CAST(NULL AS TEXT)      AS kind,
+              CAST(NULL AS UTINYINT)  AS unit,
+              CAST(NULL AS UTINYINT)  AS value,
+              CAST(NULL AS UTINYINT)  AS old_value,
+              CAST(NULL AS TEXT)      AS source
+       FROM trace_event WHERE 1=0`,
+    // anchors: trace_mark rows surface as named anchors (occurrence per label).
+    `CREATE OR REPLACE VIEW anchors AS
+       SELECT
+         run_id,
+         'trace_mark'           AS source,
+         CAST(NULL AS TEXT)     AS cpu,
+         label                  AS name,
+         CAST(NULL AS USMALLINT) AS pc,
+         CAST(row_number() OVER (PARTITION BY label ORDER BY cycle) AS UBIGINT) AS occurrence,
+         cycle                  AS clock,
+         cycle                  AS master_clock,
+         cycle                  AS seq
+       FROM trace_mark`,
+    // rollups: derived structure built by Spec-217 rollup-builder; empty here.
+    `CREATE OR REPLACE VIEW rollups AS
+       SELECT run_id,
+              CAST(NULL AS TEXT)     AS source,
+              CAST(NULL AS UTINYINT) AS level,
+              CAST(NULL AS UBIGINT)  AS window_index,
+              CAST(NULL AS UBIGINT)  AS clock_start,
+              CAST(NULL AS UBIGINT)  AS clock_end,
+              CAST(NULL AS TEXT)     AS cpu
+       FROM trace_event WHERE 1=0`,
   ]) await conn.run(ddl);
   return { conn, inst, path };
 }
@@ -97,6 +197,21 @@ export async function writeTraceRunHeader(
   if (run.marks.length > 0) {
     const values = run.marks.map((m) => `(${sq(run.runId)}, ${num(m.cycle)}, ${sq(m.label)})`).join(", ");
     await conn.run(`INSERT INTO trace_mark VALUES ${values}`);
+  }
+  // Populate meta with schema_version + run identity so Spec-217 readers
+  // (getInfo) return populated meta. Last-writer-wins for multi-run stores.
+  const metaRows: Array<[string, string]> = [
+    ["schema_version", "spec-708-streaming"],
+    ["writer_version", "spec-726.2c"],
+    ["run_id", run.runId],
+    ["source", "trace_event"],
+    ["captured_at", new Date().toISOString()],
+    ["def_id", run.definitionId],
+    ["def_name", def.name],
+    ["retention", def.retention],
+  ];
+  for (const [k, v] of metaRows) {
+    await conn.run(`INSERT OR REPLACE INTO meta VALUES (${sq(k)}, ${sq(v)})`);
   }
 }
 

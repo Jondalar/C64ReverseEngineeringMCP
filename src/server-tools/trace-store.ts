@@ -4,7 +4,7 @@
 // resolver: paths must point to a `.duckdb` file or a directory that
 // contains `trace.duckdb`.
 
-import { resolve as resolvePath } from "node:path";
+import { resolve as resolvePath, isAbsolute } from "node:path";
 import { existsSync, statSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -19,8 +19,15 @@ import {
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 
-function resolveStorePath(input: string, context: ServerToolContext): string {
-  const abs = resolvePath(context.projectDir(input, true));
+// Bug-fix (post-Spec 726): `input` is a PATH to a trace.duckdb (or a directory
+// holding one), NOT a project hint. The previous implementation passed `input`
+// as `hintPath` to `context.projectDir()`, which used it only to pick a project
+// root and then discarded it — every non-root path failed with "directory has
+// no trace.duckdb". Resolve the input itself: absolute as-is, relative under
+// the project dir.
+export function resolveStorePath(input: string, context: ServerToolContext): string {
+  const proj = (() => { try { return context.projectDir(undefined, false); } catch { return undefined; } })();
+  const abs = isAbsolute(input) ? resolvePath(input) : resolvePath(proj ?? process.cwd(), input);
   if (!existsSync(abs)) throw new Error(`trace store path not found: ${abs}`);
   if (statSync(abs).isDirectory()) {
     const candidate = resolvePath(abs, "trace.duckdb");
