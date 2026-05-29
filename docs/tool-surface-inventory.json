@@ -1,0 +1,1573 @@
+{
+  "total": 191,
+  "specCount": 64,
+  "advancedCandidate": 63,
+  "byNamespace": {
+    "vice": 49,
+    "runtime": 48,
+    "headless": 15,
+    "depack": 8,
+    "pack": 8,
+    "trace": 6,
+    "extract": 5,
+    "inspect": 5,
+    "agent": 4,
+    "link": 3,
+    "list": 3,
+    "scan": 3,
+    "analyze": 2,
+    "bulk": 2,
+    "c64ref": 2,
+    "disasm": 2,
+    "read": 2,
+    "record": 2,
+    "register": 2,
+    "run": 2,
+    "sandbox": 2,
+    "suggest": 2,
+    "assemble": 1,
+    "build": 1,
+    "c64re": 1,
+    "compare": 1,
+    "disk": 1,
+    "export": 1,
+    "import": 1,
+    "pointer": 1,
+    "propose": 1,
+    "ram": 1,
+    "reconstruct": 1,
+    "render": 1,
+    "start": 1,
+    "try": 1
+  },
+  "tools": [
+    {
+      "name": "agent_onboard",
+      "file": "agent-workflow.ts",
+      "ns": "agent",
+      "hasSpec": false,
+      "firstSentence": "Reload persistent project state at session start (or after context loss).",
+      "tier": "default?"
+    },
+    {
+      "name": "agent_propose_next",
+      "file": "agent-workflow.ts",
+      "ns": "agent",
+      "hasSpec": true,
+      "firstSentence": "[Phase agnostic] Read-only: examine workflow phases, open tasks, open questions, and current agent-state to propose ranked next actions.",
+      "tier": "default?"
+    },
+    {
+      "name": "agent_record_step",
+      "file": "agent-workflow.ts",
+      "ns": "agent",
+      "hasSpec": false,
+      "firstSentence": "Record a completed step and (optionally) queue the next action.",
+      "tier": "default?"
+    },
+    {
+      "name": "agent_set_role",
+      "file": "agent-workflow.ts",
+      "ns": "agent",
+      "hasSpec": false,
+      "firstSentence": "Set the cognitive role for the current agent session (analyst, cartographer, implementer).",
+      "tier": "default?"
+    },
+    {
+      "name": "analyze_g64_anomalies",
+      "file": "disk-g64.ts",
+      "ns": "analyze",
+      "hasSpec": false,
+      "firstSentence": "Scan a G64 image track-by-track and report duplicate, missing, unexpected, or invalid decoded sectors.",
+      "tier": "default?"
+    },
+    {
+      "name": "analyze_prg",
+      "file": "analysis-workflow.ts",
+      "ns": "analyze",
+      "hasSpec": false,
+      "firstSentence": "STEP 1 of the C64 RE workflow.",
+      "tier": "default?"
+    },
+    {
+      "name": "assemble_source",
+      "file": "assembly.ts",
+      "ns": "assemble",
+      "hasSpec": false,
+      "firstSentence": "Assemble a generated KickAssembler .asm or 64tass .tass file and optionally compare the rebuilt binary against an original PRG.",
+      "tier": "default?"
+    },
+    {
+      "name": "build_tools",
+      "file": "artifacts.ts",
+      "ns": "build",
+      "hasSpec": false,
+      "firstSentence": "Compile the TRXDis pipeline (npm run build).",
+      "tier": "default?"
+    },
+    {
+      "name": "bulk_create_cart_chunk_payloads",
+      "file": "payloads.ts",
+      "ns": "bulk",
+      "hasSpec": false,
+      "firstSentence": "Walk the cartridge-layout view",
+      "tier": "advanced?"
+    },
+    {
+      "name": "bulk_import_analysis_reports",
+      "file": "registration.ts",
+      "ns": "bulk",
+      "hasSpec": false,
+      "firstSentence": "Walk every analysis-run artifact in the project and call import_analysis_report on those whose entities are not yet back-linked.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "c64re_whats_next",
+      "file": "agent-workflow.ts",
+      "ns": "c64re",
+      "hasSpec": true,
+      "firstSentence": "Spec 043: the permanent nudger — call after every user turn (Spec 044 setup wires this into the agent config).",
+      "tier": "default?"
+    },
+    {
+      "name": "c64ref_build_rom_knowledge",
+      "file": "reference.ts",
+      "ns": "c64ref",
+      "hasSpec": false,
+      "firstSentence": "Fetch and rebuild the local BASIC/KERNAL ROM knowledge snapshot from mist64/c64ref sources.",
+      "tier": "default?"
+    },
+    {
+      "name": "c64ref_lookup",
+      "file": "reference.ts",
+      "ns": "c64ref",
+      "hasSpec": false,
+      "firstSentence": "Look up BASIC/KERNAL ROM knowledge by address or search term from the local c64ref snapshot.",
+      "tier": "default?"
+    },
+    {
+      "name": "compare_exomizer_shared_encoding_sets",
+      "file": "compression.ts",
+      "ns": "compare",
+      "hasSpec": false,
+      "firstSentence": "Compare one or more shared-encoding manifest sets, e.g.",
+      "tier": "default?"
+    },
+    {
+      "name": "depack_bwc_bitstream",
+      "file": "bwc-bitstream.ts",
+      "ns": "depack",
+      "hasSpec": false,
+      "firstSentence": "Depack a BWC bit-stream chunk (Pucrunch-derived format with",
+      "tier": "default?"
+    },
+    {
+      "name": "depack_bwc_chunk",
+      "file": "bwc-bitstream.ts",
+      "ns": "depack",
+      "hasSpec": false,
+      "firstSentence": "Auto-dispatch on the first two bytes:",
+      "tier": "default?"
+    },
+    {
+      "name": "depack_bwc_raw",
+      "file": "bwc-bitstream.ts",
+      "ns": "depack",
+      "hasSpec": false,
+      "firstSentence": "Depack a BWC raw chunk (uncompressed).",
+      "tier": "default?"
+    },
+    {
+      "name": "depack_byteboozer",
+      "file": "compression.ts",
+      "ns": "depack",
+      "hasSpec": false,
+      "firstSentence": "Decompress a ByteBoozer2 raw .b2 file or executable wrapper in pure TypeScript.",
+      "tier": "default?"
+    },
+    {
+      "name": "depack_byteboozer_lykia",
+      "file": "compression.ts",
+      "ns": "depack",
+      "hasSpec": false,
+      "firstSentence": "Decompress a Lykia-variant ByteBoozer2 stream (modified 4-byte header: dest_lo, dest_hi, end_lo, end_hi; BB2_BITBUF seeded from supplied dest_hi).",
+      "tier": "default?"
+    },
+    {
+      "name": "depack_exomizer_raw",
+      "file": "compression.ts",
+      "ns": "depack",
+      "hasSpec": false,
+      "firstSentence": "Decompress an Exomizer raw stream via the built-in TypeScript implementation.",
+      "tier": "default?"
+    },
+    {
+      "name": "depack_exomizer_sfx",
+      "file": "compression.ts",
+      "ns": "depack",
+      "hasSpec": false,
+      "firstSentence": "Decompress an Exomizer self-extracting wrapper via the built-in TypeScript 6502-emulated depacker.",
+      "tier": "default?"
+    },
+    {
+      "name": "depack_rle",
+      "file": "compression.ts",
+      "ns": "depack",
+      "hasSpec": false,
+      "firstSentence": "Decompress the built-in C64 RLE format used by Mike",
+      "tier": "default?"
+    },
+    {
+      "name": "disasm_menu",
+      "file": "disk-g64.ts",
+      "ns": "disasm",
+      "hasSpec": false,
+      "firstSentence": "Generate KickAssembler sources for all menu payloads.",
+      "tier": "default?"
+    },
+    {
+      "name": "disasm_prg",
+      "file": "analysis-workflow.ts",
+      "ns": "disasm",
+      "hasSpec": false,
+      "firstSentence": "STEP 2 of the C64 RE workflow.",
+      "tier": "default?"
+    },
+    {
+      "name": "disk_sector_allocation",
+      "file": "media.ts",
+      "ns": "disk",
+      "hasSpec": false,
+      "firstSentence": "Walk an extracted disk manifest and report sector ownership per T/S: system (BAM/dir), kernal_file, custom_file, unclaimed_padding, orphan_data.",
+      "tier": "default?"
+    },
+    {
+      "name": "export_menu",
+      "file": "disk-g64.ts",
+      "ns": "export",
+      "hasSpec": false,
+      "firstSentence": "Export menu payload binaries from extracted CRT data.",
+      "tier": "default?"
+    },
+    {
+      "name": "extract_crt",
+      "file": "media.ts",
+      "ns": "extract",
+      "hasSpec": false,
+      "firstSentence": "Parse an EasyFlash CRT image, extract per-bank binaries and manifest.",
+      "tier": "default?"
+    },
+    {
+      "name": "extract_disk",
+      "file": "media.ts",
+      "ns": "extract",
+      "hasSpec": false,
+      "firstSentence": "Extract files from a D64 or G64 image into a project directory and write a manifest.json.",
+      "tier": "default?"
+    },
+    {
+      "name": "extract_disk_custom_lut",
+      "file": "media.ts",
+      "ns": "extract",
+      "hasSpec": false,
+      "firstSentence": "Extract files indexed by a custom (non-DOS) LUT sector.",
+      "tier": "default?"
+    },
+    {
+      "name": "extract_g64_raw_track",
+      "file": "disk-g64.ts",
+      "ns": "extract",
+      "hasSpec": false,
+      "firstSentence": "Export the raw circular G64 half-track data for bit-level inspection.",
+      "tier": "default?"
+    },
+    {
+      "name": "extract_g64_sectors",
+      "file": "disk-g64.ts",
+      "ns": "extract",
+      "hasSpec": false,
+      "firstSentence": "Decode a G64 track via GCR and write one file per decoded sector for low-level inspection.",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_drive_persist_writes",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64.",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_drive_session_load_vsf",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 64: load a VSF file into a drive session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "headless_drive_session_save_vsf",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 64: save the drive session",
+      "tier": "advanced?"
+    },
+    {
+      "name": "headless_drive_session_start",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "headless_drive_status",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 63: snapshot of a drive session",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_iec_bus_state",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_integrated_session_diagnose_mm",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at ",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_integrated_session_joystick",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": false,
+      "firstSentence": "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire).",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_integrated_session_load_prg",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 65: inject a PRG into the C64",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_integrated_session_run",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions.",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_integrated_session_snapshot",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick.",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_integrated_session_start",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": false,
+      "firstSentence": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync).",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_integrated_session_status",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_integrated_session_type",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": false,
+      "firstSentence": "Sprint 93.1: queue text typing into the integrated session",
+      "tier": "default?"
+    },
+    {
+      "name": "headless_render_screen",
+      "file": "headless.ts",
+      "ns": "headless",
+      "hasSpec": true,
+      "firstSentence": "Spec 065 Phase A: render the integrated session",
+      "tier": "default?"
+    },
+    {
+      "name": "import_annotations_as_findings",
+      "file": "analysis-workflow.ts",
+      "ns": "import",
+      "hasSpec": true,
+      "firstSentence": "Spec 055 R25: walk *_annotations.json routines[] + segments[] and emit one finding per routine and per segment-reclassification.",
+      "tier": "default?"
+    },
+    {
+      "name": "inspect_address_range",
+      "file": "inspect-range.ts",
+      "ns": "inspect",
+      "hasSpec": false,
+      "firstSentence": "Surface every static-analysis fact connected to a memory range: containing segments, all VIC-register stores in the program (D011/D015/D016/D018/D020-D02E/DD00 ",
+      "tier": "default?"
+    },
+    {
+      "name": "inspect_disk",
+      "file": "media.ts",
+      "ns": "inspect",
+      "hasSpec": false,
+      "firstSentence": "Read a D64 or G64 directory and list the contained files without extracting them.",
+      "tier": "default?"
+    },
+    {
+      "name": "inspect_g64_blocks",
+      "file": "disk-g64.ts",
+      "ns": "inspect",
+      "hasSpec": false,
+      "firstSentence": "Inspect a G64 track or half-track at raw GCR block level and return JSON plus an ASCII ring map.",
+      "tier": "default?"
+    },
+    {
+      "name": "inspect_g64_syncs",
+      "file": "disk-g64.ts",
+      "ns": "inspect",
+      "hasSpec": false,
+      "firstSentence": "Inspect sync marks on a raw G64 half-track and report bit-aligned sync positions.",
+      "tier": "default?"
+    },
+    {
+      "name": "inspect_g64_track",
+      "file": "disk-g64.ts",
+      "ns": "inspect",
+      "hasSpec": false,
+      "firstSentence": "Decode a specific G64 track via GCR and report discovered sectors, missing IDs, duplicates, and raw track metadata.",
+      "tier": "default?"
+    },
+    {
+      "name": "link_cart_chunk_to_asm",
+      "file": "compression.ts",
+      "ns": "link",
+      "hasSpec": false,
+      "firstSentence": "Link a cartridge LUT chunk to a disassembly (.asm/.tass) artifact via a RelationRecord.",
+      "tier": "default?"
+    },
+    {
+      "name": "link_payload_to_asm",
+      "file": "payloads.ts",
+      "ns": "link",
+      "hasSpec": false,
+      "firstSentence": "Append an asm artifact to an existing payload",
+      "tier": "default?"
+    },
+    {
+      "name": "link_payload_to_runtime",
+      "file": "payloads.ts",
+      "ns": "link",
+      "hasSpec": false,
+      "firstSentence": "Record a runtime-trace artifact that proves where this payload lands at runtime.",
+      "tier": "default?"
+    },
+    {
+      "name": "list_artifacts",
+      "file": "artifacts.ts",
+      "ns": "list",
+      "hasSpec": false,
+      "firstSentence": "List analysis artifacts (PRG, ASM, JSON, SYM, MD files) in a project subdirectory.",
+      "tier": "default?"
+    },
+    {
+      "name": "list_g64_slots",
+      "file": "disk-g64.ts",
+      "ns": "list",
+      "hasSpec": false,
+      "firstSentence": "List all G64 half-track slots, including raw offsets, lengths, and speed-zone metadata.",
+      "tier": "default?"
+    },
+    {
+      "name": "list_payloads",
+      "file": "payloads.ts",
+      "ns": "list",
+      "hasSpec": false,
+      "firstSentence": "List all payload entities in the project.",
+      "tier": "default?"
+    },
+    {
+      "name": "pack_bwc_bitstream",
+      "file": "bwc-bitstream.ts",
+      "ns": "pack",
+      "hasSpec": false,
+      "firstSentence": "Pack a binary into a BWC bit-stream chunk that the original $C992 depacker can decompress.",
+      "tier": "default?"
+    },
+    {
+      "name": "pack_bwc_raw",
+      "file": "bwc-bitstream.ts",
+      "ns": "pack",
+      "hasSpec": false,
+      "firstSentence": "Pack a binary into the BWC raw chunk format.",
+      "tier": "default?"
+    },
+    {
+      "name": "pack_byteboozer",
+      "file": "compression.ts",
+      "ns": "pack",
+      "hasSpec": false,
+      "firstSentence": "Compress a file with ByteBoozer2 via the local b2 CLI.",
+      "tier": "default?"
+    },
+    {
+      "name": "pack_byteboozer_native",
+      "file": "compression.ts",
+      "ns": "pack",
+      "hasSpec": false,
+      "firstSentence": "Compress a file with the native TypeScript ByteBoozer tooling.",
+      "tier": "default?"
+    },
+    {
+      "name": "pack_exomizer_raw",
+      "file": "compression.ts",
+      "ns": "pack",
+      "hasSpec": false,
+      "firstSentence": "Compress a file with the built-in TypeScript Exomizer raw implementation.",
+      "tier": "default?"
+    },
+    {
+      "name": "pack_exomizer_sfx",
+      "file": "compression.ts",
+      "ns": "pack",
+      "hasSpec": false,
+      "firstSentence": "Compress one or more input files into an Exomizer self-extracting binary via the local exomizer CLI.",
+      "tier": "default?"
+    },
+    {
+      "name": "pack_exomizer_shared_encoding",
+      "file": "compression.ts",
+      "ns": "pack",
+      "hasSpec": false,
+      "firstSentence": "Discover or reuse a shared Exomizer encoding table in pure TypeScript, then pack many files without embedding the table in each payload.",
+      "tier": "default?"
+    },
+    {
+      "name": "pack_rle",
+      "file": "compression.ts",
+      "ns": "pack",
+      "hasSpec": false,
+      "firstSentence": "Compress a binary blob with the built-in C64 RLE format used by Mike",
+      "tier": "default?"
+    },
+    {
+      "name": "pointer_report",
+      "file": "analysis-workflow.ts",
+      "ns": "pointer",
+      "hasSpec": false,
+      "firstSentence": "Generate a pointer table facts report (markdown) from an analysis JSON.",
+      "tier": "default?"
+    },
+    {
+      "name": "propose_annotations",
+      "file": "analysis-workflow.ts",
+      "ns": "propose",
+      "hasSpec": true,
+      "firstSentence": "Spec 042: emit a draft *_annotations.draft.json by walking *_analysis.json + (optional) *_disasm.asm.",
+      "tier": "default?"
+    },
+    {
+      "name": "ram_report",
+      "file": "analysis-workflow.ts",
+      "ns": "ram",
+      "hasSpec": false,
+      "firstSentence": "Generate a RAM state facts report (markdown) from an analysis JSON.",
+      "tier": "default?"
+    },
+    {
+      "name": "read_artifact",
+      "file": "artifacts.ts",
+      "ns": "read",
+      "hasSpec": false,
+      "firstSentence": "Read a generated artifact (ASM, JSON, SYM, MD).",
+      "tier": "default?"
+    },
+    {
+      "name": "read_g64_sector_candidate",
+      "file": "disk-g64.ts",
+      "ns": "read",
+      "hasSpec": false,
+      "firstSentence": "Read a sector from a G64 track or half-track using a VICE-style 1541 sync/header search.",
+      "tier": "default?"
+    },
+    {
+      "name": "reconstruct_lut",
+      "file": "disk-g64.ts",
+      "ns": "reconstruct",
+      "hasSpec": false,
+      "firstSentence": "Reconstruct boot LUT payload groups from extracted CRT data.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "record_cart_chunk_packer",
+      "file": "compression.ts",
+      "ns": "record",
+      "hasSpec": false,
+      "firstSentence": "Persist packer / format / notes metadata for a cartridge LUT chunk.",
+      "tier": "default?"
+    },
+    {
+      "name": "record_file_packer",
+      "file": "compression.ts",
+      "ns": "record",
+      "hasSpec": false,
+      "firstSentence": "Persist packer / format / notes metadata into a disk or cart manifest so the workspace UI can render a packer tag and offer a depack-aware hex view.",
+      "tier": "default?"
+    },
+    {
+      "name": "register_existing_files",
+      "file": "registration.ts",
+      "ns": "register",
+      "hasSpec": false,
+      "firstSentence": "Walk the project filesystem and register files that match one or more glob patterns into knowledge/artifacts.json.",
+      "tier": "default?"
+    },
+    {
+      "name": "register_payload",
+      "file": "payloads.ts",
+      "ns": "register",
+      "hasSpec": false,
+      "firstSentence": "Create a payload entity — the working abstraction across mediums.",
+      "tier": "default?"
+    },
+    {
+      "name": "render_graphics_preview",
+      "file": "graphics-render.ts",
+      "ns": "render",
+      "hasSpec": false,
+      "firstSentence": "Render a slice of a PRG (or any binary) as a PNG using one of the C64 graphics decoders (sprite, charset, bitmap, charmap).",
+      "tier": "default?"
+    },
+    {
+      "name": "run_payload_reverse_workflow",
+      "file": "analysis-workflow.ts",
+      "ns": "run",
+      "hasSpec": false,
+      "firstSentence": "Run the reverse-engineering workflow on a payload entity.",
+      "tier": "default?"
+    },
+    {
+      "name": "run_prg_reverse_workflow",
+      "file": "analysis-workflow.ts",
+      "ns": "run",
+      "hasSpec": false,
+      "firstSentence": "Run the full first-pass PRG reverse-engineering workflow: register input, analyze, disassemble, generate RAM and pointer reports, import knowledge, and rebuild ",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_audio_export",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 263 — render",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_batch_results",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 271 — collect ReplayResult per scenario once batch is done.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_batch_status",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 271 — poll progress of a parallel batch.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_bookmark_add",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 242 — add trace bookmark with bind mode (cycle/event-key/both).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_bookmark_list",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 242 — list bookmarks for a run.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_breakpoint_add",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 241 — add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_breakpoint_list",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 241 — list all registered breakpoints.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_breakpoint_remove",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 241 — remove breakpoint by id.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_diff_snapshots",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 246 — semantic diff between two VSF snapshot files.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_export_audio",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 269 / 263 — export WAV audio for a scenario.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_export_screenshot",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 269 — export PNG screenshot for a scenario.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_export_video",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_follow_path",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 233 — follow causal chain back from an event.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_input_load_config",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_input_load_vicerc",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_input_save_config",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_load_vsf",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 251 — restore full session state from VSF file.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_media_browse",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_media_list_paths",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_media_mount",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 265 — mount media file (.d64/.g64/.crt/.prg/.vsf) to a drive slot (8 or 9) on the active session.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_media_swap",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 265 — swap disk in slot (eject + mount new path, no reset).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_media_unmount",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 265 — eject media from drive slot.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_memory_access_map",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Spike — per-region read/write liveness map over a runtime window.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_monitor_disasm",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 248 — disassemble N instructions starting at addr.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_monitor_memory",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 248 — read raw memory range (c64 or drive).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_monitor_registers",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 248 — read CPU registers (c64 or drive).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_profile_loader",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 245 — fastloader / protection profiling.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_promote_branch",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 268 — promote a transient rewind branch to a persistent Scenario record.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_query_events",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 232 — query event-indexed trace store.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_regression_capture_baseline",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 250 — LLM-explicit baseline capture for a scenario.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_regression_compare",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 250 — compare current scenario run against captured baseline.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_resolve_pc",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 235 — resolve PC to project label/routine/segment/source-line.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_run_scenario",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_run_scenarios_parallel",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 271 — run multiple scenarios in parallel via worker_threads.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_save_vsf",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 251 — save full session state as VICE Snapshot Format bytes.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_scan_fingerprints",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 247 — match routine bytes against bundled/TREX/local fingerprint libraries.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_scenario_delete",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 268 — delete a scenario JSON by id.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_scenario_list",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_scenario_load",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 268 — load a single scenario by id.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_scenario_save",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 268 — save a scenario JSON to project dir (or samples if no project dir).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_snapshot_tree",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 268 — return the full branch tree for a rewind session.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_status",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 237 — AgentQueryApi facade introspection.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_step_into",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 248 — single-step one instruction.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_step_over",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 248 — defensive step-over with stack-watch + cycle budget.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_swimlane_slice",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 234 — transaction-level swimlane (cpu+bus+drive).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_trace_taint",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 244 — taint analysis / dataflow.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_until",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 248 — run until PC reaches target addr or budget exhausted.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_vic_inspect_at",
+      "file": "runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance",
+      "tier": "default?"
+    },
+    {
+      "name": "sandbox_6502_run",
+      "file": "sandbox.ts",
+      "ns": "sandbox",
+      "hasSpec": false,
+      "firstSentence": "Run a 6502 routine in an isolated sandbox: load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "sandbox_depack",
+      "file": "sandbox-depack.ts",
+      "ns": "sandbox",
+      "hasSpec": false,
+      "firstSentence": "Generic sandbox-driven depacker.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "scan_g64_headers",
+      "file": "disk-g64.ts",
+      "ns": "scan",
+      "hasSpec": false,
+      "firstSentence": "Scan a G64 track or half-track like VICE",
+      "tier": "default?"
+    },
+    {
+      "name": "scan_graphics_candidates",
+      "file": "graphics-render.ts",
+      "ns": "scan",
+      "hasSpec": false,
+      "firstSentence": "Render a sweep of PNG previews across an address window — every",
+      "tier": "default?"
+    },
+    {
+      "name": "scan_registration_delta",
+      "file": "registration.ts",
+      "ns": "scan",
+      "hasSpec": false,
+      "firstSentence": "Read-only: scan the project filesystem for files that match c64re",
+      "tier": "default?"
+    },
+    {
+      "name": "start_re_workflow",
+      "file": "agent-workflow.ts",
+      "ns": "start",
+      "hasSpec": true,
+      "firstSentence": "Spec 046: pick a workflow template (full-re | cracker-only | analyst-deep | targeted-routine | bugfix).",
+      "tier": "default?"
+    },
+    {
+      "name": "suggest_depacker",
+      "file": "compression.ts",
+      "ns": "suggest",
+      "hasSpec": false,
+      "firstSentence": "Probe a file or a sliced subrange and suggest likely depackers such as RLE, Exomizer raw, or ByteBoozer-like wrappers.",
+      "tier": "default?"
+    },
+    {
+      "name": "suggest_disk_lut_sector",
+      "file": "media.ts",
+      "ns": "suggest",
+      "hasSpec": false,
+      "firstSentence": "Heuristic scan: look at every sector for plausible fixed-stride LUT entry tables and rank by confidence.",
+      "tier": "default?"
+    },
+    {
+      "name": "trace_store_anchor_find",
+      "file": "trace-store.ts",
+      "ns": "trace",
+      "hasSpec": false,
+      "firstSentence": "List occurrences of a single anchor by name.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "trace_store_anchor_list",
+      "file": "trace-store.ts",
+      "ns": "trace",
+      "hasSpec": false,
+      "firstSentence": "List all anchors in a trace store with occurrence counts and clock range.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "trace_store_bus_find",
+      "file": "trace-store.ts",
+      "ns": "trace",
+      "hasSpec": false,
+      "firstSentence": "List bus_events at a target address (read+write+RMW).",
+      "tier": "advanced?"
+    },
+    {
+      "name": "trace_store_info",
+      "file": "trace-store.ts",
+      "ns": "trace",
+      "hasSpec": false,
+      "firstSentence": "Summarize a trace-store: meta, table counts, master_clock range.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "trace_store_query",
+      "file": "trace-store.ts",
+      "ns": "trace",
+      "hasSpec": false,
+      "firstSentence": "Run a read-only SELECT/WITH SQL query against the trace store.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "trace_store_top_pcs",
+      "file": "trace-store.ts",
+      "ns": "trace",
+      "hasSpec": false,
+      "firstSentence": "Return the top-N most-frequent PCs for a given CPU side (c64 | drive8).",
+      "tier": "advanced?"
+    },
+    {
+      "name": "try_depack",
+      "file": "compression.ts",
+      "ns": "try",
+      "hasSpec": false,
+      "firstSentence": "Try a specific depacker against a file or sliced subrange.",
+      "tier": "default?"
+    },
+    {
+      "name": "vice_debug_run",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_backtrace",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Build a heuristic call stack from the 6502 stack page in the active VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_bank",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "List the available VICE memory banks for the active machine.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_binary_save",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Save a memory range from the active VICE session as a raw binary file without a load-address header.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_breakpoint_add",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Add a breakpoint/watchpoint/tracepoint in the active VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_breakpoint_delete",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Delete a checkpoint from the active VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_breakpoint_list",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "List checkpoints currently configured in the active VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_continue",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Resume execution in the active VICE session until the next breakpoint or manual stop.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_display",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_memory",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Read a memory range from the active VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_next",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Advance the active VICE session by one instruction, stepping over subroutine calls.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_registers",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Read CPU register values from the active VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_reset",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Reset the active VICE machine or one of its drives.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_save",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Save a memory range from the active VICE session as a PRG file with a load-address header.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_set_registers",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Set CPU register values in the active VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_snapshot",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Save a VICE snapshot (.vsf) from the active session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_step",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Advance the active VICE session by one instruction and stop again.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_monitor_write_memory",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Write bytes into the active VICE session memory.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_session_attach_media",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Autostart or autoload media into an already running VICE session via the binary monitor.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_session_joystick",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Send keyset-based joystick input into the active visible VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_session_send_keys",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_session_start",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Start a visible x64sc VICE session using a copied user config.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_session_status",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Report the current or most recent VICE session state, including workspace paths and monitor-port readiness.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_session_stop",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Stop the active VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_add_note",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_analyze_last_session",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Analyze the most recently completed VICE runtime-trace session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_build_context_index",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every ",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_build_index",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_build_pyramid_index",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase de",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_call_path",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_context_writes",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Show the dominant memory writes and call edges recorded for one indexed interrupt context.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_find_bytes",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Find instructions in a completed VICE runtime trace by raw byte pattern.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_find_memory_access",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_find_operand",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_find_pc",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Find occurrences of a specific PC in a completed VICE runtime trace.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_find_phase_changes",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "List the strongest phase boundaries detected from the trace window feature vectors.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_follow_from_pc",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Follow the concrete linear execution path after entering a given PC in the completed runtime trace.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_hotspots",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Summarize the hottest PCs in a completed VICE runtime trace.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_list_contexts",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_list_notes",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "List saved reasoning notes/bookmarks for a completed VICE trace session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_runtime_start",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Start a visible VICE session with periodic CPU-history sampling.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_slice",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Return a focused instruction window around an anchor clock from a completed VICE runtime trace.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_slice_context",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_start",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Enable periodic CPU-history sampling on the active VICE session without restarting the emulator.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_status",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Report whether runtime tracing is currently active on the active VICE session.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_stop",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Stop periodic CPU-history sampling on the active VICE session without closing VICE.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_stop_and_analyze",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_zoom_overview",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices.",
+      "tier": "advanced?"
+    },
+    {
+      "name": "vice_trace_zoom_window",
+      "file": "vice.ts",
+      "ns": "vice",
+      "hasSpec": false,
+      "firstSentence": "Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase.",
+      "tier": "advanced?"
+    }
+  ]
+}

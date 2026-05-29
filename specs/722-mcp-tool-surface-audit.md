@@ -100,11 +100,21 @@ Spec/issue numbers live in code comments + commit messages, never the descriptio
 
 ## 4. Method (audit-first, small slices)
 
+### 722.1 — Inventory (no code change) — DONE (2026-05-29)
+`docs/tool-surface-inventory.md` + `.json`: 191 tools; namespaces vice 49 /
+runtime 48 / headless 15 dominate; 64 (34%) carry a `Spec NNN`. Original plan:
+
 ### 722.1 — Inventory (no code change)
 Machine-readable inventory of every registered tool from the actual
 `server.tool(...)` calls (not memory):
 `{ name, file, namespace, phase-tag, first-sentence-of-description, has-spec-number, overlaps[] }`.
 Emit `docs/tool-surface-inventory.md` + JSON sidecar.
+
+### 722.2 — Classify (no code change) — DONE (2026-05-29)
+`docs/tool-surface-classification.md`: façade-first — KEEP default ~36
+(entry/knowledge/analyse/extract/record), ADVANCED ~150 (vice 49 + runtime 48 +
+headless 15 + compression/g64/maintenance/sandbox), MERGE ~10 (headless↔runtime,
+audio + monitor dups), REWRITE 64 (spec-numbered). Original plan:
 
 ### 722.2 — Classify (no code change)
 Each tool → exactly one bucket, citing the doctrine line that justifies it:
