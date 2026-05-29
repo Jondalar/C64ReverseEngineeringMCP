@@ -197,6 +197,16 @@ descriptions = 722.5b-2, later.)
 Rewrite every KEEP/REWRITE description to the §2 template. Strip `Spec NNN`
 from all user-facing tool + param descriptions.
 
+### 722.6 — Guard (code) — DONE (2026-05-29)
+`scripts/probe-tool-surface.mjs` is the surface guard (17 checks): cap (≤45),
+full==inventory, no vice/runtime/headless/maintenance/sandbox in default, every
+default tool exists + has a description, no phantom DEFAULT entry, default
+descriptions have no `Spec NNN` / no Spec-start / a Use-trigger + alternative
+pointer, every vice_* advanced + oracle-only framed + no Spec-start, headless_*
+namespace empty, no runtime_audio_export collision. Wired to npm:
+`probe:tool-surface`, plus `check:surface` (= tool-surface + workspace-single +
+single-path). Original plan below.
+
 ### 722.6 — Guard (code)
 `scripts/probe-tool-surface.mjs` asserts:
 - inventory builds; every tool has a non-empty description;
@@ -209,8 +219,8 @@ from all user-facing tool + param descriptions.
 ## 5. Open questions
 - **OQ1 — RESOLVED.** Deferred exposure is host-side (not server-controllable);
   the server lever is register-or-not → the §722.4 tier gate.
-- **OQ2** — default-tier cap. Proposed ≤ 80; settle after 722.2 counts the KEEP
-  set.
+- **OQ2 — RESOLVED.** Default-tier cap = **45** (the façade is 42; 45 leaves a
+  little headroom). Enforced by probe-tool-surface check 1.
 - **OQ3** — alias grace: do any external (non-repo) callers use `headless_*`
   names? If none, remove on merge (no shim). If yes, one-cycle alias + warning.
 
@@ -219,6 +229,17 @@ from all user-facing tool + param descriptions.
   classified + doctrine-cited.
 - One namespace for the runtime; zero duplicate-capability names in `default`;
   every default description follows the template, zero `Spec NNN`.
-- VICE + maintenance + drive-only behind `C64RE_FULL_TOOLS`; default count ≤ cap.
+- VICE + maintenance + drive-only behind `C64RE_FULL_TOOLS`; default count ≤ cap (45).
 - Zero capability removed (every job reachable in `default` or `advanced`).
-- `runtime:proof` 7/7 GREEN + `probe-tool-surface` GREEN.
+- `npm run check:surface` GREEN (tool-surface 17 + workspace-single 12 +
+  single-path 25). Surface/description/name changes don't touch the emulator, so
+  `runtime:proof` is not required for them.
+
+## Status (2026-05-29)
+DONE: 722.1 inventory · 722.2 classification · 722.3a tier-gate · 722.3b audio
+collision retired · 722.4a+b headless_* namespace eliminated (→runtime_*, 0 left)
+· 722.5a default descriptions capability-first · 722.5b-1 vice_* oracle-only.
+The product-facing surface (42 default + 49 vice) is complete and guarded.
+REMAINING (optional polish): **722.5b-2** — rewrite the remaining advanced-tool
+descriptions (runtime_*/maintenance, ~100 still carry Spec NNN); lower priority
+since they sit behind `C64RE_FULL_TOOLS`.
