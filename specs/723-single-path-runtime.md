@@ -2,12 +2,12 @@
 
 **Status:** PLANNED (2026-05-28 CEST)
 **Owner:** Runtime / execution-path contract
-**Scope:** Collapse the headless runtime to ONE execution path —
-`true-drive` + microcoded CPU + per-cycle vice-shaped chips — and make it the
-DEFAULT. Delete the fast-trap / real-kernal modes, the KERNAL fast-trap layer,
-the legacy `cpu6510.ts` interpreter, and the legacy chip/line/drive toggles.
-NO new emulator behaviour — only removal of vestigial alternate paths and a
-default flip.
+**Scope:** Collapse the headless runtime to ONE C64 execution path —
+`true-drive` + C64 `Cpu65xxVice` + vice1541 + per-cycle vice-shaped chips — and
+make it the DEFAULT. Delete the fast-trap / real-kernal modes, the KERNAL
+fast-trap layer, the legacy C64 `cpu6510.ts` interpreter, and the legacy
+chip/line/drive toggles. NO new emulator behaviour — only removal of vestigial
+alternate paths and a default flip.
 **Depends on:** Proof gate (Specs 600/601, 715). Absorbs **Spec 704 §11**
 (legacy drive/** retirement) and extends it to CPU + modes + traps + chip
 toggles.
@@ -40,10 +40,16 @@ drive idle-traps and STAY**.
 
 ## 2. The single path (target)
 
-The one supported runtime is `true-drive` + vice1541, microcoded, with
-**event-catchup** drive sync and VICE-shaped per-cycle bus/chip semantics:
+The one supported runtime is `true-drive` + vice1541, with the C64 on
+`Cpu65xxVice`, **event-catchup** drive sync and VICE-shaped per-cycle bus/chip
+semantics:
 
-- CPU: `cpu/cpu65xx-vice.ts` (microcoded), C64 + own drive CPU.
+- C64 CPU: `cpu/cpu65xx-vice.ts` (microcoded). This is the only C64 product CPU.
+- 1541 CPU: `vice1541/drivecpu.ts` + `vice1541/drive_6510core.ts`, the
+  dedicated VICE drive-CPU port. It is intentionally separate from the C64 CPU,
+  matching VICE's separate `drivecpu.c` wrapper / DRIVE_CPU `6510core.c` path.
+  **Do not merge the 1541 CPU into `Cpu65xxVice`; do not delete
+  `vice1541/drive_6510core.ts`.**
 - Drive: vice1541 (VICE-shaped), **event-catchup bridge**
   (`pushFlush → drive1541.tickToClock`, exactly like VICE
   `iecbus_cpu_*_conf1 → drive_cpu_execute_one`). **NOT** a global per-cycle
@@ -82,7 +88,7 @@ path survive.
 | K1 | `fast-trap` mode preset | session-modes.ts | KILL |
 | K2 | `real-kernal` mode preset | session-modes.ts | KILL |
 | K3 | KERNAL fast-trap layer | `traps/kernal-io.ts` (205), `kernal-fileio.ts` (131), `kernal-serial.ts` (63) | KILL (only fast-trap used them) |
-| K4 | Legacy CPU interpreter | `cpu6510.ts` (875) | KILL (cpu65xx-vice is the real CPU) |
+| K4 | Legacy C64 CPU interpreter | `cpu6510.ts` (875) | KILL only after HeadlessSessionManager migration; `Cpu65xxVice` is the C64 product CPU. This does **not** affect the separate vice1541 drive CPU (`vice1541/drivecpu.ts` + `drive_6510core.ts`). |
 | K5 | `useMicrocodedCpu` flag | integrated-session.ts + ~53 refs | REMOVE flag; microcoded is unconditional |
 | K6 | Legacy 1541 line-state ("legacy" default, Spec 611) | integrated-session, via1d1541, iec-bus | FLIP default → vice-shaped; delete legacy branch |
 | K7 | Legacy VIC line-steal block path | vic-ii-vice, integrated-session | FLIP default → per-cycle; delete block path |
