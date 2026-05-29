@@ -85,6 +85,12 @@ ok(viceNoOracle.length === 0, "13 every vice_* description is oracle-only framed
 const viceSpecStart = viceNames.filter((n) => /^\s*Spec\b/i.test(fullDescByName.get(n) || ""));
 ok(viceSpecStart.length === 0, "14 no vice_* description starts with Spec", viceSpecStart.join(",") || "none");
 
+// 16 (722.3b): the confusing audio name-collision is retired. The session
+// exporter is runtime_session_export_audio; the scenario one is
+// runtime_export_audio. The old colliding `runtime_audio_export` must not exist.
+ok(!have.has("runtime_audio_export"), "16 audio name-collision retired (no runtime_audio_export)",
+  have.has("runtime_audio_export") ? "still present" : "none");
+
 // 15 (722.4): the headless_* namespace is fully retired — one runtime language.
 const headlessLeft = allNames.filter((n) => n.startsWith("headless_"));
 ok(headlessLeft.length === 0, "15 no headless_* tool remains (consolidated into runtime_*)", headlessLeft.join(",") || "none");

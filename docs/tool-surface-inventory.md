@@ -6,7 +6,7 @@
 
 ## Totals
 - **271** registered tools.
-- **102** (38%) have a `Spec NNN` in the description (history-encoded, not capability-first).
+- **100** (37%) have a `Spec NNN` in the description (history-encoded, not capability-first).
 - **68** are advanced-tier candidates (vice / maintenance / drive-only / sandbox).
 - Default-candidate (façade/workflow): **203**.
 
@@ -209,7 +209,6 @@
 | `run_build_pipeline` | run | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 032 follow-up: orchestrate a build pipeline end-to-end. |
 | `run_payload_reverse_workflow` | run | server-tools/analysis-workflow.ts |  | default? |  | Run the reverse-engineering workflow on a payload entity. |
 | `run_prg_reverse_workflow` | run | server-tools/analysis-workflow.ts |  | default? |  | Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views. |
-| `runtime_audio_export` | runtime | server-tools/runtime.ts | Y | default? | runtime_export_audio | Spec 263 — render `duration_sec` PAL seconds of SID audio (resid synth) to a stereo s16le 44.1kHz WAV file. |
 | `runtime_batch_results` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 271 — collect ReplayResult per scenario once batch is done. |
 | `runtime_batch_status` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 271 — poll progress of a parallel batch. |
 | `runtime_bookmark_add` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 242 — add trace bookmark with bind mode (cycle/event-key/both). |
@@ -224,7 +223,7 @@
 | `runtime_drive_session_save_vsf` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. |
 | `runtime_drive_session_start` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. |
 | `runtime_drive_status` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. |
-| `runtime_export_audio` | runtime | server-tools/runtime.ts | Y | default? | runtime_audio_export | Spec 269 / 263 — export WAV audio for a scenario. |
+| `runtime_export_audio` | runtime | server-tools/runtime.ts |  | default? | runtime_audio_export | Render a saved SCENARIO's SID audio to a stereo s16le WAV (part of the runtime_export_* scenario family). |
 | `runtime_export_screenshot` | runtime | server-tools/runtime.ts | Y | default? | headless_render_screen | Spec 269 — export PNG screenshot for a scenario. |
 | `runtime_export_video` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed). |
 | `runtime_follow_path` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 233 — follow causal chain back from an event. |
@@ -259,6 +258,7 @@
 | `runtime_scenario_list` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. |
 | `runtime_scenario_load` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — load a single scenario by id. |
 | `runtime_scenario_save` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 268 — save a scenario JSON to project dir (or samples if no project dir). |
+| `runtime_session_export_audio` | runtime | server-tools/runtime.ts |  | default? |  | Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. |
 | `runtime_session_run` | runtime | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. |
 | `runtime_session_snapshot` | runtime | server-tools/headless.ts | Y | default? |  | Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. |
 | `runtime_session_start` | runtime | server-tools/headless.ts |  | default? |  | Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). |

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Spec 263 — CLI shim for `runtime_audio_export`. Boots a session from a
+// Spec 263 — CLI shim for `runtime_session_export_audio`. Boots a session from a
 // disk image, runs for N seconds, writes a stereo WAV.
 //
 // Usage:

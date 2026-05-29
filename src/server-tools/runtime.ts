@@ -519,14 +519,14 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   // ---- Spec 263 — SID audio export ----
   server.tool(
-    "runtime_audio_export",
-    "Spec 263 — render `duration_sec` PAL seconds of SID audio (resid synth) to a stereo s16le 44.1kHz WAV file. Headless-first: passive recorder mirrors the live session SID write stream.",
+    "runtime_session_export_audio",
+    "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Not for a saved scenario (use runtime_export_audio). Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
     {
       session_id: z.string(),
       out_path: z.string(),
       duration_sec: z.number(),
     },
-    safeHandler("runtime_audio_export", async ({ session_id, out_path, duration_sec }) => {
+    safeHandler("runtime_session_export_audio", async ({ session_id, out_path, duration_sec }) => {
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -889,7 +889,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_export_audio",
-    "Spec 269 / 263 — export WAV audio for a scenario. Captures SID via reSID mirror, writes stereo s16le.",
+    "Render a saved SCENARIO's SID audio to a stereo s16le WAV (part of the runtime_export_* scenario family). Use to capture audio from a scenario run. Not for a live session (use runtime_session_export_audio). Inputs: scenario_id, out_path, duration. Returns: WAV path + stats.",
     {
       scenario_id: z.string(),
       out_path: z.string(),

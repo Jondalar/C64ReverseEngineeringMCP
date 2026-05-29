@@ -105,7 +105,9 @@ if a fresh LLM doing project RE would reach for it, it is default.)
   the single runtime). `headless_integrated_session_status` ≡ `runtime_status`;
   `…_run` ≡ `runtime_until`/`runtime_run_scenario`; `…_snapshot` ≡
   `runtime_save_vsf`; `headless_render_screen` ≡ `runtime_export_screenshot`.
-- `runtime_audio_export` ≡ `runtime_export_audio` → one.
+- ~~`runtime_audio_export` ≡ `runtime_export_audio`~~ — 722.3b equivalence check
+  showed these are NOT duplicates (session-live vs scenario). Renamed the
+  session one → `runtime_session_export_audio`; both kept (advanced).
 - `vice_monitor_memory|registers|display` ≡ `runtime_monitor_memory|registers|disasm`
   → keep the runtime ones (advanced), the vice ones stay only as oracle.
 

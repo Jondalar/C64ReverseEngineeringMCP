@@ -1,6 +1,6 @@
 {
   "total": 271,
-  "specCount": 102,
+  "specCount": 100,
   "advancedCandidate": 68,
   "byNamespace": {
     "runtime": 63,
@@ -1212,15 +1212,6 @@
       "tier": "default?"
     },
     {
-      "name": "runtime_audio_export",
-      "file": "server-tools/runtime.ts",
-      "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 263 — render `duration_sec` PAL seconds of SID audio (resid synth) to a stereo s16le 44.1kHz WAV file.",
-      "desc": "Spec 263 — render `duration_sec` PAL seconds of SID audio (resid synth) to a stereo s16le 44.1kHz WAV file. Headless-first: passive recorder mirrors the live session SID write stream.",
-      "tier": "default?"
-    },
-    {
       "name": "runtime_batch_results",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
@@ -1350,9 +1341,9 @@
       "name": "runtime_export_audio",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 269 / 263 — export WAV audio for a scenario.",
-      "desc": "Spec 269 / 263 — export WAV audio for a scenario. Captures SID via reSID mirror, writes stereo s16le.",
+      "hasSpec": false,
+      "firstSentence": "Render a saved SCENARIO's SID audio to a stereo s16le WAV (part of the runtime_export_* scenario family).",
+      "desc": "Render a saved SCENARIO's SID audio to a stereo s16le WAV (part of the runtime_export_* scenario family). Use to capture audio from a scenario run. Not for a live session (use runtime_session_export_audio). Inputs: scenario_id, out_path, duration. Returns: WAV path + stats.",
       "tier": "default?"
     },
     {
@@ -1659,6 +1650,15 @@
       "hasSpec": true,
       "firstSentence": "Spec 268 — save a scenario JSON to project dir (or samples if no project dir).",
       "desc": "Spec 268 — save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_session_export_audio",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV.",
+      "desc": "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Not for a saved scenario (use runtime_export_audio). Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
       "tier": "default?"
     },
     {

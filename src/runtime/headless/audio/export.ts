@@ -2,7 +2,7 @@
 //
 // Drives a session for `durationSec` PAL seconds, harvesting Resid PCM
 // into a stereo WAV file. Used by `audio/export` WS handler and the
-// `runtime_audio_export` MCP tool.
+// `runtime_session_export_audio` MCP tool.
 
 import { AudioExportSession } from "./sid-audio-recorder.js";
 import { writeWav } from "./wav-writer.js";
