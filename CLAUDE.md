@@ -190,6 +190,51 @@ action.** VICE is fallback / oracle only.
 - Don't propose `vice_session_start` or VICE-side capture as the
   default investigative step.
 
+## Single-Path Runtime (Spec 723, Mandatory 2026-05-29)
+
+**The headless runtime has exactly ONE execution path. There is no
+mode/toggle to pick an alternate path.** Starting a session
+(`startIntegratedSession({})` / `headless_integrated_session_start`)
+gives the product path with no flags:
+
+- **C64 CPU = `Cpu65xxVice`** (microcoded, `cpu/cpu65xx-vice.ts`). The
+  legacy `cpu6510.ts` interpreter is gone. There is no
+  `useMicrocodedCpu` toggle — microcoded is the only CPU.
+- **Scheduler = event-catchup**, NOT cycle-lockstep. The
+  `CycleLockstepScheduler` / `LockstepStrategy` / `*Cycled` wrappers /
+  `bus-owner-table` are deleted. There is no `useCycleLockstep` flag and
+  no `scheduler` field. The drive advances via pushFlush →
+  `drive1541.tickToClock` at IEC events (VICE-shaped).
+- **VIC = literal port** (`vic/literal/**`). The C64 CPU's `tick()` calls
+  `vicii_cycle()` per cycle via the session `c64ViciiCycle` hook. The
+  legacy `VicIIVice.tick()` batched path + `computeLineSteal()` +
+  `stealCpuCycles` are gone. There are no `useLiteralPort*` /
+  `usePerCycleBusStealing` toggles. (`VicIIVice` still owns register
+  R/W + IRQ + scanline capture for the rasterized-renderer / fidelity
+  tests; `bad_line` there is serialized for VSF but the literal port is
+  the authority.)
+- **1541 drive = VICE1541** (`drive1541/vice1541-facade.ts`). There is no
+  `drive1541` implementation selector — VICE1541 is the only drive
+  (legacy `drive/**` removed, Spec 704 §11). No `fast-trap` /
+  `real-kernal` modes, no KERNAL trap layer (`traps/kernal-*` deleted) —
+  the real KERNAL runs end-to-end.
+- **No standalone `HeadlessSessionManager`** factory/start path.
+
+**Separate, protected — do NOT delete or merge into the C64 core:**
+the 1541 drive CPU lives in `src/runtime/headless/vice1541/drivecpu.ts`
++ `drive_6510core.ts` (its own 6502, distinct from the C64
+`Cpu65xxVice`). The 1541 Port Fidelity Doctrine (Spec 612) governs it.
+
+**Debug-only (never product, never a public tool input):** the only
+remaining non-`true-drive` mode is `debug-vice-compare` (= true-drive +
+trace channels, for the VICE oracle). `vice_*` tools are an external
+oracle, not a second internal runtime path.
+
+`scripts/probe-single-path.mjs` enforces all of the above (run it after
+any runtime change). Do not reintroduce a removed flag/path to "make a
+test pass" — retire the test (Fork B: fidelity tests must not keep a
+dead runtime path alive).
+
 ## Traces (Mandatory 2026-05-12)
 
 **Always trace broadly + abundantly + into DuckDB. Never write

@@ -1,6 +1,8 @@
 # Spec 723 - Single-Path Runtime (retire fast-trap, legacy CPU, legacy toggles)
 
-**Status:** PLANNED (2026-05-28 CEST)
+**Status:** DONE (2026-05-29 CEST) — all slices 723.1-723.8 landed on master;
+single runtime path enforced by `scripts/probe-single-path.mjs` (25 checks);
+runtime:proof 7/7 after every execution-internal slice.
 **Owner:** Runtime / execution-path contract
 **Scope:** Collapse the headless runtime to ONE C64 execution path —
 `true-drive` + C64 `Cpu65xxVice` + vice1541 + per-cycle vice-shaped chips — and
@@ -230,9 +232,15 @@ caller-cleanups:**
     298-literal-real-boot/cycle-log). probe check 16 also bans
     computeLineSteal/stealCpuCycles. probe 23/23. runtime:proof 7/7.
     **No deferred VIC cleanup remains.**
-- **723.8 — Doc + guard.** Update CLAUDE.md ("the runtime has one path; no mode
-  flag needed"); extend `scripts/probe-single-path.mjs` (created in 723.2) to also
-  assert no `fast-trap` / `cpu6510` / `traps/kernal-*` import survives.
+- **723.8 — Doc + guard. DONE.** Added the "Single-Path Runtime (Spec 723)"
+  doctrine to CLAUDE.md (one path; C64 CPU = Cpu65xxVice; scheduler =
+  event-catchup not lockstep; VIC = literal port; drive = VICE1541; the 1541
+  drive CPU `vice1541/drivecpu.ts` + `drive_6510core.ts` is separate +
+  protected; only debug mode = debug-vice-compare; no public
+  fast-trap/real-kernal/useMicrocodedCpu/useCycleLockstep/drive1541/literal-port
+  toggles). Final probe-single-path guards: 25 checks total, incl. 18 (no
+  VicIIVice.tick) + 19 (drive_6510core is a separate CPU). Docs + probe only,
+  no runtime code → build + probe gate (runtime:proof unchanged).
 
 `scripts/probe-single-path.mjs` (created in 723.2) MUST assert:
 1. `startIntegratedSession({})` (empty opts) → no traps, microcoded=true,

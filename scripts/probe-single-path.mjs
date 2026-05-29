@@ -206,5 +206,21 @@ const stillPresent = deletedPaths.filter((f) => existsSync(join(ROOT, f)));
 ok(stillPresent.length === 0, "17 lockstep scheduler + bus-owner files deleted",
   stillPresent.join(",") || "none");
 
+// Check 18 (Spec 723.7d): the legacy batched VicIIVice.tick() method is gone
+// (the product VIC is the per-cycle literal port). Match a `tick(` method
+// declaration in vic-ii-vice.ts (comments stripped).
+const vicSrc = stripComments(readFileSync(join(ROOT, "src/runtime/headless/vic/vic-ii-vice.ts"), "utf8"));
+ok(!/^\s*tick\s*\(/m.test(vicSrc), "18 VicIIVice has no batched tick() method");
+
+// Check 19 (Spec 723.8): the separate 1541 drive CPU is explicitly protected —
+// it has its own 6502 core distinct from the C64 Cpu65xxVice and must never be
+// deleted or merged into the C64 core (Spec 612). Already covered by check 10
+// (files intact); here assert drive_6510core.ts defines its own CPU step, not
+// an import of the C64 cpu.
+const driveCorePath = join(ROOT, "src/runtime/headless/vice1541/drive_6510core.ts");
+const driveCoreOk = existsSync(driveCorePath)
+  && !/from\s+["'][^"']*cpu\/cpu65xx-vice/.test(readFileSync(driveCorePath, "utf8"));
+ok(driveCoreOk, "19 vice1541 drive_6510core is a separate CPU (not the C64 Cpu65xxVice)");
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} single-path: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);
