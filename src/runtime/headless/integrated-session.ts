@@ -376,7 +376,7 @@ export class IntegratedSession {
     ) {
       console.warn(
         `[IntegratedSession] booleans don't match any named preset → mode="custom". `
-        + `Pass an explicit \`mode\` (fast-trap | real-kernal | true-drive | debug-vice-compare | debug-lockstep) `
+        + `Pass an explicit \`mode\` (true-drive | debug-vice-compare) `
         + `or set mode: "custom" to silence this warning.`,
       );
     }

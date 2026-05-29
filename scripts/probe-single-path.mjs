@@ -179,5 +179,32 @@ ok(drive1541SelOptHits.length === 0, "15 no drive1541 selection option (drive154
   drive1541SelOptHits.map((p) => relative(ROOT, p)).join(",") || "none");
 ok(!/drive1541/.test(startBlock), "15b session-start tool exposes no drive1541 input");
 
+// Check 16 (Spec 723.7a/7b): the debug-mode prune. No debug-lockstep /
+// debug-push-only / debug-hybrid mode + no cycle-lockstep scheduler / strategy
+// / wrappers / bus-owner-table / per-cycle-bus-stealing symbol survives in src
+// CODE (comments that reference the removed thing are fine — they are stripped
+// before testing).
+const stripComments = (s) => s
+  .replace(/\/\*[\s\S]*?\*\//g, "")   // block comments
+  .replace(/(^|[^:])\/\/.*$/gm, "$1"); // line comments (keep "://" in URLs)
+const PRUNED = /\bdebug-lockstep\b|\bdebug-push-only\b|\bdebug-hybrid\b|CycleLockstepScheduler|LockstepStrategy|cycle-lockstep-scheduler|cycle-wrappers|cycle-steppable|bus-owner-table|getBusStallForCycle|usePerCycleBusStealing|useCycleLockstep|CycleSteppable/;
+const prunedHits = srcFiles.filter((p) => /\/src\//.test(p) && PRUNED.test(stripComments(readFileSync(p, "utf8"))));
+ok(prunedHits.length === 0, "16 no pruned debug-lockstep / cycle-lockstep scheduler symbol in src code",
+  prunedHits.map((p) => relative(ROOT, p)).join(",") || "none");
+
+// Check 17 (Spec 723.7b): the scheduler dir + lockstep-strategy + the VIC
+// bus-stealing files are deleted.
+const deletedPaths = [
+  "src/runtime/headless/scheduler/cycle-lockstep-scheduler.ts",
+  "src/runtime/headless/scheduler/cycle-wrappers.ts",
+  "src/runtime/headless/scheduler/cycle-steppable.ts",
+  "src/runtime/headless/kernel/lockstep-strategy.ts",
+  "src/runtime/headless/vic/bus-owner-table.ts",
+  "src/runtime/headless/vic/ba-aec.ts",
+];
+const stillPresent = deletedPaths.filter((f) => existsSync(join(ROOT, f)));
+ok(stillPresent.length === 0, "17 lockstep scheduler + bus-owner files deleted",
+  stillPresent.join(",") || "none");
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} single-path: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

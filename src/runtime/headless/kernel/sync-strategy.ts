@@ -1,9 +1,8 @@
 // Spec 200 — Sync strategy interface.
 //
 // Concrete strategies:
-//   - LockstepStrategy   : Spec 200, wraps the existing
-//                          CycleLockstepSchedulerImpl. Diagnostic.
-//   - EventCatchupStrategy : Spec 202, becomes the production default.
+//   - EventCatchupStrategy : Spec 202, the production default.
+//     (Spec 723.7b: LockstepStrategy removed — event-catchup is the only one.)
 //
 // Strategies are kernel-internal. They are never callable from outside
 // `src/runtime/headless/kernel/` — enforced by audit:no-peer-tick.
@@ -15,7 +14,7 @@ export interface SyncRunResult {
 }
 
 export interface SyncStrategy {
-  readonly mode: "debug-lockstep" | "true-drive";
+  readonly mode: "true-drive";
   runCycles(n: number): SyncRunResult;
   runInstructions(n: number): SyncRunResult;
   /**

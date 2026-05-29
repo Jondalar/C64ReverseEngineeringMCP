@@ -69,7 +69,7 @@ check("kernel.status() valid shape", () => {
   if (s.mode !== "true-drive") throw new Error(`mode != true-drive, got ${s.mode}`);
   if (!Array.isArray(s.hooks)) throw new Error("hooks not array");
   // Spec 204: hooks now registered at kernel construction. Default
-  // mode = debug-lockstep, all fireCounts must start at 0.
+  // mode = true-drive (Spec 723.7b), all fireCounts must start at 0.
   if (s.hooks.length === 0) throw new Error("hooks should list every registered legacy hook (Spec 204)");
   for (const h of s.hooks) {
     if (typeof h.name !== "string") throw new Error(`hook missing name: ${JSON.stringify(h)}`);
@@ -81,16 +81,19 @@ check("kernel.status() valid shape", () => {
   if (!Array.isArray(s.mediaSlots) || s.mediaSlots.length === 0) throw new Error("mediaSlots empty");
 });
 
-check("true-drive runs event/catch-up, not lockstep", () => {
+check("true-drive runs event/catch-up (single path)", () => {
   const status = session.status();
   if (status.runtime.mode !== "true-drive") {
     throw new Error(`session mode != true-drive, got ${status.runtime.mode}`);
   }
-  if (status.runtime.useCycleLockstep) {
-    throw new Error("true-drive must not enable useCycleLockstep");
+  // Spec 723.7b: the cycle-lockstep scheduler is gone — there is no
+  // useCycleLockstep flag/scheduler. Spec 723.4a: microcoded CPU is the only
+  // CPU (Cpu65xxVice), verified by class rather than a flag.
+  if ("useCycleLockstep" in status.runtime || session.scheduler !== undefined) {
+    throw new Error("true-drive must not expose a cycle-lockstep flag/scheduler");
   }
-  if (!status.runtime.useMicrocodedCpu) {
-    throw new Error("true-drive must keep useMicrocodedCpu enabled");
+  if (!/Cpu65xxVice/.test(session.c64Cpu?.constructor?.name ?? "")) {
+    throw new Error("true-drive must run the microcoded Cpu65xxVice");
   }
 });
 

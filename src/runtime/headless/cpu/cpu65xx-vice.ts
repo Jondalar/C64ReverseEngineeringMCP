@@ -44,7 +44,6 @@
 //   src/drive/drivecpu.c       drive CPU loop pattern
 
 import type { CpuMemory } from "./cpu-memory.js";
-import type { CycleSteppable } from "../scheduler/cycle-steppable.js";
 import { MICROCODE_TABLE, ADDR_MODE_PATTERNS, type MicrocodeEntry } from "./microcode-table.js";
 import { UNDOC_TABLE } from "./undoc-table.js";
 import type { IoPort6510Hook } from "./io-port-6510.js";
@@ -175,7 +174,7 @@ export interface Cpu65xxOptions {
  * Field names follow VICE source (reg_pc, reg_a, ...). Public methods
  * follow project camelCase.
  */
-export class Cpu65xxVice implements CycleSteppable {
+export class Cpu65xxVice {
   // ============================================================
   // VICE-named register state (src/6510core.c) — verbatim names.
   // ============================================================

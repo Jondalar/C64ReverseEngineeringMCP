@@ -75,7 +75,6 @@ import {
   type AlarmContext,
 } from "../alarm/alarm-context.js";
 import { u8, u16, u32, type BYTE, type WORD, type CLOCK } from "../util/uint.js";
-import { getBusOwner } from "./bus-owner-table.js";
 import {
   fetchMatrix,
   type BadlineFetchResult,
@@ -389,18 +388,6 @@ export class VicIIVice {
   /** Cumulative cycles counted into bus-stealing this line — debug only. */
   private linesStolen = 0;
 
-  /**
-   * Spec 280g: when true, `tick()` no longer charges block bus-stealing
-   * via backend.stealCpuCycles(). Instead, the per-cycle scheduler is
-   * expected to call `getBusStallForCycle(raster_cycle)` BEFORE each
-   * CPU step and skip the CPU step if it returns true. The drive +
-   * peripherals still tick (= master clock advances). This mirrors
-   * VICE's BA-low CPU stalling.
-   *
-   * Default false (= legacy block accounting via computeLineSteal).
-   */
-  public usePerCycleBusStealing = false;
-
   constructor(opts: VicIIViceOptions) {
     this.backend = opts.backend;
     this.alarmContext = opts.alarmContext;
@@ -552,16 +539,12 @@ export class VicIIVice {
 
         // Bus stealing for this line — VICE handle_fetch_matrix +
         // handle_check_sprite_dma + handle_fetch_sprite. At B-level we
-        // collapse to one accounting call per line.
-        //
-        // Spec 280g: also primes `bad_line` + `sprite_fetch_msk` for
-        // the new per-cycle bus-owner table. When per-cycle stealing
-        // is enabled, we still call computeLineSteal() so those
-        // fields are populated for getBusStallForCycle(), but we
-        // discard the count (the scheduler will stall the CPU one
-        // cycle at a time instead of in a block).
+        // collapse to one accounting call per line. (Spec 723.7b: the
+        // per-cycle bus-stealing path is gone; this is the legacy batched
+        // VicIIVice.tick accounting, reached only off the product per-cycle
+        // literal path.)
         const lineSteal = this.computeLineSteal();
-        if (!this.usePerCycleBusStealing && lineSteal > 0) {
+        if (lineSteal > 0) {
           stolen += lineSteal;
           // Notify backend so maincpu_clk can be advanced explicitly.
           this.backend.stealCpuCycles(lineSteal, this.clkPtr());
@@ -697,23 +680,8 @@ export class VicIIVice {
   }
 
   /**
-   * Spec 280g — per-cycle bus-owner check used by the cycle-lockstep
-   * scheduler. Returns true iff VIC owns the bus on `cycleInLine` of
-   * the current scanline (= CPU should stall this cycle).
-   *
-   * Reads cached `bad_line` + `sprite_fetch_msk` populated at line
-   * entry by computeLineSteal(). The scheduler MUST call this before
-   * each CPU step when `usePerCycleBusStealing` is enabled. If
-   * cycleInLine is unspecified, the live `raster_cycle` is used.
-   *
-   * Note: this is purely a query; the bus-owner table is pure (see
-   * bus-owner-table.ts). State priming happens in computeLineSteal()
-   * once per line wrap inside `tick()`.
-   */
-  getBusStallForCycle(cycleInLine?: number): boolean {
-    const c = cycleInLine ?? this.raster_cycle;
-    return getBusOwner(c, this.bad_line !== 0, this.sprite_fetch_msk) === "vic";
-  }
+  // Spec 723.7b: getBusStallForCycle() removed with the cycle-lockstep
+  // scheduler (its only caller) + the bus-owner-table.
 
   // -------------------------------------------------------------------------
   // Register R/W — VICE: vicii_store / vicii_read (vicii-mem.c).
