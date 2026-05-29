@@ -75,6 +75,53 @@ the residue cannot be cleanly stripped while the mode lives.
 - Under Option B the `diagnose_mm` lockstep coupling must be re-pointed or the
   tool retired.
 
+## DECISION (2026-05-29): Option B — kill debug-lockstep (user-approved)
+
+debug-lockstep + the whole lockstep scheduler + the 5c-deferred VIC residue are
+deleted. Event-catchup becomes the only scheduler. diagnose_mm re-points to
+event-catchup (or its lockstep assertion is retired).
+
+### 723.7b execution surface (build-checked sub-steps; runtime:proof at end)
+
+This is the largest-blast-radius slice of Spec 723 — it edits the central
+session step-loop and the product CPU, not just a dead branch. Touchpoints:
+
+- **integrated-session.ts** — remove: import of `CycleLockstepSchedulerImpl` +
+  `cycle-wrappers` (`AlarmContextCycled`/`VicCycled`/`SidCycled`/
+  `KeyboardCycled`); the `scheduler?` field; the `useCycleLockstep` opt+field;
+  the entire `if (this.useCycleLockstep)` block (scheduler construction +
+  bus-stall wiring); the `if (this.scheduler)` branch in `stepC64Instruction`
+  (968-983 → event-catchup only); `useCycleLockstep` in the status-runtime
+  object + serialize (343/377/386/456/1185/1219).
+- **session-modes.ts** — drop `debug-lockstep` from `SessionMode` + `presetFlags`
+  + `identifyMode`; remove `useCycleLockstep` from `SessionModeFlags` +
+  `flagsEqual`; `makeModeReport` drops `lockstep`.
+- **kernel-status.ts** — drop `debug-lockstep` from `KernelMode`;
+  `DIAGNOSTIC_MODES` becomes empty (or remove).
+- **kernel** — `headless-machine-kernel.ts` + `index.ts` + `sync-strategy.ts`:
+  remove the `LockstepStrategy` arm (SyncStrategy = EventCatchupStrategy only);
+  delete `lockstep-strategy.ts`.
+- **cpu65xx-vice.ts** — remove `implements CycleSteppable` + the lockstep-only
+  `step()` shim. KEEP `executeCycle()` + `isAtInstructionBoundary()` (product
+  event-catchup path uses them directly).
+- **vic-ii-vice.ts** — remove `computeLineSteal()` + `stealCpuCycles` backend
+  hook + `getBusStallForCycle()` + `usePerCycleBusStealing` field; keep the
+  per-cycle `vicii_cycle` literal path. Verify badline state the literal port
+  needs is owned by the literal core, not computeLineSteal.
+- **delete files**: `scheduler/cycle-lockstep-scheduler.ts`,
+  `scheduler/cycle-wrappers.ts`, `scheduler/cycle-steppable.ts` (if no other
+  implementer needs the interface), `kernel/lockstep-strategy.ts`,
+  `vic/bus-owner-table.ts`, `vic/ba-aec.ts` (if lockstep-only).
+- **diagnostic-mm.ts + the `diagnose_mm` tool (server-tools/headless.ts)** —
+  re-point off `mode:"debug-lockstep"` to event-catchup, or retire the
+  `tool-config-not-lockstep` gate + the lockstep-only assertions.
+- **smokes** — delete `smoke-bus-stealing.mjs`,
+  `smoke-vic-302-sprite-stall.mjs`, `smoke-vic-302-badline-stall.mjs`; drop the
+  lockstep arm of `smoke-kernel-facade.mjs`.
+- **probe-single-path.mjs** — checks 1a/2/3 reference `useCycleLockstep`;
+  rework to assert the symbol is gone entirely (no scheduler, no flag) rather
+  than "default false".
+
 ## Proposed slices (after the fork is chosen)
 
 - **723.7a** — delete the dead modes `debug-push-only` + `debug-hybrid`
