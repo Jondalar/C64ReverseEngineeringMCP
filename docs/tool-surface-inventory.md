@@ -269,8 +269,8 @@
 | `runtime_step_into` | runtime | server-tools/runtime.ts |  | default? |  | Execute one instruction in a session, stepping INTO subroutines. |
 | `runtime_step_over` | runtime | server-tools/runtime.ts |  | default? |  | Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return). |
 | `runtime_swimlane_slice` | runtime | server-tools/runtime.ts |  | default? |  | Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window. |
-| `runtime_trace_finalize` | runtime | server-tools/headless.ts |  | default? |  | Finalize the active trace: drain remaining events + write the trace_run header, then close the trace.duckdb. |
-| `runtime_trace_status` | runtime | server-tools/headless.ts |  | default? |  | Report the active trace's status — event count, marks, backpressure. |
+| `runtime_trace_finalize` | runtime | server-tools/headless.ts |  | default? |  | Finalize the active streaming trace: drain remaining events + write the trace_run header, then close the trace.duckdb. |
+| `runtime_trace_status` | runtime | server-tools/headless.ts |  | default? |  | Report the active streaming trace's status — runId, output path, captured event/mark counts, backpressure flag. |
 | `runtime_trace_taint` | runtime | server-tools/runtime.ts |  | default? |  | Follow data-flow taint from a source byte/address through a trace. |
 | `runtime_type` | runtime | server-tools/headless.ts |  | default? |  | Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. |
 | `runtime_until` | runtime | server-tools/runtime.ts |  | default? |  | Run a session until the PC reaches a target address or the cycle budget is exhausted. |

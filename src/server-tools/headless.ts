@@ -155,7 +155,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Path to Murder boot trace.
   server.tool(
     "runtime_session_start",
-    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Not for the VICE oracle (use vice_*, advanced). Inputs: optional disk/cart path, device id, pal. Returns: session id + resolved config.",
+    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, close with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events. Not for the VICE oracle (use vice_*, advanced). Inputs: disk_path; optional device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
     {
       disk_path: z.string(),
       device_id: z.number().int().min(8).max(11).optional(),
@@ -240,7 +240,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_session_run",
-    "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. Not for run-to-PC only (use runtime_until). Inputs: session_id, max_instructions, optional breakpoints/until. Returns: counts + final PC.",
+    "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: counts + final PC.",
     {
       session_id: z.string(),
       max_instructions: z.number().int().min(1).max(10_000_000),
@@ -348,7 +348,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Spec 726 — trace marks + finalize (default capture-workflow tools).
   server.tool(
     "runtime_mark",
-    "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Use to scope later trace queries by phase. Not for querying marks (use trace_store_anchor_list). Inputs: session_id, label. Returns: trace status.",
+    "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Requires an active streaming trace — start one with runtime_session_start(trace_out=...). Use to scope later trace queries by phase (between mark cycles). Not for querying marks (use trace_store_anchor_list / trace_store_query). Inputs: session_id, label. Returns: trace status.",
     {
       session_id: z.string(),
       label: z.string().describe("Phase label, e.g. boot-complete / title / scene-1."),
@@ -365,7 +365,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_trace_finalize",
-    "Finalize the active trace: drain remaining events + write the trace_run header, then close the trace.duckdb. Use when capture is done; the store is queryable afterward (trace_store_* / runtime_query_events). Not for marking (use runtime_mark). Inputs: session_id. Returns: run summary.",
+    "Finalize the active streaming trace: drain remaining events + write the trace_run header, then close the trace.duckdb. Requires an active trace started via runtime_session_start(trace_out=...). Call once capture is complete; the store is then queryable any time via trace_store_query / trace_store_top_pcs / trace_store_bus_find / runtime_query_events (pass the trace.duckdb path). Not for marking (use runtime_mark) or progress polling (use runtime_trace_status). Inputs: session_id. Returns: run summary (runId, event/byte counts, mark list, store path).",
     { session_id: z.string() },
     safeHandler("runtime_trace_finalize", async ({ session_id }) => {
       const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
@@ -384,7 +384,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_trace_status",
-    "Report the active trace's status — event count, marks, backpressure. Use to watch capture progress / decide when to finalize. Not for the run's machine state (use runtime_session_status). Inputs: session_id. Returns: trace status.",
+    "Report the active streaming trace's status — runId, output path, captured event/mark counts, backpressure flag. Requires an active trace started via runtime_session_start(trace_out=...). Use to watch capture progress and decide when to call runtime_trace_finalize. Not for the run's machine state (use runtime_session_status) or offline store queries (use trace_store_info). Inputs: session_id. Returns: trace status JSON.",
     { session_id: z.string() },
     safeHandler("runtime_trace_status", async ({ session_id }) => {
       const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
