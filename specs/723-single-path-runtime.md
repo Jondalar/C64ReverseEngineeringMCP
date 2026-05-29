@@ -165,11 +165,28 @@ caller-cleanups:**
 - **723.5 — Delete legacy chip/line toggles (K6, K7).** Per file: confirm the
   vice-shaped default is the only branch reached, delete the legacy branch.
   Gate + cia/via/vic-fidelity smokes after each chip.
+  - **723.5a (DONE)** — mark IEC/probe/dispatch debug toggles internal + guard.
+  - **723.5b (DONE)** — VIC/IEC legacy-toggle audit (`docs/vic-legacy-toggle-audit.md`).
+  - **723.5c (DONE)** — delete the **product** VIC toggles only. The literal
+    VICE x64sc port is unconditional: renderer install, per-cycle CPU/VIC
+    interleave, literal $D000-$D3FF IO reads, literal renderToPng. Removed
+    `useLiteralPort{Renderer,VicPerCycle,VicReads,VicIrq,VicFb}` + the
+    non-literal renderToPng fallback + the batched `vic.tick()` branch +
+    the VicIIVice IO-read path. (`VicIrq`/`VicFb` were vestigial: set, never
+    read.) Smokes migrated to product golden; `301-irq-diff` + `299-d020-irq`
+    retired. **Reading-first correction:** `computeLineSteal` /
+    `usePerCycleBusStealing` / `useLiteralPortVicStall` are NOT product — they
+    live inside `if (useCycleLockstep)` (debug). Deferred to 723.7, NOT kept.
+    Commits `dfe9645` (5c.1 smokes), `bad1bf6` (5c.2 runtime). probe 17/17.
 - **723.6 — Legacy 1541 retirement (K8, absorbed Spec 704 §11).** Decouple the
   9 legacy drive couplings (per Spec 704 §11 plan), delete legacy drive/**.
   Gate (incl. SAVE/FORMAT).
 - **723.7 — Debug-mode prune (D2).** Delete unused debug modes; keep
-  debug-vice-compare. Gate.
+  debug-vice-compare. **Also delete the debug-lockstep-coupled VIC residue
+  deferred from 5c:** `VicIIVice.computeLineSteal()` + `stealCpuCycles` (still
+  reached via the lockstep `VicCycled` wrapper), `usePerCycleBusStealing`,
+  `useLiteralPortVicStall`, the bus-owner-table wiring, and the
+  `smoke-bus-stealing` / `smoke-vic-302-{sprite,badline}-stall` smokes. Gate.
 - **723.8 — Doc + guard.** Update CLAUDE.md ("the runtime has one path; no mode
   flag needed"); extend `scripts/probe-single-path.mjs` (created in 723.2) to also
   assert no `fast-trap` / `cpu6510` / `traps/kernal-*` import survives.
