@@ -238,7 +238,8 @@ single-path). Original plan below.
 ## Status (2026-05-29)
 DONE: 722.1 inventory · 722.2 classification · 722.3a tier-gate · 722.3b audio
 collision retired · 722.4a+b headless_* namespace eliminated (→runtime_*, 0 left)
-· 722.5a default descriptions capability-first · 722.5b-1 vice_* oracle-only.
+· 722.5a default descriptions capability-first · 722.5b-1 vice_* oracle-only ·
+722.6 guard. Surface counts: **default=42, full=271** (zero capability removed).
 The product-facing surface (42 default + 49 vice) is complete and guarded.
 REMAINING (optional polish): **722.5b-2** — rewrite the remaining advanced-tool
 descriptions (runtime_*/maintenance, ~100 still carry Spec NNN); lower priority
