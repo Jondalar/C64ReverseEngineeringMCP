@@ -7,7 +7,7 @@ import type { ServerToolContext } from "./types.js";
 export function registerArtifactTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "read_artifact",
-    "Read a generated artifact (ASM, JSON, SYM, MD). C64 disassemblies are ≤64 KB and fit entirely in context. When reading an ASM file after disasm_prg: you MUST then produce a _annotations.json file that (1) reclassifies every 'unknown' segment, (2) adds semantic labels for all routines/tables/variables, (3) documents every routine. Then run disasm_prg again to render the final annotated version.",
+    "Read a generated artifact (ASM, JSON, SYM, MD) into context — C64 disassemblies are ≤64 KB and fit whole. Use to inspect a disassembly, analysis JSON, or report. Not for raw disk/cart media (use extract_disk / extract_crt) or directory peeks (use inspect_disk). Inputs: artifact path/id. Returns: file contents.",
     {
       path: z.string().describe("Path to the artifact (relative to project dir or absolute)"),
     },
@@ -21,7 +21,7 @@ export function registerArtifactTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "list_artifacts",
-    "List analysis artifacts (PRG, ASM, JSON, SYM, MD files) in a project subdirectory.",
+    "List analysis artifacts (PRG, ASM, JSON, SYM, MD) in the project. Use to see what files exist before reading one. Not for payload entities (use list_payloads) or knowledge records (use list_findings). Inputs: optional subdir. Returns: artifact paths + types.",
     {
       subdir: z.string().optional().describe("Subdirectory to list (default: analysis)"),
     },

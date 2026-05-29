@@ -156,7 +156,7 @@ async function rebuildVerification(args: {
 export function registerAnalysisWorkflowTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "analyze_prg",
-    "STEP 1 of the C64 RE workflow. Run the heuristic analysis pipeline on a PRG file → JSON with segments, cross-references, RAM facts, pointer tables. AFTER THIS: run disasm_prg with the output JSON, then ram_report and pointer_report. Do NOT skip the semantic annotation step (Phase 2) later.",
+    "Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables. Use first on any new PRG to map its structure. Not for producing assembly (run disasm_prg next, passing this JSON) or for disk/cart images (extract first). Inputs: prg_path, optional project_dir. Returns: analysis JSON path + summary.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file (absolute or relative to project dir)"),
@@ -243,7 +243,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm_prg",
-    "STEP 2 of the C64 RE workflow. Disassemble PRG → KickAssembler .asm + 64tass .tass. Pass the analysis JSON from analyze_prg. AFTER THIS: you MUST read the full ASM with read_artifact, then produce a <name>_annotations.json file that reclassifies all unknown segments with semantic labels and routine descriptions. Then run disasm_prg AGAIN to render the final annotated version. See the generate_annotations prompt for the JSON format.",
+    "Disassemble a PRG to KickAssembler .asm + 64tass .tass, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). Inputs: prg_path, optional analysis_json, entry_points, platform. Returns: .asm/.tass artifact paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file"),
@@ -383,7 +383,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "ram_report",
-    "Generate a RAM state facts report (markdown) from an analysis JSON.",
+    "Generate a markdown RAM-state facts report from an analysis JSON (zero-page + RAM usage). Use after analyze_prg to summarise how the program uses memory. Not for pointer tables (use pointer_report) or raw bytes (use read_artifact). Inputs: analysis JSON path. Returns: markdown report path.",
     {
       analysis_json: z.string().describe("Path to the analysis JSON"),
       output_md: z.string().optional().describe("Output path for the markdown report"),
@@ -487,7 +487,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "propose_annotations",
-    "Spec 042: emit a draft *_annotations.draft.json by walking *_analysis.json + (optional) *_disasm.asm. Pattern fingerprints (pointer-table naming, text segment promotion, frequent call-target routines, large-unknown questions) feed the draft. Manual *_annotations.json is never touched. Pass persist_questions=true to also save openQuestions[] via save_open_question (source=static-analysis).",
+    "Generate a DRAFT annotations file (labels, segment reclassifications, routine names) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
     {
       project_dir: z.string().optional(),
       analysis_json: z.string().describe("Path to the *_analysis.json file (relative to project_dir)."),
@@ -534,7 +534,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
 
   server.tool(
     "run_prg_reverse_workflow",
-    "Run the full first-pass PRG reverse-engineering workflow: register input, analyze, disassemble, generate RAM and pointer reports, import knowledge, and rebuild views. Returns done/incomplete/blocked plus the next required semantic action.",
+    "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views. Use to bootstrap a fresh PRG in one call. Not for a single step (call analyze_prg / disasm_prg directly). Inputs: prg_path. Returns: done/incomplete/blocked + the next required semantic action.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       prg_path: z.string().describe("Path to the .prg file (absolute or relative to project_dir)."),
@@ -597,7 +597,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
   // edits.
   server.tool(
     "import_annotations_as_findings",
-    "Spec 055 R25: walk *_annotations.json routines[] + segments[] and emit one finding per routine and per segment-reclassification. Idempotent (clean-slate per binaryStem). Use this for older projects, after manual annotation edits, or to seed archive_phase1_noise / auto_resolve_questions matchers.",
+    "Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification. Use for older projects, after hand-editing annotations, or to seed the auto-archive matchers. Not for generating annotations (use propose_annotations). Inputs: binary stem / annotations path. Returns: count of findings emitted. Idempotent per binary.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string().describe("Source PRG artifact id."),

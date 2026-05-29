@@ -1,6 +1,6 @@
 {
   "total": 271,
-  "specCount": 111,
+  "specCount": 102,
   "advancedCandidate": 71,
   "byNamespace": {
     "vice": 49,
@@ -66,6 +66,7 @@
       "ns": "agent",
       "hasSpec": true,
       "firstSentence": "Spec 034: advance an artifact to a target phase (1..7) in the seven-phase RE workflow.",
+      "desc": "Spec 034: advance an artifact to a target phase (1..7) in the seven-phase RE workflow. Skipping more than one phase forward requires an evidence string. Cannot move backward.",
       "tier": "default?"
     },
     {
@@ -74,6 +75,7 @@
       "ns": "agent",
       "hasSpec": true,
       "firstSentence": "Spec 034: freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack).",
+      "desc": "Spec 034: freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack). Frozen artifacts skip propose_next and count as 'done' for completion math.",
       "tier": "default?"
     },
     {
@@ -81,15 +83,17 @@
       "file": "server-tools/agent-workflow.ts",
       "ns": "agent",
       "hasSpec": false,
-      "firstSentence": "Reload persistent project state at session start (or after context loss).",
+      "firstSentence": "Reload the full project state into the session.",
+      "desc": "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: none. Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
       "tier": "default?"
     },
     {
       "name": "agent_propose_next",
       "file": "server-tools/agent-workflow.ts",
       "ns": "agent",
-      "hasSpec": true,
-      "firstSentence": "[Phase agnostic] Read-only: examine workflow phases, open tasks, open questions, and current agent-state to propose ranked next actions.",
+      "hasSpec": false,
+      "firstSentence": "List ranked, phase-consistent next actions across artifacts, read-only.",
+      "desc": "List ranked, phase-consistent next actions across artifacts, read-only. Use when you want to choose among options or see what each artifact needs. Not for the single routine next step (use c64re_whats_next) or full reload (use agent_onboard). Inputs: none. Returns: ranked actions per non-frozen artifact + optional worker-subagent suggestion. Does not mutate state.",
       "tier": "default?"
     },
     {
@@ -97,7 +101,8 @@
       "file": "server-tools/agent-workflow.ts",
       "ns": "agent",
       "hasSpec": false,
-      "firstSentence": "Record a completed step and (optionally) queue the next action.",
+      "firstSentence": "Record a completed work step and optionally queue the next action, so a later session can resume.",
+      "desc": "Record a completed work step and optionally queue the next action, so a later session can resume. Use after each meaningful unit of work. Not for proposing options (use agent_propose_next) or per-turn status (use c64re_whats_next). Inputs: step summary, optional next-action. Returns: updated agent state.",
       "tier": "default?"
     },
     {
@@ -105,7 +110,8 @@
       "file": "server-tools/agent-workflow.ts",
       "ns": "agent",
       "hasSpec": false,
-      "firstSentence": "Set the cognitive role for the current agent session (analyst, cartographer, implementer).",
+      "firstSentence": "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends.",
+      "desc": "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends. Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
       "tier": "default?"
     },
     {
@@ -114,6 +120,7 @@
       "ns": "analyze",
       "hasSpec": false,
       "firstSentence": "Scan a G64 image track-by-track and report duplicate, missing, unexpected, or invalid decoded sectors.",
+      "desc": "Scan a G64 image track-by-track and report duplicate, missing, unexpected, or invalid decoded sectors.",
       "tier": "default?"
     },
     {
@@ -121,7 +128,8 @@
       "file": "server-tools/analysis-workflow.ts",
       "ns": "analyze",
       "hasSpec": false,
-      "firstSentence": "STEP 1 of the C64 RE workflow.",
+      "firstSentence": "Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables.",
+      "desc": "Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables. Use first on any new PRG to map its structure. Not for producing assembly (run disasm_prg next, passing this JSON) or for disk/cart images (extract first). Inputs: prg_path, optional project_dir. Returns: analysis JSON path + summary.",
       "tier": "default?"
     },
     {
@@ -130,6 +138,7 @@
       "ns": "apply",
       "hasSpec": true,
       "firstSentence": "Spec 027: apply a patch recipe.",
+      "desc": "Spec 027: apply a patch recipe. Refuses if expected bytes do not match the target unless allow_mismatch is set. Snapshots prior bytes via Spec 025 versioning.",
       "tier": "default?"
     },
     {
@@ -137,7 +146,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "archive",
       "hasSpec": true,
-      "firstSentence": "Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding",
+      "firstSentence": "Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange.",
+      "desc": "Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. Also closes paired heuristic-phase1 questions whose title address matches. dry_run=true previews without writing. Spec 056 R27: pass `artifact_id` to scope routines + hypothesis candidates + questions to those linked to a single artifact (per-file feedback signal).",
       "tier": "default?"
     },
     {
@@ -145,7 +155,8 @@
       "file": "server-tools/assembly.ts",
       "ns": "assemble",
       "hasSpec": false,
-      "firstSentence": "Assemble a generated KickAssembler .asm or 64tass .tass file and optionally compare the rebuilt binary against an original PRG.",
+      "firstSentence": "Assemble a .asm (KickAssembler) or .tass (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG.",
+      "desc": "Assemble a .asm (KickAssembler) or .tass (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. Use to verify a disassembly rebuilds correctly. Not for generating the source (use disasm_prg). Inputs: source path, optional original PRG. Returns: assembled binary path + cmp result.",
       "tier": "default?"
     },
     {
@@ -154,6 +165,7 @@
       "ns": "auto",
       "hasSpec": true,
       "firstSentence": "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B).",
+      "desc": "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). Pfad C runs from the annotation-save endpoint. Returns counts. Spec 056 R27: pass `artifact_id` to scope the sweep to questions/findings linked to that artifact only — useful as a per-file feedback signal after annotation work.",
       "tier": "default?"
     },
     {
@@ -162,6 +174,7 @@
       "ns": "auto",
       "hasSpec": true,
       "firstSentence": "Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset).",
+      "desc": "Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). Suggestions only — call set_artifact_relevance to apply. dry_run=true (default) returns proposals without writing.",
       "tier": "default?"
     },
     {
@@ -170,6 +183,7 @@
       "ns": "backfill",
       "hasSpec": false,
       "firstSentence": "Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing.",
+      "desc": "Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -177,7 +191,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": true,
-      "firstSentence": "Bug 26 / Spec 058 follow-up: walk artifacts + entities and set",
+      "firstSentence": "Bug 26 / Spec 058 follow-up: walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastru",
+      "desc": "Bug 26 / Spec 058 follow-up: walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastructure but the flag was never persisted (legacy data predating the schema field). Idempotent. Entity classification uses the primary linked artifact's flag after the artifact pass. dry_run=true previews without writing.",
       "tier": "advanced?"
     },
     {
@@ -185,7 +200,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 33 Fix A (manifest path): walk every artifact of kind=manifest, re-parse it, resolve each entry",
+      "firstSentence": "Bug 33 Fix A (manifest path): walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into th",
+      "desc": "Bug 33 Fix A (manifest path): walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into the matching manifest-imported entity's payloadContentHash. Matches entities by the stableId pattern that manifest-import uses. Skips already-hashed entities. dry_run=true previews. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -194,6 +210,7 @@
       "ns": "backfill",
       "hasSpec": false,
       "firstSentence": "Bug 33 Fix A: walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId ",
+      "desc": "Bug 33 Fix A: walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId points at a directly-linked file (NOT a manifest/aggregator), read the file bytes and compute sha256, writing back into entity.payloadContentHash. For manifest-sourced entities use backfill_manifest_payload_hashes instead. Skips already-hashed entities. dry_run=true previews without writing. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -201,7 +218,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 29: walk open-questions.json and copy the linked finding",
+      "firstSentence": "Bug 29: walk open-questions.json and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange w",
+      "desc": "Bug 29: walk open-questions.json and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -209,7 +227,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "build",
       "hasSpec": false,
-      "firstSentence": "Build and persist all current project JSON view-models in one deterministic pass.",
+      "firstSentence": "Rebuild + persist ALL project JSON view-models in one pass (dashboard, memory map, listing, …) for the UI.",
+      "desc": "Rebuild + persist ALL project JSON view-models in one pass (dashboard, memory map, listing, …) for the UI. Use after knowledge changes to refresh every view at once. Not for human-readable markdown (use render_docs) or a single view (use the specific build_* tool). Inputs: none. Returns: rebuilt view list.",
       "tier": "default?"
     },
     {
@@ -217,7 +236,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "build",
       "hasSpec": false,
-      "firstSentence": "Build and persist the JSON annotated-listing view-model for the current project.",
+      "firstSentence": "Rebuild + persist the JSON annotated-listing view-model (disasm + annotations) for the UI.",
+      "desc": "Rebuild + persist the JSON annotated-listing view-model (disasm + annotations) for the UI. Use to refresh just the listing view. Not for all views (use build_all_views) or markdown (use render_docs). Inputs: none. Returns: listing view path.",
       "tier": "default?"
     },
     {
@@ -226,6 +246,7 @@
       "ns": "build",
       "hasSpec": false,
       "firstSentence": "Build and persist the JSON cartridge-layout view-model for the current project.",
+      "desc": "Build and persist the JSON cartridge-layout view-model for the current project.",
       "tier": "default?"
     },
     {
@@ -234,6 +255,7 @@
       "ns": "build",
       "hasSpec": false,
       "firstSentence": "Build and persist the JSON disk-layout view-model for the current project.",
+      "desc": "Build and persist the JSON disk-layout view-model for the current project.",
       "tier": "default?"
     },
     {
@@ -242,6 +264,7 @@
       "ns": "build",
       "hasSpec": false,
       "firstSentence": "Build and persist the JSON flow-graph view-model for the current project.",
+      "desc": "Build and persist the JSON flow-graph view-model for the current project.",
       "tier": "default?"
     },
     {
@@ -250,6 +273,7 @@
       "ns": "build",
       "hasSpec": false,
       "firstSentence": "Build and persist the JSON load-sequence view-model for the current project.",
+      "desc": "Build and persist the JSON load-sequence view-model for the current project.",
       "tier": "default?"
     },
     {
@@ -257,7 +281,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "build",
       "hasSpec": false,
-      "firstSentence": "Build and persist the JSON memory-map view-model for the current project.",
+      "firstSentence": "Rebuild + persist the JSON memory-map view-model (address-space layout) for the UI.",
+      "desc": "Rebuild + persist the JSON memory-map view-model (address-space layout) for the UI. Use to refresh just the memory map. Not for all views (use build_all_views). Inputs: none. Returns: memory-map view path.",
       "tier": "default?"
     },
     {
@@ -265,7 +290,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "build",
       "hasSpec": false,
-      "firstSentence": "Build and persist the JSON dashboard view-model for the current project.",
+      "firstSentence": "Rebuild + persist the JSON dashboard view-model (project status overview) for the UI.",
+      "desc": "Rebuild + persist the JSON dashboard view-model (project status overview) for the UI. Use to refresh just the dashboard. Not for all views (use build_all_views) or markdown (use render_docs). Inputs: none. Returns: dashboard view path.",
       "tier": "default?"
     },
     {
@@ -274,6 +300,7 @@
       "ns": "build",
       "hasSpec": false,
       "firstSentence": "Compile the TRXDis pipeline (npm run build).",
+      "desc": "Compile the TRXDis pipeline (npm run build). Must be called before analysis if source has changed.",
       "tier": "default?"
     },
     {
@@ -281,7 +308,8 @@
       "file": "server-tools/payloads.ts",
       "ns": "bulk",
       "hasSpec": false,
-      "firstSentence": "Walk the cartridge-layout view",
+      "firstSentence": "Walk the cartridge-layout view's lutChunks and create a payload entity for each one.",
+      "desc": "Walk the cartridge-layout view's lutChunks and create a payload entity for each one. Idempotent (skip when an existing payload entity has matching cart-chunk:<key> tag). Closes the gap where stock cart chunks are not auto-promoted to payload entities by extract_crt.",
       "tier": "advanced?"
     },
     {
@@ -290,14 +318,16 @@
       "ns": "bulk",
       "hasSpec": false,
       "firstSentence": "Walk every analysis-run artifact in the project and call import_analysis_report on those whose entities are not yet back-linked.",
+      "desc": "Walk every analysis-run artifact in the project and call import_analysis_report on those whose entities are not yet back-linked. Closes the gap that opens when bulk CLI runs (`dist/pipeline/cli.cjs analyze-prg`) register the analysis JSON but never invoke the entity / finding importer. After this runs, the loadSequence Payload-Focus dropdown in the workspace UI populates with non-empty stages and memory-map filtering becomes meaningful again.",
       "tier": "advanced?"
     },
     {
       "name": "c64re_whats_next",
       "file": "server-tools/agent-workflow.ts",
       "ns": "c64re",
-      "hasSpec": true,
-      "firstSentence": "Spec 043: the permanent nudger — call after every user turn (Spec 044 setup wires this into the agent config).",
+      "hasSpec": false,
+      "firstSentence": "Return the single next required action for the active artifact, cheaply, to call every turn.",
+      "desc": "Return the single next required action for the active artifact, cheaply, to call every turn. Use as the routine per-turn nudge. Not for full state reload (use agent_onboard) or ranked option lists (use agent_propose_next). Inputs: optional artifact id. Returns: current phase, the one next action, optional worker-spawn block, audit warnings, a short reminder.",
       "tier": "default?"
     },
     {
@@ -306,6 +336,7 @@
       "ns": "c64ref",
       "hasSpec": false,
       "firstSentence": "Fetch and rebuild the local BASIC/KERNAL ROM knowledge snapshot from mist64/c64ref sources.",
+      "desc": "Fetch and rebuild the local BASIC/KERNAL ROM knowledge snapshot from mist64/c64ref sources.",
       "tier": "default?"
     },
     {
@@ -313,7 +344,8 @@
       "file": "server-tools/reference.ts",
       "ns": "c64ref",
       "hasSpec": false,
-      "firstSentence": "Look up BASIC/KERNAL ROM knowledge by address or search term from the local c64ref snapshot.",
+      "firstSentence": "Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot.",
+      "desc": "Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot. Use to identify a ROM routine/vector while reading disassembly. Not for project-specific labels (use list_findings / list_entities). Inputs: address or query string. Returns: matching ROM entries.",
       "tier": "default?"
     },
     {
@@ -322,6 +354,7 @@
       "ns": "close",
       "hasSpec": true,
       "firstSentence": "Spec 038: walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied.",
+      "desc": "Spec 038: walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied. Idempotent. Also runs automatically in agent_onboard.",
       "tier": "default?"
     },
     {
@@ -330,6 +363,7 @@
       "ns": "compare",
       "hasSpec": false,
       "firstSentence": "Compare one or more shared-encoding manifest sets, e.g.",
+      "desc": "Compare one or more shared-encoding manifest sets, e.g. global vs 2-cluster vs 4-cluster, by total bytes, payload bytes, and encoding overhead.",
       "tier": "default?"
     },
     {
@@ -338,6 +372,7 @@
       "ns": "confirm",
       "hasSpec": true,
       "firstSentence": "Spec 052: confirm or reject a resolution-pending question.",
+      "desc": "Spec 052: confirm or reject a resolution-pending question. accept=true marks it answered with the proposed summary; accept=false flips it back to open with a rejection note.",
       "tier": "default?"
     },
     {
@@ -346,6 +381,7 @@
       "ns": "declare",
       "hasSpec": true,
       "firstSentence": "Spec 028: declare a loader entry point on an artifact (jump-table, sector-load, container-decode, dispatch, init, other).",
+      "desc": "Spec 028: declare a loader entry point on an artifact (jump-table, sector-load, container-decode, dispatch, init, other). Idempotent on (artifact_id, address, kind).",
       "tier": "default?"
     },
     {
@@ -354,6 +390,7 @@
       "ns": "dedupe",
       "hasSpec": true,
       "firstSentence": "Spec 060 / Bug 30: collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path.",
+      "desc": "Spec 060 / Bug 30: collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path. Survivor = oldest createdAt; merges union sourceArtifactIds / entityIds / tags / evidence / loadContexts / versions; references across entities / findings / relations / flows / tasks / open-questions remapped from deprecated ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -362,6 +399,7 @@
       "ns": "dedupe",
       "hasSpec": true,
       "firstSentence": "Spec 060 / Bug 31: collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddres",
+      "desc": "Spec 060 / Bug 31: collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddress). Survivor preference: kind==payload first, then earliest createdAt. Other names fold into survivor.aliases[]. Manifest-source entities (linked artifact internal=true) are marked internal rather than removed. References across entities, findings, relations, flows, tasks, open-questions, artifacts remap from deprecated entity ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -370,6 +408,7 @@
       "ns": "define",
       "hasSpec": true,
       "firstSentence": "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone).",
+      "desc": "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Used by run_runtime_scenario + diff_scenario_runs to compare original vs port builds.",
       "tier": "default?"
     },
     {
@@ -377,7 +416,8 @@
       "file": "server-tools/bwc-bitstream.ts",
       "ns": "depack",
       "hasSpec": false,
-      "firstSentence": "Depack a BWC bit-stream chunk (Pucrunch-derived format with",
+      "firstSentence": "Depack a BWC bit-stream chunk (Pucrunch-derived format with 'pu' magic).",
+      "desc": "Depack a BWC bit-stream chunk (Pucrunch-derived format with 'pu' magic). Runs the original $C992 depacker in the sandbox and captures the contiguous run of writes at the destination. Returns a PRG with the destination as load address.",
       "tier": "default?"
     },
     {
@@ -385,7 +425,8 @@
       "file": "server-tools/bwc-bitstream.ts",
       "ns": "depack",
       "hasSpec": false,
-      "firstSentence": "Auto-dispatch on the first two bytes:",
+      "firstSentence": "Auto-dispatch on the first two bytes: 'pu' magic → depack_bwc_bitstream, else → depack_bwc_raw.",
+      "desc": "Auto-dispatch on the first two bytes: 'pu' magic → depack_bwc_bitstream, else → depack_bwc_raw. Mirrors the engine's discriminator at $0D79.",
       "tier": "default?"
     },
     {
@@ -394,6 +435,7 @@
       "ns": "depack",
       "hasSpec": false,
       "firstSentence": "Depack a BWC raw chunk (uncompressed).",
+      "desc": "Depack a BWC raw chunk (uncompressed). Layout: dest_lo / dest_hi / skip / length_pages / body[length_pages * 256]. Returns a PRG with the destination as load address.",
       "tier": "default?"
     },
     {
@@ -402,6 +444,7 @@
       "ns": "depack",
       "hasSpec": false,
       "firstSentence": "Decompress a ByteBoozer2 raw .b2 file or executable wrapper in pure TypeScript.",
+      "desc": "Decompress a ByteBoozer2 raw .b2 file or executable wrapper in pure TypeScript.",
       "tier": "default?"
     },
     {
@@ -410,6 +453,7 @@
       "ns": "depack",
       "hasSpec": false,
       "firstSentence": "Decompress a Lykia-variant ByteBoozer2 stream (modified 4-byte header: dest_lo, dest_hi, end_lo, end_hi; BB2_BITBUF seeded from supplied dest_hi).",
+      "desc": "Decompress a Lykia-variant ByteBoozer2 stream (modified 4-byte header: dest_lo, dest_hi, end_lo, end_hi; BB2_BITBUF seeded from supplied dest_hi). Pure TypeScript port of the $020C in-game depacker.",
       "tier": "default?"
     },
     {
@@ -418,6 +462,7 @@
       "ns": "depack",
       "hasSpec": false,
       "firstSentence": "Decompress an Exomizer raw stream via the built-in TypeScript implementation.",
+      "desc": "Decompress an Exomizer raw stream via the built-in TypeScript implementation.",
       "tier": "default?"
     },
     {
@@ -426,6 +471,7 @@
       "ns": "depack",
       "hasSpec": false,
       "firstSentence": "Decompress an Exomizer self-extracting wrapper via the built-in TypeScript 6502-emulated depacker.",
+      "desc": "Decompress an Exomizer self-extracting wrapper via the built-in TypeScript 6502-emulated depacker.",
       "tier": "default?"
     },
     {
@@ -433,7 +479,8 @@
       "file": "server-tools/compression.ts",
       "ns": "depack",
       "hasSpec": false,
-      "firstSentence": "Decompress the built-in C64 RLE format used by Mike",
+      "firstSentence": "Decompress the built-in C64 RLE format used by Mike's loader.",
+      "desc": "Decompress the built-in C64 RLE format used by Mike's loader.",
       "tier": "default?"
     },
     {
@@ -442,6 +489,7 @@
       "ns": "diff",
       "hasSpec": true,
       "firstSentence": "Spec 030: diff two recorded scenario runs (baseline vs candidate).",
+      "desc": "Spec 030: diff two recorded scenario runs (baseline vs candidate). Emits + persists a RuntimeDiff with missingLoads, extraLoads, diffDestination, diffPayloadHash, divergentPc.",
       "tier": "default?"
     },
     {
@@ -449,7 +497,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "disasm",
       "hasSpec": false,
-      "firstSentence": "Generate KickAssembler sources for all menu payloads.",
+      "firstSentence": "Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once.",
+      "desc": "Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once. Use after extracting a menu disk/cart to get assembly for all entries. Not for a single PRG (use disasm_prg). Inputs: manifest / project dir. Returns: generated .asm paths.",
       "tier": "default?"
     },
     {
@@ -457,7 +506,8 @@
       "file": "server-tools/analysis-workflow.ts",
       "ns": "disasm",
       "hasSpec": false,
-      "firstSentence": "STEP 2 of the C64 RE workflow.",
+      "firstSentence": "Disassemble a PRG to KickAssembler .asm + 64tass .tass, segment-aware when given an analysis JSON.",
+      "desc": "Disassemble a PRG to KickAssembler .asm + 64tass .tass, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). Inputs: prg_path, optional analysis_json, entry_points, platform. Returns: .asm/.tass artifact paths.",
       "tier": "default?"
     },
     {
@@ -465,7 +515,8 @@
       "file": "server-tools/media.ts",
       "ns": "disk",
       "hasSpec": false,
-      "firstSentence": "Walk an extracted disk manifest and report sector ownership per T/S: system (BAM/dir), kernal_file, custom_file, unclaimed_padding, orphan_data.",
+      "firstSentence": "Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps.",
+      "desc": "Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps. Use to understand a disk's layout or find hidden/orphan data. Not for the file list (use inspect_disk) or extraction (use extract_disk). Inputs: extracted manifest. Returns: T/S ownership map + overlaps.",
       "tier": "default?"
     },
     {
@@ -474,6 +525,7 @@
       "ns": "export",
       "hasSpec": false,
       "firstSentence": "Export menu payload binaries from extracted CRT data.",
+      "desc": "Export menu payload binaries from extracted CRT data.",
       "tier": "default?"
     },
     {
@@ -481,7 +533,8 @@
       "file": "server-tools/media.ts",
       "ns": "extract",
       "hasSpec": false,
-      "firstSentence": "Parse an EasyFlash CRT image, extract per-bank binaries and manifest.",
+      "firstSentence": "Parse a cartridge image (.crt, e.g.",
+      "desc": "Parse a cartridge image (.crt, e.g. EasyFlash) and extract per-bank binaries + a manifest. Use to get bytes off a cartridge. Not for disk images (use extract_disk). Inputs: crt path, project dir. Returns: per-bank artifacts + manifest.",
       "tier": "default?"
     },
     {
@@ -489,7 +542,8 @@
       "file": "server-tools/media.ts",
       "ns": "extract",
       "hasSpec": false,
-      "firstSentence": "Extract files from a D64 or G64 image into a project directory and write a manifest.json.",
+      "firstSentence": "Extract files from a D64/G64 image into the project and write manifest.json.",
+      "desc": "Extract files from a D64/G64 image into the project and write manifest.json. Use to get bytes off a disk image. Not for cartridges (use extract_crt) or to just peek the directory (use inspect_disk). Inputs: image path, project dir. Returns: extracted files + manifest.",
       "tier": "default?"
     },
     {
@@ -498,6 +552,7 @@
       "ns": "extract",
       "hasSpec": false,
       "firstSentence": "Extract files indexed by a custom (non-DOS) LUT sector.",
+      "desc": "Extract files indexed by a custom (non-DOS) LUT sector. Use when a disk parks its real payloads in a fixed-stride table (Lykia disk1 T18S18, BWC variants, etc.) rather than the standard 1541 directory. Each entry produces a payload file with origin=\\\"custom\\\" merged into manifest.json.",
       "tier": "default?"
     },
     {
@@ -506,6 +561,7 @@
       "ns": "extract",
       "hasSpec": false,
       "firstSentence": "Export the raw circular G64 half-track data for bit-level inspection.",
+      "desc": "Export the raw circular G64 half-track data for bit-level inspection.",
       "tier": "default?"
     },
     {
@@ -514,22 +570,25 @@
       "ns": "extract",
       "hasSpec": false,
       "firstSentence": "Decode a G64 track via GCR and write one file per decoded sector for low-level inspection.",
+      "desc": "Decode a G64 track via GCR and write one file per decoded sector for low-level inspection.",
       "tier": "default?"
     },
     {
       "name": "get_artifact_lineage",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "get",
-      "hasSpec": true,
-      "firstSentence": "Spec 025: return the V0..Vn lineage chain for the artifact",
+      "hasSpec": false,
+      "firstSentence": "Return the V0..Vn version chain for an artifact (oldest→newest).",
+      "desc": "Return the V0..Vn version chain for an artifact (oldest→newest). Use to see an artifact's revision history. Not for listing all artifacts (use list_artifacts). Inputs: artifact id. Returns: ordered lineage chain.",
       "tier": "default?"
     },
     {
       "name": "get_project_profile",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "get",
-      "hasSpec": true,
-      "firstSentence": "Spec 026: read the current project profile.",
+      "hasSpec": false,
+      "firstSentence": "Read the current project profile (platform, title, metadata).",
+      "desc": "Read the current project profile (platform, title, metadata). Use to see top-level project settings. Not for live counts/paths (use project_status). Inputs: none. Returns: profile record.",
       "tier": "default?"
     },
     {
@@ -538,6 +597,7 @@
       "ns": "headless",
       "hasSpec": true,
       "firstSentence": "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64.",
+      "desc": "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
       "tier": "default?"
     },
     {
@@ -546,6 +606,7 @@
       "ns": "headless",
       "hasSpec": true,
       "firstSentence": "Spec 062 Sprint 64: load a VSF file into a drive session.",
+      "desc": "Spec 062 Sprint 64: load a VSF file into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import VICE-saved state.",
       "tier": "advanced?"
     },
     {
@@ -553,7 +614,8 @@
       "file": "server-tools/headless.ts",
       "ns": "headless",
       "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 64: save the drive session",
+      "firstSentence": "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file.",
+      "desc": "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
       "tier": "advanced?"
     },
     {
@@ -562,6 +624,7 @@
       "ns": "headless",
       "hasSpec": true,
       "firstSentence": "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image.",
+      "desc": "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. Returns a session id usable with the other headless_drive_* tools. Drive emulation runs cycle-accurately with full 6522 VIA + IEC bus modelling. The drive boots via its bundled DOS ROM (resources/roms/dos1541-...bin). For test/runtime tracing of custom loaders and save-game RE.",
       "tier": "advanced?"
     },
     {
@@ -569,7 +632,8 @@
       "file": "server-tools/headless.ts",
       "ns": "headless",
       "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 63: snapshot of a drive session",
+      "firstSentence": "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits.",
+      "desc": "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. Use after running drive code to verify state.",
       "tier": "default?"
     },
     {
@@ -577,7 +641,8 @@
       "file": "server-tools/headless.ts",
       "ns": "headless",
       "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver",
+      "firstSentence": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution.",
+      "desc": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
       "tier": "default?"
     },
     {
@@ -586,6 +651,7 @@
       "ns": "headless",
       "hasSpec": true,
       "firstSentence": "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at ",
+      "desc": "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted). Writes a registered JSON artifact under analysis/headless/ and returns a one-line verdict + key blame. Cycle-lockstep + microcoded CPU enforced; tool will refuse misleading success.",
       "tier": "default?"
     },
     {
@@ -594,6 +660,7 @@
       "ns": "headless",
       "hasSpec": false,
       "firstSentence": "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire).",
+      "desc": "Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). Bits stay held until next call updates them. Use to control games that read joystick at $DC00.",
       "tier": "default?"
     },
     {
@@ -601,7 +668,8 @@
       "file": "server-tools/headless.ts",
       "ns": "headless",
       "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 65: inject a PRG into the C64",
+      "firstSentence": "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed.",
+      "desc": "Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. Useful for skipping the BASIC READY prompt and jumping straight into a bootloader. Returns load address + bytes loaded.",
       "tier": "default?"
     },
     {
@@ -610,6 +678,7 @@
       "ns": "headless",
       "hasSpec": true,
       "firstSentence": "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions.",
+      "desc": "Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. Drive runs proportional cycles per the dual-clock accumulator. Optional breakpoints + cycle budget abort. Spec 099 (M1.2): optional `until` selects a named stopping condition (overrides max_instructions for the natural exit). Returns counts + final PC.",
       "tier": "default?"
     },
     {
@@ -618,6 +687,7 @@
       "ns": "headless",
       "hasSpec": true,
       "firstSentence": "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick.",
+      "desc": "Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. Round-trippable via the matching restore API. Default skips full 64KB RAM; pass include=[\\\"ram\\\"] to expand.",
       "tier": "default?"
     },
     {
@@ -626,6 +696,7 @@
       "ns": "headless",
       "hasSpec": false,
       "firstSentence": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync).",
+      "desc": "Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). Real C64 KERNAL/BASIC/CHARROM ROMs loaded; CIA2 PA wired to IEC bus. Custom drive loaders (LISTEN/SECOND/CIOUT M-W/M-E + runtime $DD00 bit-bang) work end-to-end. No mode/lockstep flag needed — defaults are the product path. Returns session id and resolved runtime config.",
       "tier": "default?"
     },
     {
@@ -634,6 +705,7 @@
       "ns": "headless",
       "hasSpec": true,
       "firstSentence": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
+      "desc": "Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source.",
       "tier": "default?"
     },
     {
@@ -641,7 +713,8 @@
       "file": "server-tools/headless.ts",
       "ns": "headless",
       "hasSpec": false,
-      "firstSentence": "Sprint 93.1: queue text typing into the integrated session",
+      "firstSentence": "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix.",
+      "desc": "Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. PETSCII-aware (auto-SHIFT for `\\\"`, `?`, `(`, `)` etc.). `\\\\r` / `\\ ` map to RETURN. Tuned default hold/gap (33000c each) gives KERNAL SCNKEY ≥ 2 raster IRQ ticks per state for reliable buffer pickup. Use to enter LOAD/RUN commands without bypassing KERNAL.",
       "tier": "default?"
     },
     {
@@ -649,7 +722,8 @@
       "file": "server-tools/headless.ts",
       "ns": "headless",
       "hasSpec": true,
-      "firstSentence": "Spec 065 Phase A: render the integrated session",
+      "firstSentence": "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file.",
+      "desc": "Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. Text mode only in Phase 65b; bitmap + sprites in Phase 65d/e. Returns the file path + dimensions + bytes written.",
       "tier": "default?"
     },
     {
@@ -658,14 +732,16 @@
       "ns": "import",
       "hasSpec": false,
       "firstSentence": "Import a saved analysis JSON artifact into structured entities and findings.",
+      "desc": "Import a saved analysis JSON artifact into structured entities and findings.",
       "tier": "default?"
     },
     {
       "name": "import_annotations_as_findings",
       "file": "server-tools/analysis-workflow.ts",
       "ns": "import",
-      "hasSpec": true,
-      "firstSentence": "Spec 055 R25: walk *_annotations.json routines[] + segments[] and emit one finding per routine and per segment-reclassification.",
+      "hasSpec": false,
+      "firstSentence": "Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification.",
+      "desc": "Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification. Use for older projects, after hand-editing annotations, or to seed the auto-archive matchers. Not for generating annotations (use propose_annotations). Inputs: binary stem / annotations path. Returns: count of findings emitted. Idempotent per binary.",
       "tier": "default?"
     },
     {
@@ -674,6 +750,7 @@
       "ns": "import",
       "hasSpec": false,
       "firstSentence": "Import a saved manifest artifact into structured entities, findings, and relations.",
+      "desc": "Import a saved manifest artifact into structured entities, findings, and relations.",
       "tier": "default?"
     },
     {
@@ -681,7 +758,8 @@
       "file": "server-tools/inspect-range.ts",
       "ns": "inspect",
       "hasSpec": false,
-      "firstSentence": "Surface every static-analysis fact connected to a memory range: containing segments, all VIC-register stores in the program (D011/D015/D016/D018/D020-D02E/DD00 ",
+      "firstSentence": "Surface every static-analysis fact tied to a memory range — containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routi",
+      "desc": "Surface every static-analysis fact tied to a memory range — containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routines, display/transfer evidence. Use to answer 'how is $XXXX used?' for a candidate region in a PRG. Not for listing files on a disk (use inspect_disk) or whole-RAM summaries (use ram_report). Inputs: address range + analysis context. Returns: aggregated facts.",
       "tier": "default?"
     },
     {
@@ -689,7 +767,8 @@
       "file": "server-tools/media.ts",
       "ns": "inspect",
       "hasSpec": false,
-      "firstSentence": "Read a D64 or G64 directory and list the contained files without extracting them.",
+      "firstSentence": "List the directory of a D64/G64 image WITHOUT extracting.",
+      "desc": "List the directory of a D64/G64 image WITHOUT extracting. Use for a quick peek at what a disk holds. Not to write files (use extract_disk) or for memory-range facts (use inspect_address_range). Inputs: image path. Returns: file list (name, type, size).",
       "tier": "default?"
     },
     {
@@ -698,6 +777,7 @@
       "ns": "inspect",
       "hasSpec": false,
       "firstSentence": "Inspect a G64 track or half-track at raw GCR block level and return JSON plus an ASCII ring map.",
+      "desc": "Inspect a G64 track or half-track at raw GCR block level and return JSON plus an ASCII ring map.",
       "tier": "default?"
     },
     {
@@ -706,6 +786,7 @@
       "ns": "inspect",
       "hasSpec": false,
       "firstSentence": "Inspect sync marks on a raw G64 half-track and report bit-aligned sync positions.",
+      "desc": "Inspect sync marks on a raw G64 half-track and report bit-aligned sync positions.",
       "tier": "default?"
     },
     {
@@ -714,6 +795,7 @@
       "ns": "inspect",
       "hasSpec": false,
       "firstSentence": "Decode a specific G64 track via GCR and report discovered sectors, missing IDs, duplicates, and raw track metadata.",
+      "desc": "Decode a specific G64 track via GCR and report discovered sectors, missing IDs, duplicates, and raw track metadata.",
       "tier": "default?"
     },
     {
@@ -722,6 +804,7 @@
       "ns": "link",
       "hasSpec": false,
       "firstSentence": "Link a cartridge LUT chunk to a disassembly (.asm/.tass) artifact via a RelationRecord.",
+      "desc": "Link a cartridge LUT chunk to a disassembly (.asm/.tass) artifact via a RelationRecord. Idempotently creates a chunk entity (kind=code-segment, tagged 'cart-chunk:<key>') and a 'derived-from' relation pointing at the ASM artifact's entity (or its artifact). The cart medium UI surfaces the linked ASM source under the chunk inspector. Identify the chunk by (bank, slot, offset_in_bank, length) or by (lut, idx).",
       "tier": "default?"
     },
     {
@@ -729,7 +812,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "link",
       "hasSpec": false,
-      "firstSentence": "Create a structured relation between two saved entities.",
+      "firstSentence": "Create a typed relation between two saved entities (e.g.",
+      "desc": "Create a typed relation between two saved entities (e.g. calls, contains, derives-from). Use to connect known entities into a graph. Not for linking a payload to its ASM (use link_payload_to_asm) or creating the entity (use save_entity). Inputs: from id, to id, relation type. Returns: relation record.",
       "tier": "default?"
     },
     {
@@ -737,7 +821,8 @@
       "file": "server-tools/payloads.ts",
       "ns": "link",
       "hasSpec": false,
-      "firstSentence": "Append an asm artifact to an existing payload",
+      "firstSentence": "Attach an ASM artifact to a payload entity when the automatic stem-match is wrong.",
+      "desc": "Attach an ASM artifact to a payload entity when the automatic stem-match is wrong. Use after registering a disassembly that covers a payload's bytes. Not for creating the payload (use the extraction tools) or generic entity links (use link_entities). Inputs: payload id, asm artifact id. Returns: updated payload. Idempotent.",
       "tier": "default?"
     },
     {
@@ -746,6 +831,7 @@
       "ns": "link",
       "hasSpec": false,
       "firstSentence": "Record a runtime-trace artifact that proves where this payload lands at runtime.",
+      "desc": "Record a runtime-trace artifact that proves where this payload lands at runtime. Used by the memory-map view to tag the runtime range as 'has trace evidence'.",
       "tier": "default?"
     },
     {
@@ -754,6 +840,7 @@
       "ns": "list",
       "hasSpec": true,
       "firstSentence": "Spec 031: list registered anti-patterns sorted by recency.",
+      "desc": "Spec 031: list registered anti-patterns sorted by recency.",
       "tier": "default?"
     },
     {
@@ -761,7 +848,8 @@
       "file": "server-tools/artifacts.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "List analysis artifacts (PRG, ASM, JSON, SYM, MD files) in a project subdirectory.",
+      "firstSentence": "List analysis artifacts (PRG, ASM, JSON, SYM, MD) in the project.",
+      "desc": "List analysis artifacts (PRG, ASM, JSON, SYM, MD) in the project. Use to see what files exist before reading one. Not for payload entities (use list_payloads) or knowledge records (use list_findings). Inputs: optional subdir. Returns: artifact paths + types.",
       "tier": "default?"
     },
     {
@@ -770,6 +858,7 @@
       "ns": "list",
       "hasSpec": true,
       "firstSentence": "Spec 032: list registered build pipelines.",
+      "desc": "Spec 032: list registered build pipelines.",
       "tier": "default?"
     },
     {
@@ -778,6 +867,7 @@
       "ns": "list",
       "hasSpec": true,
       "firstSentence": "Spec 025 R23: list container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted).",
+      "desc": "Spec 025 R23: list container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted). Sorted by container offset ascending.",
       "tier": "default?"
     },
     {
@@ -785,7 +875,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "List persisted entities from the project knowledge layer with optional filters.",
+      "firstSentence": "List saved entities (routines, memory regions, banks, disk files, state vars), with optional filters.",
+      "desc": "List saved entities (routines, memory regions, banks, disk files, state vars), with optional filters. Use to see what structural things are known. Not for findings (use list_findings) or files/artifacts (use list_artifacts). Inputs: optional filters. Returns: entity records.",
       "tier": "default?"
     },
     {
@@ -793,7 +884,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "List persisted findings from the project knowledge layer with optional filters.",
+      "firstSentence": "List saved findings (claims, hypotheses, confirmations, refutations), with optional filters.",
+      "desc": "List saved findings (claims, hypotheses, confirmations, refutations), with optional filters. Use to review what's been concluded. Not for entities (use list_entities) or unresolved questions (use list_open_questions). Inputs: optional filters. Returns: finding records.",
       "tier": "default?"
     },
     {
@@ -801,7 +893,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "List persisted flow or sequence models from the project knowledge layer with optional filters.",
+      "firstSentence": "List saved flow / sequence models (load chains, control flows), with optional filters.",
+      "desc": "List saved flow / sequence models (load chains, control flows), with optional filters. Use to review documented sequences. Not for entities (use list_entities). Inputs: optional filters. Returns: flow records.",
       "tier": "default?"
     },
     {
@@ -810,6 +903,7 @@
       "ns": "list",
       "hasSpec": false,
       "firstSentence": "List all G64 half-track slots, including raw offsets, lengths, and speed-zone metadata.",
+      "desc": "List all G64 half-track slots, including raw offsets, lengths, and speed-zone metadata.",
       "tier": "default?"
     },
     {
@@ -818,6 +912,7 @@
       "ns": "list",
       "hasSpec": true,
       "firstSentence": "Spec 028: list declared loader entry points (optionally filtered to one artifact).",
+      "desc": "Spec 028: list declared loader entry points (optionally filtered to one artifact).",
       "tier": "default?"
     },
     {
@@ -826,6 +921,7 @@
       "ns": "list",
       "hasSpec": true,
       "firstSentence": "Spec 028: list recorded loader events.",
+      "desc": "Spec 028: list recorded loader events. Filter by scenario_id or loader_entry_point_id.",
       "tier": "default?"
     },
     {
@@ -833,7 +929,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "List persisted open questions from the project knowledge layer with optional filters.",
+      "firstSentence": "List saved open questions / ambiguities, with optional filters.",
+      "desc": "List saved open questions / ambiguities, with optional filters. Use to see what's still unresolved. Not for confirmed findings (use list_findings). Inputs: optional filters. Returns: question records (human-review sorted above heuristic noise).",
       "tier": "default?"
     },
     {
@@ -842,6 +939,7 @@
       "ns": "list",
       "hasSpec": true,
       "firstSentence": "Spec 027: list patch recipes (optionally filtered by status or target artifact).",
+      "desc": "Spec 027: list patch recipes (optionally filtered by status or target artifact).",
       "tier": "default?"
     },
     {
@@ -849,7 +947,8 @@
       "file": "server-tools/payloads.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "List all payload entities in the project.",
+      "firstSentence": "List every payload entity in the project (extracted/loadable byte-blobs).",
+      "desc": "List every payload entity in the project (extracted/loadable byte-blobs). Use to see payloads and their disassembly coverage. Not for files/artifacts on disk (use list_artifacts). Inputs: none. Returns: name, load address, format, source artifact, ASM count per payload.",
       "tier": "default?"
     },
     {
@@ -858,6 +957,7 @@
       "ns": "list",
       "hasSpec": false,
       "firstSentence": "List persisted artifacts from the project knowledge layer.",
+      "desc": "List persisted artifacts from the project knowledge layer.",
       "tier": "default?"
     },
     {
@@ -866,6 +966,7 @@
       "ns": "list",
       "hasSpec": false,
       "firstSentence": "List persisted relations from the project knowledge layer with optional filters.",
+      "desc": "List persisted relations from the project knowledge layer with optional filters.",
       "tier": "default?"
     },
     {
@@ -874,6 +975,7 @@
       "ns": "list",
       "hasSpec": true,
       "firstSentence": "Spec 030: list defined scenarios.",
+      "desc": "Spec 030: list defined scenarios.",
       "tier": "default?"
     },
     {
@@ -882,6 +984,7 @@
       "ns": "list",
       "hasSpec": false,
       "firstSentence": "List persisted project tasks from the project knowledge layer with optional filters.",
+      "desc": "List persisted project tasks from the project knowledge layer with optional filters.",
       "tier": "default?"
     },
     {
@@ -890,6 +993,7 @@
       "ns": "mark",
       "hasSpec": true,
       "firstSentence": "Spec 053 (Bug 20): mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence.",
+      "desc": "Spec 053 (Bug 20): mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence. Also creates a confirmation finding with status confirmed.",
       "tier": "default?"
     },
     {
@@ -898,6 +1002,7 @@
       "ns": "mark",
       "hasSpec": true,
       "firstSentence": "Spec 053 (Bug 20/21): mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification.",
+      "desc": "Spec 053 (Bug 20/21): mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification. Writes rejected:true + rejectedReason into the segment AND creates a refutation finding.",
       "tier": "default?"
     },
     {
@@ -906,6 +1011,7 @@
       "ns": "pack",
       "hasSpec": false,
       "firstSentence": "Pack a binary into a BWC bit-stream chunk that the original $C992 depacker can decompress.",
+      "desc": "Pack a binary into a BWC bit-stream chunk that the original $C992 depacker can decompress. Output is NOT byte-identical to a reference packer — it's a functional re-encoding using all five token types: plain literals, cmp_op-update literals, near-LZ (length=2 / dist≤256), LZ-far (length≥3), and lit_table runs. Defaults: N1=2, N2=8, N3=128, N4=0, Y=16 (auto-picked top-frequency bytes). Optimal parser by default — DP over (position, cmp_op) picks the minimum-bit token sequence. Verified across BWC v1.0.6 boot chunks: matches or beats the original packer's ratio on 5 of 6, within 1% on the 6th.",
       "tier": "default?"
     },
     {
@@ -914,6 +1020,7 @@
       "ns": "pack",
       "hasSpec": false,
       "firstSentence": "Pack a binary into the BWC raw chunk format.",
+      "desc": "Pack a binary into the BWC raw chunk format. Body is padded to a multiple of 256 bytes. Refuses inputs that start with 'pu' magic (engine would route as bitstream).",
       "tier": "default?"
     },
     {
@@ -922,6 +1029,7 @@
       "ns": "pack",
       "hasSpec": false,
       "firstSentence": "Compress a file with ByteBoozer2 via the local b2 CLI.",
+      "desc": "Compress a file with ByteBoozer2 via the local b2 CLI.",
       "tier": "default?"
     },
     {
@@ -930,6 +1038,7 @@
       "ns": "pack",
       "hasSpec": false,
       "firstSentence": "Compress a file with the native TypeScript ByteBoozer tooling.",
+      "desc": "Compress a file with the native TypeScript ByteBoozer tooling. Supports the reference ByteBoozer2 standard PRG and clipped (-b) formats, plus Lykia's cart-specific modified-BB2 stream format with explicit end_addr.",
       "tier": "default?"
     },
     {
@@ -938,6 +1047,7 @@
       "ns": "pack",
       "hasSpec": false,
       "firstSentence": "Compress a file with the built-in TypeScript Exomizer raw implementation.",
+      "desc": "Compress a file with the built-in TypeScript Exomizer raw implementation.",
       "tier": "default?"
     },
     {
@@ -946,6 +1056,7 @@
       "ns": "pack",
       "hasSpec": false,
       "firstSentence": "Compress one or more input files into an Exomizer self-extracting binary via the local exomizer CLI.",
+      "desc": "Compress one or more input files into an Exomizer self-extracting binary via the local exomizer CLI.",
       "tier": "default?"
     },
     {
@@ -954,6 +1065,7 @@
       "ns": "pack",
       "hasSpec": false,
       "firstSentence": "Discover or reuse a shared Exomizer encoding table in pure TypeScript, then pack many files without embedding the table in each payload.",
+      "desc": "Discover or reuse a shared Exomizer encoding table in pure TypeScript, then pack many files without embedding the table in each payload.",
       "tier": "default?"
     },
     {
@@ -961,7 +1073,8 @@
       "file": "server-tools/compression.ts",
       "ns": "pack",
       "hasSpec": false,
-      "firstSentence": "Compress a binary blob with the built-in C64 RLE format used by Mike",
+      "firstSentence": "Compress a binary blob with the built-in C64 RLE format used by Mike's loader.",
+      "desc": "Compress a binary blob with the built-in C64 RLE format used by Mike's loader.",
       "tier": "default?"
     },
     {
@@ -970,6 +1083,7 @@
       "ns": "pointer",
       "hasSpec": false,
       "firstSentence": "Generate a pointer table facts report (markdown) from an analysis JSON.",
+      "desc": "Generate a pointer table facts report (markdown) from an analysis JSON.",
       "tier": "default?"
     },
     {
@@ -978,6 +1092,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Read-only audit for project integrity: nested knowledge stores, missing/broken artifacts, unregistered files, unimported analysis/manifests, and stale UI views.",
+      "desc": "Read-only audit for project integrity: nested knowledge stores, missing/broken artifacts, unregistered files, unimported analysis/manifests, and stale UI views.",
       "tier": "default?"
     },
     {
@@ -986,6 +1101,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Create a durable checkpoint that snapshots the current investigation state and linked records.",
+      "desc": "Create a durable checkpoint that snapshots the current investigation state and linked records.",
       "tier": "default?"
     },
     {
@@ -994,6 +1110,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders.",
+      "desc": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders.",
       "tier": "default?"
     },
     {
@@ -1002,6 +1119,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Repair project knowledge integrity using audited safe operations.",
+      "desc": "Repair project knowledge integrity using audited safe operations. Defaults to dry-run. Safe mode can merge new records from nested stores, register obvious files, import analysis/manifests, and rebuild views; it does not delete files or invent semantic knowledge.",
       "tier": "advanced?"
     },
     {
@@ -1009,15 +1127,17 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "project",
       "hasSpec": false,
-      "firstSentence": "Summarize the current project knowledge layer, counts, and key filesystem paths.",
+      "firstSentence": "Summarize the current project — knowledge counts + key filesystem paths.",
+      "desc": "Summarize the current project — knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths.",
       "tier": "default?"
     },
     {
       "name": "propose_annotations",
       "file": "server-tools/analysis-workflow.ts",
       "ns": "propose",
-      "hasSpec": true,
-      "firstSentence": "Spec 042: emit a draft *_annotations.draft.json by walking *_analysis.json + (optional) *_disasm.asm.",
+      "hasSpec": false,
+      "firstSentence": "Generate a DRAFT annotations file (labels, segment reclassifications, routine names) from an analysis JSON + optional disasm.",
+      "desc": "Generate a DRAFT annotations file (labels, segment reclassifications, routine names) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
       "tier": "default?"
     },
     {
@@ -1026,6 +1146,7 @@
       "ns": "propose",
       "hasSpec": true,
       "firstSentence": "Spec 052: read-only proposal — list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached).",
+      "desc": "Spec 052: read-only proposal — list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached). Useful before flipping projectProfile.questionAutoResolveMode.",
       "tier": "default?"
     },
     {
@@ -1033,7 +1154,8 @@
       "file": "server-tools/analysis-workflow.ts",
       "ns": "ram",
       "hasSpec": false,
-      "firstSentence": "Generate a RAM state facts report (markdown) from an analysis JSON.",
+      "firstSentence": "Generate a markdown RAM-state facts report from an analysis JSON (zero-page + RAM usage).",
+      "desc": "Generate a markdown RAM-state facts report from an analysis JSON (zero-page + RAM usage). Use after analyze_prg to summarise how the program uses memory. Not for pointer tables (use pointer_report) or raw bytes (use read_artifact). Inputs: analysis JSON path. Returns: markdown report path.",
       "tier": "default?"
     },
     {
@@ -1041,7 +1163,8 @@
       "file": "server-tools/artifacts.ts",
       "ns": "read",
       "hasSpec": false,
-      "firstSentence": "Read a generated artifact (ASM, JSON, SYM, MD).",
+      "firstSentence": "Read a generated artifact (ASM, JSON, SYM, MD) into context — C64 disassemblies are ≤64 KB and fit whole.",
+      "desc": "Read a generated artifact (ASM, JSON, SYM, MD) into context — C64 disassemblies are ≤64 KB and fit whole. Use to inspect a disassembly, analysis JSON, or report. Not for raw disk/cart media (use extract_disk / extract_crt) or directory peeks (use inspect_disk). Inputs: artifact path/id. Returns: file contents.",
       "tier": "default?"
     },
     {
@@ -1050,6 +1173,7 @@
       "ns": "read",
       "hasSpec": false,
       "firstSentence": "Read a sector from a G64 track or half-track using a VICE-style 1541 sync/header search.",
+      "desc": "Read a sector from a G64 track or half-track using a VICE-style 1541 sync/header search.",
       "tier": "default?"
     },
     {
@@ -1058,6 +1182,7 @@
       "ns": "reconstruct",
       "hasSpec": false,
       "firstSentence": "Reconstruct boot LUT payload groups from extracted CRT data.",
+      "desc": "Reconstruct boot LUT payload groups from extracted CRT data.",
       "tier": "advanced?"
     },
     {
@@ -1066,6 +1191,7 @@
       "ns": "record",
       "hasSpec": true,
       "firstSentence": "Spec 032: record the outcome of a single build step (status + exit code + actual output hashes).",
+      "desc": "Spec 032: record the outcome of a single build step (status + exit code + actual output hashes).",
       "tier": "default?"
     },
     {
@@ -1074,6 +1200,7 @@
       "ns": "record",
       "hasSpec": false,
       "firstSentence": "Persist packer / format / notes metadata for a cartridge LUT chunk.",
+      "desc": "Persist packer / format / notes metadata for a cartridge LUT chunk. Cart chunks are derived from runtime_luts/all_luts.json (analyzer output, regenerated on re-run), so this tool writes a sidecar file 'chunk_packers.json' next to it. The view-builder layers the sidecar on top of the analyzer chunks. Identify the chunk by (bank, slot, offsetInBank, length) — the dedup key the view uses — or by a single (lut, idx) pair if you prefer to look it up by reference.",
       "tier": "default?"
     },
     {
@@ -1082,6 +1209,7 @@
       "ns": "record",
       "hasSpec": false,
       "firstSentence": "Persist packer / format / notes metadata into a disk or cart manifest so the workspace UI can render a packer tag and offer a depack-aware hex view.",
+      "desc": "Persist packer / format / notes metadata into a disk or cart manifest so the workspace UI can render a packer tag and offer a depack-aware hex view. Identify the file by its index, name, or relativePath. Use this after suggest_depacker / try_depack / depack tools confirm what the bytes are. To set a fallback for every file in the manifest pass scope=\\\"manifest-default\\\" instead of a file selector.",
       "tier": "default?"
     },
     {
@@ -1090,6 +1218,7 @@
       "ns": "record",
       "hasSpec": true,
       "firstSentence": "Spec 028: persist one observed loader call.",
+      "desc": "Spec 028: persist one observed loader call. Source 'static' for code-pattern inferences, 'trace' for VICE-observed events. Used by Spec 030 scenario diff.",
       "tier": "default?"
     },
     {
@@ -1098,6 +1227,7 @@
       "ns": "record",
       "hasSpec": true,
       "firstSentence": "Spec 030: persist a runtime-event summary for a scenario run.",
+      "desc": "Spec 030: persist a runtime-event summary for a scenario run. Pass scenarios id + observed events; usually emitted by trace tooling. Returns the assigned runId.",
       "tier": "default?"
     },
     {
@@ -1106,6 +1236,7 @@
       "ns": "register",
       "hasSpec": true,
       "firstSentence": "Spec 029: declare a constraint rule.",
+      "desc": "Spec 029: declare a constraint rule. v1 stores rule text only; downstream evaluation is via built-in predicates.",
       "tier": "default?"
     },
     {
@@ -1114,6 +1245,7 @@
       "ns": "register",
       "hasSpec": true,
       "firstSentence": "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.).",
+      "desc": "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.). Idempotent on (parent_artifact_id, sub_key).",
       "tier": "default?"
     },
     {
@@ -1122,6 +1254,7 @@
       "ns": "register",
       "hasSpec": false,
       "firstSentence": "Walk the project filesystem and register files that match one or more glob patterns into knowledge/artifacts.json.",
+      "desc": "Walk the project filesystem and register files that match one or more glob patterns into knowledge/artifacts.json. When called with no patterns, applies a built-in default set covering every c64re-produced extension (input/disk, analysis JSON, listing ASM, raw sectors, runtime traces, view models, docs). Glob semantics: patterns are relative to the project root, * matches within a single path component, ** matches across components. Idempotent: files already registered (by relativePath) are skipped. dry_run=true previews the work without writing.",
       "tier": "default?"
     },
     {
@@ -1130,6 +1263,7 @@
       "ns": "register",
       "hasSpec": true,
       "firstSentence": "Spec 023: register a runtime / after-decompression load context on an artifact.",
+      "desc": "Spec 023: register a runtime / after-decompression load context on an artifact. Use when a custom fastloader places the file at a runtime address that differs from the on-disk PRG header. Idempotent on (artifact_id, kind, address, bank).",
       "tier": "default?"
     },
     {
@@ -1138,6 +1272,7 @@
       "ns": "register",
       "hasSpec": true,
       "firstSentence": "Spec 029: declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.).",
+      "desc": "Spec 029: declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.).",
       "tier": "default?"
     },
     {
@@ -1146,6 +1281,7 @@
       "ns": "register",
       "hasSpec": false,
       "firstSentence": "Create a payload entity — the working abstraction across mediums.",
+      "desc": "Create a payload entity — the working abstraction across mediums. A payload is a byte-blob with identity (a disk file, a LUT-extracted cart chunk, a hand-extracted custom-loader blob, a PRG). Operations like depack, disasm, repack, build are scoped to the payload, not the medium. Call this when a medium-extraction tool didn't auto-create the payload (rare for stock CRT/disk; common for custom loaders).",
       "tier": "default?"
     },
     {
@@ -1154,6 +1290,7 @@
       "ns": "register",
       "hasSpec": true,
       "firstSentence": "Spec 029: declare a memory / cart / IO resource region for the constraint checker.",
+      "desc": "Spec 029: declare a memory / cart / IO resource region for the constraint checker.",
       "tier": "default?"
     },
     {
@@ -1161,15 +1298,17 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "rename",
       "hasSpec": true,
-      "firstSentence": "Spec 025: change an artifact",
+      "firstSentence": "Spec 025: change an artifact's free-form versionLabel without touching bytes or hash.",
+      "desc": "Spec 025: change an artifact's free-form versionLabel without touching bytes or hash.",
       "tier": "default?"
     },
     {
       "name": "render_docs",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "render",
-      "hasSpec": true,
-      "firstSentence": "Spec 031: render Markdown summaries of findings, entities, open questions, anti-patterns, and the project profile under docs/.",
+      "hasSpec": false,
+      "firstSentence": "Render human-readable markdown summaries (findings, entities, open questions, anti-patterns, profile) under docs/.",
+      "desc": "Render human-readable markdown summaries (findings, entities, open questions, anti-patterns, profile) under docs/. Use to produce readable project docs. Not for the UI JSON view-models (use build_all_views). Inputs: optional defer flag (set true during bulk ops, render once at the end). Returns: written doc paths.",
       "tier": "default?"
     },
     {
@@ -1178,6 +1317,7 @@
       "ns": "render",
       "hasSpec": false,
       "firstSentence": "Render a slice of a PRG (or any binary) as a PNG using one of the C64 graphics decoders (sprite, charset, bitmap, charmap).",
+      "desc": "Render a slice of a PRG (or any binary) as a PNG using one of the C64 graphics decoders (sprite, charset, bitmap, charmap). Useful for visually confirming whether a candidate region holds graphics or noise; saves the PNG under <project>/session/graphics-previews/ and returns its path so a multimodal LLM (or a human) can inspect it.",
       "tier": "default?"
     },
     {
@@ -1186,6 +1326,7 @@
       "ns": "run",
       "hasSpec": true,
       "firstSentence": "Spec 032 follow-up: orchestrate a build pipeline end-to-end.",
+      "desc": "Spec 032 follow-up: orchestrate a build pipeline end-to-end. Runs each step's shell command via spawnSync, captures exit code + stdout/stderr tails + per-output sha256, records the BuildRun. Stops at first failed step unless continue_on_error=true. WARNING: executes shell commands; only run on trusted pipelines.",
       "tier": "default?"
     },
     {
@@ -1194,6 +1335,7 @@
       "ns": "run",
       "hasSpec": false,
       "firstSentence": "Run the reverse-engineering workflow on a payload entity.",
+      "desc": "Run the reverse-engineering workflow on a payload entity. Resolves the payload's source artifact and load address, supports both PRG-header and raw blobs, stamps produced asm artifact ids back onto the payload.",
       "tier": "default?"
     },
     {
@@ -1201,7 +1343,8 @@
       "file": "server-tools/analysis-workflow.ts",
       "ns": "run",
       "hasSpec": false,
-      "firstSentence": "Run the full first-pass PRG reverse-engineering workflow: register input, analyze, disassemble, generate RAM and pointer reports, import knowledge, and rebuild ",
+      "firstSentence": "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views.",
+      "desc": "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views. Use to bootstrap a fresh PRG in one call. Not for a single step (call analyze_prg / disasm_prg directly). Inputs: prg_path. Returns: done/incomplete/blocked + the next required semantic action.",
       "tier": "default?"
     },
     {
@@ -1209,7 +1352,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 263 — render",
+      "firstSentence": "Spec 263 — render `duration_sec` PAL seconds of SID audio (resid synth) to a stereo s16le 44.1kHz WAV file.",
+      "desc": "Spec 263 — render `duration_sec` PAL seconds of SID audio (resid synth) to a stereo s16le 44.1kHz WAV file. Headless-first: passive recorder mirrors the live session SID write stream.",
       "tier": "default?"
     },
     {
@@ -1218,6 +1362,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 271 — collect ReplayResult per scenario once batch is done.",
+      "desc": "Spec 271 — collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
       "tier": "default?"
     },
     {
@@ -1226,6 +1371,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 271 — poll progress of a parallel batch.",
+      "desc": "Spec 271 — poll progress of a parallel batch. Returns completed / total and status.",
       "tier": "default?"
     },
     {
@@ -1234,6 +1380,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 242 — add trace bookmark with bind mode (cycle/event-key/both).",
+      "desc": "Spec 242 — add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
       "tier": "default?"
     },
     {
@@ -1242,6 +1389,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 242 — list bookmarks for a run.",
+      "desc": "Spec 242 — list bookmarks for a run.",
       "tier": "default?"
     },
     {
@@ -1250,6 +1398,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 241 — add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst).",
+      "desc": "Spec 241 — add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst).",
       "tier": "default?"
     },
     {
@@ -1258,6 +1407,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 241 — list all registered breakpoints.",
+      "desc": "Spec 241 — list all registered breakpoints.",
       "tier": "default?"
     },
     {
@@ -1266,6 +1416,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 241 — remove breakpoint by id.",
+      "desc": "Spec 241 — remove breakpoint by id.",
       "tier": "default?"
     },
     {
@@ -1274,6 +1425,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 246 — semantic diff between two VSF snapshot files.",
+      "desc": "Spec 246 — semantic diff between two VSF snapshot files. Returns RAM changedRanges + CPU/CIA/VIC/SID/PLA chip diffs.",
       "tier": "default?"
     },
     {
@@ -1282,6 +1434,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 269 / 263 — export WAV audio for a scenario.",
+      "desc": "Spec 269 / 263 — export WAV audio for a scenario. Captures SID via reSID mirror, writes stereo s16le.",
       "tier": "default?"
     },
     {
@@ -1290,6 +1443,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 269 — export PNG screenshot for a scenario.",
+      "desc": "Spec 269 — export PNG screenshot for a scenario. Runs scenario from start to atCycle (or end). Scale 1/2/4 for pixel-art upscale.",
       "tier": "default?"
     },
     {
@@ -1298,6 +1452,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed).",
+      "desc": "Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed). PAL 50fps, RGBA + s16le piped to ffmpeg.",
       "tier": "default?"
     },
     {
@@ -1306,6 +1461,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 233 — follow causal chain back from an event.",
+      "desc": "Spec 233 — follow causal chain back from an event. 5 rules: pc_predecessor, stack_frame, mem_dep, irq_origin, io_dep. Optional cross-domain (c64↔drive via IEC).",
       "tier": "default?"
     },
     {
@@ -1314,6 +1470,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
+      "desc": "Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
       "tier": "default?"
     },
     {
@@ -1322,6 +1479,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2).",
+      "desc": "Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2). Bootstrap config from VICE settings.",
       "tier": "default?"
     },
     {
@@ -1330,6 +1488,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json.",
+      "desc": "Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json. Never touches vicerc.",
       "tier": "default?"
     },
     {
@@ -1338,6 +1497,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 251 — restore full session state from VSF file.",
+      "desc": "Spec 251 — restore full session state from VSF file.",
       "tier": "default?"
     },
     {
@@ -1346,6 +1506,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed).",
+      "desc": "Spec 265 — browse a directory and return filtered media entries (.d64 .g64 .crt .prg .vsf; .t64/.tap grayed).",
       "tier": "default?"
     },
     {
@@ -1354,6 +1515,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
+      "desc": "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
       "tier": "default?"
     },
     {
@@ -1362,6 +1524,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 265 — mount media file (.d64/.g64/.crt/.prg/.vsf) to a drive slot (8 or 9) on the active session.",
+      "desc": "Spec 265 — mount media file (.d64/.g64/.crt/.prg/.vsf) to a drive slot (8 or 9) on the active session.",
       "tier": "default?"
     },
     {
@@ -1370,6 +1533,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 265 — swap disk in slot (eject + mount new path, no reset).",
+      "desc": "Spec 265 — swap disk in slot (eject + mount new path, no reset). Multi-disk convenience for Side B etc.",
       "tier": "default?"
     },
     {
@@ -1378,6 +1542,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 265 — eject media from drive slot.",
+      "desc": "Spec 265 — eject media from drive slot.",
       "tier": "default?"
     },
     {
@@ -1386,6 +1551,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Spike — per-region read/write liveness map over a runtime window.",
+      "desc": "Spike — per-region read/write liveness map over a runtime window. Classes: unused | read-only | dead (written, never read after) | live. Finds free/dead/reclaimable RAM. Run AT the phase you care about (e.g. in-game).",
       "tier": "default?"
     },
     {
@@ -1394,6 +1560,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 248 — disassemble N instructions starting at addr.",
+      "desc": "Spec 248 — disassemble N instructions starting at addr. Use indirect-target resolution from trace when available.",
       "tier": "default?"
     },
     {
@@ -1402,6 +1569,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 248 — read raw memory range (c64 or drive).",
+      "desc": "Spec 248 — read raw memory range (c64 or drive). Headless-first.",
       "tier": "default?"
     },
     {
@@ -1410,6 +1578,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 248 — read CPU registers (c64 or drive).",
+      "desc": "Spec 248 — read CPU registers (c64 or drive). Headless-first: prefer this over `vice_monitor_registers`.",
       "tier": "default?"
     },
     {
@@ -1418,6 +1587,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 245 — fastloader / protection profiling.",
+      "desc": "Spec 245 — fastloader / protection profiling. IO touches + IEC activity + disk activity + 5 protection-pattern detectors with confidence scoring.",
       "tier": "default?"
     },
     {
@@ -1426,6 +1596,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 268 — promote a transient rewind branch to a persistent Scenario record.",
+      "desc": "Spec 268 — promote a transient rewind branch to a persistent Scenario record.",
       "tier": "default?"
     },
     {
@@ -1434,6 +1605,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 232 — query event-indexed trace store.",
+      "desc": "Spec 232 — query event-indexed trace store. Filter by family + cycle/pc/addr ranges. Headless-first: prefer over `vice_trace_*` for V2 workflows.",
       "tier": "default?"
     },
     {
@@ -1442,6 +1614,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 250 — LLM-explicit baseline capture for a scenario.",
+      "desc": "Spec 250 — LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
       "tier": "default?"
     },
     {
@@ -1450,6 +1623,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 250 — compare current scenario run against captured baseline.",
+      "desc": "Spec 250 — compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
       "tier": "default?"
     },
     {
@@ -1458,6 +1632,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 235 — resolve PC to project label/routine/segment/source-line.",
+      "desc": "Spec 235 — resolve PC to project label/routine/segment/source-line. Layered lookup.",
       "tier": "default?"
     },
     {
@@ -1466,6 +1641,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
+      "desc": "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
       "tier": "default?"
     },
     {
@@ -1474,6 +1650,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 271 — run multiple scenarios in parallel via worker_threads.",
+      "desc": "Spec 271 — run multiple scenarios in parallel via worker_threads. Returns batchId for polling.",
       "tier": "default?"
     },
     {
@@ -1482,6 +1659,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 251 — save full session state as VICE Snapshot Format bytes.",
+      "desc": "Spec 251 — save full session state as VICE Snapshot Format bytes.",
       "tier": "default?"
     },
     {
@@ -1490,6 +1668,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 247 — match routine bytes against bundled/TREX/local fingerprint libraries.",
+      "desc": "Spec 247 — match routine bytes against bundled/TREX/local fingerprint libraries. Lookup chain via C64RE_FINGERPRINT_LIBS env.",
       "tier": "default?"
     },
     {
@@ -1498,6 +1677,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 268 — delete a scenario JSON by id.",
+      "desc": "Spec 268 — delete a scenario JSON by id. Returns true if found and removed.",
       "tier": "default?"
     },
     {
@@ -1506,6 +1686,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/.",
+      "desc": "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
       "tier": "default?"
     },
     {
@@ -1514,6 +1695,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 268 — load a single scenario by id.",
+      "desc": "Spec 268 — load a single scenario by id. Checks project dir first, then samples.",
       "tier": "default?"
     },
     {
@@ -1522,6 +1704,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 268 — save a scenario JSON to project dir (or samples if no project dir).",
+      "desc": "Spec 268 — save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
       "tier": "default?"
     },
     {
@@ -1530,6 +1713,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 268 — return the full branch tree for a rewind session.",
+      "desc": "Spec 268 — return the full branch tree for a rewind session. Requires session with active RewindManager.",
       "tier": "default?"
     },
     {
@@ -1538,6 +1722,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 237 — AgentQueryApi facade introspection.",
+      "desc": "Spec 237 — AgentQueryApi facade introspection. Reports what V2 surface is available + session cycle counts.",
       "tier": "default?"
     },
     {
@@ -1546,6 +1731,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 248 — single-step one instruction.",
+      "desc": "Spec 248 — single-step one instruction.",
       "tier": "default?"
     },
     {
@@ -1554,6 +1740,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 248 — defensive step-over with stack-watch + cycle budget.",
+      "desc": "Spec 248 — defensive step-over with stack-watch + cycle budget. Reports if sub-routine modified flow.",
       "tier": "default?"
     },
     {
@@ -1562,6 +1749,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 234 — transaction-level swimlane (cpu+bus+drive).",
+      "desc": "Spec 234 — transaction-level swimlane (cpu+bus+drive). Compact mode default.",
       "tier": "default?"
     },
     {
@@ -1570,6 +1758,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 244 — taint analysis / dataflow.",
+      "desc": "Spec 244 — taint analysis / dataflow. Walks back from (cycle, addr) via 5 contribution kinds. Cross-domain bridge default-on.",
       "tier": "default?"
     },
     {
@@ -1578,6 +1767,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 248 — run until PC reaches target addr or budget exhausted.",
+      "desc": "Spec 248 — run until PC reaches target addr or budget exhausted.",
       "tier": "default?"
     },
     {
@@ -1586,6 +1776,7 @@
       "ns": "runtime",
       "hasSpec": true,
       "firstSentence": "Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance",
+      "desc": "Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance",
       "tier": "default?"
     },
     {
@@ -1594,6 +1785,7 @@
       "ns": "sandbox",
       "hasSpec": false,
       "firstSentence": "Run a 6502 routine in an isolated sandbox: load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g.",
+      "desc": "Run a 6502 routine in an isolated sandbox: load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. replace a serial-recv subroutine), execute until a stop PC / sentinel RTS / max steps / unimplemented opcode, and return the writes plus final CPU state. Use this for porting depackers, crypto, and custom I/O routines without standing up a full C64 emulator. Sentinel RTS exits when the stack returns to $FFFE (pre-staged at $01FE=$FD, $01FF=$FF). The CPU supports common undocumented opcodes (RLA, SLO, RRA, ISC, LAX, SAX, DCP, ALR, ARR, AXS, ANC, undoc NOPs, JAM).",
       "tier": "advanced?"
     },
     {
@@ -1602,6 +1794,7 @@
       "ns": "sandbox",
       "hasSpec": false,
       "firstSentence": "Generic sandbox-driven depacker.",
+      "desc": "Generic sandbox-driven depacker. Run ANY 6502 depacker (the resident routine inside a custom loader) against ANY packed byte-blob without an MCP code change for each variant. The BWC bit-stream sandbox-depack helper is a domain-specific shim over this engine; new packer formats only need entry_pc + zeropage source-pointer convention. The depacker runs to sentinel RTS / stop_pc / max_steps in the sandbox CPU; the contiguous run of writes at dest_address (or the largest contiguous run anywhere) is returned as the unpacked bytes.",
       "tier": "advanced?"
     },
     {
@@ -1609,7 +1802,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
       "hasSpec": true,
-      "firstSentence": "Spec 031: record a",
+      "firstSentence": "Spec 031: record a 'do not try this again' anti-pattern.",
+      "desc": "Spec 031: record a 'do not try this again' anti-pattern. Severity drives whether onboarding surfaces it as a warning. Optional commandPattern lets agent_propose_next filter actions matching the pattern.",
       "tier": "default?"
     },
     {
@@ -1618,6 +1812,7 @@
       "ns": "save",
       "hasSpec": false,
       "firstSentence": "Persist an input, generated, analysis, or view artifact in the project knowledge layer.",
+      "desc": "Persist an input, generated, analysis, or view artifact in the project knowledge layer. Lineage: pass `derived_from` to chain this artifact under a parent (V0 → V1 → ... → Vn); `version_label` defaults to `V<rank>` and can be renamed later via rename_artifact_version. For project-level markdown documents (CLAUDE.md, docs/*.md, BUGREPORT.md, TODO.md, plans, status notes) call this with kind=\\\"other\\\", scope=\\\"knowledge\\\", format=\\\"md\\\", and a meaningful title so the workspace UI Docs tab surfaces them.",
       "tier": "default?"
     },
     {
@@ -1626,6 +1821,7 @@
       "ns": "save",
       "hasSpec": true,
       "firstSentence": "Spec 032 / R24: define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes.",
+      "desc": "Spec 032 / R24: define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes. Idempotent on id; pass id to update.",
       "tier": "default?"
     },
     {
@@ -1633,7 +1829,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
       "hasSpec": false,
-      "firstSentence": "Persist a structured entity such as a routine, memory region, bank, disk file, or state variable.",
+      "firstSentence": "Persist a structured entity — a named routine, memory region, bank, disk file, or state variable.",
+      "desc": "Persist a structured entity — a named routine, memory region, bank, disk file, or state variable. Use to record a concrete thing you've identified. Not for a claim/hypothesis (use save_finding) or an unresolved question (use save_open_question). Inputs: kind, name, address/scope, fields. Returns: entity id.",
       "tier": "default?"
     },
     {
@@ -1641,7 +1838,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
       "hasSpec": false,
-      "firstSentence": "Persist a structured semantic finding, hypothesis, confirmation, or refutation in the project knowledge layer.",
+      "firstSentence": "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence.",
+      "desc": "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence. Use to record what something IS or DOES. Not for a concrete named entity (use save_entity) or an unresolved question (use save_open_question). Inputs: summary, evidence, tags, optional address_range. Returns: finding id. (address_range + tags=['routine'] makes it eligible for auto-archive matching.)",
       "tier": "default?"
     },
     {
@@ -1650,14 +1848,16 @@
       "ns": "save",
       "hasSpec": false,
       "firstSentence": "Persist a flow or sequence model with explicit nodes and edges.",
+      "desc": "Persist a flow or sequence model with explicit nodes and edges.",
       "tier": "default?"
     },
     {
       "name": "save_open_question",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
-      "hasSpec": true,
-      "firstSentence": "Persist a structured open question or ambiguity in the project knowledge layer.",
+      "hasSpec": false,
+      "firstSentence": "Persist an open question / ambiguity to resolve later.",
+      "desc": "Persist an open question / ambiguity to resolve later. Use when you spot something unexplained. Not for a settled conclusion (use save_finding). Inputs: question text, optional source provenance (default human-review). Returns: question id.",
       "tier": "default?"
     },
     {
@@ -1666,6 +1866,7 @@
       "ns": "save",
       "hasSpec": true,
       "firstSentence": "Spec 027: persist a binary patch recipe with byte-level assertions.",
+      "desc": "Spec 027: persist a binary patch recipe with byte-level assertions. Status starts at draft.",
       "tier": "default?"
     },
     {
@@ -1674,6 +1875,7 @@
       "ns": "save",
       "hasSpec": true,
       "firstSentence": "Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, ant",
+      "desc": "Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns). Onboarding consumes this before suggesting next actions. Patch semantics — undefined fields keep their existing value.",
       "tier": "default?"
     },
     {
@@ -1682,6 +1884,7 @@
       "ns": "save",
       "hasSpec": false,
       "firstSentence": "Persist a project task, next action, or investigation item in structured form.",
+      "desc": "Persist a project task, next action, or investigation item in structured form.",
       "tier": "default?"
     },
     {
@@ -1689,7 +1892,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "scan",
       "hasSpec": false,
-      "firstSentence": "Scan a G64 track or half-track like VICE",
+      "firstSentence": "Scan a G64 track or half-track like VICE's 1541 sector-header search and list discovered header candidates.",
+      "desc": "Scan a G64 track or half-track like VICE's 1541 sector-header search and list discovered header candidates.",
       "tier": "default?"
     },
     {
@@ -1697,7 +1901,8 @@
       "file": "server-tools/graphics-render.ts",
       "ns": "scan",
       "hasSpec": false,
-      "firstSentence": "Render a sweep of PNG previews across an address window — every",
+      "firstSentence": "Render a sweep of PNG previews across an address window — every `step` bytes, multiple kinds (sprite/charset, hires + multicolor) — so a multimodal LLM can scru",
+      "desc": "Render a sweep of PNG previews across an address window — every `step` bytes, multiple kinds (sprite/charset, hires + multicolor) — so a multimodal LLM can scrub the dump visually and pick the slices that hold real graphics. Saves a small PNG per probe under <project>/session/graphics-scan/<run-id>/ and returns the manifest as JSON-like text.",
       "tier": "default?"
     },
     {
@@ -1705,7 +1910,8 @@
       "file": "server-tools/registration.ts",
       "ns": "scan",
       "hasSpec": false,
-      "firstSentence": "Read-only: scan the project filesystem for files that match c64re",
+      "firstSentence": "Read-only: scan the project filesystem for files that match c64re's known artifact extensions but are not registered in knowledge/artifacts.json.",
+      "desc": "Read-only: scan the project filesystem for files that match c64re's known artifact extensions but are not registered in knowledge/artifacts.json. Surfaces the gap that opens up when bulk operations bypass the MCP layer. Use this before agent_record_step or before sealing a checkpoint.",
       "tier": "default?"
     },
     {
@@ -1714,6 +1920,7 @@
       "ns": "set",
       "hasSpec": true,
       "firstSentence": "Spec 041: tag an artifact with a relevance value (loader | protection | save | kernal | asset | other).",
+      "desc": "Spec 041: tag an artifact with a relevance value (loader | protection | save | kernal | asset | other). Drives sorting in the dashboard + cracker-mode propose_next ranking.",
       "tier": "default?"
     },
     {
@@ -1722,6 +1929,7 @@
       "ns": "set",
       "hasSpec": true,
       "firstSentence": "Spec 037: tag a payload entity with a disk-hint (drive-code | protected | raw-unanalyzed | bad-crc | gap).",
+      "desc": "Spec 037: tag a payload entity with a disk-hint (drive-code | protected | raw-unanalyzed | bad-crc | gap). Surfaces as a colour overlay on the disk heatmap. Pass hint=null/omitted to clear.",
       "tier": "default?"
     },
     {
@@ -1730,6 +1938,7 @@
       "ns": "snapshot",
       "hasSpec": true,
       "firstSentence": "Spec 025: snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file.",
+      "desc": "Spec 025: snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file. Appends a versions[] entry to the artifact so the prior bytes stay recoverable without git. Call this once per overwrite; saveArtifact afterwards will see the new hash and skip duplicating the version entry. Returns the snapshot path and byte size.",
       "tier": "default?"
     },
     {
@@ -1738,14 +1947,16 @@
       "ns": "start",
       "hasSpec": true,
       "firstSentence": "Spec 032: start a build run for a pipeline.",
+      "desc": "Spec 032: start a build run for a pipeline. mode='dry-run' (default) records all steps as skipped; mode='record' marks them pending so record_build_step_result can update them as the caller executes the commands externally.",
       "tier": "default?"
     },
     {
       "name": "start_re_workflow",
       "file": "server-tools/agent-workflow.ts",
       "ns": "start",
-      "hasSpec": true,
-      "firstSentence": "Spec 046: pick a workflow template (full-re | cracker-only | analyst-deep | targeted-routine | bugfix).",
+      "hasSpec": false,
+      "firstSentence": "Choose the reverse-engineering workflow template (full-re | cracker-only | analyst-deep | targeted-routine | bugfix), which sets the required phases per artifac",
+      "desc": "Choose the reverse-engineering workflow template (full-re | cracker-only | analyst-deep | targeted-routine | bugfix), which sets the required phases per artifact. Use once when starting a project to scope the work. Not for per-step progress (use agent_record_step). Inputs: workflow name, optional force. Returns: active workflow + required phases. Refuses if one is already set unless force=true.",
       "tier": "default?"
     },
     {
@@ -1753,7 +1964,8 @@
       "file": "server-tools/compression.ts",
       "ns": "suggest",
       "hasSpec": false,
-      "firstSentence": "Probe a file or a sliced subrange and suggest likely depackers such as RLE, Exomizer raw, or ByteBoozer-like wrappers.",
+      "firstSentence": "Probe a file or byte-range and suggest likely depackers (RLE, Exomizer raw, ByteBoozer-like).",
+      "desc": "Probe a file or byte-range and suggest likely depackers (RLE, Exomizer raw, ByteBoozer-like). Use first when bytes look compressed and the format is unknown; then run try_depack with the suggestion. Not for running a known depacker (use try_depack). Inputs: file/range. Returns: ranked depacker guesses.",
       "tier": "default?"
     },
     {
@@ -1762,6 +1974,7 @@
       "ns": "suggest",
       "hasSpec": false,
       "firstSentence": "Heuristic scan: look at every sector for plausible fixed-stride LUT entry tables and rank by confidence.",
+      "desc": "Heuristic scan: look at every sector for plausible fixed-stride LUT entry tables and rank by confidence. Use before extract_disk_custom_lut when you do not yet know which sector the loader reads from.",
       "tier": "default?"
     },
     {
@@ -1770,6 +1983,7 @@
       "ns": "trace",
       "hasSpec": false,
       "firstSentence": "List occurrences of a single anchor by name.",
+      "desc": "List occurrences of a single anchor by name. Returns up to `limit` rows.",
       "tier": "advanced?"
     },
     {
@@ -1778,6 +1992,7 @@
       "ns": "trace",
       "hasSpec": false,
       "firstSentence": "List all anchors in a trace store with occurrence counts and clock range.",
+      "desc": "List all anchors in a trace store with occurrence counts and clock range.",
       "tier": "advanced?"
     },
     {
@@ -1786,6 +2001,7 @@
       "ns": "trace",
       "hasSpec": false,
       "firstSentence": "List bus_events at a target address (read+write+RMW).",
+      "desc": "List bus_events at a target address (read+write+RMW).",
       "tier": "advanced?"
     },
     {
@@ -1794,6 +2010,7 @@
       "ns": "trace",
       "hasSpec": false,
       "firstSentence": "Summarize a trace-store: meta, table counts, master_clock range.",
+      "desc": "Summarize a trace-store: meta, table counts, master_clock range. Path may be a .duckdb file or a directory containing trace.duckdb.",
       "tier": "advanced?"
     },
     {
@@ -1802,6 +2019,7 @@
       "ns": "trace",
       "hasSpec": false,
       "firstSentence": "Run a read-only SELECT/WITH SQL query against the trace store.",
+      "desc": "Run a read-only SELECT/WITH SQL query against the trace store. Result rows capped at `limit`.",
       "tier": "advanced?"
     },
     {
@@ -1810,6 +2028,7 @@
       "ns": "trace",
       "hasSpec": false,
       "firstSentence": "Return the top-N most-frequent PCs for a given CPU side (c64 | drive8).",
+      "desc": "Return the top-N most-frequent PCs for a given CPU side (c64 | drive8).",
       "tier": "advanced?"
     },
     {
@@ -1817,7 +2036,8 @@
       "file": "server-tools/compression.ts",
       "ns": "try",
       "hasSpec": false,
-      "firstSentence": "Try a specific depacker against a file or sliced subrange.",
+      "firstSentence": "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2).",
+      "desc": "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). Use when you know — or suggest_depacker guessed — the format. Not for guessing (use suggest_depacker). Inputs: file/range, depacker kind. Returns: decompressed bytes / artifact.",
       "tier": "default?"
     },
     {
@@ -1826,6 +2046,7 @@
       "ns": "update",
       "hasSpec": false,
       "firstSentence": "Update the status of an existing task in the knowledge layer.",
+      "desc": "Update the status of an existing task in the knowledge layer.",
       "tier": "default?"
     },
     {
@@ -1834,6 +2055,7 @@
       "ns": "verify",
       "hasSpec": true,
       "firstSentence": "Spec 029: run the built-in constraint checker.",
+      "desc": "Spec 029: run the built-in constraint checker. v1 detects operations whose affects[] overlap a region tagged protected:true. User-registered rules are surfaced as informational text.",
       "tier": "default?"
     },
     {
@@ -1842,6 +2064,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs.",
+      "desc": "Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs.",
       "tier": "advanced?"
     },
     {
@@ -1850,6 +2073,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Build a heuristic call stack from the 6502 stack page in the active VICE session.",
+      "desc": "Build a heuristic call stack from the 6502 stack page in the active VICE session. This is inferred from stack contents; the binary monitor does not expose a dedicated backtrace command.",
       "tier": "advanced?"
     },
     {
@@ -1858,6 +2082,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "List the available VICE memory banks for the active machine.",
+      "desc": "List the available VICE memory banks for the active machine. Use the returned bank IDs with vice_monitor_memory, vice_monitor_save, or vice_monitor_binary_save.",
       "tier": "advanced?"
     },
     {
@@ -1866,6 +2091,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Save a memory range from the active VICE session as a raw binary file without a load-address header.",
+      "desc": "Save a memory range from the active VICE session as a raw binary file without a load-address header.",
       "tier": "advanced?"
     },
     {
@@ -1874,6 +2100,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Add a breakpoint/watchpoint/tracepoint in the active VICE session.",
+      "desc": "Add a breakpoint/watchpoint/tracepoint in the active VICE session.",
       "tier": "advanced?"
     },
     {
@@ -1882,6 +2109,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Delete a checkpoint from the active VICE session.",
+      "desc": "Delete a checkpoint from the active VICE session.",
       "tier": "advanced?"
     },
     {
@@ -1890,6 +2118,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "List checkpoints currently configured in the active VICE session.",
+      "desc": "List checkpoints currently configured in the active VICE session.",
       "tier": "advanced?"
     },
     {
@@ -1898,6 +2127,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Resume execution in the active VICE session until the next breakpoint or manual stop.",
+      "desc": "Resume execution in the active VICE session until the next breakpoint or manual stop.",
       "tier": "advanced?"
     },
     {
@@ -1906,6 +2136,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata.",
+      "desc": "Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata.",
       "tier": "advanced?"
     },
     {
@@ -1914,6 +2145,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Read a memory range from the active VICE session.",
+      "desc": "Read a memory range from the active VICE session.",
       "tier": "advanced?"
     },
     {
@@ -1922,6 +2154,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Advance the active VICE session by one instruction, stepping over subroutine calls.",
+      "desc": "Advance the active VICE session by one instruction, stepping over subroutine calls.",
       "tier": "advanced?"
     },
     {
@@ -1930,6 +2163,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Read CPU register values from the active VICE session.",
+      "desc": "Read CPU register values from the active VICE session. If the machine is running, the monitor may stop it to collect state.",
       "tier": "advanced?"
     },
     {
@@ -1938,6 +2172,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Reset the active VICE machine or one of its drives.",
+      "desc": "Reset the active VICE machine or one of its drives.",
       "tier": "advanced?"
     },
     {
@@ -1946,6 +2181,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Save a memory range from the active VICE session as a PRG file with a load-address header.",
+      "desc": "Save a memory range from the active VICE session as a PRG file with a load-address header.",
       "tier": "advanced?"
     },
     {
@@ -1954,6 +2190,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Set CPU register values in the active VICE session.",
+      "desc": "Set CPU register values in the active VICE session.",
       "tier": "advanced?"
     },
     {
@@ -1962,6 +2199,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Save a VICE snapshot (.vsf) from the active session.",
+      "desc": "Save a VICE snapshot (.vsf) from the active session.",
       "tier": "advanced?"
     },
     {
@@ -1970,6 +2208,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Advance the active VICE session by one instruction and stop again.",
+      "desc": "Advance the active VICE session by one instruction and stop again.",
       "tier": "advanced?"
     },
     {
@@ -1978,6 +2217,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Write bytes into the active VICE session memory.",
+      "desc": "Write bytes into the active VICE session memory.",
       "tier": "advanced?"
     },
     {
@@ -1986,6 +2226,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Autostart or autoload media into an already running VICE session via the binary monitor.",
+      "desc": "Autostart or autoload media into an already running VICE session via the binary monitor.",
       "tier": "advanced?"
     },
     {
@@ -1994,6 +2235,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Send keyset-based joystick input into the active visible VICE session.",
+      "desc": "Send keyset-based joystick input into the active visible VICE session. Uses the copied VICE config and currently expects JoyDevice<port>=3 with KeySet<port>* bindings.",
       "tier": "advanced?"
     },
     {
@@ -2002,6 +2244,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer.",
+      "desc": "Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer.",
       "tier": "advanced?"
     },
     {
@@ -2010,6 +2253,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Start a visible x64sc VICE session using a copied user config.",
+      "desc": "Start a visible x64sc VICE session using a copied user config. Optional media is attached or autostarted via VICE start arguments. Only one active session is supported.",
       "tier": "advanced?"
     },
     {
@@ -2018,6 +2262,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Report the current or most recent VICE session state, including workspace paths and monitor-port readiness.",
+      "desc": "Report the current or most recent VICE session state, including workspace paths and monitor-port readiness.",
       "tier": "advanced?"
     },
     {
@@ -2026,6 +2271,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Stop the active VICE session.",
+      "desc": "Stop the active VICE session. The server waits briefly, then escalates to SIGTERM and SIGKILL if needed, and finalizes session artifacts.",
       "tier": "advanced?"
     },
     {
@@ -2034,6 +2280,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings.",
+      "desc": "Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings.",
       "tier": "advanced?"
     },
     {
@@ -2042,6 +2289,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Analyze the most recently completed VICE runtime-trace session.",
+      "desc": "Analyze the most recently completed VICE runtime-trace session. Use this after the user has closed VICE manually.",
       "tier": "advanced?"
     },
     {
@@ -2050,6 +2298,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every ",
+      "desc": "Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time.",
       "tier": "advanced?"
     },
     {
@@ -2058,6 +2307,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON.",
+      "desc": "Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON.",
       "tier": "advanced?"
     },
     {
@@ -2066,6 +2316,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase de",
+      "desc": "Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection.",
       "tier": "advanced?"
     },
     {
@@ -2074,6 +2325,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace.",
+      "desc": "Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2082,6 +2334,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Show the dominant memory writes and call edges recorded for one indexed interrupt context.",
+      "desc": "Show the dominant memory writes and call edges recorded for one indexed interrupt context.",
       "tier": "advanced?"
     },
     {
@@ -2090,6 +2343,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Find instructions in a completed VICE runtime trace by raw byte pattern.",
+      "desc": "Find instructions in a completed VICE runtime trace by raw byte pattern. Useful when you know the exact opcode bytes from ASM.",
       "tier": "advanced?"
     },
     {
@@ -2098,6 +2352,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible.",
+      "desc": "Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible.",
       "tier": "advanced?"
     },
     {
@@ -2106,6 +2361,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address.",
+      "desc": "Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. Useful for I/O and data-address probing.",
       "tier": "advanced?"
     },
     {
@@ -2114,6 +2370,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Find occurrences of a specific PC in a completed VICE runtime trace.",
+      "desc": "Find occurrences of a specific PC in a completed VICE runtime trace. Returns anchor clocks you can pass to vice_trace_slice.",
       "tier": "advanced?"
     },
     {
@@ -2122,6 +2379,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "List the strongest phase boundaries detected from the trace window feature vectors.",
+      "desc": "List the strongest phase boundaries detected from the trace window feature vectors.",
       "tier": "advanced?"
     },
     {
@@ -2130,6 +2388,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Follow the concrete linear execution path after entering a given PC in the completed runtime trace.",
+      "desc": "Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Useful for questions like 'I entered at $8400, what happened next exactly?'",
       "tier": "advanced?"
     },
     {
@@ -2138,6 +2397,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Summarize the hottest PCs in a completed VICE runtime trace.",
+      "desc": "Summarize the hottest PCs in a completed VICE runtime trace. Use this as the first entry point before drilling into slices.",
       "tier": "advanced?"
     },
     {
@@ -2146,6 +2406,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices.",
+      "desc": "List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices.",
       "tier": "advanced?"
     },
     {
@@ -2154,6 +2415,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "List saved reasoning notes/bookmarks for a completed VICE trace session.",
+      "desc": "List saved reasoning notes/bookmarks for a completed VICE trace session.",
       "tier": "advanced?"
     },
     {
@@ -2162,6 +2424,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Start a visible VICE session with periodic CPU-history sampling.",
+      "desc": "Start a visible VICE session with periodic CPU-history sampling. The user can interact with the emulator and close VICE manually; use vice_trace_analyze_last_session afterwards.",
       "tier": "advanced?"
     },
     {
@@ -2170,6 +2433,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Return a focused instruction window around an anchor clock from a completed VICE runtime trace.",
+      "desc": "Return a focused instruction window around an anchor clock from a completed VICE runtime trace. Use this after vice_trace_find_pc or vice_trace_find_bytes.",
       "tier": "advanced?"
     },
     {
@@ -2178,6 +2442,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span.",
+      "desc": "Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span.",
       "tier": "advanced?"
     },
     {
@@ -2186,6 +2451,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Enable periodic CPU-history sampling on the active VICE session without restarting the emulator.",
+      "desc": "Enable periodic CPU-history sampling on the active VICE session without restarting the emulator.",
       "tier": "advanced?"
     },
     {
@@ -2194,6 +2460,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Report whether runtime tracing is currently active on the active VICE session.",
+      "desc": "Report whether runtime tracing is currently active on the active VICE session.",
       "tier": "advanced?"
     },
     {
@@ -2202,6 +2469,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Stop periodic CPU-history sampling on the active VICE session without closing VICE.",
+      "desc": "Stop periodic CPU-history sampling on the active VICE session without closing VICE.",
       "tier": "advanced?"
     },
     {
@@ -2210,6 +2478,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary.",
+      "desc": "Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary.",
       "tier": "advanced?"
     },
     {
@@ -2218,6 +2487,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices.",
+      "desc": "Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices.",
       "tier": "advanced?"
     },
     {
@@ -2226,6 +2496,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase.",
+      "desc": "Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase.",
       "tier": "advanced?"
     }
   ]

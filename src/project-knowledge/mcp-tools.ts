@@ -175,7 +175,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "project_status",
-    "Summarize the current project knowledge layer, counts, and key filesystem paths.",
+    "Summarize the current project — knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
     },
@@ -314,7 +314,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "get_artifact_lineage",
-    "Spec 025: return the V0..Vn lineage chain for the artifact's lineageRoot, ordered by versionRank ascending.",
+    "Return the V0..Vn version chain for an artifact (oldest→newest). Use to see an artifact's revision history. Not for listing all artifacts (use list_artifacts). Inputs: artifact id. Returns: ordered lineage chain.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string(),
@@ -1155,7 +1155,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "get_project_profile",
-    "Spec 026: read the current project profile.",
+    "Read the current project profile (platform, title, metadata). Use to see top-level project settings. Not for live counts/paths (use project_status). Inputs: none. Returns: profile record.",
     { project_dir: z.string().optional() },
     safeHandler("get_project_profile", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -1209,7 +1209,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "render_docs",
-    "Spec 031: render Markdown summaries of findings, entities, open questions, anti-patterns, and the project profile under docs/. Bulk operations should set defer=true (caller invokes once at the end).",
+    "Render human-readable markdown summaries (findings, entities, open questions, anti-patterns, profile) under docs/. Use to produce readable project docs. Not for the UI JSON view-models (use build_all_views). Inputs: optional defer flag (set true during bulk ops, render once at the end). Returns: written doc paths.",
     {
       project_dir: z.string().optional(),
       scope: z.enum(["all", "findings", "entities", "open-questions", "anti-patterns", "project-profile"]).optional(),
@@ -1581,7 +1581,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "save_finding",
-    "Persist a structured semantic finding, hypothesis, confirmation, or refutation in the project knowledge layer. Set `address_range` together with `tags=['routine']` to make this finding eligible for archive_phase1_noise / auto_resolve_questions matching (Bug 25 / R25).",
+    "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence. Use to record what something IS or DOES. Not for a concrete named entity (use save_entity) or an unresolved question (use save_open_question). Inputs: summary, evidence, tags, optional address_range. Returns: finding id. (address_range + tags=['routine'] makes it eligible for auto-archive matching.)",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1648,7 +1648,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_findings",
-    "List persisted findings from the project knowledge layer with optional filters.",
+    "List saved findings (claims, hypotheses, confirmations, refutations), with optional filters. Use to review what's been concluded. Not for entities (use list_entities) or unresolved questions (use list_open_questions). Inputs: optional filters. Returns: finding records.",
     {
       project_dir: z.string().optional(),
       kind: z.string().optional(),
@@ -1670,7 +1670,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_entities",
-    "List persisted entities from the project knowledge layer with optional filters.",
+    "List saved entities (routines, memory regions, banks, disk files, state vars), with optional filters. Use to see what structural things are known. Not for findings (use list_findings) or files/artifacts (use list_artifacts). Inputs: optional filters. Returns: entity records.",
     {
       project_dir: z.string().optional(),
       kind: z.string().optional(),
@@ -1714,7 +1714,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_open_questions",
-    "List persisted open questions from the project knowledge layer with optional filters.",
+    "List saved open questions / ambiguities, with optional filters. Use to see what's still unresolved. Not for confirmed findings (use list_findings). Inputs: optional filters. Returns: question records (human-review sorted above heuristic noise).",
     {
       project_dir: z.string().optional(),
       status: z.string().optional(),
@@ -1760,7 +1760,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_flows",
-    "List persisted flow or sequence models from the project knowledge layer with optional filters.",
+    "List saved flow / sequence models (load chains, control flows), with optional filters. Use to review documented sequences. Not for entities (use list_entities). Inputs: optional filters. Returns: flow records.",
     {
       project_dir: z.string().optional(),
       kind: z.string().optional(),
@@ -1782,7 +1782,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "save_open_question",
-    "Persist a structured open question or ambiguity in the project knowledge layer. Spec 036: pass `source` to tag provenance (default `human-review`); the Questions tab sorts by source so heuristic-phase1 noise sinks below human-review questions.",
+    "Persist an open question / ambiguity to resolve later. Use when you spot something unexplained. Not for a settled conclusion (use save_finding). Inputs: question text, optional source provenance (default human-review). Returns: question id.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1831,7 +1831,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "save_entity",
-    "Persist a structured entity such as a routine, memory region, bank, disk file, or state variable.",
+    "Persist a structured entity — a named routine, memory region, bank, disk file, or state variable. Use to record a concrete thing you've identified. Not for a claim/hypothesis (use save_finding) or an unresolved question (use save_open_question). Inputs: kind, name, address/scope, fields. Returns: entity id.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1958,7 +1958,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "link_entities",
-    "Create a structured relation between two saved entities.",
+    "Create a typed relation between two saved entities (e.g. calls, contains, derives-from). Use to connect known entities into a graph. Not for linking a payload to its ASM (use link_payload_to_asm) or creating the entity (use save_entity). Inputs: from id, to id, relation type. Returns: relation record.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -2162,7 +2162,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "build_project_dashboard",
-    "Build and persist the JSON dashboard view-model for the current project.",
+    "Rebuild + persist the JSON dashboard view-model (project status overview) for the UI. Use to refresh just the dashboard. Not for all views (use build_all_views) or markdown (use render_docs). Inputs: none. Returns: dashboard view path.",
     {
       project_dir: z.string().optional(),
     },
@@ -2175,7 +2175,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "build_memory_map",
-    "Build and persist the JSON memory-map view-model for the current project.",
+    "Rebuild + persist the JSON memory-map view-model (address-space layout) for the UI. Use to refresh just the memory map. Not for all views (use build_all_views). Inputs: none. Returns: memory-map view path.",
     {
       project_dir: z.string().optional(),
     },
@@ -2240,7 +2240,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "build_annotated_listing_view",
-    "Build and persist the JSON annotated-listing view-model for the current project.",
+    "Rebuild + persist the JSON annotated-listing view-model (disasm + annotations) for the UI. Use to refresh just the listing view. Not for all views (use build_all_views) or markdown (use render_docs). Inputs: none. Returns: listing view path.",
     {
       project_dir: z.string().optional(),
     },
@@ -2253,7 +2253,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "build_all_views",
-    "Build and persist all current project JSON view-models in one deterministic pass.",
+    "Rebuild + persist ALL project JSON view-models in one pass (dashboard, memory map, listing, …) for the UI. Use after knowledge changes to refresh every view at once. Not for human-readable markdown (use render_docs) or a single view (use the specific build_* tool). Inputs: none. Returns: rebuilt view list.",
     {
       project_dir: z.string().optional(),
     },

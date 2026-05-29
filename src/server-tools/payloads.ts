@@ -105,7 +105,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "link_payload_to_asm",
-    "Append an asm artifact to an existing payload's payloadAsmArtifactIds. Use this when a disassembly is registered that covers the payload's bytes, and the heuristic stem-match in the cart inspector is not the right answer. Idempotent.",
+    "Attach an ASM artifact to a payload entity when the automatic stem-match is wrong. Use after registering a disassembly that covers a payload's bytes. Not for creating the payload (use the extraction tools) or generic entity links (use link_entities). Inputs: payload id, asm artifact id. Returns: updated payload. Idempotent.",
     {
       project_dir: z.string().optional(),
       payload_id: z.string(),
@@ -157,7 +157,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "list_payloads",
-    "List all payload entities in the project. Returns name, load address, format, source artifact, ASM count.",
+    "List every payload entity in the project (extracted/loadable byte-blobs). Use to see payloads and their disassembly coverage. Not for files/artifacts on disk (use list_artifacts). Inputs: none. Returns: name, load address, format, source artifact, ASM count per payload.",
     {
       project_dir: z.string().optional(),
       format: z.enum(PAYLOAD_FORMATS).optional().describe("Filter by format."),

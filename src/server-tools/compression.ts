@@ -764,7 +764,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
 
   server.tool(
     "suggest_depacker",
-    "Probe a file or a sliced subrange and suggest likely depackers such as RLE, Exomizer raw, or ByteBoozer-like wrappers.",
+    "Probe a file or byte-range and suggest likely depackers (RLE, Exomizer raw, ByteBoozer-like). Use first when bytes look compressed and the format is unknown; then run try_depack with the suggestion. Not for running a known depacker (use try_depack). Inputs: file/range. Returns: ranked depacker guesses.",
     {
       input_path: z.string().describe("Path to the input file to probe"),
       offset: z.string().optional().describe("Optional hex offset into the file, e.g. 001A"),
@@ -808,7 +808,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
 
   server.tool(
     "try_depack",
-    "Try a specific depacker against a file or sliced subrange. Supports built-in RLE, Exomizer raw, and host-side ByteBoozer2 depack.",
+    "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). Use when you know — or suggest_depacker guessed — the format. Not for guessing (use suggest_depacker). Inputs: file/range, depacker kind. Returns: decompressed bytes / artifact.",
     {
       input_path: z.string().describe("Path to the packed input file"),
       format: z.enum(["rle", "exomizer_raw", "exomizer_sfx", "byteboozer2"]).describe("Which depacker to try"),

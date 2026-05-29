@@ -15,7 +15,7 @@ function diskDefaultOutputDir(projectDir: string, imagePath: string): string {
 export function registerMediaTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "extract_crt",
-    "Parse an EasyFlash CRT image, extract per-bank binaries and manifest.",
+    "Parse a cartridge image (.crt, e.g. EasyFlash) and extract per-bank binaries + a manifest. Use to get bytes off a cartridge. Not for disk images (use extract_disk). Inputs: crt path, project dir. Returns: per-bank artifacts + manifest.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from crt_path to knowledge/phase-plan.json."),
       crt_path: z.string().describe("Path to the .crt file"),
@@ -73,7 +73,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "inspect_disk",
-    "Read a D64 or G64 directory and list the contained files without extracting them.",
+    "List the directory of a D64/G64 image WITHOUT extracting. Use for a quick peek at what a disk holds. Not to write files (use extract_disk) or for memory-range facts (use inspect_address_range). Inputs: image path. Returns: file list (name, type, size).",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
       image_path: z.string().describe("Path to the .d64 or .g64 image"),
@@ -105,7 +105,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "extract_disk",
-    "Extract files from a D64 or G64 image into a project directory and write a manifest.json.",
+    "Extract files from a D64/G64 image into the project and write manifest.json. Use to get bytes off a disk image. Not for cartridges (use extract_crt) or to just peek the directory (use inspect_disk). Inputs: image path, project dir. Returns: extracted files + manifest.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
       image_path: z.string().describe("Path to the .d64 or .g64 image"),
@@ -246,7 +246,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "disk_sector_allocation",
-    "Walk an extracted disk manifest and report sector ownership per T/S: system (BAM/dir), kernal_file, custom_file, unclaimed_padding, orphan_data. Surfaces overlaps explicitly.",
+    "Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps. Use to understand a disk's layout or find hidden/orphan data. Not for the file list (use inspect_disk) or extraction (use extract_disk). Inputs: extracted manifest. Returns: T/S ownership map + overlaps.",
     {
       project_dir: z.string().optional(),
       image_path: z.string(),

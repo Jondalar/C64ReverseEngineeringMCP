@@ -330,7 +330,7 @@ function buildReport(args: InspectArgs): string {
 export function registerInspectRangeTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "inspect_address_range",
-    "Surface every static-analysis fact connected to a memory range: containing segments, all VIC-register stores in the program (D011/D015/D016/D018/D020-D02E/DD00 with decoded meanings), code xrefs into the range, copy routines, and display state/transfer evidence. Useful for asking 'how is $C000 used?' once you've got a candidate graphics region.",
+    "Surface every static-analysis fact tied to a memory range — containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routines, display/transfer evidence. Use to answer 'how is $XXXX used?' for a candidate region in a PRG. Not for listing files on a disk (use inspect_disk) or whole-RAM summaries (use ram_report). Inputs: address range + analysis context. Returns: aggregated facts.",
     {
       project_dir: z.string().optional().describe("Project root. Resolved from prg_path when omitted."),
       prg_path: z.string().describe("Path to the PRG file."),

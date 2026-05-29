@@ -6,7 +6,7 @@ import type { ServerToolContext } from "./types.js";
 export function registerAssemblyTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "assemble_source",
-    "Assemble a generated KickAssembler .asm or 64tass .tass file and optionally compare the rebuilt binary against an original PRG.",
+    "Assemble a .asm (KickAssembler) or .tass (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. Use to verify a disassembly rebuilds correctly. Not for generating the source (use disasm_prg). Inputs: source path, optional original PRG. Returns: assembled binary path + cmp result.",
     {
       source_path: z.string().describe("Path to the .asm or .tass source file"),
       assembler: z.enum(["auto", "kickassembler", "64tass"]).optional().describe("Assembler to use. auto selects KickAssembler for .asm and 64tass for .tass"),

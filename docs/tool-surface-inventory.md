@@ -6,7 +6,7 @@
 
 ## Totals
 - **271** registered tools.
-- **111** (41%) have a `Spec NNN` in the description (history-encoded, not capability-first).
+- **102** (38%) have a `Spec NNN` in the description (history-encoded, not capability-first).
 - **71** are advanced-tier candidates (vice / maintenance / drive-only / sandbox).
 - Default-candidate (façade/workflow): **200**.
 
@@ -84,36 +84,36 @@
 |------|----|----|-------|-----------|---------|----------------|
 | `agent_advance_phase` | agent | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 034: advance an artifact to a target phase (1..7) in the seven-phase RE workflow. |
 | `agent_freeze_artifact` | agent | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 034: freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack). |
-| `agent_onboard` | agent | server-tools/agent-workflow.ts |  | default? |  | Reload persistent project state at session start (or after context loss). |
-| `agent_propose_next` | agent | server-tools/agent-workflow.ts | Y | default? |  | [Phase agnostic] Read-only: examine workflow phases, open tasks, open questions, and current agent-state to propose ranked next actions. |
-| `agent_record_step` | agent | server-tools/agent-workflow.ts |  | default? |  | Record a completed step and (optionally) queue the next action. |
-| `agent_set_role` | agent | server-tools/agent-workflow.ts |  | default? |  | Set the cognitive role for the current agent session (analyst, cartographer, implementer). |
+| `agent_onboard` | agent | server-tools/agent-workflow.ts |  | default? |  | Reload the full project state into the session. |
+| `agent_propose_next` | agent | server-tools/agent-workflow.ts |  | default? |  | List ranked, phase-consistent next actions across artifacts, read-only. |
+| `agent_record_step` | agent | server-tools/agent-workflow.ts |  | default? |  | Record a completed work step and optionally queue the next action, so a later session can resume. |
+| `agent_set_role` | agent | server-tools/agent-workflow.ts |  | default? |  | Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends. |
 | `analyze_g64_anomalies` | analyze | server-tools/disk-g64.ts |  | default? |  | Scan a G64 image track-by-track and report duplicate, missing, unexpected, or invalid decoded sectors. |
-| `analyze_prg` | analyze | server-tools/analysis-workflow.ts |  | default? |  | STEP 1 of the C64 RE workflow. |
+| `analyze_prg` | analyze | server-tools/analysis-workflow.ts |  | default? |  | Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables. |
 | `apply_patch_recipe` | apply | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 027: apply a patch recipe. |
-| `archive_phase1_noise` | archive | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding |
-| `assemble_source` | assemble | server-tools/assembly.ts |  | default? |  | Assemble a generated KickAssembler .asm or 64tass .tass file and optionally compare the rebuilt binary against an original PRG. |
+| `archive_phase1_noise` | archive | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. |
+| `assemble_source` | assemble | server-tools/assembly.ts |  | default? |  | Assemble a .asm (KickAssembler) or .tass (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. |
 | `auto_resolve_questions` | auto | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). |
 | `auto_tag_relevance` | auto | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). |
 | `backfill_finding_address_ranges` | backfill | project-knowledge/mcp-tools.ts |  | advanced? |  | Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing. |
-| `backfill_internal_flags` | backfill | project-knowledge/mcp-tools.ts | Y | advanced? |  | Bug 26 / Spec 058 follow-up: walk artifacts + entities and set |
-| `backfill_manifest_payload_hashes` | backfill | project-knowledge/mcp-tools.ts |  | advanced? |  | Bug 33 Fix A (manifest path): walk every artifact of kind=manifest, re-parse it, resolve each entry |
+| `backfill_internal_flags` | backfill | project-knowledge/mcp-tools.ts | Y | advanced? |  | Bug 26 / Spec 058 follow-up: walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastru |
+| `backfill_manifest_payload_hashes` | backfill | project-knowledge/mcp-tools.ts |  | advanced? |  | Bug 33 Fix A (manifest path): walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into th |
 | `backfill_payload_content_hashes` | backfill | project-knowledge/mcp-tools.ts |  | advanced? |  | Bug 33 Fix A: walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId  |
-| `backfill_question_address_ranges` | backfill | project-knowledge/mcp-tools.ts |  | advanced? |  | Bug 29: walk open-questions.json and copy the linked finding |
-| `build_all_views` | build | project-knowledge/mcp-tools.ts |  | default? |  | Build and persist all current project JSON view-models in one deterministic pass. |
-| `build_annotated_listing_view` | build | project-knowledge/mcp-tools.ts |  | default? |  | Build and persist the JSON annotated-listing view-model for the current project. |
+| `backfill_question_address_ranges` | backfill | project-knowledge/mcp-tools.ts |  | advanced? |  | Bug 29: walk open-questions.json and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange w |
+| `build_all_views` | build | project-knowledge/mcp-tools.ts |  | default? |  | Rebuild + persist ALL project JSON view-models in one pass (dashboard, memory map, listing, …) for the UI. |
+| `build_annotated_listing_view` | build | project-knowledge/mcp-tools.ts |  | default? |  | Rebuild + persist the JSON annotated-listing view-model (disasm + annotations) for the UI. |
 | `build_cartridge_layout_view` | build | project-knowledge/mcp-tools.ts |  | default? |  | Build and persist the JSON cartridge-layout view-model for the current project. |
 | `build_disk_layout_view` | build | project-knowledge/mcp-tools.ts |  | default? |  | Build and persist the JSON disk-layout view-model for the current project. |
 | `build_flow_graph_view` | build | project-knowledge/mcp-tools.ts |  | default? |  | Build and persist the JSON flow-graph view-model for the current project. |
 | `build_load_sequence_view` | build | project-knowledge/mcp-tools.ts |  | default? |  | Build and persist the JSON load-sequence view-model for the current project. |
-| `build_memory_map` | build | project-knowledge/mcp-tools.ts |  | default? |  | Build and persist the JSON memory-map view-model for the current project. |
-| `build_project_dashboard` | build | project-knowledge/mcp-tools.ts |  | default? |  | Build and persist the JSON dashboard view-model for the current project. |
+| `build_memory_map` | build | project-knowledge/mcp-tools.ts |  | default? |  | Rebuild + persist the JSON memory-map view-model (address-space layout) for the UI. |
+| `build_project_dashboard` | build | project-knowledge/mcp-tools.ts |  | default? |  | Rebuild + persist the JSON dashboard view-model (project status overview) for the UI. |
 | `build_tools` | build | server-tools/artifacts.ts |  | default? |  | Compile the TRXDis pipeline (npm run build). |
-| `bulk_create_cart_chunk_payloads` | bulk | server-tools/payloads.ts |  | advanced? |  | Walk the cartridge-layout view |
+| `bulk_create_cart_chunk_payloads` | bulk | server-tools/payloads.ts |  | advanced? |  | Walk the cartridge-layout view's lutChunks and create a payload entity for each one. |
 | `bulk_import_analysis_reports` | bulk | server-tools/registration.ts |  | advanced? |  | Walk every analysis-run artifact in the project and call import_analysis_report on those whose entities are not yet back-linked. |
-| `c64re_whats_next` | c64re | server-tools/agent-workflow.ts | Y | default? |  | Spec 043: the permanent nudger — call after every user turn (Spec 044 setup wires this into the agent config). |
+| `c64re_whats_next` | c64re | server-tools/agent-workflow.ts |  | default? |  | Return the single next required action for the active artifact, cheaply, to call every turn. |
 | `c64ref_build_rom_knowledge` | c64ref | server-tools/reference.ts |  | default? |  | Fetch and rebuild the local BASIC/KERNAL ROM knowledge snapshot from mist64/c64ref sources. |
-| `c64ref_lookup` | c64ref | server-tools/reference.ts |  | default? |  | Look up BASIC/KERNAL ROM knowledge by address or search term from the local c64ref snapshot. |
+| `c64ref_lookup` | c64ref | server-tools/reference.ts |  | default? |  | Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot. |
 | `close_completed_tasks` | close | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 038: walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied. |
 | `compare_exomizer_shared_encoding_sets` | compare | server-tools/compression.ts |  | default? |  | Compare one or more shared-encoding manifest sets, e.g. |
 | `confirm_question_resolution` | confirm | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 052: confirm or reject a resolution-pending question. |
@@ -121,66 +121,66 @@
 | `dedupe_artifact_registry` | dedupe | project-knowledge/mcp-tools.ts | Y | advanced? |  | Spec 060 / Bug 30: collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path. |
 | `dedupe_payload_entities` | dedupe | project-knowledge/mcp-tools.ts | Y | advanced? |  | Spec 060 / Bug 31: collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddres |
 | `define_runtime_scenario` | define | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone). |
-| `depack_bwc_bitstream` | depack | server-tools/bwc-bitstream.ts |  | default? |  | Depack a BWC bit-stream chunk (Pucrunch-derived format with |
-| `depack_bwc_chunk` | depack | server-tools/bwc-bitstream.ts |  | default? |  | Auto-dispatch on the first two bytes: |
+| `depack_bwc_bitstream` | depack | server-tools/bwc-bitstream.ts |  | default? |  | Depack a BWC bit-stream chunk (Pucrunch-derived format with 'pu' magic). |
+| `depack_bwc_chunk` | depack | server-tools/bwc-bitstream.ts |  | default? |  | Auto-dispatch on the first two bytes: 'pu' magic → depack_bwc_bitstream, else → depack_bwc_raw. |
 | `depack_bwc_raw` | depack | server-tools/bwc-bitstream.ts |  | default? |  | Depack a BWC raw chunk (uncompressed). |
 | `depack_byteboozer` | depack | server-tools/compression.ts |  | default? |  | Decompress a ByteBoozer2 raw .b2 file or executable wrapper in pure TypeScript. |
 | `depack_byteboozer_lykia` | depack | server-tools/compression.ts |  | default? |  | Decompress a Lykia-variant ByteBoozer2 stream (modified 4-byte header: dest_lo, dest_hi, end_lo, end_hi; BB2_BITBUF seeded from supplied dest_hi). |
 | `depack_exomizer_raw` | depack | server-tools/compression.ts |  | default? |  | Decompress an Exomizer raw stream via the built-in TypeScript implementation. |
 | `depack_exomizer_sfx` | depack | server-tools/compression.ts |  | default? |  | Decompress an Exomizer self-extracting wrapper via the built-in TypeScript 6502-emulated depacker. |
-| `depack_rle` | depack | server-tools/compression.ts |  | default? |  | Decompress the built-in C64 RLE format used by Mike |
+| `depack_rle` | depack | server-tools/compression.ts |  | default? |  | Decompress the built-in C64 RLE format used by Mike's loader. |
 | `diff_scenario_runs` | diff | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 030: diff two recorded scenario runs (baseline vs candidate). |
-| `disasm_menu` | disasm | server-tools/disk-g64.ts |  | default? |  | Generate KickAssembler sources for all menu payloads. |
-| `disasm_prg` | disasm | server-tools/analysis-workflow.ts |  | default? |  | STEP 2 of the C64 RE workflow. |
-| `disk_sector_allocation` | disk | server-tools/media.ts |  | default? |  | Walk an extracted disk manifest and report sector ownership per T/S: system (BAM/dir), kernal_file, custom_file, unclaimed_padding, orphan_data. |
+| `disasm_menu` | disasm | server-tools/disk-g64.ts |  | default? |  | Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once. |
+| `disasm_prg` | disasm | server-tools/analysis-workflow.ts |  | default? |  | Disassemble a PRG to KickAssembler .asm + 64tass .tass, segment-aware when given an analysis JSON. |
+| `disk_sector_allocation` | disk | server-tools/media.ts |  | default? |  | Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps. |
 | `export_menu` | export | server-tools/disk-g64.ts |  | default? |  | Export menu payload binaries from extracted CRT data. |
-| `extract_crt` | extract | server-tools/media.ts |  | default? |  | Parse an EasyFlash CRT image, extract per-bank binaries and manifest. |
-| `extract_disk` | extract | server-tools/media.ts |  | default? |  | Extract files from a D64 or G64 image into a project directory and write a manifest.json. |
+| `extract_crt` | extract | server-tools/media.ts |  | default? |  | Parse a cartridge image (.crt, e.g. |
+| `extract_disk` | extract | server-tools/media.ts |  | default? |  | Extract files from a D64/G64 image into the project and write manifest.json. |
 | `extract_disk_custom_lut` | extract | server-tools/media.ts |  | default? |  | Extract files indexed by a custom (non-DOS) LUT sector. |
 | `extract_g64_raw_track` | extract | server-tools/disk-g64.ts |  | default? |  | Export the raw circular G64 half-track data for bit-level inspection. |
 | `extract_g64_sectors` | extract | server-tools/disk-g64.ts |  | default? |  | Decode a G64 track via GCR and write one file per decoded sector for low-level inspection. |
-| `get_artifact_lineage` | get | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 025: return the V0..Vn lineage chain for the artifact |
-| `get_project_profile` | get | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 026: read the current project profile. |
+| `get_artifact_lineage` | get | project-knowledge/mcp-tools.ts |  | default? |  | Return the V0..Vn version chain for an artifact (oldest→newest). |
+| `get_project_profile` | get | project-knowledge/mcp-tools.ts |  | default? |  | Read the current project profile (platform, title, metadata). |
 | `headless_drive_persist_writes` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. |
 | `headless_drive_session_load_vsf` | headless | server-tools/headless.ts | Y | advanced? |  | Spec 062 Sprint 64: load a VSF file into a drive session. |
-| `headless_drive_session_save_vsf` | headless | server-tools/headless.ts | Y | advanced? |  | Spec 062 Sprint 64: save the drive session |
+| `headless_drive_session_save_vsf` | headless | server-tools/headless.ts | Y | advanced? |  | Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. |
 | `headless_drive_session_start` | headless | server-tools/headless.ts | Y | advanced? |  | Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. |
-| `headless_drive_status` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: snapshot of a drive session |
-| `headless_iec_bus_state` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver |
+| `headless_drive_status` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. |
+| `headless_iec_bus_state` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. |
 | `headless_integrated_session_diagnose_mm` | headless | server-tools/headless.ts | Y | default? |  | Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at  |
 | `headless_integrated_session_joystick` | headless | server-tools/headless.ts |  | default? |  | Sprint 93.1: set joystick port 2 (CIA1 PA bits 0-4, active-low: up/down/left/right/fire). |
-| `headless_integrated_session_load_prg` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: inject a PRG into the C64 |
+| `headless_integrated_session_load_prg` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: inject a PRG into the C64's RAM as if KERNAL LOAD had completed. |
 | `headless_integrated_session_run` | headless | server-tools/headless.ts | Y | default? |  | Spec 062 Sprint 65: run an integrated session for up to N C64 instructions. |
 | `headless_integrated_session_snapshot` | headless | server-tools/headless.ts | Y | default? |  | Spec 101 (M1.4): structured state snapshot of an integrated session — CPU + RAM + IEC + drive + keyboard + joystick. |
 | `headless_integrated_session_start` | headless | server-tools/headless.ts |  | default? |  | Open an integrated C64+1541 drive session (the single product runtime: true-drive + VICE-shaped vice1541, microcoded CPU, event-catchup drive sync). |
 | `headless_integrated_session_status` | headless | server-tools/headless.ts | Y | default? | runtime_status | Spec 062 Sprint 65: snapshot of an integrated session — both CPUs + IEC bus + ROM source. |
-| `headless_integrated_session_type` | headless | server-tools/headless.ts |  | default? |  | Sprint 93.1: queue text typing into the integrated session |
-| `headless_render_screen` | headless | server-tools/headless.ts | Y | default? | runtime_export_screenshot | Spec 065 Phase A: render the integrated session |
+| `headless_integrated_session_type` | headless | server-tools/headless.ts |  | default? |  | Sprint 93.1: queue text typing into the integrated session's CIA1 keyboard matrix. |
+| `headless_render_screen` | headless | server-tools/headless.ts | Y | default? | runtime_export_screenshot | Spec 065 Phase A: render the integrated session's current VIC state to a PNG file. |
 | `import_analysis_report` | import | project-knowledge/mcp-tools.ts |  | default? |  | Import a saved analysis JSON artifact into structured entities and findings. |
-| `import_annotations_as_findings` | import | server-tools/analysis-workflow.ts | Y | default? |  | Spec 055 R25: walk *_annotations.json routines[] + segments[] and emit one finding per routine and per segment-reclassification. |
+| `import_annotations_as_findings` | import | server-tools/analysis-workflow.ts |  | default? |  | Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification. |
 | `import_manifest_artifact` | import | project-knowledge/mcp-tools.ts |  | default? |  | Import a saved manifest artifact into structured entities, findings, and relations. |
-| `inspect_address_range` | inspect | server-tools/inspect-range.ts |  | default? |  | Surface every static-analysis fact connected to a memory range: containing segments, all VIC-register stores in the program (D011/D015/D016/D018/D020-D02E/DD00  |
-| `inspect_disk` | inspect | server-tools/media.ts |  | default? |  | Read a D64 or G64 directory and list the contained files without extracting them. |
+| `inspect_address_range` | inspect | server-tools/inspect-range.ts |  | default? |  | Surface every static-analysis fact tied to a memory range — containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routi |
+| `inspect_disk` | inspect | server-tools/media.ts |  | default? |  | List the directory of a D64/G64 image WITHOUT extracting. |
 | `inspect_g64_blocks` | inspect | server-tools/disk-g64.ts |  | default? |  | Inspect a G64 track or half-track at raw GCR block level and return JSON plus an ASCII ring map. |
 | `inspect_g64_syncs` | inspect | server-tools/disk-g64.ts |  | default? |  | Inspect sync marks on a raw G64 half-track and report bit-aligned sync positions. |
 | `inspect_g64_track` | inspect | server-tools/disk-g64.ts |  | default? |  | Decode a specific G64 track via GCR and report discovered sectors, missing IDs, duplicates, and raw track metadata. |
 | `link_cart_chunk_to_asm` | link | server-tools/compression.ts |  | default? |  | Link a cartridge LUT chunk to a disassembly (.asm/.tass) artifact via a RelationRecord. |
-| `link_entities` | link | project-knowledge/mcp-tools.ts |  | default? |  | Create a structured relation between two saved entities. |
-| `link_payload_to_asm` | link | server-tools/payloads.ts |  | default? |  | Append an asm artifact to an existing payload |
+| `link_entities` | link | project-knowledge/mcp-tools.ts |  | default? |  | Create a typed relation between two saved entities (e.g. |
+| `link_payload_to_asm` | link | server-tools/payloads.ts |  | default? |  | Attach an ASM artifact to a payload entity when the automatic stem-match is wrong. |
 | `link_payload_to_runtime` | link | server-tools/payloads.ts |  | default? |  | Record a runtime-trace artifact that proves where this payload lands at runtime. |
 | `list_anti_patterns` | list | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 031: list registered anti-patterns sorted by recency. |
-| `list_artifacts` | list | server-tools/artifacts.ts |  | default? |  | List analysis artifacts (PRG, ASM, JSON, SYM, MD files) in a project subdirectory. |
+| `list_artifacts` | list | server-tools/artifacts.ts |  | default? |  | List analysis artifacts (PRG, ASM, JSON, SYM, MD) in the project. |
 | `list_build_pipelines` | list | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 032: list registered build pipelines. |
 | `list_container_entries` | list | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 025 R23: list container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted). |
-| `list_entities` | list | project-knowledge/mcp-tools.ts |  | default? |  | List persisted entities from the project knowledge layer with optional filters. |
-| `list_findings` | list | project-knowledge/mcp-tools.ts |  | default? |  | List persisted findings from the project knowledge layer with optional filters. |
-| `list_flows` | list | project-knowledge/mcp-tools.ts |  | default? |  | List persisted flow or sequence models from the project knowledge layer with optional filters. |
+| `list_entities` | list | project-knowledge/mcp-tools.ts |  | default? |  | List saved entities (routines, memory regions, banks, disk files, state vars), with optional filters. |
+| `list_findings` | list | project-knowledge/mcp-tools.ts |  | default? |  | List saved findings (claims, hypotheses, confirmations, refutations), with optional filters. |
+| `list_flows` | list | project-knowledge/mcp-tools.ts |  | default? |  | List saved flow / sequence models (load chains, control flows), with optional filters. |
 | `list_g64_slots` | list | server-tools/disk-g64.ts |  | default? |  | List all G64 half-track slots, including raw offsets, lengths, and speed-zone metadata. |
 | `list_loader_entrypoints` | list | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 028: list declared loader entry points (optionally filtered to one artifact). |
 | `list_loader_events` | list | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 028: list recorded loader events. |
-| `list_open_questions` | list | project-knowledge/mcp-tools.ts |  | default? |  | List persisted open questions from the project knowledge layer with optional filters. |
+| `list_open_questions` | list | project-knowledge/mcp-tools.ts |  | default? |  | List saved open questions / ambiguities, with optional filters. |
 | `list_patch_recipes` | list | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 027: list patch recipes (optionally filtered by status or target artifact). |
-| `list_payloads` | list | server-tools/payloads.ts |  | default? |  | List all payload entities in the project. |
+| `list_payloads` | list | server-tools/payloads.ts |  | default? |  | List every payload entity in the project (extracted/loadable byte-blobs). |
 | `list_project_artifacts` | list | project-knowledge/mcp-tools.ts |  | default? |  | List persisted artifacts from the project knowledge layer. |
 | `list_relations` | list | project-knowledge/mcp-tools.ts |  | default? |  | List persisted relations from the project knowledge layer with optional filters. |
 | `list_runtime_scenarios` | list | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 030: list defined scenarios. |
@@ -194,17 +194,17 @@
 | `pack_exomizer_raw` | pack | server-tools/compression.ts |  | default? |  | Compress a file with the built-in TypeScript Exomizer raw implementation. |
 | `pack_exomizer_sfx` | pack | server-tools/compression.ts |  | default? |  | Compress one or more input files into an Exomizer self-extracting binary via the local exomizer CLI. |
 | `pack_exomizer_shared_encoding` | pack | server-tools/compression.ts |  | default? |  | Discover or reuse a shared Exomizer encoding table in pure TypeScript, then pack many files without embedding the table in each payload. |
-| `pack_rle` | pack | server-tools/compression.ts |  | default? |  | Compress a binary blob with the built-in C64 RLE format used by Mike |
+| `pack_rle` | pack | server-tools/compression.ts |  | default? |  | Compress a binary blob with the built-in C64 RLE format used by Mike's loader. |
 | `pointer_report` | pointer | server-tools/analysis-workflow.ts |  | default? |  | Generate a pointer table facts report (markdown) from an analysis JSON. |
 | `project_audit` | project | project-knowledge/mcp-tools.ts |  | default? |  | Read-only audit for project integrity: nested knowledge stores, missing/broken artifacts, unregistered files, unimported analysis/manifests, and stale UI views. |
 | `project_checkpoint` | project | project-knowledge/mcp-tools.ts |  | default? |  | Create a durable checkpoint that snapshots the current investigation state and linked records. |
 | `project_init` | project | project-knowledge/mcp-tools.ts |  | default? |  | Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. |
 | `project_repair` | project | project-knowledge/mcp-tools.ts |  | advanced? |  | Repair project knowledge integrity using audited safe operations. |
-| `project_status` | project | project-knowledge/mcp-tools.ts |  | default? |  | Summarize the current project knowledge layer, counts, and key filesystem paths. |
-| `propose_annotations` | propose | server-tools/analysis-workflow.ts | Y | default? |  | Spec 042: emit a draft *_annotations.draft.json by walking *_analysis.json + (optional) *_disasm.asm. |
+| `project_status` | project | project-knowledge/mcp-tools.ts |  | default? |  | Summarize the current project — knowledge counts + key filesystem paths. |
+| `propose_annotations` | propose | server-tools/analysis-workflow.ts |  | default? |  | Generate a DRAFT annotations file (labels, segment reclassifications, routine names) from an analysis JSON + optional disasm. |
 | `propose_question_resolutions` | propose | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 052: read-only proposal — list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached). |
-| `ram_report` | ram | server-tools/analysis-workflow.ts |  | default? |  | Generate a RAM state facts report (markdown) from an analysis JSON. |
-| `read_artifact` | read | server-tools/artifacts.ts |  | default? |  | Read a generated artifact (ASM, JSON, SYM, MD). |
+| `ram_report` | ram | server-tools/analysis-workflow.ts |  | default? |  | Generate a markdown RAM-state facts report from an analysis JSON (zero-page + RAM usage). |
+| `read_artifact` | read | server-tools/artifacts.ts |  | default? |  | Read a generated artifact (ASM, JSON, SYM, MD) into context — C64 disassemblies are ≤64 KB and fit whole. |
 | `read_g64_sector_candidate` | read | server-tools/disk-g64.ts |  | default? |  | Read a sector from a G64 track or half-track using a VICE-style 1541 sync/header search. |
 | `reconstruct_lut` | reconstruct | server-tools/disk-g64.ts |  | advanced? |  | Reconstruct boot LUT payload groups from extracted CRT data. |
 | `record_build_step_result` | record | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 032: record the outcome of a single build step (status + exit code + actual output hashes). |
@@ -219,13 +219,13 @@
 | `register_operation` | register | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 029: declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.). |
 | `register_payload` | register | server-tools/payloads.ts |  | default? |  | Create a payload entity — the working abstraction across mediums. |
 | `register_resource_region` | register | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 029: declare a memory / cart / IO resource region for the constraint checker. |
-| `rename_artifact_version` | rename | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 025: change an artifact |
-| `render_docs` | render | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 031: render Markdown summaries of findings, entities, open questions, anti-patterns, and the project profile under docs/. |
+| `rename_artifact_version` | rename | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 025: change an artifact's free-form versionLabel without touching bytes or hash. |
+| `render_docs` | render | project-knowledge/mcp-tools.ts |  | default? |  | Render human-readable markdown summaries (findings, entities, open questions, anti-patterns, profile) under docs/. |
 | `render_graphics_preview` | render | server-tools/graphics-render.ts |  | default? |  | Render a slice of a PRG (or any binary) as a PNG using one of the C64 graphics decoders (sprite, charset, bitmap, charmap). |
 | `run_build_pipeline` | run | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 032 follow-up: orchestrate a build pipeline end-to-end. |
 | `run_payload_reverse_workflow` | run | server-tools/analysis-workflow.ts |  | default? |  | Run the reverse-engineering workflow on a payload entity. |
-| `run_prg_reverse_workflow` | run | server-tools/analysis-workflow.ts |  | default? |  | Run the full first-pass PRG reverse-engineering workflow: register input, analyze, disassemble, generate RAM and pointer reports, import knowledge, and rebuild  |
-| `runtime_audio_export` | runtime | server-tools/runtime.ts | Y | default? | runtime_export_audio | Spec 263 — render |
+| `run_prg_reverse_workflow` | run | server-tools/analysis-workflow.ts |  | default? |  | Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views. |
+| `runtime_audio_export` | runtime | server-tools/runtime.ts | Y | default? | runtime_export_audio | Spec 263 — render `duration_sec` PAL seconds of SID audio (resid synth) to a stereo s16le 44.1kHz WAV file. |
 | `runtime_batch_results` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 271 — collect ReplayResult per scenario once batch is done. |
 | `runtime_batch_status` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 271 — poll progress of a parallel batch. |
 | `runtime_bookmark_add` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 242 — add trace bookmark with bind mode (cycle/event-key/both). |
@@ -275,25 +275,25 @@
 | `runtime_vic_inspect_at` | runtime | server-tools/runtime.ts | Y | default? |  | Spec 710 — resolve a frozen C64 display-area pixel to exact VIC/RAM provenance |
 | `sandbox_6502_run` | sandbox | server-tools/sandbox.ts |  | advanced? |  | Run a 6502 routine in an isolated sandbox: load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. |
 | `sandbox_depack` | sandbox | server-tools/sandbox-depack.ts |  | advanced? |  | Generic sandbox-driven depacker. |
-| `save_anti_pattern` | save | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 031: record a |
+| `save_anti_pattern` | save | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 031: record a 'do not try this again' anti-pattern. |
 | `save_artifact` | save | project-knowledge/mcp-tools.ts |  | default? |  | Persist an input, generated, analysis, or view artifact in the project knowledge layer. |
 | `save_build_pipeline` | save | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 032 / R24: define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes. |
-| `save_entity` | save | project-knowledge/mcp-tools.ts |  | default? |  | Persist a structured entity such as a routine, memory region, bank, disk file, or state variable. |
-| `save_finding` | save | project-knowledge/mcp-tools.ts |  | default? |  | Persist a structured semantic finding, hypothesis, confirmation, or refutation in the project knowledge layer. |
+| `save_entity` | save | project-knowledge/mcp-tools.ts |  | default? |  | Persist a structured entity — a named routine, memory region, bank, disk file, or state variable. |
+| `save_finding` | save | project-knowledge/mcp-tools.ts |  | default? |  | Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence. |
 | `save_flow` | save | project-knowledge/mcp-tools.ts |  | default? |  | Persist a flow or sequence model with explicit nodes and edges. |
-| `save_open_question` | save | project-knowledge/mcp-tools.ts | Y | default? |  | Persist a structured open question or ambiguity in the project knowledge layer. |
+| `save_open_question` | save | project-knowledge/mcp-tools.ts |  | default? |  | Persist an open question / ambiguity to resolve later. |
 | `save_patch_recipe` | save | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 027: persist a binary patch recipe with byte-level assertions. |
 | `save_project_profile` | save | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, ant |
 | `save_task` | save | project-knowledge/mcp-tools.ts |  | default? |  | Persist a project task, next action, or investigation item in structured form. |
-| `scan_g64_headers` | scan | server-tools/disk-g64.ts |  | default? |  | Scan a G64 track or half-track like VICE |
-| `scan_graphics_candidates` | scan | server-tools/graphics-render.ts |  | default? |  | Render a sweep of PNG previews across an address window — every |
-| `scan_registration_delta` | scan | server-tools/registration.ts |  | default? |  | Read-only: scan the project filesystem for files that match c64re |
+| `scan_g64_headers` | scan | server-tools/disk-g64.ts |  | default? |  | Scan a G64 track or half-track like VICE's 1541 sector-header search and list discovered header candidates. |
+| `scan_graphics_candidates` | scan | server-tools/graphics-render.ts |  | default? |  | Render a sweep of PNG previews across an address window — every `step` bytes, multiple kinds (sprite/charset, hires + multicolor) — so a multimodal LLM can scru |
+| `scan_registration_delta` | scan | server-tools/registration.ts |  | default? |  | Read-only: scan the project filesystem for files that match c64re's known artifact extensions but are not registered in knowledge/artifacts.json. |
 | `set_artifact_relevance` | set | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 041: tag an artifact with a relevance value (loader \| protection \| save \| kernal \| asset \| other). |
 | `set_payload_disk_hint` | set | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 037: tag a payload entity with a disk-hint (drive-code \| protected \| raw-unanalyzed \| bad-crc \| gap). |
 | `snapshot_artifact_before_overwrite` | snapshot | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 025: snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file. |
 | `start_build_run` | start | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 032: start a build run for a pipeline. |
-| `start_re_workflow` | start | server-tools/agent-workflow.ts | Y | default? |  | Spec 046: pick a workflow template (full-re \| cracker-only \| analyst-deep \| targeted-routine \| bugfix). |
-| `suggest_depacker` | suggest | server-tools/compression.ts |  | default? |  | Probe a file or a sliced subrange and suggest likely depackers such as RLE, Exomizer raw, or ByteBoozer-like wrappers. |
+| `start_re_workflow` | start | server-tools/agent-workflow.ts |  | default? |  | Choose the reverse-engineering workflow template (full-re \| cracker-only \| analyst-deep \| targeted-routine \| bugfix), which sets the required phases per artifac |
+| `suggest_depacker` | suggest | server-tools/compression.ts |  | default? |  | Probe a file or byte-range and suggest likely depackers (RLE, Exomizer raw, ByteBoozer-like). |
 | `suggest_disk_lut_sector` | suggest | server-tools/media.ts |  | default? |  | Heuristic scan: look at every sector for plausible fixed-stride LUT entry tables and rank by confidence. |
 | `trace_store_anchor_find` | trace | server-tools/trace-store.ts |  | advanced? |  | List occurrences of a single anchor by name. |
 | `trace_store_anchor_list` | trace | server-tools/trace-store.ts |  | advanced? |  | List all anchors in a trace store with occurrence counts and clock range. |
@@ -301,7 +301,7 @@
 | `trace_store_info` | trace | server-tools/trace-store.ts |  | advanced? |  | Summarize a trace-store: meta, table counts, master_clock range. |
 | `trace_store_query` | trace | server-tools/trace-store.ts |  | advanced? |  | Run a read-only SELECT/WITH SQL query against the trace store. |
 | `trace_store_top_pcs` | trace | server-tools/trace-store.ts |  | advanced? |  | Return the top-N most-frequent PCs for a given CPU side (c64 \| drive8). |
-| `try_depack` | try | server-tools/compression.ts |  | default? |  | Try a specific depacker against a file or sliced subrange. |
+| `try_depack` | try | server-tools/compression.ts |  | default? |  | Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). |
 | `update_task_status` | update | project-knowledge/mcp-tools.ts |  | default? |  | Update the status of an existing task in the knowledge layer. |
 | `verify_constraints` | verify | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 029: run the built-in constraint checker. |
 | `vice_debug_run` | vice | server-tools/vice.ts |  | advanced? |  | Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs. |

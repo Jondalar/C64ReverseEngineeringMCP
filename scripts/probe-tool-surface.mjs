@@ -17,6 +17,7 @@ const { DEFAULT_TOOLS, tierForTool, DEFAULT_TIER_CAP } = tier;
 
 const allNames = inv.tools.map((t) => t.name);
 const descByName = new Map(inv.tools.map((t) => [t.name, t.firstSentence]));
+const fullDescByName = new Map(inv.tools.map((t) => [t.name, t.desc || t.firstSentence]));
 const defaultNames = allNames.filter((n) => tierForTool(n) === "default").sort();
 const fullCount = allNames.length;
 
@@ -53,6 +54,24 @@ ok(phantom.length === 0, "7 no phantom DEFAULT_TOOLS entry (all exist in invento
 const ADVANCED_BUCKET = /^(vice_|runtime_|headless_|trace_|pack_|depack_|bwc_|extract_g64|inspect_g64|analyze_g64|scan_g64|backfill_|dedupe_|repair_|register_|bulk_|sandbox_|record_|build_|list_|save_|import_|link_|run_|start_|project_|agent_|get_|mark_|propose_|auto_|close_|confirm_|declare_|define_|verify_|apply_|archive_|rename_|update_|snapshot_|reconstruct_|suggest_|c64ref_|set_|read_|disasm_|inspect_|analyze_|assemble_|extract_|export_|render_|disk_|ram_|pointer_|compare_|try_|diff_|c64re_)/;
 const unrecognised = allNames.filter((n) => tierForTool(n) === "advanced" && !ADVANCED_BUCKET.test(n)).sort();
 ok(true, `8 unrecognised-namespace advanced tools (informational)`, unrecognised.length ? unrecognised.join(",") : "none");
+
+// --- 722.5a: default-tool description quality (capability-first, no history) ---
+const dfull = (n) => fullDescByName.get(n) || "";
+// 9. no `Spec NNN` in any default description.
+const specInDefault = defaultNames.filter((n) => /Spec\s*\d/i.test(dfull(n)));
+ok(specInDefault.length === 0, "9 no Spec NNN in default descriptions", specInDefault.join(",") || "none");
+// 10. no default description starts with "Spec" or a phase prefix.
+const badStart = defaultNames.filter((n) => /^\s*(Spec\b|\[Phase)/i.test(dfull(n)));
+ok(badStart.length === 0, "10 no default description starts with Spec/[Phase]", badStart.join(",") || "none");
+// 11. every default description carries decision help: a "Use …" trigger AND a
+//     when-to-pick-vs-alternative pointer ("Not for …" / "use <other>").
+const lacksHelp = defaultNames.filter((n) => {
+  const d = dfull(n);
+  const hasUse = /\bUse [a-z]/i.test(d);
+  const hasAlt = /Not for|\(use [a-z_]+|use [a-z_]+ instead/i.test(d);
+  return !(hasUse && hasAlt);
+});
+ok(lacksHelp.length === 0, "11 every default description has Use-trigger + alternative pointer", lacksHelp.join(",") || "none");
 
 console.log(`\nDefault surface (${defaultNames.length}):`);
 for (const n of defaultNames) console.log(`  ${n}`);

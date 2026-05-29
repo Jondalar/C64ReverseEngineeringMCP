@@ -341,7 +341,7 @@ function recentArtifactSummary(service: ProjectKnowledgeService, projectRoot: st
 export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "agent_onboard",
-    "Reload persistent project state at session start (or after context loss). Reads project metadata, workflow phases, agent-state, recent artifacts, open tasks, and open questions, then proposes the next action. Always run this first when a session begins or after compaction.",
+    "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: none. Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
     {
       project_dir: z.string().optional().describe("Project root. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
     },
@@ -457,7 +457,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
   server.tool(
     "agent_set_role",
-    "Set the cognitive role for the current agent session (analyst, cartographer, implementer). Persists to agent-state.json + NEXT.md.",
+    "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends. Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
     {
       project_dir: z.string().optional(),
       role: AgentRoleSchema.describe("analyst (disasm/control flow), cartographer (memory/bank maps), implementer (MCP tooling/host code), archivist (continuity, tasks, checkpoints, artifact registration), cracker (modifying target C64 binaries: patches, trainers, bug fixes, ports), or unset"),
@@ -490,7 +490,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
   server.tool(
     "agent_record_step",
-    "Record a completed step and (optionally) queue the next action. Appends to agent-state history and rewrites NEXT.md. Call this after meaningful work units so future sessions can resume.",
+    "Record a completed work step and optionally queue the next action, so a later session can resume. Use after each meaningful unit of work. Not for proposing options (use agent_propose_next) or per-turn status (use c64re_whats_next). Inputs: step summary, optional next-action. Returns: updated agent state.",
     {
       project_dir: z.string().optional(),
       step: z.string().describe("Short description of what was just completed"),
@@ -553,7 +553,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
   server.tool(
     "c64re_whats_next",
-    "Spec 043: the permanent nudger — call after every user turn (Spec 044 setup wires this into the agent config). Returns active per-artifact phase, the single next required action, optional worker spawn block, audit warnings if any, and a reminder line. Concise format meant to be parsed every turn without context bloat.",
+    "Return the single next required action for the active artifact, cheaply, to call every turn. Use as the routine per-turn nudge. Not for full state reload (use agent_onboard) or ranked option lists (use agent_propose_next). Inputs: optional artifact id. Returns: current phase, the one next action, optional worker-spawn block, audit warnings, a short reminder.",
     {
       project_dir: z.string().optional(),
       conversation_summary: z.string().optional(),
@@ -644,7 +644,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
   server.tool(
     "start_re_workflow",
-    "Spec 046: pick a workflow template (full-re | cracker-only | analyst-deep | targeted-routine | bugfix). Required phases per artifact + propose_next visibility adapt to the chosen workflow. Refuses if a workflow is already set unless force=true.",
+    "Choose the reverse-engineering workflow template (full-re | cracker-only | analyst-deep | targeted-routine | bugfix), which sets the required phases per artifact. Use once when starting a project to scope the work. Not for per-step progress (use agent_record_step). Inputs: workflow name, optional force. Returns: active workflow + required phases. Refuses if one is already set unless force=true.",
     {
       project_dir: z.string().optional(),
       workflow: z.enum(["full-re", "cracker-only", "analyst-deep", "targeted-routine", "bugfix"]),
@@ -679,7 +679,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
   server.tool(
     "agent_propose_next",
-    "[Phase agnostic] Read-only: examine workflow phases, open tasks, open questions, and current agent-state to propose ranked next actions. Spec 034 / 035: lists phase-consistent actions for each non-frozen artifact and recommends spawning a worker subagent via the c64re_worker_phase prompt. Does not mutate state.",
+    "List ranked, phase-consistent next actions across artifacts, read-only. Use when you want to choose among options or see what each artifact needs. Not for the single routine next step (use c64re_whats_next) or full reload (use agent_onboard). Inputs: none. Returns: ranked actions per non-frozen artifact + optional worker-subagent suggestion. Does not mutate state.",
     {
       project_dir: z.string().optional(),
     },

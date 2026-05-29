@@ -555,7 +555,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "disasm_menu",
-    "Generate KickAssembler sources for all menu payloads.",
+    "Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once. Use after extracting a menu disk/cart to get assembly for all entries. Not for a single PRG (use disasm_prg). Inputs: manifest / project dir. Returns: generated .asm paths.",
     {
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
       output_dir: z.string().optional().describe("Output directory for ASM sources"),

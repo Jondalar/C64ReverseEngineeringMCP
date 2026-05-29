@@ -94,7 +94,7 @@ export function registerReferenceTools(server: McpServer, context: ServerToolCon
 
   server.tool(
     "c64ref_lookup",
-    "Look up BASIC/KERNAL ROM knowledge by address or search term from the local c64ref snapshot.",
+    "Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot. Use to identify a ROM routine/vector while reading disassembly. Not for project-specific labels (use list_findings / list_entities). Inputs: address or query string. Returns: matching ROM entries.",
     {
       address: z.string().optional().describe("Exact ROM/system address in hex, e.g. FFD5."),
       query: z.string().optional().describe("Search term such as LOAD, SYS, CHRGET, keyboard queue, or NMI."),

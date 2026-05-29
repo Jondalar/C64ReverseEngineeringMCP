@@ -162,6 +162,18 @@ Default = lean product surface; `C64RE_FULL_TOOLS=1` = full (power/debug).
 `vice_*`, `backfill_*`/`dedupe_*`/`repair_*`/`migrate_*`, `headless_drive_session_*`
 → `advanced`.
 
+### 722.5a — Default-tool descriptions (code) — DONE (2026-05-29)
+Rewrote all 42 default-surface descriptions to the capability-first template
+(`<verb one-liner>. Use … Not for … Inputs … Returns …`); stripped every
+`Spec NNN` + history; disambiguated the flagged near-pairs (onboard/whats_next/
+propose_next, analyze/disasm_prg/disasm_menu, inspect_address_range/inspect_disk,
+extract_disk/extract_crt, save_finding/entity/question vs propose_annotations,
+build_* views vs render_docs, suggest_depacker vs try_depack). probe-tool-surface
+extended (checks 9-11): no `Spec NNN` / no `Spec`-start / Use-trigger +
+alternative pointer in every default description. 12/12 GREEN; default=42,
+full=271. (Advanced-tool descriptions incl. the `vice_*` oracle-only wording =
+722.5b, later.)
+
 ### 722.5 — Descriptions (code)
 Rewrite every KEEP/REWRITE description to the §2 template. Strip `Spec NNN`
 from all user-facing tool + param descriptions.
