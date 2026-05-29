@@ -100,7 +100,16 @@ Sequence (no capability loss at any step):
 - Gate per step: `ui:v3:build` + `ui:v3:typecheck` + the moved screens render
   against the live REST API.
 
-### 724.3 — One project path, fanned out (code)
+### 724.3 — One project path, fanned out (code) — DONE (2026-05-29)
+Shipped: `src/workspace-ui/resolve-project-dir.ts` (`--project` > env > hard
+error, no cwd fallback) used by server.ts (HTTP) + start-v3-server (WS);
+V3WsServer requires `projectDir` + reads it (not env); repo `samples/` behind
+`--dev-samples`; dead post-723 keys removed from start-v3-server;
+`npm run workspace -- --project <dir>` bootstrap starts HTTP + WS with the one
+path. Guard `scripts/probe-workspace-single.mjs` 11/11. (UI v1 entry + server.ts
+v1-dist path stay for 724.2d.)
+
+Original plan:
 - Single resolver: `resolveProjectDir(argv, env)` (one precedence:
   `--project` > `C64RE_PROJECT_DIR` > error). Used by BOTH `server.ts` and the
   runtime-WS bootstrap.
