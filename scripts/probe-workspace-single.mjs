@@ -11,7 +11,12 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 const read = (p) => readFileSync(join(ROOT, p), "utf8");
 const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
-console.log("Spec 724.3 — probe-workspace-single\n");
+// Maps to the four 724A guard requirements:
+//   (i)   HTTP projectDir == WS projectDir  → checks 1, 6, 7, 9
+//   (ii)  media picker = project media, not repo samples → checks 2, 3
+//   (iii) dev samples only with --dev-samples → check 2
+//   (iv)  no stale runtime key → check 5
+console.log("Spec 724A — probe-workspace-single\n");
 
 const server = stripComments(read("src/workspace-ui/server.ts"));
 const wsSrvRaw = read("src/workspace-ui/v3-ws-server.ts");
@@ -55,6 +60,11 @@ let threw = false;
 try { m.resolveProjectDir([], {}); } catch { threw = true; }
 ok(threw, "8 resolveProjectDir throws without --project/env (no cwd fallback)");
 ok(m.resolveProjectDir(["--project", ROOT], {}) === ROOT, "8b resolveProjectDir resolves --project");
+
+// 9. HTTP + WS resolve the project via the SAME module → identical precedence,
+//    so for the same argv/env they get the SAME projectDir (req (i)).
+ok(/resolve-project-dir/.test(server) && /resolve-project-dir/.test(bootstrap),
+  "9 HTTP + WS import the same resolve-project-dir module");
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} workspace-single: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

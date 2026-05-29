@@ -43,8 +43,27 @@ The three transports are each technically justified (stdio for the LLM, REST for
 knowledge tabs, WS for 50fps push). The problem is **no unifying bootstrap and
 no single project-path source** — not the transport count.
 
+## 1a. Slice structure (2026-05-29)
+
+Two independent halves — do NOT couple them:
+
+- **724A — Project / bootstrap fix (DONE).** One `--project` resolver shared by
+  HTTP + WS; same `projectDir` for both; no silent `process.cwd()/samples`
+  fallback; repo `samples/` only via `--dev-samples`; stale post-723 keys out of
+  `start-v3-server`; one `npm run workspace -- --project <dir>` command starting
+  HTTP + WS on the same project. Guard `scripts/probe-workspace-single.mjs`.
+  Touches NO `ui/src`, deletes NO screen, changes NO emulator behaviour.
+- **724B — UI consolidation (LATER, not started).** The "One UI shell" work
+  (§724.2 below): integrate the v1 knowledge/analysis screens + the v3 workbench
+  into one shell, then retire the v1 entry. **v1 currently holds all the
+  knowledge/analysis screens (Dashboard, Questions, Docs, Memory Map, Graphics,
+  Scrub, Disk, Cartridge, Payloads, Flow Graph, Annotated Listing) and STAYS
+  intact until 724B integrates them.** v1 entry + the server.ts v1-dist path +
+  the stale `Scenarios.tsx` mode dropdown are all 724B.
+
 ## 2. What "good" looks like
-- **One UI** (v3). v1 retired.
+- **One UI** eventually (724B) — but v1 is NOT deleted until its screens live in
+  the one shell.
 - **One command** starts the workspace: it resolves the project path ONCE and
   fans it out to the HTTP + WS surfaces. (The MCP/stdio server is launched by
   the MCP host with the same `C64RE_PROJECT_DIR`; 724 makes the host config +
