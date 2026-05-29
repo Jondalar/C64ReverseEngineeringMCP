@@ -41,11 +41,12 @@ a DuckDB, but cannot produce the DuckDB from that session.
 ## 2. Goal
 
 Bind the existing `TraceRunController` to the LIVE session and expose it as
-default MCP tools, so capture is **incremental** (the agent paces the run with
-`until`/marks, stops when enough is captured) — no all-at-once budget.
+default MCP tools, with an **async streaming DuckDB writer** so rows land
+continuously during the run (no RAM cap, no end-of-run stall, no truncation).
 
-Reuse the Spec 708 pipeline (channels + single observer + `writeTraceRun`). Do
-NOT build a parallel trace path.
+Reuse the Spec 708 pipeline (channels + single observer + the async `writeTraceRun`
+batched-insert path). Do NOT build a parallel trace path; rework the existing
+controller from buffer-then-flush into stream-while-running.
 
 ## 3. Rule
 
@@ -64,29 +65,39 @@ NOT build a parallel trace path.
 shared `ensureRuntimeController(session_id, session)` registry; the observer
 fires on a plain `runtime_session_run`. Binding point = `ctrl.traceRun.start/
 mark/stop`. Two design constraints REFINE 726.2:
-- **Buffer-then-flush, cap 500k events** (NOT streaming): events buffer in RAM,
-  flushed once at `stop()`. A full-session cpu_step trace overflows + silently
-  truncates. → 726.2 keeps buffer-then-flush + leans on **agent-paced short
-  windows + narrow triggers + finalize-per-phase** (the swimlane model);
-  streaming-flush is a possible follow-up, not 726. The §2 wording "append rows
-  incrementally" is corrected to this.
+- **Current writer is buffer-then-flush, cap 500k (BAD — 726.2 replaces it):**
+  events buffer in RAM, flushed once at `stop()`; a full-session trace overflows
+  + silently truncates. **726.2 reworks it into an async STREAMING writer:** the
+  sync hot-path observer enqueues into a bounded queue; a background async drain
+  batch-`INSERT`s into the open DuckDB store during the run; `stop()` drains the
+  remainder + closes. No RAM cap, no truncation; the 500k constant becomes a
+  backpressure threshold (evidence trace blocks rather than drops). Agent pacing
+  (`until` + marks) is for query SCOPE, not a memory limit.
 - **Producers must be enabled, not just channels:** `bus_access` needs
   `enableBusAccessTrace`, iec/drive need `traceIec`/`traceDrive` at session
   construction. → `runtime_session_start(trace_out, trace_domains)` must enable
   the matching producers per domain, else the store is empty.
 
-### 726.2 — Live trace sink (code)
+### 726.2 — Streaming trace sink (code)
+- **Rework `TraceRunController` from buffer-then-flush to async streaming**
+  (the core change): the sync hot-path observer enqueues rows into a bounded
+  queue; a background async drain opens the store at `start()` and continuously
+  batch-`INSERT`s (reusing the existing 500-row-batched `writeTraceRun` insert
+  path, split into per-batch appends) while the run executes; `stop()` drains
+  the remainder + closes. No 500k RAM buffer; the constant becomes a
+  backpressure threshold. Backpressure for an evidence trace = BLOCK (slow the
+  run), never silent drop.
 - `runtime_session_start` gains optional `trace_out` (resolved `.duckdb` path
   under the project) + `trace_domains`/`trace_families` (default: cpu_step +
-  bus + iec/drive + vic + irq, per the use-case schema). When set, start a
-  `TraceRunController` bound to the session and open the store.
-- `runtime_session_run` (and `runtime_until`) append observed events to the open
-  run as they execute. Capture is incremental; the agent paces with `until` +
-  marks.
-- A finalize path (`runtime_session_stop`/explicit `runtime_trace_finalize`, or
-  on session close) flushes `writeTraceRun` + closes the store.
-- Keep the in-memory ring for sessions WITHOUT `trace_out` (no behaviour change
-  by default; persistence is opt-in per session).
+  bus + iec/drive + vic + irq, per the use-case schema). When set: enable the
+  matching trace PRODUCERS at construction (constraint #4 —
+  `enableBusAccessTrace`/`traceIec`/`traceDrive` per domain), then
+  `ctrl.traceRun.start(def, {controller, outputPath})` opens the store + drain.
+- `runtime_session_run` / `runtime_until` capture via the already-registered
+  observer; rows stream to DuckDB as they execute (no per-run append call, no
+  cap).
+- Finalize (`runtime_trace_finalize`, or auto on session close) drains + closes.
+- Sessions WITHOUT `trace_out` are unchanged (persistence is opt-in per session).
 
 ### 726.3 — Marks + surface + descriptions (code)
 - New tool `runtime_mark(session_id, label)` → `controller.mark(label)`; stamps
@@ -143,5 +154,8 @@ that is a bug to fix, not a reason to run the 7-game gate.)
 - **OQ2** — default trace domains: full (cpu_step+bus+iec+drive+vic+irq) is the
   use-case ask but is the heaviest. Allow `trace_domains` to narrow; pick a
   sensible default (cpu_step + bus + marks) in 726.2.
-- **OQ3** — store size / rotation for long runs: cap, warn, or rely on the
-  agent's `until`-paced short windows. Use-case prefers short paced windows.
+- **OQ3 — RESOLVED by the streaming writer:** no RAM cap, so long runs are
+  bounded only by disk. Agent pacing (`until` + marks) is for query SCOPE, not a
+  memory limit. Disk-size guard (warn/cap) can be a later option; not required.
+- **OQ4** — drain backpressure tuning: queue depth + whether to expose a
+  `fast`/`lossy` mode later. Default = block (lossless evidence). Settle in 726.2.

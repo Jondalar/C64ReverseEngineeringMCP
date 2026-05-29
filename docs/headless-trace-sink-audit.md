@@ -67,11 +67,26 @@ Implication for the use-case ("trace EVERYTHING for the whole boot+play"):
      0..ffff — keeps the executed-PC set for THAT region small enough.
   3. (Larger change, out of 726) streaming flush + raised/removed cap.
 
-Spec 726.2's wording "append rows incrementally as it executes" is therefore
-**inaccurate** — capture is in-memory, written once at finalize. 726.2 must
-either (a) keep buffer-then-flush + document the cap + lean on agent pacing /
-narrow triggers, or (b) add incremental flushing (bigger). **Recommend (a)** for
-726; note streaming as a follow-up if full-session cpu_step traces are needed.
+**This buffer-then-flush design is wrong and 726.2 REPLACES it with an async
+streaming writer.** Holding the whole run in RAM + a single end-of-run flush is
+bad design: it caps at 500k, truncates silently, and stalls at stop. The right
+shape:
+
+- The hot-path observer stays SYNC but only enqueues into a **bounded in-memory
+  queue** (small, e.g. a few thousand rows).
+- A **background async drain** continuously batch-`INSERT`s the queue into the
+  OPEN DuckDB store as the run executes (the writer is already async +
+  500-row-batched — it just needs to run during the run, not only at stop).
+- `stop()` = drain the remainder + close. No 500k RAM buffer.
+- Backpressure when the drain can't keep up: for an evidence trace, **block**
+  (slow the run) rather than drop — completeness > speed. (A `drop+mark`
+  fast-mode is a later option.)
+- The 500k constant becomes a backpressure/queue-depth threshold, NOT a silent
+  truncation point.
+
+This removes the cap entirely, so a full-session trace is feasible. Spec 726.2's
+"append rows incrementally" wording is now the actual design (streaming), not a
+metaphor.
 
 ## 4. CRITICAL constraint #2 — channels must be PRODUCING, not just enabled
 
@@ -97,20 +112,25 @@ scenario-specific path.
 
 ## 6. 726.2/726.3 binding plan (grounded)
 
-- **726.2:** `runtime_session_start` gains `trace_out` + `trace_domains`. When
-  set: enable the matching producers (constraint #4); `ensureRuntimeController(
-  session)`; build a capture-def from domains (broad triggers + matching
-  captures); `ctrl.traceRun.start(def, {controller: ctrl, outputPath: trace_out})`.
-  `runtime_session_run`/`until` capture via the live observer (constraint #5).
-- **Finalize:** `runtime_trace_finalize(session_id)` → `ctrl.traceRun.stop()` →
-  `writeTraceRun`. (Auto-flush on session close as a safety net.) — resolves OQ1.
+- **726.2 (streaming writer):** rework `TraceRunController` so the observer
+  enqueues into a bounded queue and a background async drain streams batches into
+  the open DuckDB store during the run (§3). `runtime_session_start` gains
+  `trace_out` + `trace_domains`: enable the matching producers (constraint #4),
+  `ensureRuntimeController(session)`, build a capture-def from domains, open the
+  store + start the drain via `ctrl.traceRun.start(def, {controller, outputPath})`.
+  `runtime_session_run`/`until` capture via the live observer (constraint #5);
+  rows land continuously, no RAM cap.
+- **Finalize:** `runtime_trace_finalize(session_id)` → `ctrl.traceRun.stop()` =
+  drain the remainder + close the store. (Auto-finalize on session close as a
+  safety net.) — resolves OQ1.
 - **726.3:** `runtime_mark(session_id, label)` → `ctrl.traceRun.mark(label)`.
   `runtime_trace_status` (optional) → `ctrl.traceRun.status()` so the agent can
-  watch `eventCount`/`overflow` and finalize before the 500k cap.
+  watch event/queue depth.
 - Tier: `runtime_mark` + `runtime_trace_finalize` (+ status) = default.
-- Document the cap + the agent-paced-windows pattern in the tool descriptions
-  (`runtime_session_start trace_out`: "for full traces, pace with until + marks
-  and finalize per phase; capture is capped at 500k events per run").
+- Backpressure: evidence trace blocks (slows the run) rather than dropping;
+  document this in `runtime_session_start trace_out`'s description (no silent
+  truncation; full traces are feasible, paced by `until` + marks for scope, not
+  by a RAM cap).
 
 ## 7. Risks / notes
 - The 500k cap is the dominant design fact — surface it in the description so the
