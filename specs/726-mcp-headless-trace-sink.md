@@ -58,15 +58,22 @@ NOT build a parallel trace path.
 
 ## 4. Tasks
 
-### 726.1 — Audit (no code change)
-- Read `TraceRunController.start/observer/mark/finish` lifecycle
-  (`trace/trace-run.ts`) + `writeTraceRun` schema (`trace/trace-run-store.ts`).
-- Confirm how it attaches to a live `IntegratedSession`'s trace registry /
-  channels, and how `runtime_run_scenario` drives it today.
-- Decide where the controller is held per live session (the
-  integrated-session-manager registry vs the runtime tool layer) so multiple
-  `runtime_session_run` calls append to the same store.
-- Emit `docs/headless-trace-sink-audit.md`.
+### 726.1 — Audit (no code change) — DONE (2026-05-29)
+`docs/headless-trace-sink-audit.md`. Findings: the pipeline is already present —
+`RuntimeController` owns `traceRun = new TraceRunController()`, reachable via the
+shared `ensureRuntimeController(session_id, session)` registry; the observer
+fires on a plain `runtime_session_run`. Binding point = `ctrl.traceRun.start/
+mark/stop`. Two design constraints REFINE 726.2:
+- **Buffer-then-flush, cap 500k events** (NOT streaming): events buffer in RAM,
+  flushed once at `stop()`. A full-session cpu_step trace overflows + silently
+  truncates. → 726.2 keeps buffer-then-flush + leans on **agent-paced short
+  windows + narrow triggers + finalize-per-phase** (the swimlane model);
+  streaming-flush is a possible follow-up, not 726. The §2 wording "append rows
+  incrementally" is corrected to this.
+- **Producers must be enabled, not just channels:** `bus_access` needs
+  `enableBusAccessTrace`, iec/drive need `traceIec`/`traceDrive` at session
+  construction. → `runtime_session_start(trace_out, trace_domains)` must enable
+  the matching producers per domain, else the store is empty.
 
 ### 726.2 — Live trace sink (code)
 - `runtime_session_start` gains optional `trace_out` (resolved `.duckdb` path
