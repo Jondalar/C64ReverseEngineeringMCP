@@ -5,34 +5,28 @@ import type { VideoSystem } from "./clock-domains.js";
 import type { HookStatus } from "./kernel-hooks.js";
 
 /**
- * KernelMode — all 8 ADR §7 modes.
+ * KernelMode.
  *
  * Production modes (acceptance-gated):
- *   - fast-trap          — KERNAL traps allowed; RE convenience.
- *   - real-kernal        — real KERNAL ROM, simplified drive.
  *   - true-drive         — real KERNAL + real 1541, no hidden hooks.
  *   - debug-vice-compare — true-drive + trace/diff instrumentation.
  *
  * Diagnostic modes (NOT acceptance-gated):
  *   - debug-lockstep   — opt-in `LockstepStrategy` (Spec 200 default,
  *                        demoted by Spec 202).
- *   - debug-push-only  — push-only sync probe; no event/catch-up.
- *   - debug-hybrid     — hybrid sync probe (= cycle-step on $DD00 in
- *                        userland PC range; legacy elsewhere).
  */
 // Spec 723.3: fast-trap / real-kernal removed.
+// Spec 723.7a: debug-push-only / debug-hybrid removed (dead label-only modes).
 export type KernelMode =
   | "true-drive"
   | "debug-vice-compare"
-  | "debug-lockstep"
-  | "debug-push-only"
-  | "debug-hybrid";
+  | "debug-lockstep";
 
 export const PRODUCTION_MODES: readonly KernelMode[] = [
   "true-drive", "debug-vice-compare",
 ] as const;
 export const DIAGNOSTIC_MODES: readonly KernelMode[] = [
-  "debug-lockstep", "debug-push-only", "debug-hybrid",
+  "debug-lockstep",
 ] as const;
 
 export function isProductionMode(m: KernelMode): boolean {
