@@ -84,7 +84,11 @@ ok(existsSync(tracePath), "1 trace.duckdb captured in project traces/ (separate 
 
 // ---- boot the real workspace-ui HTTP server against this project ----
 const PORT = 4319;
-const srv = spawn(process.execPath, [join(ROOT, "dist/workspace-ui/server.js"), "--project", projectDir, "--port", String(PORT), "--api-only"], {
+// NOT --api-only: also serve the static UI so the BUG-001 routing fix (/, /v3.html
+// → v3 shell; /index.html → legacy v1) is gated. UI-entry asserts are guarded by
+// the presence of the built bundles (skip cleanly if the UI was not built).
+const hasV3Bundle = existsSync(join(ROOT, "ui/dist-v3/v3.html"));
+const srv = spawn(process.execPath, [join(ROOT, "dist/workspace-ui/server.js"), "--project", projectDir, "--port", String(PORT)], {
   cwd: tmpdir(), env: { ...process.env }, stdio: ["ignore", "pipe", "pipe"],
 });
 let srvErr = "";
@@ -105,6 +109,10 @@ async function waitPort(port, ms = 8000) {
 async function getJson(path) {
   const res = await fetch(`http://127.0.0.1:${PORT}${path}`);
   return { status: res.status, body: await res.json() };
+}
+async function getText(path) {
+  const res = await fetch(`http://127.0.0.1:${PORT}${path}`);
+  return { status: res.status, ct: res.headers.get("content-type") || "", text: await res.text() };
 }
 
 let exitCode = 0;
@@ -191,9 +199,24 @@ try {
   ok(annRes.ok && ann.totalSegments >= 1, "22 /api/scrub/annotate-segment persists a graphics segment (reclassify)", `segments=${ann.totalSegments}`);
   ok(typeof ann.annotationsPath === "string" && existsSync(ann.annotationsPath), "23 annotations file written + visible in the project", ann.annotationsPath ? "written" : "missing");
 
+  // 24-26 — BUG-001: static UI routing. / and /v3.html serve the v3 One-UI
+  // shell (C64RE V3); /index.html serves the legacy v1 entry. Guarded by the
+  // built bundle so the gate skips cleanly when the UI was not built.
+  if (hasV3Bundle) {
+    const root = await getText("/");
+    ok(root.status === 200 && /C64RE V3/.test(root.text) && /assets\/v3-/.test(root.text), "24 / serves the v3 One-UI shell (not v1)", root.text.match(/<title>[^<]*/)?.[0] ?? "");
+    const v3 = await getText("/v3.html");
+    ok(v3.status === 200 && /C64RE V3/.test(v3.text), "25 /v3.html serves the v3 shell (BUG-001 fixed)", "");
+    const idx = await getText("/index.html");
+    ok(idx.status === 200 && !/C64RE V3/.test(idx.text), "26 /index.html still serves the legacy v1 entry", idx.text.match(/<title>[^<]*/)?.[0] ?? "");
+  } else {
+    console.log("  SKIP  24-26 UI routing (ui/dist-v3 not built — run npm run ui:v3:build)");
+  }
+
   console.log(`\n--- report ---`);
   console.log(`project: ${projectDir}`);
   console.log(`endpoints proven: /api/config, /api/workspace (+ all view keys), /api/traces, /api/trace/{info,top-pcs,events}, /api/docs, /api/graphics`);
+  console.log(`UI routing (BUG-001): / + /v3.html → v3 shell; /index.html → legacy v1${hasV3Bundle ? "" : " (skipped — UI not built)"}`);
   console.log(`tabs reachable: Knowledge, Questions, Docs, Trace Files, Memory Map, Payloads, Annotated Listing, Flow Graph, Disk, Cartridge, Graphics, Assets/Scrub`);
   console.log(`Assets/Scrub: PRG picker + /api/artifact/raw slice + /api/scrub/annotate-segment write proven`);
   console.log(`729 artifacts visible: project status+path, game.d64, traces/run.duckdb, marks(basic-ready,loaded-or-title), findings, entities, dashboard`);

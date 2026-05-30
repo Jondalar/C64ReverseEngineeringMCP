@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { resolveProjectDir } from "./resolve-project-dir.js";
 import { persistInspectEvidence } from "./inspect-evidence-persist.js";
@@ -260,8 +261,27 @@ function enumerateMarkdownDocs(root: string): MarkdownDocEntry[] {
 }
 
 const options = parseArgs(process.argv.slice(2));
-const uiDistDir = resolve(process.cwd(), "ui", "dist");
-const hasUiDist = existsSync(uiDistDir);
+// Spec 724B / BUG-001: the v3 One-UI shell is the product UI. Its build lands in
+// `ui/dist-v3` (v3.html + assets/v3-*). The legacy v1 build is `ui/dist`
+// (index.html + assets/index-*). The static server serves BOTH: root + /v3.html
+// → the v3 shell; /index.html → the legacy v1 entry; /assets/* resolves from
+// whichever dist actually has the file. Before this, only `ui/dist` was served,
+// so /v3.html fell back to v1's index.html (BUG-001: "v3 opens v1 dashboard").
+//
+// Resolve the UI dists from the SERVER MODULE location (dist/workspace-ui →
+// repo root), not process.cwd(), so the UI is found regardless of the launch
+// cwd (724A path-portability — the same cwd coupling fixed for media). Fall back
+// to a cwd-relative `ui/` for the vite dev layout.
+const repoRootFromModule = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+function resolveUiDist(name: string): string {
+  const fromModule = resolve(repoRootFromModule, "ui", name);
+  if (existsSync(fromModule)) return fromModule;
+  return resolve(process.cwd(), "ui", name);
+}
+const uiDistDir = resolveUiDist("dist");
+const uiV3DistDir = resolveUiDist("dist-v3");
+const hasUiV3Dist = existsSync(uiV3DistDir);
+const hasUiDist = existsSync(uiDistDir) || hasUiV3Dist;
 
 const server = createServer((req, res) => {
   const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
@@ -1774,16 +1794,35 @@ const server = createServer((req, res) => {
     return;
   }
 
-  const staticPath = safeStaticPath(uiDistDir, requestUrl.pathname);
-  if (!staticPath) {
-    send(res, textResponse(403, "Forbidden\n"));
-    return;
+  // Pick the entry. Root + /v3.html → the v3 One-UI shell (the product UI).
+  // /index.html → the legacy v1 entry. Everything else (assets/*, etc.) resolves
+  // from whichever dist actually has the file, v3 first.
+  const wantsV3Entry = requestUrl.pathname === "/" || requestUrl.pathname === "/v3.html";
+  const wantsV1Entry = requestUrl.pathname === "/index.html";
+
+  let filePath: string | undefined;
+  if (wantsV3Entry && hasUiV3Dist) {
+    filePath = join(uiV3DistDir, "v3.html");
+  } else if (wantsV1Entry && existsSync(uiDistDir)) {
+    filePath = join(uiDistDir, "index.html");
+  } else {
+    // Resolve a concrete file from either dist (v3 first), e.g. /assets/v3-*.js.
+    for (const root of [uiV3DistDir, uiDistDir]) {
+      if (!existsSync(root)) continue;
+      const p = safeStaticPath(root, requestUrl.pathname);
+      if (p && existsSync(p) && statSync(p).isFile()) { filePath = p; break; }
+    }
+    // SPA fallback: serve the v3 shell (product) so client-side routes work.
+    if (!filePath) {
+      filePath = hasUiV3Dist ? join(uiV3DistDir, "v3.html")
+        : existsSync(uiDistDir) ? join(uiDistDir, "index.html") : undefined;
+    }
   }
 
-  const filePath = existsSync(staticPath) && statSync(staticPath).isFile()
-    ? staticPath
-    : join(uiDistDir, "index.html");
-
+  if (!filePath || !existsSync(filePath)) {
+    send(res, textResponse(404, "UI entry not found.\n"));
+    return;
+  }
   try {
     send(res, textResponse(200, readFileSync(filePath), mimeType(filePath)));
   } catch (error) {
