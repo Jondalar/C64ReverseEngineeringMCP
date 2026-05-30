@@ -487,6 +487,29 @@ export interface LoadSequenceView {
   }>;
 }
 
+// Spec 730 §7.1 — artifact version group (the "current best version" model).
+export type ArtifactVersionRole = "generated" | "semantic" | "manual" | "curated" | "final" | "related";
+export type ArtifactVersionFormat = "kickass" | "64tass" | "markdown" | "json" | "sym" | "other";
+
+export interface ArtifactVersionMember {
+  artifactId: string;
+  role: ArtifactVersionRole;
+  format: ArtifactVersionFormat;
+  rank: number;
+  status: "current" | "available" | "stale" | "missing";
+}
+
+export interface ArtifactVersionGroup {
+  id: string;
+  subjectId: string;
+  currentArtifactId: string;
+  currentSource: "auto" | "manual";
+  needsDecision?: boolean;
+  versions: ArtifactVersionMember[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WorkspaceUiSnapshot {
   generatedAt: string;
   project: ProjectMetadata;
@@ -500,6 +523,8 @@ export interface WorkspaceUiSnapshot {
   tasks: TaskRecord[];
   openQuestions: OpenQuestionRecord[];
   checkpoints: Array<{ id: string; title: string; summary?: string; createdAt: string }>;
+  // Spec 730 §7 — artifact version groups for the unified best-version resolver.
+  artifactVersionGroups?: ArtifactVersionGroup[];
   views: {
     projectDashboard: ProjectDashboardView;
     memoryMap: MemoryMapView;

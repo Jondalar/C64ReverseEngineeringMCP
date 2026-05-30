@@ -30,6 +30,10 @@ export interface ProjectInventorySyncResult {
   registered: number;
   importedManifests: number;
   rebuiltViews: string[];
+  // Spec 730 §7.3 — artifact version-group reconciliation counts.
+  versionGroupsCreated: number;
+  versionGroupsUpdated: number;
+  versionGroupsNeedDecision: number;
   skipped: Array<{ path: string; reason: string }>;
   remainingProblems: string[];
   nextStepHint: string;
@@ -71,6 +75,23 @@ export function runProjectInventorySync(
         reason: `manifest not imported: ${e instanceof Error ? e.message : String(e)}`,
       });
     }
+  }
+
+  // 3b. Spec 730 §7.3 — reconcile artifact version groups so the "current best
+  // version" model reflects what is now on disk. Conservative: auto-current only
+  // on an unambiguous rank, never overwrites a manual choice, opens an open
+  // question (needsDecision) on a genuine rank tie. Closes BUG-019 Part B —
+  // a hand-made/semantic source becomes the default over a stale generated dump.
+  let versionGroupsCreated = 0;
+  let versionGroupsUpdated = 0;
+  let versionGroupsNeedDecision = 0;
+  try {
+    const vg = service.reconcileArtifactVersionGroups();
+    versionGroupsCreated = vg.created;
+    versionGroupsUpdated = vg.updated;
+    versionGroupsNeedDecision = vg.needsDecision;
+  } catch (e) {
+    remainingProblems.push(`Version reconciliation issue: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   // 4. Full rebuild of project views (MVP: always full, correctness over
@@ -122,6 +143,9 @@ export function runProjectInventorySync(
     registered: reg.registered,
     importedManifests,
     rebuiltViews,
+    versionGroupsCreated,
+    versionGroupsUpdated,
+    versionGroupsNeedDecision,
     skipped,
     remainingProblems,
     nextStepHint,
@@ -136,6 +160,10 @@ function renderResult(projectRoot: string, r: ProjectInventorySyncResult): strin
   lines.push(`Manifests imported: ${r.importedManifests}`);
   lines.push(`Views rebuilt: ${r.rebuiltViews.length}`);
   for (const v of r.rebuiltViews) lines.push(`  ${v}`);
+  lines.push(`Version groups: ${r.versionGroupsCreated} created, ${r.versionGroupsUpdated} updated${r.versionGroupsNeedDecision > 0 ? `, ${r.versionGroupsNeedDecision} need a decision` : ""}.`);
+  if (r.versionGroupsNeedDecision > 0) {
+    lines.push(`  ${r.versionGroupsNeedDecision} subject(s) have two equally-ranked sources — pick the current version in the Inspector (an open question was raised for each).`);
+  }
   if (r.skipped.length > 0) {
     lines.push(``);
     lines.push(`Skipped (${r.skipped.length}):`);

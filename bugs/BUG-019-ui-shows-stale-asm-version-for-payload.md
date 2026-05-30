@@ -5,7 +5,7 @@
 - **Reporter:** human
 - **Area:** workspace-ui / knowledge
 - **Severity:** high
-- **Status:** partial — Part A fixed (best-first ordering); Part B (register hand-made/curated files) deferred to after Spec 005
+- **Status:** fixed — Part A (best-first ordering) + Part B (artifact version store + unified best-version resolver, Spec 730 §7)
 
 ## Environment
 
@@ -126,3 +126,43 @@ them visible + part of the canonical "best version" rule is a registration /
 knowledge-model change (not just the Disk tab). Per the user, this is revisited
 together with Spec 005 (MCP surface) work. Tracked here; status stays *partial*
 until B lands.
+
+## Resolution — Part B (artifact version store + unified resolver — Spec 730 §7)
+
+- **Registration:** `project_inventory_sync` (via the broadened
+  `DEFAULT_PATTERNS` in `registration.ts`) registers hand-made / curated source
+  (`.asm`/`.tass`/`.sym`/`.md` under `analysis/**` not already claimed by the
+  generated `*_disasm.*` patterns) with role `semantic-source`. So a better
+  hand-made file becomes a tracked, visible artifact instead of staying invisible.
+- **Version model:** a new `ArtifactVersionGroup` knowledge record
+  (`src/project-knowledge/{types,storage,service}.ts` +
+  `artifact-versions.ts`) clusters all source versions of one subject (base stem
+  with `_disasm`/`_semantic`/… stripped) and tracks the current best version.
+  Rank ladder: `final > curated > semantic > manual/unknown > generated > stale`;
+  mtime is only a tie-break. `project_inventory_sync.reconcileArtifactVersionGroups()`
+  creates/updates groups conservatively: auto-current only on an unambiguous
+  rank, never overwrites a manual current, and on a rank tie sets `needsDecision`
+  + opens an open question instead of guessing.
+- **Targeted MCP tools (default surface):** `list_artifact_versions`,
+  `get_current_artifact`, `set_current_artifact_version`,
+  `mark_artifact_version_stale` — each takes a single subject id, none dumps
+  every version of every artifact.
+- **Unified UI resolver:** `bestAsmSourcesForArtifacts(artifacts, versionGroups)`
+  in `ui/src/App.tsx` is the single resolver shared by Disk Inspector, Payloads,
+  Annotated Listing (its source opens through the overlay), and the ASM overlay.
+  It floats the version group's `currentArtifactId` (manual or auto) to the front
+  and falls back to the existing rank logic, so the default action opens the
+  current best version while older versions stay available.
+- **Inspector "Source / Versions" section** (`ArtifactVersionsSection`): shows
+  Current + Other versions with role/format/status and `open` / `make current`
+  / `mark stale` actions. `make current` POSTs `/api/artifact-version/set-current`
+  (persists `currentSource="manual"`, respected by a later sync); `mark stale`
+  POSTs `/api/artifact-version/mark-stale`. Conflicts surface as a
+  *needs decision* banner, not a silent guess.
+- **Gate:** `scripts/e2e-mcp-artifact-best-version.mjs` (19/19) — semantic source
+  auto-wins over the generated dump; an unregistered hand-made source becomes
+  visible after sync; a manual current persists and survives a second sync;
+  mark-stale falls back to the best remaining version. Also green:
+  `probe-tool-surface` (version-op tools default, 99 surface), matrix/playbook
+  probes, `e2e-mcp-project-inventory`. `npm run ui:build` exit 0; ui typecheck 13
+  pre-existing / 0 new.

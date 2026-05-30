@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 277,
-  "defaultCount": 95,
+  "total": 281,
+  "defaultCount": 99,
   "advancedCount": 182,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -60,6 +60,27 @@
       ],
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "agent_next_step",
+      "namespace": "agent",
+      "sourceFile": "server-tools/agent-step.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Ask the server for the single next product step (+ branch alternatives) derived from real project state — the orchestrated 'what do I do now?'.",
+      "notFor": "Running the step — use agent_run_step or the named product tool; recording progress — use agent_record_step.",
+      "adjacentTools": [
+        "agent_run_step",
+        "project_inventory_sync",
+        "agent_onboard"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -124,46 +145,6 @@
       "pathMode": "no-path"
     },
     {
-      "name": "agent_set_role",
-      "namespace": "agent",
-      "sourceFile": "server-tools/agent-workflow.ts",
-      "tier": "default",
-      "role": "workflow",
-      "swimlane": "entry-project-baseline",
-      "useWhen": "Mark whether you operate as analyst, cartographer or implementer for this work.",
-      "notFor": "Choosing a workflow profile — use start_re_workflow.",
-      "adjacentTools": [
-        "start_re_workflow",
-        "agent_onboard"
-      ],
-      "e2eUseCases": [
-        "E2E-A"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "agent_next_step",
-      "namespace": "agent",
-      "sourceFile": "server-tools/agent-step.ts",
-      "tier": "default",
-      "role": "workflow",
-      "swimlane": "entry-project-baseline",
-      "useWhen": "Ask the server for the single next product step (+ branch alternatives) derived from real project state — the orchestrated 'what do I do now?'.",
-      "notFor": "Running the step — use agent_run_step or the named product tool; recording progress — use agent_record_step.",
-      "adjacentTools": [
-        "agent_run_step",
-        "project_inventory_sync",
-        "agent_onboard"
-      ],
-      "e2eUseCases": [
-        "E2E-A",
-        "E2E-B"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
       "name": "agent_run_step",
       "namespace": "agent",
       "sourceFile": "server-tools/agent-step.ts",
@@ -179,6 +160,25 @@
       "e2eUseCases": [
         "E2E-A",
         "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "agent_set_role",
+      "namespace": "agent",
+      "sourceFile": "server-tools/agent-workflow.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Mark whether you operate as analyst, cartographer or implementer for this work.",
+      "notFor": "Choosing a workflow profile — use start_re_workflow.",
+      "adjacentTools": [
+        "start_re_workflow",
+        "agent_onboard"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
@@ -1061,6 +1061,22 @@
       "pathMode": "no-path"
     },
     {
+      "name": "get_current_artifact",
+      "namespace": "get",
+      "sourceFile": "server-tools/artifact-version-tools.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "get_project_profile",
       "namespace": "get",
       "sourceFile": "project-knowledge/mcp-tools.ts",
@@ -1303,6 +1319,22 @@
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "list_artifact_versions",
+      "namespace": "list",
+      "sourceFile": "server-tools/artifact-version-tools.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -1567,6 +1599,22 @@
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "mark_artifact_version_stale",
+      "namespace": "mark",
+      "sourceFile": "server-tools/artifact-version-tools.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -3683,6 +3731,22 @@
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "set_current_artifact_version",
+      "namespace": "set",
+      "sourceFile": "server-tools/artifact-version-tools.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {

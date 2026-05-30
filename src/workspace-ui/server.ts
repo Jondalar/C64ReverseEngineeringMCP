@@ -657,6 +657,46 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 730 §7.2 — Inspector "Source / Versions" actions. The UI POSTs a
+  // subject + artifact to pin the current best version (manual) or to demote a
+  // version (stale/missing). Both persist in the ONE project knowledge store and
+  // a later project_inventory_sync respects the manual current.
+  if (requestUrl.pathname === "/api/artifact-version/set-current" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; subjectId: string; artifactId: string };
+        if (!payload.subjectId || !payload.artifactId) { send(res, jsonResponse(400, { error: "subjectId and artifactId required" })); return; }
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const group = service.setCurrentArtifactVersion(payload.subjectId, payload.artifactId);
+        send(res, jsonResponse(200, { group }));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/artifact-version/mark-stale" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as { projectDir?: string; subjectId: string; artifactId: string; status?: "stale" | "missing" };
+        if (!payload.subjectId || !payload.artifactId) { send(res, jsonResponse(400, { error: "subjectId and artifactId required" })); return; }
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        const group = service.markArtifactVersionStatus(payload.subjectId, payload.artifactId, payload.status ?? "stale");
+        send(res, jsonResponse(200, { group }));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   // Spec 710.3/710.5 — persist a frozen-VIC inspect evidence record into the
   // ONE project knowledge store (saveArtifact). The UI gets the FrozenInspectEvidence
   // from WS vic/inspect/promote and POSTs it here; the WS server never owns

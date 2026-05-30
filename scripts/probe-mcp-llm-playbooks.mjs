@@ -79,7 +79,12 @@ const SUPPORTING = new Set(["runtime_session_status", "runtime_trace_status", "r
   "list_entities", "list_flows", "get_artifact_lineage", "ram_report", "build_all_views",
   "build_memory_map", "build_annotated_listing_view", "render_docs", "trace_store_anchor_list",
   "trace_store_anchor_find", "trace_store_query", "runtime_until", "suggest_depacker", "try_depack",
-  "run_prg_reverse_workflow", "read_artifact", "agent_propose_next", "c64re_whats_next"]);
+  "run_prg_reverse_workflow", "read_artifact", "agent_propose_next", "c64re_whats_next",
+  // Spec 730 §7 — artifact version-op tools are targeted curate/read utilities
+  // (resolve/pin/demote the current best source version), supporting any
+  // disassembly/annotation playbook rather than driving their own swimlane.
+  "list_artifact_versions", "get_current_artifact", "set_current_artifact_version",
+  "mark_artifact_version_stale"]);
 const trulyUncovered = uncovered.filter((n) => !SUPPORTING.has(n));
 ok(trulyUncovered.length === 0, "9 every default tool is in a playbook or marked supporting", trulyUncovered.slice(0, 10).join(",") || "none");
 

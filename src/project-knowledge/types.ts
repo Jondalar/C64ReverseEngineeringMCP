@@ -887,6 +887,56 @@ export const UserLabelOverrideSchema = z.object({
   updatedAt: TimestampSchema,
 });
 
+// Spec 730 §7.1 — artifact version group. Small METADATA record (never file
+// contents) tracking, per subject (a payload / artifact identity), which of its
+// source artifacts is the current best version and what other versions exist.
+// Closes BUG-019: a hand-made/semantic source on disk must beat a stale
+// generated dump as the default artifact for a subject. The UI + every artifact
+// resolver share `currentArtifactId` as the single source of truth.
+export const ArtifactVersionRoleSchema = z.enum([
+  "generated",
+  "semantic",
+  "manual",
+  "curated",
+  "final",
+  "related",
+]);
+
+export const ArtifactVersionFormatSchema = z.enum([
+  "kickass",
+  "64tass",
+  "markdown",
+  "json",
+  "sym",
+  "other",
+]);
+
+export const ArtifactVersionMemberSchema = z.object({
+  artifactId: IdSchema,
+  role: ArtifactVersionRoleSchema,
+  format: ArtifactVersionFormatSchema,
+  // Higher rank wins. Derived from role (final 500 > curated 400 > semantic 300
+  // > manual/unknown 200 > generated 100 > stale 0). mtime is only a tie-break.
+  rank: z.number().int(),
+  status: z.enum(["current", "available", "stale", "missing"]).default("available"),
+});
+
+export const ArtifactVersionGroupSchema = z.object({
+  id: IdSchema,
+  // The payload / entity / artifact identity this group describes. Usually a
+  // base stem like "02_2.0" so generated + semantic + notes for the same
+  // subject cluster together.
+  subjectId: z.string().min(1),
+  currentArtifactId: IdSchema,
+  currentSource: z.enum(["auto", "manual"]).default("auto"),
+  // Set when two candidates tie on rank and the sync cannot pick safely — the
+  // UI surfaces this as "needs decision" and an open question is opened.
+  needsDecision: z.boolean().optional(),
+  versions: z.array(ArtifactVersionMemberSchema).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
 export const TimelineEventSchema = z.object({
   id: IdSchema,
   kind: TimelineEventKindSchema,
@@ -1539,6 +1589,9 @@ export const WorkspaceUiSnapshotSchema = z.object({
   tasks: z.array(TaskRecordSchema),
   openQuestions: z.array(OpenQuestionRecordSchema),
   checkpoints: z.array(ProjectCheckpointSchema),
+  // Spec 730 §7 — artifact version groups so the UI resolver can prefer the
+  // current best version (manual or auto) of a payload's source.
+  artifactVersionGroups: z.array(ArtifactVersionGroupSchema).default([]),
   views: z.object({
     projectDashboard: ProjectDashboardViewSchema,
     memoryMap: MemoryMapViewSchema,
@@ -1585,6 +1638,7 @@ export const OpenQuestionStoreSchema = createRecordListSchema(OpenQuestionRecord
 export const UserLabelStoreSchema = RecordListMetaSchema.extend({
   items: z.array(UserLabelOverrideSchema).default([]),
 });
+export const ArtifactVersionGroupStoreSchema = createRecordListSchema(ArtifactVersionGroupSchema);
 
 export type ProjectMetadata = z.infer<typeof ProjectMetadataSchema>;
 export type PreferredAssembler = z.infer<typeof PreferredAssemblerSchema>;
@@ -1674,3 +1728,8 @@ export type FlowStore = z.infer<typeof FlowStoreSchema>;
 export type TaskStore = z.infer<typeof TaskStoreSchema>;
 export type OpenQuestionStore = z.infer<typeof OpenQuestionStoreSchema>;
 export type UserLabelStore = z.infer<typeof UserLabelStoreSchema>;
+export type ArtifactVersionRole = z.infer<typeof ArtifactVersionRoleSchema>;
+export type ArtifactVersionFormat = z.infer<typeof ArtifactVersionFormatSchema>;
+export type ArtifactVersionMember = z.infer<typeof ArtifactVersionMemberSchema>;
+export type ArtifactVersionGroup = z.infer<typeof ArtifactVersionGroupSchema>;
+export type ArtifactVersionGroupStore = z.infer<typeof ArtifactVersionGroupStoreSchema>;

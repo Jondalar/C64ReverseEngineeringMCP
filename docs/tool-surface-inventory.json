@@ -1,11 +1,11 @@
 {
-  "total": 277,
+  "total": 281,
   "specCount": 78,
   "advancedCandidate": 68,
   "byNamespace": {
     "runtime": 66,
     "vice": 49,
-    "list": 17,
+    "list": 18,
     "save": 10,
     "build": 9,
     "depack": 8,
@@ -28,13 +28,13 @@
     "c64ref": 2,
     "dedupe": 2,
     "disasm": 2,
-    "get": 2,
-    "mark": 2,
+    "get": 3,
+    "mark": 3,
     "propose": 2,
     "read": 2,
     "render": 2,
     "sandbox": 2,
-    "set": 2,
+    "set": 3,
     "start": 2,
     "suggest": 2,
     "apply": 1,
@@ -78,6 +78,15 @@
       "tier": "default?"
     },
     {
+      "name": "agent_next_step",
+      "file": "server-tools/agent-step.ts",
+      "ns": "agent",
+      "hasSpec": false,
+      "firstSentence": "Get the single MCP-chosen next step for the project, plus valid iterative branches — the product way to answer \"what do I do now?\".",
+      "desc": "Get the single MCP-chosen next step for the project, plus valid iterative branches — the product way to answer \"what do I do now?\". Use when you are unsure where to continue, after finishing a step, or after onboarding; it derives the step from real project state (is the project initialized? are files untracked / manifests unimported / views stale? is media extracted? is there analysis, source, annotations, a trace, open questions, recorded findings?). Every recommended action is a callable product tool; internal maintenance tools are listed only under \"do not call\". Not for executing the step (use agent_run_step or call the named tool) or recording progress (use agent_record_step). Inputs: optional project dir, optional free-text context. Returns: a primary suggestion (step id, phase, tool, why, completion checks), branch alternatives, any human decisions that block progress, and the forbidden-internal-tool list.",
+      "tier": "default?"
+    },
+    {
       "name": "agent_onboard",
       "file": "server-tools/agent-workflow.ts",
       "ns": "agent",
@@ -105,30 +114,21 @@
       "tier": "default?"
     },
     {
-      "name": "agent_set_role",
-      "file": "server-tools/agent-workflow.ts",
-      "ns": "agent",
-      "hasSpec": false,
-      "firstSentence": "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends.",
-      "desc": "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends. Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
-      "tier": "default?"
-    },
-    {
-      "name": "agent_next_step",
-      "file": "server-tools/agent-step.ts",
-      "ns": "agent",
-      "hasSpec": false,
-      "firstSentence": "Get the single MCP-chosen next step for the project, plus valid iterative branches — the product way to answer \"what do I do now?\".",
-      "desc": "Get the single MCP-chosen next step for the project, plus valid iterative branches — the product way to answer \"what do I do now?\". Use when you are unsure where to continue, after finishing a step, or after onboarding; it derives the step from real project state (is the project initialized? are files untracked / manifests unimported / views stale? is media extracted? is there analysis, source, annotations, a trace, open questions, recorded findings?). Every recommended action is a callable product tool; internal maintenance tools are listed only under \"do not call\". Not for executing the step (use agent_run_step or call the named tool) or recording progress (use agent_record_step). Inputs: optional project dir, optional free-text context. Returns: a primary suggestion (step id, phase, tool, why, completion checks), branch alternatives, any human decisions that block progress, and the forbidden-internal-tool list.",
-      "tier": "default?"
-    },
-    {
       "name": "agent_run_step",
       "file": "server-tools/agent-step.ts",
       "ns": "agent",
       "hasSpec": false,
       "firstSentence": "Run a workflow step chosen by agent_next_step.",
       "desc": "Run a workflow step chosen by agent_next_step. Use to execute the inventory/media-sync step in-process (it tracks present-but-untracked files, imports manifests, and rebuilds project views behind one product action). For every other step, it returns the one product tool to call next — it never crashes on an unimplemented step. Not for choosing the step (use agent_next_step) or for the underlying maintenance helpers (those are wrapped, never called directly). Inputs: step id (e.g. inventory-sync), optional project dir, optional step-specific args. Returns: the step status, the product-level actions performed, newly tracked artifacts, refreshed views, findings to review, and the next-step hint.",
+      "tier": "default?"
+    },
+    {
+      "name": "agent_set_role",
+      "file": "server-tools/agent-workflow.ts",
+      "ns": "agent",
+      "hasSpec": false,
+      "firstSentence": "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends.",
+      "desc": "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends. Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
       "tier": "default?"
     },
     {
@@ -600,6 +600,15 @@
       "tier": "default?"
     },
     {
+      "name": "get_current_artifact",
+      "file": "server-tools/artifact-version-tools.ts",
+      "ns": "get",
+      "hasSpec": false,
+      "firstSentence": "Get the current best version artifact for a single source subject — the one the UI opens by default.",
+      "desc": "Get the current best version artifact for a single source subject — the one the UI opens by default. Use when you want the right .asm/.tass to read or act on for a payload, without choosing among versions yourself: it returns the manually-pinned current if one exists, otherwise the highest-ranked source (curated/semantic beats generated). Pass the subject stem (e.g. '02_2.0') or any artifact id belonging to the subject. Not for listing the alternatives (use list_artifact_versions) and not for changing the current (use set_current_artifact_version). Returns the current artifact's id, path, role, and format.",
+      "tier": "default?"
+    },
+    {
       "name": "get_project_profile",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "get",
@@ -723,6 +732,15 @@
       "hasSpec": true,
       "firstSentence": "Spec 031: list registered anti-patterns sorted by recency.",
       "desc": "Spec 031: list registered anti-patterns sorted by recency.",
+      "tier": "default?"
+    },
+    {
+      "name": "list_artifact_versions",
+      "file": "server-tools/artifact-version-tools.ts",
+      "ns": "list",
+      "hasSpec": false,
+      "firstSentence": "List every known version of a single source subject (one payload / listing identity) with its role, format, rank, and status, and which one is current.",
+      "desc": "List every known version of a single source subject (one payload / listing identity) with its role, format, rank, and status, and which one is current. Use when you need to see the alternatives for a payload's .asm/.tass source — for example before opening or before choosing a different version. The subject id is the base stem shared by a payload's sources (e.g. \"02_2.0\" for 02_2.0_disasm.asm + 02_2.0_semantic.tass); pass an artifact id and the tool resolves its subject. Not for listing all artifacts in the project (use list_artifacts) and not for reading file bytes (use read_artifact). Returns the version group: current artifact, source (auto/manual), needs-decision flag, and the ordered version list.",
       "tier": "default?"
     },
     {
@@ -867,6 +885,15 @@
       "hasSpec": false,
       "firstSentence": "List persisted project tasks from the project knowledge layer with optional filters.",
       "desc": "List persisted project tasks from the project knowledge layer with optional filters.",
+      "tier": "default?"
+    },
+    {
+      "name": "mark_artifact_version_stale",
+      "file": "server-tools/artifact-version-tools.ts",
+      "ns": "mark",
+      "hasSpec": false,
+      "firstSentence": "Mark one version of a subject as stale (outdated) or missing (gone from disk) so it stops being offered as the default.",
+      "desc": "Mark one version of a subject as stale (outdated) or missing (gone from disk) so it stops being offered as the default. Use when a generated dump is superseded, or a source file was removed and should no longer win as current. If the marked version was current, the best remaining non-stale version becomes current automatically (unless a manual pin exists). The change persists in the project knowledge store. Pass the subject stem or an artifact id plus the artifact id to demote; status defaults to 'stale'. Not for choosing a new current explicitly (use set_current_artifact_version) and not for deleting files (this never touches the filesystem). Returns the updated version group.",
       "tier": "default?"
     },
     {
@@ -1974,6 +2001,15 @@
       "hasSpec": true,
       "firstSentence": "Spec 041: tag an artifact with a relevance value (loader | protection | save | kernal | asset | other).",
       "desc": "Spec 041: tag an artifact with a relevance value (loader | protection | save | kernal | asset | other). Drives sorting in the dashboard + cracker-mode propose_next ranking.",
+      "tier": "default?"
+    },
+    {
+      "name": "set_current_artifact_version",
+      "file": "server-tools/artifact-version-tools.ts",
+      "ns": "set",
+      "hasSpec": false,
+      "firstSentence": "Pin one version as the current best source for a subject.",
+      "desc": "Pin one version as the current best source for a subject. Use when the auto-picked current is wrong — for example a hand-made source should win over a generated dump, or a specific version is the canonical one. The choice persists in the project knowledge store as a manual decision and a later project_inventory_sync will respect it (it will not be auto-overwritten). Pass the subject stem (e.g. '02_2.0') or any artifact id of the subject, plus the artifact id to make current. Not for marking a version obsolete (use mark_artifact_version_stale) and not for reading versions (use list_artifact_versions). Returns the updated version group.",
       "tier": "default?"
     },
     {

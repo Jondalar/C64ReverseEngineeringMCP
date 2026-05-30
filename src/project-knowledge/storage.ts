@@ -102,6 +102,9 @@ import {
   type TaskRecord,
   type TaskStore,
   TaskStoreSchema,
+  type ArtifactVersionGroup,
+  type ArtifactVersionGroupStore,
+  ArtifactVersionGroupStoreSchema,
 } from "./types.js";
 
 export interface ProjectKnowledgePaths {
@@ -148,6 +151,7 @@ export interface ProjectKnowledgePaths {
   knowledgeBuildPipelines: string;
   knowledgeBuildRuns: string;
   knowledgeLabelsUser: string;
+  knowledgeArtifactVersions: string;
   snapshotsRoot: string;
   knowledgeNotes: string;
   knowledgePhasePlan: string;
@@ -272,6 +276,7 @@ export class ProjectKnowledgeStorage {
     this.ensureJsonFile(this.paths.knowledgeBuildPipelines, emptyStore<BuildPipeline>());
     this.ensureJsonFile(this.paths.knowledgeBuildRuns, emptyStore<BuildRun>());
     this.ensureJsonFile(this.paths.knowledgeLabelsUser, emptyStore<UserLabelStore["items"][number]>());
+    this.ensureJsonFile(this.paths.knowledgeArtifactVersions, emptyStore<ArtifactVersionGroup>());
     this.ensureJsonFile(this.paths.knowledgePhasePlan, emptyWorkflowPlan() as unknown as JsonValue);
     this.ensureJsonFile(this.paths.knowledgeWorkflowState, emptyWorkflowState() as unknown as JsonValue);
     this.ensureTextFile(this.paths.knowledgeNotes, "# Notes\n");
@@ -526,6 +531,17 @@ export class ProjectKnowledgeStorage {
     return parsed;
   }
 
+  // Spec 730 §7.1 — artifact version groups (metadata-only "best version" model).
+  loadArtifactVersionGroups(): ArtifactVersionGroupStore {
+    return ArtifactVersionGroupStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeArtifactVersions, emptyStore<ArtifactVersionGroup>()));
+  }
+
+  saveArtifactVersionGroups(store: ArtifactVersionGroupStore): ArtifactVersionGroupStore {
+    const parsed = ArtifactVersionGroupStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeArtifactVersions, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
   loadWorkflowPlan(): WorkflowPlan {
     return WorkflowPlanSchema.parse(readJsonOrDefault(this.paths.knowledgePhasePlan, emptyWorkflowPlan()));
   }
@@ -712,6 +728,7 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeBuildPipelines: join(root, "knowledge", "build-pipelines.json"),
     knowledgeBuildRuns: join(root, "knowledge", "build-runs.json"),
     knowledgeLabelsUser: join(root, "knowledge", "labels.user.json"),
+    knowledgeArtifactVersions: join(root, "knowledge", "artifact-versions.json"),
     snapshotsRoot: join(root, "snapshots"),
     knowledgeNotes: join(root, "knowledge", "notes.md"),
     knowledgePhasePlan: join(root, "knowledge", "phase-plan.json"),

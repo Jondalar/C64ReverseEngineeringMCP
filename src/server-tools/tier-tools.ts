@@ -84,6 +84,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "suggest_disk_lut_sector", "extract_disk_custom_lut", "set_payload_disk_hint",
   // Cartridge chunk product tools:
   "bulk_create_cart_chunk_payloads", "link_cart_chunk_to_asm", "record_cart_chunk_packer",
+  // Spec 730 §7 — artifact version-op tools. Targeted "current best version"
+  // model so the LLM + UI resolve a payload's source to the curated/semantic
+  // file instead of a stale generated dump. Each takes a single subject id.
+  "list_artifact_versions", "get_current_artifact", "set_current_artifact_version",
+  "mark_artifact_version_stale",
 ]);
 
 /** Documented cap on the default surface (probe fails if exceeded). Spec 725

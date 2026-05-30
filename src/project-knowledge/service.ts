@@ -6,11 +6,21 @@ import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./an
 import { importManifestKnowledge } from "./manifest-import.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
+import {
+  isVersionedSourceArtifact,
+  memberFromCandidate,
+  orderCandidatesBestFirst,
+  rankCandidate,
+  subjectIdForArtifact,
+  topRankIsTied,
+} from "./artifact-versions.js";
 import type {
   AnnotatedListingView,
   AntiPattern,
   ArtifactKind,
   ArtifactRecord,
+  ArtifactVersionGroup,
+  ArtifactVersionMember,
   ArtifactScope,
   ConstraintRule,
   ContainerEntry,
@@ -3718,6 +3728,225 @@ export class ProjectKnowledgeService {
     return this.storage.loadArtifacts().items.find((artifact) => artifact.id === artifactId);
   }
 
+  // ---- Spec 730 §7: artifact version groups (the "current best version" model) ----
+
+  listArtifactVersionGroups(): ArtifactVersionGroup[] {
+    return [...this.storage.loadArtifactVersionGroups().items].sort((a, b) => a.subjectId.localeCompare(b.subjectId));
+  }
+
+  // Targeted read: the version group for ONE subject. Never dumps every group.
+  getArtifactVersionGroup(subjectId: string): ArtifactVersionGroup | undefined {
+    return this.storage.loadArtifactVersionGroups().items.find((g) => g.subjectId === subjectId || g.id === subjectId);
+  }
+
+  // Targeted read: the current best artifact for one subject. Falls back to the
+  // rank logic when no group exists yet (so resolvers always get an answer).
+  getCurrentArtifactForSubject(subjectId: string): ArtifactRecord | undefined {
+    const group = this.getArtifactVersionGroup(subjectId);
+    if (group) {
+      const current = this.getArtifactById(group.currentArtifactId);
+      if (current) return current;
+    }
+    // Fallback: rank the source artifacts whose subjectId matches.
+    const ranked = orderCandidatesBestFirst(
+      this.listArtifacts()
+        .filter((a) => isVersionedSourceArtifact(a) && subjectIdForArtifact(a) === subjectId)
+        .map(rankCandidate),
+    );
+    return ranked[0]?.artifact;
+  }
+
+  private persistArtifactVersionGroup(group: ArtifactVersionGroup): ArtifactVersionGroup {
+    const store = this.storage.loadArtifactVersionGroups();
+    const ts = nowIso();
+    const next: ArtifactVersionGroup = { ...group, updatedAt: ts };
+    this.storage.saveArtifactVersionGroups({
+      ...store,
+      updatedAt: ts,
+      items: upsertRecord(store.items, next),
+    });
+    return next;
+  }
+
+  // Manual override (§7.2 "make current"): pins currentArtifactId and sets
+  // currentSource="manual" so a later project_inventory_sync respects it. The
+  // pinned member becomes status "current"; clears needsDecision.
+  setCurrentArtifactVersion(subjectId: string, artifactId: string): ArtifactVersionGroup {
+    let group = this.getArtifactVersionGroup(subjectId);
+    const artifact = this.getArtifactById(artifactId);
+    if (!artifact) throw new Error(`Unknown artifact id: ${artifactId}`);
+    const ts = nowIso();
+    if (!group) {
+      // Build a fresh group from the subject's source artifacts on the fly.
+      group = this.computeArtifactVersionGroup(subjectId);
+      if (!group) {
+        const c = rankCandidate(artifact);
+        group = {
+          id: createId("version-group", subjectId),
+          subjectId,
+          currentArtifactId: artifactId,
+          currentSource: "manual",
+          versions: [memberFromCandidate(c, true)],
+          createdAt: ts,
+          updatedAt: ts,
+        };
+        return this.persistArtifactVersionGroup(group);
+      }
+    }
+    const hasMember = group.versions.some((v) => v.artifactId === artifactId);
+    const versions = (hasMember ? group.versions : [...group.versions, memberFromCandidate(rankCandidate(artifact), false)])
+      .map((v) => ({ ...v, status: v.status === "stale" || v.status === "missing" ? v.status : (v.artifactId === artifactId ? "current" as const : "available" as const) }));
+    return this.persistArtifactVersionGroup({
+      ...group,
+      currentArtifactId: artifactId,
+      currentSource: "manual",
+      needsDecision: undefined,
+      versions,
+    });
+  }
+
+  // §7.2 "mark stale": demote a version. If it was current, re-resolve the best
+  // remaining auto candidate UNLESS a manual pin already exists elsewhere.
+  markArtifactVersionStatus(subjectId: string, artifactId: string, status: "stale" | "missing"): ArtifactVersionGroup {
+    const group = this.getArtifactVersionGroup(subjectId);
+    if (!group) throw new Error(`No version group for subject: ${subjectId}`);
+    const versions = group.versions.map((v) => (v.artifactId === artifactId ? { ...v, status } : v));
+    let currentArtifactId = group.currentArtifactId;
+    let currentSource = group.currentSource;
+    if (group.currentArtifactId === artifactId) {
+      // Pick the best non-stale/non-missing member as the new current (auto).
+      const candidates = versions
+        .filter((v) => v.status !== "stale" && v.status !== "missing")
+        .sort((a, b) => b.rank - a.rank || a.artifactId.localeCompare(b.artifactId));
+      if (candidates[0]) {
+        currentArtifactId = candidates[0].artifactId;
+        currentSource = "auto";
+      }
+    }
+    const withCurrent = versions.map((v) => ({
+      ...v,
+      status: v.status === "stale" || v.status === "missing" ? v.status : (v.artifactId === currentArtifactId ? "current" as const : "available" as const),
+    }));
+    return this.persistArtifactVersionGroup({ ...group, currentArtifactId, currentSource, versions: withCurrent });
+  }
+
+  // Build (but do NOT persist) the version group a subject WOULD have from the
+  // current artifact set. Used by setCurrent (fresh group) and by sync.
+  computeArtifactVersionGroup(subjectId: string): ArtifactVersionGroup | undefined {
+    const ranked = orderCandidatesBestFirst(
+      this.listArtifacts()
+        .filter((a) => isVersionedSourceArtifact(a) && subjectIdForArtifact(a) === subjectId)
+        .map(rankCandidate),
+    );
+    if (ranked.length === 0) return undefined;
+    const ts = nowIso();
+    const currentId = ranked[0]!.artifact.id;
+    return {
+      id: createId("version-group", subjectId),
+      subjectId,
+      currentArtifactId: currentId,
+      currentSource: "auto",
+      needsDecision: topRankIsTied(ranked) ? true : undefined,
+      versions: ranked.map((c) => memberFromCandidate(c, c.artifact.id === currentId)),
+      createdAt: ts,
+      updatedAt: ts,
+    };
+  }
+
+  // §7.3 — conservative version-group reconciliation run by project_inventory_sync.
+  // For every subject that has versioned source artifacts:
+  //   - create a group when none exists (auto current = top rank);
+  //   - refresh the version member list always (new files become visible);
+  //   - re-pick the auto current ONLY when currentSource != "manual";
+  //   - never overwrite a manual current;
+  //   - on a genuine rank tie, set needsDecision + open one question (no guess).
+  // Returns counts for the sync report. Never deletes files.
+  reconcileArtifactVersionGroups(): { created: number; updated: number; needsDecision: number } {
+    const bySubject = new Map<string, ReturnType<typeof rankCandidate>[]>();
+    for (const a of this.listArtifacts()) {
+      if (!isVersionedSourceArtifact(a)) continue;
+      const subject = subjectIdForArtifact(a);
+      const list = bySubject.get(subject) ?? [];
+      list.push(rankCandidate(a));
+      bySubject.set(subject, list);
+    }
+    let created = 0;
+    let updated = 0;
+    let needsDecisionCount = 0;
+    for (const [subject, cands] of bySubject) {
+      const ordered = orderCandidatesBestFirst(cands);
+      const existing = this.getArtifactVersionGroup(subject);
+      const tied = topRankIsTied(ordered);
+      const ts = nowIso();
+      if (!existing) {
+        const currentId = ordered[0]!.artifact.id;
+        this.persistArtifactVersionGroup({
+          id: createId("version-group", subject),
+          subjectId: subject,
+          currentArtifactId: currentId,
+          currentSource: "auto",
+          needsDecision: tied ? true : undefined,
+          versions: ordered.map((c) => memberFromCandidate(c, c.artifact.id === currentId)),
+          createdAt: ts,
+          updatedAt: ts,
+        });
+        created += 1;
+        if (tied) {
+          needsDecisionCount += 1;
+          this.openVersionDecisionQuestion(subject, ordered);
+        }
+        continue;
+      }
+      // Preserve existing per-member stale/missing status across the refresh.
+      const priorStatus = new Map(existing.versions.map((v) => [v.artifactId, v.status]));
+      const isManual = existing.currentSource === "manual";
+      // Auto current = best non-stale candidate; respect a manual pin.
+      const autoTop = ordered.find((c) => priorStatus.get(c.artifact.id) !== "stale" && priorStatus.get(c.artifact.id) !== "missing");
+      const currentId = isManual && this.getArtifactById(existing.currentArtifactId)
+        ? existing.currentArtifactId
+        : (autoTop?.artifact.id ?? existing.currentArtifactId);
+      const versions = ordered.map((c) => {
+        const prior = priorStatus.get(c.artifact.id);
+        const status: ArtifactVersionMember["status"] = prior === "stale" || prior === "missing"
+          ? prior
+          : (c.artifact.id === currentId ? "current" : "available");
+        return { ...memberFromCandidate(c, false), status };
+      });
+      // needsDecision only when NOT manually pinned and a real tie remains.
+      const needsDecision = !isManual && tied ? true : undefined;
+      this.persistArtifactVersionGroup({
+        ...existing,
+        currentArtifactId: currentId,
+        currentSource: isManual ? "manual" : "auto",
+        needsDecision,
+        versions,
+      });
+      updated += 1;
+      if (needsDecision) {
+        needsDecisionCount += 1;
+        this.openVersionDecisionQuestion(subject, ordered);
+      }
+    }
+    return { created, updated, needsDecision: needsDecisionCount };
+  }
+
+  private openVersionDecisionQuestion(subject: string, ordered: ReturnType<typeof rankCandidate>[]): void {
+    const tiedNames = ordered
+      .filter((c) => c.rank === ordered[0]!.rank)
+      .map((c) => c.artifact.relativePath ?? c.artifact.title)
+      .slice(0, 4);
+    this.saveOpenQuestion({
+      id: createId("question", `version-decision-${subject}`),
+      kind: "version-decision",
+      title: `Which source is the current version for "${subject}"?`,
+      description: `Two or more sources tie on rank for this subject; pick one as current in the Inspector. Candidates: ${tiedNames.join(", ")}.`,
+      status: "open",
+      priority: "medium",
+      source: "static-analysis",
+      artifactIds: ordered.filter((c) => c.rank === ordered[0]!.rank).map((c) => c.artifact.id),
+    });
+  }
+
   saveEntity(input: SaveEntityInput) {
     const store = this.storage.loadEntities();
     const timestamp = nowIso();
@@ -4402,6 +4631,7 @@ export class ProjectKnowledgeService {
       tasks: [...bundle.tasks].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       openQuestions: [...bundle.openQuestions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       checkpoints: [...bundle.checkpoints].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+      artifactVersionGroups: this.listArtifactVersionGroups(),
       views: {
         projectDashboard: views.projectDashboard,
         memoryMap: views.memoryMap,

@@ -27,6 +27,7 @@ import { getClient } from "./v3/ws-client.js";
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
+  ArtifactVersionGroup,
   AuditCachedResponse,
   EntityRecord,
   FindingRecord,
@@ -176,7 +177,35 @@ function asmArtifactPriority(artifact: ArtifactRecord): number {
   return base;
 }
 
-function bestAsmSourcesForArtifacts(artifacts: ArtifactRecord[]): AsmViewSource[] {
+// Spec 730 §7 — subject key for a source artifact. Mirrors the MCP
+// `subjectIdForArtifact`: base stem with the trailing _disasm/_semantic/_notes
+// qualifier stripped so every version of one payload clusters into one subject.
+function subjectIdForArtifactPath(relativePath: string): string {
+  const file = relativePath.split("/").pop() ?? relativePath;
+  const stem = file.replace(/\.[^.]+$/, "");
+  return stem.replace(/_(disasm|semantic|notes|curated|final|src|source)$/i, "");
+}
+
+function asmSourceForArtifact(artifact: ArtifactRecord): AsmViewSource {
+  const dialect = asmDialectForPath(artifact.relativePath);
+  return {
+    id: artifact.id,
+    label: dialect === "kickass" ? "KickAss" : dialect === "64tass" ? "64tass" : artifact.relativePath,
+    path: artifact.relativePath,
+    dialect,
+  };
+}
+
+// Spec 730 §7 — THE single best-version resolver shared by Disk Inspector,
+// Payloads, Annotated Listing, and the ASM overlay. It prefers the version
+// group's currentArtifactId (manual OR auto) when one exists for the subject;
+// otherwise it falls back to the existing rank logic (asmArtifactPriority).
+// The returned list is best-first so the default action opens the current best
+// version; older versions remain available as the following entries.
+function bestAsmSourcesForArtifacts(
+  artifacts: ArtifactRecord[],
+  versionGroups: ArtifactVersionGroup[] = [],
+): AsmViewSource[] {
   const bestByDialect = new Map<AsmViewSource["dialect"], ArtifactRecord>();
   for (const artifact of artifacts) {
     const dialect = asmDialectForPath(artifact.relativePath);
@@ -185,25 +214,153 @@ function bestAsmSourcesForArtifacts(artifacts: ArtifactRecord[]): AsmViewSource[
       bestByDialect.set(dialect, artifact);
     }
   }
-  // BUG-019 — order the returned sources BEST FIRST (by priority), so the action
-  // defaults to the curated/latest source (e.g. *_semantic.tass) instead of the
-  // stale generated *_disasm.asm. Dialect order is only a tiebreaker now.
+  const deduped = [...bestByDialect.values()];
+
+  // §7 unified resolution — if any candidate belongs to a version group, float
+  // that group's current artifact to the front (it may not be the highest
+  // dialect-priority pick when a manual current was chosen). The current
+  // artifact id is the single source of truth across all four surfaces.
+  const groupBySubject = new Map(versionGroups.map((g) => [g.subjectId, g]));
+  const idsInCandidates = new Set(deduped.map((a) => a.id));
+  let currentId: string | undefined;
+  // Prefer a manual current; otherwise any auto current whose artifact is among
+  // the candidates. (Walk in stable order for determinism.)
+  for (const a of artifacts) {
+    const group = groupBySubject.get(subjectIdForArtifactPath(a.relativePath));
+    if (!group) continue;
+    if (!idsInCandidates.has(group.currentArtifactId)) continue;
+    if (group.currentSource === "manual") { currentId = group.currentArtifactId; break; }
+    if (!currentId) currentId = group.currentArtifactId;
+  }
+
   const dialectOrder: Record<AsmViewSource["dialect"], number> = { kickass: 0, "64tass": 1, plain: 2 };
-  return [...bestByDialect.values()]
-    .sort((left, right) => {
-      const byPriority = asmArtifactPriority(right) - asmArtifactPriority(left);
-      if (byPriority !== 0) return byPriority;
-      return dialectOrder[asmDialectForPath(left.relativePath)] - dialectOrder[asmDialectForPath(right.relativePath)];
-    })
-    .map((artifact) => {
-      const dialect = asmDialectForPath(artifact.relativePath);
+  const ordered = deduped.sort((left, right) => {
+    // The version-group current always sorts first.
+    if (currentId) {
+      if (left.id === currentId && right.id !== currentId) return -1;
+      if (right.id === currentId && left.id !== currentId) return 1;
+    }
+    const byPriority = asmArtifactPriority(right) - asmArtifactPriority(left);
+    if (byPriority !== 0) return byPriority;
+    return dialectOrder[asmDialectForPath(left.relativePath)] - dialectOrder[asmDialectForPath(right.relativePath)];
+  });
+  return ordered.map(asmSourceForArtifact);
+}
+
+// Spec 730 §7.2 — Inspector "Source / Versions" section. Shows the current best
+// version + other versions for a payload/artifact subject with role/format/status
+// and the open / make current / mark stale actions. `make current` and
+// `mark stale` POST to the workspace server, which persists in the knowledge
+// store (a later project_inventory_sync respects a manual current). Conflicts
+// surface as a "needs decision" banner, not a silent guess.
+function ArtifactVersionsSection({
+  candidates,
+  versionGroups,
+  projectDir,
+  onOpenAsm,
+  onReload,
+}: {
+  candidates: ArtifactRecord[];
+  versionGroups: ArtifactVersionGroup[];
+  projectDir: string;
+  onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
+  onReload: () => void | Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Only source files (.asm/.tass/.sym) participate as versions.
+  const sourceCandidates = candidates.filter((a) => /\.(asm|tass|sym)$/i.test(a.relativePath));
+  if (sourceCandidates.length === 0) return null;
+
+  const byId = new Map(sourceCandidates.map((a) => [a.id, a]));
+  // Resolve the subject from the first candidate; find its persisted group.
+  const subjectId = subjectIdForArtifactPath(sourceCandidates[0]!.relativePath);
+  const group = versionGroups.find((g) => g.subjectId === subjectId);
+
+  // Build the display rows: prefer the persisted group's members (they carry
+  // status + role + the chosen current); otherwise derive from candidates so the
+  // section still renders before the first sync.
+  type Row = { artifact: ArtifactRecord; role: string; format: string; status: string; isCurrent: boolean };
+  let rows: Row[];
+  let currentSource: "auto" | "manual" = "auto";
+  let needsDecision = false;
+  if (group) {
+    currentSource = group.currentSource;
+    needsDecision = Boolean(group.needsDecision);
+    const grp = group;
+    rows = grp.versions.flatMap((v): Row[] => {
+      const artifact = byId.get(v.artifactId) ?? candidates.find((a) => a.id === v.artifactId);
+      if (!artifact) return [];
+      return [{ artifact, role: v.role, format: v.format, status: v.status, isCurrent: v.artifactId === grp.currentArtifactId }];
+    });
+  } else {
+    // No group yet — derive best-first ordering from the rank resolver.
+    const ordered = bestAsmSourcesForArtifacts(sourceCandidates, []);
+    rows = ordered.map((s, idx) => {
+      const artifact = byId.get(s.id)!;
       return {
-        id: artifact.id,
-        label: dialect === "kickass" ? "KickAss" : dialect === "64tass" ? "64tass" : artifact.relativePath,
-        path: artifact.relativePath,
-        dialect,
+        artifact,
+        role: artifact.role ?? "unknown",
+        format: s.dialect === "kickass" ? "kickass" : s.dialect === "64tass" ? "64tass" : "other",
+        status: idx === 0 ? "current" : "available",
+        isCurrent: idx === 0,
       };
     });
+  }
+  if (rows.length === 0) return null;
+
+  const current = rows.find((r) => r.isCurrent) ?? rows[0]!;
+  const others = rows.filter((r) => r !== current);
+
+  async function act(url: string, body: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await postJson(url, { projectDir, subjectId, ...body });
+      await onReload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const open = (artifact: ArtifactRecord) => onOpenAsm(artifact.title, bestAsmSourcesForArtifacts([artifact], versionGroups));
+  const renderRow = (row: Row, key: string) => (
+    <div key={key} className="record-card">
+      <div className="record-topline">
+        <span>{(row.artifact.relativePath.split("/").pop()) ?? row.artifact.relativePath}</span>
+        <span className="record-status">{row.format} · {row.role} · {row.status}</span>
+      </div>
+      <div className="record-actions">
+        <button type="button" className="payload-button" disabled={busy} onClick={() => open(row.artifact)}>open</button>
+        {!row.isCurrent ? (
+          <button type="button" className="payload-button" disabled={busy}
+            onClick={() => act("/api/artifact-version/set-current", { artifactId: row.artifact.id })}>make current</button>
+        ) : null}
+        {row.status !== "stale" ? (
+          <button type="button" className="payload-button" disabled={busy}
+            onClick={() => act("/api/artifact-version/mark-stale", { artifactId: row.artifact.id, status: "stale" })}>mark stale</button>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="inspector-block">
+      <h4>Source / Versions ({rows.length})</h4>
+      {needsDecision ? (
+        <div className="inline-warning">Needs decision — two sources tie on rank. Pick one as current.</div>
+      ) : null}
+      {error ? <div className="inline-warning">{error}</div> : null}
+      <div className="record-stack compact">
+        <div className="record-subhead">Current ({currentSource})</div>
+        {renderRow(current, "current")}
+        {others.length > 0 ? <div className="record-subhead">Other versions</div> : null}
+        {others.map((row, i) => renderRow(row, `other-${i}`))}
+      </div>
+    </div>
+  );
 }
 
 function binaryArtifactPriority(artifact: ArtifactRecord): number {
@@ -2800,11 +2957,13 @@ function PayloadsPanel({
   onOpenHex,
   onOpenAsm,
   onRunPayloadWorkflow,
+  onReloadWorkspace,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
   onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
+  onReloadWorkspace: () => void | Promise<void>;
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errorPerId, setErrorPerId] = useState<Record<string, string>>({});
@@ -2929,7 +3088,7 @@ function PayloadsPanel({
                     type="button"
                     className="payload-button payload-button-asm"
                     title={`Open disassembly (${asmArtifacts.length} source${asmArtifacts.length === 1 ? "" : "s"})`}
-                    onClick={() => onOpenAsm(payload.name, bestAsmSourcesForArtifacts(asmArtifacts))}
+                    onClick={() => onOpenAsm(payload.name, bestAsmSourcesForArtifacts(asmArtifacts, snapshot.artifactVersionGroups ?? []))}
                   >
                     asm
                   </button>
@@ -2949,6 +3108,15 @@ function PayloadsPanel({
                   </button>
                 ) : null}
               </footer>
+              {asmArtifacts.length > 0 ? (
+                <ArtifactVersionsSection
+                  candidates={asmArtifacts}
+                  versionGroups={snapshot.artifactVersionGroups ?? []}
+                  projectDir={snapshot.project.rootPath}
+                  onOpenAsm={onOpenAsm}
+                  onReload={onReloadWorkspace}
+                />
+              ) : null}
               {errorPerId[payload.id] ? <div className="inspector-error"><pre>{errorPerId[payload.id]}</pre></div> : null}
             </article>
           );
@@ -3261,6 +3429,7 @@ function DiskFileInspector({
   onCreateQuestion,
   onRunPrgWorkflow,
   onRunPayloadWorkflow,
+  onReloadWorkspace,
 }: {
   snapshot: WorkspaceUiSnapshot;
   selection: { diskArtifactId: string; fileId: string };
@@ -3271,6 +3440,7 @@ function DiskFileInspector({
   onSelectEntity: (entityId: string) => void;
   onRunPrgWorkflow: (prgPath: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
   onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
+  onReloadWorkspace: () => void | Promise<void>;
 } & LlmTodoActions) {
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const disk = snapshot.views.diskLayout.disks.find((candidate) => candidate.artifactId === selection.diskArtifactId);
@@ -3377,7 +3547,15 @@ function DiskFileInspector({
         visibleForPairing
           .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath))
           .filter((artifact) => artifact.relativePath.toLowerCase().includes(fileStem)),
+        snapshot.artifactVersionGroups ?? [],
       )
+    : [];
+  // Spec 730 §7.2 — raw source artifacts for this file, feeding the Inspector
+  // "Source / Versions" section (kept as ArtifactRecord, not AsmViewSource).
+  const sourceArtifactsForFile = fileStem
+    ? visibleForPairing
+        .filter((artifact) => /\.(asm|tass|sym)$/i.test(artifact.relativePath))
+        .filter((artifact) => artifact.relativePath.toLowerCase().includes(fileStem))
     : [];
   const payloadBinaryArtifact = fileStem
     ? [...visibleForPairing]
@@ -3543,6 +3721,17 @@ function DiskFileInspector({
       secondaryActions={secondaryActions}
       spansLabel={`Sector chain (${totalSectors})`}
       spans={spans}
+      extraSections={
+        sourceArtifactsForFile.length > 0 ? (
+          <ArtifactVersionsSection
+            candidates={sourceArtifactsForFile}
+            versionGroups={snapshot.artifactVersionGroups ?? []}
+            projectDir={snapshot.project.rootPath}
+            onOpenAsm={onOpenAsm}
+            onReload={onReloadWorkspace}
+          />
+        ) : null
+      }
       onClose={onClose}
     />
   );
@@ -3695,7 +3884,7 @@ function CartChunkInspector({
   // gets surfaced even without an explicit relation.
   let cartAsmSources: AsmViewSource[];
   if (linkedAsmArtifacts.length > 0) {
-    cartAsmSources = bestAsmSourcesForArtifacts(linkedAsmArtifacts);
+    cartAsmSources = bestAsmSourcesForArtifacts(linkedAsmArtifacts, snapshot.artifactVersionGroups ?? []);
   } else {
     const chipStems = new Set<string>();
     for (const span of spans) {
@@ -3712,7 +3901,7 @@ function CartChunkInspector({
       const stem = artifact.relativePath.split("/").pop()!.replace(/\.[^.]+$/, "");
       return chipStems.has(stem);
     });
-    cartAsmSources = bestAsmSourcesForArtifacts(fallbackAsm);
+    cartAsmSources = bestAsmSourcesForArtifacts(fallbackAsm, snapshot.artifactVersionGroups ?? []);
   }
 
   const fileSpans: FileInspectorSpanRow[] = spans.map((span, partIndex) => {
@@ -4546,6 +4735,7 @@ export function App() {
                 onOpenHex={openHexOverlay}
                 onOpenAsm={openAsmOverlay}
                 onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
+                onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
               />
             ) : null}
             {/* Spec 059 / UX1: standalone Load Sequence tab folded
@@ -4601,6 +4791,7 @@ export function App() {
                   onCreateQuestion={createQuestionFromUi}
                   onRunPrgWorkflow={runPrgWorkflowFromInspector}
                   onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
+                  onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
                 />
               ) : selectedQuestion ? (
                 <QuestionInspector
